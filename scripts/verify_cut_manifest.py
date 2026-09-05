@@ -225,22 +225,49 @@ _TEXT_EXTS = {".sh", ".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".yaml", ".ym
               ".swift", ".conf", ".ini", ".env"}
 
 
+class CouldNotMeasure(Exception):
+    """A scan that did not complete. NEVER convert this back into a count.
+
+    🔴 WHY AN EXCEPTION AND NOT A SENTINEL. Every function below returns an int
+    that feeds `ok = (hits > 0) if must_match else (hits == 0)`. In the
+    must_match=False direction -- the PII and leak scans over the DMG tree --
+    zero hits is a PASS. So any failure that returns 0 does not merely lose a
+    measurement, it manufactures a CLEAN VERDICT for an artefact nobody
+    finished looking at.
+
+    A sentinel int would be worse than the bug: `total += -1` silently reduces
+    a real count. An exception cannot be accumulated, cannot be compared, and
+    cannot be ignored without a visible `except`.
+
+    Callers that produce a Result MUST catch this and return CANNOT-RUN, which
+    blocks exactly as hard as FAIL while not accusing the artefact of anything.
+    """
+
+
 def _pattern_hits_bytes(data: bytes, pattern: str) -> int:
     """Count regex matches, tolerating non-UTF8 bytes by decoding permissively."""
     try:
         text = data.decode("utf-8", errors="replace")
-    except Exception:
-        return 0
+    except Exception as e:
+        raise CouldNotMeasure(f"could not decode {len(data)} bytes to search them: {e}") from e
     return len(re.findall(pattern, text))
 
 
 def _grep_file(path: Path, pattern: str) -> int:
+    # A file that is NOT THERE is a legitimate zero during a tree walk: nothing
+    # to search, and nothing was hidden from us. That stays 0.
     if not path.is_file():
         return 0
     try:
         return _pattern_hits_bytes(path.read_bytes(), pattern)
-    except (PermissionError, OSError):
-        return 0
+    except (PermissionError, OSError) as e:
+        # 🔴 AN UNREADABLE FILE IS NOT AN EMPTY ONE, AND THIS IS THE MOST
+        # REACHABLE MEMBER OF THE CLASS. One chmod 000, one file owned by
+        # another user in a staged tree, one I/O error, and this returned 0.
+        # Under must_match=False -- every PII and leak scan -- that zero is a
+        # PASS, and the gate certifies an artefact clean of a leak it could not
+        # read the file to look for.
+        raise CouldNotMeasure(f"could not read {path}: {type(e).__name__}: {e}") from e
 
 
 def _grep_tree(root: Path, pattern: str, only_path: Optional[str]) -> int:
@@ -269,8 +296,18 @@ def _grep_binary_strings(binary: Path, pattern: str) -> int:
             ["/usr/bin/strings", "-a", str(binary)],
             capture_output=True, check=False, timeout=60,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return 0
+    except subprocess.TimeoutExpired as e:
+        # #1629. strings(1) ran and did not finish, so no count exists.
+        # Measured on the real artefact before deciding severity: the shipped
+        # daemon is 16,656,512 bytes and strings -a completes in 0.09s against
+        # a 60s cap, 190 MB/s, so a binary would need to be about 11 GB to trip
+        # this. Small reach, wrong shape, and the shape is what gets fixed here.
+        raise CouldNotMeasure(
+            f"strings(1) exceeded its 60s cap on {binary} and was killed: {e}") from e
+    except FileNotFoundError as e:
+        # /usr/bin/strings itself absent. The binary's own existence was checked
+        # above, so this is the TOOL missing, not the subject: could not look.
+        raise CouldNotMeasure(f"/usr/bin/strings is not available: {e}") from e
     return _pattern_hits_bytes(result.stdout, pattern)
 
 
@@ -419,7 +456,12 @@ def check_grep_in_installer(entry: dict, ctx: dict) -> Result:
     if not target.is_file():
         return Result(entry["id"], entry["title"], "grep_in_installer", "SKIP",
                       f"install.sh not found at {target}", entry.get("source_pr", ""))
-    hits = _grep_file(target, pattern)
+    try:
+        hits = _grep_file(target, pattern)
+    except CouldNotMeasure as e:
+        return Result(entry["id"], entry["title"], "grep_in_installer", "CANNOT-RUN",
+                      f"{e} -- NOTHING was measured, so this row is neither a pass "
+                      f"nor a defect in the artefact.", entry.get("source_pr", ""))
     ok = (hits >= floor) if must_match else (hits == 0)
     status = "PASS" if ok else "FAIL"
     detail = f"pattern={pattern!r} must_match={must_match} hits={hits}"
@@ -446,10 +488,15 @@ def check_grep_in_artefact(entry: dict, ctx: dict) -> Result:
                       f"target {target_name!r} not present at {target} (has DMG been built?)",
                       entry.get("source_pr", ""))
     # Special case: daemon-binary uses strings(1).
-    if target_name == "daemon-binary":
-        hits = _grep_binary_strings(target, pattern)
-    else:
-        hits = _grep_tree(target, pattern, path_hint)
+    try:
+        if target_name == "daemon-binary":
+            hits = _grep_binary_strings(target, pattern)
+        else:
+            hits = _grep_tree(target, pattern, path_hint)
+    except CouldNotMeasure as e:
+        return Result(entry["id"], entry["title"], "grep_in_artefact", "CANNOT-RUN",
+                      f"target={target_name}: {e} -- NOTHING was measured.",
+                      entry.get("source_pr", ""))
     ok = (hits > 0) if must_match else (hits == 0)
     status = "PASS" if ok else "FAIL"
     detail = f"target={target_name} pattern={pattern!r} must_match={must_match} hits={hits}"
@@ -528,7 +575,16 @@ def check_grep_in_dmg_tree(entry: dict, ctx: dict) -> Result:
             if rp in seen:
                 continue
             seen.add(rp)
-            n = _grep_binary_strings(path, pattern) if use_strings else _grep_file(path, pattern)
+            try:
+                n = _grep_binary_strings(path, pattern) if use_strings else _grep_file(path, pattern)
+            except CouldNotMeasure as e:
+                # One unreadable file poisons the WHOLE row, deliberately. This
+                # scan's must_match=False arm concludes "no leak anywhere", and
+                # that conclusion is not available if any file went unread.
+                return Result(entry["id"], entry["title"], "grep_in_dmg_tree", "CANNOT-RUN",
+                              f"{e} -- the tree was NOT fully scanned, so "
+                              f"'no matches' is not a finding about this artefact.",
+                              entry.get("source_pr", ""))
             if not n:
                 continue
             if exempt_paths and _matches_any_glob(path, exempt_paths):
@@ -619,7 +675,12 @@ def check_grep_in_source_at_sha(entry: dict, ctx: dict) -> Result:
                 return Result(entry["id"], entry["title"], "grep_in_source_at_sha", "FAIL",
                               f"git show failed: {result.stderr.decode('utf-8', 'replace').strip()[:200]}",
                               entry.get("source_pr", ""))
-            hits = _pattern_hits_bytes(result.stdout, pattern)
+            try:
+                hits = _pattern_hits_bytes(result.stdout, pattern)
+            except CouldNotMeasure as e:
+                return Result(entry["id"], entry["title"], "grep_in_source_at_sha",
+                              "CANNOT-RUN", f"{e} -- NOTHING was measured.",
+                              entry.get("source_pr", ""))
         else:
             # Grep the whole tree at that sha via git grep.
             result = subprocess.run(
@@ -1326,7 +1387,23 @@ def _gh_token_for(owner: str) -> Optional[str]:
             ["gh", "auth", "token", "--user", owner],
             capture_output=True, check=False, timeout=10,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except subprocess.TimeoutExpired as e:
+        # 🔴 A TIMEOUT IS NOT "NO CREDENTIAL", AND THE DIFFERENCE REACHES THE
+        # OPERATOR AS WRONG ADVICE. Both call sites below render a None as
+        # "no gh token for owner X. Set OSTLER_RELEASES_TOKEN (CI) or
+        # `gh auth login --user X` (operator)." That instruction is correct for
+        # an unconfigured box and actively misleading when the truth is that
+        # `gh auth token` hung: the operator already has the credential and is
+        # sent to re-issue it.
+        #
+        # None keeps its existing, honest meaning -- no credential resolved --
+        # and this raises instead, so the two states cannot be confused.
+        raise CouldNotMeasure(
+            f"`gh auth token --user {owner}` exceeded its 10s cap and was killed. "
+            f"This says NOTHING about whether a credential exists.") from e
+    except FileNotFoundError:
+        # gh not installed. That IS "no credential available on this machine",
+        # which is what None already means, so it stays None.
         return None
     if r.returncode != 0:
         return None
@@ -1780,7 +1857,15 @@ def check_verify_build_info_sidecar_present(entry: dict, ctx: dict) -> Result:
                       entry.get("source_pr", ""))
     tag = tag_format.replace("{version}", version)
     owner = _repo_owner(source_repo)
-    token = _gh_token_for(owner)
+    try:
+        token = _gh_token_for(owner)
+    except CouldNotMeasure as e:
+        # The credential lookup itself did not complete. Distinct from "no
+        # credential", which is the None branch below, and the remedy is
+        # different: retry, do not go and re-issue a token you already have.
+        return Result(entry["id"], entry["title"], "verify_build_info_sidecar_present", "CANNOT-RUN",
+                      f"{e} This row was not evaluated either way.",
+                      entry.get("source_pr", ""))
     if token is None:
         # CANNOT-RUN, NOT A DEFECT. Saying FAIL here claims the artefact is
         # stale when all that happened is that no credential resolved.
@@ -1880,7 +1965,15 @@ def check_pinned_artefact_freshness(entry: dict, ctx: dict) -> Result:
                       f"resolving pinned version: {verr}", entry.get("source_pr", ""))
     tag = tag_format.replace("{version}", version)
     owner = _repo_owner(source_repo)
-    token = _gh_token_for(owner)
+    try:
+        token = _gh_token_for(owner)
+    except CouldNotMeasure as e:
+        # The credential lookup itself did not complete. Distinct from "no
+        # credential", which is the None branch below, and the remedy is
+        # different: retry, do not go and re-issue a token you already have.
+        return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "CANNOT-RUN",
+                      f"{e} This row was not evaluated either way.",
+                      entry.get("source_pr", ""))
     if token is None:
         # CANNOT-RUN, NOT A DEFECT. Saying FAIL here claims the artefact is
         # stale when all that happened is that no credential resolved.
@@ -2117,10 +2210,22 @@ def check_pr_branch_not_stale_vs_main(entry: dict, ctx: dict) -> Result:
                       entry.get("source_pr", ""))
 
     owner = _repo_owner(repo)
-    token = _gh_token_for(owner) or os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    try:
+        token = _gh_token_for(owner) or os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    except CouldNotMeasure as e:
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main",
+                      "CANNOT-RUN", f"{e}", entry.get("source_pr", ""))
     if not token:
-        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "FAIL",
-                      f"could not resolve gh token for owner {owner!r}",
+        # 🔴 THIS SAID FAIL WHILE ITS TWO SIBLINGS SAID "NOT EVALUATED EITHER
+        # WAY" FOR THE IDENTICAL CONDITION. A missing credential is not
+        # evidence that the branch is stale; it is evidence that nobody looked.
+        # CANNOT-RUN blocks exactly as hard, so nothing is softened -- the row
+        # simply stops accusing the branch of something it never measured.
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main",
+                      "CANNOT-RUN",
+                      f"could not resolve a gh token for owner {owner!r}, and "
+                      f"neither GH_TOKEN nor GITHUB_TOKEN is set. NOTHING was "
+                      f"measured about this branch.",
                       entry.get("source_pr", ""))
 
     pr, err = _gh_api_json(f"repos/{repo}/pulls/{pr_number}", token)
