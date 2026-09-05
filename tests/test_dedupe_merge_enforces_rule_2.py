@@ -171,6 +171,24 @@ def main() -> int:
         "urn:p:bravo": {"phone": ["+447700900003"], "email": ["bridge@example.com"]},
         "urn:p:charlie": {"email": ["bridge@example.com"], "uid": ["CARD-CCC"]},
     }
+    # 🔴 THE CARD-LESS CANONICAL. TNM's fixture, and it exists because the
+    # TRANSITIVE arm above NAMES accumulation in its own message and CANNOT
+    # DETECT ITS REMOVAL. Measured: delete `held |= dupe_keys` from the module
+    # and TRANSITIVE still reports PASS, with the word "accumulates" in it.
+    #
+    # The reason is the fixture, not the arm. In TRANSITIVE, `alpha` sorts
+    # first AND already holds CARD-AAA, so `held` is non-empty before any merge
+    # and the refusal comes from alpha's own key. Accumulation never has to do
+    # anything, so removing it changes nothing that arm can see.
+    #
+    # Here the bridge sorts FIRST and starts with NO key, so the only thing
+    # that can stop the second card being welded on is a `held` set that grew
+    # during the component's own merges. That is the property, isolated.
+    ACCUM = {
+        "urn:p:aaa_bridge": {"phone": ["+447700900007"], "email": ["bridge2@example.com"]},
+        "urn:p:mike": {"phone": ["+447700900007"], "uid": ["CARD-MMM"]},
+        "urn:p:zulu": {"email": ["bridge2@example.com"], "uid": ["CARD-ZZZ"]},
+    }
 
     print("== subject: this tree ==")
 
@@ -197,6 +215,13 @@ def main() -> int:
         ok("TRANSITIVE: the bridge node merges, the second Contacts card is refused (veto accumulates across the component)")
     else:
         bad(f"transitive component gave {n} merge(s), refused={stats.get('refused_rule2')}; expected 1 and 1. Union-find still welds two cards.")
+
+    n, stats = drive(subject, ACCUM)
+    if n == 1 and stats.get("refused_rule2") == 1:
+        ok("ACCUMULATION: a CARD-LESS canonical takes the first card and REFUSES the second, which is the only arm that fails when `held |= dupe_keys` is deleted")
+    else:
+        bad(f"card-less canonical gave {n} merge(s), refused={stats.get('refused_rule2')}; expected 1 and 1. "
+            f"With the accumulation removed this is 2 and 0: BOTH cards welded onto a node that had none.")
 
     n, stats = drive(subject, TWO_CARDS, raise_on_key_query=True)
     if n == 0 and stats.get("refused_unreadable") is True:
