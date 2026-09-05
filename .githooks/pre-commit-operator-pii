@@ -23,6 +23,9 @@
 
 set -u
 
+# The shape scanner lives IN this repo, unlike the identity scanner above.
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+
 SCANNER="${OPERATOR_PII_SCAN_BIN:-$HOME/Documents/Projects/HR015 - Gaming PC/bin/operator-pii-scan.sh}"
 
 if [ ! -x "$SCANNER" ]; then
@@ -71,9 +74,77 @@ fi
 OUTPUT="$("$SCANNER" "$STAGE_DIR" 2>&1)"
 STATUS=$?
 
+# ── THE SECOND SCANNER, AND WHY BOTH ARE NEEDED (#1556) ──────────────────
+#
+# MEASURED on CM051 #1554, 2026-09-05. This hook printed
+#
+#     operator-pii-scan: clean (5 files scanned)
+#
+# and CI then red on THOSE SAME FIVE FILES:
+#
+#     ci-pii-shape-scan: PII-shaped content in 5 examined file(s):
+#       pattern '/Users/[a-z0-9._-]+/?' matched in: ... 3 files
+#
+# Same tree, same five files, opposite verdicts. They are two different
+# scanners in two different repositories and only the nickname is shared:
+#
+#   this hook   $HOME/Documents/Projects/HR015 - Gaming PC/bin/operator-pii-scan.sh
+#               an absolute path OUT of this repo, hunting operator IDENTITY
+#   CI          .github/scripts/ci-pii-shape-scan.sh
+#               in this repo, 9 SHAPE patterns including the home-path one
+#
+# Different questions, both legitimate, and the hook asked only the first
+# while branch protection asked only the second. So "clean (5 files scanned)"
+# carried NO information about whether `scan` would pass -- and it names a
+# denominator, which makes it read as a complete answer. A hook that said
+# nothing would have been less dangerous.
+#
+# The shape scanner takes FILE arguments and this hook already has the exact
+# list materialised in $STAGE_DIR, so it costs one call.
+#
+# ⚠️ IT MUST NOT BE ALLOWED TO GO QUIET. Two scanners means two ways to report
+# a hollow pass. The shape scanner already models the right behaviour: handed
+# a directory it exits 2 with "This scanner reads FILES ... reporting the
+# resulting zero as a pass would be a clean bill from a scan that examined
+# nothing." Anything other than 0 or 1 from it is treated here as CANNOT-RUN
+# and BLOCKS, rather than being read as an absence of findings.
+_run_shape_scan() {
+    local shape="${REPO_ROOT:-.}/.github/scripts/ci-pii-shape-scan.sh"
+    [ -x "$shape" ] || {
+        echo "operator-pii-scan: CANNOT-RUN -- the shape scanner is missing at" >&2
+        echo "  $shape" >&2
+        echo "  That is not a clean bill. The identity scan alone does not cover" >&2
+        echo "  the shape patterns CI enforces (#1556)." >&2
+        return 2
+    }
+    local files=()
+    while IFS= read -r -d '' f; do files+=("$f"); done         < <(find "$STAGE_DIR" -type f -print0 2>/dev/null)
+    [ "${#files[@]}" -gt 0 ] || {
+        echo "operator-pii-scan: CANNOT-RUN -- nothing was staged for the shape scan." >&2
+        return 2
+    }
+    "$shape" "${files[@]}"
+}
+
 case "$STATUS" in
     0)
-        echo "operator-pii-scan: clean ($COUNT files scanned)"
+        _shape_out="$(_run_shape_scan 2>&1)"; _shape_rc=$?
+        case "$_shape_rc" in
+            0) echo "operator-pii-scan: clean ($COUNT files scanned, identity + shape)" ;;
+            1) echo "operator-pii-scan: BLOCKED -- PII-SHAPED content in staged files" >&2
+               echo "" >&2
+               printf '%s
+' "$_shape_out" | sed "s|$STAGE_DIR/||g" >&2
+               echo "" >&2
+               echo "This is the check CI runs as \`scan\`. Fixing it here saves a round trip." >&2
+               exit 1 ;;
+            *) echo "operator-pii-scan: BLOCKED -- the shape scan could not run (rc=$_shape_rc)" >&2
+               printf '%s
+' "$_shape_out" >&2
+               echo "" >&2
+               echo "CANNOT-RUN is not a pass. Resolve the cause rather than committing past it." >&2
+               exit 1 ;;
+        esac
         exit 0
         ;;
     1)
