@@ -29,6 +29,8 @@ on:
       # test. BOTH are triggers: a run: with no matching paths: entry is dark
       # on self-edit.
       - 'tests/test_a_row_that_could_not_measure_is_counted_and_named.py'
+      # The count-helper refusals and their test. BOTH are triggers.
+      - 'tests/test_a_file_we_could_not_read_is_not_a_clean_file.py'
       # The timeout arm and its test. BOTH are triggers: a run: with no
       # matching paths: entry is dark on self-edit.
       - 'tests/test_a_timed_out_probe_is_not_a_failing_probe.py'
@@ -150,6 +152,15 @@ jobs:
       - name: A row that could not measure is counted, named, and still blocks
         if: always()
         run: python3 tests/test_a_row_that_could_not_measure_is_counted_and_named.py
+
+      # A helper that returns 0 when it could NOT LOOK does not lose a
+      # measurement, it manufactures a clean verdict: every leak scan is
+      # must_match=false, where zero hits is a PASS. Measured against the
+      # shipped verifier, a leak-bearing file that could not be read scored
+      # PASS and exit 0.
+      - name: A file we could not read is not a clean file (#1629)
+        if: always()
+        run: python3 tests/test_a_file_we_could_not_read_is_not_a_clean_file.py
       # A probe that exceeded its cap measured NOTHING. Reporting that as FAIL
       # counted it beside real defects and replaced a real diagnosis with an
       # instrument error, which is how the assistant-grounding finding stayed
