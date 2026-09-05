@@ -12053,8 +12053,51 @@ _ollama_agent_is_running() {
 }
 
 OLLAMA_PLIST="${HOME}/Library/LaunchAgents/com.ostler.ollama.plist"
-if curl -sf http://localhost:11434/api/tags &>/dev/null && [[ -f "$OLLAMA_PLIST" ]]; then
+
+# A PORT THAT ANSWERS IS NOT OUR AGENT BEING HEALTHY. THREE STATES, NOT TWO.
+#
+# MEASURED on the v1.0.71 walk box, 2026-09-05, while this guard printed OK:
+#
+#     com.ostler.ollama   state = spawn scheduled   runs = 409   last exit = 1
+#     ~/.ostler/logs/ollama.err   14912 bytes, one line repeated:
+#         Error: listen tcp 127.0.0.1:11434: bind: address already in use
+#     curl 127.0.0.1:11434/api/tags   http=200
+#     lsof: ollama PID 15660, PPID 1, older than the install, holds the port
+#
+# The old guard asked two questions -- does something answer 11434, and does a
+# plist exist -- and concluded a third: that our agent is healthy. It is the
+# same conflation the comment ~50 lines above already warns about, where
+# ANOTHER ACCOUNT serving 11434 made a bare probe read as ours. That fix
+# separated "is something serving?" from "is it ours?". It did not separate
+# "is something serving?" from "is OUR AGENT FAILING?".
+#
+# `_ollama_agent_is_running` is defined immediately above and answers exactly
+# that. It was not called.
+#
+# WHY THIS REPORTS RATHER THAN REMEDIATES. A KeepAlive job that can never bind
+# is strictly worse than an absent one -- that is the reasoning already written
+# into the penalty-box prune. But unloading a service mid-install, on the
+# strength of one poll, risks tearing down an agent that is merely slow to
+# start. The honest report is the fix for THIS defect; the remediation is a
+# separate decision with a separate blast radius. What must stop is printing
+# OK over 409 failures.
+_ollama_port_answers=false
+curl -sf http://localhost:11434/api/tags &>/dev/null && _ollama_port_answers=true
+_ollama_agent_ok=false
+if _ollama_agent_is_running; then _ollama_agent_ok=true; fi
+
+if [[ "$_ollama_port_answers" == "true" && -f "$OLLAMA_PLIST" && "$_ollama_agent_ok" == "true" ]]; then
     ok "$MSG_OK_OLLAMA_RUNNING"
+elif [[ "$_ollama_port_answers" == "true" && -f "$OLLAMA_PLIST" ]]; then
+    # The port answers and our agent is NOT running. Something else is serving
+    # it. Name that, with the evidence, rather than claiming health.
+    _ollama_runs="$(launchctl print "gui/$(id -u)/com.ostler.ollama" 2>/dev/null \
+        | /usr/bin/grep -E '^\truns' | tr -dc '0-9')"
+    _ollama_exit="$(launchctl print "gui/$(id -u)/com.ostler.ollama" 2>/dev/null \
+        | /usr/bin/grep 'last exit code' | sed 's/.*= //')"
+    warn "$(printf "$MSG_WARN_OLLAMA_PORT_ANSWERS_BUT_AGENT_IS_NOT_RUNNING" \
+        "${_ollama_runs:-unknown}" "${_ollama_exit:-unknown}")"
+    unset _ollama_runs _ollama_exit
 else
     info "$MSG_INFO_STARTING_OLLAMA"
     # Serve headless via our own LaunchAgent running the cask's inner

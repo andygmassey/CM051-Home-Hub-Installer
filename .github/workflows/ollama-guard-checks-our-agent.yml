@@ -1,0 +1,57 @@
+name: ollama-guard-checks-our-agent
+
+# A port that answers is not our agent being healthy.
+#
+# MEASURED on the v1.0.71 walk box, 2026-09-05, WHILE THE INSTALL PRINTED
+# "Ollama running":
+#
+#     com.ostler.ollama   state = spawn scheduled   runs = 409   last exit = 1
+#     ollama.err          14912 bytes, "bind: address already in use" repeated
+#     curl 11434/api/tags http=200
+#     lsof                a foreign ollama, PPID 1, older than the install
+#
+# The guard asked two questions and concluded a third.
+# `_ollama_agent_is_running` is defined immediately above it and answers exactly
+# that question; it was not called.
+#
+# ubuntu-latest is correct: the test extracts the decision, stubs curl,
+# launchctl and the agent predicate, and drives four states. It never contacts
+# Ollama and never touches launchd.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_a_port_that_answers_is_not_our_agent_being_healthy.sh'
+      - '.github/workflows/ollama-guard-checks-our-agent.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  ollama-guard-checks-our-agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The negative control is pinned to ecef1565 and read with `git show`.
+          # A shallow clone cannot see it and the test refuses with CANNOT-RUN
+          # rather than passing vacuously.
+          fetch-depth: 0
+
+      # 7 arms. The load-bearing one is port=yes plist=yes agent=no, the state
+      # actually measured on the box, which the old guard reported as OK. One
+      # arm asserts the warning CARRIES the respawn count and exit code, so the
+      # customer-visible line is evidence and not a bare verdict.
+      - name: A port that answers is not our agent being healthy
+        run: bash tests/test_a_port_that_answers_is_not_our_agent_being_healthy.sh

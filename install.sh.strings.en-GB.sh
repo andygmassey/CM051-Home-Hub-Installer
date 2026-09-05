@@ -504,6 +504,14 @@ MSG_OK_OLLAMA_INSTALLED="Ollama installed"
 MSG_OK_OLLAMA_INSTALLED_CLI_ONLY_MAY_NEED="Ollama installed (CLI only – may need manual start after reboot)"
 MSG_OK_OLLAMA_INSTALLED_DESKTOP_APP="Ollama installed (desktop app)"
 MSG_OK_OLLAMA_RUNNING="Ollama running"
+# Printed when 11434 answers but OUR agent is not running -- something else on
+# this Mac is serving Ollama. Measured on a v1.0.71 box: 409 respawns, last exit
+# 1, "bind: address already in use", while the old guard printed "Ollama
+# running". %s is the respawn count, %s the last exit code: both come straight
+# from launchctl, so the customer-visible line carries the evidence rather than
+# a verdict. Deliberately NOT alarming: the local AI genuinely works, which is
+# why this is a warn and not a failure.
+MSG_WARN_OLLAMA_PORT_ANSWERS_BUT_AGENT_IS_NOT_RUNNING="Ollama is answering, but it is being served by a process Ostler does not manage, so Ostler own Ollama service keeps restarting and failing (%s attempts, last exit %s). Your local AI works. If you installed Ollama yourself before Ostler, that is the cause and it is harmless; if not, restarting your Mac will let Ostler take it over."
 MSG_OK_EMBEDDINGS_VERIFIED="Embedding engine verified (768-dim vectors)"
 MSG_OK_OSTLER_ASSISTANT_DOCTOR_NO_ERRORS_DETECTED="ostler-assistant doctor: no errors detected"
 MSG_OK_OSTLER_ASSISTANT_LAUNCHAGENT_LOADED_LABEL_COM="Ostler assistant LaunchAgent loaded (label com.creativemachines.ostler.assistant)"
