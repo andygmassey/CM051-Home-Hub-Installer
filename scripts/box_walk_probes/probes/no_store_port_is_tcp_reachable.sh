@@ -113,19 +113,44 @@ PROBE_QUESTION="can any local account open a TCP connection to an Ostler store o
 # the stated route to that state was wrong, and a wrong route in the file that
 # explains the hold sends the next reader to build something that cannot work.
 #
-#   6333  qdrant REST via store-proxy   -> UNRESOLVED. MUST_STILL_PUBLISH pins
-#                                          it today: host clients have no other
-#                                          route. Needs the native api key
-#                                          (scaffolding exists, default-OFF).
-#   7878  oxigraph SPARQL via store-proxy -> proxy bearer credential (#1214,
-#                                          merged, default-OFF). #550 was
-#                                          demonstrated here.
+# ⚠️ THIS TABLE WAS STALE IN THE REASSURING DIRECTION FOR A WEEK. Three rows
+# still described the stores as half-done AFTER the 2026-08-28 work closed them,
+# which made the whole surface read as unfinished and helped hide the ONE port
+# that genuinely is not (8044). A stale security note is worse than no note: it
+# was accurate when written, and nothing said otherwise.
+#
+# SO EACH ROW NOW SAYS WHICH TAG IT WAS VERIFIED AT, and the distinction that
+# matters is DEFERRED BY DECISION versus DECIDED AND NOT DONE. Per
+# HR015/launch/DECISION_550_what_shut_means_2026-08-28.md:
+#   line 106  8044  "direct publish removed | ABSENT"     <- decided for v1.0
+#   line 107  3000  KNOWN RESIDUAL, v1.0.1                <- deferred
+#   line 108  8144  KNOWN RESIDUAL, v1.0.1                <- deferred
+#
+#   6333  qdrant REST via store-proxy   -> CLOSED. Native api-key, and it is ON
+#                                          BY DEFAULT: OSTLER_STORE_AUTH_ENFORCE
+#                                          defaults to 1 (install.sh:12876,
+#                                          :16223, :16812, :16943). VERIFIED at
+#                                          tag v1.0.71, reading the shipped
+#                                          default rather than a PR title.
+#                                          MUST_STILL_PUBLISH still pins the
+#                                          PORT open -- host clients have no
+#                                          other route -- but an uncredentialled
+#                                          read is refused. Published != readable.
+#   7878  oxigraph SPARQL via store-proxy -> CLOSED. Proxy bearer credential
+#                                          (#1214), also default-ON via the same
+#                                          flag (install.sh:16943). #550 was
+#                                          demonstrated here, and this is the
+#                                          door it came through.
 #   6334  qdrant gRPC, direct           -> unpublished (#1209; 0 consumers in
 #                                          355 .py, 759 .rs, 144 ts)
-#   6379  redis/valkey, direct          -> requirepass, BUT the Doctor's probe
-#                                          sends PING and needs PONG, so it
-#                                          reports UNHEALTHY under auth
-#                                          (-NOAUTH). Upstream + re-vendor.
+#   6379  redis/valkey, direct          -> CLOSED. requirepass, default-ON via
+#                                          OSTLER_REDIS_AUTH_ENFORCE:-1
+#                                          (install.sh:12838). The Doctor probe
+#                                          no longer breaks under auth: it parses
+#                                          the URL with urlsplit and sends AUTH
+#                                          BEFORE PING
+#                                          (vendor/doctor/agent/status_collector.py:572-578).
+#                                          The old note here said the opposite.
 #   8044  wiki-site                     -> 🔴 UNRESOLVED AND THE WORST SURFACE.
 #                                          Serves the whole personal wiki with
 #                                          no auth. Its consumer is the

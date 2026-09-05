@@ -78,6 +78,8 @@ on:
       - 'tests/test_walk_driver_takes_ports_from_the_declared_field.sh'
       - 'tests/test_walk_pass_requires_zero_failed_steps.sh'
       - 'tests/test_walk_port_probe_matches_install_sh.sh'
+      - 'tests/test_a_security_note_cannot_claim_a_flag_is_off.sh'
+      - 'scripts/box_walk_probes/probes/no_store_port_is_tcp_reachable.sh'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in the very PR that narrows it.
       - '.github/workflows/walk-record-gate.yml'
@@ -391,6 +393,22 @@ jobs:
       # bare bind() while netstat shows no listener, and install.sh grades
       # exactly that case could-not-measure. The harness manufactured the
       # conflict it then refused on.
+      # A SECURITY NOTE MAY NOT CLAIM A FLAG IS OFF WHEN IT SHIPS ON.
+      #
+      # MEASURED 2026-09-05: the store-port probe described the 6333 and 7878
+      # credentials as "default-OFF" for a week after they shipped default-ON,
+      # and said the Doctor breaks under redis auth after that was fixed. All
+      # three were true when written. The effect was to make the whole store
+      # surface read as unfinished, which helped hide the one port that
+      # genuinely is open (8044, #1594).
+      #
+      # if: always() -- this and the port-probe step above are the two ways
+      # this probe's own description can drift from install.sh. Learning about
+      # one but not the other on a red run is how the second gets forgotten.
+      - name: A security note cannot claim a flag is off when it ships on
+        if: always()
+        run: bash tests/test_a_security_note_cannot_claim_a_flag_is_off.sh
+
       - name: Port probe agrees with install.sh's own two-instrument table
         if: always()
         run: |
