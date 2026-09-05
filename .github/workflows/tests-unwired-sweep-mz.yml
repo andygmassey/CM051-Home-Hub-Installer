@@ -131,6 +131,19 @@ jobs:
         if: always()
         run: bash tests/test_region_persist_does_not_leak_a_traceback.sh
 
+      - name: The installer downloads from the repo we publish to (#1625)
+        # Named rather than added to the loop above, for the reason this file
+        # already records: the loop's verb only ever touches the loop variable,
+        # so a bare filename in that list is invisible to
+        # scripts/verify_new_tests_are_wired.sh. I added it to the loop first
+        # and that gate caught it -- 1 dark file of 1 added, against 1248
+        # runner files searched.
+        #
+        # if: always() -- shares the job with the loop above; without it a red
+        # in an earlier m..z test would skip this one and mask it.
+        if: always()
+        run: bash tests/test_the_installer_downloads_from_the_repo_we_publish_to.sh
+
   python-ubuntu:
     # Vendored-logic tests (parsers, identity resolver, migration guard,
     # tailnet parser, knowledge embed-contract). OS-independent, so they run on
