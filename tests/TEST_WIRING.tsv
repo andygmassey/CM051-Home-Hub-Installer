@@ -23,6 +23,7 @@ test_a_failed_hydrate_may_not_fabricate_a_count.sh	WIRED	.github/workflows/hydra
 test_a_failed_walk_must_not_exit_zero.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_a_promote_before_the_decline_arms_is_gated.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_a_self_removing_agent_deletes_its_plist_before_it_dies.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_a_slow_step_is_not_a_wedged_one.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_subshell_cannot_emit_a_terminal_done.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_a_tally_that_contradicts_the_log_is_not_a_pass.sh	WIRED	.github/workflows/cold-box-source-truth.yml
@@ -270,6 +271,7 @@ test_no_test_uses_a_bash4_builtin.sh	WIRED	.github/workflows/bash32-compat.yml
 test_no_unbounded_enrich_invocation.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_no_undefined_msg_refs_in_install_sh.sh	WIRED	.github/workflows/container-runtime-precondition.yml
 test_no_xcodebuild_pipe_into_early_exit.sh	WIRED	.github/workflows/pbxproj-sync.yml
+test_ollama_agent_does_not_depend_on_a_foreign_port.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_ollama_install_path_contract.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_ollama_user_active.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_operator_pii_scan_sees_all_text_kinds.sh	WIRED	.github/workflows/operator-pii-scan.yml
