@@ -42,6 +42,11 @@ on:
       - 'tests/test_progress_bar_cannot_exceed_one_hundred.sh'
       - 'tests/test_total_steps_dynamic.sh'
       - 'tests/test_marker_payloads_never_reach_install_log.sh'
+      # The terminal DONE invariant is held by construction at four call sites
+      # and by no check. Watched by name, and lib/ too because the sentinel the
+      # guards read is written there.
+      - 'tests/test_every_terminal_done_is_exit_or_guarded.sh'
+      - 'lib/progress_emitter.sh'
       - 'tests/test_install_log_follows_promotion.sh'
       - 'lib/ostler-ingest-slot.sh'
       - 'vendor/legal/**'
@@ -268,3 +273,23 @@ jobs:
       - name: Every bundled package comes from the source it declares
         if: always()
         run: python3 tests/test_bundled_package_comes_from_its_declared_source.py
+
+      # EVERY TERMINAL DONE MUST BE THE LAST THING A RUN EMITS.
+      #
+      # gui_done is NOT idempotent: OSTLER_DONE_EMITTED is written inside it
+      # (progress_emitter.sh) and read only by the two trap handlers. So each of
+      # the four call sites is safe for a DIFFERENT reason -- fail() exits, the
+      # EXIT backstop and the ERR trap are sentinel-guarded, and gui_done ok is
+      # the success terminal. The invariant is held BY CONSTRUCTION.
+      #
+      # A fifth call site added after a failure would emit DONE twice, the GUI
+      # would key on the last, and a failed install could report ok. Nothing in
+      # the repository would have noticed. The standing queue called this "the
+      # TWO terminal DONE markers" and there are now FOUR, which is the drift
+      # that makes a count untrustworthy and a check necessary.
+      #
+      # if: always() so an earlier red cannot mask it, appended last so no
+      # existing step's immunity changes.
+      - name: Every terminal DONE is an exit or a guarded trap
+        if: always()
+        run: bash tests/test_every_terminal_done_is_exit_or_guarded.sh
