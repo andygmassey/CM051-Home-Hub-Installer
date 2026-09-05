@@ -1,0 +1,77 @@
+name: rule-2-holds-on-the-write
+
+# RULE 2 of the ratified dedupe ruleset says different canonical keys must not
+# merge. `icloud_contact_uid` is canonical and unique-by-construction: one macOS
+# Contacts card, for ever. Two of them on one Person node is the ruleset's own
+# stated violation.
+#
+# MEASURED on two independent graphs, 2026-09-05: 54 such nodes on a graph with
+# months of history, and 53 on a VIRGIN graph built minutes earlier, 113 cards
+# collapsed, worst node five cards onto one person. A virgin graph shows it, so
+# an ordinary install on fresh data produces it.
+#
+# The resolver enforces RULE 2 twice and both are called -- but on the DECISION
+# to match and on a MERGE of two existing nodes. Neither governed what
+# `_resolve_and_write_person` did with the match it was handed: it passed the
+# node straight to `_update_person_oxigraph`, whose only test before attaching
+# the incoming uid was `_identifier_exists`, which is VALUE-scoped. It asks "is
+# THIS uid already here", which suppresses a repeat of the same card and is
+# blind to a DIFFERENT uid already on the node.
+#
+# TWO SUBJECTS, AND THE ONE THAT SHIPS IS NOT THE ONE IN vendor/.
+# install.sh copies ${SCRIPT_DIR}/contact_syncer -- the repo ROOT copy -- into
+# the import pipeline. vendor/cm041/contact_syncer is the upstream twin and the
+# two have drifted. The test drives BOTH and proves by __file__ that each run
+# loaded the copy it names, because a test that silently measures the wrong twin
+# reports a true fact about a file no customer runs.
+#
+# Four arms, and each was mutation-tested against the shipped copy alone so the
+# vendored arm stayed green and proved the two are measured independently:
+#   guard deleted            -> A fails
+#   guard always "no"        -> A fails
+#   guard always "yes"       -> B fails (a re-synced card must keep its match)
+#   read failure returns False -> D fails, and only D
+#
+# ubuntu-latest is correct: the test stubs httpx and rapidfuzz and drives the
+# real methods in-process. It reaches no network, no Oxigraph and no Contacts.
+
+on:
+  pull_request:
+    paths:
+      - 'contact_syncer/syncer.py'
+      - 'vendor/cm041/contact_syncer/syncer.py'
+      - 'vendor/cm041/identity_resolver/resolver.py'
+      - 'vendor/cm041/identity_resolver/models.py'
+      - 'tests/test_a_second_contact_card_cannot_be_written_onto_one_person.py'
+      - '.github/workflows/rule-2-holds-on-the-write.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  rule-2-holds-on-the-write:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # Every scenario opens with a control that the stub graph was actually
+      # reached, and scenario A refuses (exit 2, CANNOT-RUN) if the conflicting
+      # card fails to land WITHOUT the node having been asked whether it holds a
+      # different canonical key -- otherwise a later refactor could remove the
+      # guard and leave this file reporting a pass for the wrong reason.
+      #
+      # The ASK predicate in the stub caught a real defect in itself while this
+      # was being written: it looked for " ASK " and the real query emits ASK at
+      # the start of a line, so every ASK fell through to the SELECT arm and
+      # `_identifier_exists` read False for a reason unrelated to the graph.
+      - name: A second contact card cannot be written onto one person
+        run: python3 tests/test_a_second_contact_card_cannot_be_written_onto_one_person.py

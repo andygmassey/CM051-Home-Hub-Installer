@@ -995,6 +995,37 @@ class ContactSyncer:
         # explicitly opt in (e.g. WhatsApp / email ingest).
         match = self.resolver.resolve(identity, use_fuzzy=False)
 
+        # RULE 2 OF THE DEDUPE RULESET, ON THE WRITE AND NOT ONLY ON THE MATCH.
+        # `icloud_contact_uid` is unique-by-construction: one macOS Contacts
+        # card, for ever. If the node the resolver picked already carries a
+        # DIFFERENT one, these are two people and must not be merged, whichever
+        # tier produced the match. The resolver's own RULE 2 guard runs against
+        # a candidate snapshot loaded once per run, so it cannot see a uid that
+        # a card earlier in the SAME run has just written. This asks the graph.
+        incoming_uid = parsed.get("uid") or ""
+        if match and match.person_uri and incoming_uid:
+            conflict = self._node_holds_a_different_canonical_key(
+                match.person_uri, incoming_uid
+            )
+            if conflict is None:
+                # CANNOT-READ IS NOT "NO CONFLICT". Declining the match mints a
+                # duplicate, which a later merge can repair; accepting it welds
+                # two people into one node, which it cannot.
+                logger.error(
+                    "RULE 2 unverifiable for %s; declining the match for card %s",
+                    match.person_uri,
+                    incoming_uid,
+                )
+                match = None
+            elif conflict:
+                logger.warning(
+                    "RULE 2: %s already holds a different icloud_contact_uid; "
+                    "card %s gets its own person node",
+                    match.person_uri,
+                    incoming_uid,
+                )
+                match = None
+
         if match and match.person_uri:
             person_uri = match.person_uri
             # Extract person_id from URI
@@ -1222,6 +1253,58 @@ class ContactSyncer:
         if "person_" in person_uri:
             return person_uri.split("person_")[-1]
         return uuid.uuid4().hex[:12]
+
+    def _node_holds_a_different_canonical_key(
+        self, person_uri: str, incoming_uid: str
+    ) -> Optional[bool]:
+        """True if *person_uri* already carries an icloud_contact_uid that is not
+        *incoming_uid*.
+
+        Returns None when the graph could not be read. "Could not look" and "no
+        conflict" must not come back as the same value: a read failure that
+        answered False would silently re-open the merge this guard exists to
+        prevent. `_identifier_exists` cannot answer this question -- it is
+        VALUE-scoped, so it asks "is THIS uid here" and is blind to a different
+        one already on the node.
+        """
+        if not incoming_uid:
+            return False
+        safe_val = incoming_uid.replace("\\", "\\\\").replace('"', '\\"')
+        sparql = (
+            "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
+            "ASK {\n"
+            f"  <{person_uri}> pwg:hasIdentifier ?id .\n"
+            '  ?id pwg:identifierType "icloud_contact_uid" ;\n'
+            "      pwg:identifierValue ?v .\n"
+            f'  FILTER(str(?v) != "{safe_val}")\n'
+            "}"
+        )
+        try:
+            resp = httpx.post(
+                f"{self.cfg.OXIGRAPH_URL}/query",
+                content=sparql,
+                headers={
+                    "Content-Type": "application/sparql-query",
+                    "Accept": "application/sparql-results+json",
+                },
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "RULE 2 check could not read the canonical keys on %s: %s",
+                person_uri,
+                exc,
+            )
+            return None
+        if "boolean" not in payload:
+            logger.error(
+                "RULE 2 check got no boolean back for %s; treating as unreadable",
+                person_uri,
+            )
+            return None
+        return bool(payload["boolean"])
 
     def _identifier_exists(self, person_uri: str, id_type: str, id_value: str) -> bool:
         """Check whether an identifier of the given type/value is already on this node."""
