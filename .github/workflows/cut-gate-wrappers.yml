@@ -103,6 +103,12 @@ on:
       # have run.
       - 'tests/test_exemption_ref_form.sh'
       - 'cut-deferrals.yaml'
+      # The operator's pre-tag rollforward runner and its test. BOTH are
+      # triggers, by the rule three comments above: the runner is the defect
+      # surface and the test is the instrument, and a run: with no matching
+      # paths: entry is dark on self-edit.
+      - 'bin/operator_rollforward.sh'
+      - 'tests/test_the_operator_rollforward_refuses_a_blind_environment.sh'
       # THE ROLLFORWARD PIN AND EVERY FILE IT PINS.
       #
       # test_rollforward_registry_pin.sh lived ONLY in cut.yml, whose cutting
@@ -200,6 +206,14 @@ jobs:
       # Exit 2 is CANNOT-RUN (the predicate was renamed or removed) and fails
       # this step, deliberately. A gate whose self-test can no longer find it
       # is not a gate that passed.
+      # The operator's pre-tag rollforward step is the one environment where the
+      # gate BODIES run, and it had no runbook, so it had never run. This test
+      # asserts the runner refuses a half-built environment rather than
+      # producing a summary line that reads like "found nothing".
+      - name: The operator rollforward runner refuses a blind environment
+        if: always()
+        run: /bin/bash tests/test_the_operator_rollforward_refuses_a_blind_environment.sh
+
       - name: run() cannot report a gate that died as a pass
         if: always()
         run: /bin/bash tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh
