@@ -11989,8 +11989,21 @@ fi
 # KeepAlive <true/>, the condition _ostler_launchagent_keeps_alive() exists to
 # test. It would NOT be fair of a one-shot.
 _ollama_agent_is_running() {
-    launchctl print "gui/$(id -u)/com.ostler.ollama" 2>/dev/null \
-        | grep -q 'state = running'
+    # No pipe. TNM's objection on #1471, taken: the pipeline WAS this
+    # function's only statement, so its status was the return value, and both
+    # call sites use the function as a condition. He measured that
+    # `launchctl print`'s ~250 lines fit the pipe buffer today, so it does not
+    # invert -- but "does not invert at today's output size" is a worse
+    # property to ship than "has no pipe", and this costs nothing.
+    #
+    # rc discriminates absent from dead: an unregistered label exits 113, a
+    # registered one exits 0 whether it is running or not, so the `|| return 1`
+    # covers absent and the case covers the two rc=0 outcomes. Only the state
+    # line separates loaded-but-dead from running.
+    local _out
+    _out="$(launchctl print "gui/$(id -u)/com.ostler.ollama" 2>/dev/null)" || return 1
+    case "$_out" in *"state = running"*) return 0 ;; esac
+    return 1
 }
 
 OLLAMA_PLIST="${HOME}/Library/LaunchAgents/com.ostler.ollama.plist"
