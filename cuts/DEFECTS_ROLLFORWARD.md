@@ -116,6 +116,7 @@ walk_horizon: v1.0.41
 | v1.0.64 |  | not_walked | Archie 2026-09-04. **TAGGED, CUT, PUBLISHED, VERIFIED TO THE PAYLOAD, AND NEVER WALKED.** The artefact is real and I measured it: OstlerInstaller-1.0.64.dmg, 70,927,801 bytes, sha256 7e6a0ebf..., stapled, codesigned, Gatekeeper-accepted, and the `install.sh` INSIDE the DMG hashes identically to the tagged blob 92d4286e71a95adab992816f, which is the check that compares the payload rather than the commit. It was copied to the Mini and its hash re-measured there. 🔴 **IT WAS NOT WALKED BECAUSE IT WOULD HAVE FAILED THE WALK IN THE SAME PLACE v1.0.63 DID, AND THAT IS MY DOING.** First it could not be walked at all: the only account on the Mini was Andy's, whose running v1.0.63 held all six store ports through colima's forwarder (measured: `ssh: ~/.colima/_lima/colima/ssh.sock [mux]`, pid 10934, holding 3000 6333 6379 7878 8044 8144), so `ttywalk.sh` returned CANNOT-RUN and was RIGHT to. Andy then created a second account, `archie` (uid 502), which is a genuinely cold subject. Before spending it I re-read the one defect v1.0.64 was cut to fix and found I had fixed HALF of it. `v1063-D001` has two symptoms from one empty string; CM051 #1418 guarded the LaunchAgent and left the `health_check` fold alone, because the guard it added sits BELOW the fold at install.sh:29055. So v1.0.64 still ends a cold-Mac install `failed_steps=1` with a red final step while every service inside it logs healthy. **A brand-new account has never opened Contacts, which is precisely the condition the defect needs**, so walking v1.0.64 on `archie` would have reproduced Andy's exact complaint on the only genuinely cold account available. ⚠️ **THE CUT MANIFEST FOR v1.0.64 STATES THIS DEFECT AS FIXED**, and so did a code comment I wrote the same morning. The reason it survived is worth more than the fix: the defect is an ORDERING between a guard and a fold, and after #1418 BOTH were present in the tree, so every structural check over the source answers YES on a tree that still ships the bug. Only executing the block discriminates. **SUPERSEDED BY v1.0.65**, which carries CM051 #1428 and a RUNTIME test whose two pinned controls, 45126e9a and deecd9fc, BOTH reproduce the failure. The second control is the one that proves v1.0.64 did not fix it. 📌 PROVENANCE: no human installed this artefact. Every claim in this row is a measurement of the artefact or of the source, not of a walk, and the row says `not_walked` for exactly that reason. | v1063-D001 |
 | v1.0.65 | 2026-09-04 | deferred | Archie 2026-09-04. **WALKED NINE TIMES ON archie@192.168.1.240 (uid 502) AND CONDEMNED.** This is the first cut ever driven past step 21, and the reason it took nine attempts is worth more than the verdict: **FOUR of the nine stops were MY HARNESS, not the product.** walk 5 died at step 6 on a real defect (#1436, merged). walks 6-8 died at step 10 on three different false zeros I wrote into ttywalk's reset payload -- an apostrophe inside a single-quoted ssh argument, a `tr -d ' '` that closed it the same way, and a bare `docker` that is not on the non-interactive ssh PATH -- each of which PRINTED SUCCESS while five containers were running. walk 9 died at step 21 on a staging gap: the harness stages the REPO and 23 of 48 DMG `Contents/Resources` entries were absent, of which it warned about 3. **THE STAGING GAP IS WORKED AROUND, NOT FIXED**: I copied 22 of the 23 in BY HAND from the mounted DMG into a worktree under `/private/tmp`, which macOS clears on boot. 🔴 **THEN THE PRODUCT DEFECTS.** walk 10 found `v1065-D001`, a same-day regression of mine that kills every install at step 21 with rc=127. walks 11 and 12 found `v1065-D002`, which has silently disabled contact and Places import since v1.0.60, and `v1065-D003`, the abort that turned it into a dead step. walk 18 is GREEN: 39 steps, 0 not-ok, 0 ERR codes, 0 tracebacks, one terminal `DONE status=ok failed_steps=0 errors=0`, `ttywalk exiting 0`. ⚠️ **THE GREEN WALK SHIMS THE iMESSAGE TCC PROBE AND THEREFORE SAYS NOTHING ABOUT AUTOMATION PERMISSION.** macOS TCC needs a GUI click an ssh session cannot make. Only a console walk by a human can measure it, and the harness prints that disclaimer on every run. 🔴 **AND THE POST-WALK GATE IS 10 PASS / 10 FAIL / 4 CANNOT-RUN, AGAINST 15/8/1 ON THE v1.0.63 WALK THIS MORNING.** Three failures are new (`daemon_is_listening`, `people_count_agreement`, `people_seed_and_retrieval`) and one moved FAIL -> CANNOT-RUN (`ingest_coverage`), which is coverage lost and must not be read as a fix. `assistant_answers_grounded` DEGRADED rather than merely staying red: this morning the socket connected and answered, tonight all three questions die at `handshake HTTP/1.1 401 Unauthorized`. **The 401 is NOT a provisioning failure** -- `secrets/service_token` is present at mode 600 and the daemon plist carries a `PWG_SERVICE_TOKEN` of matching length, and four credential presentations all 401 against a `GET /` control that returns 200. **CONFOUND, STATED: tonight's box is a FRESH RESET and the v1.0.63 box had history**, so I have NOT established that any of the three new failures is caused by code. That needs a real v1.0.66 DMG on a cold account. 📌 PROVENANCE: every walk is mine, unattended, on Andy's Mini under the `archie` account. No human installed this artefact. **DEFERRED, NOT CLOSED**, for the standing reason (#931): D001, D002 and D003 are all fixed on CM051 main and ride v1.0.66, which has no artefact yet. Closing would be true about the repo and false about the DMG. @ANDY: correct anything you saw that I have not captured. | v1065-D001 v1065-D002 v1065-D003 |
 | v1.0.66 | 2026-09-04 | deferred | Archie 2026-09-05. **THE FIRST ARTEFACT WALK EVER TO GO GREEN, AND THE FIRST WALK OF ANY KIND DRIVEN BY THE SIGNED DMG PAYLOAD RATHER THAN A CHECKOUT.** `ttywalk.sh --from-dmg` on archie@192.168.1.240 (uid 502): rc=0, verdict=0, 39 steps, one terminal `#OSTLER DONE status=ok failed_steps=0 errors=0`, 0 STEP_END not-ok, 0 ERR-nn codes, reached `health_check` 38 of 38. GRADED TWICE BY TWO DRIVERS: the walk's own driver predates CM051 #1460, so it was re-adjudicated under the fixed driver that reconciles the completion tally against the log body, and it still PASSED on the stronger sentence 'no step reported status=error' rather than inferring it from failed_steps=0. `hydrate_graph`, which killed walks 11 and 12, closed ok in 55 seconds. The staged DMG was verified to 70,943,483 bytes against the published SHA256SUMS. 🔴 **BUT ONE ARM OF health_check WAS MEASURING ANOTHER ACCOUNT'S SERVICE.** install.sh:28465 was a bare loopback curl on :11434; the walk logged 'Ollama healthy' while the walked account had NO com.ostler.ollama agent at all and the 200 came from andy's ollama. A CANNOT-RUN WEARING A PASS. The COMPLETION verdict stands; that arm did not. Fixed for v1.0.67 by CM051 #1471. 🔴 **AND HUB HEALTH AFTER INSTALL IS UNMEASURED.** Andy's own Hub held :8000 on that Mac, so the walk account's gateway logged 27+ 'Address already in use' refusals and never bound once. 11 of 24 post-walk probes need it: CANNOT-RUN, and cannot-run is not a pass. The /ws/chat 401 chased for hours was that same collision -- the probe reached ANDY'S gateway and presented ARCHIE'S token, and the GET / control returned 200 for the same reason, so control and subject were talking to the same wrong server. PORT OWNERSHIP WAS MAPPED 2026-09-05 and is the thing to keep: :3000 :6333 :6379 :7878 :8044 :8144 are archie's via colima; **:8000 and :11434 are NOT**. ⚠️ post_walk_qa REFUSED to write walks/v1.0.66.tsv: it reads CFBundleShortVersionString from a STALE /Applications/OstlerInstaller.app left by an earlier walk. A box artefact, not a mis-stamped build -- the DMG's own app is correctly stamped 1.0.66/6600. Hence DERIVED(no record). ✅ **THE ARTEFACT IS NOT MERELY INSTALLED, IT WORKS.** Measured on the live install 2026-09-05: 6,348 wiki pages under ~/Documents/Ostler across 12 page types (Meetings 3151, People 1599, Organisations 751), every one written that day; wiki-site 200 with a 49 KB index; 19 LaunchAgents with 5 running, 2 spawn-scheduled, 11 idle between ticks and ZERO that should be up and are not. 🔴 D010 and D011 were both found on that LIVE install, not in the source, and neither aborts an install. NO WALK LAUNCHES THE .app -- a customer double-clicks an installer app; every walk runs the install.sh inside it. iMessage Automation (TCC) still needs a human at a console. 📌 PROVENANCE: unattended, mine, on Andy's Mini under the archie account. No human installed this artefact. **DEFERRED, NOT CLOSED**: D010 and D011 are fixed or filed against CM051 main and ride v1.0.67, which has no artefact yet. Closing would be true about the repo and false about the DMG. @ANDY: correct anything you saw that I have not captured. | v1066-D001 v1066-D002 v1066-D003 v1066-D004 v1066-D005 v1066-D006 v1066-D007 v1066-D008 v1066-D009 v1066-D010 v1066-D011 |
+| v1.0.67 | 2026-09-05 | deferred | Archie 2026-09-05. **CUT, SIGNED, NOTARISED, PUBLISHED, INSTALLED CLEAN AND WALKED FOUR TIMES, AND IT IS THE FIRST CUT WHOSE WALKS WERE ALL DRIVEN AGAINST ONE UNCHANGING ARTEFACT.** `walks/v1.0.67.tsv` on CM051 main: verdict FAILED, qa_exit 1, 16 pass / 6 fail / 2 cannot-run, 24 of 24 measured, 0 broken, walked_at 2026-09-05T05:50:33Z, box_fp 95b30a89637eecbb, artefact_sha256 f2717739b6b23c3c12c4b20b3beb2d1aa02be32849a9ed6ac5e314e66070a15b measured on the box. The INSTALL itself was clean: 38 of 38 steps, one terminal DONE status=ok, 0 errors. **FAILS FELL MONOTONICALLY ACROSS THE FOUR WALKS -- 10, 8, 7, 6 -- WITH THE ARTEFACT SHA256 UNCHANGED THROUGHOUT**, so every one of those four improvements was a BOX or HARNESS fact and not a build. That is the whole reason this row says deferred and not closed. 🔴 THE ONE THING TO CARRY FORWARD: three FOREIGN LaunchAgents were found on that Mac one at a time, each only after the previous was cleared -- com.creativemachines.ostler.assistant on :8000 and :8443, com.ostler.ical-server on :8090, com.ostler.doctor on :8089. By 05:31Z all ten walk ports were the walk account's for the FIRST TIME. REACHABLE IS NOT OURS, seven distinct instances of it in one night. ⚠️ EVERY FIX MERGED AFTER THIS CUT'S PIN IS UNWALKED: eight shipping commits, six in install.sh, one vendored, one manifest. v1.0.68 exists to put them on a box, and re-walking v1.0.67 cannot test any of them. 📌 PROVENANCE: unattended, mine, on Andy's Mini under the archie account. No human installed this artefact. DEFERRED, NOT CLOSED: D001 is fixed and rides v1.0.68; D002, D003 and D004 are OPEN; D005 is the harness; D006 and D007 are declared advisory in scripts/walk_promote_scope.tsv, not waived. @ANDY: correct anything you saw that I have not captured. | v1067-D001 v1067-D002 v1067-D003 v1067-D004 v1067-D005 v1067-D006 v1067-D007 |
 
 **On the v1.0.42 row, and it corrects something this file said hours earlier.**
 **v1.0.42 WAS NEVER INSTALLED ANYWHERE.** The upgrade walk that produced
@@ -5345,6 +5346,69 @@ OURS, and a successful CONNECT makes the instrument look healthy while only the
 OWNER is wrong.
 ### v1066-D008 -- three health probes go GREEN on another account's service, and one of them already did
 
+**STATUS 2026-09-05: ONE OF THREE IS CLOSED. THE OTHER TWO ARE STILL OPEN.**
+
+```
+install.sh :11434 (Ollama)     FIXED by CM051 #1471, ships in v1.0.67
+install.sh :6333  (Qdrant)     STILL A BARE `curl -sf`, no ownership instrument
+install.sh :7878  (Oxigraph)   NOT BARE. See the correction below.
+```
+
+🔴 **CORRECTION 2026-09-05, AND THE ERROR WAS ARCHIE'S.** The line above
+originally read that `:7878` was "STILL A BARE `curl -sf`, no ownership
+instrument". **That is false and it was false when written.**
+
+```
+28582  if curl -sf http://localhost:6333/healthz                          <- BARE, claim holds
+28589  if curl -sf "${_OSTLER_STORE_CURL_ARGS[@]+...}" http://localhost:7878/   <- CREDENTIALLED
+```
+
+`_ostler_write_store_curl_config` arms `_OSTLER_STORE_CURL_ARGS` at
+`install.sh:7436` and again at `:12750`, both far before `health_check` at
+`:28644`. **That credential IS an ownership signal** -- the same signal
+`_port_is_our_own_forward` leans on -- so `:7878` was never in the same
+condition as `:6333`.
+
+**How the error was made, because it is the reusable part:** Archie ran a grep
+that PRINTED both lines, with `_OSTLER_STORE_CURL_ARGS` visible on the `:7878`
+line, and then described both arms as bare in the same breath. The evidence was
+on screen and was read past. Found by TNM while implementing the fix this row
+asked for.
+
+⚠️ **AND :6333 CANNOT BE FIXED WITH A CREDENTIAL EITHER.** Qdrant exempts
+`/healthz` from the api-key by vendor design, so arming that arm with a
+credential would be inert. The instrument for both stores is container-level,
+which is what the fix uses.
+
+⚠️ `:7878`'s credential signal is sound **only while
+`OSTLER_STORE_AUTH_ENFORCE=1`** -- a keyless store 200s anything -- so the fix
+adds the container check to that arm too rather than resting on enforcement
+being on.
+
+Re-measured against `origin/main` at `121c676b`, after #1471 merged: the two
+store arms are unchanged in shape.
+
+**WHY THE FIX DID NOT GENERALISE, WHICH IS THE POINT.** The Ollama arm could
+be closed by asking launchd whether OUR agent is running, because Ollama ships
+as `com.ostler.ollama`, a LaunchAgent this installer writes. **Qdrant and
+Oxigraph do not run as LaunchAgents.** On the walk box they are containers
+behind colima, and their ports reach the host through a forward. So
+`launchctl print` is not the instrument for them and copying #1471's pattern
+across would produce a probe that is confidently wrong rather than honestly
+silent.
+
+The right instrument for those two is a container-level one (`docker inspect`
+or `docker compose ps` against the store project), and choosing it is a design
+decision, not a mechanical edit. That is why this row stays OPEN rather than
+being closed alongside its sibling.
+
+⚠️ **THEY WERE HONEST ON THE v1.0.66 WALK BY LUCK, AND THE LUCK IS NOW
+MEASURED.** Port ownership on that box, 2026-09-05: `:3000 :6333 :6379 :7878
+:8044 :8144` are the walk account's own, forwarded by its colima ssh mux;
+`:8000` and `:11434` are NOT. So the two store probes happened to be asking
+their own services, and the Ollama probe happened not to be. Same shape, three
+probes, and only the one that drew the short straw reported a defect.
+
 **D007's mirror image.** That one SKIPS an install step; these HIDE A FAILED
 INSTALL, inside the step whose entire job is to notice.
 
@@ -5596,3 +5660,327 @@ here is safe and the `mv` does execute.
 **FIX SHAPE.** Either date the archived filename, or state in the comment that
 the archive keeps only the most recent prune per label. The claim and the code
 have to agree; which one moves is a judgement call, and one line either way.
+
+---
+
+### v1067-D001 -- the people projection only ever added, so a quarter of the vector store describes people the graph no longer has
+
+**FIXED in CM051 #1511 (f60307ad), and the fix is NOT in the v1.0.67 artefact.**
+This is the finding that made v1.0.68 necessary rather than optional.
+
+Two probes failed on the v1.0.67 walk and they are ONE defect:
+
+```
+people_count_agreement    doctor reports 1907 people (Qdrant vectors)
+people_stores_reconcile   oxigraph holds  1823 Person nodes (the graph)
+                          difference      = 84
+                          orphan vectors  =   84   <- the same 84, not a coincidence
+                          every orphan's payload: source = fda_people_index
+```
+
+**MECHANISM.** `ingest_people_to_qdrant` in the vendored `ostler_fda` was a
+one-way projection. It upserted a point for every Person the graph currently
+holds and never asked what it had written last time, so a Person that left the
+graph kept its vector for ever. The counter that feeds the Doctor panel reads
+Qdrant, which is why the customer-visible number was the wrong one of the two.
+
+**THE FIX HAS THREE GUARDS AND THEY ARE THE POINT.** A prune is a delete, and a
+delete driven by a read is only ever as trustworthy as the read:
+
+```
+1  it runs ONLY off a projection that succeeded
+2  a FAILED read prunes NOTHING -- the scroll helper returns None on any
+   failure, deliberately distinct from an empty list, because "found none"
+   and "could not look" print identically and a zero denominator authorising
+   a delete is the shape of data loss
+3  it deletes only points whose payload source == "fda_people_index",
+   so it can never remove a point this projection did not write
+```
+
+**MUTATION-TESTED, five arms, three of which must MISS.** Dropping the source
+filter fails the icloud arm; treating a failed read as empty fails two arms;
+removing the prune entirely fails three. Gate:
+`people-projection-prune.yml#test_people_projection_prunes_what_left_the_graph.py`.
+
+⚠️ **THIS CLOSES THE SYMPTOM AND NOT THE CAUSE.** The prune stops the two
+counts diverging from the next cut onward. It does not explain why 84 people
+left the graph in the first place. That is v1067-D002.
+
+---
+
+### v1067-D002 -- 71 contacts vanished and took 315 identifiers onto other holders, with zero tombstones
+
+**OPEN. CAUSE UNKNOWN. Measured on the live v1.0.67 install at archie@.240, 2026-09-05.**
+
+🔴 **THIS SECTION CORRECTS A NUMBER I PUBLISHED EARLIER THE SAME DAY. The
+missing-contact count is 71, NOT 543. I had it 7.6x too high.** The true
+statement is the one below; the 543 is withdrawn.
+
+**WHY 543 WAS WRONG.** I derived the minting origin of an identifier by parsing
+`id_<short>_<type>` and assuming `<short>` named a `person_<short>` node.
+**It does not have to.** The graph mints the same short-id space for
+`business_<short>` nodes, typed `BusinessContact`, and 472 of the 2118
+identifier holders are exactly that. Every one of them looked like a missing
+person to a predicate that only ever asked about `person_`.
+
+```
+distinct minting short_ids                     2189
+...resolving to a live person_ node            1646
+...resolving to a live business_ node           472   <- I counted these MISSING
+...resolving to NEITHER, the true missing set    71
+                                               ----   partition is EXACT
+```
+
+**AND THE FIRST CORRECTED PASS WAS WRONG TOO, IN THE OPPOSITE DIRECTION.**
+Parsing the HOLDER with the same `person_`-shaped assumption left `?hid` empty
+for every business, so all 472 fell into the rehomed bucket and the rehoming
+count read **948**. Both errors are one root cause: a host-shaped pattern
+cannot see a URI whose type prefix differs. The corrected, type-agnostic parse
+gives 328.
+
+**WHAT IS ACTUALLY TRUE, AND IT RECONCILES TWO WAYS.**
+
+```
+hasIdentifier triples                          5676
+...held by their own minting origin            5348
+...REHOMED onto a different holder              328
+      of which the origin node still exists      13
+      of which the origin node is GONE          315
+distinct GONE origins behind those 315           71   <- the same 71, independently
+tombstones authorising any of the 328             0
+```
+
+⇒ **315 identifiers over exactly 71 origins**, which is about 4.4 identifiers
+each and is precisely the shape of a contact carrying icloud, phone0, phone1
+and email0. Two counts derived by different routes agreeing on 71 is the
+strongest evidence available here.
+
+**CONTROLS, BECAUSE THE FIRST VERSION OF THIS QUERY HAD NONE AND WAS WRONG.**
+
+```
+POSITIVE   the at-home bucket must find its origins  5348 of 5348 present
+NEGATIVE   a fabricated short_id must be absent      0 triples
+SHAPE      no holder parses to an empty short_id     0 empty
+```
+
+The positive control is the one that mattered: the first run of this query
+reported "0 rehomings carry an authorising tombstone" over a population of 948,
+and **a positive control returning zero means the predicate is broken until
+proved otherwise**. It was.
+
+**THE MERGE PATH IS NOT AN ESTABLISHED CAUSE ON THIS BOX, AND THE EVIDENCE CUTS
+BOTH WAYS.**
+
+TNM measured (2026-09-05T06:29Z) that `vendor/cm041/identity_resolver/batch_resolver.py`
+performs a merge as 8 separate SPARQL updates, rehoming identifiers at step 1
+(:1098) and writing the authorising tombstone at step 6 (:1142), with no
+resume, recover or rollback path in the module (CONTROL: the same grep finds
+169 "merge" mentions, so the predicate can see), and a `_backup_triples` writer
+whose `.trig` output nothing ever reads, at a `backup_dir` defaulting to
+`"./backups"` that no caller overrides. **An interrupted merge is therefore
+invisible and unrecoverable**, which is the only proposed mechanism that
+explains a state persisting rather than self-healing.
+
+⚠️ **BUT THIS GRAPH'S ONE REAL MERGE DOES NOT LOOK LIKE THAT.** There are 4
+`mergedInto` tombstones and **three of them are self-referential** --
+`person_X mergedInto person_X` -- so they authorise nothing. The single genuine
+one is `person_784be151-aba1-5415-8ac6-6c2136abba4d mergedInto
+person_b325d860dc44`, and measured directly:
+
+```
+survivor holds                    id_b325d860dc44_icloud, id_b325d860dc44_email0
+                                  -- its OWN, none minted on the discard
+identifiers carrying the discard's short_id anywhere        0
+discard node still present                        11 triples
+```
+
+⇒ That merge moved no identifier and did not remove the discard. It is
+incomplete in a DIFFERENT way from the one that would produce the 315. So this
+box contains **no worked example** of the mechanism, and attributing the 315 to
+it would be reasoning from the module to the data without a specimen.
+
+🟢 **AND IT IS CLOSED FURTHER THAN THAT. THE 71, THE 58 AND THE 54 ARE ONE
+EVENT.** Andy asked the right question -- "the missing people aren't businesses
+that some script has parsed out, are they?" -- and chasing it produced the
+reconciliation this section had been missing.
+
+```
+the 315 are held NOW by            person 315 · business 0
+  CONTROL: businesses DO hold identifiers, 620 of the 5676, so this sees them
+each of the 71 gone origins had    exactly 1 icloud_contact_uid, 71 of 71
+the 315 break down as              phone 149 · email 95 · icloud_contact_uid 71
+the 315 landed on                  58 DISTINCT person nodes
+```
+
+⇒ **They are not businesses.** A `BusinessContact` does not carry an iCloud
+contact uid; each of these 71 carried exactly one. They were real address-book
+contacts. Andy's instinct was right about the number I FIRST published -- 472 of
+that 543 were exactly the business nodes he was describing -- and wrong only
+about the residue, which is the correct way round for a challenge to land.
+
+🔴 **THEN THE SURVIVORS WERE COUNTED, AND THE NUMBER IS ALREADY ON THE WALK.**
+
+```
+person nodes holding 1 icloud_contact_uid   1556
+                     2                        49   ┐
+                     3                         2   │  54
+                     4                         2   │
+                     5                         1   ┘
+```
+
+**54 is exactly what `no_person_holds_two_contact_cards` fails on**, measured by
+a different instrument on a different day. Two independent routes to the same
+number is the strongest evidence available here.
+
+⇒ **SO v1067-D001, THIS SECTION AND v1067-D003 ARE ONE EVENT:**
+
+```
+71 contacts were absorbed into 58 people with ZERO tombstones
+  -> 54 of those people now hold two or more contact cards   (D003 fails)
+  -> the vanished originals left 84 vectors the projection never pruned (D001)
+  -> 315 identifiers now sit on holders that did not mint them  (this section)
+```
+
+✅ **AND IT EXPLAINS THE DEAD END IN v1067-D003.**
+`repair_overmerged_contact_cards` repairs 0 of 54 here because every card is
+blocked by "the origin node has been erased from the graph". Whatever did this
+**deleted the origin instead of tombstoning it**, so there is nothing left to
+un-merge back into. The repair was never going to work on this box, and that is
+a property of the damage rather than of the repair.
+
+⚠️ **STILL NOT ATTRIBUTED, AND THE DISCREPANCY IS THE NEXT LEAD.** This box's
+one genuine merge moved no identifier and left its discard in place, which is
+the OPPOSITE of what these 71 look like. So either a second writer did this, or
+the merge path behaved differently when these ran. **58 survivors and 71 origins
+is not 1:1** -- some survivors absorbed more than one -- and that ratio is
+itself a constraint on any proposed mechanism.
+
+**WHAT WOULD CLOSE IT, AND IT IS NOW A SMALL JOB.** 71 is enumerable. Take the
+71 gone origins one at a time and ask what else in the estate remembers them:
+a `merge_backup_*.trig` under whatever cwd a launchd-invoked resolver actually
+had, a Qdrant point, a wiki page, a contact-syncer log line. **The first one
+that names a discarded origin decides this**, and a second instrument agreeing
+is worth more than a third query against the same graph.
+
+⚠️ **AND THE SELF-MERGES ARE THEIR OWN FINDING.** Three of four tombstones say
+a person was merged into itself. Whatever wrote them believed it was merging.
+That is worth a look independently of the 315.
+
+### v1067-D003 -- 54 people hold two contact cards each, and the repair that exists fixes none of them
+
+**OPEN, AND THERE IS NO PATH TO GREEN IN v1.0.68.** Stated plainly so nobody
+plans a cut around closing it.
+
+`no_person_holds_two_contact_cards` failed on the v1.0.67 walk: 54 persons on
+this box hold 2 or more contact cards.
+
+⚠️ **THE REPAIR THAT LOOKS LIKE THE ANSWER IS NOT ONE.**
+`repair_overmerged_contact_cards` is DORMANT, and its registry row says it
+repairs "30 of 128". **That number was measured on a different box.** Run dry
+on THIS box it repairs **0 of 54**.
+
+🔴 **I ESCALATED THIS TO ANDY AS A PRODUCT DECISION ON THE STALE NUMBER**, and
+he answered "I don't understand enough to make this call." He was right to push
+back: once the repair was measured HERE the call did not need making, because
+there was nothing to enable. **A registry inventory figure is not a
+measurement of the box in front of you.** Re-measure before quoting.
+
+Which of these 54 are over-merges, and which are two genuine cards for one
+person, is unmeasured. That question probably shares a cause with v1067-D002.
+
+---
+
+### v1067-D004 -- the grounding probe is UNKNOWN, and cold-versus-warm has not been ruled out
+
+**OPEN, and deliberately NOT called a code defect.**
+
+`assistant_answers_grounded` failed on both walks that reached it, but it
+failed DIFFERENTLY each time:
+
+```
+walk 9   1 tool_error       (warm box)
+walk 10  2 no_tool_call     (cold box, fresh --reset)
+```
+
+Two different failure modes across two different thermal states is not the
+signature of a fixed code defect. A cold box has an unloaded model and a cold
+Ollama; a model that does not emit a tool call at all is the documented
+behaviour of a first request against an unloaded model.
+
+**WHAT WOULD SETTLE IT:** one WARM re-walk. If it fails warm with the same
+symptom twice, it is the product. Until then this probe is measuring the box
+as much as the artefact, and calling it either way would be a guess wearing a
+verdict.
+
+---
+
+### v1067-D005 -- pair_state_agreement is order-dependent, and its CANNOT-RUN is the harness talking
+
+**HARNESS, NOT PRODUCT. Proved inside walk 8's own log.**
+
+`pair_state_agreement` reads `require_pairing` from `config.toml`. That key is
+written by PAIRING. The probe that causes pairing to happen sorts one place
+AFTER the probe that reads its result:
+
+```
+walk 8 log line 175  pair_state_agreement    reads config.toml -- key absent
+             184     pairing_recovers...     pairs, REWRITING config.toml
+             230     later read              4 paired_tokens, key present
+```
+
+⇒ On a fresh install it is CANNOT-RUN. On a REPEAT walk it PASSES, on the
+previous walk's residue. Both answers are about ordering.
+
+🔴 **I GOT THIS WRONG FIRST AND THE CORRECTION IS THE USEFUL PART.** I reported
+that `config.toml` did not exist during walk 8. My own cited log refuted me
+nine lines later. I had read a fresh `birth` timestamp as "created" when
+`birth == mtime` means the file was **REPLACED**. A stat field is not a
+biography.
+
+**FIX SHAPE.** Either the probe declares its dependency and the driver orders
+on it, or it stops reading a key another probe writes. Alphabetical order is
+not a dependency graph and must not be used as one.
+
+---
+
+### v1067-D006 -- no_store_port_is_tcp_reachable fails BY DESIGN on a walk box, and is now declared advisory
+
+**NOT A DEFECT. SCOPED, not waived.**
+
+The walk account runs its own Qdrant, Oxigraph and Redis in colima. The probe
+asserts no store port is TCP-reachable from outside, which is a statement about
+a CUSTOMER Mac. On the walk box those ports are ours, on purpose, because the
+walk needs them.
+
+Declared `advisory` in `scripts/walk_promote_scope.tsv` (CM051 #1509) with its
+owner and its reason. **Advisory is not silent:** the promote gate prints every
+advisory failure on the PASS path, so it cannot decay into something nobody
+sees. Three of 24 probes are advisory; the other 21 block.
+
+⇒ The guards on that scope file matter more than the scoping: an UNDECLARED
+probe is BLOCKING, and a ratchet refuses both a blocking-to-advisory demotion
+and the DELETION of a blocking row. Without the second guard the first is
+theatre.
+
+---
+
+### v1067-D007 -- two probes that measure features nobody has built yet
+
+**NOT DEFECTS. Both declared advisory, both for the same reason.**
+
+```
+usage_journal_producers   FAIL         the producing features live in repos
+                                       outside this artefact and are unbuilt
+ingest_coverage           CANNOT-RUN   a box prerequisite is absent
+```
+
+A probe that fails because its subject does not exist yet is measuring the
+roadmap, not the artefact. Blocking a customer download on it would make the
+gate a thing to be argued around, which is how gates die.
+
+⚠️ **THE HONEST LIMIT ON ALL THREE ADVISORY ROWS.** Scoping them changed which
+probes can REFUSE a promote; it did not make anything greener. The v1.0.67 walk
+was 16 pass / 6 fail / 2 cannot-run before the scope file existed and 16 / 6 / 2
+after it. What moved was that 5 of those 8 became blocking where 3 had been
+before -- the scope was TIGHTENED, and reading that as a regression would be
+reading the instrument as the subject.
