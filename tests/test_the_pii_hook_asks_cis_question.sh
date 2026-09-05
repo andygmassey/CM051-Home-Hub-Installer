@@ -50,7 +50,10 @@ command -v git >/dev/null 2>&1 || { cant "git absent"; echo "== 0 pass / 0 fail 
 U_SHAPE="/Us""ers/someone/Documents"
 H_SHAPE="/ho""me/someone/data"
 
-WORK="$(mktemp -d -t piihook)" || { cant "mktemp failed"; echo "== 0 pass / 0 fail / 1 cannot-run =="; exit 2; }
+# GNU mktemp REQUIRES X's in a -t template; BSD mktemp does not. Without them
+# this reads "too few X's in template" on the Linux runner and CANNOT-RUN on a
+# gate that passes perfectly on the macOS box it was written on.
+WORK="$(mktemp -d -t piihook.XXXXXX)" || { cant "mktemp failed"; echo "== 0 pass / 0 fail / 1 cannot-run =="; exit 2; }
 cleanup() { rm -rf -- "$WORK"; }
 trap cleanup EXIT
 

@@ -156,6 +156,10 @@ jobs:
       # narrowed for PRs in #587 while the pre-commit path kept scanning whole
       # files and went red on every commit touching install.sh.
       - name: Prove the pre-commit hook asks the same question CI asks
+        # `if: always()` or this step is SKIPPED when an earlier test in the
+        # same job fails, and a gate that disappears exactly when the run is
+        # red is not a gate. The ci-maskless check enforces this.
+        if: always()
         run: bash tests/test_the_pii_hook_asks_cis_question.sh
 
       # Prove the DENYLIST scanner can SEE the file it is pointed at, before
