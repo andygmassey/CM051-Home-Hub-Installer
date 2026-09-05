@@ -67,16 +67,34 @@ _guarded() {
 # branch? Brace-count from the `if` to its matching close, then compare.
 # Prints "inside" or "outside", or "nofind".
 _sheet_placement() {
+    # 🔴 THIS COUNTED BRACES IN COMMENTS AND STRING LITERALS, AND TNM BROKE IT.
+    #
+    # The first version ran gsub over the RAW line. One stray `}` inside a
+    # comment closed the branch early, everything after it read as `outside`,
+    # and a mutant that put `.sheet(` GENUINELY back inside `finished == .ok`
+    # scored 7 pass / 0 fail while printing the sentence claiming the opposite.
+    # The Swift half of #1540 could have been reintroduced by anyone and this
+    # arm would have applauded.
+    #
+    # Blank the string literals FIRST, then strip `//` comments, then count.
+    # That order matters: stripping comments first mangles a `//` inside a
+    # string. Escaped quotes go before either, or `\"` splits a literal in two.
     /usr/bin/awk '
-        /if coordinator\.finished == \.ok \{/ && !seen { seen = 1; depth = 1; next }
+        {
+            line = $0
+            gsub(/\\"/, "", line)
+            gsub(/"[^"]*"/, "\"\"", line)
+            sub(/\/\/.*/, "", line)
+        }
+        line ~ /if coordinator\.finished == \.ok \{/ && !seen { seen = 1; depth = 1; next }
         seen && depth > 0 {
-            n = gsub(/\{/, "{"); m = gsub(/\}/, "}")
+            n = gsub(/\{/, "{", line); m = gsub(/\}/, "}", line)
             depth += n - m
-            if (index($0, ".sheet(") > 0) inside = 1
+            if (index(line, ".sheet(") > 0) inside = 1
             if (depth <= 0) { seen = 2 }
             next
         }
-        seen == 2 && index($0, ".sheet(") > 0 { outside = 1 }
+        seen == 2 && index(line, ".sheet(") > 0 { outside = 1 }
         END {
             if (!seen) { print "nofind"; exit }
             if (inside)  { print "inside";  exit }
