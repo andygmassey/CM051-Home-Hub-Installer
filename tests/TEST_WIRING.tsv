@@ -17,6 +17,7 @@
 # the workflow that runs it.
 #
 # columns: test_file<TAB>status<TAB>runner
+test_a_broken_ci_query_is_not_a_green_main.sh	WIRED	.github/workflows/red-main-opens-an-issue.yml
 test_a_condition_function_must_not_short_circuit_its_own_pipeline.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_a_dead_wiki_announces_itself.py	WIRED	.github/workflows/vendor-integrity.yml
 test_a_denied_read_is_not_an_absence.sh	WIRED	.github/workflows/unreachable-not-absence.yml
