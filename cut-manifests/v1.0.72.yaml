@@ -436,3 +436,6 @@ open_issues:
   - issue: 1586
     title: "the cut manifest is selected by text sort, so v1.0.9 outranks v1.0.72 and v1.0.100"
     gate: "FIX: verify_cut_manifest.py:2194 sorts filenames as TEXT. Measured: sorted([v1.0.72, v1.0.100, v1.0.9])[-1] = v1.0.9. Correct today only by accident of every patch being two digits and >= 11. Silent and it INVERTS a gate -- the verifier reports PASS having checked the wrong checklist. Sort on a parsed tuple and REFUSE an unparseable name rather than sorting around it"
+  - issue: 1589
+    title: "end-of-install panel: show what Ostler set up, from surfaces the box can evidence (not the operator QA suite)"
+    gate: "FIX: Andy asked for the QA results at the end of the install. The operator suite cannot run there (it is ssh-driven, needs the probe checkout which the DMG does not carry, and needs credentials). The buildable version reads /api/v1/sources plus the agent census, both already produced on the box. BLOCKED ON #1587: built on the current table it would show 13 of 15 and look complete"
