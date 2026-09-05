@@ -20286,7 +20286,33 @@ fi
 
 echo ""
 echo "  Stopping services..."
-cd "${HOME}/.ostler" 2>/dev/null && docker compose down -v 2>/dev/null || true
+# WHAT WAS REMOVED IS NOT WHAT WAS REPORTED.
+#
+# `docker compose down -v` is the ONLY thing that removes qdrant_data,
+# oxigraph_data, redis_data, wiki-docs and vane_data -- the named volumes
+# holding the customer's people graph, their vectors and their compiled wiki.
+# This line read:
+#     cd "${HOME}/.ostler" 2>/dev/null && docker compose down -v 2>/dev/null || true
+# so a failed cd, a stopped colima, or an absent docker each left every one of
+# those volumes on disk, printed nothing, and the script went on to print
+# "Done. Ostler has been removed."
+#
+# This same uninstaller already warns when it cannot remove an app bundle
+# ("remove manually"). It said nothing when it could not remove the personal
+# data. A 200MB bundle got a warning and the customer's contacts did not.
+#
+# This records the outcome. It does not change what is removed.
+OSTLER_STORES_REMOVED=0
+OSTLER_STORES_WHY=""
+if cd "${HOME}/.ostler" 2>/dev/null; then
+    if _dc_out="$(docker compose down -v 2>&1)"; then
+        OSTLER_STORES_REMOVED=1
+    else
+        OSTLER_STORES_WHY="\`docker compose down -v\` failed: $(printf '%s' "$_dc_out" | tr '\n' ' ' | sed 's/  */ /g; s/^ *//' | cut -c1-160)"
+    fi
+else
+    OSTLER_STORES_WHY="could not enter ${HOME}/.ostler, so the store teardown never ran at all"
+fi
 # ── LaunchAgent teardown ───────────────────────────────────────
 # ONE register, and one loop that performs BOTH halves of a teardown.
 #
@@ -20436,7 +20462,22 @@ elif [[ -d "$USER_FACING_ROOT" ]]; then
 fi
 
 echo ""
-echo "  Done. Ostler has been removed."
+if [[ "$OSTLER_STORES_REMOVED" -eq 1 ]]; then
+    echo "  Done. Ostler has been removed."
+else
+    echo "  WARNING: YOUR DATA STORES WERE NOT REMOVED."
+    echo "    ${OSTLER_STORES_WHY}"
+    echo ""
+    echo "    Docker volumes still hold your contacts, meetings, messages and"
+    echo "    compiled wiki. Everything else has been removed. To finish, start"
+    echo "    Docker and run:"
+    echo "        cd ~/.ostler && docker compose down -v"
+    echo "    If that directory is already gone, list them with:"
+    echo "        docker volume ls | grep -E 'qdrant_data|oxigraph_data|redis_data|wiki-docs|vane_data'"
+    echo "    and remove each with: docker volume rm <name>"
+    echo ""
+    echo "  Done. Ostler has been removed APART FROM the stores named above."
+fi
 if [[ "$KEEP_CONTENT_DECISION" == "keep" && -d "$USER_FACING_ROOT" ]]; then
     echo "  Your generated content remains at ${USER_FACING_ROOT}/."
 fi

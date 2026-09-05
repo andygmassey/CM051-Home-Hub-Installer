@@ -1,0 +1,63 @@
+name: uninstall-removal-honesty
+
+# The uninstaller must not announce a removal it did not perform.
+#
+# `docker compose down -v` is the ONLY thing that removes qdrant_data,
+# oxigraph_data, redis_data, wiki-docs and vane_data -- the named volumes that
+# hold the customer's people graph, their vectors and their compiled wiki. It
+# was written as
+#     cd "${HOME}/.ostler" 2>/dev/null && docker compose down -v 2>/dev/null || true
+# so a failed cd, a stopped colima or an absent docker each left every one of
+# those volumes on disk, printed nothing, and the script went on to say
+# "Done. Ostler has been removed."
+#
+# That is a privacy claim, not a cosmetic one: the customer is told their
+# personal data is gone while it is still on the machine. The same uninstaller
+# already warns when it cannot delete an app bundle -- a 200MB bundle got a
+# warning and the contacts did not.
+#
+# ubuntu-latest is correct: the test drives shell over a stub `docker` and a
+# temporary HOME. It never invokes the real uninstaller and removes nothing.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_uninstall_cannot_claim_removal_it_did_not_do.sh'
+      - '.github/workflows/uninstall-removal-honesty.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  uninstall-removal-honesty:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # The test extracts the ostler-uninstall heredoc from the REAL install.sh
+      # and exercises three teardown outcomes against a stub docker: success,
+      # daemon down, and ~/.ostler already gone.
+      #
+      # It reports its own denominator (9 assertions / 3 outcomes) and refuses
+      # with CANNOT-RUN rather than passing vacuously if the heredoc or either
+      # code block cannot be found -- so this gate going green always means it
+      # looked at something.
+      #
+      # ANTI-VACUITY, and it is the whole reason the assertions are exact-line:
+      # "Done. Ostler has been removed APART FROM the stores named above"
+      # CONTAINS "Ostler has been removed", so a substring assertion passes on
+      # both arms and proves nothing. Mutation-tested both ways: reverting the
+      # fix gives rc=2, and making the failure branch claim success gives rc=1
+      # naming exactly the two assertions that should break.
+      - name: The uninstaller cannot claim a removal it did not perform
+        run: bash tests/test_uninstall_cannot_claim_removal_it_did_not_do.sh
