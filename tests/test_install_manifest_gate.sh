@@ -81,7 +81,7 @@ H="$WORK/home"
 mkdir -p "$H/Library/LaunchAgents" "$H/.ostler/assistant-config" "$H/Documents/Ostler/Wiki" "$H/.ostler/assistant-config/workspace/state"
 # The 13 UNCONDITIONAL (required) launch agents. A complete install has all of
 # them; declaring only these keeps the synthetic install free of UNDECLARED noise.
-REQ_AGENTS="com.ostler.stay-awake com.ostler.engine-supervisor com.ostler.ollama com.ostler.ollama-logrotate com.ostler.enrich com.ostler.export-scan com.ostler.doctor com.ostler.ical-server com.ostler.fda-rerun com.creativemachines.ostler.assistant com.creativemachines.ostler.email-ingest com.creativemachines.ostler.wiki-recompile com.creativemachines.ostler.editor-frontpage com.creativemachines.ostler.context-refresh"
+REQ_AGENTS="com.ostler.stay-awake com.ostler.engine-supervisor com.ostler.ollama com.ostler.ollama-logrotate com.ostler.export-scan com.ostler.doctor com.ostler.ical-server com.ostler.fda-rerun com.creativemachines.ostler.assistant com.creativemachines.ostler.email-ingest com.creativemachines.ostler.wiki-recompile com.creativemachines.ostler.editor-frontpage com.creativemachines.ostler.context-refresh"
 for L in $REQ_AGENTS; do
     printf '<plist><dict><key>Label</key><string>%s</string></dict></plist>\n' "$L" > "$H/Library/LaunchAgents/$L.plist"
 done
@@ -122,6 +122,26 @@ else
     bad "an undeclared LaunchAgent was not caught+named (rc=$rc): $(printf '%s' "$out" | grep -i mystery || printf '(not named)')"
 fi
 rm -f "$H/Library/LaunchAgents/com.ostler.mystery.plist"
+
+# ── C-bis. A CONDITIONAL agent that IS present must NOT read as UNDECLARED. ──
+# This is the other half of C, and it is the half #1506 turned on. com.ostler.enrich
+# is `conditional`: absent is not a failure, but PRESENT must still count as declared.
+# Without this arm, `conditional` could silently behave like `excluded` -- or worse,
+# like a row nobody reads -- and the fixture would never notice.
+#
+# It gets its own arm rather than a seat in REQ_AGENTS. It was in that list, and that
+# list is labelled "the 13 UNCONDITIONAL (required) launch agents", so it contradicted
+# its own header AND modelled an install no customer has: install.sh's own comment for
+# this agent is "No customer Mac has ever run this agent." A fixture that runs it is
+# not modelling a real install. Found by TNM reviewing #1506.
+printf '<plist><dict><key>Label</key><string>com.ostler.enrich</string></dict></plist>\n' > "$H/Library/LaunchAgents/com.ostler.enrich.plist"
+out="$(_run --only-type launch_agent)"; rc=$?
+if grep -q 'com.ostler.enrich' <<< "$out"; then
+    bad "a PRESENT conditional agent was reported (rc=$rc): $(printf '%s' "$out" | grep -i enrich | head -1)"
+else
+    pass "a conditional agent that IS present is neither MISSING nor UNDECLARED"
+fi
+rm -f "$H/Library/LaunchAgents/com.ostler.enrich.plist"
 
 # ── D. MISSING cron job -> FAIL + NAMED (the #619 shape). ─────────────
 printf '[[cron.jobs]]\nid = "morning-brief"\n' > "$CFG"
