@@ -56,6 +56,8 @@ on:
   pull_request:
     paths:
       - 'scripts/verify_customer_download_path.sh'
+      - 'scripts/publish_release.sh'
+      - 'tests/test_the_promote_instructions_name_what_makes_it_fail.sh'
       - 'tests/test_customer_download_path_gate.sh'
       # The BASELINE and the comment-stripper are inputs to the verdict, so a
       # change to either must re-run this workflow. A gate that cannot see its
