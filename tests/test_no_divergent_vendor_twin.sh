@@ -146,26 +146,35 @@ fi
 # Without that discriminator this walk reports vendor/cm041/tests <-> ./tests
 # and fourteen other basename collisions that are not packages at all.
 # ---------------------------------------------------------------------------
-# WHICH SIDE SHIPS IS DERIVABLE, NOT A JUDGEMENT CALL.
+# WHICH SIDE SHIPS IS DERIVABLE -- BUT NOT FROM install.sh.
 #
-# install.sh is the only authority, and it answers by copying: a package it
-# copies from ${SCRIPT_DIR}/<pkg> has the REPO ROOT as its authoritative copy.
-# Measured 2026-09-05: install.sh makes SIX such copies (ostler_security,
-# ostler_fda, contact_syncer, meeting_syncer, identity_resolver, ostler_hygiene)
-# and ZERO copies out of vendor/. So this file's old global claim that "the
-# shipping copy is vendor/" was not merely wrong for one pair -- it was wrong
-# for every package the installer copies.
+# 🔴 I GOT THIS BACKWARDS FIRST, AND SO DID THE REVIEWER, BY READING install.sh.
+# install.sh copies ${SCRIPT_DIR}/<pkg> into the import pipeline, and it is very
+# tempting to conclude that the repo-root copy is the one that ships. IT IS NOT.
+# ${SCRIPT_DIR} is not this repo on a customer's Mac -- it is the .app Resources
+# directory, and what fills THAT is gui/project.yml:
 #
-# It matters because the obvious remediation is the dangerous one: re-vendoring
-# CM041 to "fix the drift" would overwrite the SHIPPING contact_syncer with the
-# older vendored tree and silently regress every module that has moved on.
+#     VENDOR_ROOT="${SRCROOT}/../vendor/cm041"
+#     cp -R "${VENDOR_ROOT}/contact_syncer"  "${DEST}/contact_syncer"
+#
+# Measured: gui/project.yml carries 1 bundling reference for contact_syncer, out
+# of vendor/cm041, and ZERO references to the repo-root copy. So the VENDORED
+# tree is what a customer runs; the repo-root tree is what a dev-tree install
+# uses, where ${SCRIPT_DIR} really is the repo.
+#
+# install.sh describes the SECOND hop (payload -> import pipeline) and says
+# nothing about which repo tree filled the payload. Reading hop two as if it
+# were hop one is how both of us concluded the wrong copy was authoritative.
+#
+# The bundler is therefore the authority, and this asks the bundler.
 _shipping_side() {
     local pkg="$1" n
-    [ -f install.sh ] || { echo "unknown"; return; }
-    n="$(/usr/bin/grep -cE 'cp -R "\$\{SCRIPT_DIR\}/'"${pkg}"'"' install.sh || :)"
-    if [ "${n:-0}" -gt 0 ]; then echo "root"; return; fi
-    n="$(/usr/bin/grep -cE 'cp -R "\$\{SCRIPT_DIR\}/vendor/[^"]*/'"${pkg}"'"' install.sh || :)"
-    if [ "${n:-0}" -gt 0 ]; then echo "vendor"; return; fi
+    if [ -f gui/project.yml ]; then
+        n="$(/usr/bin/grep -cE 'cp -R "\$\{VENDOR_ROOT\}/'"${pkg}"'"' gui/project.yml || :)"
+        if [ "${n:-0}" -gt 0 ]; then echo "vendor"; return; fi
+        n="$(/usr/bin/grep -cE 'cp -R "\$\{SRCROOT\}/\.\./'"${pkg}"'"' gui/project.yml || :)"
+        if [ "${n:-0}" -gt 0 ]; then echo "root"; return; fi
+    fi
     echo "unknown"
 }
 
@@ -278,16 +287,20 @@ if ! diff -u "$recorded" "$sorted" > /dev/null 2>&1; then
     echo "      A count that SHRANK or a pair that vanished is good news that still" >&2
     echo "      needs --regenerate, so the recorded number stays honest." >&2
     echo "" >&2
-    echo "      WHICH SIDE SHIPS, per pair, derived from install.sh:" >&2
+    echo "      WHICH SIDE SHIPS, per pair, derived from gui/project.yml (the BUNDLER," >&2
+    echo "      not install.sh -- install.sh copies the payload, it does not fill it):" >&2
     while IFS="$(printf '\t')" read -r _vp _rp _c; do
         [ -n "${_vp:-}" ] || continue
         _pkg="$(basename "$_vp")"
         case "$(_shipping_side "$_pkg")" in
-            root)   echo "        ${_pkg}: install.sh copies \${SCRIPT_DIR}/${_pkg}, so ./${_pkg} is AUTHORITATIVE." >&2
-                    echo "                 DO NOT re-vendor this pair -- it would overwrite the shipping" >&2
-                    echo "                 copy with the older vendored tree." >&2 ;;
-            vendor) echo "        ${_pkg}: install.sh copies it out of vendor/, so the vendored copy is AUTHORITATIVE." >&2 ;;
-            *)      echo "        ${_pkg}: install.sh copies neither side by name. Find what ships BEFORE picking a winner." >&2 ;;
+            vendor) echo "        ${_pkg}: gui/project.yml bundles the app Resources from vendor/, so the" >&2
+                    echo "                 VENDORED copy is what a customer runs. ./${_pkg} is the dev-tree" >&2
+                    echo "                 copy. Do NOT assume install.sh answers this: it copies" >&2
+                    echo "                 \${SCRIPT_DIR}/${_pkg}, which IS the bundled payload on a Mac." >&2 ;;
+            root)   echo "        ${_pkg}: gui/project.yml bundles it from the repo root, so ./${_pkg} is" >&2
+                    echo "                 what a customer runs and re-vendoring would regress it." >&2 ;;
+            *)      echo "        ${_pkg}: gui/project.yml bundles neither side by name. Find what fills the" >&2
+                    echo "                 .app Resources BEFORE picking a winner -- install.sh cannot tell you." >&2 ;;
         esac
     done < "$sorted"
     exit 1
@@ -297,7 +310,7 @@ if [ "$deep_pairs" -gt 0 ]; then
     echo "deep walk: $deep_pairs package twin(s), drift matches $LEDGER exactly"
     while IFS="$(printf '\t')" read -r vp rp cnt; do
         [ -n "${vp:-}" ] || continue
-        [ "$cnt" -gt 0 ] && echo "  RECORDED DEBT: $vp <-> $rp, $cnt divergent shared file(s); install.sh ships the $(_shipping_side "$(basename "$vp")") side"
+        [ "$cnt" -gt 0 ] && echo "  RECORDED DEBT: $vp <-> $rp, $cnt divergent shared file(s); the app bundles the $(_shipping_side "$(basename "$vp")") side"
     done < "$recorded"
 fi
 
