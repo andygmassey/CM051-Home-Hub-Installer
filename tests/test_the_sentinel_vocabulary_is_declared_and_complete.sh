@@ -141,13 +141,44 @@ if [ -z "$DECLARED_SRC" ]; then
 fi
 
 CALLSITES="$(sed 's/[[:space:]]*#.*$//' "$SUBJECT"     | grep -oE '_hydrate_sentinel_record(_no_data|_error|_cannot_run)?[[:space:]]+[^[:space:]]+')"
-SITE_SRCS="$(printf '%s
-' "$CALLSITES" | grep -oE '"[a-z_]+"' | tr -d '"' | sort -u)"
+# QUOTES ARE OPTIONAL, and assuming they were not cost a real miss. The first
+# version extracted with a pattern requiring quotes, so an UNQUOTED literal was
+# readable but NEVER EXTRACTED: Direction 1 then compared a SUBSET and the
+# suite reported agreement while a 14th source sat in the file. Readable and
+# extracted are different properties and both are needed.
+SITE_SRCS="$(printf '%s\n' "$CALLSITES" \
+    | sed -E 's/.*_hydrate_sentinel_record(_no_data|_error|_cannot_run)?[[:space:]]+//' \
+    | sed -E 's/^"([a-z_]+)"$/\1/' \
+    | grep -E '^[a-z_]+$' | sort -u)"
 N_SITES="$(printf '%s
 ' "$CALLSITES" | grep -c . || true)"
 N_SRCS="$(printf '%s
 ' "$SITE_SRCS" | grep -c . || true)"
 echo "  ${N_SITES} recorder call site(s), ${N_SRCS} distinct source name(s)"
+
+# ── DIRECTION 0: NO CALL SITE MAY BE UNREADABLE ─────────────────────────
+#
+# 🔴 TNM mutation-tested the two directions below and one slipped through:
+#
+#     _hydrate_sentinel_record "brand_new_source" "x=1"   -> FAIL, named it
+#     _hydrate_sentinel_record  brand_new_source  "x=1"   -> PASS  🔴
+#
+# and MY OWN DIAGNOSTIC LINE was the evidence: sites went 51 -> 52 while
+# sources stayed 13. The extractor SAW the call site, could not read its source
+# token, DROPPED it, and reported agreement over the subset that remained.
+# That is a silent under-count, and agreement over a subset means nothing.
+#
+# THE FIX IS NOT A WIDER REGEX. Chasing spellings loses -- unquoted, ${VAR},
+# single quotes, a line continuation -- and each miss looks like a pass. The
+# invariant is that every call site is READABLE, which covers every spelling at
+# once and turns the two numbers printed above into an assertion rather than a
+# diagnostic nobody reads.
+UNPARSED="$(printf '%s\n' "$CALLSITES" \
+    | sed -E 's/.*_hydrate_sentinel_record(_no_data|_error|_cannot_run)?[[:space:]]+//' \
+    | grep -cvE '^"?[a-z_]+"?$' || true)"
+[ "${UNPARSED:-0}" -eq 0 ] \
+    && ok "every one of the ${N_SITES} call sites is readable, so the comparison below is over the WHOLE population" \
+    || bad "${UNPARSED} call site(s) UNREADABLE. The comparison below is over a SUBSET and its agreement means nothing."
 
 # DIRECTION 1: a source used at a call site but never declared is a new source
 # nobody told the reader about.
