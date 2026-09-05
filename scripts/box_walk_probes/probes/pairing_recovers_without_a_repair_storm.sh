@@ -95,7 +95,26 @@ run_probe() {
   [ -n "${code:-}" ] || { probe_cannot_run "gateway would not issue a pairing code"; return; }
 
   # The port the APP uses. One post, one code.
-  first=$(box_run "curl -sk --noproxy '*' --max-time 6 -X POST -H 'X-Pairing-Code: ${code}' https://127.0.0.1:8443/pair")
+  #
+  # ⚠️ TAKE curl'S EXIT CODE. A REFUSAL AND A NON-ANSWER ARE DIFFERENT FINDINGS.
+  # MEASURED, archie@.240, two runs of the SAME artefact 28 minutes apart
+  # (v1.0.67-20260905T031918Z vs T034741Z): run A passed here, run B printed
+  #   "REJECTED a code the gateway had just issued ... Response:"
+  # with NOTHING after "Response:". An empty body is the signature of a curl
+  # that never got an answer -- --max-time 6 expiring, a refused connection, a
+  # TLS handshake that died. A GENUINE rejection carries a JSON body; run A's
+  # own replay arm printed {"error":"Invalid pairing code"} to prove it.
+  #
+  # Without the rc, all three collapse into one FAIL that asserts "a customer
+  # whose session dies cannot get back in" -- a product claim about the shipped
+  # artefact -- on the strength of a six-second timeout. That is CANNOT-RUN
+  # wearing a FAIL's clothes, and it spent a red in the v1.0.67 walk record.
+  first=""; _first_rc=0
+  first=$(box_run "curl -sk --noproxy '*' --max-time 6 -X POST -H 'X-Pairing-Code: ${code}' https://127.0.0.1:8443/pair") || _first_rc=$?
+  if [ "${_first_rc}" -ne 0 ] || [ -z "${first}" ]; then
+    probe_cannot_run "8443 gave NO ANSWER (curl rc=${_first_rc}, body ${#first} bytes). That is a transport failure, not a rejection: a real refusal carries a JSON error body. The pairing path was NOT MEASURED. Not a pass, and not a product failure."
+    return
+  fi
   case "$first" in
     *'"paired":true'*) : ;;
     *) probe_fail "8443 -- the port the app pairs against -- REJECTED a code the gateway had just issued. A customer whose session dies cannot get back in. Response: ${first:0:100}"
@@ -106,7 +125,19 @@ run_probe() {
   # SAME code must now be refused. If it were accepted, the code is not
   # single-use and every issued code stays live forever -- a worse defect than
   # the one under test, and it would otherwise read as a clean pass.
-  second=$(box_run "curl -sk --noproxy '*' --max-time 6 -X POST -H 'X-Pairing-Code: ${code}' https://127.0.0.1:8443/pair")
+  #
+  # ⚠️ AND THE CONTROL HAS THE INVERSE BUG, WHICH IS THE WORSE HALF. Below, only
+  # a body containing '"paired":true' fails. So if this second curl ALSO gets no
+  # answer, $second is empty, the case does not match, and the probe walks
+  # straight to probe_pass -- reporting "refused its replay" when nothing
+  # refused anything. A control that passes by never running is not a control,
+  # and this one guards a standing key to the customer's hub.
+  second=""; _second_rc=0
+  second=$(box_run "curl -sk --noproxy '*' --max-time 6 -X POST -H 'X-Pairing-Code: ${code}' https://127.0.0.1:8443/pair") || _second_rc=$?
+  if [ "${_second_rc}" -ne 0 ] || [ -z "${second}" ]; then
+    probe_cannot_run "the single-use CONTROL got no answer from 8443 on the replay (curl rc=${_second_rc}, body ${#second} bytes). The first pair SUCCEEDED, so this cannot be reported as a pass: whether a spent code is still live was NOT MEASURED."
+    return
+  fi
   probe_examined "1" "replay of the spent code -- response: ${second:0:60}"
   case "$second" in
     *'"paired":true'*)
