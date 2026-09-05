@@ -46,6 +46,7 @@ test_amazon_extracted_dir_parse.py	WIRED	.github/workflows/tests-unwired-sweep-a
 test_an_abort_inside_a_step_is_counted.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_an_abort_speaks_on_a_terminal_install.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_an_old_format_sentinel_does_not_abort_the_install.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_an_uninstall_that_cannot_ask_removes_nothing.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_an_unmeasured_count_is_not_a_measured_zero.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_an_unmeasured_flag_must_be_read.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_app_binary_agents_bootstrap.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
