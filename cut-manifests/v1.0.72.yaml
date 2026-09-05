@@ -327,7 +327,7 @@ open_issues:
   # `gate: NONE YET` means no proof has been written. That is WORK, not cover.
   - issue: 770
     title: "The iMessage backfill ladder never runs: the installer pins the window at 45 days, and a pin disables the ladder"
-    gate: "FIX (gated): entry: imessage-backfill-ladder-is-not-pinned -- the 45-day pin is already gone from main; this is the regression proof so it cannot come back"
+    gate: "CLOSE -- was FIX:(gated): entry: imessage-backfill-ladder-is-not-pinned -- the 45-day pin is already gone from main; this is the regression proof so it cannot come back"
   - issue: 775
     title: "the hydrate-sentinel control (7) has a false pass on a nested block, and types its own denominator"
     gate: "FIX (apparatus, counted per Andy): both halves latent today, but a control with a false pass and a hand-typed denominator are instrument defects and instruments must work. Needs a proof authored"
@@ -336,22 +336,22 @@ open_issues:
     gate: "FIX (BLOCKING): probe-freshness-panel-has-dates exits 78 CANNOT-RUN on a 404, and CANNOT-RUN counts toward the blocking total. Three options, all product calls: land the Doctor freshness route, retarget the probe, or remove the row with the reason recorded"
   - issue: 1113
     title: "assistant_answers_grounded: tools= is empty because [mcp] servers = [], and every ungrounded turn logs outcome='ok'"
-    gate: "FIX (apparatus, verify then close): stated root cause refuted -- pwg_* are native Rust tools, not MCP servers. The tools= emptiness is real and unexplained; gated by entry: probe-assistant-answers-grounded"
+    gate: "VERIFY -- was FIX:(apparatus, verify then close): stated root cause refuted -- pwg_* are native Rust tools, not MCP servers. The tools= emptiness is real and unexplained; gated by entry: probe-assistant-answers-grounded"
   - issue: 1122
     title: "35 un-revoked pairing tokens on the walk box, hidden because the probe was BROKEN"
-    gate: "FIX (already gated): entry: probe-pairing-recovers-without-a-repair-storm (TOKEN_CEILING=12, self-tested both ways). Register row was wrong to say NONE YET"
+    gate: "CLOSE -- was FIX:(already gated): entry: probe-pairing-recovers-without-a-repair-storm (TOKEN_CEILING=12, self-tested both ways). Register row was wrong to say NONE YET"
   - issue: 1123
     title: "pair_state_agreement can never read 2 of its 3 signals: /doctor/api/health has no pairing field"
-    gate: "FIX (apparatus, verify then close): believed superseded by d56ce2a5 (#1532) -- probe now reads 5 signals. Gated by entry: probe-pair-state-agreement; close on a green walk, not on the diff"
+    gate: "VERIFY -- was FIX:(apparatus, verify then close): believed superseded by d56ce2a5 (#1532) -- probe now reads 5 signals. Gated by entry: probe-pair-state-agreement; close on a green walk, not on the diff"
   - issue: 1125
     title: "assistant_answers_grounded scores any pwg_* call as grounded, so it is blind to the wrong-tool case"
     gate: "FIX: entry: grounded-is-not-a-bare-pwg-prefix -- the probe scores any pwg_* call as grounded, so a green verdict measures something weaker than it claims"
   - issue: 1141
     title: "usage journal has never been written on a box that has compiled and ingested for days"
-    gate: "FIX (verify then close): both halves believed landed (install.sh:12952 writes active_workspace.toml, probe honours it). Gated by entry: probe-usage-journal-producers, which FAILED on the v1.0.71 walk -- so it is NOT closed"
+    gate: "VERIFY -- was FIX:(verify then close): both halves believed landed (install.sh:12952 writes active_workspace.toml, probe honours it). Gated by entry: probe-usage-journal-producers, which FAILED on the v1.0.71 walk -- so it is NOT closed"
   - issue: 1143
     title: "egress probe FAILs on declared hosts: a rotating DNS pool defeats contemporaneous resolution"
-    gate: "FIX (apparatus, verify then close): DERP leg now in the same joint remote call (6fa2e4f4). Gated by entry: probe-no-unexpected-egress; close on a green walk"
+    gate: "VERIFY -- was FIX:(apparatus, verify then close): DERP leg now in the same joint remote call (6fa2e4f4). Gated by entry: probe-no-unexpected-egress; close on a green walk"
   - issue: 1152
     title: "acceptance_gate_v1013 is a registered probe that the box_walk_probes README never lists"
     gate: "FIX (apparatus, counted per Andy): the register is wrong AND the issue is wrong -- acceptance_gate_v1013 is not collected by run_box_walk.sh. Gated by entry: every-probe-on-disk-is-collected"
@@ -369,7 +369,7 @@ open_issues:
     gate: "DEFER: the string-typed writer is not in CM051, no L3 exists in that collection, and no shipped caller filters on the field. Not on the v1.0 path"
   - issue: 1161
     title: "pwg_preferences fixtures use lowercase domains ('music', 'food') that no live install has — the live vocabulary is capitalised, and an unmatched filte"
-    gate: "DEFER: customer-facing half is fixed upstream and ships -- 3d851e41 is an ancestor of hub-v0.4.70, the pinned daemon"
+    gate: "CLOSE -- was DEFER:: customer-facing half is fixed upstream and ships -- 3d851e41 is an ancestor of hub-v0.4.70, the pinned daemon"
   - issue: 1162
     title: "assistant_answers_grounded: it is not 'one in three fails' — one exact string fails every time while a semantically identical rephrasing grounds fine "
     gate: "FIX (already gated): entry: probe-assistant-answers-grounded -- the failing string is literally battery question line 272. Fix is daemon-side"
@@ -384,7 +384,7 @@ open_issues:
     gate: "FIX (apparatus, counted per Andy): two self-declared cut-blocking gates did not run at the cut commit. An instrument that skips its own subject is the failure this manifest exists to end"
   - issue: 1208
     title: "🔴🔴 TNM-0: the port preflight is blind by construction — lsof cannot see another account's listener, so all 7 ports go GREEN on a two-account Mac"
-    gate: "FIX = ALREADY FIXED, verify and CLOSE: install.sh:16230 now bind-probes with a three-state table and fail_with_code ERR-06-PORTS-HELD, citing #1208 by number. Open only because nobody closed it"
+    gate: "CLOSE -- was FIX:= ALREADY FIXED, verify and CLOSE: install.sh:16230 now bind-probes with a three-state table and fail_with_code ERR-06-PORTS-HELD, citing #1208 by number. Open only because nobody closed it"
   - issue: 1508
     title: "Revisit the scoped promote gate once a launchable DMG exists"
     gate: "DEFER: its own acceptance criterion is 'once a launchable DMG exists'. NOTE it is stale -- says 19 blocking / 5 advisory, the file says 22 / 4"
@@ -396,28 +396,28 @@ open_issues:
     gate: "FIX, PARTLY LANDED: the 'says nothing at all' half closed at 2fb58d1e (#1558) -- _ostler_report_assistant_fda called unconditionally at indent 0. Gated by entry: every-install-says-whether-the-assistant-can-read. RESIDUAL: the nudge still cannot self-verify without sudo. NOT a launch blocker; title over-claims"
   - issue: 1539
     title: "reuse_settings does not cover tailscale_confirm: the ONLY question a re-install re-asks"
-    gate: "FIX, SPLIT IN TWO: migrator half is PR #1554 (green), gate on merge. TAILSCALE HALF HAS NOTHING IN FLIGHT -- TAILSCALE_CONFIRM is at 17 sites and none writes to the settings store, so a re-install re-asks the only question it re-asks"
+    gate: "MERGE -- was FIX:, SPLIT IN TWO: migrator half is PR #1554 (green), gate on merge. TAILSCALE HALF HAS NOTHING IN FLIGHT -- TAILSCALE_CONFIRM is at 17 sites and none writes to the settings store, so a re-install re-asks the only question it re-asks"
   - issue: 1540
     title: "LAUNCH BLOCKER: a BIP39 recovery phrase is generated, the DEK is encrypted under it, and the customer is never shown it"
     gate: "FIX, MECHANISM LANDED: mint-to-reveal gap is now 24 lines (14008 -> 14032), the GUI sheet hangs off the whole body outside finished==.ok, and probe the_recovery_key_reached_the_customer is blocking. NOT still a launch blocker. RESIDUAL for v1.0.72: the shipped recovery CLI says '12-word BIP39 phrase' for a 24-character key"
   - issue: 1541
     title: "The RULE 2 veto is wired and still lets 53 over-merges through on a FRESH graph, and 'absence is not a conflict' is the likely seam"
-    gate: "FIX: same root cause as 1573, treat as one. PR #1578"
+    gate: "MERGE -- was FIX:: same root cause as 1573, treat as one. PR #1578"
   - issue: 1550
     title: "A cut gate reads a checkout on the wrong branch and calls it a RED: the worktree guard tests the wrong property"
     gate: "FIX (apparatus, counted per Andy): run_all_cut_gates.sh:167 tests worktree-ness rather than branch and tip, so a stale checkout produced a confident RED on a byte-identical image. OSTLER_ASSISTANT_DIR has the same exposure in the false-GREEN direction. Half an hour and it stops the cut lying both ways"
   - issue: 1556
     title: "The pre-commit PII hook and the CI PII gate are different scanners in different repos, and only the nickname is shared"
-    gate: "FIX, PR ALREADY OPEN AND GREEN: #1564. Gate on merge"
+    gate: "MERGE -- was FIX:, PR ALREADY OPEN AND GREEN: #1564. Gate on merge"
   - issue: 1559
     title: "install.sh aborts on launchctl print gui/<uid> in any headless context: an unanswerable query is handled as a failure"
-    gate: "FIX, PR ALREADY OPEN AND GREEN: #1561 -- no headless walk can reach step 6 without it. Gate on merge"
+    gate: "MERGE -- was FIX:, PR ALREADY OPEN AND GREEN: #1561 -- no headless walk can reach step 6 without it. Gate on merge"
   - issue: 1560
     title: "The shipped uninstaller has no non-interactive path, so no automated reset can complete"
-    gate: "FIX, PR ALREADY OPEN AND GREEN: #1567, and the -n hole is closed in it. Gated by entry: uninstall-consent-is-an-allowlist-not-a-non-empty-test"
+    gate: "MERGE -- was FIX:, PR ALREADY OPEN AND GREEN: #1567, and the -n hole is closed in it. Gated by entry: uninstall-consent-is-an-allowlist-not-a-non-empty-test"
   - issue: 1562
     title: "Customers can only uninstall from the command line"
-    gate: "DEFER THE BUTTON, FIX THE PLUMBING: #1568 + #1572 green and must move together (the decoder knows 0 of 3 events). Andy said the GUI is not a launch blocker"
+    gate: "MERGE -- was DEFER THE BUTTON:, FIX THE PLUMBING: #1568 + #1572 green and must move together (the decoder knows 0 of 3 events). Andy said the GUI is not a launch blocker"
   - issue: 1566
     title: "ERR-14 on a cold box: the store was running and nothing could connect to it for 300s, and the install cannot tell that from a slow start"
     gate: "FIX THE DIAGNOSIS, NOT THE TIMEOUT: a customer-reaching abort at step 16 of 41 with a wrong diagnosis. #1537 already raised the cap to 300s and the box still failed the full 300, so raising it again is not the fix. No proof authorable until the fix shape is chosen"
@@ -426,7 +426,7 @@ open_issues:
     gate: "FIX: the product claims work it did not do and then records the hash so it never retries. Honesty plus silent data loss. Needs a proof authored on the fix shape"
   - issue: 1573
     title: "RULE 2 still violated on a fresh v1.0.71 graph: 54 person nodes hold 117 Contacts cards, with the #1543 fix present in the artefact"
-    gate: "FIX: PR #1578. Root cause independently confirmed -- dedupe_merge has 0 matches for icloud_contact_uid, RULE 2, veto or mergedInto, against a control of 25 for 'def |merge'"
+    gate: "MERGE -- was FIX:: PR #1578. Root cause independently confirmed -- dedupe_merge has 0 matches for icloud_contact_uid, RULE 2, veto or mergedInto, against a control of 25 for 'def |merge'"
   - issue: 1574
     title: "com.ostler.ollama crash-loops 368 times behind a guard that reports OK: 'a port answers' is not 'our agent is healthy'"
     gate: "FIX: a guard prints OK over an agent that failed 368 times, and _ollama_agent_is_running sits twelve lines above it uncalled. Needs a proof authored"
