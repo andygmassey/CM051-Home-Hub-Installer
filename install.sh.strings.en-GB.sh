@@ -568,6 +568,7 @@ MSG_OK_WIKI_TAILNET_SERVED="Your wiki is now readable from your own devices at %
 MSG_INFO_WIKI_TAILNET_OWNER="Wiki access is restricted to your Tailscale account (%s). Other people on your tailnet get a 403."
 MSG_INFO_WIKI_TAILNET_LOCAL_ONLY="Your wiki stays on this Mac only – browse it at http://localhost:8044"
 MSG_INFO_WIKI_TAILNET_BANNER="%s  (from your own devices, over Tailscale)"
+MSG_INFO_WIKI_SIGN_IN="Sign in as %s with the password %s – your browser will offer to remember it, so you only type it once."
 MSG_WARN_WIKI_TAILNET_OWNER_UNRESOLVED="Could not confirm which Tailscale account owns this Mac, so the wiki has NOT been exposed on your tailnet. It is still available on this Mac at http://localhost:8044"
 MSG_WARN_WIKI_TAILNET_SERVE_FAILED="Could not publish the wiki on your tailnet; it is still available on this Mac at http://localhost:8044"
 MSG_WARN_WIKI_TAILNET_GATE_RELOAD_FAILED="Could not reload the wiki access gate, so the wiki has NOT been exposed on your tailnet."

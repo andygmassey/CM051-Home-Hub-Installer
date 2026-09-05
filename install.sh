@@ -12865,6 +12865,48 @@ _seed_store_secret() {
 _seed_store_secret "qdrant_api_key" QDRANT_API_KEY
 _seed_store_secret "redis_password" REDIS_PASSWORD
 _seed_store_secret "oxigraph_token" OXIGRAPH_TOKEN
+# ── Wiki browser credential (#1594) ───────────────────────────────
+#
+# SEPARATE FROM _seed_store_secret ON PURPOSE, and the reason is the
+# consumer. The three secrets above are read by MACHINES: a client
+# copies 64 hex characters out of a file and puts them in a header. The
+# wiki credential is read by a PERSON, once, into a browser prompt,
+# before Keychain remembers it. 64 hex characters is not a password
+# somebody types; it is a password somebody pastes wrong and then
+# reports the wiki as broken.
+#
+# So: 20 characters from a 31-symbol alphabet with the ambiguous glyphs
+# removed (no 0/O, no 1/l/i), grouped for reading. ~99 bits, which is
+# far past anything that matters for a loopback-only listener that
+# answers one account.
+#
+# Same reuse rule as the machine secrets: never rotate a credential a
+# browser has already saved, or the customer gets a password prompt
+# they cannot answer and no way to know why.
+_seed_wiki_password() {
+    local _file="${SECRETS_DIR}/wiki_password" _outvar="$1" _val="" _raw=""
+    if [[ -s "$_file" ]]; then
+        _val="$(cat "$_file")"
+    else
+        # No 2>/dev/null anywhere in here: a credential we could not
+        # generate must be loud, not empty. An empty password would
+        # produce an htpasswd line that no input can ever satisfy,
+        # which reads to a customer as "the wiki is broken" and to a
+        # gate as "auth is on".
+        _raw="$(LC_ALL=C /usr/bin/tr -dc 'abcdefghjkmnpqrstuvwxyz23456789' < /dev/urandom | /usr/bin/head -c 20)"
+        if [[ "${#_raw}" -ne 20 ]]; then
+            fail_with_code "ERR-14-STORE-WIKI-CREDENTIAL" "Could not generate the wiki password (got ${#_raw} characters, expected 20). Refusing to publish the wiki without a credential."
+        fi
+        _val="${_raw:0:5}-${_raw:5:5}-${_raw:10:5}-${_raw:15:5}"
+        local _um; _um="$(umask)"; umask 0077
+        printf '%s' "$_val" > "$_file"
+        umask "$_um"
+        chmod 600 "$_file"
+    fi
+    printf -v "$_outvar" '%s' "$_val"
+}
+_seed_wiki_password WIKI_PASSWORD
+
 ok "Generated per-install data-store auth secrets under ${SECRETS_DIR} (qdrant_api_key, redis_password, oxigraph_token)."
 
 # 🔴 RE-WRITE THE SHELL CURL CREDENTIAL NOW THAT BOTH SECRETS EXIST (#550).
@@ -16281,8 +16323,10 @@ _port_is_our_own_forward() {
         3000|6379|8044|8144)
             # ⛔ SOLE-TENANCY BOUND for the credential-less ports (#567 B1,
             # @ARCHIE cleared "narrows -> closes"). vane (3000), redis (6379),
-            # the wiki (8044) and 8144 have no per-install HTTP credential to
-            # probe, so ownership rests on signal 1 + the single-machine
+            # 8144 has no per-install HTTP credential to probe, and 8044's
+            # credential (#1594) is HTTP Basic on a browser surface rather
+            # than a header this helper could send, so for BOTH of them
+            # ownership rests on signal 1 + the single-machine
             # invariant: on a one-Ostler-stack Mac, this user's colima forward
             # on this port IS our service. #549 (a cross-account holder an
             # unprivileged reader cannot attribute) is a SEPARATE, still-OPEN
@@ -16544,6 +16588,9 @@ services:
       - "127.0.0.1:6333:6333"
       - "127.0.0.1:7878:7878"
       - "127.0.0.1:8144:8144"
+      # #1594: the wiki's host publish moved here from wiki-site so it
+      # lands BEHIND the credential. wiki-site no longer publishes.
+      - "127.0.0.1:8044:8044"
     volumes:
       - ${HOME}/.ostler/ostler-store-proxy.conf:/etc/nginx/nginx.conf:ro
       # #550 Oxigraph credential. Separate file because the conf above is
@@ -16557,6 +16604,11 @@ services:
       # authenticates. MUST exist before this container is created or
       # Docker materialises a DIRECTORY at the bind-mount path.
       - ${HOME}/.ostler/ostler-wiki-gate.conf:/etc/nginx/ostler-wiki-gate.conf:ro
+      # #1594 wiki browser credential. Both 0600 and both subject to the
+      # same must-exist-before-create rule as the two files above: absent,
+      # Docker creates a DIRECTORY here and nginx dies with "is a directory".
+      - ${HOME}/.ostler/ostler-wiki-auth.conf:/etc/nginx/ostler-wiki-auth.conf:ro
+      - ${HOME}/.ostler/ostler-wiki-htpasswd:/etc/nginx/ostler-wiki-htpasswd:ro
     restart: unless-stopped
 
   redis:
@@ -16594,8 +16646,17 @@ services:
   wiki-site:
     image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:77eee04f13b1e08e34be222847b363a2b2f09299e5a6afb1989351be29adcfab
     container_name: ostler-wiki-site
-    ports:
-      - "127.0.0.1:8044:8000"
+    # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
+    #
+    # This used to map the container port straight onto host 8044, which
+    # put the whole compiled wiki one unauthenticated GET away from any
+    # other local account. The host publish now lives on store-proxy, behind
+    # auth_basic. Re-adding a publish here does not "also expose" the
+    # wiki, it BYPASSES the credential entirely, because this container
+    # has no idea one exists.
+    #
+    # store-proxy reaches it as wiki-site:8000 on the compose network,
+    # which is what both the :8044 server and the :8144 tailnet gate use.
     # CX-81 B6: pass the customer's first name through so the wiki-site
     # entrypoint can render the site title to {{first_name}}pedia. Unset
     # / empty falls back to "Personal wiki" inside
@@ -16988,6 +17049,49 @@ http {
         }
     }
 
+    # Personal wiki, on-device browser access (#1594).
+    #
+    # The v1.0 disposition for 8044 in DECISION_550 is ABSENT: "one door
+    # via the daemon, direct publish removed". It was never built, so
+    # wiki-site published 127.0.0.1:8044 itself and any second local
+    # account could GET the whole compiled wiki -- every person,
+    # organisation, note, meeting and preference, summarised and
+    # searchable. Strictly worse than the SPARQL read that opened #550,
+    # because the data arrives pre-digested.
+    #
+    # The publish now lands HERE instead, behind a credential. The two
+    # checks above this comment in the other servers read HEADERS THE
+    # CALLER WRITES and stop a browser, not an account, which is why
+    # they are not enough on their own for this port either.
+    #
+    # WHY auth_basic AND NOT THE ALTERNATIVES, all measured (#1594):
+    #   * LOCAL_PEERCRED over TCP is not a control at all: SOL_LOCAL and
+    #     LOCAL_PEERCRED collide with IPPROTO_IP / IP_OPTIONS, so the
+    #     call returns rc=0 with a ZERO-LENGTH buffer and a caller that
+    #     checks only rc reads uninitialised stack as the uid.
+    #   * pf's `user` match is the LISTENER's uid on inbound, per
+    #     pf.conf(5), which is us for every attacker.
+    #   * a token in the URL is cross-account readable in argv.
+    #
+    # The objection recorded against auth_basic was that a browser
+    # cannot carry a bearer and that a cookie gives no port isolation.
+    # Both true, and neither applies: HTTP authentication is not a
+    # cookie. Its protection space is scheme + AUTHORITY, and authority
+    # includes the port, so the credential saved for 127.0.0.1:8044 is
+    # never offered to anything else on loopback.
+    #
+    # The credential include is a separate 0600 file for the same
+    # reason the Oxigraph one is: this conf is 644.
+    server {
+        listen 8044;
+        location / {
+            if ($ostler_store_host_ok = 0) { return 403; }
+            include /etc/nginx/ostler-wiki-auth.conf;
+            set $ostler_wiki_upstream "http://wiki-site:8000";
+            proxy_pass $ostler_wiki_upstream$request_uri;
+        }
+    }
+
     # Wiki tailnet gate (v1.0.17). Generated separately because it can
     # only be written once Tailscale has authenticated and told us who
     # owns this machine. Ships fail-closed: until then the file holds
@@ -17053,6 +17157,37 @@ else
 SAEOF
     chmod 600 "${OSTLER_DIR}/ostler-store-auth.conf"
 fi
+
+# ── Wiki browser credential (#1594) ───────────────────────────────
+#
+# Same 0600 / must-exist-first rules as the Oxigraph credential above:
+# the 644 conf only `include`s this, and if this file is missing when
+# store-proxy is created Docker materialises a DIRECTORY at the
+# bind-mount path and nginx dies with "is a directory".
+#
+# NO OPT-OUT FLAG, deliberately. The store credential has one because it
+# had to be able to flip in step with Qdrant's. This is the only thing
+# standing between a second local account and the whole compiled wiki,
+# and the disposition for it is ABSENT, not optional, so an env var that
+# turns it off would just be the current defect with a name.
+_wa_um="$(umask)"; umask 0077
+_wiki_htpasswd_hash="$(/usr/bin/openssl passwd -apr1 "${WIKI_PASSWORD}")"
+if [[ -z "${_wiki_htpasswd_hash}" || "${_wiki_htpasswd_hash}" != \$apr1\$* ]]; then
+    umask "$_wa_um"
+    fail_with_code "ERR-14-STORE-WIKI-CREDENTIAL" "Could not hash the wiki password with openssl passwd -apr1 (got: ${_wiki_htpasswd_hash:-<empty>}). Refusing to publish the wiki without a credential."
+fi
+printf 'ostler:%s\n' "${_wiki_htpasswd_hash}" > "${OSTLER_DIR}/ostler-wiki-htpasswd"
+cat > "${OSTLER_DIR}/ostler-wiki-auth.conf" <<'WAEOF'
+# Ostler wiki browser credential -- generated by the Ostler installer. 0600.
+# The wiki is a browser surface, so the credential is HTTP Basic rather
+# than a bearer: a browser can be asked for one and can remember it.
+auth_basic "Ostler personal wiki";
+auth_basic_user_file /etc/nginx/ostler-wiki-htpasswd;
+WAEOF
+umask "$_wa_um"
+chmod 600 "${OSTLER_DIR}/ostler-wiki-htpasswd" "${OSTLER_DIR}/ostler-wiki-auth.conf"
+unset _wiki_htpasswd_hash
+ok "Wiki browser credential written (0600); :8044 now demands a password. Username 'ostler', password in ${SECRETS_DIR}/wiki_password."
 
 # ── Wiki tailnet gate, fail-closed placeholder (v1.0.17) ──────────
 #
@@ -30777,6 +30912,11 @@ echo ""
 # are five raw API surfaces". Resolves install UX BLOCKING #1.
 if [[ "$WIKI_FIRST_COMPILE_OK" == true ]]; then
     echo -e "  ${BOLD}Your wiki:${NC} http://localhost:8044"
+    # #1594: the wiki now sits behind a credential, so the password has
+    # to appear HERE. The browser opens automatically a few lines below
+    # and will prompt immediately; a customer who was never shown the
+    # password experiences that as a broken install, not as security.
+    echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_SIGN_IN" "ostler" "${WIKI_PASSWORD}")"
     # Second line only when the owner-gated tailnet route actually
     # landed. Deliberately says "your own devices" -- it is reachable
     # from your phone and iPad over Tailscale, and from nothing else:

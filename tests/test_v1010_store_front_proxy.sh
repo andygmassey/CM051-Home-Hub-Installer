@@ -162,7 +162,17 @@ cat > "$WORK/ostler-store-auth.conf" <<'AUTHEOF'
 # Ostler store credential -- comment-only placeholder, matching the
 # installer's DEFAULT-OFF state. See install.sh.
 AUTHEOF
-printf 'FROM nginx:1.27-alpine\nCOPY nginx.conf /etc/nginx/nginx.conf\nCOPY ostler-wiki-gate.conf /etc/nginx/ostler-wiki-gate.conf\nCOPY ostler-store-auth.conf /etc/nginx/ostler-store-auth.conf\n' > "$WORK/Dockerfile"
+# #1594: the store-proxy conf now also includes the wiki browser credential
+# on :8044. That include is FAIL-CLOSED -- nginx refuses to start without it
+# -- so this harness stages it exactly as install.sh does, same reasoning as
+# the store-auth placeholder above. A real apr1 hash, because
+# auth_basic_user_file is parsed.
+cat > "$WORK/ostler-wiki-auth.conf" <<'WAEOF'
+auth_basic "Ostler personal wiki";
+auth_basic_user_file /etc/nginx/ostler-wiki-htpasswd;
+WAEOF
+printf 'ostler:%s\n' "$(/usr/bin/openssl passwd -apr1 'harness-only-not-a-secret')" > "$WORK/ostler-wiki-htpasswd"
+printf 'FROM nginx:1.27-alpine\nCOPY nginx.conf /etc/nginx/nginx.conf\nCOPY ostler-wiki-gate.conf /etc/nginx/ostler-wiki-gate.conf\nCOPY ostler-store-auth.conf /etc/nginx/ostler-store-auth.conf\nCOPY ostler-wiki-auth.conf /etc/nginx/ostler-wiki-auth.conf\nCOPY ostler-wiki-htpasswd /etc/nginx/ostler-wiki-htpasswd\n' > "$WORK/Dockerfile"
 docker build -q -t "$IMG" "$WORK" >/dev/null 2>&1 || { echo "SKIP [behaviour]: docker build failed (offline?)."; exit 0; }
 
 docker network create "$NET" >/dev/null 2>&1
