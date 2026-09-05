@@ -187,6 +187,88 @@ for fld in 'artefact_sha256' 'artefact_sha256_source'; do
     fi
 done
 
+# ── 5. A VERSION TYPO IS NOT A MISSING MANIFEST ─────────────────────────────
+#
+# MEASURED 2026-09-05, driving the manifest branch directly:
+#
+#   1.0.71   -> "no cut-manifests/1.0.71.yaml"   COVERAGE LOST  overall=2
+#   v9.9.99  -> "no cut-manifests/v9.9.99.yaml"  COVERAGE LOST  overall=2
+#
+# The same state for two different findings. One is a cut with no manifest,
+# which must block a promote; the other is a name typed wrong while the
+# manifest sits on disk. 59 of 59 cut manifests carry the leading v, so a
+# bare 1.0.71 can never match a file -- it is malformed input, not absence.
+#
+# The host is a reserved-TLD name that cannot resolve, so no machine is
+# contacted by these arms.
+UNRESOLVABLE_HOST="invalid.invalid"
+
+_qa_run() {  # $1.. args; echoes "<rc>|<kind>"
+    local _out _rc _kind
+    _out="$(/bin/bash "$QA" "$@" 2>&1)"; _rc=$?
+    if printf '%s' "$_out" | grep -q 'cut-version must look like'; then _kind=shape-refused
+    elif printf '%s' "$_out" | grep -q 'CANNOT REACH';               then _kind=reached-ssh
+    elif printf '%s' "$_out" | grep -q 'usage: scripts/post_walk_qa.sh'; then _kind=no-host
+    else _kind=other; fi
+    printf '%s|%s|%s' "$_rc" "$_kind" "$(printf '%s' "$_out" | grep -c "leading 'v' away")"
+}
+
+# THE DEFECT ARM. A bare version must be refused on SHAPE, before anything runs.
+_r="$(_qa_run "$UNRESOLVABLE_HOST" 1.0.71)"
+case "$_r" in
+    3\|shape-refused\|1) ok "a version with no leading v is refused as usage (rc=3) and names the manifest that does exist" ;;
+    3\|shape-refused\|0) bad "refused on shape but did not point at cut-manifests/v1.0.71.yaml, which is present -- the operator is told what is wrong but not what to do" ;;
+    *)                  bad "a bare 1.0.71 gave [${_r}]; it must not be reported as a missing manifest when v1.0.71.yaml exists" ;;
+esac
+
+# MUST-MISS. Well-formed versions must NOT be refused, or the check has simply
+# broken the tool. A 4-component version is included deliberately: the pattern
+# must not be so tight that a future cut shape is falsely refused.
+for _v in v1.0.71 v9.9.99 v1.0.71.2; do
+    _r="$(_qa_run "$UNRESOLVABLE_HOST" "$_v")"
+    case "$_r" in
+        3\|reached-ssh\|*) ok "${_v} passes the shape check and proceeds to the box" ;;
+        *) bad "${_v} was refused [${_r}] -- a well-formed version must never be rejected on shape" ;;
+    esac
+done
+
+# Garbage is refused, and WITHOUT a false pointer to a manifest that is absent.
+_r="$(_qa_run "$UNRESOLVABLE_HOST" banana)"
+case "$_r" in
+    3\|shape-refused\|0) ok "a non-version argument is refused, and no manifest is falsely claimed to exist" ;;
+    *) bad "banana gave [${_r}]" ;;
+esac
+
+# Unchanged behaviour: no version at all is still legal, and no host is still usage.
+_r="$(_qa_run "$UNRESOLVABLE_HOST")"
+case "$_r" in 3\|reached-ssh\|*) ok "omitting the version is still legal (probes-only mode survives)" ;;
+              *) bad "omitting the version now gives [${_r}]" ;; esac
+_r="$(_qa_run)"
+case "$_r" in 3\|no-host\|*) ok "omitting the host is still a usage refusal" ;;
+              *) bad "omitting the host now gives [${_r}]" ;; esac
+
+# ── 6. THE REFUSAL MUST PRECEDE THE PROBE SUITE, WHICH WRITES ───────────────
+# Placement, not just behaviour. The suite seeds a synthetic person into the
+# LIVE store, so a usage error discovered after it has run has already cost a
+# write. Assert the refusal sits above the ssh reachability check.
+_refuse_line="$(grep -n 'cut-version must look like' "$QA" | head -1 | cut -d: -f1)"
+_ssh_line="$(grep -n 'CANNOT REACH' "$QA" | head -1 | cut -d: -f1)"
+if [[ -z "$_refuse_line" || -z "$_ssh_line" ]]; then
+    bad "could not locate both the shape refusal and the reachability check; placement is unverified"
+elif [[ "$_refuse_line" -lt "$_ssh_line" ]]; then
+    ok "the shape refusal (line ${_refuse_line}) precedes the reachability check (line ${_ssh_line}), so a typo costs no write"
+else
+    bad "the shape refusal is at ${_refuse_line}, AFTER the box work at ${_ssh_line} -- a typo would still cost a full walk"
+fi
+
+# CONTROL: the genuine coverage finding must survive, or this change has
+# silently converted a real gap into a usage error.
+if grep -q 'COUNTED AS COVERAGE LOST' "$QA"; then
+    ok "CONTROL: a well-formed but absent manifest is still counted as coverage lost, so the two findings stay distinct"
+else
+    bad "the coverage-lost branch is gone; a missing manifest would no longer be reported as a gap"
+fi
+
 echo
 echo "${PASS} passed, ${FAIL} failed"
 [[ "$FAIL" -eq 0 ]] || exit 1
