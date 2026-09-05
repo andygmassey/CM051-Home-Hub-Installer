@@ -51,7 +51,7 @@ _extract_scanner() {
 # Build a fixture HOME, run the scanner in it, and report what happened.
 # Echoes "<rc>|<importer_calls>|<stderr first line>".
 _run_scanner() {
-    local scanner_src="$1" plant="$2"
+    local scanner_src="$1" plant="$2" partial="${3:-}"
     local H="${WORK}/home"; rm -rf "$H"; mkdir -p "$H/Downloads" "$H/.ostler/bin" "$H/.ostler/state"
 
     # One synthetic export. Fictional names, example.com addresses: nothing
@@ -60,6 +60,21 @@ _run_scanner() {
         mkdir -p "$H/Downloads/Basic_LinkedInDataExport_fixture"
         printf 'First Name,Last Name,Email Address\nTestcase,Alpha,testcase.alpha@example.com\n' \
             > "$H/Downloads/Basic_LinkedInDataExport_fixture/Connections.csv"
+    fi
+
+    # Optional partial-download marker: "<name>:<age in seconds>".
+    if [ -n "$partial" ]; then
+        local _pname="${partial%%:*}" _page="${partial##*:}"
+        : > "$H/Downloads/${_pname}"
+        # Backdate it. -t wants [[CC]YY]MMDDhhmm[.SS] and reads it as LOCAL
+        # time, so the string must be built in LOCAL time too. Building it in
+        # UTC silently shifted every marker by the box offset: on a +08:00 box
+        # a "5 seconds old" file was stamped 28805s old, which is past the
+        # 3600s staleness threshold, so the live-download arm failed for a
+        # reason that had nothing to do with the subject. Measured, not guessed:
+        # the UTC form gave age 28805s and the local form gave 5s.
+        touch -t "$(date -r "$(( $(date +%s) - _page ))" +%Y%m%d%H%M.%S)" \
+              "$H/Downloads/${_pname}"
     fi
 
     # Stub the importer: it records that it was called, and with what.
@@ -127,6 +142,35 @@ if printf '%s\n' "$_SRC" | /usr/bin/grep -q '_ostler_run_with_deadline "\$OSTLER
     ok "the notification is still BOUNDED, so a hung Apple Event cannot wedge the import chain"
 else
     bad "the notification is no longer routed through the deadline helper"
+fi
+
+# -- The partial-download guard must expire ---------------------------------
+# MEASURED 2026-09-05: the guard skipped if ANY .download/.crdownload/.part
+# existed, with no age test, and the marker did not have to relate to an
+# export. A cancelled download leaves its marker for ever, so one abandoned
+# file silently disabled the whole import on every 4-hourly tick, at exit 0.
+echo "== the partial-download guard =="
+
+_r="$(_run_scanner "$_SRC" plant "abandoned.zip.crdownload:86400")"
+case "$_r" in
+    "0|1|"*) ok "a DAY-OLD abandoned .crdownload no longer blocks the import" ;;
+    *)       bad "an abandoned .crdownload still blocks the import (${_r}). One stale file disables the feature for ever." ;;
+esac
+
+_r="$(_run_scanner "$_SRC" plant "inflight.zip.crdownload:5")"
+case "$_r" in
+    "0|0|"*) ok "CONTROL: a download in flight 5s ago STILL blocks, so a half-written export is never imported" ;;
+    *)       bad "a live download no longer blocks (${_r}); the fix has traded a stall for a corrupt import" ;;
+esac
+
+# The two arms above must disagree, or the guard is not age-sensitive at all
+# and one of them is passing by accident.
+_a="$(_run_scanner "$_SRC" plant "x.part:86400")"
+_b="$(_run_scanner "$_SRC" plant "x.part:5")"
+if [ "${_a%%|*}|${_a#*|}" != "${_b%%|*}|${_b#*|}" ]; then
+    ok "the guard DISCRIMINATES on age: same filename, 24h vs 5s, different outcomes"
+else
+    bad "identical outcome for a 24h-old and a 5s-old marker (${_a} vs ${_b}) -- the age test is not doing anything"
 fi
 
 # -- NEGATIVE CONTROL, pinned to the tree that shipped the defect ------------

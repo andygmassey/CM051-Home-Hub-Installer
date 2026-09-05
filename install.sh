@@ -19721,10 +19721,44 @@ fi
 [[ ${#FOUND[@]} -eq 0 ]] && exit 0
 
 # Guard: skip while anything is still downloading -- partial-download
-# markers (Safari .download, Chrome .crdownload, Firefox .part). The
-# next tick retries once the download completes.
+# markers (Safari .download, Chrome .crdownload, Firefox .part).
+#
+# ONLY WHILE IT IS ACTUALLY STILL DOWNLOADING. This used to skip if ANY
+# such marker existed, with no age test at all, and the marker did not
+# have to have anything to do with an export.
+#
+# MEASURED 2026-09-05, export present in every arm, only the extra file
+# differing:
+#     <nothing else>                  importer called 1
+#     holiday-photos.zip.crdownload   importer called 0
+#     something.download              importer called 0
+#     movie.mkv.part                  importer called 0
+#
+# A cancelled or failed download leaves its marker behind permanently, and
+# Chrome and Safari both do that routinely. So one abandoned .crdownload,
+# unrelated to any export, silently disabled the whole import on EVERY
+# 4-hourly tick, for ever, at exit 0 with nothing written to any log. The
+# comment promised "the next tick retries once the download completes";
+# for a download that never completes there is no such tick.
+#
+# A marker is treated as LIVE only if it changed in the last
+# OSTLER_PARTIAL_DOWNLOAD_STALE_S seconds. Anything older is abandoned and
+# is ignored. `find -mtime`-style tests are avoided in favour of an
+# explicit stat, so the units are visible and testable.
+OSTLER_PARTIAL_DOWNLOAD_STALE_S="${OSTLER_PARTIAL_DOWNLOAD_STALE_S:-3600}"
+_now_s="$(date +%s)"
 for p in "$DOWNLOADS"/*.download "$DOWNLOADS"/*.crdownload "$DOWNLOADS"/*.part; do
-    [[ -e "$p" ]] && exit 0
+    [[ -e "$p" ]] || continue
+    # stat -f%m is BSD/macOS, which is the only platform this runs on.
+    _mt="$(stat -f%m "$p" 2>/dev/null)" || _mt=""
+    if [[ -z "$_mt" ]]; then
+        # Cannot age it. Treat as LIVE: refusing to import is recoverable,
+        # importing a half-written export is not.
+        exit 0
+    fi
+    if [[ $(( _now_s - _mt )) -lt "$OSTLER_PARTIAL_DOWNLOAD_STALE_S" ]]; then
+        exit 0
+    fi
 done
 
 # Belt-and-braces: if any found FILE is still growing, wait for next tick.
