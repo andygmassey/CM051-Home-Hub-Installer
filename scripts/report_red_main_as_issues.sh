@@ -91,7 +91,15 @@ api "repos/${REPO}/actions/runs?branch=main&status=failure&created=%3E${SINCE}&p
     || { cat "${TMP}/err" >&2 || true; die_cannot_run "the failure query failed. This is NOT a clean main."; }
 jq -e . "${TMP}/fail.json" >/dev/null 2>&1 || die_cannot_run "the failure query returned something that is not JSON."
 
+# ONE ROW PER WORKFLOW, THE NEWEST FAILURE.
+# A workflow that is red across three consecutive shas is ONE unrecovered
+# problem, not three. Filing per (workflow, sha) produced three issues for one
+# broken gate, and a label that generates three issues for one problem is a
+# label people mute. The newest failure is the one whose run link is worth
+# following; the older shas are the same defect with less context.
 jq -c '(.workflow_runs // []) | map(select(.status == "completed"))
+       | group_by(.name)
+       | map(sort_by(.created_at) | last)
        | .[] | {name, head_sha, created_at, html_url, workflow_id}' "${TMP}/fail.json" > "${TMP}/fail.ndjson"
 N_FAIL="$(grep -c . "${TMP}/fail.ndjson" || true)"
 say "denominator: ${N_FAIL:-0} completed failure(s) on main in the window"
@@ -142,20 +150,24 @@ while IFS= read -r row; do
         fi
     fi
 
-    # 🔴 A WORKFLOW THAT HAS NEVER BEEN GREEN ON main IS NOT A REGRESSION.
-    # MEASURED: `cut` fails on every main push, on purpose. Its version gate
-    # exits 2 CANNOT-RUN because on main there is no tag, so the expected
-    # version would come from the very artefact under test and the comparison
-    # could not lose. It is sound only on a tag push, where v1.0.71 passed.
+    # 🔴 THE never-green GUARD IS GONE. IT SUPPRESSED THE ONLY CASE IT COULD
+    # EVER CATCH.
     #
-    # An issue opened for that could NEVER close, because the close condition
-    # is a green that will never come. A red that cannot clear is worse than
-    # no red: it blocks nothing and teaches people which label to ignore.
-    # So this is reported as the third state, once, and not filed.
-    if [ -z "$ok_at" ]; then
-        say "  CANNOT-RUN: ${wf} has NEVER succeeded on main, so its failure here is not a regression signal. Not filing. If this workflow is meant to be green on main, that is the finding."
-        continue
-    fi
+    # It was written for `cut`, which fails on every main push on purpose. But
+    # `cut` was green on main until 2026-09-03, so the recovery check above
+    # never reaches this branch for it, and the declared exclusion handles it.
+    #
+    # MEASURED 2026-09-06, hours after it was written: the branch fired on
+    # `cut-checklist-complete` and `red-main-opens-an-issue`, two workflows
+    # that had just landed, were genuinely red, and that I very much wanted
+    # filed. "Never succeeded on main" cannot distinguish "not meant to run
+    # here" from "brand new and broken", and the second is the common case,
+    # because a workflow's first run is exactly when it is most likely to be
+    # wrong. Mine both were.
+    #
+    # So: a workflow that has never been green and is not DECLARED as expected
+    # is a finding. The exclusions file is the only way to say "this one is
+    # unsound here", and it costs a written reason.
 
     existing="$(gh issue list --repo "$REPO" --state open --label "$LABEL" --limit 100 \
                   --json number,title --jq ".[] | select(.title == \"${title}\") | .number" 2>/dev/null || true)"
