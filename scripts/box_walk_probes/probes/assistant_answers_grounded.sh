@@ -89,7 +89,13 @@
 PROBE_NAME="assistant_answers_grounded"
 PROBE_QUESTION="can a person ask Ostler a question and get an answer that reached their own data?"
 
-CHAT_TIMEOUT="${OSTLER_PROBE_CHAT_TIMEOUT:-240}"
+# 🔴 THE DEFAULT STRADDLED THE DOCUMENTED NORMAL RANGE. This file's own runtime
+# note, forty lines above, records "2-5 MINUTES per turn" on a Mac mini under
+# first-run ingest load. The ceiling was 240s -- FOUR minutes -- so a turn inside
+# the measured normal range could exceed it, and every turn that did was reported
+# as the assistant failing to reach the customer's data. Raised to seven minutes,
+# which is above the top of the range this file itself measured.
+CHAT_TIMEOUT="${OSTLER_PROBE_CHAT_TIMEOUT:-420}"
 GATEWAY="${OSTLER_PROBE_GATEWAY:-http://127.0.0.1:8000}"
 # TILDE, NOT $HOME. Python's os.path.expanduser expands `~` and leaves `$VAR`
 # untouched -- `expanduser("$HOME/x")` returns "$HOME/x" verbatim. The first
@@ -230,6 +236,33 @@ adjudicate_turn() {
     echo "grounded"
 }
 
+# WHICH VERDICTS ARE A PRODUCT DEFECT, AND WHICH ARE SIMPLY NOT A MEASUREMENT.
+#
+# 🔴 EVERY NON-`grounded` VERDICT USED TO BE A FAIL, INCLUDING A TIMEOUT. So a
+# turn that never finished was reported as "did not reach the customer's own
+# data" -- a claim about the SHIPPED ARTEFACT, asserted on a clock. On a blocking
+# probe whose subject is the product's core promise.
+#
+# This is the same class as the pairing probe's non-answer, fixed hours earlier
+# in this same suite: a refusal and a non-answer are different findings, and only
+# one of them is about the product.
+#
+#   defect     the turn COMPLETED and the answer did not reach the graph
+#   unmeasured the turn never completed, or the client never started
+#
+# An unrecognised verdict is UNMEASURED, not a defect. Claiming a product failure
+# on a token the classifier does not recognise is the very error being fixed.
+classify_verdict() {
+    # classify_verdict <turn verdict> -> defect | unmeasured | ok
+    case "$1" in
+        grounded)                                     printf 'ok' ;;
+        no_tool_call|memory_only|tool_error|tool_found_nothing)
+                                                      printf 'defect' ;;
+        incomplete|fatal)                             printf 'unmeasured' ;;
+        *)                                            printf 'unmeasured' ;;
+    esac
+}
+
 # The battery. Each SHOULD reach the graph on a populated box. Deliberately
 # phrased the way a new customer phrases them, not the way the tools are shaped
 # -- that mismatch IS #854, and a probe written to suit the tools would hide it.
@@ -264,7 +297,7 @@ run_probe() {
     _questions > "$_qfile"
     _declared="$(grep -c . "$_qfile")"
 
-    _asked=0; _failed=0; _detail=""
+    _asked=0; _failed=0; _unmeasured=0; _detail=""; _unmeasured_detail=""
     _tmp="$(mktemp)"
     exec 3< "$_qfile"
     while IFS= read -r _q <&3; do
@@ -272,16 +305,19 @@ run_probe() {
         _asked=$(( _asked + 1 ))
         box_run "python3 ${_remote_py} ${_port} '${TOKEN_PATH}' \"\$(printf %s '${_q}')\" ${CHAT_TIMEOUT}" > "$_tmp" 2>&1
         _v="$(adjudicate_turn "$_tmp")"
-        if [ "$_v" = "grounded" ]; then
-            :
-        else
-            _failed=$(( _failed + 1 ))
-            _detail="${_detail} [${_v}]"
-            # Surface WHY a fatal was fatal, or the next person debugs blind.
-            if [ "$_v" = "fatal" ]; then
-                _detail="${_detail}$(sed -n 's/^PROBE_FATAL /(/p' "$_tmp" | head -1 | sed 's/$/)/')"
-            fi
-        fi
+        case "$(classify_verdict "$_v")" in
+            ok) : ;;
+            defect)
+                _failed=$(( _failed + 1 ))
+                _detail="${_detail} [${_v}]" ;;
+            *)
+                _unmeasured=$(( _unmeasured + 1 ))
+                _unmeasured_detail="${_unmeasured_detail} [${_v}]"
+                # Surface WHY a fatal was fatal, or the next person debugs blind.
+                if [ "$_v" = "fatal" ]; then
+                    _unmeasured_detail="${_unmeasured_detail}$(sed -n 's/^PROBE_FATAL /(/p' "$_tmp" | head -1 | sed 's/$/)/')"
+                fi ;;
+        esac
         probe_note "asked #${_asked}: ${_v}"
     done
     exec 3<&-
@@ -289,7 +325,7 @@ run_probe() {
     box_run "rm -f ${_remote_py}" >/dev/null 2>&1
 
     # The denominator, always. "0 of 0 grounded" must never read as success.
-    probe_examined "$_asked" "questions asked over /ws/chat (battery declares ${_declared})"
+    probe_examined "$_asked" "questions asked over /ws/chat (battery declares ${_declared}; ${_failed} answered without reaching the graph, ${_unmeasured} never completed)"
 
     [ "$_asked" -eq 0 ] && probe_cannot_run "no questions were asked; the battery is empty"
 
@@ -298,8 +334,15 @@ run_probe() {
     [ "$_asked" -ne "$_declared" ] && probe_fail \
         "asked ${_asked} of ${_declared} declared questions -- the battery was truncated mid-run, so a pass here would understate coverage"
 
+    # PRECEDENCE, STRICTEST FIRST. A proven defect outranks lost coverage: if one
+    # turn completed and did not reach the graph, that is a finding whether or not
+    # another timed out. Lost coverage outranks a pass, because a battery that
+    # only half ran has not established the promise.
     [ "$_failed" -gt 0 ] && probe_fail \
-        "${_failed} of ${_asked} questions did not reach the customer's own data:${_detail} (verdicts are frame-stream states, not answer text)"
+        "${_failed} of ${_asked} questions COMPLETED without reaching the customer's own data:${_detail} (verdicts are frame-stream states, not answer text)"
+
+    [ "$_unmeasured" -gt 0 ] && probe_cannot_run \
+        "${_unmeasured} of ${_asked} turns never completed:${_unmeasured_detail}. That is a clock or a client, NOT evidence that the assistant cannot answer. The per-turn ceiling is ${CHAT_TIMEOUT}s and this file own runtime note records 2-5 MINUTES per turn on a Mac mini under first-run ingest load. Raise OSTLER_PROBE_CHAT_TIMEOUT and re-walk, or walk a box that has finished ingesting. Not a pass."
 
     probe_pass "all ${_asked} questions produced a tool-backed answer over /ws/chat at ${GATEWAY}"
 }
@@ -334,11 +377,36 @@ self_test() {
     [ "$(adjudicate_turn "$_d/empty")"      = "tool_found_nothing" ] || _ok=0
     rm -rf "$_d"
 
-    probe_examined 6 "planted transcript fixtures"
+    # ── AND THE ROUTING, WHICH IS WHAT DECIDES THE PROBE'"'"'S VERDICT ────────
+    #
+    # adjudicate_turn classifies a TURN. classify_verdict decides whether that
+    # classification is a statement about the PRODUCT or about the CLOCK. Getting
+    # the second one wrong is how a timeout became "the assistant cannot reach
+    # the customer's data" on a blocking probe. Driven through the real function.
+    #
+    # Cases 6 and 7 are the fix. Case 8 is the trap the fix could have set: a
+    # verdict the classifier does not recognise must not be announced as a
+    # product defect either.
+    _rt() {  # _rt <verdict> <expected class>
+        _got="$(classify_verdict "$1")"
+        [ "$_got" = "$2" ] && return 0
+        printf '  routing control: %s classified as %s, expected %s\n' "$1" "$_got" "$2"
+        _ok=0
+    }
+    _rt grounded            ok
+    _rt no_tool_call        defect
+    _rt memory_only         defect
+    _rt tool_error          defect
+    _rt tool_found_nothing  defect
+    _rt incomplete          unmeasured
+    _rt fatal               unmeasured
+    _rt some_future_verdict unmeasured
+
+    probe_examined 14 "planted transcript fixtures and verdict-routing cases"
     if [ "$_ok" -eq 1 ]; then
         # The control FIRED: five known-bad shapes each produced their own
         # non-grounded verdict, and the healthy one did not.
-        probe_fail "control fired: tool_error, no_tool_call, incomplete, memory_only and tool_found_nothing are each detected, and the healthy fixture is not misread as broken"
+        probe_fail "control fired: tool_error, no_tool_call, incomplete, memory_only and tool_found_nothing are each detected, the healthy fixture is not misread as broken, and 8 of 8 verdicts route correctly -- a completed turn that missed the graph is a DEFECT, a turn that never completed is UNMEASURED, and an unrecognised verdict is unmeasured rather than announced as a product failure"
     fi
     # Reaching here means the adjudicator could NOT tell a broken turn from a
     # healthy one. Passing is how this suite spells BROKEN.

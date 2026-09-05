@@ -46,6 +46,8 @@ on:
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'scripts/box_walk_probes/probes/running_config_matches_disk.sh'
       - 'scripts/box_walk_probes/probes/pair_state_agreement.sh'
+      - 'scripts/box_walk_probes/probes/assistant_answers_grounded.sh'
+      - 'tests/test_a_timed_out_turn_is_not_a_broken_assistant.sh'
       - 'tests/test_walk_record_gates_customer_download.sh'
       - 'tests/test_probe_absence_is_not_an_answer.sh'
       - 'tests/test_probe_pgrep_is_scoped_to_this_account.sh'
@@ -234,6 +236,18 @@ jobs:
       # output -- so walk N+1 can find the device walk N paired. Any device-layer
       # `paired` that could be ours is withheld; a `not paired` is never
       # contaminated and passes through. The arithmetic needs no box.
+      # A CLOCK IS NOT A PRODUCT VERDICT. assistant_answers_grounded is blocking
+      # and its subject is the product's core promise, and every non-grounded
+      # verdict used to be a probe_fail -- including `incomplete`, which means the
+      # turn timed out. Its own runtime note records 2-5 MINUTES per turn while
+      # the ceiling was 240s, so healthy turns could produce the sentence "did not
+      # reach the customer's own data". This drives the REAL run_probe against a
+      # stubbed box: the probe's own self-test can only reach the classifiers, and
+      # the PRECEDENCE that turns those into a verdict lives in the loop.
+      - name: A turn that timed out is not an assistant that cannot answer
+        if: always()
+        run: bash tests/test_a_timed_out_turn_is_not_a_broken_assistant.sh
+
       - name: The pair-state reader does not read our own pairing as the product
         if: always()
         run: |
