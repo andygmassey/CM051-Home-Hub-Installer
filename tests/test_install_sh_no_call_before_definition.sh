@@ -120,6 +120,30 @@ fi
 #
 # A control built from `seq` proves the scanner works on input with no
 # heredocs, no embedded python and no brace noise. install.sh has all three.
+#
+# ── THIS GATE COUNTS HEREDOC DEFINITIONS ON PURPOSE. DO NOT "FIX" THAT. ──
+#
+# Measured 2026-09-05 against origin/main, because this file and its sibling
+# tests/test_no_function_is_called_before_it_is_defined.sh disagreed on the
+# denominator (190 here against 146 there) and an unexplained gap between two
+# instruments measuring one property is where a defect hides:
+#
+#     install.sh's OWN definitions      146
+#     definitions inside heredocs        45     <- counted here, skipped there
+#     names defined in BOTH                1     (_ostler_private_artefact)
+#     ...with the heredoc one FIRST        0     <- so nothing is masked today
+#
+# The two gates have OPPOSITE blind spots and are complementary. This one is
+# whitespace-tolerant (`^\s*`) so it sees indented definitions; the sibling was
+# anchored at column 0 until CM051 #1481 and could not. The sibling is heredoc-
+# aware; this one is not, by the deliberate choice recorded above.
+#
+# The residual risk here is MASKING: a name defined early inside a heredoc would
+# satisfy a top-level call that its real definition comes too late for. It is
+# latent, not live -- the only shared name has its own definition first (L441
+# against L17054). Adding heredoc tracking to THIS file would trade a latent
+# risk for a live one, since brace depth is exactly what heredocs plus embedded
+# python corrupted. Leave it; the sibling covers that half.
 # So the canary goes into the real file, at a provably top-level line: the
 # first line after a function definition's closing brace, which is a structural
 # boundary rather than a guess about indentation or column.
