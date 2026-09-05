@@ -14007,6 +14007,37 @@ except Exception as e:
         # the `[[ -n "$RECOVERY_KEY" ]]` guard before the show-once render.
         RECOVERY_KEY=$(echo "$SETUP_OUTPUT" | grep "^RECOVERY_PHRASE=" | cut -d= -f2- || true)
         ok "$MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP"
+
+        # #1540: DISCLOSE THE KEY WHERE IT IS MINTED.
+        #
+        # MEASURED on archie2, Mini 16, 2026-09-05. The assignment
+        # above and the reveal were 15,490 lines apart, and a run
+        # that died in between destroyed the key for good. Not a
+        # hypothetical: an attempt at 10:43:53Z minted a key and
+        # failed, the attempt at 11:04:08Z finished clean, took the
+        # "already configured" skip below, and printed a summary
+        # line promising a recovery passphrase that had been
+        # unreachable for twenty minutes.
+        #
+        # The GUI half is HintPanelView.swift, which presented the
+        # reveal sheet only inside `finished == .ok`. Both had to
+        # move. Moving this one alone still loses the key on every
+        # failing install, which is the case that needs it most:
+        # the customer's next act is to re-run, and the re-run is
+        # what makes the key unreachable for ever.
+        #
+        # The Keychain-save offer stays where it was. It is a
+        # convenience and it can be lost. The disclosure cannot.
+        if [[ -n "$RECOVERY_KEY" ]]; then
+            gui_emit RECOVERY_KEY "value=$RECOVERY_KEY"
+            echo ""
+            echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
+            echo -e "  ${BOLD}Your recovery key:${NC}"
+            echo ""
+            echo -e "    ${YELLOW}${BOLD}${RECOVERY_KEY}${NC}"
+            echo ""
+        fi
     fi
 elif [[ -f "${SECURITY_CONFIG_DIR}/passkey.json" || -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
     # Re-run: security already configured in a previous install.
@@ -29506,14 +29537,16 @@ if [[ -n "$RECOVERY_KEY" ]]; then
     # key value -- LOG markers land in the GUI Log drawer (visible
     # to anyone the customer hands the laptop to). The RECOVERY_KEY
     # marker bypasses logLines on the Swift side.
-    gui_emit RECOVERY_KEY "value=$RECOVERY_KEY"
-    echo ""
-    echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-    echo -e "  ${BOLD}Your recovery key:${NC}"
-    echo ""
-    echo -e "    ${YELLOW}${BOLD}${RECOVERY_KEY}${NC}"
-    echo ""
+    # #1540: THE REVEAL NOW HAPPENS AT THE MINT SITE, not here.
+    #
+    # It used to be these lines. The key is minted 15,490 lines
+    # above and used to be handed over here, so any failure in
+    # between destroyed it permanently: the key is never stored,
+    # the keychain IS, and every later run takes the "already
+    # configured" skip and can no longer disclose anything.
+    #
+    # What remains below is the Keychain-save OFFER, which is a
+    # convenience and may be lost. The disclosure may not.
 
     # v1.0.11 UX fix (keychain-save stall): pre-warm the Swift toolchain
     # module cache in the BACKGROUND now, so it runs concurrently with the
