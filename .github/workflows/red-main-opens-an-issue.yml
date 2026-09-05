@@ -1,0 +1,71 @@
+name: red-main-opens-an-issue
+
+# A RED MAIN MUST OPEN AN ISSUE, NOT AN EMAIL TO ANDY.
+#
+# MEASURED 2026-09-05: main was red for about an hour across three shas and
+# nothing in this repo noticed. It surfaced because Andy read a notification
+# email and pasted a screenshot into a session. This closes that loop inside
+# the repo, where every agent can see it and no human has to remember.
+#
+# The schedule is deliberately off the hour and off the half hour. Every repo
+# on the planet asks for `0 *`, so a job that does not need the top of the hour
+# should not queue there.
+
+on:
+  schedule:
+    - cron: '7,27,47 * * * *'
+  workflow_dispatch:
+    inputs:
+      window_h:
+        description: 'How many hours back to look for unrecovered failures'
+        required: false
+        default: '24'
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  # Never let two of these race and open the same issue twice.
+  group: red-main-opens-an-issue
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure the main-red label exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          # `gh label create` exits non-zero when the label already exists, and
+          # that is the NORMAL case. Only a genuine failure should stop us, so
+          # the existence check is a separate question from the create.
+          # `... | grep -q` exits on the first match and SIGPIPEs the producer,
+          # which under `pipefail` can invert this verdict. `grep -c` must read
+          # to EOF, so it cannot. The repo ratchet caught this one on the way in.
+          if [ "$(gh label list --repo "${GITHUB_REPOSITORY}" --limit 200 \
+                    --json name --jq '.[].name' | grep -cx 'main-red')" -gt 0 ]; then
+            echo "label main-red already exists"
+          else
+            gh label create main-red --repo "${GITHUB_REPOSITORY}" \
+              --color B60205 \
+              --description "main is red and has not recovered; opened automatically" \
+              || { echo "CANNOT-RUN: could not create the main-red label" >&2; exit 2; }
+          fi
+
+      - name: The refusal branches must refuse (gate, not decoration)
+        run: /bin/bash tests/test_a_broken_ci_query_is_not_a_green_main.sh
+
+      - name: Open an issue for every unrecovered red on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OSTLER_RED_MAIN_REPO: ${{ github.repository }}
+          OSTLER_RED_MAIN_WINDOW_H: ${{ github.event.inputs.window_h || '24' }}
+        run: /bin/bash scripts/report_red_main_as_issues.sh
