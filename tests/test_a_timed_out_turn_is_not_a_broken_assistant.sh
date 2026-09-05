@@ -184,6 +184,79 @@ case "$_OUT" in
     *)             bad "a non-pwg tool was named as the failing graph tool: $(printf '%s' "$_OUT" | grep '^NONPWG=')" ;;
 esac
 
+# ── A RECOVERED TURN IS NOT A FAILED ONE (#1597) ────────────────────────────
+# The adjudicator used to grep the WHOLE transcript for any pwg ERR, so a turn
+# that errored, recovered and answered correctly scored as a product failure on
+# a BLOCKING probe. The product is BUILT to recover: person_query's error text
+# is deliberately worded to make the model call pwg_overview and try again --
+# that was the #854 fix. The fix and the gate worked against each other.
+_R="${WORK}/recoverharness"
+{
+    printf '#!/bin/bash\n'
+    grep -v -e '^\. "' -e '^source ' -e '^probe_main ' "$SUBJECT"
+    cat <<'TAIL'
+_d="$(mktemp -d)"
+printf 'FRAME session_start
+FRAME tool_call pwg_person_timeline
+FRAME tool_result pwg_person_timeline ERR
+FRAME tool_call pwg_overview
+FRAME tool_result pwg_overview OK
+FRAME done
+' > "$_d/recovered"
+printf 'FRAME session_start
+FRAME tool_call pwg_person_timeline
+FRAME tool_result pwg_person_timeline ERR
+FRAME tool_call pwg_topics
+FRAME tool_result pwg_topics ERR
+FRAME done
+'    > "$_d/twoerrs"
+printf 'FRAME session_start
+FRAME tool_call pwg_preferences
+FRAME tool_result pwg_preferences ERR
+FRAME done
+'                                                                          > "$_d/onlyerr"
+printf 'FRAME session_start
+FRAME tool_call pwg_person_timeline
+FRAME tool_result pwg_person_timeline EMPTY
+FRAME done
+'                                                                > "$_d/onlyempty"
+printf 'RECOVERED=%s
+' "$(adjudicate_turn "$_d/recovered")"
+printf 'TWOERRS=%s
+'   "$(adjudicate_turn "$_d/twoerrs")"
+printf 'ONLYERR=%s
+'   "$(adjudicate_turn "$_d/onlyerr")"
+printf 'ONLYEMPTY=%s
+' "$(adjudicate_turn "$_d/onlyempty")"
+rm -rf "$_d"
+TAIL
+} > "$_R"
+_ROUT="$(bash "$_R" 2>/dev/null)"
+
+if ! grep -q '^RECOVERED=' <<< "$_ROUT"; then
+    printf 'CANNOT-RUN: the recovery harness produced no verdict; adjudicate_turn was never reached.\n' >&2
+    exit 2
+fi
+case "$_ROUT" in
+    *"RECOVERED=grounded"*) ok "a turn that errored and then READ THE GRAPH scores grounded, not a product failure" ;;
+    *)                      bad "a recovered turn still scores $(printf '%s' "$_ROUT" | grep '^RECOVERED=' | cut -d= -f2); the #854 retry fix and this blocking gate fight each other" ;;
+esac
+# MUST-MISS. Recovery is decided by a SUCCESSFUL read, not by a second attempt.
+case "$_ROUT" in
+    *"TWOERRS=tool_error"*) ok "MUST-MISS: two failed reads in a row are still tool_error" ;;
+    *)                      bad "two consecutive errors scored $(printf '%s' "$_ROUT" | grep '^TWOERRS=' | cut -d= -f2); the reorder made the probe unable to fail" ;;
+esac
+case "$_ROUT" in
+    *"ONLYERR=tool_error"*) ok "MUST-MISS: an error with no recovery is still tool_error" ;;
+    *)                      bad "a lone error scored $(printf '%s' "$_ROUT" | grep '^ONLYERR=' | cut -d= -f2)" ;;
+esac
+# CONTROL. Success-shaped emptiness must NOT be promoted to grounded by this
+# change: EMPTY is not an error, and it is still not retrieval.
+case "$_ROUT" in
+    *"ONLYEMPTY=tool_found_nothing"*) ok "CONTROL: a graph tool that found nothing is still not retrieval" ;;
+    *)                                bad "an EMPTY-only turn scored $(printf '%s' "$_ROUT" | grep '^ONLYEMPTY=' | cut -d= -f2); the #810 shape has been promoted to a pass" ;;
+esac
+
 printf '\n== %s pass / %s fail / %s total ==\n' "$PASS" "$FAIL" "$((PASS+FAIL))"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0
