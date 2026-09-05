@@ -88,6 +88,40 @@ run_probe() {
     return
   fi
 
+  # ⚠️ WHOSE 8443 IS THIS? MEASURED on archie@.240, 2026-09-05T04:2xZ:
+  #
+  #     listeners on :8443 owned by this account (lsof -u $(id -u))  0
+  #     https://127.0.0.1:8443/pair                                  answers 403
+  #
+  # Something IS there and it is not ours. On a shared Mac that is another
+  # account's Hub, and every verdict limb 2 can produce is then a statement
+  # about THAT Hub rather than about the artefact this walk installed. Run A's
+  # PASS was as uninformative as run B's FAIL; the flip between them was most
+  # likely the other Hub restarting, not our pairing path changing.
+  #
+  # daemon_is_listening already refuses on exactly this shape for :8000 (see
+  # "OCCUPIED BY SOMETHING THIS ACCOUNT DOES NOT OWN"). This is the sixth site
+  # in one day where reachable was mistaken for ours -- :11434, the store ports,
+  # colima's ssh mux, the process table, :8000, and now the pairing port.
+  #
+  # Limb 1 above is unaffected: it reads OUR config.toml on disk and stands.
+  local _own _ans
+  _own=$(box_run "lsof -nP -u \"\$(id -u)\" -a -iTCP:8443 -sTCP:LISTEN 2>/dev/null | grep -c LISTEN") || true
+  case "${_own:-0}" in
+    ''|*[!0-9]*) _own=0 ;;
+  esac
+  if [ "$_own" -eq 0 ]; then
+    _ans=$(box_run "curl -sk --noproxy '*' --max-time 4 -o /dev/null -w '%{http_code}' -X POST https://127.0.0.1:8443/pair") || true
+    case "${_ans:-000}" in
+      000|"")
+        probe_cannot_run "nothing is listening on :8443 and nothing answered there, so pairing recovery could not be exercised at all. Limb 1 passed (${n} tokens persisted) but recovery is UNMEASURED. Not a pass."
+        return ;;
+      *)
+        probe_cannot_run "8443 is OCCUPIED BY SOMETHING THIS ACCOUNT DOES NOT OWN: lsof (run as the walked user) saw 0 listeners, but a connect answered HTTP ${_ans}. Every pairing verdict below would describe THAT service, not the Hub this walk installed. On a shared Mac this is another account's Hub holding the port; stop it and re-run. This is not a pass and it is not a product failure."
+        return ;;
+    esac
+  fi
+
   admin=$(box_run 'cat ~/.ostler/secrets/zeroclaw_admin_token 2>/dev/null') || true
   [ -n "${admin:-}" ] || { probe_cannot_run "no zeroclaw_admin_token -- cannot mint a code. NOT a pass."; return; }
 
@@ -95,7 +129,26 @@ run_probe() {
   [ -n "${code:-}" ] || { probe_cannot_run "gateway would not issue a pairing code"; return; }
 
   # The port the APP uses. One post, one code.
-  first=$(box_run "curl -sk --noproxy '*' --max-time 6 -X POST -H 'X-Pairing-Code: ${code}' https://127.0.0.1:8443/pair")
+  #
+  # ⚠️ TAKE curl'S EXIT CODE. A REFUSAL AND A NON-ANSWER ARE DIFFERENT FINDINGS.
+  # MEASURED, archie@.240, two runs of the SAME artefact 28 minutes apart
+  # (v1.0.67-20260905T031918Z vs T034741Z): run A passed here, run B printed
+  #   "REJECTED a code the gateway had just issued ... Response:"
+  # with NOTHING after "Response:". An empty body is the signature of a curl
+  # that never got an answer -- --max-time 6 expiring, a refused connection, a
+  # TLS handshake that died. A GENUINE rejection carries a JSON body; run A's
+  # own replay arm printed {"error":"Invalid pairing code"} to prove it.
+  #
+  # Without the rc, all three collapse into one FAIL that asserts "a customer
+  # whose session dies cannot get back in" -- a product claim about the shipped
+  # artefact -- on the strength of a six-second timeout. That is CANNOT-RUN
+  # wearing a FAIL's clothes, and it spent a red in the v1.0.67 walk record.
+  first=""; _first_rc=0
+  first=$(box_run "curl -sk --noproxy '*' --max-time 6 -X POST -H 'X-Pairing-Code: ${code}' https://127.0.0.1:8443/pair") || _first_rc=$?
+  if [ "${_first_rc}" -ne 0 ] || [ -z "${first}" ]; then
+    probe_cannot_run "8443 gave NO ANSWER (curl rc=${_first_rc}, body ${#first} bytes). That is a transport failure, not a rejection: a real refusal carries a JSON error body. The pairing path was NOT MEASURED. Not a pass, and not a product failure."
+    return
+  fi
   case "$first" in
     *'"paired":true'*) : ;;
     *) probe_fail "8443 -- the port the app pairs against -- REJECTED a code the gateway had just issued. A customer whose session dies cannot get back in. Response: ${first:0:100}"
@@ -106,7 +159,19 @@ run_probe() {
   # SAME code must now be refused. If it were accepted, the code is not
   # single-use and every issued code stays live forever -- a worse defect than
   # the one under test, and it would otherwise read as a clean pass.
-  second=$(box_run "curl -sk --noproxy '*' --max-time 6 -X POST -H 'X-Pairing-Code: ${code}' https://127.0.0.1:8443/pair")
+  #
+  # ⚠️ AND THE CONTROL HAS THE INVERSE BUG, WHICH IS THE WORSE HALF. Below, only
+  # a body containing '"paired":true' fails. So if this second curl ALSO gets no
+  # answer, $second is empty, the case does not match, and the probe walks
+  # straight to probe_pass -- reporting "refused its replay" when nothing
+  # refused anything. A control that passes by never running is not a control,
+  # and this one guards a standing key to the customer's hub.
+  second=""; _second_rc=0
+  second=$(box_run "curl -sk --noproxy '*' --max-time 6 -X POST -H 'X-Pairing-Code: ${code}' https://127.0.0.1:8443/pair") || _second_rc=$?
+  if [ "${_second_rc}" -ne 0 ] || [ -z "${second}" ]; then
+    probe_cannot_run "the single-use CONTROL got no answer from 8443 on the replay (curl rc=${_second_rc}, body ${#second} bytes). The first pair SUCCEEDED, so this cannot be reported as a pass: whether a spent code is still live was NOT MEASURED."
+    return
+  fi
   probe_examined "1" "replay of the spent code -- response: ${second:0:60}"
   case "$second" in
     *'"paired":true'*)

@@ -32,6 +32,8 @@ on:
       - 'scripts/publish_release.sh'
       - 'scripts/post_walk_qa.sh'
       - 'scripts/box_walk_probes/**'
+      - 'tests/test_a_pairing_non_answer_is_not_a_rejection.sh'
+      - 'scripts/box_walk_probes/probes/pairing_recovers_without_a_repair_storm.sh'
       - 'tests/test_walk_record_gates_customer_download.sh'
       - 'tests/test_probe_absence_is_not_an_answer.sh'
       - 'tests/test_probe_pgrep_is_scoped_to_this_account.sh'
@@ -80,8 +82,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # fetch-depth 0: the pairing-transport test below builds its negative
+      # control from a PINNED SHA of the probe -- the tree whose walk actually
+      # flipped -- and that sha is not HEAD. actions/checkout@v4 defaults to
+      # depth 1, so `git show <sha>:<path>` cannot resolve it; the control then
+      # reports CANNOT-RUN, which is the honest answer and a useless one, and it
+      # takes the job red for a reason that is not the code. Same reasoning, and
+      # the same fix, as container-runtime-guard.yml.
+      #
+      # The test itself was run on ubuntu:latest (bash 5.3, GNU grep 3.12)
+      # against a full-history checkout before wiring: 8 pass / 0 fail. That run
+      # is evidence the test is PORTABLE. It is not evidence about clone depth,
+      # because the container had full history.
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: The customer download cannot be repointed to an unwalked build
         run: bash tests/test_walk_record_gates_customer_download.sh
@@ -104,6 +120,18 @@ jobs:
       - name: A probe's pgrep is scoped to this account
         if: always()
         run: bash tests/test_probe_pgrep_is_scoped_to_this_account.sh
+
+      # The third instance of the same class in one night, and the one that
+      # actually spent a red. The pairing probe captured curl's stdout and never
+      # took its exit code, so a six-second timeout printed "8443 REJECTED a code
+      # the gateway had just issued" -- a product claim about the shipped
+      # artefact, asserted on a transport failure. Measured: the SAME v1.0.67
+      # sha256 walked twice 28 minutes apart and only this probe changed its
+      # mind. Its single-use CONTROL had the inverse bug and passed by never
+      # running.
+      - name: A pairing non-answer is not a rejection
+        if: always()
+        run: bash tests/test_a_pairing_non_answer_is_not_a_rejection.sh
 
       # The companion to the check above. That one refuses an absent path being
       # counted as zero; this one refuses a probe the SUITE cannot see. The glob
