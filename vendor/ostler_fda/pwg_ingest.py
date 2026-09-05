@@ -1556,6 +1556,63 @@ def _qdrant_upsert_points(collection: str, points: list[dict]) -> int:
     return upserted
 
 
+def _qdrant_scroll_points(collection: str, limit: int = 1000) -> Optional[list[dict]]:
+    """Enumerate every point in a collection with its payload.
+
+    Returns None on ANY failure. That is deliberate and load-bearing: the
+    caller uses this to decide what to DELETE, and an empty list from a failed
+    read is indistinguishable from a genuinely empty collection. A prune driven
+    by a failed read deletes everything. None means "could not look", which is
+    not the same as "nothing there".
+    """
+    out: list[dict] = []
+    transport = httpx.HTTPTransport(proxy=None)
+    url = f"{QDRANT_URL}/collections/{collection}/points/scroll"
+    offset = None
+    try:
+        with httpx.Client(timeout=60.0, transport=transport) as client:
+            while True:
+                body: dict = {"limit": limit, "with_payload": True,
+                              "with_vector": False}
+                if offset is not None:
+                    body["offset"] = offset
+                resp = client.post(url, json=body)
+                resp.raise_for_status()
+                result = resp.json().get("result") or {}
+                out.extend(result.get("points") or [])
+                offset = result.get("next_page_offset")
+                if offset is None:
+                    return out
+    except Exception as exc:
+        logger.warning(
+            "Qdrant scroll of %s failed: %s", collection, type(exc).__name__,
+        )
+        return None
+
+
+def _qdrant_delete_points(collection: str, ids: list) -> int:
+    """Delete points by id. Returns the count the server acknowledged."""
+    if not ids:
+        return 0
+    transport = httpx.HTTPTransport(proxy=None)
+    url = f"{QDRANT_URL}/collections/{collection}/points/delete"
+    deleted = 0
+    with httpx.Client(timeout=60.0, transport=transport) as client:
+        for start in range(0, len(ids), _BROWSING_QDRANT_BATCH_SIZE):
+            chunk = ids[start : start + _BROWSING_QDRANT_BATCH_SIZE]
+            try:
+                resp = client.post(url, json={"points": chunk},
+                                   params={"wait": "true"})
+                resp.raise_for_status()
+                deleted += len(chunk)
+            except Exception as exc:
+                logger.warning(
+                    "Qdrant delete from %s failed (start=%d, size=%d): %s",
+                    collection, start, len(chunk), type(exc).__name__,
+                )
+    return deleted
+
+
 def _load_browsing_visits(fda_dir: Path) -> list[dict]:
     """Read safari_history.json + chrome_history.json from ``fda_dir``.
 
@@ -2600,6 +2657,64 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
             "total": len(people),
         }
 
+    # ── PRUNE: this sweep is a PROJECTION, and a projection must be able to
+    # ── remove as well as add. (task #273 / the 84-orphan finding, 2026-09-05)
+    #
+    # THE DEFECT THIS CLOSES. This function reads Oxigraph and writes Qdrant.
+    # It cannot create a vector without a Person node -- so it could only ever
+    # ADD. A node that LEAVES the graph left its point behind permanently.
+    # Measured on archie@.240 with v1.0.67 installed: 84 points carried
+    # person_uri values with NO presence anywhere in the graph, all 84 stamped
+    # source=fda_people_index, all 84 carrying a full contact payload (display
+    # name, organisation, job title, phones, emails). 297 points came from this
+    # sweep; 84 of them pointed at nothing.
+    #
+    # It is visible to a customer twice over: the People count the Doctor
+    # reports came from the vector store (1907) while the graph said 1823, and
+    # the difference was exactly these 84. Deleted people also stayed
+    # searchable.
+    #
+    # ⚠️ THREE GUARDS, AND THEY ARE THE WHOLE DESIGN.
+    #
+    # 1. WE ONLY REACH HERE WHEN sent > 0. The block above returns
+    #    status="error" when Oxigraph held Person nodes and none landed. So a
+    #    prune can never run off a failed projection.
+    # 2. A FAILED READ PRUNES NOTHING. _qdrant_scroll_points returns None on
+    #    any error, and None is handled separately from an empty list. An empty
+    #    list from a broken read and an empty collection are indistinguishable
+    #    by value, and one of them would authorise deleting the lot.
+    # 3. WE ONLY DELETE WHAT THIS SWEEP OWNS. Points are removed only when
+    #    payload.source == "fda_people_index". contact_syncer writes
+    #    source="icloud_contacts" into the same collection and this sweep knows
+    #    nothing about which of those are current, so it must never touch them.
+    #    Measured: 1610 of the collection's points are icloud_contacts.
+    pruned: Optional[int] = None
+    projected_uris = {
+        (pt.get("payload") or {}).get("person_uri") for pt in points
+    }
+    projected_uris.discard(None)
+    existing = _qdrant_scroll_points(PEOPLE_QDRANT_COLLECTION)
+    if existing is None:
+        logger.warning(
+            "People: could not enumerate '%s', so nothing was pruned. "
+            "A prune driven by a failed read would delete everything.",
+            PEOPLE_QDRANT_COLLECTION,
+        )
+    else:
+        stale = [
+            pt["id"] for pt in existing
+            if (pt.get("payload") or {}).get("source") == "fda_people_index"
+            and (pt.get("payload") or {}).get("person_uri") not in projected_uris
+        ]
+        if stale:
+            pruned = _qdrant_delete_points(PEOPLE_QDRANT_COLLECTION, stale)
+            logger.info(
+                "People: pruned %d of %d point(s) whose Person node is no "
+                "longer in Oxigraph.", pruned, len(stale),
+            )
+        else:
+            pruned = 0
+
     logger.info(
         "People: %d of %d Person nodes indexed into Qdrant '%s'.",
         sent, len(people), PEOPLE_QDRANT_COLLECTION,
@@ -2609,6 +2724,7 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
         "sent": sent,
         "points_created": sent,
         "total": len(people),
+        "pruned": pruned,
     }
 
 

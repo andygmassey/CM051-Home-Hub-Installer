@@ -1,0 +1,98 @@
+# people-projection-prune -- the people sweep must be able to REMOVE, and must
+# refuse to remove anything when it could not look.
+#
+# ingest_people_to_qdrant projects Oxigraph Person nodes into the Qdrant
+# `people` collection. It could only ever ADD, so a node that LEFT the graph
+# left its point behind for good: measured on a real box 2026-09-05, 84 points
+# whose person_uri had no presence anywhere in the graph, all stamped
+# source=fda_people_index, all carrying a full contact payload.
+#
+# ⚠️ THE FIX IS MORE DANGEROUS THAN THE BUG. A prune driven by a failed read
+# deletes the customer's entire people index, and a source-blind prune deletes
+# the 1610 icloud_contacts points this sweep does not own. Both of those are
+# arms in the suite below, and both are the reason this workflow exists.
+name: people-projection-prune
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'tests/test_people_projection_prunes_what_left_the_graph.py'
+      - '.github/workflows/people-projection-prune.yml'
+  pull_request:
+    paths:
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'tests/test_people_projection_prunes_what_left_the_graph.py'
+      - '.github/workflows/people-projection-prune.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same branch/PR. NEVER cancels main or a
+  # tag: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+jobs:
+  people-projection-prune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # httpx is a RUNTIME dependency of pwg_ingest (it is imported at module
+      # scope), so without it the import fails and every arm errors rather
+      # than running. pytest is the runner.
+      # BOTH runtime deps, taken from vendor/ostler_fda/pyproject.toml rather
+      # than from what happens to be installed on a laptop. pwg_ingest imports
+      # httpx at module scope AND relatively imports identifier_quality, which
+      # imports nameparser. Missing either makes pytest exit 2 on COLLECTION --
+      # not a failing assertion, an unimportable module.
+      - name: Install pytest and the module's runtime dependencies
+        run: python -m pip install --quiet pytest httpx nameparser
+      # THE FLOOR AND THE RUN ARE ONE STEP ON PURPOSE, copying
+      # contact-card-repair.yml: a floor in a SEPARATE step would skip this
+      # one when it failed, hiding the real result behind an earlier red.
+      # There is then no second step to mask.
+      #
+      # pytest exits 5 on "collected 0 items", which `bash -e` honours, so a
+      # silent skip is already fatal. The floor STATES that property instead
+      # of inheriting it from another tool's exit convention.
+      - name: A projection prunes what left the graph, and prunes nothing when blind
+        run: |
+          # ⚠️ `|| true` ON THE ASSIGNMENT, AND IT IS THE WHOLE REASON THIS
+          # STEP IS DEBUGGABLE. Under `bash -e` a failing pytest kills the step
+          # AT THIS LINE, so `echo "$out"` never runs and the log shows the
+          # script text and an exit code and nothing else. MEASURED: the first
+          # CI run of this workflow failed on all three interpreters with
+          # "exit code 2" and ZERO diagnostic output, and the real cause (a
+          # missing nameparser, i.e. a collection error) was invisible until
+          # this was fixed. The sibling contact-card-repair.yml carries the
+          # same warning about `grep -c`; I copied its comment and not its
+          # lesson.
+          out="$(python -m pytest tests/test_people_projection_prunes_what_left_the_graph.py -q 2>&1)" || true
+          echo "$out"
+          # `|| n=0` on the ASSIGNMENT: grep -c prints its count AND exits 1
+          # when the count is zero, which would kill the step under `bash -e`
+          # before the message below could explain why.
+          n="$(printf '%s' "$out" | grep -cE '^[0-9]+ passed' )" || n=0
+          if [ "$n" -eq 0 ]; then
+            echo "::error::pytest reported no passing summary line -- the suite did not run"
+            exit 1
+          fi
+          got="$(printf '%s' "$out" | sed -nE 's/^([0-9]+) passed.*/\1/p' | head -1)"
+          if [ "${got:-0}" -lt 5 ]; then
+            echo "::error::expected at least 5 arms, saw ${got:-0}. An arm that stops"
+            echo "::error::matching does not fail, it DISAPPEARS -- a shrinking"
+            echo "::error::denominator is the only tell."
+            exit 1
+          fi
+          echo "arms passed: ${got}"
