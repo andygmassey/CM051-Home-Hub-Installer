@@ -11975,8 +11975,26 @@ fi
 #
 # Reachability is not ownership. Same class as the :8000 gateway collision and
 # the lsof enumerations that read another user's socket as absence.
+# TRUE when OUR OWN Ollama agent is up. One definition, three callers.
+#
+# PARSES THE STATE, NEVER THE EXIT CODE. `launchctl print` returns rc=0 for a
+# job that is merely REGISTERED -- this file says so at its own launchctl note,
+# and it was re-measured on two Macs:
+#
+#     absent label            rc=113   (no state line)
+#     loaded but NOT running  rc=0     state = not running
+#     loaded AND running      rc=0     state = running
+#
+# `state = running` is a fair demand for THIS agent because its plist sets
+# KeepAlive <true/>, the condition _ostler_launchagent_keeps_alive() exists to
+# test. It would NOT be fair of a one-shot.
+_ollama_agent_is_running() {
+    launchctl print "gui/$(id -u)/com.ostler.ollama" 2>/dev/null \
+        | grep -q 'state = running'
+}
+
 OLLAMA_PLIST="${HOME}/Library/LaunchAgents/com.ostler.ollama.plist"
-if curl -s http://localhost:11434/api/tags &>/dev/null && [[ -f "$OLLAMA_PLIST" ]]; then
+if curl -sf http://localhost:11434/api/tags &>/dev/null && [[ -f "$OLLAMA_PLIST" ]]; then
     ok "$MSG_OK_OLLAMA_RUNNING"
 else
     info "$MSG_INFO_STARTING_OLLAMA"
@@ -12083,7 +12101,31 @@ OLLAMAPLIST
     OLLAMA_WAIT=0
     OLLAMA_BOOTSTRAP_GRACE=45
     _ollama_direct_started=0
-    while ! curl -s http://localhost:11434/api/tags &>/dev/null; do
+    # ── WAIT FOR *OUR* OLLAMA, NOT FOR ANY LISTENER ON 11434 ────────────────
+    #
+    # 🔴 MEASURED by TNM against the extracted loop. His decoy was
+    # `python3 -m http.server`, which answers /api/tags with 404 -- and the
+    # loop accepted it, because `curl -s` succeeds on any HTTP response:
+    #
+    #     curl -s   .../api/tags   rc=0    <- this loop's old form
+    #     curl -sf  .../api/tags   rc=22   <- rejects the 404
+    #
+    # So the loop was waiting for AN HTTP LISTENER, not for Ollama. A stray dev
+    # server ended the wait.
+    #
+    # AND THE FIX ABOVE MADE THAT MATTER MORE, NOT LESS. Before it, a box with
+    # a foreign Ollama skipped this branch entirely. Now it correctly writes
+    # and loads our plist and arrives HERE -- where a stranger on the port
+    # would satisfy the loop instantly, `_ollama_direct_started` would stay 0,
+    # the fallback could never fire, and we would print "Ollama running" about
+    # someone else's process. That is the same shape as the health arm: the
+    # decision to ACT was right and the verification that it WORKED was still
+    # answered by the port.
+    #
+    # The state this missed is the one the fallback exists for: registered but
+    # not serving.
+    while ! { curl -sf http://localhost:11434/api/tags &>/dev/null \
+              && _ollama_agent_is_running; }; do
         if [[ $_ollama_direct_started -eq 0 && $OLLAMA_WAIT -ge $OLLAMA_BOOTSTRAP_GRACE ]]; then
             warn "$MSG_WARN_OLLAMA_BOOTSTRAP_FALLBACK_DIRECT"
             if [[ -x "$OLLAMA_APP_BIN" ]]; then
@@ -28546,8 +28588,7 @@ fi
 # listener needs #549, which an unprivileged reader cannot do. The narrower
 # claim is the true one.
 if curl -sf http://localhost:11434/api/tags &>/dev/null \
-   && launchctl print "gui/$(id -u)/com.ostler.ollama" 2>/dev/null \
-      | grep -q 'state = running'; then
+   && _ollama_agent_is_running; then
     ok "$MSG_OK_OLLAMA_HEALTHY"
 else
     warn "$MSG_WARN_OLLAMA_NOT_RESPONDING"

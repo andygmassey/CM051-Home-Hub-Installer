@@ -46,7 +46,10 @@ trap 'rm -rf "$WORK"' EXIT
 
 # Pull the guard line out of install.sh rather than restating it, so a reword
 # that drops the plist test fails here instead of passing a copy.
-GUARD="$(grep -m1 -F 'if curl -s http://localhost:11434/api/tags' "$SUBJECT")"
+# Both the create arm and the health arm now open with the same curl, so
+# extract on the DISTINGUISHING TAIL, not the shared prefix. A prefix match
+# would silently test the wrong arm, which is worse than not testing at all.
+GUARD="$(grep -m1 -F 'OLLAMA_PLIST" ]]; then' "$SUBJECT")"
 [ -n "$GUARD" ] || { echo "CANNOT-RUN: the ollama guard line was not found in install.sh." >&2
                      echo "  It was extracted by its curl; a rewrite must fail loudly here" >&2
                      echo "  rather than silently testing nothing." >&2; exit 2; }
@@ -118,13 +121,24 @@ echo "── THE HEALTH ARM: it FIRED on the v1.0.66 artefact walk ──"
 # The condition spans TWO physical lines (it ends in a backslash continuation),
 # so a bare `grep -m1` returns a fragment ending in `\` and the driven script
 # is a syntax error that reports EMPTY. Follow the continuation.
-HGUARD="$(awk '/if curl -sf http:\/\/localhost:11434\/api\/tags/ {
-                   line = $0
-                   while (line ~ /\\$/) { sub(/\\$/, "", line); getline nxt; line = line nxt }
-                   print line; exit
-               }' "$SUBJECT")"
+# The health arm spans two physical lines and now ends in the shared
+# predicate. Anchor on ITS tail and walk BACK to the `if`, so a prefix shared
+# with the create arm cannot select the wrong one.
+HGUARD="$(awk '/&& _ollama_agent_is_running; then/ {
+                   print prev " " $0; exit
+               }
+               { prev = $0; sub(/\\$/, "", prev) }' "$SUBJECT")"
 if [ -z "$HGUARD" ]; then
     echo "CANNOT-RUN: the health arm was not found in install.sh." >&2; exit 2
+fi
+# The guard calls a shared predicate; the driven script needs its real body,
+# not a stub, or this would test a definition that does not ship.
+PREDICATE="$(awk '/^_ollama_agent_is_running\(\) \{/ {f=1} f {print} f && /^\}$/ {exit}' "$SUBJECT")"
+if [ -z "$PREDICATE" ]; then
+    echo "CANNOT-RUN: _ollama_agent_is_running was not found in install.sh." >&2
+    echo "  The health arm and the wait loop both call it; testing the guard" >&2
+    echo "  without its real body would prove nothing." >&2
+    exit 2
 fi
 
 # Drive it. `agent` is one of: running | dead | absent -- and the middle one is
@@ -151,6 +165,7 @@ set -uo pipefail
 curl() { return $(( answered == 1 ? 0 : 1 )); }
 launchctl() { printf '%s\n' ${lc_out:+"$(printf '%q' "$lc_out")"}; return ${lc_rc}; }
 ok() { echo OK; }
+${PREDICATE}
 ${HGUARD}
     ok
 else
@@ -180,13 +195,51 @@ r="$(_health 0 running)"
     && ok "our agent runs but nothing answers -> UNHEALTHY, so a dead port is still caught" \
     || bad "a dead port with our agent running reports ${r}."
 
+# The arm now delegates to the shared predicate, so the structural demand moves
+# to the PREDICATE. Assert both halves: the arm must call it, and it must parse
+# the state rather than the exit code.
 case "$HGUARD" in
-    *launchctl*state\ =\ running*|*state\ =\ running*launchctl*)
-        ok "the health arm parses state = running, not launchctl's exit code" ;;
-    *launchctl*)
-        bad "the health arm calls launchctl but does not parse the state. rc=0 covers BOTH running and dead, so this passes a parked agent: ${HGUARD}" ;;
-    *)  bad "the health arm no longer names launchctl: ${HGUARD}" ;;
+    *_ollama_agent_is_running*) ok "the health arm delegates to the shared predicate" ;;
+    *) bad "the health arm no longer calls _ollama_agent_is_running: ${HGUARD}" ;;
 esac
+case "$PREDICATE" in
+    *launchctl*state\ =\ running*)
+        ok "the predicate parses state = running, not launchctl's exit code" ;;
+    *launchctl*)
+        bad "the predicate calls launchctl but does not parse the state. rc=0 covers BOTH running and dead, so this would pass a parked agent." ;;
+    *)  bad "the predicate no longer names launchctl." ;;
+esac
+
+echo "── the WAIT LOOP must wait for OUR ollama, not any HTTP listener ──"
+# 🔴 MEASURED by TNM with a `python3 -m http.server` decoy, which answers
+# /api/tags with 404. The loop's old `curl -s` accepted it:
+#     curl -s  .../api/tags  rc=0    <- any HTTP response satisfies it
+#     curl -sf .../api/tags  rc=22   <- rejects the 404
+# And the create fix above made that matter MORE: a foreign-Ollama box now
+# reaches this loop instead of skipping the branch, so a stranger on the port
+# would end the wait, _ollama_direct_started would stay 0, the fallback could
+# never fire, and we would print "Ollama running" about someone else's process.
+WLOOP="$(grep -m1 -F 'while ! { curl' "$SUBJECT")"
+if [ -z "$WLOOP" ]; then
+    bad "the wait loop no longer matches 'while ! { curl' -- it may have reverted to a bare single-condition wait."
+else
+    case "$WLOOP" in
+        *curl\ -sf*) ok "the wait loop uses curl -sf, so a 404 from a stray server does not end it" ;;
+        *) bad "the wait loop does not use curl -sf: a 404 from any HTTP listener would satisfy it. ${WLOOP}" ;;
+    esac
+fi
+# The predicate must be in the loop's condition too, on the CONTINUATION line.
+WLOOP2="$(awk '/while ! \{ curl/ {getline nxt; print nxt; exit}' "$SUBJECT")"
+case "$WLOOP2" in
+    *_ollama_agent_is_running*) ok "the wait loop also requires OUR agent, so a stranger cannot end the wait" ;;
+    *) bad "the wait loop does not consult _ollama_agent_is_running: ${WLOOP2}" ;;
+esac
+
+echo "── no bare 'curl -s' on 11434 may remain ──"
+_bare="$(grep -c 'curl -s http://localhost:11434' "$SUBJECT" || true)"
+[ "${_bare:-0}" -eq 0 ] \
+    && ok "0 bare 'curl -s' probes on 11434 remain; all three use -sf" \
+    || bad "${_bare} bare 'curl -s' probe(s) on 11434 remain. -s succeeds on ANY HTTP response, including a 404 from a stray dev server."
 
 echo "── and it must NOT be built on lsof ──"
 # install.sh's own _port_is_our_own_forward records that an unprivileged lsof
