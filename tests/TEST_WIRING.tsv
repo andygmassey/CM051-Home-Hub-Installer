@@ -26,6 +26,7 @@ test_a_failed_walk_must_not_exit_zero.sh	WIRED	.github/workflows/cold-box-source
 test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_a_gui_uninstall_needs_its_decoder_cases.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_a_killed_converge_still_gets_its_catchup_agent.sh	WIRED	.github/workflows/killed-converge-gets-its-catchup.yml
+test_a_loopback_probe_must_not_ask_a_proxy.sh	WIRED	.github/workflows/colima-autostart.yml
 test_a_name_grep_cannot_see_a_dead_definition.py	WIRED	.github/workflows/cut-manifest.yml
 test_a_pairing_non_answer_is_not_a_rejection.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_a_pairing_reader_runs_before_the_pairing_mutator.sh	WIRED	.github/workflows/walk-record-gate.yml
