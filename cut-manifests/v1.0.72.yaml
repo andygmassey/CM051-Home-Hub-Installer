@@ -30,10 +30,32 @@
 
 version: v1.0.72
 description: |
-  The single pre-cut checklist. All 26 box-walk probes must PASS -- Andy's
-  standing bar, "they all must pass each and every time". Plus a defect-absence
-  proof for every defect measured on the v1.0.71 walk. Nothing ships until
-  every entry in `entries` is satisfied.
+  The single pre-cut checklist.
+
+  WHERE EACH KIND OF ROW IS ACTUALLY ENFORCED. The first version of this
+  description said "nothing ships until every entry in `entries` is satisfied".
+  That was FALSE, and it was false in the same way the defects this file exists
+  to catch are false:
+
+    grep / file rows   ENFORCED AT THE CUT. gui/Makefile runs
+                       verify_cut_manifest.sh during `make ship` and a FAIL
+                       stops the build.
+
+    box_walk_probe     NOT ENFORCED AT THE CUT. MEASURED: neither
+    rows               `--require-runtime-proofs` nor `OSTLER_BOX_HOST` appears
+                       anywhere in gui/Makefile or .github/ (control: 43 files
+                       repo-wide mention OSTLER_BOX_HOST). The primitive returns
+                       SKIP without a box, and SKIP is not a FAIL, so all 26 of
+                       these rows pass at `make ship` BY NOT LOOKING.
+                       They are enforced AT THE PROMOTE, by
+                       scripts/post_walk_qa.sh -- the only caller that passes
+                       the flag, and the thing that refuses to write a clean
+                       walk record when any probe fails.
+
+  The split is defensible: a runtime bar belongs where a box exists, not at
+  assembly. The header claiming the stronger thing was not. Andy's bar, "they
+  all must pass each and every time", is met AT THE PROMOTE, and a DMG that has
+  not passed post_walk_qa must not reach a customer.
 
 entries:
 
@@ -226,6 +248,20 @@ entries:
       kind: box_walk_probe
       probe: "the_recovery_key_reached_the_customer"
 
+  # THE INSTRUMENTS ARE COUNTED TOO. Andy, 2026-09-05: "surely we need to make
+  # sure all the instruments work as well, so I'd actually rather we count them
+  # in the manifest." A broken instrument is how a customer defect survives, so
+  # an apparatus defect is not DEFER-able on the grounds of being apparatus.
+  - id: every-probe-on-disk-is-collected
+    title: every probe-shaped script must be collected by run_box_walk.sh or exempted with a written reason
+    incident: "acceptance_gate_v1013.sh sits one directory above the collector's glob. cut-manifests/README.md records the same shape as this project's worst measurement failure: people_seed_and_retrieval sat outside it and FOURTEEN CUTS reported a gate that measured nothing."
+    proof:
+      kind: grep_in_source_at_sha
+      target: this-repo
+      path: "tests/test_every_probe_on_disk_is_collected.py"
+      pattern: "probe-shaped script"
+      must_match: true
+
   # ==========================================================================
   # DEFECT-ABSENCE PROOFS for defects MEASURED on the v1.0.71 walk box today.
   # Each pattern is the broken form. must_match:false means the cut fails while
@@ -264,20 +300,26 @@ entries:
   # the fix actually introduces. Until #1567 lands the presence row is RED,
   # which is correct: the property is unproven, and the manifest should say so
   # rather than report a pass it did not earn.
-  - id: uninstall-consent-is-not-merely-non-empty
-    title: uninstaller consent must not treat OSTLER_UNINSTALL_ASSUME_YES=0 as yes
-    incident: "review of #1567 2026-09-05: -n tests non-empty, so =0, =no and =false all proceeded to destroy"
+  # A CALL-SITE PROOF, AND THE REASON IT IS NOT AN ABSENCE PROOF.
+  #
+  # This replaced a row grepping `[[ -n "$ASSUME_YES" ]]` with must_match:false,
+  # which was wrong TWICE. It was green on main only because ASSUME_YES did not
+  # exist there at all (0 occurrences against 1655 for OSTLER_), and it would
+  # have gone RED ON THE CORRECT FIX: #1567 still contains that exact string,
+  # in a safe role, warning that a value was set which does not mean consent.
+  # Measured hits=0 on main, hits=1 on the PR. A gate that fires on the fix is
+  # worse than no gate: the debugging it causes looks like the fix broke
+  # something.
+  #
+  # Anchored to the CALL, not the definition. `_assume_yes_granted` alone is
+  # satisfied by a function that exists and is never reached -- the exact
+  # mutant TNM's #1579 shows the converge row passing.
+  - id: uninstall-consent-is-an-allowlist-not-a-non-empty-test
+    title: the uninstaller's confirm bypass must be decided by a value allowlist, at its call site
+    incident: "#1560 + review 2026-09-05: -n tests non-empty, so =0, =no and =false all proceeded to destroy. The first replacement row banned a SUBSTRING the correct fix still contains in a safe role."
     proof:
       kind: grep_in_installer
-      pattern: "\\[\\[ -n \"\\$ASSUME_YES\" \\]\\]"
-      must_match: false
-
-  - id: uninstall-consent-enumerates-the-values-that-mean-yes
-    title: the uninstaller must decide consent by enumerating the values that mean yes
-    incident: "the paired control for the row above, which was green on main only because ASSUME_YES did not exist there at all (0 occurrences against 1655 for OSTLER_)"
-    proof:
-      kind: grep_in_installer
-      pattern: "_assume_yes_granted"
+      pattern: "(?m)^if _assume_yes_granted; then"
       must_match: true
 
 open_issues:
@@ -288,37 +330,37 @@ open_issues:
     gate: "FIX (gated): entry: imessage-backfill-ladder-is-not-pinned -- the 45-day pin is already gone from main; this is the regression proof so it cannot come back"
   - issue: 775
     title: "the hydrate-sentinel control (7) has a false pass on a nested block, and types its own denominator"
-    gate: "DEFER: both halves latent -- the nested-block false pass needs a mutation nobody has made, and the typed denominator agrees with the derived one today"
+    gate: "FIX (apparatus, counted per Andy): both halves latent today, but a control with a false pass and a hand-typed denominator are instrument defects and instruments must work. Needs a proof authored"
   - issue: 1111
     title: "freshness_panel_has_dates can never run: the Doctor has no freshness endpoint"
     gate: "FIX (BLOCKING): probe-freshness-panel-has-dates exits 78 CANNOT-RUN on a 404, and CANNOT-RUN counts toward the blocking total. Three options, all product calls: land the Doctor freshness route, retarget the probe, or remove the row with the reason recorded"
   - issue: 1113
     title: "assistant_answers_grounded: tools= is empty because [mcp] servers = [], and every ungrounded turn logs outcome='ok'"
-    gate: "DEFER: stated root cause refuted -- pwg_* are native Rust tools, not MCP servers, so [mcp] servers=[] cannot be why tools= was empty"
+    gate: "FIX (apparatus, verify then close): stated root cause refuted -- pwg_* are native Rust tools, not MCP servers. The tools= emptiness is real and unexplained; gated by entry: probe-assistant-answers-grounded"
   - issue: 1122
     title: "35 un-revoked pairing tokens on the walk box, hidden because the probe was BROKEN"
     gate: "FIX (already gated): entry: probe-pairing-recovers-without-a-repair-storm (TOKEN_CEILING=12, self-tested both ways). Register row was wrong to say NONE YET"
   - issue: 1123
     title: "pair_state_agreement can never read 2 of its 3 signals: /doctor/api/health has no pairing field"
-    gate: "DEFER: superseded by d56ce2a5 (#1532) -- the probe now reads 5 signals and discovers devices.db anywhere under ~/.ostler. Re-measure next walk"
+    gate: "FIX (apparatus, verify then close): believed superseded by d56ce2a5 (#1532) -- probe now reads 5 signals. Gated by entry: probe-pair-state-agreement; close on a green walk, not on the diff"
   - issue: 1125
     title: "assistant_answers_grounded scores any pwg_* call as grounded, so it is blind to the wrong-tool case"
     gate: "FIX: entry: grounded-is-not-a-bare-pwg-prefix -- the probe scores any pwg_* call as grounded, so a green verdict measures something weaker than it claims"
   - issue: 1141
     title: "usage journal has never been written on a box that has compiled and ingested for days"
-    gate: "DEFER: both halves landed -- active_workspace.toml is written (install.sh:12952) and the probe honours it"
+    gate: "FIX (verify then close): both halves believed landed (install.sh:12952 writes active_workspace.toml, probe honours it). Gated by entry: probe-usage-journal-producers, which FAILED on the v1.0.71 walk -- so it is NOT closed"
   - issue: 1143
     title: "egress probe FAILs on declared hosts: a rotating DNS pool defeats contemporaneous resolution"
-    gate: "DEFER: the DERP leg now runs in the same joint remote call as the socket read (6fa2e4f4) and the verdict separates declared from undeclared"
+    gate: "FIX (apparatus, verify then close): DERP leg now in the same joint remote call (6fa2e4f4). Gated by entry: probe-no-unexpected-egress; close on a green walk"
   - issue: 1152
     title: "acceptance_gate_v1013 is a registered probe that the box_walk_probes README never lists"
-    gate: "DEFER: documentation only, no customer reach. NOTE the issue is wrong that the probe runs -- see acceptance_gate_v1013 below"
+    gate: "FIX (apparatus, counted per Andy): the register is wrong AND the issue is wrong -- acceptance_gate_v1013 is not collected by run_box_walk.sh. Gated by entry: every-probe-on-disk-is-collected"
   - issue: 1153
     title: "install.sh coverage gate matches a MENTION not a cp line, so deleting the copy stays green — including for the needle written after the ships-dark inc"
     gate: "FIX: entry: bundling-needle-matches-a-cp-not-a-mention -- the gate written after a ships-dark incident is defeated by the one-line edit it exists to catch, and still reports OK"
   - issue: 1154
     title: "verify_test_wiring counts a paths: trigger as an invocation, so a test that is only triggered-on reports WIRED"
-    gate: "DEFER: latent, measured scope on main is zero, and the fix is the same edit as 1156"
+    gate: "FIX (apparatus, counted per Andy): same edit as 1156. Gated by entry: test-wiring-gate-enumerates-scripts-tests"
   - issue: 1156
     title: "verify_test_wiring enumerates only tests/, so all 28 files under scripts/tests/ are uncovered — including the self-test for that gate"
     gate: "FIX: entry: test-wiring-gate-enumerates-scripts-tests -- 36 test files under scripts/tests/ have 0 rows, including the self-test for that very gate"
@@ -333,58 +375,61 @@ open_issues:
     gate: "FIX (already gated): entry: probe-assistant-answers-grounded -- the failing string is literally battery question line 272. Fix is daemon-side"
   - issue: 1163
     title: "usage_journal: six chat turns against a shipped daemon that contains the recorder produced no journal and no error — plus the roster's own denominator"
-    gate: "NONE YET"
+    gate: "FIX (apparatus, counted per Andy): the recorder lives in ostler-assistant and the probe is advisory in walk_promote_scope.tsv. Gated by entry: probe-usage-journal-producers, which FAILED on the v1.0.71 walk"
   - issue: 1164
     title: "verify_doctor_governor_revendor.sh has 0 automated callers — its only wiring is a comment, and it falls through all three gate-coverage gates"
-    gate: "NONE YET"
+    gate: "FIX (apparatus, counted per Andy): a guard with 0 automated callers is an instrument that does not run. Same class as acceptance_gate_v1013; needs a proof authored"
   - issue: 1167
     title: "two self-declared cut-blocking gates did not run at v1.0.48's commit — 'reachable from the cut' counts the call graph, not the trigger"
-    gate: "NONE YET"
+    gate: "FIX (apparatus, counted per Andy): two self-declared cut-blocking gates did not run at the cut commit. An instrument that skips its own subject is the failure this manifest exists to end"
   - issue: 1208
     title: "🔴🔴 TNM-0: the port preflight is blind by construction — lsof cannot see another account's listener, so all 7 ports go GREEN on a two-account Mac"
-    gate: "NONE YET"
+    gate: "FIX = ALREADY FIXED, verify and CLOSE: install.sh:16230 now bind-probes with a three-state table and fail_with_code ERR-06-PORTS-HELD, citing #1208 by number. Open only because nobody closed it"
   - issue: 1508
     title: "Revisit the scoped promote gate once a launchable DMG exists"
-    gate: "NONE YET"
+    gate: "DEFER: its own acceptance criterion is 'once a launchable DMG exists'. NOTE it is stale -- says 19 blocking / 5 advisory, the file says 22 / 4"
   - issue: 1519
     title: "cut.yml: the dry-run job can never run, because it needs a preflight that can only pass on a tag"
-    gate: "NONE YET"
+    gate: "FIX (apparatus, counted per Andy): a dry-run job that can never run is an instrument that has never executed. Cheap; needs a proof authored"
   - issue: 1538
     title: "FDA: the assistant cannot be granted Full Disk Access by a human, and the app it asks you to drag is in a hidden directory"
-    gate: "NONE YET"
+    gate: "FIX, PARTLY LANDED: the 'says nothing at all' half closed at 2fb58d1e (#1558) -- _ostler_report_assistant_fda called unconditionally at indent 0. Gated by entry: every-install-says-whether-the-assistant-can-read. RESIDUAL: the nudge still cannot self-verify without sudo. NOT a launch blocker; title over-claims"
   - issue: 1539
     title: "reuse_settings does not cover tailscale_confirm: the ONLY question a re-install re-asks"
-    gate: "NONE YET"
+    gate: "FIX, SPLIT IN TWO: migrator half is PR #1554 (green), gate on merge. TAILSCALE HALF HAS NOTHING IN FLIGHT -- TAILSCALE_CONFIRM is at 17 sites and none writes to the settings store, so a re-install re-asks the only question it re-asks"
   - issue: 1540
     title: "LAUNCH BLOCKER: a BIP39 recovery phrase is generated, the DEK is encrypted under it, and the customer is never shown it"
-    gate: "NONE YET"
+    gate: "FIX, MECHANISM LANDED: mint-to-reveal gap is now 24 lines (14008 -> 14032), the GUI sheet hangs off the whole body outside finished==.ok, and probe the_recovery_key_reached_the_customer is blocking. NOT still a launch blocker. RESIDUAL for v1.0.72: the shipped recovery CLI says '12-word BIP39 phrase' for a 24-character key"
   - issue: 1541
     title: "The RULE 2 veto is wired and still lets 53 over-merges through on a FRESH graph, and 'absence is not a conflict' is the likely seam"
-    gate: "entry: probe-no-person-holds-two-contact-cards"
+    gate: "FIX: same root cause as 1573, treat as one. PR #1578"
   - issue: 1550
     title: "A cut gate reads a checkout on the wrong branch and calls it a RED: the worktree guard tests the wrong property"
-    gate: "NONE YET"
+    gate: "FIX (apparatus, counted per Andy): run_all_cut_gates.sh:167 tests worktree-ness rather than branch and tip, so a stale checkout produced a confident RED on a byte-identical image. OSTLER_ASSISTANT_DIR has the same exposure in the false-GREEN direction. Half an hour and it stops the cut lying both ways"
   - issue: 1556
     title: "The pre-commit PII hook and the CI PII gate are different scanners in different repos, and only the nickname is shared"
-    gate: "NONE YET"
+    gate: "FIX, PR ALREADY OPEN AND GREEN: #1564. Gate on merge"
   - issue: 1559
     title: "install.sh aborts on launchctl print gui/<uid> in any headless context: an unanswerable query is handled as a failure"
-    gate: "NONE YET"
+    gate: "FIX, PR ALREADY OPEN AND GREEN: #1561 -- no headless walk can reach step 6 without it. Gate on merge"
   - issue: 1560
     title: "The shipped uninstaller has no non-interactive path, so no automated reset can complete"
-    gate: "entry: uninstall-consent-is-not-merely-non-empty (PR #1567 + review)"
+    gate: "FIX, PR ALREADY OPEN AND GREEN: #1567, and the -n hole is closed in it. Gated by entry: uninstall-consent-is-an-allowlist-not-a-non-empty-test"
   - issue: 1562
     title: "Customers can only uninstall from the command line"
-    gate: "NONE YET (PR #1568 in flight)"
+    gate: "DEFER THE BUTTON, FIX THE PLUMBING: #1568 + #1572 green and must move together (the decoder knows 0 of 3 events). Andy said the GUI is not a launch blocker"
   - issue: 1566
     title: "ERR-14 on a cold box: the store was running and nothing could connect to it for 300s, and the install cannot tell that from a slow start"
-    gate: "NONE YET"
+    gate: "FIX THE DIAGNOSIS, NOT THE TIMEOUT: a customer-reaching abort at step 16 of 41 with a wrong diagnosis. #1537 already raised the cap to 300s and the box still failed the full 300, so raising it again is not the fix. No proof authorable until the fix shape is chosen"
   - issue: 1571
     title: "the export watcher says 'now part of your world' on an import that matched nothing, and records the hash so it never retries"
-    gate: "NONE YET"
+    gate: "FIX: the product claims work it did not do and then records the hash so it never retries. Honesty plus silent data loss. Needs a proof authored on the fix shape"
   - issue: 1573
     title: "RULE 2 still violated on a fresh v1.0.71 graph: 54 person nodes hold 117 Contacts cards, with the #1543 fix present in the artefact"
-    gate: "entry: probe-no-person-holds-two-contact-cards"
+    gate: "FIX: PR #1578. Root cause independently confirmed -- dedupe_merge has 0 matches for icloud_contact_uid, RULE 2, veto or mergedInto, against a control of 25 for 'def |merge'"
   - issue: 1574
     title: "com.ostler.ollama crash-loops 368 times behind a guard that reports OK: 'a port answers' is not 'our agent is healthy'"
-    gate: "NONE YET"
+    gate: "FIX: a guard prints OK over an agent that failed 368 times, and _ollama_agent_is_running sits twelve lines above it uncalled. Needs a proof authored"
+  - issue: 1583
+    title: "a shipped privacy filter uses gte where its docstring says max, so it returns MORE private data than asked for"
+    gate: "FIX: qdrant_loader.py uses range gte where the docstring says max, and the sibling CM024 implementation uses lte. Higher = more private (health data is level 5), so a request for at-most-2 returns health data. CANNOT-RUN on whether a customer reaches it; fix regardless, the next caller inherits the inversion silently"
