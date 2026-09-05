@@ -499,7 +499,22 @@ def _is_self_describing(path: str) -> bool:
 # rows carrying it say `repo: cm051`, which resolves the same as the
 # `this-repo` default — so it was correct BY COINCIDENCE, not by construction.
 # A row saying `repo: ostler-assistant` would have silently grepped CM051.
-_PROOF_KEYS = {"kind", "target", "repo", "pattern", "must_match", "path", "path_hint"}
+# `min_hits` raises the floor from "appears at all" to "appears at least N
+# times". MEASURED 2026-09-05 across v1.0.71: all 38 rows are
+# grep_in_source_at_sha, and 10 of them match a bare function or variable NAME
+# in a code file. Three of those sit at exactly one definition plus one use, so
+# deleting the single call leaves a DEAD DEFINITION that still satisfies
+# `must_match: true`. That is the shape of the defect v1064-ae is named after:
+# a guard that existed and was never called, while every audit starting from
+# the guarded function came back clean.
+#
+# BE CLEAR ABOUT WHAT THIS DOES AND DOES NOT BUY. A count is still a presence
+# check. `min_hits: 2` proves a definition is not alone in the file; it does
+# NOT prove the second occurrence is reached at runtime. A behavioural claim
+# still needs a test that drives it. This closes the cheapest regression, not
+# the class.
+_PROOF_KEYS = {"kind", "target", "repo", "pattern", "must_match", "path", "path_hint",
+               "min_hits"}
 
 
 def check_grep_in_source_at_sha(entry: dict, ctx: dict) -> Result:
@@ -579,11 +594,30 @@ def check_grep_in_source_at_sha(entry: dict, ctx: dict) -> Result:
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
         return Result(entry["id"], entry["title"], "grep_in_source_at_sha", "FAIL",
                       f"git invocation failed: {e}", entry.get("source_pr", ""))
-    ok = (hits > 0) if must_match else (hits == 0)
+    min_hits = proof.get("min_hits")
+    if min_hits is not None:
+        if not must_match:
+            return Result(entry["id"], entry["title"], "grep_in_source_at_sha", "FAIL",
+                          "min_hits with must_match: false is contradictory: a floor on "
+                          "occurrences of a pattern that must not occur. Refusing to run a "
+                          "check whose instructions disagree with themselves.",
+                          entry.get("source_pr", ""))
+        if not isinstance(min_hits, int) or isinstance(min_hits, bool) or min_hits < 1:
+            return Result(entry["id"], entry["title"], "grep_in_source_at_sha", "FAIL",
+                          f"min_hits must be an integer >= 1, got {min_hits!r}",
+                          entry.get("source_pr", ""))
+    floor = min_hits if min_hits is not None else 1
+    ok = (hits >= floor) if must_match else (hits == 0)
     status = "PASS" if ok else "FAIL"
     scope = f"path={path_hint}" if path_hint else "whole-tree"
     detail = (f"target={target_name} repo={repo} sha={sha[:12]} {scope} "
               f"pattern={pattern!r} must_match={must_match} hits={hits}")
+    if min_hits is not None:
+        detail += f" min_hits={min_hits}"
+        if not ok:
+            detail += (" (the pattern is PRESENT but below its floor). A definition with no "
+                       "remaining use satisfies a bare must_match; that is what this floor exists "
+                       "to catch.")
     if self_described:
         detail += (f" ({self_described} match(es) DISCARDED in manifest/ledger surfaces — "
                    f"a row is not evidence of itself)")

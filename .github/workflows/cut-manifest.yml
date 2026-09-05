@@ -24,6 +24,7 @@ on:
       - 'scripts/tests/test_grep_in_source_at_sha_names_files.py'
       - 'scripts/tests/test_probes_do_not_emit_derivable_person_uris.py'
       - 'tests/test_grep_row_cannot_be_satisfied_by_its_own_manifest.py'
+      - 'tests/test_a_name_grep_cannot_see_a_dead_definition.py'
       - 'tests/test_cut_deferrals_no_duplicate_keys.sh'
       - 'cut-deferrals.yaml'
       - 'scripts/post_walk_qa.sh'
@@ -112,6 +113,27 @@ jobs:
         if: always()
         run: |
           python3 tests/test_grep_row_cannot_be_satisfied_by_its_own_manifest.py -v
+
+      # A NAME-GREP CANNOT SEE A DEAD DEFINITION.
+      #
+      # MEASURED on v1.0.71: all 38 manifest rows are grep_in_source_at_sha,
+      # 10 of them match a bare identifier in a code file, and 3 of those sit
+      # at exactly one definition plus one use. Delete that single call and the
+      # row still passes must_match while the capability is gone -- the shape
+      # v1064-ae is named after, where "every audit that started from the
+      # guarded function came back clean".
+      #
+      # `min_hits` raises the floor. It is a stronger presence check, NOT a
+      # behavioural one: a count cannot prove the second occurrence is reached.
+      # A behavioural claim still needs a test that drives it.
+      #
+      # if: always() -- this and the self-satisfaction gate above are the two
+      # ways a grep row can be true and worthless. Learning about one but not
+      # the other on a red run is how the second gets forgotten.
+      - name: a name-grep cannot see a dead definition
+        if: always()
+        run: |
+          python3 tests/test_a_name_grep_cannot_see_a_dead_definition.py
 
       # A DUPLICATE KEY IN cut-deferrals.yaml IS SILENT AND HAS COST A CUT.
       # YAML keeps the LAST duplicate and discards the earlier one without a
