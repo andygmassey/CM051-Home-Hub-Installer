@@ -25,6 +25,10 @@ on:
       - 'scripts/tests/test_probes_do_not_emit_derivable_person_uris.py'
       - 'tests/test_grep_row_cannot_be_satisfied_by_its_own_manifest.py'
       - 'tests/test_a_name_grep_cannot_see_a_dead_definition.py'
+      # The CANNOT-RUN reporting arms and the git-timeout split, plus their
+      # test. BOTH are triggers: a run: with no matching paths: entry is dark
+      # on self-edit.
+      - 'tests/test_a_row_that_could_not_measure_is_counted_and_named.py'
       # The timeout arm and its test. BOTH are triggers: a run: with no
       # matching paths: entry is dark on self-edit.
       - 'tests/test_a_timed_out_probe_is_not_a_failing_probe.py'
@@ -138,6 +142,14 @@ jobs:
         run: |
           python3 tests/test_a_name_grep_cannot_see_a_dead_definition.py
 
+      # A row that could not measure must be COUNTED and NAMED, not merely
+      # rendered. The summary line carried PASS/FAIL/SKIP and no CANNOT-RUN, so
+      # its arithmetic did not close and the unmeasured row was absent from the
+      # one line a CI log tail keeps. Same file, same class: a git timeout in
+      # check_grep_in_source_at_sha was reported as a source defect.
+      - name: A row that could not measure is counted, named, and still blocks
+        if: always()
+        run: python3 tests/test_a_row_that_could_not_measure_is_counted_and_named.py
       # A probe that exceeded its cap measured NOTHING. Reporting that as FAIL
       # counted it beside real defects and replaced a real diagnosis with an
       # instrument error, which is how the assistant-grounding finding stayed

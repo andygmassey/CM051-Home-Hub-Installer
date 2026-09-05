@@ -33,6 +33,7 @@ test_a_pairing_reader_runs_before_the_pairing_mutator.sh	WIRED	.github/workflows
 test_a_plistbuddy_read_takes_its_exit_code.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_promote_before_the_decline_arms_is_gated.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_ratchet_must_not_name_a_false_cause.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
+test_a_row_that_could_not_measure_is_counted_and_named.py	WIRED	.github/workflows/cut-manifest.yml
 test_a_running_daemon_is_not_a_daemon_that_can_read.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_second_contact_card_cannot_be_written_onto_one_person.py	WIRED	.github/workflows/rule-2-holds-on-the-write.yml
 test_a_security_note_cannot_claim_a_flag_is_off.sh	WIRED	.github/workflows/walk-record-gate.yml
