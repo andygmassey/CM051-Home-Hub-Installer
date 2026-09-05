@@ -99,6 +99,34 @@ else
     bad "ASSET_NAME is not uploaded on both paths; the download command would work on one kind of release and not the other"
 fi
 
+# ── AND THE PROMOTE-TIME CHECK MUST BE RUNNABLE AT ALL ───────────────────────
+#
+# customer-download-path.yml carries a promote-mode path -- posture `public`,
+# RELEASE_TAG from the release, the byte comparison against the published asset.
+# It is triggered by `release: [released]`.
+#
+# 🔴 MEASURED 2026-09-05: a GitHub release event fires in the repo that HOLDS the
+# release, and releases go to a DIFFERENT repo (publish_release.sh:30, and this
+# workflow's own OSTLER_RELEASE_REPO). Runs of that workflow by event: 20
+# pull_request, 5 push, 0 release. Runs of ANY workflow in this repo with
+# event=release: 0, against a control of 56,756 push runs.
+#
+# So that path has never executed. The promote is NOT unguarded --
+# publish_release.sh fetches the customer URL inline and dies on a mismatch --
+# but a path that looks like a second independent check and has never run is
+# exactly the shape #886 was.
+#
+# workflow_dispatch with a tag input is what makes it runnable by hand at the
+# moment of a promote. This arm keeps that door open.
+WF=".github/workflows/customer-download-path.yml"
+if [ ! -f "$WF" ]; then
+    bad "the customer-download workflow is missing; the promote-mode path cannot be run at all"
+elif [ "$(grep -c 'workflow_dispatch:' "$WF")" -gt 0 ] && [ "$(grep -c 'release_tag:' "$WF")" -gt 0 ]; then
+    ok "the promote-mode check can be run by hand: workflow_dispatch with a release_tag input"
+else
+    bad "customer-download-path.yml offers no workflow_dispatch with a release_tag, so its promote-mode path can ONLY be reached by a release event that fires in another repository and therefore never arrives"
+fi
+
 printf '\n== %s pass / %s fail / %s total ==\n' "$PASS" "$FAIL" "$((PASS+FAIL))"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0
