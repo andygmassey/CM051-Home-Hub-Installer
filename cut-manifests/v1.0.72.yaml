@@ -345,6 +345,45 @@ entries:
       must_match: true
 
 open_issues:
+  - issue: 1618
+    title: "no_store_port_is_tcp_reachable measures reachability, which is the wrong predicate for a credentialed surface"
+    gate: >-
+      FIX (apparatus, counted per Andy): entry: the-probe-asks-whether-a-port-SERVES --
+      the probe classifies every MUST_BE_CLOSED port with `nc -z`, which is TCP
+      reachability. That was the right question when the stores had no auth. It
+      is the wrong one now. MEASURED by me on the walk box, unauthenticated:
+      6333 401, 7878 401, 6379 -NOAUTH, 8044 200 serving the whole wiki, 3000
+      200, 8144 listening but not answering HTTP. Of the six the probe names,
+      three refuse, two serve, and all six are reachable. So the probe is
+      alarming about the safe ports and CANNOT SEE the two that are open: 8044
+      and 6333 produce the same output line. Proof: an unauthenticated request
+      per port with the RESPONSE recorded, PASS on 401/403/NOAUTH/refused, FAIL
+      on 2xx naming the ports that served, a positive control on a port that
+      must answer for the prober (8000) so a clean sweep cannot come from a
+      broken client, and "reachable but not speaking HTTP" reported as its own
+      state rather than folded into a pass.
+  - issue: 1619
+    title: "v1018-D011 is live at v1.0.71, and no red rollforward row has a manifest row"
+    gate: >-
+      FIX (BLOCKING): entry: a-display-name-is-a-name -- MEASURED on the walk
+      box by the first real run of the rollforward gate: 1595 People pages
+      examined, 6 carrying a display_name derived from a KINSHIP term (5) or an
+      EMAIL (1). Customer-facing: the wiki is the surface a customer reads and
+      a person page titled with a relationship word is wrong in the way most
+      obvious to the person it is about. Paths deliberately withheld here and
+      by the gate, because a person page's filename is a person's name. Proof
+      must be the same 1595-page sweep returning zero of both, PLUS a positive
+      control: a seeded person whose only available label IS a kinship term
+      must still produce something, and that something must not be the kinship
+      term. Silently dropping the person would satisfy a naive check while
+      making the wiki worse.
+      STRUCTURAL HALF, and it is the reason this row exists: the checklist gate
+      enforces open ISSUES, and the rollforward registry is a SEPARATE defect
+      list, so a rollforward row can be RED against a shipped box while the
+      checklist reads all-registered. MEASURED: neither of the two red
+      rollforward rows had a manifest row. Either the checklist gate also reads
+      the rollforward MUST-FIX rows, or every red rollforward row gets an issue
+      and enters by the existing door.
   - issue: 1614
     title: "the appcast-ship-wiring ratchet reports a false cause: it says a file no longer exists when the file exists"
     gate: >-
