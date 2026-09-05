@@ -103,6 +103,24 @@ jobs:
       # was a guard that EXISTED and was NEVER CALLED. Measured: deleting the
       # call and keeping the def leaves that proof passing with 2 hits, while
       # this step fails and says so.
+      # The converge test drives the REAL batch_resolver, and httpx is not
+      # stubbed there on purpose: its fail-closed arm depends on
+      # `except httpx.HTTPError` catching a genuine exception class. Installed
+      # from the resolver's OWN requirements.txt rather than named here, so
+      # this step also fails if that declaration ever regresses -- which is the
+      # exact defect that file was created for.
+      #
+      # if: always() to match the step below it. Skipping the install after an
+      # earlier red would make the converge test report CANNOT-RUN for an
+      # environment reason and hide whatever it would really have said.
+      - name: Install the resolver's declared dependencies
+        if: always()
+        run: |
+          python3 -m pip install --quiet --break-system-packages --ignore-installed \
+            -r vendor/cm041/identity_resolver/requirements.txt \
+          || python3 -m pip install --quiet --ignore-installed \
+            -r vendor/cm041/identity_resolver/requirements.txt
+
       - name: The converge veto actually runs
         # if: always() -- RULE 2 has two enforcement points and they fail
         # independently. Without this, a red on the resolve-path step would
