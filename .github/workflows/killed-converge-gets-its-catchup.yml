@@ -1,0 +1,55 @@
+name: killed-converge-gets-its-catchup
+
+# A converge that was KILLED must still get its catch-up agent.
+#
+# MEASURED on the v1.0.71 walk box, 2026-09-05: BOTH markers present at once.
+#
+#     dedupe-converge.done     PRESENT
+#     dedupe-converge.killed   PRESENT   waited_s=300 budget_s=300
+#
+# They are not mutually exclusive -- the converge can finish inside the 30s
+# poll window while the budget check fires in the same iteration. The guard
+# tested only .done, so it skipped the catch-up agent and said "nothing left
+# to do", and the post-walk QA suite then failed THREE probes on that one
+# cause: people_count_agreement (off by 84), people_stores_reconcile (84
+# orphan vectors) and converge_kill_is_recorded.
+#
+# ubuntu-latest is correct: the test extracts the guard, stubs the agent
+# installer, and drives four marker states against a temporary directory. It
+# installs no LaunchAgent and touches no real state.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_a_killed_converge_still_gets_its_catchup_agent.sh'
+      - '.github/workflows/killed-converge-gets-its-catchup.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  killed-converge-gets-its-catchup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The negative control is pinned to sha 2fb58d1e and read with
+          # `git show`; a shallow clone cannot see it and the test refuses
+          # with CANNOT-RUN rather than passing vacuously.
+          fetch-depth: 0
+
+      # Four marker states, three of which must install the agent. The
+      # load-bearing one is done=yes killed=yes -- the state that actually
+      # occurred on the box and the one the old guard got wrong.
+      - name: A killed converge must still get its catch-up agent
+        run: bash tests/test_a_killed_converge_still_gets_its_catchup_agent.sh
