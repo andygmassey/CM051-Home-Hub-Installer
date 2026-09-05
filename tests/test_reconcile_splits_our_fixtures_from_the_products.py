@@ -88,9 +88,10 @@ def extract_payload():
 # produces the same silence as a store that answers nothing.
 # --------------------------------------------------------------------------
 class Store(object):
-    def __init__(self, people, points):
+    def __init__(self, people, points, triples=424242):
         self.people = people          # list of graph Person URIs
         self.points = points          # list of (person_uri, is_fixture)
+        self.triples = triples        # the anti-vacuity control the payload reads first
         self.calls = 0
         # URIs that exist in the graph in SOME position without being a Person.
         self.mentioned = set(people)
@@ -98,7 +99,9 @@ class Store(object):
     def sparql(self, q):
         self.calls += 1
         if "?s ?p ?o }" in q and "COUNT(*)" in q and "<" not in q.split("WHERE")[1]:
-            return [{"n": {"value": "424242"}}]        # the non-empty control
+            # The non-empty control, unless a case is deliberately testing the
+            # empty-graph refusal.
+            return [{"n": {"value": str(self.triples)}}]
         if "a <" + ONT + "Person>" in q and q.startswith("SELECT ?p"):
             return [{"p": {"value": u}} for u in self.people]
         if "mergedInto" in q:
@@ -237,9 +240,29 @@ def main():
             bad("%s -> B=%s ours=%s, expected B=%s ours=%s   (%s)"
                 % (label, got_b, got_f, want_b, want_f, line))
 
+    # ── AN EMPTY GRAPH MUST SAY WHY IT MIGHT BE EMPTY ─────────────────────
+    #
+    # "CANNOTRUN graph-empty" alone cannot tell a box that has not ingested from
+    # a box that ingested and produced nothing, and only the second is a finding.
+    # The sibling probe usage_journal_producers already records the lesson: a
+    # benign explanation for a real absence is worse than no explanation.
+    #
+    # The self-test cannot cover this: it drives the SHELL through
+    # FAKE_RECONCILE and never executes the payload. This does.
+    store = Store([P1], [(P1, False)], triples=0)
+    line = run_payload(payload, store)
+    if not line.startswith("CANNOTRUN"):
+        bad("an empty graph did not refuse: %r" % line[:90])
+    elif "settling=" in line and "wiki=" in line:
+        ok("an empty graph refuses AND carries the work evidence -> %r" % line)
+    else:
+        bad("an empty graph refused with no work evidence: %r -- a fresh box and "
+            "a box that ingested and produced nothing print identically" % line)
+    total_calls += store.calls
+
     # ANTI-VACUITY. Every assertion above could be satisfied by a payload that
     # never talked to the store, if the expectations happened to be zeros.
-    if total_calls < len(cases):
+    if total_calls < len(cases) + 1:
         cannot("the fake store was called %d times across %d cases -- the payload "
                "is not reaching it, so nothing above was measured."
                % (total_calls, len(cases)))
