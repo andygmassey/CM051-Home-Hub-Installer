@@ -137,6 +137,45 @@ jobs:
         if: always()
         run: bash tests/test_a_pairing_non_answer_is_not_a_rejection.sh
 
+      # THE PROBE MINTS A BEARER TOKEN EVERY TIME IT PASSES, AND ITS OWN CEILING
+      # IS WHAT THAT TOKEN COUNTS AGAINST. Limb 2 performs a real pair against
+      # :8443; nothing in the tree revokes it; --reset runs no uninstaller so
+      # config.toml survives; and install.sh:12981-13004 deliberately merges the
+      # old paired_tokens forward so an upgrade does not unpair every device. So
+      # the passes accumulate towards the failure, and past TOKEN_CEILING a
+      # BLOCKING probe blames the product for a storm it created itself.
+      #
+      # The attribution arithmetic is pure and needs no box, so it runs here as
+      # well as in the walk's phase 1. Six cases through the real function; the
+      # two that matter are the walk-only box that used to read as a storm, and
+      # the real storm on a box we have also walked, which must NOT be hidden by
+      # subtracting ours.
+      - name: The repair-storm probe does not count its own pairings
+        if: always()
+        run: |
+          # The probe's --self-test EXITS 1 by design: VERDICT: FAIL is the
+          # healthy negative-control result, and phase 1 of the box walk greps
+          # for the literal "VERDICT: BROKEN" BEFORE it reads any exit code,
+          # precisely so a probe cannot vouch for itself with a status. Assert
+          # both, because either alone can be satisfied by a broken probe.
+          rc=0
+          out="$(/bin/bash scripts/box_walk_probes/probes/pairing_recovers_without_a_repair_storm.sh --self-test 2>&1)" || rc=$?
+          printf '%s\n' "$out"
+          # `grep -c`, NOT `... | grep -q`. This step runs under `bash -eo
+          # pipefail`; grep -q exits on the first match and SIGPIPEs printf, so
+          # under pipefail the pipeline can report failure ON A MATCH and invert
+          # the verdict. tests/test_pipefail_shortcircuit_inversion.sh caught
+          # exactly this line, which is what that ratchet is for.
+          if [ "$(printf '%s' "$out" | grep -c 'VERDICT: BROKEN')" -gt 0 ]; then
+            echo "::error::the probe's negative control reported BROKEN -- see the line above" >&2
+            exit 1
+          fi
+          if [ "$rc" -ne 1 ]; then
+            echo "::error::the probe --self-test returned $rc, not 1. The box walk would mark it BROKEN." >&2
+            exit 1
+          fi
+          echo "OK: 6 of 6 attribution cases, and the control fails as phase 1 requires."
+
       # Andy's 2026-09-05 decision: the promote binds on the probes that describe
       # the DMG, not on the whole 24-probe scoreboard. These two guard the change.
       # The first proves the gate still REFUSES on an artefact-owned probe and fails
