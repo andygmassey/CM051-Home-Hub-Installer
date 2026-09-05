@@ -345,6 +345,22 @@ entries:
       must_match: true
 
 open_issues:
+  - issue: 1614
+    title: "the appcast-ship-wiring ratchet reports a false cause: it says a file no longer exists when the file exists"
+    gate: >-
+      FIX (apparatus, counted per Andy): entry: a-ratchet-must-not-name-a-false-cause --
+      the classifier chose its bucket with `[ -e "$row" ]`, and a row is
+      path<TAB>count, so it asked whether a file literally named
+      "tests/foo.sh<TAB>2" exists. It never does. EVERY delisted row was
+      therefore reported as FILE NO LONGER EXISTS, and the CONSTRUCT FIXED
+      branch was unreachable dead code. TNM's root cause; I found the symptom
+      while diagnosing #1609 and had to discard the message's stated cause
+      before I could get anywhere. It survived because the bucket it always
+      chose was usually the RIGHT one: a genuinely deleted file lands there
+      either way, so only a PRESENT file discriminates and the branch handling
+      that case could never fire. Fix is #1616. Proof must include an arm with
+      a file that EXISTS and a changed count, because three of five arms stay
+      green against the broken classifier and cannot tell the two apart.
   - issue: 1610
     title: "the local pre-commit PII hook and the CI gate answer different questions, so the local one is red for every install.sh commit"
     gate: >-
