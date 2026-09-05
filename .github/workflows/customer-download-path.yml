@@ -23,6 +23,8 @@ on:
     branches: [main]
     paths:
       - 'scripts/verify_customer_download_path.sh'
+      - 'scripts/publish_release.sh'
+      - 'tests/test_the_promote_instructions_name_what_makes_it_fail.sh'
       - 'tests/test_customer_download_path_gate.sh'
       # The BASELINE and the comment-stripper are inputs to the verdict, so a
       # change to either must re-run this workflow. A gate that cannot see its
@@ -89,7 +91,23 @@ jobs:
       # unproven: its DMG shape check read `koly` from the first 512 bytes of a
       # file that stores it as a trailer, so it matched nothing on any real DMG.
       - name: Controls -- drive the gate through every exit it can take
+        if: always()
         run: /bin/bash tests/test_customer_download_path_gate.sh
+
+      # THE PROMOTE IS FOLKLORE UNLESS THE SCRIPT SAYS HOW, and its prerelease
+      # message is the only description of it anywhere. MEASURED 2026-09-05:
+      # cut.yml:1223 is the sole invocation of publish_release.sh; CM051 docs say
+      # nothing about promoting; OS003's CUT_MECHANISM_CANONICAL.md does not
+      # mention promoting the INSTALLER at all, and its RUNBOOK covers the DAEMON
+      # release to a different repo. Meanwhile the customer download has sat on
+      # v1.0.41 since the day BEFORE the walk gate existed.
+      #
+      # The block must keep naming the two things that make a re-run fail, and
+      # -- the arm that is a test rather than a doc -- the asset it tells you to
+      # download must be one this script actually uploads.
+      - name: The promote instructions name what makes the promote fail
+        if: always()
+        run: bash tests/test_the_promote_instructions_name_what_makes_it_fail.sh
 
   anti-vacuity:
     # ITS OWN JOB, NOT A STEP AFTER THE CONTROLS.

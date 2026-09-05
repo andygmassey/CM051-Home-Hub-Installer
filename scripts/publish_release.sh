@@ -300,10 +300,34 @@ else
   DMG can be downloaded by version, installed, and walked.
 
   To release it to customers:
-    1. install ${VERSION} on a box
+    1. install ${VERSION} on a box. If its stores carry over from an earlier
+       install, the store-reading probes will grade the PREVIOUS build's data:
+         scripts/ttywalk.sh --host <box> --reset --wipe-stores --from-dmg <dmg>
     2. scripts/post_walk_qa.sh <box-host> ${VERSION}
-    3. commit the walk record it writes under walks/
-    4. re-run this script
+    3. commit the walk record it writes under walks/${VERSION}.tsv
+       A record in a working tree gates nothing. verify_walk_record.sh reads the
+       file FROM THE REPO.
+    4. re-run this script -- and THE TWO THINGS THAT MAKE STEP 4 FAIL:
+
+       (a) HAND IT THE PUBLISHED BYTES, NOT A REBUILD. The walk record binds
+           artefact_sha256 to the DMG the box actually ran, and a rebuild of the
+           same version is a different file -- "1.0.50" named eleven distinct
+           assemblies. Fetch the exact artefact:
+
+             gh release download ${VERSION} --repo ${REPO} \\
+                 --pattern OstlerInstaller.dmg --dir /tmp/promote-${VERSION}
+
+       (b) PUBLISH_RELEASE_TOKEN must be set, and it is NOT the token this run
+           used unless you are on the cut runner. See the error text this script
+           prints when it is unset; it names the exact scopes.
+
+       Then:
+         PUBLISH_RELEASE_TOKEN=... scripts/publish_release.sh ${VERSION} \\
+             /tmp/promote-${VERSION}/OstlerInstaller.dmg
+
+       It is safe to re-run: an existing release is updated with --clobber, the
+       walk gate and the BOM gate run again first, and the customer url is
+       re-verified against the sha afterwards.
 
   This is #844: gates green is a statement about the artefact, not
   about the product. The box walk is the only runtime proof there
