@@ -92,6 +92,10 @@ on:
       - 'tests/test_port_preflight_covers_published.sh'
       # #567: recognising our own colima forward runs in the same preflight.
       - 'tests/test_port_preflight_recognises_own_colima_567.sh'
+      # #1594: same compose stanza, and the step below RUNS it. Without a
+      # path entry, editing this test does not trigger the workflow that
+      # is the only thing checking it.
+      - 'tests/test_the_wiki_port_demands_a_credential.sh'
       # #1498's two aborts are in that same preflight, and the test that
       # shipped WITH #1498 passes on the pre-fix tree. This one does not.
       - 'tests/test_the_port_preflight_aborts_carry_distinct_support_codes.sh'
@@ -156,6 +160,13 @@ jobs:
         if: always()
         run: bash tests/test_port_preflight_covers_published.sh
 
+      # #1594: 8044 published the compiled wiki with no credential at all.
+      # The preflight above proves the port is WATCHED; this proves it is
+      # CLOSED. Two different questions about the same port.
+      - name: Assert the wiki port demands a credential (#1594)
+        if: always()
+        run: bash tests/test_the_wiki_port_demands_a_credential.sh
+
       # #1498 gave the two port-preflight aborts DISTINCT support codes, and
       # shipped without a gate that could see it: the test above returns
       # 16 pass / 0 fail against the pre-fix tree at 03b50c6b. WIRED IS NOT
@@ -193,6 +204,7 @@ jobs:
           bash -n tests/test_colima_start_retry.sh
           bash -n tests/test_port_preflight_covers_published.sh
           bash -n tests/test_port_preflight_recognises_own_colima_567.sh
+          bash -n tests/test_the_wiki_port_demands_a_credential.sh
           bash -n tests/test_sudo_gate_accepts_passwordless_sudo.sh
           bash -n install.sh
           bash -n install.sh.strings.en-GB.sh

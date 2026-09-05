@@ -76,6 +76,19 @@ cat > "$AUTH" <<'AUTHEOF'
 # installer's DEFAULT-OFF state. See install.sh.
 AUTHEOF
 
+# #1594: the same conf now ALSO includes the wiki browser credential, on
+# :8044. Identical reasoning to the block above -- the include is
+# FAIL-CLOSED, so nginx refuses to start without it and this harness has
+# to stage it exactly as install.sh does. Staged with a REAL apr1 hash
+# rather than a placeholder, because auth_basic_user_file is parsed.
+WIKIAUTH="$TMP/ostler-wiki-auth.conf"
+WIKIHTPASSWD="$TMP/ostler-wiki-htpasswd"
+cat > "$WIKIAUTH" <<'WAEOF'
+auth_basic "Ostler personal wiki";
+auth_basic_user_file /etc/nginx/ostler-wiki-htpasswd;
+WAEOF
+printf 'ostler:%s\n' "$(/usr/bin/openssl passwd -apr1 'harness-only-not-a-secret')" > "$WIKIHTPASSWD"
+
 # ── 1. Fail-closed with no owner ───────────────────────────────────
 if write_wiki_tailnet_gate ""; then
     fail "write_wiki_tailnet_gate accepted an empty owner (must return non-zero)"
@@ -140,6 +153,8 @@ else
             -v "$TMP/nginx.conf:/etc/nginx/nginx.conf:ro" \
             -v "$GATE:/etc/nginx/ostler-wiki-gate.conf:ro" \
             -v "$AUTH:/etc/nginx/ostler-store-auth.conf:ro" \
+            -v "$WIKIAUTH:/etc/nginx/ostler-wiki-auth.conf:ro" \
+            -v "$WIKIHTPASSWD:/etc/nginx/ostler-wiki-htpasswd:ro" \
             "$NGINX_IMAGE" nginx -t >"$TMP/nginx-t.log" 2>&1; then
         cat "$TMP/nginx-t.log" >&2
         fail "pinned nginx rejected the generated config"
@@ -152,6 +167,8 @@ else
             -v "$TMP/nginx.conf:/etc/nginx/nginx.conf:ro" \
             -v "$TMP/broken-gate.conf:/etc/nginx/ostler-wiki-gate.conf:ro" \
             -v "$AUTH:/etc/nginx/ostler-store-auth.conf:ro" \
+            -v "$WIKIAUTH:/etc/nginx/ostler-wiki-auth.conf:ro" \
+            -v "$WIKIHTPASSWD:/etc/nginx/ostler-wiki-htpasswd:ro" \
             "$NGINX_IMAGE" nginx -t >/dev/null 2>&1; then
         fail "nginx -t accepted a deliberately broken gate -- this check proves nothing"
     fi
@@ -164,6 +181,8 @@ else
             -v "$TMP/nginx.conf:/etc/nginx/nginx.conf:ro" \
             -v "$GATE:/etc/nginx/ostler-wiki-gate.conf:ro" \
             -v "$AUTH:/etc/nginx/ostler-store-auth.conf:ro" \
+            -v "$WIKIAUTH:/etc/nginx/ostler-wiki-auth.conf:ro" \
+            -v "$WIKIHTPASSWD:/etc/nginx/ostler-wiki-htpasswd:ro" \
             "$NGINX_IMAGE" nginx -t >"$TMP/nginx-t-closed.log" 2>&1; then
         cat "$TMP/nginx-t-closed.log" >&2
         fail "the fail-closed placeholder is not valid nginx -- store-proxy would not start"
@@ -206,6 +225,8 @@ STUBEOF
         -v "$TMP/nginx.conf:/etc/nginx/nginx.conf:ro" \
         -v "$GATE:/etc/nginx/ostler-wiki-gate.conf:ro" \
             -v "$AUTH:/etc/nginx/ostler-store-auth.conf:ro" \
+            -v "$WIKIAUTH:/etc/nginx/ostler-wiki-auth.conf:ro" \
+            -v "$WIKIHTPASSWD:/etc/nginx/ostler-wiki-htpasswd:ro" \
         "$NGINX_IMAGE" >/dev/null
 
     # Wait for the listener rather than sleeping blind.
@@ -267,8 +288,48 @@ if grep -vE '^[[:space:]]*#' "$INSTALL" \
         | grep -E 'serve .*--tcp=8044|tcp://localhost:8044' >&2
     fail "$INSTALL raw-TCP serves :8044 -- that is the unauthenticated graph leak v1.0.10 closed"
 fi
-grep -q '"127.0.0.1:8044:8000"' "$INSTALL" \
-    || fail "wiki-site is no longer published loopback-only"
+# #1594: the wiki's host publish MOVED from wiki-site to store-proxy so it
+# lands behind auth_basic. The property this arm has always protected --
+# 8044 is bound to loopback and nowhere else -- is unchanged, so it is
+# asserted here against the new owner rather than deleted. It is also
+# STRENGTHENED: the old spelling was a single must-match, which would have
+# stayed green if a SECOND, unbound 8044 publish appeared elsewhere in the
+# file. The must-miss below closes that.
+grep -q '"127.0.0.1:8044:8044"' "$INSTALL" \
+    || fail "the wiki port 8044 is not published loopback-only by store-proxy"
+# NO quiet-grep-on-a-pipe HERE, and this file runs under `set -euo pipefail`.
+# A quiet grep
+# exits the instant it matches and closes the pipe, so the upstream grep can
+# take SIGPIPE (141); pipefail then makes the whole pipeline non-zero and the
+# `if` reads FALSE at the exact moment the thing it hunts is PRESENT. It is
+# timing-dependent, so it passes locally and inverts on a loaded runner.
+# Capture the output and test that instead. rc>1 is a real grep error and must
+# not be read as "no matches".
+set +e
+_unbound="$(grep -nE '^[[:space:]]*-[[:space:]]*"[^"]*8044:' "$INSTALL" \
+            | grep -vE '"127\.0\.0\.1:8044:')"
+_unbound_rc=$?
+set -e
+if [ "$_unbound_rc" -gt 1 ]; then
+    fail "could not measure the 8044 publishes (grep rc=$_unbound_rc) -- that is CANNOT-RUN, not a pass"
+fi
+if [ -n "$_unbound" ]; then
+    printf '%s\n' "$_unbound" >&2
+    fail "an 8044 publish is bound to something other than loopback"
+fi
+
+# And the container that has no idea a credential exists must publish nothing.
+set +e
+_ws_ports="$(grep -A4 'container_name: ostler-wiki-site' "$INSTALL" \
+             | grep -E '^[[:space:]]*ports:')"
+_ws_rc=$?
+set -e
+if [ "$_ws_rc" -gt 1 ]; then
+    fail "could not measure the wiki-site stanza (grep rc=$_ws_rc) -- CANNOT-RUN, not a pass"
+fi
+if [ -n "$_ws_ports" ]; then
+    fail "wiki-site publishes a host port again -- that BYPASSES the :8044 credential"
+fi
 grep -q '"127.0.0.1:8144:8144"' "$INSTALL" \
     || fail "the gate port 8144 is not published loopback-only"
 grep -q 'ostler-wiki-gate.conf:/etc/nginx/ostler-wiki-gate.conf:ro' "$INSTALL" \
