@@ -38,6 +38,7 @@ SLUG = "andygmassey/CM051-Home-Hub-Installer"
 
 PASS = 0
 FAIL = 0
+CANNOT_RUN = 0
 
 
 def ok(m: str) -> None:
@@ -125,6 +126,16 @@ def main() -> int:
         live = None
 
     if live is None:
+        # RECORDED, not merely printed. TNM drove this and found both `gh`
+        # branches PRINTED the refusal and then fell through to a summary that
+        # exits 0 -- with the manifest branches exiting 2 as the control, so the
+        # script plainly can. `gh` auth expiring in CI would have left the daily
+        # cron GREEN while measuring nothing, which is the exact failure the
+        # third state exists to prevent, in the gate that argues for it. And it
+        # was a SILENT green: the words CANNOT-RUN appear in the log, so a reader
+        # skimming for red sees nothing.
+        global CANNOT_RUN
+        CANNOT_RUN += 1
         print("  [CANNOT-RUN] the open-issue list could not be read (no gh, no auth,")
         print("               or the call failed). Registration completeness is")
         print("               UNMEASURED on this run. This is not a pass.")
@@ -132,6 +143,7 @@ def main() -> int:
         print(f"                 gh issue list --repo {SLUG} --state open --json number")
     elif not live:
         # An empty list is indistinguishable from a broken query, so refuse it.
+        CANNOT_RUN += 1
         print("  [CANNOT-RUN] the open-issue list came back EMPTY. A repository with")
         print("               genuinely zero open issues and a broken query print")
         print("               identically, so this refuses rather than passing.")
@@ -169,8 +181,19 @@ def main() -> int:
            "carries a written decision")
 
     print()
-    print(f"== {PASS} pass / {FAIL} fail / {PASS + FAIL} total ==")
-    return 1 if FAIL else 0
+    print(f"== {PASS} pass / {FAIL} fail / {CANNOT_RUN} cannot-run / "
+          f"{PASS + FAIL} adjudicated ==")
+    if FAIL:
+        return 1
+    if CANNOT_RUN:
+        # AND A CUT MUST NOT PROCEED ON AN UNREADABLE REGISTER. TNM's judgement
+        # call and I agree with the reasoning: a cut that cannot confirm the
+        # checklist is complete is a cut shipping an unknown, which is what
+        # OSTLER_CUT_IN_PROGRESS exists to stop. 2 rather than 1 so it stays
+        # distinguishable from a real registration failure.
+        print(f"  REFUSING: {CANNOT_RUN} check(s) could not run. That is not a pass.")
+        return 2
+    return 0
 
 
 if __name__ == "__main__":
