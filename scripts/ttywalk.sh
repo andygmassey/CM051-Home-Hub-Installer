@@ -640,6 +640,18 @@ if [[ "$DO_RESET" -eq 1 ]]; then
         # that are currently the subject of an open investigation into 543
         # absent person nodes. Whether a walk should wipe is a decision for the
         # operator, not a side effect of making a log line honest.
+        # RECORD IT WHERE THE RECORD CAN READ IT. This block already SAYS the
+        # stores are carried over; nothing downstream repeated it, so a probe
+        # reading the graph could fail on history and the walk record would
+        # present that as evidence about the DMG. Written to a run file that the
+        # config step below consumes, so a value can never be stale.
+        # NO APOSTROPHES IN THIS BLOCK: the whole body is a single-quoted ssh
+        # string and one typed apostrophe closes it.
+        if [[ -n "$_ran_uninstaller" ]]; then
+            printf "wiped-by-shipped-uninstaller(%s)\n" "$_ran_uninstaller" > ~/.walk-stores-provenance-run
+        else
+            printf "carried-over-from-previous-install\n" > ~/.walk-stores-provenance-run
+        fi
         if [[ -z "$_ran_uninstaller" ]]; then
             echo "NO SHIPPED UNINSTALLER FOUND. This reset did NOT uninstall."
             echo "  searched: ~/Applications/Ostler.app/Contents/Resources/uninstall.sh"
@@ -957,12 +969,21 @@ say "control: ostler_fda resolves beside install.sh (the run-2 killer is closed)
     printf '%s\n' \"\$HOME/${REMOTE_DIR}/ttywalk.log\" > ~/.walk-log
     printf '%s\n' \"\$HOME/${REMOTE_DIR}/install.sh\"  > ~/.walk-installsh
     printf '%s\n' \"${ARTEFACT_VERSION:-}\" > ~/.walk-artefact-version
+    # STORE PROVENANCE. The reset step writes the run file; consuming it here
+    # (rather than reading it in place) means a walk with no --reset cannot
+    # inherit the previous walk answer and present it as this one.
+    if [ -f ~/.walk-stores-provenance-run ]; then
+        mv ~/.walk-stores-provenance-run ~/.walk-stores-provenance
+    else
+        printf 'unknown-no-reset-step\n' > ~/.walk-stores-provenance
+    fi
     : > \"\$HOME/${REMOTE_DIR}/ttywalk.log\"
     chmod +x \"\$HOME/${REMOTE_DIR}/install.sh\" 2>/dev/null || true
     echo 'walk config written:'
     echo \"  log:        \$(cat ~/.walk-log)\"
     echo \"  install.sh: \$(cat ~/.walk-installsh)\"
     echo \"  artefact:   \$(cat ~/.walk-artefact-version 2>/dev/null | sed 's/^\$/(repo walk -- none)/')\"
+    echo \"  stores:     \$(cat ~/.walk-stores-provenance 2>/dev/null)\"
 " || die "could not write the walk config on the host."
 
 if [[ "$STAGE_ONLY" -eq 1 ]]; then

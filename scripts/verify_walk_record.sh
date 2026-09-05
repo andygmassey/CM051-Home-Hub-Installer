@@ -412,6 +412,29 @@ _adjudicate_scoped() {
         echo "[walk-gate] REFUSED: ${#blocking[@]} ARTEFACT-OWNED probe(s) did not pass (${kind}):" >&2
         for p in "${blocking[@]}"; do echo "              - ${p}" >&2; done
         echo "            These describe the DMG about to be handed to a customer." >&2
+        # WHICH BOX STATE DID THEY DESCRIBE? A reset does NOT wipe: ttywalk.sh
+        # runs the shipped uninstaller if it can find one and says so when it
+        # cannot, and it says in that same output that any probe reading the
+        # stores is measuring history rather than this artefact. That sentence
+        # never used to reach here, so a red from a store-reading probe arrived
+        # with nothing to say whether it was about the DMG or the box's past.
+        #
+        # PURELY INFORMATIONAL. The refusal above is unchanged and still exits 1.
+        # This decides what a human does NEXT, which is a different thing from
+        # whether the promote is allowed.
+        _stores="$(field stores_provenance)"
+        case "${_stores}" in
+            '')
+                echo "            stores_provenance: ABSENT from this record. It predates the field," >&2
+                echo "            so whether these reds describe data this artefact created or data" >&2
+                echo "            carried over from a previous install is NOT RECORDED." >&2 ;;
+            carried-over-from-previous-install)
+                echo "            stores_provenance: CARRIED OVER from a previous install. Any of the" >&2
+                echo "            above that reads the graph or the vectors measured HISTORY, not this" >&2
+                echo "            artefact. Still refused -- but debug the data, not the build." >&2 ;;
+            *)
+                echo "            stores_provenance: ${_stores}" >&2 ;;
+        esac
         exit 1
     fi
 
