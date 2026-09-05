@@ -1,0 +1,57 @@
+name: install-diagnostics-durable
+
+# An install must leave its diagnostics somewhere that still exists tomorrow.
+#
+# OSTLER_DIAG_DIR is a mktemp directory under ${TMPDIR:-/tmp}, and that is
+# correct: a shared path would let another user pre-create our log files, which
+# makes pip runs that never happened look like failures. This gate asserts that
+# property is UNCHANGED and refuses (CANNOT-RUN) if it ever is.
+#
+# What was missing is durability. Nothing copied that directory anywhere,
+# nothing deleted it, and on macOS TMPDIR is /var/folders/<per-user>/T which the
+# OS purges on its own schedule. install.sh names the directory in ~80 places,
+# including three of the loudest warnings we ship: the half-migrated-store
+# warning, the calendar extractor failure and the conversation-ingest
+# structural break. The migration warning exists to make someone STOP AND LOOK,
+# and it cited a file the customer could not find the next day.
+#
+# ubuntu-latest is correct: the test reads install.sh and runs one extracted,
+# size-checked function against a temporary HOME. It never runs the installer.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_install_diagnostics_survive_the_run.sh'
+      - '.github/workflows/install-diagnostics-durable.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  install-diagnostics-durable:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # Opens with a control asserting the mktemp privacy property still holds,
+      # so this gate cannot end up guarding a subject that changed underneath
+      # it. The persister is extracted by anchors, SIZE-CHECKED, and run as its
+      # own script against a temporary HOME -- never sourced.
+      #
+      # Mutation-tested three ways: removing the persister entirely (rc=2,
+      # CANNOT-RUN, never 0), removing its call sites (rc=1), and widening the
+      # copy from 0700 to 0755 (rc=1). A fourth attempt did not apply because
+      # the sed delimiter collided with `||` in the target line; a mutation
+      # that does not apply proves nothing and was re-run rather than recorded.
+      - name: An install leaves its diagnostics somewhere durable
+        run: bash tests/test_install_diagnostics_survive_the_run.sh

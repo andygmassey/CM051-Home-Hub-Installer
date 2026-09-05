@@ -174,6 +174,33 @@ OSTLER_DIAG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ostler-diag-XXXXXX")" || {
 }
 export OSTLER_DIAG_DIR
 
+# -- THE DIAGNOSTICS MUST SURVIVE THE RUN THAT PRODUCED THEM ----------
+#
+# OSTLER_DIAG_DIR is a mktemp directory under ${TMPDIR:-/tmp} and the privacy
+# reasoning above is correct and unchanged. What was missing is DURABILITY:
+# nothing ever copied it anywhere, nothing deleted it, and on macOS TMPDIR is
+# /var/folders/<per-user>/T, which the OS purges on its own schedule.
+#
+# install.sh names this directory in 82 places, including three of the loudest
+# warnings we ship: the half-migrated-store warning, the calendar extractor
+# failure and the conversation-ingest structural break. Each tells a customer
+# to read a file at an unguessable, transient path. The migration warning
+# exists to make someone STOP AND LOOK, and it named a file they could not find
+# the next day.
+#
+# Best-effort by construction: an install must never fail because a log copy
+# did not work. 0700 so the copy is no more readable than the original.
+_ostler_persist_diagnostics() {
+    [ -d "${OSTLER_DIAG_DIR:-}" ] || return 0
+    _pd_root="${OSTLER_DIR:-${HOME}/.ostler}/diagnostics"
+    _pd_dest="${_pd_root}/$(date -u '+%Y%m%dT%H%M%SZ')"
+    mkdir -p "$_pd_dest" 2>/dev/null || return 0
+    chmod 700 "$_pd_root" "$_pd_dest" 2>/dev/null || true
+    cp -R "${OSTLER_DIAG_DIR}/." "$_pd_dest/" 2>/dev/null || return 0
+    OSTLER_DIAG_KEPT="$_pd_dest"
+    return 0
+}
+
 # ── Upgrade / rollback mode (B-lite delivery mechanism, v1.0.12) ────
 #
 # Two NON-INTERACTIVE modes the Hub invokes to reconcile the pieces of
@@ -24839,7 +24866,11 @@ if [[ -r "$_ns_migrate_script" ]]; then
         # as untouched, is how a customer gets talked out of the one thing
         # that would have saved them: stopping and looking. Archie's F4.
         124|137)
-           warn "Identifier namespace migration was KILLED part-way (rc=$_ns_rc). The store may be HALF-MIGRATED. Do not rebuild the wiki from it. Your pre-migration backup is at ${OSTLER_DIR:-$PWD}/ostler-graph-premigration.nq. See "${OSTLER_DIAG_DIR}/ns-migration.log""  # i18n-exempt
+           # Keep the log BEFORE naming it. This is the warning whose whole
+           # purpose is to make someone stop and look, and it cited a path
+           # under ${TMPDIR} that the OS purges.
+           _ostler_persist_diagnostics
+           warn "Identifier namespace migration was KILLED part-way (rc=$_ns_rc). The store may be HALF-MIGRATED. Do not rebuild the wiki from it. Your pre-migration backup is at ${OSTLER_DIR:-$PWD}/ostler-graph-premigration.nq. See ${OSTLER_DIAG_KEPT:-$OSTLER_DIAG_DIR}/ns-migration.log"  # i18n-exempt
            ;;
         *) warn "Identifier namespace migration did not complete (rc=$_ns_rc). Some identifiers may already have been rewritten, so the store may be part-migrated -- it is NOT known to be unchanged. Your pre-migration backup is at ${OSTLER_DIR:-$PWD}/ostler-graph-premigration.nq. See "${OSTLER_DIAG_DIR}/ns-migration.log""  # i18n-exempt
            ;;
@@ -30570,4 +30601,17 @@ fi
 # isn't there (warn-only from earlier phase), this no-ops silently.
 if [[ -d "/Applications/Ostler.app" ]]; then
     open -gj "/Applications/Ostler.app" 2>/dev/null || true
+fi
+
+# -- KEEP THIS RUN'S DIAGNOSTICS --------------------------------------
+# Last statement in the file, so a completed install leaves its logs where the
+# customer and a support conversation can both find them. Failure paths that
+# exit earlier call this where they warn; see the namespace migration arm.
+#
+# Deliberately NOT an EXIT trap: install.sh already sets twelve traps and
+# `trap ... EXIT` REPLACES rather than stacks, so adding one would silently
+# clobber composite_cleanup or the lock-dir removal.
+_ostler_persist_diagnostics
+if [[ -n "${OSTLER_DIAG_KEPT:-}" ]]; then
+    echo "  Install diagnostics kept at ${OSTLER_DIAG_KEPT}"  # i18n-exempt
 fi

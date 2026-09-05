@@ -214,6 +214,7 @@ test_inferred_category_never_egresses.py	WIRED	.github/workflows/install-abort-a
 test_ingest_offpeak_throttle.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_ingest_slot_fairness.sh	WIRED	.github/workflows/ingest-slot.yml
 test_install_daily_briefs.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_install_diagnostics_survive_the_run.sh	WIRED	.github/workflows/install-diagnostics-durable.yml
 test_install_first_month_free.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_install_gui_contract.py	WIRED	.github/workflows/install-gui-contract.yml
 test_install_gui_contract_negatives.py	WIRED	.github/workflows/install-gui-contract.yml
