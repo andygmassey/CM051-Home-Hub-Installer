@@ -261,6 +261,16 @@ def _grep_tree(root: Path, pattern: str, only_path: Optional[str]) -> int:
     return total
 
 
+class CouldNotMeasure(Exception):
+    """The measurement did not happen. NOT a result about the subject.
+
+    Raised where a helper's return type cannot carry a third state. A hit
+    COUNT has no value that means "I could not look": 0 means "looked, found
+    nothing", and any sentinel integer is a number some caller will compare.
+    So the helper raises and the caller turns it into CANNOT-RUN.
+    """
+
+
 def _grep_binary_strings(binary: Path, pattern: str) -> int:
     if not binary.is_file():
         return 0
@@ -269,8 +279,22 @@ def _grep_binary_strings(binary: Path, pattern: str) -> int:
             ["/usr/bin/strings", "-a", str(binary)],
             capture_output=True, check=False, timeout=60,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return 0
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        # 🔴 THIS USED TO `return 0`, AND 0 IS A HIT COUNT.
+        #
+        # MEASURED: at the grep_in_artefact call site the very next line is
+        #     ok = (hits > 0) if must_match else (hits == 0)
+        # so a row with must_match:false evaluated 0 == 0 and PASSED. A probe
+        # that could not run made a cut gate go GREEN. Every other instrument
+        # defect found on 2026-09-06 failed SAFE; this one failed OPEN, which
+        # is why it is the one worth the exception type.
+        #
+        # In the dmg-tree loop the same 0 hit `if not n: continue`, silently
+        # dropping the file from the population -- an undercount that reads as
+        # a clean sweep.
+        raise CouldNotMeasure(
+            f"strings(1) over {binary} could not be measured: {type(e).__name__}. "
+            f"This is NOT a hit count of zero.") from e
     return _pattern_hits_bytes(result.stdout, pattern)
 
 
@@ -447,7 +471,11 @@ def check_grep_in_artefact(entry: dict, ctx: dict) -> Result:
                       entry.get("source_pr", ""))
     # Special case: daemon-binary uses strings(1).
     if target_name == "daemon-binary":
-        hits = _grep_binary_strings(target, pattern)
+        try:
+            hits = _grep_binary_strings(target, pattern)
+        except CouldNotMeasure as e:
+            return Result(entry["id"], entry["title"], "grep_in_artefact", "CANNOT-RUN",
+                          str(e), entry.get("source_pr", ""))
     else:
         hits = _grep_tree(target, pattern, path_hint)
     ok = (hits > 0) if must_match else (hits == 0)
@@ -528,7 +556,16 @@ def check_grep_in_dmg_tree(entry: dict, ctx: dict) -> Result:
             if rp in seen:
                 continue
             seen.add(rp)
-            n = _grep_binary_strings(path, pattern) if use_strings else _grep_file(path, pattern)
+            try:
+                n = _grep_binary_strings(path, pattern) if use_strings else _grep_file(path, pattern)
+            except CouldNotMeasure as e:
+                # One unreadable file makes the whole sweep unmeasured. The old
+                # `return 0` let it fall into `if not n: continue`, dropping the
+                # file from the population: an UNDERCOUNT that reads as a clean
+                # tree. A partial sweep is not a smaller sweep, it is a sweep
+                # whose denominator you no longer know.
+                return Result(entry["id"], entry["title"], "grep_in_dmg_tree", "CANNOT-RUN",
+                              str(e), entry.get("source_pr", ""))
             if not n:
                 continue
             if exempt_paths and _matches_any_glob(path, exempt_paths):
