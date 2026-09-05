@@ -41,6 +41,25 @@ fi
 FIX_IDS=(  "#1247-sudo-gate-passwordless"                 "#1249-abort-speaks-on-terminal"   "#563-uninstall-count-nonfatal" )
 FIX_INV=(  "sudo already available without a password"    "Install aborted at line"          "COUNTS_INCOMPLETE" )
 
+# 🔴 THIS CHECK ONLY EVER READ install.sh, AND ITS NAME DOES NOT SAY SO.
+#
+# One `find`, `-name 'install.sh'`. Every fix that lives anywhere else in the
+# payload -- the vendored Python packages, the .app binary, lib/ -- was outside
+# what this could see, while the script is the thing an operator runs to answer
+# "does the DMG deliver the fixes".
+#
+# The case that forced this: #1543, the RULE 2 dedupe guard, is a launch blocker
+# and it lives in contact_syncer/syncer.py. Running this check against the DMG
+# that ships it would have printed PASS while measuring nothing about it.
+#
+# PAYLOAD_PATH is a path SUFFIX, not a basename, so `syncer.py` cannot be
+# satisfied by meeting_syncer's copy. A payload entry whose file is not in the
+# DMG at all is CANNOT-RUN, never a pass: an absent file and a present-but-stale
+# one must not report the same.
+PAYLOAD_IDS=(  "#1543-rule-2-on-the-write" )
+PAYLOAD_PATH=( "contact_syncer/syncer.py" )
+PAYLOAD_INV=(  "_node_holds_a_different_canonical_key" )
+
 MP="$(mktemp -d)"
 DEV=""
 ATTACHED=0
@@ -133,9 +152,49 @@ while [ "$i" -lt "${#FIX_IDS[@]}" ]; do
     i=$((i + 1))
 done
 
-if [ "$fail" -eq 0 ]; then
-    echo "PASS: every required fix invariant is present in every install.sh the DMG ships."
-    exit 0
+# ── PAYLOAD FIXES: everything that is NOT install.sh ─────────────────────────
+cannot_payload=0
+j=0
+while [ "$j" -lt "${#PAYLOAD_IDS[@]}" ]; do
+    pid="${PAYLOAD_IDS[$j]}"; ppath="${PAYLOAD_PATH[$j]}"; pinv="${PAYLOAD_INV[$j]}"
+    PFILES=()
+    while IFS= read -r _pf; do
+        [ -n "$_pf" ] && PFILES+=("$_pf")
+    done < <(find "$MP" -type f -path "*/${ppath}" 2>/dev/null)
+    n_p="${#PFILES[@]}"
+    if [ "$n_p" -eq 0 ]; then
+        printf '  NOT MEASURED  %-30s no %s in the DMG -- CANNOT-RUN, not a pass\n' "$pid" "$ppath" >&2
+        cannot_payload=1
+        j=$((j + 1))
+        continue
+    fi
+    p_present=0
+    for f in "${PFILES[@]}"; do
+        if [ "$(grep -cF -- "$pinv" "$f")" -gt 0 ]; then
+            p_present=$((p_present + 1))
+        fi
+    done
+    if [ "$p_present" -eq "$n_p" ]; then
+        printf '  PRESENT   %-32s (in all %d %s)\n' "$pid" "$n_p" "$ppath"
+    else
+        printf '  ABSENT    %-32s (in %d of %d %s) -- NOT DELIVERED\n' "$pid" "$p_present" "$n_p" "$ppath"
+        fail=1
+    fi
+    j=$((j + 1))
+done
+
+# PRECEDENCE, STATED. A measured absence outranks an unmeasurable entry: a DMG
+# that provably lacks a fix is a FAIL even if another entry could not be looked
+# for. Only when nothing failed does an unmeasured entry decide the verdict, and
+# then it is CANNOT-RUN rather than a pass.
+if [ "$fail" -ne 0 ]; then
+    echo "FAIL: the DMG does not deliver every required fix (see ABSENT above)." >&2
+    exit 1
 fi
-echo "FAIL: the DMG does not deliver every required fix (see ABSENT above)." >&2
-exit 1
+if [ "$cannot_payload" -ne 0 ]; then
+    echo "CANNOT-RUN: a payload fix could not be looked for (see NOT MEASURED above)." >&2
+    echo "            Every install.sh invariant passed. That is not the same as delivery." >&2
+    exit 2
+fi
+echo "PASS: every required fix invariant is present -- ${#FIX_IDS[@]} in every install.sh, ${#PAYLOAD_IDS[@]} in the payload."
+exit 0
