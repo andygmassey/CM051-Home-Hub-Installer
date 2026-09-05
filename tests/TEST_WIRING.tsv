@@ -232,6 +232,7 @@ test_installer_output_keeps_the_tail.sh	WIRED	.github/workflows/installer-memory
 test_installer_version_consistency.sh	WIRED	.github/workflows/installer-version-consistency.yml
 test_installer_version_matches_the_cut.sh	WIRED	.github/workflows/cut.yml
 test_invoked_tests_are_watched_gate.sh	WIRED	.github/workflows/invoked-tests-are-watched.yml
+test_killed_converge_leaves_a_record.sh	WIRED	.github/workflows/killed-converge-leaves-a-record.yml
 test_knowledge_repo_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_laptop_hub_power_copy_fires_on_laptops_only.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_launchagent_bootout_settles_before_bootstrap.sh	WIRED	.github/workflows/launchagent-success-verification.yml
