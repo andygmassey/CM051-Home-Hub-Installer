@@ -1,0 +1,54 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.68.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.68/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN. Authoring it in CM051
+# instead produces a copy with no pin, "a fork nobody declared".
+#
+# ===========================================================================
+# EVERY ROW SAYS ONE OF THREE THINGS AND NEVER A FOURTH
+# ===========================================================================
+#   gate:<workflow>#<what>  a CI gate that FAILS on the real pre-fix tree
+#   artefact:<sha8>#<what>  measured on the published artefact itself
+#   needs-walk:<ver>#<what> UNPROVEN, and here is exactly what to look at
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS, IN ONE LINE
+# ===========================================================================
+# v1.0.67 was cut, published, installed CLEAN (38 of 38 steps, 0 errors) and
+# walked FOUR TIMES on archie@192.168.1.240, ending 16 pass / 6 fail / 2
+# cannot-run. Its artefact sha256 never changed across those walks. EVERY FIX
+# MERGED SINCE ITS PIN IS THEREFORE UNWALKED, and there are eight of them --
+# six in install.sh, one in the vendored ostler_fda, one in the install
+# manifest. v1.0.68 exists to put those on a box.
+#
+# ===========================================================================
+# WHAT IS DELIBERATELY NOT A ROW HERE, SO THE ABSENCE IS DECLARED
+# ===========================================================================
+# CM051 35fb1a41 (#1505) changed install.sh and gets NO row. It rejoins a
+# sentence #1503 split and deletes two line-number citations that had already
+# rotted. It is prose inside a comment block: it adds no capability, changes no
+# branch, and there is nothing a gate could fail on for the pre-fix tree. A BOM
+# is a MUST-CONTAIN list, not a changelog, and inventing a verify column for a
+# comment would put an unfalsifiable row next to seven falsifiable ones.
+# It rides the cut; it is not proven by it. That is the honest statement.
+#
+# The other eighteen commits since 03b50c6b are walks, walk-harness fixes,
+# tests and docs. None of them reach the DMG payload, so none can be a row.
+#
+# ===========================================================================
+# LANDED, AND HOW THAT WAS ESTABLISHED
+# ===========================================================================
+# Every ref below is an ANCESTOR of f60307ad, which is the CM051 pin this cut
+# is built from -- checked with `git merge-base --is-ancestor <ref> f60307ad`,
+# not asserted. Ancestry is valid in ONE direction only: TRUE proves landed.
+what	repo	ref	landed	capability_id	verify	ticket
+THE PEOPLE PROJECTION MUST REMOVE AS WELL AS ADD. ingest_people_to_qdrant was a one-way projection: a Person that left the graph kept its vector for ever. MEASURED ON THE v1.0.67 WALK: doctor reported 1907 people, oxigraph held 1823, and the 84-point difference was exactly the orphan count, every one of them source=fda_people_index. Two walk probes failed on one defect. The prune only ever runs off a SUCCESSFUL projection, a failed read prunes nothing, and it deletes nothing it did not write.	CM051	f60307ad	yes	none	gate:people-projection-prune.yml#test_people_projection_prunes_what_left_the_graph.py	#1511
+THE STORE HEALTH ARMS REPORTED HEALTHY ON ANOTHER ACCOUNT'S CONTAINER. Same class as the v1.0.66 ollama finding and found by looking for its siblings: a bare loopback probe cannot tell whose service answered. On a shared Mac the arms went green while the walked account had nothing listening at all. REACHABLE IS NOT OURS.	CM051	ea51ab55	yes	none	gate:cold-box-source-truth.yml#test_store_health_does_not_depend_on_a_foreign_port.sh	#1495
+THE READINESS BUDGET THAT FAILED THE COLD WALK WAS INVISIBLE TO ITS OWN FLOOR GATE. _QDRANT_COLLECTIONS_READY_CAP was written so the discovery regex could not see it: 10 caps discoverable, this one 0 of 10, so NEITHER the below-floor arm NOR the undeclared arm reached the one budget that actually blew. cm019_setup went ERROR at 132s against a 120s cap on the cold walk. VERIFIED BY EXECUTION 2026-09-05: the fixed gate run against install.sh at the v1.0.67 pin reports 1 failure over 10 caps (MISSING _QDRANT_COLLECTIONS_READY_CAP); against this tree it is clean at 11 of 11, and --self-test exits 0.	CM051	7cb567b8	yes	none	gate:rule-09-strings-check.yml#verify_hydrate_cap_floors.py	#1503
+THE TWO PORT-PREFLIGHT ABORTS GAVE THE CUSTOMER NO SUPPORT CODE. An install that stops because a port is taken is the single most likely thing to happen on a Mac that already runs something, and it stopped with prose nobody can quote at support.	CM051	2c5cb95f	yes	none	gate:colima-autostart.yml#test_port_preflight_covers_published.sh	#1498
+A PLISTBUDDY READ MUST TAKE ITS OWN EXIT CODE. The upgrade path read the service token through PlistBuddy and threw the status away, so a failed read was indistinguishable from a token that was legitimately absent.	CM051	5532772b	yes	none	gate:cold-box-source-truth.yml#test_a_plistbuddy_read_takes_its_exit_code.sh	#1500
+THE UNINSTALLER MUST NOT ANNOUNCE A REMOVAL IT DID NOT DO. It printed removal lines unconditionally, so a customer who ran it and kept their data was told the opposite of what happened.	CM051	82ccee59	yes	none	gate:uninstall-removal-honesty.yml#test_uninstall_cannot_claim_removal_it_did_not_do.sh	#1512
+THE MANIFEST MUST DECLARE WHAT THE INSTALL ACTUALLY PRODUCES. It required com.ostler.enrich, an agent this install deliberately does not create, and omitted com.creativemachines.ostler.context-refresh, which it does. A manifest that asks for the wrong things fails honest installs and passes broken ones.	CM051	b8f0f66a	yes	none	gate:install-manifest-gate.yml#test_install_manifest_gate.sh	#1506
