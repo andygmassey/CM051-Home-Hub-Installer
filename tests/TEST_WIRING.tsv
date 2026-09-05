@@ -182,6 +182,7 @@ test_every_marker_pattern_compiles.sh	WIRED	.github/workflows/cut-gate-wrappers.
 test_every_plistbuddy_read_is_guarded.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_every_probe_on_disk_is_collected.py	WIRED	.github/workflows/every-probe-is-collected.yml
 test_every_question_declares_its_persistence.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_every_script_install_sh_reads_is_bundled.py	WIRED	.github/workflows/install-gui-contract.yml
 test_every_terminal_done_is_exit_or_guarded.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_exemption_ref_form.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_expired_deferral_ratchet.sh	WIRED	.github/workflows/orphan-gate-proofs.yml

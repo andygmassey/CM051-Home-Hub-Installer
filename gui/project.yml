@@ -1186,11 +1186,47 @@ targets:
           mkdir -p "${DEST}/scripts"
           cp "${SRC}" "${DEST}/scripts/deferred-register-device.sh"
           chmod 755 "${DEST}/scripts/deferred-register-device.sh"
+          #
+          # #1539: THE NAMESPACE MIGRATOR IS CALLED AND WAS NEVER BUNDLED.
+          #
+          # install.sh:24910 builds the path itself:
+          #     _ns_migrate_script="${OSTLER_DIR:-$PWD}/scripts/migrate_graph_namespace.py"
+          # and install.sh:24942 warns "Namespace migrator not found ...; skipping".
+          # This phase copied exactly ONE file into scripts/, so that warning has
+          # fired on every install ever made. MEASURED on archie2, 2026-09-05, on a
+          # run that ended DONE status=ok failed_steps=0 errors=0:
+          #
+          #   WARN step=tailscale_connect
+          #        msg=Namespace migrator not found at
+          #            ~/.ostler/scripts/migrate_graph_namespace.py; skipping
+          #
+          #   find /Applications/OstlerInstaller.app -name migrate_graph_namespace.py  -> 0
+          #     control, same command, -name install.sh                                -> 2
+          #
+          # The file's own history is the reason to be careful here: install.sh:24873
+          # records that it "existed and NOTHING CALLED IT". Adding the caller without
+          # adding this line MOVED the defect rather than closing it -- before, it
+          # shipped and nothing ran it; after, something ran it and it did not ship.
+          # Both leave every customer in the pre-migration namespace, and the second
+          # is quieter because the install warns and stays green.
+          #
+          # Not chmod 755: install.sh runs it through the Python it resolved, never
+          # as an executable.
+          SRC_NS="${SRCROOT}/../scripts/migrate_graph_namespace.py"
+          if [ ! -f "${SRC_NS}" ]; then
+            echo "ERROR: scripts/migrate_graph_namespace.py not found at ${SRC_NS}" >&2
+            exit 1
+          fi
+          echo "Bundling scripts/migrate_graph_namespace.py into Resources/scripts/"
+          cp "${SRC_NS}" "${DEST}/scripts/migrate_graph_namespace.py"
+          chmod 644 "${DEST}/scripts/migrate_graph_namespace.py"
           /usr/bin/xattr -cr "${DEST}/scripts" || true
         inputFiles:
           - $(SRCROOT)/../scripts/deferred-register-device.sh
+          - $(SRCROOT)/../scripts/migrate_graph_namespace.py
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/scripts/deferred-register-device.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/scripts/migrate_graph_namespace.py
       - name: Strip xattrs from .app bundle (pre-CodeSign hygiene)
         script: |
           set -euo pipefail
