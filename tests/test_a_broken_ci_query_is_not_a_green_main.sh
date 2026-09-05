@@ -233,6 +233,42 @@ case "$out" in
     *)  bad "CONTROL: the undeclared twin was not filed; the exclusions file is suppressing more than its one row" ;;
 esac
 
+echo "== one unrecovered workflow is ONE issue, not one per sha =="
+
+# MEASURED: `cut-checklist-complete` was red across three consecutive shas and
+# the per-(workflow,sha) rule filed three issues for one broken gate. A label
+# that produces three issues for one problem is a label people mute.
+cat > "${WORK}/bin/gh" <<'STUB'
+#!/bin/sh
+case "$*" in
+  *"actions/workflows/"*"/runs"*)  echo '{"workflow_runs":[]}' ;;
+  *"status=failure"*)
+      printf '%s' '{"workflow_runs":['
+      printf '%s' '{"name":"thrice","status":"completed","conclusion":"failure","created_at":"2026-09-05T09:00:00Z","head_sha":"aaaaaaa1111","html_url":"u","workflow_id":31},'
+      printf '%s' '{"name":"thrice","status":"completed","conclusion":"failure","created_at":"2026-09-05T10:00:00Z","head_sha":"bbbbbbb2222","html_url":"u","workflow_id":31},'
+      printf '%s' '{"name":"thrice","status":"completed","conclusion":"failure","created_at":"2026-09-05T11:00:00Z","head_sha":"ccccccc3333","html_url":"u","workflow_id":31},'
+      printf '%s' '{"name":"other","status":"completed","conclusion":"failure","created_at":"2026-09-05T08:00:00Z","head_sha":"ddddddd4444","html_url":"u","workflow_id":32}'
+      echo ']}' ;;
+  *"actions/runs"*)  echo '{"workflow_runs":[{"name":"x","status":"completed","conclusion":"success","created_at":"2026-09-05T00:00:00Z","head_sha":"a","html_url":"u","workflow_id":1}]}' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "${WORK}/bin/gh"
+rc="$(_run)"
+out="$(cat "${WORK}/out")"
+n_thrice="$(printf '%s\n' "$out" | grep -c 'OPENING: main is red: thrice' || true)"
+[ "$n_thrice" = "1" ] && ok "three reds of one workflow produce ONE issue, not three" \
+                      || bad "three reds of one workflow produced ${n_thrice} issue(s); a label that files one per sha gets muted"
+
+case "$out" in
+    *"thrice at ccccccc"*) ok "and it is the NEWEST failure that is filed, so the run link has the most context" ;;
+    *)                     bad "the filed row is not the newest failure; older shas are the same defect with less context" ;;
+esac
+
+n_other="$(printf '%s\n' "$out" | grep -c 'OPENING: main is red: other' || true)"
+[ "$n_other" = "1" ] && ok "CONTROL: a SECOND distinct workflow still gets its own issue, so the collapse is per-workflow and not global" \
+                     || bad "CONTROL: the second workflow produced ${n_other} issue(s); the collapse is swallowing distinct workflows"
+
 echo
 echo "== ${PASS} pass / ${FAIL} fail / $((PASS+FAIL)) total =="
 [ "$FAIL" -eq 0 ] || exit 1
