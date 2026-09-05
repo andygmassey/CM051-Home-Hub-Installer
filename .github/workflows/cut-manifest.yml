@@ -29,6 +29,9 @@ on:
       # test. BOTH are triggers: a run: with no matching paths: entry is dark
       # on self-edit.
       - 'tests/test_a_row_that_could_not_measure_is_counted_and_named.py'
+      # The timeout arm and its test. BOTH are triggers: a run: with no
+      # matching paths: entry is dark on self-edit.
+      - 'tests/test_a_timed_out_probe_is_not_a_failing_probe.py'
       - 'tests/test_cut_deferrals_no_duplicate_keys.sh'
       - 'cut-deferrals.yaml'
       - 'scripts/post_walk_qa.sh'
@@ -147,6 +150,13 @@ jobs:
       - name: A row that could not measure is counted, named, and still blocks
         if: always()
         run: python3 tests/test_a_row_that_could_not_measure_is_counted_and_named.py
+      # A probe that exceeded its cap measured NOTHING. Reporting that as FAIL
+      # counted it beside real defects and replaced a real diagnosis with an
+      # instrument error, which is how the assistant-grounding finding stayed
+      # invisible for a whole manifest run.
+      - name: A timed-out probe is CANNOT-RUN, and a missing one is still FAIL
+        if: always()
+        run: python3 tests/test_a_timed_out_probe_is_not_a_failing_probe.py
 
       # A DUPLICATE KEY IN cut-deferrals.yaml IS SILENT AND HAS COST A CUT.
       # YAML keeps the LAST duplicate and discards the earlier one without a

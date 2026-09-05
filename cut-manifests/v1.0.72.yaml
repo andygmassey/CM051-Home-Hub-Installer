@@ -345,6 +345,25 @@ entries:
       must_match: true
 
 open_issues:
+  - issue: 1625
+    title: "the curl|bash bootstrap fetches install.tar.gz from a URL that has never existed"
+    gate: >-
+      FIX (BLOCKING for the curl|bash path): entry: the-bootstrap-fetches-an-asset-that-exists --
+      TNM measured it across the whole repo rather than a page: 43 releases in
+      ostler-releases, 0 carrying install.tar.gz. The asset names that DO exist
+      are the daemon and RemoteCapture tarballs.
+      REACHABILITY, measured by me because it sets the severity: the bootstrap
+      is the ELSE arm of a three-way branch on BASH_SOURCE[0]. A DMG install
+      runs install.sh from disk, takes the elif, and NEVER reaches it. It fires
+      only when install.sh is PIPED, i.e. curl|bash, where there is no file on
+      disk. So this is not a DMG defect.
+      IT IS STILL CUSTOMER-FACING: curl|bash is advertised in
+      BETA_ONBOARDING.md, so a beta tester following our own onboarding
+      document gets a 404 from the first command. Proof must be a fetch of the
+      URL the shipped install.sh actually names, asserting HTTP 200, with a
+      known-good asset on the same release as the positive control so a
+      network failure cannot read as a pass. A grep that the constant exists is
+      not proof: the constant is exactly what is wrong.
   - issue: 1618
     title: "no_store_port_is_tcp_reachable measures reachability, which is the wrong predicate for a credentialed surface"
     gate: >-
