@@ -93,7 +93,21 @@ d=\$(mktemp -d) || exit 2
 printf '%s' '${_v64}' | python3 -c 'import sys,base64;open(sys.argv[1],\"wb\").write(base64.b64decode(sys.stdin.read()))' \"\$d/v.py\" || { rm -rf \"\$d\"; exit 2; }
 printf '%s' '${_m64}' | python3 -c 'import sys,base64;open(sys.argv[1],\"wb\").write(base64.b64decode(sys.stdin.read()))' \"\$d/m.tsv\" || { rm -rf \"\$d\"; exit 2; }
 [ -s \"\$d/v.py\" ] && [ -s \"\$d/m.tsv\" ] || { rm -rf \"\$d\"; exit 2; }
-python3 \"\$d/v.py\" --manifest \"\$d/m.tsv\" --home \"\$HOME\" --exclude-type import_wire
+# 🔴 PICK AN INTERPRETER THAT CAN PARSE TOML, AND SAY WHICH ONE.
+# The verifier reads the assistant config with tomllib (3.11+). The BOX's
+# system python3 is 3.9.6 and has none, while the install ships 3.11.15 at
+# ~/.ostler/python/bin/python3. Running under the system one turns the cron
+# arm into CANNOT-RUN for a reason that has nothing to do with the install.
+# Measured 2026-09-05 on archie@.240: system 3.9.6 tomllib=no, bundled
+# 3.11.15 tomllib=yes.
+_py=\"\"
+for _c in \"\$HOME/.ostler/python/bin/python3\" \"\$HOME/.ostler/.venv/bin/python3\" python3; do
+    command -v \"\$_c\" >/dev/null 2>&1 || [ -x \"\$_c\" ] || continue
+    if \"\$_c\" -c 'import tomllib' >/dev/null 2>&1; then _py=\"\$_c\"; break; fi
+done
+[ -n \"\$_py\" ] || _py=python3
+echo \"#PROBE_INTERPRETER \$_py (\$(\"\$_py\" -V 2>&1))\" >&2
+\"\$_py\" \"\$d/v.py\" --manifest \"\$d/m.tsv\" --home \"\$HOME\" --exclude-type import_wire
 _rc=\$?
 rm -rf \"\$d\"
 exit \$_rc
@@ -102,7 +116,15 @@ exit \$_rc
     else
         command -v python3 >/dev/null 2>&1 || probe_cannot_run "python3 not on PATH; the manifest verifier needs it"
         probe_examined 1 "scripts/verify_install_manifest.py against \$HOME on this box"
-        out="$(python3 "$VERIFIER" --manifest "$MANIFEST" --home "$HOME" --exclude-type import_wire 2>&1)"
+        # Same interpreter choice as the remote arm above, and for the same
+        # reason: the cron arm needs tomllib, which arrived in 3.11.
+        _py=""
+        for _c in "$HOME/.ostler/python/bin/python3" "$HOME/.ostler/.venv/bin/python3" python3; do
+            if "$_c" -c 'import tomllib' >/dev/null 2>&1; then _py="$_c"; break; fi
+        done
+        [ -n "$_py" ] || _py=python3
+        probe_examined 1 "interpreter chosen for the verifier: ${_py} ($("$_py" -V 2>&1))"
+        out="$("$_py" "$VERIFIER" --manifest "$MANIFEST" --home "$HOME" --exclude-type import_wire 2>&1)"
         rc=$?
     fi
 
