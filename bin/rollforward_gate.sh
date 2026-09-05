@@ -316,10 +316,38 @@ if [ "$REQUIRE_WALK_CLOSURE" -eq 1 ]; then
 	while IFS= read -r wc_cut; do
 		[ -n "$wc_cut" ] || continue
 		wc_id="$(_wc_compact "$wc_cut")"
-		wc_row="$(printf '%s\n' "$wc_rows" | awk -F'|' -v want="$wc_cut" '
+		# 🔴 A HERE-STRING, NOT A PIPE, AND THE REASON IS A MEASURED FALSE RED.
+		#
+		# This was `printf '%s\n' "$wc_rows" | awk ... exit`. The awk EXITS on
+		# the first match, which closes the pipe while printf is still writing.
+		# printf takes EPIPE, returns non-zero, `pipefail` promotes it, and the
+		# `||` below fires -- reporting NO ROW for a row awk had just FOUND and
+		# PRINTED.
+		#
+		# MEASURED in CI on the v1.0.69 tag, twice, deterministically:
+		#
+		#   bin/rollforward_gate.sh: line 322: printf: write error: Broken pipe
+		#     v1.0.41  NO ROW. A cut with no row is indistinguishable from...
+		#
+		# one such pair per failing row, eight of them, for rows that are
+		# demonstrably present in the file.
+		#
+		# ⚠️ IT DID NOT REPRODUCE LOCALLY, on macOS OR in an ubuntu:24.04
+		# container running this exact gate against this exact registry, where
+		# it returns GREEN. The rows blob is ~55KB and a pipe buffer is 64KB, so
+		# the producer usually finishes before the reader exits and there is no
+		# EPIPE to take. THE BUG IS LATENT UNTIL THE REGISTER OUTGROWS THE PIPE
+		# BUFFER, and it gets more likely with every walk row added -- which is
+		# the worst possible failure mode for a gate that guards a release.
+		#
+		# This is the same defect as `grep -q` SIGPIPEing its producer, recorded
+		# in CM051 #1131; `awk ... exit` is playing the part of `-q`. A
+		# here-string has no producer process, so there is nothing to signal and
+		# the early exit stays a pure optimisation.
+		wc_row="$(awk -F'|' -v want="$wc_cut" '
 			{ c = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c); if (c == want) { print; found = 1; exit } }
 			END { exit !found }
-		')" || {
+		' <<<"$wc_rows")" || {
 			red "  $wc_cut  NO ROW. A cut with no row is indistinguishable from a cut nobody looked at."
 			wc_bad=$((wc_bad + 1))
 			continue
