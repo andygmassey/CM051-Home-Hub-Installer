@@ -385,6 +385,37 @@ entries:
   # collects it with the rest, and a box walk that cannot reach a Hub reports
   # it as CANNOT-RUN in its own block rather than folding it into green.
   # ==========================================================================
+  # THE RECOVERY KEY IS MINTED, THE DEK IS WRAPPED UNDER IT, AND NOTHING
+  # CHECKED THAT THE CUSTOMER WAS EVER SHOWN IT.
+  #
+  # MEASURED on archie2, a virgin account, walking v1.0.68 on 2026-09-05. The
+  # install ended DONE status=ok failed_steps=0 errors=0, every automated probe
+  # passed, and Andy at the keyboard said: "Finished, but didn't offer to save
+  # the recovery key". No automated walk could have found it, because the defect
+  # is something that did NOT happen.
+  #
+  # CM051 #1551 fixed both disclosure sites and gates them in CI, but a SOURCE
+  # gate proves a call EXISTS and cannot prove it was REACHED. The v1.0.68
+  # failure was a reachability failure with both call sites present the whole
+  # time: install.sh minted at 14008 and revealed at 29498, and the GUI
+  # presented the reveal sheet only inside `finished == .ok`.
+  #
+  # So the invariant is a RUNTIME property of one install and the transcript is
+  # the only place it is written down: a run that CREATED recovery_encrypted_key
+  # must have emitted the disclosure before it ended.
+  # ==========================================================================
+  - id: box-walk-recovery-key-reached-the-customer
+    title: a run that minted the recovery key must have disclosed it before it ended
+    incident: >-
+      v1.0.68 installed clean on a virgin account, every probe passed, and the
+      customer was never shown the recovery key. ostler-recovery ships on that
+      box and can never succeed for it, because the key is deliberately never
+      stored and every later run takes the already-configured skip
+    proof:
+      kind: box_walk_probe
+      probe: "the_recovery_key_reached_the_customer"
+
+  # ==========================================================================
   - id: box-walk-people-seed-and-retrieval
     title: a synthetic person must seed and be retrievable via people/context + people/search
     incident: >-
