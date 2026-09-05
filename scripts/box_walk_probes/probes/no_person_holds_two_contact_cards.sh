@@ -92,6 +92,38 @@ SELECT ?person (COUNT(DISTINCT ?v) AS ?uids) WHERE {
 _Q_CONTROL="PREFIX p: <${ONTO}>
 SELECT (COUNT(DISTINCT ?i) AS ?n) WHERE { ?i p:identifierType \"icloud_contact_uid\" }"
 
+# THE SECOND ANTI-VACUITY MEASURE: DID THIS BOX EVER OFFER A CHANCE TO MERGE?
+#
+# The control above proves the predicate can SEE icloud_contact_uid identifiers.
+# It does not prove the box presented the conditions the defect needs. A virgin
+# account with forty contacts, all distinct names, no shared phone or email,
+# gives the resolver nothing to match on: the RULE 2 guard added in #1543 never
+# fires, no node ever carries two cards, and this probe passes having exercised
+# nothing.
+#
+# That matters right now because a fresh-install walk reading 0 is what is meant
+# to CLOSE #1543. A zero from a box with no near-duplicates would close it on
+# evidence that never touched the code.
+#
+# So count the Person nodes that share a phone or email identifier VALUE with a
+# different Person node. Those are exactly the places resolve() can return a
+# match and the guard can be asked to refuse one. "phone" and "email" are the
+# literal identifierType strings contact_syncer writes in _update_person_oxigraph
+# Part B, alongside "icloud_contact_uid".
+#
+# Advisory, never a new failure. A box with zero opportunities is a real and
+# correct state, not a fault -- but the walk record must say so, or a weak zero
+# and a strong zero print identically.
+_Q_OPPORTUNITY="PREFIX p: <${ONTO}>
+SELECT (COUNT(DISTINCT ?a) AS ?n) WHERE {
+  ?a a p:Person ; p:hasIdentifier ?ia .
+  ?b a p:Person ; p:hasIdentifier ?ib .
+  ?ia p:identifierType ?t ; p:identifierValue ?v .
+  ?ib p:identifierType ?t ; p:identifierValue ?v .
+  FILTER(?a != ?b)
+  FILTER(?t IN (\"phone\", \"email\"))
+}"
+
 # Resolve the store curl config path ON THE BOX ($HOME expands there) and decide
 # whether a usable credential exists. Called once at the top of run_probe.
 _store_resolve() {
@@ -273,7 +305,36 @@ run_probe() {
         probe_fail "${nodes} Person node(s) each carry 2+ distinct icloud_contact_uid, collapsing ${cards} Contacts cards. That is RULE 2 of the ratified dedupe ruleset -- different canonical keys MUST NOT merge -- violated in the live graph (#659)."
     fi
 
-    probe_pass "no Person node carries more than one icloud_contact_uid (checked against ${control} identifiers, so this zero is a measurement)"
+    # THE ZERO IS REAL. IS IT LOAD-BEARING? Ask whether anything could have
+    # merged. A failure here is a NOTE, never a verdict: this query is newer
+    # than the probe and must not be able to redden a healthy box.
+    local opp verdict
+    opp="$(_sparql_scalar "$_Q_OPPORTUNITY")"
+    verdict="$(adjudicate_clean "$opp")"
+    if [ "$verdict" = "UNMEASURED" ]; then
+        probe_note "collision opportunities: NOT MEASURED (query returned '${opp}'). The zero below stands on the ${control}-identifier control alone."
+        probe_pass "no Person node carries more than one icloud_contact_uid (checked against ${control} identifiers, so this zero is a measurement)"
+    fi
+    probe_note "collision opportunities: ${opp} Person node(s) share a phone or email with another node"
+    if [ "$verdict" = "UNEXERCISED" ]; then
+        probe_pass "no Person node carries more than one icloud_contact_uid, checked against ${control} identifiers -- BUT this box presented ZERO chances to over-merge: no two Person nodes share a phone or email, so the resolver had nothing to match on and the RULE 2 write guard was never asked to refuse. The invariant holds and the GUARD IS UNEXERCISED. Do not close #1543 on this run."
+    fi
+    probe_pass "no Person node carries more than one icloud_contact_uid (checked against ${control} identifiers, so this zero is a measurement), and ${opp} node(s) shared a phone or email with another node without being merged -- so the zero was earned, not vacuous"
+}
+
+# ADJUDICATE THE STRENGTH OF A CLEAN RESULT. Lifted out of run_probe so the
+# self-test can drive it; run_probe's behaviour is unchanged.
+#
+#   UNMEASURED  the opportunity query gave no number -- the zero stands on the
+#               identifier control alone, and the record must say so.
+#   UNEXERCISED opportunities == 0. The invariant holds and the guard was never
+#               asked to do anything. NOT a fault, and NOT proof of the guard.
+#   EARNED      opportunities > 0 and no node over-merged.
+adjudicate_clean() {
+    case "${1}" in
+        ''|*[!0-9]*) echo "UNMEASURED"; return ;;
+    esac
+    if [ "$1" -eq 0 ]; then echo "UNEXERCISED"; else echo "EARNED"; fi
 }
 
 self_test() {
@@ -305,7 +366,29 @@ self_test() {
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: malformed input summarised as '$s', expected '1 3 3'. Junk in the result set would corrupt the verdict."
     fi
 
-    probe_fail "negative control behaved correctly (counted planted over-merges, passed a clean set, survived malformed rows)"
+    # 4. A CLEAN GRAPH WITH NOTHING TO MERGE IS NOT PROOF OF THE GUARD.
+    #    Three states, and the middle one is the whole point: the invariant
+    #    holds and the guard was never exercised. If these ever collapse into
+    #    one, a fresh-install walk on a sparse account would close #1543 on
+    #    evidence that never reached the code.
+    s="$(adjudicate_clean 7)"
+    if [ "$s" != "EARNED" ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: 7 collision opportunities adjudicated '$s', expected EARNED. A zero that WAS load-bearing would be reported as weak."
+    fi
+    s="$(adjudicate_clean 0)"
+    if [ "$s" != "UNEXERCISED" ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: 0 collision opportunities adjudicated '$s', expected UNEXERCISED. A vacuous pass would read as proof of the RULE 2 guard."
+    fi
+    s="$(adjudicate_clean "")"
+    if [ "$s" != "UNMEASURED" ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: an unanswered opportunity query adjudicated '$s', expected UNMEASURED. Could-not-look would print as a real zero."
+    fi
+    s="$(adjudicate_clean "no")"
+    if [ "$s" != "UNMEASURED" ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: junk adjudicated '$s', expected UNMEASURED."
+    fi
+
+    probe_fail "negative control behaved correctly (counted planted over-merges, passed a clean set, survived malformed rows, and told an earned zero from an unexercised one)"
 }
 
 probe_main "$@"
