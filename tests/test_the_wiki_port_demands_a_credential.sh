@@ -46,26 +46,45 @@ _lines="$(wc -l < "${INSTALL_SH}" | tr -d ' ')"
 command -v python3 >/dev/null 2>&1 || { cant "python3 absent; the compose stanza cannot be parsed"; echo "== 0 pass / 0 fail / 1 cannot-run =="; exit 2; }
 
 # compose_ports <file> <service>  -> prints the service's published ports, one per line
+#
+# NO PyYAML. The runner has none (colima-autostart.yml installs nothing), and a
+# gate that needs a dependency the runner lacks does not fail loudly -- it fails
+# as CANNOT-RUN and gets read as something else, which is exactly what happened
+# on the first CI run of this file. Four indented lines of a compose stanza do
+# not need a YAML parser.
+#
+# Exit codes: 0 = parsed (ports may legitimately be none), 3 = could not parse.
 compose_ports() {
-    python3 - "$1" "$2" <<'PY'
-import re, sys, yaml
-s = open(sys.argv[1], encoding='utf-8', errors='replace').read()
-i = s.find('  wiki-site:')
-if i < 0:
+    python3 - "$1" "$2" <<'PYEOF'
+import re, sys
+path, service = sys.argv[1], sys.argv[2]
+lines = open(path, encoding='utf-8', errors='replace').read().split('\n')
+want = '  ' + service + ':'
+idx = [i for i, l in enumerate(lines) if l.rstrip() == want]
+if not idx:
     sys.exit(3)
-start = s.rfind('<<', 0, i)
-line = s[s.rfind('\n', 0, start) + 1 : s.find('\n', start)]
-m = re.search(r"<<-?'?([A-Za-z_]+)'?", line)
-if not m:
-    sys.exit(3)
-delim = m.group(1)
-body_start = s.find('\n', start) + 1
-body_end = s.find('\n' + delim + '\n', body_start)
-body = s[body_start:body_end]
-d = yaml.safe_load(re.sub(r'\$\{[^}]*\}', 'X', body))
-for p in (d['services'][sys.argv[2]] or {}).get('ports') or []:
+start = idx[0]
+end = len(lines)
+for i in range(start + 1, len(lines)):
+    if re.match(r'^  [A-Za-z0-9_-]+:\s*$', lines[i]):
+        end = i
+        break
+out, in_ports = [], False
+for l in lines[start + 1:end]:
+    if re.match(r'^    ports:\s*$', l):
+        in_ports = True
+        continue
+    if in_ports:
+        m = re.match(r'^      - "?([^"\s]+)"?\s*$', l)
+        if m:
+            out.append(m.group(1))
+            continue
+        if re.match(r'^\s*#', l) or not l.strip():
+            continue
+        in_ports = False
+for p in out:
     print(p)
-PY
+PYEOF
 }
 
 echo "== #1594: the wiki port demands a credential =="
@@ -139,9 +158,16 @@ PY
         cant "the self-test mutation could not be injected"
     else
         _injected="$(grep -c '127\.0\.0\.1:8044:8000' "${_tmp}" | head -1)"
-        _mutant_ports="$(compose_ports "${_tmp}" wiki-site)"
+        _mutant_ports="$(compose_ports "${_tmp}" wiki-site)"; _mutant_rc=$?
         if [ "${_injected}" -lt 1 ]; then
             cant "the self-test mutation did not land (a failed injection returns the green you were hoping for)"
+        elif [ "${_mutant_rc}" -ne 0 ]; then
+            # ARM 1 WAS NOT BLIND, IT COULD NOT LOOK. Planting a mutation and
+            # observing no detection has TWO causes and only one is a defect.
+            # Reporting the other as "arm 1 is blind" is a fabricated
+            # indictment of a working gate -- measured on the first CI run of
+            # this file, where a missing module made this arm accuse arm 1.
+            cant "the self-test could not parse the mutant (rc=${_mutant_rc}); that is CANNOT-RUN, NOT evidence that arm 1 is blind"
         elif [ -n "${_mutant_ports}" ]; then
             ok "self-test: arm 1 detects a restored direct publish (mutation landed, ${_injected} occurrence)"
         else

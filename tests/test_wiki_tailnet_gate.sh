@@ -297,14 +297,37 @@ fi
 # file. The must-miss below closes that.
 grep -q '"127.0.0.1:8044:8044"' "$INSTALL" \
     || fail "the wiki port 8044 is not published loopback-only by store-proxy"
-if grep -nE '^[[:space:]]*-[[:space:]]*"[^"]*8044:' "$INSTALL" \
-        | grep -vE '"127\.0\.0\.1:8044:' | grep -q .; then
-    grep -nE '^[[:space:]]*-[[:space:]]*"[^"]*8044:' "$INSTALL" \
-        | grep -vE '"127\.0\.0\.1:8044:' >&2
+# NO quiet-grep-on-a-pipe HERE, and this file runs under `set -euo pipefail`.
+# A quiet grep
+# exits the instant it matches and closes the pipe, so the upstream grep can
+# take SIGPIPE (141); pipefail then makes the whole pipeline non-zero and the
+# `if` reads FALSE at the exact moment the thing it hunts is PRESENT. It is
+# timing-dependent, so it passes locally and inverts on a loaded runner.
+# Capture the output and test that instead. rc>1 is a real grep error and must
+# not be read as "no matches".
+set +e
+_unbound="$(grep -nE '^[[:space:]]*-[[:space:]]*"[^"]*8044:' "$INSTALL" \
+            | grep -vE '"127\.0\.0\.1:8044:')"
+_unbound_rc=$?
+set -e
+if [ "$_unbound_rc" -gt 1 ]; then
+    fail "could not measure the 8044 publishes (grep rc=$_unbound_rc) -- that is CANNOT-RUN, not a pass"
+fi
+if [ -n "$_unbound" ]; then
+    printf '%s\n' "$_unbound" >&2
     fail "an 8044 publish is bound to something other than loopback"
 fi
+
 # And the container that has no idea a credential exists must publish nothing.
-if grep -A4 'container_name: ostler-wiki-site' "$INSTALL" | grep -qE '^[[:space:]]*ports:'; then
+set +e
+_ws_ports="$(grep -A4 'container_name: ostler-wiki-site' "$INSTALL" \
+             | grep -E '^[[:space:]]*ports:')"
+_ws_rc=$?
+set -e
+if [ "$_ws_rc" -gt 1 ]; then
+    fail "could not measure the wiki-site stanza (grep rc=$_ws_rc) -- CANNOT-RUN, not a pass"
+fi
+if [ -n "$_ws_ports" ]; then
     fail "wiki-site publishes a host port again -- that BYPASSES the :8044 credential"
 fi
 grep -q '"127.0.0.1:8144:8144"' "$INSTALL" \
