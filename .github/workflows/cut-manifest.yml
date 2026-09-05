@@ -30,6 +30,10 @@ on:
       - 'tests/test_walk_record_names_the_failing_probes.sh'
       - 'tests/test_cannot_run_names_its_prerequisite.sh'
       - 'tests/test_walk_record_states_measured_count.sh'
+      # A walk record named its SUBJECT six ways and its INSTRUMENT not at all,
+      # and the probes come from the checkout rather than the artefact. Watched
+      # by name so editing it re-fires the only workflow that runs it.
+      - 'tests/test_a_walk_record_names_the_instrument_that_graded_it.sh'
       - 'scripts/box_walk_probes/**'
       - 'scripts/tests/test_people_seed_and_retrieval_probe.sh'
       - 'cut-manifests/**'
@@ -374,3 +378,21 @@ jobs:
           print()
           print("All manifests parse + validate.")
           PY
+
+      # WHICH PROBES GRADED THAT ARTEFACT.
+      #
+      # In --from-dmg mode ttywalk.sh copies the .app Resources VERBATIM and
+      # gui/project.yml bundles box_walk_probes ZERO times, so the suite that
+      # runs is the one in the operator's checkout. A walk is artefact X judged
+      # by instrument Y, and only X was ever recorded.
+      #
+      # The case that forced it: no_person_holds_two_contact_cards gained a
+      # collision-opportunity measure in #1549, so the same clean graph now
+      # prints EARNED or UNEXERCISED where it used to print a bare pass. BOTH
+      # write the same `pass` into the record.
+      #
+      # if: always() so an earlier red cannot mask it, appended last so no
+      # existing step's immunity changes.
+      - name: A walk record names the instrument that graded it
+        if: always()
+        run: bash tests/test_a_walk_record_names_the_instrument_that_graded_it.sh

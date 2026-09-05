@@ -59,6 +59,39 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# WHICH PROBES ARE ABOUT TO GRADE THIS ARTEFACT.
+#
+# Resolved once, here, so the value in the record is the tree that actually ran
+# rather than whatever the checkout looks like minutes later. Same idiom as
+# version / version_source: the value, and how it was obtained, so a reader is
+# never left inferring from an absent field.
+#
+# THREE OUTCOMES, and the third is the one that matters. A commit id that does
+# not describe the probes that ran is worse than none, because it looks
+# authoritative. Local edits under box_walk_probes are named.
+_resolve_instrument_rev() {
+    local _sha _rc=0 _dirty
+    if ! command -v git >/dev/null 2>&1; then
+        INSTRUMENT_REV="unavailable"
+        INSTRUMENT_SOURCE="unavailable(git not on PATH)"
+        return 0
+    fi
+    _sha="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null)" || _rc=$?
+    if [ "$_rc" -ne 0 ] || [ -z "$_sha" ]; then
+        INSTRUMENT_REV="unavailable"
+        INSTRUMENT_SOURCE="unavailable(not a git checkout, or rev-parse rc=${_rc})"
+        return 0
+    fi
+    INSTRUMENT_REV="$_sha"
+    _dirty="$(git -C "$REPO_ROOT" status --porcelain -- scripts/box_walk_probes 2>/dev/null | /usr/bin/grep -c . || true)"
+    if [ "${_dirty:-0}" -gt 0 ]; then
+        INSTRUMENT_SOURCE="measured(git rev-parse HEAD) WITH ${_dirty} UNCOMMITTED change(s) under scripts/box_walk_probes -- the sha does NOT describe the probes that ran"
+    else
+        INSTRUMENT_SOURCE="measured(git rev-parse HEAD, scripts/box_walk_probes clean)"
+    fi
+}
+_resolve_instrument_rev
 BOX="${1:-}"
 CUT_VERSION="${2:-}"
 
@@ -558,6 +591,32 @@ if [[ -n "$CUT_VERSION" ]]; then
         printf 'artefact_sha256_source\t%s\n' "$ARTEFACT_SHA_SOURCE"
         printf 'walked_at\t%s\n'   "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         printf 'box_fp\t%s\n'      "$BOX_FP"
+        printf '#\n'
+        printf '# instrument_rev answers the question this record has never\n'
+        printf '# answered: WHICH PROBES graded that artefact. The subject is\n'
+        printf '# named six ways above -- version, version_source,\n'
+        printf '# artefact_sha256, artefact_sha256_source, box_fp, walked_at --\n'
+        printf '# and the instrument was named nowhere.\n'
+        printf '#\n'
+        printf '# It matters because the probes do NOT come from the artefact. In\n'
+        printf '# --from-dmg mode ttywalk.sh copies the .app Resources verbatim,\n'
+        printf '# and gui/project.yml bundles box_walk_probes ZERO times, so the\n'
+        printf '# suite that runs is the one in THIS checkout. A walk is therefore\n'
+        printf '# artefact X judged by instrument Y, and only X was recorded.\n'
+        printf '#\n'
+        printf '# The case that forced it: no_person_holds_two_contact_cards\n'
+        printf '# gained a collision-opportunity measure in #1549. Before it, a\n'
+        printf '# clean graph printed a bare pass; after it, the same graph prints\n'
+        printf '# EARNED or UNEXERCISED. BOTH WRITE THE SAME `pass` HERE. Reading\n'
+        printf '# this file later, nobody could tell an earned zero from a vacuous\n'
+        printf '# one -- which is the exact distinction that probe exists to make.\n'
+        printf '#\n'
+        printf '# instrument_source says HOW the value was obtained, same idiom as\n'
+        printf '# version_source. A sha that does not describe the probes that ran\n'
+        printf '# is worse than no sha, so local edits under box_walk_probes are\n'
+        printf '# named rather than hidden behind a clean-looking commit id.\n'
+        printf 'instrument_rev\t%s\n'    "$INSTRUMENT_REV"
+        printf 'instrument_source\t%s\n' "$INSTRUMENT_SOURCE"
         printf '#\n'
         printf '# stores_provenance answers the question every store-reading probe\n'
         printf '# begs and none of them state: was the graph this walk measured\n'
