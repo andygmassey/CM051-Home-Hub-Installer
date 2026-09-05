@@ -558,12 +558,38 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         # PRESERVE THE EVIDENCE BEFORE DESTROYING IT. The graph on this box is
         # the only copy of whatever produced the 71 absent person nodes. A wipe
         # that loses it trades one investigation for another.
+        # 🔴 QUOTE THE URL. The `?` is a zsh GLOB character and the login shell
+        # on the walk box is zsh, so an unquoted store URL is a filename
+        # pattern with no matches. MEASURED on archie2, 2026-09-05, the first
+        # time --wipe-stores was ever run against a real box:
+        #
+        #     zsh:23: no matches found: http://127.0.0.1:7878/store?default
+        #     CANNOT-WIPE: the graph did not dump ...
+        #
+        # The refusal was CORRECT and the guard did its job: it would not
+        # destroy the stores having failed to preserve them. But the cause it
+        # reported was "the graph did not dump", which reads as a store fault,
+        # and the real cause was one missing pair of quotes in this file. The
+        # shell ate the argument before curl ever saw it.
+        #
+        # NOTE FOR THE NEXT EDITOR, WHICH I LEARNED BY BREAKING IT: this whole
+        # block lives inside a SINGLE-QUOTED ssh payload. An apostrophe in a
+        # comment here closes that string and the script stops parsing. My
+        # first version of this note said "the walk box" with a possessive and
+        # bash reported a syntax error 700 lines later. No apostrophes below.
+        #
+        # AND THE QUOTES ROUND THE URL MUST BE DOUBLE, NOT SINGLE. A nested
+        # single quote does not quote anything here: it CLOSES the payload,
+        # exposes the URL to the LOCAL shell, and reproduces the identical
+        # error one machine earlier. Measured both ways before choosing:
+        #   nested single -> zsh: no matches found: http://...store?default
+        #   double        -> passes through literally, quoted on the remote side
         _dump="$HOME/ostler-prewipe-$(date -u +%Y%m%dT%H%M%SZ).nq"
         _tok="$HOME/.ostler/secrets/oxigraph_token"
         if [ -r "$_tok" ]; then
             if curl -fsS -m 300 -H "Authorization: Bearer $(cat "$_tok")" \
                     -H "Accept: application/n-quads" \
-                    http://127.0.0.1:7878/store?default > "$_dump" 2>/dev/null; then
+                    "http://127.0.0.1:7878/store?default" > "$_dump" 2>/dev/null; then
                 echo "graph dumped before wipe: $_dump ($(wc -c < "$_dump" | tr -d " ") bytes)"
             else
                 echo "CANNOT-WIPE: the graph did not dump, and a wipe that loses"
