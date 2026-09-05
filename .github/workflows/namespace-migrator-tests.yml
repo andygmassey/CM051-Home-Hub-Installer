@@ -1,0 +1,75 @@
+name: namespace-migrator-tests
+
+# scripts/migrate_graph_namespace.py is the most dangerous script in this repo.
+# Its own documentation works through how a plausible two-line change destroys a
+# customer's entire compartment:
+#
+#   "A second --apply computes MOVE <urn:pwg:user/Andy> TO <urn:ostler:user/Andy>,
+#    which DROPS the destination. 16,577 triples -- the customer's entire
+#    compartment -- are destroyed to make room for 20, and every check downstream
+#    then passes."
+#
+# It has a test file. 634 lines, 36 tests, and it passes in 0.23s.
+#
+# NOTHING RAN IT. Measured 2026-09-05 on origin/main: 0 rows in TEST_WIRING.tsv,
+# 0 workflows naming it, and the only reference to it anywhere in the repo is an
+# EXCLUDE pathspec in verify_no_foreign_ontology_namespace.sh:211 -- the repo
+# mentioned the file exactly once, to skip it.
+#
+# It is not unwired for cost: it is pure Python with no macOS-only tooling, so
+# ubuntu-latest runs it for the price of any other gate.
+#
+# EIGHT MORE PORTABLE, PASSING TESTS UNDER scripts/ ARE STILL DARK. They are
+# listed in the PR that added this file. This wires the one guarding the script
+# that can lose a compartment; the rest should follow as a batch once this
+# proves green on a Linux runner, because they are shell and this repo has been
+# bitten by BSD-vs-GNU differences that only appear on the runner.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/migrate_graph_namespace.py'
+      - 'scripts/test_migrate_graph_namespace.py'
+      - '.github/workflows/namespace-migrator-tests.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  namespace-migrator-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # A collection error must not read as a pass. pytest exits 5 on "no tests
+      # collected" and 2 on a collection error, and both are non-zero, but the
+      # count assertion below is what makes a silent drop to zero visible: this
+      # file had 36 tests when it was wired and a run reporting fewer has lost
+      # coverage, whatever its exit code.
+      - name: The namespace migrator's own tests
+        run: |
+          set -o pipefail
+          python -m pytest scripts/test_migrate_graph_namespace.py -q | tee /tmp/mig.out
+          n="$(grep -oE '[0-9]+ passed' /tmp/mig.out | grep -oE '[0-9]+' || true)"
+          : "${n:=0}"
+          echo "collected-and-passed: ${n}"
+          if [ "$n" -lt 30 ]; then
+            echo "::error::only ${n} tests passed; this file had 36 when it was wired." \
+                 "A shrinking suite on the compartment-destroying script is a coverage loss," \
+                 "not a green."
+            exit 1
+          fi
