@@ -227,6 +227,26 @@ adjudicate_turn() {
     grep -q '^FRAME tool_call ' "$_t" || { echo "no_tool_call"; return; }
     # A tool ran, but was it one that reads the customer's own graph?
     grep -qE "$_GRAPH_TOOL_RE" "$_t" || { echo "memory_only"; return; }
+    # ── A RECOVERED TURN IS NOT A FAILED ONE ────────────────────────────────
+    #
+    # This used to ask "did anything ever go wrong", by grepping the WHOLE
+    # transcript for an ERR. The question the probe exists to answer is "did
+    # the customer get an answer that reached their own data", and those are
+    # different questions on any turn that errored and then recovered.
+    #
+    # AND THE PRODUCT IS BUILT TO RECOVER. person_query::not_a_name_error is
+    # DELIBERATELY worded to make the model retry -- call pwg_overview first,
+    # then call the person tool again. That was the #854 fix. So every turn
+    # where the model first reaches for a person tool with a non-name argument
+    # emits one ERR, recovers, and answers correctly -- and this BLOCKING probe
+    # scored it as a product failure. The fix and the gate worked against each
+    # other, and the gate would hold a promote on a turn that behaved exactly
+    # as designed.
+    #
+    # So: a SUCCESSFUL graph read anywhere in the turn is the thing being
+    # measured, and it outranks an error that the model recovered from. An
+    # error only decides the verdict when nothing succeeded.
+    grep -q '^FRAME tool_result pwg_.* OK$' "$_t" && { echo "grounded"; return; }
     grep -q '^FRAME tool_result pwg_.* ERR$' "$_t" && { echo "tool_error"; return; }
     # A graph tool answered without erroring. NOTE: a truthful "no such person"
     # also lands here -- see tool_found_nothing in the client, which marks a
@@ -403,6 +423,22 @@ self_test() {
     [ "$(adjudicate_turn "$_d/incomplete")" = "incomplete" ]         || _ok=0
     [ "$(adjudicate_turn "$_d/memonly")"    = "memory_only" ]        || _ok=0
     [ "$(adjudicate_turn "$_d/empty")"      = "tool_found_nothing" ] || _ok=0
+
+    # ── A RECOVERED TURN IS NOT A FAILED ONE (#1597) ─────────────────────────
+    # The product is BUILT to recover: person_query's error text tells the model
+    # to call pwg_overview and try again. Those turns must not read as defects.
+    printf 'FRAME session_start\nFRAME tool_call pwg_person_timeline\nFRAME tool_result pwg_person_timeline ERR\nFRAME tool_call pwg_overview\nFRAME tool_result pwg_overview OK\nFRAME done\n' > "$_d/recovered"
+    [ "$(adjudicate_turn "$_d/recovered")"  = "grounded" ]           || _ok=0
+    # MUST-MISS: an error the model NEVER recovered from is still a defect.
+    # Without this arm the reorder would have made the probe unable to fail.
+    [ "$(adjudicate_turn "$_d/toolerr")"    = "tool_error" ]         || _ok=0
+    # MUST-MISS: a turn that only ever found nothing is still not retrieval,
+    # even though EMPTY is not an error.
+    [ "$(adjudicate_turn "$_d/empty")"      = "tool_found_nothing" ] || _ok=0
+    # CONTROL: recovery is decided by a SUCCESSFUL read, not merely by a second
+    # tool call. Two failures in a row must still be tool_error.
+    printf 'FRAME session_start\nFRAME tool_call pwg_person_timeline\nFRAME tool_result pwg_person_timeline ERR\nFRAME tool_call pwg_topics\nFRAME tool_result pwg_topics ERR\nFRAME done\n' > "$_d/twoerrs"
+    [ "$(adjudicate_turn "$_d/twoerrs")"    = "tool_error" ]         || _ok=0
 
     # THE NAME, over the SAME fixtures the verdicts were decided from. A
     # tool_error that names no tool sends the operator back to the raw
