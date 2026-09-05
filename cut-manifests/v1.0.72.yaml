@@ -458,3 +458,72 @@ open_issues:
   - issue: 1586
     title: "the cut manifest is selected by text sort, so v1.0.9 outranks v1.0.72 and v1.0.100"
     gate: "FIX: verify_cut_manifest.py:2194 sorts filenames as TEXT. Measured: sorted([v1.0.72, v1.0.100, v1.0.9])[-1] = v1.0.9. Correct today only by accident of every patch being two digits and >= 11. Silent and it INVERTS a gate -- the verifier reports PASS having checked the wrong checklist. Sort on a parsed tuple and REFUSE an unparseable name rather than sorting around it"
+
+  - issue: 1594
+    title: 8044 serves the whole personal wiki to any local account, and the locked
+      "#550" decision says it should be ABSENT
+    gate: >-
+      FIX (BLOCKING). DECISION_550_what_shut_means_2026-08-28.md:106 records 8044's v1.0
+      disposition as "direct publish removed | ABSENT". Never implemented: tag v1.0.71
+      install.sh:16517 still publishes 127.0.0.1:8044:8000, and auth_basic appears 0 times
+      in the repo (control proxy_pass 3 files). One unauthenticated GET from a second local
+      account returns the compiled wiki -- strictly worse than the SPARQL read that opened
+      "#550", because the data is pre-digested. NOT the same as 3000/8144, which lines
+      107-108 defer to v1.0.1 by decision. The blocking premise is false: HTTP auth is not a
+      cookie, its protection space includes the PORT, so auth_basic on the existing
+      store-proxy closes it and the wiki still opens in a browser. LOCAL_PEERCRED on TCP,
+      pf user-match on lo0, and a URL token were each measured and killed.
+      CLOSES WHEN: an uncredentialled GET to 8044 from a second account returns 401 on a
+      walked box, with an authenticated 200 as the must-miss, and the probe row goes green.
+  - issue: 1595
+    title: the store-port probe's header is stale in the reassuring direction, and the
+      scope row undercounts it
+    gate: >-
+      FIX (apparatus). probes/no_store_port_is_tcp_reachable.sh:116 and :120 still say the
+      6333 and 7878 credentials are default-OFF; both are default-ON at tag v1.0.71
+      (OSTLER_STORE_AUTH_ENFORCE:-1). :125 says the Doctor breaks under redis auth; fixed at
+      vendor/doctor/agent/status_collector.py:535-585. walk_promote_scope.tsv:59 says the
+      probe over-reports by 2 of 6; it is 3 of 6. A stale security note is worse than none:
+      it was accurate when written and nothing said otherwise, and it hides which port was
+      DEFERRED by decision versus DECIDED AND NOT DONE.
+      CLOSES WHEN: the three rows state the shipped default verified at the cut's own tag,
+      the scope row says 3 of 6, and the header separates deferred from not-done.
+  - issue: 1596
+    title: assistant_answers_grounded -- one null date in the preferences artefact
+      fails the whole parse
+    gate: >-
+      FIX (BLOCKING). Root cause of the last blocking probe failure, traced at the SHIPPED
+      ref (install.sh:14352 pins assistant 0.4.70). interest_profile.py:604 _iso returns
+      None; emit_artefact.py:123 writes null; ical-server.py:6637 passes it through 200;
+      pwg_preferences.rs:84-86 declares last_seen as String with serde(default), which
+      covers a MISSING key and NOT an explicit null; the untagged enum at :129-134 makes one
+      bad record fail the whole body. MEASURED standalone with two controls -- missing-key
+      OK, real-string OK, explicit-null "invalid type: null, expected a string". Only Q2
+      routes to this tool, which is why 1 of 3 fails. SECOND HYPOTHESIS NOT RULED OUT -- a
+      service-token 401 gives the identical signature; one curl separates them.
+      CLOSES WHEN: pwg_preferences parses a body containing last_seen null (unit test with a
+      must-miss that a genuinely malformed record still fails) and the probe reports 3 of 3.
+  - issue: 1597
+    title: assistant_answers_grounded cannot tell a failed turn from a recovered one
+    gate: >-
+      FIX (apparatus). adjudicate_turn greps the WHOLE transcript for any pwg ERR, so a turn
+      that errored, recovered and answered correctly still scores tool_error. person_query's
+      not_a_name_error is DELIBERATELY written to make the model retry (the #854 fix), so
+      that fix and this gate work against each other on a BLOCKING probe. The predicate
+      answers "did anything ever go wrong" when the question is "did the customer get their
+      data". Same shape in the EMPTY arm.
+      CLOSES WHEN: a transcript with ERR FOLLOWED BY a successful pwg result adjudicates as
+      grounded, with a must-miss that a transcript ENDING in ERR still fails, and the eight
+      existing fixtures unchanged.
+  - issue: 1598
+    title: pwg_knowledge_search reads a Qdrant collection that Apple Notes hydration does
+      not write
+    gate: >-
+      FIX. pwg_knowledge_search.rs hard-codes collection evernote_knowledge;
+      install.sh:27922 hydrates Apple Notes into apple_notes_knowledge. Qdrant answers 404
+      for an unknown collection and the tool maps 404 to Ok(vec![]), so this surfaces as
+      EMPTY rather than ERR -- success-shaped emptiness, the #810 class through a different
+      door, and the customer's notes are silently absent from every search. NOT ESTABLISHED
+      whether Evernote hydration still writes the old name, so total-vs-partial is unknown.
+      CLOSES WHEN: every collection the hydrate writes is read, or a named decision records
+      the exclusions, and an unknown-collection 404 is distinguishable from a real empty.
