@@ -185,17 +185,26 @@ try:
     for b in sparql("SELECT ?p WHERE { ?p a <" + P + "Person> }"):
         graph.add(b["p"]["value"])
 
-    vec, nxt, npoints = set(), None, 0
+    vec, fixture, nxt, npoints = set(), set(), None, 0
     while True:
-        body = {"limit": 1000, "with_payload": ["person_uri"], "with_vector": False}
+        # ASK FOR THE FIXTURE FLAG TOO. people_seed_and_retrieval seeds a point
+        # carrying "box_walk_probe": True and removes it in its phase 5. It is
+        # the ONLY file in the tree that knows that flag exists -- measured --
+        # so if its cleanup ever fails, the leaked point lands in residual B
+        # below and THIS probe blames the product for the suite's own fixture.
+        # Reading the flag is what lets the two be told apart.
+        body = {"limit": 1000, "with_payload": ["person_uri", "box_walk_probe"], "with_vector": False}
         if nxt is not None:
             body["offset"] = nxt
         r = qpost("/collections/" + COLL + "/points/scroll", body)["result"]
         for pt in r["points"]:
             npoints += 1
-            u = (pt.get("payload") or {}).get("person_uri")
+            pl = pt.get("payload") or {}
+            u = pl.get("person_uri")
             if u:
                 vec.add(u)
+                if pl.get("box_walk_probe"):
+                    fixture.add(u)
         nxt = r.get("next_page_offset")
         if nxt is None:
             break
@@ -210,12 +219,23 @@ try:
         "  FILTER NOT EXISTS { ?o <" + P + "mergedInto> ?z } }")[0]["n"]["value"])
 
     # B: a vector whose URI has no presence in the graph in ANY position.
+    # SPLIT BY WHO MADE IT. A vector this suite seeded and failed to remove is a
+    # defect of the WALK, and people_seed_and_retrieval already fails loudly on
+    # exactly that ("probe leaked a fixture into the graph"). Failing here as
+    # well would report one defect twice and, worse, would report it against the
+    # DMG -- this probe is artefact-owned, so its red refuses the promote. Same
+    # reasoning the header already applies to chained merge survivors and to
+    # residual D.
     b_orphan = 0
+    b_fixture = 0
     for u in sorted(vec - graph):
         n_s = int(sparql("SELECT (COUNT(*) AS ?n) WHERE { <" + u + "> ?p ?o }")[0]["n"]["value"])
         n_o = int(sparql("SELECT (COUNT(*) AS ?n) WHERE { ?s ?p <" + u + "> }")[0]["n"]["value"])
         if n_s == 0 and n_o == 0:
-            b_orphan += 1
+            if u in fixture:
+                b_fixture += 1
+            else:
+                b_orphan += 1
 
     # C: graph Person with no vector, split by whether a HUMAN NAME is known.
     c_named = 0; c_unnamed = 0
@@ -230,8 +250,13 @@ try:
         if named: c_named += 1
         else: c_unnamed += 1
 
-    print("OK %d %d %d %d %d %d %d" % (
-        len(graph), len(vec), a, b_orphan, c_named, c_unnamed, len(vec & graph)))
+    # b_fixture is APPENDED, ninth. The reader below takes $2..$8 exactly as
+    # before, so a self-test fixture written against the eight-field line still
+    # drives the same arithmetic and reports the attribution as NOT MEASURED
+    # rather than as zero.
+    print("OK %d %d %d %d %d %d %d %d" % (
+        len(graph), len(vec), a, b_orphan, c_named, c_unnamed, len(vec & graph),
+        b_fixture))
 except urllib.error.HTTPError as exc:
     store = getattr(exc, "_store", "an unidentified store")
     if exc.code in (401, 403):
@@ -301,7 +326,7 @@ run_probe() {
             probe_cannot_run "unrecognised reconciliation output (first 120 chars): $(printf '%s' "$out" | head -c 120)" ;;
     esac
 
-    local graph vec a b c_named c_unnamed both
+    local graph vec a b c_named c_unnamed both b_fixture
     graph=$(printf '%s' "$out" | awk '{print $2}')
     vec=$(printf '%s'   "$out" | awk '{print $3}')
     a=$(printf '%s'     "$out" | awk '{print $4}')
@@ -309,11 +334,21 @@ run_probe() {
     c_named=$(printf '%s'   "$out" | awk '{print $6}')
     c_unnamed=$(printf '%s' "$out" | awk '{print $7}')
     both=$(printf '%s'  "$out" | awk '{print $8}')
+    b_fixture=$(printf '%s' "$out" | awk '{print $9}')
 
     probe_examined "$((graph + vec))" "person records across two stores (graph ${graph}, vectors ${vec}, in both ${both})"
 
     probe_note "residual A  untyped terminal merge survivors : ${a}"
     probe_note "residual B  orphan vectors, no graph presence: ${b}"
+    # PRINT IT EVEN WHEN IT IS ZERO. A zero that is never printed and a
+    # measurement that never ran look identical from the log, and this suite
+    # exists because they used to.
+    case "$b_fixture" in
+        ''|*[!0-9]*)
+            probe_note "            of which are OUR OWN fixtures     : NOT MEASURED -- the reconciliation did not report the box_walk_probe flag, so a leaked seed would be counted against the product below" ;;
+        *)
+            probe_note "            of which are OUR OWN fixtures     : ${b_fixture}  (excluded from B: people_seed_and_retrieval owns that failure)" ;;
+    esac
     probe_note "residual C  NAMED persons with no vector     : ${c_named}"
     probe_note "            unnamed stubs with no vector     : ${c_unnamed}  (reported, not failed -- see header)"
 
@@ -338,6 +373,11 @@ run_probe() {
     local failures=""
     [ "$a" -gt 0 ] && failures="${failures}A=${a} untyped merge survivors; "
     [ "$b" -gt 0 ] && failures="${failures}B=${b} orphan vectors; "
+    # A leaked fixture does NOT go in $failures. It is reported above and it is
+    # the red of people_seed_and_retrieval, because that probe seeds it, verifies
+    # its own removal, and says "probe leaked a fixture into the graph" when the
+    # removal did not take. This probe refusing the promote for it would blame
+    # the DMG for the harness.
     [ "$c_named" -gt 0 ] && failures="${failures}C=${c_named} named persons unsearchable; "
     # D only when the stores agree. If A or B is non-zero the tile tracking the
     # graph is a CONSEQUENCE, and reporting it as a second failure would say one
@@ -369,7 +409,7 @@ self_test() {
     # and phase 1 treats that as BROKEN. So probe_pass below is the failure
     # path, not the success path.
     SELF_TEST_LOCAL=1
-    probe_examined 15 "synthetic reconciliation results (negative control)"
+    probe_examined 18 "synthetic reconciliation results (negative control)"
     local rc out fails=0 firstbad=""
 
     _case() {
@@ -438,15 +478,36 @@ self_test() {
     # goes permanently red on a box where nothing is actually broken.
     _case "unnamed stubs only -> PASS"        "OK 7217 7187 0 0 0 30 7187"  "$PROBE_EX_PASS"
     # CANNOT-RUN is a third outcome and must not collapse into either.
+    # ---- B, split by who made the orphan. Ninth field = this suite's fixtures.
+    # THE FALSE RED: every orphan vector is a seed people_seed_and_retrieval
+    # failed to remove. That is the walk's defect and that probe's red. This one
+    # is artefact-owned, so failing here would refuse the promote over the
+    # harness.
+    _case "B is entirely our own leaked fixtures -> PASS" \
+          "OK 7187 7188 0 0 0 0 7187 1"  "$PROBE_EX_PASS"
+    # THE FALSE GREEN THE SPLIT COULD BUY: a genuine orphan standing beside one
+    # of ours must still fail. Excluding ours must never excuse theirs.
+    _case "a real orphan beside a leaked fixture -> FAIL" \
+          "OK 7187 7189 0 1 0 0 7187 1"  "$PROBE_EX_FAIL"
+    # An eight-field line is a reconciliation that did not measure the flag. It
+    # must say NOT MEASURED, never print a zero it did not observe. Exit code
+    # alone cannot test this -- both branches pass -- so assert the MESSAGE.
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7187 0 0 0 0 7187" run_probe 2>&1)"; rc=$?
+    case "$out" in
+        *"NOT MEASURED"*) printf '  ok [eight-field line says NOT MEASURED, not zero]\n' ;;
+        *) printf '  SELF-TEST FAIL [fixture attribution]: an unmeasured attribution did not say so.\n'
+           fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="fixture attribution unmeasured" ;;
+    esac
+
     _case "graph unreadable -> CANNOT-RUN"    "CANNOTRUN graph-empty"       "$PROBE_EX_CANNOT_RUN"
     _case "qdrant empty -> CANNOT-RUN"        "CANNOTRUN qdrant-empty"      "$PROBE_EX_CANNOT_RUN"
     _case "empty output -> CANNOT-RUN"        ""                            "$PROBE_EX_CANNOT_RUN"
     _case "garbage output -> CANNOT-RUN"      "totally unexpected"          "$PROBE_EX_CANNOT_RUN"
 
     if [ "$fails" -ne 0 ]; then
-        probe_pass "NEGATIVE CONTROL DID NOT BEHAVE: ${fails} of 15 self-test cases returned the wrong outcome (first: ${firstbad}). This probe cannot be trusted to distinguish PASS from FAIL from CANNOT-RUN, so its verdicts mean nothing."
+        probe_pass "NEGATIVE CONTROL DID NOT BEHAVE: ${fails} of 18 self-test cases returned the wrong outcome (first: ${firstbad}). This probe cannot be trusted to distinguish PASS from FAIL from CANNOT-RUN, so its verdicts mean nothing."
     fi
-    probe_fail "negative control behaved correctly on all 15 cases: three residuals each drive FAIL independently, unnamed stubs alone do NOT fail, and unreadable/empty/garbage input all return CANNOT-RUN rather than collapsing into a pass"
+    probe_fail "negative control behaved correctly on all 18 cases: three residuals each drive FAIL independently, unnamed stubs alone do NOT fail, a leaked walk fixture is reported but does not refuse the promote while a real orphan beside it still does, an unmeasured fixture attribution says NOT MEASURED rather than zero, and unreadable/empty/garbage input all return CANNOT-RUN rather than collapsing into a pass"
 }
 
 probe_main "$@"

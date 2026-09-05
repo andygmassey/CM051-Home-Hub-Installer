@@ -38,6 +38,8 @@ on:
       - 'scripts/verify_walk_record.sh'
       - 'tests/test_a_pairing_non_answer_is_not_a_rejection.sh'
       - 'scripts/box_walk_probes/probes/pairing_recovers_without_a_repair_storm.sh'
+      - 'scripts/box_walk_probes/probes/people_stores_reconcile.sh'
+      - 'tests/test_reconcile_splits_our_fixtures_from_the_products.py'
       - 'tests/test_walk_record_gates_customer_download.sh'
       - 'tests/test_probe_absence_is_not_an_answer.sh'
       - 'tests/test_probe_pgrep_is_scoped_to_this_account.sh'
@@ -184,6 +186,21 @@ jobs:
       # the reverse, because the probe that is red today is exactly the one someone
       # will propose demoting. The ratchet needs origin/main, which is why the
       # checkout above is fetch-depth 0.
+      # THE RECONCILE PROBE'S OWN NEGATIVE CONTROL CANNOT REACH THIS.
+      #
+      # All eighteen of its self-test cases drive the SHELL verdict through
+      # FAKE_RECONCILE, which substitutes a canned result line -- so the embedded
+      # python that PRODUCES that line is never executed by the probe itself.
+      # Measured: mutating the python to count every orphan as one of ours, the
+      # false-green direction, left that self-test green at 18 of 18.
+      #
+      # This drives the real payload against a fake store. It refuses (exit 2) if
+      # the heredoc anchor moves or the payload stops mentioning the flag, so a
+      # green cannot be obtained by measuring nothing.
+      - name: The reconcile payload tells our leaked fixture from a product orphan
+        if: always()
+        run: python3 tests/test_reconcile_splits_our_fixtures_from_the_products.py
+
       - name: The scoped promote refuses on the artefact
         if: always()
         run: bash tests/test_promote_scope_refuses_on_the_artefact.sh
