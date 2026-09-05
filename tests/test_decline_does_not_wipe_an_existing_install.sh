@@ -108,6 +108,55 @@ done
 # ── NEGATIVE CONTROL, pinned to the tree TNM executed against ────────────
 # dc6b5cd3 is main at the time of his review -- the tree whose arm he ran with
 # a seeded target and watched destroy three files.
+# ── the FLAG ITSELF, which every arm above takes as an input ──────────────
+#
+# 🔴 THE GAP THIS CLOSES, and it is in this file's own construction. Every arm
+# above is driven through `_run_arm`, which INJECTS the flag:
+#
+#     printf '_OSTLER_FINAL_PREEXISTED=%s\n' "$preexisted"
+#
+# and `_extract_arm` pulls only from the decline decision down to `exit 0`. So
+# the arms prove the ARM HONOURS the flag. Nothing here proved the flag is
+# COMPUTED, and the computation is the half that decides whether a customer's
+# install is wiped.
+#
+# MEASURED 2026-09-05: deleting the guard line from install.sh entirely, and
+# separately pinning it to `true`, both left this file at 5 pass / 0 fail. Two
+# mutations that restore the original destructive behaviour, and the gate
+# protecting a destructive path could not see either.
+#
+# So this arm executes the REAL computation out of the REAL install.sh against
+# a directory that exists and one that does not.
+_flag_block="$(grep -n -A1 '^_OSTLER_FINAL_PREEXISTED=false$' "$SUBJECT" | sed 's/^[0-9]*[-:]//')"
+if [ -z "$_flag_block" ]; then
+    bad "the flag computation is absent from install.sh entirely -- the decline arms are reading an unset variable"
+else
+    _probe() {   # $1 = a path; echoes the computed flag
+        ( set -u
+          OSTLER_FINAL_DIR="$1"
+          eval "$_flag_block"
+          printf '%s' "${_OSTLER_FINAL_PREEXISTED:-<unset>}" )
+    }
+    _exists="${WORK}/seeded_dir"; mkdir -p "$_exists"
+    _absent="${WORK}/no_such_dir_$$"; rm -rf "$_absent"
+    _t="$(_probe "$_exists")"
+    _f="$(_probe "$_absent")"
+    if [ "$_t" = "true" ] && [ "$_f" = "false" ]; then
+        ok "the flag is COMPUTED from the real tree: true when the install dir exists, false when it does not"
+    else
+        bad "the flag does not discriminate: existing dir gave '${_t}', absent dir gave '${_f}' (want true / false)"
+    fi
+    # MUST-MISS. If the guard line is gone, the block collapses to a constant
+    # and the arm above must not still read true/false by luck.
+    _mutant="$(printf '%s\n' "$_flag_block" | grep -v 'OSTLER_FINAL_DIR')"
+    _m="$( ( set -u; OSTLER_FINAL_DIR="$_exists"; eval "$_mutant"; printf '%s' "${_OSTLER_FINAL_PREEXISTED:-<unset>}" ) )"
+    if [ "$_m" = "true" ]; then
+        bad "must-miss: with the directory test removed the flag STILL reads true, so this arm cannot see the guard being deleted"
+    else
+        ok "must-miss: with the directory test removed the flag stops discriminating (reads '${_m}')"
+    fi
+fi
+
 _CONTROL_SHA="dc6b5cd3"
 echo "── negative control: ${_CONTROL_SHA} (the tree TNM executed) ──"
 _ctl="${WORK}/control.sh"
