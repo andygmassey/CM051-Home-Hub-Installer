@@ -117,3 +117,10 @@ jobs:
       - name: no hydrate cap sits below its declared floor
         if: always()
         run: python3 scripts/verify_hydrate_cap_floors.py
+
+      # The floor gate proves each cap is not too SMALL against its own
+      # declaration. It cannot see that TWO caps guard ONE store, which is the
+      # defect that failed a virgin install: collections 120s vs store 300s.
+      - name: one store does not get two budgets
+        if: always()
+        run: /bin/bash tests/test_one_store_does_not_get_two_budgets.sh

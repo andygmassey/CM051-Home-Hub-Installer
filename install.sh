@@ -17500,23 +17500,52 @@ _OSTLER_QDRANT_MISSING_COLLECTIONS=""
 #
 # Hoisting it to a _CAP name at top level is the whole change: the env var still
 # works for an operator, the function still reads one number, and the gate can
-# now see it. The floor declared alongside is a RATCHET AT THE SHIPPED VALUE and
-# asserts nothing about whether 120 is enough -- there is exactly one cold
-# observation and one observation is not a floor.
-_QDRANT_COLLECTIONS_READY_CAP="${OSTLER_QDRANT_READY_WAIT_S:-120}"
+# now see it.
+#
+# 🔴 THE SECOND COLD OBSERVATION ARRIVED AND IT AGREES, SO THE DEFAULT MOVES
+# FROM 120 TO 300. The note here used to say "there is exactly one cold
+# observation and one observation is not a floor", and named the condition for
+# changing it: raise it the first time a second cold walk agrees, and say which
+# walks. Both walks, both on the Mini 16, both against a 120s budget:
+#
+#   v1.0.67  archie  cold        cm019_setup ERROR at 132s
+#   v1.0.68  archie2 VIRGIN      cm019_setup ERROR at 136s, rc=1, and the
+#                                terminal DONE carried the store-not-ready
+#                                refusal code (named in the commit message, NOT
+#                                here -- see the hazard note below)
+#                                graph_db_start had itself taken 327s
+#
+# ⚠️ THE REAL ARGUMENT IS NOT "MAKE IT BIGGER", IT IS THAT ONE STORE HAD TWO
+# BUDGETS 2.5x APART. _QDRANT_READY_CAP guards the SAME Qdrant at
+# graph_db_start and is 300s; this one guards the collection pre-creation and
+# was 120s. The larger budget passed on both cold walks and the smaller one
+# failed on both. Two numbers for one dependency is the defect; 300 aligns them
+# on the value that has never been the one to fail.
+#
+# ⚠️ 300 IS NOT PROVEN SUFFICIENT AND THIS COMMENT DOES NOT CLAIM IT IS. It is
+# proven BETTER than 120 by two independent cold boxes, and it is the value its
+# own sibling already uses against the same store. A third cold walk that
+# exceeds 300 raises it again; the operator override exists for exactly that.
+#
+# WHY IT MATTERS TO A CUSTOMER, which is the point: a virgin Mac with a cold
+# container VM is the NORMAL first-install case, not an edge case. On it, the
+# collections were never created, the import refused, and the customer was told
+# "Your data was not imported". Nothing was lost -- the refusal is correct and
+# deliberate -- but the install failed for a reason that is a timer, not a fault.
+_QDRANT_COLLECTIONS_READY_CAP="${OSTLER_QDRANT_READY_WAIT_S:-300}"
 case "$_QDRANT_COLLECTIONS_READY_CAP" in
     ''|*[!0-9]*)
         # Same rule as _QDRANT_READY_CAP at the graph_db_start loop: a
         # non-numeric override is operator error, and falling back silently to a
         # number they cannot see is worse than saying so.
-        warn "OSTLER_QDRANT_READY_WAIT_S is not a whole number of seconds; using 120"
-        _QDRANT_COLLECTIONS_READY_CAP=120
+        warn "OSTLER_QDRANT_READY_WAIT_S is not a whole number of seconds; using 300"
+        _QDRANT_COLLECTIONS_READY_CAP=300
         ;;
 esac
 
 _ostler_ensure_qdrant_collections() {
     local _u="${QDRANT_URL:-http://localhost:6333}"
-    local _max="${_QDRANT_COLLECTIONS_READY_CAP:-120}" _waited=0 _c _missing=""
+    local _max="${_QDRANT_COLLECTIONS_READY_CAP:-300}" _waited=0 _c _missing=""
     while [ "$_waited" -lt "$_max" ]; do
         if curl "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
             -sf -m 2 "${_u}/collections" >/dev/null 2>&1; then
