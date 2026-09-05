@@ -635,7 +635,35 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         # and the store teardown (docker compose down -v) lives inside it.
         if [ -x "$HOME/.ostler/bin/ostler-uninstall" ]; then
             echo "running the shipped uninstaller: $HOME/.ostler/bin/ostler-uninstall"
-            OSTLER_ASSUME_YES=1 bash "$HOME/.ostler/bin/ostler-uninstall" 2>&1 | tail -30
+            # 🔴 OSTLER_ASSUME_YES IS READ BY NOTHING. I INVENTED IT.
+            #
+            # MEASURED on archie, 2026-09-05, on the v1.0.71 walk:
+            #
+            #   Uninstall FAILED at line 104 (exit 1):
+            #     read -p "  Are you sure? This cannot be undone. (type YES to
+            #     confirm): " CONFIRM
+            #   The uninstall did not finish. Some components are still installed.
+            #   AFTER, the volumes that remain: 5
+            #   WIPE INCOMPLETE: 5 ostler_ volume(s) survived
+            #
+            # The shipped uninstaller has NO non-interactive bypass. Line 104 is
+            # a bare read, and a grep of the whole file for ASSUME_YES,
+            # NONINTERACTIVE, FORCE, --yes and CONFIRM= returns only that read
+            # and the test on its result. So this harness has been setting a
+            # variable nobody consults and believing the uninstall was
+            # authorised. A writer-reader contract with no reader.
+            #
+            # Feed the confirmation on stdin instead, which is what the program
+            # actually asks for. `yes YES` rather than a single line, because a
+            # second prompt would otherwise get EOF and cancel silently.
+            #
+            # The env var is LEFT IN PLACE deliberately: if the uninstaller ever
+            # grows a real bypass this is the name to wire, and removing it now
+            # would delete the only record that it was expected. CM051 #1560
+            # tracks giving the shipped uninstaller a real one, because an
+            # uninstall that cannot run unattended cannot be managed, scripted
+            # or tested by anything.
+            yes YES | OSTLER_ASSUME_YES=1 bash "$HOME/.ostler/bin/ostler-uninstall" 2>&1 | tail -30
         elif [ -f "$HOME/.ostler/docker-compose.yml" ]; then
             echo "no shipped uninstaller; falling back to docker compose down -v"
             cd "$HOME/.ostler" && "$DOCKER" compose down -v 2>&1 | tail -20
@@ -677,7 +705,9 @@ if [[ "$DO_RESET" -eq 1 ]]; then
                  ~/.ostler/uninstall.sh; do
             if [[ -x "$u" ]]; then
                 echo "running shipped uninstaller: $u"
-                OSTLER_ASSUME_YES=1 bash "$u" 2>&1 | tail -25
+                # Same reason as the block above: the confirmation is a bare
+                # read and the env var is read by nothing. See CM051 #1560.
+                yes YES | OSTLER_ASSUME_YES=1 bash "$u" 2>&1 | tail -25
                 _ran_uninstaller="$u"
                 break
             fi
