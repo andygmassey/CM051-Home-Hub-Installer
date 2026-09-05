@@ -193,7 +193,15 @@ CANNOT_LIST=""
 # bash 3.2 (macOS system bash) has no associative arrays, so the name/reason
 # pairs go to a file rather than a map.
 CANNOT_REASONS="$(mktemp)"
-trap 'rm -f "$CANNOT_REASONS"' EXIT
+# WHY A PROBE FAILED, NOT ONLY WHICH ONE DID. The same defect as the block
+# above, on the other verdict class: FAIL_LIST carried basenames and the
+# VERDICT line was discarded here, so the summary an operator scrolls to and
+# copies named the probe and not the finding. Recovering it costs a whole walk
+# -- a published DMG, a box and a reset -- which is what assistant_answers_
+# grounded cost across walks 9 and 10, red both times and undiagnosed both
+# times.
+FAIL_REASONS="$(mktemp)"
+trap 'rm -f "$CANNOT_REASONS" "$FAIL_REASONS"' EXIT
 
 for p in $PROBES; do
     b="$(basename "$p" .sh)"
@@ -229,6 +237,17 @@ for p in $PROBES; do
         printf '%s\t%s\n' "$b" "$_why" >> "$CANNOT_REASONS"
     else
         FAIL=$((FAIL + 1)); FAIL_LIST="$FAIL_LIST $b"
+        # Same extraction as CANNOT-RUN above: probe_fail() prints its detail
+        # last and exits, and several probes pass a multi-line $detail, so take
+        # the tail from the marker and flatten it.
+        _why="$(printf '%s\n' "$out" \
+                | awk '/^VERDICT: FAIL -- /{sub(/^VERDICT: FAIL -- /, ""); f=1} f' \
+                | tr '\n' ' ' | sed 's/  */ /g; s/ *$//')"
+        # Blank is ANNOUNCED, never left empty: a probe that exits non-zero
+        # without a 'VERDICT: FAIL --' line bypassed probe_fail and asserted
+        # nothing, which is a contract breach, not a finding without a reason.
+        [ -n "$_why" ] || _why="UNRECORDED -- exited ${rc} with no 'VERDICT: FAIL --' line, so it bypassed probe_fail and named no finding"
+        printf '%s\t%s\n' "$b" "$_why" >> "$FAIL_REASONS"
     fi
 done
 
@@ -248,6 +267,27 @@ printf '============================================================\n'
 if [ -n "$FAIL_LIST" ]; then
     printf '\nFAILED:\n'
     for b in $FAIL_LIST; do printf '  %s\n' "$b"; done
+
+    # A SEPARATE BLOCK, FOR THE SAME TWO REASONS AS THE ONE UNDER NOT MEASURED.
+    #
+    # post_walk_qa.sh parses the list above with an awk that accepts only
+    # `^  [A-Za-z0-9._-]+$` and EXITS on the first line that is not a bare
+    # probe name. A reason printed under each name would end that parse at the
+    # first one and walks/<version>.tsv would carry a single failed_probe row,
+    # silently dropping the rest. The blank line printf'd below terminates the
+    # parse before this block starts, and this header does not contain the
+    # string section_names() keys on ("FAILED:").
+    #
+    # CONSOLE ONLY. probe_fail details interpolate ${OSTLER_BOX_HOST}, store
+    # URLs, ~/.ostler/... paths and record counts. walks/ is committed to a
+    # PUBLIC repo -- which is why box_fp is a hash and why the record carries
+    # names and never probe output. These belong in front of the operator
+    # running the walk, and nowhere else.
+    printf '\nWHAT EACH FAILURE FOUND (console only -- never written to walks/):\n'
+    while IFS="$(printf '\t')" read -r _b _why; do
+        [ -n "$_b" ] || continue
+        printf '  %s\n      %s\n' "$_b" "$_why"
+    done < "$FAIL_REASONS"
 fi
 
 if [ -n "$CANNOT_LIST" ]; then
