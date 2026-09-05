@@ -59,6 +59,7 @@ test_assistant_ollama_num_ctx.sh	WIRED	.github/workflows/tests-unwired-sweep-al.
 test_audit_red_merges_predicate.py	WIRED	.github/workflows/red-merge-audit.yml
 test_autologin_consent_opt_in.sh	WIRED	.github/workflows/consent-contract.yml
 test_background_copy_promises_no_deadline.sh	WIRED	.github/workflows/background-copy-honesty.yml
+test_bom_ref_is_not_the_cut_pin.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_bom_verdict_gate_is_wired_into_the_promote.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_bookmarks_ingest_wired.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_bootstrap_prelude.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml

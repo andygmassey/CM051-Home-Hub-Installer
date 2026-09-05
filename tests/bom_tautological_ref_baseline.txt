@@ -1,0 +1,26 @@
+# Cuts whose MUST_CONTAIN.tsv `ref` column is the cut pin itself, so re-running
+# the BOM's own ancestry check asks whether the pin is an ancestor of the pin.
+# That is always true, and a row whose check cannot fail is a row that records
+# nothing.
+#
+# See tests/test_bom_ref_is_not_the_cut_pin.sh.
+#
+# THESE FOUR ARE HISTORY AND ARE IMMUTABLE. v1.0.67 is TAGGED; correcting a
+# repo record that is not in the shipped artefact would cost a version number
+# for no customer-visible gain, and that call is recorded on the relay board.
+# The point of this file is that a FIFTH cannot happen quietly.
+#
+# MEASURED 2026-09-05 across all 26 cuts carrying both a BOM and a cut.env:
+# 4 tautological, 22 not. It is not a v1.0.67 novelty -- it is the fourth
+# instance, and nothing noticed the previous three.
+#
+# A cut may legitimately have FEWER distinct refs than rows: if every fix in it
+# landed in one merge commit, one ref for N rows is correct. The defect is
+# narrower than that, and this gate tests only the narrow thing -- ref EQUALS
+# the pin.
+#
+# Delist a row only by correcting the cut's ref column. Never add one.
+v1.0.61
+v1.0.62
+v1.0.65
+v1.0.67

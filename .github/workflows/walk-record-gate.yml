@@ -45,6 +45,11 @@ on:
       # with zero call sites; the test below is what makes that state fail.
       - 'scripts/verify_must_contain_has_box_verdict.sh'
       - 'tests/test_bom_verdict_gate_is_wired_into_the_promote.sh'
+      # The BOM's ref column and the guard that keeps it meaningful. Both
+      # listed: a run: step with no matching paths entry is dark on self-edit.
+      - 'tests/test_bom_ref_is_not_the_cut_pin.sh'
+      - 'tests/bom_tautological_ref_baseline.txt'
+      - 'cuts/**/cut.env'
       - 'cuts/**/MUST_CONTAIN.tsv'
       # The walk DRIVER and its three suites. Same self-edit rule as above:
       # the driver is the thing that decides whether a walk passed, so a
@@ -247,3 +252,11 @@ jobs:
       - name: The BOM-verdict gate is invoked by the promote, not merely present
         if: always()
         run: bash tests/test_bom_verdict_gate_is_wired_into_the_promote.sh
+
+      # v1.0.67 shipped with all 8 BOM rows carrying the cut pin in their ref
+      # column, so the ancestry check each row implies was "is the pin an
+      # ancestor of the pin" -- true for every cut that ever will be. Measured
+      # across 26 cuts: 4 are that shape and nothing had noticed the first 3.
+      - name: no NEW cut puts its own pin in the BOM ref column
+        if: always()
+        run: bash tests/test_bom_ref_is_not_the_cut_pin.sh
