@@ -1,0 +1,61 @@
+name: killed-converge-leaves-a-record
+
+# install.sh kills the identity resolver on a 300s install budget: SIGTERM, a
+# 2-second grace, then SIGKILL. The comment beside that kill used to justify it
+# with "the resolver commits each merge as it goes, so no work done so far is
+# lost".
+#
+# That is TRUE PER MERGE and FALSE PER SPARQL UPDATE. identity_resolver's
+# merge_persons is eight separate updates over HTTP: the identifiers move at
+# step 1 and the mergedInto tombstone -- the only thing recording that a merge
+# happened -- is written at step 6. A kill in between leaves an unauthorised
+# rehoming, and SIGKILL cannot be trapped, so the resolver cannot finish the
+# merge it is inside. Nothing in the resolver detects, completes or reverses
+# that state.
+#
+# The real fix is upstream in CM041 (write the tombstone FIRST). Until then the
+# kill path must not describe itself as harmless, and it must leave a record --
+# the absence of the .done marker cannot distinguish "killed at the budget"
+# from "exited non-zero for another reason".
+#
+# ubuntu-latest is correct: the test reads install.sh as text. It never runs the
+# installer and never invokes the resolver.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_killed_converge_leaves_a_record.sh'
+      - '.github/workflows/killed-converge-leaves-a-record.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  killed-converge-leaves-a-record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # The test opens with a CONTROL: if the SIGKILL line it is about is not
+      # in install.sh it exits 2 (CANNOT-RUN), because every "this string is
+      # absent" assertion below would otherwise be vacuously true.
+      #
+      # The behavioural limb reads a bounded 20-line window after the kill and
+      # greps for the five keys the marker must emit. It deliberately does NOT
+      # source an extracted block: an extraction whose end anchor failed would
+      # execute installer code, and that trap was hit while writing this.
+      #
+      # Mutation-tested: reverting install.sh fails 7 of 8 assertions (rc=1).
+      # The survivor is the control, which is meant to pass either way.
+      - name: A killed converge is recorded and not called harmless
+        run: bash tests/test_killed_converge_leaves_a_record.sh

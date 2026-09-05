@@ -27451,8 +27451,14 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
     _DEDUPE_LOG="${OSTLER_DIAG_DIR}/hydrate-dedupe.log"
     _DEDUPE_BUDGET_S="${OSTLER_DEDUPE_INSTALL_BUDGET_S:-300}"
     _DEDUPE_DONE_MARKER="${OSTLER_DIR}/state/dedupe-converge.done"
+    # A killed converge can tear a merge (see the hard-cap comment below), and
+    # the absence of the .done marker cannot distinguish "killed at the budget"
+    # from "exited non-zero for some other reason". Anyone later holding a
+    # graph with unauthorised identifier rehomings needs to know whether this
+    # install killed a pass mid-merge, so the kill leaves its own record.
+    _DEDUPE_KILLED_MARKER="${OSTLER_DIR}/state/dedupe-converge.killed"
     mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || true
-    rm -f "$_DEDUPE_DONE_MARKER" 2>/dev/null || true
+    rm -f "$_DEDUPE_DONE_MARKER" "$_DEDUPE_KILLED_MARKER" 2>/dev/null || true
 
     # #912: the converge report names every duplicate pair the resolver
     # considered -- real names, emails and phone numbers of the operator's
@@ -27506,12 +27512,34 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
         sleep 30
         _DEDUPE_WAITED=$(( _DEDUPE_WAITED + 30 ))
         # Hard cap: once we exceed the install-time budget, stop waiting
-        # synchronously. Kill the in-flight pass (a single converge round
-        # is itself idempotent + non-destructive: it only merges nodes the
-        # rules already approve, so terminating mid-loop just leaves the
-        # remaining rounds for the background catch-up agent). The
-        # batch_resolver --execute commits each merge as it goes, so no
-        # work done so far is lost.
+        # synchronously and kill the in-flight pass, leaving the remaining
+        # rounds to the background catch-up agent.
+        #
+        # 🔴 THIS USED TO ASSERT THAT NOTHING IS LOST, ON THE GROUND THAT THE
+        # RESOLVER COMMITS EACH MERGE AS IT GOES. THAT IS TRUE PER MERGE AND
+        # FALSE PER SPARQL UPDATE, and the tearing happens at the level the
+        # old claim did not cover. (The removed sentence is not quoted here on
+        # purpose: a gate greps for it, and a quotation would keep it alive.)
+        #
+        # identity_resolver merge_persons is EIGHT separate updates over HTTP:
+        #   step 1  DELETE <discard> hasIdentifier / INSERT <keep> hasIdentifier
+        #   steps 2-5  facts, attendee links, history, then a LOOP over 8 scalars
+        #   step 6  <discard> mergedInto <keep>        <- the AUTHORISATION
+        #   step 7  DELETE DATA { <discard> a <Person> }
+        #
+        # So a kill between step 1 and step 6 leaves the identifiers rehomed
+        # onto the keeper with NOTHING recording that a merge happened. And
+        # `kill -9` below cannot be trapped, so the resolver cannot finish the
+        # merge it is inside even if it wanted to. Nothing in the resolver
+        # detects, completes or reverses that state: there are zero
+        # resume/recover paths in the module, and its .trig rollback backup is
+        # written and never read.
+        #
+        # The real fix is upstream in CM041 -- write the mergedInto tombstone
+        # FIRST, before the identifiers move, so an interrupted merge is
+        # self-describing and the catch-up round finishes it. Until then the
+        # kill can tear a merge, so this path RECORDS ITSELF (below) rather
+        # than claiming to be harmless.
         if [[ "$_DEDUPE_WAITED" -ge "$_DEDUPE_BUDGET_S" ]] && kill -0 "$_DEDUPE_PID" 2>/dev/null; then
             _DEDUPE_TIMED_OUT=true
             # v1.0.11: disown BEFORE killing so job-control does not print an
@@ -27524,6 +27552,15 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
             # Give it a moment to unwind, then hard-kill if still alive.
             sleep 2
             kill -9 "$_DEDUPE_PID" 2>/dev/null || true
+            # Durable, machine-readable, and written AFTER the kill so it
+            # records what actually happened rather than what was intended.
+            {
+                printf 'killed_at_utc=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+                printf 'waited_s=%s\n'      "$_DEDUPE_WAITED"
+                printf 'budget_s=%s\n'      "$_DEDUPE_BUDGET_S"
+                printf 'signal=SIGTERM then SIGKILL\n'
+                printf 'risk=a merge interrupted between its identifier move and its mergedInto tombstone leaves an unauthorised rehoming; see identity_resolver merge_persons\n'
+            } > "$_DEDUPE_KILLED_MARKER" 2>/dev/null || true
             break
         fi
         # Guard with `if` (not `&&`) so a process that finished during the
@@ -27557,7 +27594,7 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
     fi
 
     unset _DEDUPE_LOG _DEDUPE_PID _DEDUPE_WAITED _DEDUPE_BUDGET_S
-    unset _DEDUPE_TIMED_OUT _DEDUPE_DONE_MARKER
+    unset _DEDUPE_TIMED_OUT _DEDUPE_DONE_MARKER _DEDUPE_KILLED_MARKER
 fi
 
 # Apple Notes knowledge hydration (CM024 §7 / apple_notes adapter) ---
