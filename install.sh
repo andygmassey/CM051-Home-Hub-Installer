@@ -28571,6 +28571,48 @@ gui_step_begin "health_check" "$MSG_STEP_RUNNING_HEALTH_CHECK" 3 "$CURRENT_STEP"
 # Phase 4 probes below can still only ever make things worse, never better.
 : "${HEALTHY:=true}"
 
+# ── D008: A LIVENESS PROBE ANSWERS "IS SOMETHING THERE", NOT "IS IT OURS" ──
+#
+# The :11434 arm below learned this on the v1.0.66 artefact walk: another
+# account's ollama answered a bare loopback curl and health_check reported a
+# component healthy for an install that does not have it. :6333 has the same
+# shape, and unlike :7878 it cannot be closed with a credential -- Qdrant
+# exempts /healthz from the api-key by the vendor's own design (see the note on
+# the probe itself), so a foreign Qdrant answers our bare probe exactly as ours
+# does.
+#
+# ⚠️ WHY NOT `launchctl print`, WHICH IS WHAT #1471 USED FOR OLLAMA. Ollama
+# ships as com.ostler.ollama, a LaunchAgent THIS installer writes, so launchd is
+# a fair register to ask. Qdrant and Oxigraph are colima CONTAINERS with no
+# launchd identity at all, so the same question asked of launchctl returns a
+# confident "not present" for a perfectly healthy store. Copying that pattern
+# here would replace a probe that is honestly blind with one that is
+# confidently wrong, which is strictly worse.
+#
+# The ownership signal is `docker compose ps -q`, the instrument already used by
+# the ERR-06 diagnostic above: it resolves the service inside OUR compose
+# project, so a foreign holder on the port yields an EMPTY id rather than
+# somebody else's container.
+#
+# THE cd IS LOAD-BEARING. `docker compose` with no -f resolves its project from
+# the working directory. Every other compose call in this file relies on the
+# ambient cwd; a health probe must not, because a wrong cwd would return empty
+# and report a WORKING store as down -- a false negative introduced by the very
+# check meant to remove a false positive.
+#
+# A DOWN OR ABSENT CONTAINER IS THIS FUNCTION'S ANSWER, NOT ITS ERROR, the same
+# rule _ostler_redis_ping states below: under `set -Eeuo pipefail` a non-zero
+# docker exit inside the helper would abort the install from inside the check
+# written to report that state.
+_ostler_store_container_is_ours() {
+    local _svc="$1" _cid _running
+    _cid="$(cd "${OSTLER_DIR}" 2>/dev/null && docker compose ps -q "$_svc" 2>/dev/null)" || return 1
+    [ -n "$_cid" ] || return 1              # absent, or a foreign holder on the port
+    _running="$(docker inspect -f '{{.State.Running}}' "$_cid" 2>/dev/null)" || return 1
+    [ "$_running" = "true" ] || return 1    # ours, but not running
+    return 0
+}
+
 # ⚠️ DELIBERATELY BARE, and it is the ONLY bare store dial left in this file.
 # Qdrant's /healthz sits OUTSIDE the api-key by the vendor's own design, so a
 # credential here would be inert rather than protective. Contrast :7878 just
@@ -28579,14 +28621,16 @@ gui_step_begin "health_check" "$MSG_STEP_RUNNING_HEALTH_CHECK" 3 "$CURRENT_STEP"
 # why that one is credentialled and this one is not -- the asymmetry is the
 # vendors', not ours. If Qdrant ever moves /healthz behind the key, this line
 # changes with it.
-if curl -sf http://localhost:6333/healthz &>/dev/null; then
+if _ostler_store_container_is_ours qdrant \
+   && curl -sf http://localhost:6333/healthz &>/dev/null; then
     ok "$MSG_OK_QDRANT_HEALTHY"
 else
     warn "$MSG_WARN_QDRANT_NOT_RESPONDING"
     HEALTHY=false
 fi
 
-if curl -sf "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" http://localhost:7878/ &>/dev/null; then
+if _ostler_store_container_is_ours oxigraph \
+   && curl -sf "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" http://localhost:7878/ &>/dev/null; then
     ok "$MSG_OK_OXIGRAPH_HEALTHY"
 else
     warn "$MSG_WARN_OXIGRAPH_NOT_RESPONDING"

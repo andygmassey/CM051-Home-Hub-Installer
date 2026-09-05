@@ -72,6 +72,7 @@ on:
       - 'tests/test_consent_state_is_defined_before_it_is_called.sh'
       - 'tests/test_an_unmeasured_flag_must_be_read.sh'
       - 'tests/test_ollama_agent_does_not_depend_on_a_foreign_port.sh'
+      - 'tests/test_store_health_does_not_depend_on_a_foreign_port.sh'
       - 'tests/test_the_sentinel_vocabulary_is_declared_and_complete.sh'
       - 'tests/test_no_function_is_called_before_it_is_defined.sh'
       - 'tests/test_doctor_probe_cap_exceeds_the_command.sh'
@@ -242,6 +243,15 @@ jobs:
       - name: The Ollama agent must not depend on a foreign port
         if: always()
         run: bash tests/test_ollama_agent_does_not_depend_on_a_foreign_port.sh
+      # D008: the SAME defect shape on the two colima stores. :6333 cannot be
+      # closed the way :11434 was -- Qdrant and Oxigraph have no launchd
+      # identity, so launchctl would answer a confident "absent" for a healthy
+      # store, and Qdrant exempts /healthz from the api-key so a credential is
+      # inert there. The ownership signal is `docker compose ps -q`, which
+      # resolves the service inside OUR compose project.
+      - name: Store health must not depend on a foreign port
+        if: always()
+        run: bash tests/test_store_health_does_not_depend_on_a_foreign_port.sh
       # The same writer/reader drift was found TWICE (sources 13/9,
       # statuses 5/3), both times by a human reading both sides. A literal
       # grep for status= MISSES error and timeout, because the error
