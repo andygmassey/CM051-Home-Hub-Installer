@@ -92,6 +92,9 @@ on:
       - 'tests/test_port_preflight_covers_published.sh'
       # #567: recognising our own colima forward runs in the same preflight.
       - 'tests/test_port_preflight_recognises_own_colima_567.sh'
+      # #1498's two aborts are in that same preflight, and the test that
+      # shipped WITH #1498 passes on the pre-fix tree. This one does not.
+      - 'tests/test_the_port_preflight_aborts_carry_distinct_support_codes.sh'
       # Same reason again. Editing the sudo-gate test must trigger the only
       # workflow that runs it, or the test can rot unnoticed while reporting
       # green on every push that does not happen to touch install.sh.
@@ -143,6 +146,14 @@ jobs:
       - name: Assert the port preflight is owner-blind and covers every published port (#1208)
         if: always()
         run: bash tests/test_port_preflight_covers_published.sh
+
+      # #1498 gave the two port-preflight aborts DISTINCT support codes, and
+      # shipped without a gate that could see it: the test above returns
+      # 16 pass / 0 fail against the pre-fix tree at 03b50c6b. WIRED IS NOT
+      # FAILING. This step is the gate that discriminates the change.
+      - name: Assert the two port-preflight aborts carry DISTINCT support codes (#1498)
+        if: always()
+        run: bash tests/test_the_port_preflight_aborts_carry_distinct_support_codes.sh
 
       # #567: the same preflight must recognise our OWN colima store forward and
       # continue, without waving through a foreign one. Both signals, residual named.
