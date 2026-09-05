@@ -7,7 +7,7 @@ the v1.0.68 DMG on 2026-09-05, on a run that ended
 
     WARN step=tailscale_connect
          msg=Namespace migrator not found at
-             /Users/archie2/.ostler/scripts/migrate_graph_namespace.py; skipping
+             ~/.ostler/scripts/migrate_graph_namespace.py; skipping
 
 install.sh builds that path itself at :24910 and warns about it at :24942. The
 bundle phase in gui/project.yml copied exactly ONE file into `scripts/`, so that
