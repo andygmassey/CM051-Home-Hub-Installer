@@ -27820,7 +27820,34 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
     # finish it post-install and trigger a wiki recompile. If it DID
     # complete (the .done marker exists), skip the agent entirely -- there
     # is nothing left to do.
-    if [[ ! -f "$_DEDUPE_DONE_MARKER" ]]; then
+    # A KILLED PASS COUNTS AS INCOMPLETE EVEN IF .done EXISTS.
+    #
+    # MEASURED on the v1.0.71 walk box, 2026-09-05. BOTH markers were present:
+    #
+    #     ~/.ostler/state/dedupe-converge.done     PRESENT
+    #     ~/.ostler/state/dedupe-converge.killed   PRESENT
+    #         killed_at_utc=2026-09-05T15:17:16Z waited_s=300 budget_s=300
+    #
+    # They are not mutually exclusive. The converge can finish inside the 30s
+    # poll window while the budget check fires in the same iteration, so the
+    # subshell touches .done AND the kill path writes .killed. This guard read
+    # only .done, concluded the pass had completed, skipped the catch-up agent
+    # and printed "nothing left to do".
+    #
+    # The graph said otherwise. On that same box the post-walk QA suite failed
+    # THREE probes on this one cause: people_count_agreement (oxigraph 1821 vs
+    # doctor 1905, off by 84), people_stores_reconcile (84 orphan vectors) and
+    # converge_kill_is_recorded. The catch-up agent -- which exists precisely
+    # to finish an interrupted converge -- was never installed, so those 84
+    # stayed split across two stores permanently.
+    #
+    # THE ASYMMETRY DECIDES THE PREDICATE. The agent is bounded, low-priority
+    # and self-removing, so installing it when it was not needed costs one
+    # no-op pass. NOT installing it when it was needed leaves the customer
+    # with two stores holding different sets of people, for ever, and no
+    # surface that says so. So install it whenever the pass did not
+    # DEMONSTRABLY complete cleanly: .done missing, OR .killed present.
+    if [[ ! -f "$_DEDUPE_DONE_MARKER" || -f "$_DEDUPE_KILLED_MARKER" ]]; then
         _install_dedupe_catchup_agent
     else
         info "$MSG_INFO_DEDUPE_COMPLETE_NO_CATCHUP"
