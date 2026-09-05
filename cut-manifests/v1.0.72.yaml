@@ -345,6 +345,35 @@ entries:
       must_match: true
 
 open_issues:
+  - issue: 1610
+    title: "the local pre-commit PII hook and the CI gate answer different questions, so the local one is red for every install.sh commit"
+    gate: >-
+      FIX (apparatus, counted per Andy): entry: the-hook-and-the-gate-ask-one-question --
+      .githooks/pre-commit-operator-pii passes staged files as PATH ARGUMENTS,
+      which takes the scanner's "$#" -gt 0 branch and scans each file IN FULL.
+      CI sets BASE_REF and narrows modified files to their ADDED LINES, keeping
+      added and renamed files whole so a rename cannot smuggle content to a new
+      path. TNM's finding. Two gates sharing a name and not a subject, which is
+      a class we have been bitten by before. Proof: the hook and the CI gate
+      driven over the same staged change and required to return the same
+      verdict, with a planted violation as the positive control so agreement on
+      a clean tree cannot pass vacuously.
+  - issue: 1611
+    title: "gates and probes that read the stores went blind when store auth defaulted ON"
+    gate: >-
+      FIX (BLOCKING apparatus): entry: a-store-reader-carries-its-credential --
+      MEASURED 2026-09-06 while making the rollforward gate run for the first
+      time. v1018-D011 reports "did not return a count (got '</html>')" because
+      an unauthenticated SPARQL query now returns 401 with an HTML body. Same
+      query with the box's own bearer token returns 200 and 64610 triples, so
+      the store is healthy and the gate simply cannot see it. Blast radius:
+      7 files reference 7878 and 2 authenticate; 6 reference 6333 and 1 does.
+      THIRD instance tonight of one class -- a security change landed correctly
+      and the instruments observing the secured thing were never moved with it,
+      each failing safe so none of them shouted. Proof: a shared credential
+      accessor used by every store-reading gate, with a must-miss control
+      proving a gate WITHOUT the credential still reports CANNOT-RUN rather
+      than a pass.
   - issue: 1604
     title: "every pwg tool description is truncated before its routing clause, which is why the box answers without reaching the graph"
     gate: >-
