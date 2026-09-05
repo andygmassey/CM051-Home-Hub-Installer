@@ -69,6 +69,13 @@ TRANSCRIPT='$HOME/.ostler/logs/install.log'
 # either. Neither carries the key VALUE -- the marker is matched by NAME only,
 # and the bold line is matched by its label, so nothing secret is read, logged
 # or compared here.
+# ⚠️ UNDECLARED COUPLING, NOW DECLARED. This matches a SUBSTRING of the redacted
+# marker format that tests/test_marker_payloads_never_reach_install_log.sh:324
+# mandates: the log carries `RECOVERY_KEY value=<redacted:24>`, so grepping
+# `RECOVERY_KEY value=` counts the marker and never reads the value. That is the
+# right way round, and it is a coincidence unless it is written down. If the
+# trace ever becomes `RECOVERY_KEY=<redacted>` this probe silently counts 0 and
+# FAILS a correct install. Change one, check the other.
 _DISCLOSE_GUI='RECOVERY_KEY value='
 _DISCLOSE_TTY='Your recovery key:'
 
@@ -129,8 +136,34 @@ print('BLOCK' if 'recovery_encrypted_key' in d else 'NOBLOCK')
 
     probe_examined "$_lines" "transcript lines searched for the disclosure"
 
+    # 🔴 A KEYCHAIN THE RUN ITSELF WROTE CANNOT PREDATE THAT RUN, so a negative
+    # delta is either parse granularity -- a second or two -- or evidence the
+    # keychain came from somewhere else. Sixty seconds is far wider than the
+    # first and squarely inside the second, and TNM drove the boundary out of
+    # this function directly:
+    #
+    #     delta   verdict (seen=0, block=BLOCK)
+    #        -1   fail-minted-not-disclosed
+    #       -59   fail-minted-not-disclosed
+    #       -60   fail-minted-not-disclosed      <- FALSE RED
+    #       -61   cannot-run-skip
+    #
+    # The false red lands on this sequence: an install mints the key and
+    # DISCLOSES IT CORRECTLY, a second install starts within the minute -- a
+    # walk retry, or a customer double-clicking twice -- takes the
+    # already-configured skip and correctly discloses nothing, and this probe
+    # reports THIS RUN CREATED THE KEY AND NEVER DISCLOSED IT on a box where
+    # the key was handed over sixty seconds earlier.
+    #
+    # So the window is split rather than widened or narrowed. Beyond -60 the
+    # keychain is plainly older and the run plainly skipped. Inside it the
+    # probe does not know, and saying so is the only honest verdict available.
     if [ "$_delta" -lt -60 ]; then
         probe_cannot_run "THE KEYCHAIN PREDATES THIS RUN by $(( -_delta )) second(s), so this install took install.sh's already-configured skip and could not have disclosed anything -- demanding that it had would be demanding a key nobody knows. THIS RUN'S code is not implicated and no verdict is offered on it. ⚠️ BUT THE BOX MAY BE STRANDED: the key was minted by an EARLIER run, and if THAT run never disclosed it, nothing ever will -- the keychain persists and every later run skips. Read the earlier transcript if one survives; ostler-recovery cannot succeed here otherwise. (disclosure markers in this run's transcript: gui=${_gui} tty=${_tty})"
+    fi
+
+    if [ "$_delta" -lt -5 ]; then
+        probe_cannot_run "THE KEYCHAIN IS ${_delta}s OLDER THAN THIS RUN, which is more than clock and parse granularity can explain and less than a confident skip. A keychain a run wrote itself cannot predate it, so this one came from somewhere else -- most likely an install in the previous minute, which is exactly what a walk retry or a double-click produces. This probe CANNOT tell a run that minted-and-missed from a run that correctly skipped a key disclosed moments ago, and guessing would put a red on a box where the customer HAS the key. (disclosure markers in this run: gui=${_gui} tty=${_tty}; searched ${_lines} lines)"
     fi
 
     if [ "$_seen" -gt 0 ]; then
@@ -148,6 +181,7 @@ self_test() {
         _d="$1"; _s="$2"; _b="$3"
         [ "$_b" = "NOBLOCK" ] && { printf 'pass-not-applicable'; return; }
         [ "$_d" -lt -60 ] && { printf 'cannot-run-skip'; return; }
+        [ "$_d" -lt -5 ]  && { printf 'cannot-run-ambiguous'; return; }
         [ "$_s" -gt 0 ] && { printf 'pass-disclosed'; return; }
         printf 'fail-minted-not-disclosed'
     }
@@ -158,6 +192,12 @@ self_test() {
     _t   5  0 BLOCK   fail-minted-not-disclosed
     _t -1215 0 BLOCK  cannot-run-skip
     _t   5  0 NOBLOCK pass-not-applicable
+    # BOUNDARY ARMS. The suite drove 5 and -1215 and nothing between them, and
+    # the whole false-red lives in that gap. Pin both sides of both edges.
+    _t  -1  0 BLOCK   fail-minted-not-disclosed
+    _t -40  0 BLOCK   cannot-run-ambiguous
+    _t -59  0 BLOCK   cannot-run-ambiguous
+    _t -61  0 BLOCK   cannot-run-skip
     # ARM 5, the one that matters: the skip and the miss must NOT collapse.
     # They are the two runs of the archie2 walk and they want opposite verdicts.
     a="$(_decide -1215 0 BLOCK)"; b="$(_decide 5 0 BLOCK)"
@@ -170,8 +210,8 @@ self_test() {
         probe_examined "$fails" "self-test arm(s) that did NOT behave as required"
         probe_pass "SELF-TEST BROKEN: ${fails} arm(s) failed. This probe cannot demonstrate a FAIL, so its real result must not be trusted."
     fi
-    probe_examined 5 "self-test arms (disclosed / minted-and-missed / skip-path / no-block / the first two do not collapse)"
-    probe_fail "negative control behaved correctly on all 5 arms: a disclosing run PASSes, a minting run with no disclosure FAILs, a run whose keychain predates it is CANNOT-RUN rather than a false red, a box with no recovery block passes as not-applicable, and the skip and the miss reach different verdicts"
+    probe_examined 9 "self-test arms (disclosed / minted-and-missed / skip-path / no-block / two ambiguous-window arms / two boundary arms / the first two do not collapse)"
+    probe_fail "negative control behaved correctly on all 9 arms: a disclosing run PASSes; a minting run with no disclosure FAILs; a keychain 1215s older is CANNOT-RUN skip; a box with no recovery block passes as not-applicable; -1 still FAILs while -40 and -59 are CANNOT-RUN ambiguous and -61 is a confident skip, which pins BOTH edges of the window TNM found untested; and the skip and the miss reach different verdicts"
 }
 
 probe_main "$@"
