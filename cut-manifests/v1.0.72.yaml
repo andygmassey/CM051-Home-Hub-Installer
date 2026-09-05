@@ -273,24 +273,30 @@ entries:
     incident: "v1.0.71 box 2026-09-05: ostler-scan-exports line 18 OSTLER_OSASCRIPT_TIMEOUT_S unbound, rc=1, importer never called"
     proof:
       kind: grep_in_installer
-      pattern: "OSTLER_OSASCRIPT_TIMEOUT_S=\"\\$\\{OSTLER_OSASCRIPT_TIMEOUT_S:-20\\}\""
-      # 🔴 THIS ROW COULD NEVER PASS, AND THE NEEDLE WAS WHY. The shipped line
-      # is DOUBLE-QUOTED; the pattern omitted the quotes, so it scored 0 even
-      # with its own fix merged. TNM found it on #1582. A row that stays red
-      # after its fix lands is worse than a missing row: it blocks the cut for
-      # ever and teaches people which red to ignore.
+      # THE NEEDLE OMITTED THE QUOTES, SO IT MATCHED NOTHING AND THE ROW COULD
+      # NEVER PASS. The shipped assignment wraps its default-expansion in
+      # DOUBLE QUOTES; the pattern looked for the bare, unquoted form. The
+      # exact literal is deliberately NOT reproduced in this comment: a
+      # landing check for the quoted form counted this very line and read 1
+      # where it expected 0. Describe a flagged literal, never repeat it.
+      # Measured on
+      # cf5e3193 with the fix present: old needle 0 hits, quoted needle 2.
       #
-      # ⚠️ RESIDUAL GAP, STATED RATHER THAN PAPERED OVER. The corrected needle
-      # scores 2 (install.sh 3964 and the SCANEOF copy at 19659) and scored 1
-      # before the fix, when the scanner still died on the unbound variable.
-      # `must_match: true` cannot tell 2 from 1, so a regression removing ONLY
-      # the heredoc copy would leave this green. The two definitions are
-      # byte-identical, so no single-hit pattern can discriminate them.
-      # Closing it needs `min_hits`, which is NOT on main: #1581 adds it to
-      # grep_in_source_at_sha only, and grep_in_installer validates no proof
-      # keys at all, so writing `min_hits: 2` here today would be SILENTLY
-      # IGNORED and would look like a discriminator while being inert. #1581.
+      # AND THE COUNT IS THE PROOF, NOT THE PRESENCE. install.sh defines this
+      # name twice once the fix is in: once in its own scope, and once inside
+      # the SCANEOF heredoc that becomes ostler-scan-exports. Only the second
+      # is the subject of this row, and the two lines are textually identical,
+      # so no single-line pattern can tell them apart. Measured:
+      #
+      #     2fb58d1e (fix ABSENT)  1 hit   <- install.sh scope only
+      #     cf5e3193 (fix PRESENT) 2 hits  <- plus the generated scanner
+      #
+      # So must_match alone would PASS on the tree that still ships the defect.
+      # min_hits: 2 is what makes this row discriminate. It requires the
+      # grep_in_installer floor added in the same PR as this row.
+      pattern: 'OSTLER_OSASCRIPT_TIMEOUT_S="\$\{OSTLER_OSASCRIPT_TIMEOUT_S:-20\}"'
       must_match: true
+      min_hits: 2
 
   - id: killed-converge-still-gets-catchup
     title: the catch-up guard must consider the KILLED marker, not only .done
