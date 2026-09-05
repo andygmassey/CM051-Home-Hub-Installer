@@ -29239,8 +29239,31 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
         # Poll rather than probe once: the static server binds a second or
         # two after `up -d` returns. Bounded, and its failure is loud.
         WIKI_PORT_UP=false
+        _wiki_last_code=""
         for _wiki_wait in $(seq 1 30); do
-            if curl -sf -o /dev/null -m 3 "http://127.0.0.1:8044/" 2>/dev/null; then
+            # 🔴 #1594 MADE `curl -sf` THE WRONG INSTRUMENT HERE, and this is
+            # the blast radius of that change rather than a pre-existing bug.
+            # `-f` fails on any 4xx, so once :8044 demands a credential a
+            # CORRECTLY PROTECTED wiki reads as a dead one: measured, a 401
+            # returns rc=22. This loop would then burn 30 polls, set
+            # WIKI_FIRST_COMPILE_OK=false and HEALTHY=false, and -- because the
+            # completion banner is gated on WIKI_FIRST_COMPILE_OK -- SUPPRESS
+            # the line that tells the customer their password. The fix would
+            # have hidden its own credential.
+            #
+            # Authenticate and require 200. The claim this gates is "your wiki
+            # is at this URL", so the evidence has to be that the customer can
+            # actually GET it -- the same instrument-and-defect-share-a-surface
+            # rule the comment above states.
+            #
+            # --noproxy: the store is loopback and a customer with HTTP_PROXY
+            # set would otherwise have this request answered by their proxy.
+            # Measured on a dev Mac tonight: Privoxy on 127.0.0.1:8118 turned a
+            # loopback 200 into a 503.
+            _wiki_last_code="$(curl -s -o /dev/null -m 3 -w '%{http_code}' \
+                --noproxy '*' -u "ostler:${WIKI_PASSWORD}" \
+                "http://127.0.0.1:8044/" 2>/dev/null || true)"
+            if [[ "$_wiki_last_code" == "200" ]]; then
                 WIKI_PORT_UP=true
                 break
             fi
@@ -29252,6 +29275,12 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
             WIKI_FIRST_COMPILE_OK=false
             HEALTHY=false
             warn "$MSG_WARN_WIKI_PORT_NOT_ANSWERING"
+            # WHICH failure it was. 000 is "nothing answered"; 401 is "it
+            # answered and refused us", which means the wiki is UP and the
+            # credential is wrong -- a completely different repair. Reporting
+            # them as one symptom is what sends the next person to the wrong
+            # place.
+            info "$(printf "$MSG_INFO_WIKI_PORT_LAST_STATUS" "${_wiki_last_code:-000}")"
         fi
         # Detached full summary compile (summaries ON -- no skip flag).
         # nohup + </dev/null + disown so it survives install.sh exit and
