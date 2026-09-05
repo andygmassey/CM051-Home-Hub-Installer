@@ -35,6 +35,7 @@ THREE STATES. 0 pass, 1 fail, 2 cannot-run.
 
 British English throughout.
 """
+import importlib.machinery
 import io
 import os
 import re
@@ -73,9 +74,29 @@ def bad(m):
     print("  [FAIL] %s" % m)
 
 
+CANNOTS = []
+STARTED = False
+
+
+class _Unmeasured(Exception):
+    """One scenario could not be measured. The others still can."""
+
+
 def cannot(m):
+    """Record a refusal.
+
+    BEFORE the scenarios start there is nothing to salvage, so this exits 2.
+    ONCE they are running it unwinds a single scenario and the file carries on,
+    because the exit code has a precedence: a MEASURED defect outranks an
+    unmeasured arm. Without that, deleting the guard made scenario A fail and
+    scenario D refuse -- and the refusal won, so the file reported "could not
+    measure" over a defect it had just measured.
+    """
     print("CANNOT-RUN: %s" % m, file=sys.stderr)
-    raise SystemExit(2)
+    CANNOTS.append(m)
+    if not STARTED:
+        raise SystemExit(2)
+    raise _Unmeasured(m)
 
 
 for _label, _path, _ in SUBJECTS:
@@ -163,37 +184,137 @@ class _PermissiveModule(types.ModuleType):
         return type(str(name), (object,), {"__init__": lambda self, *a, **k: None})
 
 
-def _stub_rapidfuzz():
-    """The resolver imports rapidfuzz at module load for name matching.
+# ---------------------------------------------------------------------------
+# THE THIRD-PARTY CLOSURE, DERIVED STATICALLY AND CHECKED AT RUN TIME.
+#
+# This file passed on a workstation and returned CANNOT-RUN on CI: `vobject` is
+# installed here and absent on a bare runner. Six of the seven names below are
+# in that position, so discovering them by pushing and reading the next red job
+# is a four-minute round trip per name.
+#
+# So the two hosts are made equal instead: every one of these is stubbed on
+# EVERY host, before the subject is imported, and the write path under test
+# touches none of them. `_derive_third_party` re-reads the source tree on each
+# run and refuses by name if a new non-stdlib import appears that this list does
+# not carry -- the failure arrives as "here is the module you added", not as a
+# red job somewhere else.
+# ---------------------------------------------------------------------------
+THIRD_PARTY = ("phonenumbers", "qdrant_client", "rapidfuzz", "vobject", "yaml")
 
-    This path never reaches it (the syncer resolves with use_fuzzy=False and we
-    drive the decision, not the fuzzy tier). A test that needs a fuzzy-matching
-    wheel installed to prove a SPARQL-writing behaviour is over-coupled.
-    """
-    if "rapidfuzz" in sys.modules:
-        return
-    rf = types.ModuleType("rapidfuzz")
-    fuzz = types.ModuleType("rapidfuzz.fuzz")
-    for _n in ("ratio", "partial_ratio", "token_sort_ratio", "token_set_ratio", "WRatio"):
-        setattr(fuzz, _n, lambda *a, **k: 0)
-    proc = types.ModuleType("rapidfuzz.process")
-    proc.extractOne = lambda *a, **k: None
-    proc.extract = lambda *a, **k: []
-    dist = types.ModuleType("rapidfuzz.distance")
-    jw = types.ModuleType("rapidfuzz.distance.JaroWinkler")
-    jw.similarity = lambda *a, **k: 0.0
-    jw.normalized_similarity = lambda *a, **k: 0.0
-    dist.JaroWinkler = jw
-    rf.fuzz, rf.process, rf.distance = fuzz, proc, dist
-    for k, v in (("rapidfuzz", rf), ("rapidfuzz.fuzz", fuzz),
-                 ("rapidfuzz.process", proc), ("rapidfuzz.distance", dist),
-                 ("rapidfuzz.distance.JaroWinkler", jw)):
-        sys.modules[k] = v
+# httpx is deliberately NOT in that tuple: it is stubbed per scenario with the
+# stub graph's own post(), which is how the graph is observed at all.
+SUBJECT_ROOTS = (
+    os.path.join(REPO, "contact_syncer"),
+    os.path.join(VENDOR, "contact_syncer"),
+    os.path.join(VENDOR, "identity_resolver"),
+)
+
+
+def _derive_third_party():
+    """Every non-stdlib, non-local top-level import across the subject packages."""
+    import ast
+    tops = set()
+    scanned = 0
+    for root in SUBJECT_ROOTS:
+        for dirpath, _dirs, names in os.walk(root):
+            if "__pycache__" in dirpath:
+                continue
+            for n in names:
+                if not n.endswith(".py"):
+                    continue
+                scanned += 1
+                try:
+                    tree = ast.parse(io.open(os.path.join(dirpath, n),
+                                             encoding="utf-8").read())
+                except SyntaxError:
+                    continue
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Import):
+                        for a in node.names:
+                            tops.add(a.name.split(".")[0])
+                    elif isinstance(node, ast.ImportFrom):
+                        if node.level == 0 and node.module:
+                            tops.add(node.module.split(".")[0])
+    local = {"contact_syncer", "identity_resolver", "ostler_fda", "tests"}
+    known_test_only = {"pytest", "httpx"}
+    return scanned, {t for t in tops
+                     if t not in sys.stdlib_module_names
+                     and t not in local
+                     and t not in known_test_only}
+
+
+class _PermissiveLoader(object):
+    def create_module(self, spec):
+        return _PermissiveModule(spec.name)
+
+    def exec_module(self, module):
+        # A package, so `from x.y import z` resolves through the same loader.
+        module.__path__ = []
+
+
+class _StubFinder(object):
+    """Fabricates a permissive module for any name under a stubbed root."""
+
+    def __init__(self, roots):
+        self.roots = tuple(roots)
+
+    def find_spec(self, fullname, path=None, target=None):
+        # importlib.machinery is imported at module scope, NOT here: importing
+        # anything inside find_spec re-enters the import lock through this same
+        # finder and dies on RecursionError.
+        if fullname.split(".")[0] in self.roots:
+            return importlib.machinery.ModuleSpec(
+                fullname, _PermissiveLoader(), is_package=True)
+        return None
+
+
+def _install_third_party_stubs():
+    scanned, derived = _derive_third_party()
+    if scanned == 0:
+        cannot("scanned no .py files under the subject packages, so the "
+               "dependency closure below was derived from nothing")
+    unknown = sorted(derived - set(THIRD_PARTY))
+    if unknown:
+        cannot("the subject packages import %s, which THIRD_PARTY does not "
+               "carry. Add them there rather than discovering them one red CI "
+               "job at a time. (%d .py files scanned)"
+               % (", ".join(unknown), scanned))
+    # rapidfuzz first and explicitly: it is the one library whose functions have
+    # a meaningful return TYPE if anything ever calls them at import time.
+    # sys.modules beats sys.meta_path, so this wins for rapidfuzz and the finder
+    # covers everything else.
+    if "rapidfuzz" not in sys.modules:
+        rf = types.ModuleType("rapidfuzz")
+        fuzz = types.ModuleType("rapidfuzz.fuzz")
+        for _n in ("ratio", "partial_ratio", "token_sort_ratio",
+                   "token_set_ratio", "WRatio"):
+            setattr(fuzz, _n, lambda *a, **k: 0)
+        proc = types.ModuleType("rapidfuzz.process")
+        proc.extractOne = lambda *a, **k: None
+        proc.extract = lambda *a, **k: []
+        dist = types.ModuleType("rapidfuzz.distance")
+        jw = types.ModuleType("rapidfuzz.distance.JaroWinkler")
+        jw.similarity = lambda *a, **k: 0.0
+        jw.normalized_similarity = lambda *a, **k: 0.0
+        dist.JaroWinkler = jw
+        rf.fuzz, rf.process, rf.distance = fuzz, proc, dist
+        for k, v in (("rapidfuzz", rf), ("rapidfuzz.fuzz", fuzz),
+                     ("rapidfuzz.process", proc), ("rapidfuzz.distance", dist),
+                     ("rapidfuzz.distance.JaroWinkler", jw)):
+            sys.modules[k] = v
+    # Drop any REAL copy already imported, so a host that happens to have the
+    # wheel measures the same thing as a host that does not.
+    for name in list(sys.modules):
+        if name.split(".")[0] in THIRD_PARTY and name.split(".")[0] != "rapidfuzz":
+            del sys.modules[name]
+    sys.meta_path.insert(0, _StubFinder(THIRD_PARTY))
+
+
+_install_third_party_stubs()
 
 
 def load_syncer_module(stub, syncer_path, path_order):
     """Import the REAL syncer named by *syncer_path*. Nothing is paraphrased."""
-    _stub_rapidfuzz()
     for name in [n for n in sys.modules
                  if n == "contact_syncer" or n.startswith("contact_syncer.")
                  or n == "identity_resolver" or n.startswith("identity_resolver.")]:
@@ -312,77 +433,104 @@ def minted_other_person(stub):
     return set(re.findall(r"ontology#(person_[0-9a-f]+)", text)) - {"person_deadbeefcafe"}
 
 
+STARTED = True
+
 for label, syncer_path, path_order in SUBJECTS:
     print("\n=== %s ===" % label)
 
     # ----- SCENARIO A: the subject. The matched node already holds card U1 and
-    # the incoming card is U2. RULE 2 says these must not merge.
-    a = drive(syncer_path, path_order, U1, U2, "%s / A conflicting card" % label)
-    written_a = "\n".join(a.updates)
-    ok("CONTROL A: reached the graph (%d ASK, %d UPDATE)" % (a.asks, len(a.updates)))
+    try:
+        # the incoming card is U2. RULE 2 says these must not merge.
+        a = drive(syncer_path, path_order, U1, U2, "%s / A conflicting card" % label)
+        written_a = "\n".join(a.updates)
+        ok("CONTROL A: reached the graph (%d ASK, %d UPDATE)" % (a.asks, len(a.updates)))
 
-    if U2 in written_a and "person_deadbeefcafe" in written_a and not minted_other_person(a):
-        bad("A: a SECOND icloud_contact_uid was written onto a node that already "
-            "holds a different one, and no separate person was minted. RULE 2 "
-            "says different canonical keys must not merge.")
-    elif a.conflict_asks == 0:
-        # NOT A PASS. If the matched node was never asked whether it already
-        # holds a different canonical key, then whatever kept U2 off it was not
-        # this guard, and the next refactor can remove the guard without this
-        # file noticing.
-        cannot("A (%s): the conflicting card did not land, but the node was never "
-               "asked whether it holds a different canonical key (%d such ASKs), "
-               "so the guard is not what prevented it"
-               % (label, a.conflict_asks))
-    elif minted_other_person(a):
-        ok("A: the node was asked (%d conflict ASK) and the conflicting card was "
-           "given its own person node" % a.conflict_asks)
-    else:
-        ok("A: the node was asked (%d conflict ASK) and no second canonical key "
-           "landed on it" % a.conflict_asks)
+        if U2 in written_a and "person_deadbeefcafe" in written_a and not minted_other_person(a):
+            bad("A: a SECOND icloud_contact_uid was written onto a node that already "
+                "holds a different one, and no separate person was minted. RULE 2 "
+                "says different canonical keys must not merge.")
+        elif a.conflict_asks == 0:
+            # NOT A PASS. If the matched node was never asked whether it already
+            # holds a different canonical key, then whatever kept U2 off it was not
+            # this guard, and the next refactor can remove the guard without this
+            # file noticing.
+            cannot("A (%s): the conflicting card did not land, but the node was never "
+                   "asked whether it holds a different canonical key (%d such ASKs), "
+                   "so the guard is not what prevented it"
+                   % (label, a.conflict_asks))
+        elif minted_other_person(a):
+            ok("A: the node was asked (%d conflict ASK) and the conflicting card was "
+               "given its own person node" % a.conflict_asks)
+        else:
+            ok("A: the node was asked (%d conflict ASK) and no second canonical key "
+               "landed on it" % a.conflict_asks)
+    except _Unmeasured:
+        pass
 
     # ----- SCENARIO B: MUST-MISS. Same node, the SAME card re-synced. This is
-    # the case `_identifier_exists` exists for and the match must be ACCEPTED.
-    # Without B the file cannot tell "the write is unguarded" from "this harness
-    # reports a conflict no matter what it is handed".
-    b = drive(syncer_path, path_order, U1, U1, "%s / B same card again" % label)
-    ok("CONTROL B: reached the graph (%d ASK, %d UPDATE)" % (b.asks, len(b.updates)))
-    if minted_other_person(b):
-        bad("B MUST-MISS BREACHED: re-syncing the SAME card minted a second "
-            "person node, so the guard is rejecting matches it must accept")
-    else:
-        ok("B MUST-MISS: re-syncing the same card kept the match")
+    try:
+        # the case `_identifier_exists` exists for and the match must be ACCEPTED.
+        # Without B the file cannot tell "the write is unguarded" from "this harness
+        # reports a conflict no matter what it is handed".
+        b = drive(syncer_path, path_order, U1, U1, "%s / B same card again" % label)
+        ok("CONTROL B: reached the graph (%d ASK, %d UPDATE)" % (b.asks, len(b.updates)))
+        if minted_other_person(b):
+            bad("B MUST-MISS BREACHED: re-syncing the SAME card minted a second "
+                "person node, so the guard is rejecting matches it must accept")
+        else:
+            ok("B MUST-MISS: re-syncing the same card kept the match")
+    except _Unmeasured:
+        pass
 
     # ----- SCENARIO D: the graph cannot be read. "Could not look" and "no
-    # conflict" must not come out the same. Declining the match mints a
-    # duplicate, which a later merge can repair; accepting it welds two people
-    # into one node, which it cannot. This arm exists because the cheapest way
-    # to write this guard -- one try/except returning False -- passes A, B and C
-    # and reinstates the whole defect the moment Oxigraph hiccups.
-    d = drive(syncer_path, path_order, U1, U2, "%s / D unreadable graph" % label,
-              fail_conflict_ask=True)
-    ok("CONTROL D: reached the graph (%d ASK, %d conflict ASK, %d UPDATE)"
-       % (d.asks, d.conflict_asks, len(d.updates)))
-    if d.conflict_asks == 0:
-        cannot("D (%s): the guard never asked, so the unreadable-graph path was "
-               "not exercised" % label)
-    if U2 in "\n".join(d.updates) and not minted_other_person(d):
-        bad("D: the RULE 2 read failed and the card was merged onto the matched "
-            "node anyway; a read failure is being treated as 'no conflict'")
-    else:
-        ok("D: an unreadable RULE 2 check declined the match rather than "
-           "assuming there was no conflict")
+    try:
+        # conflict" must not come out the same. Declining the match mints a
+        # duplicate, which a later merge can repair; accepting it welds two people
+        # into one node, which it cannot. This arm exists because the cheapest way
+        # to write this guard -- one try/except returning False -- passes A, B and C
+        # and reinstates the whole defect the moment Oxigraph hiccups.
+        d = drive(syncer_path, path_order, U1, U2, "%s / D unreadable graph" % label,
+                  fail_conflict_ask=True)
+        ok("CONTROL D: reached the graph (%d ASK, %d conflict ASK, %d UPDATE)"
+           % (d.asks, d.conflict_asks, len(d.updates)))
+        if d.conflict_asks == 0:
+            cannot("D (%s): the guard never asked, so the unreadable-graph path was "
+                   "not exercised" % label)
+        if U2 in "\n".join(d.updates) and not minted_other_person(d):
+            bad("D: the RULE 2 read failed and the card was merged onto the matched "
+                "node anyway; a read failure is being treated as 'no conflict'")
+        else:
+            ok("D: an unreadable RULE 2 check declined the match rather than "
+               "assuming there was no conflict")
+    except _Unmeasured:
+        pass
 
     # ----- SCENARIO C: MUST-MISS. A card with no uid carries no canonical key,
-    # so there is nothing for RULE 2 to conflict with and the match must stand.
-    c = drive(syncer_path, path_order, U1, "", "%s / C card with no uid" % label)
-    ok("CONTROL C: reached the graph (%d ASK, %d UPDATE)" % (c.asks, len(c.updates)))
-    if minted_other_person(c):
-        bad("C MUST-MISS BREACHED: a card carrying NO icloud_contact_uid was "
-            "diverted to a new person; a card with no canonical key cannot "
-            "conflict with one")
-    else:
-        ok("C MUST-MISS: a card with no uid kept the match")
+    try:
+        # so there is nothing for RULE 2 to conflict with and the match must stand.
+        c = drive(syncer_path, path_order, U1, "", "%s / C card with no uid" % label)
+        ok("CONTROL C: reached the graph (%d ASK, %d UPDATE)" % (c.asks, len(c.updates)))
+        if minted_other_person(c):
+            bad("C MUST-MISS BREACHED: a card carrying NO icloud_contact_uid was "
+                "diverted to a new person; a card with no canonical key cannot "
+                "conflict with one")
+        else:
+            ok("C MUST-MISS: a card with no uid kept the match")
+    except _Unmeasured:
+        pass
 
-print("\n== %d pass / %d fail / %d total ==" % (PASS, FAIL, PASS + FAIL))
-sys.exit(1 if FAIL else 0)
+print("\n== %d pass / %d fail / %d unmeasured / %d total =="
+      % (PASS, FAIL, len(CANNOTS), PASS + FAIL))
+
+# PRECEDENCE, STATED. A measured defect outranks an unmeasured arm; an
+# unmeasured arm outranks a pass. Never collapse the two non-zero states.
+if FAIL:
+    if CANNOTS:
+        print("  (%d arm(s) also could not be measured; the defect above is the "
+              "verdict)" % len(CANNOTS), file=sys.stderr)
+    sys.exit(1)
+if CANNOTS:
+    print("  %d arm(s) could not be measured and none failed. That is not a pass."
+          % len(CANNOTS), file=sys.stderr)
+    sys.exit(2)
+sys.exit(0)

@@ -32,8 +32,23 @@ name: rule-2-holds-on-the-write
 #   guard always "yes"       -> B fails (a re-synced card must keep its match)
 #   read failure returns False -> D fails, and only D
 #
-# ubuntu-latest is correct: the test stubs httpx and rapidfuzz and drives the
-# real methods in-process. It reaches no network, no Oxigraph and no Contacts.
+# ubuntu-latest is correct: the test stubs the whole third-party closure and
+# drives the real methods in-process. It reaches no network, no Oxigraph and no
+# Contacts, and installs nothing.
+#
+# THAT CLOSURE IS DERIVED, NOT DISCOVERED. The first run of this workflow
+# returned CANNOT-RUN on `vobject`, which is installed on a workstation and
+# absent on a bare runner -- six of the seven third-party imports across the
+# subject packages are in that position, so finding them by reading the next red
+# job is a four-minute round trip per name. The test now walks its own subject
+# packages with ast on every run and REFUSES BY NAME if an import appears that
+# its list does not carry. Reproduced locally with `python3 -S`, which drops
+# site-packages and makes this host answer as the runner does.
+#
+# The exit code has a precedence, and it is load-bearing: a MEASURED defect
+# outranks an unmeasured arm. Deleting the guard makes scenario A fail AND
+# scenario D unmeasurable, and before that precedence existed the refusal won,
+# so the file reported "could not measure" over a defect it had just measured.
 
 on:
   pull_request:
