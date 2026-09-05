@@ -5470,3 +5470,73 @@ into CM051 (#1470) and THEN corrected upstream (#201), which left the vendored
 copy asserting a cause the register had already refuted. Only
 `scripts/sync_rollforward_registry.sh`'s AHEAD guard noticed. **Correct upstream
 BEFORE vendoring, not after.**
+
+### v1066-D010 -- a "self-removing" agent boots itself out before it deletes its plist, so it comes back on every reboot
+
+**FIXED in CM051 #1477. Found on the v1.0.66 ARTEFACT, not in the source.**
+
+Measured on the live v1.0.66 install at archie@.240, 2026-09-05, while no walk
+was running. The dedupe catch-up agent had finished its work and removed
+itself. Its label was gone from the launchd domain. Both files it is supposed
+to delete were still on disk:
+
+```
+~/Library/LaunchAgents/com.creativemachines.ostler.dedupe-catchup.plist   PRESENT
+~/.ostler/state/dedupe-catchup.tries                                      PRESENT
+launchctl print gui/502/...dedupe-catchup      rc=113 "Could not find service"
+```
+
+**DISCRIMINATED BEFORE IT WAS CALLED A DEFECT.** The plist passes
+`plutil -lint`, its internal `Label` matches its filename, it is not in
+`print-disabled`, and two SIBLING plists written by the same installer into
+the same directory answer rc=0. The siblings are the control: the launchd
+domain is reachable from that session and the probe works, so the single
+absence is real and not the apparatus. An earlier version of this probe asked
+launchd about six INVENTED label names and got six uniform rc=113 -- a uniform
+non-zero is as damning as a uniform zero, and the readable surface was the
+plist filenames on disk all along.
+
+**MECHANISM, PROVED BY EXECUTION.** `remove_self()` ran `launchctl bootout` on
+its OWN label and then `rm -f`. A 10-iteration fixture LaunchAgent on that Mac:
+
+```
+iterations              10
+reached line BEFORE     10    control: the agent ran at all
+reached line AFTER       0    subject: survived its own bootout
+```
+
+launchd tears the job down before control returns, so every statement after
+the bootout was unreachable. `install.sh:1457` already records that bootout
+returns as soon as launchd ACCEPTS the request, which is exactly what makes
+this look survivable on a reading and not be.
+
+**CUSTOMER CONSEQUENCE.** `~/Library/LaunchAgents` is read again at every
+login, so the surviving plist is re-loaded and the "self-removed" agent
+returns on every reboot for the life of the machine, with its old tries count
+restored beside it. `install.sh:20129` already states that the file is the
+half that matters; only the self-removal path had the order backwards.
+
+**SCOPE: THREE AGENTS, NOT ONE.** `remove_self()` is defined three times,
+byte-identical, at `19281`, `22195` and `25240`. All three fixed. The
+`launchctl unload "$PLIST"` fallback is DROPPED rather than reordered: it
+addresses the job by PATH and cannot work once the plist is gone, whereas
+bootout addresses it by LABEL and does not need the file.
+
+**THE GATE.** The invariant is ORDER, not presence -- both statements appear
+in the broken form and the fixed one, so grepping for either alone passes on
+both trees and proves nothing.
+`tests/test_a_self_removing_agent_deletes_its_plist_before_it_dies.sh`, 7
+limbs, must-FLAG and must-MISS controls, negative control pinned to
+`c5bfd5f8`. Five mutations, all caught; renaming the function returns
+CANNOT-RUN rather than a pass.
+
+**ONE ERROR WORTH CARRYING FORWARD.** The gate's first version graded its own
+comment block as code: the new comment names both statements, so "bootout"
+landed ahead of the real `rm` and it mis-flagged a CORRECT tree 3/3. Neither
+hand-built control caught it, because neither carries comments. A control
+simpler than the subject cannot prove the predicate survives the subject.
+
+**CLAIM BOUNDARY.** Removal ordering only; nothing about when an agent decides
+to remove itself, its retry cap, or what it does while alive. NOT verified on
+a reboot -- the resurrection follows from launchd's documented login behaviour
+plus the measured surviving plist, and the box was not power-cycled.
