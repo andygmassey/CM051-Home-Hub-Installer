@@ -976,7 +976,33 @@ def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
             capture_output=True, check=False,
             timeout=BOX_WALK_PROBE_TIMEOUT_SECONDS,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+    except subprocess.TimeoutExpired:
+        # A TIMEOUT IS CANNOT-RUN, NOT A FAILURE, AND THE DIFFERENCE IS NOT
+        # PEDANTIC. MEASURED 2026-09-06 on the first live-box run of this
+        # manifest: assistant_answers_grounded was 1 of 12 FAILs, reported as
+        # "probe invocation failed: ... timed out". Re-run with no cap it
+        # COMPLETES and returns a precise verdict -- 2 of 3 questions answered
+        # without reaching the customer's own data. The cap had replaced a
+        # diagnosis with an instrument error, and the row was counted beside
+        # genuine defects in the summary.
+        #
+        # A probe that drives a real conversation over a websocket against a
+        # local model is legitimately slow. The cap is right for a probe that
+        # greps a file and wrong for that one. Until the cap is per-probe, the
+        # least this can do is refuse to call the result a failure.
+        #
+        # CANNOT-RUN is already a first-class status here: it is rendered,
+        # counted separately, and excluded from the "ran" denominator. This arm
+        # simply never used it.
+        return Result(entry["id"], entry["title"], "box_walk_probe", "CANNOT-RUN",
+                      f"probe {probe!r} exceeded BOX_WALK_PROBE_TIMEOUT_SECONDS="
+                      f"{BOX_WALK_PROBE_TIMEOUT_SECONDS}s and was killed. NOTHING was "
+                      f"measured: this is not a failing probe, it is an unrun one. "
+                      f"Re-run it directly with no cap to get its verdict.",
+                      entry.get("source_pr", ""))
+    except FileNotFoundError as e:
+        # A probe that is not on disk IS a defect, and stays a FAIL: the row
+        # names a runtime proof that does not exist.
         return Result(entry["id"], entry["title"], "box_walk_probe", "FAIL",
                       f"probe invocation failed: {e}", entry.get("source_pr", ""))
     exit_code = result.returncode
