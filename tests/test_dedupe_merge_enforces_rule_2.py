@@ -64,6 +64,41 @@ def cannot_run(msg: str) -> None:
     raise SystemExit(2)
 
 
+def _ensure_httpx_importable() -> None:
+    """`dedupe_merge` imports httpx at module scope, so loading it needs the
+    name to resolve even though this test never makes a request -- the whole
+    SPARQL layer is replaced before `run()` is called.
+
+    Installing httpx in CI just to satisfy an import would give a hermetic
+    test a network dependency and a slower job, so if the real package is
+    absent a minimal stand-in is registered instead. If the real one IS
+    present it is left alone, so local runs exercise the genuine import.
+
+    The stand-in deliberately raises if anything actually calls it: a test
+    that silently made a request through a dummy client would be worse than
+    one that could not import at all.
+    """
+    try:
+        import httpx  # noqa: F401
+        return
+    except ModuleNotFoundError:
+        pass
+    import types
+
+    stub = types.ModuleType("httpx")
+
+    def _refuse(*_a, **_k):
+        raise AssertionError(
+            "the httpx stand-in was CALLED. This test stubs _sparql_query and "
+            "_sparql_update, so nothing should reach the transport. A real "
+            "request here means the stubs did not take effect."
+        )
+
+    stub.HTTPTransport = _refuse  # type: ignore[attr-defined]
+    stub.Client = _refuse         # type: ignore[attr-defined]
+    sys.modules["httpx"] = stub
+
+
 def load(path: pathlib.Path, name: str):
     spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
@@ -108,6 +143,7 @@ def drive(mod, people, raise_on_key_query=False):
 
 
 def main() -> int:
+    _ensure_httpx_importable()
     subject_path = REPO / MODULE_REL
     if not subject_path.is_file():
         cannot_run(f"no module at {subject_path}")
