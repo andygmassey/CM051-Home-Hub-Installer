@@ -733,6 +733,28 @@ if [[ -n "$CUT_VERSION" ]]; then
         # line makes that visible to anyone reading the record.
         printf 'failed_probe_names_recorded\t%s of %s\n' "${n_failed_named:-0}" "${n_fail:-0}"
         printf '%s\n' "$FAILED_NAMES"  | while IFS= read -r _n; do [ -n "$_n" ] && printf 'failed_probe\t%s\n' "$_n"; done
+        # 🔴 AND THE SAME COURTESY FOR THE FAILURES, WHICH NEVER GOT IT.
+        #
+        # MEASURED on walks/v1.0.68.tsv: the record carries
+        # `not_measured_reasons` telling a reader where the CANNOT-RUN
+        # explanations live, and for the five `failed_probe` rows it carries
+        # nothing at all. So the record explains why it could not LOOK, and
+        # says nothing about what it SAW -- and a FAIL is the more serious of
+        # the two states.
+        #
+        # run_box_walk.sh has captured these since #1348: it builds FAIL_REASONS
+        # and prints them under "WHAT EACH FAILURE FOUND". A reader of the
+        # record has no way to know that block exists, and would reasonably
+        # infer the reasons were never captured. That is the same wrong
+        # inference the not_measured_reasons row was added to prevent.
+        #
+        # WITHHELD FOR THE SAME REASON, NOT A DIFFERENT ONE: probe_fail details
+        # interpolate ${OSTLER_BOX_HOST}, store URLs, ~/.ostler/... paths and
+        # record counts, and walks/ is a PUBLIC repo. This row is a pointer,
+        # never the prose.
+        if [ -n "$FAILED_NAMES" ]; then
+            printf 'failed_probe_reasons\twithheld(public repo); run_box_walk.sh prints them under "WHAT EACH FAILURE FOUND"\n'
+        fi
         # THE REASONS ARE WITHHELD, AND THE RECORD SAYS SO RATHER THAN LEAVING
         # A READER TO CONCLUDE NONE EXIST.
         #

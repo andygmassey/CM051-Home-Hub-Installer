@@ -132,6 +132,54 @@ for k in 'failed_probe\\t' 'not_measured_probe\\t' 'broken_probe\\t' 'failed_pro
     fi
 done
 
+# ---- a FAILURE must point at its reasons, exactly as a CANNOT-RUN does ----
+#
+# MEASURED on walks/v1.0.68.tsv: the record carried not_measured_reasons for
+# the two CANNOT-RUN probes and NOTHING for the five failed ones. So it
+# explained why it could not look and said nothing about what it saw, and a
+# FAIL is the more serious state. A reader would reasonably infer the reasons
+# were never captured; run_box_walk.sh has captured them all along.
+if grep -q 'failed_probe_reasons' "$QA"; then
+    pass "the record points a reader at the failure reasons"
+else
+    fail "no-fail-pointer" "post_walk_qa.sh writes not_measured_reasons but no failed_probe_reasons; a reader of five failed_probe rows cannot tell the explanations exist at all"
+fi
+
+# THE ARM THAT MATTERS: a pointer to a heading that no longer exists is worse
+# than no pointer, because it sends a reader looking for something that is not
+# there and reads as authoritative. Cross-file, and it rots the moment either
+# side is renamed.
+RUNNER="$REPO_ROOT/scripts/box_walk_probes/run_box_walk.sh"
+if [[ ! -f "$RUNNER" ]]; then
+    fail "runner-missing" "cannot verify the cited heading exists: no run_box_walk.sh at $RUNNER"
+else
+    CITED="$(grep -o 'prints them under "[^"]*"' "$QA" | sed 's/.*under "//; s/"$//' | sort -u)"
+    if [[ -z "$CITED" ]]; then
+        fail "no-citation" "post_walk_qa.sh cites no heading at all, so neither pointer can be checked"
+    else
+        _n_cited=0; _n_found=0
+        while IFS= read -r _h; do
+            [[ -n "$_h" ]] || continue
+            _n_cited=$(( _n_cited + 1 ))
+            if grep -qF "$_h" "$RUNNER"; then
+                _n_found=$(( _n_found + 1 ))
+            else
+                fail "citation-rot" "the record tells a reader to look under \"$_h\", and run_box_walk.sh prints no such heading"
+            fi
+        done <<< "$CITED"
+        if [[ "$_n_cited" -eq "$_n_found" ]]; then
+            pass "all ${_n_cited} cited heading(s) exist in run_box_walk.sh, so both pointers lead somewhere"
+        fi
+        # CONTROL: the check must be capable of failing. A heading that is not
+        # there must not be found, or the loop above proves nothing.
+        if grep -qF "A HEADING THAT IS NOT THERE" "$RUNNER"; then
+            fail "control-broken" "the citation check matches a heading that does not exist; it cannot detect rot"
+        else
+            pass "CONTROL: an invented heading is NOT found, so the citation check discriminates"
+        fi
+    fi
+fi
+
 [[ "$FAILED" -ne 0 ]] && exit 1
 echo
 echo "ALL WALK RECORD PROBE-NAME TESTS PASSED"
