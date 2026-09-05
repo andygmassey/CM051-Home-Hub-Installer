@@ -339,6 +339,24 @@ entries:
       must_match: true
 
 open_issues:
+  - issue: 1604
+    title: "every pwg tool description is truncated before its routing clause, which is why the box answers without reaching the graph"
+    gate: >-
+      FIX (BLOCKING): entry: tool-descriptions-keep-their-routing-clause --
+      prompt_slim.rs:70 sets CORE_DESC_CAP=180, applied at :152 to every tool
+      description the model sees. MEASURED by TNM: 8 of 8 pwg_* descriptions
+      truncated, losing 237 to 373 characters each, and in EVERY case the lost
+      text is the routing guidance. The model is told what each tool RETURNS
+      and not WHEN TO USE IT. pwg_overview's truncated tail contains the
+      probe's Q1 verbatim, and Q1 is the question the live box scored
+      no_tool_call. daemon_tool_descs (loop_.rs:3170) has no pwg_* entries, so
+      the compact prompt does not rescue it. This is the root cause of the
+      live-box grounding failure I measured (2 of 3 questions answered without
+      reaching the customer's data) and it is CUSTOMER-FACING: the assistant
+      cannot route an opening question to the graph. Proof must be behavioural,
+      not a cap-value grep: the same battery re-run on a box built with the fix,
+      with the pre-fix transcript as the negative control, because a larger cap
+      that still cuts mid-clause would satisfy any check on the number alone.
   - issue: 1601
     title: "a probe that exceeds the manifest timeout is reported as FAIL, hiding a real diagnosis behind an instrument error"
     gate: >-
