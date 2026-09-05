@@ -203,7 +203,7 @@ entries:
       kind: grep_in_source_at_sha
       repo: cm051
       path_hint: install.sh
-      pattern: 'eef628599ccca1087e785a47b0b428005f8cd6c71b525f08b7c668fc41ac0d40'
+      pattern: '64debb2e220994e1ca07d2aaab5fdc68968db70411f33d8d203e17a511c413b8'
       must_match: true
 
   - id: v1057-g-duplicate-review-works-on-the-hub-mac
@@ -227,7 +227,7 @@ entries:
       kind: grep_in_source_at_sha
       repo: cm051
       path_hint: install.sh
-      pattern: 'fb5536bded57dae3466cb5ea7a3f4c36b2330892731afe60add521d78c0e8720'
+      pattern: '77eee04f13b1e08e34be222847b363a2b2f09299e5a6afb1989351be29adcfab'
       must_match: true
 
   - id: v1058-h-the-store-auth-pth-points-at-the-final-tree
