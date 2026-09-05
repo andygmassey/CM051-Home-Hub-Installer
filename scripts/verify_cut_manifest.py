@@ -225,22 +225,49 @@ _TEXT_EXTS = {".sh", ".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".yaml", ".ym
               ".swift", ".conf", ".ini", ".env"}
 
 
+class CouldNotMeasure(Exception):
+    """A scan that did not complete. NEVER convert this back into a count.
+
+    🔴 WHY AN EXCEPTION AND NOT A SENTINEL. Every function below returns an int
+    that feeds `ok = (hits > 0) if must_match else (hits == 0)`. In the
+    must_match=False direction -- the PII and leak scans over the DMG tree --
+    zero hits is a PASS. So any failure that returns 0 does not merely lose a
+    measurement, it manufactures a CLEAN VERDICT for an artefact nobody
+    finished looking at.
+
+    A sentinel int would be worse than the bug: `total += -1` silently reduces
+    a real count. An exception cannot be accumulated, cannot be compared, and
+    cannot be ignored without a visible `except`.
+
+    Callers that produce a Result MUST catch this and return CANNOT-RUN, which
+    blocks exactly as hard as FAIL while not accusing the artefact of anything.
+    """
+
+
 def _pattern_hits_bytes(data: bytes, pattern: str) -> int:
     """Count regex matches, tolerating non-UTF8 bytes by decoding permissively."""
     try:
         text = data.decode("utf-8", errors="replace")
-    except Exception:
-        return 0
+    except Exception as e:
+        raise CouldNotMeasure(f"could not decode {len(data)} bytes to search them: {e}") from e
     return len(re.findall(pattern, text))
 
 
 def _grep_file(path: Path, pattern: str) -> int:
+    # A file that is NOT THERE is a legitimate zero during a tree walk: nothing
+    # to search, and nothing was hidden from us. That stays 0.
     if not path.is_file():
         return 0
     try:
         return _pattern_hits_bytes(path.read_bytes(), pattern)
-    except (PermissionError, OSError):
-        return 0
+    except (PermissionError, OSError) as e:
+        # 🔴 AN UNREADABLE FILE IS NOT AN EMPTY ONE, AND THIS IS THE MOST
+        # REACHABLE MEMBER OF THE CLASS. One chmod 000, one file owned by
+        # another user in a staged tree, one I/O error, and this returned 0.
+        # Under must_match=False -- every PII and leak scan -- that zero is a
+        # PASS, and the gate certifies an artefact clean of a leak it could not
+        # read the file to look for.
+        raise CouldNotMeasure(f"could not read {path}: {type(e).__name__}: {e}") from e
 
 
 def _grep_tree(root: Path, pattern: str, only_path: Optional[str]) -> int:
@@ -269,8 +296,18 @@ def _grep_binary_strings(binary: Path, pattern: str) -> int:
             ["/usr/bin/strings", "-a", str(binary)],
             capture_output=True, check=False, timeout=60,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return 0
+    except subprocess.TimeoutExpired as e:
+        # #1629. strings(1) ran and did not finish, so no count exists.
+        # Measured on the real artefact before deciding severity: the shipped
+        # daemon is 16,656,512 bytes and strings -a completes in 0.09s against
+        # a 60s cap, 190 MB/s, so a binary would need to be about 11 GB to trip
+        # this. Small reach, wrong shape, and the shape is what gets fixed here.
+        raise CouldNotMeasure(
+            f"strings(1) exceeded its 60s cap on {binary} and was killed: {e}") from e
+    except FileNotFoundError as e:
+        # /usr/bin/strings itself absent. The binary's own existence was checked
+        # above, so this is the TOOL missing, not the subject: could not look.
+        raise CouldNotMeasure(f"/usr/bin/strings is not available: {e}") from e
     return _pattern_hits_bytes(result.stdout, pattern)
 
 
@@ -419,7 +456,12 @@ def check_grep_in_installer(entry: dict, ctx: dict) -> Result:
     if not target.is_file():
         return Result(entry["id"], entry["title"], "grep_in_installer", "SKIP",
                       f"install.sh not found at {target}", entry.get("source_pr", ""))
-    hits = _grep_file(target, pattern)
+    try:
+        hits = _grep_file(target, pattern)
+    except CouldNotMeasure as e:
+        return Result(entry["id"], entry["title"], "grep_in_installer", "CANNOT-RUN",
+                      f"{e} -- NOTHING was measured, so this row is neither a pass "
+                      f"nor a defect in the artefact.", entry.get("source_pr", ""))
     ok = (hits >= floor) if must_match else (hits == 0)
     status = "PASS" if ok else "FAIL"
     detail = f"pattern={pattern!r} must_match={must_match} hits={hits}"
@@ -446,10 +488,15 @@ def check_grep_in_artefact(entry: dict, ctx: dict) -> Result:
                       f"target {target_name!r} not present at {target} (has DMG been built?)",
                       entry.get("source_pr", ""))
     # Special case: daemon-binary uses strings(1).
-    if target_name == "daemon-binary":
-        hits = _grep_binary_strings(target, pattern)
-    else:
-        hits = _grep_tree(target, pattern, path_hint)
+    try:
+        if target_name == "daemon-binary":
+            hits = _grep_binary_strings(target, pattern)
+        else:
+            hits = _grep_tree(target, pattern, path_hint)
+    except CouldNotMeasure as e:
+        return Result(entry["id"], entry["title"], "grep_in_artefact", "CANNOT-RUN",
+                      f"target={target_name}: {e} -- NOTHING was measured.",
+                      entry.get("source_pr", ""))
     ok = (hits > 0) if must_match else (hits == 0)
     status = "PASS" if ok else "FAIL"
     detail = f"target={target_name} pattern={pattern!r} must_match={must_match} hits={hits}"
@@ -528,7 +575,16 @@ def check_grep_in_dmg_tree(entry: dict, ctx: dict) -> Result:
             if rp in seen:
                 continue
             seen.add(rp)
-            n = _grep_binary_strings(path, pattern) if use_strings else _grep_file(path, pattern)
+            try:
+                n = _grep_binary_strings(path, pattern) if use_strings else _grep_file(path, pattern)
+            except CouldNotMeasure as e:
+                # One unreadable file poisons the WHOLE row, deliberately. This
+                # scan's must_match=False arm concludes "no leak anywhere", and
+                # that conclusion is not available if any file went unread.
+                return Result(entry["id"], entry["title"], "grep_in_dmg_tree", "CANNOT-RUN",
+                              f"{e} -- the tree was NOT fully scanned, so "
+                              f"'no matches' is not a finding about this artefact.",
+                              entry.get("source_pr", ""))
             if not n:
                 continue
             if exempt_paths and _matches_any_glob(path, exempt_paths):
@@ -619,7 +675,12 @@ def check_grep_in_source_at_sha(entry: dict, ctx: dict) -> Result:
                 return Result(entry["id"], entry["title"], "grep_in_source_at_sha", "FAIL",
                               f"git show failed: {result.stderr.decode('utf-8', 'replace').strip()[:200]}",
                               entry.get("source_pr", ""))
-            hits = _pattern_hits_bytes(result.stdout, pattern)
+            try:
+                hits = _pattern_hits_bytes(result.stdout, pattern)
+            except CouldNotMeasure as e:
+                return Result(entry["id"], entry["title"], "grep_in_source_at_sha",
+                              "CANNOT-RUN", f"{e} -- NOTHING was measured.",
+                              entry.get("source_pr", ""))
         else:
             # Grep the whole tree at that sha via git grep.
             result = subprocess.run(
