@@ -1,0 +1,69 @@
+name: reset-uninstall-honesty
+
+# ttywalk.sh --reset must not fall through its uninstaller search in silence.
+#
+# The reset looks for a shipped uninstaller at three paths. install.sh writes
+# exactly ONE uninstaller, ~/.ostler/bin/ostler-uninstall (install.sh:19984,
+# chmod at :20395), and a repo-wide find for uninstall*.sh returns nothing, so
+# on a box installed from this DMG all three paths name a file that does not
+# exist. The loop matched nothing, no break fired, and the run read as "reset
+# done" when no uninstall had happened.
+#
+# That matters because the store teardown -- docker compose down -v over
+# qdrant_data, oxigraph_data, redis_data, wiki-docs and vane_data -- lives
+# INSIDE that uninstaller. A reset that skips it leaves the graph, the vectors
+# and the compiled wiki carried over from the previous install, so every
+# store-reading probe measures history rather than the artefact under test.
+# Walk 10 was recorded as a fresh --reset walk on that basis.
+#
+# This gate asserts the skip is ANNOUNCED. It deliberately does NOT assert that
+# the real uninstaller path is searched: adding it would make the next walk
+# wipe stores that are the subject of an open investigation, and that is an
+# operator decision rather than a side effect of a logging fix.
+#
+# ubuntu-latest is correct: the test reads ttywalk.sh and runs one extracted,
+# size-checked block against a temporary HOME. It never ssh-es anywhere.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/ttywalk.sh'
+      - 'tests/test_reset_says_when_it_did_not_uninstall.sh'
+      - '.github/workflows/reset-uninstall-honesty.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  reset-uninstall-honesty:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # Opens with a control: if the uninstaller search loop is not in
+      # ttywalk.sh the test exits 2 (CANNOT-RUN), because every assertion
+      # below would otherwise be vacuous.
+      #
+      # It extracts the guarded block by anchors, CHECKS ITS SIZE before
+      # running it, and runs it as its own script against a temporary HOME --
+      # never sources it. An extraction whose end anchor failed would
+      # otherwise execute the rest of the harness.
+      #
+      # One limb guards the trap that produced this block: the reset body is
+      # passed to ssh inside a SINGLE-QUOTED string, so a single apostrophe
+      # closes it and ttywalk.sh dies at EOF.
+      #
+      # Mutation-tested three ways: reverting ttywalk.sh (rc=2, CANNOT-RUN),
+      # an apostrophe in the block (rc=1, and it also stops parsing), and
+      # deleting the announcement (rc=1).
+      - name: A reset that skipped the uninstall announces it
+        run: bash tests/test_reset_says_when_it_did_not_uninstall.sh
