@@ -186,3 +186,55 @@ inherited from v1.0.66** -- a pin reused without one is indistinguishable from a
 pin nobody checked. Measure `ahead_by/behind_by`, the files outside
 `.gitignore`, a control predicate that returns non-zero so the zero is real, and
 the Quality Gate's enumerated count against its declared `total_count`.
+
+## SCOPE, AS ACTUALLY CUT (appended 2026-09-05, after the tag)
+
+**This section exists because the list above went stale and the BOM did not.**
+TNM caught it on #1484: four product changes landed after this file was
+written and appear in `cuts/v1.0.67/MUST_CONTAIN.tsv` but not here. The BOM is
+the thing that gates, so this was a documentation gap rather than a shipping
+one -- but a scope doc that disagrees with the BOM is exactly the register
+nobody trusts next time.
+
+```
+#1305   the shipping ostler_fda has never written a usage-journal record
+#1471   the Ollama health arm must not depend on a foreign port
+#1472   the sentinel vocabulary is declared, and executing the recorders proves it
+#1479   a self-removing agent must delete its plist before it dies (v1066-D010)
+```
+
+### #1471 IS THE REASON THIS CUT EXISTS AT ALL
+
+The v1.0.66 artefact walk was GREEN and is not condemned. It left exactly one
+thing it could not settle: `install.sh:28465` was a bare loopback curl on
+`:11434`, so `health_check` logged "Ollama healthy" on an account with **no
+`com.ostler.ollama` agent at all**, from a 200 served by another account's
+ollama on the same Mac. A CANNOT-RUN wearing a PASS.
+
+The helper now parses the launchd **state line** rather than the exit code,
+because `rc=0` covers both *running* and *loaded-but-dead* and only the state
+line separates them. All three states were built with a fixture agent and
+measured.
+
+### #1479 CLOSES v1066-D010, FOUND ON THE ARTEFACT AND NOT IN THE SOURCE
+
+Three self-removing LaunchAgents called `launchctl bootout` on their OWN label
+before `rm -f`. A 10-iteration fixture agent on the walk box reached the line
+before the bootout 10/10 and the line after it 0/10: launchd tears the job
+down before control returns, so the `rm` was unreachable. A surviving plist in
+`~/Library/LaunchAgents` is re-read at every login, so the "self-removed"
+agent came back on every reboot for the life of the machine.
+
+### WHAT THIS CUT STILL DOES NOT SETTLE
+
+- **The v1.0.67 BOM's `ref` column shipped tautological.** All eight rows
+  carried the cut pin rather than each change's own commit, so re-running the
+  landed check asked whether `c0518825` is an ancestor of itself. Fixed
+  upstream in OS003 #209 with a must-miss control, which lands AFTER this tag.
+  `d6224704` is immutable and keeps the column. The DMG is unaffected: `cuts/`
+  is a gate input, not shipped payload.
+- **`capability_id` is `none` on all 8 rows.** Not a regression -- v1.0.66 was
+  5 of 5 -- but v1.0.65 carried a real one, so the mechanism works and has
+  fallen out of use across three cuts.
+- **NOT WALKED at the time of writing.** The tag makes an artefact; it says
+  nothing about one.
