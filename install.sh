@@ -19279,9 +19279,27 @@ mkdir -p "$LOGS_DIR" "$STATE_DIR"
 log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
 
 remove_self() {
-    launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || \
-        launchctl unload "$PLIST" 2>/dev/null || true
+    # Delete the FILES first, then unload. Reversing these two loses the file.
+    #
+    # MEASURED, archie@.240, 2026-09-05, 10 iterations: a LaunchAgent that
+    # calls `launchctl bootout` on its OWN label reached the line before the
+    # bootout 10/10 times and the line after it 0/10 times. launchd tears the
+    # job down before control returns, so every statement after the bootout in
+    # this function was unreachable -- `rm -f` included.
+    #
+    # THE FILE IS THE HALF THAT MATTERS (:20129 says so for the uninstaller).
+    # A plist left behind in ~/Library/LaunchAgents is loaded again at the next
+    # login, so a "self-removing" agent came back on every reboot, forever, and
+    # the surviving tries file carried its old count back with it. Found on the
+    # v1.0.66 artefact: the dedupe catch-up agent had booted itself out, the
+    # converge was marked done at 06:07:28, and both the plist and the tries
+    # file were still on disk.
+    #
+    # bootout addresses the job by LABEL, so it does not need the plist to
+    # still exist. The old `launchctl unload "$PLIST"` fallback did, which is
+    # why it is gone rather than reordered.
     rm -f "$PLIST" "$TRIES_FILE"
+    launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
 }
 
 # Bounded retry: bump the attempt counter and, once it exceeds the cap,
@@ -22193,9 +22211,27 @@ mkdir -p "$LOGS_DIR" "$STATE_DIR"
 log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
 
 remove_self() {
-    launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || \
-        launchctl unload "$PLIST" 2>/dev/null || true
+    # Delete the FILES first, then unload. Reversing these two loses the file.
+    #
+    # MEASURED, archie@.240, 2026-09-05, 10 iterations: a LaunchAgent that
+    # calls `launchctl bootout` on its OWN label reached the line before the
+    # bootout 10/10 times and the line after it 0/10 times. launchd tears the
+    # job down before control returns, so every statement after the bootout in
+    # this function was unreachable -- `rm -f` included.
+    #
+    # THE FILE IS THE HALF THAT MATTERS (:20129 says so for the uninstaller).
+    # A plist left behind in ~/Library/LaunchAgents is loaded again at the next
+    # login, so a "self-removing" agent came back on every reboot, forever, and
+    # the surviving tries file carried its old count back with it. Found on the
+    # v1.0.66 artefact: the dedupe catch-up agent had booted itself out, the
+    # converge was marked done at 06:07:28, and both the plist and the tries
+    # file were still on disk.
+    #
+    # bootout addresses the job by LABEL, so it does not need the plist to
+    # still exist. The old `launchctl unload "$PLIST"` fallback did, which is
+    # why it is gone rather than reordered.
     rm -f "$PLIST" "$TRIES_FILE"
+    launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
 }
 
 # Bounded run counter: once we exceed the cap, give up and remove the
@@ -25272,9 +25308,27 @@ fi
 DEDUPE_REPORT="${PRIVATE_DIR}/dedupe-report.yaml"
 
 remove_self() {
-    launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || \
-        launchctl unload "$PLIST" 2>/dev/null || true
+    # Delete the FILES first, then unload. Reversing these two loses the file.
+    #
+    # MEASURED, archie@.240, 2026-09-05, 10 iterations: a LaunchAgent that
+    # calls `launchctl bootout` on its OWN label reached the line before the
+    # bootout 10/10 times and the line after it 0/10 times. launchd tears the
+    # job down before control returns, so every statement after the bootout in
+    # this function was unreachable -- `rm -f` included.
+    #
+    # THE FILE IS THE HALF THAT MATTERS (:20129 says so for the uninstaller).
+    # A plist left behind in ~/Library/LaunchAgents is loaded again at the next
+    # login, so a "self-removing" agent came back on every reboot, forever, and
+    # the surviving tries file carried its old count back with it. Found on the
+    # v1.0.66 artefact: the dedupe catch-up agent had booted itself out, the
+    # converge was marked done at 06:07:28, and both the plist and the tries
+    # file were still on disk.
+    #
+    # bootout addresses the job by LABEL, so it does not need the plist to
+    # still exist. The old `launchctl unload "$PLIST"` fallback did, which is
+    # why it is gone rather than reordered.
     rm -f "$PLIST" "$TRIES_FILE"
+    launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
 }
 
 # v1.0.11 single-instance guard. A whole-graph converge takes 20-40 min on a
