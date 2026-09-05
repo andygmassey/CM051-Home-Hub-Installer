@@ -81,6 +81,15 @@ on:
       - 'tests/vendor_pair_registry.tsv'
       - 'tests/tick_pair_map.tsv'
       - 'tests/tick_seal_invariants.tsv'
+      # The package-twin deep walk compares vendor/<repo>/<pkg> against the
+      # top-level ./<pkg>. vendor/** above covers one side of that comparison
+      # and nothing covered the other, so a PR touching ONLY the root twin --
+      # which for contact_syncer is the copy install.sh actually ships -- could
+      # move the recorded drift count without firing the gate that reads it.
+      # The ledger is watched for the same reason: editing the recorded number
+      # is how you would make new drift look accounted for.
+      - 'contact_syncer/**'
+      - 'tests/VENDOR_TWIN_DRIFT.tsv'
   push:
     branches: [main]
 
