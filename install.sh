@@ -19633,6 +19633,52 @@ IMPORT_SCRIPT="${OSTLER_DIR}/bin/ostler-import"
 
 mkdir -p "${OSTLER_DIR}/state"
 
+# -- Bounded osascript, self-contained. --------------------------------
+#
+# THIS SCRIPT IS WRITTEN FROM A QUOTED HEREDOC, SO IT SHARES NO SCOPE WITH
+# install.sh. `_notify` used to call install.sh's `_ostler_run_with_deadline`
+# with install.sh's `$OSTLER_OSASCRIPT_TIMEOUT_S`. NEITHER NAME EXISTS HERE,
+# and this script runs under `set -u`, where an unbound variable is FATAL.
+#
+# MEASURED on a v1.0.71 box, 2026-09-05, by running the shipped scanner:
+#     ostler-scan-exports: line 18: OSTLER_OSASCRIPT_TIMEOUT_S: unbound variable
+#     rc=1
+#
+# WHY IT HID FOR SO LONG, AND IT IS THE SHAPE OF THE ZERO. The scanner reaches
+# `_notify` only AFTER it has found an export, and it calls it BEFORE the
+# importer. So on an empty Downloads it returns 0 at the `FOUND -eq 0` guard
+# and looks perfectly healthy -- launchd records `runs = 1, last exit code = 0`
+# and writes a 0-byte log. The instant a customer puts a real export there it
+# dies at line 18 and imports NOTHING. The passing state was the one with no
+# work to do, and every green install log was consistent with it.
+#
+# The bound is not decoration: an Apple Event blocks on the target's event
+# loop, and a penalty-boxed agent once wedged this exact export-scan -> import
+# chain for 23h56m on 40ms of CPU. `timeout` does not exist on macOS, so the
+# bound is an explicit sleep + kill. Overridable for harnesses and slow boxes.
+OSTLER_OSASCRIPT_TIMEOUT_S="${OSTLER_OSASCRIPT_TIMEOUT_S:-20}"
+
+_ostler_run_with_deadline() {
+    local _deadline_s="$1"; shift
+    "$@" &
+    local _cmd_pid=$!
+    local _waited=0
+    while kill -0 "$_cmd_pid" 2>/dev/null; do
+        if [[ "$_waited" -ge "$_deadline_s" ]]; then
+            kill -TERM "$_cmd_pid" 2>/dev/null || true
+            sleep 1
+            if kill -0 "$_cmd_pid" 2>/dev/null; then
+                kill -KILL "$_cmd_pid" 2>/dev/null || true
+            fi
+            wait "$_cmd_pid" 2>/dev/null || true
+            return 124
+        fi
+        sleep 1
+        _waited=$((_waited + 1))
+    done
+    wait "$_cmd_pid"
+}
+
 _notify() {
     # $1 = message, $2 = subtitle
     _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
@@ -19675,10 +19721,44 @@ fi
 [[ ${#FOUND[@]} -eq 0 ]] && exit 0
 
 # Guard: skip while anything is still downloading -- partial-download
-# markers (Safari .download, Chrome .crdownload, Firefox .part). The
-# next tick retries once the download completes.
+# markers (Safari .download, Chrome .crdownload, Firefox .part).
+#
+# ONLY WHILE IT IS ACTUALLY STILL DOWNLOADING. This used to skip if ANY
+# such marker existed, with no age test at all, and the marker did not
+# have to have anything to do with an export.
+#
+# MEASURED 2026-09-05, export present in every arm, only the extra file
+# differing:
+#     <nothing else>                  importer called 1
+#     holiday-photos.zip.crdownload   importer called 0
+#     something.download              importer called 0
+#     movie.mkv.part                  importer called 0
+#
+# A cancelled or failed download leaves its marker behind permanently, and
+# Chrome and Safari both do that routinely. So one abandoned .crdownload,
+# unrelated to any export, silently disabled the whole import on EVERY
+# 4-hourly tick, for ever, at exit 0 with nothing written to any log. The
+# comment promised "the next tick retries once the download completes";
+# for a download that never completes there is no such tick.
+#
+# A marker is treated as LIVE only if it changed in the last
+# OSTLER_PARTIAL_DOWNLOAD_STALE_S seconds. Anything older is abandoned and
+# is ignored. `find -mtime`-style tests are avoided in favour of an
+# explicit stat, so the units are visible and testable.
+OSTLER_PARTIAL_DOWNLOAD_STALE_S="${OSTLER_PARTIAL_DOWNLOAD_STALE_S:-3600}"
+_now_s="$(date +%s)"
 for p in "$DOWNLOADS"/*.download "$DOWNLOADS"/*.crdownload "$DOWNLOADS"/*.part; do
-    [[ -e "$p" ]] && exit 0
+    [[ -e "$p" ]] || continue
+    # stat -f%m is BSD/macOS, which is the only platform this runs on.
+    _mt="$(stat -f%m "$p" 2>/dev/null)" || _mt=""
+    if [[ -z "$_mt" ]]; then
+        # Cannot age it. Treat as LIVE: refusing to import is recoverable,
+        # importing a half-written export is not.
+        exit 0
+    fi
+    if [[ $(( _now_s - _mt )) -lt "$OSTLER_PARTIAL_DOWNLOAD_STALE_S" ]]; then
+        exit 0
+    fi
 done
 
 # Belt-and-braces: if any found FILE is still growing, wait for next tick.

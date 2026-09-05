@@ -1,0 +1,87 @@
+name: downloads-watcher-survives-an-export
+
+# The Downloads export watcher must survive an export actually being there.
+#
+# MEASURED on a v1.0.71 box, 2026-09-05, running the SHIPPED scanner after one
+# synthetic export was planted in ~/Downloads:
+#
+#     ostler-scan-exports: line 18: OSTLER_OSASCRIPT_TIMEOUT_S: unbound variable
+#     rc=1
+#
+# ostler-scan-exports is written from a QUOTED heredoc, so it shares no scope
+# with install.sh. `_notify` borrowed install.sh's `_ostler_run_with_deadline`
+# and its `$OSTLER_OSASCRIPT_TIMEOUT_S`; neither name exists in the generated
+# file, and it runs under `set -u` where an unbound variable is fatal.
+#
+# WHY NO GATE CAUGHT IT, AND IT IS THE SHAPE OF THE ZERO. `_notify` is reached
+# only AFTER an export is found, and is called BEFORE the importer. On an empty
+# Downloads the scanner returns 0 at the `FOUND -eq 0` guard, so launchd
+# recorded `runs = 1, last exit code = 0` and a 0-byte log. That is
+# indistinguishable from health, because it IS health -- of a scanner with
+# nothing to do. Every customer with a real export imported nothing, silently,
+# and every green install log was consistent with that.
+#
+# So this gate's subject is the POPULATED case. A gate that only ever runs the
+# empty case reproduces the blindness it exists to remove.
+#
+# macos-latest IS REQUIRED, and ubuntu-latest was WRONG. Measured: this gate
+# failed on ubuntu with
+#
+#     date: 1788536729: No such file or directory
+#     touch: invalid date format
+#
+# because the test backdates a partial-download marker with `date -r <epoch>`,
+# which is BSD. GNU date reads -r as "reference FILE". The SUBJECT is BSD too:
+# the scanner ages markers with `stat -f%m`, which GNU stat does not accept, so
+# under Linux every marker became unstattable, took the treat-as-LIVE fallback,
+# and both the 24h and the 5s arms returned an identical "blocked" -- the age
+# test could not be exercised at all.
+#
+# The Hub ships and runs only on macOS. A proof must run under the shell and
+# the tools the artefact ships under, or it measures a different program.
+#
+# It still touches nothing real: the test extracts the generated scanner, gives
+# it a fixture HOME with one synthetic export, and stubs both the importer and
+# osascript. It never reads a real Downloads folder and imports nothing.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_the_downloads_watcher_survives_a_real_export.sh'
+      - '.github/workflows/downloads-watcher-survives-an-export.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  downloads-watcher-survives-an-export:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The negative control is pinned to sha 2fb58d1e and read with
+          # `git show`. A shallow clone cannot see it, and the test refuses
+          # with CANNOT-RUN rather than passing vacuously -- but fetching the
+          # history here means the refusal never has to fire in CI.
+          fetch-depth: 0
+
+      # 8 arms. The load-bearing one asserts THE IMPORTER WAS CALLED, because
+      # "the scanner exited 0" is exactly what the defect looked like.
+      #
+      # Mutation-tested three ways, each restoring install.sh byte-identically
+      # (sha compared): deleting the timeout default trips 3 arms, deleting the
+      # deadline helper trips 1, and replacing the bounded call with a bare
+      # osascript trips 1. The last matters on its own -- an unbounded Apple
+      # Event once wedged this same export-scan -> import chain for 23h56m.
+      - name: An export in Downloads must reach the importer
+        run: bash tests/test_the_downloads_watcher_survives_a_real_export.sh
