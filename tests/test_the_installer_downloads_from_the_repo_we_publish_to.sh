@@ -120,8 +120,15 @@ fi
 
 echo "== MUST-MISS: the agreement predicate can tell two repos apart =="
 # If the predicate cannot see a disagreement, every arm above is decoration.
-MUT="$(mktemp -t bootstrap-mutant)" || cant "mktemp failed"
-trap 'rm -f "${MUT}"' EXIT
+# 🔴 `mktemp -t NAME` WITH NO X's IS BSD-ONLY, AND THIS REPO ALREADY SAYS SO
+# FIVE TIMES. GNU rejects it ("too few X's"), so on an ubuntu runner this line
+# fired cant() and the gate returned rc=2. CI refused to call that a pass,
+# which is correct -- CANNOT-RUN is not a pass -- but the refusal was about my
+# portability, not about the estate. Measured on the host that runs it, not on
+# the one I wrote it on. The house pattern here is `mktemp -d`, 102 uses.
+MUTDIR="$(mktemp -d)" || cant "no working directory"
+trap 'rm -rf "${MUTDIR}"' EXIT
+MUT="${MUTDIR}/bootstrap-mutant"
 sed 's|DEFAULT_INSTALLER_TARBALL_URL="https://github.com/ostler-ai/[^/]*|DEFAULT_INSTALLER_TARBALL_URL="https://github.com/ostler-ai/some-other-repo|' \
     "${INSTALL_SH}" > "${MUT}"
 M_REPO="$(installer_repo "${MUT}")"
