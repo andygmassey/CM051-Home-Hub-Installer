@@ -76,7 +76,16 @@ TWO BLINDNESSES THIS CODE EXISTS TO AVOID, both measured on 2026-09-04:
 """
 import re, sys
 
-DEF_RE = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)\s*\(\)\s*\{')
+# LEADING WHITESPACE ALLOWED. Anchored at column 0 this regex could not see
+# 40 of install.sh's own 159 function definitions -- 25%, including gui_log,
+# gui_done, settling_report and the whole _upg_* upgrade path -- because they
+# are defined inside `if` blocks and so are indented. A definition it cannot
+# see is a name it never puts in `defs`, and a name not in `defs` can never be
+# reported as called-before-defined. The scan's zero covered a quarter of the
+# file. Measured 2026-09-05: widening this lifts defs from 119 to 146 and the
+# subject still grades 0, so nothing was being hidden -- but a future indented
+# definition with an early call would have shipped unseen.
+DEF_RE = re.compile(r'^[ \t]*([A-Za-z_][A-Za-z0-9_]*)\s*\(\)\s*\{')
 # A heredoc opener: << or <<- but NOT <<< (here-string).
 HD_RE = re.compile(r"<<-(?!<)\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1|<<(?!<)\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\3")
 
@@ -169,7 +178,8 @@ def analyse(path):
 
         if depth == 0:
             toplevel.append(idx)
-        if m and at0:
+        # `at0` was the second half of the same column-0 restriction.
+        if m:
             if m.group(1) not in defs:
                 defs[m.group(1)] = idx
             open_stack.append((m.group(1), idx))
@@ -253,6 +263,40 @@ FIX
 [ "$(_count "${WORK}/d.sh")" = "1" ] \
     && ok "MUST-FLAG: a call inside \"\$( )\" is code, not text, and is caught" \
     || bad "MUST-FLAG: the measured #1439 shape was MISSED -- quoted command substitution treated as a string."
+
+# MUST FLAG: an INDENTED definition. This is the arm the column-0 DEF_RE could
+# not have: 40 of install.sh's own definitions are indented because they sit
+# inside `if` blocks, and a definition the scan cannot see is a name that can
+# never be reported. Without this limb the widening is untested and a revert to
+# `^(` would go green.
+cat > "${WORK}/e.sh" <<'FIX'
+#!/usr/bin/env bash
+echo start
+_indented_fn
+if true; then
+    _indented_fn() {
+        echo hi
+    }
+fi
+FIX
+[ "$(_count "${WORK}/e.sh")" = "1" ] \
+    && ok "MUST-FLAG: a call before an INDENTED definition is caught (the 40 the column-0 scan could not see)" \
+    || bad "MUST-FLAG: an indented definition is invisible again. 25% of install.sh's own functions are unscanned and every zero below covers them."
+
+# BY EXECUTION, so the limb above is anchored to a real consequence rather than
+# to a regex: the same shape is fatal ONLY because install.sh sets -e. Measured
+# 2026-09-05 -- with `set -Eeuo pipefail` (install.sh:29) rc=127 and the script
+# never reaches its end; without it rc=0 and execution continues past the
+# missing function. If install.sh ever drops -e this gate still matters, but
+# the failure it prevents changes shape, and that should be noticed here.
+printf '#!/usr/bin/env bash\nset -Eeuo pipefail\necho start\n_indented_fn\nif true; then\n    _indented_fn() { echo hi; }\nfi\necho reached_the_end\n' > "${WORK}/f.sh"
+_f_out="$(bash "${WORK}/f.sh" 2>&1)"; _f_rc=$?
+_f_reached="$(printf '%s' "$_f_out" | grep -c reached_the_end || true)"
+if [ "$_f_rc" = "127" ] && [ "${_f_reached:-0}" -eq 0 ]; then
+    ok "BY EXECUTION: the flagged shape aborts with rc=127 under install.sh's own 'set -Eeuo pipefail'"
+else
+    bad "BY EXECUTION: expected rc=127 and no end-of-script, got rc=${_f_rc} reached=${_f_reached}. Either bash changed or -e is not doing what this gate assumes."
+fi
 
 # MUST MISS: legal bash. Resolved at invocation.
 cat > "${WORK}/b.sh" <<'FIX'
