@@ -73,6 +73,7 @@ test_brew_failure_writes_the_log_it_promises.sh	WIRED	.github/workflows/tests-un
 test_brew_install_fail_loud.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_browsing_ingest_ensures_collection.py	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_bundle_phase_declares_every_copy.sh	WIRED	.github/workflows/install-gui-contract.yml
+test_bundled_package_comes_from_its_declared_source.py	WIRED	.github/workflows/install-gui-contract.yml
 test_calendar_attendee_resolve_before_create.py	UNWIRED	-
 test_calendar_hydrate_venv.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_cannot_run_branch_is_reachable.sh	WIRED	.github/workflows/cannot-run-branch-reachable.yml
