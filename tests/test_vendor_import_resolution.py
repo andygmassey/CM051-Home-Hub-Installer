@@ -42,6 +42,64 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 VENDOR = REPO_ROOT / "vendor"
 
+# 🔴 A COVERAGE FLOOR, BECAUSE THIS GUARD'S PASS IS A ZERO AND A ZERO HAS A
+# SHAPE. Discovery is an rglob; if it ever returns fewer roots -- a vendor
+# re-layout, a missing __init__.py, a permissions change -- the guard prints
+# fewer lines, finds nothing, and still says PASS. Measured 2026-09-05:
+# 22 package roots under vendor/, matching an independent count exactly.
+# Lowering this is a reviewable edit in the same PR as whatever removed a
+# package. Raising it needs nothing.
+MIN_PACKAGES = 22
+
+# Three states. 0 pass, 1 fail, 2 cannot-run.
+EXIT_PASS, EXIT_FAIL, EXIT_CANNOT_RUN = 0, 1, 2
+
+
+def _selftest() -> list[str]:
+    """Prove the checker can SEE an unresolved import and can ABSTAIN.
+
+    Without this, an empty baseline plus a broken _check_package would print
+    'all intra-package imports resolve' for every package and exit 0 forever.
+    The guard's own verdict is a zero, so the instrument must be shown to be
+    capable of a non-zero before that zero means anything.
+    """
+    import tempfile
+
+    # SEEDED INSIDE REPO_ROOT, AND OUTSIDE vendor/, ON PURPOSE. _check_package
+    # reports paths with .relative_to(REPO_ROOT), so a fixture in the system
+    # temp dir raises ValueError instead of being checked. Outside vendor/ so
+    # the real discovery rglob below can never pick the fixture up and count it
+    # as a vendored package.
+    problems: list[str] = []
+    with tempfile.TemporaryDirectory(dir=REPO_ROOT, prefix=".selftest-imports-") as td:
+        root = Path(td)
+
+        # MUST-FLAG: an intra-package import of a module that is not on disk.
+        bad = root / "seeded_broken"
+        bad.mkdir()
+        (bad / "__init__.py").write_text("")
+        (bad / "mod.py").write_text("from .does_not_exist import thing\n")
+        if not _check_package(bad.name, bad):
+            problems.append(
+                "SELFTEST: a seeded unresolved intra-package import was NOT "
+                "flagged. The checker is blind, so every 'all imports resolve' "
+                "line below is meaningless."
+            )
+
+        # MUST-MISS: the sibling exists, so nothing may be reported.
+        good = root / "seeded_clean"
+        good.mkdir()
+        (good / "__init__.py").write_text("")
+        (good / "sibling.py").write_text("VALUE = 1\n")
+        (good / "mod.py").write_text("from .sibling import VALUE\n")
+        if _check_package(good.name, good):
+            problems.append(
+                "SELFTEST: a resolvable intra-package import WAS flagged. The "
+                "checker is loud rather than right and its findings cannot be "
+                "trusted."
+            )
+    return problems
+
 
 def _module_exists(base: Path, dotted: str) -> bool:
     """True if dotted (relative to base, e.g. 'a.b') resolves to a
@@ -103,9 +161,19 @@ def _check_package(pkg_name: str, pkg_dir: Path) -> list[str]:
 
 
 def main() -> int:
+    problems = _selftest()
+    if problems:
+        for line in problems:
+            print(line, file=sys.stderr)
+        return EXIT_FAIL
+
+    # 🔴 COULD NOT LOOK IS NOT A PASS. Both of these used to `return 0`, so a
+    # missing vendor/ tree -- a bad checkout, a re-layout, a stripped artefact
+    # -- reported the same verdict as a fully checked tree.
     if not VENDOR.is_dir():
-        print("no vendor/ directory; nothing to check")
-        return 0
+        print(f"CANNOT-RUN: no vendor/ directory at {VENDOR}. Nothing was "
+              "checked; this is not a pass.", file=sys.stderr)
+        return EXIT_CANNOT_RUN
 
     # A package root is a directory with __init__.py whose parent has
     # none (the top of an importable package chain). This finds nested
@@ -119,8 +187,16 @@ def main() -> int:
         if not (pkg_dir.parent / "__init__.py").is_file():
             packages.append(pkg_dir)
     if not packages:
-        print("no vendored Python packages under vendor/")
-        return 0
+        print("CANNOT-RUN: no vendored Python packages found under vendor/. "
+              "Nothing was checked; this is not a pass.", file=sys.stderr)
+        return EXIT_CANNOT_RUN
+
+    if len(packages) < MIN_PACKAGES:
+        print(f"CANNOT-RUN: discovery found {len(packages)} package root(s) "
+              f"under vendor/, below the recorded floor of {MIN_PACKAGES}. "
+              "Coverage has collapsed and the checks below would cover only "
+              "part of the tree; this is not a pass.", file=sys.stderr)
+        return EXIT_CANNOT_RUN
 
     all_failures: list[str] = []
     for pkg_dir in sorted(packages):
