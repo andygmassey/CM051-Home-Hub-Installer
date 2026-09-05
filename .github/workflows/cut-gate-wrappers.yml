@@ -132,6 +132,13 @@ on:
       - 'bin/lib_redact.sh'
       - 'bin/redact_selftest.sh'
       - 'tests/test_rollforward_registry_pin.sh'
+      # THE TWO OS003 SYNC SCRIPTS AND THEIR GUARD. #1485: they defaulted to
+      # DIFFERENT checkouts, so one reported a BOM missing that the other had
+      # just read. Both subjects listed, not only the guard, or a change to a
+      # default would not re-trigger the gate that pins them together.
+      - 'scripts/sync_cut_bom.sh'
+      - 'scripts/sync_rollforward_registry.sh'
+      - 'tests/test_os003_sync_defaults_agree.sh'
       - 'tests/test_rollforward_pin_is_watched_on_prs.sh'
       - '.github/workflows/cut-gate-wrappers.yml'
   push:
@@ -508,6 +515,13 @@ jobs:
       - name: the vendored rollforward gate matches its OS003 pin (PR-side)
         if: always()
         run: bash tests/test_rollforward_registry_pin.sh
+
+      # #1485: one script said "OS003 has no BOM for v1.0.67 -- write it there
+      # first" seconds after another had read that exact file. It had looked in
+      # a different checkout, and that checkout was iCloud-evicted and stale.
+      - name: the OS003 sync scripts agree on which checkout they read
+        if: always()
+        run: bash tests/test_os003_sync_defaults_agree.sh
 
       # AND THE WIRING FOR THE ABOVE. Watching four hand-listed paths is
       # itself a thing that rots: add a fifth file to the pin and the trigger
