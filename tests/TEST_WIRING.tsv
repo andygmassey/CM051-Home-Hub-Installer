@@ -462,6 +462,7 @@ test_wiki_image_namespace_matches_ci.sh	WIRED	.github/workflows/supply-chain-pin
 test_wiki_provenance_extracts_without_exec.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_wiki_recompile_after_late_hydration.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_wiki_tailnet_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
+test_wipe_stores_is_opt_in_and_single_use.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
 test_wiring_ceiling_only_ever_decreases.sh	WIRED	.github/workflows/test-wiring.yml
 test_write_pipeline_signals.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_youtube_parser_does_not_claim_facebook.py	WIRED	.github/workflows/parser-claim-separation.yml

@@ -29,6 +29,7 @@ on:
     paths:
       - 'scripts/ttywalk.sh'
       - 'tests/test_reset_says_when_it_did_not_uninstall.sh'
+      - 'tests/test_wipe_stores_is_opt_in_and_single_use.sh'
       - '.github/workflows/reset-uninstall-honesty.yml'
   push:
     branches: [main]
@@ -65,5 +66,18 @@ jobs:
       # Mutation-tested three ways: reverting ttywalk.sh (rc=2, CANNOT-RUN),
       # an apostrophe in the block (rc=1, and it also stops parsing), and
       # deleting the announcement (rc=1).
+      # `if: always()` on BOTH, because there are now two of them and the first
+      # would otherwise mask the second. verify_ci_steps_are_maskless.py caught
+      # exactly this shape one commit ago in walk-record-gate.yml.
       - name: A reset that skipped the uninstall announces it
+        if: always()
         run: bash tests/test_reset_says_when_it_did_not_uninstall.sh
+
+      # AND THE OTHER HALF OF THE SAME HONESTY. The announcement is only worth
+      # anything if a wipe cannot happen without being asked for, cannot persist
+      # past the run that asked, and cannot be silently skipped. This drives the
+      # real extracted block with and without the flag file, and proves single
+      # use by RUNNING IT TWICE rather than by reading the rm.
+      - name: A store wipe is opt-in, single-use, and honest about which it did
+        if: always()
+        run: bash tests/test_wipe_stores_is_opt_in_and_single_use.sh

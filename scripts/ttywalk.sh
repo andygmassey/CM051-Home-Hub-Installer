@@ -40,6 +40,12 @@
 # USAGE
 #   scripts/ttywalk.sh --host andy@192.168.1.238 --expect-name "Andrew's Mac mini"
 #   scripts/ttywalk.sh --host ... --expect-name ... --reset      # uninstall first
+#   scripts/ttywalk.sh --host ... --expect-name ... --wipe-stores
+#       As --reset, PLUS the uninstaller install.sh actually writes, which removes
+#       the docker volumes: qdrant_data oxigraph_data redis_data wiki-docs
+#       vane_data. Off by default. Use it when you need a walk whose store-reading
+#       probes describe data THIS artefact created rather than data carried over
+#       from a previous install. The walk record says which you got.
 #   scripts/ttywalk.sh --host ... --expect-name ... --report-only # read last run
 #
 # EXIT CODES, and they are three not two:
@@ -60,6 +66,27 @@ EXPECT_MODEL=""
 DO_RESET=0
 REPORT_ONLY=0
 STAGE_ONLY=0
+# OFF BY DEFAULT AND IT STAYS OFF BY DEFAULT.
+#
+# A reset runs the SHIPPED uninstaller and reports what is still holding a port.
+# It has never found one: install.sh writes exactly ONE uninstaller,
+# ~/.ostler/bin/ostler-uninstall, and the search list names three paths this repo
+# never creates. That was left unfixed ON PURPOSE (#1516): the store teardown
+# lives inside that uninstaller, and adding the real path would have made every
+# subsequent walk wipe stores that were under investigation.
+#
+# THE CONSEQUENCE IS THE THING THAT BLOCKS THE PROMOTE. The graph, the vectors
+# and the compiled wiki carry over from install to install, so three of the five
+# artefact-owned probes that refused v1.0.67 -- no_person_holds_two_contact_cards,
+# people_stores_reconcile, people_count_agreement -- read data no walk created.
+# Their reds may be perfectly real and still be about the box past.
+#
+# So the operator gets the choice, explicitly, rather than the choice being a
+# side effect of a path list. --wipe-stores runs the uninstaller install.sh
+# actually writes, names every volume before removing anything, and records
+# wiped-by-shipped-uninstaller in the walk record so the evidence says which
+# question it answered.
+WIPE_STORES=0
 
 die() { printf 'CANNOT-RUN: %s\n' "$*" >&2; exit "$CANNOT_RUN"; }
 say() { printf '%s\n' "$*"; }
@@ -71,6 +98,7 @@ while [[ $# -gt 0 ]]; do
         --expect-name)  EXPECT_NAME="${2:-}"; shift 2 ;;
         --expect-model) EXPECT_MODEL="${2:-}"; shift 2 ;;
         --reset)        DO_RESET=1; shift ;;
+        --wipe-stores)  WIPE_STORES=1; DO_RESET=1; shift ;;
         --report-only)  REPORT_ONLY=1; shift ;;
         --stage-only)   STAGE_ONLY=1; shift ;;
         --from-dmg)     FROM_DMG="${2:-}"; shift 2 ;;
@@ -499,12 +527,44 @@ esac
 # Anything that genuinely needs a virgin box is CANNOT-RUN here and must be
 # said so out loud rather than approximated.
 if [[ "$DO_RESET" -eq 1 ]]; then
-    rule "RESET (uninstall + port survey; this is NOT a wipe)"
+    if [[ "$WIPE_STORES" -eq 1 ]]; then
+        rule "RESET (--wipe-stores: this one IS a wipe)"
+        say "This run will REMOVE the Ostler docker volumes on ${HOST} before installing:"
+        say "    qdrant_data  oxigraph_data  redis_data  wiki-docs  vane_data"
+        say "The graph, the vectors and the compiled wiki go with them. Nothing else"
+        say "on the machine is touched, and the teardown is the shipped uninstaller"
+        say "rather than anything this script does by hand."
+        say "The walk record will then say wiped-by-shipped-uninstaller, so the reds"
+        say "from store-reading probes describe data THIS artefact created."
+        # Passed as a SINGLE-USE FILE, because the reset body below is a
+        # single-quoted string and nothing local expands inside it. The remote
+        # side removes the file as it reads it, so a later walk without the flag
+        # cannot inherit this one decision.
+        "${SSH[@]}" "printf '%s' 1 > ~/.walk-wipe-stores" \
+            || die "could not arm --wipe-stores on ${HOST}; refusing to continue, because a run that SILENTLY did not wipe would produce a record claiming it did."
+    else
+        rule "RESET (uninstall + port survey; this is NOT a wipe)"
+    fi
     "${SSH[@]}" 'set -u
         _ran_uninstaller=""
-        for u in ~/Applications/Ostler.app/Contents/Resources/uninstall.sh \
-                 /Applications/Ostler.app/Contents/Resources/uninstall.sh \
-                 ~/.ostler/uninstall.sh; do
+        # The three paths below are ones this repo never creates. They are kept
+        # deliberately: a box installed some other way might carry one, and the
+        # announcement further down depends on the loop being able to find
+        # nothing at all.
+        _upaths=( ~/Applications/Ostler.app/Contents/Resources/uninstall.sh \
+                  /Applications/Ostler.app/Contents/Resources/uninstall.sh \
+                  ~/.ostler/uninstall.sh )
+        # --wipe-stores, read from a single-use file and removed on read.
+        # ONE-LINE CONDITIONALS ON PURPOSE: the honesty gate for this block
+        # extracts it with an awk range ending at the first 8-space "fi", so an
+        # if/fi here would truncate the extraction and the gate would report the
+        # announcement missing. Measured, on my own previous commit.
+        _wipe=0
+        [[ -f ~/.walk-wipe-stores ]] && _wipe="$(cat ~/.walk-wipe-stores)"
+        rm -f ~/.walk-wipe-stores
+        [[ "$_wipe" == "1" ]] && _upaths+=( "$HOME/.ostler/bin/ostler-uninstall" ) || true
+        [[ "$_wipe" == "1" ]] && echo "--wipe-stores: the uninstaller install.sh actually writes is in the search list. It removes the docker volumes qdrant_data oxigraph_data redis_data wiki-docs vane_data." || true
+        for u in "${_upaths[@]}"; do
             if [[ -x "$u" ]]; then
                 echo "running shipped uninstaller: $u"
                 OSTLER_ASSUME_YES=1 bash "$u" 2>&1 | tail -25
