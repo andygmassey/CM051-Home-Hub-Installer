@@ -122,7 +122,13 @@ jobs:
         if: always()
         run: bash tests/test_the_walk_record_says_whether_the_stores_are_history.sh
 
+      # `if: always()` BECAUSE IT IS NO LONGER FIRST. It had none while it led the
+      # job, which was harmless: nothing could mask it. Inserting a step above it
+      # made it maskable, and verify_ci_steps_are_maskless.py named it -- a red
+      # in the new step would have hidden this one, which is the gate that says
+      # the customer download cannot be repointed to an unwalked build.
       - name: The customer download cannot be repointed to an unwalked build
+        if: always()
         run: bash tests/test_walk_record_gates_customer_download.sh
 
       # A probe that reads an absent path as a definite answer is worse than a
