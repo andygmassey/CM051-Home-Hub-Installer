@@ -138,6 +138,7 @@ test_declined_remote_access_is_not_promised.sh	WIRED	.github/workflows/backgroun
 test_dedupe_defer_background.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_dedupe_deps_reach_the_consumer_venv.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_dedupe_heartbeat.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_dedupe_merge_enforces_rule_2.py	WIRED	.github/workflows/dedupe-merge-rule-2.yml
 test_deferral_reachability.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_deferral_reason_reads_block_scalars.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_deferred_register_cap_is_not_silent.sh	WIRED	.github/workflows/deferred-register-cap-not-silent.yml

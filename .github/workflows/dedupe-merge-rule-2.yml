@@ -1,0 +1,65 @@
+name: dedupe-merge-rule-2
+
+# dedupe_merge must not weld two Contacts cards onto one Person.
+#
+# MEASURED on the v1.0.71 walk box, 2026-09-05, on a graph built entirely
+# inside the walk window:
+#
+#     icloud_contact_uid identifiers        1673   (anti-vacuity control)
+#     Person nodes with 2+ distinct uids      54
+#     mergedInto tombstones in the graph       1   (control: the predicate CAN
+#                                                   see tombstones)
+#     of the 54, how many carry a tombstone     0
+#
+# identity_resolver.merge_persons and batch_resolver._merge_oxigraph ALWAYS
+# write a mergedInto tombstone and both already veto on canonical keys (#1418,
+# #1543). dedupe_merge writes none. Not one of the 54 survivors carries one, so
+# all 54 were welded here -- by the one merge writer that had no RULE 2 check.
+#
+# WHY NO GATE EVER CAUGHT IT: this module never mentions icloud_contact_uid. It
+# groups on email and phone VALUES, so a search that starts from the canonical
+# key -- or from the guarded function -- cannot see the writer that corrupts
+# it. cut-manifests/v1.0.71.yaml records the symptom: "every audit that started
+# from the guarded function came back clean." Zero tests and zero workflows
+# mentioned dedupe_merge before this one.
+#
+# ubuntu-latest is correct: the test stubs the SPARQL layer entirely. No
+# Oxigraph, no network, no box. The defect is a decision, not a query.
+
+on:
+  pull_request:
+    paths:
+      - 'vendor/ostler_fda/dedupe_merge.py'
+      - 'tests/test_dedupe_merge_enforces_rule_2.py'
+      - '.github/workflows/dedupe-merge-rule-2.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  dedupe-merge-rule-2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The negative control is pinned to sha bdbd5bb5 and read with
+          # `git show`; a shallow clone cannot see it and the test refuses with
+          # CANNOT-RUN rather than passing vacuously.
+          fetch-depth: 0
+
+      # 7 arms. The load-bearing pair is TWO DIFFERENT CARDS (must refuse) and
+      # RULE 1 STILL WORKS (must still merge), because a veto that blinds the
+      # sweep would pass the first arm and silently undo the module's purpose.
+      # The transitive arm matters on its own: _components is union-find, so
+      # two cards can arrive through a bridging node sharing nothing directly.
+      - name: dedupe_merge must veto on canonical keys, and still do RULE 1
+        run: python3 tests/test_dedupe_merge_enforces_rule_2.py
