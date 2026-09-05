@@ -349,6 +349,26 @@ if [[ -n "$CUT_VERSION" ]]; then
     # ttywalk.sh --from-dmg now writes ~/.walk-artefact-version from the bundle
     # it mounted. A repo walk leaves it EMPTY, so the /Applications fallback is
     # unchanged for every GUI walk, which is the flow that path was written for.
+    # STORE PROVENANCE. ttywalk.sh's reset step already SAYS, in its own output,
+    # that the graph, the vectors and the compiled wiki are carried over from the
+    # previous install and that "any probe reading them is measuring history, not
+    # this artefact". MEASURED 2026-09-05: that sentence was repeated NOWHERE
+    # downstream -- 0 mentions across the probes, this file and
+    # verify_walk_record.sh, against a control of 24 of 24 probes naming
+    # probe_cannot_run. So a probe that failed on carried-over data arrived in
+    # the record as evidence about the DMG, with nothing to say otherwise.
+    #
+    # An unreadable marker is recorded as unknown(...), never as a clean value.
+    # An assumption here would be indistinguishable from a measurement.
+    STORES_PROVENANCE="$(ssh -o BatchMode=yes -o ConnectTimeout=8 "$BOX" \
+        'cat ~/.walk-stores-provenance 2>/dev/null' 2>/dev/null | tr -d '[:space:]')"
+    case "$STORES_PROVENANCE" in
+        carried-over-from-previous-install|unknown-no-reset-step|wiped-by-shipped-uninstaller*|wiped-by-explicit-store-wipe*) : ;;
+        '') STORES_PROVENANCE="unknown(no ~/.walk-stores-provenance on the box; this walk predates the marker or the read failed)" ;;
+        *)  STORES_PROVENANCE="unknown(marker held an unrecognised value)" ;;
+    esac
+    echo "  stores: ${STORES_PROVENANCE}"
+
     INSTALLED_VERSION="$(ssh -o BatchMode=yes -o ConnectTimeout=8 "$BOX" \
         'cat ~/.walk-artefact-version 2>/dev/null' 2>/dev/null | tr -d '[:space:]')"
     if [[ -n "$INSTALLED_VERSION" ]]; then
@@ -538,6 +558,15 @@ if [[ -n "$CUT_VERSION" ]]; then
         printf 'artefact_sha256_source\t%s\n' "$ARTEFACT_SHA_SOURCE"
         printf 'walked_at\t%s\n'   "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         printf 'box_fp\t%s\n'      "$BOX_FP"
+        printf '#\n'
+        printf '# stores_provenance answers the question every store-reading probe\n'
+        printf '# begs and none of them state: was the graph this walk measured\n'
+        printf '# CREATED by this artefact, or CARRIED OVER from a previous install?\n'
+        printf '# A red from no_person_holds_two_contact_cards, people_stores_reconcile\n'
+        printf '# or people_count_agreement means something different in each case. A\n'
+        printf '# reset does NOT wipe: ttywalk.sh runs the shipped uninstaller if it can\n'
+        printf '# find one and says so when it cannot.\n'
+        printf 'stores_provenance\t%%s\n' "$STORES_PROVENANCE"
         printf 'counts_scope\tbox_walk_probes_only(phase1); verdict+qa_exit cover all phases\n'
         printf 'pass\t%s\n'        "${n_pass:-0}"
         printf 'fail\t%s\n'        "${n_fail:-0}"
