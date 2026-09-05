@@ -336,11 +336,15 @@ if [[ -n "${FROM_DMG:-}" ]]; then
     # The guard below therefore tests the SHAPE, not merely emptiness. A
     # version is digits and dots; anything else is a diagnostic wearing a
     # value's clothes.
-    local _plist="$(dirname "$_res")/Info.plist"
+    # NOT `local`: this block is TOP-LEVEL script, not a function body. `local`
+    # parses fine and dies at RUNTIME with "can only be used in a function",
+    # and under `set -u` the unset name then trips unbound-variable. Caught by
+    # RUNNING it -- `bash -n` is a parse, not an execution, and it passed.
+    _ARTEFACT_PLIST="$(dirname "$_res")/Info.plist"
     ARTEFACT_VERSION=""
-    if [[ -f "$_plist" ]]; then
+    if [[ -f "$_ARTEFACT_PLIST" ]]; then
         ARTEFACT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
-            "$_plist" 2>/dev/null | tr -d '[:space:]')"
+            "$_ARTEFACT_PLIST" 2>/dev/null | tr -d '[:space:]')"
         [[ "$ARTEFACT_VERSION" =~ ^[0-9]+(\.[0-9]+)*$ ]] || ARTEFACT_VERSION=""
     fi
     if [[ -n "$ARTEFACT_VERSION" ]]; then

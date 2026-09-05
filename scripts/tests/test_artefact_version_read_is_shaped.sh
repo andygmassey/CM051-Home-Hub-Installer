@@ -82,6 +82,36 @@ _guarded="$(_read "$W/Fix.app/Contents/Resources/nope")"
     && ok "the SHAPE GUARD turns that diagnostic into empty, so the caller warns instead of lying" \
     || bad "the shape guard let a diagnostic through as a version: '${_guarded}'"
 
+# ── THE BLOCK MUST RUN AT TOP LEVEL, WHICH IS WHERE IT LIVES ─────────────
+# The first version of this fix used `local`. It PARSES fine -- `bash -n`
+# passed -- and dies at RUNTIME with "local: can only be used in a function",
+# because that block is top-level script and not a function body. Under
+# `set -u` the unset name then trips unbound-variable and the walk aborts
+# before staging.
+#
+# `bash -n` IS A PARSE, NOT AN EXECUTION. So this arm EXECUTES the extracted
+# block in a top-level context under the same shell options ttywalk uses.
+_BLOCK="${W}/toplevel.sh"
+{
+    printf '%s\n' 'set -Eeuo pipefail'
+    printf '%s\n' '_res="$1"'
+    awk '/^    _ARTEFACT_PLIST=/,/^    fi$/' "$SUBJECT" | sed 's/^    //'
+    printf '%s\n' 'printf "%s" "$ARTEFACT_VERSION"'
+} > "$_BLOCK"
+_out="$(bash "$_BLOCK" "$W/Fix.app/Contents/Resources" 2>&1)"; _rc=$?
+if [ "$_rc" -eq 0 ] && [ "$_out" = "9.9.99" ]; then
+    ok "the block EXECUTES at top level under set -Eeuo pipefail and yields 9.9.99"
+else
+    bad "the block failed at top level (rc=${_rc}): ${_out:0:80}"
+fi
+
+# And the specific regression: no `local` in that block.
+if awk '/^    _ARTEFACT_PLIST=/,/^    fi$/' "$SUBJECT" | /usr/bin/grep -q '^\s*local '; then
+    bad "the block uses 'local' at top level -- parses, dies at runtime"
+else
+    ok "the block does not use 'local' outside a function"
+fi
+
 # ── The subject must actually carry the fix ──────────────────────────────
 if /usr/bin/grep -q 'dirname "$(dirname "$_res")"' "$SUBJECT"; then
     bad "ttywalk.sh still uses the two-dirname path"
