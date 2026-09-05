@@ -63,6 +63,66 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+# 🔴 COVERAGE FLOOR, APPLIED ONLY TO THE REAL REPO. `scanned == 0` already fails
+# below, but 0 is not the only broken denominator: a re-layout that drops
+# discovery from 22 roots to 1 passes that check while covering 1/22 of the
+# tree. Measured 2026-09-05: 22 package roots. Lowering this is a reviewable
+# edit in the same PR as whatever removed a package.
+#
+# NOT applied under --root, which the usage string documents as the way to run
+# a demonstrated RED against a scratch copy. A scratch tree legitimately holds
+# one package, and a floor that fired there would make the tool unusable for
+# the job it advertises.
+MIN_PACKAGES = 22
+
+# Three states. 0 pass, 1 fail, 2 cannot-run.
+EXIT_PASS, EXIT_FAIL, EXIT_CANNOT_RUN = 0, 1, 2
+
+
+def _selftest() -> list[str]:
+    """Prove the checker can SEE an unresolved symbol and can ABSTAIN.
+
+    This guard runs in cut.yml. Nothing else in the file demonstrates that
+    _check_package is capable of a non-zero result, so "all intra-package
+    imported symbols resolve" over 22 packages and a broken checker are
+    indistinguishable from the outside.
+
+    Seeded inside REPO_ROOT because _check_package reports paths relative to
+    the root it is handed, and outside vendor/ so real discovery cannot count
+    the fixture as a vendored package.
+    """
+    import tempfile
+
+    problems: list[str] = []
+    with tempfile.TemporaryDirectory(dir=REPO_ROOT, prefix=".selftest-symbols-") as td:
+        root = Path(td)
+
+        # MUST-FLAG: the provider does not define the imported name.
+        bad = root / "seeded_broken"
+        bad.mkdir()
+        (bad / "__init__.py").write_text("")
+        (bad / "provider.py").write_text("OTHER = 1\n")
+        (bad / "consumer.py").write_text("from .provider import missing_symbol\n")
+        if not _check_package(bad.name, bad, root):
+            problems.append(
+                "SELFTEST: a seeded unresolved SYMBOL import was NOT flagged. "
+                "The checker is blind, so the 'all imported symbols resolve' "
+                "line below is meaningless."
+            )
+
+        # MUST-MISS: the provider defines it, so nothing may be reported.
+        good = root / "seeded_clean"
+        good.mkdir()
+        (good / "__init__.py").write_text("")
+        (good / "provider.py").write_text("present_symbol = 1\n")
+        (good / "consumer.py").write_text("from .provider import present_symbol\n")
+        if _check_package(good.name, good, root):
+            problems.append(
+                "SELFTEST: a resolvable symbol import WAS flagged. The checker "
+                "is loud rather than right and its findings cannot be trusted."
+            )
+    return problems
+
 
 def _module_file(base: Path, dotted: str) -> Path | None:
     """Resolve a dotted module path under base to a .py file, if any."""
@@ -232,9 +292,19 @@ def main() -> int:
     root = Path(args.root).resolve()
     vendor = root / "vendor"
 
+    problems = _selftest()
+    if problems:
+        for line in problems:
+            print(line, file=sys.stderr)
+        return EXIT_FAIL
+
+    # 🔴 COULD NOT LOOK IS NOT A PASS. This used to `return 0`, so a stripped or
+    # mislocated vendor tree reported the same verdict as a fully scanned one --
+    # in a gate that runs in cut.yml.
     if not vendor.is_dir():
-        print(f"no vendor/ under {root}; nothing to check")
-        return 0
+        print(f"CANNOT-RUN: no vendor/ under {root}. Nothing was scanned; this "
+              "is not a pass.", file=sys.stderr)
+        return EXIT_CANNOT_RUN
 
     packages: list[Path] = []
     for init in vendor.rglob("__init__.py"):
@@ -255,7 +325,16 @@ def main() -> int:
     if scanned == 0:
         print("FAIL: scanned zero packages -- the denominator is broken, so a "
               "green result here would mean nothing", file=sys.stderr)
-        return 1
+        return EXIT_FAIL
+
+    # Zero is not the only broken denominator. See MIN_PACKAGES above for why
+    # this is skipped under an explicit --root.
+    if root == REPO_ROOT and scanned < MIN_PACKAGES:
+        print(f"CANNOT-RUN: scanned {scanned} package root(s), below the "
+              f"recorded floor of {MIN_PACKAGES}. Coverage has collapsed and a "
+              "green result would describe only the part still visible.",
+              file=sys.stderr)
+        return EXIT_CANNOT_RUN
 
     if all_failures:
         print("\nSYMBOL RESOLUTION FAILURES "
