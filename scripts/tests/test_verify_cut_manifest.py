@@ -2419,7 +2419,28 @@ def test_stale_branch_fail_on_api_error(tmp_path, monkeypatch):
     assert "502" in result.detail
 
 
-def test_stale_branch_fail_on_missing_token(tmp_path, monkeypatch):
+def test_stale_branch_cannot_run_on_missing_token(tmp_path, monkeypatch):
+    """No credential is not evidence the branch is stale. It is evidence nobody looked.
+
+    THIS ARM USED TO ASSERT FAIL, and it was the last of three call sites still
+    saying so. The other two already carried the correction in a comment:
+
+        CANNOT-RUN, NOT A DEFECT. Saying FAIL here claims the artefact is
+        stale when all that happened is that no credential resolved.
+
+    And _gh_token_for's own docstring records the cut where that cost something,
+    measured on v1.0.26: both freshness rows reported a FAIL naming an
+    unresolvable token, which the docstring itself calls "not a finding about
+    the daemon at all -- it is the checker saying it could not authenticate,
+    rendered as though it had looked and found the artefact stale."
+
+    Two sites were fixed then. This one was missed, and its test pinned the
+    miss with a bare assertion and no stated reason.
+
+    NOTHING IS SOFTENED. CANNOT-RUN blocks exactly as hard as FAIL: main()
+    returns 1 unless BOTH fails and cannot_runs are zero. The row simply stops
+    accusing a branch of staleness it never measured.
+    """
     monkeypatch.setenv("PR_NUMBER", "484")
     monkeypatch.setenv("GITHUB_REPOSITORY", "andygmassey/CM051-Home-Hub-Installer")
     monkeypatch.delenv("GH_TOKEN", raising=False)
@@ -2428,8 +2449,10 @@ def test_stale_branch_fail_on_missing_token(tmp_path, monkeypatch):
     _FakePR(base_sha="a" * 40, head_sha="b" * 40, token=None).install(mod)
     result = mod.check_pr_branch_not_stale_vs_main(
         _stale_branch_entry(), {"cm051_dir": tmp_path, "app_path": tmp_path})
-    assert result.status == "FAIL"
+    assert result.status == "CANNOT-RUN", result.detail
     assert "gh token" in result.detail
+    # The must-miss: it must NOT claim to have measured the branch.
+    assert "NOTHING was measured" in result.detail, result.detail
 
 
 def test_stale_branch_pass_via_ignore_and_below_threshold(tmp_path, monkeypatch):

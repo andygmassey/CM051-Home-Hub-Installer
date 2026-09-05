@@ -175,6 +175,50 @@ except vcm.CouldNotMeasure as e:
     cant(f"the real strings(1) path could not run here, so the control cannot "
          f"prove the timeout arm was specific: {e}")
 
+print("== a credential lookup that TIMED OUT is not 'no credential' ==")
+# The same class, one function away, and its consequence reaches a human as
+# WRONG ADVICE rather than a wrong verdict. Both freshness call sites render a
+# None as "no gh token for owner X. Set OSTLER_RELEASES_TOKEN (CI) or
+# `gh auth login --user X` (operator)." Correct for an unconfigured box, and
+# actively misleading when `gh auth token` merely hung: the operator already
+# has the credential and is sent to re-issue it.
+vcm.subprocess.run = _timeout_run
+try:
+    tok = vcm._gh_token_for("ostler-ai")
+    bad(f"_gh_token_for returned {tok!r} when the lookup timed out -- a timeout "
+        f"is now indistinguishable from an unconfigured machine, and the "
+        f"operator is told to go and set a credential they may already have")
+except vcm.CouldNotMeasure as e:
+    ok(f"_gh_token_for raises on a timeout: {str(e)[:70]}")
+except Exception as e:  # noqa: BLE001
+    bad(f"_gh_token_for raised {type(e).__name__}, not CouldNotMeasure: {e}")
+finally:
+    vcm.subprocess.run = _real_run
+
+print("== CONTROL: 'no credential' still returns None, and stays a SKIP ==")
+# The discrimination. None keeps its honest meaning; only the timeout refuses.
+# Without this arm the fix could have been "raise on everything", which would
+# turn every unconfigured developer machine into a blocked cut.
+
+
+def _absent_run(*a, **kw):
+    raise FileNotFoundError("gh")
+
+
+vcm.subprocess.run = _absent_run
+try:
+    tok = vcm._gh_token_for("ostler-ai")
+    if tok is None:
+        ok("CONTROL: gh absent still returns None, so 'no credential' and 'could "
+           "not ask' stay two different states")
+    else:
+        bad(f"CONTROL: gh absent returned {tok!r}, expected None")
+except vcm.CouldNotMeasure as e:
+    bad(f"CONTROL: gh absent raised CouldNotMeasure ({e}) -- every machine "
+        f"without gh would now block a cut instead of skipping the row")
+finally:
+    vcm.subprocess.run = _real_run
+
 print("== MUST-MISS: every Result-producing call site CATCHES it ==")
 # A raise that no caller handles is worse than the zero it replaced: it becomes
 # an unhandled exception, which main()'s own comment says gets reported to the

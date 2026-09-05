@@ -1387,7 +1387,23 @@ def _gh_token_for(owner: str) -> Optional[str]:
             ["gh", "auth", "token", "--user", owner],
             capture_output=True, check=False, timeout=10,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except subprocess.TimeoutExpired as e:
+        # 🔴 A TIMEOUT IS NOT "NO CREDENTIAL", AND THE DIFFERENCE REACHES THE
+        # OPERATOR AS WRONG ADVICE. Both call sites below render a None as
+        # "no gh token for owner X. Set OSTLER_RELEASES_TOKEN (CI) or
+        # `gh auth login --user X` (operator)." That instruction is correct for
+        # an unconfigured box and actively misleading when the truth is that
+        # `gh auth token` hung: the operator already has the credential and is
+        # sent to re-issue it.
+        #
+        # None keeps its existing, honest meaning -- no credential resolved --
+        # and this raises instead, so the two states cannot be confused.
+        raise CouldNotMeasure(
+            f"`gh auth token --user {owner}` exceeded its 10s cap and was killed. "
+            f"This says NOTHING about whether a credential exists.") from e
+    except FileNotFoundError:
+        # gh not installed. That IS "no credential available on this machine",
+        # which is what None already means, so it stays None.
         return None
     if r.returncode != 0:
         return None
@@ -1841,7 +1857,15 @@ def check_verify_build_info_sidecar_present(entry: dict, ctx: dict) -> Result:
                       entry.get("source_pr", ""))
     tag = tag_format.replace("{version}", version)
     owner = _repo_owner(source_repo)
-    token = _gh_token_for(owner)
+    try:
+        token = _gh_token_for(owner)
+    except CouldNotMeasure as e:
+        # The credential lookup itself did not complete. Distinct from "no
+        # credential", which is the None branch below, and the remedy is
+        # different: retry, do not go and re-issue a token you already have.
+        return Result(entry["id"], entry["title"], "verify_build_info_sidecar_present", "CANNOT-RUN",
+                      f"{e} This row was not evaluated either way.",
+                      entry.get("source_pr", ""))
     if token is None:
         # CANNOT-RUN, NOT A DEFECT. Saying FAIL here claims the artefact is
         # stale when all that happened is that no credential resolved.
@@ -1941,7 +1965,15 @@ def check_pinned_artefact_freshness(entry: dict, ctx: dict) -> Result:
                       f"resolving pinned version: {verr}", entry.get("source_pr", ""))
     tag = tag_format.replace("{version}", version)
     owner = _repo_owner(source_repo)
-    token = _gh_token_for(owner)
+    try:
+        token = _gh_token_for(owner)
+    except CouldNotMeasure as e:
+        # The credential lookup itself did not complete. Distinct from "no
+        # credential", which is the None branch below, and the remedy is
+        # different: retry, do not go and re-issue a token you already have.
+        return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "CANNOT-RUN",
+                      f"{e} This row was not evaluated either way.",
+                      entry.get("source_pr", ""))
     if token is None:
         # CANNOT-RUN, NOT A DEFECT. Saying FAIL here claims the artefact is
         # stale when all that happened is that no credential resolved.
@@ -2178,10 +2210,22 @@ def check_pr_branch_not_stale_vs_main(entry: dict, ctx: dict) -> Result:
                       entry.get("source_pr", ""))
 
     owner = _repo_owner(repo)
-    token = _gh_token_for(owner) or os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    try:
+        token = _gh_token_for(owner) or os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    except CouldNotMeasure as e:
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main",
+                      "CANNOT-RUN", f"{e}", entry.get("source_pr", ""))
     if not token:
-        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "FAIL",
-                      f"could not resolve gh token for owner {owner!r}",
+        # 🔴 THIS SAID FAIL WHILE ITS TWO SIBLINGS SAID "NOT EVALUATED EITHER
+        # WAY" FOR THE IDENTICAL CONDITION. A missing credential is not
+        # evidence that the branch is stale; it is evidence that nobody looked.
+        # CANNOT-RUN blocks exactly as hard, so nothing is softened -- the row
+        # simply stops accusing the branch of something it never measured.
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main",
+                      "CANNOT-RUN",
+                      f"could not resolve a gh token for owner {owner!r}, and "
+                      f"neither GH_TOKEN nor GITHUB_TOKEN is set. NOTHING was "
+                      f"measured about this branch.",
                       entry.get("source_pr", ""))
 
     pr, err = _gh_api_json(f"repos/{repo}/pulls/{pr_number}", token)
