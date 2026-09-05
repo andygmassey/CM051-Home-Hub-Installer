@@ -501,15 +501,46 @@ esac
 if [[ "$DO_RESET" -eq 1 ]]; then
     rule "RESET (uninstall + port survey; this is NOT a wipe)"
     "${SSH[@]}" 'set -u
+        _ran_uninstaller=""
         for u in ~/Applications/Ostler.app/Contents/Resources/uninstall.sh \
                  /Applications/Ostler.app/Contents/Resources/uninstall.sh \
                  ~/.ostler/uninstall.sh; do
             if [[ -x "$u" ]]; then
                 echo "running shipped uninstaller: $u"
                 OSTLER_ASSUME_YES=1 bash "$u" 2>&1 | tail -25
+                _ran_uninstaller="$u"
                 break
             fi
         done
+        # A LOOP THAT MATCHES NOTHING MUST SAY SO. It used to fall through in
+        # silence, and the run then read as "reset done" when no uninstall had
+        # happened. Measured 2026-09-05 against CM051 origin/main: install.sh
+        # writes exactly ONE uninstaller, ~/.ostler/bin/ostler-uninstall
+        # (install.sh:19984, chmod at :20395), and a repo-wide find for
+        # uninstall*.sh returns NOTHING -- so all three paths above name a file
+        # this repo never produces, on a box installed from this DMG.
+        #
+        # NOTE: NO APOSTROPHES ANYWHERE IN THIS BLOCK. The whole body is passed
+        # to ssh inside a SINGLE-QUOTED shell string, so one typed apostrophe
+        # closes it and bash -n dies at EOF. Measured: it happened writing this.
+        #
+        # DELIBERATELY NOT FIXED BY ADDING bin/ostler-uninstall TO THE LIST.
+        # The store teardown lives inside that uninstaller (docker compose
+        # down -v over qdrant_data, oxigraph_data, redis_data, wiki-docs,
+        # vane_data). Adding the real path would make the NEXT walk wipe stores
+        # that are currently the subject of an open investigation into 543
+        # absent person nodes. Whether a walk should wipe is a decision for the
+        # operator, not a side effect of making a log line honest.
+        if [[ -z "$_ran_uninstaller" ]]; then
+            echo "NO SHIPPED UNINSTALLER FOUND. This reset did NOT uninstall."
+            echo "  searched: ~/Applications/Ostler.app/Contents/Resources/uninstall.sh"
+            echo "            /Applications/Ostler.app/Contents/Resources/uninstall.sh"
+            echo "            ~/.ostler/uninstall.sh"
+            echo "  install.sh writes ~/.ostler/bin/ostler-uninstall, NOT in that list."
+            echo "  Docker volumes were NOT removed: the graph, the vectors and the compiled"
+            echo "  wiki are CARRIED OVER from the previous install. Any probe reading them is"
+            echo "  measuring history, not this artefact."
+        fi
         # Stop the container VM. A previous install leaves colima running, and
         # colima publishes the container ports through an ssh multiplexer of its
         # own -- so ALL SIX preflight ports read HELD by a process called `ssh`

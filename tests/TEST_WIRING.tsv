@@ -330,6 +330,7 @@ test_redis_health_probe_authenticates.sh	WIRED	.github/workflows/redis-health-pr
 test_region_persist_does_not_leak_a_traceback.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_repair_overmerged_contact_cards.py	WIRED	.github/workflows/contact-card-repair.yml
 test_repin_wiki_images_refuses_a_typed_sha.sh	WIRED	.github/workflows/cut-freshness.yml
+test_reset_says_when_it_did_not_uninstall.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
 test_resolver_robustness.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_resource_tier_governor.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_reuse_run_keeps_the_daily_briefs.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
