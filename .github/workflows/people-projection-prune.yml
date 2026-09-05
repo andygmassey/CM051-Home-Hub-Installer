@@ -51,8 +51,13 @@ jobs:
       # httpx is a RUNTIME dependency of pwg_ingest (it is imported at module
       # scope), so without it the import fails and every arm errors rather
       # than running. pytest is the runner.
-      - name: Install pytest and the module's runtime dependency
-        run: python -m pip install --quiet pytest httpx
+      # BOTH runtime deps, taken from vendor/ostler_fda/pyproject.toml rather
+      # than from what happens to be installed on a laptop. pwg_ingest imports
+      # httpx at module scope AND relatively imports identifier_quality, which
+      # imports nameparser. Missing either makes pytest exit 2 on COLLECTION --
+      # not a failing assertion, an unimportable module.
+      - name: Install pytest and the module's runtime dependencies
+        run: python -m pip install --quiet pytest httpx nameparser
       # THE FLOOR AND THE RUN ARE ONE STEP ON PURPOSE, copying
       # contact-card-repair.yml: a floor in a SEPARATE step would skip this
       # one when it failed, hiding the real result behind an earlier red.
@@ -63,7 +68,17 @@ jobs:
       # of inheriting it from another tool's exit convention.
       - name: A projection prunes what left the graph, and prunes nothing when blind
         run: |
-          out="$(python -m pytest tests/test_people_projection_prunes_what_left_the_graph.py -q 2>&1)"
+          # ⚠️ `|| true` ON THE ASSIGNMENT, AND IT IS THE WHOLE REASON THIS
+          # STEP IS DEBUGGABLE. Under `bash -e` a failing pytest kills the step
+          # AT THIS LINE, so `echo "$out"` never runs and the log shows the
+          # script text and an exit code and nothing else. MEASURED: the first
+          # CI run of this workflow failed on all three interpreters with
+          # "exit code 2" and ZERO diagnostic output, and the real cause (a
+          # missing nameparser, i.e. a collection error) was invisible until
+          # this was fixed. The sibling contact-card-repair.yml carries the
+          # same warning about `grep -c`; I copied its comment and not its
+          # lesson.
+          out="$(python -m pytest tests/test_people_projection_prunes_what_left_the_graph.py -q 2>&1)" || true
           echo "$out"
           # `|| n=0` on the ASSIGNMENT: grep -c prints its count AND exits 1
           # when the count is zero, which would kill the step under `bash -e`
