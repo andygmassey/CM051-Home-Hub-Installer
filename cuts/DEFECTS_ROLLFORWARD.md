@@ -5269,15 +5269,35 @@ key), so a fix that simply stops preserving anything cannot pass.
 substring probe first reported `com.ostler.ollama` as loaded -- it was matching
 `com.ostler.ollama-logrotate`.
 
-**THE MECHANISM, for the ollama half:**
+**THE MECHANISM, for the ollama half.**
+
+🔴 **THE FIRST VERSION OF THIS ROW NAMED THE WRONG CAUSE AND IT SHIPPED INTO
+THE REGISTER.** I wrote that "the CASK branch skips the else at 11951 that
+writes the plist". The cask branch is ONE LINE and closes before the plist is
+ever mentioned:
 
 ```
-install.sh:11917  OLLAMA_APP_BIN="/Applications/Ollama.app/Contents/Resources/ollama"
-install.sh:~11919 if [[ -x "$OLLAMA_APP_BIN" ]]; then    <- the CASK is already present
-                      ... cask path
-install.sh:11951  else                                   <- the ONLY branch that
-install.sh:11965      OLLAMA_PLIST=".../com.ostler.ollama.plist"    writes the agent
+11922  if [[ -x "$OLLAMA_APP_BIN" ]]; then
+11923      ok "$MSG_OK_OLLAMA_INSTALLED"      <- the ENTIRE cask branch
+11947  fi                                     <- and it CLOSES here
 ```
+
+The `else` at 11951 belongs to a **different `if`**, and this is the real one:
+
+```
+11949  if curl -s http://localhost:11434/api/tags &>/dev/null; then
+11950      ok "$MSG_OK_OLLAMA_RUNNING"        <- already serving: DO NOTHING
+11951  else
+11965      OLLAMA_PLIST=".../com.ostler.ollama.plist"   <- the ONLY creation site
+```
+
+⇒ **the LaunchAgent is written only when NOTHING answers on 11434, and that
+probe is a bare loopback curl with no ownership check.**
+
+I got the first answer by walking backwards for the nearest enclosing
+`if`/`else` WITHOUT a depth counter, so it handed me the closest block rather
+than the owning one, and I published it. The correct instrument is an
+equal-indent backwards walk with a `fi` depth counter.
 
 On the walked box:
 
@@ -5287,11 +5307,25 @@ com.ostler.ollama.plist                              ABSENT
 #OSTLER STEP_END id=ollama_install status=ok elapsed_s=0
 ```
 
-⇒ **when Ollama.app is already installed, install.sh takes the cask branch,
-skips the branch that creates the LaunchAgent, and closes the step ok in ZERO
-SECONDS.** The step is not lying about installing Ollama -- Ollama really is
-there. It is silent about what it did not do on the way past, and the manifest
-is the only thing that notices.
+⇒ **ANOTHER ACCOUNT ON THE SAME MAC WAS SERVING 11434.** install.sh asked "is
+Ollama already running?", the other account's Ollama said yes, and the branch
+that creates our LaunchAgent never ran. The step closed ok in ZERO SECONDS.
+
+**The customer-facing shape is worse than a missing file.** That install ends
+with NO LaunchAgent, so nothing starts Ollama at boot for it; it depends on a
+process owned by a different user, which disappears when that user logs out;
+and the step reports ok while saying none of it.
+
+**This is the PORT CLASS, for the fourth time in one night** -- :8000, :11434,
+:8044, and two `lsof` enumerations that read another user's socket as absence.
+It is the worst of them because it changes what gets INSTALLED, not merely what
+gets reported.
+
+FIXED, CM051 #1471: the plist path is hoisted above the branch and the guard
+becomes `curl ... && [[ -f "$OLLAMA_PLIST" ]]`, separating "is something
+serving" (whether to START) from "do we own an agent" (whether the install is
+COMPLETE). Blast radius is the defect case only: serving+plist still SKIPs,
+not-serving still CREATEs either way.
 
 11 of 39 steps closed at `elapsed_s=0` on that walk. Most are legitimately
 fast. This one provably skipped required work while reporting ok.
@@ -5308,3 +5342,201 @@ returns NOTHING -- another account owns that socket, exactly as with :8000.
 instance in one night of the same class: on a shared Mac, REACHABLE never means
 OURS, and a successful CONNECT makes the instrument look healthy while only the
 OWNER is wrong.
+### v1066-D008 -- three health probes go GREEN on another account's service, and one of them already did
+
+**D007's mirror image.** That one SKIPS an install step; these HIDE A FAILED
+INSTALL, inside the step whose entire job is to notice.
+
+```
+install.sh:28407  curl -sf localhost:6333/healthz    -> ok  else HEALTHY=false
+install.sh:28414  curl -sf localhost:7878/           -> ok  else HEALTHY=false
+install.sh:28465  curl -sf localhost:11434/api/tags  -> ok  else HEALTHY=false
+```
+
+All three are bare loopback probes with no ownership instrument. Found by TNM's
+sweep: **11 loopback probes in install.sh, 0 with an ownership instrument**
+(`lsof`/`pgrep`/`docker inspect`/`docker compose ps`/`launchctl print`) within
++/-10 lines, with a must-miss control (a comment naming localhost) scoring 0 and
+a must-match control on two lines that DO carry one returning 1 and 2.
+
+🔴 **28465 ALREADY FIRED, IN A WALK THAT WAS PUBLISHED AS PASS.** v1.0.66
+artefact walk, terminal step:
+
+```
+#OSTLER STEP_END id=health_check status=ok elapsed_s=23
+#OSTLER LOG msg=Ollama healthy
+
+walked account:  com.ostler.ollama.plist ABSENT · launchctl exact-label count 0
+                 :11434 answers 200  <- another account's ollama
+```
+
+The health check reported a component healthy for an install that does not have
+it. **The COMPLETION verdict is unaffected and stands** -- 39 steps, `DONE
+status=ok failed_steps=0`, rc=0 -- but that arm was a CANNOT-RUN wearing a PASS,
+and the walk record now carries the qualification rather than the bare green.
+
+**28407 and 28414 are HONEST BY LUCK OF THE BIND, not unverified.** Measured:
+6333 and 7878 were the walked account's OWN containers on that box, so the
+mechanism is live and we know exactly why those two did not fire. On a box where
+the other account's containers win the bind, all three go green on a dead
+install.
+
+**FIXED for 28465 only, CM051 #1471**, together with D007's create-side arm.
+
+⚠️ **DO NOT FIX ANY OF THESE WITH `lsof`.** `_port_is_our_own_forward` already
+records that "an unprivileged lsof returns no pid for a foreign-owned holder --
+so on a genuine cross-account collision this branch is never reached" (#549,
+open). An lsof-shaped ownership check returns EMPTY on precisely the collision it
+would be written for.
+
+⚠️ **AND DO NOT GATE ON `launchctl print`'s EXIT CODE.** The first version of the
+fix did, and TNM caught it. Measured on two Macs, three labels:
+
+```
+absent label            rc=113   (no state line)
+loaded but NOT running  rc=0     state = not running
+loaded AND running      rc=0     state = running
+```
+
+rc=0 covers BOTH, so a parked agent would report healthy -- the same defect
+wearing a different instrument, and the third appearance of the `launchctl load
+exits 0 on failure` family in this file, which install.sh's own note already
+documents: *"Registration is not runnability."* Parse `state = running`. It is a
+fair demand for this agent because its plist sets `KeepAlive <true/>`, the exact
+condition `_ostler_launchagent_keeps_alive()` exists to test; it would NOT be
+fair of a one-shot.
+
+🔒 **WHAT THE FIX CLOSES, AND WHAT IT DOES NOT.** It closes GREEN ON A DEAD
+INSTALL: our agent must be up. It does NOT close GREEN ON SOMEONE ELSE'S LIVE
+ONE -- `state = running` does not prove the reply on :11434 came from OUR pid,
+and attributing a listener needs #549. The narrower claim is the true one and it
+is stated in the source.
+
+**28407 and 28414 remain OPEN.** They want the `install.sh:30097` pattern --
+read the Doctor's `/api/v1/sources` artefact rather than infer from reachability
+-- which TNM identifies as the shape the other ten probes want. Not changed
+under time pressure before a cut.
+
+### v1066-D009 -- the writer's vocabulary and the reader's are both declared, and nothing links them
+
+**OPEN. Not a defect today; a structural gap that has already produced two
+defects and will produce a third.**
+
+The same writer/reader drift was found TWICE in one night, in two fields:
+
+```
+sources    CM051 install.sh writes 13    CM044 hydration.py recognised  9
+statuses   CM051 install.sh writes  5    CM044 hydration.py recognised  3
+```
+
+`cannot_run` and `timeout` fell through to "Could not tell" on the customer's
+freshness panel, for two statuses CM051 emits on purpose. `timeout` is the
+expensive one: rc 124/137 means a source was killed by its cap and moved no
+data, so it needs a re-run.
+
+**BOTH SIDES ARE NOW SELF-CHECKING, AND THAT IS NOT THE SAME AS LINKED.**
+
+```
+CM051 #1472   OSTLER_SENTINEL_STATUSES (5) and OSTLER_SENTINEL_SOURCES (13)
+              declared in install.sh, with a gate that EXECUTES all four
+              recorders (rc 1/124/137) and asserts what they actually wrote,
+              plus both directions on the sources: written-but-undeclared and
+              declared-but-never-written.
+CM044 #267    the reader's set pinned in a test, the row set derived from the
+              ingested sources rather than three hardcoded appends, and every
+              row given a machine-readable key.
+```
+
+⇒ **each copy is guarded against its own writer. Neither is guarded against the
+other.** The only thing that caught the drift on 2026-09-04 was a human diffing
+two repos member for member, as SETS not counts -- and equal counts would have
+proved nothing, which is the "agreement on an outcome is not agreement on a
+cause" trap.
+
+**WHAT IS DELIBERATELY NOT PRESCRIBED HERE.** A link needs a PIN and a
+DIRECTION: does CM044 vendor CM051's declaration, or transcribe it against a
+pinned sha, and which repo is authoritative when they disagree? Different pins
+and different cuts, and the panel work already established that a cross-repo
+RUNTIME check is the wrong shape. Those are cut decisions and are not being
+invented under time pressure.
+
+**THE FAILURE MODE TO WATCH FOR**, because it is the one a fix could reintroduce:
+a link that compares COUNTS rather than MEMBERS would have passed on the night
+this was found, twice. 13 vs 13 and 5 vs 5 were only meaningful because someone
+compared the names.
+
+⚠️ AND THE VENDORING ORDER MATTERS, measured the same night: D007 was vendored
+into CM051 (#1470) and THEN corrected upstream (#201), which left the vendored
+copy asserting a cause the register had already refuted. Only
+`scripts/sync_rollforward_registry.sh`'s AHEAD guard noticed. **Correct upstream
+BEFORE vendoring, not after.**
+
+### v1066-D010 -- a "self-removing" agent boots itself out before it deletes its plist, so it comes back on every reboot
+
+**FIXED in CM051 #1477. Found on the v1.0.66 ARTEFACT, not in the source.**
+
+Measured on the live v1.0.66 install at archie@.240, 2026-09-05, while no walk
+was running. The dedupe catch-up agent had finished its work and removed
+itself. Its label was gone from the launchd domain. Both files it is supposed
+to delete were still on disk:
+
+```
+~/Library/LaunchAgents/com.creativemachines.ostler.dedupe-catchup.plist   PRESENT
+~/.ostler/state/dedupe-catchup.tries                                      PRESENT
+launchctl print gui/502/...dedupe-catchup      rc=113 "Could not find service"
+```
+
+**DISCRIMINATED BEFORE IT WAS CALLED A DEFECT.** The plist passes
+`plutil -lint`, its internal `Label` matches its filename, it is not in
+`print-disabled`, and two SIBLING plists written by the same installer into
+the same directory answer rc=0. The siblings are the control: the launchd
+domain is reachable from that session and the probe works, so the single
+absence is real and not the apparatus. An earlier version of this probe asked
+launchd about six INVENTED label names and got six uniform rc=113 -- a uniform
+non-zero is as damning as a uniform zero, and the readable surface was the
+plist filenames on disk all along.
+
+**MECHANISM, PROVED BY EXECUTION.** `remove_self()` ran `launchctl bootout` on
+its OWN label and then `rm -f`. A 10-iteration fixture LaunchAgent on that Mac:
+
+```
+iterations              10
+reached line BEFORE     10    control: the agent ran at all
+reached line AFTER       0    subject: survived its own bootout
+```
+
+launchd tears the job down before control returns, so every statement after
+the bootout was unreachable. `install.sh:1457` already records that bootout
+returns as soon as launchd ACCEPTS the request, which is exactly what makes
+this look survivable on a reading and not be.
+
+**CUSTOMER CONSEQUENCE.** `~/Library/LaunchAgents` is read again at every
+login, so the surviving plist is re-loaded and the "self-removed" agent
+returns on every reboot for the life of the machine, with its old tries count
+restored beside it. `install.sh:20129` already states that the file is the
+half that matters; only the self-removal path had the order backwards.
+
+**SCOPE: THREE AGENTS, NOT ONE.** `remove_self()` is defined three times,
+byte-identical, at `19281`, `22195` and `25240`. All three fixed. The
+`launchctl unload "$PLIST"` fallback is DROPPED rather than reordered: it
+addresses the job by PATH and cannot work once the plist is gone, whereas
+bootout addresses it by LABEL and does not need the file.
+
+**THE GATE.** The invariant is ORDER, not presence -- both statements appear
+in the broken form and the fixed one, so grepping for either alone passes on
+both trees and proves nothing.
+`tests/test_a_self_removing_agent_deletes_its_plist_before_it_dies.sh`, 7
+limbs, must-FLAG and must-MISS controls, negative control pinned to
+`c5bfd5f8`. Five mutations, all caught; renaming the function returns
+CANNOT-RUN rather than a pass.
+
+**ONE ERROR WORTH CARRYING FORWARD.** The gate's first version graded its own
+comment block as code: the new comment names both statements, so "bootout"
+landed ahead of the real `rm` and it mis-flagged a CORRECT tree 3/3. Neither
+hand-built control caught it, because neither carries comments. A control
+simpler than the subject cannot prove the predicate survives the subject.
+
+**CLAIM BOUNDARY.** Removal ordering only; nothing about when an agent decides
+to remove itself, its retry cap, or what it does while alive. NOT verified on
+a reboot -- the resurrection follows from launchd's documented login behaviour
+plus the measured surviving plist, and the box was not power-cycled.

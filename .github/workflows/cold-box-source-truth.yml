@@ -61,6 +61,7 @@ on:
       - 'tests/test_consent_decisions_survive_a_reuse_run.sh'
       - 'tests/test_config_reader_absence_does_not_abort_the_install.sh'
       - 'tests/test_decline_does_not_wipe_an_existing_install.sh'
+      - 'tests/test_a_promote_before_the_decline_arms_is_gated.sh'
       - 'tests/test_walkaway_no_phase2_input_leak.sh'
       - 'tests/test_ttywalk_licence_preflight_is_cannot_run.sh'
       - 'scripts/ttywalk.sh'
@@ -71,6 +72,7 @@ on:
       - 'tests/test_consent_state_is_defined_before_it_is_called.sh'
       - 'tests/test_an_unmeasured_flag_must_be_read.sh'
       - 'tests/test_ollama_agent_does_not_depend_on_a_foreign_port.sh'
+      - 'tests/test_the_sentinel_vocabulary_is_declared_and_complete.sh'
       - 'tests/test_no_function_is_called_before_it_is_defined.sh'
       - 'tests/test_doctor_probe_cap_exceeds_the_command.sh'
       - 'tests/test_installed_pipeline_packages_can_import_themselves.sh'
@@ -240,6 +242,14 @@ jobs:
       - name: The Ollama agent must not depend on a foreign port
         if: always()
         run: bash tests/test_ollama_agent_does_not_depend_on_a_foreign_port.sh
+      # The same writer/reader drift was found TWICE (sources 13/9,
+      # statuses 5/3), both times by a human reading both sides. A literal
+      # grep for status= MISSES error and timeout, because the error
+      # recorder builds its status at runtime from an rc. So this EXECUTES
+      # every recorder and asserts what it actually wrote is declared.
+      - name: The sentinel vocabulary is declared and complete
+        if: always()
+        run: bash tests/test_the_sentinel_vocabulary_is_declared_and_complete.sh
 
       # THE CLASS. The step above pins ONE function; #1439 fixed that
       # instance and nothing stopped the next one. The sweep that found it
@@ -280,6 +290,13 @@ jobs:
       - name: Declining must not wipe an install that was already there
         if: always()
         run: bash tests/test_decline_does_not_wipe_an_existing_install.sh
+
+      # The SECOND lock on the same arm. #1437's guard is the primary defence and
+      # is tested by execution above; this one pins the emergent binding its own
+      # source comment warned "a later change could quietly reverse".
+      - name: A promote before the decline arms is gated on SKIP_PHASE2
+        if: always()
+        run: bash tests/test_a_promote_before_the_decline_arms_is_gated.sh
 
       - name: An absent config key must not abort the install
         if: always()
