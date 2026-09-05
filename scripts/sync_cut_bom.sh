@@ -26,7 +26,26 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SRC="${OS003_DIR:-$HOME/Documents/Projects/OS003 - Ostler Release}"
+# 🔴 THE SAME DEFAULT AS scripts/sync_rollforward_registry.sh, AND IT MUST STAY
+# THAT WAY. CM051 #1485: these two defaulted to DIFFERENT checkouts of OS003, so
+# the register sync succeeded against a file the BOM sync then reported missing,
+# seconds apart. "OS003 has no BOM for v1.0.67" actually meant "I looked
+# somewhere else", which is the worst shape a CANNOT-RUN can take.
+#
+# The old default was "$HOME/Documents/Projects/OS003 - Ostler Release", and that
+# is not merely a different path. Measured 2026-09-05:
+#
+#     ~/Developer/OS003-Ostler-Release          0 dataless   HEAD 3d51fef
+#     ~/Documents/Projects/OS003 - Ostler ...   1593 dataless (1591 in .git)
+#                                               HEAD eca2b18  -- STALE
+#
+# iCloud had evicted it. A git read against an evicted pack does not fail
+# loudly; it returns a false answer, and a recursive grep over that tree hangs
+# rather than erroring. Defaulting a cut-assembly script at it is how a BOM
+# check reports an absence that is really an eviction.
+#
+# tests/test_os003_sync_defaults_agree.sh pins the two together.
+SRC="${OS003_DIR:-$HOME/Developer/OS003-Ostler-Release}"
 VER="${1:-}"; MODE="${2:-sync}"
 RED=$'\033[31m'; GRN=$'\033[32m'; YEL=$'\033[33m'; OFF=$'\033[0m'
 [[ -n "${NO_COLOR:-}" ]] && { RED=''; GRN=''; YEL=''; OFF=''; }
