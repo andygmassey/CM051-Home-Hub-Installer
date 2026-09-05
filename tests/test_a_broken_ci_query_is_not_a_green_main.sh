@@ -50,29 +50,36 @@ echo "== refusals must refuse, and must not exit 0 =="
 # A PATH that still has the base toolchain but NOT gh. Stripping the whole PATH
 # would make the script die at 127 on some other missing binary, and the arm
 # would pass for a reason that has nothing to do with gh.
-BAREPATH="/usr/bin:/bin:/usr/sbin:/sbin"
-# Look for the binaries with a FILE TEST, not `env PATH=... command -v`.
-# `command` is a shell BUILTIN, so `env` tries to exec a program of that name;
-# macOS happens to ship /usr/bin/command and ubuntu does not, so that spelling
-# passed locally and refused on the runner FOR THE WRONG REASON. MEASURED: this
-# arm reported "CANNOT-RUN: mktemp is absent" on ubuntu-latest, where mktemp is
-# /usr/bin/mktemp and plainly present.
-_on_barepath() {
-    local _n="$1" _d
-    local _old="$IFS"; IFS=:
-    for _d in $BAREPATH; do
-        [ -x "${_d}/${_n}" ] && { IFS="$_old"; return 0; }
-    done
-    IFS="$_old"; return 1
-}
-if _on_barepath gh; then
-    echo "CANNOT-RUN: gh is present on ${BAREPATH}, so this arm cannot construct a gh-absent PATH." >&2
+# BUILD the gh-absent PATH, do not borrow one.
+#
+# MEASURED twice on the runner, two different wrong answers from the same arm:
+#   1. `env PATH=... command -v mktemp` -- `command` is a BUILTIN, so env execs
+#      a PROGRAM of that name. macOS ships /usr/bin/command, ubuntu does not,
+#      so it passed here and refused there.
+#   2. Then "gh is present on /usr/bin:/bin:/usr/sbin:/sbin". On the runner gh
+#      IS in /usr/bin, so no system directory list can exclude it.
+#
+# Borrowing a system PATH makes this arm depend on where the host happens to
+# install things. So the arm now constructs a directory containing symlinks to
+# exactly the binaries the subject needs, and deliberately NOT gh. That is the
+# same on every host, and the control below proves the farm is usable.
+GHLESS="${WORK}/ghless"; mkdir -p "$GHLESS"
+for _b in sh bash env mktemp date jq awk sort tail head grep rm cat sed cut tr printf; do
+    _p="$(command -v "$_b" 2>/dev/null)" || continue
+    [ -n "$_p" ] && ln -sf "$_p" "${GHLESS}/${_b}" 2>/dev/null
+done
+# CONTROL ON THE HARNESS: the farm must be able to run the toolchain, or a
+# refusal below proves nothing about gh.
+if ! env PATH="$GHLESS" sh -c 'mktemp -d >/dev/null 2>&1'; then
+    echo "CANNOT-RUN: the symlink farm cannot run mktemp, so a gh-absent result would not be about gh." >&2
     exit 2
 fi
-_on_barepath mktemp || {
-    echo "CANNOT-RUN: mktemp is absent from ${BAREPATH}; the arm would fail for the wrong reason." >&2
+# And gh must genuinely be absent from it, or the arm is vacuous.
+if [ -e "${GHLESS}/gh" ]; then
+    echo "CANNOT-RUN: gh leaked into the farm; this arm cannot construct a gh-absent PATH." >&2
     exit 2
-}
+fi
+BAREPATH="$GHLESS"
 rc="$(env PATH="$BAREPATH" OSTLER_RED_MAIN_DRY_RUN=1 bash "$SUBJECT" >/dev/null 2>&1; printf '%s' "$?")"
 [ "$rc" = "2" ] && ok "gh absent exits 2, not 0, and the rest of the toolchain was present so that is the reason" \
                 || bad "gh absent exits ${rc}; a check that could not run reported as if it had"
