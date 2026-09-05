@@ -59,6 +59,7 @@ on:
       # gate it complements, and watched by name so editing it re-fires the only
       # workflow that runs it.
       - 'tests/test_bundled_package_comes_from_its_declared_source.py'
+      - 'tests/test_every_script_install_sh_reads_is_bundled.py'
       - '.github/workflows/install-gui-contract.yml'
 
 permissions:
@@ -293,3 +294,27 @@ jobs:
       - name: Every terminal DONE is an exit or a guarded trap
         if: always()
         run: bash tests/test_every_terminal_done_is_exit_or_guarded.sh
+      # THE SAME CONTRACT, WALKED FROM THE OTHER END.
+      #
+      # The step above walks from the BUNDLER outward: does each bundled package
+      # come from the source its own cp line names. This one walks from the
+      # CALLER inward: for every ${OSTLER_DIR}/scripts/<file> install.sh reads,
+      # is there a cp line that puts <file> there at all. A package bundled from
+      # the wrong place and a file bundled from NOWHERE are different defects,
+      # and the step above cannot see the second.
+      #
+      # MEASURED on archie2, 2026-09-05, on a run that ended DONE status=ok:
+      #   WARN msg=Namespace migrator not found at
+      #        ~/.ostler/scripts/migrate_graph_namespace.py; skipping
+      # install.sh built that path itself and the bundle phase copied exactly
+      # one file into scripts/, so the migration has never run on any customer
+      # Mac. install.sh:24873 records that the same script previously "existed
+      # and NOTHING CALLED IT" -- adding the caller without the bundler moved
+      # the defect rather than closing it.
+      #
+      # It refuses (exit 2) if it finds zero script references, because
+      # install.sh has read that directory for dozens of versions and a zero
+      # would be a rotted pattern rather than a clean tree.
+      - name: Every script install.sh reads is bundled where it reads it
+        if: always()
+        run: python3 tests/test_every_script_install_sh_reads_is_bundled.py
