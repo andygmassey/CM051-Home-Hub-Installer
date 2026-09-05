@@ -631,6 +631,41 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
 
         fi
 
+        # 🔴 PRESERVE THE LICENCE ACROSS THE WIPE, OR THE WIPE MAKES THE BOX
+        # UNWALKABLE.
+        #
+        # MEASURED on archie, 2026-09-05, on the FIRST run where the uninstall
+        # actually worked. The licence preflight above passed -- it found 447
+        # bytes -- and then the uninstall removed the whole of ~/.ostler
+        # including the licence, and install.sh refused:
+        #
+        #     [fail] [ERR-02-LICENCE-REQUIRED] Licence check failed:
+        #            No licence file found.
+        #     STEP_BEGIN markers: 0
+        #
+        # The preflight was not wrong. It sits above --reset ON PURPOSE, so an
+        # unstartable walk is discovered before a box is torn down, and the
+        # comment beside it says so. What neither of us noticed is that the
+        # thing it checks for is destroyed by the very step it is protecting.
+        # A precondition verified before an action that invalidates it is not
+        # a precondition, it is a memory.
+        #
+        # This is a HARNESS concern and not a product one: a customer who
+        # uninstalls and reinstalls still has the licence in their email, and
+        # the installer app writes it from its own licence screen. A walk box
+        # has neither a human nor an inbox.
+        _lic="$HOME/.ostler/license/license.json"
+        _lic_bak="$HOME/.walk-licence-backup.json"
+        if [ -f "$_lic" ]; then
+            cp -p "$_lic" "$_lic_bak" 2>/dev/null \
+                && echo "licence preserved across the wipe: $(wc -c < "$_lic_bak" | tr -d " ") bytes" \
+                || { echo "CANNOT-WIPE: could not preserve the licence, and a wipe that"
+                     echo "  leaves the box unable to install is not a reset."
+                     exit 2; }
+        else
+            echo "no licence at the shipped path to preserve (install.sh:1874 reads only that one)."
+        fi
+
         # The REAL uninstaller. install.sh writes ~/.ostler/bin/ostler-uninstall
         # and the store teardown (docker compose down -v) lives inside it.
         if [ -x "$HOME/.ostler/bin/ostler-uninstall" ]; then
@@ -692,6 +727,22 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         # carried-over-from-previous-install -- a lie in the one field that
         # exists to stop a red being blamed on the wrong thing. Written only
         # AFTER the volume count is confirmed zero, so the claim is measured.
+        # RESTORE THE LICENCE, and MEASURE that it landed. A restore that
+        # silently did nothing puts the box back in the state that produced
+        # ERR-02 with no marker to explain it.
+        if [ -f "$_lic_bak" ]; then
+            mkdir -p "$(dirname "$_lic")"
+            if cp -p "$_lic_bak" "$_lic" 2>/dev/null && [ -s "$_lic" ]; then
+                echo "licence restored after the wipe: $(wc -c < "$_lic" | tr -d " ") bytes"
+                rm -f "$_lic_bak"
+            else
+                echo "CANNOT-WIPE: the licence was preserved but did not restore."
+                echo "  The backup is still at $_lic_bak. Refusing to report a"
+                echo "  clean wipe on a box that can no longer install."
+                exit 2
+            fi
+        fi
+
         printf "wiped-by-explicit-store-wipe(0 ostler_ volumes remain)\n" > ~/.walk-stores-provenance-run
     ' || die "the store wipe did not complete; refusing to walk against a half-wiped box"
 fi
