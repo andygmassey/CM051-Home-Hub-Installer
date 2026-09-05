@@ -139,9 +139,34 @@ trap cleanup EXIT
 #     fallback: OstlerInstaller.app/Contents/Resources/assistant-agent/bin/ostler-assistant
 # --------------------------------------------------------------------------
 RES="${MOUNT}/OstlerInstaller.app/Contents/Resources"
-WRAPPER_EXE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' \
-    "${RES}/Ostler.app/Contents/Info.plist" 2>/dev/null || true)"
-[[ -n "${WRAPPER_EXE}" ]] || die "Ostler.app declares no CFBundleExecutable (Info.plist missing or unreadable)"
+# PLISTBUDDY WRITES ITS ERROR TO STDOUT, SO `-n` IS NOT A GUARD.
+#
+# On a missing or unreadable plist PlistBuddy prints, to STDOUT:
+#
+#     File Doesn't Exist, Will Create: /path/to/Info.plist
+#
+# `2>/dev/null` cannot suppress that, `|| true` discards the exit code, and the
+# string is NON-EMPTY -- so the old `[[ -n ... ]]` check passed, the error text
+# became the executable NAME, and the gate died three lines later with
+# "wrapper binary not found in DMG payload". It named the wrong subject: the
+# wrapper was fine and the PLIST was unreadable. The die() written for exactly
+# that case was unreachable.
+#
+# This is the class CM051 #1500 fixed, and #1500 only ever touched install.sh.
+# ttywalk.sh:346 already does it correctly by validating the SHAPE of what came
+# back; this now does both -- take the exit code, then check the shape.
+#
+# A CFBundleExecutable is a bare file name. It cannot contain a space, a colon
+# or a slash, which is what makes the shape check able to reject the sentence.
+_WRAPPER_PLIST="${RES}/Ostler.app/Contents/Info.plist"
+WRAPPER_EXE=""
+if [[ -f "${_WRAPPER_PLIST}" ]]; then
+    if _pb_out="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "${_WRAPPER_PLIST}" 2>/dev/null)"; then
+        WRAPPER_EXE="$(printf '%s' "${_pb_out}" | tr -d '[:space:]')"
+    fi
+fi
+[[ "${WRAPPER_EXE}" =~ ^[A-Za-z0-9._-]+$ ]] \
+    || die "Ostler.app declares no usable CFBundleExecutable (Info.plist missing, unreadable, or the key absent) at ${_WRAPPER_PLIST#${MOUNT}/}"
 WRAPPER="${RES}/Ostler.app/Contents/MacOS/${WRAPPER_EXE}"
 DAEMON="${RES}/assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
 if [[ ! -e "${DAEMON}" ]]; then
