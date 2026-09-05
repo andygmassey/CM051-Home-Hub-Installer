@@ -7,9 +7,33 @@
 # the customer ran stale code while the source tree looked correct.
 #
 # This guard fails if any bundled package under vendor/ also exists as a
-# top-level directory with the same name AND a shared file diverges. The
-# shipping copy is vendor/; a top-level twin that drifts from it is the
-# exact trap. Either there is no twin, or the twin is byte-identical.
+# top-level directory with the same name AND a shared file diverges. Either
+# there is no twin, or the twin is byte-identical.
+#
+# 🔴 THE ORIGINAL LOOP COULD NEVER FIND A TWIN ON THIS TREE, AND SAID SO AS
+# "clean". It iterated `vendor/*/` and took the basename as the package name.
+# Measured 2026-09-05: all 21 entries under vendor/ are REPO names -- cm041,
+# email_source, ostler_fda -- and never package names. The packages sit one
+# level deeper, at vendor/<repo>/<pkg>. `checked=0` was structural, so this
+# guard had never compared a single file, and its zero printed identically to
+# a real one. The pair it was blind to is
+# vendor/cm041/contact_syncer <-> ./contact_syncer, FOURTEEN divergent modules.
+#
+# Two traps in looking one level deeper, both hit while measuring:
+#
+#   * A naive descent manufactures 16 spurious pairs, because `vendor/*/tests`
+#     and `vendor/*/bin` collide by basename with ./tests and ./bin. Requiring
+#     __init__.py on BOTH sides rejects all 16 and keeps the 1 real package.
+#   * WHICH COPY SHIPS IS NOT A CONSTANT. This file used to assert "the
+#     shipping copy is vendor/". For contact_syncer that is INVERTED:
+#     install.sh copies ${SCRIPT_DIR}/contact_syncer, the ROOT copy, into the
+#     import pipeline. A guard that names the wrong file as authoritative sends
+#     the reader to fix the copy nobody runs, so this one no longer guesses.
+#
+# The known drift is recorded in tests/VENDOR_TWIN_DRIFT.tsv as debt with a
+# number on it, the same idiom as the UNWIRED rows in TEST_WIRING.tsv: green on
+# today's tree, red the moment the drift GROWS or a new pair appears.
+# Regenerate with --regenerate after a deliberate re-vendor.
 #
 # Network-free, dependency-free. Wire into CI on vendor/** changes.
 
@@ -88,7 +112,8 @@ for vdir in vendor/*/; do
     while IFS= read -r hit; do
         [ -n "$hit" ] || continue
         echo "FAIL: ${hit}" >&2
-        echo "      The shipping copy is vendor/. A drifting top-level twin ships stale code." >&2
+        echo "      These two must be byte-identical. Determine which copy actually" >&2
+        echo "      ships before picking a winner -- it is not always vendor/." >&2
         divergences=$((divergences + 1))
     done < <(_compare_twin "${vdir%/}" "$twin" "vendor/$pkg")
 done
@@ -99,8 +124,103 @@ if [ "$divergences" -gt 0 ]; then
 fi
 
 if [ "$checked" -eq 0 ]; then
-    echo "no top-level twins of any vendored package: clean (the disease cannot recur via a drifting twin)"
+    echo "shallow walk (vendor/<pkg>): 0 twins -- expected on this tree, every vendor/ entry is a REPO name"
 else
-    echo "$checked vendored package(s) have a top-level twin; all shared files byte-identical"
+    echo "shallow walk (vendor/<pkg>): $checked package(s) have a top-level twin; all shared files byte-identical"
 fi
+
+# ---------------------------------------------------------------------------
+# DEEP WALK: vendor/<repo>/<pkg> <-> ./<pkg>
+#
+# A candidate is a PACKAGE twin only if __init__.py is present on BOTH sides.
+# Without that discriminator this walk reports vendor/cm041/tests <-> ./tests
+# and fourteen other basename collisions that are not packages at all.
+# ---------------------------------------------------------------------------
+LEDGER="tests/VENDOR_TWIN_DRIFT.tsv"
+computed="$(mktemp)" || { echo "CANNOT-RUN: mktemp failed for the drift ledger" >&2; exit 2; }
+trap 'rm -f "$computed"' EXIT
+
+deep_candidates=0
+deep_pairs=0
+deep_files=0
+
+for vdir in vendor/*/*/; do
+    pkg="$(basename "${vdir%/}")"
+    [ -d "$pkg" ] || continue
+    deep_candidates=$((deep_candidates + 1))
+    # THE DISCRIMINATOR. Both sides must be importable packages.
+    [ -f "${vdir}__init__.py" ] || continue
+    [ -f "${pkg}/__init__.py" ] || continue
+    deep_pairs=$((deep_pairs + 1))
+    while IFS= read -r rel; do
+        if [ -f "${vdir}${rel}" ] && [ -f "${pkg}/${rel}" ]; then
+            deep_files=$((deep_files + 1))
+        fi
+    done < <(cd "$vdir" && find . -type f | sed 's|^\./||')
+    # THE SELFTESTED COMPARATOR, NOT A SECOND COPY OF IT. _selftest above
+    # proves _compare_twin can both flag a seeded divergence and stay silent on
+    # an identical pair. A private diff here would be an uncontrolled second
+    # implementation of the one thing this file is for.
+    n="$(_compare_twin "${vdir%/}" "$pkg" "vendor-deep" | /usr/bin/grep -c . || :)"
+    n="${n:-0}"
+    printf '%s\t%s\t%s\n' "${vdir%/}" "./$pkg" "$n" >> "$computed"
+done
+
+# PIN THE ORDER. A glob pins none, and LC_COLLATE decides what `sort` means, so
+# a diff against the ledger would flap between hosts without LC_ALL=C.
+sorted="$(mktemp)" || { echo "CANNOT-RUN: mktemp failed for the sorted ledger" >&2; exit 2; }
+trap 'rm -f "$computed" "$sorted"' EXIT
+LC_ALL=C sort "$computed" > "$sorted"
+
+if [ "${1:-}" = "--regenerate" ]; then
+    {
+        echo "# VENDOR_TWIN_DRIFT.tsv -- package twins that exist, and how far apart they are."
+        echo "#"
+        echo "# Generated by tests/test_no_divergent_vendor_twin.sh --regenerate."
+        echo "#"
+        echo "# A row here is DEBT, not a blessing. The guard fails the moment a count"
+        echo "# GROWS, a new pair appears, or a pair disappears without this file being"
+        echo "# regenerated -- so the number cannot become wallpaper."
+        echo "#"
+        echo "# Zero rows is the goal. Reaching it means deciding which copy ships and"
+        echo "# re-vendoring the other, which is a decision and not a diff."
+        echo "#"
+        echo "# columns: vendored_path<TAB>root_twin<TAB>divergent_shared_files"
+        cat "$sorted"
+    } > "$LEDGER"
+    echo "wrote $LEDGER"
+    echo "  $deep_pairs package twin(s), $deep_files shared file(s) compared"
+    exit 0
+fi
+
+if [ ! -f "$LEDGER" ]; then
+    echo "CANNOT-RUN: $LEDGER is missing. The deep walk found $deep_pairs package twin(s)" >&2
+    echo "            and has nothing to compare them against. Run --regenerate." >&2
+    exit 2
+fi
+
+recorded="$(mktemp)" || { echo "CANNOT-RUN: mktemp failed for the recorded ledger" >&2; exit 2; }
+trap 'rm -f "$computed" "$sorted" "$recorded"' EXIT
+/usr/bin/grep -v '^#' "$LEDGER" | /usr/bin/grep -v '^[[:space:]]*$' | LC_ALL=C sort > "$recorded" || :
+
+echo "deep walk (vendor/<repo>/<pkg>): $deep_candidates basename candidate(s), $deep_pairs of them real packages, $deep_files shared file(s) compared"
+
+if ! diff -u "$recorded" "$sorted" > /dev/null 2>&1; then
+    echo "FAIL: the package-twin drift does not match $LEDGER." >&2
+    echo "      -- is the recorded debt, ++ is what the tree has now:" >&2
+    diff -u "$recorded" "$sorted" | sed -n '4,$p' | sed 's/^/      /' >&2
+    echo "      A count that GREW is new drift: fix it, do not re-record it." >&2
+    echo "      A count that SHRANK or a pair that vanished is good news that still" >&2
+    echo "      needs --regenerate, so the recorded number stays honest." >&2
+    exit 1
+fi
+
+if [ "$deep_pairs" -gt 0 ]; then
+    echo "deep walk: $deep_pairs package twin(s), drift matches $LEDGER exactly"
+    while IFS="$(printf '\t')" read -r vp rp cnt; do
+        [ -n "${vp:-}" ] || continue
+        [ "$cnt" -gt 0 ] && echo "  RECORDED DEBT: $vp <-> $rp, $cnt divergent shared file(s)"
+    done < "$recorded"
+fi
+
 echo "divergent-vendor-twin guard: PASS"
