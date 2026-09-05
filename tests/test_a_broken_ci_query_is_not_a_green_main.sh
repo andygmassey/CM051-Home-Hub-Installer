@@ -51,11 +51,25 @@ echo "== refusals must refuse, and must not exit 0 =="
 # would make the script die at 127 on some other missing binary, and the arm
 # would pass for a reason that has nothing to do with gh.
 BAREPATH="/usr/bin:/bin:/usr/sbin:/sbin"
-if env PATH="$BAREPATH" command -v gh >/dev/null 2>&1; then
+# Look for the binaries with a FILE TEST, not `env PATH=... command -v`.
+# `command` is a shell BUILTIN, so `env` tries to exec a program of that name;
+# macOS happens to ship /usr/bin/command and ubuntu does not, so that spelling
+# passed locally and refused on the runner FOR THE WRONG REASON. MEASURED: this
+# arm reported "CANNOT-RUN: mktemp is absent" on ubuntu-latest, where mktemp is
+# /usr/bin/mktemp and plainly present.
+_on_barepath() {
+    local _n="$1" _d
+    local _old="$IFS"; IFS=:
+    for _d in $BAREPATH; do
+        [ -x "${_d}/${_n}" ] && { IFS="$_old"; return 0; }
+    done
+    IFS="$_old"; return 1
+}
+if _on_barepath gh; then
     echo "CANNOT-RUN: gh is present on ${BAREPATH}, so this arm cannot construct a gh-absent PATH." >&2
     exit 2
 fi
-env PATH="$BAREPATH" command -v mktemp >/dev/null 2>&1 || {
+_on_barepath mktemp || {
     echo "CANNOT-RUN: mktemp is absent from ${BAREPATH}; the arm would fail for the wrong reason." >&2
     exit 2
 }
