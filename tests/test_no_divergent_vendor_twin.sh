@@ -38,6 +38,15 @@
 # today's tree, red the moment the drift GROWS or a new pair appears.
 # Regenerate with --regenerate after a deliberate re-vendor.
 #
+# WHAT THIS FILE DOES NOT COVER. It walks the tree and finds pairs that live
+# entirely inside this repo. CROSS-REPO pairs -- a copy in ostler-assistant
+# against a copy vendored here -- are DECLARED rather than discovered, in
+# tests/vendor_pair_registry.tsv, and graded by tests/test_vendor_pair_drift.py.
+# That gate prints "N pair(s) declared" rather than claiming completeness, which
+# is the right wording and the reason the two mechanisms can coexist without
+# either implying the other. A reader who checks only one has seen half the
+# twins.
+#
 # Network-free, dependency-free. Wire into CI on vendor/** changes.
 
 set -euo pipefail

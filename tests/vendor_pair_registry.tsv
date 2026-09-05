@@ -9,6 +9,22 @@
 # belief that the other two are checked. So the pairs are declared here, the gate
 # enumerates THIS FILE, and it prints the denominator on every run.
 #
+# WHAT THIS REGISTRY DOES NOT COVER, said here because the header above warns
+# that a gate watching one of three pairs "licenses the belief that the other two
+# are checked" -- and the same trap applies between two DIFFERENT mechanisms.
+#
+# Every pair declared here is CROSS-REPO: a copy in ostler-assistant against a
+# copy vendored into CM051. Pairs that live entirely INSIDE this repo -- a
+# top-level ./<pkg> beside vendor/<repo>/<pkg> -- are found by walking the tree,
+# not by declaration, and are handled by tests/test_no_divergent_vendor_twin.sh
+# with its debt recorded in tests/VENDOR_TWIN_DRIFT.tsv.
+#
+# Measured 2026-09-05: this registry declares 3 pairs and names contact_syncer
+# ZERO times, while the intra-repo walk finds vendor/cm041/contact_syncer against
+# ./contact_syncer with 15 divergent tracked files. Neither mechanism is wrong
+# and neither is a superset of the other. A reader who checks only one has seen
+# half the twins in this repository.
+
 # THE MISTAKE THIS FILE ALREADY MADE ONCE -- do not repeat it.
 #
 # The first version of this registry declared the executing tick as
