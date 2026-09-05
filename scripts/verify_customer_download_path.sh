@@ -200,8 +200,15 @@ fi
 if command -v hdiutil >/dev/null 2>&1; then
     mnt="$(mktemp -d)"
     if hdiutil attach -nobrowse -readonly -mountpoint "${mnt}" "${tmp}" >/dev/null 2>&1; then
+        # PlistBuddy writes its failure to STDOUT, so the -z check below passed
+        # on the failure message and the script went on to print it as
+        # "served version". Validate the shape; a version is digits and dots.
         got="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
                "${mnt}"/*.app/Contents/Info.plist 2>/dev/null || true)"
+        got="$(printf '%s' "${got}" | tr -d '[:space:]')"
+        case "${got}" in
+            ''|*[!0-9.]*) got="" ;;
+        esac
         hdiutil detach "${mnt}" >/dev/null 2>&1 || true
         rmdir "${mnt}" 2>/dev/null || true
         if [ -z "${got}" ]; then

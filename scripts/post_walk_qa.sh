@@ -360,6 +360,26 @@ if [[ -n "$CUT_VERSION" ]]; then
             | tr -d '[:space:]')"
     fi
 
+    # A VERSION IS A SHAPE, NOT MERELY A NON-EMPTY STRING.
+    #
+    # PlistBuddy writes its failure to STDOUT, so `2>/dev/null` cannot suppress
+    # it and the message survives `tr -d '[:space:]'` as one long token. It is
+    # NON-EMPTY, so the -z check below passed and the string travelled on as a
+    # version.
+    #
+    # With a CUT_VERSION argument that fails closed: the comparison mismatches
+    # and the script refuses at exit 3. WITHOUT one -- which this script
+    # explicitly invites, "or with no version argument at all and let it be
+    # measured" -- the elif below records it as
+    # version_source=measured(CFBundleShortVersionString), which is the one
+    # thing that field exists to promise.
+    #
+    # Same fix as ttywalk.sh:346 and CM051 #1500/#1524: validate the shape.
+    if [[ -n "$INSTALLED_VERSION" && ! "$INSTALLED_VERSION" =~ ^v?[0-9]+(\.[0-9]+)*$ ]]; then
+        echo "  ⚠️  the box returned something that is not a version; discarding it." >&2
+        INSTALLED_VERSION=""
+    fi
+
     if [[ -z "$INSTALLED_VERSION" ]]; then
         VERSION_SOURCE="asserted-unverifiable(no Ostler.app on box)"
         RECORDED_VERSION="$CUT_VERSION"
