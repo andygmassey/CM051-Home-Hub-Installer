@@ -29590,7 +29590,14 @@ _probe_http_live() {
         # BUT the `|| true` IS required: curl's non-zero exit on a down port
         # would otherwise trip the ERR trap and abort the whole install at the
         # first not-yet-listening service. A health probe must never abort.
-        _code=$(curl -s -o /dev/null -m 3 -w '%{http_code}' "$_url" 2>/dev/null || true)
+        # --noproxy: EVERY caller of this helper probes 127.0.0.1, and a
+        # customer with HTTP_PROXY set would otherwise have these requests
+        # answered by their proxy instead of by the service. That is not
+        # hypothetical and it fails in the REASSURING direction: measured on a
+        # dev Mac 2026-09-05, Privoxy on 127.0.0.1:8118 answered a loopback
+        # request with 503 -- and 503 is inside the 1xx-5xx range below, so the
+        # helper would have reported a dead service as LISTENING.
+        _code=$(curl -s -o /dev/null -m 3 --noproxy '*' -w '%{http_code}' "$_url" 2>/dev/null || true)
         [[ "$_code" =~ ^[1-5][0-9][0-9]$ ]] && return 0
         _i=$((_i + 1))
         [[ $_i -lt $_attempts ]] && sleep 1

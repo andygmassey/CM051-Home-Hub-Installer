@@ -98,6 +98,8 @@ on:
       - 'tests/test_the_wiki_port_demands_a_credential.sh'
       # #1594 follow-on: the readiness poll must survive the credential.
       - 'tests/test_the_wiki_health_check_survives_the_credential.sh'
+      # Same class: a loopback probe answered by a customer's proxy.
+      - 'tests/test_a_loopback_probe_must_not_ask_a_proxy.sh'
       # #1498's two aborts are in that same preflight, and the test that
       # shipped WITH #1498 passes on the pre-fix tree. This one does not.
       - 'tests/test_the_port_preflight_aborts_carry_distinct_support_codes.sh'
@@ -175,6 +177,12 @@ jobs:
         if: always()
         run: bash tests/test_the_wiki_health_check_survives_the_credential.sh
 
+      # The shared liveness helper probes five loopback URLs; a customer's
+      # proxy must not be the thing that answers them.
+      - name: Assert a loopback probe is not answered by a proxy
+        if: always()
+        run: bash tests/test_a_loopback_probe_must_not_ask_a_proxy.sh
+
       # #1498 gave the two port-preflight aborts DISTINCT support codes, and
       # shipped without a gate that could see it: the test above returns
       # 16 pass / 0 fail against the pre-fix tree at 03b50c6b. WIRED IS NOT
@@ -214,6 +222,7 @@ jobs:
           bash -n tests/test_port_preflight_recognises_own_colima_567.sh
           bash -n tests/test_the_wiki_port_demands_a_credential.sh
           bash -n tests/test_the_wiki_health_check_survives_the_credential.sh
+          bash -n tests/test_a_loopback_probe_must_not_ask_a_proxy.sh
           bash -n tests/test_sudo_gate_accepts_passwordless_sudo.sh
           bash -n install.sh
           bash -n install.sh.strings.en-GB.sh
