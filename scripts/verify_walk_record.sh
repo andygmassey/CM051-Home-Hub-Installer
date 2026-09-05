@@ -48,6 +48,10 @@
 
 set -uo pipefail
 
+# Declared split between probes that can refuse a promote and probes that only
+# report. Fail-closed: if this file is missing, every non-pass is blocking.
+SCOPE_FILE="${OSTLER_PROMOTE_SCOPE:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/walk_promote_scope.tsv}"
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WALK_DIR="${OSTLER_WALK_RECORD_DIR:-${REPO_ROOT}/walks}"
 VERSION="${1:-}"
@@ -347,19 +351,108 @@ MSG
 esac
 fi
 
+# ── SCOPED PROMOTE (Andy's decision, 2026-09-05) ─────────────────────────────
+#
+# A non-CLEAN record no longer refuses unconditionally. It refuses if any probe
+# that can describe THIS ARTEFACT is not passing. Probes that describe the box,
+# the customer's data, another repository, or a design position are printed and
+# signed off instead. The split is declared, not derived:
+# scripts/walk_promote_scope.tsv.
+#
+# EVERY REFUSAL BELOW IS FAIL-CLOSED. Missing scope file, unparseable row,
+# unknown probe, or an incomplete list of failures all refuse. The only path to
+# exit 0 is: every named non-pass is explicitly declared advisory.
+_scope_of() {
+    awk -F'\t' -v want="$1" '!/^#/ && NF==4 && $1!="probe" && $1==want {print $2; found=1}
+                              END{ if(!found) print "UNDECLARED" }' "$SCOPE_FILE"
+}
+
+_adjudicate_scoped() {
+    local kind="$1"; shift
+    local blocking=() advisory=() undeclared=() p sc
+
+    # THE LIST MUST BE COMPLETE. "6 of 8" means two failures are unnamed, and an
+    # unnamed failure cannot be checked against the scope. That is CANNOT-RUN.
+    local rec_complete; rec_complete="$(field failed_probe_names_recorded)"
+    if [[ -n "$rec_complete" ]]; then
+        local got want
+        got="${rec_complete%% of *}"; want="${rec_complete##* of }"
+        if [[ "$got" != "$want" ]]; then
+            echo "[walk-gate] REFUSED: ${RECORD} names ${rec_complete} failed probes." >&2
+            echo "            An unnamed failure cannot be checked against the promote scope." >&2
+            echo "            CANNOT-RUN, not a pass." >&2
+            exit 2
+        fi
+    elif [[ "$N_FAIL" -gt 0 ]]; then
+        echo "[walk-gate] REFUSED: ${RECORD} reports fail=${N_FAIL} but carries no" >&2
+        echo "            failed_probe_names_recorded field, so WHICH probes failed is unknown." >&2
+        exit 2
+    fi
+
+    for p in "$@"; do
+        sc="$(_scope_of "$p")"
+        case "$sc" in
+            blocking)   blocking+=("$p") ;;
+            advisory)   advisory+=("$p") ;;
+            *)          undeclared+=("$p") ;;
+        esac
+    done
+
+    # An undeclared probe is BLOCKING. A new probe cannot become advisory by
+    # nobody writing its row.
+    if [[ ${#undeclared[@]} -gt 0 ]]; then
+        echo "[walk-gate] REFUSED: ${#undeclared[@]} non-passing probe(s) are not declared in" >&2
+        echo "            ${SCOPE_FILE}:" >&2
+        for p in "${undeclared[@]}"; do echo "              - ${p}" >&2; done
+        echo "            An undeclared probe is treated as BLOCKING. Declare it, with a reason." >&2
+        exit 2
+    fi
+
+    if [[ ${#blocking[@]} -gt 0 ]]; then
+        echo "[walk-gate] REFUSED: ${#blocking[@]} ARTEFACT-OWNED probe(s) did not pass (${kind}):" >&2
+        for p in "${blocking[@]}"; do echo "              - ${p}" >&2; done
+        echo "            These describe the DMG about to be handed to a customer." >&2
+        exit 1
+    fi
+
+    # Printed on the PASS path deliberately: an advisory red that nobody reads is
+    # the failure mode this scoping could introduce.
+    if [[ ${#advisory[@]} -gt 0 ]]; then
+        echo "[walk-gate] ADVISORY, NOT BLOCKING -- ${#advisory[@]} probe(s), READ THEM:"
+        for p in "${advisory[@]}"; do
+            echo "              - ${p}  [owner: $(awk -F'\t' -v w="$p" '!/^#/ && NF==4 && $1==w{print $3}' "$SCOPE_FILE")]"
+        done
+        echo "            Each is a real red about the box, the data, another repo, or a"
+        echo "            design position. None of them describes this DMG."
+    fi
+}
+
 case "$VERDICT" in
     CLEAN)
         echo "[walk-gate] OK: ${VERSION} walked clean on $(field walked_at) -- pass=${N_PASS} fail=0 cannot_run=0 broken=0"
         exit 0
         ;;
-    FAILED)
-        echo "[walk-gate] REFUSED: the ${VERSION} walk FAILED (fail=${N_FAIL}). Real defects were measured on a real box." >&2
-        exit 1
-        ;;
-    PARTIAL)
-        echo "[walk-gate] REFUSED: the ${VERSION} walk was PARTIAL -- cannot_run=${N_CANNOT} broken=${N_BROKEN}." >&2
-        echo "            Coverage was lost. Coverage lost is not coverage passed." >&2
-        exit 2
+    FAILED|PARTIAL)
+        if [[ ! -r "$SCOPE_FILE" ]]; then
+            echo "[walk-gate] REFUSED: the ${VERSION} walk was ${VERDICT} and ${SCOPE_FILE}" >&2
+            echo "            is unreadable, so which probes describe the artefact is unknown." >&2
+            echo "            Without it every non-pass is blocking. CANNOT-RUN." >&2
+            exit 2
+        fi
+        _NONPASS=()
+        while IFS= read -r _p; do [[ -n "$_p" ]] && _NONPASS+=("$_p"); done < <(
+            awk -F'\t' '$1=="failed_probe" || $1=="not_measured_probe" {print $2}' "$RECORD"
+        )
+        if [[ ${#_NONPASS[@]} -eq 0 ]]; then
+            echo "[walk-gate] REFUSED: ${RECORD} says ${VERDICT} but names no failing or" >&2
+            echo "            not-measured probe. A verdict with no subject cannot be scoped." >&2
+            exit 2
+        fi
+        _adjudicate_scoped "$VERDICT" "${_NONPASS[@]}"
+        echo "[walk-gate] OK: ${VERSION} -- every ARTEFACT-OWNED probe passed."
+        echo "            Record verdict stays ${VERDICT} (pass=${N_PASS} fail=${N_FAIL} cannot_run=${N_CANNOT} broken=${N_BROKEN});"
+        echo "            the scoreboard is unchanged and the advisory reds above are unclosed."
+        exit 0
         ;;
     *)
         echo "[walk-gate] REFUSED: unknown verdict '${VERDICT}' in ${RECORD}." >&2
