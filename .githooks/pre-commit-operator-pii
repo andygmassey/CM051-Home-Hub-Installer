@@ -51,6 +51,28 @@ fi
 STAGE_DIR="$(mktemp -d -t operator-pii-XXXXXX)"
 trap 'rm -rf "$STAGE_DIR"' EXIT
 
+# ⚠️ ASK THE QUESTION CI ASKS, NOT A STRICTER ONE (#1610).
+#
+# This loop used to stage every file's WHOLE staged blob, so a modified file
+# was scanned in full. CI does not do that: it sets BASE_REF and narrows
+# MODIFIED files to their ADDED LINES, keeping whole-file scanning for
+# added/renamed/copied (where all the content is new at that path, so a
+# rename cannot smuggle a file of PII to a new location).
+#
+# MEASURED 2026-09-05: origin/main's own install.sh, unmodified, fails the
+# whole-file scan on /Users/ and /home/ shapes that have been on main for
+# months. So this hook was red for EVERY commit touching install.sh, and the
+# only way past it is --no-verify, which also disables check-rule-09-strings
+# and the assistant-name check. A gate you can only satisfy by switching off
+# the other gates teaches the habit of switching off the other gates.
+#
+# That is the same defect the scanner's own header records from #587 and says
+# it removed for PRs -- it just never reached this path, because the hook
+# hands the scanner PATH ARGUMENTS and that takes the whole-file branch.
+#
+# The sed below is copied from the scanner's BASE_REF branch deliberately,
+# character for character, so the two instruments cannot drift into
+# disagreeing about what "an added line" means.
 COUNT=0
 while IFS= read -r path; do
     [ -z "$path" ] && continue
@@ -62,6 +84,22 @@ while IFS= read -r path; do
     else
         # Submodule / symlink / etc that git show can't materialise.
         rm -f "$dest"
+        continue
+    fi
+    # For a MODIFIED file, replace that whole blob with just its added lines.
+    # Added / copied / renamed keep the full blob written above.
+    if git diff --cached --name-only --diff-filter=M -- "$path" | grep -qx -- "$path"; then
+        added="$(git diff --cached -U0 -- "$path" \
+                 | sed -n 's/^+\([^+].*\)$/\1/p; s/^+$//p')"
+        if [ -n "$added" ]; then
+            printf '%s\n' "$added" > "$dest"
+        else
+            # Nothing added: a pure deletion or mode change. There is nothing
+            # new to accuse, and scanning the old content would accuse the
+            # tree rather than the commit.
+            rm -f "$dest"
+            COUNT=$((COUNT - 1))
+        fi
     fi
 done <<< "$STAGED_FILES"
 
