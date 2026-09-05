@@ -28,6 +28,7 @@ on:
   pull_request:
     paths:
       - 'scripts/ttywalk.sh'
+      - 'tests/test_a_walk_can_ask_for_a_fresh_graph.sh'
       - 'tests/test_reset_says_when_it_did_not_uninstall.sh'
       - '.github/workflows/reset-uninstall-honesty.yml'
   push:
@@ -67,3 +68,10 @@ jobs:
       # deleting the announcement (rc=1).
       - name: A reset that skipped the uninstall announces it
         run: bash tests/test_reset_says_when_it_did_not_uninstall.sh
+
+      # --wipe-stores is the ONLY way a walk can hold the box state still.
+      # `if: always()` so an earlier red does not delete this measurement.
+      - name: A walk can ask for a fresh graph, and the wipe proves itself
+        if: always()
+        run: /bin/bash tests/test_a_walk_can_ask_for_a_fresh_graph.sh
+

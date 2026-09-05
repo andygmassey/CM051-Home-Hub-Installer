@@ -40,6 +40,12 @@
 # USAGE
 #   scripts/ttywalk.sh --host andy@192.168.1.238 --expect-name "Andrew's Mac mini"
 #   scripts/ttywalk.sh --host ... --expect-name ... --reset      # uninstall first
+#   scripts/ttywalk.sh --host ... --reset --wipe-stores          # AND wipe the stores
+#
+#   --wipe-stores DESTROYS the graph, the vectors, the cached wiki and redis.
+#   It dumps the graph to the box first and REFUSES to continue if it cannot
+#   prove the volumes actually went. Requires --reset. See the block below for
+#   why a plain --reset deliberately does not do this.
 #   scripts/ttywalk.sh --host ... --expect-name ... --report-only # read last run
 #
 # EXIT CODES, and they are three not two:
@@ -58,6 +64,7 @@ HOST=""
 EXPECT_NAME=""
 EXPECT_MODEL=""
 DO_RESET=0
+WIPE_STORES=0
 REPORT_ONLY=0
 STAGE_ONLY=0
 
@@ -71,6 +78,7 @@ while [[ $# -gt 0 ]]; do
         --expect-name)  EXPECT_NAME="${2:-}"; shift 2 ;;
         --expect-model) EXPECT_MODEL="${2:-}"; shift 2 ;;
         --reset)        DO_RESET=1; shift ;;
+        --wipe-stores)  WIPE_STORES=1; shift ;;
         --report-only)  REPORT_ONLY=1; shift ;;
         --stage-only)   STAGE_ONLY=1; shift ;;
         --from-dmg)     FROM_DMG="${2:-}"; shift 2 ;;
@@ -80,6 +88,16 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$HOST" ]] || die "--host is required (user@host)"
+
+# ARGUMENT-TIME, NOT SSH-TIME. Placed here deliberately: the first draft sat
+# beside the wipe block, so `--wipe-stores` without `--reset` died on the ssh
+# reachability probe instead, reporting "cannot reach <host>" for a usage error
+# that has nothing to do with the network. A CANNOT-RUN with the wrong REASON
+# is barely better than a wrong verdict: it sends the next person to the wrong
+# problem.
+if [[ "$WIPE_STORES" -eq 1 && "$DO_RESET" -ne 1 ]]; then
+    die "--wipe-stores requires --reset. Wiping the stores without running the uninstall path first would leave a half-torn install that no probe describes."
+fi
 
 SSH=(ssh -o ConnectTimeout=10 -o BatchMode=yes "$HOST")
 
@@ -498,6 +516,97 @@ esac
 # part of what we are testing, and then reports what is still holding a port.
 # Anything that genuinely needs a virgin box is CANNOT-RUN here and must be
 # said so out loud rather than approximated.
+# ── Wipe the stores, ONLY when explicitly asked ──────────────────────
+#
+# WHY THIS EXISTS, AND IT IS THE ANSWER TO "WHY CAN WE NOT GET A CLEAN 24".
+# MEASURED on the v1.0.68 artefact walk, archie@.240, 2026-09-05:
+#
+#     store volumes created        2026-09-05T02:53:08Z
+#     v1.0.68 installed at         2026-09-05T07:42:12Z   -- 4.8h LATER
+#     oldest node in the graph     2026-09-05T03:10:26Z   -- v1.0.67 data
+#
+# A plain --reset is not a wipe and says so. So the v1.0.68 walk graded a graph
+# that v1.0.67 had built. Two probes then failed on damage that predates the
+# artefact under test: no_person_holds_two_contact_cards (54 people holding two
+# contact cards) and people_stores_reconcile (13 orphan vectors). NO CHANGE TO
+# THE ARTEFACT CAN TURN THOSE GREEN, because the walk never rebuilds the data.
+#
+# A WALK VERDICT IS A FUNCTION OF THE BUILD *AND* THE BOX STATE, and only the
+# build is recorded. This flag is how an operator holds the second variable
+# still, so a red means the artefact and not the history.
+#
+# IT IS OPT-IN AND IT STAYS OPT-IN. The default reset must keep working on a
+# box whose accumulated data is the subject of an investigation.
+if [[ "$WIPE_STORES" -eq 1 ]]; then
+    rule "WIPE STORES (destructive, explicitly requested)"
+    "${SSH[@]}" 'set -u
+        export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH
+        # ABSOLUTE PATH for docker, same reason as colima below: the login PATH
+        # on a real walk box has no Homebrew entry.
+        DOCKER=/opt/homebrew/bin/docker
+        [ -x "$DOCKER" ] || DOCKER=/usr/local/bin/docker
+        if [ ! -x "$DOCKER" ]; then
+            echo "CANNOT-WIPE: no docker at /opt/homebrew/bin or /usr/local/bin."
+            exit 2
+        fi
+
+        echo "BEFORE, the volumes that exist:"
+        "$DOCKER" volume ls --format "  {{.Name}}" 2>/dev/null | sort || true
+        _before=$("$DOCKER" volume ls --quiet 2>/dev/null | grep -c . || true)
+        echo "  count: ${_before:-0}"
+
+        # PRESERVE THE EVIDENCE BEFORE DESTROYING IT. The graph on this box is
+        # the only copy of whatever produced the 71 absent person nodes. A wipe
+        # that loses it trades one investigation for another.
+        _dump="$HOME/ostler-prewipe-$(date -u +%Y%m%dT%H%M%SZ).nq"
+        _tok="$HOME/.ostler/secrets/oxigraph_token"
+        if [ -r "$_tok" ]; then
+            if curl -fsS -m 300 -H "Authorization: Bearer $(cat "$_tok")" \
+                    -H "Accept: application/n-quads" \
+                    http://127.0.0.1:7878/store?default > "$_dump" 2>/dev/null; then
+                echo "graph dumped before wipe: $_dump ($(wc -c < "$_dump" | tr -d " ") bytes)"
+            else
+                echo "CANNOT-WIPE: the graph did not dump, and a wipe that loses"
+                echo "  the only copy of the evidence is not a reset, it is a deletion."
+                rm -f "$_dump"
+                exit 2
+            fi
+        else
+            echo "CANNOT-WIPE: no oxigraph token at ~/.ostler/secrets/oxigraph_token,"
+            echo "  so the graph cannot be dumped and cannot be safely destroyed."
+            exit 2
+        fi
+
+        # The REAL uninstaller. install.sh writes ~/.ostler/bin/ostler-uninstall
+        # and the store teardown (docker compose down -v) lives inside it.
+        if [ -x "$HOME/.ostler/bin/ostler-uninstall" ]; then
+            echo "running the shipped uninstaller: $HOME/.ostler/bin/ostler-uninstall"
+            OSTLER_ASSUME_YES=1 bash "$HOME/.ostler/bin/ostler-uninstall" 2>&1 | tail -30
+        elif [ -f "$HOME/.ostler/docker-compose.yml" ]; then
+            echo "no shipped uninstaller; falling back to docker compose down -v"
+            cd "$HOME/.ostler" && "$DOCKER" compose down -v 2>&1 | tail -20
+        else
+            echo "CANNOT-WIPE: neither ~/.ostler/bin/ostler-uninstall nor a compose file."
+            exit 2
+        fi
+
+        # MEASURE THE RESULT. An uninstaller that exits 0 having removed nothing
+        # is exactly the silent no-op this whole block exists to refuse.
+        echo "AFTER, the volumes that remain:"
+        "$DOCKER" volume ls --format "  {{.Name}}" 2>/dev/null | sort || true
+        _after=$("$DOCKER" volume ls --quiet 2>/dev/null | grep -c . || true)
+        echo "  count: ${_after:-0}"
+        _left=$("$DOCKER" volume ls --quiet 2>/dev/null | grep -c "^ostler_" || true)
+        if [ "${_left:-0}" -gt 0 ]; then
+            echo "WIPE INCOMPLETE: ${_left} ostler_ volume(s) survived. The next walk"
+            echo "  would still be grading carried-over data, so this is CANNOT-RUN"
+            echo "  rather than a reset that quietly did less than it said."
+            exit 2
+        fi
+        echo "WIPE CONFIRMED: 0 ostler_ volumes remain (was ${_before:-0} total)."
+    ' || die "the store wipe did not complete; refusing to walk against a half-wiped box"
+fi
+
 if [[ "$DO_RESET" -eq 1 ]]; then
     rule "RESET (uninstall + port survey; this is NOT a wipe)"
     "${SSH[@]}" 'set -u
