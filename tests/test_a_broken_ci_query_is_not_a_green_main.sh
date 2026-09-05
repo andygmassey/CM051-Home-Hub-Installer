@@ -169,6 +169,56 @@ case "$out" in
     *)  bad "CONTROL: an unrecovered red did not open (rc=${rc}); output was: ${out}" ;;
 esac
 
+echo "== a declared exclusion must be visible, and must not swallow anything else =="
+
+# The exclusions file is the one place a real regression could be hidden, so it
+# gets both arms: the excluded workflow is skipped AND its reason is printed,
+# and an identically-shaped workflow that is NOT declared is still filed.
+cat > "${WORK}/excl.tsv" <<'EXCL'
+# comment line that must not be parsed as a rule
+declared_unsound	because its gate cannot be sound on this branch
+EXCL
+
+_stub_two_failures() {
+cat > "${WORK}/bin/gh" <<'STUB'
+#!/bin/sh
+case "$*" in
+  *"actions/workflows/"*"/runs"*)   echo '{"workflow_runs":[{"created_at":"2026-09-05T01:00:00Z"}]}' ;;
+  *"status=failure"*)
+      printf '%s' '{"workflow_runs":[' 
+      printf '%s' '{"name":"declared_unsound","status":"completed","conclusion":"failure","created_at":"2026-09-05T09:00:00Z","head_sha":"aaaaaaabbbb","html_url":"u","workflow_id":11},'
+      printf '%s' '{"name":"undeclared_twin","status":"completed","conclusion":"failure","created_at":"2026-09-05T09:00:00Z","head_sha":"cccccccdddd","html_url":"u","workflow_id":22}'
+      echo ']}' ;;
+  *"actions/runs"*)  echo '{"workflow_runs":[{"name":"x","status":"completed","conclusion":"success","created_at":"2026-09-05T00:00:00Z","head_sha":"a","html_url":"u","workflow_id":1}]}' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "${WORK}/bin/gh"
+}
+_stub_two_failures
+env PATH="${WORK}/bin:${PATH}" OSTLER_RED_MAIN_DRY_RUN=1 OSTLER_RED_MAIN_REPO="o/r" \
+    OSTLER_RED_MAIN_EXCLUSIONS="${WORK}/excl.tsv" \
+    bash "$SUBJECT" > "${WORK}/out" 2>"${WORK}/err"
+out="$(cat "${WORK}/out")"
+
+case "$out" in
+    *"EXCLUDED"*"declared_unsound"*) ok "a declared workflow is EXCLUDED rather than filed" ;;
+    *"OPENING: main is red: declared_unsound"*) bad "a declared exclusion was filed anyway; the file is not being read" ;;
+    *) bad "the declared workflow was neither excluded nor filed: ${out}" ;;
+esac
+
+case "$out" in
+    *"because its gate cannot be sound on this branch"*)
+        ok "the exclusion PRINTS its reason, so it cannot hide silently" ;;
+    *)  bad "the exclusion was applied without printing its reason; an invisible exclusion is a place to hide a regression" ;;
+esac
+
+case "$out" in
+    *"OPENING: main is red: undeclared_twin"*)
+        ok "CONTROL: an identically-shaped UNDECLARED workflow is still filed, so the file excludes one row and not the mechanism" ;;
+    *)  bad "CONTROL: the undeclared twin was not filed; the exclusions file is suppressing more than its one row" ;;
+esac
+
 echo
 echo "== ${PASS} pass / ${FAIL} fail / $((PASS+FAIL)) total =="
 [ "$FAIL" -eq 0 ] || exit 1

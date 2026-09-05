@@ -1,0 +1,11 @@
+# Workflows whose failure ON MAIN is expected, with the REASON.
+#
+# A rule whose grounds nobody wrote down cannot be audited, only obeyed, so
+# every line here carries why. The script PRINTS every exclusion it applies on
+# every run: an exclusion you cannot see is a place to hide a regression.
+#
+# This is not for flaky workflows. It is only for a workflow that is UNSOUND on
+# main by construction and correctly refuses there.
+#
+# workflow<TAB>reason
+cut	Its version gate exits 2 CANNOT-RUN on main because there is no tag: the expected version would come from the very artefact under test, so the comparison could not lose. Sound only on a tag push, where v1.0.71 passed. MEASURED 2026-09-06 on run 33935051995. This workflow was green on main until 2026-09-03; the change that made it refuse was the fix, not the regression.

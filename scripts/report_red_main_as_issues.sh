@@ -49,6 +49,7 @@ REPO="${OSTLER_RED_MAIN_REPO:-andygmassey/CM051-Home-Hub-Installer}"
 WINDOW_H="${OSTLER_RED_MAIN_WINDOW_H:-24}"
 PAGE="${OSTLER_RED_MAIN_PAGE:-100}"
 LABEL="main-red"
+EXCLUSIONS="${OSTLER_RED_MAIN_EXCLUSIONS:-$(cd "$(dirname "$0")/.." && pwd)/.github/main-red-exclusions.tsv}"
 DRY="${OSTLER_RED_MAIN_DRY_RUN:-0}"
 
 say() { printf '%s\n' "$*"; }
@@ -125,6 +126,34 @@ while IFS= read -r row; do
     ok_at="$(newest_success_for "$wid")"
     if [ -n "$ok_at" ] && [ "$created" \< "$ok_at" ]; then
         say "  recovered (green at ${ok_at}): ${wf} at ${short}"
+        continue
+    fi
+
+    # An EXPECTED red on main, declared in the repo with its reason. Printed
+    # on every run: an exclusion you cannot see is a place to hide a
+    # regression. `cut` is the only one, and it is unsound on main by
+    # construction rather than broken.
+    if [ -f "$EXCLUSIONS" ]; then
+        _reason="$(awk -F'\t' -v w="$wf" '$1 == w && $0 !~ /^#/ {print $2; exit}' "$EXCLUSIONS")"
+        if [ -n "$_reason" ]; then
+            say "  EXCLUDED (declared in ${EXCLUSIONS##*/}): ${wf} at ${short}"
+            say "    reason: ${_reason}"
+            continue
+        fi
+    fi
+
+    # 🔴 A WORKFLOW THAT HAS NEVER BEEN GREEN ON main IS NOT A REGRESSION.
+    # MEASURED: `cut` fails on every main push, on purpose. Its version gate
+    # exits 2 CANNOT-RUN because on main there is no tag, so the expected
+    # version would come from the very artefact under test and the comparison
+    # could not lose. It is sound only on a tag push, where v1.0.71 passed.
+    #
+    # An issue opened for that could NEVER close, because the close condition
+    # is a green that will never come. A red that cannot clear is worse than
+    # no red: it blocks nothing and teaches people which label to ignore.
+    # So this is reported as the third state, once, and not filed.
+    if [ -z "$ok_at" ]; then
+        say "  CANNOT-RUN: ${wf} has NEVER succeeded on main, so its failure here is not a regression signal. Not filing. If this workflow is meant to be green on main, that is the finding."
         continue
     fi
 
