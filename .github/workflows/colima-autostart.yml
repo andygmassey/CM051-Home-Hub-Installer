@@ -116,7 +116,16 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 30
     steps:
+      # fetch-depth 0: the #1498 support-code test pins its negative control
+      # to a FIXED sha (03b50c6b, the v1.0.67 pin) rather than to a branch,
+      # because a control that reads origin/main inverts the moment a fix
+      # merges. A shallow clone cannot read that blob, and the test then
+      # correctly returns CANNOT-RUN rather than passing on a control it
+      # never ran -- which is exactly what it did on its first CI run.
+      # Same reasoning, and the same fix, as cold-box-source-truth.yml.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: The Colima autostart mechanism exists and is well-formed
         run: bash tests/test_colima_autostart_mechanism.sh
