@@ -101,7 +101,10 @@ fi
 
 # ARM 2 -- the publish moved to the proxy, loopback-only.
 _sp_ports="$(compose_ports "${INSTALL_SH}" store-proxy)"
-if printf '%s\n' "${_sp_ports}" | grep -q '^127\.0\.0\.1:8044:8044$'; then
+# grep -c, not a short-circuiting consumer: this file sets pipefail, and a
+# consumer that exits on first match SIGPIPEs the producer, so the pipeline
+# reports failure at the moment the match is FOUND. grep -c must read to EOF.
+if [ "$(printf '%s\n' "${_sp_ports}" | grep -c '^127\.0\.0\.1:8044:8044$')" -gt 0 ]; then
     ok "store-proxy publishes 127.0.0.1:8044 (loopback only)"
 else
     bad "store-proxy does not publish 127.0.0.1:8044:8044; got: ${_sp_ports//$'\n'/, }"
@@ -132,7 +135,8 @@ fi
 # ARM 6 -- MUST-MISS on the opt-out. The store credential has a flag because it
 # had to flip in step with Qdrant's. This one must not: an env var that turns it
 # off is the original defect with a name.
-if grep -nE 'OSTLER_[A-Z_]*WIKI[A-Z_]*(AUTH|ENFORCE)[A-Z_]*' "${INSTALL_SH}" | grep -qv '^\s*#'; then
+# Same reason as above: grep -c, which reads to EOF and cannot SIGPIPE.
+if [ "$(grep -nE 'OSTLER_[A-Z_]*WIKI[A-Z_]*(AUTH|ENFORCE)[A-Z_]*' "${INSTALL_SH}" | grep -cv '^\s*#')" -gt 0 ]; then
     bad "something looks like an opt-out flag for the wiki credential: $(grep -oE 'OSTLER_[A-Z_]*WIKI[A-Z_]*(AUTH|ENFORCE)[A-Z_]*' "${INSTALL_SH}" | sort -u | tr '\n' ' ')"
 else
     ok "no environment variable can disable the wiki credential"
