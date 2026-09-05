@@ -1,0 +1,66 @@
+name: cut-checklist-complete
+
+# The one pre-cut checklist must stay complete.
+#
+# Andy, 2026-09-05, on being shown the first honest count of remaining work:
+# "maintain this discipline. Do NOT let it slip."
+#
+# cut-manifests/vX.Y.Z.yaml registers every open issue and marks the ones with
+# no proof written as `gate: NONE YET`. Two ways that decays:
+#
+#   1. A NEW issue is opened and nobody adds it. The checklist still LOOKS
+#      complete, because you cannot see what is not in it. That is what this
+#      workflow catches, on every PR.
+#   2. A cut happens while NONE YET rows remain. That is caught in cut.yml's
+#      preflight, where the same script runs with OSTLER_CUT_IN_PROGRESS=1 and
+#      the ungated rows become BLOCKING.
+#
+# Deliberately advisory about ungated rows HERE. There is always work in
+# progress, and a PR gate that is permanently red teaches people to ignore it.
+# It is blocking exactly where it matters: at the cut.
+#
+# Three states. If the open-issue list cannot be read -- no gh, no auth, an
+# empty result -- this exits 2 CANNOT-RUN rather than passing. A register
+# checked against nothing is not a checked register, and an empty issue list
+# and a broken query print identically.
+
+on:
+  pull_request:
+    paths:
+      - 'cut-manifests/**'
+      - 'tests/test_the_cut_checklist_is_complete.py'
+      - '.github/workflows/cut-checklist-complete.yml'
+  push:
+    branches: [main]
+  schedule:
+    # Registration drift is caused by issues opened elsewhere, so it cannot be
+    # caught by path triggers alone: a new issue touches no file in this repo.
+    # Daily, so the register cannot silently rot between cuts.
+    - cron: '17 6 * * *'
+
+permissions:
+  contents: read
+  issues: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  cut-checklist-complete:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # Driven red four ways before being wired: a cut with ungated rows, an
+      # unregistered open issue, a truncated manifest and an empty one. The
+      # truncated case originally crashed with AttributeError and exited 1,
+      # which reads as a failed assertion about a checklist nobody looked at.
+      # Found by driving the red paths, not by trusting that it compiled.
+      - name: Every open issue is registered in the newest cut manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tests/test_the_cut_checklist_is_complete.py

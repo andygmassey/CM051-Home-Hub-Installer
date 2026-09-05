@@ -267,6 +267,44 @@ jobs:
       # BOM freshness verdict would be INVARIANT to the defect whenever
       # anything above it went red -- which is the decoration pattern this gate
       # and I have both spent the day finding elsewhere.
+      # THE CHECKLIST MUST BE EMPTY OF UNGATED ROWS BEFORE A CUT.
+      #
+      # Andy, 2026-09-05, on being shown the first honest count of remaining
+      # work: "maintain this discipline. Do NOT let it slip."
+      #
+      # The step above proves the cut record EXISTS. This one proves it is
+      # COMPLETE: every open issue is registered in it, and no row still
+      # carries `gate: NONE YET`, which means no proof was ever written for it.
+      # A cut with NONE YET rows is a cut shipping known, untracked defects --
+      # exactly what the single-checklist rule exists to stop.
+      #
+      # OSTLER_CUT_IN_PROGRESS=1 is what makes the ungated rows BLOCKING here.
+      # Outside a cut the same gate reports them as a note, because there is
+      # always work in progress and a permanently-red PR gate teaches people to
+      # ignore it.
+      #
+      # Three states. A manifest that cannot be read, or an open-issue list that
+      # cannot be fetched, exits 2 CANNOT-RUN rather than passing -- a register
+      # checked against nothing is not a checked register. Driven red four ways
+      # before it was wired: cut-with-ungated-rows, an unregistered open issue,
+      # a truncated manifest and an empty one. The truncated case originally
+      # crashed with AttributeError and exited 1, which reads as a failed
+      # assertion about a checklist nobody looked at; that was found by driving
+      # the red paths rather than by trusting it compiled.
+      - name: The cut checklist is complete and has no ungated rows
+        # `always()` because this is the first step in the job that the
+        # maskless gate recognises as a TEST, and without it every gate after
+        # it is silently skipped the moment this one goes red -- so a cut with
+        # ungated rows would also hide the pin check and the rollforward gate,
+        # and you would fix them one run at a time. Verified: this file is
+        # green on `verify_ci_steps_are_maskless.py` with the guard and red
+        # without it, and main was green before this step was added.
+        if: always()
+        env:
+          OSTLER_CUT_IN_PROGRESS: '1'
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tests/test_the_cut_checklist_is_complete.py
+
       - name: Cut BOM freshness gate self-test
         if: always()
         run: ./tests/test_cut_bom_is_fresh.sh --self-test
