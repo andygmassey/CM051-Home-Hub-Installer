@@ -3,7 +3,7 @@
 #
 # WHY THIS EXISTS. MEASURED on macOS, /usr/libexec/PlistBuddy, three arms:
 #
-#     missing FILE   rc=1   stdout: "File Doesn't Exist, Will Create: <path>"
+#     missing FILE   rc=1   stdout: a "file does not exist, will create" diagnostic
 #     missing KEY    rc=1   stdout: ""
 #     key present    rc=0   stdout: the value
 #
@@ -15,7 +15,7 @@
 # reads a diagnostic as a value. `2>/dev/null` suppresses nothing, because the
 # text was never on stderr. This is #1497: ~/.walk-artefact-version was written
 # with PlistBuddy's error string and the walk record was refused for a version
-# of "vFileDoesn'tExist,WillCreate:/private/var/...".
+# of the tool's error string instead of a version.
 #
 # In _upg_ensure_token the consequence is quieter and worse: `[[ -n ]]` is true,
 # the function returns 0, and the service token is never written. A SILENT SKIP
@@ -49,7 +49,7 @@ _drive() {
     local guard="$1"
     cat > "${WORK}/pb" <<'PBEOF'
 #!/bin/bash
-printf "File Doesn't Exist, Will Create: /nope/Info.plist\n"
+printf "file does not exist, will create: /nope/Info.plist\n"
 exit 1
 PBEOF
     chmod +x "${WORK}/pb"
