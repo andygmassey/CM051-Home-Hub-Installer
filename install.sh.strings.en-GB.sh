@@ -55,6 +55,9 @@ MSG_STEP_SETUP_COMPLETE_WRAP_UP_NO_REMOTE="Questions done. Ostler now installs i
 
 MSG_INFO_AND_RE_RUN_OSTLER_FDA="and re-run: ostler-fda"
 MSG_INFO_ASSISTANT_FINAL_RESTART_FDA="Restarting the assistant so it can use Full Disk Access to read your Messages history. A restart is what makes a just-granted permission take effect; if you have not granted it yet, the Doctor dashboard will keep guiding you."
+MSG_OK_ASSISTANT_RUNNING_WITH_FDA="Your assistant is running and has Full Disk Access, so it can read the files it needs."
+MSG_WARN_ASSISTANT_RUNNING_WITHOUT_FDA="Your assistant is running, but it does NOT have Full Disk Access yet, so it cannot read your Messages history or the files in your Documents folder. It will keep working for everything else. The Doctor dashboard will guide you through granting it."
+MSG_INFO_ASSISTANT_FDA_UNVERIFIED="Your assistant is running. We could not check whether it has Full Disk Access on this Mac, so this is not a confirmation either way -- the Doctor dashboard will tell you once it can look."
 MSG_INFO_APPLE_MAIL_ACCOUNTS_VISIBLE_INFORMATIONAL="Apple Mail accounts visible: %s (informational)"
 MSG_INFO_APPLE_MAIL_DOES_NOT_APPEAR_HOLD="Apple Mail does not appear to hold any local messages yet. Doctor will surface a follow-up if no mail arrives within 24 hours."
 MSG_INFO_APPLE_MAIL_HAS_CACHED_MESSAGES_INGEST="Apple Mail has cached messages. Ingest will pick them up on the next hourly tick."
