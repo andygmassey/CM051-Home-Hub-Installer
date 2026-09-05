@@ -186,7 +186,7 @@ assert_contains "case 4 error names the daemon as culprit" "daemon binary carrie
 # --- CASE 4b: the wrapper's Info.plist is UNREADABLE ------------------------
 #
 # PLISTBUDDY WRITES ITS ERROR TO STDOUT. On a missing plist it prints
-# "File Doesn't Exist, Will Create: <path>" on stdout, so `2>/dev/null` does not
+# a "file does not exist" sentence naming the path, on stdout, so `2>/dev/null` does not
 # suppress it and a `[[ -n ... ]]` check PASSES on the error sentence. The gate
 # then used that sentence as the executable NAME and died with "wrapper binary
 # not found in DMG payload" -- naming the wrapper when the PLIST was the problem,

@@ -143,7 +143,7 @@ RES="${MOUNT}/OstlerInstaller.app/Contents/Resources"
 #
 # On a missing or unreadable plist PlistBuddy prints, to STDOUT:
 #
-#     File Doesn't Exist, Will Create: /path/to/Info.plist
+#     a "file does not exist" sentence naming the path it would have created
 #
 # `2>/dev/null` cannot suppress that, `|| true` discards the exit code, and the
 # string is NON-EMPTY -- so the old `[[ -n ... ]]` check passed, the error text
