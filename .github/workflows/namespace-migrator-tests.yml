@@ -4,10 +4,15 @@ name: namespace-migrator-tests
 # Its own documentation works through how a plausible two-line change destroys a
 # customer's entire compartment:
 #
-#   "A second --apply computes MOVE <urn:pwg:user/Andy> TO <urn:ostler:user/Andy>,
-#    which DROPS the destination. 16,577 triples -- the customer's entire
-#    compartment -- are destroyed to make room for 20, and every check downstream
-#    then passes."
+#   a second --apply computes a MOVE of the legacy-namespace compartment IRI onto
+#   its migrated form, which DROPS the destination. 16,577 triples -- the
+#   customer's entire compartment -- are destroyed to make room for 20, and every
+#   check downstream then passes.
+#
+# The example is PARAPHRASED on purpose. verify_no_foreign_ontology_namespace.sh
+# counts legacy-branded namespace literals repo-wide and excludes only the
+# migrator and its own test, which necessarily contain them. A workflow that
+# quotes one verbatim adds to that count, and the gate is right to say so.
 #
 # It has a test file. 634 lines, 36 tests, and it passes in 0.23s.
 #
@@ -60,6 +65,13 @@ jobs:
       # count assertion below is what makes a silent drop to zero visible: this
       # file had 36 tests when it was wired and a run reporting fewer has lost
       # coverage, whatever its exit code.
+      # pytest is NOT preinstalled on the runner. Measured: the first run of this
+      # workflow died with "No module named pytest" after setup-python had
+      # succeeded, which reads as a test failure and is a missing dependency.
+      # Same shape and same fix as people-projection-prune.yml:59.
+      - name: Install pytest
+        run: python -m pip install --quiet pytest
+
       - name: The namespace migrator's own tests
         run: |
           set -o pipefail
