@@ -78,8 +78,16 @@ _fns_ending_in_pipeline() {
 
 # STEP 2: is that name used where its EXIT STATUS is branched on?
 _used_as_condition() {
+    # TWO SHAPES, because the function can sit on EITHER side of the operator.
+    #   keyword first   if/while/until/!/&&/||  fn      <- fn is the operand
+    #   function first  fn && ...   fn || ...           <- fn drives the operator
+    # The second was missing when this gate was first written and is a real
+    # condition use: `fn && other` branches on fn's exit status exactly as
+    # `[ x ] && fn` does. Measured 2026-09-05 against 8 condition spellings and
+    # 4 must-miss controls (bare call, substring name, name as an argument,
+    # name inside a string): 8/8 matched, 0/4 false positives.
     local file="$1" nm="$2" n
-    n="$(grep -cE "(^|[[:space:]])(if|while|until|!|&&|\|\|)[[:space:]]+${nm}([[:space:]]|;|\)|$)" "$file" 2>/dev/null || true)"
+    n="$(grep -cE "(^|[[:space:]])(if|while|until|!|&&|\|\|)[[:space:]]+${nm}([[:space:]]|;|\)|$)|(^|[[:space:]])${nm}[[:space:]]*(&&|\|\|)" "$file" 2>/dev/null || true)"
     [ "${n:-0}" -gt 0 ]
 }
 
@@ -150,6 +158,24 @@ if [ "$(printf '%s\n' "$(population_in "$CTL")" | grep -cF 'seeded.sh')" -gt 0 ]
     ok "arm 3: a function ending in a banned pipeline AND used as a condition IS caught"
 else
     bad "arm 3: the seeded positive was NOT caught. Arm 1 cannot fail and its pass means nothing."
+fi
+
+# ── arm 3b: MUST-FIRE on the FUNCTION-FIRST form. ────────────────────────
+# `fn && other` branches on fn's exit status just as `[ x ] && fn` does, but the
+# original predicate required a keyword BEFORE the name and matched only the
+# second. Without this limb the widening is untested and a revert goes green.
+cat > "$CTL/seeded_lhs.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -uo pipefail
+_seeded_lhs_probe() {
+    printf 'state = running\n' | grep -q 'state = running'
+}
+_seeded_lhs_probe && echo yes
+FIXTURE
+if [ "$(printf '%s\n' "$(population_in "$CTL")" | grep -cF 'seeded_lhs.sh')" -gt 0 ]; then
+    ok "arm 3b: the FUNCTION-FIRST condition form (fn && ...) IS caught"
+else
+    bad "arm 3b: 'fn && other' was NOT caught. The predicate only sees a function used as the RIGHT operand, so half the condition uses in the repo are invisible and arm 1's population is understated."
 fi
 
 # ── arm 4: MUST-MISS. Pipeline present, but the status is never read. ────
