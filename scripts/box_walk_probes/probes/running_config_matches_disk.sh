@@ -110,7 +110,12 @@ print("UNAVAILABLE" if v is None else str(v))' 2>/dev/null)"
 # drift on a security setting burns its credibility the first time it fires.
 # Hash the exact bytes, both sides, with printf '%s'.
 token_sha_live() {
-    _t="$(box_run "P=\$(pgrep -f ical-server.py | head -1); ps -Eww -p \$P 2>/dev/null | tr ' ' '\\n' | grep -m1 '^PWG_SERVICE_TOKEN=' | sed 's/^PWG_SERVICE_TOKEN=//'")"
+    # `-u "$(id -u)"`: bare `pgrep -f` matches every account's processes. This
+    # line then reads a process ENVIRONMENT, so an unscoped match points
+    # `ps -Eww` at a pid we do not own -- which the kernel refuses, yielding an
+    # empty token and a CANNOT-RUN blamed on the wrong thing. Scope to this
+    # account so the probe reads OUR service, or honestly finds none.
+    _t="$(box_run "P=\$(pgrep -u \"\$(id -u)\" -f ical-server.py | head -1); ps -Eww -p \$P 2>/dev/null | tr ' ' '\\n' | grep -m1 '^PWG_SERVICE_TOKEN=' | sed 's/^PWG_SERVICE_TOKEN=//'")"
     if [ -z "$_t" ]; then printf 'UNAVAILABLE'; return; fi
     printf '%s' "$_t" | shasum -a 256 | cut -c1-12
 }

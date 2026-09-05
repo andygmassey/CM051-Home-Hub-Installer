@@ -98,7 +98,18 @@ run_probe() {
         probe_cannot_run "cannot reach ${OSTLER_BOX_HOST:-this machine} over ssh; nothing was imported"
     fi
 
-    _pid="$(box_run "pgrep -f ical-server.py | head -1")"
+    # ⚠️ `-u "$(id -u)"` IS THE SUBJECT, NOT A TIDY-UP.
+    #
+    # MEASURED on the v1.0.67 walk: bare `pgrep -f` matches EVERY account's
+    # processes, so on a shared Mac this took another user's ical-server pid,
+    # read THEIR interpreter path out of the public command line, and then
+    # reported CANNOT-RUN because it could not execute it. Honest about the
+    # wrong subject is still the wrong subject.
+    #
+    # Reading the interpreter from the LIVE process stays deliberate (see the
+    # header): a probe that picks its own python proves something about a
+    # python nobody uses. It just has to be OUR live process.
+    _pid="$(box_run "pgrep -u \"\$(id -u)\" -f ical-server.py | head -1")"
     if [ -z "$_pid" ]; then
         probe_cannot_run "ical-server is not running on ${OSTLER_BOX_HOST:-this machine}, so there is no interpreter to test. Not a pass: the dedupe layer's importability is unknown, not proven."
     fi
