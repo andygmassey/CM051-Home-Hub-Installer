@@ -323,6 +323,32 @@ entries:
       must_match: true
 
 open_issues:
+  - issue: 1591
+    title: "a red main opens an issue instead of emailing Andy"
+    gate: >-
+      MERGE: entry: red-main-opens-an-issue -- main was red for an hour across
+      three shas and nothing in the repo noticed; it surfaced only because Andy
+      read notification email. Gate is
+      tests/test_a_broken_ci_query_is_not_a_green_main.sh, 7 arms with 2
+      controls, wired to .github/workflows/red-main-opens-an-issue.yml. M1
+      (recovery read from the shared success page) trips exactly one arm.
+      MEASURED: the page is not the window -- one push fires 136 workflows in
+      the same second, so per_page=60 spans 1s and per_page=100 spans 5s, and
+      two versions of this reported a clean main while main was red. Recovery
+      is asked per workflow on that workflow's own runs endpoint.
+  - issue: 1592
+    title: "walks should wipe with the bundled uninstaller, but must not trust it to confirm the wipe"
+    gate: >-
+      FIX:(gated): entry: walk-reset-uses-the-shipped-uninstaller -- Andy's
+      proposal. The uninstaller is the least-walked surface we ship and has
+      three open PRs against it (#1567, #1568, #1572), so making it the walk
+      reset drives it on every walk. Gate is an INDEPENDENT residue probe that
+      does not consult the uninstaller, carrying a positive control path it
+      must find on a never-wiped box. Residue is a finding AND a hard reset, so
+      the defect is not lost by being routed around. NOT YET DRIVEN. The hazard
+      is stated: if the uninstaller is the reset, a broken uninstaller
+      contaminates the next walk and the walk that would catch it runs on dirty
+      state, so the control fails for the same reason as the subject.
   # THE FULL REGISTER. The verifier does NOT read this key.
   # `gate: NONE YET` means no proof has been written. That is WORK, not cover.
   - issue: 770
