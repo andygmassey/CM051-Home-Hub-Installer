@@ -199,7 +199,7 @@ PYTHON_BUNDLE_TARBALL  := $(BUILD_DIR)/python-bundle.tar.gz
 # DAEMON_VERSION + DAEMON_SHA256 and run `make download-daemon` to
 # verify the fetch + checksum still pass.
 # ---------------------------------------------------------------------------
-DAEMON_VERSION       ?= 0.4.70
+DAEMON_VERSION       ?= 0.4.72
 # SHA-256 of the published hub-v$(DAEMON_VERSION) tarball
 # (ostler-assistant-aarch64-apple-darwin-v$(DAEMON_VERSION).tar.gz). Verified
 # fail-closed in download-daemon: a mismatch deletes the file + aborts the cut,
@@ -258,7 +258,7 @@ DAEMON_VERSION       ?= 0.4.70
 # Both re-downloaded FROM THE SERVER and re-hashed rather than trusted from the
 # upload. Daemon: spctl accepted, source=Notarized Developer ID, V95N2B8X7A,
 # with a de-signed copy returning rc=3 as the negative control.
-DAEMON_SHA256        ?= a4aebc73593a29c7f81ceda793cdda28c8eecad3adb609c4cdc04ecc985cbd39
+DAEMON_SHA256        ?= a1f083754b623de9bf0f04660dbde6bf935d9ef68c8b7a7f7f5cfcf66fbfaf9a
 DAEMON_REPO          ?= ostler-ai/ostler-releases
 DAEMON_TARGET        ?= aarch64-apple-darwin
 DAEMON_TARBALL_NAME  := ostler-assistant-$(DAEMON_TARGET)-v$(DAEMON_VERSION).tar.gz
@@ -342,7 +342,7 @@ HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
 # The Hub app is ADHOC SIGNED BY DESIGN: Signature=adhoc, TeamIdentifier=not
 # set, `stapler validate` rc=65. That is the CORRECT reading, and the daemon's
 # rc=0 on the same command is the positive control that proves the probe works.
-HUB_APP_SHA256       ?= 26e1dfd8a3eb2425a375aee7f9603e6efbd6034eba5d82e46022f6e7655a3500
+HUB_APP_SHA256       ?= 06b586424878da878deec1991be7e9423328a5322d9a4829a4b7535b67f13676
 
 # ---------------------------------------------------------------------------
 # SAFARI EXTENSION (CM020) -- the third artefact the cut cannot build itself.
