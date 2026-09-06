@@ -40,6 +40,7 @@ on:
       # matching paths: entry is dark on self-edit.
       - 'tests/test_a_timed_out_probe_is_not_a_failing_probe.py'
       - 'tests/test_a_timeout_is_not_a_stale_pin.sh'
+      - 'tests/test_a_timeout_is_not_a_hit_count_of_zero.py'
       - 'tests/test_cut_deferrals_no_duplicate_keys.sh'
       - 'cut-deferrals.yaml'
       - 'scripts/post_walk_qa.sh'
@@ -211,6 +212,12 @@ jobs:
       - name: A timed-out gh call is CANNOT-RUN, not a stale pin (#1629)
         if: always()
         run: bash tests/test_a_timeout_is_not_a_stale_pin.sh
+      # The one instrument defect that failed OPEN. A timeout returning 0 hits
+      # made a must_match:false row PASS, so a probe that could not run turned
+      # the gate green.
+      - name: A timeout is not a hit count of zero
+        if: always()
+        run: python3 tests/test_a_timeout_is_not_a_hit_count_of_zero.py
 
       # A DUPLICATE KEY IN cut-deferrals.yaml IS SILENT AND HAS COST A CUT.
       # YAML keeps the LAST duplicate and discards the earlier one without a
