@@ -21116,8 +21116,28 @@ echo "  Stopping services..."
 # This records the outcome. It does not change what is removed.
 OSTLER_STORES_REMOVED=0
 OSTLER_STORES_WHY=""
-if cd "${HOME}/.ostler" 2>/dev/null; then
-    if _dc_out="$(docker compose down -v 2>&1)"; then
+# RESOLVE DOCKER BY ABSOLUTE PATH, because `docker` is frequently NOT on PATH
+# in the shell this runs in. Measured 2026-09-07 on the walk box: the
+# uninstaller reached exactly this line and died with
+#     line 273: docker: command not found
+# leaving six containers up and five named volumes -- the customer's people
+# graph, vectors and compiled wiki -- on disk. The customer was told, honestly,
+# that their stores were not removed; they were still not removed.
+#
+# THE CAUSE IS PATH, NOT DOCKER. Homebrew installs to /opt/homebrew/bin (Apple
+# silicon) or /usr/local/bin (Intel), and neither is on the default PATH of a
+# non-login shell -- which is what an ssh command, a launchd job, or a script
+# piped to bash gets. scripts/ttywalk.sh already carries this exact workaround
+# and says so; the uninstaller never got it.
+_OSTLER_DOCKER=/opt/homebrew/bin/docker
+[ -x "$_OSTLER_DOCKER" ] || _OSTLER_DOCKER=/usr/local/bin/docker
+[ -x "$_OSTLER_DOCKER" ] || _OSTLER_DOCKER="$(command -v docker 2>/dev/null || true)"
+if [ -z "$_OSTLER_DOCKER" ] || [ ! -x "$_OSTLER_DOCKER" ]; then
+    # Say WHICH thing was missing. "command not found" sent the last reader
+    # looking for a broken Docker install when Docker was fine.
+    OSTLER_STORES_WHY="no docker executable found at /opt/homebrew/bin/docker, /usr/local/bin/docker, or on PATH -- your stores were NOT removed"
+elif cd "${HOME}/.ostler" 2>/dev/null; then
+    if _dc_out="$("$_OSTLER_DOCKER" compose down -v 2>&1)"; then
         OSTLER_STORES_REMOVED=1
     else
         OSTLER_STORES_WHY="\`docker compose down -v\` failed: $(printf '%s' "$_dc_out" | tr '\n' ' ' | sed 's/  */ /g; s/^ *//' | cut -c1-160)"

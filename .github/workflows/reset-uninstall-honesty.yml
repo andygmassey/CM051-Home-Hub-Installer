@@ -27,6 +27,8 @@ name: reset-uninstall-honesty
 on:
   pull_request:
     paths:
+      - 'tests/test_the_uninstaller_resolves_docker_absolutely.sh'
+      - 'install.sh'
       - 'scripts/ttywalk.sh'
       - 'tests/test_a_walk_can_ask_for_a_fresh_graph.sh'
       - 'tests/test_reset_says_when_it_did_not_uninstall.sh'
@@ -71,6 +73,18 @@ jobs:
       # deleting the announcement (rc=1).
       - name: A reset that skipped the uninstall announces it
         run: bash tests/test_reset_says_when_it_did_not_uninstall.sh
+
+      # MEASURED on the walk box 2026-09-07: the uninstaller reached
+      # `docker compose down -v` and died with "docker: command not found",
+      # leaving six containers up and five named volumes -- the customer's
+      # people graph, vectors and compiled wiki -- on disk. Docker was
+      # installed and working; Homebrew's bin is simply not on the PATH of a
+      # non-login shell, which is what ssh, launchd and a piped script give you.
+      # It reported the failure honestly, which is why this is a PATH bug and
+      # not a reporting bug.
+      - name: The shipped uninstaller resolves docker absolutely
+        if: always()
+        run: bash tests/test_the_uninstaller_resolves_docker_absolutely.sh
 
       # --wipe-stores is the ONLY way a walk can hold the box state still.
       # `if: always()` so an earlier red does not delete this measurement.
