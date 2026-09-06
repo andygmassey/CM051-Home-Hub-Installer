@@ -42,6 +42,36 @@ pr_exemptions:
   #    deferred because merging a dependency bump into a repo whose SOURCE does
   #    not enter this artefact buys the cut nothing and costs it an unmeasured
   #    delta at T-minus. Sweep them the week after launch; they are cheap.
+  - ref: "HR015-Gaming-PC#737"
+    reason: >-
+      'ledger: CM051 source-status artefact line (#1346 write, #1351 read)',
+      45 additions and 0 deletions, and CONFLICTING/DIRTY, so it is not a
+      merge decision at all right now -- it is a rebase nobody has done.
+      It cannot reach this DMG: it adds a documentation line to a ledger,
+      touching no installer source, no pin and no vendored tree. Deferred on
+      that arithmetic and on its conflict state, not on merit.
+    review_by: "2026-09-13"
+  - ref: "CM041-People-Graph#136"
+    reason: >-
+      'fix(#617): wire the kinship guard into the person-name write path'.
+      THIS ONE IS RELEVANT AND I AM NOT PRETENDING OTHERWISE -- it is the
+      WRITE-path half of the same defect family as #1619 and #1690, 186
+      additions across 7 files plus a test. It is deferred for two measured
+      reasons, neither of them merit.
+      FIRST, it is CONFLICTING/DIRTY against CM041 main, so merging it is a
+      rebase of somebody else's 186-line change at T-minus, unreviewed.
+      SECOND, and this is the arithmetic that decides it: CM051 consumes CM041
+      as a VENDORED COPY (vendor/cm041/), not as a live checkout, so CM041 main
+      moving does not change one byte of this artefact. The vendored copy
+      already carries the READ-path guard this walk is about -- measured on
+      CM051 origin/main, 'AddressBookSourceSync' appears 5 times in
+      vendor/cm041/contact_syncer/syncer.py and 5 times in
+      contact_syncer/syncer.py -- which is precisely what the v1018-D011 walk
+      is being run to demonstrate.
+      Landing #136 would require a re-vendor and a re-pin, and a re-pin at
+      T-minus is an unmeasured delta against a walk that has not been run yet.
+      Retire this row the moment the walk has settled #1619.
+    review_by: "2026-09-13"
   - ref: "CM044-PWG-Personal-Wiki#265"
     reason: >-
       'build(deps): update nh3 requirement'. Dependabot. CM044 reaches the DMG
@@ -467,7 +497,7 @@ pr_exemptions:
       tree an RC is being assembled from is how a cut acquires a defect nobody
       predicted. Green is a reason to land it EARLY IN THE NEXT CYCLE, not to land
       it now.
-    review_by: "2026-09-05"
+    review_by: "2026-09-13"
   - ref: "ostler-assistant#351"
     reason: >-
       DRAFT. A draft is work the author has explicitly said is not ready, so the
