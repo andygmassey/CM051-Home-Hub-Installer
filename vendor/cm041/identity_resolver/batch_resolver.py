@@ -40,7 +40,10 @@ from identity_resolver.normalise import (
     normalise_phone,
 )
 from identity_resolver.decisions import apply_user_decisions, load_duplicate_decisions
-from identity_resolver.canonical_name import choose_canonical_display_name
+from identity_resolver.canonical_name import (
+    choose_canonical_display_name,
+    prefer_real_given_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1189,7 +1192,9 @@ def _canonicalise_display_name_oxigraph(
         return rows[0].get("name") if rows else None
 
     candidates = [r["name"] for r in rows if r.get("name")]
-    given = next((r["given"] for r in rows if r.get("given")), None)
+    # ALL of them, not the first in arbitrary SPARQL order -- see
+    # prefer_real_given_name. The batch path had the identical defect. (CM041 #145)
+    given = prefer_real_given_name(r["given"] for r in rows if r.get("given"))
     family = next((r["family"] for r in rows if r.get("family")), None)
 
     canonical = choose_canonical_display_name(

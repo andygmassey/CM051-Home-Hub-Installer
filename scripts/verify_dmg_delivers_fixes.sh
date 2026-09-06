@@ -68,15 +68,39 @@ FIX_INV=(  "sudo already available without a password"    "Install aborted at li
 # on a customer box SCRIPT_DIR IS that Resources root. So install.sh:18411
 # stages the VENDORED tree, not the repo-root twin. This gate reads the DMG, so
 # it is indifferent to that argument -- which is the point of reading the DMG.
+# 🔴 THE #145 ROWS, ADDED 2026-09-06, AND WHY THEY POINT AT THE CALL SITES.
+#
+# The #142 row above asserts `is_kinship_given_name` in canonical_name.py. That
+# row was GREEN while CM041 #145 sat unvendored for the whole of the afternoon,
+# because #145 adds DIFFERENT functions and the row names only #142's. A gate
+# keyed to a name proves the fix it names and is blind to the next one.
+#
+# Measured before these rows existed: driving the shipped vendored blob and
+# CM041 main with the same input, the artefact returned "Smith" where upstream
+# returned "Jane Smith" -- a real given name, present on the node, discarded.
+# 3 of 5 cases differed and the delivery gate was green over all three.
+#
+# THE INVARIANT IS THE CALL SITE, NOT THE DEFINITION. Re-vendoring
+# canonical_name.py alone would have added `prefer_real_given_name` as a
+# function nobody calls: resolver.py and batch_resolver.py are DIVERGENT TWINS
+# and keep their own `given = next(...)` line. A row asserting the definition
+# would have gone green on a fix that could never fire, which is the same shape
+# of blindness one layer down. So each row names the file that must CALL it.
 PAYLOAD_IDS=(  "#1543-rule-2-on-the-write"
                "#755-only-the-users-own-address-book"
-               "#142-a-kinship-word-is-never-welded" )
+               "#142-a-kinship-word-is-never-welded"
+               "#145-the-resolver-elects-the-real-given-name"
+               "#145-the-batch-path-elects-it-too" )
 PAYLOAD_PATH=( "contact_syncer/syncer.py"
                "contact_syncer/syncer.py"
-               "identity_resolver/canonical_name.py" )
+               "identity_resolver/canonical_name.py"
+               "identity_resolver/resolver.py"
+               "identity_resolver/batch_resolver.py" )
 PAYLOAD_INV=(  "_node_holds_a_different_canonical_key"
                "_source_is_the_users_own"
-               "is_kinship_given_name" )
+               "is_kinship_given_name"
+               "prefer_real_given_name"
+               "prefer_real_given_name" )
 
 MP="$(mktemp -d)"
 DEV=""

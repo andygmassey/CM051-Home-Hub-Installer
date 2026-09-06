@@ -209,6 +209,69 @@ def is_kinship_given_name(given: Optional[str]) -> bool:
     return False
 
 
+def prefer_real_given_name(givens: Iterable[Optional[str]]) -> Optional[str]:
+    """Pick a given name that is a NAME, from the several a merged node holds.
+
+    THE NODE ALREADY CARRIES THE ANSWER AND THE CALLERS THREW IT AWAY. Identity
+    resolution merges a card first-named with a kinship word onto a real
+    person's node on shared phones and emails, so ONE node ends up holding two
+    ``givenName`` values -- the real one and the kinship word. Both callers then
+    did ``next(b["given"] for b in bindings if b.get("given"))``, taking the
+    FIRST in arbitrary SPARQL result order and discarding the rest. Which name a
+    person is shown under was decided by a coin flip.
+
+    So this is not a new guess: it is using evidence that was already on the
+    node. A real given name outranks a kinship word; order decides only among
+    names of the same kind, so two real given names are never reordered.
+
+    Returns None only when there is no usable given name at all.
+    """
+    cleaned = [str(g).strip() for g in givens if g and str(g).strip()]
+    if not cleaned:
+        return None
+    for g in cleaned:
+        if not is_kinship_given_name(g):
+            return g
+    # Every one of them is a kinship word. Hand back the first so the caller
+    # keeps its existing behaviour and the guard downstream still refuses the
+    # weld -- an incomplete name, not a wrong one.
+    return cleaned[0]
+
+
+def _is_manufactured_kinship_candidate(
+    value: str, given: Optional[str], family: Optional[str]
+) -> bool:
+    """True for a candidate that IS the weld this module refuses to build.
+
+    Guarding the given-name FIELD is not enough. The offending card contributes
+    its own display name to ``candidates``, and once a composed form has been
+    written to the graph it comes back as a candidate on the next pass, so
+    precedence rule 2 hands the defect straight back unexamined. Measured on the
+    shipped code: candidates ``['Mum Smith', 'Jane Smith']`` with given ``Mum``
+    returned ``'Mum Smith'``.
+
+    DELIBERATELY NARROW, because a false positive here erases a real person:
+
+    * the candidate is exactly a kinship word (``Mum``) -- never a display name
+    * OR the candidate is EXACTLY this node's own kinship given name followed by
+      EXACTLY this node's own family name, which is the string ``_full_name``
+      would have assembled and the guard above just refused to return
+
+    "Nan Goldin" survives unless the node itself carries given ``Nan`` AND family
+    ``Goldin``, in which case a source did assert that pair and rule 1 is where
+    that belongs, not here.
+    """
+    v = " ".join(value.strip().split())
+    if not v:
+        return False
+    if is_kinship_given_name(v):
+        return True
+    if not given or not is_kinship_given_name(given):
+        return False
+    welded = _full_name(given, family)
+    return bool(welded) and v.casefold() == welded.casefold()
+
+
 def _full_name(given: Optional[str], family: Optional[str]) -> Optional[str]:
     parts = [p.strip() for p in (given, family) if p and p.strip()]
     if not parts:
@@ -260,7 +323,11 @@ def choose_canonical_display_name(
     def _looks_like_social_handle(v):
         return v.isalpha() and v == v.lower() and " " not in v
 
-    acceptable = [c for c in cleaned if is_acceptable_display_name(c)]
+    acceptable = [
+        c for c in cleaned
+        if is_acceptable_display_name(c)
+        and not _is_manufactured_kinship_candidate(c, given_name, family_name)
+    ]
     if acceptable:
         acceptable.sort(key=lambda v: 1 if _looks_like_social_handle(v) else 0)
         return acceptable[0]
@@ -279,6 +346,13 @@ def choose_canonical_display_name(
             fam = (family_name or "").strip()
             return fam or None
         return structured
+    # NOT guarded here, and that is measured rather than assumed. This limb is
+    # reachable only when `structured` is falsy AND nothing was acceptable, and
+    # 0 of the 67 kinship words are rejected by is_acceptable_display_name (with
+    # root / a bare email / a phone number rejected in the same run as the
+    # control), so no kinship candidate can ever arrive here. A guard on this
+    # line survived its own mutation test because it is unreachable, which is
+    # protection that only looks like protection.
     if cleaned:
         return cleaned[0]
     return None

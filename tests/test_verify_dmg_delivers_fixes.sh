@@ -32,6 +32,12 @@ INV_563='COUNTS_INCOMPLETE'
 INV_1543='_node_holds_a_different_canonical_key'
 INV_755='_source_is_the_users_own'
 INV_142='is_kinship_given_name'
+# CM041 #145. Deliberately asserted on the CALL SITES, not on the
+# definition: resolver.py and batch_resolver.py are divergent twins that
+# keep their own `given = next(...)`, so re-vendoring canonical_name.py
+# alone would add a function nobody calls and a definition-row would go
+# green over it.
+INV_145='prefer_real_given_name'
 
 # arm 0: the check still declares exactly these three invariants (a fixture that
 # drifts from the check would make every other arm meaningless).
@@ -55,9 +61,20 @@ ok "arm 0: the three fixture invariants match the check's declared set"
 # which is the direction that actually happened. So both, and a mismatch is
 # CANNOT-RUN rather than a fail: the arms below cannot mean anything until the
 # fixture describes a complete artefact again.
-PAYLOAD_INV_FIXTURE=( "$INV_1543" "$INV_755" "$INV_142" )
-_declared="$(sed -n '/^PAYLOAD_INV=(/,/)/p' "$CHECK" | grep -oE '"[^"]+"' | tr -d '"' | sort)"
-_fixture="$(printf '%s\n' "${PAYLOAD_INV_FIXTURE[@]}" | sort)"
+PAYLOAD_INV_FIXTURE=( "$INV_1543" "$INV_755" "$INV_142" "$INV_145" )
+# The payload FILES this fixture writes into every "good DMG". Kept beside
+# the invariants so the two cannot drift apart unnoticed.
+PAYLOAD_PATH_FIXTURE=( "contact_syncer/syncer.py"
+                       "identity_resolver/canonical_name.py"
+                       "identity_resolver/resolver.py"
+                       "identity_resolver/batch_resolver.py" )
+# `sort -u`, not `sort`. TWO PAYLOAD ROWS MAY SHARE ONE INVARIANT: #145 names
+# `prefer_real_given_name` in BOTH resolver.py and batch_resolver.py, because
+# the fix must fire on two divergent twins. The invariant is a string to grep
+# for, so a duplicate carries no extra information and comparing multisets
+# would fail on a correctly-specified check.
+_declared="$(sed -n '/^PAYLOAD_INV=(/,/)/p' "$CHECK" | grep -oE '"[^"]+"' | tr -d '"' | sort -u)"
+_fixture="$(printf '%s\n' "${PAYLOAD_INV_FIXTURE[@]}" | sort -u)"
 if [ "$_declared" != "$_fixture" ]; then
     cant "arm 0b: the check's PAYLOAD_INV set and this fixture's set differ, so a 'good DMG' arm would fail for a stale fixture rather than a broken check.
     check declares : $(printf '%s' "$_declared" | tr '\n' ' ')
@@ -65,6 +82,24 @@ if [ "$_declared" != "$_fixture" ]; then
     echo "== ${PASS}/${FAIL}/$((CANT+1)) =="; exit 2
 fi
 ok "arm 0b: the check's PAYLOAD_INV set and the fixture's set are identical, both ways"
+
+# arm 0c: THE PATH SET, FOR THE SAME REASON ONE LEVEL ALONG.
+#
+# Matching invariants is not enough. A new PAYLOAD row can name a FILE the
+# fixture never creates, and then the "good DMG" is missing a payload file and
+# the check correctly returns CANNOT-RUN -- which reads as the check being
+# broken. That is exactly what #145 would have done: its two rows share an
+# invariant already in the set, so arm 0b alone would have gone green while
+# resolver.py and batch_resolver.py were absent from every fixture.
+_declared_paths="$(sed -n '/^PAYLOAD_PATH=(/,/)/p' "$CHECK" | grep -oE '"[^"]+"' | tr -d '"' | sort -u)"
+_fixture_paths="$(printf '%s\n' "${PAYLOAD_PATH_FIXTURE[@]}" | sort -u)"
+if [ "$_declared_paths" != "$_fixture_paths" ]; then
+    cant "arm 0c: the check's PAYLOAD_PATH set and the files this fixture builds differ.
+    check declares : $(printf '%s' "$_declared_paths" | tr '\n' ' ')
+    fixture builds : $(printf '%s' "$_fixture_paths" | tr '\n' ' ')"
+    echo "== ${PASS}/${FAIL}/$((CANT+1)) =="; exit 2
+fi
+ok "arm 0c: every PAYLOAD_PATH the check declares is a file this fixture creates"
 
 # build_dmg <name> <inv-in-outer...pipe-separated> <inv-in-payload...>
 # writes an install.sh carrying the named invariants into each of the DMG's two
@@ -101,6 +136,13 @@ build_dmg() {
         mkdir -p "${outer_dir}/identity_resolver"
         printf '# synthetic canonical_name fixture\ndef %s(v):\n    return False\n' "$INV_142" \
             > "${outer_dir}/identity_resolver/canonical_name.py"
+        # #145's two rows name the CALLERS. Both files must carry the call or
+        # the fix cannot fire, which is the exact way the artefact was wrong
+        # while the #142 row stayed green.
+        printf '# synthetic resolver fixture\ngiven = %s(x)\n' "$INV_145" \
+            > "${outer_dir}/identity_resolver/resolver.py"
+        printf '# synthetic batch_resolver fixture\ngiven = %s(x)\n' "$INV_145" \
+            > "${outer_dir}/identity_resolver/batch_resolver.py"
         # A DECOY the path-suffix match must NOT accept. `-name syncer.py` alone
         # would find this and call the payload delivered.
         mkdir -p "${outer_dir}/meeting_syncer"
