@@ -64,27 +64,64 @@ def owner_uri(user_id: str) -> str:
 def build_owner_sparql(user_id: str, display_name: str, now_iso: Optional[str] = None) -> str:
     """Return the SPARQL UPDATE that mints the owner node.
 
-    The triples are additive (INSERT DATA); re-running is safe because
-    Oxigraph stores each triple once. displayName is set additively too -
-    if the node already had a different displayName it will gain a second
-    value, but on a bare ``user_<id>`` node (the documented state) there is
-    none, so this mints cleanly. The caller controls when to run it.
+    Two statements, and the split is the point.
+
+    The structural triples stay additive (INSERT DATA); re-running is safe
+    because Oxigraph stores each triple once.
+
+    ``displayName`` is NOT additive any more. It is inserted only when the
+    node has none, via ``INSERT ... WHERE FILTER NOT EXISTS``.
+
+    WHY (2026-09-06). The old docstring said it plainly: "if the node already
+    had a different displayName it will gain a second value, but on a bare
+    ``user_<id>`` node (the documented state) there is none". That caveat is
+    correct about the documented state and silent about the merged one, and
+    ``owner_uri()`` is a FIXED, deterministic URI, so a second run against a
+    node that has since acquired a name leaves TWO. This is the OWNER node,
+    the "this is me" anchor for owner-versus-other privacy branching, so it is
+    the worst node in the graph to leave carrying competing names.
+
+    NOT a DELETE-then-INSERT. That would let this writer CLOBBER a better name
+    that arrived from a real address book. Refusing to write when a name
+    already exists is strictly weaker and strictly safer: it can decline,
+    never overwrite.
+
+    Measured on the shipped Oxigraph 0.4.6 image BEFORE this was written:
+
+        "Jane Doe" present, then INSERT..WHERE FILTER NOT EXISTS  -> Jane Doe
+        bare node, same statement                                 -> mints
+        CONTROL: the old INSERT DATA shape                         -> 2 names
+
+    Choosing BETWEEN names once a node already carries several is a different
+    job and belongs to name_election.elect(); see #151. This only stops this
+    writer adding to the pile.
     """
     if now_iso is None:
         now_iso = datetime.now(timezone.utc).isoformat()
     uri = owner_uri(user_id)
     esc_name = _escape(display_name)
-    return (
+    prefixes = (
         f"PREFIX pwg: <{PWG_NS}>\n"
         "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+    )
+    structural = (
         "INSERT DATA {\n"
         f"  <{uri}> a pwg:Person ;\n"
-        f'    pwg:displayName "{esc_name}" ;\n'
         f'    pwg:privacyLevel "{OWNER_PRIVACY_LEVEL}" ;\n'
         f"    pwg:isOwner true ;\n"
         f'    pwg:createdAt "{now_iso}"^^xsd:dateTime .\n'
         "}"
     )
+    # Only when the node has no name at all. See the docstring: this can
+    # decline, never overwrite.
+    name = (
+        "INSERT {\n"
+        f'  <{uri}> pwg:displayName "{esc_name}" .\n'
+        "}\nWHERE {\n"
+        f"  FILTER NOT EXISTS {{ <{uri}> pwg:displayName ?anyName }}\n"
+        "}"
+    )
+    return prefixes + structural + " ;\n" + name
 
 
 def _sparql_update(oxigraph_url: str, sparql: str) -> None:
