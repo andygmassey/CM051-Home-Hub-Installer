@@ -30,6 +30,7 @@ on:
       - 'scripts/ttywalk.sh'
       - 'tests/test_a_walk_can_ask_for_a_fresh_graph.sh'
       - 'tests/test_reset_says_when_it_did_not_uninstall.sh'
+      - 'tests/test_a_volume_count_is_not_a_wiped_box.sh'
       - '.github/workflows/reset-uninstall-honesty.yml'
   push:
     branches: [main]
@@ -74,4 +75,17 @@ jobs:
       - name: A walk can ask for a fresh graph, and the wipe proves itself
         if: always()
         run: /bin/bash tests/test_a_walk_can_ask_for_a_fresh_graph.sh
+
+      # The sibling above measures DOCKER VOLUMES and nothing else, which is
+      # how a box holding 42M of carried-over content under ~/Documents/Ostler
+      # could be printed as WIPE CONFIRMED. This limb measures the FILESYSTEM,
+      # and carries the positive control the #1592 gate asks for: on a box
+      # where neither root existed BEFORE the wipe, a zero residue count is
+      # measuring the wrong place and must not read as clean.
+      #
+      # `if: always()` for the same reason as the sibling: an earlier red must
+      # not delete this measurement.
+      - name: A docker volume count is not a wiped box
+        if: always()
+        run: /bin/bash tests/test_a_volume_count_is_not_a_wiped_box.sh
 
