@@ -4760,3 +4760,21 @@ deferrals:
       would then be measuring something other than what was pinned.
       TNM: open a PR for it or delete it. The tag means neither choice loses it.
     until_cut: "v1.0.74"
+  - ref: "CM044:#269"
+    reason: >-
+      TNM's, and a DRAFT. 'docs(release-images): the header promised multi-arch
+      that the workflow stopped building' -- a documentation correction in
+      CM044, opened while this cut was running.
+      Deferred rather than merged for three measured reasons, none of them a
+      judgement on the change. (1) It is a DRAFT, so it is not offered for
+      merge. (2) It is TNM's and the disposition is theirs. (3) CM044 reaches
+      the DMG ONLY as a pinned GHCR image, never as source, so a docs change in
+      that repo cannot alter one byte of this artefact.
+      NOTED AS RELEVANT, because it touches the release-images path that would
+      PUBLISH new wiki images: CM051 #1733 records that
+      ghcr.io/creativemachines-ai/ostler-wiki-{compiler,site} newest tag 0.1.30
+      already resolves to the pinned digest on BOTH keys, so no image newer than
+      the pin exists and CM044 a60bc3d cannot be taken until one is built. If
+      #269 is part of getting that build working, it is the right thread -- it
+      is simply not this cut's to merge.
+    until_cut: "v1.0.74"
