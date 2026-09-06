@@ -24,6 +24,8 @@ on:
     paths:
       - 'scripts/verify_bom_rows_are_in_the_pin.sh'
       - 'tests/test_a_bom_row_can_claim_landed_and_not_be_in_the_pin.sh'
+      - 'tests/test_a_second_sync_does_not_unpin_the_first.sh'
+      - 'scripts/sync_cut_bom.sh'
       - '.github/workflows/bom-pin-agreement.yml'
       - 'cuts/**'
   push:
@@ -55,3 +57,17 @@ jobs:
       # cannot build its fixture or if its own control cannot go green.
       - name: A BOM row can claim landed and not be in the pin
         run: bash tests/test_a_bom_row_can_claim_landed_and_not_be_in_the_pin.sh
+
+      # The sibling proves a BOM row cannot claim landed and be absent from the
+      # pin. This proves the pin does not LOSE rows: sync_cut_bom.sh truncated
+      # cuts/BOM_PIN and wrote one version, so syncing v1.0.72 unpinned v1.0.71
+      # and every non-tag dry run of cut.yml went red at the freshness gate --
+      # cut.yml takes CUT_VERSION from the plist when there is no tag.
+      #
+      # Synthetic for arms 1-4, in keeping with this workflow's stated split.
+      # Arm 5 touches the live tree but is scoped to vendored-but-unpinned,
+      # which is wrong at every moment and cannot fire from a pin merely being
+      # behind main.
+      - name: A second sync does not unpin the first
+        if: always()
+        run: bash tests/test_a_second_sync_does_not_unpin_the_first.sh
