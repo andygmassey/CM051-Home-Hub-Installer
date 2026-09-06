@@ -203,7 +203,10 @@ _ostler_persist_diagnostics() {
     if [ -n "${OSTLER_DIAG_KEPT:-}" ] && [ -d "${OSTLER_DIAG_KEPT}" ]; then
         _pd_dest="$OSTLER_DIAG_KEPT"
     else
-        _pd_root="${OSTLER_DIR:-${HOME}/.ostler}/diagnostics"
+        # $1 lets a caller name the root explicitly. The EXIT trap needs
+        # that: on a run that never promoted, OSTLER_DIR is still the
+        # /tmp staging tree, which the trap is about to delete.
+        _pd_root="${1:-${OSTLER_DIR:-${HOME}/.ostler}}/diagnostics"
         _pd_dest="${_pd_root}/$(date -u '+%Y%m%dT%H%M%SZ')"
         mkdir -p "$_pd_dest" 2>/dev/null || return 0
         chmod 700 "$_pd_root" "$_pd_dest" 2>/dev/null || true
@@ -10525,6 +10528,32 @@ composite_cleanup() {
                "${OSTLER_DIAG_DIR}/install-failsafe-$$.log" 2>/dev/null || true
         fi
         rm -rf "$OSTLER_PRELAUNCH_DIR" 2>/dev/null || true
+    fi
+
+    # 🔴 THE DURABILITY MECHANISM RAN ONLY ON THE SUCCESS PATH.
+    #
+    # _ostler_persist_diagnostics is called at the end of the file, so a run
+    # that COMPLETED left its logs somewhere durable. A run that died did not,
+    # and that is the run whose logs anyone actually wants. The failsafe copy
+    # above lands in ${OSTLER_DIAG_DIR}, a mktemp dir under ${TMPDIR} which
+    # macOS purges -- the comment above says it "survives the cleanup", which
+    # is true of the cleanup and not of the OS.
+    #
+    # Root named explicitly: on a run that never promoted, OSTLER_DIR is the
+    # staging tree that was just removed four lines up.
+    #
+    # NOT ON A CONSENT DECLINE. The decline arms rm -rf the install
+    # specifically to "leave no ~/.ostler/ residue", which is an Article 9
+    # commitment, not tidiness. Writing a diagnostics directory there on the
+    # way out would break exactly the promise those arms exist to keep, so a
+    # decline gets no paper trail. That is the correct trade and it is
+    # deliberate rather than incidental.
+    if [[ -z "${OSTLER_CONSENT_ARTICLE_9_DECISION:-}${OSTLER_CONSENT_VOICE_EU_DECISION:-}${OSTLER_CONSENT_THIRD_PARTY_DECISION:-}${OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION:-}" ]] \
+       || [[ "${OSTLER_CONSENT_ARTICLE_9_DECISION:-}${OSTLER_CONSENT_VOICE_EU_DECISION:-}${OSTLER_CONSENT_THIRD_PARTY_DECISION:-}${OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION:-}" != *declined* ]]; then
+        _ostler_persist_diagnostics "${OSTLER_FINAL_DIR:-${HOME}/.ostler}"
+        if [[ -n "${OSTLER_DIAG_KEPT:-}" ]]; then
+            echo "  Install diagnostics kept at ${OSTLER_DIAG_KEPT}" >&2
+        fi
     fi
 }
 trap composite_cleanup EXIT

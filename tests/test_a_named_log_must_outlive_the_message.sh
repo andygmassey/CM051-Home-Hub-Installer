@@ -157,5 +157,50 @@ else
 fi
 
 echo
+echo "=== 6. THE FAILED RUN IS THE ONE THAT NEEDS THE TRAIL ==="
+# The persister was called at the END of the file, so a run that COMPLETED
+# left durable logs and a run that DIED did not -- which is the run anyone
+# actually wants. composite_cleanup, the EXIT trap, had zero persist calls.
+#
+# It cannot persist to $OSTLER_DIR from there: on a run that never promoted,
+# OSTLER_DIR is the /tmp staging tree the trap has just deleted. So the
+# persister takes an explicit root, and that is driven below rather than read,
+# because a parameter that is accepted and ignored looks identical to one
+# that works.
+trap_body() { awk '/^composite_cleanup\(\) \{/,/^\}/' "$INSTALL"; }
+
+if [ "$(trap_body | /usr/bin/grep -c '_ostler_persist_diagnostics')" -ge 1 ]; then
+    ok "the EXIT trap persists diagnostics, so a failed run leaves a trail"
+else
+    bad "composite_cleanup has no persist call; only a SUCCESSFUL install leaves durable logs"
+fi
+
+# The decline arms rm -rf the install to "leave no ~/.ostler/ residue", which
+# is an Article 9 commitment rather than tidiness. A trap that wrote a
+# diagnostics directory there on the way out would break that promise.
+if [ "$(trap_body | /usr/bin/grep -c 'declined')" -ge 1 ]; then
+    ok "the trap's persist is suppressed when a consent was declined"
+else
+    bad "the trap persists unconditionally; a declined install would be left with residue"
+fi
+
+if bash -c '
+    set +u
+    awk "/^_ostler_persist_diagnostics\(\) \{/,/^\}/" "$1" > "$2/fn2.sh"
+    source "$2/fn2.sh"
+    OSTLER_DIR="$2/WRONG-ROOT"
+    OSTLER_DIAG_DIR="$2/diag2"; mkdir -p "$OSTLER_DIAG_DIR"; echo x > "$OSTLER_DIAG_DIR/t.log"
+    _ostler_persist_diagnostics "$2/EXPLICIT-ROOT"
+    case "$OSTLER_DIAG_KEPT" in
+        "$2"/EXPLICIT-ROOT/diagnostics/*) [ -f "$OSTLER_DIAG_KEPT/t.log" ] ;;
+        *) exit 1 ;;
+    esac
+' _ "$INSTALL" "$SB"; then
+    ok "an explicit root wins over \$OSTLER_DIR, so the trap avoids the doomed staging tree"
+else
+    bad "the explicit root argument is ignored; the trap would persist into the tree it just deleted"
+fi
+
+echo
 echo "${pass} passed, ${fail} failed"
 [ "$fail" -eq 0 ]
