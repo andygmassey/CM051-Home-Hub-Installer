@@ -121,6 +121,26 @@ jobs:
         if: always()
         run: /bin/bash scripts/tests/test_enforce_ledger_write.sh
 
+      # ── THE KEYWORD AND THE PROSE ARE TWO CLAIMS, AND ONLY ONE EXECUTES ────
+      #
+      # CM051 #1153 was shut by a closing keyword in a PR body whose own prose
+      # said the change landed 4 of its 5 assets. The board post saying so was
+      # two minutes older than the merge. Only the machine-readable half had any
+      # effect, so a measured, still-live defect left the register.
+      #
+      # Hosted here because this job already writes the PR body to a file and
+      # already handles `edited`, which a body-reading gate needs or its own
+      # printed remedy is unreachable.
+      - name: A closing keyword must not contradict the body it sits in
+        if: always()
+        run: |
+          python3 scripts/check_closing_keyword_agrees_with_the_prose.py \
+            --pr-body-file "${RUNNER_TEMP}/pr_body.txt"
+
+      - name: That guard discriminates (fires on a reconstructed real body)
+        if: always()
+        run: python3 scripts/tests/test_the_keyword_and_the_prose_agree.py
+
   no-invisible-workflows:
     # The class guard. The defect above was not "the ledger rule was wrong", it
     # was "a workflow can reference something unresolvable and then produce no
