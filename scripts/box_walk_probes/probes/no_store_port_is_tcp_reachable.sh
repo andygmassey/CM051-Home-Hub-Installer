@@ -183,16 +183,26 @@ PROBE_QUESTION="can any local account open a TCP connection to an Ostler store o
 #                                          127.0.0.1:8044 is not offered to
 #                                          127.0.0.1:9999. That is precisely the
 #                                          port isolation cookies lack.
-#   3000  vane                          -> 🔴 OPEN. Published directly by the
-#                                          container (install.sh:17016), so it
-#                                          is not behind the store-proxy and the
-#                                          wiki's realm does not reach it. No
-#                                          environment:, no auth of any kind.
+#   3000  vane                          -> CLOSED (refuses). ⚠️ THIS ROW READ
+#                                          "🔴 OPEN ... no auth of any kind ...
 #                                          Exposes vane_data, the customer's
-#                                          chat history. It is the SAME CLASS as
-#                                          8044 -- and 8044 is now solved, so
-#                                          the answer transfers rather than
-#                                          being unknown. Tracked as #1660.
+#                                          chat history" UNTIL 2026-09-06, and
+#                                          it was STALE -- in the frightening
+#                                          direction, which is the one that gets
+#                                          quoted. #1660 landed the credential
+#                                          the row itself predicted would
+#                                          transfer from 8044. Measured in
+#                                          install.sh rather than recalled:
+#                                          ostler-vane-auth.conf +
+#                                          ostler-vane-htpasswd mounted into the
+#                                          store-proxy (16791-16792), an nginx
+#                                          `server { listen 3000; ... include
+#                                          /etc/nginx/ostler-vane-auth.conf; }`
+#                                          block (17305-17309), and the htpasswd
+#                                          written with the same apr1 + 0600
+#                                          pattern as the wiki (17429). It is
+#                                          published at 127.0.0.1:3000 and it
+#                                          refuses an uncredentialled read.
 #   8144  wiki tailnet gate            -> WAS: its identity check is
 #                                        client-supplied over a local
 #                                        connection. CLOSED by #1683, which
@@ -208,9 +218,46 @@ PROBE_QUESTION="can any local account open a TCP connection to an Ostler store o
 #                                        on the host, so it must stay a TCP
 #                                        port; the UDS alternative is dead per
 #                                        the measurement above.
-MUST_BE_CLOSED="6333 7878 6334 6379 8044 3000 8144"
+# ── #1618: REACHABILITY IS THE WRONG PREDICATE FOR A CREDENTIALLED PORT ─────
+#
+# The single MUST_BE_CLOSED list below used to hold all seven ports and ask one
+# question of them: does a TCP connect succeed. That was right while the stores
+# had NO auth, because reachable then meant readable.
+#
+# It is wrong for a port a human opens in a browser, and for every store now
+# fronted by the credentialled store-proxy. Those ports MUST accept a connect --
+# that is what "open the wiki" means, and what `tailscale serve` needs on 8144 --
+# so a connect can never tell a protected surface from an unprotected one.
+#
+# MEASURED, and this is why the row never went green: the probe is named in 7
+# walk records and has PASSED IN NONE. Five measured failures, one broken probe,
+# one not measured. Not an 8044 regression -- 6333 and 7878 are published on
+# loopback by store-proxy and answer a connect, so the row failed structurally
+# whatever the auth said. #1609 put 8044 into that class; it did not create it.
+#
+# So the question is split by what the port IS:
+#
+#   MUST_NOT_LISTEN     nothing may answer at all. A connect that SUCCEEDS is
+#                       the defect. This is the original predicate, kept for the
+#                       ports it is actually true of.
+#
+#   MUST_REFUSE_UNAUTH  the port is published on purpose and must stay so, but
+#                       an UNCREDENTIALLED request must be refused. A 200 is the
+#                       defect. Connect success proves nothing either way.
+#
+# Per-port grounds are in the table above, read out of install.sh rather than
+# recalled. 6334 is unpublished (#1209, zero consumers). Everything else is
+# published deliberately and carries a credential.
+MUST_NOT_LISTEN="6334"
+MUST_REFUSE_UNAUTH="6333 7878 6379 8044 3000 8144"
 
-# ── ⚠️ 8144: EXPECTED RED, AND DO NOT "FIX" IT BY UNPUBLISHING THE PORT ──────
+# 6379 is redis, not HTTP, so it cannot be asked with curl. It is listed here
+# because the PROPERTY is identical -- an uncredentialled client must be refused
+# -- and adjudicated by its own sensor below. Naming the property once and
+# instantiating it per protocol is the point of #1618; a list that silently
+# dropped redis would be the same blind spot in a smaller box.
+
+# ── 8144: NO LONGER AN EXPECTED RED, AND STILL DO NOT UNPUBLISH THE PORT ────
 #
 # 8144 belongs in the list, but NO LONGER FOR THE REASON FIRST WRITTEN HERE.
 #
@@ -221,11 +268,15 @@ MUST_BE_CLOSED="6333 7878 6334 6379 8044 3000 8144"
 # the credentialled owner still gets 200 and the body, and a wrong password
 # gets 401.
 #
-# It stays in MUST_BE_CLOSED because THIS SENSOR MEASURES TCP REACHABILITY,
-# NOT AUTHENTICATION, and the port must remain published (see below). That is
-# the same footing 8044 and 3000 are on. A red here now means "a local account
-# can OPEN a socket", which is true and unavoidable, and no longer means "a
-# local account can READ THE WIKI", which was the frightening half.
+# ⚠️ THIS PARAGRAPH USED TO SAY 8144 "stays in MUST_BE_CLOSED because THIS
+# SENSOR MEASURES TCP REACHABILITY, NOT AUTHENTICATION", and that a red here
+# means only "a local account can OPEN a socket". Both halves were true and the
+# conclusion has expired: #1618 changed the sensor. It now asks the question the
+# old one could not, so 8144 moves to MUST_REFUSE_UNAUTH and is expected GREEN
+# -- a red here means the credential #1683 added is GONE, which is a finding
+# rather than a shrug.
+#
+# The port still must remain published (see below), and that is unchanged.
 #
 # But it CANNOT be closed the way 6334 and 6379 were, and the reason is
 # measured rather than assumed:
@@ -278,6 +329,45 @@ port_state() {
     esac
 }
 
+# ── THE CREDENTIAL SENSORS ───────────────────────────────────────────────────
+#
+# --noproxy '*' IS NOT OPTIONAL. A local proxy answers for EVERY host, so
+# without it a 200 can come from the proxy rather than from the service, and
+# this probe would report a store readable that never saw the request. Same
+# reason the registry probes in this estate print remote_ip.
+#
+# THREE OUTCOMES, NOT TWO. curl writes 000 when it could not connect or timed
+# out. That is NOT "refused" and it is NOT "readable": it is CANNOT-RUN for that
+# port, and it is returned as such rather than folded into either verdict.
+_http_unauth_code() {
+    box_run "curl -s -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 6 http://127.0.0.1:$1/; echo"
+}
+
+# Redis speaks its own protocol. An uncredentialled PING against a server with
+# requirepass answers -NOAUTH; without it, +PONG. redis-cli may not exist on the
+# box, so absence is CANNOT-RUN and never a pass.
+_redis_unauth_state() {
+    box_run "command -v redis-cli >/dev/null 2>&1 || { echo no_client; exit 0; }; redis-cli -h 127.0.0.1 -p $1 --no-auth-warning ping 2>&1 | head -1"
+}
+
+# Map a reading to one of: refused | readable | unmeasurable
+_verdict_for_http() {
+    case "$1" in
+        401|403) printf 'refused\n' ;;
+        000|'')  printf 'unmeasurable\n' ;;
+        2??|3??) printf 'readable\n' ;;
+        *)       printf 'unmeasurable\n' ;;
+    esac
+}
+
+_verdict_for_redis() {
+    case "$1" in
+        *NOAUTH*|*WRONGPASS*|*"not permitted"*) printf 'refused\n' ;;
+        *PONG*)                                 printf 'readable\n' ;;
+        *)                                      printf 'unmeasurable\n' ;;
+    esac
+}
+
 # ---------------------------------------------------------------------------
 # THE ADJUDICATION, AS A PURE FUNCTION.
 #
@@ -286,24 +376,39 @@ port_state() {
 # self-test that only proves its stubs return what they were written to return
 # has demonstrated nothing about the probe.
 #
-#   classify <control_listener_count> <space-separated open store ports>
+#   classify <control_listener_count> <listening_that_must_not> \
+#            <readable_without_credential> <unmeasurable>
 #     -> CANNOT_RUN | FAIL | PASS
+#
+# ORDER IS THE CONTRACT, and it is not the obvious one.
+#
+#   1. a bad control first -- a run whose control failed proves nothing in
+#      EITHER direction, so it can never be read as a finding.
+#   2. then FAIL, and this outranks unmeasurable ON PURPOSE. If one port is
+#      demonstrably readable without a credential and another could not be
+#      measured, the demonstrated defect is the result. Downgrading a proven
+#      FAIL to CANNOT_RUN because a SIBLING was unreadable is how a real
+#      finding gets lost in a shrug.
+#   3. then unmeasurable -> CANNOT_RUN. Three outcomes, three branches. A port
+#      we could not ask has NOT passed.
+#   4. PASS only when every port was measured and every one behaved.
 classify() {
-    _c="$1"; _open="$2"
+    _c="$1"; _listening="$2"; _readable="$3"; _unmeasured="$4"
     case "$_c" in ''|*[!0-9]*) printf 'CANNOT_RUN\n'; return ;; esac
     # A closed control means the stack is down. Every store port then reads
     # closed for a reason that is not the fix.
     if [ "$_c" -eq 0 ]; then printf 'CANNOT_RUN\n'; return; fi
-    if [ -n "$_open" ]; then printf 'FAIL\n'; return; fi
+    if [ -n "$_listening" ] || [ -n "$_readable" ]; then printf 'FAIL\n'; return; fi
+    if [ -n "$_unmeasured" ]; then printf 'CANNOT_RUN\n'; return; fi
     printf 'PASS\n'
 }
 
 run_probe() {
-    n_checked=0; open_list=""
+    n_checked=0; listening_list=""; readable_list=""; unmeasured_list=""
 
     c_state="$(port_state "$CONTROL_PORT")"
     case "$c_state" in open) c=1 ;; closed) c=0 ;; *) c="" ;; esac
-    case "$(classify "$c" "")" in
+    case "$(classify "$c" "" "" "")" in
         CANNOT_RUN)
             probe_examined 0 "store/UI ports"
             probe_cannot_run "control port ${CONTROL_PORT} is ${c_state}. A closed or unreadable control cannot be told apart from a closed store port, so this run proves nothing about #550."
@@ -311,23 +416,40 @@ run_probe() {
     esac
     probe_note "positive control: ${CONTROL_PORT} has a listener, so this probe can see an open port"
 
-    for p in $MUST_BE_CLOSED; do
+    # CLASS 1: nothing may answer. A successful connect IS the defect.
+    for p in $MUST_NOT_LISTEN; do
         n_checked=$((n_checked + 1))
         st="$(port_state "$p")"
         case "$st" in
-            error:*)
-                probe_examined "$n_checked" "store/UI ports"
-                probe_cannot_run "connect to ${p} returned ${st}; neither open nor refused, so it cannot be adjudicated."
-                ;;
-            open) open_list="${open_list} ${p}" ;;
+            error:*) unmeasured_list="${unmeasured_list} ${p}(connect:${st})" ;;
+            open)    listening_list="${listening_list} ${p}" ;;
+        esac
+    done
+
+    # CLASS 2: published on purpose; an UNCREDENTIALLED request must be refused.
+    # Connect state is deliberately not consulted here -- these ports are
+    # SUPPOSED to accept a connection, so asking whether they do answers a
+    # question nobody has.
+    for p in $MUST_REFUSE_UNAUTH; do
+        n_checked=$((n_checked + 1))
+        if [ "$p" = "6379" ]; then
+            reading="$(_redis_unauth_state "$p")"
+            v="$(_verdict_for_redis "$reading")"
+        else
+            reading="$(_http_unauth_code "$p")"
+            v="$(_verdict_for_http "$reading")"
+        fi
+        case "$v" in
+            readable)     readable_list="${readable_list} ${p}(${reading})" ;;
+            unmeasurable) unmeasured_list="${unmeasured_list} ${p}(${reading:-no-reading})" ;;
         esac
     done
 
     probe_examined "$n_checked" "store/UI ports (control ${CONTROL_PORT} confirmed open)"
 
-    case "$(classify "$c" "$open_list")" in
+    case "$(classify "$c" "$listening_list" "$readable_list" "$unmeasured_list")" in
         FAIL)
-            probe_fail "TCP-reachable on loopback, therefore readable by every account on this Mac:${open_list}. #550 was demonstrated against 7878 with one unauthenticated curl."
+            probe_fail "an uncredentialled client is served by these Ostler surfaces, so every account on this Mac can read them:${listening_list}${readable_list}. #550 was demonstrated against 7878 with one unauthenticated curl. A port listed with a 2xx answered a request that carried NO credential; a port listed bare should not be listening at all."
             ;;
         PASS)
             # States ONLY what was measured. The previous wording explained the
@@ -337,10 +459,10 @@ run_probe() {
             # crosses the bind-mount as a file, not a connection). A green
             # verdict that hands the reader a false mechanism is worse than a
             # terse one: it is the sentence that gets quoted into a ship note.
-            probe_pass "none of the ${n_checked} store/UI ports accepts a TCP connection from this account, with ${CONTROL_PORT} confirmed open in the same run so this is a measured refusal and not a blind probe. HOW they became unreachable is NOT asserted here -- read the per-port table in this file for the route each one actually took"
+            probe_pass "none of the ${n_checked} store/UI surfaces served an uncredentialled request: the ${MUST_NOT_LISTEN} class refused a connection outright and every published surface answered 401/403 (or NOAUTH for redis), with ${CONTROL_PORT} confirmed open in the same run so this is a measured refusal and not a blind probe. WHICH mechanism refused each one is NOT asserted here -- read the per-port table in this file"
             ;;
         *)
-            probe_cannot_run "adjudication was inconclusive for control='${c}' open='${open_list}'"
+            probe_cannot_run "adjudication was inconclusive for control='${c}' listening='${listening_list}' readable='${readable_list}' unmeasurable='${unmeasured_list}'. A port that could not be asked has NOT passed."
             ;;
     esac
 }
@@ -350,24 +472,51 @@ self_test() {
     # situation it stands for.
     fails=""
 
-    # 1. THE DEFECT. Control up, a store port open -> must FAIL.
-    [ "$(classify 1 ' 7878')" = "FAIL" ] || fails="${fails} open-store-port-not-FAIL"
+    # 1. THE ORIGINAL DEFECT. Control up, something LISTENING that must not be.
+    [ "$(classify 1 ' 6334' '' '')" = "FAIL" ] || fails="${fails} listening-port-not-FAIL"
 
-    # 2. THE FIX. Control up, nothing open -> must PASS.
-    [ "$(classify 1 '')" = "PASS" ] || fails="${fails} closed-ports-not-PASS"
+    # 2. #1618's DEFECT, and the one the old predicate could not see: the port
+    #    is published (as it must be) and served an UNCREDENTIALLED request.
+    #    This is the "8044 answers 200 without a credential" arm of the
+    #    closing condition.
+    [ "$(classify 1 '' ' 8044(200)' '')" = "FAIL" ] || fails="${fails} uncredentialled-200-not-FAIL"
 
-    # 3. THE TRAP THIS PROBE EXISTS TO AVOID. Control DOWN, nothing open.
+    # 3. THE FIX, and the arm that matters most for THIS probe specifically.
+    #    It is named in 7 walk records and has passed in NONE, so "it went
+    #    green" is unreadable until PASS is shown to be reachable at all.
+    [ "$(classify 1 '' '' '')" = "PASS" ] || fails="${fails} clean-box-not-PASS"
+
+    # 4. THE TRAP THIS PROBE EXISTS TO AVOID. Control DOWN, nothing found.
     #    A stopped stack must never be adjudicated PASS.
-    [ "$(classify 0 '')" = "CANNOT_RUN" ] || fails="${fails} stopped-stack-read-as-PASS"
+    [ "$(classify 0 '' '' '')" = "CANNOT_RUN" ] || fails="${fails} stopped-stack-read-as-PASS"
 
-    # 4. Control unreadable -> CANNOT_RUN, not PASS.
-    [ "$(classify '' '')" = "CANNOT_RUN" ] || fails="${fails} unreadable-control-not-CANNOT_RUN"
+    # 5. Control unreadable -> CANNOT_RUN, not PASS.
+    [ "$(classify '' '' '' '')" = "CANNOT_RUN" ] || fails="${fails} unreadable-control-not-CANNOT_RUN"
 
-    # 5. Control down AND a port open -> still CANNOT_RUN. We cannot claim a
+    # 6. Control down AND a finding -> still CANNOT_RUN. We cannot claim a
     #    finding from a run whose control failed, in either direction.
-    [ "$(classify 0 ' 6333')" = "CANNOT_RUN" ] || fails="${fails} down-control-with-open-port-adjudicated"
+    [ "$(classify 0 ' 6333' '' '')" = "CANNOT_RUN" ] || fails="${fails} down-control-with-finding-adjudicated"
 
-    probe_examined 5 "adjudication cases"
+    # 7. A port we COULD NOT ASK has not passed. Three outcomes, three branches.
+    [ "$(classify 1 '' '' ' 3000(000)')" = "CANNOT_RUN" ] || fails="${fails} unmeasurable-read-as-PASS"
+
+    # 8. FAIL OUTRANKS CANNOT_RUN. A demonstrated uncredentialled read must not
+    #    be softened to "inconclusive" because a SIBLING port was unreadable.
+    [ "$(classify 1 '' ' 8044(200)' ' 3000(000)')" = "FAIL" ] || fails="${fails} fail-downgraded-by-sibling-unmeasurable"
+
+    # 9-13. THE SENSOR MAPPERS. classify() is only as good as what feeds it, and
+    #    these translate a raw reading into the three outcomes. 401 and 403 are
+    #    both refusals: auth_basic answers 401, the store-proxy's host check
+    #    answers 403, and either means the request was not served.
+    [ "$(_verdict_for_http 401)" = "refused" ]      || fails="${fails} http-401-not-refused"
+    [ "$(_verdict_for_http 403)" = "refused" ]      || fails="${fails} http-403-not-refused"
+    [ "$(_verdict_for_http 200)" = "readable" ]     || fails="${fails} http-200-not-readable"
+    [ "$(_verdict_for_http 000)" = "unmeasurable" ] || fails="${fails} http-000-not-unmeasurable"
+    [ "$(_verdict_for_redis 'NOAUTH Authentication required.')" = "refused" ] || fails="${fails} redis-noauth-not-refused"
+    [ "$(_verdict_for_redis 'PONG')" = "readable" ] || fails="${fails} redis-pong-not-readable"
+    [ "$(_verdict_for_redis 'no_client')" = "unmeasurable" ] || fails="${fails} redis-missing-client-not-unmeasurable"
+
+    probe_examined 15 "adjudication cases"
 
     # ── THE RUNNER'S CONTRACT, WHICH THIS FUNCTION USED TO BREAK ──────────
     #
@@ -399,7 +548,7 @@ self_test() {
             "${PROBE_NAME:-no_store_port_is_tcp_reachable}" "$fails"
         exit 1
     fi
-    probe_fail "NEGATIVE CONTROL DEMONSTRATED (this red is the expected result of --self-test, not a finding): classify() returned FAIL on a fabricated open store port, PASS only with the control up and nothing open, and CANNOT_RUN on a stopped or unreadable control in both directions. 5 of 5 adjudication cases behaved."
+    probe_fail "NEGATIVE CONTROL DEMONSTRATED (this red is the expected result of --self-test, not a finding): classify() returned FAIL both on a port that must not listen and on a published port that served an UNCREDENTIALLED request, PASS only with the control up and nothing found, CANNOT_RUN on a stopped or unreadable control and on a port that could not be asked, and FAIL still outranked an unmeasurable sibling. The four sensor mappers turned 401/403 into refused, 2xx into readable, 000 into unmeasurable, and redis NOAUTH/PONG/no-client into the same three. 15 of 15 adjudication cases behaved."
 }
 
 probe_main "$@"
