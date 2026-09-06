@@ -20,6 +20,8 @@ any operator and any locale.
 
 from __future__ import annotations
 
+import json
+import os
 import re
 from typing import Iterable, Optional
 
@@ -108,6 +110,105 @@ def is_acceptable_display_name(value: Optional[str]) -> bool:
     return True
 
 
+# ---------------------------------------------------------------------------
+# A KINSHIP WORD MUST NEVER BECOME A GIVEN NAME.
+# ---------------------------------------------------------------------------
+# MEASURED 2026-09-06 on Andy's own graph. His WIFE was carried as
+# "Mum <Surname>". The string existed in no source: a literal search of the
+# graph dump found ZERO occurrences of it. It was MANUFACTURED here.
+#
+# The chain: a second address book syncs into Contacts (44 cards, registered
+# as com.apple.AddressBookSourceSync, and plainly a child's phone book --
+# Mum, Dad, Granny <Surname>, Uncle <Name>). One card is first-named "Mum"
+# with two phones and two emails that match his wife's real card exactly.
+# Identity resolution merges them on those shared identifiers, so ONE node
+# ends up holding TWO givenName values, the real one and the kinship word,
+# alongside one familyName. Then precedence rule 1 below welds given +
+# family and returns it AHEAD of every real candidate.
+#
+# WHY IT KEPT COMING BACK FOR WEEKS. This function runs LAST, after ingest,
+# and install.sh installs a recurring launchd catch-up agent that re-runs the
+# resolver. Every fix applied at an ingest site was overwritten on the next
+# tick. His own node already shows the endpoint: it holds givenName "Andrew"
+# AND givenName "Dad", and there the composed form was PERSISTED.
+#
+# THE QUESTION ASKED HERE IS NOT "is 'Mum <Surname>' a name?" -- it is
+# "should I CONSTRUCT that from givenName='Mum'?". So the test is on the
+# given name ALONE, whole-label, which is unambiguous. contact_syncer's
+# relationship_labels.py makes exactly this distinction in its docstring and
+# deliberately leaves "Mum Zhang" alone, because a false positive there
+# erases a real person's name.
+#
+# WHY THAT MODULE IS NOT IMPORTED, having checked rather than assumed: CM051
+# vendors 11 identity_resolver files and does NOT vendor
+# relationship_labels.py at all (0 of 27 vendored contact_syncer files). An
+# import would raise on every customer box, and a try/except around it would
+# delete the guard precisely where it ships. The list is duplicated here
+# deliberately and both honour OSTLER_KINSHIP_WORDS_FILE so one file can
+# drive both. Unifying them means adding that module to the vendor set, which
+# is follow-up work and not a blocker for this defect.
+#
+# REFUSING THE WELD DOES NOT DROP THE PERSON. It falls through to precedence
+# rule 2, the source-provided candidates -- which is a name a source actually
+# asserted, and therefore better evidence than one this function assembled.
+# Measured: with candidates ['Jane Smith','Jane','jane@example.com'] and
+# given='Mum', the weld returns 'Mum Smith'; refusing it returns 'Jane Smith'.
+_KINSHIP_GIVEN_NAMES = {
+    "mum", "mummy", "mom", "mommy", "mother", "ma", "mam", "mama",
+    "dad", "daddy", "father", "pa", "papa", "pop",
+    "nan", "nana", "nanny", "gran", "granny", "grandma", "grandmother",
+    "grandad", "granddad", "grandpa", "grandfather", "gramps",
+    "bro", "brother", "sis", "sister", "auntie", "aunty", "aunt", "uncle",
+    "cousin", "nephew", "niece", "godmother", "godfather", "godson",
+    "goddaughter", "stepmum", "stepmom", "stepdad", "stepfather",
+    "stepmother", "stepbrother", "stepsister",
+    "hubby", "husband", "wife", "wifey", "partner", "spouse",
+    "missus", "hubbie", "fiance", "fiancee",
+    "son", "daughter", "kid", "bairn",
+    "home", "house", "work", "office", "landline",
+}
+
+
+def _load_kinship_given_names() -> set:
+    """Same override contact_syncer.relationship_labels honours, so one file
+    can drive both lists until they are unified."""
+    path = os.environ.get("OSTLER_KINSHIP_WORDS_FILE")
+    if not path:
+        return set(_KINSHIP_GIVEN_NAMES)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, list):
+            return {str(w).strip().lower() for w in data if str(w).strip()}
+    except (OSError, ValueError):
+        pass
+    return set(_KINSHIP_GIVEN_NAMES)
+
+
+_KINSHIP_GIVEN = _load_kinship_given_names()
+
+
+def is_kinship_given_name(given: Optional[str]) -> bool:
+    """True when a GIVEN NAME is really a kinship term, whole-label.
+
+    Deliberately NOT applied to the composed form: "Nan Goldin" is a real
+    person and must survive. This asks only whether the given-name FIELD is a
+    relationship word, which is the thing that must never be welded into a
+    display name.
+    """
+    if not given:
+        return False
+    n = " ".join(str(given).strip().lower().split())
+    if not n:
+        return False
+    if n in _KINSHIP_GIVEN:
+        return True
+    parts = n.split()
+    if len(parts) == 2 and parts[0] in {"my", "our", "the", "big", "little", "wee"}:
+        return parts[1] in _KINSHIP_GIVEN
+    return False
+
+
 def _full_name(given: Optional[str], family: Optional[str]) -> Optional[str]:
     parts = [p.strip() for p in (given, family) if p and p.strip()]
     if not parts:
@@ -137,7 +238,7 @@ def choose_canonical_display_name(
     Returns ``None`` only when there is no usable input at all.
     """
     structured = _full_name(given_name, family_name)
-    if structured and is_acceptable_display_name(structured):
+    if structured and is_acceptable_display_name(structured) and not is_kinship_given_name(given_name):
         return structured
 
     cleaned = [c.strip() for c in candidates if c and c.strip()]
@@ -167,6 +268,16 @@ def choose_canonical_display_name(
     # Nothing acceptable -- avoid a nameless node. Prefer the structured name
     # even if it tripped the guard (unlikely), else the first raw candidate.
     if structured:
+        # LAST RESORT, AND THE GUARD STILL APPLIES. With no acceptable
+        # candidate the only inputs are given+family, so refusing outright
+        # would leave the node nameless -- which this branch exists to avoid.
+        # But welding a kinship given name here reinstates the exact defect,
+        # so drop the kinship half and keep the family name. Incomplete beats
+        # wrong: "<Surname>" is not a name anyone objects to, "Mum <Surname>"
+        # is the thing that put a man's WIFE in his graph as his mother.
+        if is_kinship_given_name(given_name):
+            fam = (family_name or "").strip()
+            return fam or None
         return structured
     if cleaned:
         return cleaned[0]
