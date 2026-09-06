@@ -611,3 +611,47 @@ open_issues:
       MUST fail and two that MUST pass. A missing binding block is
       CANNOT-RUN and exits 2; it is not a pass."
     proof: "python3 tests/test_the_egress_inventory_still_describes_the_software.py --self-test"
+  - issue: 1727
+    title: "vendor:doctor is missing HR015 5d4c4791, so could-not-measure still renders as everything-is-fine"
+    gate: "OPEN, and it is the one check-freshness RED I did NOT graft.
+      HR015 5d4c4791 applies the estate's core discipline -- CANNOT-RUN is a
+      third state and is not a pass -- to the CUSTOMER-FACING Doctor page.
+      MEASURED ABSENT with a control: MEMORY_UNREADABLE_TITLE and
+      MEMORY_UNREADABLE_DETAIL_NO_TOTAL both score 0 in
+      vendor/doctor/agent/diagnostic_copy.py, while a control counting any
+      existing _TITLE assignment in the SAME file scores 28. So the probe can
+      see constants of that shape and finds none of the new ones.
+      NOT GATED BLOCKING here, and the word is deliberate: this row does not
+      stop the cut, check-freshness already does, and two BLOCKING rows for one
+      wall would double-count it. The cut cannot pass regardless --
+      verify_cut_freshness.sh:557 refuses a hold_ack unless
+      shipping_bugfixes_grafted is true, and asserting that while a real
+      customer-facing bugfix is held would be a lie in the register that exists
+      to stop exactly that.
+      WHY IT WAS NOT GRAFTED when the other two tonight were (#1724, #1726):
+      the vendored doctor copies are heavily divergent twins -- 437, 1542 and
+      789 diff lines against HEAD, 2768 in total -- and the fix is 121
+      insertions across those same three files. That is a real merge needing
+      both sides understood, not a keyword insertion, and it changes what the
+      Doctor RENDERS. A botched graft produces wrong diagnostic verdicts, which
+      is the class the fix exists to prevent, so it was recorded rather than
+      attempted unattended."
+    proof: "grep -c MEMORY_UNREADABLE_TITLE vendor/doctor/agent/diagnostic_copy.py against a _TITLE control in the same file"
+  - issue: 1725
+    title: "the install ends on Open your Wiki, which now opens a password box the GUI never mentions"
+    gate: "OPEN, TNM's, filed 2026-09-06T20:05Z, and it is WALK-RELEVANT rather
+      than theoretical: it lands in the last 30 seconds of a fresh install, on
+      the success screen, which is exactly where the next box walk ends.
+      The security half of #1594 landed and is correct; the customer-facing half
+      did not land with it. open_wiki_button opens http://localhost:8044, and
+      since 34201cb4 (#1609) that URL demands a credential the completion screen
+      does not surface.
+      NOT GATED BLOCKING by me, for one reason and it is not a judgement on
+      severity: it is TNM's issue, filed while I was working the freshness gate,
+      and the disposition is theirs to set. Registering it keeps the register a
+      register -- which is this row's whole job -- without me deciding someone
+      else's blocker status for them.
+      READ IT BEFORE THE NEXT WALK. A walk that ends on a password prompt the
+      GUI never mentions will be recorded as a walk failure, and the cause will
+      be this, not the build."
+    proof: "gui/OstlerInstaller/Views/InstallCompleteView.swift:571-575 and gui/OstlerInstaller/Resources/ViewCopy.json:323, against 34201cb4"
