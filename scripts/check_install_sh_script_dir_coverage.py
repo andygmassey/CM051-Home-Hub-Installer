@@ -130,7 +130,7 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "pwg_privacy.py": ['${DEST}/pwg_privacy.py'],
     "ostler_hygiene": ['${DEST}/ostler_hygiene'],
     "scripts": ["scripts/deferred-register-device.sh"],
-    "scripts/deferred-register-device.sh": ["scripts/deferred-register-device.sh"],
+    "scripts/deferred-register-device.sh": ['cp "${SRC}" "${DEST}/scripts/deferred-register-device.sh"'],
     # REUSE-4 (hardware-fit Ollama model picker): install.sh sources
     # ${SCRIPT_DIR}/lib/ostler-model-fit.sh, which IS bundled into
     # Resources/lib/ by the "Bundle install.sh + lib/progress_emitter.sh +
@@ -138,7 +138,7 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     # inputFiles/outputFiles. This needle was missing when the picker landed
     # (commit d030468), so the gate false-flagged an asset that ships. Assert
     # the bundling reference so a future removal of the cp line goes red.
-    "lib/ostler-model-fit.sh": ["lib/ostler-model-fit.sh"],
+    "lib/ostler-model-fit.sh": ['${SRCROOT}/../lib/ostler-model-fit.sh'],
     # v1.0.42 walk (2026-08-23): the container-engine liveness classifier and
     # its recovery supervisor. install.sh probes ${SCRIPT_DIR}/lib/
     # ostler-container-engine.sh and ${SCRIPT_DIR}/bin/ before staging both
@@ -149,8 +149,8 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     # dark for a day while every gate stayed green. That is ships-dark by
     # construction, which is why this gate refused the change until the
     # postBuildScript existed. Both needles assert the cp lines.
-    "lib/ostler-container-engine.sh": ["lib/ostler-container-engine.sh"],
-    "bin": ["bin/ostler-engine-supervisor.sh"],
+    "lib/ostler-container-engine.sh": ['${SRCROOT}/../lib/ostler-container-engine.sh'],
+    "bin": ['${SRCROOT}/../bin/ostler-engine-supervisor.sh'],
     # settling_progress.sh: install.sh sources
     # ${SCRIPT_DIR}/lib/settling_progress.sh so CM041 contact_syncer and CM021
     # pwg-email-ingest can report the `contacts` and `emails` channels on the
@@ -161,7 +161,7 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     # and main went red. Exactly the false-flag lib/ostler-model-fit.sh hit
     # above. The needle asserts the bundling reference, so removing the cp line
     # goes red instead of shipping a silent no-op.
-    "lib/settling_progress.sh": ["lib/settling_progress.sh"],
+    "lib/settling_progress.sh": ['${SRCROOT}/../lib/settling_progress.sh'],
     # #550 (2026-08-28): the store-auth shim. install.sh:6523 seeds it from
     # ${SCRIPT_DIR}/lib/ostler_store_auth.py into ${OSTLER_DIR}/lib, and a .pth
     # in every venv imports it so the pinned Python clients authenticate to
