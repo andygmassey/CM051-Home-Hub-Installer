@@ -26,6 +26,13 @@ INV_1247='sudo already available without a password'
 INV_1249='Install aborted at line'
 INV_563='COUNTS_INCOMPLETE'
 
+# The PAYLOAD invariants -- everything the check looks for OUTSIDE install.sh.
+# A fixture that carries fewer than the check declares is not a "good DMG",
+# and arm 0b refuses rather than letting the green arms fail misleadingly.
+INV_1543='_node_holds_a_different_canonical_key'
+INV_755='_source_is_the_users_own'
+INV_142='is_kinship_given_name'
+
 # arm 0: the check still declares exactly these three invariants (a fixture that
 # drifts from the check would make every other arm meaningless).
 for _inv in "$INV_1247" "$INV_1249" "$INV_563"; do
@@ -35,6 +42,29 @@ for _inv in "$INV_1247" "$INV_1249" "$INV_563"; do
     fi
 done
 ok "arm 0: the three fixture invariants match the check's declared set"
+
+# arm 0b: THE PAYLOAD SET, ASSERTED IN BOTH DIRECTIONS.
+#
+# WHY, MEASURED 2026-09-06: two PAYLOAD rows were added to the check and this
+# fixture was not updated with them, so the "good DMG" fixture was no longer a
+# well-formed artefact. Arms 1 and 6 then failed with "a good DMG did not
+# pass" -- which reads as the CHECK being broken when the FIXTURE was stale.
+#
+# One direction is not enough. Asserting only "every fixture invariant is in
+# the check" catches a row being DELETED and is blind to one being ADDED,
+# which is the direction that actually happened. So both, and a mismatch is
+# CANNOT-RUN rather than a fail: the arms below cannot mean anything until the
+# fixture describes a complete artefact again.
+PAYLOAD_INV_FIXTURE=( "$INV_1543" "$INV_755" "$INV_142" )
+_declared="$(sed -n '/^PAYLOAD_INV=(/,/)/p' "$CHECK" | grep -oE '"[^"]+"' | tr -d '"' | sort)"
+_fixture="$(printf '%s\n' "${PAYLOAD_INV_FIXTURE[@]}" | sort)"
+if [ "$_declared" != "$_fixture" ]; then
+    cant "arm 0b: the check's PAYLOAD_INV set and this fixture's set differ, so a 'good DMG' arm would fail for a stale fixture rather than a broken check.
+    check declares : $(printf '%s' "$_declared" | tr '\n' ' ')
+    fixture builds : $(printf '%s' "$_fixture" | tr '\n' ' ')"
+    echo "== ${PASS}/${FAIL}/$((CANT+1)) =="; exit 2
+fi
+ok "arm 0b: the check's PAYLOAD_INV set and the fixture's set are identical, both ways"
 
 # build_dmg <name> <inv-in-outer...pipe-separated> <inv-in-payload...>
 # writes an install.sh carrying the named invariants into each of the DMG's two
@@ -58,9 +88,19 @@ build_dmg() {
         mkdir -p "${outer_dir}/contact_syncer"
         printf '# synthetic contact_syncer fixture\n' > "${outer_dir}/contact_syncer/syncer.py"
         if [ "$syncer" = "with" ]; then
-            printf 'def _node_holds_a_different_canonical_key(self, u, v):\n    return None\n' \
+            printf 'def %s(self, u, v):\n    return None\n' "$INV_1543" \
+                >> "${outer_dir}/contact_syncer/syncer.py"
+            printf 'def %s(self, source_uuid):\n    return True\n' "$INV_755" \
                 >> "${outer_dir}/contact_syncer/syncer.py"
         fi
+        # identity_resolver/canonical_name.py is a SEPARATE payload row, so it
+        # is present and complete in BOTH the "with" and "without" cases. Only
+        # the syncer goes stale under "without", which is what makes arm 7 a
+        # FAIL (one payload row unmet) rather than a CANNOT-RUN (a payload file
+        # missing entirely). Those two must never print the same.
+        mkdir -p "${outer_dir}/identity_resolver"
+        printf '# synthetic canonical_name fixture\ndef %s(v):\n    return False\n' "$INV_142" \
+            > "${outer_dir}/identity_resolver/canonical_name.py"
         # A DECOY the path-suffix match must NOT accept. `-name syncer.py` alone
         # would find this and call the payload delivered.
         mkdir -p "${outer_dir}/meeting_syncer"
