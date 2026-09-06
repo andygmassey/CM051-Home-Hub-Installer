@@ -20,6 +20,7 @@
 test_a_blocking_row_stops_a_cut.sh	WIRED	.github/workflows/cut-checklist-complete.yml
 test_a_bom_row_can_claim_landed_and_not_be_in_the_pin.sh	WIRED	.github/workflows/bom-pin-agreement.yml
 test_a_broken_ci_query_is_not_a_green_main.sh	WIRED	.github/workflows/red-main-opens-an-issue.yml
+test_a_ci_alarm_is_not_a_register_gap.py	WIRED	.github/workflows/cut-checklist-complete.yml
 test_a_condition_function_must_not_short_circuit_its_own_pipeline.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_a_dead_wiki_announces_itself.py	WIRED	.github/workflows/vendor-integrity.yml
 test_a_denied_read_is_not_an_absence.sh	WIRED	.github/workflows/unreachable-not-absence.yml
@@ -420,6 +421,7 @@ test_the_cron_reader_sees_both_toml_spellings.sh	WIRED	.github/workflows/install
 test_the_cut_checklist_is_complete.py	WIRED	.github/workflows/cut-checklist-complete.yml
 test_the_daemon_freshness_row_decides_on_the_scoped_count.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_downloads_watcher_survives_a_real_export.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
+test_the_egress_inventory_still_describes_the_software.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_the_failed_to_look_message_can_actually_print.sh	WIRED	.github/workflows/dmg-delivery-gate.yml
 test_the_installer_downloads_from_the_repo_we_publish_to.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_migrator_authenticates_and_a_refusal_is_loud.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml

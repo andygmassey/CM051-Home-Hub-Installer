@@ -576,26 +576,6 @@ open_issues:
       Registered rather than left out, because an unregistered open issue is
       exactly what this file exists to prevent, and because a deferral whose
       reason is not written down cannot be audited later -- only obeyed."
-  - issue: 1685
-    title: "the pairing QR does not carry a wiki credential, and the seamless-wiki expectation depends on it"
-    gate: "DEFER: the credential IS delivered today, just not by the QR.
-      install.sh:31256 prints the wiki sign-in on the completion screen and
-      31267 pbcopies the password, with the clipboard write GUARDED rather than
-      assumed and no 2>/dev/null on the probe -- claiming a clipboard write that
-      did not happen would be worse than silence. Basic auth then prompts ONCE
-      per browser and both Safari and Chrome offer Keychain. That was Andy's own
-      call, recorded at install.sh:31257: `MAKE THE PROMPT A PASTE, NOT A MEMORY
-      TEST ... the credential is right, the friction is not`. So this is a
-      convenience gap, not a capability gap, and the customer is not stuck.
-      NOT gated BLOCKING on purpose, and #1680 makes that word cost something:
-      a cut now refuses while any BLOCKING row's issue is open, so mis-gating
-      this would stop a launch over a paste. Carrying a credential in a QR is
-      also a DIFFERENT threat surface -- a code photographed off a screen, or
-      left in a screenshot -- and that deserves deliberate design rather than a
-      launch-eve change. Filed by TNM after I measured that the 3.3 envelope
-      carries the GATEWAY pairing token and no wiki credential field; the
-      seamless-via-QR belief was aspirational, and correcting Andy on it was
-      mine to do. Revisit for v1.0.1 alongside the Live Activities work."
   - issue: 1690
     title: "the shipped owner node still accumulates display names; fixed upstream in CM041 fdedb71"
     gate: "FIX: same family as 1619 and it is the DATA half rather than the code
@@ -606,3 +586,28 @@ open_issues:
       TNM's thread. Not gated BLOCKING here only because 1619 already carries
       that disposition for this family and two blocking rows for one defect
       would double-count the cut."
+
+  - issue: 1709
+    title: "the public egress inventory was bound to v1.0.33 and nothing checked it still described the software"
+    gate: "FIXED, and the gate is the fix.
+      tests/test_the_egress_inventory_still_describes_the_software.py binds
+      docs/EGRESS_INVENTORY.md to the SET of hosts declared in
+      scripts/box_walk_probes/egress_hosts.tsv, wired into
+      install-abort-and-egress.yml on pull_request and push-to-main.
+      Before it existed, 0 files gated the inventory's currency, against a
+      control of 16 files referencing SHIPPING_LEDGER -- so the zero was a
+      real absence, not a broken predicate. The document was still TRUE (46
+      declared hosts at its measurement commit, 46 now), which is precisely
+      the risk: it survived by luck, and the next release adding a
+      destination would have falsified a public privacy claim with nothing
+      going red.
+      It binds the HOST SET, not the file bytes, on purpose. A whole-file
+      digest reddens when somebody fixes a typo, and a gate that cries at
+      noise gets its ratchet raised until it means nothing.
+      PROVED RED ON THE REAL TREE, not just in fixtures: appending one
+      synthetic destination to the real ledger took it to
+      [FAIL] 47 declared, bound to 46, rc 1, and the tree restored to 0
+      residual lines and a 0-line diff. Self-test 10/10 with four arms that
+      MUST fail and two that MUST pass. A missing binding block is
+      CANNOT-RUN and exits 2; it is not a pass."
+    proof: "python3 tests/test_the_egress_inventory_still_describes_the_software.py --self-test"

@@ -12,6 +12,20 @@ Instrument: `scripts/box_walk_probes/probes/no_unexpected_egress.sh`.
 Ledger: `scripts/box_walk_probes/egress_hosts.tsv`.
 Measured on a 16 GB M4 Mini running v1.0.33, 2026-08-17.
 
+<!-- EGRESS-LEDGER-BINDING
+hosts: 46
+digest: 88c3528dfb4bad552e6c172629d567454648d6a923537e18cbec084a88d12de9
+-->
+
+This document is BOUND to the set of hosts declared in the ledger above.
+`tests/test_the_egress_inventory_still_describes_the_software.py` recomputes
+that set and goes red when it drifts, so a release that adds an outbound
+destination cannot quietly leave this page describing software that no longer
+exists. The binding covers the host SET, not the file's bytes: rewording a
+comment is not a change of claim, and a gate that cries at noise gets ignored.
+Editing the block below is asserting that the prose here was re-read against
+the new destination.
+
 ## Why this exists
 
 A cold outside read of the marketing site concluded the privacy claim was
