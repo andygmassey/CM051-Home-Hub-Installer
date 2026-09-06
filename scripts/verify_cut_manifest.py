@@ -1425,10 +1425,25 @@ def _gh_api_json(path: str, token: Optional[str]) -> tuple[Optional[Union[dict, 
             capture_output=True, check=False,
             timeout=GH_API_TIMEOUT_SECONDS, env=env,
         )
-    except FileNotFoundError:
-        return None, "gh CLI not installed"
-    except subprocess.TimeoutExpired:
-        return None, f"gh api {path} timed out after {GH_API_TIMEOUT_SECONDS}s"
+    except FileNotFoundError as e:
+        # #1629. A TIMEOUT AND AN ABSENT TOOL ARE NOT ANSWERS, AND RETURNING
+        # THEM AS `err` MADE THEM INTO ONE. Every caller below does
+        #     if err or not isinstance(x, dict): return Result(..., "FAIL", ...)
+        # so "gh is not installed" and "gh hung" both rendered as a FAILED
+        # freshness check -- a gate asserting the pin is stale when the truth
+        # is that it never asked. Measured: 7 call sites, all in
+        # check_pinned_artefact_freshness() and check_pr_branch_not_stale_vs_main(),
+        # and BOTH already catch CouldNotMeasure, so raising is caught and
+        # rendered CANNOT-RUN rather than crashing the gate. Verified by
+        # walking every propagation chain to its terminating check_ function
+        # before changing this.
+        #
+        # A non-zero exit and malformed JSON are NOT raised: gh answered, and
+        # its answer is a fact about the repo. Only "could not ask" is here.
+        raise CouldNotMeasure("gh CLI not installed, so no API call was made") from e
+    except subprocess.TimeoutExpired as e:
+        raise CouldNotMeasure(
+            f"gh api {path} exceeded its {GH_API_TIMEOUT_SECONDS}s cap and was killed") from e
     if r.returncode != 0:
         stderr = r.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
         return None, f"gh api {path} exit={r.returncode}: {stderr[0][:200]}"
@@ -1605,10 +1620,14 @@ def _fetch_asset_content(source_repo: str, asset_id: int, token: Optional[str],
              "-H", "Accept: application/octet-stream"],
             capture_output=True, check=False, timeout=timeout, env=env,
         )
-    except FileNotFoundError:
-        return b"", "gh CLI not installed"
-    except subprocess.TimeoutExpired:
-        return b"", f"asset {asset_id} download timed out after {timeout}s"
+    except FileNotFoundError as e:
+        # #1629, same shape as _gh_api_json above. An empty b"" plus an err
+        # string is indistinguishable, at every call site, from an asset that
+        # downloaded to nothing.
+        raise CouldNotMeasure("gh CLI not installed, so no asset was fetched") from e
+    except subprocess.TimeoutExpired as e:
+        raise CouldNotMeasure(
+            f"asset {asset_id} exceeded its {timeout}s download cap and was killed") from e
     if r.returncode != 0:
         stderr = r.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
         return b"", f"gh api asset {asset_id} exit={r.returncode}: {stderr[0][:200]}"
@@ -2390,6 +2409,31 @@ def check_entry(entry: dict, ctx: dict) -> Result:
                       entry.get("source_pr", ""))
     try:
         return DISPATCH[kind](entry, ctx)
+    except CouldNotMeasure as e:
+        # #1629. THE ONE PLACE THAT DECIDES, SO EVERY CHECK GETS IT.
+        #
+        # CouldNotMeasure means a probe could not be taken -- gh absent, a
+        # subprocess killed at its cap, a file unreadable. It is NOT a fact
+        # about the subject, and the broad `except Exception` below would have
+        # rendered it "internal error: ..." with status FAIL, which asserts the
+        # pin is stale when the truth is that nothing was measured.
+        #
+        # THIS HANDLER MUST PRECEDE THE BROAD ONE. Python takes the first
+        # matching clause, so moving it below `except Exception` silently
+        # disables it and every arm of the test would still pass on the
+        # exception TYPE while the STATUS reverted to FAIL.
+        #
+        # Placed here rather than in each check_ function because there are
+        # nine of them and I checked what the existing handlers actually cover:
+        # check_pinned_artefact_freshness has a CouldNotMeasure handler whose
+        # try block is TWO LINES long and wraps only the token lookup. A
+        # handler existing inside a function is not a handler covering the call
+        # you care about, and an AST census that asks the first question
+        # answers the second one wrongly. That mistake is why this is at the
+        # dispatch site.
+        return Result(entry.get("id", "?"), entry.get("title", "?"), kind, "CANNOT-RUN",
+                      f"{e} -- NOTHING was measured, so this is not a verdict about the subject.",
+                      entry.get("source_pr", ""))
     except KeyError as e:
         return Result(entry.get("id", "?"), entry.get("title", "?"), kind, "FAIL",
                       f"malformed entry, missing field: {e}", entry.get("source_pr", ""))

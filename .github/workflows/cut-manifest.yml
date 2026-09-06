@@ -173,6 +173,20 @@ jobs:
         if: always()
         run: python3 tests/test_a_timed_out_probe_is_not_a_failing_probe.py
 
+      # THE SAME DEFECT ONE LAYER DOWN, AND IT SURVIVED THE ROW ABOVE. The
+      # probe timeouts were fixed; the GH API timeouts were not.
+      # _gh_api_json and _fetch_asset_content returned (None, "...timed out")
+      # and all SEVEN consuming call sites do
+      #     if err or not isinstance(x, dict): return Result(..., "FAIL", ...)
+      # so a killed subprocess, and gh not being installed at all, rendered as
+      # a FAILED freshness check -- the gate asserting the pin is stale when it
+      # never asked. Fixed at check_entry, the single dispatch site, because a
+      # CouldNotMeasure handler already inside check_pinned_artefact_freshness
+      # covers a TWO-LINE try around the token lookup and nothing else.
+      - name: A timed-out gh call is CANNOT-RUN, not a stale pin (#1629)
+        if: always()
+        run: bash tests/test_a_timeout_is_not_a_stale_pin.sh
+
       # A DUPLICATE KEY IN cut-deferrals.yaml IS SILENT AND HAS COST A CUT.
       # YAML keeps the LAST duplicate and discards the earlier one without a
       # word, so a deferral you wrote and can still read in the file is simply
