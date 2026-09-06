@@ -31177,6 +31177,19 @@ if [[ "$WIKI_FIRST_COMPILE_OK" == true ]]; then
     # and will prompt immediately; a customer who was never shown the
     # password experiences that as a broken install, not as security.
     echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_SIGN_IN" "ostler" "${WIKI_PASSWORD}")"
+    # #1660: MAKE THE PROMPT A PASTE, NOT A MEMORY TEST. Andy's call: the
+    # credential is right, the friction is not. Basic auth prompts ONCE per
+    # browser and both Safari and Chrome then offer Keychain, so the whole cost
+    # of this decision is a single dialog -- provided the customer does not have
+    # to retype a 23-character string into it.
+    #
+    # pbcopy is macOS-only and this installer is macOS-only, but it is still
+    # guarded: a clipboard we could not write is a WORSE experience if we then
+    # claim we did. No 2>/dev/null on the probe -- if pbcopy is missing we say
+    # nothing about the clipboard rather than lying about it.
+    if command -v pbcopy >/dev/null 2>&1 && printf '%s' "${WIKI_PASSWORD}" | pbcopy; then
+        echo -e "  ${BOLD}         ${NC} Copied to your clipboard, so you can paste it. Your browser will offer to remember it."
+    fi
     # Second line only when the owner-gated tailnet route actually
     # landed. Deliberately says "your own devices" -- it is reachable
     # from your phone and iPad over Tailscale, and from nothing else:
