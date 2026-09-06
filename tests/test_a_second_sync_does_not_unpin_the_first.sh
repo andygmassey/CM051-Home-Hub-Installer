@@ -46,7 +46,7 @@ printf 'change\trepo\tsha\tlanded\tcap\tgate\tissue\n' > "$SRC/cuts/v9.9.1/MUST_
 printf 'ONE\tCM051\tdeadbee1\tyes\tnone\tgate:a.yml#t.sh\t#1\n'   >> "$SRC/cuts/v9.9.1/MUST_CONTAIN.tsv"
 printf 'change\trepo\tsha\tlanded\tcap\tgate\tissue\n' > "$SRC/cuts/v9.9.2/MUST_CONTAIN.tsv"
 printf 'TWO\tCM051\tdeadbee2\tyes\tnone\tgate:b.yml#u.sh\t#2\n'   >> "$SRC/cuts/v9.9.2/MUST_CONTAIN.tsv"
-( cd "$SRC" && git init -q . && git add -A \
+( cd "$SRC" && git init -q -b "${OSTLER_TEST_FIXTURE_BRANCH:-main}" . && git add -A \
   && git -c user.email=t@example.com -c user.name=t commit -qm "fixture" ) || {
     echo "[CANNOT-RUN] could not build the throwaway OS003"; exit 78; }
 
@@ -57,11 +57,29 @@ cp "$SYNC" "$WORK/scripts/"
 cp "${REPO_ROOT}/tests/test_cut_bom_is_fresh.sh" "$WORK/tests/" 2>/dev/null || true
 : > "$WORK/cuts/BOM_PIN"
 
+# 🔴 NEVER `>/dev/null 2>&1` A PROBE. The first version of this file did, and
+# on the ubuntu runner the sync failed for a reason the log could not show:
+# three arms went red saying "recorded no row" with no cause on screen.
+run_sync() {   # $1 = version
+    local rc=0
+    OS003_DIR="$SRC" bash "$WORK/scripts/sync_cut_bom.sh" "$1" >"$SB/sync.$1.log" 2>&1 || rc=$?
+    # rc is captured BEFORE anything else runs. Reading $? inside `if ! cmd`
+    # reports the NEGATION's status, so a script that exited 2 gets printed as
+    # "exited 0" next to its own ERROR line -- which is the exact misleading
+    # shape this diagnostic exists to remove.
+    if [ "$rc" -ne 0 ]; then
+        printf '         sync %s exited %s:\n' "$1" "$rc"
+        sed 's/^/           /' "$SB/sync.$1.log"
+        return 1
+    fi
+    return 0
+}
+
 row_count() { /usr/bin/grep -cE '^cuts/v[0-9.]+/MUST_CONTAIN\.tsv' "$WORK/cuts/BOM_PIN" 2>/dev/null || true; }
 has_row()   { /usr/bin/grep -cE "^cuts/v$1/MUST_CONTAIN\.tsv" "$WORK/cuts/BOM_PIN" 2>/dev/null || true; }
 
 echo "=== 1. FIRST SYNC PINS ITS VERSION ==="
-OS003_DIR="$SRC" bash "$WORK/scripts/sync_cut_bom.sh" 9.9.1 >/dev/null 2>&1
+run_sync 9.9.1 || true
 if [ "$(has_row 9\\.9\\.1)" -ge 1 ]; then
     ok "syncing 9.9.1 records a row for it"
 else
@@ -70,7 +88,7 @@ fi
 
 echo
 echo "=== 2. THE ARM THAT WAS BROKEN: a second sync must not unpin the first ==="
-OS003_DIR="$SRC" bash "$WORK/scripts/sync_cut_bom.sh" 9.9.2 >/dev/null 2>&1
+run_sync 9.9.2 || true
 n1="$(has_row 9\\.9\\.1)"; n2="$(has_row 9\\.9\\.2)"; tot="$(row_count)"
 if [ "$n1" -ge 1 ] && [ "$n2" -ge 1 ]; then
     ok "after syncing 9.9.2, BOTH rows are present (${tot} version rows)"
@@ -81,7 +99,7 @@ fi
 
 echo
 echo "=== 3. RE-SYNCING A VERSION UPDATES ITS ROW, IT DOES NOT DUPLICATE IT ==="
-OS003_DIR="$SRC" bash "$WORK/scripts/sync_cut_bom.sh" 9.9.1 >/dev/null 2>&1
+run_sync 9.9.1 || true
 n1="$(has_row 9\\.9\\.1)"
 if [ "$n1" -eq 1 ]; then
     ok "re-syncing 9.9.1 leaves exactly one row for it"
@@ -99,10 +117,15 @@ while IFS= read -r line; do
     f3="$(printf '%s' "$line" | cut -f3)"
     [ -n "$f3" ] || bad_rows=$((bad_rows + 1))
 done < <(/usr/bin/grep -E '^cuts/v[0-9.]+/MUST_CONTAIN\.tsv' "$WORK/cuts/BOM_PIN" 2>/dev/null)
-if [ "$bad_rows" -eq 0 ]; then
-    ok "every version row names the OS003 commit it was taken from"
+n_rows="$(row_count)"
+if [ "${n_rows:-0}" -lt 2 ]; then
+    # It "passed" on CI with ZERO rows before this floor existed: no rows means
+    # no rows without provenance. A denominator check is not optional.
+    bad "only ${n_rows:-0} version row(s) to check -- cannot assert provenance on an empty file"
+elif [ "$bad_rows" -eq 0 ]; then
+    ok "all ${n_rows} version rows name the OS003 commit they were taken from"
 else
-    bad "${bad_rows} row(s) carry no per-row provenance"
+    bad "${bad_rows} of ${n_rows} row(s) carry no per-row provenance"
 fi
 
 echo
