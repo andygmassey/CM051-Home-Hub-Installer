@@ -116,7 +116,10 @@ cat > "$WIKIAUTH" <<'WAEOF'
 auth_basic "Ostler personal wiki";
 auth_basic_user_file /etc/nginx/ostler-wiki-htpasswd;
 WAEOF
-printf 'ostler:%s\n' "$(/usr/bin/openssl passwd -apr1 'harness-only-not-a-secret')" > "$WIKIHTPASSWD"
+# Named once and used by both the htpasswd and the probes below, so the test
+# cannot drift into checking a credential it never set.
+_WIKI_TEST_PASSWORD='harness-only-not-a-secret'
+printf 'ostler:%s\n' "$(/usr/bin/openssl passwd -apr1 "$_WIKI_TEST_PASSWORD")" > "$WIKIHTPASSWD"
 
 # #1660: the generated conf now also includes the vane credential, so this
 # harness must stub it too or nginx refuses to start and the failure reads as
@@ -152,6 +155,22 @@ grep -q 'ostler_wiki_not_funnel = 0' "$GATE" || fail "gate never enforces the Fu
 grep -q 'default 0;' "$GATE" || fail "gate identity map does not default to deny"
 grep -q 'wiki-site:8000' "$GATE" || fail "gate does not proxy to wiki-site"
 pass "owner gate demands identity AND non-Funnel, defaults to deny"
+
+# ── 2b. #1660: the gate must also demand something the CLIENT CANNOT WRITE ──
+# Both checks above read request headers. `tailscale serve` sets and scrubs
+# them for tunnel traffic, but a second local account connects straight to
+# 127.0.0.1:8144, never traverses tailscaled, and therefore chooses both map
+# inputs itself. The allowlist value is the owner's tailnet login, an EMAIL
+# ADDRESS, not a secret, so the gate was guessable by anyone with a shell here.
+grep -q 'include /etc/nginx/ostler-wiki-auth.conf;' "$GATE" \
+    || fail "the 8144 gate carries NO credential -- it gates only on headers the client writes, so a second local account can forge them and read the whole wiki (#1660)"
+# The credential must sit INSIDE the 8144 server block, not merely somewhere in
+# the file. A file-wide grep would pass on an include parked in a dead comment
+# or a sibling block that never fronts the wiki.
+awk '/listen 8144;/{f=1} f{print} f&&/^\}/{exit}' "$GATE" \
+    | grep -q 'include /etc/nginx/ostler-wiki-auth.conf;' \
+    || fail "the auth include exists but NOT inside the 8144 server block, so it does not protect the wiki"
+pass "the 8144 gate demands a credential the client cannot author, inside its own server block"
 
 # Mixed-case logins must still match (nginx map keys are case-sensitive).
 write_wiki_tailnet_gate "Someone@Example.com" || fail "mixed-case owner rejected"
@@ -319,14 +338,33 @@ STUBEOF
         || fail "gate allowed FUNNEL traffic -- the wiki would be on the open internet"
     pass "gate returns 403 for: no identity, wrong user, empty header, Funnel"
 
-    # Allow: the owner, not via Funnel, reaches the wiki body.
-    OWNER_CODE="$(probe -H "Tailscale-User-Login: ${OWNER}")"
+    # ── #1660. THE OWNER HEADER ALONE IS NO LONGER ENOUGH. ──────────────
+    # This arm used to assert 200 for a bare owner header, and that assertion
+    # WAS the hole: the header is written by the client, so anything with a
+    # shell on this Mac could send it. Now it must be 401, and the same
+    # request WITH the credential must still reach the wiki body. Both halves
+    # are load-bearing -- 401 alone would be satisfied by a gate that is
+    # simply broken, which is why the 200 arm follows it immediately.
+    DENIED_CODE="$(probe -H "Tailscale-User-Login: ${OWNER}")"
+    [[ "$DENIED_CODE" == "401" ]] \
+        || fail "the owner header ALONE reached the wiki (got $DENIED_CODE). A second local account can write that header, so this is the #1660 hole open again"
+    pass "a forged owner header without the credential is refused (401)"
+
+    # Allow: the owner, not via Funnel, WITH the credential, reaches the body.
+    OWNER_CODE="$(probe -u "ostler:${_WIKI_TEST_PASSWORD}" -H "Tailscale-User-Login: ${OWNER}")"
     [[ "$OWNER_CODE" == "200" ]] \
-        || fail "gate did NOT let the owner through (got $OWNER_CODE) -- the feature is dead on arrival"
-    curl -s -m 5 -H "Tailscale-User-Login: ${OWNER}" "http://127.0.0.1:18144/" \
-        | grep -q 'WIKI-BODY-REACHED' \
+        || fail "gate did NOT let the credentialled owner through (got $OWNER_CODE) -- the feature is dead on arrival"
+    _body="$(curl -s -m 5 -u "ostler:${_WIKI_TEST_PASSWORD}" -H "Tailscale-User-Login: ${OWNER}" "http://127.0.0.1:18144/")"
+    grep -q 'WIKI-BODY-REACHED' <<< "$_body" \
         || fail "owner got 200 but not the wiki body -- the proxy_pass is wrong"
-    pass "gate proxies the owner through to the wiki (200 + body)"
+    pass "gate proxies the CREDENTIALLED owner through to the wiki (200 + body)"
+
+    # CONTROL: a wrong password must not pass. Without this the arm above
+    # could be satisfied by a gate that accepts any credential at all.
+    WRONGPW_CODE="$(probe -u "ostler:definitely-not-the-password" -H "Tailscale-User-Login: ${OWNER}")"
+    [[ "$WRONGPW_CODE" == "401" ]] \
+        || fail "CONTROL FAILED: a WRONG password was accepted (got $WRONGPW_CODE)"
+    pass "CONTROL: a wrong password is refused, so the credential is really checked"
 
     # And the fail-closed gate refuses even the owner.
     write_wiki_tailnet_gate "" || true

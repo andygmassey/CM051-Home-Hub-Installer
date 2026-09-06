@@ -17559,6 +17559,21 @@ server {
     location / {
         if ($ostler_wiki_not_funnel = 0) { return 403; }
         if ($ostler_wiki_user_ok = 0) { return 403; }
+        # #1660. THE TWO CHECKS ABOVE READ HEADERS THE CLIENT WRITES.
+        # `tailscale serve` sets and scrubs Tailscale-User-Login and
+        # Tailscale-Funnel-Request for traffic that arrives through the
+        # tunnel. A SECOND LOCAL ACCOUNT IS NOT A TAILNET PEER: it connects
+        # straight to 127.0.0.1:8144, never traverses tailscaled, so nothing
+        # scrubs anything and both map inputs are whatever it chose to send.
+        # The allowlist value is the owner's tailnet login, an EMAIL ADDRESS,
+        # not a secret. So the gate was guessable by anyone with a shell on
+        # this Mac, and the whole personal wiki sits behind it.
+        #
+        # The credential is the same one 8044 has carried since #1594, from
+        # the same 0600 include mounted into this same container. Defence in
+        # depth: the header checks stay, and now something the client cannot
+        # author has to be right as well.
+        include /etc/nginx/ostler-wiki-auth.conf;
         # Variable upstream + the http-block resolver so nginx boots
         # even when wiki-site is not up yet (it starts in a later
         # install phase) and re-resolves if the container restarts.
