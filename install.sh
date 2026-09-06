@@ -13882,7 +13882,29 @@ TOMLPREAMBLE
     echo
     echo "[tools.web_search]"
     echo "provider = \"vane\""
-    echo "vane_url = \"http://localhost:3000\""
+    # #1660/#1672: :3000 now demands a credential, and THE ASSISTANT IS A
+    # CONSUMER, not just the customer's browser. web_search_tool.rs:157 sends a
+    # bare `client.get(&search_url)` with no Authorization header, so without
+    # this every web search 401s and the tool reports "the local Vane container
+    # did not respond" -- blaming the container for a credential.
+    #
+    # reqwest takes basic auth from the URL's userinfo. MEASURED against the
+    # pinned nginx with the shipped server block, proxy disabled so the result
+    # is about reqwest and not about a local proxy answering:
+    #     userinfo in the URL   -> 200
+    #     bare, no credentials  -> 401
+    #     wrong password        -> 401
+    #
+    # The password is URL-safe by construction: _seed_wiki_password draws from
+    # [a-z2-9] and joins with hyphens, so no percent-encoding is needed and none
+    # is done -- encoding it here would silently break if the alphabet ever
+    # changed, and a wrong password fails CLOSED as a 401 rather than quietly.
+    #
+    # Safe to put here: this file is chmod 600 (install.sh:14048), the write is
+    # inside `umask 0077`, and it ALREADY carries the email channel password.
+    # A second local account cannot read it, which is the whole reason
+    # auth_basic works as an access control on a shared loopback.
+    echo "vane_url = \"http://ostler:${VANE_PASSWORD}@localhost:3000\""
 
     # ── Cron jobs: morning brief + evening wrap ─────────────────
     #
