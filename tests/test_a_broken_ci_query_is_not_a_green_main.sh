@@ -276,6 +276,47 @@ n_other="$(printf '%s\n' "$out" | grep -c 'OPENING: main is red: other' || true)
 [ "$n_other" = "1" ] && ok "CONTROL: a SECOND distinct workflow still gets its own issue, so the collapse is per-workflow and not global" \
                      || bad "CONTROL: the second workflow produced ${n_other} issue(s); the collapse is swallowing distinct workflows"
 
+# ── THE PUSH TRIGGER (#1697). ───────────────────────────────────────────────
+# The workflow's cron asks for three runs an hour and delivered 6 of 47 over a
+# 15.63 h window, because GitHub throttles high-frequency crons on busy repos.
+# The close path above is correct but cannot run more often than the schedule
+# survives, so "this issue closes itself" meant up to 4.4 hours -- and until it
+# closes, the notice is an OPEN issue that reddens cut-checklist-complete.
+#
+# push:[main] makes recovery noticed when it happens. Asserted here because a
+# trigger is exactly the kind of line that gets tidied away by someone who reads
+# the cron and believes it.
+_WF="${REPO_ROOT}/.github/workflows/red-main-opens-an-issue.yml"
+if [ ! -r "${_WF}" ]; then
+    printf '  [CANNOT-RUN] %s\n' "workflow not readable at ${_WF}; the trigger arms below prove nothing" >&2
+    FAIL=$((FAIL+1))
+else
+    # The `on:` block only, so a `branches: [main]` belonging to some other key
+    # further down cannot satisfy this.
+    _on="$(awk '/^on:/{f=1;next} f&&/^[a-z]/{exit} f' "${_WF}")"
+    # LANDING PROOF for the extraction itself: an empty or tiny slice would make
+    # both arms below meaningless, and a validator passes on an empty subject.
+    _on_lines="$(printf '%s\n' "${_on}" | grep -c . || true)"
+    if [ "${_on_lines:-0}" -lt 3 ]; then
+        printf '  [CANNOT-RUN] %s\n' "parsed only ${_on_lines} line(s) from the on: block; not measuring triggers against that" >&2
+        FAIL=$((FAIL+1))
+    else
+        printf '%s\n' "${_on}" | grep -q '^  push:' \
+            && ok "the workflow runs on push, so recovery is noticed when it happens, not on the next surviving cron tick" \
+            || bad "no push: trigger -- 'this issue closes itself' is back to depending on a cron that delivered 13% of its ticks"
+
+        printf '%s\n' "${_on}" | grep -qE '^ +branches: \[main\]' \
+            && ok "and it is scoped to main, so a branch push does not run the filer" \
+            || bad "the push trigger is not scoped to branches: [main]"
+
+        # MUST-MISS. The schedule is the backstop for a quiet repo; dropping it
+        # in favour of push-only would leave a repo with no main pushes blind.
+        printf '%s\n' "${_on}" | grep -q '^  schedule:' \
+            && ok "the schedule is still there as the backstop for a repo with no main pushes" \
+            || bad "the schedule was removed; a quiet repo would never notice a red main at all"
+    fi
+fi
+
 echo
 echo "== ${PASS} pass / ${FAIL} fail / $((PASS+FAIL)) total =="
 [ "$FAIL" -eq 0 ] || exit 1

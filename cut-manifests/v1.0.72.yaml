@@ -847,3 +847,18 @@ open_issues:
       one of the seven -- test_wiki_digest_pin_assertion.sh -- proves the two
       standing wiki-image digest rows can go red, so wiring it strengthens the
       cut rather than risking it. TNM's thread."
+  - issue: 1697
+    title: "the red-main autofiler's cron delivers 13% of its ticks, so 'closes itself' means up to 4.4 hours"
+    gate: "FIX IN FLIGHT and it is CI-latency, not a product defect, so it does
+      not block the artefact. Measured: cron '7,27,47 * * * *' asks for 47 runs
+      in a 15.63 h window and delivered 6. Control: the DAILY cron on
+      cut-checklist-complete delivers on time, so it is the frequency being
+      throttled, not the schedule mechanism. It matters because the notice this
+      job files is itself an OPEN issue, so until it closes it reddens
+      cut-checklist-complete -- the loop already recorded on the 1691 row -- and
+      'closes itself' meant up to 4.4 h rather than the 20 minutes the cron
+      implies. Fix is a push:[main] trigger so the CLOSE path notices recovery
+      when it happens; the open path files only a workflow that has NOT
+      recovered, so a push cannot open a spurious issue. Schedule kept as the
+      backstop for a quiet repo. NOT gated BLOCKING: nothing shipped changes.
+      TNM's thread."
