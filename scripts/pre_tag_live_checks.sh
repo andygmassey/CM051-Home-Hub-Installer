@@ -79,6 +79,23 @@ if [ -f "$_defs" ]; then
     if [ -z "$_open" ] && ! gh pr list --repo andygmassey/CM051-Home-Hub-Installer --state open --limit 1 >/dev/null 2>&1; then
         CANT=1; row "open PRs vs deferrals" "CANNOT-RUN" "could not list open PRs; an empty list here would be a false all-clear"
     else
+        # THE TWO KEY SHAPES ARE EXHAUSTIVE, MEASURED not assumed. Parsed
+        # cut-deferrals.yaml across BOTH top-level keys: 225 CM051 refs, of
+        # which 98 are PR-NUMBER shaped (tail matches #<digits>):
+        #
+        #     CM051:#N                      93
+        #     CM051-Home-Hub-Installer#N     5
+        #     any other shape                0
+        #
+        # The remaining 127 are BRANCH refs (CM051:fix/..., CM051:pr632,
+        # CM051:rb450) and are not PR numbers. Note pr632: a branch named for a
+        # PR is NOT that PR's deferral -- the orphan gate's own header records
+        # that exact confusion, and the deferral for it is CM051:#632.
+        #
+        # If a third PR-number shape is ever introduced this reads as
+        # UNDEFERRED and reds a tag that should go -- the inverse of the
+        # v1.0.70 failure and just as expensive. Re-measure if the count above
+        # stops adding up.
         _undeclared=""
         for n in $_open; do
             grep -q "CM051:#${n}\"" "$_defs" || grep -q "CM051-Home-Hub-Installer#${n}\"" "$_defs" || _undeclared="${_undeclared} #${n}"
