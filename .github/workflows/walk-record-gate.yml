@@ -115,6 +115,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      # A URL with a query string sent UNQUOTED over ssh is globbed by the
+      # remote shell and never runs. Measured 2026-09-07: ttywalk's graph dump
+      # used a bare http://127.0.0.1:7878/store?default, the walk box login
+      # shell is zsh, and zsh aborted the command with "no matches found" -- so
+      # curl never ran, the dump was empty, and --wipe-stores refused. It had
+      # NEVER worked against that box, and the failure text points at Oxigraph
+      # rather than at the shell. bash does not glob a bare question mark, so
+      # the line tests clean locally and dies over ssh.
+      - name: A remote URL with a query string is quoted against zsh globbing
+        if: always()
+        run: bash tests/test_a_remote_url_is_quoted_against_zsh_globbing.sh
+
       # A RESET DOES NOT WIPE, AND THE RECORD NEVER SAID SO. ttywalk.sh's reset
       # prints that the graph, the vectors and the compiled wiki are carried over
       # and that "any probe reading them is measuring history, not this
