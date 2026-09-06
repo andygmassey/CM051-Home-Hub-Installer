@@ -819,7 +819,7 @@ def check_before_insert(
     before creating new person nodes.
     """
     cfg = {**DEFAULT_CONFIG, **(config or {})}
-    client = httpx.Client(timeout=30.0)
+    client = httpx.Client(timeout=30.0, trust_env=False)
 
     # Fetch all persons
     persons = _fetch_all_persons(oxigraph_url, client, cfg)
@@ -1567,7 +1567,7 @@ class BatchResolver:
         self.qdrant_url = qdrant_url.rstrip("/")
         self.qdrant_collection = qdrant_collection
         self.config = {**DEFAULT_CONFIG, **(config or {})}
-        self._client = httpx.Client(timeout=60.0)
+        self._client = httpx.Client(timeout=60.0, trust_env=False)
 
     def detect(self) -> ResolverReport:
         """Run all detection strategies and return a report."""

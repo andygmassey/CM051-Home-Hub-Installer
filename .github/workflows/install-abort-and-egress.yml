@@ -83,6 +83,26 @@ jobs:
         if: always()
         run: python3 tests/test_the_egress_inventory_still_describes_the_software.py
 
+      # CM041 9b88b3e1, grafted into the vendored tree. httpx reads HTTP_PROXY
+      # from the environment by DEFAULT, and the pipeline talks to Oxigraph,
+      # Qdrant, Ollama and the calendar API on the loopback. A customer with a
+      # proxy configured -- ordinary on a corporate Mac -- had their LOCAL store
+      # traffic captured by it, failing in the direction that looks like the
+      # store being down.
+      #
+      # Structural, not live, and deliberately: proving it end to end needs a
+      # running store, a configured proxy and a way to watch the socket, none of
+      # which a runner has, and a skip reads as a pass. It carries a control that
+      # must distinguish trust_env=False from trust_env=True, so it reads the
+      # VALUE and not merely the keyword.
+      #
+      # It does NOT require the flag on external hosts. A customer's proxy SHOULD
+      # carry those, and applying it blanket-wide would be the same defect
+      # pointing the other way.
+      - name: Local stores do not route through a customer's proxy
+        if: always()
+        run: python3 tests/test_local_stores_do_not_route_through_a_proxy.py
+
       # Sits beside the attribution suite because it guards the same probe from
       # the other side: that one checks it can tell "not ours" from "could not
       # tell", this one checks its VERDICT does not claim a boundary the walk

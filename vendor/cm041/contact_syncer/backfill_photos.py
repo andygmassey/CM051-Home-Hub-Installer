@@ -63,7 +63,7 @@ def find_person_uri_by_icloud_uid(oxigraph_url: str, uid: str) -> Optional[str]:
             "Accept": "application/sparql-results+json",
         },
         timeout=30.0,
-    )
+     trust_env=False)
     resp.raise_for_status()
     bindings = resp.json().get("results", {}).get("bindings", [])
     return bindings[0]["person"]["value"] if bindings else None
@@ -88,7 +88,7 @@ def write_foaf_img(oxigraph_url: str, person_uri: str, path: str) -> None:
             content=sparql,
             headers={"Content-Type": "application/sparql-update"},
             timeout=30.0,
-        )
+         trust_env=False)
         resp.raise_for_status()
 
 

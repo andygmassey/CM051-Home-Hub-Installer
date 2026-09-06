@@ -212,7 +212,7 @@ def _sparql_query(oxigraph_url: str, sparql: str) -> dict:
             "Accept": "application/sparql-results+json",
         },
         timeout=30.0,
-    )
+     trust_env=False)
     resp.raise_for_status()
     return resp.json()
 
@@ -223,7 +223,7 @@ def _sparql_update(oxigraph_url: str, sparql: str) -> None:
         content=sparql,
         headers={"Content-Type": "application/sparql-update"},
         timeout=30.0,
-    )
+     trust_env=False)
     resp.raise_for_status()
 
 
