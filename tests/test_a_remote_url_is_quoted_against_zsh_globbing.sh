@@ -21,9 +21,27 @@
 # tested locally and fails over ssh. THE REMOTE SHELL IS NOT YOURS TO CHOOSE,
 # which is why this is a lint and not a runtime check.
 #
-# WHAT IT CHECKS. In the harness scripts that talk to a box, every http(s) URL
-# containing a `?` must be quoted. Single or double quotes both suppress zsh
-# globbing; a bare one does not.
+# WHAT IT CHECKS, AND WHY SINGLE QUOTES ARE NOT ENOUGH.
+#
+# In the harness scripts that talk to a box, every http(s) URL containing a `?`
+# must be wrapped in DOUBLE quotes.
+#
+# That is stricter than "quoted", and the extra strictness is the whole point.
+# These remote blocks are passed as ONE SINGLE-QUOTED bash string to ssh. A
+# single quote inside such a string CLOSES it, so the shell concatenates the
+# pieces and the quotes are stripped before ssh transmits anything -- the remote
+# receives a bare URL and globs it exactly as before. Measured:
+#
+#   nested single quotes  ->  curl http://...:7878/store?default   (stripped)
+#   nested double quotes  ->  curl "http://...:7878/store?default" (survives)
+#
+# The first fix for this defect used single quotes. It looked right in the
+# source, passed the first version of THIS lint, and changed nothing about what
+# was transmitted; the walk failed identically, at the same site, with the line
+# number shifted only by the comment I had added. A lint over source text cannot
+# see quote-stripping by an enclosing quote layer, so the rule has to forbid the
+# form that does not survive rather than accept anything that merely looks
+# quoted.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -40,8 +58,11 @@ cant() { CANT=$((CANT+1)); printf '  [CANNOT-RUN] %s\n' "$1"; }
 
 # An UNQUOTED url-with-query: a http(s) URL containing ? whose character
 # immediately before the scheme is neither a single nor a double quote.
+# A query URL that will NOT survive transmission: anything whose scheme is not
+# immediately preceded by a DOUBLE quote. That flags both the bare form and the
+# single-quoted form, which is the one that fooled the first version of this gate.
 unquoted_query_urls() {
-    /usr/bin/grep -nE "(^|[^\"'])https?://[^ \"']*\?" "$1" 2>/dev/null || true
+    /usr/bin/grep -nE "(^|[^\"])https?://[^ \"']*\?" "$1" 2>/dev/null || true
 }
 
 echo "== a remote URL with a query string is quoted against zsh globbing =="
@@ -81,12 +102,21 @@ fi
 # ── CONTROL THAT MUST NOT FIRE ────────────────────────────────────────────
 # A quoted URL is the fix, so it must read clean -- otherwise the gate would
 # demand a change that does not help.
-printf "curl -fsS 'http://127.0.0.1:7878/store?default' > out\n" > "$CTRL"
-printf 'curl -fsS "http://127.0.0.1:7878/store?default" > out\n' >> "$CTRL"
+printf 'curl -fsS "http://127.0.0.1:7878/store?default" > out\n' > "$CTRL"
 if [ -z "$(unquoted_query_urls "$CTRL")" ]; then
-    ok "CONTROL: a single-quoted AND a double-quoted URL both read clean"
+    ok "CONTROL: a DOUBLE-quoted URL reads clean, so this gate does not reject its own fix"
 else
-    bad "CONTROL FAILED: a correctly quoted URL is still flagged, so this gate would reject its own fix"
+    bad "CONTROL FAILED: a double-quoted URL is still flagged, so this gate would reject its own fix"
+fi
+
+# ── CONTROL: THE FORM THAT FOOLED THE FIRST VERSION OF THIS GATE ──────────
+# A SINGLE-quoted URL must be flagged, because nested inside the single-quoted
+# ssh block its quotes are stripped and the remote globs it anyway.
+printf "curl -fsS 'http://127.0.0.1:7878/store?default' > out\n" > "$CTRL"
+if [ -n "$(unquoted_query_urls "$CTRL")" ]; then
+    ok "CONTROL: a SINGLE-quoted URL is flagged -- it does not survive nesting inside a single-quoted ssh block"
+else
+    bad "CONTROL FAILED: a single-quoted URL reads clean, which is exactly the hole that let the first fix ship broken"
 fi
 
 echo

@@ -564,6 +564,16 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         # exactly this reason, and the failure reads as "the graph did not
         # dump", which sends you looking at Oxigraph instead of at the shell.
         # bash would have been fine. The remote shell is not yours to choose.
+        #
+        # AND IT MUST BE DOUBLE QUOTES, NOT SINGLE. This whole block is one
+        # SINGLE-QUOTED bash string starting at the ssh call above. A single
+        # quote inside it CLOSES that string, so the shell concatenates and the
+        # quotes are stripped before ssh ever sees them -- the remote still gets
+        # a bare URL and still globs it. Measured: printf of a single-quoted URL
+        # nested in a single-quoted string yields no quotes; the double-quoted
+        # form yields them intact. My first fix used single quotes, looked
+        # correct in the source, passed a source-text lint, and changed nothing
+        # about what was transmitted. The walk failed identically.
         # NO BACKTICKS IN THIS COMMENT. It sits inside a heredoc that is sent
         # over ssh, so a backtick here is command substitution, not decoration
         # -- a first attempt at this very note broke the script, caught by
@@ -576,7 +586,7 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         if [ -r "$_tok" ]; then
             if curl -fsS -m 300 -H "Authorization: Bearer $(cat "$_tok")" \
                     -H "Accept: application/n-quads" \
-                    'http://127.0.0.1:7878/store?default' > "$_dump" 2>/dev/null; then
+                    "http://127.0.0.1:7878/store?default" > "$_dump" 2>/dev/null; then
                 echo "graph dumped before wipe: $_dump ($(wc -c < "$_dump" | tr -d " ") bytes)"
             else
                 echo "CANNOT-WIPE: the graph did not dump, and a wipe that loses"
