@@ -229,12 +229,21 @@ jobs:
       # not merely that it compiles -- the distinction this repo learned the
       # expensive way.
       - name: The commit-parity gate FIRES
+        # if: always() -- ci-maskless (#1695): without it a red earlier in the
+        # same job SKIPS this step, and a skipped test reports nothing at all.
+        if: always()
         run: /bin/bash scripts/tests/test_verify_commit_parity_gate.sh
 
       - name: The stapling gate FIRES and is not a no-op
+        # if: always() -- ci-maskless (#1695): without it a red earlier in the
+        # same job SKIPS this step, and a skipped test reports nothing at all.
+        if: always()
         run: /bin/bash scripts/tests/test_verify_stapling_gate.sh
 
       - name: The cross-language trust-anchor guard FIRES, on the right axis
+        # if: always() -- ci-maskless (#1695): without it a red earlier in the
+        # same job SKIPS this step, and a skipped test reports nothing at all.
+        if: always()
         run: /bin/bash scripts/tests/test_no_env_trust_anchors.sh
 
       - name: run() cannot report a gate that died as a pass

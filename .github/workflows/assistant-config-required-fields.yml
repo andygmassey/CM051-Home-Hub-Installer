@@ -98,6 +98,9 @@ jobs:
       # Wired 2026-09-06 (#1694). Same surface as the steps around it -- the
       # config.toml install.sh emits -- and it ran nowhere until now.
       - name: The channels.email TOML writer emits what the daemon expects
+        # if: always() -- ci-maskless (#1695): without it a red earlier in the
+        # same job SKIPS this step, and a skipped test reports nothing at all.
+        if: always()
         run: /bin/bash scripts/tests/test_email_channel_toml.sh
 
       - name: A reuse re-run must not silently delete the customer's daily briefs (#619)
