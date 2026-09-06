@@ -55,6 +55,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # A DEDICATED STEP, NOT A LINE IN THE `for t in` LIST ABOVE, AND THE
+      # DIFFERENCE IS NOT COSMETIC. The two wiring gates disagree about what
+      # "wired" means:
+      #   verify_test_wiring.sh          a MENTION in a workflow  -> WIRED
+      #   verify_new_tests_are_wired.sh  path + an EXECUTION VERB on the SAME
+      #                                  line -> otherwise DARK
+      # The list idiom satisfies the first and fails the second, so TEST_WIRING
+      # scored this WIRED while CI called it DARK. The older entries in that
+      # list predate the second gate and are grandfathered by it, which is why
+      # the disagreement is invisible until you add one.
+      - name: the daemon-freshness row decides on the scoped count
+        run: bash tests/test_the_daemon_freshness_row_decides_on_the_scoped_count.sh
+
       - name: install.sh structural + helper regression tests (m..z batch)
         run: |
           set -uo pipefail
@@ -74,7 +87,6 @@ jobs:
             tests/test_sync_vendor_pin_untouched_on_abort.sh \
             tests/test_tailscale_recovery_wrapper.sh \
             tests/test_takeout_split_zip_no_abort.sh \
-            tests/test_the_daemon_freshness_row_decides_on_the_scoped_count.sh \
             tests/test_uninstaller_keep_prompt.sh \
             tests/test_universal_import_leg_wired.sh \
             tests/test_user_facing_tree.sh \
