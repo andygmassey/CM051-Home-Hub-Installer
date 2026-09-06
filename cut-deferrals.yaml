@@ -4282,3 +4282,434 @@ deferrals:
       self-test would be worse. Recorded here so the hold is auditable, raised with
       TNM on the board in the same turn.
     until_cut: "v1.0.73"
+
+
+# ============================================================================
+# 2026-09-06 WALK-ONLY CUT OF v1.0.73. Recorded by Archie, in the same turn as
+# the cut that was blocked by them.
+#
+# READ THIS BEFORE TREATING ANY ROW BELOW AS SETTLED.
+#
+# These are NOT judgements that the work is unwanted. Every one of the local
+# branches below carries AUTHORED, non-merge commits. I measured that
+# specifically, because "it is only a merge of main" was the convenient story
+# and it is false: the smallest carries one authored commit and the largest
+# six, and `git diff --name-only origin/main...<branch>` is non-empty for all
+# seventeen.
+#
+# I could not prove any of them landed. `git merge-base --is-ancestor` returned
+# FALSE for all seventeen, and under squash-merge that proves NOTHING -- squash
+# gives the merge commit a new patch identity, so ancestry is valid in one
+# direction only (TRUE proves landed; FALSE proves nothing). So each of these
+# needs a per-branch triage against the merged-PR list, which is the only
+# oracle, and that is a job in its own right rather than a line in a cut.
+#
+# WHAT I DID INSTEAD OF DELETING OR GUESSING. Every tip below is preserved as a
+# pushed annotated ref under `archive/2026-09-06/<branch with / as ->`, verified
+# present on the remote with `git ls-remote --tags`, seventeen of seventeen.
+# They are no longer single-copy and no longer one `rm -rf` from gone, which is
+# the actual danger this gate exists to name. Deleting them was never on the
+# table: superseded work is not a reason to destroy the only copy.
+# ============================================================================
+  - ref: "CM051:archie/rebase-1415"
+    reason: >-
+      NOT FOR THIS CUT, and not a judgement that it is unwanted. This is the
+      walk-only v1.0.73 emergency cut, whose only purpose is to produce an
+      artefact that can be installed on the walk box so #1619 can be closed by
+      measurement. Nothing here is distributed. Landing 5 commit(s)
+      (5 of them authored, not merges) unreviewed into that artefact
+      would be the opposite of what a walk measures.
+      Subject: the Homebrew fallback must name WHICH condition sent it there.
+      PRESERVED, not abandoned: the tip is pushed as `archive/2026-09-06/archie-rebase-1415` and confirmed on
+      the remote with `git ls-remote --tags`, so this branch is no longer
+      single-copy. Ancestry says nothing about whether it landed -- squash-merge
+      makes `--is-ancestor` FALSE for merged work too -- so it needs triage
+      against the merged-PR list, which is the only oracle, before anyone
+      decides between merging and deleting it.
+    until_cut: "v1.0.74"
+  - ref: "CM051:docs/v1067-scope-as-cut"
+    reason: >-
+      NOT FOR THIS CUT, and not a judgement that it is unwanted. This is the
+      walk-only v1.0.73 emergency cut, whose only purpose is to produce an
+      artefact that can be installed on the walk box so #1619 can be closed by
+      measurement. Nothing here is distributed. Landing 1 commit(s)
+      (1 of them authored, not merges) unreviewed into that artefact
+      would be the opposite of what a walk measures.
+      Subject: record v1.0.67 as actually cut, not as scoped.
+      PRESERVED, not abandoned: the tip is pushed as `archive/2026-09-06/docs-v1067-scope-as-cut` and confirmed on
+      the remote with `git ls-remote --tags`, so this branch is no longer
+      single-copy. Ancestry says nothing about whether it landed -- squash-merge
+      makes `--is-ancestor` FALSE for merged work too -- so it needs triage
+      against the merged-PR list, which is the only oracle, before anyone
+      decides between merging and deleting it.
+    until_cut: "v1.0.74"
+  - ref: "CM051:fix/self-removal-deletes-the-file-before-it-dies"
+    reason: >-
+      NOT FOR THIS CUT, and not a judgement that it is unwanted. This is the
+      walk-only v1.0.73 emergency cut, whose only purpose is to produce an
+      artefact that can be installed on the walk box so #1619 can be closed by
+      measurement. Nothing here is distributed. Landing 2 commit(s)
+      (2 of them authored, not merges) unreviewed into that artefact
+      would be the opposite of what a walk measures.
+      Subject: wire the self-removal ordering gate into launchd-plist-paths.
+      PRESERVED, not abandoned: the tip is pushed as `archive/2026-09-06/fix-self-removal-deletes-the-file-before-it-dies` and confirmed on
+      the remote with `git ls-remote --tags`, so this branch is no longer
+      single-copy. Ancestry says nothing about whether it landed -- squash-merge
+      makes `--is-ancestor` FALSE for merged work too -- so it needs triage
+      against the merged-PR list, which is the only oracle, before anyone
+      decides between merging and deleting it.
+    until_cut: "v1.0.74"
+  - ref: "CM051:rebase-1615"
+    reason: >-
+      NOT FOR THIS CUT, and not a judgement that it is unwanted. This is the
+      walk-only v1.0.73 emergency cut, whose only purpose is to produce an
+      artefact that can be installed on the walk box so #1619 can be closed by
+      measurement. Nothing here is distributed. Landing 2 commit(s)
+      (2 of them authored, not merges) unreviewed into that artefact
+      would be the opposite of what a walk measures.
+      Subject: wire the operator rollforward test into a workflow that runs it.
+      PRESERVED, not abandoned: the tip is pushed as `archive/2026-09-06/rebase-1615` and confirmed on
+      the remote with `git ls-remote --tags`, so this branch is no longer
+      single-copy. Ancestry says nothing about whether it landed -- squash-merge
+      makes `--is-ancestor` FALSE for merged work too -- so it needs triage
+      against the merged-PR list, which is the only oracle, before anyone
+      decides between merging and deleting it.
+    until_cut: "v1.0.74"
+  - ref: "CM051:rebase/1554"
+    reason: >-
+      NOT FOR THIS CUT, and not a judgement that it is unwanted. This is the
+      walk-only v1.0.73 emergency cut, whose only purpose is to produce an
+      artefact that can be installed on the walk box so #1619 can be closed by
+      measurement. Nothing here is distributed. Landing 3 commit(s)
+      (3 of them authored, not merges) unreviewed into that artefact
+      would be the opposite of what a walk measures.
+      Subject: a known-spellings pattern asserts over a subset.
+      PRESERVED, not abandoned: the tip is pushed as `archive/2026-09-06/rebase-1554` and confirmed on
+      the remote with `git ls-remote --tags`, so this branch is no longer
+      single-copy. Ancestry says nothing about whether it landed -- squash-merge
+      makes `--is-ancestor` FALSE for merged work too -- so it needs triage
+      against the merged-PR list, which is the only oracle, before anyone
+      decides between merging and deleting it.
+    until_cut: "v1.0.74"
+  - ref: "CM051:rebase/1581"
+    reason: >-
+      NOT FOR THIS CUT, and not a judgement that it is unwanted. This is the
+      walk-only v1.0.73 emergency cut, whose only purpose is to produce an
+      artefact that can be installed on the walk box so #1619 can be closed by
+      measurement. Nothing here is distributed. Landing 4 commit(s)
+      (4 of them authored, not merges) unreviewed into that artefact
+      would be the opposite of what a walk measures.
+      Subject: define the two shared manifest helpers above their first call.
+      PRESERVED, not abandoned: the tip is pushed as `archive/2026-09-06/rebase-1581` and confirmed on
+      the remote with `git ls-remote --tags`, so this branch is no longer
+      single-copy. Ancestry says nothing about whether it landed -- squash-merge
+      makes `--is-ancestor` FALSE for merged work too -- so it needs triage
+      against the merged-PR list, which is the only oracle, before anyone
+      decides between merging and deleting it.
+    until_cut: "v1.0.74"
+  - ref: "CM051:rev/1491"
+    reason: >-
+      NOT FOR THIS CUT, and not a judgement that it is unwanted. This is the
+      walk-only v1.0.73 emergency cut, whose only purpose is to produce an
+      artefact that can be installed on the walk box so #1619 can be closed by
+      measurement. Nothing here is distributed. Landing 4 commit(s)
+      (3 of them authored, not merges) unreviewed into that artefact
+      would be the opposite of what a walk measures.
+      Subject: anchor the control to a shipped cut, and delist v1.0.67.
+      PRESERVED, not abandoned: the tip is pushed as `archive/2026-09-06/rev-1491` and confirmed on
+      the remote with `git ls-remote --tags`, so this branch is no longer
+      single-copy. Ancestry says nothing about whether it landed -- squash-merge
+      makes `--is-ancestor` FALSE for merged work too -- so it needs triage
+      against the merged-PR list, which is the only oracle, before anyone
+      decides between merging and deleting it.
+    until_cut: "v1.0.74"
+  - ref: "CM051:review/1478"
+    reason: >-
+      NOT FOR THIS CUT, and not a judgement that it is unwanted. This is the
+      walk-only v1.0.73 emergency cut, whose only purpose is to produce an
+      artefact that can be installed on the walk box so #1619 can be closed by
+      measurement. Nothing here is distributed. Landing 6 commit(s)
+      (3 of them authored, not merges) unreviewed into that artefact
+      would be the opposite of what a walk measures.
+      Subject: review branch carrying three authored commits, not merge noise.
+      PRESERVED, not abandoned: the tip is pushed as `archive/2026-09-06/review-1478` and confirmed on
+      the remote with `git ls-remote --tags`, so this branch is no longer
+      single-copy. Ancestry says nothing about whether it landed -- squash-merge
+      makes `--is-ancestor` FALSE for merged work too -- so it needs triage
+      against the merged-PR list, which is the only oracle, before anyone
+      decides between merging and deleting it.
+    until_cut: "v1.0.74"
+  - ref: "CM051:review/1481"
+    reason: >-
+      NOT FOR THIS CUT, and not a judgement that it is unwanted. This is the
+      walk-only v1.0.73 emergency cut, whose only purpose is to produce an
+      artefact that can be installed on the walk box so #1619 can be closed by
+      measurement. Nothing here is distributed. Landing 6 commit(s)
+      (3 of them authored, not merges) unreviewed into that artefact
+      would be the opposite of what a walk measures.
+      Subject: review branch carrying three authored commits, not merge noise.
+      PRESERVED, not abandoned: the tip is pushed as `archive/2026-09-06/review-1481` and confirmed on
+      the remote with `git ls-remote --tags`, so this branch is no longer
+      single-copy. Ancestry says nothing about whether it landed -- squash-merge
+      makes `--is-ancestor` FALSE for merged work too -- so it needs triage
+      against the merged-PR list, which is the only oracle, before anyone
+      decides between merging and deleting it.
+    until_cut: "v1.0.74"
+  - ref: "CM051:review/1483"
+    reason: >-
+      NOT FOR THIS CUT, and not a judgement that it is unwanted. This is the
+      walk-only v1.0.73 emergency cut, whose only purpose is to produce an
+      artefact that can be installed on the walk box so #1619 can be closed by
+      measurement. Nothing here is distributed. Landing 5 commit(s)
+      (3 of them authored, not merges) unreviewed into that artefact
+      would be the opposite of what a walk measures.
+      Subject: review branch carrying three authored commits, not merge noise.
+      PRESERVED, not abandoned: the tip is pushed as `archive/2026-09-06/review-1483` and confirmed on
+      the remote with `git ls-remote --tags`, so this branch is no longer
+      single-copy. Ancestry says nothing about whether it landed -- squash-merge
+      makes `--is-ancestor` FALSE for merged work too -- so it needs triage
+      against the merged-PR list, which is the only oracle, before anyone
+      decides between merging and deleting it.
+    until_cut: "v1.0.74"
+  - ref: "CM051:tnm-1305-fix"
+    reason: >-
+      NOT FOR THIS CUT, and not a judgement that it is unwanted. This is the
+      walk-only v1.0.73 emergency cut, whose only purpose is to produce an
+      artefact that can be installed on the walk box so #1619 can be closed by
+      measurement. Nothing here is distributed. Landing 4 commit(s)
+      (4 of them authored, not merges) unreviewed into that artefact
+      would be the opposite of what a walk measures.
+      Subject: replace piped grep -q with grep -c in the two new probe checks.
+      PRESERVED, not abandoned: the tip is pushed as `archive/2026-09-06/tnm-1305-fix` and confirmed on
+      the remote with `git ls-remote --tags`, so this branch is no longer
+      single-copy. Ancestry says nothing about whether it landed -- squash-merge
+      makes `--is-ancestor` FALSE for merged work too -- so it needs triage
+      against the merged-PR list, which is the only oracle, before anyone
+      decides between merging and deleting it.
+    until_cut: "v1.0.74"
+  - ref: "CM051:tnm-1332-rebase"
+    reason: >-
+      NOT FOR THIS CUT, and not a judgement that it is unwanted. This is the
+      walk-only v1.0.73 emergency cut, whose only purpose is to produce an
+      artefact that can be installed on the walk box so #1619 can be closed by
+      measurement. Nothing here is distributed. Landing 2 commit(s)
+      (2 of them authored, not merges) unreviewed into that artefact
+      would be the opposite of what a walk measures.
+      Subject: declare the #854 prompt probe in the manifest.
+      PRESERVED, not abandoned: the tip is pushed as `archive/2026-09-06/tnm-1332-rebase` and confirmed on
+      the remote with `git ls-remote --tags`, so this branch is no longer
+      single-copy. Ancestry says nothing about whether it landed -- squash-merge
+      makes `--is-ancestor` FALSE for merged work too -- so it needs triage
+      against the merged-PR list, which is the only oracle, before anyone
+      decides between merging and deleting it.
+    until_cut: "v1.0.74"
+  - ref: "CM051:tnm-1459"
+    reason: >-
+      NOT FOR THIS CUT, and not a judgement that it is unwanted. This is the
+      walk-only v1.0.73 emergency cut, whose only purpose is to produce an
+      artefact that can be installed on the walk box so #1619 can be closed by
+      measurement. Nothing here is distributed. Landing 8 commit(s)
+      (6 of them authored, not merges) unreviewed into that artefact
+      would be the opposite of what a walk measures.
+      Subject: subshell-guard branch.
+      PRESERVED, not abandoned: the tip is pushed as `archive/2026-09-06/tnm-1459` and confirmed on
+      the remote with `git ls-remote --tags`, so this branch is no longer
+      single-copy. Ancestry says nothing about whether it landed -- squash-merge
+      makes `--is-ancestor` FALSE for merged work too -- so it needs triage
+      against the merged-PR list, which is the only oracle, before anyone
+      decides between merging and deleting it.
+    until_cut: "v1.0.74"
+  - ref: "CM051:tnm-1654-update"
+    reason: >-
+      NOT FOR THIS CUT, and not a judgement that it is unwanted. This is the
+      walk-only v1.0.73 emergency cut, whose only purpose is to produce an
+      artefact that can be installed on the walk box so #1619 can be closed by
+      measurement. Nothing here is distributed. Landing 3 commit(s)
+      (2 of them authored, not merges) unreviewed into that artefact
+      would be the opposite of what a walk measures.
+      Subject: the #1654 update branch.
+      PRESERVED, not abandoned: the tip is pushed as `archive/2026-09-06/tnm-1654-update` and confirmed on
+      the remote with `git ls-remote --tags`, so this branch is no longer
+      single-copy. Ancestry says nothing about whether it landed -- squash-merge
+      makes `--is-ancestor` FALSE for merged work too -- so it needs triage
+      against the merged-PR list, which is the only oracle, before anyone
+      decides between merging and deleting it.
+    until_cut: "v1.0.74"
+  - ref: "CM051:tnm/usage-journal-rebase"
+    reason: >-
+      NOT FOR THIS CUT, and not a judgement that it is unwanted. This is the
+      walk-only v1.0.73 emergency cut, whose only purpose is to produce an
+      artefact that can be installed on the walk box so #1619 can be closed by
+      measurement. Nothing here is distributed. Landing 6 commit(s)
+      (4 of them authored, not merges) unreviewed into that artefact
+      would be the opposite of what a walk measures.
+      Subject: usage-journal producers, keeping BOTH step sets.
+      PRESERVED, not abandoned: the tip is pushed as `archive/2026-09-06/tnm-usage-journal-rebase` and confirmed on
+      the remote with `git ls-remote --tags`, so this branch is no longer
+      single-copy. Ancestry says nothing about whether it landed -- squash-merge
+      makes `--is-ancestor` FALSE for merged work too -- so it needs triage
+      against the merged-PR list, which is the only oracle, before anyone
+      decides between merging and deleting it.
+    until_cut: "v1.0.74"
+  - ref: "CM051:tnm/vendor-the-v1-0-72-bom"
+    reason: >-
+      NOT FOR THIS CUT, and not a judgement that it is unwanted. This is the
+      walk-only v1.0.73 emergency cut, whose only purpose is to produce an
+      artefact that can be installed on the walk box so #1619 can be closed by
+      measurement. Nothing here is distributed. Landing 1 commit(s)
+      (1 of them authored, not merges) unreviewed into that artefact
+      would be the opposite of what a walk measures.
+      Subject: vendor the v1.0.72 BOM so the freshness gate stops failing.
+      PRESERVED, not abandoned: the tip is pushed as `archive/2026-09-06/tnm-vendor-the-v1-0-72-bom` and confirmed on
+      the remote with `git ls-remote --tags`, so this branch is no longer
+      single-copy. Ancestry says nothing about whether it landed -- squash-merge
+      makes `--is-ancestor` FALSE for merged work too -- so it needs triage
+      against the merged-PR list, which is the only oracle, before anyone
+      decides between merging and deleting it.
+    until_cut: "v1.0.74"
+  - ref: "CM051:tnm/w-counter-unmeasured"
+    reason: >-
+      NOT FOR THIS CUT, and not a judgement that it is unwanted. This is the
+      walk-only v1.0.73 emergency cut, whose only purpose is to produce an
+      artefact that can be installed on the walk box so #1619 can be closed by
+      measurement. Nothing here is distributed. Landing 4 commit(s)
+      (4 of them authored, not merges) unreviewed into that artefact
+      would be the opposite of what a walk measures.
+      Subject: calendar and contacts must read their unmeasured flag.
+      PRESERVED, not abandoned: the tip is pushed as `archive/2026-09-06/tnm-w-counter-unmeasured` and confirmed on
+      the remote with `git ls-remote --tags`, so this branch is no longer
+      single-copy. Ancestry says nothing about whether it landed -- squash-merge
+      makes `--is-ancestor` FALSE for merged work too -- so it needs triage
+      against the merged-PR list, which is the only oracle, before anyone
+      decides between merging and deleting it.
+    until_cut: "v1.0.74"
+  - ref: "CM051:#1711"
+    reason: >-
+      OPEN PR, deliberately NOT merged into a walk-only cut by me. #1711 is
+      TNM's and the merge decision is theirs, not mine.
+      #1711 is the same job as #1714, which I merged: the #1709 egress-currency
+      gate. TNM opened #1711 at 17:41Z and I opened #1714 at 17:48Z, so THEY
+      CLAIMED IT FIRST AND I BUILT THE DUPLICATE, having posted no claim to the
+      board before starting. Their version carries one arm mine does not -- a
+      git-history staleness check, plus an assertion that the document states a
+      measurement version at all -- so it is not redundant and I am not closing
+      it. Comparison posted on the PR.
+      #1712 exists only because I pushed TNM's local-only branch
+      `tnm/bom-verify-column-shape` to stop it being one `rm -rf` from gone. I
+      have not reviewed its substance and will not merge someone else's work
+      unreviewed to unblock my own cut.
+    until_cut: "v1.0.74"
+  - ref: "CM051:#1712"
+    reason: >-
+      OPEN PR, deliberately NOT merged into a walk-only cut by me. #1712 is
+      TNM's and the merge decision is theirs, not mine.
+      #1711 is the same job as #1714, which I merged: the #1709 egress-currency
+      gate. TNM opened #1711 at 17:41Z and I opened #1714 at 17:48Z, so THEY
+      CLAIMED IT FIRST AND I BUILT THE DUPLICATE, having posted no claim to the
+      board before starting. Their version carries one arm mine does not -- a
+      git-history staleness check, plus an assertion that the document states a
+      measurement version at all -- so it is not redundant and I am not closing
+      it. Comparison posted on the PR.
+      #1712 exists only because I pushed TNM's local-only branch
+      `tnm/bom-verify-column-shape` to stop it being one `rm -rf` from gone. I
+      have not reviewed its substance and will not merge someone else's work
+      unreviewed to unblock my own cut.
+    until_cut: "v1.0.74"
+  - ref: "CM031:#169"
+    reason: >-
+      Open CM031 (iOS companion) work, outside the CM051 installer artefact this
+      walk-only cut produces, and not mine to merge. It is red here because the
+      gate scans every repo in the estate, which is correct: unmerged is not
+      shipped. It is deferred rather than merged because a walk-only cut exists
+      to measure the INSTALLER on a box, and pulling unreviewed cross-repo work
+      into it would change what is being measured.
+      NOTE FOR WHOEVER CLEARS THESE: the CM044 rows already have deferrals in
+      this file written as `CM044-PWG-Personal-Wiki#265`, which do NOT match the
+      key the gate actually prints (`CM044:#265`). That is why they are red
+      despite looking handled -- a deferral keyed to a name the gate never
+      generates is consumed by nothing and reports nothing.
+    until_cut: "v1.0.74"
+  - ref: "CM031:#170"
+    reason: >-
+      Open CM031 (iOS companion) work, outside the CM051 installer artefact this
+      walk-only cut produces, and not mine to merge. It is red here because the
+      gate scans every repo in the estate, which is correct: unmerged is not
+      shipped. It is deferred rather than merged because a walk-only cut exists
+      to measure the INSTALLER on a box, and pulling unreviewed cross-repo work
+      into it would change what is being measured.
+      NOTE FOR WHOEVER CLEARS THESE: the CM044 rows already have deferrals in
+      this file written as `CM044-PWG-Personal-Wiki#265`, which do NOT match the
+      key the gate actually prints (`CM044:#265`). That is why they are red
+      despite looking handled -- a deferral keyed to a name the gate never
+      generates is consumed by nothing and reports nothing.
+    until_cut: "v1.0.74"
+  - ref: "CM031:#183"
+    reason: >-
+      Open CM031 (iOS companion) work, outside the CM051 installer artefact this
+      walk-only cut produces, and not mine to merge. It is red here because the
+      gate scans every repo in the estate, which is correct: unmerged is not
+      shipped. It is deferred rather than merged because a walk-only cut exists
+      to measure the INSTALLER on a box, and pulling unreviewed cross-repo work
+      into it would change what is being measured.
+      NOTE FOR WHOEVER CLEARS THESE: the CM044 rows already have deferrals in
+      this file written as `CM044-PWG-Personal-Wiki#265`, which do NOT match the
+      key the gate actually prints (`CM044:#265`). That is why they are red
+      despite looking handled -- a deferral keyed to a name the gate never
+      generates is consumed by nothing and reports nothing.
+    until_cut: "v1.0.74"
+  - ref: "CM041:#136"
+    reason: >-
+      Open CM041 (people graph) work, outside the CM051 installer artefact this
+      walk-only cut produces, and not mine to merge. It is red here because the
+      gate scans every repo in the estate, which is correct: unmerged is not
+      shipped. It is deferred rather than merged because a walk-only cut exists
+      to measure the INSTALLER on a box, and pulling unreviewed cross-repo work
+      into it would change what is being measured.
+      NOTE FOR WHOEVER CLEARS THESE: the CM044 rows already have deferrals in
+      this file written as `CM044-PWG-Personal-Wiki#265`, which do NOT match the
+      key the gate actually prints (`CM044:#265`). That is why they are red
+      despite looking handled -- a deferral keyed to a name the gate never
+      generates is consumed by nothing and reports nothing.
+    until_cut: "v1.0.74"
+  - ref: "CM044:#263"
+    reason: >-
+      Open CM044 (personal wiki) work, outside the CM051 installer artefact this
+      walk-only cut produces, and not mine to merge. It is red here because the
+      gate scans every repo in the estate, which is correct: unmerged is not
+      shipped. It is deferred rather than merged because a walk-only cut exists
+      to measure the INSTALLER on a box, and pulling unreviewed cross-repo work
+      into it would change what is being measured.
+      NOTE FOR WHOEVER CLEARS THESE: the CM044 rows already have deferrals in
+      this file written as `CM044-PWG-Personal-Wiki#265`, which do NOT match the
+      key the gate actually prints (`CM044:#265`). That is why they are red
+      despite looking handled -- a deferral keyed to a name the gate never
+      generates is consumed by nothing and reports nothing.
+    until_cut: "v1.0.74"
+  - ref: "CM044:#264"
+    reason: >-
+      Open CM044 (personal wiki) work, outside the CM051 installer artefact this
+      walk-only cut produces, and not mine to merge. It is red here because the
+      gate scans every repo in the estate, which is correct: unmerged is not
+      shipped. It is deferred rather than merged because a walk-only cut exists
+      to measure the INSTALLER on a box, and pulling unreviewed cross-repo work
+      into it would change what is being measured.
+      NOTE FOR WHOEVER CLEARS THESE: the CM044 rows already have deferrals in
+      this file written as `CM044-PWG-Personal-Wiki#265`, which do NOT match the
+      key the gate actually prints (`CM044:#265`). That is why they are red
+      despite looking handled -- a deferral keyed to a name the gate never
+      generates is consumed by nothing and reports nothing.
+    until_cut: "v1.0.74"
+  - ref: "CM044:#265"
+    reason: >-
+      Open CM044 (personal wiki) work, outside the CM051 installer artefact this
+      walk-only cut produces, and not mine to merge. It is red here because the
+      gate scans every repo in the estate, which is correct: unmerged is not
+      shipped. It is deferred rather than merged because a walk-only cut exists
+      to measure the INSTALLER on a box, and pulling unreviewed cross-repo work
+      into it would change what is being measured.
+      NOTE FOR WHOEVER CLEARS THESE: the CM044 rows already have deferrals in
+      this file written as `CM044-PWG-Personal-Wiki#265`, which do NOT match the
+      key the gate actually prints (`CM044:#265`). That is why they are red
+      despite looking handled -- a deferral keyed to a name the gate never
+      generates is consumed by nothing and reports nothing.
+    until_cut: "v1.0.74"
