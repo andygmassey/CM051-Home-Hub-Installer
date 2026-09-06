@@ -85,7 +85,14 @@ hl="$(wc -l < "${W}/h.fixed" | tr -d ' ')"
 #
 # Either route must yield a handler WITHOUT the guard. That invariant is
 # asserted below whichever path produced it.
-_PREFIX_SHA=a752275d   # v1.0.66 -- the cut that shipped the defect
+# EXPANDED FROM a752275d TO THE FULL 40 CHARS ON PURPOSE. The shallow-clone
+# fallback below is `git fetch --depth=1 origin "${_PREFIX_SHA}"`, and git
+# REFUSES AN ABBREVIATED SHA IN A REFSPEC -- it answers `fatal: couldn't find
+# remote ref a752275d`. With 8 characters that fallback could never fire, so on
+# a shallow runner the pre-fix blob stayed unreadable and this control did not
+# run. Measured on a real `git clone --depth=1`: abbreviated fatals, full 40
+# fetches and the blob is readable. The commit is unchanged; only its spelling.
+_PREFIX_SHA=a752275d2cc1dba076de8605e5cfd1f3bbc12c58   # v1.0.66 -- the cut that shipped the defect
 _pre_src="pinned blob ${_PREFIX_SHA} (v1.0.66)"
 if ! git -C "$REPO" cat-file -e "${_PREFIX_SHA}:install.sh" 2>/dev/null; then
     git -C "$REPO" fetch --quiet --depth=1 origin "${_PREFIX_SHA}" 2>/dev/null || true
