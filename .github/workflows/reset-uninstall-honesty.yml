@@ -31,6 +31,8 @@ on:
       - 'tests/test_a_walk_can_ask_for_a_fresh_graph.sh'
       - 'tests/test_reset_says_when_it_did_not_uninstall.sh'
       - 'tests/test_a_volume_count_is_not_a_wiped_box.sh'
+      - 'scripts/dev-wipe-studio.sh'
+      - 'tests/test_a_dev_wipe_verdict_is_not_inverted.sh'
       - '.github/workflows/reset-uninstall-honesty.yml'
   push:
     branches: [main]
@@ -88,4 +90,18 @@ jobs:
       - name: A docker volume count is not a wiped box
         if: always()
         run: /bin/bash tests/test_a_volume_count_is_not_a_wiped_box.sh
+
+      # Same subject from the other end: the DEV wipe. Its verdict was
+      # inverted -- four bare `ls PATH 2>&1 | head -1` lines under
+      # `set -euo pipefail`, so a clean wipe aborted on the first check and
+      # exited 1 while a wipe that removed nothing printed all four and
+      # exited 0. It also left all five store volumes standing, and removed
+      # ~/.ostler (where docker-compose.yml lives) first, destroying the only
+      # supported route to them.
+      #
+      # `if: always()` for the same reason as the siblings: an earlier red
+      # must not delete this measurement.
+      - name: A dev wipe verdict is not inverted
+        if: always()
+        run: /bin/bash tests/test_a_dev_wipe_verdict_is_not_inverted.sh
 

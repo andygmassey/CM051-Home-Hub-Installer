@@ -21,6 +21,7 @@ test_a_broken_ci_query_is_not_a_green_main.sh	WIRED	.github/workflows/red-main-o
 test_a_condition_function_must_not_short_circuit_its_own_pipeline.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_a_dead_wiki_announces_itself.py	WIRED	.github/workflows/vendor-integrity.yml
 test_a_denied_read_is_not_an_absence.sh	WIRED	.github/workflows/unreachable-not-absence.yml
+test_a_dev_wipe_verdict_is_not_inverted.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
 test_a_failed_hydrate_may_not_fabricate_a_count.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_a_failed_walk_must_not_exit_zero.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_file_we_could_not_read_is_not_a_clean_file.py	WIRED	.github/workflows/cut-manifest.yml
