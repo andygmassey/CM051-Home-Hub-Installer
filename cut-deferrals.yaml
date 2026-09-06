@@ -4282,3 +4282,24 @@ deferrals:
       self-test would be worse. Recorded here so the hold is auditable, raised with
       TNM on the board in the same turn.
     until_cut: "v1.0.73"
+  - ref: "CM051:#1672"
+    reason: >-
+      HELD ON PURPOSE, and the PR title says DO NOT MERGE. It closes the vane
+      :3000 surface behind auth_basic, which is correct and which Andy asked for
+      directly. But the assistant calls vane UNCREDENTIALLED --
+      crates/zeroclaw-tools/src/web_search_tool.rs:13 pins
+      DEFAULT_VANE_URL = "http://localhost:3000" and :157 sends a bare
+      client.get() with no Authorization header -- so merging this alone returns
+      401 to every web search and reports it to the customer as "the local Vane
+      container did not respond", which is the wrong cause. The fix is
+      cross-repo: the assistant must read ~/.ostler/secrets/vane_password (0600,
+      owned by the operator) and send it, which is safe precisely because a
+      second local account cannot read that file even though it shares the
+      loopback. The two changes land together or assistant-first. NOT MEASURED
+      and stated as such: I have not run the assistant against a credentialled
+      vane; the 401 is inferred from the absent header, and a web-search turn on
+      an install carrying this PR settles it. Worth checking first whether :3000
+      needs a credential at all -- if the assistant is the only intended
+      consumer, unpublishing it from the host closes the surface with no
+      credential and no cross-repo change.
+    until_cut: "v1.0.74"
