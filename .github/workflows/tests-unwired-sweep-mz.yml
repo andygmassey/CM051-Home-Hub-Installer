@@ -144,6 +144,16 @@ jobs:
         if: always()
         run: bash tests/test_the_installer_downloads_from_the_repo_we_publish_to.sh
 
+      # #1725. The complement of test_the_wiki_port_demands_a_credential.sh:
+      # that one guards the restriction is ON, this one guards the customer
+      # can still get in. Static (reads install.sh + the GUI tree), so it
+      # belongs here rather than in the colima job that owns the runtime arms.
+      #
+      # if: always() -- same reason as the step above it.
+      - name: the success screen names the wiki credential
+        if: always()
+        run: bash tests/test_the_success_screen_names_the_wiki_credential.sh
+
   python-ubuntu:
     # Vendored-logic tests (parsers, identity resolver, migration guard,
     # tailnet parser, knowledge embed-contract). OS-independent, so they run on
