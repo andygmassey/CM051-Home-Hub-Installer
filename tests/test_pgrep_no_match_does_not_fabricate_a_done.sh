@@ -96,7 +96,14 @@ grep -q "^trap '_ostler_on_err" "${WORK}/handler.inc" \
 # STILL unreachable, mutate the live handler instead: the pre-fix handler is
 # exactly the current one minus the guard, so it rebuilds with no network. An
 # anti-vacuity limb that silently does not run is the hole it exists to close.
-_PREFIX_SHA=a752275d
+# EXPANDED FROM a752275d TO THE FULL 40 CHARS ON PURPOSE. The shallow-clone
+# fallback below is `git fetch --depth=1 origin "${_PREFIX_SHA}"`, and git
+# REFUSES AN ABBREVIATED SHA IN A REFSPEC -- it answers `fatal: couldn't find
+# remote ref a752275d`. With 8 characters that fallback could never fire, so on
+# a shallow runner the pre-fix blob stayed unreadable and this control did not
+# run. Measured on a real `git clone --depth=1`: abbreviated fatals, full 40
+# fetches and the blob is readable. The commit is unchanged; only its spelling.
+_PREFIX_SHA=a752275d2cc1dba076de8605e5cfd1f3bbc12c58
 _pre_src="pinned blob ${_PREFIX_SHA} (v1.0.66)"
 if ! git -C "$REPO_ROOT" cat-file -e "${_PREFIX_SHA}:install.sh" 2>/dev/null; then
     git -C "$REPO_ROOT" fetch --quiet --depth=1 origin "${_PREFIX_SHA}" 2>/dev/null || true
