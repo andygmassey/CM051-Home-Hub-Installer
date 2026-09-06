@@ -209,6 +209,39 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     ],
 }
 
+
+# ── CP-UNIQUE NEEDLES, FOR ASSETS WHOSE SOURCE PATH SURVIVES THE cp ──────────
+#
+# TWO GATES READ COVERAGE_NEEDLES AND THEY ASK DIFFERENT QUESTIONS.
+#   this file  -- "would deleting the cp line turn me RED?"      needs cp-UNIQUE
+#   tests/test_bundled_package_comes_from_its_declared_source.py
+#              -- "does the needle name the DECLARED SOURCE?"    needs a PATH
+#
+# For nearly every asset one string answers both, because the source path only
+# ever appears on the cp line. scripts/deferred-register-device.sh is the
+# exception: its block assigns
+#     SRC="${SRCROOT}/../scripts/deferred-register-device.sh"
+# three lines above the cp, so the source path SURVIVES deleting the copy and a
+# source-path needle stays satisfied. Measured on main 83bbeb27: that asset was
+# the one of five that stayed GREEN under mutation while the other four went
+# RED. #1153.
+#
+# So the override is consulted by THIS gate only. The sibling keeps reading
+# COVERAGE_NEEDLES and its "one map, not two" property is untouched: this is not
+# a second source-of-truth for what an asset's source is, it is a narrower
+# question that only the coverage check asks.
+#
+# A cp fragment is deliberately NOT a path. If you are tempted to put one of
+# these in COVERAGE_NEEDLES to save a dict, the sibling gate will reject it, and
+# it is right to.
+CP_ONLY_NEEDLES: dict[str, list[str]] = {
+    "scripts/deferred-register-device.sh": [
+        'cp "${SRC}" "${DEST}/scripts/deferred-register-device.sh"'
+    ],
+    "scripts": [
+        'cp "${SRC}" "${DEST}/scripts/deferred-register-device.sh"'
+    ],
+}
 SCRIPT_DIR_REGEX = re.compile(r'"\$\{SCRIPT_DIR\}/([^"$]+?)"')
 
 
@@ -287,7 +320,7 @@ def check_coverage(
         if leaf in EXCEPTIONS:
             covered.append((leaf, linenos, f"EXCEPTION: {EXCEPTIONS[leaf]}"))
             continue
-        needles = COVERAGE_NEEDLES.get(leaf, [])
+        needles = CP_ONLY_NEEDLES.get(leaf) or COVERAGE_NEEDLES.get(leaf, [])
         if not needles:
             uncovered.append((leaf, linenos))
             continue
