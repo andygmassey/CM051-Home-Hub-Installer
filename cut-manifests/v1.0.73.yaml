@@ -345,32 +345,6 @@ entries:
       must_match: true
 
 open_issues:
-  - issue: 1709
-    title: "the public egress inventory is bound to v1.0.33 and nothing checks it still describes the software"
-    gate: >-
-      FIX (apparatus): docs/EGRESS_INVENTORY.md is a PUBLIC privacy document in a
-      PUBLIC repo, measured on v1.0.33 on 2026-08-17, last touched 2026-08-21, and
-      the newest cut manifest is v1.0.73. Nothing gates its currency: the four
-      files mentioning EGRESS_INVENTORY are a PII registry, a deferrals file and
-      two foreign-namespace scripts, against a control of 16 files referencing
-      SHIPPING_LEDGER, so that zero is real rather than a failed grep. NOT
-      BLOCKING, and the reason is measured rather than assumed: egress_hosts.tsv
-      has 46 rows at the inventory's measurement commit and 46 rows now, with one
-      intervening commit that restored orphaned commits rather than adding a
-      destination, so the published claim is still ACCURATE. It is accurate by
-      luck and not by control, which is the defect: the next release that adds an
-      outbound destination silently makes a public privacy document false and
-      nothing goes red. This is exactly the rot that
-      project_publish_the_verification_not_the_source step 5 predicted in this
-      estate. The fix guards the PROPERTY not the proxy: a version-number
-      comparison is a label, whereas "no commit has touched egress_hosts.tsv since
-      the inventory's own last commit" is the actual question. Step 3 of that same
-      plan, the PUBLISHED negative control that shows a planted leak being caught,
-      is absent from the document (0 hits for negative control, planted,
-      deliberate, leak, goes red, must fail) and is declared with an expiry rather
-      than left silent. Running the deliberate-leak experiment is CANNOT-RUN off a
-      box: this Mac has no install and the store ports return 000 against a control
-      of 200, so that half needs a walk and the gate half does not. TNM's thread.
   - issue: 1618
     title: "no_store_port_is_tcp_reachable measures reachability, which is the wrong predicate for a credentialed surface"
     gate: >-
