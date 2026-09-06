@@ -116,8 +116,15 @@ PROBE_QUESTION="can any local account open a TCP connection to an Ostler store o
 # ⚠️ THIS TABLE WAS STALE IN THE REASSURING DIRECTION FOR A WEEK. Three rows
 # still described the stores as half-done AFTER the 2026-08-28 work closed them,
 # which made the whole surface read as unfinished and helped hide the ONE port
-# that genuinely is not (8044). A stale security note is worse than no note: it
+# that genuinely was not (8044). A stale security note is worse than no note: it
 # was accurate when written, and nothing said otherwise.
+#
+# AND THEN IT WENT STALE THE OTHER WAY. #1609 closed 8044 and this table went on
+# calling it "the worst surface" -- pessimistic rather than reassuring, so it
+# wasted attention instead of hiding a hole, but it is the same failure and it
+# has the same cause: a row that records a verdict and not the tag it was taken
+# at. Every row below now names one. If you are reading this and the tag is old,
+# re-measure before you believe it.
 #
 # SO EACH ROW NOW SAYS WHICH TAG IT WAS VERIFIED AT, and the distinction that
 # matters is DEFERRED BY DECISION versus DECIDED AND NOT DONE. Per
@@ -151,16 +158,41 @@ PROBE_QUESTION="can any local account open a TCP connection to an Ostler store o
 #                                          BEFORE PING
 #                                          (vendor/doctor/agent/status_collector.py:572-578).
 #                                          The old note here said the opposite.
-#   8044  wiki-site                     -> 🔴 UNRESOLVED AND THE WORST SURFACE.
-#                                          Serves the whole personal wiki with
-#                                          no auth. Its consumer is the
-#                                          CUSTOMER'S BROWSER, so it can take
-#                                          no bearer; and a cookie gives no
-#                                          port isolation (RFC 6265), so a
-#                                          second local account's web server
-#                                          receives it. No agreed answer.
-#   3000  vane                          -> same class as 8044: a browser UI, so
-#                                          no bearer. Not solved.
+#   8044  wiki-site                     -> CLOSED (refuses). auth_basic on the
+#                                          store-proxy, install.sh:17276-17277,
+#                                          with the 0600-include pattern the
+#                                          oxigraph bearer already used.
+#                                          Guarded by
+#                                          tests/test_the_wiki_port_demands_a_credential.sh
+#                                          and .../survives_the_credential.sh --
+#                                          two arms, so it cannot pass by
+#                                          refusing everything. VERIFIED at
+#                                          origin/main fa33901f (#1594, #1609).
+#                                          ⚠️ THE PREMISE THAT HELD THIS UP FOR A
+#                                          WEEK WAS FALSE AND IS RECORDED HERE
+#                                          SO IT IS NOT RE-DERIVED: this row
+#                                          used to say a browser "can take no
+#                                          bearer; and a cookie gives no port
+#                                          isolation (RFC 6265)". Both halves
+#                                          are true and the conclusion does not
+#                                          follow, because HTTP AUTHENTICATION
+#                                          IS NOT A COOKIE. Its scope is the
+#                                          protection space -- scheme plus
+#                                          AUTHORITY, and authority includes the
+#                                          port -- so a credential saved for
+#                                          127.0.0.1:8044 is not offered to
+#                                          127.0.0.1:9999. That is precisely the
+#                                          port isolation cookies lack.
+#   3000  vane                          -> 🔴 OPEN. Published directly by the
+#                                          container (install.sh:17016), so it
+#                                          is not behind the store-proxy and the
+#                                          wiki's realm does not reach it. No
+#                                          environment:, no auth of any kind.
+#                                          Exposes vane_data, the customer's
+#                                          chat history. It is the SAME CLASS as
+#                                          8044 -- and 8044 is now solved, so
+#                                          the answer transfers rather than
+#                                          being unknown. Tracked as #1660.
 #   8144  wiki tailnet gate            -> its identity check is client-supplied
 #                                        over a local connection (see above).
 #                                        Its ONLY consumer is `tailscale serve`
