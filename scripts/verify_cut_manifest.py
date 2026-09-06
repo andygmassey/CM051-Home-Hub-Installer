@@ -2419,9 +2419,26 @@ def check_entry(entry: dict, ctx: dict) -> Result:
         # pin is stale when the truth is that nothing was measured.
         #
         # THIS HANDLER MUST PRECEDE THE BROAD ONE. Python takes the first
-        # matching clause, so moving it below `except Exception` silently
-        # disables it and every arm of the test would still pass on the
-        # exception TYPE while the STATUS reverted to FAIL.
+        # matching clause, and CouldNotMeasure IS an Exception, so moving it
+        # below `except Exception` makes it unreachable.
+        #
+        # CORRECTED 2026-09-06, BY EXECUTION. This comment used to end "and
+        # every arm of the test would still pass on the exception TYPE while
+        # the STATUS reverted to FAIL". That is FALSE, and it mattered: it told
+        # the next editor the reorder was unguarded, which invites either a
+        # redundant guard or trust in a green run after a refactor.
+        #
+        # Measured by moving this block below `except Exception` on origin/main
+        # and re-running tests/test_a_timeout_is_not_a_stale_pin.sh:
+        #
+        #   unmutated            4 pass / 0 fail          rc 0
+        #   handler unreachable  2 pass / 2 fail          rc 1
+        #
+        # It fires because the arms switch on the STATUS the Result carries
+        # (test:123-127), not on the exception type. Both controls held under
+        # the mutation -- the non-zero-gh SKIP arm and the pre-fix negative
+        # control -- so exactly one class of arm flipped, which is what makes
+        # the red discriminating rather than incidental.
         #
         # Placed here rather than in each check_ function because there are
         # nine of them and I checked what the existing handlers actually cover:
