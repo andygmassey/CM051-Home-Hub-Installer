@@ -181,17 +181,46 @@ if ! grep -qE '^err\(\)' "$INSTALL_SCRIPT"; then
 fi
 echo "PASS: err() function defined alongside info / ok / warn"
 
-# ── DEFAULT_INSTALLER_TARBALL_URL points at the canonical ostler-ai mirror ──
-# (Org-block on ostler-ai cleared 2026-05-08. The canonical release repo was
-#  renamed ostler-installer -> ostler-releases; the download URL is now the
-#  ostler-ai/ostler-releases GitHub Releases tarball. This is consistent with
-#  scripts/publish_release.sh, scripts/verify_cut_freshness.sh and cut.yml,
-#  which all target ostler-ai/ostler-releases.)
-if ! grep -q "DEFAULT_INSTALLER_TARBALL_URL=\"https://github.com/ostler-ai/ostler-releases/" "$INSTALL_SCRIPT"; then
-    echo "FAIL [tarball-url]: DEFAULT_INSTALLER_TARBALL_URL not pointing at the ostler-ai/ostler-releases mirror" >&2
+# ── DEFAULT_INSTALLER_TARBALL_URL points at the repo we PUBLISH to ──
+#
+# 🔴 THIS ARM PINNED THE WRONG REPOSITORY AND ITS COMMENT ASSERTED A RENAME
+# THAT NEVER HAPPENED. It read: "The canonical release repo was renamed
+# ostler-installer -> ostler-releases ... consistent with
+# scripts/publish_release.sh, scripts/verify_cut_freshness.sh and cut.yml,
+# which all target ostler-ai/ostler-releases."
+#
+# Measured 2026-09-06, every clause false or conflated:
+#
+#   both repos exist        ostler-installer created 2026-05-01
+#                           ostler-releases  created 2026-05-21     no rename
+#   publish_release.sh      targets ostler-INSTALLER, four times, and says
+#                           in prose it is "a DIFFERENT repository" with a
+#                           token deliberately NOT scoped to ostler-releases
+#   verify_cut_freshness.sh names ostler-releases for DAEMON PROVENANCE
+#   cut.yml                 names ostler-releases for DAEMON token scope
+#
+# So two of the three cited files were about the daemon, not the installer,
+# and the third contradicts the claim outright. The comment conflated the
+# daemon release repo with the installer release repo.
+#
+# What the artefacts say, which outranks what any script says:
+#
+#   ostler-releases    43 releases  101 assets   0 installer tarballs, 0 DMGs
+#   ostler-installer   35 releases   31 DMGs     3 install.tar.gz
+#   ostler.ai/install.dmg resolves INTO ostler-installer (302 x3 -> 200)
+#
+# The URL was correctly spelled and pointed at nothing: 302 -> 404, while a
+# real asset on the same release went 302 -> 302 -> 200 through the identical
+# mechanism.
+#
+# tests/test_the_installer_downloads_from_the_repo_we_publish_to.sh now
+# enforces the AGREEMENT dynamically, by reading both files, so this arm and
+# that one cannot drift apart into two different hardcoded answers again.
+if ! grep -q "DEFAULT_INSTALLER_TARBALL_URL=\"https://github.com/ostler-ai/ostler-installer/" "$INSTALL_SCRIPT"; then
+    echo "FAIL [tarball-url]: DEFAULT_INSTALLER_TARBALL_URL does not point at ostler-ai/ostler-installer, the repo scripts/publish_release.sh actually publishes to" >&2
     exit 1
 fi
-echo "PASS: DEFAULT_INSTALLER_TARBALL_URL points at the ostler-ai/ostler-releases mirror"
+echo "PASS: DEFAULT_INSTALLER_TARBALL_URL points at ostler-ai/ostler-installer, the repo scripts/publish_release.sh publishes to"
 
 echo ""
 echo "All wiki-compose / hardening tests passed."
