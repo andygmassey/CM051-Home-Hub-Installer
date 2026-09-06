@@ -6,7 +6,12 @@
 #
 # Proves the copy matches a NAMED commit, NOT that the commit is still
 # OS003 HEAD. That half is an OPERATOR check: --check before tagging.
+#
+# One row per vendored version, newest last. Field 3 is the OS003 commit
+# THAT row was taken from; the os003_sha header describes the most recent
+# sync only. A row with no field 3 predates per-row provenance.
 os003_repo	andygmassey/OS003-Ostler-Release
 os003_sha	0e027d263066b61c7e1e656be2e9566a4242c845
 os003_branch	main
-cuts/v1.0.72/MUST_CONTAIN.tsv	62fc56c45017e3f708520943068f2ff9a1fa2a2b578e7ef5f400ff9c62acfb7a
+cuts/v1.0.71/MUST_CONTAIN.tsv	b0badae3ce94b382200db36a7d049dd2c27010c9c91d7bf54271ad258114ca99	0e027d263066b61c7e1e656be2e9566a4242c845
+cuts/v1.0.72/MUST_CONTAIN.tsv	62fc56c45017e3f708520943068f2ff9a1fa2a2b578e7ef5f400ff9c62acfb7a	0e027d263066b61c7e1e656be2e9566a4242c845
