@@ -1,0 +1,65 @@
+name: download-urls-resolve
+
+# EVERY EXTERNAL URL install.sh DOWNLOADS FROM MUST RESOLVE, OR BE DECLARED.
+#
+# WHY THIS WORKFLOW EXISTS, AND IT IS NOT A HYPOTHETICAL. CM051 #1625 reported
+# that the curl|bash bootstrap fetched an asset that had never existed. #1631
+# merged GREEN and changed which non-existent URL it fetched. Nothing noticed,
+# because every check we had reads the SOURCE -- is the variable set, is the
+# repo name right -- and none of them leaves the machine.
+#
+# This one leaves the machine. It is the only check in the repo that asks
+# whether a URL a customer's shell would open actually answers.
+#
+# IT RUNS ON PULL_REQUEST AND ON main, not on the cut. A cut must not be the
+# first time anybody asks, and the answer can change without any commit --
+# an asset can be deleted from a release by someone who never touched this
+# repo, so main is re-asked on every push as well.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'install.sh'
+      - 'tests/test_every_external_download_url_resolves.sh'
+      - 'tests/test_a_missing_tarball_is_not_a_network_problem.sh'
+      - '.github/workflows/download-urls-resolve.yml'
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_every_external_download_url_resolves.sh'
+      - 'tests/test_a_missing_tarball_is_not_a_network_problem.sh'
+      - '.github/workflows/download-urls-resolve.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  urls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the honest-refusal test reads a pre-fix blob
+
+      # rc=2 is CANNOT-RUN and it is NOT a pass. The gate returns it when its
+      # own positive/negative controls misbehave, i.e. when the network or a
+      # proxy is answering for everything. Surfaced as a distinct message so a
+      # runner-side outage is never read as a defect in install.sh.
+      - name: Every external download URL resolves, or is declared with its proof
+        run: |
+          set -uo pipefail
+          rc=0
+          bash tests/test_every_external_download_url_resolves.sh || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=Download-URL gate CANNOT-RUN::Its own controls did not behave, so nothing was measured. This is NOT a pass and NOT a defect in install.sh."
+            exit 2
+          fi
+          exit "$rc"
+
+      - name: A missing tarball is not reported as a network problem
+        run: bash tests/test_a_missing_tarball_is_not_a_network_problem.sh

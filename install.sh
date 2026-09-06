@@ -3671,17 +3671,35 @@ else
     # was 100% recoverable with a single retry. The single-shot version
     # exited with a cryptic curl-56 from the bash side and burned a
     # demo. Catch transient failures here.
+    # A MISSING ASSET IS NOT A FLAKY NETWORK, AND RETRYING IT THREE TIMES SAYS
+    # IT IS. #1625: this loop retried a 404 with backoff and then reported
+    # "Could not download after 3 attempts", so a URL that names nothing read
+    # as GitHub being unreliable. The preflight above has already proved
+    # github.com is reachable, which makes that reading actively misleading.
+    #
+    # A 4xx is DEFINITIVE: the server answered, and its answer was "no such
+    # thing". Retrying cannot change it. Only 5xx, timeouts and connection
+    # failures are worth a second attempt.
+    #
+    # %{http_code} is captured on EVERY attempt, not just the last, because
+    # the discriminator has to survive the loop to reach the message below.
     fetch_ok=0
+    fetch_http_code=""
     for attempt in 1 2 3; do
-        if curl --fail --silent --show-error --location \
+        fetch_http_code="$(curl --fail --silent --show-error --location \
                 --retry-connrefused --retry-all-errors \
                 --connect-timeout 10 --max-time 120 \
+                --write-out '%{http_code}' \
                 --output "${BOOTSTRAP_TMPDIR}/install.tar.gz" \
                 "${INSTALLER_TARBALL_URL}" \
-                2>"${BOOTSTRAP_TMPDIR}/curl.err"; then
-            fetch_ok=1
-            break
-        fi
+                2>"${BOOTSTRAP_TMPDIR}/curl.err")" && fetch_ok=1
+        [[ $fetch_ok -eq 1 ]] && break
+        case "${fetch_http_code}" in
+            4*)
+                echo "    The server answered ${fetch_http_code}. That is definitive, so this is not retried."
+                break
+                ;;
+        esac
         if [[ $attempt -lt 3 ]]; then
             backoff=$((attempt * 2))
             echo "    Attempt ${attempt}/3 failed; retrying in ${backoff}s..."
@@ -3691,10 +3709,26 @@ else
 
     if [[ $fetch_ok -eq 0 ]]; then
         echo
-        echo "ERROR: Could not download the installer tarball after 3 attempts."
-        echo
-        echo "  URL:    ${INSTALLER_TARBALL_URL}"
-        echo "  Reason: $(cat "${BOOTSTRAP_TMPDIR}/curl.err" 2>/dev/null || echo unknown)"
+        # LEAD WITH WHICH KIND OF FAILURE IT IS. The two have different causes,
+        # different owners and different fixes, and the old wording named
+        # neither: "could not download after 3 attempts" is true of both and
+        # points the reader at their own network either way.
+        case "${fetch_http_code}" in
+            4*)
+                echo "ERROR: There is no installer tarball at that URL."
+                echo
+                echo "  URL:    ${INSTALLER_TARBALL_URL}"
+                echo "  Server: HTTP ${fetch_http_code} -- the server answered, and the answer was"
+                echo "          that this asset does not exist. Your network is fine: the"
+                echo "          reachability check above already succeeded."
+                ;;
+            *)
+                echo "ERROR: Could not download the installer tarball after 3 attempts."
+                echo
+                echo "  URL:    ${INSTALLER_TARBALL_URL}"
+                echo "  Reason: $(cat "${BOOTSTRAP_TMPDIR}/curl.err" 2>/dev/null || echo unknown)"
+                ;;
+        esac
         echo
         echo "Recovery (single line, paste in terminal):"
         echo
