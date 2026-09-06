@@ -192,10 +192,22 @@ export OSTLER_DIAG_DIR
 # did not work. 0700 so the copy is no more readable than the original.
 _ostler_persist_diagnostics() {
     [ -d "${OSTLER_DIAG_DIR:-}" ] || return 0
-    _pd_root="${OSTLER_DIR:-${HOME}/.ostler}/diagnostics"
-    _pd_dest="${_pd_root}/$(date -u '+%Y%m%dT%H%M%SZ')"
-    mkdir -p "$_pd_dest" 2>/dev/null || return 0
-    chmod 700 "$_pd_root" "$_pd_dest" 2>/dev/null || true
+    # IDEMPOTENT WITHIN A RUN. The first call picks the destination; every
+    # later call TOPS UP that same directory instead of creating a new one.
+    #
+    # This is what lets a warn site call it before naming a log. Without it, a
+    # customer whose install produced four warnings would be left with four
+    # timestamped diagnostics directories from a single install, the complete
+    # one indistinguishable from the partial ones -- a worse version of the
+    # problem this function exists to solve.
+    if [ -n "${OSTLER_DIAG_KEPT:-}" ] && [ -d "${OSTLER_DIAG_KEPT}" ]; then
+        _pd_dest="$OSTLER_DIAG_KEPT"
+    else
+        _pd_root="${OSTLER_DIR:-${HOME}/.ostler}/diagnostics"
+        _pd_dest="${_pd_root}/$(date -u '+%Y%m%dT%H%M%SZ')"
+        mkdir -p "$_pd_dest" 2>/dev/null || return 0
+        chmod 700 "$_pd_root" "$_pd_dest" 2>/dev/null || true
+    fi
     cp -R "${OSTLER_DIAG_DIR}/." "$_pd_dest/" 2>/dev/null || return 0
     OSTLER_DIAG_KEPT="$_pd_dest"
     return 0
@@ -25456,7 +25468,18 @@ if [[ -r "$_ns_migrate_script" ]]; then
            _ostler_persist_diagnostics
            warn "Identifier namespace migration was KILLED part-way (rc=$_ns_rc). The store may be HALF-MIGRATED. Do not rebuild the wiki from it. Your pre-migration backup is at ${OSTLER_DIR:-$PWD}/ostler-graph-premigration.nq. See ${OSTLER_DIAG_KEPT:-$OSTLER_DIAG_DIR}/ns-migration.log"  # i18n-exempt
            ;;
-        *) warn "Identifier namespace migration did not complete (rc=$_ns_rc). Some identifiers may already have been rewritten, so the store may be part-migrated -- it is NOT known to be unchanged. Your pre-migration backup is at ${OSTLER_DIR:-$PWD}/ostler-graph-premigration.nq. See "${OSTLER_DIAG_DIR}/ns-migration.log""  # i18n-exempt
+        *)
+           # The sibling arm above was fixed to keep the log BEFORE naming it,
+           # because ${TMPDIR} is purged and it "named a file they could not
+           # find the next day". THIS ARM WAS NOT, and it is the one that
+           # matters most: the rc contract defines rc=1 as "a rule ran and
+           # left residue", so this arm fires precisely when the store WAS
+           # written to. It cited the purgeable path and never persisted it.
+           #
+           # The fix landed on one arm of a two-arm case. A diff is not a
+           # blast radius.
+           _ostler_persist_diagnostics
+           warn "Identifier namespace migration did not complete (rc=$_ns_rc). Some identifiers may already have been rewritten, so the store may be part-migrated -- it is NOT known to be unchanged. Your pre-migration backup is at ${OSTLER_DIR:-$PWD}/ostler-graph-premigration.nq. See ${OSTLER_DIAG_KEPT:-$OSTLER_DIAG_DIR}/ns-migration.log"  # i18n-exempt
            ;;
     esac
     unset _ns_rc
@@ -26916,7 +26939,8 @@ except Exception:
         # Surface it as a failure (with the log path) instead of the
         # "not synced" state so the two are never conflated.
         # W003 class: named /tmp/ostler-hydrate-calendar.log, which nothing writes.
-        warn "$(printf "$MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED" "${OSTLER_DIAG_DIR}/hydrate-calendar.log")"
+        _ostler_persist_diagnostics
+        warn "$(printf "$MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED" "${OSTLER_DIAG_KEPT:-$OSTLER_DIAG_DIR}/hydrate-calendar.log")"
         # FAIL. `events=0` here is MEASURED, not defaulted: the count was
         # parsed above and this arm is only reached when it is zero. The
         # stage that raised is named so the two python legs stay separable.
@@ -28016,7 +28040,8 @@ except Exception:
     print(0)" 2>/dev/null || true)"
     _landed="${_landed:-0}"
     if [[ "$_landed" -eq 0 ]]; then
-        warn "Conversation-ingest guard: ${_label} extraction emitted ${_n} conversation(s) but ZERO ${_label} chat-identity facts reached the graph. The ${_label} leg landed nothing -- this is a structural break, not 'no data'. See ${OSTLER_DIAG_DIR}/hydrate-${_label}.log."
+        _ostler_persist_diagnostics
+        warn "Conversation-ingest guard: ${_label} extraction emitted ${_n} conversation(s) but ZERO ${_label} chat-identity facts reached the graph. The ${_label} leg landed nothing -- this is a structural break, not 'no data'. See ${OSTLER_DIAG_KEPT:-$OSTLER_DIAG_DIR}/hydrate-${_label}.log."
     else
         info "Conversation-ingest guard: ${_label} ${_landed} chat-identity fact(s) in the graph (extract had ${_n})."
     fi
@@ -29033,14 +29058,16 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
         # The module's own loud guard fired: signals exist but no Places were
         # produced/written. Surface it loudly (non-fatal: a re-run is safe).
         # W003 class: named /tmp/ostler-places-ingest.log, which nothing writes.
-        warn "$(printf "$MSG_HYDRATE_PLACES_GUARD_WARN" "${OSTLER_DIAG_DIR}/places-ingest.log")"
+        _ostler_persist_diagnostics
+        warn "$(printf "$MSG_HYDRATE_PLACES_GUARD_WARN" "${OSTLER_DIAG_KEPT:-$OSTLER_DIAG_DIR}/places-ingest.log")"
     else
         # Non-zero exit with no guard line = config error / unexpected crash.
         # Still non-fatal, but visible -- not mislabelled as "no signals yet".
         # W003 class: same path, second message. Both arms named a file that
         # nothing writes, so fixing only the guard arm would have left the
         # unexpected-error arm lying.
-        warn "$(printf "$MSG_HYDRATE_PLACES_ERROR_WARN" "${OSTLER_DIAG_DIR}/places-ingest.log")"
+        _ostler_persist_diagnostics
+        warn "$(printf "$MSG_HYDRATE_PLACES_ERROR_WARN" "${OSTLER_DIAG_KEPT:-$OSTLER_DIAG_DIR}/places-ingest.log")"
     fi
     # #711. The branches above already distinguish a crash ("Non-zero
     # exit with no guard line = config error / unexpected crash") and
@@ -29097,7 +29124,8 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
     else
         # Non-fatal: readers stay fail-closed (safe), and the ical-server
         # startup hook retries on the next boot. Surface it, do not abort.
-        warn "Privacy backfill did not complete (rc=$_privacy_rc); readers stay fail-closed. See "${OSTLER_DIAG_DIR}/privacy-backfill.log""  # i18n-exempt
+        _ostler_persist_diagnostics
+        warn "Privacy backfill did not complete (rc=$_privacy_rc); readers stay fail-closed. See ${OSTLER_DIAG_KEPT:-$OSTLER_DIAG_DIR}/privacy-backfill.log"  # i18n-exempt
     fi
     # #712: the rc was already captured AND already printed in the warn above,
     # and then thrown away at the sentinel -- the failure was visible to the
