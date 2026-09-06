@@ -171,6 +171,73 @@ else
     CANT=1; row "daemon pin vs oa/main" "CANNOT-RUN" "no DAEMON_COMMIT in cuts/${CUTV}/cut.env"
 fi
 
+# ── 5. IS THE PINNED DAEMON ACTUALLY PUBLISHED, AND IS THE PIN ITS DIGEST?
+#
+# THIS ROW EXISTS BECAUSE I ASSERTED THE ANSWER THREE TIMES AND WAS WRONG
+# TWICE, 2026-09-06. Both halves are LIVE facts about a remote service, which
+# is exactly what this script is for, and neither was measured anywhere:
+#
+#   * I wrote "hub-v0.4.71 is NOT published, the publish is Andy's call" in
+#     three consecutive handoff files. It had been published at 09:01:37Z.
+#     Nobody was blocked on a human; I was blocked on a fact I never asked for.
+#   * Worse, two of those files instructed a re-pin to a digest taken from a
+#     LOCAL build. Same commit, different bytes: local 10164648 B / f6d1f75a...
+#     against published 10281235 B / 0cd3dd2d... The pin would have shipped a
+#     digest no published file hashes to, and download-daemon fails closed on
+#     that -- after the cut has started.
+#
+# A DRAFT RELEASE IS THE TRAP. CI attaches the assets and stops; promoting is a
+# separate human act. So `gh release view` succeeds, the assets are listed, the
+# sidecar is downloadable BY AN AUTHENTICATED READER -- and a customer gets a
+# 404. Draft is therefore RED here, not GREEN, and the message says which act
+# is missing.
+_mkver="$(sed -n 's/^DAEMON_VERSION[[:space:]]*?*=[[:space:]]*\([0-9.]*\).*/\1/p' "${HERE}/gui/Makefile" 2>/dev/null | head -1)"
+# READ THE REPO FROM THE MAKEFILE. DO NOT HARD-CODE IT, AND THIS COST ME AN
+# HOUR: ostler-assistant is the BUILD repo and ostler-releases is the
+# DISTRIBUTION repo, DAEMON_REPO names the second, and they legitimately hold
+# DIFFERENT artefacts for the same tag. CI builds but does not notarise; the
+# notarised local build is what gets published for customers. I compared the
+# pin against the BUILD repo, got a mismatch, and nearly filed the correct pin
+# as a cut-breaking defect. Measured: ostler-releases hub-v0.4.70 sidecar
+# equals DAEMON_SHA256 exactly, while ostler-assistant's differs.
+_drepo="$(sed -n 's/^DAEMON_REPO[[:space:]]*?*=[[:space:]]*\([^[:space:]]*\).*/\1/p' "${HERE}/gui/Makefile" 2>/dev/null | head -1)"
+_mksha="$(sed -n 's/^DAEMON_SHA256[[:space:]]*?*=[[:space:]]*\([0-9a-f]*\).*/\1/p' "${HERE}/gui/Makefile" 2>/dev/null | head -1)"
+if [ -z "$_mkver" ] || [ -z "$_mksha" ] || [ -z "$_drepo" ]; then
+    CANT=1; row "daemon release published" "CANNOT-RUN" "could not read DAEMON_VERSION/DAEMON_SHA256/DAEMON_REPO from gui/Makefile; nothing was compared"
+else
+    _rel="$(gh release view "hub-v${_mkver}" --repo "$_drepo" --json isDraft,url 2>/dev/null)"
+    if [ -z "$_rel" ]; then
+        CANT=1; row "daemon release published" "CANNOT-RUN" "no release hub-v${_mkver} readable; absent and unreadable print identically, so this refuses"
+    else
+        _draft="$(printf '%s' "$_rel" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("isDraft"))' 2>/dev/null)"
+        if [ "$_draft" = "True" ]; then
+            RED=1; row "daemon release published" "RED" "hub-v${_mkver} exists but is a DRAFT. CI built it; nobody promoted it. A customer gets 404. Fix: gh release edit hub-v${_mkver} --repo ${_drepo} --draft=false"
+        elif [ "$_draft" != "False" ]; then
+            CANT=1; row "daemon release published" "CANNOT-RUN" "could not read isDraft for hub-v${_mkver}"
+        else
+            # Published. Now: does the pin match what is actually up there?
+            # Only the 119-byte sidecar is fetched -- this is a LIVE column and
+            # must stay seconds, not a 10 MB download.
+            _tmp="$(mktemp -d)"
+            if gh release download "hub-v${_mkver}" --repo "$_drepo" \
+                   --pattern "ostler-assistant-aarch64-apple-darwin-v${_mkver}.tar.gz.sha256" \
+                   --dir "$_tmp" >/dev/null 2>&1; then
+                _pub="$(awk '{print $1; exit}' "$_tmp"/*.sha256 2>/dev/null)"
+                if [ -z "$_pub" ]; then
+                    CANT=1; row "daemon pin == published sha" "CANNOT-RUN" "sidecar downloaded but unreadable; an empty read must not pass for a match"
+                elif [ "$_pub" = "$_mksha" ]; then
+                    row "daemon pin == published sha" "GREEN" "hub-v${_mkver} published, and gui/Makefile DAEMON_SHA256 equals its published sidecar"
+                else
+                    RED=1; row "daemon pin == published sha" "RED" "gui/Makefile pins ${_mksha} but the published sidecar for hub-v${_mkver} says ${_pub}. download-daemon fails closed on this, INSIDE the cut."
+                fi
+            else
+                CANT=1; row "daemon pin == published sha" "CANNOT-RUN" "could not download the .sha256 sidecar for hub-v${_mkver}; the pin is unverified"
+            fi
+            rm -rf "$_tmp"
+        fi
+    fi
+fi
+
 # ── report ─────────────────────────────────────────────────────────────────
 printf '  %-30s  %-12s  %s\n' "CHECK" "VERDICT" "DETAIL"
 for r in "${ROWS[@]}"; do
