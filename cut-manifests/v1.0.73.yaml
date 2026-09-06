@@ -345,6 +345,32 @@ entries:
       must_match: true
 
 open_issues:
+  - issue: 1719
+    title: "36 deferral refs are in a key shape the gate cannot generate: 24 are redundant duplicates, 12 are for a repo it does not check"
+    gate: >-
+      NOT BLOCKING, and the reason is that I overstated this and then measured it
+      properly. cut-deferrals.yaml carries 36 refs with no colon, which
+      verify_no_orphaned_fixes.sh can never consult: it builds keys as
+      `${label}:#${pr_num}` at :800 and is_deferred() matches exactly. That much
+      is true. What does NOT follow, and what I asserted before checking, is that
+      the holds were therefore absent. Measured per row: 24 of the 36 already
+      have a WORKING short-form row for the same subject, so they are redundant
+      duplicates rather than missing holds; the remaining 12 are all HR015, which
+      has no check_repo call at all (:1038-1043 names six repos and HR015 is not
+      one), and 10 of those 12 name issues that are already CLOSED. So no hold
+      was silently absent and nothing is unheld. I had rewritten all 24 into the
+      short form before running the gate's own is_deferred predicate against
+      before and after -- every one came back BOUND BEFORE the rewrite, which is
+      the opposite of what a real fix looks like, and landing it would have
+      created 24 duplicate refs and called it a repair. Reverted, tree untouched.
+      What remains is file hygiene (24 redundant and 10 dead rows, removable only
+      by reading each for a reason or until_cut that differs from its twin, not
+      by regex) plus one genuine scoping question that is the cut owner's and not
+      a typo: should the orphan gate examine HR015 at all, given it holds
+      SHIPPING_LEDGER.yaml and the vendored ostler_fda tree. Archie's original
+      observation stands unchanged -- an inert hold reads exactly like a satisfied
+      one; what I added was a denominator and I got it wrong in the alarming
+      direction first. TNM's thread.
   - issue: 1618
     title: "no_store_port_is_tcp_reachable measures reachability, which is the wrong predicate for a credentialed surface"
     gate: >-
