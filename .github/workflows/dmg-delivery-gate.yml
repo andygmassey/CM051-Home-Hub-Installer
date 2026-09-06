@@ -13,11 +13,15 @@ on:
       - 'scripts/verify_dmg_delivers_fixes.sh'
       - 'tests/test_verify_dmg_delivers_fixes.sh'
       - '.github/workflows/dmg-delivery-gate.yml'
+      - 'tests/test_the_failed_to_look_message_can_actually_print.sh'
+      - '.github/workflows/cut.yml'
   push:
     branches: [main]
     paths:
       - 'scripts/verify_dmg_delivers_fixes.sh'
       - 'tests/test_verify_dmg_delivers_fixes.sh'
+      - 'tests/test_the_failed_to_look_message_can_actually_print.sh'
+      - '.github/workflows/cut.yml'
 permissions:
   contents: read
 jobs:
@@ -28,8 +32,17 @@ jobs:
       - uses: actions/checkout@v4
       - name: The delivery gate passes a good DMG, fails a missing or partial one
         run: bash tests/test_verify_dmg_delivers_fixes.sh
+      # The gate above proves the gate's LOGIC. This one proves the four steps
+      # in cut.yml can actually REACH their own "failed to look" message: under
+      # `set -Eeuo pipefail` a glob matching nothing killed the step on the
+      # assignment line, so on the v1.0.72 cut three of them died in ~130ms
+      # having printed nothing at all.
+      - name: The cut's "failed to look" guards are reachable
+        if: always()
+        run: bash tests/test_the_failed_to_look_message_can_actually_print.sh
       - name: Both parse under bash 3.2, the customer's shell
         if: always()
         run: |
           bash -n scripts/verify_dmg_delivers_fixes.sh
           bash -n tests/test_verify_dmg_delivers_fixes.sh
+          bash -n tests/test_the_failed_to_look_message_can_actually_print.sh

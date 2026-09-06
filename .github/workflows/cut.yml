@@ -1050,7 +1050,16 @@ jobs:
         if: always()
         run: |
           set -Eeuo pipefail
-          DMG="$(ls dist/*.dmg 2>/dev/null | head -1)"
+          # `|| true` IS LOAD-BEARING. Under `set -Eeuo pipefail` a glob that
+          # matches nothing makes `ls` exit non-zero, pipefail carries that
+          # through `head`, and a command-substitution ASSIGNMENT takes the
+          # status of the substitution -- so `set -e` killed the step ON THIS
+          # LINE and the guard below never ran. Measured on the v1.0.72 cut:
+          # three steps died in ~130ms having printed NOTHING, so the message
+          # written to separate "I looked and it is missing" from "I could not
+          # look" was unreachable by construction. Guarded by
+          # tests/test_the_failed_to_look_message_can_actually_print.sh.
+          DMG="$(ls dist/*.dmg 2>/dev/null | head -1 || true)"
           if [ -z "$DMG" ]; then
               echo "::error title=No DMG to inspect::The delivery gate found no dist/*.dmg. It has NOT verified delivery -- it failed to look. DO NOT SHIP."
               exit 1
@@ -1082,7 +1091,16 @@ jobs:
         if: always()
         run: |
           set -uo pipefail
-          DMG="$(ls dist/*.dmg 2>/dev/null | head -1)"
+          # `|| true` IS LOAD-BEARING. Under `set -Eeuo pipefail` a glob that
+          # matches nothing makes `ls` exit non-zero, pipefail carries that
+          # through `head`, and a command-substitution ASSIGNMENT takes the
+          # status of the substitution -- so `set -e` killed the step ON THIS
+          # LINE and the guard below never ran. Measured on the v1.0.72 cut:
+          # three steps died in ~130ms having printed NOTHING, so the message
+          # written to separate "I looked and it is missing" from "I could not
+          # look" was unreachable by construction. Guarded by
+          # tests/test_the_failed_to_look_message_can_actually_print.sh.
+          DMG="$(ls dist/*.dmg 2>/dev/null | head -1 || true)"
           if [ -z "$DMG" ]; then
               echo "::error title=No DMG to walk::The artefact walk found no dist/*.dmg. It has NOT walked anything -- it failed to look. DO NOT SHIP."
               exit 1
@@ -1113,7 +1131,16 @@ jobs:
               echo "::error title=No cut version::The artefact-content gate has no version to compare against, so it has NOT verified the content -- it failed to look. DO NOT SHIP."
               exit 2
           fi
-          DMG="$(ls dist/*.dmg 2>/dev/null | head -1)"
+          # `|| true` IS LOAD-BEARING. Under `set -Eeuo pipefail` a glob that
+          # matches nothing makes `ls` exit non-zero, pipefail carries that
+          # through `head`, and a command-substitution ASSIGNMENT takes the
+          # status of the substitution -- so `set -e` killed the step ON THIS
+          # LINE and the guard below never ran. Measured on the v1.0.72 cut:
+          # three steps died in ~130ms having printed NOTHING, so the message
+          # written to separate "I looked and it is missing" from "I could not
+          # look" was unreachable by construction. Guarded by
+          # tests/test_the_failed_to_look_message_can_actually_print.sh.
+          DMG="$(ls dist/*.dmg 2>/dev/null | head -1 || true)"
           if [ -z "$DMG" ]; then
               echo "::error title=No DMG to inspect::The artefact-content gate found no dist/*.dmg. It has NOT verified the content -- it failed to look. DO NOT SHIP."
               exit 2
@@ -1282,7 +1309,16 @@ jobs:
           PUBLISH_RELEASE_TOKEN: ${{ secrets.CM051_INSTALLER_PUBLISH }}
         run: |
           set -uo pipefail
-          DMG="$(ls dist/*.dmg 2>/dev/null | head -1)"
+          # `|| true` IS LOAD-BEARING. Under `set -Eeuo pipefail` a glob that
+          # matches nothing makes `ls` exit non-zero, pipefail carries that
+          # through `head`, and a command-substitution ASSIGNMENT takes the
+          # status of the substitution -- so `set -e` killed the step ON THIS
+          # LINE and the guard below never ran. Measured on the v1.0.72 cut:
+          # three steps died in ~130ms having printed NOTHING, so the message
+          # written to separate "I looked and it is missing" from "I could not
+          # look" was unreachable by construction. Guarded by
+          # tests/test_the_failed_to_look_message_can_actually_print.sh.
+          DMG="$(ls dist/*.dmg 2>/dev/null | head -1 || true)"
           if [ -z "$DMG" ]; then
               echo "::error::No DMG found under dist/ to publish. The build step did not leave an artefact where this step looks."
               exit 1
