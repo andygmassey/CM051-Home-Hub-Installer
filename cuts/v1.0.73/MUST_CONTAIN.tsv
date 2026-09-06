@@ -1,0 +1,92 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.73.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.73/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN.
+#
+# ===========================================================================
+# EVERY ROW SAYS ONE OF THREE THINGS AND NEVER A FOURTH
+# ===========================================================================
+#   gate:<workflow>#<what>  a CI gate that FAILS on the real pre-fix tree
+#   artefact:<sha8>#<what>  measured on the published artefact itself
+#   needs-walk:<ver>#<what> UNPROVEN, and here is exactly what to look at
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS, IN ONE LINE
+# ===========================================================================
+# v1.0.73 CLOSES THE LAST TWO UNAUTHENTICATED PATHS TO THE PERSONAL WIKI on a
+# multi-account Mac (:3000 and :8144), and ships the first daemon rebuilt since
+# hub-v0.4.71.
+#
+# ===========================================================================
+# HOW THE ROWS WERE SELECTED, AND WHAT WAS LEFT OUT
+# ===========================================================================
+# 27 commits landed on CM051 main between tag v1.0.72 and 45b1eb8c. The
+# predicate for a row is the same one v1.0.72 used: the commit touches a path
+# that reaches the customer, i.e. install.sh, gui/, vendor/ or
+# assistant-agent/. EIGHT did. Seven carry rows.
+#
+# ONE OF THE EIGHT IS DELIBERATELY ABSENT, and here is the measurement rather
+# than the assertion. 9293fa9b (#1684) changes 15 lines of install.sh and
+# ZERO of them are non-comment:
+#
+#     git show 9293fa9b -- install.sh | grep -cE '^[+-][^+-]'          15
+#     ... same, minus lines that are blank or start with #               0
+#
+# It restates two rationales that went false when #1683 landed. A row asserting
+# it MUST BE IN THE ARTEFACT would be asserting a comment, and the artefact
+# cannot fail such a row for any reason a customer would feel. Recorded here
+# rather than silently dropped, because a BOM whose exclusions are invisible is
+# a BOM nobody can audit.
+#
+# ===========================================================================
+# EVERY PATTERN BEHIND A capability_id WAS RUN AGAINST BOTH REFS
+# ===========================================================================
+# A capability whose pattern also matches at v1.0.72 measures nothing: it would
+# go green on the PREVIOUS artefact, so it cannot notice this cut's payload
+# going missing. Each was checked at v1.0.72 (must be 0) and at main (must be
+# non-zero), with two controls:
+#
+#     id                                        @v1.0.72  @main
+#     vane_port_demands_a_credential                   0      1
+#     assistant_authenticates_to_vane                  0      1
+#     recovery_claim_matches_the_handover              0      4
+#     missing_tarball_is_not_a_network_problem         0      6
+#     cm041_kinship_given_name_in_artefact             0      1
+#     CONTROL present in both refs                    19     19   <- must NOT discriminate
+#     CONTROL present in neither                       0      0   <- must be broken
+#
+# The ragged counts are the point. A uniform column would be a broken
+# predicate, and the first run of this table WAS uniform -- a shell variable
+# named `path` wiped PATH under zsh and every row reported identically.
+#
+# ===========================================================================
+# TWO ROWS CARRY capability_id=none, AND NEITHER IS AN OVERSIGHT
+# ===========================================================================
+# #1683, THE 8144 GATE. The assertion that matters is that the include sits
+# INSIDE the 8144 server block. manifest method=source is a file-wide grep, and
+# `ostler-wiki-auth.conf` already matches 4 times at v1.0.72 and 5 at main --
+# so a manifest row would pass on an include parked in a comment or in the
+# sibling 8044 block that has carried it since #1594. The commit message says
+# this in its own words. The gate in the verify column is block-scoped and is
+# the only thing that can prove it; the manifest cannot express it, so this row
+# declines to pretend otherwise. Tracked as a manifest expressiveness gap.
+#
+# #1696, THE DAEMON PIN. A pin is per-cut by construction: a manifest row
+# naming 0.4.72 would be WRONG at v1.0.74 and would have to be edited every
+# cut, which is the shape of a check that gets edited until it agrees. The
+# durable check is scripts/pre_tag_live_checks.sh, which asks the two release
+# APIs whether the pinned digests are published and not draft.
+#
+# ===========================================================================
+# what	repo	ref	landed	capability_id	verify	ticket
+what	repo	ref	landed	capability_id	verify	ticket
+THE VANE PORT WAS PUBLISHED OPEN TO EVERY LOCAL ACCOUNT. DECISION_550 and the closing condition on #1660 both say 3000 and 8144 either sit behind auth_basic or stop being published. 3000 was still published bare, so a second local account could reach the AI web-search service on 127.0.0.1:3000 without authenticating. The fix seeds a vane credential through the same helper the wiki uses and mounts a 0600 auth conf plus htpasswd into the same container.	CM051	84489790	yes	vane_port_demands_a_credential	gate:colima-autostart.yml#test_the_vane_port_demands_a_credential.sh	#1672
+CLOSING 3000 MUTED ITS ONLY CONSUMER, WHICH IS THE SAME SHAPE AS #1594 BREAKING THE WIKI READINESS POLL. The assistant calls vane and was calling it uncredentialled, so the credential added by #1672 would have turned working web search into a silent 401. Two non-comment lines of install.sh write the credential into the assistant config. Flagged in #1672 as residual risk BEFORE it was measured, and then measured.	CM051	75c32678	yes	assistant_authenticates_to_vane	gate:tests-unwired-sweep-al.yml#test_assistant_config_vane_wiring.sh	#1678
+THE 8144 TAILNET GATE ENFORCED TWO HEADERS THE ATTACKER AUTHORS. tailscale serve sets and scrubs Tailscale-Funnel-Request and Tailscale-User-Login for tunnel traffic, but a second local account connects straight to 127.0.0.1:8144 and never traverses tailscaled, so both map inputs are whatever it chose to send, and the allowlist value is the owners tailnet login, an email address, not a secret. Measured against the pinned nginx: forged owner header with no credential 401, previously 200; with the credential 200 and the wiki body; with a wrong password 401 as the control that the credential is really checked rather than merely present.	CM051	d9709aa1	yes	none	gate:wiki-tailnet-gate.yml#test_wiki_tailnet_gate.sh	#1683
+THE INSTALL SUMMARY CLAIMED A RECOVERY PATH IT HAD NOT HANDED OVER. A re-install over an existing security config skipped the disclosure step and still printed a summary implying the recovery key had been shown, so a customer who lost it had no way to learn from the installer that they had never received it. Three outcomes are now distinguished: shown in this run, owed by an earlier run, and UNAVAILABLE.	CM051	4555c746	yes	recovery_claim_matches_the_handover	gate:cold-box-source-truth.yml#test_the_summary_never_claims_a_recovery_path_that_was_not_handed_over.sh	#1681
+A MISSING TARBALL WAS RETRIED AS THOUGH THE NETWORK WERE FLAKY. The bootstrap fetch discarded the HTTP status, so a definitive 404 for an artefact that was never published spent the full retry budget and then reported a network problem, which sends the operator to look at the wrong thing. The code is now read, and a 4xx breaks out of the retry loop naming the status.	CM051	d8273fef	yes	missing_tarball_is_not_a_network_problem	gate:download-urls-resolve.yml#test_a_missing_tarball_is_not_a_network_problem.sh	#1666
+THE KINSHIP FIX WAS MERGED IN CM041 AND NOT CARRIED INTO THE ARTEFACT. Identity resolution merges a card first-named with a kinship word onto a real persons node on shared phones and emails, so one node holds two givenName values, and both callers took whichever came first. The vendored copy in the DMG did not have the fix, and the delivery gate went green over it because nothing compared the vendored tree to the upstream merge.	CM051	3b4521cd	yes	cm041_kinship_given_name_in_artefact	gate:dmg-delivery-gate.yml#test_verify_dmg_delivers_fixes.sh	#1682
+THE DAEMON PIN MOVES TO 0.4.72, THE FIRST REBUILD SINCE hub-v0.4.71. Five values in one commit, because the wrapper filename derives from DAEMON_VERSION and a partial pin builds a name that does not exist. Both artefacts were verified by downloading the published asset and recomputing its digest, in the two DIFFERENT repos that carry the same tag: the notarised daemon in ostler-releases, which is what DAEMON_REPO names, and the wrapper in ostler-assistant, which is the build repo and does not notarise.	CM051	afa6a3c7	yes	none	artefact:b4700d8f#daemon and wrapper digests downloaded and recomputed against both release APIs, neither draft	#1696
