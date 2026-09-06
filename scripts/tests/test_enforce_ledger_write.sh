@@ -28,7 +28,7 @@ CAP=""
 
 run_case() { # name expected_rc <args...>
   local name="$1" exp="$2"; shift 2
-  CAP="${TMP}/out.$$.${RANDOM}"
+  CAP="$(mktemp "${TMP}/out.XXXXXXXX")"
   printf '\n=== CASE: %s (expect rc=%s) ===\n' "${name}" "${exp}"
   /bin/bash "${GATE}" "$@" >"${CAP}" 2>&1
   local rc=$?
@@ -47,8 +47,40 @@ assert_contains() {
   fi
 }
 
-mk_changed() { local f="${TMP}/changed.$$.${RANDOM}"; printf '%s\n' "$@" > "${f}"; echo "${f}"; }
-mk_body()    { local f="${TMP}/body.$$.${RANDOM}";    printf '%s\n' "$1"  > "${f}"; echo "${f}"; }
+# FIXTURE PATHS MUST BE UNIQUE BY CONSTRUCTION, NOT BY LUCK.
+#
+# These read `${TMP}/body.$$.${RANDOM}`. `$$` is constant for the whole run and
+# ${RANDOM} is a 15-bit draw, so two fixtures can land on ONE path -- and when
+# they do, a later case silently reads an EARLIER case's body. Every arm that
+# expects a BLOCK then finds a valid marker and returns rc=0, so the gate reads
+# as toothless when the only broken thing is the fixture naming.
+#
+# MEASURED IN CI, 2026-09-06, and it is not a theory. Two runs of this file,
+# same repo, 34 minutes apart:
+#
+#   run 34013378352  PASS  7 fixture bodies -> 7 distinct filenames
+#   run 34014808238  FAIL  7 fixture bodies -> 6 distinct filenames
+#                          body.2287.30337 reported at BOTH 52 and 99 bytes
+#
+# One name, two contents. The failures were cases 10-13 and the vendored-file
+# case, all of them "expect rc=1, got rc=0" -- exactly what reading another
+# case's body produces. Locally this file passes 34/34 under bash 3.2 and 5.3,
+# which is why it looked like a CI-only mystery rather than a collision.
+#
+# I DID NOT ESTABLISH WHY THE COLLISION RATE IS HIGH ON THE RUNNER. The obvious
+# candidate -- ${RANDOM} not advancing across command substitutions -- I tested
+# and REFUTED on both local bashes (three successive $(f) calls give three
+# distinct draws). Ubuntu's /bin/bash is not testable from here: CANNOT-RUN,
+# stated rather than guessed. The fix does not depend on the answer, because
+# mktemp cannot collide whatever the RNG does.
+# Every minted path is recorded so the run can assert, at the end, that no two
+# fixtures shared one. THAT ASSERTION IS THE CONTROL THIS FILE DID NOT HAVE:
+# the CI failure above was invisible from inside the test, which reported
+# "expect rc=1, got 0" and blamed the gate.
+FIXTURE_LEDGER="${TMP}/.fixtures_minted"
+: > "${FIXTURE_LEDGER}"
+mk_changed() { local f; f="$(mktemp "${TMP}/changed.XXXXXXXX")"; printf '%s\n' "$@" > "${f}"; echo "${f}" >> "${FIXTURE_LEDGER}"; echo "${f}"; }
+mk_body()    { local f; f="$(mktemp "${TMP}/body.XXXXXXXX")";    printf '%s\n' "$1"  > "${f}"; echo "${f}" >> "${FIXTURE_LEDGER}"; echo "${f}"; }
 
 EMPTY_BODY="$(mk_body 'Just a normal PR description with no markers at all.')"
 
@@ -234,6 +266,26 @@ else
     FAIL=$((FAIL+1))
   fi
 fi
+
+# ── CONTROL: no two fixtures may share a path ──────────────────────────────
+# A collision makes a later case read an EARLIER case's body, so every arm
+# that expects a BLOCK finds a valid marker and returns 0. That is
+# indistinguishable, from inside, from the gate having gone toothless -- which
+# is exactly how it was read on 2026-09-06 before the filenames were compared.
+_minted="$(wc -l < "${FIXTURE_LEDGER}" | tr -d ' ')"
+_uniq="$(sort -u "${FIXTURE_LEDGER}" | wc -l | tr -d ' ')"
+printf '\n=== CASE: every fixture has its own path (minted %s, distinct %s) ===\n' "${_minted}" "${_uniq}"
+if [ "${_minted}" -eq 0 ]; then
+  printf 'FAIL: the fixture ledger is EMPTY, so this control measured nothing\n' >&2; FAIL=$((FAIL+1))
+elif [ "${_minted}" -eq "${_uniq}" ]; then
+  printf 'PASS: %s fixture(s) minted, %s distinct path(s)\n' "${_minted}" "${_uniq}"; PASS=$((PASS+1))
+else
+  printf 'FAIL: %s fixture(s) minted but only %s distinct path(s) -- a case read another case'"'"'s fixture\n' \
+    "${_minted}" "${_uniq}" >&2
+  sort "${FIXTURE_LEDGER}" | uniq -d | sed 's/^/  collided: /' >&2
+  FAIL=$((FAIL+1))
+fi
+
 
 printf '\n============================================================\n'
 printf 'enforce-ledger-write gate self-test: %d passed, %d failed\n' "${PASS}" "${FAIL}"
