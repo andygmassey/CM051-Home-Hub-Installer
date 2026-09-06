@@ -19,10 +19,20 @@ name: egress-inventory-current
 # a shallow clone it reports CANNOT-RUN and the job exits 2 rather than passing
 # blind.
 
+# TAGS ARE IN THE TRIGGER, NOT IN THE BASELINE. verify_declared_gates_reachable
+# axis three offers a choice: wire a cut-blocking gate to a runner that fires on
+# a v1.0.* tag, or add a baseline row with a reason. For this gate the reason
+# would be embarrassing. It checks whether a PUBLIC privacy document still
+# describes the software, and the cut is the exact moment that matters: shipping
+# an artefact whose published egress inventory is stale is the defect, not a
+# tidiness issue. A gate that only runs on PRs would be asleep at the one event
+# it exists for.
 on:
   pull_request:
   push:
     branches: [main]
+    tags:
+      - 'v1.0.*'
 
 permissions:
   contents: read
@@ -44,3 +54,14 @@ jobs:
 
       - name: The inventory has not been outrun by the destination set
         run: /bin/bash tests/test_egress_inventory_is_current.sh
+
+      # THE PROVED-RED FIXTURE, and it runs HERE rather than living beside the
+      # gate as a claim. verify_declared_gates_reachable.sh is explicit that "a
+      # known-failing fixture nobody runs is a description of a proof, not a
+      # proof", so wiring it is the whole point.
+      #
+      # `if: always()` so a red above cannot silently delete the evidence that
+      # the gate above is capable of being red at all.
+      - name: ...and that gate can actually go red
+        if: always()
+        run: /bin/bash tests/test_egress_inventory_gate_can_go_red.sh

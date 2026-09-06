@@ -1,4 +1,16 @@
 #!/usr/bin/env bash
+# PROVED-RED-BY: tests/test_egress_inventory_gate_can_go_red.sh
+#
+# That fixture builds a real git repository twice: once with the inventory and
+# the allowlist written in the same commit (must PASS), and once with a further
+# commit touching only the allowlist (must FAIL, and fail naming the destination
+# set). Both arms matter -- without the green one, a gate that fails on
+# everything would score as discriminating.
+#
+# It exists because verify_declared_gates_reachable.sh reported PROVED-RED-NONE
+# against this file and was right: it had been mutation-tested by hand and no
+# proof was committed, which is a description of a proof rather than a proof.
+#
 # CM051 #1709 -- docs/EGRESS_INVENTORY.md is a PUBLIC privacy document in a
 # PUBLIC repo, and nothing checked that it still describes the software.
 #
