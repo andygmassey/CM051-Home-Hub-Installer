@@ -13010,7 +13010,11 @@ _seed_store_secret "oxigraph_token" OXIGRAPH_TOKEN
 # browser has already saved, or the customer gets a password prompt
 # they cannot answer and no way to know why.
 _seed_wiki_password() {
-    local _file="${SECRETS_DIR}/wiki_password" _outvar="$1" _val="" _raw=""
+    # $2 is the secret-file basename and defaults to wiki_password, so the
+    # original call site is unchanged. #1660 reuses this for vane rather than
+    # copying 20 lines: the reuse rule, the loudness rule and the 0600 rule are
+    # the parts that matter and they should not be duplicated to be varied.
+    local _outvar="$1" _file="${SECRETS_DIR}/${2:-wiki_password}" _val="" _raw=""
     if [[ -s "$_file" ]]; then
         _val="$(cat "$_file")"
     else
@@ -13032,6 +13036,7 @@ _seed_wiki_password() {
     printf -v "$_outvar" '%s' "$_val"
 }
 _seed_wiki_password WIKI_PASSWORD
+_seed_wiki_password VANE_PASSWORD vane_password
 
 ok "Generated per-install data-store auth secrets under ${SECRETS_DIR} (qdrant_api_key, redis_password, oxigraph_token)."
 
@@ -16717,6 +16722,8 @@ services:
       # #1594: the wiki's host publish moved here from wiki-site so it
       # lands BEHIND the credential. wiki-site no longer publishes.
       - "127.0.0.1:8044:8044"
+      # #1660: same move for vane. vane no longer publishes.
+      - "127.0.0.1:3000:3000"
     volumes:
       - ${HOME}/.ostler/ostler-store-proxy.conf:/etc/nginx/nginx.conf:ro
       # #550 Oxigraph credential. Separate file because the conf above is
@@ -16735,6 +16742,9 @@ services:
       # Docker creates a DIRECTORY here and nginx dies with "is a directory".
       - ${HOME}/.ostler/ostler-wiki-auth.conf:/etc/nginx/ostler-wiki-auth.conf:ro
       - ${HOME}/.ostler/ostler-wiki-htpasswd:/etc/nginx/ostler-wiki-htpasswd:ro
+      # #1660 vane browser credential. Same 0600 / must-exist-first rules.
+      - ${HOME}/.ostler/ostler-vane-auth.conf:/etc/nginx/ostler-vane-auth.conf:ro
+      - ${HOME}/.ostler/ostler-vane-htpasswd:/etc/nginx/ostler-vane-htpasswd:ro
     restart: unless-stopped
 
   redis:
@@ -17046,8 +17056,10 @@ services:
   vane:
     image: ghcr.io/ostler-ai/vane@sha256:61f2bbf3386ff3df08911fb3de0e1893b04702a4d49ef13fbadbda937b47ab7c  # mirrored from itzcrazykns1337/vane:v1.12.2
     container_name: ostler-vane
-    ports:
-      - "127.0.0.1:3000:3000"
+    # #1660: NO host publish. It moved to store-proxy so it lands BEHIND the
+    # credential, exactly as the wiki's did in #1594. Vane holds the customer's
+    # AI chat history and can issue searches as them; published directly it was
+    # an unauthenticated read for any second account on the Mac.
     volumes:
       - vane_data:/home/vane/data
     extra_hosts:
@@ -17128,6 +17140,17 @@ http {
     #     are http(s)://localhost | 127.0.0.1 | [::1] on any port => 1.
     # The stores are internal-only; no Tauri/dashboard surface talks to
     # them cross-origin, so a strict local-origin allowlist is safe.
+    # Websocket upgrade passthrough (#1660). Vane is a chat UI and its
+    # streaming legs are websockets, so a naive proxy_pass would authenticate
+    # the page and then silently break the conversation. This is the standard
+    # map: an Upgrade request gets Connection: upgrade, everything else gets
+    # Connection: close. It lives at http{} level because a map cannot be
+    # declared inside a server block.
+    map $http_upgrade $ostler_connection_upgrade {
+        default upgrade;
+        ''      close;
+    }
+
     map $http_origin $ostler_store_origin_ok {
         default 0;
         ""      1;
@@ -17215,6 +17238,38 @@ http {
             include /etc/nginx/ostler-wiki-auth.conf;
             set $ostler_wiki_upstream "http://wiki-site:8000";
             proxy_pass $ostler_wiki_upstream$request_uri;
+        }
+    }
+
+    # ── Vane behind the same credential (#1660) ────────────────────────
+    #
+    # DECISION_550_what_shut_means_2026-08-28.md:107 deferred 3000 to v1.0.1,
+    # and the reason recorded was that a browser surface "can take no bearer".
+    # #1594 refuted that premise and shipped the refutation on 8044: HTTP
+    # authentication is not a cookie, its protection space is scheme +
+    # AUTHORITY, and authority includes the port. The deferral's grounds are
+    # gone, so the surface is closed rather than inherited.
+    #
+    # What was exposed: vane_data is the customer's AI chat history, and an
+    # unauthenticated 3000 also let any second local account issue searches
+    # against the local model AS THEM.
+    #
+    # The websocket headers are load-bearing, not decoration. Without them the
+    # page authenticates and the conversation never streams, which is the worst
+    # kind of regression: it looks like it worked.
+    server {
+        listen 3000;
+        location / {
+            if ($ostler_store_host_ok = 0) { return 403; }
+            include /etc/nginx/ostler-vane-auth.conf;
+            set $ostler_vane_upstream "http://vane:3000";
+            proxy_pass $ostler_vane_upstream$request_uri;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $ostler_connection_upgrade;
+            proxy_set_header Host $host;
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
         }
     }
 
@@ -17314,6 +17369,33 @@ umask "$_wa_um"
 chmod 600 "${OSTLER_DIR}/ostler-wiki-htpasswd" "${OSTLER_DIR}/ostler-wiki-auth.conf"
 unset _wiki_htpasswd_hash
 ok "Wiki browser credential written (0600); :8044 now demands a password. Username 'ostler', password in ${SECRETS_DIR}/wiki_password."
+
+# ── Vane browser credential (#1660) ───────────────────────────────
+#
+# Identical rules to the wiki credential above and for the identical reason:
+# vane is a browser surface holding the customer's AI chat history, and it was
+# published to loopback with no credential at all. DECISION_550:107 deferred
+# this to v1.0.1 on the premise that a browser surface cannot carry one. #1594
+# refuted that premise and shipped the refutation; the grounds are gone.
+#
+# NO OPT-OUT FLAG, same as the wiki: a variable that turns this off is the
+# defect with a name.
+_va_um="$(umask)"; umask 0077
+_vane_htpasswd_hash="$(/usr/bin/openssl passwd -apr1 "${VANE_PASSWORD}")"
+if [[ -z "${_vane_htpasswd_hash}" || "${_vane_htpasswd_hash}" != \$apr1\$* ]]; then
+    umask "$_va_um"
+    fail_with_code "ERR-14-STORE-WIKI-CREDENTIAL" "Could not hash the vane password with openssl passwd -apr1 (got: ${_vane_htpasswd_hash:-<empty>}). Refusing to publish vane without a credential."
+fi
+printf 'ostler:%s\n' "${_vane_htpasswd_hash}" > "${OSTLER_DIR}/ostler-vane-htpasswd"
+cat > "${OSTLER_DIR}/ostler-vane-auth.conf" <<'VAEOF'
+# Ostler vane browser credential -- generated by the Ostler installer. 0600.
+auth_basic "Ostler assistant";
+auth_basic_user_file /etc/nginx/ostler-vane-htpasswd;
+VAEOF
+umask "$_va_um"
+chmod 600 "${OSTLER_DIR}/ostler-vane-htpasswd" "${OSTLER_DIR}/ostler-vane-auth.conf"
+unset _vane_htpasswd_hash
+ok "Vane browser credential written (0600); :3000 now demands a password. Username 'ostler', password in ${SECRETS_DIR}/vane_password."
 
 # ── Wiki tailnet gate, fail-closed placeholder (v1.0.17) ──────────
 #
