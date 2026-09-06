@@ -7770,6 +7770,15 @@ fi
 RECOVERY_KEY=""
 RECOVERY_PASSPHRASE=""
 PASSKEY_PRIMED=false
+# #1540. The summary used to claim a recovery capability from FILE PRESENCE
+# alone. These two facts are what make that claim honest, and they are
+# booleans on purpose so the summary never has to hold the secret itself.
+#   RECOVERY_KEY_DELIVERED  this run minted a key AND handed it over
+#   SECURITY_PREEXISTED     the keychain was already there when we started,
+#                           so some EARLIER run is the one that owed the
+#                           disclosure and this run cannot speak for it
+RECOVERY_KEY_DELIVERED=false
+SECURITY_PREEXISTED=false
 
 # Check if security is already configured (re-run detection)
 #
@@ -7781,6 +7790,7 @@ PASSKEY_PRIMED=false
 # Either is sufficient to skip security setup on a re-run.
 if [[ -f "${SECURITY_CONFIG_DIR}/passkey.json" || -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
     ok "$MSG_OK_SECURITY_ALREADY_CONFIGURED_PREVIOUS_RUN"
+    SECURITY_PREEXISTED=true   # #1540: an earlier run owed the disclosure
     HAS_SECURITY_MODULE=false  # skip security setup on re-run
 elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
     # ── Passphrase-primary unlock (v1.0) ──────────────────────────────
@@ -14313,6 +14323,10 @@ except Exception as e:
             echo ""
             echo -e "    ${YELLOW}${BOLD}${RECOVERY_KEY}${NC}"
             echo ""
+            # #1540. The honest boundary: we HANDED IT OVER. Whether the human
+            # wrote it down is not knowable from here, and claiming otherwise
+            # would be the same overreach this flag exists to remove.
+            RECOVERY_KEY_DELIVERED=true
         fi
     fi
 elif [[ -f "${SECURITY_CONFIG_DIR}/passkey.json" || -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
@@ -31146,7 +31160,33 @@ echo "     Country code:  +${COUNTRY_CODE}"
 echo "     AI model:      ${AI_MODEL}"
 [[ "$FV_ENABLED" == true ]] && echo "     FileVault:     Enabled"
 [[ -f "${SECURITY_CONFIG_DIR}/passkey.json" ]] && echo "     Encryption:    passkey-wrapped DEK (Touch ID)"
-[[ ! -f "${SECURITY_CONFIG_DIR}/passkey.json" && -f "${SECURITY_CONFIG_DIR}/keychain.json" ]] && echo "     Encryption:    passphrase-wrapped DEK (recovery passphrase)"
+# #1540. THIS LINE USED TO BE A CLAIM ABOUT A FILE, NOT ABOUT THE CUSTOMER.
+# Measured on a virgin account (archie2, Mini 16, v1.0.68): the install ended
+# `DONE status=ok failed_steps=0 errors=0`, wrote a live recovery block, and
+# printed this line, while the run had exactly 2 prompts and neither was the
+# recovery key. The key is deliberately never stored, so a missed disclosure
+# is permanent and `ostler-recovery` -- a shipped, working CLI -- could never
+# succeed for that install. Asserting the capability anyway is worse than
+# silence: it stops the customer taking their own backup.
+if [[ ! -f "${SECURITY_CONFIG_DIR}/passkey.json" && -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
+    if [[ "$RECOVERY_KEY_DELIVERED" == true ]]; then
+        echo "     Encryption:    passphrase-wrapped DEK (recovery key shown above)"
+    elif [[ "$SECURITY_PREEXISTED" == true ]]; then
+        # A previous run minted it and owed the disclosure. This run has
+        # nothing to hand over and must not imply that it did.
+        echo "     Encryption:    passphrase-wrapped DEK (set up by an earlier run)"
+    else
+        # Minted here and NOT handed over. Do not dress this as a feature.
+        echo "     Encryption:    passphrase-wrapped DEK"
+        echo -e "     ${YELLOW}${BOLD}Recovery:      UNAVAILABLE -- the recovery key was not shown${NC}"
+        echo "                    to you, and it is never stored, so it cannot be"
+        echo "                    retrieved. Your password still works and nothing"
+        echo "                    is locked today. Recovery on a NEW device, or"
+        echo "                    after a forgotten password, will not be possible."
+        echo "                    Re-run the installer against a fresh"
+        echo "                    ~/.ostler/security to mint a key you are given."
+    fi
+fi
 [[ -n "$CONTACT_COUNT" && "$CONTACT_COUNT" -gt 0 ]] && echo "     Contacts:      ${CONTACT_COUNT} exported from iCloud"
 [[ -n "$EXPORTS_DIR" ]] && echo "     GDPR import:   Processed from ${EXPORTS_DIR}"
 [[ "${FDA_OK:-0}" -gt 0 ]] && echo "     Instant data:  ${FDA_OK} macOS source(s) extracted"

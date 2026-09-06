@@ -73,6 +73,7 @@ on:
       - 'tests/test_artefact_walk_stages_the_dmg_payload.sh'
       - 'tests/test_consent_state_is_defined_before_it_is_called.sh'
       - 'tests/test_the_recovery_key_is_disclosed_where_it_is_minted.sh'
+      - 'tests/test_the_summary_never_claims_a_recovery_path_that_was_not_handed_over.sh'
       - 'tests/test_an_absent_launchd_domain_is_not_a_service_that_is_down.sh'
       # #1538, the sibling of #1540: the daemon is STARTED unconditionally at
       # the end of every install, so "running" says nothing about whether it
@@ -271,6 +272,16 @@ jobs:
       - name: The recovery key is disclosed by the run that mints it, on both surfaces
         if: always()
         run: bash tests/test_the_recovery_key_is_disclosed_where_it_is_minted.sh
+
+      # #1540, the other half. Disclosing the key is one property; NOT CLAIMING
+      # a recovery capability when it was never handed over is a second, and it
+      # is the one that bites hardest -- a summary asserting recovery stops the
+      # customer taking their own backup. Executes the real summary block under
+      # each state rather than grepping for a display call, because a grep
+      # passes while the call sits behind a condition that never fires.
+      - name: The summary never claims a recovery path that was not handed over
+        if: always()
+        run: bash tests/test_the_summary_never_claims_a_recovery_path_that_was_not_handed_over.sh
 
       # #1559. An absent launchd domain and a not-yet-loaded agent are
       # different answers and the reader collapsed them onto one. MEASURED on a
