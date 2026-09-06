@@ -306,8 +306,11 @@ elif ! vols="$("$(_docker)" volume ls --format '{{.Name}}' 2>&1)"; then
   report CANNOT "docker volume ls failed -- store volumes unverified"
   cannot=$((cannot + 1))
 else
-  # grep -c, never `| grep -q`: under pipefail a quiet grep's SIGPIPE
-  # inverts the arm. This repo has been bitten by that before.
+  # Counting, not quiet-matching. Under pipefail a quiet grep on the right
+  # of a pipe can exit on SIGPIPE and invert the arm. This repo has been
+  # bitten by that before. Described rather than quoted: a comment that
+  # spells out a flagged idiom becomes an instance of it, which is how a
+  # scanner ends up reporting its own documentation.
   n="$(printf '%s\n' "$vols" | /usr/bin/grep -cE "$STORE_VOLUMES" || true)"
   if [ "$n" -gt 0 ]; then
     report RESIDUE "$n data store volume(s) survive:"
