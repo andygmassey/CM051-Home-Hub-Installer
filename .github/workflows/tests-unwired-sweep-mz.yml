@@ -200,3 +200,22 @@ jobs:
             tests/test_resolver_robustness.py \
             tests/test_vendor_knowledge_embed_contract.py \
             -q -rs -p no:cacheprovider
+
+      # A DEDICATED STEP, NOT A LINE IN THE `for t in` LIST ABOVE, AND THE
+      # DIFFERENCE IS NOT COSMETIC. The two wiring gates disagree about what
+      # "wired" means:
+      #   verify_test_wiring.sh          a MENTION in a workflow  -> WIRED
+      #   verify_new_tests_are_wired.sh  path + an EXECUTION VERB on the SAME
+      #                                  line -> otherwise DARK
+      # The list idiom satisfies the first and fails the second, so TEST_WIRING
+      # scored this WIRED while CI called it DARK. The older entries in that
+      # list predate the second gate and are grandfathered by it, which is why
+      # the disagreement is invisible until you add one.
+      # LAST IN THE JOB, AND `if: always()`. Placed FIRST, a failure here
+      # SKIPPED the 25-test m..z batch below it -- verify_ci_steps_are_maskless
+      # caught exactly that: "1 test step(s) are skipped when an earlier test
+      # in the same job fails". A gate that can mask other tests is worse than
+      # no gate, because the masked ones report nothing rather than red.
+      - name: the daemon-freshness row decides on the scoped count
+        if: always()
+        run: bash tests/test_the_daemon_freshness_row_decides_on_the_scoped_count.sh
