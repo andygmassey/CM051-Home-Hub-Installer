@@ -113,6 +113,49 @@ else
     bad "'NOT BLOCKING' was treated as BLOCKING (rc=$RC)"
 fi
 
+# ── arm 4b: THE REGRESSION. Prose that MENTIONS blocking must not match. ────
+# This gate caught its own tail within the hour of shipping. A DEFER row was
+# registered whose REASONING read "NOT gated BLOCKING on purpose, and #1680
+# makes that word cost something" -- and the whole-string predicate read that
+# explanation as a self-declared blocker. A register CITES its own findings, so
+# the word a gate hunts for arrives inside the rows it reads. The disposition
+# is the head, before the first colon; the reasoning must never reach it.
+MANIFEST_PROSE='version: 9.9.9
+description: fixture
+entries: []
+open_issues:
+  - issue: 4004
+    title: a deferral whose reasoning discusses blocking
+    gate: "DEFER: not gated BLOCKING on purpose -- the capability exists and
+      the customer is not stuck, so calling this BLOCKING would stop a cut
+      over a convenience."
+'
+mk_repo "$WORK/e" "$MANIFEST_PROSE" "4004"
+run_subject "$WORK/e" 1
+if [[ $RC -eq 0 ]]; then
+    ok "REGRESSION: a DEFER whose REASONING says BLOCKING does not stop a cut"
+else
+    bad "prose mentioning BLOCKING was read as a disposition (rc=$RC). The predicate is matching the whole string again."
+fi
+
+# ── arm 4c: and the head must still be read when it DOES say it ─────────────
+# Without this, arm 4b could be satisfied by a predicate that matches nothing.
+MANIFEST_HEAD='version: 9.9.9
+description: fixture
+entries: []
+open_issues:
+  - issue: 4005
+    title: a real blocker whose reasoning mentions nothing special
+    gate: "FIX (BLOCKING apparatus): the customer sees the wrong thing"
+'
+mk_repo "$WORK/f" "$MANIFEST_HEAD" "4005"
+run_subject "$WORK/f" 1
+if [[ $RC -eq 1 ]] && grep -q '4005' <<< "$OUT"; then
+    ok "CONTROL: BLOCKING in the DISPOSITION head still stops the cut"
+else
+    bad "a genuine BLOCKING head no longer fires (rc=$RC) -- the fix went too far"
+fi
+
 # ── arm 5: CONTROL -- an unreadable open-issue list is CANNOT-RUN, not a pass ─
 mk_repo "$WORK/d" "$MANIFEST_BLOCKING" "4001 4002"
 printf '#!/usr/bin/env bash\nexit 7\n' > "$WORK/d/bin/gh"; chmod +x "$WORK/d/bin/gh"

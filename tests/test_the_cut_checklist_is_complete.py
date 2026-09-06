@@ -202,10 +202,25 @@ def main() -> int:
     # A row whose issue has CLOSED does not block. That is drift in the
     # register, reported separately above, not an outstanding blocker.
     def _says_blocking(g: str) -> bool:
-        # "NOT BLOCKING (reporting accuracy, not a shipped defect)" is a real
-        # gate value in this file and must NOT match. Substring alone inverts it.
-        u = g.upper()
-        return "BLOCKING" in u and "NOT BLOCKING" not in u
+        # THE DISPOSITION IS THE TEXT BEFORE THE FIRST COLON, AND ONLY THAT.
+        #
+        # This first scanned the WHOLE gate string for "BLOCKING", excluding the
+        # literal "NOT BLOCKING". It caught its own tail within the hour: I
+        # registered #1685 with a DEFER whose REASONING said "NOT gated BLOCKING
+        # on purpose, and #1680 makes that word cost something". That is prose
+        # explaining a deferral, and the gate read it as a self-declared
+        # blocker. A register CITES its own findings, so the words a gate hunts
+        # for arrive inside the rows it reads -- the control ends up in its own
+        # subject.
+        #
+        # Rows are written as "<DISPOSITION>: <reasoning>", e.g.
+        #   "FIX (BLOCKING): ..."   "FIX (apparatus, counted per Andy): ..."
+        #   "DEFER: ..."            "NOT BLOCKING (reporting accuracy): ..."
+        # so the disposition is the head, and the reasoning cannot reach it.
+        # A row with no colon at all is treated as all-disposition, which is
+        # the conservative direction: it can only ever over-report.
+        head = g.split(":", 1)[0].upper()
+        return "BLOCKING" in head and "NOT BLOCKING" not in head
 
     blocking_rows = [r for r in rows if _says_blocking(str(r.get("gate", "")))]
     if live is None or not live:
