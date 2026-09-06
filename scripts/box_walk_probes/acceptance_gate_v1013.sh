@@ -41,7 +41,20 @@
 #   OSTLER_BOX_EXPECT_PAIRED 1 -> A4 requires pairing COMPLETE (default: unpaired-consistency)
 #
 # Exit: 0 = SHIPPABLE / SKIP.  1 = BLOCKED (a launch-critical assertion failed).
-#       2 = harness/ssh error (box unreachable).
+#       78 = CANNOT-RUN (box unreachable, or its logs could not be read).
+#
+# 🔴 THIS SAID 2, AND 2 IS NOT THE PROTOCOL. run_box_walk.sh:44 declares
+# EX_CANNOT_RUN=78, and check_box_walk_probe maps 78 -> CANNOT-RUN and EVERY
+# OTHER non-zero -> FAIL. So "cannot ssh to the box" was recorded as a FAIL
+# against the ARTEFACT, on a row registered in cut-manifests/permanent.yaml,
+# which means every cut. That is the exact false accusation
+# check_box_walk_probe's own comment describes: it "sends whoever reads the
+# report hunting a bug that was never detected, while the actual fault -- a
+# signal nobody could read -- goes unsaid."
+#
+# The 25 probes under probes/ all refuse through lib/probe.sh's
+# probe_cannot_run(). This gate sits one directory up and sources nothing, so
+# it never inherited the convention.
 # ============================================================================
 set -uo pipefail
 
@@ -56,7 +69,7 @@ DAEMON="${OSTLER_BOX_DAEMON_URL:-http://localhost:8000}"
 OLLAMA="${OSTLER_BOX_OLLAMA_URL:-http://localhost:11434}"
 EXPECT_PAIRED="${OSTLER_BOX_EXPECT_PAIRED:-0}"
 
-pass=0; fail=0; manual=0
+pass=0; fail=0; manual=0; cannot=0
 if [ -t 1 ]; then RED=$'\033[31m'; GRN=$'\033[32m'; YEL=$'\033[33m'; DIM=$'\033[2m'; RST=$'\033[0m'
 else RED=""; GRN=""; YEL=""; DIM=""; RST=""; fi
 
@@ -67,13 +80,32 @@ box(){ ssh -o ConnectTimeout=8 -o BatchMode=yes "$HOST" "$1" 2>/dev/null; }
 # shellcheck disable=SC2088  # tilde is DELIBERATELY unquoted-for-remote: it must
 # expand in the target box's login shell inside box "...", NOT on the cut host.
 LOGDIRS='~/.ostler/logs ~/Library/Logs/Ostler'
-boxcount(){ local n; n=$(box "grep -rhoE '$1' $LOGDIRS 2>/dev/null | wc -l | tr -d ' '"); echo "${n:-0}"; }
+# 🔴 THREE SITUATIONS USED TO PRODUCE AN IDENTICAL 0: a genuinely clean log, a
+# box with NO log directories at all, and an ssh call that returned nothing.
+# A5 and A6 then read that 0 and reported "Wiki compiler clean (fresh image),
+# sparql-400=0 crashes=0 broken-links=0" -- a PASS asserting the compiler is
+# clean on a box where not one log line was ever read. A fresh box is exactly
+# the box an acceptance gate runs against.
+#
+# NOLOGS and UNREACHABLE are returned as text so the caller cannot silently do
+# arithmetic on them. Every consumer below tests numeric-ness first.
+boxcount(){
+  local n
+  n=$(box "found=0; for d in $LOGDIRS; do [ -d \"\$d\" ] && found=1; done; \
+           if [ \"\$found\" -eq 0 ]; then echo NOLOGS; \
+           else grep -rhoE '$1' $LOGDIRS 2>/dev/null | wc -l | tr -d ' '; fi")
+  if [ -z "$n" ]; then echo UNREACHABLE; else echo "$n"; fi
+}
+
+# True when a boxcount result is a real number rather than a refusal token.
+is_count(){ case "${1:-}" in ''|*[!0-9]*) return 1;; *) return 0;; esac }
 
 result(){ # $1=PASS|FAIL|MANUAL  $2=id  $3=title  $4=evidence
   case "$1" in
     PASS)   printf "  ${GRN}PASS${RST}  %-4s %s\n" "$2" "$3"; pass=$((pass+1));;
     FAIL)   printf "  ${RED}FAIL${RST}  %-4s %s\n" "$2" "$3"; fail=$((fail+1));;
     MANUAL) printf "  ${YEL}EYES${RST}  %-4s %s\n" "$2" "$3"; manual=$((manual+1));;
+    CANNOT) printf "  ${YEL}CANT${RST}  %-4s %s\n" "$2" "$3"; cannot=$((cannot+1));;
   esac
   [ -n "${4:-}" ] && printf "        ${DIM}%s${RST}\n" "$4"
 }
@@ -83,8 +115,11 @@ echo " OSTLER ACCEPTANCE PROBE (v1.0.13) -- target: $HOST"
 echo "=============================================================="
 # fail-fast: is the box reachable at all?
 if [ "$(box 'echo ok')" != "ok" ]; then
+  # run_box_walk.sh reads the LAST "VERDICT: CANNOT-RUN --" line to record why,
+  # and warns "UNRECORDED" for a bare 78, so name the prerequisite here.
   echo "${RED}HARNESS ERROR:${RST} cannot ssh to $HOST (key-based BatchMode). Aborting probe."
-  exit 2
+  echo "VERDICT: CANNOT-RUN -- cannot ssh to ${HOST} in BatchMode, so NOTHING about the artefact was measured"
+  exit 78
 fi
 
 # -- A1 -- hub binary name is brand-neutral (no codename leak) [MAPS: #1] --
@@ -144,7 +179,10 @@ fi
 # -- A5 -- the LLM the wiki compiler needs is present; no 404 storm [MAPS: #259] --
 models=$(box "curl -s --max-time 6 $OLLAMA/api/tags | tr ',' '\n' | grep -oE '\"name\":\"[^\"]+\"'")
 llm_404=$(boxcount 'model .* not found')
-if [ -n "$models" ] && [ "${llm_404:-0}" -eq 0 ] 2>/dev/null; then
+if ! is_count "$llm_404"; then
+  result CANNOT A5 "Wiki LLM present, 0 model-404s" \
+    "log count came back '$llm_404': NOTHING was read, so '0 model-404s' is not available"
+elif [ -n "$models" ] && [ "$llm_404" -eq 0 ]; then
   result PASS A5 "Wiki LLM present, 0 model-404s" "models: $(echo "$models" | tr '\n' ' ')"
 else
   result FAIL A5 "Wiki LLM present, 0 model-404s" "$llm_404 ollama-404s in wiki logs (compiler asked for a model that wasn't pulled)"
@@ -154,7 +192,10 @@ fi
 ox400=$(boxcount '400 Bad Request')
 crash=$(boxcount 'unhashable type|object has no attribute')
 brk=$(boxcount 'BROKEN LINK')
-if [ "${ox400:-0}" -eq 0 ] && [ "${crash:-0}" -eq 0 ] && [ "${brk:-0}" -eq 0 ] 2>/dev/null; then
+if ! is_count "$ox400" || ! is_count "$crash" || ! is_count "$brk"; then
+  result CANNOT A6 "Wiki compiler clean (fresh image)" \
+    "log counts came back sparql-400='$ox400' crashes='$crash' broken-links='$brk': NOTHING was read, so 'clean' is not available"
+elif [ "$ox400" -eq 0 ] && [ "$crash" -eq 0 ] && [ "$brk" -eq 0 ]; then
   result PASS A6 "Wiki compiler clean (fresh image)" "sparql-400=$ox400 crashes=$crash broken-links=$brk"
 else
   result FAIL A6 "Wiki compiler clean (fresh image)" "sparql-400=$ox400 (stale image, pre-#219) parser-crashes=$crash broken-links=$brk"
@@ -164,19 +205,46 @@ fi
 result MANUAL A7 "Home & Wiki agree on phase" "open the app: Home + Wiki must both show firstrun (unpaired) or both settled (paired). [MAPS: R5]"
 
 # -- A8 -- every ostler LaunchAgent exits clean (78=throttle-yield whitelisted) [MAPS: exit-class] --
-bad_agents=$(box "launchctl list | grep -iE 'ostler|creativemachines' | awk '\$2!=0 && \$2!=\"-\" && \$2!=78 {print \$3\"(exit=\"\$2\")\"}'")
-if [ -z "$bad_agents" ]; then
-  result PASS A8 "LaunchAgents exit clean" "all ostler agents exit 0 / benign"
+# 🔴 AN EMPTY RESULT MEANT BOTH "no bad agents" AND "the ssh call returned
+# nothing". The clean case and the could-not-look case were the same string,
+# and the clean case is the one that PASSED. The remote side now emits a
+# terminating OK marker, so an empty or truncated reply is distinguishable from
+# a genuinely clean list.
+bad_agents=$(box "launchctl list | grep -iE 'ostler|creativemachines' | awk '\$2!=0 && \$2!=\"-\" && \$2!=78 {print \$3\"(exit=\"\$2\")\"}'; echo __A8_OK__")
+# 🔴 grep -c, NEVER `| grep -q`. This file runs under `set -uo pipefail`, and
+# grep -q exits on the FIRST match, SIGPIPEs the producer, and inverts the
+# verdict. tests/test_pipefail_shortcircuit_inversion.sh ratchets against
+# exactly this, and it caught the line in my own fix for the defect above:
+# I introduced the trap I was writing a refusal for. grep -c reads to EOF.
+if [ "$(printf '%s' "$bad_agents" | grep -c '__A8_OK__')" -eq 0 ]; then
+  result CANNOT A8 "LaunchAgents exit clean" \
+    "the launchctl query returned no terminator, so the agent list was never read: 'all clean' is not available"
 else
-  result FAIL A8 "LaunchAgents exit clean" "nonzero exits: $bad_agents"
+  bad_agents=$(printf '%s' "$bad_agents" | sed 's/__A8_OK__//' | tr -d '\n' )
+  if [ -z "$bad_agents" ]; then
+    result PASS A8 "LaunchAgents exit clean" "all ostler agents exit 0 / benign"
+  else
+    result FAIL A8 "LaunchAgents exit clean" "nonzero exits: $bad_agents"
+  fi
 fi
 
 echo "=============================================================="
-printf " RESULT: ${GRN}%d pass${RST} / ${RED}%d fail${RST} / ${YEL}%d needs-eyes${RST}\n" "$pass" "$fail" "$manual"
+printf " RESULT: ${GRN}%d pass${RST} / ${RED}%d fail${RST} / ${YEL}%d needs-eyes${RST} / ${YEL}%d could-not-run${RST}\n" \
+  "$pass" "$fail" "$manual" "$cannot"
+
+# 🔴 FAIL OUTRANKS CANNOT-RUN, AND BOTH OUTRANK GREEN. A real defect that was
+# measured must not be downgraded to "could not measure" just because a
+# different assertion also failed to read something.
 if [ "$fail" -gt 0 ]; then
   echo " ${RED}BLOCKED${RST} -- $fail launch-critical runtime assertion(s) failed. Not shippable."
   echo " (A7 needs-eyes is the one check that still requires a human walk.)"
   exit 1
+fi
+if [ "$cannot" -gt 0 ]; then
+  echo " ${YEL}CANNOT-RUN${RST} -- $cannot assertion(s) could not read what they grade."
+  echo " This is NOT a pass and NOT a defect in the artefact. Nothing was measured there."
+  echo "VERDICT: CANNOT-RUN -- $cannot assertion(s) could not read the box logs or agent list"
+  exit 78
 fi
 echo " ${GRN}PROBE GREEN${RST} -- runtime checks pass. (Confirm A7 by eye before ship.)"
 exit 0
