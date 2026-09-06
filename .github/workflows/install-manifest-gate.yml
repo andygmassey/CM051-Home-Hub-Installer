@@ -33,8 +33,17 @@ on:
       # The cron reader's own gate: it pins a negative control to a fixed
       # blob, so editing it must trigger the workflow that runs it.
       - 'tests/test_the_cron_reader_sees_both_toml_spellings.sh'
-      - 'scripts/verify_install_manifest.py'
       - '.github/workflows/install-manifest-gate.yml'
+      # THE SUBJECTS SECTION F ACTUALLY READS (CM051 #1688). import_wire is a
+      # SOURCE-TREE property: the verifier resolves its globs against the repo,
+      # not against a box. So the trees below ARE inputs to this gate, and until
+      # now none of them was listed -- a vendor pin bump could change the exact
+      # thing section F measures and never trigger the job that measures it. The
+      # push-to-main run would have caught it after the merge, which is the
+      # wrong side of the merge to find out.
+      - 'vendor/cm041/contact_syncer/**'
+      - 'vendor/cm041/identity_resolver/**'
+      - 'vendor/ostler_fda/identifier_quality.py'
   push:
     branches: [main]
 

@@ -22,9 +22,14 @@
 #      produced-but-not-declared direction, the one that catches a new surprise).
 #   D  CRON       drop a required cron job -> FAIL, NAMED (this is #619's shape).
 #   E  DIR        remove a required artefact_dir -> FAIL, NAMED (#482's family).
-#   F  IMPORT     against the real repo, the shared-guard importer passes and the
-#      two uncovered write paths are NAMED (#617), so the type is not uniformly
-#      failing (a positive control proves the enumerator detects presence).
+#   F  IMPORT     against the real repo, the shared-guard importer passes (the
+#      positive control, proving the enumerator detects presence) and the set of
+#      uncovered write paths is compared against a DECLARED, DATED expectation.
+#      A NEW uncovered path fails. Closing one does NOT: it passes and names the
+#      declaration line to delete. This arm used to assert the #617 gap was
+#      still there, so repairing it turned the job red (CM051 #1688).
+#   F2 the comparison function itself, driven with synthetic sets across all
+#      four states, because every verdict in F comes out of it.
 #   G  PRIVATE-COPY  a same-named PRIVATE helper `_is_relationship_label` must NOT
 #      be read as the shared guard (pwg_ingest carries its own, deliberately).
 #      Driven through the real verifier with a temp manifest + temp source.
@@ -188,18 +193,138 @@ else
     bad "a down qdrant was not CANNOT-RUN (rc=$rc); a false zero would ship silently. Got: $(printf '%s' "$out" | head -1)"
 fi
 
-# ── F. IMPORT_WIRE against the real repo: control passes, negatives named. ──
+# ── F. IMPORT_WIRE against the real repo: the gap is DECLARED, not inferred. ─
+#
+# WHY THIS ARM WAS REWRITTEN (CM051 #1688, 2026-09-06).
+#
+# It used to read:
+#
+#     if [ "$rc" -ne 0 ] && grep -q 'contact_syncer' && grep -q 'identity_resolver'
+#     then pass "the two uncovered write paths are NAMED" else bad ... fi
+#
+# which passes BECAUSE the defect is still there, and goes red the moment
+# somebody fixes it. Measured, not inferred: the real verifier with the real
+# manifest against a synthetic source tree where #617 IS wired at both declared
+# paths (positive control copied in, so the run cannot be green by emptiness)
+# returns rc=0 and "PASS: every required subject is present", and the old
+# condition then took its bad() branch and printed "the uncovered write paths
+# were not both named" -- which describes the opposite of what happened.
+#
+# A gate that fails on repair does not get fixed; it gets worked around, and the
+# next person reads the red as noise. So this arm now compares the verifier's
+# verdict against a DECLARED expectation and treats the four states differently:
+#
+#   missing == declared      the known gap, unchanged            -> pass
+#   missing has an extra     a NEW uncovered write path          -> BAD
+#   declared has an extra    somebody FIXED one                  -> pass + note
+#   missing empty            #617 is wired                       -> pass + note
+#
+# Only a NEW gap is a failure. Closing a gap is never punished; it is reported,
+# with the exact line to delete. Rot is caught by the expiry date instead, the
+# same discipline vendor/VENDOR_MANIFEST.toml already uses for unverifiable_ack:
+# a declaration is a debt with a name and a date on it, not a permanent excuse.
+#
+# The locator (the `path-glob|symbol` the manifest declares) is the key, not the
+# prose description. Two rows can share words; no two rows share a locator.
+
+# The gap, declared. One locator per line. DELETE A LINE WHEN IT IS FIXED --
+# this arm will tell you which, by name, and will not go red while you do it.
+F_DECLARED_UNWIRED='vendor/cm041/contact_syncer/*.py|is_relationship_label
+vendor/cm041/identity_resolver/*.py|is_relationship_label'
+F_DECLARED_TICKET='#617'
+F_DECLARED_EXPIRES='2026-09-30'
+F_DECLARED_OWNER='archie'
+
+# THE COMPARISON, as a function, so the self-test below drives the SAME code the
+# live arm does. Echoes one word: matches | new | closed | wired.
+# $1 = newline-separated missing locators, $2 = newline-separated declared.
+f_classify() {
+    _fm="$(printf '%s\n' "$1" | sed '/^$/d' | LC_ALL=C sort)"
+    _fd="$(printf '%s\n' "$2" | sed '/^$/d' | LC_ALL=C sort)"
+    if [ -z "$_fm" ]; then echo "wired"; return; fi
+    # anything missing that was not declared is a NEW gap, and outranks the rest
+    if [ -n "$(comm -23 <(printf '%s\n' "$_fm") <(printf '%s\n' "$_fd"))" ]; then
+        echo "new"; return
+    fi
+    if [ -n "$(comm -13 <(printf '%s\n' "$_fm") <(printf '%s\n' "$_fd"))" ]; then
+        echo "closed"; return
+    fi
+    echo "matches"
+}
+
 out="$(python3 "$VERIFIER" --manifest "$MANIFEST" --home "$H" --source-root "$REPO" --only-type import_wire 2>&1)"; rc=$?
+
+# The positive control comes first and is unchanged in intent: if the enumerator
+# cannot see a real wiring, every verdict below is meaningless.
 if grep -q 'identifier_quality' <<< "$out"; then
-    bad "the import_wire positive control (identifier_quality) was reported MISSING -- the enumerator cannot detect a real shared-guard wiring, so every negative below is meaningless."
+    bad "the import_wire positive control (identifier_quality) was reported MISSING -- the enumerator cannot detect a real shared-guard wiring, so every verdict below is meaningless."
 else
     pass "the import_wire positive control (identifier_quality) is PRESENT -- the enumerator detects a real wiring"
 fi
-if [ "$rc" -ne 0 ] && grep -q 'contact_syncer' <<< "$out" && grep -q 'identity_resolver' <<< "$out"; then
-    pass "the two uncovered write paths are NAMED (contact_syncer, identity_resolver; #617)"
+
+# The verifier must have actually run. rc=2 is CANNOT-RUN and is not a pass, and
+# an rc of 0 or 1 with no recognisable output is not a measurement either.
+if [ "$rc" -eq 2 ]; then
+    bad "import_wire was CANNOT-RUN (rc=2), which is not a pass: $(printf '%s' "$out" | head -1)"
+elif ! grep -qE '^(PASS|FAIL)' <<< "$out"; then
+    bad "the verifier produced no PASS/FAIL verdict for import_wire (rc=$rc): $(printf '%s' "$out" | head -1)"
 else
-    bad "the uncovered write paths were not both named (rc=$rc): $(printf '%s' "$out" | grep -iE 'contact_syncer|identity_resolver' | head -2)"
+    f_missing="$(printf '%s\n' "$out" | sed -n 's/.*\[\(.*\)\]$/\1/p')"
+    case "$(f_classify "$f_missing" "$F_DECLARED_UNWIRED")" in
+      matches)
+        pass "import_wire: the gap is exactly the DECLARED one ($F_DECLARED_TICKET, owner $F_DECLARED_OWNER, expires $F_DECLARED_EXPIRES)"
+        printf '%s\n' "$f_missing" | sed 's/^/        still unwired: /'
+        ;;
+      new)
+        bad "import_wire: a write path is uncovered that nobody declared. Wire the guard, or add the locator to F_DECLARED_UNWIRED with a reason:"
+        comm -23 <(printf '%s\n' "$f_missing" | LC_ALL=C sort) <(printf '%s\n' "$F_DECLARED_UNWIRED" | LC_ALL=C sort) | sed 's/^/        NEW: /'
+        ;;
+      closed)
+        pass "import_wire: part of the declared $F_DECLARED_TICKET gap is now WIRED. Nothing is broken; delete the line(s) below from F_DECLARED_UNWIRED."
+        comm -13 <(printf '%s\n' "$f_missing" | LC_ALL=C sort) <(printf '%s\n' "$F_DECLARED_UNWIRED" | LC_ALL=C sort) | sed 's/^/        now wired, remove: /'
+        ;;
+      wired)
+        pass "import_wire: every declared write path is WIRED. $F_DECLARED_TICKET is closed here."
+        note "delete F_DECLARED_UNWIRED and this arm's gap branches -- the declaration has no subject left."
+        ;;
+    esac
 fi
+
+# The declaration is a dated debt. Past its date it is rot, and rot is a failure
+# even though the gap it describes has not changed.
+_f_today="$(date -u '+%Y-%m-%d')"
+if [ "$_f_today" \> "$F_DECLARED_EXPIRES" ]; then
+    bad "the import_wire gap declaration expired on $F_DECLARED_EXPIRES (today $_f_today, owner $F_DECLARED_OWNER). Wire it, or re-date it with a reason."
+else
+    pass "the import_wire gap declaration is in date (expires $F_DECLARED_EXPIRES, owner $F_DECLARED_OWNER)"
+fi
+
+# ── F2. THE ARM'S OWN CONTROL. ──────────────────────────────────────────────
+# f_classify decides everything above, so drive it directly with synthetic sets.
+# Without this, every verdict above could be produced by a function that returns
+# one constant. The "closed" and "wired" cases are the ones the old arm got
+# wrong, so they are the ones that most need a control.
+_f_a='a|s'
+_f_b='b|s'
+_f_ctl=0
+[ "$(f_classify "$_f_a
+$_f_b" "$_f_a
+$_f_b")" = "matches" ] || { _f_ctl=1; note "f_classify: identical sets did not read as 'matches'"; }
+[ "$(f_classify "$_f_a
+$_f_b" "$_f_a")"        = "new" ]     || { _f_ctl=1; note "f_classify: an undeclared missing locator did not read as 'new'"; }
+[ "$(f_classify "$_f_a" "$_f_a
+$_f_b")"                = "closed" ]  || { _f_ctl=1; note "f_classify: a declared-but-no-longer-missing locator did not read as 'closed'"; }
+[ "$(f_classify "" "$_f_a")"          = "wired" ]   || { _f_ctl=1; note "f_classify: an empty missing set did not read as 'wired'"; }
+[ "$(f_classify "" "")"               = "wired" ]   || { _f_ctl=1; note "f_classify: empty/empty did not read as 'wired'"; }
+# A NEW gap must outrank a simultaneous fix, or fixing one path could hide
+# another appearing in the same change.
+[ "$(f_classify "$_f_b" "$_f_a")"     = "new" ]     || { _f_ctl=1; note "f_classify: a new gap alongside a closed one did not read as 'new'"; }
+if [ "$_f_ctl" -eq 0 ]; then
+    pass "f_classify discriminates all four states, and a NEW gap outranks a simultaneous fix"
+else
+    bad "f_classify does not discriminate -- section F's verdicts above are measuring nothing"
+fi
+
 
 # ── G. PRIVATE-COPY: `_is_relationship_label` is NOT the shared guard. ─
 # A synthetic source tree + temp manifest, through the real verifier.
