@@ -71,7 +71,7 @@ def pre_ingest_check(
     url = oxigraph_url or os.environ.get("OXIGRAPH_URL", "http://localhost:7878")
     cfg = {**DEFAULT_CONFIG, **(config or {})}
 
-    client = httpx.Client(timeout=30.0)
+    client = httpx.Client(timeout=30.0, trust_env=False)
     try:
         persons = _fetch_all_persons(url, client, cfg)
     finally:

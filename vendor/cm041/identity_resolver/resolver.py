@@ -49,7 +49,7 @@ class IdentityResolver:
         self.compartment = (
             compartment if compartment is not None else resolve_compartment()
         )
-        self._client = httpx.Client(timeout=timeout)
+        self._client = httpx.Client(timeout=timeout, trust_env=False)
         # Resolution health counters - the safety net's audit trail (#660).
         # Every contact that hits a resolver query error degrades to "create
         # as new" (a recoverable possible-duplicate) rather than being dropped

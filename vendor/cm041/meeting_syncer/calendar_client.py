@@ -12,7 +12,7 @@ def fetch_events(api_url, days=30):
     one attendee are included.
     """
     url = api_url.rstrip("/") + "/calendar"
-    resp = httpx.get(url, params={"days": str(days)}, timeout=30.0)
+    resp = httpx.get(url, params={"days": str(days)}, timeout=30.0, trust_env=False)
     resp.raise_for_status()
     data = resp.json()
     events = data.get("events", [])

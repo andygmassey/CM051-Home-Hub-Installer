@@ -927,7 +927,7 @@ class ContactSyncer:
             f"{self.cfg.EMBED_OLLAMA_URL}/api/embed",
             json={"model": self.cfg.EMBED_MODEL, "input": texts},
             timeout=120.0,
-        )
+         trust_env=False)
         resp.raise_for_status()
         data = resp.json()
         return data.get("embeddings", [])
@@ -1393,7 +1393,7 @@ class ContactSyncer:
                     "Accept": "application/sparql-results+json",
                 },
                 timeout=30.0,
-            )
+             trust_env=False)
             resp.raise_for_status()
             payload = resp.json()
         except Exception as exc:  # noqa: BLE001
@@ -1431,7 +1431,7 @@ class ContactSyncer:
                     "Accept": "application/sparql-results+json",
                 },
                 timeout=30.0,
-            )
+             trust_env=False)
             resp.raise_for_status()
             return bool(resp.json().get("boolean", False))
         except Exception:
@@ -1515,7 +1515,7 @@ class ContactSyncer:
                 "Accept": "application/sparql-results+json",
             },
             timeout=30.0,
-        )
+         trust_env=False)
         resp.raise_for_status()
         return resp.json()
 
@@ -1633,7 +1633,7 @@ WHERE {{
             content=sparql,
             headers={"Content-Type": "application/sparql-update"},
             timeout=30.0,
-        )
+         trust_env=False)
         resp.raise_for_status()
 
 
