@@ -69,7 +69,7 @@ echo "── subject: ${SUBJECT} ──"
 # ── arm 1: BLOCKING + open + cutting  => the cut STOPS ───────────────────────
 mk_repo "$WORK/a" "$MANIFEST_BLOCKING" "4001 4002"
 run_subject "$WORK/a" 1
-if [[ $RC -eq 1 ]] && printf '%s' "$OUT" | grep -q 'CUT IS BLOCKED' && printf '%s' "$OUT" | grep -q '4001'; then
+if [[ $RC -eq 1 ]] && grep -q 'CUT IS BLOCKED' <<< "$OUT" && grep -q '4001' <<< "$OUT"; then
     ok "a BLOCKING row whose issue is OPEN stops a cut, and names the row (rc=$RC)"
 else
     bad "expected rc=1 naming #4001; got rc=$RC. Output: $(printf '%s' "$OUT" | tail -6)"
@@ -77,7 +77,7 @@ fi
 
 # ── arm 2: same, NOT cutting => advisory, but the row is still NAMED ─────────
 run_subject "$WORK/a" 0
-if [[ $RC -eq 0 ]] && printf '%s' "$OUT" | grep -q '4001'; then
+if [[ $RC -eq 0 ]] && grep -q '4001' <<< "$OUT"; then
     ok "outside a cut it does not fail, but names the row rather than printing a bare count"
 else
     bad "expected rc=0 with #4001 named; got rc=$RC"
@@ -117,7 +117,7 @@ fi
 mk_repo "$WORK/d" "$MANIFEST_BLOCKING" "4001 4002"
 printf '#!/usr/bin/env bash\nexit 7\n' > "$WORK/d/bin/gh"; chmod +x "$WORK/d/bin/gh"
 run_subject "$WORK/d" 1
-if [[ $RC -eq 2 ]] && printf '%s' "$OUT" | grep -q 'CANNOT-RUN'; then
+if [[ $RC -eq 2 ]] && grep -q 'CANNOT-RUN' <<< "$OUT"; then
     ok "CONTROL: an unreadable open-issue list refuses (rc=2), it does not pass"
 else
     bad "expected rc=2 CANNOT-RUN when gh fails; got rc=$RC"

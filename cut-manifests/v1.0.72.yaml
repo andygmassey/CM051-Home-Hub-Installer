@@ -777,3 +777,14 @@ open_issues:
       and from a colima-shared path (PASS, every arm including the live proxy arms). Same
       family as #1662 and #1629: a check that could not answer, saying something other than
       "I could not answer".
+  - issue: 1679
+    title: "post-launch: revisit serving the wiki natively instead of from wiki-site"
+    gate: "DEFER: Andy filed this as post-launch on its face -- the title says
+      `post-launch:` and the body records a deferral decision already taken on
+      2026-09-06. It asks whether the wiki should be served natively rather than
+      out of the wiki-site container. That is an ARCHITECTURE question, not a
+      defect in the artefact being cut: the wiki serves correctly today through
+      wiki-site behind the 8144 gate, so nothing a customer receives is wrong.
+      Registered rather than left out, because an unregistered open issue is
+      exactly what this file exists to prevent, and because a deferral whose
+      reason is not written down cannot be audited later -- only obeyed."

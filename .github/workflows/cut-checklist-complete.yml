@@ -73,4 +73,8 @@ jobs:
       # pass. Measured against origin/main's blob, the pre-fix subject exits 0
       # on a live BLOCKING row during a cut.
       - name: A BLOCKING row actually stops a cut
+        # `if: always()` because verify_ci_steps_are_maskless caught this step
+        # being SKIPPED when the check above it fails -- a gate you have read,
+        # not a gate you have run.
+        if: always()
         run: bash tests/test_a_blocking_row_stops_a_cut.sh
