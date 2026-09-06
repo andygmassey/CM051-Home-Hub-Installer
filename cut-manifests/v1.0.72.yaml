@@ -808,3 +808,26 @@ open_issues:
       carries the GATEWAY pairing token and no wiki credential field; the
       seamless-via-QR belief was aspirational, and correcting Andy on it was
       mine to do. Revisit for v1.0.1 alongside the Live Activities work."
+  - issue: 1690
+    title: "the shipped owner node still accumulates display names; fixed upstream in CM041 fdedb71"
+    gate: "FIX: same family as 1619 and it is the DATA half rather than the code
+      half. CM041 fdedb71 fixes the writer; a node that has ALREADY accumulated
+      names is not repaired by fixing what writes them, which is the lesson
+      recorded when a generator was fixed at source and 1516 wrong links sat
+      unchanged for twelve more days. Needs the purge, CM041 #148, and it is
+      TNM's thread. Not gated BLOCKING here only because 1619 already carries
+      that disposition for this family and two blocking rows for one defect
+      would double-count the cut."
+  - issue: 1691
+    title: "main is red: cut-checklist-complete"
+    gate: "CLOSE ON GREEN: filed automatically by github-actions when main went
+      red, and it is an OPERATIONAL notice rather than a product defect.
+      ⚠️ IT IS ALSO PART OF WHAT KEEPS THE RED: an unregistered open issue is
+      exactly what cut-checklist-complete fails on, so the autofiler's own
+      issue re-reddens the check it is reporting, and the red cannot clear
+      until a human registers the report of the red. #1608 was the same shape,
+      reporting on the autofiler itself. Registered here so main can go green;
+      the durable fix is for the checklist gate to treat bot-filed red-main
+      notices as self-registering, or for the autofiler to register its own
+      row. Recorded rather than fixed because changing what the register
+      counts is a semantics decision, not a tidy-up."
