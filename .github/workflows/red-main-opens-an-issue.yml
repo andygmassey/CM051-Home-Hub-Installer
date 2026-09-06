@@ -12,6 +12,31 @@ name: red-main-opens-an-issue
 # should not queue there.
 
 on:
+  # THE CRON IS ASPIRATIONAL AND THE PUSH TRIGGER IS THE REAL ONE (#1697).
+  #
+  # '7,27,47 * * * *' asks for three runs an hour. Measured 2026-09-06 over the
+  # 15.63 h window from 20:43:16Z to 12:20:57Z: 47 expected, 6 delivered, 13%.
+  # Observed gaps 1.61, 1.68, 4.38, 4.35, 3.60 hours. GitHub throttles
+  # high-frequency crons on busy repositories, and this repository is busy.
+  #
+  # Control, so this is not read as "schedules are broken here":
+  # cut-checklist-complete.yml is '17 6 * * *', daily, and delivers on time.
+  # It is the FREQUENCY that is being dropped, not the schedule mechanism.
+  #
+  # Why the latency mattered. The issue body this job writes promises "This
+  # issue closes itself when <workflow> next succeeds on main". The close path
+  # is correct, but it cannot run more often than the schedule survives, so that
+  # promise meant up to 4.4 hours. And the notice is itself an OPEN issue, so
+  # until it closes it reddens cut-checklist-complete, which fails on any open
+  # issue missing from the newest cut manifest. Measured: #1691 opened 12:20:57Z,
+  # main green again at 12:32:17Z, and the notice was still open at 13:31Z.
+  #
+  # A push to main cannot open a spurious issue: the open path files only a
+  # workflow that has NOT recovered. It only lets the CLOSE path notice recovery
+  # when recovery actually happens. The schedule stays as the backstop for a
+  # repository that goes quiet.
+  push:
+    branches: [main]
   schedule:
     - cron: '7,27,47 * * * *'
   workflow_dispatch:
