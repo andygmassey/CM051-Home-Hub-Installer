@@ -655,3 +655,25 @@ open_issues:
       GUI never mentions will be recorded as a walk failure, and the cause will
       be this, not the build."
     proof: "gui/OstlerInstaller/Views/InstallCompleteView.swift:571-575 and gui/OstlerInstaller/Resources/ViewCopy.json:323, against 34201cb4"
+  - issue: 1733
+    title: "wiki-compiler and wiki-site are the last two check-freshness REDs, and CM044 a60bc3d is a real customer fix"
+    gate: "OPEN, and it is the LAST wall in front of the v1.0.73 artefact.
+      Six of the eight check-freshness inputs were resolved on 2026-09-06: three
+      by GRAFTING (#1724 owner node, #1726 local-store proxy, #1730 Doctor
+      could-not-measure) and five by hold_ack (#1732). These two remain.
+      WHY THEY CANNOT BE ACKED: verify_cut_freshness.sh refuses a hold_ack
+      unless shipping_bugfixes_grafted is true, and three of the four delta
+      commits are Dependabot -- which genuinely cannot reach a pinned image --
+      but the fourth, CM044 a60bc3d, touches compiler/compile.py, lint.py,
+      locale.yaml and pages/person_pages.py to kill broken internal links in the
+      wiki a customer browses. Asserting no shipping bugfix is held would be
+      false.
+      NOT GATED BLOCKING, same reasoning as #1727 before it: check-freshness
+      already stops the cut, and a second BLOCKING row for the same wall
+      double-counts it.
+      ONE THING DELIBERATELY NOT CLAIMED: whether GHCR already carries an image
+      newer than the pin. The package query returned 404 under this account,
+      which is ambiguous between absent and not-authorised, so it settles
+      nothing. Measured facts only: pin 8a7c1c3d for both keys, CM044 main
+      3bc0f3b, four ahead."
+    proof: "git show --name-only a60bc3d in CM044 lists four compiler source files, none of them tests"
