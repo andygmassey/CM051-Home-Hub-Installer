@@ -112,11 +112,25 @@ case "$out5" in
 esac
 
 # ── arm 4: NEGATIVE CONTROL against the pre-fix tree ────────────────────────
-# Pinned to origin/main's blob at the time this test was written, NOT to a
-# branch: a control that reads a moving ref inverts the moment this merges.
-echo "── negative control: the pre-fix blob ──"
+# PINNED TO A FIXED SHA, AND I LEARNED THAT THE EXPENSIVE WAY. The comment here
+# originally said "pinned to origin/main's blob ... NOT to a branch: a control
+# that reads a moving ref inverts the moment this merges" -- and then defaulted
+# to origin/main anyway. It was correct on the PR, where main was the pre-fix
+# tree, and CANNOT-RUN on main forty seconds after merging, because main had
+# become the thing it was supposed to contrast with. I wrote the warning and
+# did not follow it.
+#
+# 7acad3c8 is the commit immediately before the fix landed. Verified as a
+# precondition below rather than trusted: the control REFUSES if its blob
+# already carries the fix, which is exactly how the inversion announced itself
+# instead of quietly passing.
+_PRE_FIX_SHA="7acad3c8cf5b"
+echo "── negative control: pre-fix blob ${_PRE_FIX_SHA} ──"
 CTL="${WORK}/pre.sh"
-if ! git -C "$HERE" show "${OSTLER_PREFIX_REF:-origin/main}:install.sh" > "$CTL" 2>/dev/null; then
+if ! git -C "$HERE" cat-file -e "${OSTLER_PREFIX_REF:-$_PRE_FIX_SHA}:install.sh" 2>/dev/null; then
+    git -C "$HERE" fetch --depth=1 origin "${OSTLER_PREFIX_REF:-$_PRE_FIX_SHA}" >/dev/null 2>&1 || true
+fi
+if ! git -C "$HERE" show "${OSTLER_PREFIX_REF:-$_PRE_FIX_SHA}:install.sh" > "$CTL" 2>/dev/null; then
     cant "could not read the pre-fix install.sh blob; a control that scanned nothing must not read as a pass"
 fi
 if grep -q 'no installer tarball at that URL' "$CTL"; then
