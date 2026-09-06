@@ -732,18 +732,26 @@ open_issues:
   - issue: 1660
     title: vane 3000 and the 8144 tailnet gate are the two surfaces #1609 did not cover
     gate: >-
-      DEFER (v1.0.1, KNOWN RESIDUAL): DECISION_550_what_shut_means_2026-08-28.md:107-108
-      defers both by decision and this row does NOT change that. It records what #1609
-      taught, which the decision predates: 8044 was closed with auth_basic on the
-      store-proxy, so the premise that blocked all three browser surfaces -- "a browser
-      can take no bearer; a cookie gives no port isolation" -- is refuted. HTTP
-      authentication is not a cookie: its scope is scheme plus AUTHORITY, and authority
-      includes the port. So the remedy for 3000 and 8144 is KNOWN and transfers; only
-      the work is deferred. Measured on main fa33901f: 3000 is published by the
-      container (install.sh:17016), not behind the store-proxy, so the wiki realm does
-      not reach it; 8144's two identity limbs are request headers a local client writes
-      itself, and tailscaled's scrubbing only happens for traffic that traverses
-      tailscaled. Not a v1.0 blocker on that decision.
+      SPLIT, and no longer a single DEFER. Andy's call 2026-09-06: fix now rather than
+      inherit the deferral, because DECISION_550_what_shut_means_2026-08-28.md:107-108
+      parked all three browser surfaces on one premise -- a browser surface "can take no
+      bearer" -- and #1594 refuted that premise and shipped the refutation on 8044. A
+      decision is only as good as the reason recorded under it. || 3000 vane: FIX
+      (BLOCKING privacy), PR #1672. vane no longer publishes; store-proxy publishes 3000
+      behind auth_basic with the credential in a 0600 include, plus websocket passthrough
+      because vane is a chat UI and a proxy_pass without the Upgrade/Connection pair
+      authenticates the page and then silently stops the conversation streaming. Validated
+      against the pinned nginx image, and the check discriminates: with the map removed
+      nginx refuses with [emerg] unknown "ostler_connection_upgrade" variable. Test is
+      two-sided, 2 pass / 6 fail against origin/main and 8 pass / 0 fail with the fix, and
+      the 2 arms that pass BOTH ways are the controls. || 8144 tailnet gate: DEFER pending
+      an ARCHITECTURAL DECISION BY ANDY, not pending effort. The fact that was missing is
+      now measured: `tailscale serve` CAN target a unix socket (its own help names
+      unix:/tmp/myservice.sock), so 8144 needs no credential at all and filesystem
+      permissions would carry it. BUT the gate runs inside colima and a socket does not
+      cross that boundary, which probes/no_store_port_is_tcp_reachable.sh:97-108 already
+      measured. So the choice is "move the gate to the host" versus "auth_basic like the
+      other two", and it is a real choice.
   - issue: 1662
     title: three cut steps cannot report CANNOT-RUN, set -e kills them at the dist/ glob
     gate: >-
@@ -757,3 +765,15 @@ open_issues:
       lines out of cut.yml rather than a paraphrase, three arms per site with the
       dmg-present arm as a control; the mutant reverting all four sites gives 8 failures
       and rc=1, restored gives 12 pass.
+  - issue: 1673
+    title: test_wiki_tailnet_gate reports a docker MOUNT failure as a config rejection
+    gate: >-
+      FIX (BLOCKING apparatus): a `docker run` that fails to START is CANNOT-RUN, and this
+      harness prints "FAIL: pinned nginx rejected the generated config" for it. nginx never
+      ran and was never handed the config. Worse than silence in one specific way: it
+      ACCUSES THE SUBJECT, so a contributor goes and reads a correct nginx change looking
+      for a fault that is not there. Measured with one variable: identical harness and
+      identical install.sh from a /private/tmp worktree (mount refused, misleading FAIL)
+      and from a colima-shared path (PASS, every arm including the live proxy arms). Same
+      family as #1662 and #1629: a check that could not answer, saying something other than
+      "I could not answer".
