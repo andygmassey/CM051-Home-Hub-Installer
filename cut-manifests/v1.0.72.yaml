@@ -596,11 +596,14 @@ open_issues:
       its own --help (power.conf), and takes its positive control BEFORE the
       wipe: if neither root existed beforehand, the zero is CANNOT-CONFIRM-WIPE
       rather than a clean box. Test: 7 limbs, mutation-tested 5/5.
-      ONE CLAUSE DEPARTED FROM DELIBERATELY, ANDY TO RULE: residue is a finding
-      and a REFUSAL to walk, not a finding plus a hard reset. Refusing is
-      stronger (a hard reset lets the walk proceed and a green walk buries the
-      uninstaller defect) and a reset here would rebuild the second wall of rm
-      lines that dev-wipe-studio.sh already is. The original hazard still
+      GATE TEXT AMENDED 2026-09-06 TO MATCH THE IMPLEMENTATION, not the
+      reverse. The original text asked for a finding AND a hard reset. The
+      delivered behaviour is a finding and a REFUSAL to walk. TNM reviewed the
+      departure and agreed it is the stronger form: a hard reset lets the walk
+      proceed, so the uninstaller defect survives as a log line a green walk
+      buries, and a reset here would rebuild the second wall of rm lines that
+      dev-wipe-studio.sh already was until #1639 replaced it with a call to the
+      shipped uninstaller. The original hazard still
       stands and is why the control is independent: if the uninstaller is the
       reset, a broken uninstaller contaminates the next walk and the walk that
       would catch it runs on dirty state.

@@ -661,7 +661,13 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         # the point of using the shipped uninstaller in the first place.
         _CONTENT_ROOT="$HOME/Documents/Ostler"
         case "$_CONTENT_ROOT" in
-            /*/Documents/Ostler) : ;;
+            # `[!/]` after the leading slash: TNM measured HOME=/ across seven
+            # values and found it yields //Documents/Ostler, which the old
+            # pattern accepted. Pathological rather than dangerous -- nothing
+            # lives at /Documents on a Mac -- but a guard that accepts a root
+            # nobody owns is one symlink away from being interesting, and the
+            # fix is one character.
+            /[!/]*/Documents/Ostler) : ;;
             *)  echo "REFUSING to remove an unexpected content root: ${_CONTENT_ROOT}"
                 echo "  \$HOME is not what this harness assumes; nothing was deleted."
                 exit 2 ;;
