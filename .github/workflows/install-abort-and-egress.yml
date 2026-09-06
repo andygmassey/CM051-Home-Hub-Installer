@@ -60,6 +60,29 @@ jobs:
         if: always()
         run: python3 tests/test_inferred_category_never_egresses.py
 
+      # #1709. `docs/EGRESS_INVENTORY.md` is a privacy document in a PUBLIC
+      # repo and NOTHING checked that it still described the software. Measured
+      # before this landed: 0 files gated its currency, against a control of 16
+      # files referencing SHIPPING_LEDGER -- so the zero was real, not a broken
+      # predicate. It happened to still be true (46 declared hosts at its
+      # measurement commit, 46 now), which is the whole problem: it survived by
+      # luck. The next release adding a destination would have made a published
+      # privacy claim false with nothing going red.
+      #
+      # SELF-TEST FIRST, and it is not decoration. This gate's non-failure is
+      # its normal state, so a gate that silently stopped being able to fail
+      # would look exactly like a passing one. The self-test carries four arms
+      # that MUST fail (add, remove, swap-at-equal-count, and the count-blind
+      # case a row-count gate loses) and two that MUST pass (reworded comment,
+      # reordered rows), so it proves discrimination rather than assent.
+      - name: The egress currency gate can still fail (self-test)
+        if: always()
+        run: python3 tests/test_the_egress_inventory_still_describes_the_software.py --self-test
+
+      - name: The egress inventory still describes the software (#1709)
+        if: always()
+        run: python3 tests/test_the_egress_inventory_still_describes_the_software.py
+
       # Sits beside the attribution suite because it guards the same probe from
       # the other side: that one checks it can tell "not ours" from "could not
       # tell", this one checks its VERDICT does not claim a boundary the walk

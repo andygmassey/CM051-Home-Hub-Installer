@@ -34,6 +34,12 @@ import yaml
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 MANIFEST_DIR = REPO / "cut-manifests"
+
+# The label `red-main-opens-an-issue.yml` applies to the issues it files.
+ALARM_LABEL = "main-red"
+# Sentinel: set when EVERY open issue carries the alarm label, which is a
+# label being misused rather than a repository with no work in it.
+CANNOT_RUN_ALL_ALARMS = [0]
 SLUG = "andygmassey/CM051-Home-Hub-Installer"
 
 PASS = 0
@@ -117,11 +123,45 @@ def main() -> int:
     try:
         out = subprocess.run(
             ["gh", "issue", "list", "--repo", SLUG, "--state", "open",
-             "--limit", "500", "--json", "number"],
+             "--limit", "500", "--json", "number,labels"],
             capture_output=True, text=True, timeout=90,
         )
         if out.returncode == 0 and out.stdout.strip():
-            live = {int(o["number"]) for o in json.loads(out.stdout)}
+            raw = json.loads(out.stdout)
+            # ── THE ALARM IS NOT A WORK ITEM, AND INCLUDING IT LIVELOCKED THIS ──
+            # `red-main-opens-an-issue.yml` files an issue labelled `main-red`
+            # whenever a gate fails on main, and that issue closes itself when
+            # the gate next SUCCEEDS on main. This gate is one of the gates it
+            # watches. So on 2026-09-06 the estate reached a closed loop:
+            #
+            #   this gate goes red  ->  watchdog opens #1713 (label main-red)
+            #   #1713 open + unregistered  ->  this gate goes red
+            #   this gate never succeeds  ->  #1713 never self-closes
+            #
+            # Main could not return to green by any amount of correct work. The
+            # only exits were registering a transient CI alarm in the SHIPPING
+            # checklist, or closing it by hand against its own instructions.
+            #
+            # The exclusion is deliberately narrow: the LABEL the watchdog
+            # applies, not its author and not a title regex. An author filter
+            # would also swallow every other bot-filed issue, and a title regex
+            # breaks the moment the wording changes -- and both fail OPEN, which
+            # is the wrong direction for the register that gates a cut.
+            #
+            # It is never silent. The excluded numbers are PRINTED below, so an
+            # issue that is quietly wearing this label cannot hide behind it.
+            alarms = {int(o["number"]) for o in raw
+                      if any(l.get("name") == ALARM_LABEL for l in o.get("labels", []))}
+            live = {int(o["number"]) for o in raw} - alarms
+            if alarms:
+                print(f"  [note] {len(alarms)} open issue(s) excluded as CI alarms "
+                      f"(label `{ALARM_LABEL}`): {sorted(alarms)}")
+                print(f"         These are raised BY a red gate and close themselves "
+                      f"when it goes green. Registering them would livelock the cut.")
+            if raw and not live:
+                # Every open issue wearing the alarm label is not a clean sheet,
+                # it is a label being used for something else. Refuse.
+                CANNOT_RUN_ALL_ALARMS[0] = len(alarms)
     except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError, ValueError):
         live = None
 
@@ -144,9 +184,14 @@ def main() -> int:
     elif not live:
         # An empty list is indistinguishable from a broken query, so refuse it.
         CANNOT_RUN += 1
-        print("  [CANNOT-RUN] the open-issue list came back EMPTY. A repository with")
-        print("               genuinely zero open issues and a broken query print")
-        print("               identically, so this refuses rather than passing.")
+        if CANNOT_RUN_ALL_ALARMS[0]:
+            print(f"  [CANNOT-RUN] all {CANNOT_RUN_ALL_ALARMS[0]} open issue(s) carry the")
+            print(f"               `{ALARM_LABEL}` label. That is the label being used for")
+            print("               something it does not mean, not an empty backlog.")
+        else:
+            print("  [CANNOT-RUN] the open-issue list came back EMPTY. A repository with")
+            print("               genuinely zero open issues and a broken query print")
+            print("               identically, so this refuses rather than passing.")
     else:
         missing = sorted(live - registered)
         if missing:
