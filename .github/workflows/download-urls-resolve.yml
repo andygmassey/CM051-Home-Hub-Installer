@@ -61,5 +61,11 @@ jobs:
           fi
           exit "$rc"
 
+      # if: always() -- MEASURED, caught by verify_ci_steps_are_maskless.py on this
+      # very PR. Without it, a red URL gate above SKIPS this step, so a run that
+      # found one defect would report nothing about the other and the second
+      # result would be invisible exactly when someone is reading the log. The
+      # two tests are independent: this one is hermetic and needs no network.
       - name: A missing tarball is not reported as a network problem
+        if: always()
         run: bash tests/test_a_missing_tarball_is_not_a_network_problem.sh
