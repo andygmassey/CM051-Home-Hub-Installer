@@ -25699,6 +25699,9 @@ fi
 #   2  CANNOT-RUN (store empty/unreachable, or backup refused) -- not an error
 #   1  a rule ran and left residue, or a count changed. THAT is a real problem
 #      and it is the one that gets the loud warning.
+#   3  REFUSED by the store (401/403). The migration did not run and NOTHING was
+#      written. Distinct from 2 because 2 is deliberately silent, and a refusal
+#      that is silent is invisible -- #1611.
 _ns_migrate_script="${OSTLER_DIR:-$PWD}/scripts/migrate_graph_namespace.py"
 if [[ -r "$_ns_migrate_script" ]]; then
     info "Checking your graph's identifier namespace"  # i18n-exempt
@@ -25709,6 +25712,24 @@ if [[ -r "$_ns_migrate_script" ]]; then
     case "$_ns_rc" in
         0) ok "Graph identifiers are current" ;;  # i18n-exempt
         2) : ;;  # nothing to migrate on a fresh box; the log says which
+        # 🔴 3 = THE STORE REFUSED US. NOT the same as rc=2, and collapsing the
+        # two is #1611. rc=2 is silenced ON PURPOSE because a fresh box really
+        # has nothing to migrate -- but "the store is empty" and "the store is
+        # full and we were not allowed to look" are opposite facts, and until
+        # now they printed the same thing: nothing.
+        #
+        # Measured chain: OSTLER_STORE_AUTH_ENFORCE defaults to 1, Oxigraph 401s
+        # a keyless request, the migrator carried no credential, its probe guard
+        # exited 2, and this case did nothing. So the migration silently never
+        # ran on any install with the shipped default.
+        #
+        # NOTE THE WORDING IS NOT THE SIBLING ARM'S. A refusal means the store
+        # was never written to, so telling the operator it "may be part-migrated"
+        # would be a lie in the reassuring-sounding direction.
+        3)
+           _ostler_persist_diagnostics
+           warn "Identifier namespace migration could NOT run: the store refused the request. NOTHING in your store was changed. The log names whether a credential was missing, unreadable, or rejected: ${OSTLER_DIAG_KEPT:-$OSTLER_DIAG_DIR}/ns-migration.log"  # i18n-exempt
+           ;;
         # 🔴 DO NOT TELL THE OPERATOR THEIR DATA IS UNCHANGED HERE. This arm
         # used to say "Your data is intact and unchanged", and the rc contract
         # three lines above defines rc=1 as "a rule ran and left residue" --
