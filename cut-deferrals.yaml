@@ -4253,3 +4253,32 @@ deferrals:
       preservation/2026-08-29/archie-write-actions-actor-family-219 (tip 40dec17b),
       verified by ls-remote with a negative control. Retire together with the 219-v2 row.
     until_cut: "v1.0.52"
+  - ref: "CM051:#1654"
+    reason: >-
+      TNM's fix for #1153: the install.sh script-dir coverage gate matches a MENTION
+      rather than the copy, so deleting the `cp` line for a probe asset stays green.
+      Re-measured by TNM today and still reproducing, nine days old. DEFERRED FOR
+      v1.0.72 ONLY, ON TWO MEASUREMENTS, NEITHER OF THEM ABOUT ITS MERIT.
+      FIRST, IT CANNOT REACH THIS ARTEFACT. It changes exactly one file,
+      scripts/check_install_sh_script_dir_coverage.py, which cut.yml does not invoke:
+      grep for that name in .github/workflows/cut.yml returns 0, against a positive
+      control of 2 for `rollforward_gate` in the same file, so the zero is the
+      instrument working rather than the instrument dead. It runs from
+      install-gui-contract.yml and scripts/run_all_cut_gates.sh, neither of which is
+      on the cut path.
+      SECOND, IT IS RED, AND THE RED IS NOT ITS OWN. enforce-ledger-write's SELF-TEST
+      fails 8 of 34 cases (10, 11, 12, 13: a quoted TEMPLATE must not bypass, a
+      non-URL marker must BLOCK). Those cases got rc=0 where they expect rc=1,
+      because the gate short-circuited on "no shipping-adjacent path in the 2 changed
+      file(s)" before reaching the marker logic. THE SAME BRANCH PASSED THE SAME
+      SELF-TEST THREE MINUTES EARLIER: run 34013378352 at sha 6d22291f PASSED with
+      "shipping-adjacent changes detected"; run 34013517202 at sha d39c63be FAILED
+      with "no shipping-adjacent path", and `git diff --name-only` against the merge
+      base returns THE SAME SINGLE FILE at both shas. Same subject, same fixture size
+      (2 files, the self-test's own synthetic pair), opposite classification. That is
+      non-determinism inside the self-test, not a defect in #1654, and a
+      non-deterministic gate cannot adjudicate anything. Merging past it would be the
+      bypass this file exists to stop; blocking the cut on someone else's flaky
+      self-test would be worse. Recorded here so the hold is auditable, raised with
+      TNM on the board in the same turn.
+    until_cut: "v1.0.73"
