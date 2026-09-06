@@ -98,7 +98,16 @@ while IFS=$'\t' read -r what repo ref landed cap verify ticket; do
     if [ -z "$LINE" ]; then
         # The commit changed no install.sh line we can key on. That is NOT a
         # pass: say which bucket it is in and why.
-        if git -C "$HERE" show --name-only --format='' "$ref" 2>/dev/null | grep -q '^install\.sh$'; then
+        # NOT `... | grep -q`. Under `set -o pipefail`, grep -q exits on the
+        # FIRST match and closes the pipe, the producer takes SIGPIPE, and the
+        # pipeline's status becomes that signal rather than grep's verdict --
+        # so a match can read as a failure. The repo's appcast-ship-wiring
+        # ratchet caught this line, which is the gate doing exactly its job.
+        # A herestring keeps the producer's output in a variable, so nothing
+        # is left to short-circuit. This file declares bash, so the herestring
+        # is available; a POSIX-sh consumer would need the `grep -c` form.
+        _touched="$(git -C "$HERE" show --name-only --format='' "$ref" 2>/dev/null)"
+        if grep -q '^install\.sh$' <<< "$_touched"; then
             UNMEASURABLE=$((UNMEASURABLE+1))
             echo "  UNMEASURABLE  ${ticket}  touches install.sh but added no keyable line"
         else
