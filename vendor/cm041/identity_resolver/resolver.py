@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 
 import httpx
 
-from .canonical_name import choose_canonical_display_name
+from .canonical_name import choose_canonical_display_name, prefer_real_given_name
 from .compartment import (
     UserCompartment,
     assert_default_graph_isolated,
@@ -575,8 +575,11 @@ class IdentityResolver:
             return bindings[0]["name"]["value"] if bindings else None
 
         candidates = [b["name"]["value"] for b in bindings if b.get("name")]
-        given = next(
-            (b["given"]["value"] for b in bindings if b.get("given")), None
+        # ALL of them, not the first in arbitrary SPARQL order. A merged node
+        # holds the real given name AND the kinship word; taking next() made
+        # which one a person is shown under a coin flip. (CM041 #145)
+        given = prefer_real_given_name(
+            b["given"]["value"] for b in bindings if b.get("given")
         )
         family = next(
             (b["family"]["value"] for b in bindings if b.get("family")), None
