@@ -847,3 +847,13 @@ open_issues:
       one of the seven -- test_wiki_digest_pin_assertion.sh -- proves the two
       standing wiki-image digest rows can go red, so wiring it strengthens the
       cut rather than risking it. TNM's thread."
+  - issue: 1697
+    title: "the red-main autofiler cron delivers 13% of its ticks, so closes-itself means nothing"
+    gate: "FIX (apparatus): TNM filed it and PR #1698 is open against it, so this row
+      exists to keep the register complete rather than to claim the work. It is the
+      same autofiler I hit at #1691, from the other end: I found that the notice it
+      files is itself an unregistered open issue and therefore re-reddens the very
+      check it reports, so the red cannot self-clear. TNM measured the delivery rate
+      and found the closes-itself half does not run either. Two independent faults in
+      one mechanism, found from two directions on the same morning, which is the
+      argument for writing findings down where the other person reads them."
