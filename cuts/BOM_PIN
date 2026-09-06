@@ -11,7 +11,8 @@
 # THAT row was taken from; the os003_sha header describes the most recent
 # sync only. A row with no field 3 predates per-row provenance.
 os003_repo	andygmassey/OS003-Ostler-Release
-os003_sha	11e0bec6b43c251f7787a485831d40293d50e3e5
+os003_sha	5d493717c9b2413fbdeef79ca0099fee8fa9b47c
 os003_branch	main
 cuts/v1.0.71/MUST_CONTAIN.tsv	b0badae3ce94b382200db36a7d049dd2c27010c9c91d7bf54271ad258114ca99	0e027d263066b61c7e1e656be2e9566a4242c845
 cuts/v1.0.72/MUST_CONTAIN.tsv	33645f0cf42bc8e8f395b490af738829c2479e5d61059ba7040b6ffd7b08140b	11e0bec6b43c251f7787a485831d40293d50e3e5
+cuts/v1.0.73/MUST_CONTAIN.tsv	3402cb7360a8a4c38d75174681f58b331ce1962b86061e7a02c25e026cf5be6a	5d493717c9b2413fbdeef79ca0099fee8fa9b47c
