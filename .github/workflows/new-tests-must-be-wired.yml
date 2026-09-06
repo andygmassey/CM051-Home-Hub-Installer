@@ -45,6 +45,17 @@ jobs:
       - name: The comment-stripper knows a quoted # from a comment
         run: /bin/bash scripts/tests/test_comment_strip_is_quote_aware.sh
 
+      # THE GATE'S OWN SELF-TEST, which ran nowhere until 2026-09-06 (#1694).
+      # Its docstring opens: "This gate had no self-test, and the thing it got
+      # wrong is the exact thing it exists to decide." Somebody wrote it to close
+      # precisely this hole, and scripts/verify_test_wiring.sh could not see it
+      # because scripts/tests/ was outside the glob.
+      - name: The wiring gate can tell a MENTION from an INVOCATION
+        # if: always() -- ci-maskless (#1695): without it a red earlier in the
+        # same job SKIPS this step, and a skipped test reports nothing at all.
+        if: always()
+        run: /bin/bash scripts/tests/test_verify_test_wiring_gate.sh
+
       # The SECOND half of what the shared library decides. The stripper above
       # says what the gates may look at; this says what counts as RUNNING it.
       # Both false greens it pins were live on main until #861: `bash -n` is a

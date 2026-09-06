@@ -831,3 +831,19 @@ open_issues:
       notices as self-registering, or for the autofiler to register its own
       row. Recorded rather than fixed because changing what the register
       counts is a semantics decision, not a tidy-up."
+  - issue: 1694
+    title: "verify_test_wiring.sh cannot see scripts/tests/; 7 dark tests, one its own self-test"
+    gate: "FIX IN FLIGHT, and it is a gate-blindness row rather than a product
+      defect, so it does not block the artefact. The gate globbed tests/ and the
+      Swift dirs only, so scripts/tests/ -- 38 files -- was never in its
+      denominator: the seven dark files were not reported UNWIRED, they were
+      unenumerable, which prints as nothing and reads as a clean bill of health.
+      Same shape the file's own comment records for the 2026-08-16 Swift fix,
+      third population. All seven are WIRED rather than backlogged, because the
+      gate refuses the backlog for exactly this: 'a test that runs nowhere
+      asserts nothing'. Six were watched passing before wiring; the seventh is
+      slow by design and its header already warns that a harness timeout is a
+      CANNOT-RUN, not a red. NOT gated BLOCKING: nothing shipped changes, and
+      one of the seven -- test_wiki_digest_pin_assertion.sh -- proves the two
+      standing wiki-image digest rows can go red, so wiring it strengthens the
+      cut rather than risking it. TNM's thread."
