@@ -77,6 +77,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # test_a_timeout_is_not_a_stale_pin.sh reads a PRE-FIX blob as its
+          # negative control. The default shallow checkout has no such object,
+          # so the control could not run and the job exited 2 -- an honest
+          # refusal, but a control that never ran. download-urls-resolve.yml
+          # already carries this line for the same reason.
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5

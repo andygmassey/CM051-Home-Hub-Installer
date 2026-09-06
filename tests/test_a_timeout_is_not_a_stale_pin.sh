@@ -151,9 +151,28 @@ case "$st" in
 esac
 
 # ── NEGATIVE CONTROL: the pre-fix blob must FAIL the two arms above. ────────
-echo "── negative control: the pre-fix blob ──"
+# PINNED TO A FIXED SHA, FOR TWO REASONS, ONE OF WHICH ALREADY BIT.
+# This defaulted to origin/main. That is wrong twice over:
+#   1. On a CI runner the checkout is shallow and there is often no
+#      refs/remotes/origin/main at all, so `git show` returned nothing, the
+#      control refused, and the whole job exited 2. That is the gate refusing
+#      honestly rather than passing blind, but it means the control never ran.
+#   2. It would INVERT the moment this merges, because main would then carry
+#      the very change the control exists to contrast with. That exact
+#      inversion reddened main on the sibling test and cost a fix (#1670).
+# d8273fef9305 is the merge-base of this branch and main. Verified rather than
+# trusted: the guard below REFUSES if the blob already carries the change.
+_PRE_FIX_SHA="d8273fef9305"
+echo "── negative control: pre-fix blob ${_PRE_FIX_SHA} ──"
 CTL="$(mktemp).py"; trap 'rm -f "$CTL"' EXIT
-if ! git -C "$HERE" show "${OSTLER_PREFIX_REF:-origin/main}:scripts/verify_cut_manifest.py" > "$CTL" 2>/dev/null; then
+_ctl_ref="${OSTLER_PREFIX_REF:-$_PRE_FIX_SHA}"
+# NO fetch FALLBACK HERE, AND THAT IS DELIBERATE. The obvious repair is
+# `git fetch --depth=1 origin <sha>`, and I wrote it, and it does not work:
+# this remote answers `fatal: couldn't find remote ref d8273fef9305`. A
+# fallback that cannot succeed is decoration that makes a broken control look
+# handled. The real fix is fetch-depth: 0 on the job, which cut-manifest.yml
+# now carries. If the blob is missing the control REFUSES below.
+if ! git -C "$HERE" show "${_ctl_ref}:scripts/verify_cut_manifest.py" > "$CTL" 2>/dev/null; then
     cant "could not read the pre-fix verifier blob; a control that scanned nothing is not a pass"
 fi
 # DISCRIMINATE ON A PHRASE UNIQUE TO THIS CHANGE. My first guard matched
