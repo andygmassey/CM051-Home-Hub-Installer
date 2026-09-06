@@ -110,7 +110,7 @@ fi
 # container. reqwest takes basic auth from the URL's userinfo -- measured
 # against the pinned nginx with the proxy disabled: userinfo 200, bare 401,
 # wrong password 401.
-if grep -q 'vane_url = .http://ostler:\${VANE_PASSWORD}@localhost:3000' "${INSTALL_SH}"; then
+if grep -qF 'http://ostler:${VANE_PASSWORD}@localhost:3000' "${INSTALL_SH}"; then
     ok "arm 7b: the assistant's vane_url carries the credential"
 else
     bad "arm 7b: vane_url has no credential -- the port is shut and the assistant cannot get in, so web search 401s"
