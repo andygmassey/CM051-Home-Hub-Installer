@@ -219,3 +219,8 @@ jobs:
       - name: the daemon-freshness row decides on the scoped count
         if: always()
         run: bash tests/test_the_daemon_freshness_row_decides_on_the_scoped_count.sh
+
+      # Also last, also if: always(), for the same reason as the step below it.
+      - name: the migrator authenticates and a refusal is loud
+        if: always()
+        run: python3 tests/test_the_migrator_authenticates_and_a_refusal_is_loud.py

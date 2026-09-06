@@ -69,6 +69,73 @@ import urllib.request
 # GET and the POST or the half that is missed reintroduces the whole failure.
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
+
+# ── THE STORE CREDENTIAL. #1611. ────────────────────────────────────────────
+# THIS SCRIPT HAS BEEN A SILENT NO-OP ON EVERY SHIPPED INSTALL, and the chain
+# is four links long with nothing loud anywhere in it:
+#
+#   install.sh   OSTLER_STORE_AUTH_ENFORCE defaults to 1, i.e. ON
+#   Oxigraph     401s a keyless request, body begins "<html>"
+#   here         requests carried Accept/Content-Type and NO credential
+#   here         a 401 hits the probe guard -> sys.exit(2)
+#   install.sh   case 2) : ;;    <- nothing printed. The operator is told nothing.
+#
+# rc=2 means CANNOT-RUN, which install.sh correctly treats as "nothing to do on
+# a fresh box". It cannot distinguish that from "the store is full and I was not
+# allowed to look", and those are opposite facts.
+#
+# The credential is the SAME one the box-walk probes read: a curl config of
+# `header = "..."` lines at ~/.ostler/secrets/store-curl.conf, written 0600.
+# Reusing it rather than inventing a second mechanism is deliberate -- two ways
+# to authenticate to one store is how one of them rots unnoticed.
+#
+# NOTHING IS LOGGED FROM THIS FILE. The value never enters a message, a
+# traceback or a diagnostic; only the COUNT of headers found is ever reported.
+_STORE_CURL_CONF = os.environ.get(
+    "OSTLER_STORE_CURL_CONF",
+    os.path.join(os.path.expanduser("~"), ".ostler", "secrets", "store-curl.conf"))
+
+# Set by _load_store_headers so the caller can say WHY a read was keyless
+# instead of collapsing absent / unreadable / empty into one message.
+STORE_AUTH_STATE = "unread"
+
+
+def _load_store_headers(path=None):
+    """Return (headers_dict, state). state is one of:
+       headers   the config exists and yielded at least one header
+       absent    no such file -- normal on an enforce-OFF box
+       unreadable  it exists and could not be read (0600, wrong account)
+       empty     it exists, was read, and carried no header lines
+    """
+    global STORE_AUTH_STATE
+    path = path or _STORE_CURL_CONF
+    if not os.path.exists(path):
+        STORE_AUTH_STATE = "absent"
+        return {}, STORE_AUTH_STATE
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            raw = fh.read()
+    except OSError:
+        # A 0600 file read by another account is NOT the same as no credential,
+        # and reporting it as keyless tells a tired human the opposite of true.
+        STORE_AUTH_STATE = "unreadable"
+        return {}, STORE_AUTH_STATE
+    hdrs = {}
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = re.match(r'^header\s*=\s*"(.*)"\s*$', line)
+        if not m:
+            continue
+        val = m.group(1)
+        if ":" not in val:
+            continue
+        k, v = val.split(":", 1)
+        hdrs[k.strip()] = v.strip()
+    STORE_AUTH_STATE = "headers" if hdrs else "empty"
+    return hdrs, STORE_AUTH_STATE
+
 # (label, regex-for-REPLACE, literal-prefix-for-counting, replacement)
 # The regex escapes the dots; the counting prefix is a plain substring.
 RULES = [
@@ -165,8 +232,9 @@ def _get(host, url, accept, timeout):
     asks for, and what `?graph=default` cannot give.
     """
     if host in ("local", "localhost", "-"):
-        req = urllib.request.Request(url, method="GET",
-                                     headers={"Accept": accept})
+        _h = {"Accept": accept}
+        _h.update(_load_store_headers()[0])
+        req = urllib.request.Request(url, method="GET", headers=_h)
         try:
             with _OPENER.open(req, timeout=timeout - 20) as r:
                 return r.read().decode("utf-8", "replace"), "", 0
@@ -180,6 +248,27 @@ def _get(host, url, accept, timeout):
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     return p.stdout, p.stderr, p.returncode
 
+
+
+# RC 3 = REFUSED, WHICH IS NOT RC 2 = NOTHING TO DO. #1611.
+# Collapsing them is the whole defect: "the store is empty" and "the store is
+# full and I was not allowed to look" are opposite facts, and install.sh
+# silences rc=2 by design because on a fresh box there genuinely is nothing to
+# migrate. An auth refusal must reach the operator.
+def _exit_probe_failure(rc, err, out=""):
+    if rc in (401, 403):
+        state = STORE_AUTH_STATE
+        why = {
+            "absent":     "no store credential file was found at %s" % _STORE_CURL_CONF,
+            "unreadable": "the store credential file exists but could not be read (it is 0600; is this the owning account?)",
+            "empty":      "the store credential file exists but carried no header lines",
+            "headers":    "a credential WAS sent and the store still refused it -- the token is wrong or rotated",
+            "unread":     "the credential was never loaded",
+        }.get(state, state)
+        print("  REFUSED BY THE STORE: HTTP %s. %s" % (rc, why))
+        print("  The migration did NOT run. NOTHING in your store was changed.")
+        sys.exit(3)
+    sys.exit(2)
 
 def run(host, path, body, ctype, accept="application/sparql-results+json",
         timeout=300, method="POST"):
@@ -195,9 +284,9 @@ def run(host, path, body, ctype, accept="application/sparql-results+json",
     if method == "GET":
         return _get(host, url, accept, timeout)
     if host in ("local", "localhost", "-"):
-        req = urllib.request.Request(
-            url, data=body.encode("utf-8"),
-            headers={"Content-Type": ctype, "Accept": accept})
+        _h = {"Content-Type": ctype, "Accept": accept}
+        _h.update(_load_store_headers()[0])
+        req = urllib.request.Request(url, data=body.encode("utf-8"), headers=_h)
         try:
             with _OPENER.open(req, timeout=timeout - 20) as r:
                 return r.read().decode("utf-8", "replace"), "", 0
@@ -224,7 +313,7 @@ def ask(host, query):
     i = out.find("{")
     if i < 0:
         print(f"  PROBE FAILED rc={rc} stderr={err[:200]} stdout={out[:200]}")
-        sys.exit(2)
+        _exit_probe_failure(rc, err, out)
     b = json.loads(out[i:])["results"]["bindings"]
     return int(b[0][list(b[0])[0]]["value"]) if b else 0
 
@@ -293,7 +382,7 @@ def graphs(host):
     i = out.find("{")
     if i < 0:
         print(f"  GRAPH PROBE FAILED rc={rc} stderr={err[:200]}")
-        sys.exit(2)
+        _exit_probe_failure(rc, err)
     return [b["g"]["value"] for b in json.loads(out[i:])["results"]["bindings"]]
 
 
@@ -622,7 +711,7 @@ def graph_sizes(host):
     i = out.find("{")
     if i < 0:
         print(f"  GRAPH SIZE PROBE FAILED rc={rc} stderr={err[:200]}")
-        sys.exit(2)
+        _exit_probe_failure(rc, err)
     return {b["g"]["value"]: int(b["n"]["value"])
             for b in json.loads(out[i:])["results"]["bindings"]}
 
