@@ -180,6 +180,64 @@ def main() -> int:
         ok("no `NONE YET` rows remain: every registered issue is either gated or "
            "carries a written decision")
 
+    # ── PROPERTY 3: a row that SAYS BLOCKING must actually block ───────────
+    # Andy's call, 2026-09-06, and it closes a gap he found by reading a
+    # summary rather than a gate: NINE rows carried the word BLOCKING in their
+    # `gate:` and NOTHING in this repo read it. Every gate script was grepped;
+    # the only code matching the word was a CI conclusion set and a walk-probe
+    # advisory, neither related. So a tag would have shipped straight past nine
+    # self-declared blockers without one objection, including #1625 (the
+    # customer's curl|bash URL, measured 404 that morning) and #1540 (a BIP39
+    # recovery phrase generated, the DEK encrypted under it, and never shown to
+    # the customer, which is unrecoverable BECAUSE the design is correct).
+    #
+    # A directive nobody enforces is a reminder, and the next reader widens it.
+    # This makes the word load-bearing.
+    #
+    # SCOPED TO A CUT, like PROPERTY 2 and for the same reason: there is always
+    # blocking work in flight, and reddening every PR would stop the work that
+    # clears these rows. Outside a cut it prints every offending row BY NUMBER
+    # -- never a bare count, which reads as "nothing to report".
+    #
+    # A row whose issue has CLOSED does not block. That is drift in the
+    # register, reported separately above, not an outstanding blocker.
+    def _says_blocking(g: str) -> bool:
+        # "NOT BLOCKING (reporting accuracy, not a shipped defect)" is a real
+        # gate value in this file and must NOT match. Substring alone inverts it.
+        u = g.upper()
+        return "BLOCKING" in u and "NOT BLOCKING" not in u
+
+    blocking_rows = [r for r in rows if _says_blocking(str(r.get("gate", "")))]
+    if live is None or not live:
+        # Already counted as CANNOT-RUN above. Say explicitly that THIS property
+        # was not evaluated, rather than letting silence read as a pass.
+        print(f"  [CANNOT-RUN] {len(blocking_rows)} row(s) say BLOCKING, but the open-issue")
+        print("               list could not be read, so whether they are still open is")
+        print("               UNMEASURED. Not a pass.")
+    else:
+        live_blocking = [r for r in blocking_rows if int(r["issue"]) in live]
+        stale_blocking = len(blocking_rows) - len(live_blocking)
+        if live_blocking:
+            listing = "; ".join(
+                f'#{r["issue"]} {str(r.get("title", ""))[:60]}' for r in live_blocking)
+            msg = (f"{len(live_blocking)} row(s) are gated BLOCKING and their issue is "
+                   f"still OPEN: {listing}")
+            if cutting:
+                bad("CUT IS BLOCKED. " + msg +
+                    ". Fix them, or re-gate each row to what it truly is. "
+                    "The word BLOCKING is now load-bearing and this is the gate "
+                    "that reads it.")
+            else:
+                print(f"  [note] {msg}")
+                print("         Not a failure outside a cut. With OSTLER_CUT_IN_PROGRESS=1 "
+                      "this is a FAIL and the cut stops.")
+            if stale_blocking:
+                print(f"         ({stale_blocking} further BLOCKING row(s) name a CLOSED "
+                      "issue and are drift, not blockers.)")
+        else:
+            ok(f"no row gated BLOCKING names a still-open issue "
+               f"({len(blocking_rows)} BLOCKING row(s) examined, all closed or none present)")
+
     print()
     print(f"== {PASS} pass / {FAIL} fail / {CANNOT_RUN} cannot-run / "
           f"{PASS + FAIL} adjudicated ==")
