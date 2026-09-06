@@ -1,0 +1,46 @@
+name: egress-inventory-current
+
+# CM051 #1709. docs/EGRESS_INVENTORY.md is a PUBLIC privacy document in a PUBLIC
+# repo, and nothing checked that it still describes the software. It was measured
+# on v1.0.33 while the newest cut manifest read v1.0.73.
+#
+# It was still ACCURATE when this landed: egress_hosts.tsv had 46 rows at the
+# inventory's measurement commit and 46 rows now. Accurate by luck, not by
+# control. The next release that adds an outbound destination would have made a
+# published privacy claim false with nothing going red.
+#
+# NO `paths:` FILTER, DELIBERATELY. The property is a relationship between two
+# files' HISTORIES, so a path filter would skip the gate on exactly the commits
+# that break it, and a skipped job renders as a grey tick that reads like a pass.
+# Same reasoning the pr-branch-staleness workflow records. The job is seconds.
+#
+# fetch-depth: 0 IS LOAD-BEARING. Arm 2 asks "has any commit touched the
+# allowlist since the inventory's own last commit", which needs real history. On
+# a shallow clone it reports CANNOT-RUN and the job exits 2 rather than passing
+# blind.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  egress-inventory-current:
+    name: the published egress inventory still describes the software
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: The inventory has not been outrun by the destination set
+        run: /bin/bash tests/test_egress_inventory_is_current.sh
