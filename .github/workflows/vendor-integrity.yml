@@ -24,6 +24,10 @@ on:
       - 'scripts/verify_vendor_fresh.sh'
       - 'scripts/sync_vendor.sh'
       - 'scripts/_vendor_lib.sh'
+      # Wired 2026-09-06 (#1691): the self-test for the tool that RECORDS a
+      # vendored graft rather than deleting it. It ran nowhere.
+      - 'scripts/regenerate_divergence_patch.sh'
+      - 'scripts/tests/test_regenerate_divergence_patch.sh'
       - 'tests/test_no_divergent_vendor_twin.sh'
       - 'tests/test_context_refresh_vendor_sha.sh'
       - 'tests/test_vendor_fresh_gate.sh'
@@ -150,6 +154,14 @@ jobs:
       #
       # The REAL cross-repo gate (all source repos present, VENDOR_FRESH_STRICT=1)
       # runs as a blocking step in the HR015 cut -- see WORKSTREAM A follow-up.
+      # Wired 2026-09-06 (#1691). Self-test for the tool that RECORDS a vendored
+      # graft rather than deleting it. SLOW BY DESIGN -- its own header budgets
+      # three minutes, because each control builds a real git repo and drives the
+      # real materialise path; a mocked materialiser would not exercise the
+      # guards that matter. A harness timeout here is CANNOT-RUN, not a red.
+      - name: The divergence-patch regenerator records rather than deletes
+        run: /bin/bash scripts/tests/test_regenerate_divergence_patch.sh
+
       - name: Vendor-freshness gate self-test
         if: always()
         run: bash tests/test_vendor_fresh_gate.sh

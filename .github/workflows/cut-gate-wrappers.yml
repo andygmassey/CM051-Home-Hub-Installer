@@ -37,6 +37,16 @@ on:
       - 'scripts/verify_cut_provenance.sh'
       - 'scripts/verify_no_orphaned_fixes.sh'
       - 'scripts/verify_pr_age.sh'
+      # Wired 2026-09-06 (#1691). Three gate SELF-TESTS that ran nowhere:
+      # scripts/tests/ sat outside verify_test_wiring.sh's glob, so they were
+      # never reported UNWIRED -- they were unenumerable, which prints as
+      # nothing and reads as a clean bill of health. Each proves its gate
+      # FIRES, which is the one thing a gate cannot demonstrate by being green.
+      - 'scripts/verify_commit_parity.sh'
+      - 'scripts/tests/test_verify_commit_parity_gate.sh'
+      - 'scripts/tests/test_verify_stapling_gate.sh'
+      - 'scripts/verify_no_env_trust_anchors.sh'
+      - 'scripts/tests/test_no_env_trust_anchors.sh'
       - 'tests/test_pr_age_gate_declares_partial_runs.sh'
       - 'scripts/provenance_gate.sh'
       - 'scripts/verify_stapling.sh'
@@ -213,6 +223,19 @@ jobs:
       - name: The operator rollforward runner refuses a blind environment
         if: always()
         run: /bin/bash tests/test_the_operator_rollforward_refuses_a_blind_environment.sh
+
+      # Wired 2026-09-06 (#1691). See the paths note above: three gate
+      # self-tests that ran nowhere. Each proves its gate REJECTS a violation,
+      # not merely that it compiles -- the distinction this repo learned the
+      # expensive way.
+      - name: The commit-parity gate FIRES
+        run: /bin/bash scripts/tests/test_verify_commit_parity_gate.sh
+
+      - name: The stapling gate FIRES and is not a no-op
+        run: /bin/bash scripts/tests/test_verify_stapling_gate.sh
+
+      - name: The cross-language trust-anchor guard FIRES, on the right axis
+        run: /bin/bash scripts/tests/test_no_env_trust_anchors.sh
 
       - name: run() cannot report a gate that died as a pass
         if: always()

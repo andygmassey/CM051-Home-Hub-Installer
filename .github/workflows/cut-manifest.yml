@@ -23,6 +23,11 @@ on:
       - 'scripts/tests/test_verify_cut_manifest.py'
       - 'scripts/tests/test_grep_in_source_at_sha_names_files.py'
       - 'scripts/tests/test_probes_do_not_emit_derivable_person_uris.py'
+      # Wired 2026-09-06 (#1691): proves the two standing wiki-image rows in
+      # cut-manifests/permanent.yaml can actually go red, and that each is blind
+      # to the other's mutations. It ran nowhere before.
+      - 'scripts/tests/test_wiki_digest_pin_assertion.sh'
+      - 'cut-manifests/permanent.yaml'
       - 'tests/test_grep_row_cannot_be_satisfied_by_its_own_manifest.py'
       - 'tests/test_a_name_grep_cannot_see_a_dead_definition.py'
       # The CANNOT-RUN reporting arms and the git-timeout split, plus their
@@ -117,6 +122,15 @@ jobs:
         if: always()
         run: |
           python -m pytest scripts/tests/test_probes_do_not_emit_derivable_person_uris.py -v
+
+      # Wired 2026-09-06 (#1691). Proves the two standing wiki-image rows in
+      # cut-manifests/permanent.yaml can each go red, and that each is blind to
+      # the other's mutations -- a shared-fixture pair that both pass on one
+      # defect is the failure this guards. It ran nowhere before: scripts/tests/
+      # was outside verify_test_wiring.sh's glob, so it was not reported UNWIRED,
+      # it was unenumerable.
+      - name: The wiki-image digest pin rows can actually fail
+        run: /bin/bash scripts/tests/test_wiki_digest_pin_assertion.sh
 
       # A grep_in_source_at_sha row must be provable by the SOURCE it names, not
       # by the manifest text that makes the claim.

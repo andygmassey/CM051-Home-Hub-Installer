@@ -92,6 +92,21 @@ workflows_dir = os.environ["WORKFLOWS_DIR"]
 # widening -- the whole defect being fixed is a population nobody declared.
 SWIFT_TEST_DIRS = ("gui/OstlerInstallerTests",)
 
+# THE SAME BLIND SPOT, A SECOND TIME. The note above describes how 36 Swift
+# tests were UNENUMERABLE rather than unwired. scripts/tests/ was in exactly that
+# state until 2026-09-06: 38 shell and python test files in a directory this
+# glob never touched, so the header line "534 test file(s) enumerated" was
+# counting 495 + 39 and silently excluding them.
+#
+# Three of the 38 were invoked by nothing at all -- and one of those three was
+# scripts/tests/test_verify_test_wiring_gate.sh, THIS GATE'S OWN SELF-TEST. The
+# gate could not see the file that proves the gate works.
+#
+# Keyed by REPO-RELATIVE PATH, not basename, for the same reason as Swift: a
+# bare basename could collide with a tests/ file of the same name and silently
+# merge two rows into one.
+SCRIPT_TEST_DIRS = ("scripts/tests",)
+
 # What it takes to START a Swift test. Xcode runs a TARGET, never a file, so
 # searching starters for an individual .swift filename would be the wrong
 # question and would score all 36 UNWIRED even after someone wired the target
@@ -178,7 +193,26 @@ swift_tests = sorted(
     for p in glob.glob(os.path.join(repo, d, "*.swift"))
 )
 
-tests = shell_py_tests + swift_tests
+# scripts/tests/ -- same hermeticity rule as the Swift block above: a fixture run
+# points TESTS_DIR at a temp dir, and enumerating the real scripts/tests/ into it
+# would leak 38 real files into every fixture and break the empty-scan CANNOT-RUN
+# case, which is precisely the trap the Swift block documents.
+_script_tests_env = os.environ.get("TEST_WIRING_SCRIPT_TEST_DIRS", "")
+if _script_tests_env:
+    script_test_dirs = tuple(d for d in _script_tests_env.split(":") if d)
+elif os.path.realpath(tests_dir) == os.path.realpath(os.path.join(repo, "tests")):
+    script_test_dirs = SCRIPT_TEST_DIRS
+else:
+    script_test_dirs = ()
+
+script_tests = sorted(
+    os.path.relpath(p, repo)
+    for d in script_test_dirs
+    for p in glob.glob(os.path.join(repo, d, "test_*.sh"))
+    + glob.glob(os.path.join(repo, d, "test_*.py"))
+)
+
+tests = shell_py_tests + swift_tests + script_tests
 if not tests:
     print(
         "verify_test_wiring: CANNOT RUN -- found NO test files under "
@@ -419,6 +453,8 @@ _swift_label = "+".join(swift_dirs) if swift_dirs else "swift (not in scope)"
 _swift_note = "" if swift_runner else ", target invoked by NOTHING"
 print(f"verify_test_wiring: {len(tests)} test file(s) enumerated")
 print(f"  tests/*.sh + *.py      : {len(shell_py_tests)}")
+print(f"  scripts/tests/*.sh+py  : {len(script_tests)}"
+      + ("" if script_tests else "   (not enumerated in this scope)"))
 print(f"  {_swift_label}/*.swift : {len(swift_tests)}"
       f"   ({len(swift_unwired)} UNWIRED{_swift_note})")
 print(f"  WIRED   : {len(tests) - len(unwired)}")
