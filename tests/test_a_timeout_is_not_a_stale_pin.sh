@@ -162,16 +162,24 @@ esac
 #      inversion reddened main on the sibling test and cost a fix (#1670).
 # d8273fef9305 is the merge-base of this branch and main. Verified rather than
 # trusted: the guard below REFUSES if the blob already carries the change.
-_PRE_FIX_SHA="d8273fef9305"
+_PRE_FIX_SHA="d8273fef93052b336eb9be1cf974331960121013"
 echo "── negative control: pre-fix blob ${_PRE_FIX_SHA} ──"
 CTL="$(mktemp).py"; trap 'rm -f "$CTL"' EXIT
 _ctl_ref="${OSTLER_PREFIX_REF:-$_PRE_FIX_SHA}"
-# NO fetch FALLBACK HERE, AND THAT IS DELIBERATE. The obvious repair is
-# `git fetch --depth=1 origin <sha>`, and I wrote it, and it does not work:
-# this remote answers `fatal: couldn't find remote ref d8273fef9305`. A
-# fallback that cannot succeed is decoration that makes a broken control look
-# handled. The real fix is fetch-depth: 0 on the job, which cut-manifest.yml
-# now carries. If the blob is missing the control REFUSES below.
+# THE FALLBACK NEEDS THE FULL 40-CHAR SHA, AND I GOT THIS WRONG ONCE ALREADY.
+# I first wrote `git fetch --depth=1 origin d8273fef9305`, watched it answer
+# `fatal: couldn't find remote ref`, and concluded fetch-by-sha was unsupported
+# and the fallback was decoration. That conclusion was wrong: git refuses an
+# ABBREVIATED sha in a refspec and accepts the full one. Measured on a genuinely
+# shallow clone -- abbreviated fatals, full 40-char fetches and the blob is then
+# readable. So the fallback is real, and it is spelled out in full below.
+#
+# Belt and braces on purpose: cut-manifest.yml also now sets fetch-depth: 0 for
+# this job, the same line download-urls-resolve.yml already carries. Either one
+# suffices; the pair means the control still runs if a workflow is refactored.
+if ! git -C "$HERE" cat-file -e "${_ctl_ref}:scripts/verify_cut_manifest.py" 2>/dev/null; then
+    git -C "$HERE" fetch --quiet --depth=1 origin "$_ctl_ref" 2>/dev/null || true
+fi
 if ! git -C "$HERE" show "${_ctl_ref}:scripts/verify_cut_manifest.py" > "$CTL" 2>/dev/null; then
     cant "could not read the pre-fix verifier blob; a control that scanned nothing is not a pass"
 fi
