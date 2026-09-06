@@ -139,6 +139,41 @@ case "$R" in
     *)     bad "an empty HOME exits ${R%%|*} and would have run rm -rf on /Documents/Ostler" ;;
 esac
 
+echo "── SEVEN HOME shapes, because one refusal is not a guard ──"
+# TNM drove the guard across seven HOME values on the merged version and found
+# HOME=/ yields //Documents/Ostler, which the original pattern ACCEPTED. Their
+# reading: pathological, not dangerous, mine to take or leave. Taken. Nothing
+# lives at /Documents on a Mac, but a guard that accepts a root nobody owns is
+# one symlink from being interesting, and the fix was one character.
+#
+# Each case says which side of the line it is on, so a future widening of the
+# pattern has to break a NAMED expectation rather than a single example.
+while IFS='|' read -r _h _want _why; do
+    [ -n "$_h$_want" ] || continue
+    _r="$(_run "$_h" 1 1)"
+    _got="${_r%%|*}"
+    if [ "$_want" = "refuse" ]; then
+        if [ "$_got" = "2" ]; then ok "HOME='${_h}' is refused (${_why})"
+        else bad "HOME='${_h}' exited ${_got}, expected a refusal (${_why})"; fi
+    else
+        if [ "$_got" = "0" ]; then ok "HOME='${_h}' is accepted (${_why})"
+        else bad "HOME='${_h}' exited ${_got}, expected acceptance (${_why})"; fi
+    fi
+done <<'CASES'
+|refuse|empty HOME, root becomes /Documents/Ostler
+/|refuse|HOME=/ gives //Documents/Ostler, TNM's finding
+relative/path|refuse|not absolute
+/Users|accept|a valid SHAPE even though nobody lives there; the guard checks the shape of the root, not whether HOME is a real home, and pretending otherwise would be a check it does not perform
+CASES
+# ...and the ACCEPT side, which must use a real directory or the arm proves
+# only that a missing tree exits 0 for the wrong reason.
+_H="$(_mkhome sevenok)"; mkdir -p "${_H}/Documents/Ostler"; : > "${_H}/Documents/Ostler/x"
+_r="$(_run "$_H" 1 1)"
+case "$_r" in
+    0\|*) ok "a normal absolute HOME is accepted and its content root removed" ;;
+    *)    bad "a normal HOME exited ${_r%%|*}; the guard is now too strict" ;;
+esac
+
 echo "── the CLAIM cannot be printed without the filesystem counts ──"
 # The regression this test exists to prevent is the CLAIM, not the deletion:
 # "WIPE CONFIRMED" must not be reachable from a Docker count alone.
