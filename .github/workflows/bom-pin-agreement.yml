@@ -1,0 +1,57 @@
+name: bom-pin-agreement
+
+# The BOM says what must ship. The cut pin says what will be BUILT. Nothing
+# compared them until scripts/verify_bom_rows_are_in_the_pin.sh.
+#
+# WHAT THIS WORKFLOW RUNS, AND WHAT IT DELIBERATELY DOES NOT.
+#
+# It runs the TEST, which drives the gate against SYNTHETIC fixtures: a repo it
+# builds, a commit it makes, and two pins either side of that commit. That is
+# decidable on every PR and on main, and it stays green when the real pin is
+# stale, because it is a test of the GATE and not of today's pin.
+#
+# It does NOT run the gate against the live cut. On a PR the pin is legitimately
+# allowed to be behind main -- that is the normal state between cuts -- so a
+# verdict here would be noise and a red here would train people to ignore it.
+# The live check belongs on a TAG PUSH, where the pin must already be correct,
+# and it is wired there in cut.yml.
+#
+# That split is the point: the gate fires where it can be right, and its
+# self-test fires where it can be run.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/verify_bom_rows_are_in_the_pin.sh'
+      - 'tests/test_a_bom_row_can_claim_landed_and_not_be_in_the_pin.sh'
+      - '.github/workflows/bom-pin-agreement.yml'
+      - 'cuts/**'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  bom-pin-agreement:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The test builds its own repo, but the gate under test reads git
+          # objects from the checkout when it is pointed at a real cut. Full
+          # history costs little here and a shallow clone is the classic way
+          # this class of check reports a fake absence.
+          fetch-depth: 0
+
+      # Three states, and the third is not a pass: the test exits 2 if it
+      # cannot build its fixture or if its own control cannot go green.
+      - name: A BOM row can claim landed and not be in the pin
+        run: bash tests/test_a_bom_row_can_claim_landed_and_not_be_in_the_pin.sh
