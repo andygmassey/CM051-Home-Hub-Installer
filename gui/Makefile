@@ -2844,15 +2844,21 @@ guard-local-cut:
 	        echo "       Failing closed -- an unrecordable cut must not proceed." >&2; \
 	        exit 1; \
 	    fi; \
+	    _ec_id="$$(date -u +%Y-%m-%dT%H:%M:%SZ)"; \
+	    _ec_dirty=false; \
+	    if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then _ec_dirty=true; fi; \
+	    mkdir -p "$(DIST_DIR)" 2>/dev/null || true; \
+	    printf '%s' "$$_ec_id" > "$(DIST_DIR)/.emergency_cut_id" 2>/dev/null || true; \
 	    { \
 	      echo ""; \
 	      echo "- emergency_cut:"; \
-	      echo "    utc: \"$$(date -u +%Y-%m-%dT%H:%M:%SZ)\""; \
+	      echo "    utc: \"$$_ec_id\""; \
 	      echo "    operator: \"$$(id -un)@$$(hostname -s)\""; \
 	      echo "    repo_sha: \"$$(git rev-parse HEAD 2>/dev/null || echo unknown)\""; \
-	      echo "    dirty: $$(test -n \"$$(git status --porcelain 2>/dev/null)\" && echo true || echo false)"; \
+	      echo "    dirty: $$_ec_dirty"; \
 	      echo "    reason: \"$${OSTLER_EMERGENCY_REASON:-}\""; \
 	      echo "    note: \"Bypassed CI (v1018-D026). Recorded by guard-local-cut (v1018-D027).\""; \
+	      echo "    outcome: \"NOT KNOWN AT WRITE TIME. This row records that guard-local-cut ACCEPTED the invocation, and it is written BEFORE check-orphans and every other gate runs. It is not evidence that anything was built. Look for an emergency_cut_result row carrying the same cut_id: if there is none, this invocation produced NO ARTEFACT. Measured 2026-09-07: three consecutive rows here described runs that shipped nothing, and none of the 27 rows before them carried this field at all.\""; \
 	    } >> "$${OSTLER_SHIPPING_LEDGER:-}" || { \
 	        echo "ERROR: failed writing the ledger entry. Refusing to cut." >&2; exit 1; }; \
 	    echo "  [guard] EMERGENCY cut recorded in $${OSTLER_SHIPPING_LEDGER:-}"; \
@@ -3120,6 +3126,28 @@ ship: guard-local-cut check-orphans check-pr-age download-hub-app check-ostler-a
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"
+	@# PAIR THE INVOCATION ROW WITH AN OUTCOME. guard-local-cut writes an
+	@# emergency_cut row before any gate runs, so on its own it records an
+	@# INTENT in the shape of an EVENT. This appends the other half, and only
+	@# on the success path -- a failed cut never reaches this line, which is
+	@# exactly what makes the absence of a result row meaningful.
+	@if [ -n "$${OSTLER_SHIPPING_LEDGER:-}" ] && [ -w "$${OSTLER_SHIPPING_LEDGER:-}" ] \
+	   && [ -f "$(DIST_DIR)/.emergency_cut_id" ]; then \
+	    _ec_id="$$(cat "$(DIST_DIR)/.emergency_cut_id")"; \
+	    { \
+	      echo ""; \
+	      echo "- emergency_cut_result:"; \
+	      echo "    cut_id: \"$$_ec_id\""; \
+	      echo "    utc: \"$$(date -u +%Y-%m-%dT%H:%M:%SZ)\""; \
+	      echo "    outcome: \"ARTEFACT PRODUCED. Every gate in the ship chain passed and the DMG was built, signed, notarised and stapled.\""; \
+	      echo "    artefact: \"$(DMG_NAME)\""; \
+	      echo "    artefact_sha256: \"$$(shasum -a 256 "$(DMG_PATH)" 2>/dev/null | cut -d' ' -f1)\""; \
+	      echo "    artefact_bytes: $$(stat -f %z "$(DMG_PATH)" 2>/dev/null || echo 0)"; \
+	    } >> "$${OSTLER_SHIPPING_LEDGER:-}" \
+	      && echo "  [ledger] emergency_cut_result recorded for cut_id $$_ec_id" \
+	      || echo "  [ledger] WARNING: could not append the result row; the invocation row now has no pair" >&2; \
+	    rm -f "$(DIST_DIR)/.emergency_cut_id"; \
+	fi
 
 # ---------------------------------------------------------------------------
 # Housekeeping
