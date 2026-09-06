@@ -561,6 +561,110 @@ class ContactSyncer:
             )
         return out
 
+
+    # -- helpers --------------------------------------------------------------
+
+
+    # -----------------------------------------------------------------------
+    # ONLY THE USER'S OWN ADDRESS BOOK.
+    # -----------------------------------------------------------------------
+    # MEASURED 2026-09-06 on one operator install. Sources are described here
+    # by ROLE AND COUNT, never by their identifiers: a source uuid is an
+    # instance-specific identifier and this file ships to customers.
+    #
+    #   source A   ~1600 cards   registered mbuseragent | iCloud
+    #   source B      44 cards   registered com.apple.AddressBookSourceSync
+    #   source C     ~590 cards   not registered as an account at all
+    #
+    # Source B was a HOUSEHOLD MEMBER'S PHONE address book: kinship words and
+    # nicknames rather than full names. macOS's AddressBookSourceSync pulls a
+    # DEVICE's local contacts up into the owning iCloud account and blends them
+    # into All Contacts, so it never appears as a separate account in
+    # Contacts.app and the operator could not find it when he looked for it.
+    #
+    # Merging that book in caused a real defect. A card whose given name was
+    # a kinship word shared several phone numbers and addresses with a real
+    # person's own card, so identity resolution merged the two onto one node,
+    # and the display-name chooser then composed the kinship word with that
+    # person's surname. The composed name existed in no source. See the paired
+    # fix in identity_resolver/canonical_name.py, which refuses the weld; this
+    # change stops the second card arriving in the first place.
+    #
+    # THE DISCRIMINATOR IS THE ACCOUNT REGISTRATION, NOT A HARDCODED UUID,
+    # because every customer's UUIDs differ:
+    #   mbuseragent                      the user's own iCloud contacts -> IN
+    #   com.apple.AddressBookSourceSync  a device's local book         -> OUT
+    #   not registered as an account     unknown provenance            -> OUT
+    #
+    # FAIL-OPEN ON PURPOSE, AND THIS IS THE JUDGEMENT CALL. If Accounts4.sqlite
+    # cannot be read at all -- absent, locked, permissions -- every source is
+    # INCLUDED and a warning is logged. Excluding on an unreadable oracle would
+    # silently empty a customer's contacts, which is a worse failure than the
+    # one being fixed. A source is only ever dropped on a POSITIVE reading that
+    # says it is not theirs.
+    #
+    # TO ROLL BACK WITHOUT A DEPLOY: OSTLER_CONTACT_SOURCES=all restores the
+    # previous union-everything behaviour exactly. Or name the sources you want
+    # explicitly, comma-separated:
+    #   OSTLER_CONTACT_SOURCES=<uuid-or-prefix>,<uuid-or-prefix>
+    # Every source and its verdict is logged either way, so what was read is
+    # always recoverable from the install log.
+    def _source_is_the_users_own(self, source_uuid: str) -> bool:
+        import os as _os
+        import sqlite3 as _sqlite3
+        from pathlib import Path as _Path
+
+        override = (_os.environ.get("OSTLER_CONTACT_SOURCES") or "").strip()
+        if override:
+            if override.lower() == "all":
+                logger.info("contact source %s: INCLUDED (OSTLER_CONTACT_SOURCES=all)", source_uuid[:8])
+                return True
+            wanted = {w.strip() for w in override.split(",") if w.strip()}
+            keep = any(source_uuid == w or source_uuid.startswith(w) for w in wanted)
+            logger.info("contact source %s: %s (OSTLER_CONTACT_SOURCES allowlist)",
+                        source_uuid[:8], "INCLUDED" if keep else "SKIPPED")
+            return keep
+
+        accounts = _Path.home() / "Library" / "Accounts" / "Accounts4.sqlite"
+        if not accounts.is_file():
+            logger.warning(
+                "contact source %s: INCLUDED -- no Accounts4.sqlite to classify it. "
+                "Cannot-read is not cannot-trust; failing open so contacts are never "
+                "silently emptied.", source_uuid[:8])
+            return True
+        try:
+            conn = _sqlite3.connect(f"file:{accounts}?mode=ro", uri=True)
+            try:
+                row = conn.execute(
+                    "SELECT ZOWNINGBUNDLEID FROM ZACCOUNT WHERE ZIDENTIFIER = ?",
+                    (source_uuid,),
+                ).fetchone()
+            finally:
+                conn.close()
+        except _sqlite3.Error as exc:
+            logger.warning(
+                "contact source %s: INCLUDED -- Accounts4.sqlite unreadable (%s). "
+                "Failing open rather than dropping a source on a broken oracle.",
+                source_uuid[:8], exc)
+            return True
+
+        bundle = (row[0] if row and row[0] else "") or ""
+        if not row:
+            logger.info(
+                "contact source %s: SKIPPED -- not registered as an account, so its "
+                "provenance is unknown. OSTLER_CONTACT_SOURCES can re-include it.",
+                source_uuid[:8])
+            return False
+        if bundle == "com.apple.AddressBookSourceSync":
+            logger.info(
+                "contact source %s: SKIPPED -- AddressBookSourceSync, i.e. another "
+                "DEVICE's local address book synced into this account, not the "
+                "user's own contacts. OSTLER_CONTACT_SOURCES can re-include it.",
+                source_uuid[:8])
+            return False
+        logger.info("contact source %s: INCLUDED (owning bundle %s)", source_uuid[:8], bundle)
+        return True
+
     def _read_abcddb_as_vcards(self) -> List[str]:
         """Read every populated AddressBook-v22.abcddb under ~/Library
         and synthesise minimal vCard 3.0 text per record so the existing
@@ -596,7 +700,8 @@ class ContactSyncer:
         if sources.is_dir():
             for p in sorted(sources.glob("*/AddressBook-v22.abcddb")):
                 if p.is_file() and p.stat().st_size > 0:
-                    db_paths.append(p)
+                    if self._source_is_the_users_own(p.parent.name):
+                        db_paths.append(p)
 
         if not db_paths:
             return []

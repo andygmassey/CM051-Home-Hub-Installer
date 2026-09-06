@@ -56,9 +56,27 @@ FIX_INV=(  "sudo already available without a password"    "Install aborted at li
 # satisfied by meeting_syncer's copy. A payload entry whose file is not in the
 # DMG at all is CANNOT-RUN, never a pass: an absent file and a present-but-stale
 # one must not report the same.
-PAYLOAD_IDS=(  "#1543-rule-2-on-the-write" )
-PAYLOAD_PATH=( "contact_syncer/syncer.py" )
-PAYLOAD_INV=(  "_node_holds_a_different_canonical_key" )
+#
+# THE TWO KINSHIP ROWS, ADDED 2026-09-06. Both fixes were MERGED UPSTREAM the
+# same morning and neither reached the artefact, which is CM051 #1656. A fix on
+# a repo's main is not a fix on a customer's Mac, and until these rows existed
+# nothing in the cut could tell the two apart for anything but install.sh.
+#
+# WHICH COPY SHIPS, measured rather than assumed, because #1656 named the wrong
+# one: gui/project.yml copies the CONTENTS of vendor/cm041/ to the Resources
+# root (`cp -R "${VENDOR_ROOT}/contact_syncer" "${DEST}/contact_syncer"`), and
+# on a customer box SCRIPT_DIR IS that Resources root. So install.sh:18411
+# stages the VENDORED tree, not the repo-root twin. This gate reads the DMG, so
+# it is indifferent to that argument -- which is the point of reading the DMG.
+PAYLOAD_IDS=(  "#1543-rule-2-on-the-write"
+               "#755-only-the-users-own-address-book"
+               "#142-a-kinship-word-is-never-welded" )
+PAYLOAD_PATH=( "contact_syncer/syncer.py"
+               "contact_syncer/syncer.py"
+               "identity_resolver/canonical_name.py" )
+PAYLOAD_INV=(  "_node_holds_a_different_canonical_key"
+               "_source_is_the_users_own"
+               "is_kinship_given_name" )
 
 MP="$(mktemp -d)"
 DEV=""
