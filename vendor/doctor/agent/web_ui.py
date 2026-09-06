@@ -604,17 +604,45 @@ def run_local_diagnostics(snapshot: SystemSnapshot) -> list[dict]:
         # On macOS, check if we're on Apple Silicon
         pass  # RAM check is done in install.sh, not here
 
-    # All clear
-    if not findings:
-        findings.append({
-            "severity": "info",
-            "title": ALL_HEALTHY_TITLE,
-            "detail": ALL_HEALTHY_DETAIL,
-            "fix": None,
-            "fix_command": None,
-            "risk": "low",
-        })
+    # NO "all clear" HERE, DELIBERATELY.
+    #
+    # This function only knows about its OWN checks. It used to append the
+    # "Everything looks healthy" banner whenever ITS list was empty -- but
+    # every caller concatenates this list with run_all_rules(), so a rule
+    # that CRASHED produced its card and the banner in the same payload.
+    # Measured on the real route before this change: GET /doctor/api/status
+    # returned "One health check could not run (check_exploding)" AND
+    # "Everything looks healthy" together.
+    #
+    # A whole-report verdict has to be decided where the whole report
+    # exists. See _append_all_clear(), which every caller now uses.
+    return findings
 
+
+def _append_all_clear(
+    findings: list[dict],
+    errors: dict[str, str] | None = None,
+) -> list[dict]:
+    """Append the all-clear banner only when NOTHING else is being reported.
+
+    The banner is a statement about the entire report, so it must be decided
+    after every source of findings has been combined -- the rules engine, the
+    local checks, and any per-stage ``errors`` recorded by the caller.
+
+    ``errors`` is consulted because a stage that blew up is not a stage that
+    found nothing: if the caller could not run part of the report, the report
+    is not clean and must not say it is.
+    """
+    if findings or errors:
+        return findings
+    findings.append({
+        "severity": "info",
+        "title": ALL_HEALTHY_TITLE,
+        "detail": ALL_HEALTHY_DETAIL,
+        "fix": None,
+        "fix_command": None,
+        "risk": "low",
+    })
     return findings
 
 
@@ -1000,6 +1028,8 @@ def _run_diagnostics() -> dict:
             f for f in findings
             if f.get("title") not in seen and not seen.add(f.get("title"))
         ]
+        # Decided on the COMBINED report, and only once `errors` is known.
+        _append_all_clear(findings, errors)
     except Exception as exc:
         errors["findings"] = f"{type(exc).__name__}: {exc}"
         findings = []
@@ -2243,6 +2273,10 @@ async def dashboard():
     # Deduplicate by title
     seen = set()
     findings = [f for f in findings if f["title"] not in seen and not seen.add(f["title"])]
+    # Decided on the COMBINED report (see _append_all_clear). This render
+    # path has no per-stage errors dict, so the findings list is the whole
+    # evidence base here.
+    _append_all_clear(findings)
     _record_snapshot(snapshot, findings)
     # CM024 Block 3.4: surface the Evernote import nav link only when
     # the feature flag is on. Read here (not inside the renderer) so

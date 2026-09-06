@@ -27,6 +27,11 @@ from typing import Any
 from banner_copy import EMPTY_MAIL_NUDGE, backfill_progress
 
 from diagnostic_copy import (
+    MEMORY_UNREADABLE_TITLE,
+    MEMORY_UNREADABLE_DETAIL_NO_TOTAL,
+    MEMORY_UNREADABLE_DETAIL_NO_AVAILABLE,
+    MEMORY_UNREADABLE_FIX,
+    MEMORY_UNREADABLE_FIX_COMMAND,
     INGEST_EMPTY_DETAIL_FMT,
     INGEST_EMPTY_FIX,
     INGEST_EMPTY_FIX_COMMAND,
@@ -1045,8 +1050,44 @@ def check_gateway_health(snapshot: Any) -> list[dict]:
 
 
 def check_memory_pressure(snapshot: Any) -> list[dict]:
-    """Detect memory pressure on the Mac."""
+    """Detect memory pressure on the Mac.
+
+    When the RAM figures cannot be read the rule SAYS SO rather than
+    returning an empty list. An empty list is indistinguishable from a
+    healthy machine, and this rule is the one that was silently dead on the
+    v1.0.36 box while /api/v1/box-status reported 91% used (#419).
+    """
     findings = []
+
+    total = getattr(snapshot, "ram_total_gb", None)
+    available = getattr(snapshot, "ram_available_gb", None)
+
+    # Report the two unmeasurable states SEPARATELY. `not total` also catches
+    # a genuine 0/0.0, which is itself a reading nobody should trust; both
+    # land here, but the customer is told which one happened.
+    if not total:
+        findings.append({
+            "severity": "warning",
+            "title": MEMORY_UNREADABLE_TITLE,
+            "detail": MEMORY_UNREADABLE_DETAIL_NO_TOTAL,
+            "fix": MEMORY_UNREADABLE_FIX,
+            "fix_command": MEMORY_UNREADABLE_FIX_COMMAND,
+            "risk": "low",
+            "category": "diagnostics",
+        })
+        return findings
+
+    if available is None:
+        findings.append({
+            "severity": "warning",
+            "title": MEMORY_UNREADABLE_TITLE,
+            "detail": MEMORY_UNREADABLE_DETAIL_NO_AVAILABLE,
+            "fix": MEMORY_UNREADABLE_FIX,
+            "fix_command": MEMORY_UNREADABLE_FIX_COMMAND,
+            "risk": "low",
+            "category": "diagnostics",
+        })
+        # The total IS readable, so the low-RAM check below can still run.
 
     if snapshot.ram_total_gb and snapshot.ram_available_gb is not None:
         used_pct = (1 - snapshot.ram_available_gb / snapshot.ram_total_gb) * 100

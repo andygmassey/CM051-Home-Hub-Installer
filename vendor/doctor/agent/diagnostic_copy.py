@@ -466,6 +466,41 @@ LOW_RAM_DETAIL = (
     "limited to smaller models and may experience slower inference."
 )
 
+# Memory that could not be READ is not memory that is FINE (#419).
+#
+# The rule below used to raise AttributeError when the collector set no RAM
+# fields; that was caught by the crash-net in run_all_rules and reported. A
+# guard was then added -- `if snapshot.ram_total_gb and ...` -- which stopped
+# the crash and, with it, stopped the reporting. The rule now returns [] and
+# the crash-net cannot fire, because nothing is raised. A machine at 91% and
+# a machine whose memory nobody could read produce byte-identical output.
+#
+# So the unmeasurable case gets its own card. It is deliberately a WARNING,
+# not a critical: we do not know what the reading would have been, and
+# inventing a severity we cannot justify is the same lie in the other
+# direction. This mirrors RULE_CRASHED_* below, which exists for the same
+# reason and reached only via an exception.
+#
+# Two DISTINCT states are kept distinct on purpose. The guard tested
+# `ram_total_gb` for truthiness but `ram_available_gb` for `is not None`, so
+# a genuine 0/0.0 total took the identical dead path as an unread one. A
+# single undifferentiated card would re-bury exactly that difference.
+MEMORY_UNREADABLE_TITLE = "Memory usage could not be checked"
+MEMORY_UNREADABLE_DETAIL_NO_TOTAL = (
+    "Doctor could not read how much memory this Mac has, so it could not "
+    "check whether memory is under pressure. This is not a report that "
+    "memory is fine: that particular check did not complete. Every other "
+    "check on this page ran normally."
+)
+MEMORY_UNREADABLE_DETAIL_NO_AVAILABLE = (
+    "Doctor could read this Mac's total memory but not how much is "
+    "currently free, so it could not check whether memory is under "
+    "pressure. This is not a report that memory is fine: that particular "
+    "check did not complete. Every other check on this page ran normally."
+)
+MEMORY_UNREADABLE_FIX = "Send this report so we can fix the check"
+MEMORY_UNREADABLE_FIX_COMMAND = "vm_stat | head -10"
+
 
 # ── check_gdpr_export_age ────────────────────────────────────────────
 
