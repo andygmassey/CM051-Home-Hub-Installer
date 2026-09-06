@@ -1,0 +1,608 @@
+# cut-manifests/v1.0.73.yaml
+# ============================================================================
+# THE ONE CHECKLIST FOR THE NEXT CUT.
+#
+# Andy, 2026-09-05: "You keep JUST ONE checklist -- the manifest -- and cross
+# things off until they're all done before you make the next cut. Otherwise we
+# will NEVER get through this." And: "they all must pass each and every time."
+#
+# So this file is the whole gate for v1.0.73. It inherits permanent.yaml; the
+# verifier walks both and a FAIL in either fails the cut.
+#
+# TWO SECTIONS, AND THE DIFFERENCE BETWEEN THEM IS THE HONEST PART:
+#
+#   entries:        MACHINE-GATED. Every row here is proved by a real primitive
+#                   against a real box or a real tree. These cannot be ticked
+#                   by hand and cannot be forgotten.
+#
+#   open_issues:    THE FULL REGISTER of every open issue at the time of
+#                   writing. The verifier does NOT read this key -- it walks
+#                   `entries` only. Rows here carry `gated_by:` naming the
+#                   entry that proves them, or `gate: NONE YET`, which means
+#                   the fix shape is not decided and NOBODY HAS WRITTEN THE
+#                   PROOF. A `NONE YET` row is work, not coverage. Do not read
+#                   this section as protection.
+#
+# Writing a plausible-looking proof for an issue I have not measured would make
+# this file lie in exactly the way SKIP-is-not-a-pass lied for fourteen cuts.
+# So the ungated rows say so in as many words.
+# ============================================================================
+
+version: v1.0.73
+description: |
+  The single pre-cut checklist.
+
+  WHERE EACH KIND OF ROW IS ACTUALLY ENFORCED. The first version of this
+  description said "nothing ships until every entry in `entries` is satisfied".
+  That was FALSE, and it was false in the same way the defects this file exists
+  to catch are false:
+
+    grep / file rows   ENFORCED AT THE CUT. gui/Makefile runs
+                       verify_cut_manifest.sh during `make ship` and a FAIL
+                       stops the build.
+
+    box_walk_probe     NOT ENFORCED AT THE CUT. MEASURED: neither
+    rows               `--require-runtime-proofs` nor `OSTLER_BOX_HOST` appears
+                       anywhere in gui/Makefile or .github/ (control: 43 files
+                       repo-wide mention OSTLER_BOX_HOST). The primitive returns
+                       SKIP without a box, and SKIP is not a FAIL, so all 26 of
+                       these rows pass at `make ship` BY NOT LOOKING.
+                       They are enforced AT THE PROMOTE, by
+                       scripts/post_walk_qa.sh -- the only caller that passes
+                       the flag, and the thing that refuses to write a clean
+                       walk record when any probe fails.
+
+  The split is defensible: a runtime bar belongs where a box exists, not at
+  assembly. The header claiming the stronger thing was not. Andy's bar, "they
+  all must pass each and every time", is met AT THE PROMOTE, and a DMG that has
+  not passed post_walk_qa must not reach a customer.
+
+entries:
+
+  # ==========================================================================
+  # ANDY'S BAR: ALL 26 BOX-WALK PROBES MUST PASS, EVERY TIME.
+  #
+  # On the v1.0.71 walk this stood at 17 PASS / 7 FAIL / 1 CANNOT-RUN. Each row
+  # below is a runtime gate: with OSTLER_BOX_HOST set the probe MUST exit 0.
+  # CANNOT-RUN is not a pass and is not tolerated here either.
+  # ==========================================================================
+  - id: probe-app-signature-survives-first-run
+    title: "box-walk probe must PASS: app_signature_survives_first_run"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "app_signature_survives_first_run"
+
+  - id: probe-assistant-answers-grounded
+    title: "box-walk probe must PASS: assistant_answers_grounded"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "assistant_answers_grounded"
+
+  - id: probe-assistant-prompt-names-every-pwg-tool
+    title: "box-walk probe must PASS: assistant_prompt_names_every_pwg_tool"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "assistant_prompt_names_every_pwg_tool"
+
+  - id: probe-converge-kill-is-recorded
+    title: "box-walk probe must PASS: converge_kill_is_recorded"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "converge_kill_is_recorded"
+
+  - id: probe-daemon-is-listening
+    title: "box-walk probe must PASS: daemon_is_listening"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "daemon_is_listening"
+
+  - id: probe-fda-tick-can-import
+    title: "box-walk probe must PASS: fda_tick_can_import"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "fda_tick_can_import"
+
+  - id: probe-freshness-panel-has-dates
+    title: "box-walk probe must PASS: freshness_panel_has_dates"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "freshness_panel_has_dates"
+
+  - id: probe-identity-layer-is-importable
+    title: "box-walk probe must PASS: identity_layer_is_importable"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "identity_layer_is_importable"
+
+  - id: probe-ingest-coverage
+    title: "box-walk probe must PASS: ingest_coverage"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "ingest_coverage"
+
+  - id: probe-install-error-honesty
+    title: "box-walk probe must PASS: install_error_honesty"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "install_error_honesty"
+
+  - id: probe-install-manifest-complete
+    title: "box-walk probe must PASS: install_manifest_complete"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "install_manifest_complete"
+
+  - id: probe-installed-bundle-seal-intact
+    title: "box-walk probe must PASS: installed_bundle_seal_intact"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "installed_bundle_seal_intact"
+
+  - id: probe-launchagents-resolve-their-tools
+    title: "box-walk probe must PASS: launchagents_resolve_their_tools"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "launchagents_resolve_their_tools"
+
+  - id: probe-launchd-no-ephemeral-paths
+    title: "box-walk probe must PASS: launchd_no_ephemeral_paths"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "launchd_no_ephemeral_paths"
+
+  - id: probe-no-person-holds-two-contact-cards
+    title: "box-walk probe must PASS: no_person_holds_two_contact_cards"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "no_person_holds_two_contact_cards"
+
+  - id: probe-no-store-port-is-tcp-reachable
+    title: "box-walk probe must PASS: no_store_port_is_tcp_reachable"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "no_store_port_is_tcp_reachable"
+
+  - id: probe-no-unexpected-egress
+    title: "box-walk probe must PASS: no_unexpected_egress"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "no_unexpected_egress"
+
+  - id: probe-pair-state-agreement
+    title: "box-walk probe must PASS: pair_state_agreement"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "pair_state_agreement"
+
+  - id: probe-pairing-recovers-without-a-repair-storm
+    title: "box-walk probe must PASS: pairing_recovers_without_a_repair_storm"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "pairing_recovers_without_a_repair_storm"
+
+  - id: probe-people-count-agreement
+    title: "box-walk probe must PASS: people_count_agreement"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "people_count_agreement"
+
+  - id: probe-people-seed-and-retrieval
+    title: "box-walk probe must PASS: people_seed_and_retrieval"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "people_seed_and_retrieval"
+
+  - id: probe-people-stores-reconcile
+    title: "box-walk probe must PASS: people_stores_reconcile"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "people_stores_reconcile"
+
+  - id: probe-running-config-matches-disk
+    title: "box-walk probe must PASS: running_config_matches_disk"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "running_config_matches_disk"
+
+  - id: probe-source-status-artefact-is-served
+    title: "box-walk probe must PASS: source_status_artefact_is_served"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "source_status_artefact_is_served"
+
+  - id: probe-usage-journal-producers
+    title: "box-walk probe must PASS: usage_journal_producers"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "usage_journal_producers"
+
+  - id: probe-the-recovery-key-reached-the-customer
+    title: "box-walk probe must PASS: the_recovery_key_reached_the_customer"
+    incident: "#1540 LAUNCH BLOCKER: the recovery key is minted, the DEK is encrypted under it, and the customer is never shown it. Probe landed in #1557 AFTER this manifest was generated, so the file declared 25 rows against 26 probes on disk."
+    proof:
+      kind: box_walk_probe
+      probe: "the_recovery_key_reached_the_customer"
+
+  # THE INSTRUMENTS ARE COUNTED TOO. Andy, 2026-09-05: "surely we need to make
+  # sure all the instruments work as well, so I'd actually rather we count them
+  # in the manifest." A broken instrument is how a customer defect survives, so
+  # an apparatus defect is not DEFER-able on the grounds of being apparatus.
+  - id: every-probe-on-disk-is-collected
+    title: every probe-shaped script must be collected by run_box_walk.sh or exempted with a written reason
+    incident: "acceptance_gate_v1013.sh sits one directory above the collector's glob. cut-manifests/README.md records the same shape as this project's worst measurement failure: people_seed_and_retrieval sat outside it and FOURTEEN CUTS reported a gate that measured nothing."
+    proof:
+      kind: grep_in_source_at_sha
+      target: this-repo
+      path: "tests/test_every_probe_on_disk_is_collected.py"
+      pattern: "probe-shaped script"
+      must_match: true
+
+  # ==========================================================================
+  # DEFECT-ABSENCE PROOFS for defects MEASURED on the v1.0.71 walk box today.
+  # Each pattern is the broken form. must_match:false means the cut fails while
+  # the defect is still in the tree.
+  # ==========================================================================
+
+  - id: downloads-watcher-defines-its-own-deadline
+    title: the generated Downloads scanner must define the names _notify uses
+    incident: "v1.0.71 box 2026-09-05: ostler-scan-exports line 18 OSTLER_OSASCRIPT_TIMEOUT_S unbound, rc=1, importer never called"
+    proof:
+      kind: grep_in_installer
+      # THE NEEDLE OMITTED THE QUOTES, SO IT MATCHED NOTHING AND THE ROW COULD
+      # NEVER PASS. The shipped assignment wraps its default-expansion in
+      # DOUBLE QUOTES; the pattern looked for the bare, unquoted form. The
+      # exact literal is deliberately NOT reproduced in this comment: a
+      # landing check for the quoted form counted this very line and read 1
+      # where it expected 0. Describe a flagged literal, never repeat it.
+      # Measured on
+      # cf5e3193 with the fix present: old needle 0 hits, quoted needle 2.
+      #
+      # AND THE COUNT IS THE PROOF, NOT THE PRESENCE. install.sh defines this
+      # name twice once the fix is in: once in its own scope, and once inside
+      # the SCANEOF heredoc that becomes ostler-scan-exports. Only the second
+      # is the subject of this row, and the two lines are textually identical,
+      # so no single-line pattern can tell them apart. Measured:
+      #
+      #     2fb58d1e (fix ABSENT)  1 hit   <- install.sh scope only
+      #     cf5e3193 (fix PRESENT) 2 hits  <- plus the generated scanner
+      #
+      # So must_match alone would PASS on the tree that still ships the defect.
+      # min_hits: 2 is what makes this row discriminate. It requires the
+      # grep_in_installer floor added in the same PR as this row.
+      pattern: 'OSTLER_OSASCRIPT_TIMEOUT_S="\$\{OSTLER_OSASCRIPT_TIMEOUT_S:-20\}"'
+      must_match: true
+      min_hits: 2
+
+  - id: killed-converge-still-gets-catchup
+    title: the catch-up guard must consider the KILLED marker, not only .done
+    incident: "v1.0.71 box: .done AND .killed both present; agent skipped; 84 people split across two stores; 3 QA probes failed"
+    proof:
+      kind: grep_in_installer
+      pattern: "_DEDUPE_DONE_MARKER\" \\|\\| -f \"\\$_DEDUPE_KILLED_MARKER"
+      must_match: true
+
+  # THIS PAIR IS ONE PROOF, AND THE SECOND HALF IS NOT OPTIONAL.
+  #
+  # The absence row below was GREEN ON MAIN FOR THE WRONG REASON. Measured:
+  # `ASSUME_YES` appears ZERO times in install.sh on origin/main (control:
+  # `OSTLER_` appears 1655 times, so the file is readable). #1567 has not
+  # landed, so the row could not tell "the bad form is absent because the fix
+  # is right" from "the feature does not exist at all".
+  #
+  # That is precisely the defect #1153 describes -- a needle satisfied by
+  # something other than the thing it exists to prove -- sitting inside the
+  # manifest that bans it. Found by a review of my own rows, not by the gate.
+  #
+  # So the absence proof is paired with a presence proof naming the construct
+  # the fix actually introduces. Until #1567 lands the presence row is RED,
+  # which is correct: the property is unproven, and the manifest should say so
+  # rather than report a pass it did not earn.
+  # A CALL-SITE PROOF, AND THE REASON IT IS NOT AN ABSENCE PROOF.
+  #
+  # This replaced a row grepping `[[ -n "$ASSUME_YES" ]]` with must_match:false,
+  # which was wrong TWICE. It was green on main only because ASSUME_YES did not
+  # exist there at all (0 occurrences against 1655 for OSTLER_), and it would
+  # have gone RED ON THE CORRECT FIX: #1567 still contains that exact string,
+  # in a safe role, warning that a value was set which does not mean consent.
+  # Measured hits=0 on main, hits=1 on the PR. A gate that fires on the fix is
+  # worse than no gate: the debugging it causes looks like the fix broke
+  # something.
+  #
+  # Anchored to the CALL, not the definition. `_assume_yes_granted` alone is
+  # satisfied by a function that exists and is never reached -- the exact
+  # mutant TNM's #1579 shows the converge row passing.
+  - id: uninstall-consent-is-an-allowlist-not-a-non-empty-test
+    title: the uninstaller's confirm bypass must be decided by a value allowlist, at its call site
+    incident: "#1560 + review 2026-09-05: -n tests non-empty, so =0, =no and =false all proceeded to destroy. The first replacement row banned a SUBSTRING the correct fix still contains in a safe role."
+    proof:
+      kind: grep_in_installer
+      pattern: "(?m)^if _assume_yes_granted; then"
+      must_match: true
+
+open_issues:
+  - issue: 1618
+    title: "no_store_port_is_tcp_reachable measures reachability, which is the wrong predicate for a credentialed surface"
+    gate: >-
+      FIX (apparatus, counted per Andy): entry: the-probe-asks-whether-a-port-SERVES --
+      the probe classifies every MUST_BE_CLOSED port with `nc -z`, which is TCP
+      reachability. That was the right question when the stores had no auth. It
+      is the wrong one now. MEASURED by me on the walk box, unauthenticated:
+      6333 401, 7878 401, 6379 -NOAUTH, 8044 200 serving the whole wiki, 3000
+      200, 8144 listening but not answering HTTP. Of the six the probe names,
+      three refuse, two serve, and all six are reachable. So the probe is
+      alarming about the safe ports and CANNOT SEE the two that are open: 8044
+      and 6333 produce the same output line. Proof: an unauthenticated request
+      per port with the RESPONSE recorded, PASS on 401/403/NOAUTH/refused, FAIL
+      on 2xx naming the ports that served, a positive control on a port that
+      must answer for the prober (8000) so a clean sweep cannot come from a
+      broken client, and "reachable but not speaking HTTP" reported as its own
+      state rather than folded into a pass.
+  - issue: 1619
+    title: "v1018-D011 is live at v1.0.71, and no red rollforward row has a manifest row"
+    gate: >-
+      FIX (BLOCKING): entry: a-display-name-is-a-name -- MEASURED on the walk
+      box by the first real run of the rollforward gate: 1595 People pages
+      examined, 6 carrying a display_name derived from a KINSHIP term (5) or an
+      EMAIL (1). Customer-facing: the wiki is the surface a customer reads and
+      a person page titled with a relationship word is wrong in the way most
+      obvious to the person it is about. Paths deliberately withheld here and
+      by the gate, because a person page's filename is a person's name. Proof
+      must be the same 1595-page sweep returning zero of both, PLUS a positive
+      control: a seeded person whose only available label IS a kinship term
+      must still produce something, and that something must not be the kinship
+      term. Silently dropping the person would satisfy a naive check while
+      making the wiki worse.
+      STRUCTURAL HALF, and it is the reason this row exists: the checklist gate
+      enforces open ISSUES, and the rollforward registry is a SEPARATE defect
+      list, so a rollforward row can be RED against a shipped box while the
+      checklist reads all-registered. MEASURED: neither of the two red
+      rollforward rows had a manifest row. Either the checklist gate also reads
+      the rollforward MUST-FIX rows, or every red rollforward row gets an issue
+      and enters by the existing door.
+  - issue: 1601
+    title: "a probe that exceeds the manifest timeout is reported as FAIL, hiding a real diagnosis behind an instrument error"
+    gate: >-
+      FIX (apparatus, counted per Andy): entry: a-timeout-is-cannot-run --
+      verify_cut_manifest.py runs every box_walk_probe under one global
+      BOX_WALK_PROBE_TIMEOUT_SECONDS and reports an over-run as FAIL, counted
+      in the summary beside genuine failures. MEASURED 2026-09-06:
+      assistant_answers_grounded was 1 of 12 FAILs in the first live-box run;
+      re-run with no cap it completes and returns a precise verdict, 2 of 3
+      questions answered without reaching the customer's data. The cap replaced
+      a diagnosis with an instrument error. Proof: a probe that exceeds its cap
+      must be adjudicated CANNOT-RUN and counted separately, and the cap must
+      be per-probe so a conversation-driving probe can declare what it needs.
+      A timeout counted as a failure is how a real finding comes to look like a
+      broken instrument, and Andy's requirement is that every probe passes on
+      every walk.
+  - issue: 1595
+    title: "the store-port probe's header is stale in the reassuring direction"
+    gate: >-
+      FIX:(gated): entry: store-port-probe-header-is-current -- three of seven
+      rows in the probe's own header say default-OFF where the shipped default
+      is ON. Stale in the REASSURING direction is the dangerous direction: a
+      reader checking the probe to see whether auth is enforced is told it is
+      not. Andy's instruction was to count the instruments in the manifest, and
+      this is an instrument lying about its own subject. Proof: the header
+      table generated from or checked against the shipped defaults rather than
+      hand-maintained.
+  - issue: 1596
+    title: "one null date in the preferences artefact fails the whole payload, so the assistant cannot read preferences"
+    gate: >-
+      FIX:(gated): entry: a-null-date-does-not-void-the-payload -- writer emits
+      null (interest_profile.py:597), artefact keeps it, server returns it 200,
+      and the Rust reader rejects the WHOLE payload on it. A single unparseable
+      field voiding an entire customer-visible surface is the fail-open/
+      fail-shut asymmetry we keep finding. Proof: a fixture carrying one null
+      date that must still yield the other records, with a control proving the
+      reader can reject genuinely malformed input.
+  - issue: 1597
+    title: "assistant_answers_grounded cannot tell a failed turn from a recovered one"
+    gate: >-
+      FIX:(gated): entry: a-recovered-turn-is-not-a-failed-turn -- adjudicate_turn
+      greps the WHOLE transcript for a tool ERR, so any single error anywhere in
+      a turn scores tool_error even when a later call succeeded. A probe that
+      cannot distinguish recovery from failure produces reds nobody can act on,
+      which is how a suite stops being read. Sibling of #1585, merged. Proof:
+      transcript fixtures for failed, recovered and clean turns, each
+      adjudicated correctly, with the recovered one as the discriminator.
+  - issue: 1598
+    title: "pwg_knowledge_search reads a Qdrant collection that Apple Notes hydration does not write"
+    gate: >-
+      FIX:(gated): entry: the-search-reader-and-the-hydrator-agree -- the tool
+      hard-codes `evernote_knowledge`; install.sh:27922 hydrates Apple Notes
+      into `apple_notes_knowledge`. Qdrant 404s an unknown collection and the
+      tool maps 404 to Ok(empty), so the customer gets silence rather than an
+      error. This is the writer/reader contract class in its purest form and it
+      is CUSTOMER-FACING: notes are ingested and never searchable. Proof: a
+      cross-component test asserting the collection the reader queries is one
+      the installer writes, with the mismatch as the negative control.
+  - issue: 1587
+    title: "the Doctor source table covers hydrate sources only, so the whole FDA family is invisible"
+    gate: >-
+      FIX:(gated): entry: source-table-covers-every-family -- the table serves
+      hydrate sources only, so the FDA family cannot appear in it: Reminders
+      ingested 21KB and the table cannot say so. MEASURED on #1587 with
+      `ls ~/.ostler/imports/fda/` and a sentinel grep whose positive control
+      was `places`. This is a PREREQUISITE for #1589, not a follow-up: an
+      end-of-install panel built on the current table would show 13 of 15 and
+      look complete, which is the exact failure the panel exists to prevent.
+  - issue: 775
+    title: "the hydrate-sentinel control (7) has a false pass on a nested block, and types its own denominator"
+    gate: "FIX (apparatus, counted per Andy): both halves latent today, but a control with a false pass and a hand-typed denominator are instrument defects and instruments must work. Needs a proof authored"
+  - issue: 1113
+    title: "assistant_answers_grounded: tools= is empty because [mcp] servers = [], and every ungrounded turn logs outcome='ok'"
+    gate: "VERIFY -- was FIX:(apparatus, verify then close): stated root cause refuted -- pwg_* are native Rust tools, not MCP servers. The tools= emptiness is real and unexplained; gated by entry: probe-assistant-answers-grounded"
+  - issue: 1123
+    title: "pair_state_agreement can never read 2 of its 3 signals: /doctor/api/health has no pairing field"
+    gate: "VERIFY -- was FIX:(apparatus, verify then close): believed superseded by d56ce2a5 (#1532) -- probe now reads 5 signals. Gated by entry: probe-pair-state-agreement; close on a green walk, not on the diff"
+  - issue: 1125
+    title: "assistant_answers_grounded scores any pwg_* call as grounded, so it is blind to the wrong-tool case"
+    gate: "FIX: entry: grounded-is-not-a-bare-pwg-prefix -- the probe scores any pwg_* call as grounded, so a green verdict measures something weaker than it claims"
+  - issue: 1141
+    title: "usage journal has never been written on a box that has compiled and ingested for days"
+    gate: "VERIFY -- was FIX:(verify then close): both halves believed landed (install.sh:12952 writes active_workspace.toml, probe honours it). Gated by entry: probe-usage-journal-producers, which FAILED on the v1.0.71 walk -- so it is NOT closed"
+  - issue: 1143
+    title: "egress probe FAILs on declared hosts: a rotating DNS pool defeats contemporaneous resolution"
+    gate: "VERIFY -- was FIX:(apparatus, verify then close): DERP leg now in the same joint remote call (6fa2e4f4). Gated by entry: probe-no-unexpected-egress; close on a green walk"
+  - issue: 1152
+    title: "acceptance_gate_v1013 is a registered probe that the box_walk_probes README never lists"
+    gate: "FIX (apparatus, counted per Andy): the register is wrong AND the issue is wrong -- acceptance_gate_v1013 is not collected by run_box_walk.sh. Gated by entry: every-probe-on-disk-is-collected"
+  - issue: 1154
+    title: "verify_test_wiring counts a paths: trigger as an invocation, so a test that is only triggered-on reports WIRED"
+    gate: "FIX (apparatus, counted per Andy): same edit as 1156. Gated by entry: test-wiring-gate-enumerates-scripts-tests"
+  - issue: 1156
+    title: "verify_test_wiring enumerates only tests/, so all 28 files under scripts/tests/ are uncovered — including the self-test for that gate"
+    gate: "FIX: entry: test-wiring-gate-enumerates-scripts-tests -- 36 test files under scripts/tests/ have 0 rows, including the self-test for that very gate"
+  - issue: 1160
+    title: "preferences: compartment_level is stored as string 'L2', integer 2, and absent in one collection — a typed filter silently drops half the store"
+    gate: "DEFER: the string-typed writer is not in CM051, no L3 exists in that collection, and no shipped caller filters on the field. Not on the v1.0 path"
+  - issue: 1162
+    title: "assistant_answers_grounded: it is not 'one in three fails' — one exact string fails every time while a semantically identical rephrasing grounds fine "
+    gate: "FIX (already gated): entry: probe-assistant-answers-grounded -- the failing string is literally battery question line 272. Fix is daemon-side"
+  - issue: 1163
+    title: "usage_journal: six chat turns against a shipped daemon that contains the recorder produced no journal and no error — plus the roster's own denominator"
+    gate: "FIX (apparatus, counted per Andy): the recorder lives in ostler-assistant and the probe is advisory in walk_promote_scope.tsv. Gated by entry: probe-usage-journal-producers, which FAILED on the v1.0.71 walk"
+  - issue: 1164
+    title: "verify_doctor_governor_revendor.sh has 0 automated callers — its only wiring is a comment, and it falls through all three gate-coverage gates"
+    gate: "FIX (apparatus, counted per Andy): a guard with 0 automated callers is an instrument that does not run. Same class as acceptance_gate_v1013; needs a proof authored"
+  - issue: 1167
+    title: "two self-declared cut-blocking gates did not run at v1.0.48's commit — 'reachable from the cut' counts the call graph, not the trigger"
+    gate: "FIX (apparatus, counted per Andy): two self-declared cut-blocking gates did not run at the cut commit. An instrument that skips its own subject is the failure this manifest exists to end"
+  - issue: 1508
+    title: "Revisit the scoped promote gate once a launchable DMG exists"
+    gate: "DEFER: its own acceptance criterion is 'once a launchable DMG exists'. NOTE it is stale -- says 19 blocking / 5 advisory, the file says 22 / 4"
+  - issue: 1519
+    title: "cut.yml: the dry-run job can never run, because it needs a preflight that can only pass on a tag"
+    gate: "FIX (apparatus, counted per Andy): a dry-run job that can never run is an instrument that has never executed. Cheap; needs a proof authored"
+  - issue: 1538
+    title: "FDA: the assistant cannot be granted Full Disk Access by a human, and the app it asks you to drag is in a hidden directory"
+    gate: "FIX, PARTLY LANDED: the 'says nothing at all' half closed at 2fb58d1e (#1558) -- _ostler_report_assistant_fda called unconditionally at indent 0. Gated by entry: every-install-says-whether-the-assistant-can-read. RESIDUAL: the nudge still cannot self-verify without sudo. NOT a launch blocker; title over-claims"
+  - issue: 1539
+    title: "reuse_settings does not cover tailscale_confirm: the ONLY question a re-install re-asks"
+    gate: "MERGE -- was FIX:, SPLIT IN TWO: migrator half is PR #1554 (green), gate on merge. TAILSCALE HALF HAS NOTHING IN FLIGHT -- TAILSCALE_CONFIRM is at 17 sites and none writes to the settings store, so a re-install re-asks the only question it re-asks"
+  - issue: 1540
+    title: "LAUNCH BLOCKER: a BIP39 recovery phrase is generated, the DEK is encrypted under it, and the customer is never shown it"
+    gate: "FIX, MECHANISM LANDED: mint-to-reveal gap is now 24 lines (14008 -> 14032), the GUI sheet hangs off the whole body outside finished==.ok, and probe the_recovery_key_reached_the_customer is blocking. NOT still a launch blocker. RESIDUAL for v1.0.72: the shipped recovery CLI says '12-word BIP39 phrase' for a 24-character key"
+  - issue: 1541
+    title: "The RULE 2 veto is wired and still lets 53 over-merges through on a FRESH graph, and 'absence is not a conflict' is the likely seam"
+    gate: "MERGE -- was FIX:: same root cause as 1573, treat as one. PR #1578"
+  - issue: 1550
+    title: "A cut gate reads a checkout on the wrong branch and calls it a RED: the worktree guard tests the wrong property"
+    gate: "FIX (apparatus, counted per Andy): run_all_cut_gates.sh:167 tests worktree-ness rather than branch and tip, so a stale checkout produced a confident RED on a byte-identical image. OSTLER_ASSISTANT_DIR has the same exposure in the false-GREEN direction. Half an hour and it stops the cut lying both ways"
+  - issue: 1566
+    title: "ERR-14 on a cold box: the store was running and nothing could connect to it for 300s, and the install cannot tell that from a slow start"
+    gate: "FIX THE DIAGNOSIS, NOT THE TIMEOUT: a customer-reaching abort at step 16 of 41 with a wrong diagnosis. #1537 already raised the cap to 300s and the box still failed the full 300, so raising it again is not the fix. No proof authorable until the fix shape is chosen"
+  - issue: 1571
+    title: "the export watcher says 'now part of your world' on an import that matched nothing, and records the hash so it never retries"
+    gate: "FIX: the product claims work it did not do and then records the hash so it never retries. Honesty plus silent data loss. Needs a proof authored on the fix shape"
+  - issue: 1573
+    title: "RULE 2 still violated on a fresh v1.0.71 graph: 54 person nodes hold 117 Contacts cards, with the #1543 fix present in the artefact"
+    gate: "MERGE -- was FIX:: PR #1578. Root cause independently confirmed -- dedupe_merge has 0 matches for icloud_contact_uid, RULE 2, veto or mergedInto, against a control of 25 for 'def |merge'"
+  - issue: 1574
+    title: "com.ostler.ollama crash-loops 368 times behind a guard that reports OK: 'a port answers' is not 'our agent is healthy'"
+    gate: "FIX: a guard prints OK over an agent that failed 368 times, and _ollama_agent_is_running sits twelve lines above it uncalled. Needs a proof authored"
+  - issue: 1583
+    title: "a shipped privacy filter uses gte where its docstring says max, so it returns MORE private data than asked for"
+    gate: "FIX: qdrant_loader.py uses range gte where the docstring says max, and the sibling CM024 implementation uses lte. Higher = more private (health data is level 5), so a request for at-most-2 returns health data. CANNOT-RUN on whether a customer reaches it; fix regardless, the next caller inherits the inversion silently"
+  - issue: 1586
+    title: "the cut manifest is selected by text sort, so v1.0.9 outranks v1.0.72 and v1.0.100"
+    gate: "FIX: verify_cut_manifest.py:2194 sorts filenames as TEXT. Measured: sorted([v1.0.72, v1.0.100, v1.0.9])[-1] = v1.0.9. Correct today only by accident of every patch being two digits and >= 11. Silent and it INVERTS a gate -- the verifier reports PASS having checked the wrong checklist. Sort on a parsed tuple and REFUSE an unparseable name rather than sorting around it"
+  - issue: 1634
+    title: "usage-journal gate: a producer nobody asked reads as a producer that broke"
+    gate: "NOT BLOCKING (reporting accuracy, not a shipped defect): verify_usage_journal_producers.py computes missing = [p for p in required if p.hits == 0] and returns EX_FAIL unconditionally once anything parsed. Its only opportunity test is GLOBAL (parsed == 0 -> CANNOT-RUN), so one producer having written is treated as proof that EVERY producer had an opportunity. cm051_ostler_fda_ingest wrote 439 records, which makes parsed > 0, so oa_daemon_chat scores FAIL whether it answered and failed to record OR nobody sent the box a channel message -- and it is matched on purpose=answering, which only a message produces. Five other causes were closed from source before concluding this: the recorder IS present at the pinned daemon bc63c445 (identical to main on all three components), cost tracking is enabled by default (default_cost_enabled -> true) and CM051 never sets [cost] (0 hits tree-wide against a 10-toml control, config.toml being generated at install.sh:13143), the record is written at loop_.rs:1247 BEFORE tool-call parsing so it is not tool-gated, and the journal path matches (tracker.rs:295 vs the probe, resolver pinned 5 ways by a gate that is 15/15 on main). CORRECTED AFTER FILING, and the correction makes the box in question WORSE not better: the opportunity signal already exists and runs in the SAME walk. assistant_answers_grounded and usage_journal_producers are both registered in cut-manifests/permanent.yaml, and the former asks the daemon real questions and counts them. On the box behind this red it reported 2 of 3 turns making no tool call, so the daemon WAS asked three questions: oa_daemon_chat had 3 opportunities and recorded nothing. The no-opportunity explanation is refuted THERE, which leaves the silence unexplained against the five causes closed above, and the only remaining candidate is the init-failure warn 'Failed to initialize global cost tracker' -- a grep of the daemon log, still CANNOT-RUN from here because the box is not mine to touch. CLOSING CONDITION: a producer that never had an opportunity reports CANNOT-RUN per producer and never PASS, with a control proving a genuinely stopped producer is still FAIL so the verdict narrows rather than silencing. The fix does NOT need a new instrument -- it consumes what assistant_answers_grounded already measures for purpose-matched producers."
+  - issue: 1589
+    title: "end-of-install panel: show what Ostler set up, from surfaces the box can evidence (not the operator QA suite)"
+    gate: "FIX: Andy asked for the QA results at the end of the install. The operator suite cannot run there (it is ssh-driven, needs the probe checkout which the DMG does not carry, and needs credentials). The buildable version reads /api/v1/sources plus the agent census, both already produced on the box. BLOCKED ON #1587: built on the current table it would show 13 of 15 and look complete"
+  - issue: 1656
+    title: "Both kinship fixes are merged upstream and absent from the artefact, and the shipped contact_syncer is in no manifest tree so nothing can say so"
+    gate: "PART FIXED IN THIS CUT, REST DEFERRED, AND ONE PREMISE CORRECTED. THE PAYLOAD IS CARRIED: CM041 #142 and HR015 #755 were both merged this morning and measured ABSENT from this tree -- _source_is_the_users_own 0 in both CM051 contact_syncer copies, is_kinship_given_name 0 in vendor/cm041/identity_resolver/canonical_name.py, against controls of _read_abcddb_as_vcards 2 and choose_canonical_display_name 1 in the same files so the zeros are real. Both are now grafted. canonical_name.py was byte-identical to CM041's PRE-FIX blob (e340bb45 both sides), so the post-fix blob ea991070 is an exact lossless update rather than a graft. PROVED BY BEHAVIOUR ON THE FILE THAT SHIPS, not by grep: 5/5 correct after (a kinship given name with candidates elects the real candidate; with none it falls back to the family name alone; an ORDINARY given name is unchanged, which is the must-not-break control), and the NEGATIVE CONTROL on the blob main shipped an hour ago is 4/5 WRONG, composing the kinship word onto the surname in both of the two kinship cases -- the operator's actual defect, reproduced on the shipping tree. AND IT IS NOW GATED: scripts/verify_dmg_delivers_fixes.sh gains two PAYLOAD rows reading the mounted DMG, so a future cut that drops either fix is CANNOT-RUN or FAIL, never a silent pass; the file carried exactly one payload row before this, so every payload fix since #1543 shipped unproven. PREMISE CORRECTED: the issue says install.sh:18411 stages the REPO-ROOT contact_syncer. On a customer box it does not. gui/project.yml:847 copies the CONTENTS of vendor/cm041/ to the Resources root, and SCRIPT_DIR at install time IS that root, so the VENDORED tree is what a customer runs -- which rule-2-holds-on-the-write.yml:23 already records ('out of vendor/cm041, 1 reference; zero to the repo-root copy'). Both copies were grafted anyway, so the fix ships under either reading. DEFERRED TO v1.0.73, unchanged and still true: the repo-root contact_syncer/ has no [[tree]] row (0 of 24 blocks cover it, against 11 $HR015 trees proving the predicate is live), so verify_vendor_fresh.sh cannot see it drift; vendor/cm041/contact_syncer's source_repo names a repo whose history has never contained _read_abcddb_as_vcards (git log -S over the full history: empty), the reader arriving only via vendor/divergences/cm041_contact_syncer.patch; and the two CM051 copies remain divergent twins. Those are register accuracy, not customer-reaching behaviour, and none of them blocks a walk."
+  - issue: 1660
+    title: vane 3000 and the 8144 tailnet gate are the two surfaces #1609 did not cover
+    gate: >-
+      SPLIT, and no longer a single DEFER. Andy's call 2026-09-06: fix now rather than
+      inherit the deferral, because DECISION_550_what_shut_means_2026-08-28.md:107-108
+      parked all three browser surfaces on one premise -- a browser surface "can take no
+      bearer" -- and #1594 refuted that premise and shipped the refutation on 8044. A
+      decision is only as good as the reason recorded under it. || 3000 vane: FIX
+      (BLOCKING privacy), PR #1672. vane no longer publishes; store-proxy publishes 3000
+      behind auth_basic with the credential in a 0600 include, plus websocket passthrough
+      because vane is a chat UI and a proxy_pass without the Upgrade/Connection pair
+      authenticates the page and then silently stops the conversation streaming. Validated
+      against the pinned nginx image, and the check discriminates: with the map removed
+      nginx refuses with [emerg] unknown "ostler_connection_upgrade" variable. Test is
+      two-sided, 2 pass / 6 fail against origin/main and 8 pass / 0 fail with the fix, and
+      the 2 arms that pass BOTH ways are the controls. || 8144 tailnet gate: DEFER pending
+      an ARCHITECTURAL DECISION BY ANDY, not pending effort. The fact that was missing is
+      now measured: `tailscale serve` CAN target a unix socket (its own help names
+      unix:/tmp/myservice.sock), so 8144 needs no credential at all and filesystem
+      permissions would carry it. BUT the gate runs inside colima and a socket does not
+      cross that boundary, which probes/no_store_port_is_tcp_reachable.sh:97-108 already
+      measured. So the choice is "move the gate to the host" versus "auth_basic like the
+      other two", and it is a real choice.
+  - issue: 1679
+    title: "post-launch: revisit serving the wiki natively instead of from wiki-site"
+    gate: "DEFER: Andy filed this as post-launch on its face -- the title says
+      `post-launch:` and the body records a deferral decision already taken on
+      2026-09-06. It asks whether the wiki should be served natively rather than
+      out of the wiki-site container. That is an ARCHITECTURE question, not a
+      defect in the artefact being cut: the wiki serves correctly today through
+      wiki-site behind the 8144 gate, so nothing a customer receives is wrong.
+      Registered rather than left out, because an unregistered open issue is
+      exactly what this file exists to prevent, and because a deferral whose
+      reason is not written down cannot be audited later -- only obeyed."
+  - issue: 1685
+    title: "the pairing QR does not carry a wiki credential, and the seamless-wiki expectation depends on it"
+    gate: "DEFER: the credential IS delivered today, just not by the QR.
+      install.sh:31256 prints the wiki sign-in on the completion screen and
+      31267 pbcopies the password, with the clipboard write GUARDED rather than
+      assumed and no 2>/dev/null on the probe -- claiming a clipboard write that
+      did not happen would be worse than silence. Basic auth then prompts ONCE
+      per browser and both Safari and Chrome offer Keychain. That was Andy's own
+      call, recorded at install.sh:31257: `MAKE THE PROMPT A PASTE, NOT A MEMORY
+      TEST ... the credential is right, the friction is not`. So this is a
+      convenience gap, not a capability gap, and the customer is not stuck.
+      NOT gated BLOCKING on purpose, and #1680 makes that word cost something:
+      a cut now refuses while any BLOCKING row's issue is open, so mis-gating
+      this would stop a launch over a paste. Carrying a credential in a QR is
+      also a DIFFERENT threat surface -- a code photographed off a screen, or
+      left in a screenshot -- and that deserves deliberate design rather than a
+      launch-eve change. Filed by TNM after I measured that the 3.3 envelope
+      carries the GATEWAY pairing token and no wiki credential field; the
+      seamless-via-QR belief was aspirational, and correcting Andy on it was
+      mine to do. Revisit for v1.0.1 alongside the Live Activities work."
+  - issue: 1690
+    title: "the shipped owner node still accumulates display names; fixed upstream in CM041 fdedb71"
+    gate: "FIX: same family as 1619 and it is the DATA half rather than the code
+      half. CM041 fdedb71 fixes the writer; a node that has ALREADY accumulated
+      names is not repaired by fixing what writes them, which is the lesson
+      recorded when a generator was fixed at source and 1516 wrong links sat
+      unchanged for twelve more days. Needs the purge, CM041 #148, and it is
+      TNM's thread. Not gated BLOCKING here only because 1619 already carries
+      that disposition for this family and two blocking rows for one defect
+      would double-count the cut."
