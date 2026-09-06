@@ -621,7 +621,69 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
             echo "  rather than a reset that quietly did less than it said."
             exit 2
         fi
-        echo "WIPE CONFIRMED: 0 ostler_ volumes remain (was ${_before:-0} total)."
+        # THE VOLUME COUNT IS NOT THE BOX. Everything above measures Docker and
+        # nothing above measures the filesystem, so "WIPE CONFIRMED" was a claim
+        # about VOLUMES wearing the format of a claim about the BOX.
+        #
+        # MEASURED 2026-09-06 on the walk box: 29 files under the content root
+        # predated the install that was live at the time, and 42M of Captures,
+        # Conversations, Daily-Briefs, Exports, Transcripts and Wiki survived a
+        # wipe that had already printed CONFIRMED. 4 of the 26 box-walk probes
+        # read under that root, including the two that open the compiled wiki
+        # index. One of them treats a MISSING index as CANNOT-RUN, which is the
+        # correct third state -- and a surviving index from the previous walk
+        # disarms exactly that arm, so a walk where the compiler never ran can
+        # be graded against output the previous walk left behind. Fail-open,
+        # fail-open is the direction that ships.
+        #
+        # WHY THEY SURVIVE, AND IT IS NOT A DEFECT IN THE UNINSTALLER. Run
+        # without --remove-content it ASKS whether to keep the content root,
+        # and on a non-tty `read` fails, so it takes its documented safe
+        # default and keeps. That default is RIGHT for a customer: never
+        # destroy a customer wiki because stdin was closed. It is wrong for a
+        # walk, whose entire purpose is a cold box.
+        #
+        # The harness removes the root ITSELF rather than passing
+        # --remove-content, because the uninstaller on the box is the one the
+        # INSTALLED version wrote, and an older one exits 2 on an argument it
+        # does not know. Removing it here works against every version, which is
+        # the point of using the shipped uninstaller in the first place.
+        _CONTENT_ROOT="$HOME/Documents/Ostler"
+        case "$_CONTENT_ROOT" in
+            /*/Documents/Ostler) : ;;
+            *)  echo "REFUSING to remove an unexpected content root: ${_CONTENT_ROOT}"
+                echo "  \$HOME is not what this harness assumes; nothing was deleted."
+                exit 2 ;;
+        esac
+        if [ -e "$_CONTENT_ROOT" ]; then
+            echo "content root survived the uninstaller, which is its documented default:"
+            echo "  removing it for the walk: ${_CONTENT_ROOT}"
+            rm -rf "$_CONTENT_ROOT"
+        fi
+
+        # NOW COUNT WHAT IS LEFT, allowing only the keep the uninstaller
+        # DECLARES in its own --help: "Always removes ~/.ostler/ (except
+        # power.conf)". An UNDECLARED survivor is residue, and residue is
+        # CANNOT-RUN rather than a reset that quietly did less than it said.
+        _fs_left=0
+        if [ -d "$HOME/.ostler" ]; then
+            _fs_left=$(find "$HOME/.ostler" -mindepth 1 -maxdepth 1 ! -name power.conf 2>/dev/null | grep -c . || true)
+        fi
+        _content_left=0
+        if [ -e "$_CONTENT_ROOT" ]; then
+            _content_left=$(find "$_CONTENT_ROOT" -type f 2>/dev/null | grep -c . || true)
+        fi
+        if [ "${_fs_left:-0}" -gt 0 ] || [ "${_content_left:-0}" -gt 0 ]; then
+            echo "WIPE INCOMPLETE ON DISK: ${_fs_left} undeclared entr(ies) under ~/.ostler,"
+            echo "  ${_content_left} file(s) under ${_CONTENT_ROOT}."
+            find "$HOME/.ostler" -mindepth 1 -maxdepth 1 ! -name power.conf 2>/dev/null \
+                | head -10 | sed "s|^|    |"
+            echo "  The next walk would be grading carried-over content, so this is"
+            echo "  CANNOT-RUN, not a wipe."
+            exit 2
+        fi
+        echo "WIPE CONFIRMED: 0 ostler_ volumes remain (was ${_before:-0} total),"
+        echo "  0 undeclared entries under ~/.ostler, 0 files under ${_CONTENT_ROOT}."
         # AND SAY SO IN THE RECORD. This block runs in its OWN ssh session, so
         # the _ran_uninstaller variable in the reset block below never sees it.
         # Without this line a walk that really did wipe would be recorded as
