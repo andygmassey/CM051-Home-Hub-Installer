@@ -29,6 +29,7 @@ on:
     paths:
       - 'cut-manifests/**'
       - 'tests/test_the_cut_checklist_is_complete.py'
+      - 'tests/test_a_blocking_row_stops_a_cut.sh'
       - '.github/workflows/cut-checklist-complete.yml'
   push:
     branches: [main]
@@ -64,3 +65,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 tests/test_the_cut_checklist_is_complete.py
+
+      # The gate above is only as good as the proof that it FIRES. This drives
+      # it with a stubbed `gh` and a fixture manifest: a BLOCKING row whose
+      # issue is open must stop a cut, a CLOSED one must not, "NOT BLOCKING"
+      # must not match, and an unreadable issue list must refuse rather than
+      # pass. Measured against origin/main's blob, the pre-fix subject exits 0
+      # on a live BLOCKING row during a cut.
+      - name: A BLOCKING row actually stops a cut
+        # `if: always()` because verify_ci_steps_are_maskless caught this step
+        # being SKIPPED when the check above it fails -- a gate you have read,
+        # not a gate you have run.
+        if: always()
+        run: bash tests/test_a_blocking_row_stops_a_cut.sh
