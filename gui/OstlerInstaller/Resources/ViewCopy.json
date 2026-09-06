@@ -321,6 +321,7 @@
     "status_see_log": "see log",
     "open_ostler_button": "Open Ostler",
     "open_wiki_button": "Open your Wiki",
+    "wiki_signin_hint": "Your wiki asks for a password the first time. Sign in as ostler – your password is in ~/.ostler/secrets/wiki_password, and your browser will offer to remember it.",
     "auto_quit_note": "This installer closes on its own shortly. Everything above keeps running without it.",
     "keep_installer_label": "Keep this installer",
     "keep_installer_help": "Keeping it means you can run it again to repair or update Ostler without downloading anything. Untick to move it to the Trash when this window closes.",

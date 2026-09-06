@@ -167,6 +167,7 @@ struct InstallCompleteView: View {
         // Reveal-in-Finder lives in the bottom toolbar already so we
         // don't repeat it here.
         Divider()
+        VStack(alignment: .leading, spacing: .ostlerSpace1) {
         HStack(spacing: .ostlerSpace2) {
             Button(action: openOstlerHub) {
                 HStack(spacing: .ostlerSpace1) {
@@ -190,6 +191,30 @@ struct InstallCompleteView: View {
             .buttonStyle(.bordered)
 
             Spacer()
+        }
+
+        // #1725. "Open your Wiki" opens http://localhost:8044, which has sat
+        // behind auth_basic since #1609 (34201cb4). Before that it opened the
+        // wiki; now it opens a browser password box, and this screen is the
+        // LAST thing a customer sees.
+        //
+        // The credential is not secret from the person installing -- it is
+        // theirs, written 0600 on their own disk -- but it was only ever
+        // announced on the terminal path. install.sh prints the username, the
+        // password and a clipboard copy in its "Next steps" banner, and that
+        // banner has no gui_active guard so it still runs under OSTLER_GUI=1;
+        // it just lands in the scrolling log, hours of install before the
+        // button that needs it.
+        //
+        // Deliberately says WHERE the password is rather than "we copied it to
+        // your clipboard". The installer only claims the clipboard when pbcopy
+        // actually succeeded, and this view cannot observe that. A promise the
+        // GUI cannot verify is the failure mode install.sh's own comment warns
+        // about: claiming a clipboard we could not write is worse than silence.
+        Text(ViewCopy.shared.string(for: "install_complete.wiki_signin_hint"))
+            .font(.ostlerCaption)
+            .foregroundStyle(Color.ostlerInkSubdued)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, CGFloat.ostlerSpace4)
         .padding(.vertical, CGFloat.ostlerSpace2)
