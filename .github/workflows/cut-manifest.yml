@@ -116,6 +116,7 @@ jobs:
           pip install pyyaml pytest
 
       - name: Run verify_cut_manifest smoke tests
+        if: always()
         run: |
           python -m pytest scripts/tests/test_verify_cut_manifest.py scripts/tests/test_grep_in_source_at_sha_names_files.py -v
 
