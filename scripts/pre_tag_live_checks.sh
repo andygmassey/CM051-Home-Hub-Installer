@@ -155,12 +155,39 @@ if [ -n "$_dpin" ]; then
         _cmp="$(gh api "repos/ostler-ai/ostler-assistant/compare/${_dpin}...${_dhead:0:40}" 2>/dev/null)"
         _ahead="$(printf '%s' "$_cmp" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("ahead_by",""))' 2>/dev/null)"
         if [ -n "$_ahead" ] && [ "$_ahead" -gt 0 ] 2>/dev/null; then
-            _touch=0
-            for _sha in $(printf '%s' "$_cmp" | python3 -c 'import json,sys; print(" ".join(c["sha"] for c in json.load(sys.stdin).get("commits",[])[:20]))' 2>/dev/null); do
-                gh api "repos/ostler-ai/ostler-assistant/commits/${_sha}" --jq '.files[].filename' 2>/dev/null \
-                    | grep -q '^crates/' && _touch=$((_touch + 1))
-            done
-            RED=1; row "daemon pin vs oa/main" "RED" "oa/main is ${_ahead} commit(s) ahead of pin ${_dpin}, ${_touch} touching crates/** -- and crates/** is what permanent-daemon-freshness counts. It fails INSIDE the build, after signing has started."
+            # DECIDE ON THE SCOPED COUNT, WHICH IS WHAT THE COMMENT ABOVE ALWAYS
+            # SAID AND WHAT THE CODE DID NOT DO. Until 2026-09-06 this computed
+            # _touch and then went RED on _ahead regardless, so ANY commit to
+            # oa/main -- a README, a CI workflow, a release script -- blocked the
+            # tag and demanded a re-pin. A re-pin is a full sign-and-notarise
+            # cycle producing a BYTE-IDENTICAL daemon. Measured on this very cut:
+            #
+            #     ahead_by 3, files touching the binary 0, total files 3
+            #     .github/workflows/ci.yml
+            #     release/test_cut_release_tag_can_actually_cut_a_tag.sh
+            #     scripts/release/cut_release_tag.sh
+            #
+            # DELIBERATELY WIDER THAN THE GATE IT PREDICTS. permanent-daemon-
+            # freshness counts crates/** ALONE. A root Cargo.toml / Cargo.lock /
+            # rust-toolchain change reaches the built binary and that gate is
+            # blind to it, so this row counts those too. If the two ever
+            # disagree, this row is not wrong -- the build gate is blind, and
+            # that disagreement is the finding.
+            _touch=0; _touch_files=""
+            _cmpfiles="$(gh api "repos/ostler-ai/ostler-assistant/compare/${_dpin}...${_dhead:0:40}" --jq '.files[].filename' 2>/dev/null)"
+            if [ -z "$_cmpfiles" ]; then
+                # A ZERO HERE MUST NOT READ AS "NOTHING REACHES THE BINARY".
+                CANT=1; row "daemon pin vs oa/main" "CANNOT-RUN" "oa/main is ${_ahead} ahead of ${_dpin}, but the compare API returned NO file list. That is a failure to look, not a clean diff."
+            else
+                _touch_files="$(printf '%s\n' "$_cmpfiles" | grep -E '^crates/|^Cargo\.toml$|^Cargo\.lock$|^rust-toolchain')"
+                _touch="$(printf '%s\n' "$_touch_files" | grep -c . || true)"
+                _allf="$(printf '%s\n' "$_cmpfiles" | grep -c . || true)"
+                if [ "$_touch" -gt 0 ]; then
+                    RED=1; row "daemon pin vs oa/main" "RED" "oa/main is ${_ahead} commit(s) ahead of pin ${_dpin}, and ${_touch} of ${_allf} changed file(s) reach the built binary. permanent-daemon-freshness fails INSIDE the build, after signing has started."
+                else
+                    row "daemon pin vs oa/main" "GREEN" "oa/main is ${_ahead} commit(s) ahead of pin ${_dpin}, but 0 of ${_allf} changed file(s) reach the built binary, so the daemon would be byte-identical. Re-pinning would spend a notarise cycle for nothing."
+                fi
+            fi
         elif [ "${_ahead:-x}" = "0" ]; then
             row "daemon pin vs oa/main" "GREEN" "pin ${_dpin} == oa/main"
         else
