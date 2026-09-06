@@ -164,6 +164,34 @@ echo "-- Wiki images: provenance AND content ---------------------------"
 # RED on images that were provably correct. A false red costs as much trust as
 # a false green: it teaches you to disbelieve the gate.
 # In a worktree, .git is a FILE (a gitdir pointer), not a directory.
+#
+# 🔴 AND A CANONICAL CLONE CAN BE ON THE WRONG BRANCH TOO (2026-09-06).
+#
+# The check above was written for the 2026-08-07 incident described in the note,
+# and it fixed exactly ONE of the two ways that incident can happen. A canonical
+# clone -- .git a real directory, passes the test above -- sits on whatever branch
+# someone left it on just as a worktree does.
+#
+# Measured today: $HOME/Developer/CM044-PWG-Personal-Wiki was left on
+# fix/embed-one-chrome-band-nav-crop, 7 commits behind origin/main. The content
+# gate compared the pinned image (built from main) against that tree and returned
+# a confident RED, quoting settling-panel lines that live in the 7 missing
+# commits. Checking main out and re-running the same gate: rc=0, with its own
+# positive control firing. The image was correct the whole time.
+#
+# So the identical false RED, from the identical cause, past the guard written to
+# stop it. Comparing HEAD to origin/main is the check the worktree test was
+# really reaching for.
+#
+# CANNOT-RUN rather than RED, deliberately: the cut is still blocked (see the
+# `run` note below -- unavailable counts as red in the tally), but the operator is
+# told the checkout is wrong rather than being told the artefact is.
+_cm044_branch_ok() {
+    local d="$1"
+    git -C "$d" rev-parse --verify --quiet refs/remotes/origin/main >/dev/null 2>&1 || return 2
+    [[ "$(git -C "$d" rev-parse HEAD 2>/dev/null)" == "$(git -C "$d" rev-parse origin/main 2>/dev/null)" ]]
+}
+
 if [[ -n "$CM044_DIR" && -f "$CM044_DIR/.git" ]]; then
     unavailable "wiki image namespace" \
         "CM044_DIR is a git WORKTREE, not the canonical checkout: $CM044_DIR"
@@ -171,6 +199,17 @@ if [[ -n "$CM044_DIR" && -f "$CM044_DIR/.git" ]]; then
         "CM044_DIR is a git WORKTREE -- it sits on whoever's branch was left
                     checked out, so a mismatch here would say nothing about the cut.
                     Use the canonical clone (\$HOME/Developer/CM044-PWG-Personal-Wiki)."
+elif [[ -d "$CM044_DIR" ]] && ! _cm044_branch_ok "$CM044_DIR"; then
+    _cm044_at="$(git -C "$CM044_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
+    _cm044_behind="$(git -C "$CM044_DIR" rev-list --count HEAD..origin/main 2>/dev/null || echo '?')"
+    unavailable "wiki image namespace" \
+        "CM044_DIR is on '${_cm044_at}', not origin/main (behind by ${_cm044_behind})"
+    unavailable "wiki image CONTENT" \
+        "CM044_DIR is on '${_cm044_at}', ${_cm044_behind} commit(s) behind origin/main.
+                    Comparing the pinned image against a stale tree produces a RED that
+                    says nothing about the image -- exactly the 2026-08-07 failure, via a
+                    canonical clone instead of a worktree. git -C \"\$CM044_DIR\" fetch
+                    origin main && git -C \"\$CM044_DIR\" checkout main, then re-run."
 elif [[ -d "$CM044_DIR" ]]; then
     run "wiki image namespace" \
         "CI publishes where install.sh reads" \
