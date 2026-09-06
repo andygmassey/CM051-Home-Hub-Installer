@@ -587,11 +587,23 @@ open_issues:
       three open PRs against it (#1567, #1568, #1572), so making it the walk
       reset drives it on every walk. Gate is an INDEPENDENT residue probe that
       does not consult the uninstaller, carrying a positive control path it
-      must find on a never-wiped box. Residue is a finding AND a hard reset, so
-      the defect is not lost by being routed around. NOT YET DRIVEN. The hazard
-      is stated: if the uninstaller is the reset, a broken uninstaller
-      contaminates the next walk and the walk that would catch it runs on dirty
-      state, so the control fails for the same reason as the subject.
+      must find on a never-wiped box. DRIVEN 2026-09-06 by #1637 (merged,
+      48829bed). The uninstaller half already existed at ttywalk.sh:602; the
+      residue probe did not, and the WIPE CONFIRMED line was standing on a
+      DOCKER VOLUME COUNT ALONE while the box held 42M under ~/Documents/Ostler
+      (9802 files, 29 of them older than the live install). The probe now
+      measures the filesystem, allows only the keep the uninstaller declares in
+      its own --help (power.conf), and takes its positive control BEFORE the
+      wipe: if neither root existed beforehand, the zero is CANNOT-CONFIRM-WIPE
+      rather than a clean box. Test: 7 limbs, mutation-tested 5/5.
+      ONE CLAUSE DEPARTED FROM DELIBERATELY, ANDY TO RULE: residue is a finding
+      and a REFUSAL to walk, not a finding plus a hard reset. Refusing is
+      stronger (a hard reset lets the walk proceed and a green walk buries the
+      uninstaller defect) and a reset here would rebuild the second wall of rm
+      lines that dev-wipe-studio.sh already is. The original hazard still
+      stands and is why the control is independent: if the uninstaller is the
+      reset, a broken uninstaller contaminates the next walk and the walk that
+      would catch it runs on dirty state.
   # THE FULL REGISTER. The verifier does NOT read this key.
   # `gate: NONE YET` means no proof has been written. That is WORK, not cover.
   - issue: 770
