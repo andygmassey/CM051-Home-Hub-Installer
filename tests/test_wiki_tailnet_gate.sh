@@ -89,6 +89,19 @@ auth_basic_user_file /etc/nginx/ostler-wiki-htpasswd;
 WAEOF
 printf 'ostler:%s\n' "$(/usr/bin/openssl passwd -apr1 'harness-only-not-a-secret')" > "$WIKIHTPASSWD"
 
+# #1660: the generated conf now also includes the vane credential, so this
+# harness must stub it too or nginx refuses to start and the failure reads as
+# "the tailnet gate is broken" when the gate is fine. Same shape as the wiki
+# pair above. This test found the omission on the vane PR, which is what it is
+# for.
+VANEAUTH="$TMP/ostler-vane-auth.conf"
+VANEHTPASSWD="$TMP/ostler-vane-htpasswd"
+cat > "$VANEAUTH" <<'VAEOF'
+auth_basic "Ostler assistant";
+auth_basic_user_file /etc/nginx/ostler-vane-htpasswd;
+VAEOF
+printf 'ostler:%s\n' "$(/usr/bin/openssl passwd -apr1 'harness-only-not-a-secret')" > "$VANEHTPASSWD"
+
 # ── 1. Fail-closed with no owner ───────────────────────────────────
 if write_wiki_tailnet_gate ""; then
     fail "write_wiki_tailnet_gate accepted an empty owner (must return non-zero)"
@@ -155,6 +168,8 @@ else
             -v "$AUTH:/etc/nginx/ostler-store-auth.conf:ro" \
             -v "$WIKIAUTH:/etc/nginx/ostler-wiki-auth.conf:ro" \
             -v "$WIKIHTPASSWD:/etc/nginx/ostler-wiki-htpasswd:ro" \
+            -v "$VANEAUTH:/etc/nginx/ostler-vane-auth.conf:ro" \
+            -v "$VANEHTPASSWD:/etc/nginx/ostler-vane-htpasswd:ro" \
             "$NGINX_IMAGE" nginx -t >"$TMP/nginx-t.log" 2>&1; then
         cat "$TMP/nginx-t.log" >&2
         fail "pinned nginx rejected the generated config"
@@ -169,6 +184,8 @@ else
             -v "$AUTH:/etc/nginx/ostler-store-auth.conf:ro" \
             -v "$WIKIAUTH:/etc/nginx/ostler-wiki-auth.conf:ro" \
             -v "$WIKIHTPASSWD:/etc/nginx/ostler-wiki-htpasswd:ro" \
+            -v "$VANEAUTH:/etc/nginx/ostler-vane-auth.conf:ro" \
+            -v "$VANEHTPASSWD:/etc/nginx/ostler-vane-htpasswd:ro" \
             "$NGINX_IMAGE" nginx -t >/dev/null 2>&1; then
         fail "nginx -t accepted a deliberately broken gate -- this check proves nothing"
     fi
@@ -183,6 +200,8 @@ else
             -v "$AUTH:/etc/nginx/ostler-store-auth.conf:ro" \
             -v "$WIKIAUTH:/etc/nginx/ostler-wiki-auth.conf:ro" \
             -v "$WIKIHTPASSWD:/etc/nginx/ostler-wiki-htpasswd:ro" \
+            -v "$VANEAUTH:/etc/nginx/ostler-vane-auth.conf:ro" \
+            -v "$VANEHTPASSWD:/etc/nginx/ostler-vane-htpasswd:ro" \
             "$NGINX_IMAGE" nginx -t >"$TMP/nginx-t-closed.log" 2>&1; then
         cat "$TMP/nginx-t-closed.log" >&2
         fail "the fail-closed placeholder is not valid nginx -- store-proxy would not start"
@@ -227,6 +246,8 @@ STUBEOF
             -v "$AUTH:/etc/nginx/ostler-store-auth.conf:ro" \
             -v "$WIKIAUTH:/etc/nginx/ostler-wiki-auth.conf:ro" \
             -v "$WIKIHTPASSWD:/etc/nginx/ostler-wiki-htpasswd:ro" \
+            -v "$VANEAUTH:/etc/nginx/ostler-vane-auth.conf:ro" \
+            -v "$VANEHTPASSWD:/etc/nginx/ostler-vane-htpasswd:ro" \
         "$NGINX_IMAGE" >/dev/null
 
     # Wait for the listener rather than sleeping blind.

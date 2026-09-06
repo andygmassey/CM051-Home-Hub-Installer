@@ -96,6 +96,7 @@ on:
       # path entry, editing this test does not trigger the workflow that
       # is the only thing checking it.
       - 'tests/test_the_wiki_port_demands_a_credential.sh'
+      - 'tests/test_the_vane_port_demands_a_credential.sh'
       # #1594 follow-on: the readiness poll must survive the credential.
       - 'tests/test_the_wiki_health_check_survives_the_credential.sh'
       # Same class: a loopback probe answered by a customer's proxy.
@@ -170,6 +171,13 @@ jobs:
       - name: Assert the wiki port demands a credential (#1594)
         if: always()
         run: bash tests/test_the_wiki_port_demands_a_credential.sh
+      # #1660: the same property for vane, which held the customer's AI chat
+      # history on an unauthenticated loopback port. Its last arm restores the
+      # shipped defect in a copy and asserts arm 1 fires, so the structural arms
+      # cannot pass by resolving nothing.
+      - name: ':3000 demands a credential'
+        if: always()
+        run: bash tests/test_the_vane_port_demands_a_credential.sh
 
       # The other half of #1594: putting :8044 behind a credential made the
       # installer's own readiness poll read a protected wiki as a dead one.
@@ -221,6 +229,7 @@ jobs:
           bash -n tests/test_port_preflight_covers_published.sh
           bash -n tests/test_port_preflight_recognises_own_colima_567.sh
           bash -n tests/test_the_wiki_port_demands_a_credential.sh
+          bash -n tests/test_the_vane_port_demands_a_credential.sh
           bash -n tests/test_the_wiki_health_check_survives_the_credential.sh
           bash -n tests/test_a_loopback_probe_must_not_ask_a_proxy.sh
           bash -n tests/test_sudo_gate_accepts_passwordless_sudo.sh
