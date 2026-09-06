@@ -23,6 +23,7 @@ on:
     paths:
       - 'install.sh'
       - 'tests/test_install_diagnostics_survive_the_run.sh'
+      - 'tests/test_a_named_log_must_outlive_the_message.sh'
       - '.github/workflows/install-diagnostics-durable.yml'
   push:
     branches: [main]
@@ -55,3 +56,15 @@ jobs:
       # that does not apply proves nothing and was re-run rather than recorded.
       - name: An install leaves its diagnostics somewhere durable
         run: bash tests/test_install_diagnostics_survive_the_run.sh
+
+      # The sibling above proves the COPY happens. It never looks at what the
+      # warnings NAME -- and this file's own header already listed the three
+      # loudest of them. Measured on main: 6 of 7 user-facing messages still
+      # cited the purgeable path, 5 with no persist above them, including the
+      # `*)` arm of the namespace-migration case sitting directly beneath the
+      # `124|137` arm that HAD been fixed.
+      #
+      # `if: always()` so an earlier red does not delete this measurement.
+      - name: A named log must outlive the message that names it
+        if: always()
+        run: bash tests/test_a_named_log_must_outlive_the_message.sh
