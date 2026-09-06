@@ -18,9 +18,15 @@ name: tests-unwired-sweep-al
 #     and plutil, which do not exist on ubuntu. It runs where the code runs.
 #
 # NOT wired here, by design (each recorded in the batch triage):
-#   * test_every_fail_call_has_error_code.sh          FIX-NEEDED: 2 bare `fail`
-#       callsites in install.sh (port-preflight) lack CX-17 error codes. Wiring a
-#       red is not allowed; wire after both sites become fail_with_code.
+#
+#   test_every_fail_call_has_error_code.sh WAS listed here with
+#   "FIX-NEEDED: 2 bare `fail` callsites in install.sh (port-preflight)".
+#   BOTH HALVES OF THAT ARE NOW FALSE, so the entry is removed rather than
+#   left to mislead: install.sh has ZERO bare callsites (52 fail_with_code,
+#   and the single `fail "$*"` inside fail_with_code() is the delegation the
+#   test itself excludes), and the test is WIRED to cold-box-source-truth.yml
+#   at line 321, where it passes. A deferral list that still names a finished
+#   item teaches the next reader that the work is outstanding.
 #   * test_calendar_attendee_resolve_before_create.py FIX-NEEDED: the vendored
 #       ostler_fda.pwg_ingest still mints-a-URI-then-checks-self instead of
 #       resolving an existing person before creating one (no
