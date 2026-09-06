@@ -16490,9 +16490,18 @@ _port_is_our_own_forward() {
         3000|6379|8044|8144)
             # ⛔ SOLE-TENANCY BOUND for the credential-less ports (#567 B1,
             # @ARCHIE cleared "narrows -> closes"). vane (3000), redis (6379),
-            # 8144 has no per-install HTTP credential to probe, and 8044's
-            # credential (#1594) is HTTP Basic on a browser surface rather
-            # than a header this helper could send, so for BOTH of them
+            # ⚠️ STALE CLAIM CORRECTED 2026-09-06. This used to read "8144
+            # has no per-install HTTP credential to probe". THAT IS NO LONGER
+            # TRUE: #1683 put the same wiki credential on the 8144 gate that
+            # #1594 put on 8044, and #1672 put one on 3000. All three now
+            # demand HTTP Basic. The BOUND below is unchanged and still
+            # correct -- it rests on sole tenancy, not on the absence of a
+            # credential -- but the reason written under it was wrong, and a
+            # bound whose stated grounds are false cannot be audited, only
+            # obeyed. (8044's credential is Basic on a browser surface; this
+            # helper COULD send it with `curl -u`, as install.sh does for the
+            # 8044 readiness probe. It does not, and that is a choice, not an
+            # impossibility.) So for these ports
             # ownership rests on signal 1 + the single-machine
             # invariant: on a one-Ostler-stack Mac, this user's colima forward
             # on this port IS our service. #549 (a cross-account holder an

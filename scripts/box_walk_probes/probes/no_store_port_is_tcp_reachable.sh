@@ -193,8 +193,17 @@ PROBE_QUESTION="can any local account open a TCP connection to an Ostler store o
 #                                          8044 -- and 8044 is now solved, so
 #                                          the answer transfers rather than
 #                                          being unknown. Tracked as #1660.
-#   8144  wiki tailnet gate            -> its identity check is client-supplied
-#                                        over a local connection (see above).
+#   8144  wiki tailnet gate            -> WAS: its identity check is
+#                                        client-supplied over a local
+#                                        connection. CLOSED by #1683, which
+#                                        added the same credential 8044 has
+#                                        carried since #1594. This row's own
+#                                        question below -- "can tailscale serve
+#                                        be pointed at anything other than a
+#                                        host TCP port? If no, it joins 8044
+#                                        and 3000 and is solved by whatever
+#                                        solves those" -- was answered NO, and
+#                                        that is exactly what happened.
 #                                        Its ONLY consumer is `tailscale serve`
 #                                        on the host, so it must stay a TCP
 #                                        port; the UDS alternative is dead per
@@ -203,9 +212,20 @@ MUST_BE_CLOSED="6333 7878 6334 6379 8044 3000 8144"
 
 # ── ⚠️ 8144: EXPECTED RED, AND DO NOT "FIX" IT BY UNPUBLISHING THE PORT ──────
 #
-# 8144 belongs in the list: its two identity limbs are request headers, and a
-# local client that never traverses tailscaled supplies them itself. That is
-# real and it is why the port is here.
+# 8144 belongs in the list, but NO LONGER FOR THE REASON FIRST WRITTEN HERE.
+#
+# WAS: "its two identity limbs are request headers, and a local client that
+# never traverses tailscaled supplies them itself". That was true and it is
+# now fixed -- #1683 added the wiki credential INSIDE the 8144 server block,
+# measured against the pinned nginx: a forged owner header went 200 -> 401,
+# the credentialled owner still gets 200 and the body, and a wrong password
+# gets 401.
+#
+# It stays in MUST_BE_CLOSED because THIS SENSOR MEASURES TCP REACHABILITY,
+# NOT AUTHENTICATION, and the port must remain published (see below). That is
+# the same footing 8044 and 3000 are on. A red here now means "a local account
+# can OPEN a socket", which is true and unavoidable, and no longer means "a
+# local account can READ THE WIKI", which was the frightening half.
 #
 # But it CANNOT be closed the way 6334 and 6379 were, and the reason is
 # measured rather than assumed:
