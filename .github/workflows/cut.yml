@@ -309,6 +309,35 @@ jobs:
         if: always()
         run: ./tests/test_cut_bom_is_fresh.sh --self-test
 
+      # THE BOM SAYS WHAT MUST SHIP. THE PIN SAYS WHAT WILL BE BUILT.
+      # NOTHING COMPARED THEM.
+      #
+      # MEASURED 2026-09-06 on v1.0.72 with the pin at c6b5932c:
+      #   OS003 gates/verify_must_contain.sh   11 rows, 0 not landed
+      #   this gate, the same 11 rows           1 in the pin, 8 ABSENT
+      # Every one of those eight says landed=yes. `landed` is a column somebody
+      # TYPED, and the gate enforcing it counts the column rather than looking
+      # at the tree that gets built.
+      #
+      # TAG PUSH ONLY, AND THAT IS THE WHOLE POINT. On a workflow_dispatch the
+      # pin is legitimately allowed to be behind main -- that is what a dry run
+      # IS -- so a verdict there would be noise, and a green there would be
+      # worthless. On a tag the pin must already be correct. Same honest limit
+      # tests/test_installer_version_matches_the_cut.sh carries, for the same
+      # reason: a check that cannot be wrong on this event cannot be right on it
+      # either.
+      #
+      # NOT `if: always()`. If an earlier step already failed the cut, this
+      # adds nothing; and unlike the freshness self-tests it needs the checkout
+      # to be the tag.
+      - name: BOM rows must be in the pinned tree
+        if: startsWith(github.ref, 'refs/tags/v1.0.')
+        run: |
+          set -euo pipefail
+          VER="${GITHUB_REF_NAME}"
+          echo "tag: ${VER}"
+          bash scripts/verify_bom_rows_are_in_the_pin.sh "$VER"
+
       # A CUT MUST NOT START ON A COMMIT WHOSE OWN CHECKS ARE RED.
       #
       # 2026-08-23, and this one is not a gate that could not see:
