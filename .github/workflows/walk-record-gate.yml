@@ -29,6 +29,9 @@ on:
   pull_request:
     paths:
       - 'scripts/verify_walk_record.sh'
+      - 'tests/test_a_remote_url_is_quoted_against_zsh_globbing.sh'
+      - 'scripts/ttywalk.sh'
+      - 'bin/rollforward_gate.sh'
       - 'scripts/publish_release.sh'
       - 'scripts/post_walk_qa.sh'
       - 'scripts/box_walk_probes/**'
