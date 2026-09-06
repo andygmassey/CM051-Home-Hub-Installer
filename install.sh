@@ -10550,8 +10550,32 @@ composite_cleanup() {
     # deliberate rather than incidental.
     if [[ -z "${OSTLER_CONSENT_ARTICLE_9_DECISION:-}${OSTLER_CONSENT_VOICE_EU_DECISION:-}${OSTLER_CONSENT_THIRD_PARTY_DECISION:-}${OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION:-}" ]] \
        || [[ "${OSTLER_CONSENT_ARTICLE_9_DECISION:-}${OSTLER_CONSENT_VOICE_EU_DECISION:-}${OSTLER_CONSENT_THIRD_PARTY_DECISION:-}${OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION:-}" != *declined* ]]; then
-        _ostler_persist_diagnostics "${OSTLER_FINAL_DIR:-${HOME}/.ostler}"
-        if [[ -n "${OSTLER_DIAG_KEPT:-}" ]]; then
+        # Guarded because this is an EXIT TRAP. Everything above it -- the
+        # sudo keepalive kill, the tmpdir and tmpfile teardown, the staging
+        # wipe -- must still happen if this helper is somehow not defined.
+        # A trap that dies part-way leaves real resources behind, and a
+        # missing helper is a worse reason to leak a sudo keepalive than any
+        # diagnostics benefit is worth. Presence is asserted by
+        # tests/test_a_named_log_must_outlive_the_message.sh, so absence is
+        # caught by a gate rather than by a crash in the trap.
+        if command -v _ostler_persist_diagnostics >/dev/null 2>&1; then
+            _ostler_persist_diagnostics "${OSTLER_FINAL_DIR:-${HOME}/.ostler}"
+        fi
+        # Single brackets on purpose. Inside this function the double-bracket
+        # emptiness test is reserved for RESOURCE FLAGS -- things
+        # composite_cleanup must release and then reset -- and
+        # tests/test_composite_cleanup.sh requires every stanza in that shape
+        # to have a matching init declaration. OSTLER_DIAG_KEPT is a result,
+        # not a resource: nothing releases it and nothing resets it, so
+        # writing it that way declared a resource that does not exist. The
+        # gate caught that, correctly.
+        #
+        # This comment PARAPHRASES the reserved shape rather than quoting it.
+        # An earlier version spelled it out, and the gate matched the comment:
+        # it reported a stanza referencing a variable named VAR, which exists
+        # nowhere but in the prose. A comment that quotes a flagged literal
+        # becomes an instance of it.
+        if [ -n "${OSTLER_DIAG_KEPT:-}" ]; then
             echo "  Install diagnostics kept at ${OSTLER_DIAG_KEPT}" >&2
         fi
     fi
