@@ -577,6 +577,17 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
             exit 2
         fi
 
+        # POSITIVE CONTROL, TAKEN BEFORE ANYTHING IS DESTROYED. The residue
+        # count below can read zero for two reasons that print identically:
+        # nothing survived, or it is looking somewhere nothing ever was. An
+        # installed box that has not been wiped MUST have both of these, so
+        # their absence here means the probe cannot see the subject and its
+        # zero is worthless. Recorded now because after the uninstaller runs
+        # there is nothing left to take a control from.
+        _CTL_OSTLER_BEFORE=0; [ -d "$HOME/.ostler" ] && _CTL_OSTLER_BEFORE=1
+        _CTL_CONTENT_BEFORE=0; [ -d "$HOME/Documents/Ostler" ] && _CTL_CONTENT_BEFORE=1
+        echo "positive control before the wipe: ~/.ostler=${_CTL_OSTLER_BEFORE} content-root=${_CTL_CONTENT_BEFORE}"
+
         # The REAL uninstaller. install.sh writes ~/.ostler/bin/ostler-uninstall
         # and the store teardown (docker compose down -v) lives inside it.
         if [ -x "$HOME/.ostler/bin/ostler-uninstall" ]; then
@@ -659,6 +670,17 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
             echo "content root survived the uninstaller, which is its documented default:"
             echo "  removing it for the walk: ${_CONTENT_ROOT}"
             rm -rf "$_CONTENT_ROOT"
+        fi
+
+        # THE CONTROL DECIDES WHETHER A ZERO MEANS ANYTHING. If neither root
+        # existed before the wipe, this is not a wiped box, it is a box this
+        # probe cannot see, and reporting it clean would be the uniform zero
+        # that reads as success.
+        if [ "${_CTL_OSTLER_BEFORE:-0}" -eq 0 ] && [ "${_CTL_CONTENT_BEFORE:-0}" -eq 0 ]; then
+            echo "CANNOT-CONFIRM-WIPE: neither ~/.ostler nor ${_CONTENT_ROOT} existed"
+            echo "  BEFORE the uninstaller ran. An installed box has both, so a zero"
+            echo "  residue count here measures the wrong place rather than a clean box."
+            exit 2
         fi
 
         # NOW COUNT WHAT IS LEFT, allowing only the keep the uninstaller

@@ -52,9 +52,19 @@ if ! bash -n "$ARM" 2>/dev/null; then
 fi
 
 # Run the arm against a synthetic HOME. Echoes "<exit>|<output>".
+# The arm reads two control flags that ttywalk captures BEFORE the uninstaller
+# runs. The test computes them the same way, from the fixture, so the harness
+# mirrors the box rather than inventing a state the box cannot be in.
 _run() {
-    local h="$1" out rc
-    out="$(HOME="$h" bash "$ARM" 2>&1)"; rc=$?
+    local h="$1" out rc w="${WORK}/run.sh"
+    local co=0 cc=0
+    [ -d "${h}/.ostler" ] && co=1
+    [ -d "${h}/Documents/Ostler" ] && cc=1
+    [ $# -ge 2 ] && co="$2"
+    [ $# -ge 3 ] && cc="$3"
+    { printf '_CTL_OSTLER_BEFORE=%s\n_CTL_CONTENT_BEFORE=%s\n' "$co" "$cc"
+      cat "$ARM"; } > "$w"
+    out="$(HOME="$h" bash "$w" 2>&1)"; rc=$?
     printf '%s|%s' "$rc" "$(printf '%s' "$out" | tr '\n' ' ')"
 }
 
@@ -62,12 +72,24 @@ _mkhome() {
     local h="${WORK}/$1"; rm -rf "$h"; mkdir -p "${h}/Documents"; printf '%s' "$h"
 }
 
-echo "── a cold box passes ──"
+echo "── a wiped box, with the control satisfied, passes ──"
 H="$(_mkhome cold)"
-R="$(_run "$H")"
+R="$(_run "$H" 1 1)"
 case "$R" in
-    0\|*) ok "a box with no ~/.ostler and no content root exits 0" ;;
-    *)    bad "a cold box exits ${R%%|*}: ${R#*|}" ;;
+    0\|*) ok "nothing left under either root, and both roots existed before, exits 0" ;;
+    *)    bad "a genuinely wiped box exits ${R%%|*}: ${R#*|}" ;;
+esac
+
+echo "── THE POSITIVE CONTROL: a zero from the wrong place is not a clean box ──"
+# The gate on #1592 asks for a control path the probe must find on a never-wiped
+# box. Without it, residue=0 has two causes that print identically: nothing
+# survived, or the probe is looking where nothing ever was.
+H="$(_mkhome nocontrol)"
+R="$(_run "$H" 0 0)"
+case "$R" in
+    2\|*CANNOT-CONFIRM-WIPE*) ok "neither root existed before the wipe, so the zero is refused as unmeasurable" ;;
+    2\|*) bad "exited 2 without naming the missing control: ${R#*|}" ;;
+    *)    bad "a box the probe cannot see exits ${R%%|*} and reads as clean" ;;
 esac
 
 echo "── the DECLARED keep is allowed ──"
