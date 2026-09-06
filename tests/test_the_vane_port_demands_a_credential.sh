@@ -103,6 +103,19 @@ else
     bad "arm 7: websocket passthrough is incomplete -- the page would authenticate and the conversation would not stream"
 fi
 
+# ARM 7b -- THE CONSUMER MUST BE ABLE TO AUTHENTICATE.
+# Closing the port is only half of it. The assistant CALLS vane
+# (web_search_tool.rs:157, a bare client.get with no Authorization header), so
+# install.sh must hand it the credential or web search 401s and blames the
+# container. reqwest takes basic auth from the URL's userinfo -- measured
+# against the pinned nginx with the proxy disabled: userinfo 200, bare 401,
+# wrong password 401.
+if grep -q 'vane_url = .http://ostler:\${VANE_PASSWORD}@localhost:3000' "${INSTALL_SH}"; then
+    ok "arm 7b: the assistant's vane_url carries the credential"
+else
+    bad "arm 7b: vane_url has no credential -- the port is shut and the assistant cannot get in, so web search 401s"
+fi
+
 # ARM 8 -- THE MUTATION CONTROL. Restore the shipped defect in a COPY and assert
 # arm 1 fires on it. Without this, arms 1-7 could all be passing because the
 # predicate resolves nothing.
