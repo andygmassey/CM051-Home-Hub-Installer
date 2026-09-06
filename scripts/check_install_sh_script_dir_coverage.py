@@ -130,7 +130,17 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "pwg_privacy.py": ['${DEST}/pwg_privacy.py'],
     "ostler_hygiene": ['${DEST}/ostler_hygiene'],
     "scripts": ["scripts/deferred-register-device.sh"],
-    "scripts/deferred-register-device.sh": ['cp "${SRC}" "${DEST}/scripts/deferred-register-device.sh"'],
+    "scripts/deferred-register-device.sh": ["scripts/deferred-register-device.sh"],
+    # ⚠️ THIS ONE IS STILL COVERAGE-BLIND AND I AM SAYING SO RATHER THAN
+    # HIDING IT. A cp-unique needle for this asset would have to be the cp
+    # LINE itself, because its source is assigned three lines earlier as
+    # SRC="${SRCROOT}/../scripts/deferred-register-device.sh" and that
+    # assignment survives deleting the cp. But
+    # tests/test_bundled_package_comes_from_its_declared_source.py reads
+    # this same dict and requires the needle to name a SOURCE PATH, and it
+    # FAILS on a cp fragment. The two gates want different things from one
+    # field, and resolving that means changing the sibling gate to take the
+    # source from the bundling block it already parses. Filed, not guessed
     # REUSE-4 (hardware-fit Ollama model picker): install.sh sources
     # ${SCRIPT_DIR}/lib/ostler-model-fit.sh, which IS bundled into
     # Resources/lib/ by the "Bundle install.sh + lib/progress_emitter.sh +
