@@ -45,7 +45,7 @@ jobs:
       - name: The comment-stripper knows a quoted # from a comment
         run: /bin/bash scripts/tests/test_comment_strip_is_quote_aware.sh
 
-      # THE GATE'S OWN SELF-TEST, which ran nowhere until 2026-09-06 (#1691).
+      # THE GATE'S OWN SELF-TEST, which ran nowhere until 2026-09-06 (#1694).
       # Its docstring opens: "This gate had no self-test, and the thing it got
       # wrong is the exact thing it exists to decide." Somebody wrote it to close
       # precisely this hole, and scripts/verify_test_wiring.sh could not see it

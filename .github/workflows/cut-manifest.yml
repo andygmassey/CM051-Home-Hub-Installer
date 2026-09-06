@@ -23,7 +23,7 @@ on:
       - 'scripts/tests/test_verify_cut_manifest.py'
       - 'scripts/tests/test_grep_in_source_at_sha_names_files.py'
       - 'scripts/tests/test_probes_do_not_emit_derivable_person_uris.py'
-      # Wired 2026-09-06 (#1691): proves the two standing wiki-image rows in
+      # Wired 2026-09-06 (#1694): proves the two standing wiki-image rows in
       # cut-manifests/permanent.yaml can actually go red, and that each is blind
       # to the other's mutations. It ran nowhere before.
       - 'scripts/tests/test_wiki_digest_pin_assertion.sh'
@@ -123,7 +123,7 @@ jobs:
         run: |
           python -m pytest scripts/tests/test_probes_do_not_emit_derivable_person_uris.py -v
 
-      # Wired 2026-09-06 (#1691). Proves the two standing wiki-image rows in
+      # Wired 2026-09-06 (#1694). Proves the two standing wiki-image rows in
       # cut-manifests/permanent.yaml can each go red, and that each is blind to
       # the other's mutations -- a shared-fixture pair that both pass on one
       # defect is the failure this guards. It ran nowhere before: scripts/tests/

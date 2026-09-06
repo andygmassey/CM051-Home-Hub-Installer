@@ -24,7 +24,7 @@ on:
       - 'scripts/verify_vendor_fresh.sh'
       - 'scripts/sync_vendor.sh'
       - 'scripts/_vendor_lib.sh'
-      # Wired 2026-09-06 (#1691): the self-test for the tool that RECORDS a
+      # Wired 2026-09-06 (#1694): the self-test for the tool that RECORDS a
       # vendored graft rather than deleting it. It ran nowhere.
       - 'scripts/regenerate_divergence_patch.sh'
       - 'scripts/tests/test_regenerate_divergence_patch.sh'
@@ -154,7 +154,7 @@ jobs:
       #
       # The REAL cross-repo gate (all source repos present, VENDOR_FRESH_STRICT=1)
       # runs as a blocking step in the HR015 cut -- see WORKSTREAM A follow-up.
-      # Wired 2026-09-06 (#1691). Self-test for the tool that RECORDS a vendored
+      # Wired 2026-09-06 (#1694). Self-test for the tool that RECORDS a vendored
       # graft rather than deleting it. SLOW BY DESIGN -- its own header budgets
       # three minutes, because each control builds a real git repo and drives the
       # real materialise path; a mocked materialiser would not exercise the

@@ -37,7 +37,7 @@ on:
       - 'scripts/verify_cut_provenance.sh'
       - 'scripts/verify_no_orphaned_fixes.sh'
       - 'scripts/verify_pr_age.sh'
-      # Wired 2026-09-06 (#1691). Three gate SELF-TESTS that ran nowhere:
+      # Wired 2026-09-06 (#1694). Three gate SELF-TESTS that ran nowhere:
       # scripts/tests/ sat outside verify_test_wiring.sh's glob, so they were
       # never reported UNWIRED -- they were unenumerable, which prints as
       # nothing and reads as a clean bill of health. Each proves its gate
@@ -224,7 +224,7 @@ jobs:
         if: always()
         run: /bin/bash tests/test_the_operator_rollforward_refuses_a_blind_environment.sh
 
-      # Wired 2026-09-06 (#1691). See the paths note above: three gate
+      # Wired 2026-09-06 (#1694). See the paths note above: three gate
       # self-tests that ran nowhere. Each proves its gate REJECTS a violation,
       # not merely that it compiles -- the distinction this repo learned the
       # expensive way.

@@ -35,7 +35,7 @@ on:
       # to itself, not only on changes to install.sh.
       - 'tests/test_skills_lockdown_config.sh'
       - 'tests/test_reuse_run_keeps_the_daily_briefs.sh'
-      # Wired 2026-09-06 (#1691). Same surface as the steps above -- the TOML
+      # Wired 2026-09-06 (#1694). Same surface as the steps above -- the TOML
       # install.sh emits -- and it ran nowhere: scripts/tests/ was outside
       # verify_test_wiring.sh's glob.
       - 'scripts/tests/test_email_channel_toml.sh'
@@ -95,7 +95,7 @@ jobs:
       #
       # `if: always()` for the same reason as the step above: a skipped gate
       # reports identically to one that ran and passed.
-      # Wired 2026-09-06 (#1691). Same surface as the steps around it -- the
+      # Wired 2026-09-06 (#1694). Same surface as the steps around it -- the
       # config.toml install.sh emits -- and it ran nowhere until now.
       - name: The channels.email TOML writer emits what the daemon expects
         run: /bin/bash scripts/tests/test_email_channel_toml.sh
