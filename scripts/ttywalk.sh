@@ -555,6 +555,19 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         _before=$("$DOCKER" volume ls --quiet 2>/dev/null | grep -c . || true)
         echo "  count: ${_before:-0}"
 
+        # THE URL BELOW IS QUOTED AND MUST STAY QUOTED. This block runs over
+        # ssh and the walk box login shell is zsh. Unquoted, zsh GLOBS the
+        # question mark in /store?default, finds no matching file, and aborts
+        # the command with "no matches found" -- so curl never runs, the dump
+        # is empty, and the guard below correctly refuses the wipe. Measured
+        # 2026-09-07: --wipe-stores had NEVER succeeded against this box for
+        # exactly this reason, and the failure reads as "the graph did not
+        # dump", which sends you looking at Oxigraph instead of at the shell.
+        # bash would have been fine. The remote shell is not yours to choose.
+        # NO BACKTICKS IN THIS COMMENT. It sits inside a heredoc that is sent
+        # over ssh, so a backtick here is command substitution, not decoration
+        # -- a first attempt at this very note broke the script, caught by
+        # bash -n against an unmodified control that parsed.
         # PRESERVE THE EVIDENCE BEFORE DESTROYING IT. The graph on this box is
         # the only copy of whatever produced the 71 absent person nodes. A wipe
         # that loses it trades one investigation for another.
@@ -563,7 +576,7 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         if [ -r "$_tok" ]; then
             if curl -fsS -m 300 -H "Authorization: Bearer $(cat "$_tok")" \
                     -H "Accept: application/n-quads" \
-                    http://127.0.0.1:7878/store?default > "$_dump" 2>/dev/null; then
+                    'http://127.0.0.1:7878/store?default' > "$_dump" 2>/dev/null; then
                 echo "graph dumped before wipe: $_dump ($(wc -c < "$_dump" | tr -d " ") bytes)"
             else
                 echo "CANNOT-WIPE: the graph did not dump, and a wipe that loses"
