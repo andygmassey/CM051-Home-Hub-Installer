@@ -18,6 +18,7 @@ name: cut-manifest
 on:
   pull_request:
     paths:
+      - 'tests/test_the_emergency_cut_row_tells_the_truth.sh'
       - 'scripts/verify_cut_manifest.py'
       - 'scripts/verify_cut_manifest.sh'
       - 'scripts/tests/test_verify_cut_manifest.py'
@@ -91,6 +92,19 @@ jobs:
           # already carries this line for the same reason.
           fetch-depth: 0
 
+      # The emergency_cut row in SHIPPING_LEDGER.yaml had TWO lies in it.
+      # Its `dirty` flag was computed inside a nested double-quoted echo, where
+      # the escaped quotes become literal characters: a CLEAN tree tested the
+      # 2-char string "" and reported dirty=true, and a DIRTY tree became
+      # multiple words, errored with "too many arguments", and reported
+      # dirty=false. Wrong in both directions, in the register Andy's mandate
+      # calls canonical. And the row itself is written when guard-local-cut
+      # ACCEPTS the invocation, before any gate runs, so it recorded an INTENT
+      # in the shape of an EVENT.
+      - name: The emergency_cut row tells the truth
+        if: always()
+        run: bash tests/test_the_emergency_cut_row_tells_the_truth.sh
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -102,6 +116,7 @@ jobs:
           pip install pyyaml pytest
 
       - name: Run verify_cut_manifest smoke tests
+        if: always()
         run: |
           python -m pytest scripts/tests/test_verify_cut_manifest.py scripts/tests/test_grep_in_source_at_sha_names_files.py -v
 
