@@ -42,6 +42,35 @@ trap 'rm -rf "$TMP"' EXIT
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 pass() { echo "ok: $*"; }
+# 🔴 THREE OUTCOMES, THREE BRANCHES. A check that could not run has not passed,
+# and it has not found a defect either. Exit 2 is this repo's CANNOT-RUN code.
+cant() { echo "CANNOT-RUN: $*" >&2; exit 2; }
+
+# ── Did nginx actually SPEAK? (#1673) ───────────────────────────────────────
+# ASK THE PROGRAM WHOSE VERDICT WE ARE REPORTING, NOT THE PROCESS THAT LAUNCHED
+# IT. `docker run ... nginx -t` exits non-zero for two completely different
+# reasons: nginx read the config and rejected it, or the container never
+# started at all. Keying the verdict on docker's exit code merges them, and
+# this file did merge them -- run from a path colima does not share, the bind
+# mount fails, no nginx process is ever created, and the harness printed
+#     FAIL: pinned nginx rejected the generated config
+# about a program that did not execute. It accused the subject.
+#
+# The readable surface is nginx's own sentence. nginx -t always prints
+# "configuration file ... test is successful" or "... test failed"; if neither
+# is present then nginx never got as far as an opinion, whatever docker's exit
+# code says. The header of this file already warned about the unshared-mount
+# trap and mitigated it by putting scratch INSIDE the repo -- which stops
+# working the moment the repo itself lives somewhere unshared, e.g. a worktree
+# under /private/tmp. So this discriminates on the OUTPUT, which no location
+# can fake.
+_nginx_verdict() {   # $1 = log file -> prints accepted|rejected|unrun
+    if   grep -q 'test is successful' "$1"; then echo accepted
+    elif grep -q 'test failed'        "$1"; then echo rejected
+    elif grep -q 'nginx: \[emerg\]'   "$1"; then echo rejected
+    else                                         echo unrun
+    fi
+}
 
 # ── Extract the generator from install.sh and run it for real ──────
 # Sourcing install.sh is impossible (it installs Ostler), so lift just
@@ -162,7 +191,7 @@ else
         || fail "store-proxy nginx.conf does not include the wiki gate"
 
     write_wiki_tailnet_gate "$OWNER" || fail "regenerating the good gate failed"
-    if ! docker run --rm \
+    docker run --rm \
             -v "$TMP/nginx.conf:/etc/nginx/nginx.conf:ro" \
             -v "$GATE:/etc/nginx/ostler-wiki-gate.conf:ro" \
             -v "$AUTH:/etc/nginx/ostler-store-auth.conf:ro" \
@@ -170,15 +199,25 @@ else
             -v "$WIKIHTPASSWD:/etc/nginx/ostler-wiki-htpasswd:ro" \
             -v "$VANEAUTH:/etc/nginx/ostler-vane-auth.conf:ro" \
             -v "$VANEHTPASSWD:/etc/nginx/ostler-vane-htpasswd:ro" \
-            "$NGINX_IMAGE" nginx -t >"$TMP/nginx-t.log" 2>&1; then
-        cat "$TMP/nginx-t.log" >&2
-        fail "pinned nginx rejected the generated config"
-    fi
-    pass "pinned nginx validates the generated store-proxy + gate config"
+            "$NGINX_IMAGE" nginx -t >"$TMP/nginx-t.log" 2>&1 || true
+    case "$(_nginx_verdict "$TMP/nginx-t.log")" in
+        accepted) pass "pinned nginx validates the generated store-proxy + gate config" ;;
+        rejected) cat "$TMP/nginx-t.log" >&2
+                  fail "pinned nginx rejected the generated config" ;;
+        unrun)    cat "$TMP/nginx-t.log" >&2
+                  cant "nginx never ran, so nothing was validated. The container did not start -- read the docker error above, not the config. This is NOT a verdict about the generated config. Commonly the repo sits on a path the container runtime does not share (colima/Docker Desktop share /Users, not /private/tmp)." ;;
+    esac
 
     # Positive control: the validator must be capable of going red.
+    # 🔴 THIS CONTROL USED TO PASS WHEN NOTHING RAN, WHICH IS WORSE THAN THE
+    # BUG IT GUARDS. It was `if docker run ...; then fail`, so a container that
+    # never started exited non-zero, the `if` was false, and the harness printed
+    # "positive control: nginx -t rejects a broken gate". The one arm whose job
+    # is to prove the validator CAN go red was itself green on a zero
+    # denominator -- and it sat directly beneath the arm it was protecting, so
+    # both lied together in the same run.
     printf 'this is not nginx syntax {\n' > "$TMP/broken-gate.conf"
-    if docker run --rm \
+    docker run --rm \
             -v "$TMP/nginx.conf:/etc/nginx/nginx.conf:ro" \
             -v "$TMP/broken-gate.conf:/etc/nginx/ostler-wiki-gate.conf:ro" \
             -v "$AUTH:/etc/nginx/ostler-store-auth.conf:ro" \
@@ -186,10 +225,13 @@ else
             -v "$WIKIHTPASSWD:/etc/nginx/ostler-wiki-htpasswd:ro" \
             -v "$VANEAUTH:/etc/nginx/ostler-vane-auth.conf:ro" \
             -v "$VANEHTPASSWD:/etc/nginx/ostler-vane-htpasswd:ro" \
-            "$NGINX_IMAGE" nginx -t >/dev/null 2>&1; then
-        fail "nginx -t accepted a deliberately broken gate -- this check proves nothing"
-    fi
-    pass "positive control: nginx -t rejects a broken gate"
+            "$NGINX_IMAGE" nginx -t >"$TMP/nginx-ctl.log" 2>&1 || true
+    case "$(_nginx_verdict "$TMP/nginx-ctl.log")" in
+        rejected) pass "positive control: nginx -t rejects a broken gate" ;;
+        accepted) fail "nginx -t accepted a deliberately broken gate -- this check proves nothing" ;;
+        unrun)    cat "$TMP/nginx-ctl.log" >&2
+                  cant "the positive control never ran nginx either, so the arm above is unproven. Refusing to report it as a pass." ;;
+    esac
 
     # The fail-closed placeholder must ALSO be valid nginx, or a
     # customer who skips Tailscale gets a store-proxy that will not boot.
