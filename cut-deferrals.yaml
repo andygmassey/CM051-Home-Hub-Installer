@@ -4713,3 +4713,20 @@ deferrals:
       despite looking handled -- a deferral keyed to a name the gate never
       generates is consumed by nothing and reports nothing.
     until_cut: "v1.0.74"
+  - ref: "daemon:tnm/close-8044-daemon-half"
+    reason: >-
+      TNM's, in ostler-assistant, and NOT mine to merge. One authored commit,
+      `3d720768 fix(wiki): serve the wiki same-origin and give the probe a real
+      status (#550)`, touching web/src/pages/Wiki.tsx and its test. It was
+      LOCAL-ONLY -- no remote ref, no PR -- so I preserved the tip as
+      `archive/2026-09-06/tnm-close-8044-daemon-half`, pushed to
+      ostler-ai/ostler-assistant and confirmed present with
+      `git ls-remote --tags`. It is no longer one `rm -rf` from gone.
+      Deferred rather than merged because this is the walk-only v1.0.73 cut,
+      whose artefact is not distributed and whose only purpose is to let #1619
+      be closed by measurement on a box. Landing a frontend change into the
+      daemon at this point would rebuild and re-notarise a daemon that is
+      already published and gate-green (hub-v0.4.73, e7598fde), and the walk
+      would then be measuring something other than what was pinned.
+      TNM: open a PR for it or delete it. The tag means neither choice loses it.
+    until_cut: "v1.0.74"
