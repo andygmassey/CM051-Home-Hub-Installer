@@ -107,6 +107,49 @@ def digest_of(hosts):
     return h.hexdigest()
 
 
+# A public privacy document must say WHAT IT WAS MEASURED ON. Without it a
+# reader cannot tell whether they are looking at a current statement or an
+# archaeological one, and neither can we.
+#
+# ADDED AFTER A MEASUREMENT, NOT A HUNCH. The binding check above passes with
+# this line deleted outright: on origin/main 7cf3a086, removing
+# "Measured on a 16 GB M4 Mini running v1.0.33, 2026-08-17." left the gate at
+# rc=0, because a digest over the host set says nothing about provenance. So the
+# document could lose the only sentence that dates it and nothing would notice.
+#
+# This is the one arm of TNM's #1711 that is genuinely additive. Its arm 2,
+# git-history staleness, is NOT: a ledger change with no doc update is already
+# caught by the digest, a change WITH a doc update passes both, and a mere
+# reformat of the ledger would have made the history check cry at noise. Credit
+# refused where it was not earned.
+PROVENANCE_RE = re.compile(
+    r"Measured on\b[^\n]*?\bv\d+\.\d+\.\d+\s*,\s*(?P<date>\d{4}-\d{2}-\d{2})")
+
+
+def provenance_in(root):
+    p = root / INVENTORY
+    if not p.is_file():
+        raise CouldNotMeasure(f"the inventory is absent: {INVENTORY}")
+    m = PROVENANCE_RE.search(p.read_text(encoding="utf-8"))
+    if not m:
+        return None
+    return m.group("date")
+
+
+def check_provenance(root):
+    """Returns (verdict, message). Independent of the binding check."""
+    try:
+        date = provenance_in(root)
+    except CouldNotMeasure as e:
+        return "CANNOT-RUN", f"{e} -- provenance was NOT checked."
+    if date is None:
+        return "FAIL", (
+            f"{INVENTORY} does not state what it was measured on. A public "
+            f"privacy document with no version and no date cannot be audited "
+            f"for staleness by a reader, or by us.")
+    return "PASS", f"the inventory states what it was measured on: {date}"
+
+
 def binding_in(root):
     p = root / INVENTORY
     if not p.is_file():
@@ -145,7 +188,8 @@ def check(root):
 # --------------------------------------------------------------------------
 
 def _fixture(tmp, hosts, bound_hosts=None, bound_digest=None, binding=True,
-             ledger=True, inventory=True, extra_comment=""):
+             ledger=True, inventory=True, extra_comment="",
+             provenance="Measured on a fixture box running v1.0.33, 2026-08-17."):
     root = pathlib.Path(tmp)
     (root / LEDGER.parent).mkdir(parents=True, exist_ok=True)
     (root / INVENTORY.parent).mkdir(parents=True, exist_ok=True)
@@ -159,7 +203,9 @@ def _fixture(tmp, hosts, bound_hosts=None, bound_digest=None, binding=True,
         block = ""
         if binding:
             block = f"<!-- EGRESS-LEDGER-BINDING\nhosts: {n}\ndigest: {d}\n-->\n"
-        (root / INVENTORY).write_text("# Egress inventory\n\n" + block, encoding="utf-8")
+        prov = (provenance + "\n\n") if provenance else ""
+        (root / INVENTORY).write_text(
+            "# Egress inventory\n\n" + prov + block, encoding="utf-8")
     return root
 
 
@@ -205,6 +251,42 @@ def self_test():
         (ok if v == "PASS" else bad)(
             f"CONTROL THAT MUST PASS: reordering rows goes {v}, wanted PASS")
 
+        # ---- provenance: a public document must say when it was measured ----
+        # These exercise check_provenance, which is independent of the binding.
+        root = _fixture(pathlib.Path(tmp) / "prov-ok", BASE)
+        v, m = check_provenance(root)
+        (ok if v == "PASS" else bad)(
+            f"CONTROL THAT MUST PASS: an inventory stating its version and date "
+            f"goes {v}, wanted PASS")
+
+        root = _fixture(pathlib.Path(tmp) / "prov-gone", BASE, provenance="")
+        v, m = check_provenance(root)
+        (ok if v == "FAIL" else bad)(
+            f"CONTROL THAT MUST FAIL: deleting the 'Measured on ... vX, DATE' "
+            f"line goes {v}, wanted FAIL -- the binding check passes on this, "
+            f"measured on origin/main 7cf3a086, which is why this arm exists")
+
+        # A date with no version, and a version with no date, are both half a
+        # provenance and neither answers "which build was this measured on".
+        root = _fixture(pathlib.Path(tmp) / "prov-dateonly", BASE,
+                        provenance="Measured on a fixture box, 2026-08-17.")
+        v, m = check_provenance(root)
+        (ok if v == "FAIL" else bad)(
+            f"CONTROL THAT MUST FAIL: a date with no version goes {v}, wanted FAIL")
+
+        root = _fixture(pathlib.Path(tmp) / "prov-veronly", BASE,
+                        provenance="Measured on a fixture box running v1.0.33.")
+        v, m = check_provenance(root)
+        (ok if v == "FAIL" else bad)(
+            f"CONTROL THAT MUST FAIL: a version with no date goes {v}, wanted FAIL")
+
+        # And the CANNOT-RUN arm, which must not read as either verdict.
+        root = _fixture(pathlib.Path(tmp) / "prov-noinv", BASE, inventory=False)
+        v, m = check_provenance(root)
+        (ok if v == "CANNOT-RUN" else bad)(
+            f"an absent inventory goes {v}, wanted CANNOT-RUN not FAIL -- "
+            f"'could not look' is not 'looked and found it missing'")
+
         root = _fixture(pathlib.Path(tmp) / "nobinding", BASE, binding=False)
         v, m = check(root)
         (ok if v == "CANNOT-RUN" else bad)(
@@ -235,19 +317,34 @@ def main():
         return 1 if FAIL else 0
 
     print("== the egress inventory still describes the software (#1709) ==")
-    verdict, msg = check(REPO)
-    if verdict == "PASS":
-        print(f"  [PASS] {msg}")
-        return 0
-    if verdict == "CANNOT-RUN":
-        print(f"  [CANNOT-RUN] {msg}")
+
+    # Two INDEPENDENT questions, reported separately. "Does the document match
+    # the software" and "does the document say when it was written" fail for
+    # different reasons and are fixed by different edits, so collapsing them
+    # into one verdict would tell the reader the wrong thing to go and do.
+    # Both run even when the first fails, or a binding mismatch would hide a
+    # missing provenance line until someone fixed the binding.
+    verdicts = [check(REPO), check_provenance(REPO)]
+
+    for verdict, msg in verdicts:
+        if verdict == "PASS":
+            print(f"  [PASS] {msg}")
+        elif verdict == "CANNOT-RUN":
+            print(f"  [CANNOT-RUN] {msg}")
+        else:
+            print(f"  [FAIL] {msg}")
+
+    kinds = [v for v, _ in verdicts]
+    if "FAIL" in kinds:
+        print(f"  Fix: re-measure, then update the EGRESS-LEDGER-BINDING block "
+              f"and the 'Measured on ... vX.Y.Z, DATE' line in {INVENTORY}. "
+              f"Changing either is asserting that the prose above it was "
+              f"reviewed against the new destination.")
+        return 1
+    if "CANNOT-RUN" in kinds:
         print("  CANNOT-RUN is not a pass. Refusing a verdict.")
         return 2
-    print(f"  [FAIL] {msg}")
-    print(f"  Fix: re-measure, then update the EGRESS-LEDGER-BINDING block in "
-          f"{INVENTORY}. Changing the binding is asserting that the prose above "
-          f"it was reviewed against the new destination.")
-    return 1
+    return 0
 
 
 if __name__ == "__main__":
