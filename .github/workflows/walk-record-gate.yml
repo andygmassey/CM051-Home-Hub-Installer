@@ -50,6 +50,7 @@ on:
       - 'scripts/box_walk_probes/probes/running_config_matches_disk.sh'
       - 'scripts/box_walk_probes/probes/pair_state_agreement.sh'
       - 'scripts/box_walk_probes/probes/assistant_answers_grounded.sh'
+      - 'scripts/tests/test_grounded_probe_asserts_the_fact.sh'
       - 'tests/test_a_timed_out_turn_is_not_a_broken_assistant.sh'
       - 'tests/test_walk_record_gates_customer_download.sh'
       - 'tests/test_probe_absence_is_not_an_answer.sh'
@@ -491,6 +492,18 @@ jobs:
         # -> CANNOT-RUN, the runner's --self-test contract, the same PASS under
         # `zsh -c` where zsh exists, and one mutant per arm proved landed.
         run: /bin/bash scripts/tests/test_no_store_port_probe_reads_the_credential.sh
+
+      - name: The grounded probe asserts the fact, not the frame shape
+        if: always()
+        # assistant_answers_grounded is BLOCKING and scored a wrong answer
+        # green on the v1.0.74 seeded walk: pwg_people fired, returned OK,
+        # and the reply said the workplace was not recorded while the graph
+        # served it. The seeded turn now asserts the reply CARRIES the fixture
+        # fact (computed on the box; only YES/NO crosses the wire). This runs
+        # the probe's own self-test, shows the pre-fix adjudicator returning
+        # grounded on the measured transcript while the fixed one returns
+        # fact_missing, and kills a mutant with the assertion removed.
+        run: /bin/bash scripts/tests/test_grounded_probe_asserts_the_fact.sh
 
       - name: POSITIVE CONTROL -- the gate accepts a genuine clean record
         if: always()
