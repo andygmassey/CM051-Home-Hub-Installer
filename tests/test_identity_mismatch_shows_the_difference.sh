@@ -69,7 +69,7 @@ _total=$((_total + 1))
 # passed even with the byte dump redacted. Caught by mutation, not by reading.
 _want_e="$(identity_bytes "$CURLY")"
 _want_a="$(identity_bytes "$STRAIGHT")"
-if printf '%s' "$_hint" | grep -qF "$_want_e" && printf '%s' "$_hint" | grep -qF "$_want_a"; then
+if grep -qF "$_want_e" <<< "$_hint" && grep -qF "$_want_a" <<< "$_hint"; then
     printf '  ok    4 the hint prints BOTH FULL computed byte sequences\n'
 else
     printf '  FAIL  4 the hint does not name the differing bytes\n'
@@ -79,7 +79,7 @@ fi
 # 5. and it must say the DHCP explanation is wrong here, since that is what
 #    misdirected the operator.
 _total=$((_total + 1))
-if printf '%s' "$_hint" | grep -qi 'NOT a DHCP'; then
+if grep -qi 'NOT a DHCP' <<< "$_hint"; then
     printf '  ok    5 the hint contradicts the misleading DHCP sentence above it\n'
 else
     printf '  FAIL  5 the hint leaves the DHCP misdirection unanswered\n'
@@ -89,7 +89,8 @@ fi
 # 6. a GENUINE mismatch must NOT claim look-alike punctuation -- that would be a
 #    false explanation, which is worse than none.
 _total=$((_total + 1))
-if ! identity_mismatch_hint "$CURLY" "a completely different host" | grep -qi 'LOOK-ALIKE'; then
+_out_diff="$(identity_mismatch_hint "$CURLY" "a completely different host")"
+if ! grep -qi 'LOOK-ALIKE' <<< "$_out_diff"; then
     printf '  ok    6 a genuine mismatch is not mislabelled as look-alike\n'
 else
     printf '  FAIL  6 a genuine mismatch claimed look-alike punctuation\n'
