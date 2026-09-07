@@ -7,6 +7,38 @@ else measures the artefact — hashes, staple, signature, Gatekeeper — and all
 that passes on a DMG that installs to a broken machine, because none of it has
 ever been installed.
 
+## Who DRIVES the install that produces one
+
+`scripts/ttywalk.sh --host <user@host> --expect-name "<ComputerName>"`, which
+drives `install.sh` end to end over ssh and adjudicates the result. It uses
+`scripts/walk_drive.py`, whose reactive answer table answers every prompt the
+installer asks.
+
+**Read `ttywalk.sh`'s header before writing anything new.** It is 422 lines of
+comments and it already records the traps, each of which has cost somebody a
+session:
+
+- **`install.sh` needs a controlling terminal.** It does `exec < /dev/tty`
+  (`:1112`) unless `--check`/`--help`/`--licenses`, or stdin is already a tty,
+  or `OSTLER_GUI=1`. Run it from a plain ssh command and it dies with
+  `/dev/tty: Device not configured` before doing anything.
+- 🔴 **Do NOT reach for `OSTLER_GUI=1` to dodge that.** The product ships
+  `OSTLER_GUI=1` only ever together with a non-empty `OSTLER_GUI_FD`.
+  `OSTLER_GUI=1` with `OSTLER_GUI_FD` unset is a configuration no customer can
+  ever be in, so anything you learn from it is about a state that does not
+  exist. Give it a real pty instead.
+- 🔴 **Use the BUNDLED interpreter, not the box's.** The DMG carries
+  `Contents/Resources/python/bin/python3.11`; the repo does not, and a walk box
+  may answer `python3 --version` with 3.9.6, which cannot parse modern syntax.
+  A harness that stages the REPO is not testing the artefact.
+- **The `[gui-marker]` wire only exists under `OSTLER_GUI=1`.** In plain tty
+  mode the installer emits `[info]`/`[warn]`/`[ok]` instead. A log watcher
+  grepping for the wrong one is silent, and silent looks exactly like nothing
+  went wrong.
+
+`ttywalk.sh` exit codes: `0` PASS, and it reports CANNOT-RUN separately rather
+than folding it into a fail.
+
 ## Who writes these
 
 `scripts/post_walk_qa.sh <box-host> <version>`, automatically, after it has run
