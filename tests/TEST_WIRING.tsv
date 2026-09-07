@@ -434,6 +434,7 @@ test_the_cron_reader_sees_both_toml_spellings.sh	WIRED	.github/workflows/install
 test_the_cut_checklist_is_complete.py	WIRED	.github/workflows/cut-checklist-complete.yml
 test_the_daemon_freshness_row_decides_on_the_scoped_count.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_downloads_watcher_survives_a_real_export.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
+test_the_dry_run_can_still_go_green.sh	WIRED	.github/workflows/version-gate-not-tautological.yml
 test_the_egress_inventory_still_describes_the_software.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_the_egress_proof_can_go_red.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_the_emergency_cut_row_tells_the_truth.sh	WIRED	.github/workflows/cut-manifest.yml
