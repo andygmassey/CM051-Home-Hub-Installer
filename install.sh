@@ -21129,7 +21129,13 @@ OSTLER_STORES_WHY=""
 # non-login shell -- which is what an ssh command, a launchd job, or a script
 # piped to bash gets. scripts/ttywalk.sh already carries this exact workaround
 # and says so; the uninstaller never got it.
-_OSTLER_DOCKER=/opt/homebrew/bin/docker
+# An already-set _OSTLER_DOCKER wins. Unset -- which is every real install
+# -- leaves the probe order below exactly as it was. This exists because a
+# caller that needs to control WHICH docker is used otherwise cannot: the
+# two absolute paths are tried before PATH, deliberately, so shadowing PATH
+# does nothing on any machine that has Docker in a standard location.
+_OSTLER_DOCKER="${_OSTLER_DOCKER:-}"
+[ -x "$_OSTLER_DOCKER" ] || _OSTLER_DOCKER=/opt/homebrew/bin/docker
 [ -x "$_OSTLER_DOCKER" ] || _OSTLER_DOCKER=/usr/local/bin/docker
 [ -x "$_OSTLER_DOCKER" ] || _OSTLER_DOCKER="$(command -v docker 2>/dev/null || true)"
 if [ -z "$_OSTLER_DOCKER" ] || [ ! -x "$_OSTLER_DOCKER" ]; then
