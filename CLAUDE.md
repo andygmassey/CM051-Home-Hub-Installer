@@ -125,13 +125,24 @@ Silence is not an available answer. The three classifications mean:
                             it must carry a reason. Do NOT name a commit range
                             from a CANNOT-CLASSIFY.
 
-**⚠️ FOUR STATES PER PROBE, AND THE FOURTH IS WHY YOU DO NOT DO THIS BY EYE.**
-A probe missing from a record's `failed_probe` list has NOT necessarily passed:
-it may be in `not_measured_probe`, or the record may predate the field
-entirely. Measured 2026-09-07: `no_person_holds_two_contact_cards` is absent
-from v1.0.50 and v1.0.51 and passed in NEITHER -- it was not measured. Reading
-absence as a pass would have named an innocent 18-version range as the
-regression.
+**⚠️ FIVE STATES PER PROBE, AND ONLY ONE IS A BASELINE. THIS IS WHY YOU DO NOT
+DO IT BY EYE.** A probe missing from a record's `failed_probe` list has NOT
+necessarily passed. It may be in `not_measured_probe`, in `broken_probe` (the
+runner refused its verdict), or the record may predate the field entirely.
+
+Measured 2026-09-07, both from real records:
+
+    no_person_holds_two_contact_cards   absent from v1.0.50 and v1.0.51,
+                                        passed in NEITHER -- not_measured
+    no_store_port_is_tcp_reachable      absent from v1.0.50's failed list,
+                                        and v1.0.50 carries
+                                        `broken_probe  no_store_port_is_tcp_reachable`
+
+The second one caught the FIRST VERSION OF THIS TOOL out. It read that absence
+as a pass and reported a REGRESSION with the range v1.0.50..v1.0.68 -- a range
+that contains no such cause. That is the "makes matters worse" outcome, produced
+by the very tool meant to prevent it, and it was found by using it on a real
+probe rather than by reading the code.
 
 **🔴 AND THE FACT THAT CHANGES THE QUESTION: there has never been a green
 walk.** All nine records say `verdict FAILED`. "The last successful walk" does

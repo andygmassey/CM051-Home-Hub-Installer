@@ -18,13 +18,16 @@
 # available. The answerable question is PER PROBE: when did THIS probe last
 # pass? That is the comparison this script makes.
 #
-# ⚠️ FOUR STATES PER PROBE PER WALK, AND THE FOURTH IS THE ONE THAT MATTERS.
+# ⚠️ FIVE STATES PER PROBE PER WALK, AND ONLY ONE OF THEM IS A BASELINE.
 #
 #   FAILED       the probe is named in a `failed_probe` row
 #   NOT-MEASURED the probe is named in a `not_measured_probe` row -- it did not
 #                run, so the walk says nothing about it
 #   PASSED       the record HAS failed_probe rows, and this probe is in neither
 #                list. Only then is absence evidence of passing.
+#   BROKEN       the probe is named in a `broken_probe` row -- the runner
+#                refused its verdict because it could not prove it was able to
+#                go red. It measured nothing.
 #   UNRECORDED   the record has ZERO failed_probe rows. v1.0.44 and v1.0.47
 #                predate the field. Absence there means the walk did not write
 #                down which probes failed, NOT that none did -- both records say
@@ -69,7 +72,7 @@ rows_of() { awk -F'\t' -v k="$2" '$1==k{print $2}' "$1"; }
 
 # classify <walk-file> <probe> -> FAILED | NOT-MEASURED | PASSED | UNRECORDED
 classify() {
-    local f="$1" p="$2" nfail failed notm
+    local f="$1" p="$2" nfail failed notm brok
     nfail="$(rows_of "${f}" failed_probe | grep -c . || true)"
     # Herestrings, not pipes. `... | grep -q` exits on the first match and
     # SIGPIPEs the producer, which under `set -o pipefail` can invert the
@@ -77,11 +80,24 @@ classify() {
     # ratchets that class and caught these three.
     failed="$(rows_of "${f}" failed_probe)"
     notm="$(rows_of "${f}" not_measured_probe)"
+    brok="$(rows_of "${f}" broken_probe)"
     if grep -qxF "${p}" <<< "${failed}"; then
         printf 'FAILED\n'; return
     fi
     if grep -qxF "${p}" <<< "${notm}"; then
         printf 'NOT-MEASURED\n'; return
+    fi
+    # BROKEN: the runner refused the probe's verdict because it could not prove
+    # it was able to go red. It measured NOTHING, so it is not a baseline. This
+    # state was missing from the first version of this file and it produced a
+    # false REGRESSION: walks/v1.0.50.tsv carries
+    # `broken_probe  no_store_port_is_tcp_reachable`, the probe is absent from
+    # that record's failed_probe list, and the classifier read the absence as a
+    # pass. It then named v1.0.50..v1.0.68 as the range containing a cause that
+    # is not in it -- the exact "makes matters worse" outcome this tool exists
+    # to prevent, produced by the tool. Found by using it on a real probe.
+    if grep -qxF "${p}" <<< "${brok}"; then
+        printf 'BROKEN\n'; return
     fi
     if [ "${nfail}" -eq 0 ]; then
         # No failed_probe rows AT ALL. See the header: this is a missing field,
@@ -124,9 +140,9 @@ triage() {
         return 2
     fi
 
-    local cannot=0 j state probe last_pass nfailed nnamed nnotm
+    local cannot=0 j state probe last_pass nfailed nnamed nnotm nbroken
     for probe in "${failing[@]}"; do
-        last_pass=""; state=""; nfailed=0; nnamed=0; nnotm=0
+        last_pass=""; state=""; nfailed=0; nnamed=0; nnotm=0; nbroken=0
         for (( j=ti-1; j>=0; j-- )); do
             state="$(classify "${WALKS}/${order[$j]}.tsv" "${probe}")"
             case "${state}" in
@@ -134,6 +150,7 @@ triage() {
                 UNRECORDED) last_pass=""; break ;;
                 FAILED)       nfailed=$((nfailed+1)); nnamed=$((nnamed+1)) ;;
                 NOT-MEASURED) nnotm=$((nnotm+1));     nnamed=$((nnamed+1)) ;;
+                BROKEN)       nbroken=$((nbroken+1)); nnamed=$((nnamed+1)) ;;
             esac
         done
 
@@ -142,13 +159,13 @@ triage() {
             printf '               range to examine: %s..%s\n' "${last_pass}" "${target}"
         elif [ "${state}" = "UNRECORDED" ]; then
             printf '  CANNOT-RUN   %-38s history reaches %s, which records no probe names\n' "${probe}" "${order[$j]}"
-            printf '               failed in %d and was not measured in %d of the %d earlier records that name probes.\n' \
-                   "${nfailed}" "${nnotm}" "${nnamed}"
+            printf '               failed %d, not measured %d, BROKEN %d, of %d earlier records that name probes.\n' \
+                   "${nfailed}" "${nnotm}" "${nbroken}" "${nnamed}"
             printf '               A missing field is not a pass. Do NOT name a commit range from this.\n'
             cannot=$((cannot + 1))
         else
-            printf '  NEVER-PASSED %-38s failed in %d and not measured in %d of %d earlier records\n' \
-                   "${probe}" "${nfailed}" "${nnotm}" "${nnamed}"
+            printf '  NEVER-PASSED %-38s failed %d, not measured %d, BROKEN %d, of %d earlier records\n' \
+                   "${probe}" "${nfailed}" "${nnotm}" "${nbroken}" "${nnamed}"
             printf '               This is not a regression. Treat it as unbuilt, not broken.\n'
         fi
     done
@@ -188,6 +205,16 @@ self_test() {
     # Now make v1.0.2 nameless too, so the search reaches UNRECORDED.
     printf 'walked_at\t2026-01-02T00:00:00Z\nverdict\tFAILED\n' > "${tmp}/walks/v1.0.2.tsv"
     _t 'CANNOT-RUN' 2 'a record with NO probe names is UNRECORDED, not a pass -> CANNOT-RUN, rc=2'
+
+    # A BROKEN probe measured nothing and must NOT read as a baseline. This is
+    # the arm the first version lacked, and its absence produced a false
+    # REGRESSION against a real walk record.
+    printf 'walked_at\t2026-01-01T00:00:00Z\nverdict\tFAILED\nfailed_probe\tother\n' > "${tmp}/walks/v1.0.1.tsv"
+    printf 'walked_at\t2026-01-02T00:00:00Z\nverdict\tFAILED\nfailed_probe\tother\nbroken_probe\tsubject\n' > "${tmp}/walks/v1.0.2.tsv"
+    _t 'REGRESSION' 0 'a BROKEN probe is skipped, and the PASS behind it is still found'
+
+    printf 'walked_at\t2026-01-01T00:00:00Z\nverdict\tFAILED\nfailed_probe\tother\nbroken_probe\tsubject\n' > "${tmp}/walks/v1.0.1.tsv"
+    _t 'NEVER-PASSED' 0 'BROKEN in every earlier record is NEVER-PASSED, never a regression'
 
     # And with the subject failing all the way back, it never passed.
     printf 'walked_at\t2026-01-01T00:00:00Z\nverdict\tFAILED\nfailed_probe\tsubject\n' > "${tmp}/walks/v1.0.1.tsv"
