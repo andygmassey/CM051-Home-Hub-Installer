@@ -726,3 +726,33 @@ open_issues:
       source of variation, but a single base64 flip inside a quoted value
       should not make the document unparseable and I did not reproduce it."
     proof: "gh run rerun --failed on the identical sha turned FAILURE into SUCCESS with no code change"
+  - issue: 1765
+    title: "the namespace migrator is looked for in ~/.ostler/scripts, which never exists, so it has never run"
+    gate: "OPEN, NOT BLOCKING THIS CUT, and found by driving the v1.0.74 payload
+      on a box rather than by cutting a DMG.
+      install.sh:25725 builds the path as
+      ${OSTLER_DIR:-$PWD}/scripts/migrate_graph_namespace.py. OSTLER_DIR is
+      ~/.ostler, and ~/.ostler/scripts DOES NOT EXIST -- nothing in install.sh
+      copies scripts/ into it. The script actually ships at
+      ${SCRIPT_DIR}/scripts/. So `[[ -r ]]` is false on every install and the
+      graph namespace migration has never run, on any install, silently.
+      MEASURED on the walk box during a full drive of the v1.0.74 payload:
+      the installer warned `Namespace migrator not found at
+      ~/.ostler/scripts/migrate_graph_namespace.py; skipping`;
+      `ls ~/.ostler/scripts` returns No such file or directory; and
+      find(1) locates the file at Resources/scripts/. CONTROL that the search
+      for a copy step is not itself broken: grepping install.sh for `cp
+      .*scripts` returns exactly one hit, :20617, copying a DIFFERENT file, so
+      the pattern does match real copy statements.
+      FOURTH OCCURRENCE OF THE WRONG-BASE-VARIABLE CLASS. #177 baked a
+      /tmp/ostler-prelaunch path into a LaunchAgent, #578 had nine more plists
+      baking ${OSTLER_DIR}, #595 is the store-auth .pth. install.sh:327 carries
+      the rule in capitals: OSTLER_FINAL_DIR, NEVER OSTLER_DIR.
+      AND IT SILENTLY DEFEATS #1703. That fix exists so this migrator's REFUSAL
+      is loud. The block never executes, so there is no rc to classify and the
+      refusal is silent again by a different route.
+      NOT GATED BLOCKING: it has never run, so shipping v1.0.74 does not make
+      it worse, and the fix is a one-line base-variable change that wants its
+      own test asserting the resolved path is READABLE rather than merely
+      non-empty."
+    proof: "ls ~/.ostler/scripts -> No such file or directory, against find Resources -name migrate_graph_namespace.py -> Resources/scripts/migrate_graph_namespace.py, on the same box in the same run"
