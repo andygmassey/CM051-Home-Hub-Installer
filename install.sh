@@ -20875,6 +20875,7 @@ echo "      (whatsapp-bundle, email-bundle, spoken-bundle, imessage-bundle),"
 echo "      wiki-recompile, assistant, and RemoteCapture launchd services"
 echo "    - /Applications/Ostler RemoteCapture.app"
 echo "    - /Applications/Ostler.app"
+echo "    - /Applications/Ostler Safari Extension.app"
 echo "    - Ostler commands from PATH"
 echo ""
 echo "  This will NOT remove:"
@@ -21339,6 +21340,22 @@ if [[ -d "/Applications/Ostler.app" ]]; then
     rm -rf "/Applications/Ostler.app" 2>/dev/null || \
         sudo rm -rf "/Applications/Ostler.app" 2>/dev/null || \
         echo "  (warning: could not remove /Applications/Ostler.app; remove manually)"
+fi
+
+# ── Ostler Safari Extension.app ────────────────────────────────
+_u_emit UNINSTALL_PHASE "name=safari_extension"
+# install.sh:30702 moves SafariHistoryExt.app to this name, so it is OUR
+# bundle and the customer never chose it. It was in NEITHER half of the
+# contract printed above -- not in "This will remove", not in "This will
+# NOT remove" -- so an uninstall left a branded app in /Applications and
+# said nothing about it. Its process was found running on the walk box
+# alongside the hub, which is why it is stopped first like the others.
+if [[ -d "/Applications/Ostler Safari Extension.app" ]]; then
+    _u_quit_bundle_processes "/Applications/Ostler Safari Extension.app"
+    echo "  Removing /Applications/Ostler Safari Extension.app..."
+    rm -rf "/Applications/Ostler Safari Extension.app" 2>/dev/null || \
+        sudo rm -rf "/Applications/Ostler Safari Extension.app" 2>/dev/null || \
+        echo "  (warning: could not remove /Applications/Ostler Safari Extension.app; remove manually)"
 fi
 
 echo "  Restoring sleep settings..."
