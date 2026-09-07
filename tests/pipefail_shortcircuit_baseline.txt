@@ -38,7 +38,6 @@ scripts/box_walk_probes/probes/ingest_coverage.sh	4
 scripts/box_walk_probes/probes/launchd_no_ephemeral_paths.sh	2
 scripts/classify_pr_pin_shape.sh	1
 scripts/dry_run_cut_checks.sh	1
-scripts/orphan_gate_selftest.sh	1
 scripts/provenance_gate.sh	3
 scripts/regenerate_divergence_patch.sh	1
 scripts/stage_and_verify_dmg.sh	1
@@ -81,7 +80,6 @@ tests/test_linkedin_export_detect.sh	2
 tests/test_mailbox_ingest_leg_wired.sh	1
 tests/test_memory_embeddings_wired.sh	2
 tests/test_no_local_cuts.sh	2
-tests/test_no_orphaned_fixes_gate.sh	5
 tests/test_pipefail_shortcircuit_inversion.sh	5
 tests/test_secrets_are_documented.sh	3
 tests/test_shipped_compose_usage_journal_mount.sh	1

@@ -119,7 +119,22 @@ check() {   # $1 name, $2 expect(RED|GREEN), $3 output, $4 rc, $5 must-contain
     local got="GREEN"; [[ "$rc" -ne 0 ]] && got="RED"
     local why=""
     [[ "$got" == "$expect" ]] || why="expected $expect, got $got (rc=$rc)"
-    if [[ -z "$why" && -n "$needle" ]] && ! printf '%s' "$out" | grep -q "$needle"; then
+    # grep -c, never grep -q. Under pipefail `printf ... | grep -q PAT` is a
+    # RACE: grep -q exits the instant it matches, closing the pipe under a
+    # still-writing printf, which takes SIGPIPE and makes the PIPELINE non-zero
+    # -- so this `!` fires BECAUSE THE NEEDLE WAS FOUND. Whether it loses the
+    # race depends only on how wordy the gate was, so it is invisible until
+    # something unrelated adds output.
+    # MEASURED: it killed the v1.0.75 cut at 17:46:49Z. The expiry ratchet had
+    # grown to 424 baselined refs, the gate's output crossed the 64KB pipe
+    # buffer, and this line reported "output did not contain
+    # 'fix/genuinely-orphaned'" while printing that exact string in its own
+    # diagnostic three lines below. Proved at 300KB: pipe form says NOT
+    # CONTAINED, `grep -c` form says contained, and a needle that is genuinely
+    # absent still says NOT CONTAINED in both.
+    # tests/test_orphan_gate_cannot_verify.sh:38 documented this on 2026-08-18
+    # and warned it "leaves the other seven sites armed". This was one of them.
+    if [[ -z "$why" && -n "$needle" ]] && [ "$(printf '%s' "$out" | grep -c -- "$needle")" -eq 0 ]; then
         why="output did not contain '$needle'"
     fi
     if [[ -z "$why" ]]; then

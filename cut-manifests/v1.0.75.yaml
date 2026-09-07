@@ -867,3 +867,27 @@ open_issues:
       fixing it changes no installer behaviour. It is manifest debt to clear
       before it silently excuses a future row."
     proof: "grep -c daemon_pinned_at_hub_v0469 cuts/v1.0.75/MUST_CONTAIN.tsv returns 0 against a control showing the file holds 6 non-comment lines; capability_id printed per row shows 5 live ids and 0 `none`"
+  - issue: 1815
+    title: "7 of the 74 pipefail short-circuit landmines are in scripts the cut itself runs"
+    gate: "OPEN, NOT BLOCKING v1.0.75, and filed off the defect that killed this
+      cut's third tag rather than off a review. The class is real and already
+      gated repo-wide by tests/test_pipefail_shortcircuit_inversion.sh; what
+      #1814 exposed is that a BASELINE IS NOT A BACKLOG. scripts/
+      orphan_gate_selftest.sh sat on that baseline at count 1, and that
+      catalogued instance is what took the cut job down after preflight had
+      passed for the first time under this number.
+      MEASURED, with a control so the intersection cannot be a silent zero:
+      36 script paths are invoked by .github/workflows/cut.yml, 74 files remain
+      baselined after #1814 delists six, and the intersection is 7 --
+      bin/rollforward_gate.sh, scripts/dry_run_cut_checks.sh,
+      scripts/provenance_gate.sh, scripts/stage_and_verify_dmg.sh,
+      scripts/verify_no_orphaned_fixes.sh, tests/test_cut_dispatch_is_dry.sh,
+      tests/test_no_local_cuts.sh. The control, a path known to be in the cut
+      list, returns 1.
+      NOT BLOCKING because each fires only when its own output crosses the 64KB
+      pipe buffer, none is doing so today, and #1814 has removed the one that
+      was. Sweeping 74 files during a frozen cut is exactly the change item 2
+      exists to refuse. The seven are defused first, after this cut, using the
+      grep -c remedy that the class's own gate proves portable -- the
+      here-string is a bashism that dies on box_run's ssh branch."
+    proof: "comm -12 of the cut.yml script paths against the baseline file list, 36 and 74 in, 7 out, with a one-row positive control returning 1; tests/test_pipefail_shortcircuit_inversion.sh 17 passed 0 failed after the delist, baseline 76 rows to 74"
