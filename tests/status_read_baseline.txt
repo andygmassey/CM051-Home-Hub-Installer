@@ -1,0 +1,35 @@
+# Standalone reads of $? in install.sh: the author is treating a non-zero
+# exit status as DATA. Under `set -e` that is only safe when the region has
+# deliberately disabled errexit, or the enclosing function is invoked via
+# $( ), which suppresses errexit inside it.
+#
+# See tests/test_a_status_read_is_guarded.sh. RATCHET: the count must not
+# grow and no new STATEMENT SHAPE may appear. The safe form needs no entry:
+#
+#     rc=0; cmd || rc=$?
+#
+# Keyed on the statement TEXT, not the line number, because a line-numbered
+# baseline rots on the first edit anywhere above it.
+#
+# Cost of getting this wrong, measured 2026-09-07: two box walks aborted at
+# install.sh:12399 and :13022; three more sites found by hand afterwards.
+# CM051 #1756 and #1759.
+#
+# <count>\t<normalised statement>
+1	_consumer_req_exit=$?
+1	_DOCTOR_PROBE_RC=$?
+1	_HYDRATE_APPLENOTES_CONVERT_RC=$?
+1	_HYDRATE_APPLENOTES_EMBED_RC=$?
+1	_ollama_agent_is_running; [[ $? -eq 2 ]] && _ollama_domain_absent=1
+1	_pipeline_req_exit=$?
+1	_rc=$?
+2	BREW_EXIT=$?
+1	DOCTOR_PIP_EXIT=$?
+1	done < <( { ollama pull "$model"; echo $? > "$rc_file"; } 2>&1 | tr '\r' '\n' )
+1	FDA_EXIT=$?
+1	local _ostler_exit_rc=$?
+2	local _prc=$?
+1	local _rc=$?
+1	local _src=$?
+8	rc=$?
+1	SETUP_EXIT=$?
