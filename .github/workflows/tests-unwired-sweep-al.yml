@@ -171,3 +171,13 @@ jobs:
             echo "::endgroup::"
           done
           exit $fail
+
+      # INDIVIDUAL STEP, not an entry in the `for t in ...` list above. The list
+      # idiom gives verify_test_wiring.sh a MENTION but gives
+      # verify_new_tests_are_wired.sh no execution verb on the same line, so a
+      # test added to the list scores WIRED by one gate and DARK by the other.
+      # The existing list entries predate the second gate and are grandfathered.
+      # if: always() so a failure here cannot mask the steps after it.
+      - name: an identity mismatch shows the difference, not two identical strings
+        if: always()
+        run: bash tests/test_identity_mismatch_shows_the_difference.sh
