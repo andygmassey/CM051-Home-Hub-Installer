@@ -59,6 +59,35 @@ import fcntl
 
 HOME = os.path.expanduser("~")
 QA = os.path.join(HOME, ".walk-qa.tsv")
+
+# The exact string written into the Q&A record for a prompt the table did not
+# recognise. ONE definition, read by both the writer below and the verdict
+# above: two copies of a sentinel is one copy plus a gate that silently stops
+# matching.
+UNMATCHED_MARK = "<ENTER (UNMATCHED, took installer default)>"
+
+
+def _unmatched_prompts():
+    """Prompts this run answered by falling open to the installer's default.
+
+    Returns a list of prompt strings, or None when the record cannot be read.
+    None is NOT an empty list: "we could not look" and "there were none" are
+    different findings, and only one of them lets a cancel be blamed on the
+    product. ttywalk clears this file at the start of every run, so what is
+    here belongs to this run.
+    """
+    try:
+        with open(QA, "r") as fh:
+            rows = fh.read().splitlines()
+    except IOError:
+        return None
+    out = []
+    for row in rows[1:]:                      # row 0 is the header
+        parts = row.split("\t")
+        if len(parts) >= 3 and UNMATCHED_MARK in parts[2]:
+            out.append(parts[1])
+    return out
+
 TRACE = os.path.join(HOME, ".walk-drive.trace")
 
 # FIX 1. The result file, and the stamp that proves WHICH RUN wrote it.
@@ -214,6 +243,16 @@ def build_table():
         ("Enter timezone",                              tz),
         ("What would you like to call your assistant?", "Ava"),
         ("Your decision (Y / N)",                       "Y"),      # Article 9
+        # 🔴 THE PROMPT WHOSE DEFAULT ENDS THE INSTALL. Its title is
+        # "One last thing: how third-party data works" and it ships "[n]",
+        # where n means "I do not consent" and CANCELS. That default is
+        # correct for a consent gate -- consent must be affirmative and a
+        # default of yes would manufacture it -- but it means an unanswered
+        # walk does not stall, it TERMINATES, and the run then reads as a
+        # build failure. Measured 2026-09-04: walk 3 of v1.0.65 died here
+        # with `#OSTLER DONE status=cancelled` after 24 answers, and the
+        # verdict said FAIL.
+        ("how third-party data works",                  "Y"),
         ("Ready to install?",                           "INSTALL"),
         # -- deliberate answers that differ from the shown default -----------
         # Enrichment stays OFF: Andy's decision 2026-08-18 (task #397).
@@ -739,8 +778,51 @@ def adjudicate(log_path, rc, marker_channel_on):
 
     seen = any_re.search(body) if any_re else None
     if seen:
+        status = seen.group(1)
+        # 🔴 A CANCEL THIS HARNESS CAUSED IS NOT A VERDICT ON THE BUILD.
+        #
+        # `status=cancelled` means somebody chose to stop, and in an
+        # unattended walk that somebody is US. The answer table falls open to
+        # the installer's own default on any prompt it does not recognise, and
+        # at least one of those defaults -- the third-party consent, which
+        # ships "[n]" -- CANCELS. So a stale table produces a clean, correct,
+        # customer-facing cancellation that this function then reported as
+        # FAIL.
+        #
+        # MEASURED 2026-09-04, walk 3 of v1.0.65: 24 answers, several marked
+        # UNMATCHED, terminal marker `status=cancelled`, verdict FAIL. Nothing
+        # about the build was wrong. The install did exactly what it was told.
+        #
+        # This module's own docstring already states the principle for the
+        # marker-channel case: "Calling this FAIL would accuse the product of
+        # our own blindness." It simply was not applied here.
+        #
+        # THE DISCRIMINATOR IS WHETHER WE ANSWERED EVERYTHING WE WERE ASKED.
+        # Every prompt matched and it still cancelled -> a real finding, and
+        # FAIL is right. Any prompt unmatched -> we cannot attribute the cancel
+        # to the product, so CANNOT-RUN, and the fix is a table entry.
+        if status == "cancelled":
+            unmatched = _unmatched_prompts()
+            if unmatched is None:
+                return (CANNOT_RUN,
+                        "install.sh was cancelled, and the Q&A record could not be read",
+                        "Without it there is no way to tell a cancel WE caused from "
+                        "one the product chose. Not knowing is not a failure.")
+            if unmatched:
+                return (CANNOT_RUN,
+                        "install.sh was cancelled after %d prompt(s) this harness "
+                        "could not answer" % len(unmatched),
+                        "The answer table fell open to the installer's own default, "
+                        "and at least one of those defaults cancels. That is a HARNESS "
+                        "gap, not a build verdict. Add a table entry for: "
+                        + "; ".join(unmatched[-3:]))
+            return (FAIL,
+                    "install.sh cancelled even though every prompt was answered "
+                    "from the table (rc=%d)" % rc,
+                    "No prompt was unmatched, so this cancellation is the product's "
+                    "own decision and is a real finding.")
         return (FAIL,
-                "install.sh terminated with status=%s (rc=%d)" % (seen.group(1), rc),
+                "install.sh terminated with status=%s (rc=%d)" % (status, rc),
                 "This is a MEASURED failure: the installer said so itself.")
 
     if marker_channel_on:
@@ -964,7 +1046,7 @@ def main(argv):
         elif matched:
             shown = "<ENTER (deliberate)>"
         else:
-            shown = "<ENTER (UNMATCHED, took installer default)>"
+            shown = UNMATCHED_MARK
         with open(QA, "a") as fh:
             fh.write("%s\t%s\t%s\n" % (
                 time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), prompt, shown))

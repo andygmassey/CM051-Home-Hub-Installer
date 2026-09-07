@@ -36,6 +36,11 @@ assert_not_contains() {
     esac
 }
 
+assert_eq() {
+    # $1 actual, $2 expected, $3 label
+    if [ "$1" = "$2" ]; then ok "$3"; else bad "$3 (expected '$2', got '$1')"; fi
+}
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -181,6 +186,83 @@ EMAIL_DOC_FILE="$WORK/email_doc.txt"
 printf 'owner = "fixture@example.com"\n' > "$EMAIL_DOC_FILE"
 OUT="$(pii_scan_files "$EMAIL_DOC_FILE" "$WORK/no-custom")"
 assert_not_contains "$OUT" "$EMAIL_DOC_FILE" "RFC 2606 example.com address is EXCUSED, not reported"
+
+# ── First-party ROLE mailboxes: EXCUSED, and the two fail-open shapes ────
+# Added 2026-09-04 (CM051 #1415). The email class fired on this product's own
+# published support address -- 52 occurrences of four role mailboxes across
+# nine tracked files. They identify nobody, so by this library's own rule
+# ("provably fictional or provably impersonal") they are excused. The rule and
+# the measurement live next to pii_first_party_role_mailboxes.
+#
+# Composed from parts for the same reason as every value above: CI scans this
+# file's own added lines, so a literal here would be blocked by the guard it
+# tests.
+#
+# THE LIST DRIVES THE TEST. Iterating pii_first_party_role_mailboxes rather
+# than restating its members means adding a fifth mailbox without a control is
+# impossible: the new name is exercised the moment it is declared, and a name
+# that the regex fails to excuse fails here rather than in production silence.
+# ── The excuse lists declare their own size ──────────────────────────────
+# MEASURED 2026-09-04, and this guard exists because the obvious design is
+# quietly broken. The loops below are DRIVEN BY the lists they test, which is
+# what makes adding a member without a control impossible. It also means
+# REMOVING a member removes its own control: deleting one domain took this
+# suite from 48 assertions to 43 and it still printed "0 failed". A shrinking
+# denominator that reports green is the same failure the built-in pattern
+# floor exists to catch, one layer up.
+#
+# Same reasoning as PII_BUILTIN_DECLARED: the two sides are properties of
+# different things. DECLARED is what this suite says the lists hold; the count
+# is what they hold at runtime, here, under this grep and this locale. They
+# diverge exactly when a member is dropped, which is the case a self-driven
+# loop cannot see. Maintained by hand, one line, next to the assertion.
+EXPECT_ROLE_MAILBOXES=4
+EXPECT_FIRST_PARTY_DOMAINS=2
+_n_roles="$(pii_first_party_role_mailboxes | tr '|' '\n' | grep -c .)"
+_n_doms="$(pii_first_party_domains        | tr '|' '\n' | grep -c .)"
+assert_eq "$_n_roles" "$EXPECT_ROLE_MAILBOXES" \
+    "declared role-mailbox count ($EXPECT_ROLE_MAILBOXES) matches the list ($_n_roles)"
+assert_eq "$_n_doms" "$EXPECT_FIRST_PARTY_DOMAINS" \
+    "declared first-party-domain count ($EXPECT_FIRST_PARTY_DOMAINS) matches the list ($_n_doms)"
+
+# BOTH lists drive the loop, so a mailbox or a domain added without a control
+# is impossible: the new member is exercised the moment it is declared.
+while IFS= read -r _dom; do
+    [ -n "$_dom" ] || continue
+    _domplain="$(printf '%s' "$_dom" | tr -d '\\\\')"
+    while IFS= read -r _role; do
+        [ -n "$_role" ] || continue
+        ROLE_FILE="$WORK/role_${_role}_${_domplain}.txt"
+        printf 'contact = "%s@%s"\n' "$_role" "$_domplain" > "$ROLE_FILE"
+        OUT="$(pii_scan_files "$ROLE_FILE" "$WORK/no-custom")"
+        assert_not_contains "$OUT" "$ROLE_FILE" \
+            "first-party role mailbox '${_role}@${_domplain}' is EXCUSED, not reported"
+    done <<< "$(pii_first_party_role_mailboxes | tr '|' '\n')"
+done <<< "$(pii_first_party_domains | tr '|' '\n')"
+
+# FAIL-OPEN SHAPE 1: the domain must NOT be wildcarded, on EITHER domain. A
+# personal address on a domain we own is precisely what the email class exists
+# to catch. If a limb here ever goes quiet the excuse has been widened to
+# `@<domain>$` and the class is blind on our own mail domain.
+_pp="a.person"
+while IFS= read -r _dom; do
+    [ -n "$_dom" ] || continue
+    _domplain="$(printf '%s' "$_dom" | tr -d '\\\\')"
+    ROLE_PERSON_FILE="$WORK/role_person_${_domplain}.txt"
+    printf 'contact = "%s@%s"\n' "$_pp" "$_domplain" > "$ROLE_PERSON_FILE"
+    OUT="$(pii_scan_files "$ROLE_PERSON_FILE" "$WORK/no-custom")"
+    assert_contains "$OUT" "$ROLE_PERSON_FILE" \
+        "person-shaped mailbox on first-party domain '${_domplain}' is still REPORTED"
+done <<< "$(pii_first_party_domains | tr '|' '\n')"
+
+# FAIL-OPEN SHAPE 2: the local part must NOT be wildcarded either. `support@`
+# somewhere else is somebody else's mailbox and is exactly as identifying as
+# any other address. If this limb goes quiet the anchors have been dropped.
+ROLE_FOREIGN_FILE="$WORK/role_foreign.txt"
+printf 'contact = "%s@%s"\n' "support" "consumer-mail.co" > "$ROLE_FOREIGN_FILE"
+OUT="$(pii_scan_files "$ROLE_FOREIGN_FILE" "$WORK/no-custom")"
+assert_contains "$OUT" "$ROLE_FOREIGN_FILE" \
+    "role local part on a FOREIGN domain is still REPORTED"
 
 # ── macOS home path carrying a username: BOTH limbs ──────────────────────
 # The name segment is composed at runtime for the same reason: a literal

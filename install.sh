@@ -5031,6 +5031,50 @@ ${_reuse_summary}"
             SKIP_PHASE2=false
             ;;
     esac
+
+    # ── "USE PREVIOUS ANSWERS" REQUIRES PREVIOUS ANSWERS TO EXIST ─────────
+    #
+    # A box installed before consent decisions were written to config/.env has
+    # NONE of them, and reusing on such a box skips the question phase for
+    # answers that were never stored. The recorder downstream is guarded on a
+    # non-empty decision, so it writes nothing, the consent registry stays
+    # null, and the feeds those tickboxes gate stay OFF with no record saying
+    # why. MEASURED on Andy's Mini: `ostler-consent show` returned null for
+    # every tickbox on a complete install, and config/.env carried 21 keys of
+    # which zero were consent.
+    #
+    # The two checked here are the REGION-INDEPENDENT ones -- both are asked
+    # on every install, in every country, and each gates a feed. Article 9 and
+    # the EU voice gate are deliberately NOT checked: they are asked only on
+    # the EU branch, so their absence on a non-EU box is correct and demanding
+    # them would force a pointless re-walk on every install outside the EU.
+    #
+    # WHY WALK THE QUESTIONS RATHER THAN ASK JUST THESE TWO. Asking them here
+    # would mean a second copy of two consent prompts, their strings, their
+    # decline handling and their abort semantics, sitting far from the
+    # originals and free to drift. Two copies of a prompt is one copy plus a
+    # future defect, which is the #1427 class. Walking the phase costs the
+    # customer one pass through questions they can answer quickly, ONCE, after
+    # an upgrade, and it reuses the code that is already tested.
+    #
+    # A one-time re-walk is the price of recovering consent nobody recorded.
+    # The alternative is a box that reports "missing" forever and silently
+    # runs with feeds off, which is the state this exists to end.
+    if [[ "$SKIP_PHASE2" == "true" ]]; then
+        _missing_consent=""
+        [[ -z "${OSTLER_CONSENT_THIRD_PARTY_DECISION:-}" ]] \
+            && _missing_consent="${_missing_consent} third-party-data"
+        [[ -z "${OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION:-}" ]] \
+            && _missing_consent="${_missing_consent} spoken-capture"
+        if [[ -n "$_missing_consent" ]]; then
+            warn "Your previous answers do not include every consent decision, so they cannot all be reused."
+            warn "  Missing:${_missing_consent}"
+            warn "  This happens on a Mac set up before Ostler stored those decisions with the rest of your settings."
+            warn "  Ostler will ask the setup questions once more so nothing is left switched off without your say-so."
+            SKIP_PHASE2=false
+        fi
+        unset _missing_consent
+    fi
     # CX-87 (DMG #48g, 2026-05-29): when re-running on a Mac with a
     # prior complete install, promote the staging tree onto
     # ~/.ostler/ immediately. There is no Quit & Reopen risk on a
@@ -5652,6 +5696,88 @@ if [[ -n "$CARD_DATA" ]]; then
     DETECTED_COUNTRY=$(echo "$CARD_DATA" | cut -d'|' -f3)
     DETECTED_EMAIL=$(echo "$CARD_DATA" | cut -d'|' -f4)
     DETECTED_PHONE=$(echo "$CARD_DATA" | cut -d'|' -f5)
+fi
+
+# ── Owner address, second source: the accounts database ──────────────────
+#
+# WHY A SECOND SOURCE AT ALL. The me-card read above is an osascript call
+# into Contacts.app. MEASURED on the Mini 16 during the v1.0.63 walk,
+# 2026-09-04, on a wiped machine restored from a Time Machine backup:
+#
+#     Contacts got an error: Application isn't running. (-600)
+#
+# The branch above already RECOGNISES that failure and warns about it. What
+# it had was no alternative, so DETECTED_EMAIL stayed empty, and one empty
+# string later the AI-conversations agent was registered with
+# CM052_USER_EMAIL="" and refused every hour forever.
+#
+# A GUI app being warm is not a property of a customer's Mac at install time.
+# It is the property LEAST likely to hold: the installer runs on a machine
+# somebody has just set up.
+#
+# WHY THIS SOURCE. ~/Library/Accounts/Accounts4.sqlite is where macOS keeps
+# every configured account -- iCloud, Mail, Calendar, Contacts -- and it is a
+# plain file, present before any app has been opened. Measured on the same
+# box: 8 account rows resolving to 2 distinct addresses, while Contacts was
+# unscriptable and the local AddressBook store held 0 email addresses.
+#
+# MOST ROWS WINS. An Apple ID appears once per service it backs, so the
+# address with the most rows is the account identity rather than a
+# single-purpose mailbox.
+#
+# 🔴 AND IT PICKED THE WRONG ONE ON THE FIRST BOX IT MET. Stated here rather
+# than discovered later. Measured on the Mini 16, 2026-09-04: two addresses,
+# and the account-identity one is NOT the address the owner actually uses.
+#
+#     the account-identity address   10 rows, spanning the Apple sign-in and
+#                                    nine services that hang off it
+#     the address the owner uses      7 rows, all mail/calendar accounts
+#
+# Described by ROLE AND COUNT rather than enumerated. The first draft listed
+# the Apple service names and the whole-tree person-name guard flagged two of
+# them as a name PAIR -- a false positive, but the list was decorative and
+# fighting a PII guard over decoration is the wrong trade.
+#
+# The owner confirmed the SECOND is his address. So this rule is right about
+# "which account identifies this Mac" and wrong about "which mailbox is this
+# person", and those are different questions.
+#
+# IT SHIPS ANYWAY, AND HERE IS THE ARGUMENT. The alternative on this path is
+# no address at all, which registers nothing and leaves AI conversations dead
+# until the customer notices. A plausible-but-wrong address still labels
+# transcripts, still lets the agent run, and is correctable in one field. An
+# absent one is not correctable by anybody who does not already know it is
+# absent.
+#
+# ⚠️ THE REAL FIX IS TO ASK, AND THIS IS NOT IT. This value should pre-fill a
+# question the customer confirms, exactly as the name and country do. Until
+# that lands, this is a fallback that reduces a permanent silent failure to a
+# visible wrong value, and it must not be mistaken for the fix.
+#
+# READ-ONLY AND IMMUTABLE, DELIBERATELY. `immutable=1` opens without taking a
+# lock and without creating -wal/-shm sidecars, so reading the customer's
+# live accounts store cannot perturb it. Never open this database writable.
+#
+# FDA MAY STILL REFUSE, and that is fine: the query fails, DETECTED_EMAIL
+# stays empty, and the guard at the AI-conversations agent refuses to
+# register a dead agent and says why. Absent is handled; empty-and-pretending
+# is what was not.
+if [[ -z "$DETECTED_EMAIL" ]]; then
+    _acct_db="${HOME}/Library/Accounts/Accounts4.sqlite"
+    if [[ -r "$_acct_db" ]] && command -v sqlite3 >/dev/null 2>&1; then
+        _acct_email="$(sqlite3 "file:${_acct_db}?immutable=1" \
+            "select ZUSERNAME from ZACCOUNT where ZUSERNAME like '%@%.%' \
+             group by ZUSERNAME order by count(*) desc limit 1;" 2>/dev/null | head -n 1)"
+        # Shape-check before accepting: this feeds a shipped LaunchAgent, and
+        # a malformed value would be worse than none because it would satisfy
+        # the emptiness guard while still being wrong.
+        if [[ "$_acct_email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+            DETECTED_EMAIL="$_acct_email"
+            info "Read your email address from this Mac's account settings (your Contacts card was not available)."
+        fi
+        unset _acct_email
+    fi
+    unset _acct_db
 fi
 
 # ── Map country name to dialling code ──────────────────────────────
@@ -7446,7 +7572,9 @@ if [[ -d "${SCRIPT_DIR}/ostler_fda" ]]; then
         if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
             warn "$MSG_WARN_FDA_DEPENDENCIES_CONTINUING_PLAINTEXT"
         else
-            fail_with_code "ERR-10-FDA-DEPS-IMPORT" "$MSG_FAIL_FDA_DEPENDENCIES_IMPORT_RE_RUN"
+            # W003 class: this message named /tmp/ostler-fda-deps.log, which
+            # nothing writes. The real log is under the private per-run diag dir.
+            fail_with_code "ERR-10-FDA-DEPS-IMPORT" "$(printf "$MSG_FAIL_FDA_DEPENDENCIES_IMPORT_RE_RUN" "${OSTLER_DIAG_DIR}/fda-deps.log")"
         fi
     else
         ok "$MSG_OK_FDA_DEPENDENCIES_IMPORTABLE"
@@ -10834,14 +10962,56 @@ else
     else
         # Fallback: official installer (used in dev mode where /opt/homebrew
         # is not pre-chowned, OR if pre-chown silently failed).
-        echo "Falling back to official installer (prefix not pre-chowned)" >> "$BREW_INSTALL_LOG"
+        #
+        # W002 (v1.0.63 walk 2): this line used to say "prefix not pre-chowned"
+        # flat, but the branch above is a THREE-WAY test -- GUI mode, the
+        # directory existing, and the directory being writable. Any one of them
+        # being false lands here, and they have three different causes: not
+        # running under the .app, the parent .app never creating the prefix,
+        # and the chown failing or being reverted. One sentence for three
+        # causes is a guess printed as a finding, and this log is the only
+        # thing a customer can send us.
+        #
+        # The pre-probe above already records OSTLER_GUI and `ls -ld
+        # /opt/homebrew`, so the evidence was in the file; what was missing was
+        # the branch saying which test it actually failed.
+        _brew_fallback_why=""
+        [[ "${OSTLER_GUI:-0}" == "1" ]] || _brew_fallback_why="not running under the GUI app (OSTLER_GUI=${OSTLER_GUI:-0})"
+        if [[ -z "$_brew_fallback_why" ]]; then
+            if [[ ! -d /opt/homebrew ]]; then
+                _brew_fallback_why="/opt/homebrew does not exist -- the parent .app did not create the prefix"
+            elif [[ ! -w /opt/homebrew ]]; then
+                _brew_fallback_why="/opt/homebrew exists but is not writable by $(id -un) -- the pre-chown did not take"
+            else
+                # Belt and braces: if all three now pass, the state changed
+                # between the test and here. Say so rather than pick a cause.
+                _brew_fallback_why="all three pre-chown conditions pass NOW; state changed between the test and this line"
+            fi
+        fi
+        echo "Falling back to official installer: ${_brew_fallback_why}" >> "$BREW_INSTALL_LOG"
+        echo "NOTE: the official installer aborts at have_sudo_access() even when no sudo is needed (CX-25)." >> "$BREW_INSTALL_LOG"
+        unset _brew_fallback_why
         NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" >> "$BREW_INSTALL_LOG" 2>&1
         BREW_EXIT=$?
     fi
     set -e
 
     if [[ $BREW_EXIT -ne 0 ]]; then
-        warn "$(printf "$MSG_WARN_HOMEBREW_INSTALL_FAILED_EXIT" "$BREW_EXIT")"
+        # W003 (v1.0.63 walk): these messages used to name a hardcoded
+        # /tmp/ostler-brew-install.log. Nothing ever wrote that path, so every
+        # ERR-04 support report arrived with nothing attached and the Homebrew
+        # failure could not be root-caused from a customer's machine.
+        #
+        # The log was never missing -- it is BREW_INSTALL_LOG, inside
+        # OSTLER_DIAG_DIR, a private `mktemp -d` under TMPDIR. On macOS TMPDIR
+        # is /var/folders/<xx>/<yy>/T and never /tmp, so two literals had
+        # drifted: different directory AND different basename.
+        #
+        # The fix is the MESSAGE, not the filesystem. Publishing a copy to a
+        # fixed /tmp name was considered and rejected: #910 forbids exactly
+        # that, because a fixed name in a world-writable directory lets another
+        # user pre-create our log files. Interpolate the real path instead.
+        warn "$(printf "$MSG_WARN_HOMEBREW_INSTALL_FAILED_EXIT" "$BREW_EXIT" "$BREW_INSTALL_LOG")"
         warn "$MSG_WARN_HOMEBREW_INSTALL_LOG_LAST_LINES"
         # Surface the last 30 lines via warn() so the GUI's prefix-aware
         # log parser actually renders them in the customer log. The
@@ -10851,7 +11021,7 @@ else
         while IFS= read -r line; do
             warn "    $line"
         done < <(tail -30 "$BREW_INSTALL_LOG")
-        fail_with_code "ERR-04-HOMEBREW-INSTALL" "$MSG_FAIL_HOMEBREW_INSTALL_FAILED_LOG_SAVED"
+        fail_with_code "ERR-04-HOMEBREW-INSTALL" "$(printf "$MSG_FAIL_HOMEBREW_INSTALL_FAILED_LOG_SAVED" "$BREW_INSTALL_LOG")"
     fi
 
     if [[ "$ARCH" == "arm64" ]]; then
@@ -11968,6 +12138,51 @@ OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}"
 # was installed and signed in. Used by the iOS / Watch companion to reach
 # this Mac from anywhere. Empty if Tailscale is not in use.
 OSTLER_TAILSCALE_IP="${OSTLER_TAILSCALE_IP:-}"
+
+# ── CONSENT DECISIONS, AND THEY MUST BE HERE OR "REUSE" SILENTLY REVOKES THEM ──
+#
+# MEASURED on Andy's Mini, 2026-09-04. \`ostler-consent show\` returned null for
+# every tickbox on a box with a complete install, and config/.env carried 21
+# keys of which ZERO were consent. That is not a coincidence, it is a loop:
+#
+#   "Use previous answers"  ->  SKIP_PHASE2=true
+#     ->  the question phase never runs
+#     ->  OSTLER_CONSENT_*_DECISION stay EMPTY
+#     ->  the recorder at Phase 3 is guarded on non-empty, so it writes NOTHING
+#     ->  nothing is persisted for the NEXT reuse run to restore
+#
+# Self-perpetuating: every reuse run starts from the state the previous reuse
+# run failed to leave behind. The customer answered these questions once and
+# the answers evaporated, and the feeds they gate stayed off with no record
+# saying why. A wiped Mac restored from Time Machine hits this on its FIRST
+# install, because the restored home already carries a config/.env and the
+# installer therefore offers to reuse it.
+#
+# WHY HERE AND NOT A NEW FILE. The reuse path at ~4972 already does
+# \`set -a; source config/.env; set +a\`, so a key written here is restored
+# into exactly the variable the recorder reads, with no new mechanism, no
+# second source of truth, and nothing to keep in sync. This block also runs on
+# BOTH paths (the SKIP_PHASE2 guard closes at ~10137, well above), so a reuse
+# run rewrites what it restored rather than truncating it away.
+#
+# EMPTY IS PRESERVED DELIBERATELY, NOT DEFAULTED. An absent decision must stay
+# absent so Doctor reports "missing" and the freshness gate can ask again.
+# Defaulting an unanswered consent question to "accepted" would manufacture a
+# consent nobody gave, and defaulting it to "declined" would switch a feed off
+# the customer never refused. Both are worse than a truthful gap.
+OSTLER_CONSENT_ARTICLE_9_DECISION="${OSTLER_CONSENT_ARTICLE_9_DECISION:-}"
+OSTLER_CONSENT_VOICE_EU_DECISION="${OSTLER_CONSENT_VOICE_EU_DECISION:-}"
+OSTLER_CONSENT_THIRD_PARTY_DECISION="${OSTLER_CONSENT_THIRD_PARTY_DECISION:-}"
+OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION="${OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION:-}"
+OSTLER_CONSENT_ENRICHMENT_DECISION="${OSTLER_CONSENT_ENRICHMENT_DECISION:-}"
+
+# The WhatsApp tickbox is recorded from TWO variables rather than one decision
+# string, so both have to survive or the recorder reads a decline as a
+# never-asked. CHANNEL_WHATSAPP_CONSENT_ACCEPTED carries the accept; WA_CONSENT
+# carries an explicit "n" refusal that Doctor must show as "user declined"
+# rather than "missing".
+CHANNEL_WHATSAPP_CONSENT_ACCEPTED="${CHANNEL_WHATSAPP_CONSENT_ACCEPTED:-}"
+WA_CONSENT="${WA_CONSENT:-}"
 ENVEOF
 
 # This .env carries USER_ID + config the whole install reads; it is
@@ -12573,6 +12788,41 @@ unset _existing_tok _pt _pt_esc
 _ostler_config_list_first() {
     # $1 = config path, $2 = section suffix, $3 = key.
     # Echoes the FIRST quoted element of a (possibly multi-line) TOML array.
+    #
+    # 🔴 AN ABSENT KEY IS A NORMAL ANSWER, AND IT USED TO ABORT THE INSTALL.
+    #
+    # MEASURED on a cold account, 2026-09-04, walk 5 of v1.0.65. The shipped
+    # uninstaller leaves config/.env behind, so a re-install offers "We found
+    # your previous answers", takes the reuse path, and reaches the restore
+    # below. Then:
+    #
+    #     STEP_END id=config_save status=error rc=1
+    #     Install aborted unexpectedly at line 12720 (step config_save):
+    #         _v="$(_ostler_config_list_first "$_cfg" whatsapp allowed_numbers)"
+    #     #OSTLER DONE status=fail code=ERR-99-INSTALL-ABORT-L12720
+    #
+    # THE MECHANISM IS `pipefail`, NOT THE LAST COMMAND. install.sh runs under
+    # `set -Eeuo pipefail` (line 29). `grep -oE` exits 1 when it matches
+    # NOTHING, and pipefail promotes that 1 to the whole pipeline even though
+    # `sed` -- the last command -- exits 0. The assignment then trips `set -e`
+    # and the ERR trap fires. Reading only the last command of the chain gives
+    # the wrong answer here.
+    #
+    # WHO HITS IT: anyone re-running the installer whose config has no
+    # `[channels.whatsapp] allowed_numbers`, which is EVERY customer who did
+    # not choose WhatsApp. The other call site asks for
+    # `imessage allowed_contacts` and fails the same way when that is absent.
+    #
+    # REPRODUCED AND CONTROLLED on the box, with the real awk/grep/sed:
+    #     key ABSENT   -> exit 1, the script died before its next line
+    #     key PRESENT  -> exit 0, value "+447700900000" returned
+    # so absence is the cause, not some property of the file or the pipeline.
+    #
+    # THE FIX IS TO SAY THAT ABSENCE IS NOT AN ERROR, and to say it at the
+    # grep, not with a blanket `|| true` on the whole pipeline. A trailing
+    # `|| true` would also swallow an awk failure, an unreadable file and a
+    # broken sed -- it would fix the symptom by making the function unable to
+    # report anything at all.
     [[ -f "$1" ]] || return 0
     awk -v sect="[channels.$2]" -v key="$3" '
         $0 == sect { in_s = 1; next }
@@ -12580,7 +12830,7 @@ _ostler_config_list_first() {
         in_s && !cap && $0 ~ ("^[ \t]*" key "[ \t]*=") { cap = 1 }
         cap { buf = buf $0 "\n"; if (index($0, "]") > 0) { cap = 0; in_s = 0 } }
         END { printf "%s", buf }
-    ' "$1" | grep -oE '"[^"]*"' | head -1 | sed 's/^"//; s/"$//'
+    ' "$1" | { grep -oE '"[^"]*"' || true; } | head -1 | sed 's/^"//; s/"$//'
 }
 _ostler_config_section_enabled() {
     # $1 = config path, $2 = section suffix. Echoes "true" only for enabled=true.
@@ -15366,11 +15616,38 @@ FDARPEOF
             launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun" 2>/dev/null || \
                 launchctl unload "$FDA_RERUN_PLIST" 2>/dev/null || true
         fi
-        if _ostler_launchagent_load_verified "$FDA_RERUN_PLIST"; then
-            ok "$(printf "$MSG_OK_FDA_RE_RUN_SCHEDULED_RECURRING" "$(( OSTLER_FDA_RERUN_INTERVAL_S / 60 ))")"
-        else
-            warn "$MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED"
-        fi
+        # 🔴 DO NOT LOAD IT YET. ITS PROGRAM DOES NOT EXIST FOR ANOTHER 3,292
+        # LINES.
+        #
+        # MEASURED on the Mini 16, 2026-09-04, on a finished install:
+        #
+        #     ~/.ostler/logs/fda-rerun.err   08:23:35Z  "ostler-fda not
+        #                                    found/executable at
+        #                                    ~/.ostler/bin/ostler-fda; re-run
+        #                                    the installer to repair."
+        #     ~/.ostler/bin/ostler-fda       08:24:13Z  written 38s LATER
+        #
+        # launchd starts a StartInterval job IMMEDIATELY on load and then every
+        # interval, so bootstrapping here fires a tick against a binary this
+        # script has not written yet. EVERY CUSTOMER INSTALL therefore writes
+        # "re-run the installer to repair" into its own error log, on a run
+        # that is about to succeed. Harmless -- the next tick works -- and
+        # alarming to whoever reads it, which on a support call is exactly who
+        # does.
+        #
+        # WHY DEFER RATHER THAN MOVE THE BINARY. The plist write is inside this
+        # conditional; the binary is written at TOP LEVEL far below. Hoisting a
+        # 100-line heredoc across 3,292 lines of a file this size, days after a
+        # walk, is a much larger change than the defect justifies. Deferring the
+        # LOAD moves one call and changes no other ordering.
+        #
+        # THE BEHAVIOUR CHANGE, STATED RATHER THAN GLOSSED: if the install
+        # aborts between here and the deferred load, the agent is not
+        # registered at all, where before it was registered and broken. That is
+        # the better failure -- an aborted install is a failed install the
+        # customer re-runs, and a registered agent whose program never arrived
+        # is a job that fails hourly forever with nobody reading it.
+        _OSTLER_FDA_RERUN_LOAD_PENDING=1
     fi
 else
     # Reachable only when --allow-plaintext was passed AND the FDA
@@ -17637,12 +17914,15 @@ if [[ "$HAS_PIPELINE" == true ]]; then
         fi
         set -e
         if [[ $PIPELINE_PIP_EXIT -ne 0 ]]; then
-            warn "$(printf "$MSG_WARN_PIPELINE_PIP_INSTALL_FAILED_EXIT" "$PIPELINE_PIP_EXIT")"
+            warn "$(printf "$MSG_WARN_PIPELINE_PIP_INSTALL_FAILED_EXIT" "$PIPELINE_PIP_EXIT" "$PIPELINE_PIP_LOG")"
             warn "$MSG_WARN_PIPELINE_PIP_LOG_LAST_LINES"
             while IFS= read -r line; do
                 warn "    $line"
             done < <(tail -30 "$PIPELINE_PIP_LOG")
-            fail_with_code "ERR-14-PIPELINE-PIP" "$MSG_FAIL_PIPELINE_PIP_INSTALL_FAILED_LOG_SAVED"
+            # W003 class: this message named /tmp/ostler-pipeline-pip.log, which
+            # nothing writes. The log is PIPELINE_PIP_LOG, under the private
+            # per-run OSTLER_DIAG_DIR (#910). Name the real path.
+            fail_with_code "ERR-14-PIPELINE-PIP" "$(printf "$MSG_FAIL_PIPELINE_PIP_INSTALL_FAILED_LOG_SAVED" "$PIPELINE_PIP_LOG")"
         fi
         ln -sf "${CONFIG_DIR}/.env" contact_syncer/.env 2>/dev/null || true
         ok "$MSG_OK_IMPORT_PIPELINE_READY"
@@ -18733,7 +19013,7 @@ fi
 # channel a scheduler can act on -- a loud log tells a human, an rc tells the
 # system, and only one of those is watching at 04:00.
 "$OSTLER_PYTHON" -c "
-import json, sys
+import json, sys, os, datetime
 sys.path.insert(0, '${FDA_DIR}')
 from ostler_fda.extract_all import run_all
 from ostler_fda.pwg_ingest import ingest_all
@@ -18742,6 +19022,62 @@ fda_dir = Path('${OSTLER_DIR}/imports/fda')
 run_all(fda_dir)
 results = ingest_all(fda_dir) or {}
 print('[ingest] ' + json.dumps(results, default=str))
+
+# ── ONGOING ACTIVITY RECORD (#W018) ──────────────────────────────────────
+#
+# WHY THIS EXISTS, MEASURED on the Mini 16 2026-09-04. Every hydrate sentinel
+# under state/hydrate was frozen between 08:29Z and 08:45Z -- install time --
+# while this very script rewrote imessage_conversations.json at 09:17Z with
+# 167 conversations and 136 people created. The extract moved; the record did
+# not. So /api/v1/sources reported 'no_data, people=0' for a source that had
+# just done real work, and its own docstring claims it shows 'whether a source
+# landed AND WHETHER IT KEEPS UPDATING'. It could never answer the second half.
+#
+# TWO RECORDS, NEVER ONE REPURPOSED. state/hydrate/<n>.done stays exactly as
+# it is: an install-time verdict with a 7-day dedupe window. That record
+# answers 'did this land at install'. This one answers 'is this still
+# working', which is a different question and needs its own writer.
+#
+# LAST-RUN AND LAST-SUCCESS ARE SEPARATE FIELDS ON PURPOSE. 'ran 4 minutes ago
+# and found nothing' and 'last ran at install and has not run since' print
+# identically when you only keep one timestamp, and that collapse is the whole
+# defect. last_success_at is CARRIED FORWARD from the previous record when
+# this run was not a success, so a failing source still shows when it last
+# worked rather than losing that history on its first bad tick.
+#
+# BEST EFFORT, ALWAYS. This is bookkeeping about ingest, not ingest. It must
+# never be able to fail the tick it is describing, so every write is wrapped
+# and a broken record costs a row of reporting, never a harvest.
+try:
+    _now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    _act = Path('${OSTLER_DIR}') / 'state' / 'source_activity'
+    _act.mkdir(parents=True, exist_ok=True)
+    _rows = results if isinstance(results, dict) and results.get('status') != 'error' else {}
+    for _name in sorted(_rows):
+        _res = _rows[_name]
+        if not isinstance(_res, dict):
+            continue
+        _status = str(_res.get('status', 'unknown'))
+        _f = _act / (_name + '.tsv')
+        _prev_success = ''
+        if _f.is_file():
+            for _line in _f.read_text(encoding='utf-8', errors='replace').splitlines():
+                if _line.startswith('last_success_at='):
+                    _prev_success = _line.split('=', 1)[1]
+        _success = _now if _status == 'ok' else _prev_success
+        _detail = json.dumps({k: v for k, v in _res.items() if k != 'status'}, default=str)
+        _f.write_text(
+            'source=' + _name + chr(10) +
+            'last_run_at=' + _now + chr(10) +
+            'last_status=' + _status + chr(10) +
+            'last_success_at=' + _success + chr(10) +
+            'last_detail=' + _detail[:400] + chr(10) +
+            'writer=ostler-fda' + chr(10),
+            encoding='utf-8')
+except Exception as _exc:
+    sys.stderr.write('[activity] could not record ongoing status: ' +
+                     type(_exc).__name__ + ': ' + str(_exc) + chr(10))
+
 failed = []
 if results.get('status') == 'error':
     # The whole-directory failure shape: a FLAT dict, not per-source. Checked
@@ -18759,6 +19095,26 @@ if failed:
 "
 FDAEOF
 chmod +x "${OSTLER_DIR}/bin/ostler-fda"
+
+# ── THE DEFERRED fda-rerun LOAD (see the note at its plist write) ─────────
+# Registered ONLY now, because only now does the program it invokes exist.
+# launchd starts a StartInterval job immediately on load, so loading it any
+# earlier fires a tick against a binary that is not there and writes
+# "re-run the installer to repair" into the customer's own error log.
+if [[ "${_OSTLER_FDA_RERUN_LOAD_PENDING:-0}" == "1" ]]; then
+    # A guard, not decoration: if the binary is somehow still absent we are
+    # about to reproduce the exact defect this block exists to remove, so say
+    # so instead of registering it anyway.
+    if [[ ! -x "${OSTLER_DIR}/bin/ostler-fda" ]]; then
+        warn "$MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED"
+        warn "  ostler-fda is not executable at ${OSTLER_DIR}/bin/ostler-fda, so the recurring re-run was NOT registered."
+    elif _ostler_launchagent_load_verified "$FDA_RERUN_PLIST"; then
+        ok "$(printf "$MSG_OK_FDA_RE_RUN_SCHEDULED_RECURRING" "$(( OSTLER_FDA_RERUN_INTERVAL_S / 60 ))")"
+    else
+        warn "$MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED"
+    fi
+    unset _OSTLER_FDA_RERUN_LOAD_PENDING
+fi
 
 # Create a self-removing contact re-sync wrapper. Re-runs the CM041
 # contact_syncer against the LOCAL AddressBook store -- specifically the
@@ -19874,12 +20230,15 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
     DOCTOR_PIP_EXIT=$?
     set -e
     if [[ $DOCTOR_PIP_EXIT -ne 0 ]]; then
-        warn "$(printf "$MSG_WARN_DOCTOR_PIP_INSTALL_FAILED_EXIT" "$DOCTOR_PIP_EXIT")"
+        warn "$(printf "$MSG_WARN_DOCTOR_PIP_INSTALL_FAILED_EXIT" "$DOCTOR_PIP_EXIT" "$DOCTOR_PIP_LOG")"
         warn "$MSG_WARN_DOCTOR_PIP_LOG_LAST_LINES"
         while IFS= read -r line; do
             warn "    $line"
         done < <(tail -30 "$DOCTOR_PIP_LOG")
-        fail_with_code "ERR-17-DOCTOR-PIP" "$MSG_FAIL_DOCTOR_PIP_INSTALL_FAILED_LOG_SAVED"
+        # W003 class: this message named /tmp/ostler-doctor-pip.log, which
+        # nothing writes. The log is DOCTOR_PIP_LOG, under the private per-run
+        # OSTLER_DIAG_DIR (#910). Name the real path.
+        fail_with_code "ERR-17-DOCTOR-PIP" "$(printf "$MSG_FAIL_DOCTOR_PIP_INSTALL_FAILED_LOG_SAVED" "$DOCTOR_PIP_LOG")"
     fi
     ok "$MSG_OK_DOCTOR_DEPENDENCIES_INSTALLED"
 
@@ -21076,8 +21435,97 @@ fi
 # ostler_fda (reader reuses ostler_fda.apple_mail_mbox) + pyyaml.
 # Step-count: Email body-feed is a gated progress step (Apple Mail present +
 # third-party consent). Subtract its slot from TOTAL_STEPS when skipped.
-[[ ! -d "${HOME}/Library/Mail" || "$OSTLER_CONSENT_THIRD_PARTY_DECISION" != "accepted" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
-if [[ -d "${HOME}/Library/Mail" && "$OSTLER_CONSENT_THIRD_PARTY_DECISION" == "accepted" ]]; then
+#
+# 🔴 RESOLVED FIRST, AND THE DECREMENT READS THE SAME VALUE THE GUARD DOES.
+# This line used to read the RAW variable while the guard below read the
+# resolver. On a reuse run where the resolver restores `accepted` from the
+# durable registry, the step would RUN while its slot had already been
+# subtracted -- the denominator shrinking mid-run, which is v1061-D005 filed
+# against this very installer. One value, computed once, read by both.
+_OSTLER_CONSENT_TP_EMAIL="$(_ostler_consent_state third_party_data_personal_records "$OSTLER_CONSENT_THIRD_PARTY_DECISION")"
+[[ ! -d "${HOME}/Library/Mail" || "$_OSTLER_CONSENT_TP_EMAIL" != "accepted" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
+
+# ── UNKNOWN IS NOT DECLINED, AND CONFLATING THEM SILENTLY TURNS FEATURES OFF ──
+#
+# MEASURED on the Mini 16, 2026-09-04, on a finished v1.0.63 install where the
+# customer chose "use previous answers":
+#
+#     PROMPT markers in the whole run    imessage_automation_incoming_ack,
+#                                        reuse_settings, tailscale_confirm
+#     occurrences of "consent_third_party"   0      <- never asked
+#     consent registry, `show --tickbox`     null   <- nothing recorded
+#     keys matching ^[A-Z_]*CONSENT.*= in config/.env   0   (of 19 keys;
+#                                        CONTROL: ^USER_ID= is 1, so the
+#                                        predicate works and .env does persist)
+#     conversation feeds installed       1 of 4 (spoken only)
+#     bundle agents present              spoken only; imessage/whatsapp/email
+#                                        ABSENT (CONTROL: ostler.assistant
+#                                        PRESENT, so the probe can find agents)
+#
+# THE LOOP IS SELF-PERPETUATING, which is why it does not heal:
+#
+#     reuse -> SKIP_PHASE2 -> the consent questions never execute
+#           -> OSTLER_CONSENT_*_DECISION stays EMPTY
+#           -> the recorder at ~13755 is guarded on the variable being NON-EMPTY,
+#              so it records NOTHING into the durable registry
+#           -> the NEXT reuse run has nothing to restore, and repeats
+#
+# So the decision lives only in a shell variable that dies with the process, and
+# every consent-gated feature reads its absence as a refusal.
+#
+# 🔴 SAME CLASS AS #619, THIRD OCCURRENCE. The block at ~12674 records this
+# exact shape for CHANNELS -- "config/.env carries 21 keys and NONE of them are
+# CHANNEL_*" -- and the paired_tokens block above it records it once more. Both
+# got a fill-only restore. Consent did not, and consent is the one where the
+# failure mode is a PRIVACY-GATED FEATURE SILENTLY SWITCHING OFF.
+#
+# WHAT THIS FUNCTION DOES AND DELIBERATELY DOES NOT DO.
+#
+# It reports THREE states, never two. It does NOT invent a decision, and it
+# never upgrades unknown to accepted: consent is the customer's to give, and a
+# restore that guesses "yes" would be far worse than the bug it fixes.
+#
+#     accepted   the customer said yes, this run or in the durable registry
+#     declined   the customer said no
+#     unknown    nobody has ever been asked, or the answer was lost
+#
+# The CALLERS decide what to do with `unknown`. What they may no longer do is
+# treat it as `declined` in silence.
+_ostler_consent_state() {
+    # _ostler_consent_state <tickbox-id> <in-memory-decision>
+    # -> accepted | declined | unknown
+    local tickbox="$1" inmem="${2:-}"
+    case "$inmem" in
+        accepted) printf 'accepted'; return ;;
+        declined) printf 'declined'; return ;;
+    esac
+    # Nothing in memory. Ask the DURABLE registry rather than assuming.
+    # `check` exits 0 only when a current ACCEPTED record exists; every other
+    # state (declined, absent, unreadable) exits non-zero and is therefore
+    # NOT enough to distinguish declined from never-asked. That is why a
+    # non-zero here reports `unknown` and not `declined`.
+    if [[ -n "${OSTLER_PYTHON:-}" ]] && [[ -x "${OSTLER_PYTHON}" ]]; then
+        if "$OSTLER_PYTHON" -m ostler_security.consent_cli check \
+               --tickbox "$tickbox" >/dev/null 2>&1; then
+            printf 'accepted'; return
+        fi
+    fi
+    printf 'unknown'
+}
+
+# Say out loud that a feature was skipped for want of an ANSWER, not for want
+# of consent. A customer who is never told cannot act, and this is precisely
+# the case the installer's own reuse help text promises will not happen.
+_ostler_warn_consent_unknown() {
+    # _ostler_warn_consent_unknown <feature-label> <tickbox-id>
+    warn "$(printf "$MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED" "$1")"
+    warn "$(printf "$MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED_WHY" "$2")"
+}
+
+if [[ -d "${HOME}/Library/Mail" && "$_OSTLER_CONSENT_TP_EMAIL" == "unknown" ]]; then
+    _ostler_warn_consent_unknown "Mail conversation feed" third_party_data_personal_records
+fi
+if [[ -d "${HOME}/Library/Mail" && "$_OSTLER_CONSENT_TP_EMAIL" == "accepted" ]]; then
     progress "$MSG_PROGRESS_EMAIL_BUNDLE" "email_bundle"
     _install_conversation_feed email email_source "ostler_fda pyyaml"
 else
@@ -21149,8 +21597,14 @@ fi
 # so the package stages under services/ (stage_subpath services/imessage_source).
 # Step-count: iMessage body-feed is a gated progress step (chat.db present +
 # third-party consent). Subtract its slot from TOTAL_STEPS when skipped.
-[[ ! -f "${HOME}/Library/Messages/chat.db" || "$OSTLER_CONSENT_THIRD_PARTY_DECISION" != "accepted" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
-if [[ -f "${HOME}/Library/Messages/chat.db" && "$OSTLER_CONSENT_THIRD_PARTY_DECISION" == "accepted" ]]; then
+# Resolved BEFORE the decrement, for the v1061-D005 reason noted at the email
+# step above: the slot subtraction and the guard must read one value.
+_OSTLER_CONSENT_TP_IMSG="$(_ostler_consent_state third_party_data_personal_records "$OSTLER_CONSENT_THIRD_PARTY_DECISION")"
+[[ ! -f "${HOME}/Library/Messages/chat.db" || "$_OSTLER_CONSENT_TP_IMSG" != "accepted" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
+if [[ -f "${HOME}/Library/Messages/chat.db" && "$_OSTLER_CONSENT_TP_IMSG" == "unknown" ]]; then
+    _ostler_warn_consent_unknown "iMessage conversation feed" third_party_data_personal_records
+fi
+if [[ -f "${HOME}/Library/Messages/chat.db" && "$_OSTLER_CONSENT_TP_IMSG" == "accepted" ]]; then
     progress "$MSG_PROGRESS_IMESSAGE_BUNDLE" "imessage_bundle"
     _install_conversation_feed imessage services/imessage_source "pyyaml"
 else
@@ -24122,6 +24576,24 @@ _hydrate_compute_change() {
 #
 # This is the difference between "not known to have failed" and "known
 # to have succeeded". Only the second is evidence.
+
+# ── ONE VALUE, TWO CONSUMERS ──────────────────────────────────────
+#
+# The AI-conversations producer cannot run without an owner email address:
+# CM052_USER_EMAIL labels the user side of every transcript, and cm052.cli
+# refuses outright without it. TWO places in this file have to know that --
+# the install-time drain and the hourly LaunchAgent registration -- and
+# before this helper existed only one of them did.
+#
+# They must never be able to disagree, which is why this is a function and
+# not the condition written twice. v1.0.63 shipped exactly that split in a
+# neighbouring block: the step counter read the raw variable while the guard
+# read the resolver, so a step ran after its slot had been subtracted (#1427).
+# Two copies of a predicate is one copy plus a future defect.
+_aiconv_owner_email_known() {
+    [[ -n "${USER_EMAIL:-}" ]]
+}
+
 _hydrate_sentinel_fresh() {
     # --repair means "re-attempt everything". Nothing is ever fresh under it.
     # This is the ONLY thing that makes the flag Doctor advertises in 10
@@ -25036,8 +25508,12 @@ except Exception:
             # the phone count -> the phone-only-export signature.
             if [[ "$phones" -ge 20 ]] \
                && [[ $((emails * 20)) -lt "$phones" ]]; then
+                # W003 class: named /tmp/ostler-hydrate-contacts.log, which
+                # nothing writes. The path is the FOURTH %s in this message --
+                # the three counts come first and their order is unchanged.
                 warn "$(printf "$MSG_HYDRATE_CONTACTS_EMAIL_COVERAGE_LOW" \
-                    "$_HYDRATE_CONTACTS_COUNT" "$phones" "$emails")"
+                    "$_HYDRATE_CONTACTS_COUNT" "$phones" "$emails" \
+                    "${OSTLER_DIAG_DIR}/hydrate-contacts.log")"
             fi
         }
         _guard_email_coverage || true
@@ -25378,7 +25854,8 @@ except Exception:
         # The extractor or ingest raised -- this is NOT an empty calendar.
         # Surface it as a failure (with the log path) instead of the
         # "not synced" state so the two are never conflated.
-        warn "$MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED"
+        # W003 class: named /tmp/ostler-hydrate-calendar.log, which nothing writes.
+        warn "$(printf "$MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED" "${OSTLER_DIAG_DIR}/hydrate-calendar.log")"
         # FAIL. `events=0` here is MEASURED, not defaulted: the count was
         # parsed above and this arm is only reached when it is zero. The
         # stage that raised is named so the two python legs stay separable.
@@ -27355,11 +27832,15 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
     elif printf '%s' "$_places_log_tail" | grep -q "PLACES INGEST GUARD"; then
         # The module's own loud guard fired: signals exist but no Places were
         # produced/written. Surface it loudly (non-fatal: a re-run is safe).
-        warn "$MSG_HYDRATE_PLACES_GUARD_WARN"
+        # W003 class: named /tmp/ostler-places-ingest.log, which nothing writes.
+        warn "$(printf "$MSG_HYDRATE_PLACES_GUARD_WARN" "${OSTLER_DIAG_DIR}/places-ingest.log")"
     else
         # Non-zero exit with no guard line = config error / unexpected crash.
         # Still non-fatal, but visible -- not mislabelled as "no signals yet".
-        warn "$MSG_HYDRATE_PLACES_ERROR_WARN"
+        # W003 class: same path, second message. Both arms named a file that
+        # nothing writes, so fixing only the guard arm would have left the
+        # unexpected-error arm lying.
+        warn "$(printf "$MSG_HYDRATE_PLACES_ERROR_WARN" "${OSTLER_DIAG_DIR}/places-ingest.log")"
     fi
     # #711. The branches above already distinguish a crash ("Non-zero
     # exit with no guard line = config error / unexpected crash") and
@@ -28692,7 +29173,52 @@ if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
             # counts-only JSON summary.
             _hydrate_heartbeat_start "$MSG_HYDRATE_AICONV_HEARTBEAT"
             _aiconv_rc=0
-            if [[ -z "$_AICONV_OUT" ]]; then
+            _AICONV_NO_OWNER_EMAIL=false
+            # 🔴 A PRODUCER THAT CANNOT SUCCEED MUST NOT BE RUN, BECAUSE ITS
+            # REFUSAL IS INDISTINGUISHABLE FROM A FAILED INSTALL.
+            #
+            # MEASURED on Andy's Mini during the v1.0.63 walk, 2026-09-04, and
+            # then re-measured on that same box against the installed binary:
+            #
+            #   CM052_USER_EMAIL="" pwg-ai-convo --source all --json  -> exit 2
+            #     ERROR cm052.cli: CM052_USER_EMAIL is not set.
+            #   CONTROL, same binary:  pwg-ai-convo --help            -> exit 0
+            #
+            # so the 2 is specific to the missing address, not a broken venv.
+            # That 2 was then folded into the shared recorder a few lines
+            # below, and the LAST step of the install closed as:
+            #
+            #   STEP_END id=health_check status=error elapsed_s=28 rc=2
+            #   DONE status=ok failed_steps=1 errors=0
+            #
+            # Every probe inside that step -- Qdrant, Oxigraph, Redis, Ollama,
+            # pairing, Doctor, assistant API, wiki, Vane -- had logged healthy.
+            # The install worked. The app came up. The assistant sent its first
+            # iMessage. And the installer's final word was a red step, because
+            # an optional source declined a job it was never given the input for.
+            #
+            # v1.0.64 fixed the OTHER half of this (it stopped registering an
+            # hourly agent that could only fail) but the guard it added sits
+            # BELOW the fold, so the drain still ran and health_check still
+            # reddened. Half a fix reads exactly like a whole one from the
+            # commit message, which is why the control below is a runtime one.
+            #
+            # A COLD MAC IS THE NORMAL CUSTOMER MAC. USER_EMAIL comes from the
+            # macOS me-card via osascript; on a Mac where Contacts has never
+            # been opened that call returns "Application isn't running. (-600)"
+            # and the address is empty. That is the default state of a machine
+            # restoring from iCloud or Time Machine, which is when this
+            # installer runs.
+            #
+            # So: skip the drain, say why, leave rc at 0, and let the guarded
+            # block below record ai_conversations as `no_data` with a DECLARED
+            # reason. That sentinel is not `status=ok`, so it does not suppress
+            # the retry -- the source comes back on its own once an address
+            # exists. Not-run-with-a-reason is recoverable. A red final step is
+            # a customer ringing support about an install that worked.
+            if ! _aiconv_owner_email_known; then
+                _AICONV_NO_OWNER_EMAIL=true
+            elif [[ -z "$_AICONV_OUT" ]]; then
                 warn "Skipping the AI-conversations drain: no private directory could be secured for its summary"
                 _aiconv_rc=1
             else
@@ -28749,6 +29275,46 @@ except Exception:
             _AICONV_RESUME_PLIST="${HOME}/Library/LaunchAgents/com.ostler.aiconv-resume.plist"
             mkdir -p "$LOGS_DIR" "${HOME}/Library/LaunchAgents"
 
+            # 🔴 AN EMPTY REQUIRED VAR MUST NOT REACH A SHIPPED PLIST.
+            #
+            # MEASURED on the Mini 16 during the v1.0.63 walk, 2026-09-04.
+            # USER_EMAIL is read from exactly ONE place -- DETECTED_EMAIL at
+            # :5763, which comes from the macOS me-card via osascript at :5653.
+            # On a Mac where Contacts.app has never been launched that call
+            # returns:
+            #
+            #     Contacts got an error: Application isn't running. (-600)
+            #
+            # so DETECTED_EMAIL is empty, USER_EMAIL is empty, and the
+            # ${USER_EMAIL:-} below expanded to "". The agent then ran hourly
+            # and cm052.cli refused every single time:
+            #
+            #     ERROR cm052.cli: CM052_USER_EMAIL is not set. The wire needs
+            #     it to label the user side of each transcript.
+            #
+            # ai_conversations therefore read `not_run` FOREVER, and the same
+            # rc=2 folded into gui_step_record_rc and reddened health_check --
+            # one empty string, two symptoms, neither naming the cause.
+            #
+            # A COLD MAC IS THE NORMAL CUSTOMER MAC. A wiped machine restoring
+            # from iCloud or Time Machine has no warm GUI apps, which is
+            # exactly when this install runs. Registering an agent that cannot
+            # possibly succeed is worse than not registering it: it is an
+            # hourly failure with no reader, and the source it feeds reports a
+            # state ("not_run") that says nothing about why.
+            #
+            # So: refuse, say why in the customer's own status record, and let
+            # the freshness gate retry once an address is known. `not_run` with
+            # a declared reason is recoverable; a dead agent is not.
+            if ! _aiconv_owner_email_known; then
+                warn "AI conversations: no owner email address is known for this Mac, so the hourly AI-conversation reader was not registered."
+                warn "  The address labels your side of each transcript, and the reader cannot run without it."
+                warn "  Ostler reads it from your card in Contacts; on a Mac where Contacts has never been opened there is nothing to read."
+                warn "  Open Contacts once, check your own card has an email address, then re-run Ostler from Settings."
+                _hydrate_sentinel_record "ai_conversations" "written=0" \
+                    "owner_email_unknown_agent_not_registered"
+            else
+
             cat > "$_AICONV_RESUME_PLIST" <<AICONVPLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -28794,12 +29360,21 @@ AICONVPLIST
                || launchctl load "$_AICONV_RESUME_PLIST" 2>/dev/null; then
                 _AICONV_AGENT_OK=true
             fi
+            fi   # end: owner email known
 
             # ── Drain outcome: user-facing message + hydrate sentinel ──
             # The recurring steady feed is registered above regardless; this
             # only decides the install-time message + whether to stamp the
             # 7-day hydrate sentinel (success arms only).
-            if [[ "$_AICONV_TIMED_OUT" == "true" ]]; then
+            if [[ "${_AICONV_NO_OWNER_EMAIL:-false}" == "true" ]]; then
+                # The drain was never attempted (no owner email address), so
+                # there is no outcome to report and nothing succeeded. Say the
+                # same thing the other not-attempted arms say, and record NO
+                # sentinel here: the guarded block above already wrote
+                # ai_conversations with a declared reason, and a second write
+                # from this arm would land `written=0` with no cause attached.
+                info "$MSG_HYDRATE_AICONV_SKIPPED_NOT_READY"
+            elif [[ "$_AICONV_TIMED_OUT" == "true" ]]; then
                 # 180s cap hit mid-drain: do NOT record the sentinel here --
                 # an incomplete drain must retry, not skip for a week
                 # (w7-aiconv-honesty defect 1). The recurring agent registered

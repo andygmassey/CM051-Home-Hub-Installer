@@ -120,7 +120,48 @@ echo "PASS: unconditional final FDA re-probe (line $reprobe_line) precedes run_a
 #                                       prompt did not run -- same shape as
 #                                       mail_not_connected. The normal
 #                                       walk-away path never hits it.
-ALLOWLIST=" tailscale_confirm imessage_automation_incoming_ack save_keychain mail_not_connected "
+#   autologin_consent                -> #452 (v1.0.11) added the reboot
+#                                       self-heal opt-in. It asks whether to
+#                                       store the LOGIN PASSWORD on this Mac
+#                                       so it can sign itself back in after a
+#                                       restart, and that is the one class of
+#                                       question a walk-away default must
+#                                       never answer: silently taking "yes"
+#                                       writes a credential nobody agreed to,
+#                                       and silently taking "no" is a decision
+#                                       made on the customer's behalf about
+#                                       whether their Hub survives a reboot.
+#                                       Inherently interactive, which is the
+#                                       escape this allowlist exists for.
+#                                       It is also doubly guarded: skipped
+#                                       when FileVault is On, and skipped on a
+#                                       non-interactive run
+#                                       ([[ ! -t 0 && OSTLER_GUI != 1 ]]).
+#
+# 🔴 THIS ENTRY IS WHY THIS FILE WAS FAILING, AND IT HAD BEEN FAILING SINCE
+# v1.0.11. MEASURED 2026-09-04: `autologin_consent` and `save_keychain` BOTH
+# appear once in install.sh, so this was never a rename that left the
+# allowlist behind -- it is a NEW post-boundary prompt whose allowlist entry
+# was never written. The test was correct and nobody was reading it, because
+# it was UNWIRED: TEST_WIRING.tsv recorded it as one of four tests no
+# workflow runs. A test that fails where nobody looks is not a gate, it is a
+# file. Wired into CI in the same change that makes it green, because doing
+# only the first half would have left the same silence with a tidier reason.
+#   autologin_password               -> the follow-up to autologin_consent,
+#                                       and reachable ONLY through it: the
+#                                       consent prompt defaults to "N" and
+#                                       `return 0`s on anything that is not
+#                                       an explicit yes, so a walk-away
+#                                       install never reaches this line. Same
+#                                       guarded-follow-up shape as
+#                                       mail_not_connected, except the guard
+#                                       is an affirmative answer rather than
+#                                       a flag, which means the customer is
+#                                       present by construction. It is a
+#                                       `secret` prompt and its value is
+#                                       redacted from the install log by the
+#                                       emitter.
+ALLOWLIST=" tailscale_confirm imessage_automation_incoming_ack save_keychain mail_not_connected autologin_consent autologin_password "
 
 post_tags="$(awk -v b="$BOUNDARY" '
     NR<=b { next }
@@ -145,14 +186,36 @@ post_tags="$(awk -v b="$BOUNDARY" '
 
 [[ -n "$post_tags" ]] || { echo "NOTE: no gui_read after the boundary at all"; }
 
+# ── ACCUMULATE, DO NOT DIE ON THE FIRST ──────────────────────────────────
+# fail() exits, so this loop used to report ONE offender and stop. That is
+# not a detail: it makes the DENOMINATOR unknowable. MEASURED 2026-09-04 --
+# adding `autologin_consent` to the allowlist did not turn this test green,
+# it revealed `autologin_password` underneath, which had been invisible the
+# entire time the file was failing. Whoever fixed the first one would have
+# believed they were done and shipped the second.
+#
+# The count of offenders is the finding. Report all of them, print what was
+# EXAMINED, and fail once at the end.
+_offenders=""
+_examined=0
 while IFS= read -r tag; do
     [[ -z "$tag" ]] && continue
+    _examined=$((_examined+1))
     case " $ALLOWLIST " in
         *" $tag "*) : ;;
-        *) fail "new non-allowlisted gui_read '$tag' fires after the Phase-3 boundary -- a walk-away install would stall. Move it into Phase 2 (or, if inherently interactive, extend the documented allowlist)." ;;
+        *) _offenders="${_offenders} ${tag}" ;;
     esac
 done <<< "$post_tags"
+
+echo "      examined ${_examined} post-boundary gui_read tag(s): $(echo $post_tags | tr '\n' ' ')"
+if [[ -n "$_offenders" ]]; then
+    echo "FAIL: ${_offenders# } fire(s) after the Phase-3 boundary and is not on the documented allowlist." >&2
+    echo "      A walk-away install would stall there. Move it into Phase 2, or, if it" >&2
+    echo "      is inherently interactive or a guarded follow-up, extend the allowlist" >&2
+    echo "      WITH A REASON -- an allowlist entry with no rationale is a silenced" >&2
+    echo "      test, not a documented exception." >&2
+    exit 1
+fi
 echo "PASS: every post-boundary gui_read is on the documented interactive allowlist"
-echo "      (post-boundary tags: $(echo $post_tags | tr '\n' ' '))"
 
 echo "ALL PASS: test_walkaway_no_phase2_input_leak.sh"

@@ -87,6 +87,22 @@ check "extracted leg contains the recurring-agent plist heredoc" \
 check "extracted leg registers the reroute (run-source aiconv), not a wrapper" \
     bash -c 'grep -q "<string>run-source</string>" "$1" && grep -q "<string>aiconv</string>" "$1"' _ "$LEG_FILE"
 
+# The leg calls a shared owner-email predicate that is defined EARLIER in
+# install.sh, outside the extracted range. Pull in the real definition rather
+# than stubbing it, so these scenarios exercise the same guard the customer
+# runs. Stubbing it here would let the predicate and the leg drift apart and
+# still show green.
+#
+# Without this the predicate is simply absent, `! _aiconv_owner_email_known`
+# inverts a 127, every scenario takes the no-owner-address arm, and the
+# producer is never invoked. That failure is loud (28 of 50) rather than
+# silent, but only because these scenarios assert on what the producer did.
+HELPER_FILE="$WORK/aiconv_helpers.sh"
+awk '/^_aiconv_owner_email_known\(\) \{/{f=1} f{print} f&&/^\}$/{exit}' "$INSTALL" > "$HELPER_FILE"
+export HELPER_FILE
+check "owner-email predicate extracted from install.sh (the leg calls it)" \
+    bash -c 'test -s "$1" && bash -n "$1"' _ "$HELPER_FILE"
+
 # ---------------------------------------------------------------------------
 # Scenario harness
 # ---------------------------------------------------------------------------
@@ -171,6 +187,7 @@ MSG_HYDRATE_AICONV_BACKGROUND_CONTINUES="TOKEN_BG_CONTINUES"
 MSG_HYDRATE_AICONV_HEARTBEAT="TOKEN_HEARTBEAT_%s"
 PYTHON3_BIN="python3"
 OSTLER_AI_CONVERSATIONS_ENABLED="true"
+source "$HELPER_FILE"
 source "$LEG_FILE"
 RUNNEREOF
     chmod 0755 "$SCEN/runner.sh"

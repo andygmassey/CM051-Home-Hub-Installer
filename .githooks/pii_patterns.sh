@@ -348,6 +348,37 @@ pii_load_patterns() {
 # The rule both corrections serve: a reserved entry must be provably fictional
 # or provably impersonal. `example.co.uk` is the first; `/Users/runner` is the
 # second. Anything that is merely CONVENIENT to excuse does not belong here.
+#
+#   THE THIRD ENTRY, and it is the second kind.  MEASURED 2026-09-04 on CM051
+#   #1415. The email class fires on this product's OWN published support
+#   address. Four role mailboxes across the two domains we control, 55
+#   occurrences in eleven tracked files including install.sh, the en-GB
+#   strings, ViewCopy.json and four Swift test files:
+#
+#       support@   43    hello@   8    legal@   2    security@   2
+#
+#   Split by domain: 52 on ostler.ai (the product), 3 on
+#   creativemachines.ai (the company: the security-contact line at
+#   install.sh:3608 and the Doctor agent's support address).
+#
+#   None of them identifies a person. They are functional mailboxes we print
+#   to customers on purpose, and the guard calling them PII is a false
+#   positive of exactly the kind the header warns about: the PR gate narrows
+#   modified files to their ADDED lines, so editing any line that happens to
+#   carry one makes that line new and reds the run. That put 52 lines of
+#   customer-facing copy behind a gate that could only be satisfied by
+#   composing the address from parts at runtime -- three lines structurally
+#   unlike the five beside them, which is how the next drift starts.
+#
+#   ANCHORED BOTH ENDS AND ENUMERATED ON BOTH SIDES, NEVER A WILDCARD. A bare
+#   `@<our-domain>$` would be the fail-open shape: a personal address on a
+#   domain we own is precisely what this class exists to catch, and a
+#   first-name mailbox is plausible on both of these. A bare `^support@` would
+#   be the mirror failure -- somebody else's support desk is exactly as
+#   identifying as any other address. Both sides are spelled out.
+#   Adding a fifth requires a deliberate edit and its own justification, which
+#   is the property we want. Verified behaviourally: the four are excused, a
+#   personal-shaped local part on the same domain is still REPORTED.
 # The PLACEHOLDER home-directory names, as an ERE alternation, in ONE place.
 #
 # Two consumers read this: pii_reserved_placeholder_re below (which decides
@@ -363,8 +394,26 @@ pii_placeholder_home_names() {
     printf '%s' 'you|user|username|example|runner|\$\{?USER\}?|<[a-z]+>'
 }
 
+# The FIRST-PARTY ROLE MAILBOXES, as an ERE alternation, in ONE place -- same
+# reason pii_placeholder_home_names exists: the scanner and
+# bin/scrub-operator-paths.sh must agree, and duplicating a list is how they
+# stop agreeing. Role mailboxes only. A local part that names a person does
+# not belong here at any point in the future; see the note above.
+pii_first_party_role_mailboxes() {
+    printf '%s' 'support|hello|legal|security'
+}
+
+# The FIRST-PARTY DOMAINS those mailboxes are excused ON, in ONE place. Two,
+# because the product domain and the company domain are both ours and both
+# appear: ostler.ai carries the customer-facing copy, creativemachines.ai
+# carries the security-contact line in install.sh and the Doctor agent's
+# support address. A domain reaches this list only if we control its MX.
+pii_first_party_domains() {
+    printf '%s' 'ostler\.ai|creativemachines\.ai'
+}
+
 pii_reserved_placeholder_re() {
-    printf '%s' '(\+?44[[:space:]-]?7700[[:space:]-]?900[0-9]{3}|0?7700[[:space:]-]?900[0-9]{3}|555[[:space:]-]?01[0-9]{2}|@example\.[a-z][a-z.]*$|@([a-z0-9.-]+\.)?(test|example|invalid|localhost)$|^/(Users|home)/('"$(pii_placeholder_home_names)"')/?$)'
+    printf '%s' '(\+?44[[:space:]-]?7700[[:space:]-]?900[0-9]{3}|0?7700[[:space:]-]?900[0-9]{3}|555[[:space:]-]?01[0-9]{2}|@example\.[a-z][a-z.]*$|@([a-z0-9.-]+\.)?(test|example|invalid|localhost)$|^('"$(pii_first_party_role_mailboxes)"')@('"$(pii_first_party_domains)"')$|^/(Users|home)/('"$(pii_placeholder_home_names)"')/?$)'
 }
 
 pii_scan_files() {

@@ -380,6 +380,8 @@ MSG_WARN_ENGINE_SUPERVISOR_NOT_STAGED="The container-runtime supervisor files ar
 MSG_WARN_OSTLER_DOCTOR_NOT_LOADED="The Ostler Doctor dashboard could not be started, so http://localhost:8089 will not answer. The app's own pages that read from it - People, Timeline, Governor, channel status - will show as unavailable until it is running. Re-run the installer to try again."
 MSG_WARN_STAY_AWAKE_AGENT_NOT_LOADED="The keep-awake helper could not be scheduled. Ostler still works, but this Mac may sleep during long background jobs and they will resume when it wakes rather than finishing overnight."
 MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED="The background top-up helper could not be scheduled, so new messages, mail and calendar entries will not be picked up on their own. Re-run the installer to restore it."
+MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED="%s not set up: Ostler has no record of your answer to the question that governs it, so it did not assume one."
+MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED_WHY="  Re-run Ostler and choose to answer the questions again to turn it on. (consent record: %s)"
 MSG_WARN_MEETING_BRIEF_SENDER_NOT_LOADED="The daily brief could not be scheduled, so you will not receive the morning summary. Everything else works; re-run the installer to restore it."
 MSG_WARN_EXPORT_SCAN_NOT_LOADED="The Downloads watcher could not be started, so files you drop into Downloads will not be picked up automatically. Everything already imported is unaffected, and you can still add files from inside the app. Re-run the installer to restore it."
 MSG_WARN_DEFERRED_DEVICE_REGISTRATION_NOT_LOADED="The retry helper for device registration could not be scheduled. If your iPhone registered during setup this changes nothing; if it did not, you will need to pair again from the app rather than it completing on its own."
@@ -706,11 +708,11 @@ MSG_WARN_GDPR_IMPORT_WILL_BE_UNAVAILABLE_THIS_INSTANCE="GDPR import will be unav
 MSG_WARN_GIT_SAID="Git said:"
 MSG_WARN_HEALTH_CHECK_FAILED_OSTLER_KNOWLEDGE_VERSION="  Health check failed: ostler-knowledge --version did not produce output."
 MSG_WARN_HEALTH_CHECK_FAILED_PWG_CONVO_HELP="  Health check failed: the conversation memory engine could not load (pwg-convo or its pipeline import did not return cleanly)."
-MSG_WARN_HOMEBREW_INSTALL_FAILED_EXIT="Homebrew installer exited %s. Last 30 lines of /tmp/ostler-brew-install.log follow:"
+MSG_WARN_HOMEBREW_INSTALL_FAILED_EXIT="Homebrew installer exited %s. Last 30 lines of %s follow:"
 MSG_WARN_HOMEBREW_INSTALL_LOG_LAST_LINES="--- Homebrew install log (tail) ---"
-MSG_WARN_DOCTOR_PIP_INSTALL_FAILED_EXIT="Doctor pip install exited %s. Last 30 lines of /tmp/ostler-doctor-pip.log follow:"
+MSG_WARN_DOCTOR_PIP_INSTALL_FAILED_EXIT="Doctor pip install exited %s. Last 30 lines of %s follow:"
 MSG_WARN_DOCTOR_PIP_LOG_LAST_LINES="--- Doctor pip install log (tail) ---"
-MSG_WARN_PIPELINE_PIP_INSTALL_FAILED_EXIT="Pipeline pip install exited %s. Last 30 lines of /tmp/ostler-pipeline-pip.log follow:"
+MSG_WARN_PIPELINE_PIP_INSTALL_FAILED_EXIT="Pipeline pip install exited %s. Last 30 lines of %s follow:"
 MSG_WARN_PIPELINE_PIP_LOG_LAST_LINES="--- Pipeline pip install log (tail) ---"
 MSG_WARN_HUB_POWER_LAUNCHAGENT_INSTALL_FAILED_SEE="Hub power LaunchAgent install failed. See output above."
 MSG_WARN_HUB_POWER_SCRIPTS_MISSING_FROM_APP_BUNDLE="Hub power scripts not found at the expected bundle path."
@@ -911,11 +913,11 @@ MSG_FAIL_GRAPH_DB_PULL_FAILED="Could not download the knowledge-graph database i
 MSG_FAIL_GRAPH_DB_UP_FAILED="The knowledge-graph databases were downloaded but could not be started. Re-run the installer; if it keeps happening, open Terminal and run: cd ~/.ostler && docker compose up -d qdrant oxigraph redis"
 MSG_FAIL_STORE_AUTH_LEAK="Ostler could not complete an authenticated request to the knowledge-graph database. It tried twice, two seconds apart, and both attempts were refused. We do not yet know why: the database may still have been starting up, or the credential Ostler holds may not be the one it expects. Your data has not been touched. Re-running the installer often succeeds, and if it does we would still like to hear about it – send us the install log, because this is a fault we are actively trying to reproduce."
 MSG_FAIL_FDA_MODULE_MISSING_RE_RUN="FDA extraction module is missing from the installer bundle. Re-download the .app from ostler.ai/install, or re-run with --allow-plaintext for dev/CI."
-MSG_FAIL_FDA_DEPENDENCIES_IMPORT_RE_RUN="The data-extraction module was installed but cannot be loaded, so the background refresh would fail every time it ran. Full output saved to /tmp/ostler-fda-deps.log – re-run the installer, and attach that file if you contact support (Reference: ERR-10-FDA-DEPS-IMPORT)."
+MSG_FAIL_FDA_DEPENDENCIES_IMPORT_RE_RUN="The data-extraction module was installed but cannot be loaded, so the background refresh would fail every time it ran. Full output saved to %s – re-run the installer, and attach that file if you contact support (Reference: ERR-10-FDA-DEPS-IMPORT)."
 MSG_FAIL_FDA_DEPS_UNSAFE_PATH="Internal error: the data-extraction module was staged inside the application bundle, which would break its signature. This is a build fault, not a problem with your Mac. Re-download the .app from ostler.ai/install (Reference: ERR-10-FDA-DEPS-UNSAFE-PATH)."
-MSG_FAIL_DOCTOR_PIP_INSTALL_FAILED_LOG_SAVED="Doctor dependencies install failed. Full output saved to /tmp/ostler-doctor-pip.log – attach it when you email support@ostler.ai (Reference: ERR-17-DOCTOR-PIP)."
-MSG_FAIL_PIPELINE_PIP_INSTALL_FAILED_LOG_SAVED="Import pipeline dependencies install failed. Full output saved to /tmp/ostler-pipeline-pip.log – attach it when you email support@ostler.ai (Reference: ERR-14-PIPELINE-PIP)."
-MSG_FAIL_HOMEBREW_INSTALL_FAILED_LOG_SAVED="Homebrew install failed. Full output saved to /tmp/ostler-brew-install.log – attach it when you email support@ostler.ai."
+MSG_FAIL_DOCTOR_PIP_INSTALL_FAILED_LOG_SAVED="Doctor dependencies install failed. Full output saved to %s – attach it when you email support@ostler.ai (Reference: ERR-17-DOCTOR-PIP)."
+MSG_FAIL_PIPELINE_PIP_INSTALL_FAILED_LOG_SAVED="Import pipeline dependencies install failed. Full output saved to %s – attach it when you email support@ostler.ai (Reference: ERR-14-PIPELINE-PIP)."
+MSG_FAIL_HOMEBREW_INSTALL_FAILED_LOG_SAVED="Homebrew install failed. Full output saved to %s – attach it when you email support@ostler.ai."
 MSG_FAIL_IMPORT_PIPELINE_INSTALL_FAILED_RE_RUN_INSTALLER="Import pipeline install failed. The contact_syncer bundle is required for the productised install. Re-run with --allow-plaintext for dev/CI, or re-download the installer and try again."
 MSG_FAIL_NEED_SUDO_ACCESS_DISABLE_SLEEP_INSTALL="Need sudo access to disable sleep + install Homebrew. Re-run when ready."
 MSG_FAIL_NEITHER_COLIMA_NOR_DOCKER_DESKTOP_COULD="Neither Colima nor Docker Desktop could start. Install Docker Desktop and re-run."
@@ -1257,8 +1259,8 @@ MSG_HYDRATE_PLACES_SKIPPED="No location signals found yet; Places will fill in a
 # Loud, VISIBLE failure surface: the places module's own guard fired (location
 # signals exist in the graph but 0 Place points were produced/written), or the
 # ingester errored unexpectedly. NOT the benign "no signals yet" case.
-MSG_HYDRATE_PLACES_GUARD_WARN="Places build hit a problem: location signals exist but no Places were produced. Your Places page may stay empty. See /tmp/ostler-places-ingest.log"
-MSG_HYDRATE_PLACES_ERROR_WARN="Places build did not complete (unexpected error). Your Places page may be incomplete. See /tmp/ostler-places-ingest.log"
+MSG_HYDRATE_PLACES_GUARD_WARN="Places build hit a problem: location signals exist but no Places were produced. Your Places page may stay empty. See %s"
+MSG_HYDRATE_PLACES_ERROR_WARN="Places build did not complete (unexpected error). Your Places page may be incomplete. See %s"
 MSG_HYDRATE_WIKI_RECOMPILE="Building your wiki. Ostler is writing a short summary for each of your key people, organisations and topics, so on a large address book this can take from a few minutes up to around an hour. It only happens once, runs entirely on your Mac, and is safe to leave."
 
 # CX-106 (DMG #48l, 2026-05-29): initial_hydrate step strings.
@@ -1338,10 +1340,10 @@ MSG_HYDRATE_CONTACTS_DENIED="Could not read your Contacts. Ostler reads them thr
 MSG_HYDRATE_CONTACTS_PENDING="Your Contacts app has not synced yet. Open Contacts once, wait for it to sync, then re-run hydration from Settings."
 MSG_HYDRATE_CONTACTS_READ_FAILED="Your contacts are on this Mac but Ostler imported 0 of them, which is unexpected. The import will retry automatically in the background. If it persists, re-run hydration from Settings or check the install log."
 MSG_HYDRATE_CONTACTS_RESYNC_SCHEDULED="Ostler will keep checking in the background and import your contacts automatically once iCloud finishes syncing."
-MSG_HYDRATE_CONTACTS_EMAIL_COVERAGE_LOW="Imported %s contacts with phone numbers but almost no email addresses (%s phone vs %s email). This usually means the contact reader dropped emails. Your contacts are still usable; see /tmp/ostler-hydrate-contacts.log and re-run hydration from Settings once resolved."
+MSG_HYDRATE_CONTACTS_EMAIL_COVERAGE_LOW="Imported %s contacts with phone numbers but almost no email addresses (%s phone vs %s email). This usually means the contact reader dropped emails. Your contacts are still usable; see %s and re-run hydration from Settings once resolved."
 MSG_HYDRATE_CONTACTS_RESYNC_REBUILDING_WIKI="New contacts imported; rebuilding your wiki in the background."
 MSG_HYDRATE_CALENDAR_PENDING="Your Calendar app has not synced events yet. Open Calendar once, wait for it to sync, then re-run hydration from Settings."
-MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED="Could not read your calendar this time (the extractor reported an error, not an empty calendar). Your other data was unaffected; see /tmp/ostler-hydrate-calendar.log, then re-run hydration from Settings."
+MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED="Could not read your calendar this time (the extractor reported an error, not an empty calendar). Your other data was unaffected; see %s, then re-run hydration from Settings."
 
 # WhatsApp hydration strings (CX-85)
 # Used by install.sh's hydrate_whatsapp step, inserted inside the

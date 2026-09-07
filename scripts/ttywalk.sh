@@ -180,6 +180,187 @@ fi
 
 identity_check "before staging"
 
+# ── LICENCE PREFLIGHT ────────────────────────────────────────────────
+#
+# 🔴 THIS COST A RUN, AND IT WOULD HAVE COST A RESET. MEASURED 2026-09-04 on
+# the first walk of a brand-new macOS account: the harness identity-checked,
+# rsynced the whole tree, flattened 15 payload directories, wrote its config,
+# started the install, and 32 seconds later got
+#
+#     [fail]  [ERR-02-LICENCE-REQUIRED] Licence check failed: No licence file found.
+#
+# The product was RIGHT and the harness was late. install.sh reads exactly one
+# path, ${HOME}/.ostler/license/license.json (install.sh:1874), and a fresh
+# account has no such file -- which is the normal state of the cold accounts
+# this harness exists to walk. Nothing told the operator that before the run.
+#
+# WHY IT SITS ABOVE --reset AND NOT BELOW IT. --reset runs the shipped
+# uninstaller on the target account. Discovering an unstartable walk AFTER
+# tearing a box down means the reset was spent for nothing, and on a box
+# somebody cared about that is worse than a wasted half hour.
+#
+# THE CHECK IS ON THE TARGET ACCOUNT, NOT THIS ONE. The whole class of defect
+# behind this harness is permission-scoped state read from the wrong account:
+# `lsof` cannot see another user's sockets, and this operator account cannot
+# see another user's home. Asking the box, as the user being walked, is the
+# only question worth asking.
+#
+# A MISSING LICENCE IS CANNOT-RUN, NOT FAIL. The build under test has not been
+# shown to be bad; the harness was not given what it needs. Conflating the two
+# is how a setup gap gets filed as a product defect.
+# ── BUNDLED-PYTHON PREFLIGHT ─────────────────────────────────────────
+#
+# 🔴 A MISSING BUILD PRODUCT DOES NOT JUST REMOVE FILES, IT CHANGES WHICH
+# CODE PATH THE INSTALL TAKES, AND THAT IS FAR WORSE.
+#
+# MEASURED 2026-09-04, on the second walk of a cold account. The run died at
+#
+#     [ERR-05-HOMEBREW-PYTHON-INSTALL] Could not install Python 3.11 via Homebrew
+#
+# and it looked exactly like a product defect. It is not one. install.sh:7035
+# reads ${SCRIPT_DIR}/python/bin/python3.11 and takes the bundled interpreter
+# when it is executable; the `brew install python@3.11` arm below it is, in
+# the file's own words, a "Dev mode fallback ... hit only when install.sh runs
+# from a developer's HR015 sibling-clone, not from the customer-facing signed
+# .app (which always has ${SCRIPT_DIR}/python/bin/python3.11 bundled)".
+#
+# THE CONTROL THAT SETTLED IT:
+#
+#     DMG   Contents/Resources/python/bin/python3.11   present, 3.11.15, 17.6 MB
+#     repo  python/bin/python3.11                      DOES NOT EXIST
+#
+# So the harness walked a branch no customer ever runs and produced a red that
+# said nothing about the build. That is not a wasted run, it is a MISLEADING
+# one, and this file already carries the same warning for hub-power,
+# email-ingest and imessage-bridge -- but those only change which FILES exist.
+# This one changes the interpreter the whole install is built on.
+#
+# REFUSING IS THE RIGHT OUTCOME, not warning. The purpose of this harness is
+# to produce a verdict about the product, and a verdict from the dev-mode
+# branch is not one. CANNOT-RUN, never FAIL: nothing about the build has been
+# shown to be wrong.
+rule "BUNDLED-PYTHON PREFLIGHT (the customer path, not the dev fallback)"
+BUNDLED_PY_LOCAL="${REPO_ROOT}/python/bin/python3.11"
+if [[ -x "$BUNDLED_PY_LOCAL" ]]; then
+    say "bundled interpreter present: $("$BUNDLED_PY_LOCAL" --version 2>&1 | head -1)"
+else
+    printf '%s\n' "CANNOT-RUN: no bundled interpreter at ${BUNDLED_PY_LOCAL}" >&2
+    printf '%s\n' "" >&2
+    printf '%s\n' "  install.sh takes the BUNDLED python when that file is executable and" >&2
+    printf '%s\n' "  falls back to 'brew install python@3.11' when it is not. The signed" >&2
+    printf '%s\n' "  .app always ships it, so the fallback is a DEV-ONLY branch that no" >&2
+    printf '%s\n' "  customer reaches. Walking without it does not merely skip a file, it" >&2
+    printf '%s\n' "  runs the whole install on a DIFFERENT interpreter path, and any red it" >&2
+    printf '%s\n' "  produces says nothing about the build." >&2
+    printf '%s\n' "" >&2
+    printf '%s\n' "  It is a build product, so it is absent from the repo by design. Take it" >&2
+    printf '%s\n' "  from the cut you are walking:" >&2
+    printf '%s\n' "" >&2
+    printf '%s\n' "      hdiutil attach -nobrowse -readonly <the>.dmg" >&2
+    printf '%s\n' "      cp -R \"/Volumes/Install Ostler/OstlerInstaller.app/Contents/Resources/python\" \\" >&2
+    printf '%s\n' "            \"${REPO_ROOT}/python\"" >&2
+    printf '%s\n' "      hdiutil detach \"/Volumes/Install Ostler\"" >&2
+    printf '%s\n' "" >&2
+    printf '%s\n' "  Take it from the DMG you intend to ship, not from any other build: the" >&2
+    printf '%s\n' "  interpreter is part of the artefact." >&2
+    exit 2
+fi
+
+# ── SUDO PREFLIGHT ───────────────────────────────────────────────────
+#
+# 🔴 THIS COST 25 MINUTES AND 14 OF 41 STEPS. MEASURED 2026-09-04, walk 4 of
+# v1.0.65 on a cold account:
+#
+#     sudo: 3 incorrect password attempts
+#     Install aborted unexpectedly at line 17980 (step cm048_setup):
+#         sudo ln -sf "$CM048_BIN" "$CM048_SYMLINK"
+#     #OSTLER DONE status=fail code=ERR-99-INSTALL-ABORT-L17980
+#
+# install.sh has a sudo pre-flight that refuses cleanly with
+# ERR-04-SUDO-DENIED, but it is SKIPPED under OSTLER_GUI=1 -- "parent .app has
+# pre-handled root operations" -- and OSTLER_GUI=1 is exactly the mode this
+# harness runs in. There is no .app here to answer the password prompt, so the
+# first `sudo` that is not already authorised kills the run at whatever line it
+# happens to be on.
+#
+# ⚠️ AND THE PRODUCT IS NOT WRONG TO SKIP IT. I nearly "fixed" install.sh to
+# demand `sudo -n true` before trusting GUI mode. THE CONTROL REFUTED IT:
+#
+#     Andy's real v1.0.63 GUI install   cm048_setup  status=ok elapsed_s=8
+#     the same skip line in his log     line 59
+#     `sudo -n true` as him, today      FAILS, a password is required
+#
+# So `sudo -n` fails on a real box whose install SUCCEEDS, because the .app
+# answers the prompt interactively. Demanding `sudo -n` would have emitted a
+# false ERR-04 on every real GUI install. The gap is the harness's, and the
+# harness is where it gets reported.
+#
+# WARN, DO NOT REFUSE. Unlike the licence and the interpreter, a walk without
+# sudo still produces 14 steps of real evidence, and that is worth having. What
+# is not acceptable is discovering the limit at minute 25 with a red that names
+# a symlink.
+rule "SUDO PREFLIGHT (the harness has no .app to answer a password prompt)"
+if "${SSH[@]}" 'sudo -n true' >/dev/null 2>&1; then
+    say "passwordless sudo available on ${HOST%%@*}: the install can complete"
+else
+    say ""
+    say "⚠️  NO PASSWORDLESS SUDO on ${HOST%%@*}."
+    say ""
+    say "    install.sh skips its own sudo gate under OSTLER_GUI=1, which is the"
+    say "    mode this harness runs in, so the FIRST unauthorised sudo will abort"
+    say "    the run at whatever line it lands on. Measured: v1.0.65 died at"
+    say "    line 17980 (cm048_setup) after 14 of 41 steps."
+    say ""
+    say "    This walk WILL still produce evidence up to that point. It will NOT"
+    say "    reach the end, and its red will name a symlink rather than the cause."
+    say ""
+    say "    To let it complete, grant the WALK ACCOUNT ONLY passwordless sudo:"
+    say "        echo '<walk-user> ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/ostler-walk"
+    say "        sudo chmod 440 /etc/sudoers.d/ostler-walk && sudo visudo -c"
+    say ""
+fi
+
+rule "LICENCE PREFLIGHT (on the target account, before anything is staged)"
+lic_state="$("${SSH[@]}" 'if [[ -s "${HOME}/.ostler/license/license.json" ]]; then
+                              echo "present $(stat -f %z "${HOME}/.ostler/license/license.json") bytes"
+                          elif [[ -e "${HOME}/.ostler/license/license.json" ]]; then
+                              echo "empty"
+                          else
+                              echo "absent"
+                          fi' 2>/dev/null)" || lic_state="unreadable"
+case "$lic_state" in
+    present*)
+        say "licence present on ${HOST%%@*}: ${lic_state#present }"
+        ;;
+    empty)
+        printf '%s\n' "CANNOT-RUN: the licence file exists on ${HOST} but is EMPTY." >&2
+        printf '%s\n' "  install.sh will refuse with ERR-02-LICENCE-REQUIRED. A zero-byte" >&2
+        printf '%s\n' "  licence is not a licence; replace it before walking." >&2
+        exit 2
+        ;;
+    absent)
+        printf '%s\n' "CANNOT-RUN: no licence on ${HOST} at ~/.ostler/license/license.json" >&2
+        printf '%s\n' "" >&2
+        printf '%s\n' "  install.sh reads exactly that path and refuses without it, so this" >&2
+        printf '%s\n' "  walk would stage the whole tree and then die in about 30 seconds." >&2
+        printf '%s\n' "  That is a SETUP gap, not a verdict on the build." >&2
+        printf '%s\n' "" >&2
+        printf '%s\n' "  A brand-new account never has one. Put the licence in place as the" >&2
+        printf '%s\n' "  account being walked, then re-run:" >&2
+        printf '%s\n' "" >&2
+        printf '%s\n' "      mkdir -p ~/.ostler/license" >&2
+        printf '%s\n' "      cp <licence json> ~/.ostler/license/license.json" >&2
+        printf '%s\n' "      chmod 600 ~/.ostler/license/license.json" >&2
+        exit 2
+        ;;
+    *)
+        printf '%s\n' "CANNOT-RUN: could not read the licence state on ${HOST} (got '${lic_state}')." >&2
+        printf '%s\n' "  Not knowing is not the same as knowing it is absent, and neither is" >&2
+        printf '%s\n' "  a reason to spend a walk." >&2
+        exit 2
+        ;;
+esac
+
 # ── Reset ────────────────────────────────────────────────────────────
 #
 # A TTY reset is NOT a wipe. It runs the SHIPPED uninstaller, which is itself

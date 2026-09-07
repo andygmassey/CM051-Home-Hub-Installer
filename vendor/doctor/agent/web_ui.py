@@ -2391,7 +2391,104 @@ def _parse_source_sentinel(text: str) -> dict:
     return rec
 
 
-def read_source_status(hydrate_dir: Path | None = None) -> list:
+def _source_activity_dir() -> Path:
+    """Where the recurring ticks record ONGOING status.
+
+    Sibling of the hydrate dir, deliberately separate. See the long note in
+    ``read_source_status``: two questions, two records, and repurposing the
+    install-time sentinel to answer the second one is what produced the defect
+    this exists to close.
+    """
+    root = Path(os.environ.get("OSTLER_DIR", str(Path.home() / ".ostler")))
+    return root / "state" / "source_activity"
+
+
+# ── CANONICAL NAME -> THE KEYS THE INGEST TICK ACTUALLY USES ─────────────
+#
+# MEASURED on the Mini 16, 2026-09-04, immediately after the activity writer
+# first ran. The tick derives its keys from ingest_all's results dict and those
+# are NOT the canonical hydrate names. Nine records were written and only three
+# matched:
+#
+#     written by the tick : apple_mail bookmarks browser_history calendar
+#                           imessage people_index photos social whatsapp
+#     canonical           : ... browsing calendar contacts email imessage
+#                           people whatsapp ...
+#     matched             : calendar imessage whatsapp        <- 3 of 9
+#
+# So `email`, `browsing` and `people` reported ongoing="never" while their
+# ingest had demonstrably just succeeded. Caught before shipping only because
+# the writer was run on a real box and the output compared key by key; the code
+# was self-consistent and the tests passed, because both sides of the join were
+# written from the same wrong assumption.
+#
+# AN EXPLICIT TABLE, NOT FUZZY MATCHING. `people` vs `people_index` would fall
+# to a prefix rule; `email` vs `apple_mail` would not, and a rule loose enough
+# to catch it would also join `apple_mail` to `apple_notes`. Guessing at
+# runtime is how a wrong join becomes invisible, so every pairing is written
+# down and the contract test asserts each alias exists in one list or the
+# other.
+#
+# SEVERAL SOURCES LEGITIMATELY HAVE NO KEY HERE and that is not a gap:
+# `dedupe`, `privacy_backfill` and `places` are operations run outside this
+# tick, and `ai_conversations` has its own agent. They report "never" from
+# this writer and must be fed by their own recorders, not aliased onto
+# somebody else's.
+_SOURCE_ACTIVITY_ALIASES = {
+    "email": ("apple_mail",),
+    "browsing": ("browser_history", "bookmarks"),
+    "people": ("people_index",),
+}
+
+
+def _read_source_activity(name: str, activity_dir: Path | None = None) -> dict:
+    """The ongoing-activity record for one source, or {} when absent.
+
+    Absent is a normal state and is NOT an error: a box installed before this
+    record existed, or a source whose tick has not fired yet, both legitimately
+    have nothing here. The caller must distinguish "no ongoing record" from
+    "ongoing record says stale" -- reporting the first as the second would
+    invent a failure, and reporting it as fresh would hide one.
+    """
+    base = activity_dir if activity_dir is not None else _source_activity_dir()
+
+    def _load(stem: str) -> dict:
+        f = base / (stem + ".tsv")
+        if not f.is_file():
+            return {}
+        try:
+            rec = {}
+            for line in f.read_text(encoding="utf-8",
+                                    errors="replace").splitlines():
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    rec[k.strip()] = v.strip()
+            return rec
+        except OSError:
+            return {}
+
+    # The canonical name first, then any alias. A source fed by SEVERAL keys
+    # (browsing = browser_history + bookmarks) takes the MOST RECENT run and
+    # is only "ok" when every contributing key is: one half of a source
+    # succeeding while the other fails is a failing source, and reporting the
+    # cheerful half would hide exactly the case worth seeing.
+    recs = [r for r in (_load(n) for n in
+                        (name,) + tuple(_SOURCE_ACTIVITY_ALIASES.get(name, ())))
+            if r]
+    if not recs:
+        return {}
+    if len(recs) == 1:
+        return recs[0]
+    merged = max(recs, key=lambda r: r.get("last_run_at", ""))
+    if any(r.get("last_status") != "ok" for r in recs):
+        merged = dict(merged)
+        merged["last_status"] = "error"
+        merged["last_detail"] = "one or more contributing extracts did not succeed"
+    return merged
+
+
+def read_source_status(hydrate_dir: Path | None = None,
+                       activity_dir: Path | None = None) -> list:
     """One typed row per canonical source, read from the .done sentinels.
 
     EVERY canonical source appears: one that never ran is reported as
@@ -2427,6 +2524,47 @@ def read_source_status(hydrate_dir: Path | None = None) -> list:
             "last_update_at": rec.get("last_update_at"),
             "detail": rec.get("detail") or rec.get("payload"),
         })
+
+    # ── ONGOING STATUS, MERGED IN (#W018) ────────────────────────────────
+    #
+    # MEASURED on the Mini 16, 2026-09-04. Every row above comes from a
+    # state/hydrate sentinel, and all eleven were frozen between 08:29Z and
+    # 08:45Z -- install time. In the same window the fda-rerun tick rewrote
+    # imessage_conversations.json at 09:17Z with 167 conversations and 136
+    # people created, and this endpoint still answered:
+    #
+    #     imessage  status=no_data  item_count=0  detail=zero_payload_undeclared
+    #
+    # The extract moved and the record did not, because nothing outside
+    # install.sh has ever written a sentinel. This route's own docstring
+    # promises it shows "whether a source landed AND WHETHER IT KEEPS
+    # UPDATING". The second half was unanswerable by construction.
+    #
+    # THE INSTALL-TIME ROW IS NOT OVERWRITTEN. `status` still means what it
+    # always meant: the verdict at install. The ongoing fields are ADDED
+    # beside it, because a reader needs both -- "landed at install and has
+    # been quiet since" and "failed at install but has worked hourly since"
+    # are different situations and one field cannot carry them.
+    #
+    # THREE ONGOING STATES, AND THE THIRD IS THE ONE THAT MATTERS:
+    #   ongoing="active"   a tick has run and recorded an outcome
+    #   ongoing="never"    no ongoing record at all -- either a box installed
+    #                      before this existed, or a tick that has not fired.
+    #                      NOT reported as a failure: inventing one is as bad
+    #                      as hiding one.
+    #   ongoing="failing"  the last tick ran and did not succeed
+    for row in rows:
+        act = _read_source_activity(row["source"], activity_dir)
+        if not act:
+            row["ongoing"] = "never"
+            row["last_run_at"] = None
+            row["last_success_at"] = None
+            continue
+        last_status = act.get("last_status", "unknown")
+        row["ongoing"] = "active" if last_status == "ok" else "failing"
+        row["last_run_at"] = act.get("last_run_at") or None
+        row["last_success_at"] = act.get("last_success_at") or None
+        row["ongoing_detail"] = act.get("last_detail") or None
     return rows
 
 

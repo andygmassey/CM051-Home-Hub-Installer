@@ -1011,6 +1011,83 @@ def _backup_triples(
     logger.info("Backup written to %s", output_path)
 
 
+# ── RULE 2 ON THE CONVERGE PATH (#659) ───────────────────────────────────
+#
+# WHY THIS IS HERE AND NOT ONLY IN resolver.py. MEASURED on the Mini 16,
+# 2026-09-04, on a FRESHLY WIPED box running v1.0.63:
+#
+#     over-merged Person nodes                   137
+#     Contacts cards swallowed                   286  (149 people with no node)
+#     CONTROL: icloud_contact_uid identifiers   2261
+#     CONTROL: correctly single-uid nodes       1975  (so the zero was reachable)
+#
+# RULE 2 was implemented in IdentityResolver and the register recorded that as
+# "identity_resolver RULE 2 stops NEW ones". It stops new ones ON THE RESOLVE
+# PATH. This module is a SECOND merge path -- `batch_resolver --execute
+# --converge`, which install.sh runs on every install and which the
+# dedupe-catchup LaunchAgent then re-runs hourly until it completes -- and it
+# reached _merge_oxigraph through raw SPARQL without ever consulting the veto.
+# Searching this file for "icloud" or a canonical-key check before this change
+# returned nothing but a free-mail-domain list and "canonical DISPLAY NAME".
+#
+# That is why the count GREW across boxes rather than holding: 128 on the
+# v1.0.38 box (2026-08-21), 130 on 2026-08-26, 137 here. A guard on one of two
+# doors is not a guard, and the walk probe failed on v1.0.52, v1.0.61 and
+# v1.0.63 while the fix was believed to be in place.
+#
+# THE ID TYPES ARE IMPORTED, NEVER RESTATED. Two copies of a security-relevant
+# constant diverge, and the copy nobody edits is the one that ships. There is
+# no circular-import risk: resolver.py does not import this module.
+#
+# ABSENCE IS NOT A CONFLICT, exactly as in the resolver. A node with no
+# Contacts card is the ordinary enrichment case and must still merge, or RULE 1
+# stops working. Only two PRESENT and DISJOINT value sets refuse.
+def _person_canonical_values(
+    url: str, client: httpx.Client, person_uri: str, id_type: str
+) -> Set[str]:
+    rows = _sparql_query(
+        url,
+        client,
+        f"SELECT ?v WHERE {{ <{person_uri}> <{PWG}hasIdentifier> ?i . "
+        f"?i <{PWG}identifierType> {json.dumps(id_type)} ; "
+        f"<{PWG}identifierValue> ?v }}",
+    )
+    return {r["v"] for r in rows if r.get("v")}
+
+
+def _canonical_keys_conflict(
+    url: str, client: httpx.Client, uri_a: str, uri_b: str
+) -> Optional[str]:
+    """The canonical id_type on which two nodes provably describe different
+    people, or None. Node-to-node, the same semantics as
+    IdentityResolver._canonical_keys_conflict.
+
+    FAILS CLOSED. If the store cannot be read the merge is REFUSED rather than
+    allowed: an over-merge interleaves two people's facts on one node and is
+    irreversible in practice, while a refused merge leaves a duplicate that
+    Tidy Contacts can still fix. A transport error must not be able to unlock
+    a door this guard exists to hold.
+    """
+    from identity_resolver.resolver import IdentityResolver
+
+    for id_type in sorted(IdentityResolver._CANONICAL_ID_TYPES):
+        try:
+            values_a = _person_canonical_values(url, client, uri_a, id_type)
+            if not values_a:
+                continue
+            values_b = _person_canonical_values(url, client, uri_b, id_type)
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "RULE 2: refusing %s -> %s, the canonical-key check could not "
+                "run (%s). A check that could not run has not passed.",
+                uri_b, uri_a, type(exc).__name__,
+            )
+            return "unreadable"
+        if values_b and not (values_a & values_b):
+            return id_type
+    return None
+
+
 def _merge_oxigraph(
     url: str, client: httpx.Client, keep_uri: str, discard_uri: str,
 ) -> None:
@@ -1560,7 +1637,26 @@ class BatchResolver:
         backup_path = os.path.join(backup_dir, f"merge_backup_{timestamp}.trig")
         _backup_triples(self.oxigraph_url, self._client, all_uris, backup_path)
 
+        refused_rule2 = 0
         for action in report.auto_merges:
+            # RULE 2 veto, per pair, BEFORE any write. See the long note above
+            # _merge_oxigraph: this path reached the graph without it and grew
+            # 137 over-merged nodes on a freshly wiped box.
+            conflict = _canonical_keys_conflict(
+                self.oxigraph_url, self._client,
+                action.keep_uri, action.discard_uri,
+            )
+            if conflict is not None:
+                refused_rule2 += 1
+                # The TYPE and the node URIs, never the values: canonical keys
+                # are per-person identifiers and this line reaches install logs
+                # and support bundles.
+                logger.info(
+                    "RULE 2: refusing to merge %s into %s -- they carry "
+                    "different %s (canonical keys must not merge)",
+                    action.discard_uri, action.keep_uri, conflict,
+                )
+                continue
             logger.info(
                 "Merging: %s (%s) → %s (%s) [%s, conf=%.2f]",
                 action.discard_name, action.discard_uri,
@@ -1595,6 +1691,19 @@ class BatchResolver:
         # reconcile_qdrant_by_person_uri). Collapse those now so the assistant
         # never reports a phantom duplicate for a node we just merged.
         self.reconcile_qdrant(apply=True, backup_dir=backup_dir)
+
+        # A refusal count that is never printed is a refusal count nobody acts
+        # on. This is the one line that tells a reader the guard was live and
+        # what it cost -- a converge that silently declined half its merges
+        # looks identical to one that had nothing to do.
+        if refused_rule2:
+            logger.warning(
+                "RULE 2 refused %d of %d planned merge(s) on this converge pass "
+                "(different canonical keys). Those nodes stay separate, which is "
+                "the correct outcome: an over-merge interleaves two people and is "
+                "irreversible in practice, a duplicate is not.",
+                refused_rule2, len(report.auto_merges),
+            )
 
     def reconcile_qdrant(
         self, *, apply: bool = False, backup_dir: str = "./backups",

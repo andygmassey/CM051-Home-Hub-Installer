@@ -368,7 +368,33 @@ c8() {
 #     guard was a bare `[[ ! -f ]]`, and #769 had to correct that within the
 #     hour. Every box in the field already carries an extract-only ostler-fda;
 #     a fix that skips them is half a fix.
-c9() { ! grep -qE '\[\[[^]]*-[fex][[:space:]]+"?\$\{?OSTLER_DIR\}?/bin/ostler-fda' "$INSTALL_SH"; }
+# 🔴 SCOPED TO THE WRITE, 2026-09-04 (v1063-D010). This used to forbid ANY
+# -f/-e/-x test against that path ANYWHERE in install.sh. The defect it guards
+# is specifically a WRITE guarded on absence -- "create only if missing" --
+# which skips every box already carrying an extract-only wrapper.
+#
+# The deferred fda-rerun LOAD now tests `-x` on the same path, deliberately: it
+# refuses to register a LaunchAgent whose program is missing rather than
+# registering one that fails hourly forever. That is the opposite of the #768
+# defect and it tripped this control, which could not tell a write guard from a
+# load guard because it never looked at WHERE the test appeared.
+#
+# So it now examines only the region IMMEDIATELY BEFORE the wrapper heredoc --
+# the only place a write guard can live. A test after the write cannot make the
+# write conditional, by construction.
+#
+# NOT WEAKENED, AND MUTATION-PROVEN: reinstating the #768 shape (an `if [[ ! -f
+# ... ]]` around the heredoc) still fails this control. Evading it by hiding the
+# path in a variable was the tempting fix and was refused -- that would leave
+# the control unable to see a real write guard written the same way.
+c9() {
+    local write_at start body
+    write_at="$(grep -n -F 'cat > "${OSTLER_DIR}/bin/ostler-fda" <<' "$INSTALL_SH" | head -1 | cut -d: -f1)"
+    [ -n "$write_at" ] || return 1          # cannot find the write: not a pass
+    start=$(( write_at > 40 ? write_at - 40 : 1 ))
+    body="$(sed -n "${start},${write_at}p" "$INSTALL_SH")"
+    ! printf '%s\n' "$body" | grep -qE '\[\[[^]]*-[fex][[:space:]]+"?\$\{?OSTLER_DIR\}?/bin/ostler-fda'
+}
 
 # (10) The wrapper is a SHIPPED TICK and must parse on the customer's shell.
 #      ingest-slot.yml proves this for every tick that is a FILE in the repo;
