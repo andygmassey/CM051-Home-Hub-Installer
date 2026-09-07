@@ -19,6 +19,7 @@
 # columns: test_file<TAB>status<TAB>runner
 test_a_blocking_row_stops_a_cut.sh	WIRED	.github/workflows/cut-checklist-complete.yml
 test_a_bom_row_can_claim_landed_and_not_be_in_the_pin.sh	WIRED	.github/workflows/bom-pin-agreement.yml
+test_a_box_precondition_is_not_a_build_verdict.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_broken_ci_query_is_not_a_green_main.sh	WIRED	.github/workflows/red-main-opens-an-issue.yml
 test_a_ci_alarm_is_not_a_register_gap.py	WIRED	.github/workflows/cut-checklist-complete.yml
 test_a_condition_function_must_not_short_circuit_its_own_pipeline.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
@@ -516,7 +517,6 @@ test_version_gate_refuses_a_tautology.sh	WIRED	.github/workflows/version-gate-no
 test_voice_consent_matches_catalogue.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_walk_arms_distinguish_cannot_run_from_fail.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_walk_driver_cancel_is_not_a_build_verdict.sh	WIRED	.github/workflows/cold-box-source-truth.yml
-test_a_box_precondition_is_not_a_build_verdict.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_walk_driver_does_not_inherit_a_stale_result.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_driver_requires_a_completion_marker.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_driver_takes_ports_from_the_declared_field.sh	WIRED	.github/workflows/walk-record-gate.yml
