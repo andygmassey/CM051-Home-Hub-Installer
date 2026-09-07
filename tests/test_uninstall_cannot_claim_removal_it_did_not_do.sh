@@ -50,7 +50,14 @@ run_case() {
     printf '#!/bin/sh\n[ "$2" = "down" ] && { echo "Cannot connect to the Docker daemon."; exit %s; }\nexit 0\n' "$2" \
         > "${WORK}/bin/docker"
     chmod +x "${WORK}/bin/docker"
+    # PATH alone does NOT reach it: the uninstaller probes
+    # /opt/homebrew/bin/docker and /usr/local/bin/docker BEFORE PATH, so on
+    # any machine with Docker installed the stub below was never consulted
+    # and the "daemon down" case never happened. This test was green on a
+    # runner with no Docker and red on a developer Mac, from identical
+    # bytes. _OSTLER_DOCKER names the stub directly.
     HOME="${WORK}/boxhome" PATH="${WORK}/bin:$PATH" \
+        _OSTLER_DOCKER="${WORK}/bin/docker" \
         /bin/bash -c ". '${WORK}/teardown'; . '${WORK}/report'" 2>&1
 }
 

@@ -28,6 +28,7 @@ on:
       - 'tests/test_stay_awake_agent_survives_installer_exit.sh'
       - 'tests/test_laptop_hub_power_copy_fires_on_laptops_only.sh'
       - 'tests/test_uninstall_removes_every_launchagent_plist.sh'
+      - 'tests/test_uninstall_stops_what_it_deletes.sh'
       - 'tests/test_a_self_removing_agent_deletes_its_plist_before_it_dies.sh'
       # A suite this workflow RUNS but does not WATCH is dark on self-edit --
       # it could be narrowed, or gutted, in the very PR that narrows it.
@@ -166,6 +167,22 @@ jobs:
       - name: Assert uninstall removes every LaunchAgent plist, not just the job
         if: always()
         run: bash tests/test_uninstall_removes_every_launchagent_plist.sh
+
+      # The MIRROR of the step above, and neither can see the other's defect.
+      # That one guards bootout-without-file-removal: the FILE is the
+      # load-bearing half for a plist, because launchd rescans at login.
+      # For an .app bundle the asymmetry reverses -- `rm -rf` unlinks the
+      # directory and the running image survives on its vnode, so the
+      # PROCESS is the load-bearing half. Measured on the walk box: a hub
+      # running two days after its bundle was deleted, under an
+      # `application.*` LaunchServices label no bootout of ours can reach.
+      #
+      # INDIVIDUAL STEP, not an entry in a list: the list idiom gives
+      # verify_test_wiring.sh a MENTION but gives verify_new_tests_are_wired.sh
+      # no execution verb on the same line.
+      - name: Assert uninstall stops what it deletes, not just deletes it
+        if: always()
+        run: bash tests/test_uninstall_stops_what_it_deletes.sh
 
       # #563 -- AND THE STEP ABOVE CANNOT SEE IT. That test seeds a sandboxed
       # HOME and runs the TEARDOWN region; this defect is 50 lines EARLIER, in

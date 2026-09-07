@@ -36,6 +36,7 @@ on:
       - 'tests/test_a_gui_uninstall_needs_its_decoder_cases.sh'
       - 'gui/OstlerInstaller/ProgressProtocol.swift'
       - 'tests/test_uninstall_cannot_claim_removal_it_did_not_do.sh'
+      - 'tests/test_the_generated_uninstaller_parses.sh'
       - '.github/workflows/uninstall-removal-honesty.yml'
   push:
     branches: [main]
@@ -73,6 +74,18 @@ jobs:
       # naming exactly the two assertions that should break.
       - name: The uninstaller cannot claim a removal it did not perform
         run: bash tests/test_uninstall_cannot_claim_removal_it_did_not_do.sh
+
+      # BEFORE anything asks what the uninstaller DOES, ask whether it parses.
+      # It is written as a QUOTED heredoc, so `bash -n install.sh` -- the only
+      # syntax check near this file, at colima-autostart.yml:236 -- never
+      # looks inside it. Measured: injecting `if [ broken ; then` into the
+      # heredoc leaves `bash -n install.sh` at rc=0 while the extracted script
+      # is rc=2. A syntax error there cannot fail at install time (install.sh
+      # only cats the text); it fails the first time a customer runs
+      # ostler-uninstall, on a machine then left half-torn-down.
+      - name: The generated uninstaller actually parses
+        if: always()
+        run: bash tests/test_the_generated_uninstaller_parses.sh
 
       # #1560: AN UNINSTALL THAT CANNOT ASK MUST REMOVE NOTHING.
       #
