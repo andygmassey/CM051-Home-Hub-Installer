@@ -390,6 +390,7 @@ test_sensitive_artefacts_guard_fires.sh	WIRED	.github/workflows/sensitive-artefa
 test_sensitive_artefacts_not_world_readable.sh	WIRED	.github/workflows/sensitive-artefact-exposure.yml
 test_settling_progress_writer.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_ship_prereqs_are_a_superset.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
+test_ship_refuses_an_already_tagged_version.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_shipped_compose_licence_mount.sh	WIRED	.github/workflows/licence-gate.yml
 test_shipped_compose_usage_journal_mount.sh	WIRED	.github/workflows/usage-journal-gate.yml
 test_sign_python_bundle_reports_why.sh	WIRED	.github/workflows/cut-gate-wrappers.yml

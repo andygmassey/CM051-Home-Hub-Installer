@@ -133,6 +133,7 @@ TIER2_TARGETS="$(printf '%s' "$TIER2_TARGETS" | sed 's/^ *//')"
 tier1_plan() {
 cat <<'PLAN'
 guard-local-cut|EXERCISE|the CI guard itself. Asserts a cut is permitted in this environment; manufactures nothing.
+check-ship-version|EXERCISE|pure verification: is this tree stamped for the cut it is about to build? it reads the Info.plist stamp, cuts/ and one ls-remote, and needs no built .app.
 check-orphans|EXERCISE|pure verification: does a written fix exist that this cut does not carry?
 check-pr-age|EXERCISE|pure verification: has an open PR outstayed the 48h rule?
 download-hub-app|EXERCISE|fetch + fail-closed SHA-256 on the Hub pin. check-ostler-app has nothing to check without it.
