@@ -14871,7 +14871,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="e7598fde427ea39ed99e46e4df79467c90e11ebbfee999058215acda7a408519"
+DEFAULT_ASSISTANT_TARBALL_SHA256="e93e4f010e0a9be0707466c8f0224dda616106efc3c73cada62e99bf498e9619"
 # The FALLBACK's own digest. HR015 #583: there was only ever ONE baked pin, and
 # the retry re-pointed the URLs without re-pointing it, so the fallback tarball
 # was checked against the PRIMARY's digest, mismatched, and the install aborted
