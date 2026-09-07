@@ -135,6 +135,7 @@ test_conversation_bundle_user_id_wired.sh	WIRED	.github/workflows/tests-unwired-
 test_conversation_process_metadata_conversation_id.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_conversations_ingest_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_creation_name_writes.sh	WIRED	.github/workflows/creation-name-writes.yml
+test_credential_generation_does_not_sigpipe.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_customer_download_path_gate.sh	WIRED	.github/workflows/customer-download-path.yml
 test_cut_bom_is_fresh.sh	WIRED	.github/workflows/cut.yml
 test_cut_deferrals_no_duplicate_keys.sh	WIRED	.github/workflows/cut-manifest.yml
@@ -323,6 +324,7 @@ test_no_test_uses_a_bash4_builtin.sh	WIRED	.github/workflows/bash32-compat.yml
 test_no_unbounded_enrich_invocation.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_no_undefined_msg_refs_in_install_sh.sh	WIRED	.github/workflows/container-runtime-precondition.yml
 test_no_xcodebuild_pipe_into_early_exit.sh	WIRED	.github/workflows/pbxproj-sync.yml
+test_ollama_agent_check_survives_a_not_yet_running_agent.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_ollama_agent_does_not_depend_on_a_foreign_port.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_ollama_install_path_contract.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_ollama_user_active.py	WIRED	.github/workflows/install-abort-and-egress.yml
@@ -437,6 +439,7 @@ test_the_egress_inventory_still_describes_the_software.py	WIRED	.github/workflow
 test_the_egress_proof_can_go_red.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_the_emergency_cut_row_tells_the_truth.sh	WIRED	.github/workflows/cut-manifest.yml
 test_the_failed_to_look_message_can_actually_print.sh	WIRED	.github/workflows/dmg-delivery-gate.yml
+test_the_generated_uninstaller_parses.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_the_installer_downloads_from_the_repo_we_publish_to.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_migrator_authenticates_and_a_refusal_is_loud.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_operator_rollforward_refuses_a_blind_environment.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
@@ -460,6 +463,7 @@ test_total_steps_dynamic.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_ttywalk_licence_preflight_is_cannot_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_uninstall_cannot_claim_removal_it_did_not_do.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_uninstall_removes_every_launchagent_plist.sh	WIRED	.github/workflows/launchagent-success-verification.yml
+test_uninstall_stops_what_it_deletes.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_uninstaller_counts_do_not_abort_on_an_unreadable_dir.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_uninstaller_keep_prompt.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_universal_import_leg_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml

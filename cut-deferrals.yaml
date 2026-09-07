@@ -139,6 +139,25 @@ pr_exemptions:
       after this cut. Do not read the two green journal rows in
       cut-manifests/v1.0.59.yaml as closing this. PIN-SAFE (0 install.sh hits).
     review_by: "2026-09-12"
+  - ref: "CM051-Home-Hub-Installer#1755"
+    reason: >-
+      'feat(uninstall): revert the auto-login WE enabled, and only that one'.
+      TNM's, on tnm/revert-autologin-we-enabled, 2026-09-07T04:39:21Z, MERGEABLE/CLEAN on its own checks. 🔴 NOT
+      PIN-SAFE: install.sh +44 -9. Same reasoning as #1752 and it is the same
+      uninstall path -- the provenance-gated auto-login revert is correct work
+      and it changes nothing a customer meets before the install completes.
+      CORRECTED 2026-09-07T10:05Z: this row said "Mine" and said the three
+      would land together in v1.0.75. Both are now wrong. It is TNM's, and he
+      MERGED #1752 and #1753 at 09:22:16Z and 09:22:22Z, while this cut was in
+      flight -- which unpinned cuts/v1.0.74/cut.env (install.sh blob 5acf1c44
+      -> cac0e345, +136 lines) and is why that pin is re-pointed in this same
+      change. Measured before accepting it: every hunk lands at line 20949 or
+      later, the uninstaller region begins around 20816, the single deleted
+      line's variable _OSTLER_DOCKER is used only at 21220-21234, and bash -n
+      passes. The INSTALL path is untouched, so the 41-of-41 depth measurement
+      still holds. This one row stays deferred because it is still open, not
+      because of any judgement about its merit.
+    review_by: "2026-09-09"
   - ref: "CM051-Home-Hub-Installer#495"
     reason: >-
       'feat(cut-infra): vendor drift check + .vendor-manifests'. DRAFT, and
@@ -4778,3 +4797,27 @@ deferrals:
       #269 is part of getting that build working, it is the right thread -- it
       is simply not this cut's to merge.
     until_cut: "v1.0.74"
+  - ref: "daemon:#385"
+    reason: >-
+      MINE, and held for a measured mechanical reason rather than on merit. It
+      is test-only: one `#[test] fn` appended inside the existing `mod tests` in
+      crates/zeroclaw-gateway/src/api.rs, +57 -0, adding no shipped behaviour.
+      It pins the DEFAULT branch of `wiki_password_file_path()` -- the branch
+      every other test in that file steps around by setting
+      OSTLER_WIKI_PASSWORD_FILE first, so the path the shipped daemon actually
+      uses has never been asserted by anything. It is the daemon-side half of
+      CM051 #1771, which pins the same contract from the installer side.
+      WHY IT IS DEFERRED AND NOT MERGED, MEASURED RATHER THAN ASSUMED:
+      scripts/verify_cut_freshness.sh holds the daemon pin against LIVE HEAD of
+      ostler-assistant, and permits it to sit behind only when EVERY delta
+      commit appears in scripts/daemon_hold_ack.tsv. Merging #385 advances that
+      live HEAD by one commit, so it would immediately require a SECOND commit
+      here -- an ack row -- to keep this same cut green. A deferral is one row;
+      a merge is a merge plus a race against the cut that is already tagged.
+      The cheaper of the two is the one that does not touch the daemon.
+      Nothing is lost by holding: the test asserts a contract, and a contract
+      that is true is not made truer by the assertion landing this week. It is
+      MERGEABLE and stays open. Clears by merging into ostler-assistant main
+      the moment v1.0.74 is published, together with its daemon_hold_ack row,
+      so the two land as one decision rather than as a fix and an apology.
+    until_cut: "v1.0.75"

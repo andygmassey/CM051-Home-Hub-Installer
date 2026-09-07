@@ -12404,8 +12404,41 @@ OLLAMAPLIST
     # narrower one it is, rather than being quietly promoted to the same green.
     #
     # A customer in an Aqua session never reaches this branch.
+    # 🔴 THIS CALL MUST NOT BE A BARE SIMPLE COMMAND (#1754).
+    #
+    # 🔴 IT IS THE ERR TRAP THAT ABORTS HERE, **NOT** ERREXIT. This comment
+    # said errexit and that was wrong; correcting it because the wrong version
+    # invites the wrong fix.
+    #
+    # ERREXIT IS OFF AT THIS LINE. The governing flag word is :8140
+    # `set -uo pipefail` (no -e); -e does not come back until :12462. What
+    # aborts is the trap installed at :10793, and MEASURED, an ERR trap fires
+    # whether or not `set -e` is on:
+    #
+    #     set -Eeuo pipefail + trap, f returns 1  ->  trap fires
+    #     set -Euo  pipefail + trap, f returns 1  ->  trap fires
+    #
+    # So `set +e` DOES NOT make a site like this safe. The file already knows
+    # that: all 7 places that disarm the trap pair `trap - ERR` WITH `set +e`
+    # (22866, 27607, 27790, 28128, 28664, 28830) and not one uses `set +e`
+    # alone.
+    #
+    # `_ollama_agent_is_running` returns 1 for a state this code EXPECTS:
+    # the agent is registered but has not yet reached `state = running`.
+    # As a standalone command that return fires the trap, so the install
+    # aborted here -- and the 90s poll below, which exists to absorb exactly
+    # that window, never got a first iteration (measured: elapsed_s=0 on two
+    # consecutive box walks of v1.0.73).
+    #
+    # It reported as ERR-99-INSTALL-ABORT-L12423 because the trap's $LINENO
+    # resolves to the enclosing `fi`, not to the failing line.
+    #
+    # Left operand of `||` is errexit-exempt, so the rc is captured, not read
+    # from `$?` after a command that was never allowed to return.
     _ollama_domain_absent=0
-    _ollama_agent_is_running; [[ $? -eq 2 ]] && _ollama_domain_absent=1
+    _ollama_rc=0
+    _ollama_agent_is_running || _ollama_rc=$?
+    if [[ $_ollama_rc -eq 2 ]]; then _ollama_domain_absent=1; fi
     if [[ $_ollama_domain_absent -eq 1 ]]; then
         warn "There is no GUI (Aqua) session for this user, so launchd has no gui/ domain and the Ollama LaunchAgent cannot be inspected or registered. Falling back to a port check alone, which is WEAKER: a reply on 11434 does not prove it came from this install. Ollama will not restart after a reboot on this box."  # i18n-exempt
     fi
@@ -13033,7 +13066,7 @@ _seed_wiki_password() {
     # original call site is unchanged. #1660 reuses this for vane rather than
     # copying 20 lines: the reuse rule, the loudness rule and the 0600 rule are
     # the parts that matter and they should not be duplicated to be varied.
-    local _outvar="$1" _file="${SECRETS_DIR}/${2:-wiki_password}" _val="" _raw=""
+    local _outvar="$1" _file="${SECRETS_DIR}/${2:-wiki_password}" _val="" _raw="" _pool=""
     if [[ -s "$_file" ]]; then
         _val="$(cat "$_file")"
     else
@@ -13042,7 +13075,23 @@ _seed_wiki_password() {
         # produce an htpasswd line that no input can ever satisfy,
         # which reads to a customer as "the wiki is broken" and to a
         # gate as "auth is on".
-        _raw="$(LC_ALL=C /usr/bin/tr -dc 'abcdefghjkmnpqrstuvwxyz23456789' < /dev/urandom | /usr/bin/head -c 20)"
+        # 🔴 NO EARLY-EXITING CONSUMER ON A PIPE FROM AN INFINITE SOURCE (#1754).
+        #
+        # This was `tr -dc ... < /dev/urandom | head -c 20`. `head` takes its
+        # 20 bytes and exits, closing the pipe under `tr`, which dies on
+        # SIGPIPE. `pipefail` promotes that to 141 and the ERR trap aborts the
+        # install -- measured on a v1.0.73 box walk, step config_save, rc=141.
+        #
+        # The loud length check DIRECTLY BELOW is the intended failure path for
+        # a credential we could not generate, and it was unreachable: the
+        # assignment aborted the script before it could run. Same shape as the
+        # Ollama poll at :12403.
+        #
+        # `head -c` on a FILE argument has no upstream process to signal, and
+        # `tr` then reads to EOF and exits 0. The slice is pure shell, so
+        # nothing exits early anywhere in the chain.
+        _pool="$(LC_ALL=C /usr/bin/head -c 4096 /dev/urandom | LC_ALL=C /usr/bin/tr -dc 'abcdefghjkmnpqrstuvwxyz23456789')"
+        _raw="${_pool:0:20}"
         if [[ "${#_raw}" -ne 20 ]]; then
             fail_with_code "ERR-14-STORE-WIKI-CREDENTIAL" "Could not generate the wiki password (got ${#_raw} characters, expected 20). Refusing to publish the wiki without a credential."
         fi
@@ -20898,6 +20947,7 @@ echo "      (whatsapp-bundle, email-bundle, spoken-bundle, imessage-bundle),"
 echo "      wiki-recompile, assistant, and RemoteCapture launchd services"
 echo "    - /Applications/Ostler RemoteCapture.app"
 echo "    - /Applications/Ostler.app"
+echo "    - /Applications/Ostler Safari Extension.app"
 echo "    - Ostler commands from PATH"
 echo ""
 echo "  This will NOT remove:"
@@ -20908,6 +20958,21 @@ echo "      To remove: ollama rm <model-name>"
 echo "    - Your original GDPR export files"
 echo "    - Your hub power policy (~/.ostler/power.conf)"
 echo "      kept so a reinstall reuses your existing policy"
+echo "    - /Applications/OstlerInstaller.app"
+echo "      the installer itself, which is very likely the app running"
+echo "      this uninstall right now. Drag it to the Bin when you are done."
+echo "    - /usr/local/bin/gws (the official Google Workspace CLI)"
+echo "      installed by Ostler, but a working standalone tool that is"
+echo "      not ours to delete. To remove: sudo rm -f /usr/local/bin/gws"
+echo "    - Automatic login, if Ostler enabled it for you"
+echo "      The hub needs the Mac to reach a logged-in session after a"
+echo "      power cut, so the installer may have switched on automatic"
+echo "      login. macOS stores your login password for that in"
+echo "      /etc/kcpassword, obfuscated but NOT encrypted."
+echo "      This uninstall does not undo it, because it cannot tell"
+echo "      whether you had already enabled it yourself."
+echo "      To undo: System Settings > Users & Groups > Automatic login"
+echo "      > Off, then: sudo rm -f /etc/kcpassword"
 echo ""
 # ── #1560: THE GATE. Three outcomes, and the third used to be absent ──
 #
@@ -21152,7 +21217,13 @@ OSTLER_STORES_WHY=""
 # non-login shell -- which is what an ssh command, a launchd job, or a script
 # piped to bash gets. scripts/ttywalk.sh already carries this exact workaround
 # and says so; the uninstaller never got it.
-_OSTLER_DOCKER=/opt/homebrew/bin/docker
+# An already-set _OSTLER_DOCKER wins. Unset -- which is every real install
+# -- leaves the probe order below exactly as it was. This exists because a
+# caller that needs to control WHICH docker is used otherwise cannot: the
+# two absolute paths are tried before PATH, deliberately, so shadowing PATH
+# does nothing on any machine that has Docker in a standard location.
+_OSTLER_DOCKER="${_OSTLER_DOCKER:-}"
+[ -x "$_OSTLER_DOCKER" ] || _OSTLER_DOCKER=/opt/homebrew/bin/docker
 [ -x "$_OSTLER_DOCKER" ] || _OSTLER_DOCKER=/usr/local/bin/docker
 [ -x "$_OSTLER_DOCKER" ] || _OSTLER_DOCKER="$(command -v docker 2>/dev/null || true)"
 if [ -z "$_OSTLER_DOCKER" ] || [ ! -x "$_OSTLER_DOCKER" ]; then
@@ -21248,6 +21319,90 @@ unset _label
 # binary open.
 brew uninstall --cask ollama-app 2>/dev/null || true
 
+# ── Quit what is still running out of a bundle we are about to delete ──
+#
+# THE MIRROR OF THE LAUNCHAGENT BUG, AND IT BITES THE OTHER WAY ROUND.
+# The teardown register below learned that `launchctl bootout` without
+# removing the plist is an uninstall that does not survive a reboot: the
+# file is the half that matters there. For an .app bundle the asymmetry is
+# reversed. Deleting the bundle does NOT stop a process already executing
+# from it -- on macOS the running image is held by its vnode, so the
+# process keeps going with its bundle unlinked underneath it.
+#
+# MEASURED, NOT THEORISED. On the walk box, 2026-09-07:
+#
+#   /Applications/Ostler.app   absent by ls, by test -d AND by find
+#   pid 28913                  /Applications/Ostler.app/Contents/MacOS/
+#                              ostler-hub, RUNNING since 2026-09-05 23:18
+#   launchctl                  application.ai.creativemachines.ostler-hub
+#
+# That process holds no listening ports, so it is residue rather than a
+# live service -- but it is residue on a Mac the customer believes has no
+# Ostler on it, and `launchctl bootout` cannot reach it: the label is the
+# `application.*` form LaunchServices assigns to an app the user OPENED,
+# not one of the com.ostler.* / com.creativemachines.* agents this script
+# manages. Nothing in the teardown addressed it, because everything in the
+# teardown is keyed to labels we wrote.
+#
+# SELF-EXCLUSION IS NOT DEFENSIVE PROGRAMMING, IT IS THE POINT.
+# install.sh can itself be running from
+# /Applications/OstlerInstaller.app/Contents/Resources/install.sh, so a
+# bare `pkill -f` over an /Applications path is one bad pattern away from
+# the uninstaller killing itself half way through a teardown, leaving a
+# machine in a worse state than not uninstalling at all. Our own pid and
+# our parent are filtered explicitly, and the bundle path is regex-quoted
+# so `.app` cannot match `Xapp`.
+#
+# Fail-safe by construction: every branch returns 0. An uninstall that
+# cannot quit a process must still remove what it can, and it says so
+# rather than dying.
+_u_quit_bundle_processes() {
+    local _bundle="$1"
+    local _exec_prefix="${_bundle}/Contents/MacOS/"
+    # Quote every regex metacharacter: the literal path is the pattern.
+    local _pat
+    _pat="$(printf '%s' "$_exec_prefix" | sed 's/[][\.*^$(){}?+|/]/\\&/g')"
+
+    _u_running_pids() {
+        # `pgrep -f` matches the full argv. Filter ourselves and our parent
+        # out by pid rather than by pattern, so this is correct even if the
+        # pattern is later widened.
+        pgrep -f "$_pat" 2>/dev/null \
+            | grep -vx -e "$$" -e "${PPID:-0}" || true
+    }
+
+    local _pids
+    _pids="$(_u_running_pids)"
+    [[ -n "$_pids" ]] || { unset -f _u_running_pids; return 0; }
+
+    echo "  Quitting $(basename "$_bundle") (still running)..."
+    # SIGTERM first: the hub flushes state on termination, and a KILL here
+    # would be indistinguishable from a crash to whatever it was writing.
+    kill -TERM $_pids 2>/dev/null || true
+
+    local _waited=0
+    while [[ "$_waited" -lt 20 ]]; do
+        [[ -n "$(_u_running_pids)" ]] || { unset -f _u_running_pids; return 0; }
+        sleep 0.25
+        _waited=$((_waited + 1))
+    done
+
+    # Five seconds is long enough for a graceful exit and short enough that
+    # an uninstall does not appear to hang. Anything still up is not going
+    # to leave on its own.
+    _pids="$(_u_running_pids)"
+    if [[ -n "$_pids" ]]; then
+        kill -KILL $_pids 2>/dev/null || true
+        sleep 0.25
+    fi
+    if [[ -n "$(_u_running_pids)" ]]; then
+        echo "  (warning: something is still running from $(basename "$_bundle");"
+        echo "   it will stop at the next restart)"
+    fi
+    unset -f _u_running_pids
+    return 0
+}
+
 # ── Ostler RemoteCapture .app + container ──────────────────────
 _u_emit UNINSTALL_PHASE "name=remotecapture"
 # Remove the menubar app from /Applications and the per-user
@@ -21255,6 +21410,8 @@ _u_emit UNINSTALL_PHASE "name=remotecapture"
 # ~/Documents/Ostler/Transcripts/ are user-facing content and are
 # handled by the keep-content decision higher up.
 if [[ -d "/Applications/Ostler RemoteCapture.app" ]]; then
+    # Stop it before unlinking it: see _u_quit_bundle_processes.
+    _u_quit_bundle_processes "/Applications/Ostler RemoteCapture.app"
     echo "  Removing /Applications/Ostler RemoteCapture.app..."
     rm -rf "/Applications/Ostler RemoteCapture.app" 2>/dev/null || \
         sudo rm -rf "/Applications/Ostler RemoteCapture.app" 2>/dev/null || \
@@ -21268,10 +21425,30 @@ _u_emit UNINSTALL_PHASE "name=hub_app"
 # No Application Support dir to clean: the GUI persists state via
 # the gateway, not a per-user data directory.
 if [[ -d "/Applications/Ostler.app" ]]; then
+    # Stop it before unlinking it: see _u_quit_bundle_processes. This is the
+    # bundle the walk box was found still running from, two days after its
+    # directory had gone.
+    _u_quit_bundle_processes "/Applications/Ostler.app"
     echo "  Removing /Applications/Ostler.app..."
     rm -rf "/Applications/Ostler.app" 2>/dev/null || \
         sudo rm -rf "/Applications/Ostler.app" 2>/dev/null || \
         echo "  (warning: could not remove /Applications/Ostler.app; remove manually)"
+fi
+
+# ── Ostler Safari Extension.app ────────────────────────────────
+_u_emit UNINSTALL_PHASE "name=safari_extension"
+# install.sh:30702 moves SafariHistoryExt.app to this name, so it is OUR
+# bundle and the customer never chose it. It was in NEITHER half of the
+# contract printed above -- not in "This will remove", not in "This will
+# NOT remove" -- so an uninstall left a branded app in /Applications and
+# said nothing about it. Its process was found running on the walk box
+# alongside the hub, which is why it is stopped first like the others.
+if [[ -d "/Applications/Ostler Safari Extension.app" ]]; then
+    _u_quit_bundle_processes "/Applications/Ostler Safari Extension.app"
+    echo "  Removing /Applications/Ostler Safari Extension.app..."
+    rm -rf "/Applications/Ostler Safari Extension.app" 2>/dev/null || \
+        sudo rm -rf "/Applications/Ostler Safari Extension.app" 2>/dev/null || \
+        echo "  (warning: could not remove /Applications/Ostler Safari Extension.app; remove manually)"
 fi
 
 echo "  Restoring sleep settings..."
@@ -21282,6 +21459,13 @@ security delete-generic-password -s "Ostler Recovery Key" 2>/dev/null || true
 
 echo "  Removing /usr/local/bin/ostler-knowledge symlink..."
 sudo rm -f /usr/local/bin/ostler-knowledge 2>/dev/null || true
+
+# pwg-convo is a symlink to ~/.ostler/services/cm048/.venv/bin/pwg-convo,
+# and ~/.ostler is deleted a few lines below. Leaving it therefore does not
+# leave a working command, it leaves a DANGLING symlink on the customer's
+# PATH -- which is worse than either removing it or never installing it.
+echo "  Removing /usr/local/bin/pwg-convo symlink..."
+sudo rm -f /usr/local/bin/pwg-convo 2>/dev/null || true
 
 echo "  Removing Ostler directory (hub power + knowledge staging preserved)..."
 # Preserve ~/.ostler/power.conf so a reinstall reuses the user's hub power
