@@ -365,7 +365,39 @@ open_issues:
   - issue: 1619
     title: "v1018-D011 is live at v1.0.71, and no red rollforward row has a manifest row"
     gate: >-
-      FIX (BLOCKING): entry: a-display-name-is-a-name -- MEASURED on the walk
+      RE-GATED 2026-09-07 FROM BLOCKING TO FIX (NOT BLOCKING), ON A
+      RE-MEASUREMENT, NOT ON A DEADLINE. The cut gate invites exactly this:
+      "Fix them, or re-gate each row to what it truly is."
+      RE-MEASURED with the row's OWN gate body (v1018-D011, runs-on=box) on a
+      box carrying the v1.0.74 payload, rather than with an approximation:
+        v1.0.71   6 of 1595 pages   5 KINSHIP + 1 EMAIL
+        v1.0.74   1 of 1626 pages   1 KINSHIP, 0 EMAIL
+                  1 of 2060 graph displayName subjects
+                  controls alive=2050 never=0, so the store limb really looked
+      THE CAUSE IS FIXED IN THE PAYLOAD AND THAT IS WHY THE NUMBER MOVED. CM041
+      977dff7c (#142/#144) was grafted into the vendored canonical_name.py for
+      v1.0.72 and ships here. What remains is data already persisted before that
+      graft, which no cut can alter.
+      AND THE ONE RESIDUAL IS ONE THE REPAIR TOOL ITSELF DECLINES TO MAKE.
+      identity_resolver.repair_kinship_display_names, run dry on the box,
+      reports: manufactured compounds found 1, repairable now 0, held back
+      (mononym only) 1. Its only available repair would reduce a person to a
+      mononym, so it holds it back BY DEFAULT and requires --include-mononym.
+      Blocking a cut on a case the repair declines to make by default is not a
+      gate doing its job.
+      🔴 IT IS ALSO A REAL FAMILY MEMBER'S RECORD, in the graph of the person
+      this product is being built for, and the same class of defect as CM041
+      #142 -- where a kinship word belonging to a family member who had died was
+      welded onto a living relative's node. Editing that record to unblock a cut
+      is not a decision an agent should take alone. It is Andy's, and it is
+      flagged rather than taken.
+      WHAT IS STILL OWED, so this is not a quiet permanent pass: the one-off
+      purge (CM041 #143) plus a decision on --include-mononym. If the count ever
+      rises above 1, this row goes back to BLOCKING, because that would mean the
+      graft stopped holding and the defect is live again rather than residual.
+      ORIGINAL ROW BELOW, unchanged, because the re-gate is only honest next to
+      what it replaces:
+      FIX (was BLOCKING): entry: a-display-name-is-a-name -- MEASURED on the walk
       box by the first real run of the rollforward gate: 1595 People pages
       examined, 6 carrying a display_name derived from a KINSHIP term (5) or an
       EMAIL (1). Customer-facing: the wiki is the surface a customer reads and
