@@ -32,6 +32,10 @@
 #   9  the same PASS through a stub ssh   -> PASS under `zsh -c`, because the
 #      that runs `zsh -c`                    walk box's login shell is zsh and a
 #                                            bare ? aborts a command there (#1737)
+#  10  OSTLER_PROBE_ARMS=1, 401 to all     -> PASS, and the verdict SAYS arm 2
+#                                            was not run (a second-account run)
+#  11  OSTLER_PROBE_ARMS=1, bare 200       -> still FAIL
+#  12  OSTLER_PROBE_ARMS=bogus             -> CANNOT-RUN, never a guess
 #
 # And one mutant per arm, each proved LANDED by diff before its verdict:
 #   M1  arm 1 stops recording a served bare request   -> arm 1 must go green
@@ -204,9 +208,11 @@ count() {   # $1 fixed string, $2 text -> how many lines contain it
 # $4 wiki password file, $5 store curl conf. OSTLER_BOX_HOST is cleared so the
 # transport is local (`bash -lc`), unless the caller exports a fake host to
 # exercise the ssh path.
+ARMS=""   # set by an arm to override OSTLER_PROBE_ARMS; empty = the default
 run_probe() {
     local probe="$1" ctrl="$2" surfaces="$3" pwfile="$4" conf="$5"
     env -u OSTLER_BOX_HOST \
+        OSTLER_PROBE_ARMS="${ARMS:-both}" \
         OSTLER_GATEWAY_PORT="$ctrl" \
         OSTLER_PROBE_MUST_NOT_LISTEN="" \
         OSTLER_PROBE_SURFACES="$surfaces" \
@@ -326,6 +332,38 @@ STUB
     return 0
 }
 
+# Declared arm-1-only: the #550 demonstration surface for a run from a second
+# account that holds none of the owner's credential files.
+arm_arm1_only_refuse_all_is_pass() {    # 10
+    local out rc
+    start_server refuse "" ""
+    ARMS=1; out="$(run_probe "$1" "$CTRL" "$HTTP:wiki:/" "$TMP/wiki_password" "$TMP/store-curl.conf")"; rc=$?; ARMS=""; LAST_OUT="$out"
+    stop_server
+    [[ "$rc" -eq 0 ]] || return 1
+    [[ "$(count 'VERDICT: PASS' "$out")" -eq 1 ]] || return 1
+    [[ "$(count 'ARM 1 ONLY' "$out")" -eq 1 ]] || return 1
+    [[ "$(count 'was NOT RUN' "$out")" -eq 1 ]] || return 1
+    return 0
+}
+arm_arm1_only_bare_is_fail() {          # 11
+    local out rc
+    start_server bare "" ""
+    ARMS=1; out="$(run_probe "$1" "$CTRL" "$HTTP:wiki:/" "$TMP/wiki_password" "$TMP/store-curl.conf")"; rc=$?; ARMS=""; LAST_OUT="$out"
+    stop_server
+    [[ "$rc" -eq 1 ]] || return 1
+    [[ "$(count "${HTTP}(200)" "$out")" -ge 1 ]] || return 1
+    return 0
+}
+arm_unknown_arms_is_cannot_run() {      # 12
+    local out rc
+    start_server auth "ostler:${GOOD_PW}" ""
+    ARMS=bogus; out="$(run_probe "$1" "$CTRL" "$HTTP:wiki:/" "$TMP/wiki_password" "$TMP/store-curl.conf")"; rc=$?; ARMS=""; LAST_OUT="$out"
+    stop_server
+    [[ "$rc" -eq 78 ]] || return 1
+    [[ "$(count "OSTLER_PROBE_ARMS='bogus'" "$out")" -eq 1 ]] || return 1
+    return 0
+}
+
 report() {   # $1 name, $2 rc of the arm
     if [[ "$2" -eq 0 ]]; then
         printf '  [pass] %s\n' "$1"; pass=$((pass + 1))
@@ -350,6 +388,9 @@ if command -v zsh >/dev/null 2>&1; then
 else
     printf '  [not run] 9 zsh is not on this host, so the remote-shell arm was NOT measured\n'
 fi
+arm_arm1_only_refuse_all_is_pass "$PROBE";  report "10 OSTLER_PROBE_ARMS=1: refuses everyone -> PASS that SAYS arm 2 was not run" $?
+arm_arm1_only_bare_is_fail "$PROBE";        report "11 OSTLER_PROBE_ARMS=1: answers bare -> still FAIL" $?
+arm_unknown_arms_is_cannot_run "$PROBE";    report "12 OSTLER_PROBE_ARMS=bogus -> CANNOT-RUN, never a guess" $?
 
 # ---------------------------------------------------------------------------
 # Mutants. The probe sources ../lib/probe.sh relative to its own directory, so

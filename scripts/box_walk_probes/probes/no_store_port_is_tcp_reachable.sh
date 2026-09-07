@@ -269,6 +269,14 @@ MUST_NOT_LISTEN="${OSTLER_PROBE_MUST_NOT_LISTEN-6334}"
 #   redis     requirepass, the password in the REDIS_AUTH_ARGS line of .env
 SURFACES="${OSTLER_PROBE_SURFACES-6333:store:/collections 7878:store:/query?query=ASK%7B%7D 8044:wiki:/ 8144:wikigate:/ 3000:vane:/ 6379:redis:-}"
 
+# Which arms run. "both" is the product question. "1" runs only the
+# uncredentialled arm: the #550 demonstration surface, for a run from a SECOND
+# local account whose $HOME holds none of the owner's credential files. There
+# arm 2 would read CANNOT-RUN for a reason that is not the product's, and a
+# narrowing that is DECLARED, printed and named in the verdict beats one the
+# reader has to infer from a missing-file line. Anything else is CANNOT-RUN.
+PROBE_ARMS="${OSTLER_PROBE_ARMS:-both}"
+
 # 6379 is redis, not HTTP, so it cannot be asked with curl. It is listed here
 # because the PROPERTY is identical -- an uncredentialled client must be refused
 # -- and adjudicated by its own sensor below. Naming the property once and
@@ -520,7 +528,7 @@ classify() {
 }
 
 run_probe() {
-    n_checked=0; listening_list=""; readable_list=""; locked_list=""; unmeasured_list=""; served_list=""
+    n_checked=0; listening_list=""; readable_list=""; locked_list=""; unmeasured_list=""; served_list=""; refused_list=""
 
     c_state="$(port_state "$CONTROL_PORT")"
     case "$c_state" in open) c=1 ;; closed) c=0 ;; *) c="" ;; esac
@@ -532,12 +540,21 @@ run_probe() {
     esac
     probe_note "positive control: ${CONTROL_PORT} has a listener, so this probe can see an open port"
 
-    box_home="$(_box_home)"
-    if [ -z "$box_home" ]; then
-        probe_examined 0 "store/UI surfaces"
-        probe_cannot_run "could not read \$HOME on the box, so no credential path can be resolved and the second arm cannot run. A probe that cannot present the credential cannot tell a refusal from a lock-out."
+    case "$PROBE_ARMS" in
+        both|1) ;;
+        *)
+            probe_examined 0 "store/UI surfaces"
+            probe_cannot_run "OSTLER_PROBE_ARMS='${PROBE_ARMS}' is not one of both|1. A probe that does not know which arms it was asked for cannot say which it ran."
+            ;;
+    esac
+    if [ "$PROBE_ARMS" = both ]; then
+        box_home="$(_box_home)"
+        if [ -z "$box_home" ]; then
+            probe_examined 0 "store/UI surfaces"
+            probe_cannot_run "could not read \$HOME on the box, so no credential path can be resolved and the second arm cannot run. A probe that cannot present the credential cannot tell a refusal from a lock-out."
+        fi
+        _resolve_credential_paths "$box_home"
     fi
-    _resolve_credential_paths "$box_home"
 
     # CLASS 1: nothing may answer. A successful connect IS the defect.
     for p in $MUST_NOT_LISTEN; do
@@ -565,7 +582,9 @@ run_probe() {
             readable)     readable_list="${readable_list} ${p}(${r1})"; continue ;;
             unmeasurable) unmeasured_list="${unmeasured_list} ${p}(${r1:-no-reading})"; continue ;;
         esac
-        # Arm 1 refused. Arm 2: is that refusal a credential check, or a wall?
+        # Arm 1 refused. Declared arm-1-only: stop here, and say so at the end.
+        if [ "$PROBE_ARMS" = 1 ]; then refused_list="${refused_list} ${p}"; continue; fi
+        # Arm 2: is that refusal a credential check, or a wall?
         prelude="$(_prelude_for "$kind")"; prc=$?
         case "$prc" in
             2) unmeasured_list="${unmeasured_list} ${p}(credential-file-absent:${prelude})"; continue ;;
@@ -583,7 +602,7 @@ run_probe() {
         esac
     done
 
-    probe_examined "$n_checked" "store/UI surfaces (control ${CONTROL_PORT} confirmed open)"
+    probe_examined "$n_checked" "store/UI surfaces, arms=${PROBE_ARMS} (control ${CONTROL_PORT} confirmed open)"
 
     case "$(classify "$c" "$listening_list" "$readable_list" "$locked_list" "$unmeasured_list")" in
         FAIL)
@@ -594,9 +613,13 @@ run_probe() {
             fi
             ;;
         PASS)
-            # States ONLY what was measured, on both arms. A green verdict that
-            # hands the reader a mechanism is the sentence that gets quoted into
-            # a ship note, so WHICH mechanism refused each one is not asserted.
+            # States ONLY what was measured, on the arms that ran. A green
+            # verdict that hands the reader a mechanism is the sentence that
+            # gets quoted into a ship note, so WHICH mechanism refused each one
+            # is not asserted.
+            if [ "$PROBE_ARMS" = 1 ]; then
+                probe_pass "ARM 1 ONLY (OSTLER_PROBE_ARMS=1): every one of the ${n_checked} store/UI surfaces refused an uncredentialled request (401/403, or NOAUTH for redis):${refused_list}${MUST_NOT_LISTEN:+; the ${MUST_NOT_LISTEN} class refused a connection outright}. ${CONTROL_PORT} was confirmed open in the same run. Arm 2, the install's own credential must be served, was NOT RUN, so this verdict does NOT exclude a lock-out; run as the install owner with both arms for that"
+            fi
             probe_pass "every one of the ${n_checked} store/UI surfaces behaved on both arms: an uncredentialled request was refused (401/403, or NOAUTH for redis)${MUST_NOT_LISTEN:+, the ${MUST_NOT_LISTEN} class refused a connection outright}, and the install's own credential, read on the box, was served by:${served_list:- none needed}. ${CONTROL_PORT} was confirmed open in the same run, so this is a measured refusal and not a blind probe. WHICH mechanism gated each surface is NOT asserted here -- read the per-port table in this file"
             ;;
         *)
