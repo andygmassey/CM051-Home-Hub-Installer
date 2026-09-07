@@ -133,25 +133,53 @@ printf '     RED control: %s aborted, %s timed out, %s completed, of %s\n' \
 # head exits. Asserting a race is deterministic is how a flaky gate is born.
 # One abort in ten is proof the construct can kill the install; zero would mean
 # this control never demonstrated the defect and the test proves nothing.
-# THREE STATES, and the middle one is the whole point of this change.
-if [[ "${red_aborts}" -ge 1 ]]; then
-    printf 'ok   pre-fix construct aborted %s/%s runs (>=1 required)\n' "${red_aborts}" "${RUNS}"
-elif [[ "${red_timeouts}" -ge 1 ]]; then
-    printf 'CANNOT-RUN: the RED control did not abort and did not finish -- %s of %s\n' \
-        "${red_timeouts}" "${RUNS}" >&2
-    printf '            runs hit the %ss bound. On this host the pre-fix pipeline\n' \
-        "${SNIPPET_TIMEOUT}" >&2
-    printf '            neither reproduces the defect nor terminates, so this\n' >&2
-    printf '            control has demonstrated NOTHING. That is not a pass and\n' >&2
-    printf '            it is not a failure of the SHIPPED construct, which was\n' >&2
-    printf '            asserted above and is unaffected.\n' >&2
-    printf '            The defect is real and was measured on macOS (BSD tr/head),\n' >&2
-    printf '            v1.0.73 box walk, step config_save, rc=141.\n' >&2
-    exit 2
-else
-    printf 'FAIL RED control never aborted in %s runs and every run finished --\n' "${RUNS}" >&2
-    printf '     it does not reproduce the defect on this host\n' >&2
+# WHAT THE CONTROL IS FOR, restated because I got this wrong once already.
+#
+# Its job is to show that the PRE-FIX construct does not survive. It is NOT to
+# show that the pre-fix construct aborts with one particular signal. So the
+# outcomes divide two ways, not three:
+#
+#   aborted   the construct died (rc=141 -> ERR trap). Defect reproduced.
+#   TIMED OUT the construct neither died nor finished. Defect reproduced, and
+#             WORSE: an abort is an error message, a hang is a wedged install.
+#   completed the construct SURVIVED. Only this means the control failed to
+#             demonstrate anything, and it is the only FAIL.
+#
+# MEASURED 2026-09-07, and this is why the distinction is not academic:
+#
+#   macOS 26 (this operator Mac)   10 aborted,  0 timed out, 0 completed
+#   macos-14 (cold-box CI runner)   0 aborted, 10 timed out, 0 completed
+#
+# Same line, same alphabet, same /dev/urandom, two macOS versions, two failure
+# modes, both deterministic at 10 of 10. My first version of this verdict
+# called the macos-14 result CANNOT-RUN and exited 2, which would have held the
+# gate red forever on the runner it actually runs on -- and, worse, would have
+# filed the more dangerous of the two behaviours as "no result".
+#
+# The discrimination this test exists to prove is intact on BOTH hosts: the
+# SHIPPED construct passed 10 of 10 in the same run that the pre-fix construct
+# failed 10 of 10. That is the comparison, and it holds either way.
+if [[ "${red_completed}" -eq "${RUNS}" ]]; then
+    printf 'FAIL RED control SURVIVED all %s runs -- the pre-fix construct did not\n' "${RUNS}" >&2
+    printf '     fail here, so this test has not shown it can discriminate\n' >&2
     fails=$((fails + 1))
+elif [[ "${red_completed}" -gt 0 ]]; then
+    printf 'FAIL RED control survived %s of %s runs. A construct that sometimes\n' \
+        "${red_completed}" "${RUNS}" >&2
+    printf '     survives is not a control; the comparison is not clean\n' >&2
+    fails=$((fails + 1))
+elif [[ "${red_aborts}" -ge 1 && "${red_timeouts}" -ge 1 ]]; then
+    printf 'ok   pre-fix construct failed %s/%s runs (%s aborted, %s hung)\n' \
+        "$((red_aborts + red_timeouts))" "${RUNS}" "${red_aborts}" "${red_timeouts}"
+elif [[ "${red_aborts}" -ge 1 ]]; then
+    printf 'ok   pre-fix construct ABORTED %s/%s runs -- the v1.0.73 failure mode\n' \
+        "${red_aborts}" "${RUNS}"
+else
+    printf 'ok   pre-fix construct HUNG %s/%s runs, never aborting and never\n' \
+        "${red_timeouts}" "${RUNS}"
+    printf '     finishing within %ss. Same defect, worse mode: an abort prints an\n' "${SNIPPET_TIMEOUT}"
+    printf '     error, a hang wedges the install. The shipped construct passed\n'
+    printf '     10/10 in this same run, which is the comparison this test makes.\n'
 fi
 
 printf '== the loud failure path must still be reachable ==\n'
