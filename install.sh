@@ -20889,6 +20889,9 @@ echo "      kept so a reinstall reuses your existing policy"
 echo "    - /Applications/OstlerInstaller.app"
 echo "      the installer itself, which is very likely the app running"
 echo "      this uninstall right now. Drag it to the Bin when you are done."
+echo "    - /usr/local/bin/gws (the official Google Workspace CLI)"
+echo "      installed by Ostler, but a working standalone tool that is"
+echo "      not ours to delete. To remove: sudo rm -f /usr/local/bin/gws"
 echo ""
 # ── #1560: THE GATE. Three outcomes, and the third used to be absent ──
 #
@@ -21369,6 +21372,13 @@ security delete-generic-password -s "Ostler Recovery Key" 2>/dev/null || true
 
 echo "  Removing /usr/local/bin/ostler-knowledge symlink..."
 sudo rm -f /usr/local/bin/ostler-knowledge 2>/dev/null || true
+
+# pwg-convo is a symlink to ~/.ostler/services/cm048/.venv/bin/pwg-convo,
+# and ~/.ostler is deleted a few lines below. Leaving it therefore does not
+# leave a working command, it leaves a DANGLING symlink on the customer's
+# PATH -- which is worse than either removing it or never installing it.
+echo "  Removing /usr/local/bin/pwg-convo symlink..."
+sudo rm -f /usr/local/bin/pwg-convo 2>/dev/null || true
 
 echo "  Removing Ostler directory (hub power + knowledge staging preserved)..."
 # Preserve ~/.ostler/power.conf so a reinstall reuses the user's hub power
