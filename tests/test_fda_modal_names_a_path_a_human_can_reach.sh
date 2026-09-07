@@ -226,8 +226,8 @@ MODAL_BLOCK="$(awk '/_fda_finder_revealed=false/{on=1} on{print} /_imessage_fda_
 [[ "$(count 'MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3_NO_FINDER' "$MODAL_BLOCK")" -ge 1 ]] \
     || fail case-4 "the drag-in modal body never uses the no-Finder line, so a failed open -R is still followed by 'from the Finder window'"
 # shellcheck disable=SC2016
-[[ "$(count 'if open -R "$ASSISTANT_APP_BUNDLE"' "$MODAL_BLOCK")" -ge 1 ]] \
-    || fail case-4 "open -R's exit status is not kept (no 'if open -R' in the modal block), so LINE3 cannot follow it"
+[[ "$(count 'open -R "$ASSISTANT_APP_BUNDLE" 2>/dev/null || _fda_open_rc=$?' "$MODAL_BLOCK")" -ge 1 ]] \
+    || fail case-4 "open -R's exit status is not kept in the guarded form (open -R ... || _fda_open_rc=\$?), so LINE3 cannot follow it"
 [[ "$(count '&& _fda_finder_revealed=true || true' "$MODAL_BLOCK")" -eq 0 ]] \
     || fail case-4 "the fire-and-forget 'open -R ... && _fda_finder_revealed=true || true' form is back; its failure is swallowed"
 echo "PASS [case-4]: the modal derives the path from the same variable the installer ditto's the bundle to (${WRITE_SITES} write site(s) of ${ALL_DITTO} ditto lines), shows it, and lets LINE3 follow open -R"

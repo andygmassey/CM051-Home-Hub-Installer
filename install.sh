@@ -2587,8 +2587,11 @@ _ostler_fda_path_line() {
     # 0; a Mac with no pbcopy, or a pbcopy that failed, gets the path alone.
     local _p="$1" _clip_rc=1
     if command -v pbcopy >/dev/null 2>&1; then
-        printf '%s' "$_p" | pbcopy 2>/dev/null
-        _clip_rc=$?
+        # Guarded read: a standalone `$?` after a pipeline is the shape
+        # tests/test_a_status_read_is_guarded.sh refuses, and under set -e a
+        # failing pbcopy would abort the installer before the modal showed.
+        _clip_rc=0
+        printf '%s' "$_p" | pbcopy 2>/dev/null || _clip_rc=$?
     fi
     if [[ "$_clip_rc" -eq 0 ]]; then
         printf "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_PATH_ON_CLIPBOARD" "$_p"
@@ -24449,11 +24452,14 @@ else
                 if [[ "${_fda_listed:-}" != "listed" ]]; then
                     # #1538: keep the rc. LINE3 below follows it -- a Finder
                     # window that never appeared must not be pointed at.
-                    if open -R "$ASSISTANT_APP_BUNDLE" 2>/dev/null; then
+                    _fda_open_rc=0
+                    open -R "$ASSISTANT_APP_BUNDLE" 2>/dev/null || _fda_open_rc=$?
+                    if [[ "$_fda_open_rc" -eq 0 ]]; then
                         _fda_finder_revealed=true
                     else
-                        gui_log warn "FDA drag-in: open -R could not reveal ${ASSISTANT_APP_BUNDLE} in Finder (exit $?). The modal names the path instead of pointing at a Finder window."
+                        gui_log warn "FDA drag-in: open -R could not reveal ${ASSISTANT_APP_BUNDLE} in Finder (exit ${_fda_open_rc}). The modal names the path instead of pointing at a Finder window."
                     fi
+                    unset _fda_open_rc
                 elif [[ -n "$_fda_entry_name" ]]; then
                     # WALK-874(b): this line used to read "Ostler is
                     # already listed" while the row said OstlerAssistant,
