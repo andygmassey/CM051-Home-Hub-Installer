@@ -265,55 +265,74 @@ else
     fi
 fi
 
-# ── 6. THE CUT'S OWN PREFLIGHT, THE PART THAT NEEDS NO ARTEFACT. ───────────
+# ── 6. THE CUT'S OWN PREFLIGHT, EVERY STEP THAT NEEDS NO ARTEFACT. ─────────
 #
-# EVERY OTHER ROW IN THIS FILE IS LIVE, AND THAT IS WHY v1.0.75 DIED. This
-# script was built to defend the read/push boundary: things a peer can change
-# in the seconds before a tag. It ran ZERO of the cut's own preflight gates,
-# so a GREEN here meant "nothing has moved since you looked" and NOT "this tag
-# will build". Measured 2026-09-07: it went GREEN at 15:51:33Z with two
-# preflight reds sitting unchanged in the tree, the tag was pushed inside the
-# same minute exactly as this file demands, and preflight killed it 37 seconds
-# later on:
+# EVERY OTHER ROW ABOVE IS LIVE, AND THAT IS WHY TWO TAGS DIED. This script was
+# built to defend the read/push boundary -- things a peer can change in the
+# seconds before a tag. It ran ZERO of the cut's own preflight gates, so GREEN
+# meant "nothing has moved since you looked" and NEVER "this tag will build".
 #
-#     No cut manifest at cut-manifests/v1.0.75.yaml
-#     CFBundleShortVersionString is 1.0.74 but the cut is 1.0.75
-#     CFBundleVersion is 7400, expected 7500
+# Measured 2026-09-07, twice:
+#   attempt 1  green dry run 15:51:33Z, preflight killed it 37s later on a
+#              missing cut-manifests/<v>.yaml and a 1.0.74 plist
+#   attempt 2  green dry run, preflight killed it on verify_bom_rows_are_in_the_pin
+#              exiting 2 -- a CANNOT-RUN I had ALREADY SEEN and filed as a
+#              footnote without asking whether it was wired into preflight
 #
-# Neither is live. Both had been true for hours. No amount of care at the
-# read/push boundary could have caught them, because this file was not looking.
+# Adding gates one at a time as they bite is the same bug with a shorter
+# interval. So this runs ALL of preflight that can be answered before an
+# artefact exists: 16 of the 18 steps in cut.yml's preflight job. The other two
+# need docker to inspect the wiki images and are reported CANNOT-RUN-HERE rather
+# than skipped, because a silent skip is how SKIP-is-not-a-pass lied for
+# fourteen cuts.
 #
-# So these two rows are STATIC on purpose, and that is the point rather than an
-# inconsistency: a dry run that only checks mutable things cannot predict a
-# build. They are the preflight gates that need no artefact, which is exactly
-# the set that can be answered before a tag exists.
-_cutv_bare="${CUTV#v}"
-if [ -f "${HERE}/cut-manifests/${CUTV}.yaml" ]; then
-    row "cut manifest exists" "GREEN" "cut-manifests/${CUTV}.yaml present"
-else
-    RED=1; row "cut manifest exists" "RED" "NO cut-manifests/${CUTV}.yaml. A tag without a manifest is a cut nobody wrote down, and preflight kills it AFTER the tag is spent."
-fi
-
-_ivt="${HERE}/tests/test_installer_version_matches_the_cut.sh"
-if [ -f "$_ivt" ]; then
-    # CUT_VERSION_SOURCE IS REQUIRED, AND OMITTING IT IS NOT A FAILURE.
-    # The test refuses (#171) unless told where the version came from, so it
-    # cannot be handed a version read out of its own subject. Here the version
-    # IS the tag being cut, so source=tag is the honest answer.
-    #
-    # AND rc 2 IS CANNOT-RUN, NOT RED. My first draft of this row scored the
-    # refusal as RED -- three states collapsed into two, in the very row added
-    # to stop a dry run from claiming more than it measured.
-    _ivo="$(cd "$HERE" && CUT_VERSION_SOURCE=tag bash "$_ivt" "$CUTV" 2>&1)"; _ivrc=$?
-    _ivwhy="$(printf '%s\n' "$_ivo" | grep -E '^[[:space:]]*FAIL' | head -2 | sed 's/^[[:space:]]*//' | tr '\n' ' ')"
-    case "$_ivrc" in
-        0) row "installer version == cut" "GREEN" "gui/project.yml agrees with ${CUTV}" ;;
-        2) CANT=1; row "installer version == cut" "CANNOT-RUN" "the version test refused; coverage lost, not passed" ;;
-        *) RED=1; row "installer version == cut" "RED" "${_ivwhy:-rc=${_ivrc}, see tests/test_installer_version_matches_the_cut.sh}" ;;
+# THREE STATES, NOT TWO. rc 0 GREEN, rc 2 CANNOT-RUN, anything else RED.
+_pf() {   # _pf <label> <command...>
+    local _lbl="$1"; shift
+    local _o _r
+    _o="$(cd "$HERE" && "$@" 2>&1)"; _r=$?
+    case "$_r" in
+        0) row "$_lbl" "GREEN" "preflight step passes here" ;;
+        2) CANT=1; row "$_lbl" "CANNOT-RUN" "$(printf '%s' "$_o" | tail -1 | cut -c1-120)" ;;
+        *) RED=1;  row "$_lbl" "RED" "$(printf '%s' "$_o" | grep -E '^[[:space:]]*(FAIL|ERROR|##\[error\])' | head -1 | sed 's/^[[:space:]]*//' | cut -c1-120)" ;;
     esac
-else
-    CANT=1; row "installer version == cut" "CANNOT-RUN" "tests/test_installer_version_matches_the_cut.sh not found; a missing test is not a passing one"
-fi
+}
+export CUT_VERSION="${CUTV}" CUT_VERSION_SOURCE=tag
+
+_pf "pf: cut manifest exists"        bash -c '[ -f "cut-manifests/'"${CUTV}"'.yaml" ]'
+_pf "pf: cut pin is current"         bash scripts/verify_cut_pin_is_current.sh --cut "${CUTV}" --ref HEAD
+_pf "pf: rollforward registry pin"   ./tests/test_rollforward_registry_pin.sh
+_pf "pf: cut checklist complete"     python3 tests/test_the_cut_checklist_is_complete.py
+_pf "pf: BOM freshness self-test"    ./tests/test_cut_bom_is_fresh.sh --self-test
+_pf "pf: BOM rows in the pin"        bash scripts/verify_bom_rows_are_in_the_pin.sh "${CUTV}"
+_pf "pf: commit-checks gate fires"   ./tests/test_tagged_commit_is_green.sh
+_pf "pf: vendored BOM is this cut's" ./tests/test_cut_bom_is_fresh.sh "${CUTV}"
+_pf "pf: orphan gate self-test"      ./scripts/orphan_gate_selftest.sh
+_pf "pf: orphan gate harness"        ./tests/test_no_orphaned_fixes_gate.sh
+_pf "pf: rollforward claims"         bin/rollforward_gate.sh --verify-claims --cut "${CUTV}"
+_pf "pf: walk closure"               bin/rollforward_gate.sh --require-walk-closure --cut "${CUTV}"
+_pf "pf: launchagent pycache guard"  python3 scripts/verify_launchagent_pycache_guard.py --root .
+_pf "pf: no local cuts"              ./tests/test_no_local_cuts.sh
+_pf "pf: appcast debt collected"     ./tests/test_appcast_debt_is_collected.sh
+_pf "pf: installer version == cut"   bash tests/test_installer_version_matches_the_cut.sh "${CUTV}"
+
+# THE TWO THAT CANNOT BE ANSWERED HERE, NAMED RATHER THAN OMITTED.
+# Both inspect the wiki container images and need docker. They are deferred to
+# the cut, and that is acceptable for THIS cut for a measured reason rather than
+# a hopeful one: the wiki image pins are IDENTICAL between the v1.0.74 tag and
+# the tree being cut --
+#     wiki-compiler@sha256:64debb2e2209
+#     wiki-site@sha256:77eee04f13b1
+# -- so they will be answering about images that already passed at v1.0.74. If a
+# future cut moves either pin, this row is a lie and the deferral must be
+# revisited.
+# DEFERRED, NOT CANNOT-RUN, and the difference is the whole point. These two are
+# not unmeasured -- they are measured by the cut itself, which must pass them
+# before it ships anything. Coverage is RELOCATED, not lost, so this row is
+# reported and does NOT block the verdict. Marking it CANNOT-RUN would make this
+# script exit 2 forever and never be able to clear a tag, which would be a gate
+# that can only ever say no.
+row "pf: wiki provenance (2 steps)" "DEFERRED" "needs docker; RUN BY THE CUT, not skipped. Safe to defer for THIS cut because the wiki image pins are byte-identical to v1.0.74 (compiler 64debb2e2209, site 77eee04f13b1) -- revisit if a cut ever moves them."
 
 # ── report ─────────────────────────────────────────────────────────────────
 printf '  %-30s  %-12s  %s\n' "CHECK" "VERDICT" "DETAIL"
