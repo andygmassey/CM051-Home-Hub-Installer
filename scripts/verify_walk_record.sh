@@ -83,13 +83,31 @@ if ! [[ "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{64}$ ]]; then
     exit 3
 fi
 
-RECORD="${WALK_DIR}/${VERSION}.tsv"
+# shellcheck source=scripts/lib_walk_version_key.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib_walk_version_key.sh"
+# EITHER SPELLING. post_walk_qa.sh names the file from the string it was told,
+# this gate rebuilt it from its own caller's, and nothing normalised the leading
+# `v` -- so a walk filed as 1.0.71 was invisible to a gate asked about v1.0.71
+# and reported NO WALK RECORD for a walk that happened (CM051 #1744).
+RECORD="$(walk_record_path "$WALK_DIR" "$VERSION")"
+case $? in
+  0) : ;;
+  2)
+    echo "[walk-gate] AMBIGUOUS: this release has a record under BOTH spellings." >&2
+    walk_record_paths_tried "$WALK_DIR" "$VERSION" | sed 's/^/            /' >&2
+    echo "            #1744 saw two such records 13 minutes apart with DIFFERENT" >&2
+    echo "            content. Picking either would make the verdict depend on how" >&2
+    echo "            you typed the version. Reconcile them and re-run." >&2
+    exit 2 ;;
+  *) RECORD="${WALK_DIR}/${VERSION}.tsv" ;;
+esac
 
 if [[ ! -f "$RECORD" ]]; then
     cat >&2 <<MSG
 [walk-gate] NO WALK RECORD for ${VERSION}.
 
-  looked for: ${RECORD}
+  looked for BOTH spellings:
+$(walk_record_paths_tried "$WALK_DIR" "$VERSION" | sed 's/^/    /')
 
   This is CANNOT-RUN, not a failure: nobody has measured this build on a real
   box, so nothing is known about it either way. Gates being green says the
@@ -121,7 +139,10 @@ N_PASS="$(field pass)"
 # Without this a stale v1.0.38 record, or one copied by hand, would clear the
 # gate for a build it never touched. The filename alone is not evidence: files
 # get renamed, and the version inside is what the QA run actually measured.
-if [[ "$REC_VERSION" != "$VERSION" ]]; then
+# Compared on the NORMALISED key, so v1.0.73 and 1.0.73 are the same release.
+# ONLY a leading `v` is normalised: a record of a genuinely different version is
+# still refused, which is the reason this check exists.
+if ! walk_versions_agree "$REC_VERSION" "$VERSION"; then
     echo "[walk-gate] REFUSED: ${RECORD} is a record of '${REC_VERSION:-<no version field>}', not ${VERSION}." >&2
     echo "            A record proves something about the build it was taken on. Walk ${VERSION}." >&2
     exit 2
