@@ -139,6 +139,25 @@ pr_exemptions:
       after this cut. Do not read the two green journal rows in
       cut-manifests/v1.0.59.yaml as closing this. PIN-SAFE (0 install.sh hits).
     review_by: "2026-09-12"
+  - ref: "CM051-Home-Hub-Installer#1755"
+    reason: >-
+      'feat(uninstall): revert the auto-login WE enabled, and only that one'.
+      TNM's, on tnm/revert-autologin-we-enabled, 2026-09-07T04:39:21Z, MERGEABLE/CLEAN on its own checks. 🔴 NOT
+      PIN-SAFE: install.sh +44 -9. Same reasoning as #1752 and it is the same
+      uninstall path -- the provenance-gated auto-login revert is correct work
+      and it changes nothing a customer meets before the install completes.
+      CORRECTED 2026-09-07T10:05Z: this row said "Mine" and said the three
+      would land together in v1.0.75. Both are now wrong. It is TNM's, and he
+      MERGED #1752 and #1753 at 09:22:16Z and 09:22:22Z, while this cut was in
+      flight -- which unpinned cuts/v1.0.74/cut.env (install.sh blob 5acf1c44
+      -> cac0e345, +136 lines) and is why that pin is re-pointed in this same
+      change. Measured before accepting it: every hunk lands at line 20949 or
+      later, the uninstaller region begins around 20816, the single deleted
+      line's variable _OSTLER_DOCKER is used only at 21220-21234, and bash -n
+      passes. The INSTALL path is untouched, so the 41-of-41 depth measurement
+      still holds. This one row stays deferred because it is still open, not
+      because of any judgement about its merit.
+    review_by: "2026-09-09"
   - ref: "CM051-Home-Hub-Installer#495"
     reason: >-
       'feat(cut-infra): vendor drift check + .vendor-manifests'. DRAFT, and
