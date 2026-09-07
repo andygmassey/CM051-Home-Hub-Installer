@@ -60,7 +60,7 @@ echo "the key predicate"
 D3="$(mktemp -d "${TMPDIR:-/tmp}/wr3.XXXXXX")"
 mkrec "$D3" "v1.0.73" "v1.0.72"
 _out3="$(run_gate "$D3" "v1.0.73")"
-if printf '%s' "$_out3" | grep -q 'is a record of'; then
+if grep -q 'is a record of' <<< "$_out3"; then
     ok "3 a record of a DIFFERENT version is still REFUSED"
 else
     bad "3 a record of v1.0.72 was accepted for v1.0.73 -- the check was loosened"
@@ -72,12 +72,12 @@ echo "either spelling"
 D4="$(mktemp -d "${TMPDIR:-/tmp}/wr4.XXXXXX")"
 mkrec "$D4" "1.0.73" "1.0.73"
 _out4="$(run_gate "$D4" "v1.0.73")"
-if printf '%s' "$_out4" | grep -q 'NO WALK RECORD'; then
+if grep -q 'NO WALK RECORD' <<< "$_out4"; then
     bad "4 filed as 1.0.73, asked as v1.0.73 -> still NO WALK RECORD"
 else
     ok "4 filed as 1.0.73, asked as v1.0.73 -> record found"
 fi
-if printf '%s' "$_out4" | grep -q 'is a record of'; then
+if grep -q 'is a record of' <<< "$_out4"; then
     bad "5 the version field 1.0.73 was rejected for v1.0.73"
 else
     ok "5 the version field is accepted across the spelling"
@@ -88,7 +88,7 @@ rm -rf "$D4"
 D6="$(mktemp -d "${TMPDIR:-/tmp}/wr6.XXXXXX")"
 mkrec "$D6" "v1.0.73" "v1.0.73"
 _out6="$(run_gate "$D6" "1.0.73")"
-if printf '%s' "$_out6" | grep -q 'NO WALK RECORD'; then
+if grep -q 'NO WALK RECORD' <<< "$_out6"; then
     bad "6 filed as v1.0.73, asked as 1.0.73 -> still NO WALK RECORD"
 else
     ok "6 filed as v1.0.73, asked as 1.0.73 -> record found"
@@ -100,8 +100,8 @@ rm -rf "$D6"
 D7="$(mktemp -d "${TMPDIR:-/tmp}/wr7.XXXXXX")"
 mkdir -p "$D7"
 _out7="$(run_gate "$D7" "v1.0.73")"
-if printf '%s' "$_out7" | grep -q 'NO WALK RECORD'; then
-    if printf '%s' "$_out7" | grep -q '/1.0.73.tsv' && printf '%s' "$_out7" | grep -q '/v1.0.73.tsv'; then
+if grep -q 'NO WALK RECORD' <<< "$_out7"; then
+    if grep -q '/1.0.73.tsv' <<< "$_out7" && grep -q '/v1.0.73.tsv' <<< "$_out7"; then
         ok "7 a missing record still refuses, and names BOTH paths tried"
     else
         bad "7 refused but did not name both spellings -- the message still reads as 'never happened'"
@@ -120,7 +120,7 @@ D8="$(mktemp -d "${TMPDIR:-/tmp}/wr8.XXXXXX")"
 mkrec "$D8" "v1.0.73" "v1.0.73"
 mkrec "$D8" "1.0.73"  "1.0.73"
 _out8="$(run_gate "$D8" "v1.0.73")"
-if printf '%s' "$_out8" | grep -q 'AMBIGUOUS'; then
+if grep -q 'AMBIGUOUS' <<< "$_out8"; then
     ok "8 both spellings present -> REFUSED as ambiguous, not silently picked"
 else
     bad "8 both spellings present -> the gate chose one instead of refusing"
