@@ -837,4 +837,33 @@ open_issues:
       rather than FAIL when only a staging path exists -- plus a held state in
       the roster so a deliberate hold cannot look like a break."
     proof: "ls of the live path returns No such file or directory while the staging path holds 8481 bytes at a different inode; the daemon plist names the final tree"
-
+  - issue: 1810
+    title: "bom_add.sh accepts a SHA that resolves to nothing"
+    gate: "OPEN, NOT BLOCKING v1.0.75, and I filed it against my own mistake. I
+      padded a short hash to a plausible 40 characters and bom_add.sh wrote the
+      row without ever asking git whether the object exists, so a BOM -- the
+      register whose entire job is to say what is really in the cut -- can hold
+      a ref that resolves to nothing and still read as complete.
+      NOT BLOCKING because the defect is in the TOOL, not in this cut's BOM,
+      and this cut's BOM has since been verified by two independent instruments
+      that agree: all five rows resolve, the three keyed to install.sh
+      (2f7e9449, 6e18401ae76e5bbe, f895a44b) are each an ancestor of the tree
+      being cut and each touches install.sh, and the fabricated 6e18401a1b5d9e
+      is kept as a negative control that must fail to resolve, and does.
+      The fix is a resolve-and-ancestry check inside bom_add.sh, which belongs
+      to the next cut's machinery, not to this tag."
+    proof: "git cat-file -e per row plus merge-base --is-ancestor against the cut tree, run separately by ORM and by Aesop; the fabricated SHA fails to resolve in both"
+  - issue: 1811
+    title: "capability daemon_pinned_at_hub_v0469 keys on a digest that has been absent since before v1.0.74"
+    gate: "OPEN, NOT BLOCKING v1.0.75. The capability keys on digest
+      a1f083754b623de9, which is absent from gui/Makefile now AND at the
+      v1.0.74 tag, so the capability has been unable to match since before the
+      last cut. A capability that cannot match cannot guard anything, and worse,
+      it reads as a guard.
+      NOT BLOCKING for this cut, measured rather than assumed: no v1.0.75 BOM
+      row keys on it. All five rows carry a live capability_id and zero carry
+      `none` -- the daemon pin row keys on daemon_pinned_at_hub_v0474, not
+      v0469. So nothing in this cut is guarded by the dead capability, and
+      fixing it changes no installer behaviour. It is manifest debt to clear
+      before it silently excuses a future row."
+    proof: "grep -c daemon_pinned_at_hub_v0469 cuts/v1.0.75/MUST_CONTAIN.tsv returns 0 against a control showing the file holds 6 non-comment lines; capability_id printed per row shows 5 live ids and 0 `none`"
