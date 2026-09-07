@@ -778,3 +778,31 @@ open_issues:
       fix -- an expiry on non-blocking walk rows -- will deliberately RED the
       next cut, which is a decision for Andy and not a mid-cut change."
     proof: "grep -c per probe against both registers with row counts printed; the blocking/non-blocking split read from the parsed yaml rather than the text"
+  - issue: 1774
+    title: "usage_journal_producers adjudicates against a leftover staging tree, and reds on producers the cut deliberately holds"
+    gate: "OPEN, NOT BLOCKING, and it explains why this probe has failed four
+      walks without anyone being able to act on it. THREE producers are
+      reported MISSING and they are three different things.
+      TWO ARE DELIBERATELY UNSHIPPED and the decision is written down:
+      cm048_conversation_extract and cm041_identity_resolution. This repo own
+      vendor/VENDOR_MANIFEST.toml holds CM041 82f45376 with the reason -- HELD
+      ON MERIT, a FEATURE not a bugfix, producer and reader land together or
+      the journal is written by something nothing reads. So the roster declares
+      producers the cut deliberately does not carry and the probe reds on their
+      absence. Roster-versus-reality, not an artefact defect.
+      THE THIRD MAY BE REAL: oa_daemon_chat. assistant_answers_grounded asked
+      three questions over /ws/chat on this box an hour earlier, so the daemon
+      answered three times, and find(1) across the whole live tree returns no
+      costs.jsonl. The daemon LaunchAgent points at the FINAL tree, so it runs
+      from the right place and writes no journal there.
+      BUT THE PROBE CANNOT SETTLE IT, because it adjudicated the wrong file.
+      The only costs.jsonl on the box is in the staging tree at
+      /tmp/ostler-prelaunch-<pid>, 8481 bytes, a separate inode and not a link
+      to the live path. A probe that resolves a leftover staging directory is
+      measuring a tree the running daemon does not write to.
+      NOT BLOCKING v1.0.74: nothing here changes what the installer does. The
+      fix is to the probe -- resolve the LIVE config dir and report CANNOT-RUN
+      rather than FAIL when only a staging path exists -- plus a held state in
+      the roster so a deliberate hold cannot look like a break."
+    proof: "ls of the live path returns No such file or directory while the staging path holds 8481 bytes at a different inode; the daemon plist names the final tree"
+
