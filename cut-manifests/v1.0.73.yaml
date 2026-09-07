@@ -677,3 +677,52 @@ open_issues:
       nothing. Measured facts only: pin 8a7c1c3d for both keys, CM044 main
       3bc0f3b, four ahead."
     proof: "git show --name-only a60bc3d in CM044 lists four compiler source files, none of them tests"
+  - issue: 1754
+    title: "two aborts on constructs whose non-zero status was expected, and an ERR trap that reports the wrong line"
+    gate: "OPEN. The two INSTALL defects are fixed in #1756; the LINE REPORTING
+      is deliberately not.
+      MEASURED, on three console walks of v1.0.73 by Andy: install.sh:12399
+      called _ollama_agent_is_running as a BARE command under set -Eeuo
+      pipefail, and its return 1 -- agent registered but not yet
+      `state = running` -- tripped errexit. install.sh:13022 ran
+      `tr < /dev/urandom | head -c 20`, where head exits and closes the pipe,
+      tr dies on SIGPIPE and pipefail promotes it to 141. Both aborted with
+      elapsed_s=0, because in BOTH cases the correct handling for the failure
+      sat DOWNSTREAM of the line that aborts: the 90s poll at :12403 and
+      fail_with_code ERR-14-STORE-WIKI-CREDENTIAL three lines below :13022.
+      Neither guard ever ran an iteration.
+      NOT GATED BLOCKING for the install half: #1756 carries both fixes with
+      regression tests built on the original aborting inputs, each with a RED
+      control that reintroduces the pre-fix line and requires it to abort, and
+      both mutation-tested by reverting the fix.
+      DELIBERATELY DEFERRED, and this is the part that is still open: the trap
+      reports $LINENO, which resolves to the enclosing `fi`, so :12399 surfaced
+      as ERR-99-INSTALL-ABORT-L12423 and two walks were spent on the wrong 24
+      lines. The fix is a FUNCNAME/BASH_LINENO stack dump out of
+      _ostler_on_err. It is NOT in this cut on purpose: that handler reports
+      every failure in the installer, its own comments record two prior fixes
+      for subtle reasons, and lib/progress_emitter.sh:717-725 records what
+      happened when it was made quieter without care -- zero DONE markers and a
+      silent run. Changing the failure reporter immediately before a walk
+      trades a known misdirection for unknown risk in the one component that
+      tells us anything went wrong. It ships on its own, with its own test,
+      after v1.0.74 walks."
+    proof: "the RED control in tests/test_credential_generation_does_not_sigpipe.sh runs the pre-fix pipeline and aborted 10/10, so the SIGPIPE is deterministic and not a race; the ollama RED control aborts on a stub returning 1 and survives one returning 0"
+  - issue: 1760
+    title: "testTamperedSignatureFailsVerification passes or fails on identical input"
+    gate: "OPEN, NOT BLOCKING, and recorded so it cannot be mistaken for a real
+      red later.
+      It failed once on archie/bump-v1.0.74 and PASSED on a rerun of the
+      IDENTICAL commit, which is the definition of flaky rather than a matter
+      of opinion. 14 of the last 15 swift-tests runs are green, the previous
+      version bump passed the same workflow, and the licence fixture carries no
+      version field, so a ten-value version bump cannot reach licence JSON
+      parsing.
+      WHY IT IS RECORDED RATHER THAN WAVED THROUGH: it is the LICENCE VERIFIER.
+      A test that reds at random on that surface teaches everyone to press
+      rerun, and the next red for a real reason gets the same treatment.
+      NOT CLAIMED: the mechanism. The test mints a fresh random Curve25519 key
+      each run and then mutates the signature by byte offset, which is the only
+      source of variation, but a single base64 flip inside a quoted value
+      should not make the document unparseable and I did not reproduce it."
+    proof: "gh run rerun --failed on the identical sha turned FAILURE into SUCCESS with no code change"

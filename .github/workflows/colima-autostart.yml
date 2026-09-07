@@ -90,6 +90,8 @@ on:
       # Same reason. #1208's guard covers the port preflight that runs
       # immediately before these same containers start.
       - 'tests/test_port_preflight_covers_published.sh'
+      - 'tests/test_port_preflight_survives_a_held_port.sh'
+      - 'tests/test_runtime_ready_status_is_read_not_fatal.sh'
       # #567: recognising our own colima forward runs in the same preflight.
       - 'tests/test_port_preflight_recognises_own_colima_567.sh'
       # #1594: same compose stanza, and the step below RUNS it. Without a
@@ -165,6 +167,28 @@ jobs:
         if: always()
         run: bash tests/test_port_preflight_covers_published.sh
 
+      # The preflight only breaks when it FINDS something. `_check_port`
+      # returns status as data (0 free / 1 held / 2 unmeasured) and was
+      # called bare under `set -e`, so 1 and 2 -- the two answers the loop
+      # exists to collect -- aborted the installer before the `case` ran,
+      # killing the #1208 collision report a few lines below. Same class as
+      # #1756's :12399 and :13022. Arm 4 is a RED control: it rebuilds the
+      # pre-fix shape and requires it to abort.
+      - name: The port preflight survives finding a held port
+        if: always()
+        run: bash tests/test_port_preflight_survives_a_held_port.sh
+
+      # Same class again, twice more: `x="$(cmd)"` carries cmd's status, so
+      # under `set -e` a non-zero return aborts AT THE ASSIGNMENT and the
+      # `_rr_rc=$?` on the next line never runs. Both call sites of
+      # _ostler_verify_runtime_ready are deliberately NON-fatal by design --
+      # the upgrade one says a rollback "would be worse than a loud log
+      # line" -- and the defect turned log-and-continue into an abort on the
+      # two paths every customer takes. Arm 7 is a RED control.
+      - name: runtime-ready reports three outcomes and all three are reachable
+        if: always()
+        run: bash tests/test_runtime_ready_status_is_read_not_fatal.sh
+
       # #1594: 8044 published the compiled wiki with no credential at all.
       # The preflight above proves the port is WATCHED; this proves it is
       # CLOSED. Two different questions about the same port.
@@ -227,6 +251,8 @@ jobs:
           bash -n tests/test_colima_autostart_mechanism.sh
           bash -n tests/test_colima_start_retry.sh
           bash -n tests/test_port_preflight_covers_published.sh
+          bash -n tests/test_port_preflight_survives_a_held_port.sh
+          bash -n tests/test_runtime_ready_status_is_read_not_fatal.sh
           bash -n tests/test_port_preflight_recognises_own_colima_567.sh
           bash -n tests/test_the_wiki_port_demands_a_credential.sh
           bash -n tests/test_the_vane_port_demands_a_credential.sh
