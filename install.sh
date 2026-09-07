@@ -12395,8 +12395,25 @@ OLLAMAPLIST
     # narrower one it is, rather than being quietly promoted to the same green.
     #
     # A customer in an Aqua session never reaches this branch.
+    # 🔴 THIS CALL MUST NOT BE A BARE SIMPLE COMMAND (#1754).
+    #
+    # The script runs `set -Eeuo pipefail` with an abort-on-error ERR trap.
+    # `_ollama_agent_is_running` returns 1 for a state this code EXPECTS:
+    # the agent is registered but has not yet reached `state = running`.
+    # As a standalone command that return trips errexit, so the install
+    # aborted here -- and the 90s poll below, which exists to absorb exactly
+    # that window, never got a first iteration (measured: elapsed_s=0 on two
+    # consecutive box walks of v1.0.73).
+    #
+    # It reported as ERR-99-INSTALL-ABORT-L12423 because the trap's $LINENO
+    # resolves to the enclosing `fi`, not to the failing line.
+    #
+    # Left operand of `||` is errexit-exempt, so the rc is captured, not read
+    # from `$?` after a command that was never allowed to return.
     _ollama_domain_absent=0
-    _ollama_agent_is_running; [[ $? -eq 2 ]] && _ollama_domain_absent=1
+    _ollama_rc=0
+    _ollama_agent_is_running || _ollama_rc=$?
+    if [[ $_ollama_rc -eq 2 ]]; then _ollama_domain_absent=1; fi
     if [[ $_ollama_domain_absent -eq 1 ]]; then
         warn "There is no GUI (Aqua) session for this user, so launchd has no gui/ domain and the Ollama LaunchAgent cannot be inspected or registered. Falling back to a port check alone, which is WEAKER: a reply on 11434 does not prove it came from this install. Ollama will not restart after a reboot on this box."  # i18n-exempt
     fi
