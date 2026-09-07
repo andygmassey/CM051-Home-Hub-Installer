@@ -65,6 +65,7 @@ on:
       - 'README.md'
       - 'gui/project.yml'
       - 'tests/test_readme_states_the_floors_the_installer_enforces.sh'
+      - 'tests/test_install_refuses_below_the_macos_floor.sh'
       - '.github/workflows/background-copy-honesty.yml'
   push:
     branches: [main]
@@ -135,6 +136,14 @@ jobs:
         # refuses below 15. Each figure the customer reads before downloading
         # is taken from the file that enforces it, not from a second copy.
         run: bash tests/test_readme_states_the_floors_the_installer_enforces.sh
+
+      - name: The installer refuses below the macOS floor the DMG is built for
+        if: always()
+        # The prerequisite check warned below 13 and recommended 13 while the
+        # .app cannot open below 14. It now refuses below one pinned floor,
+        # and this test fails the moment that pin and gui/project.yml differ.
+        # Its control is the pre-fix block, which must NOT refuse on 13.
+        run: bash tests/test_install_refuses_below_the_macos_floor.sh
 
       - name: Tests parse under bash 3.2-compatible syntax
         if: always()
