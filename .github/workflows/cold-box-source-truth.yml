@@ -495,11 +495,18 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 10
     steps:
-      # fetch-depth 0 for the same reason as the job above: the negative control
-      # pins to a shipped blob, and a control that cannot be read is CANNOT-RUN.
+      # NO fetch-depth 0 HERE, AND THAT IS A CORRECTION RATHER THAN AN OMISSION.
+      # I first copied the deep-clone line from the job above along with its
+      # reasoning -- "the negative control pins to a shipped blob" -- without
+      # checking whether it is true of THIS test. It is not:
+      # test_credential_generation_does_not_sigpipe.sh contains zero references
+      # to git. It reads install.sh from the working tree and runs the pipeline.
+      # A full clone of this repo to run a 22-second test is cost with no
+      # purpose, on a job that now gates every PR touching these paths.
+      #
+      # Carrying a neighbour's rationale across without re-measuring it is the
+      # same mistake this whole job exists to correct, so it is written down.
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       # Print the platform. If macos-26 is ever re-imaged to something where the
       # control stops reproducing, this job must say which host it measured
