@@ -83,6 +83,8 @@ on:
       - 'tests/test_walk_port_probe_matches_install_sh.sh'
       - 'tests/test_a_security_note_cannot_claim_a_flag_is_off.sh'
       - 'scripts/box_walk_probes/probes/no_store_port_is_tcp_reachable.sh'
+      - 'scripts/box_walk_probes/lib/probe.sh'
+      - 'scripts/tests/test_no_store_port_probe_reads_the_credential.sh'
       # Walk-failure classification: the records themselves, the tool that
       # answers "what is this a regression of", and the gate that requires the
       # answer. `walks/**` is watched because a NEW walk record is exactly the
@@ -477,6 +479,19 @@ jobs:
       # suite above fails and this is skipped, you cannot tell "the gate is
       # correctly refusing" from "the gate refuses everything", which is the
       # exact ambiguity the control exists to remove.
+      - name: The store-port probe asks whether a surface SERVES, on both arms (#1618)
+        if: always()
+        # Until #1618 the probe asked `nc -z`: TCP reachability, which cannot
+        # tell a credentialled surface from a bare one once every store is
+        # published on purpose behind a credential. Named in 7 walk records,
+        # passed in none. This drives the real probe against a fake surface
+        # on a free port: bare 200 -> FAIL (the directive's mutation control),
+        # 401 bare + 200 with the fixture credential -> PASS, 401 to everyone
+        # -> FAIL as a lock-out, nothing listening -> CANNOT-RUN, control down
+        # -> CANNOT-RUN, the runner's --self-test contract, the same PASS under
+        # `zsh -c` where zsh exists, and one mutant per arm proved landed.
+        run: /bin/bash scripts/tests/test_no_store_port_probe_reads_the_credential.sh
+
       - name: POSITIVE CONTROL -- the gate accepts a genuine clean record
         if: always()
         run: |
