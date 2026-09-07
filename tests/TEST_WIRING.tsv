@@ -220,6 +220,7 @@ test_fda_assist_ordering.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_fda_deps_are_installed_not_just_copied.sh	WIRED	.github/workflows/fda-deps-installed.yml
 test_fda_dialog_tells_the_truth.sh	WIRED	.github/workflows/fda-dialog-truth.yml
 test_fda_listed_has_one_writer.sh	WIRED	.github/workflows/fda-listed.yml
+test_fda_modal_names_a_path_a_human_can_reach.sh	WIRED	.github/workflows/fda-dialog-truth.yml
 test_fda_module_reachable.sh	WIRED	.github/workflows/fda-reachable.yml
 test_fda_prewarm_no_early_messages_popup.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_fda_rerun_agent_loads_after_its_binary.sh	WIRED	.github/workflows/cold-box-source-truth.yml

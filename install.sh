@@ -2553,6 +2553,50 @@ _ostler_fda_entry_name() {
     printf '%s' "$_name"
 }
 
+# ── #1538: THE DRAG-IN TARGET IS IN A DOT-DIRECTORY FINDER DOES NOT SHOW ────
+#
+# Measured on a human GUI walk (archie2, Mini, v1.0.68, 2026-09-05): the nudge
+# could not confirm the TCC row without sudo, the modal fell back to drag-in,
+# and the thing to drag was ~/.ostler/OstlerAssistant.app -- a path the Finder
+# file picker hides. A customer was asked to drag an app they could not see.
+#
+# The cheapest shape that works: NAME the path a human can reach it by, put
+# it on the clipboard so ⌘⇧G then ⌘V reaches it without typing, and let the
+# Finder sentence follow what `open -R` actually did. Every claim follows an
+# act, never precedes it -- the #874(a) rule, applied to two more sentences.
+#
+# The path is DERIVED from ASSISTANT_APP_BUNDLE, which is also the ditto
+# destination the installer writes the bundle to, so the instruction and the
+# artefact cannot drift apart without the same edit reaching both.
+# Locked by tests/test_fda_modal_names_a_path_a_human_can_reach.sh.
+_ostler_fda_bundle_locator() {
+    # Prints the bundle path with $HOME shown as ~ (what ⌘⇧G accepts and what
+    # a human recognises). rc 1 when there is no bundle path: a caller must
+    # NOT render "The app is at:" followed by nothing.
+    local _bundle="${1:-${ASSISTANT_APP_BUNDLE:-}}"
+    [[ -n "$_bundle" ]] || return 1
+    case "$_bundle" in
+        "${HOME}"/*) printf '~%s' "${_bundle#"${HOME}"}" ;;
+        *)           printf '%s' "$_bundle" ;;
+    esac
+}
+
+_ostler_fda_path_line() {
+    # $1 the human-readable path. Puts it on the clipboard and prints the line
+    # that names it. The clipboard sentence is printed ONLY when pbcopy exited
+    # 0; a Mac with no pbcopy, or a pbcopy that failed, gets the path alone.
+    local _p="$1" _clip_rc=1
+    if command -v pbcopy >/dev/null 2>&1; then
+        printf '%s' "$_p" | pbcopy 2>/dev/null
+        _clip_rc=$?
+    fi
+    if [[ "$_clip_rc" -eq 0 ]]; then
+        printf "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_PATH_ON_CLIPBOARD" "$_p"
+    else
+        printf "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_PATH" "$_p"
+    fi
+}
+
 # Open System Settings at the Full Disk Access pane and report whether
 # it is ACTUALLY up. Returns 0 only when both are true:
 #
@@ -24403,7 +24447,13 @@ else
                 # the fallback for any macOS where the row did not register.
                 _fda_finder_revealed=false
                 if [[ "${_fda_listed:-}" != "listed" ]]; then
-                    open -R "$ASSISTANT_APP_BUNDLE" 2>/dev/null && _fda_finder_revealed=true || true
+                    # #1538: keep the rc. LINE3 below follows it -- a Finder
+                    # window that never appeared must not be pointed at.
+                    if open -R "$ASSISTANT_APP_BUNDLE" 2>/dev/null; then
+                        _fda_finder_revealed=true
+                    else
+                        gui_log warn "FDA drag-in: open -R could not reveal ${ASSISTANT_APP_BUNDLE} in Finder (exit $?). The modal names the path instead of pointing at a Finder window."
+                    fi
                 elif [[ -n "$_fda_entry_name" ]]; then
                     # WALK-874(b): this line used to read "Ostler is
                     # already listed" while the row said OstlerAssistant,
@@ -24445,10 +24495,27 @@ else
                         "$(printf "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2" "$_fda_entry_name")" \
                         "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_DONE_HINT")"
                 else
-                    _imessage_fda_dialog_msg="$(printf '%s\n\n%s\n%s' \
+                    # #1538: the bundle is in a dot-directory Finder does not
+                    # show. Name the path a human can reach it by, put it on
+                    # the clipboard when that succeeds, and let LINE3 follow
+                    # what `open -R` actually did rather than assert a Finder
+                    # window that may not exist (the #874(a) shape again).
+                    _fda_locator="$(_ostler_fda_bundle_locator)" || _fda_locator=""
+                    _fda_path_line=""
+                    if [[ -n "$_fda_locator" ]]; then
+                        _fda_path_line="$(_ostler_fda_path_line "$_fda_locator")"
+                    fi
+                    if [[ "$_fda_finder_revealed" == true ]]; then
+                        _fda_line3="$(printf "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3" "$_fda_entry_name")"
+                    else
+                        _fda_line3="$(printf "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3_NO_FINDER" "$_fda_entry_name")"
+                    fi
+                    _imessage_fda_dialog_msg="$(printf '%s\n\n%s\n%s\n\n%s' \
                         "$_fda_pane_line1" \
                         "$(printf "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2" "$_fda_entry_name")" \
-                        "$(printf "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3" "$_fda_entry_name")")"
+                        "$_fda_line3" \
+                        "$_fda_path_line")"
+                    unset _fda_locator _fda_path_line _fda_line3
                 fi
                 # Escape any embedded double-quotes for the
                 # AppleScript string literal. Then pass through
