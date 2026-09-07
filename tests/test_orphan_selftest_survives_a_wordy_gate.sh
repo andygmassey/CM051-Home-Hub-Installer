@@ -51,7 +51,29 @@ if [ -z "$fn" ]; then
     bad "could not extract check() from $SELFTEST -- cannot test what I cannot read"
     echo; echo "$pass passed, $fail failed"; exit 2
 fi
+# CAP BEFORE EVAL, and this is the order that matters. If the closing brace is
+# ever indented, awk's `^}` never matches and it swallows the REST OF THE FILE.
+# Measured: indenting it took the extraction from 30 lines to 204, and eval'ing
+# that blob ran real script body, which killed this test with rc=1 and NOT ONE
+# line of diagnostic. Refusing to eval an implausible extraction is the only
+# guard that works, because by the time eval has run it is too late to check.
+fn_lines="$(printf '%s\n' "$fn" | wc -l | tr -d ' ')"
+if [ "$fn_lines" -gt 80 ]; then
+    bad "extracted ${fn_lines} lines for check() -- implausible, so awk over-ran its closing brace. REFUSING to eval it. NOT a pass."
+    echo; echo "$pass passed, $fail failed"; exit 2
+fi
 eval "$fn"
+# TWO failure modes, not one, and the second is the quiet one. Empty output
+# means the header did not match, and the guard above catches it. But if the
+# header matches while the closing brace is indented, awk over-extracts and
+# eval gets a blob that may define nothing at all -- and a test whose subject
+# silently failed to load reports whatever its remaining assertions say, which
+# is the exact "a test that stops testing looks like a passing test" class this
+# whole PR exists to close. So assert the function is actually DEFINED.
+if ! declare -f check >/dev/null 2>&1; then
+    bad "check() extracted but did not define a function -- over-extraction, or a shape awk cannot read. NOT a pass."
+    echo; echo "$pass passed, $fail failed"; exit 2
+fi
 
 # 300KB, needle FIRST so grep -q would exit immediately with the pipe full.
 big="fix/genuinely-orphaned
@@ -86,6 +108,17 @@ fi
 # Comments are allowed -- three files explain the race in prose and must keep
 # being able to. Only executable lines are counted.
 # ---------------------------------------------------------------------------
+# WHY ONLY ONE OF THE SIX EVER FIRED, measured rather than assumed. The two
+# harnesses differ in one line. tests/test_no_orphaned_fixes_gate.sh:70 hands
+# every call its own baseline, OSTLER_EXPIRED_BASELINE="${3:-$baseline}", so its
+# gate output never approaches the buffer. scripts/orphan_gate_selftest.sh never
+# sets that variable at all -- 0 occurrences, against a control of 2 for
+# OSTLER_CUT_DEFERRALS in the same file -- so it inherits the PRODUCTION expiry
+# baseline, which is how 424 refs got into its output and only its output.
+# That is the whole asymmetry: the five siblings are safe BY CONSTRUCTION, not
+# by luck, and they go live the instant that isolation stops. They were rewritten
+# as pre-emption, and this note is here so nobody later reads them as a fix for
+# something that was breaking.
 family="scripts/orphan_gate_selftest.sh
 tests/test_no_orphaned_fixes_gate.sh
 tests/test_orphan_gate_cannot_verify.sh
