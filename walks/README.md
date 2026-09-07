@@ -165,3 +165,60 @@ that never started reports the same "no failures" as a suite that passed.
 requires a sentence, not a boolean, and the sentence is written into the
 release notes — so a deliberate bypass is visible from the artefact itself and
 not only from a CI log that expires.
+
+---
+
+## Classifying a failure: what is it a regression OF?
+
+Every `failed_probe` row in a record filed on or after 2026-09-07 must have a
+matching classification row. `tests/test_a_walk_failure_is_classified.sh`
+enforces it; `scripts/walk_regression_triage.sh <version>` computes it.
+
+```
+regression_of<TAB><probe><TAB><v1.0.NN | NEVER-PASSED | CANNOT-CLASSIFY: reason>
+```
+
+### The four states, and why the tool exists
+
+A probe absent from a record's `failed_probe` list has not necessarily passed.
+Per probe per walk there are five possibilities, and only one of them is a pass:
+
+| state | how it looks in the record | is it a baseline? |
+|---|---|---|
+| `FAILED` | named in `failed_probe` | no |
+| `NOT-MEASURED` | named in `not_measured_probe` | **no** — it did not run |
+| `BROKEN` | named in `broken_probe` | **no** — the runner refused its verdict |
+| `PASSED` | in neither list, AND the record names some failures | **yes** |
+| `UNRECORDED` | the record names NO failures at all | **no** — missing field |
+
+`UNRECORDED` is real: `v1.0.44` and `v1.0.47` predate the `failed_probe` field
+and both say `verdict FAILED`. Reading their silence as a clean sweep would
+manufacture a green baseline out of a missing field.
+
+Worked example, measured 2026-09-07 on this repo's own records:
+
+```
+no_person_holds_two_contact_cards
+  v1.0.50  NOT-MEASURED     <- absent from failed_probe, and NOT a pass
+  v1.0.51  NOT-MEASURED
+  v1.0.52  FAILED
+  ...
+  v1.0.47  UNRECORDED       <- search stops here: CANNOT-CLASSIFY
+```
+
+A three-state reading would have called v1.0.50 a pass and sent someone to read
+eighteen versions of commits for a regression that is not there.
+
+The same trap caught the tool itself. `walks/v1.0.50.tsv` carries
+`broken_probe  no_store_port_is_tcp_reachable`, and the first version of the
+triage script did not read `broken_probe` rows at all. It reported a REGRESSION
+with a range containing no such cause. With the fifth state in place, **all five
+of v1.0.68's failures come back CANNOT-RUN and none is a regression** -- which
+is the honest answer, and a far less comfortable one.
+
+### There has never been a green walk
+
+All nine records on main say `verdict FAILED`. There is no "last successful
+walk" to diff against, which is why the baseline is per probe. Any procedure
+phrased as "compare to the last good walk" is describing an event that has not
+yet happened.

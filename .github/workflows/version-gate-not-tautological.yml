@@ -16,6 +16,7 @@ on:
     paths:
       - 'tests/test_installer_version_matches_the_cut.sh'
       - 'tests/test_version_gate_refuses_a_tautology.sh'
+      - 'tests/test_the_dry_run_can_still_go_green.sh'
       - 'gui/OstlerInstaller/Info.plist'
       - '.github/workflows/cut.yml'
       # A gate must trigger on changes to ITSELF, or it can be quietly
@@ -26,6 +27,7 @@ on:
     paths:
       - 'tests/test_installer_version_matches_the_cut.sh'
       - 'tests/test_version_gate_refuses_a_tautology.sh'
+      - 'tests/test_the_dry_run_can_still_go_green.sh'
       - '.github/workflows/cut.yml'
       - '.github/workflows/version-gate-not-tautological.yml'
 
@@ -38,6 +40,15 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      # The SAME change that made the version gate honest (#171) killed the dry
+      # run, because the gate is `if: always()` and last in preflight and a
+      # dispatch resolves the version from the plist. 71 dispatches, 16 green,
+      # ZERO since 983270cf landed on 2026-09-04. This asserts the guard that
+      # revives it AND the always() it must not lose.
+      - name: The dry run can still go green, and the gate stays unmaskable
+        if: always()
+        run: bash tests/test_the_dry_run_can_still_go_green.sh
 
       - name: The version gate refuses a tautology and still catches a mismatch
         if: always()
