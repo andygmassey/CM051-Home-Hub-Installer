@@ -677,3 +677,104 @@ open_issues:
       nothing. Measured facts only: pin 8a7c1c3d for both keys, CM044 main
       3bc0f3b, four ahead."
     proof: "git show --name-only a60bc3d in CM044 lists four compiler source files, none of them tests"
+  - issue: 1754
+    title: "two aborts on constructs whose non-zero status was expected, and an ERR trap that reports the wrong line"
+    gate: "OPEN. The two INSTALL defects are fixed in #1756; the LINE REPORTING
+      is deliberately not.
+      MEASURED, on three console walks of v1.0.73 by Andy: install.sh:12399
+      called _ollama_agent_is_running as a BARE command under set -Eeuo
+      pipefail, and its return 1 -- agent registered but not yet
+      `state = running` -- tripped errexit. install.sh:13022 ran
+      `tr < /dev/urandom | head -c 20`, where head exits and closes the pipe,
+      tr dies on SIGPIPE and pipefail promotes it to 141. Both aborted with
+      elapsed_s=0, because in BOTH cases the correct handling for the failure
+      sat DOWNSTREAM of the line that aborts: the 90s poll at :12403 and
+      fail_with_code ERR-14-STORE-WIKI-CREDENTIAL three lines below :13022.
+      Neither guard ever ran an iteration.
+      NOT GATED BLOCKING for the install half: #1756 carries both fixes with
+      regression tests built on the original aborting inputs, each with a RED
+      control that reintroduces the pre-fix line and requires it to abort, and
+      both mutation-tested by reverting the fix.
+      DELIBERATELY DEFERRED, and this is the part that is still open: the trap
+      reports $LINENO, which resolves to the enclosing `fi`, so :12399 surfaced
+      as ERR-99-INSTALL-ABORT-L12423 and two walks were spent on the wrong 24
+      lines. The fix is a FUNCNAME/BASH_LINENO stack dump out of
+      _ostler_on_err. It is NOT in this cut on purpose: that handler reports
+      every failure in the installer, its own comments record two prior fixes
+      for subtle reasons, and lib/progress_emitter.sh:717-725 records what
+      happened when it was made quieter without care -- zero DONE markers and a
+      silent run. Changing the failure reporter immediately before a walk
+      trades a known misdirection for unknown risk in the one component that
+      tells us anything went wrong. It ships on its own, with its own test,
+      after v1.0.74 walks."
+    proof: "the RED control in tests/test_credential_generation_does_not_sigpipe.sh runs the pre-fix pipeline and aborted 10/10, so the SIGPIPE is deterministic and not a race; the ollama RED control aborts on a stub returning 1 and survives one returning 0"
+  - issue: 1760
+    title: "testTamperedSignatureFailsVerification passes or fails on identical input"
+    gate: "OPEN, NOT BLOCKING, and recorded so it cannot be mistaken for a real
+      red later.
+      It failed once on archie/bump-v1.0.74 and PASSED on a rerun of the
+      IDENTICAL commit, which is the definition of flaky rather than a matter
+      of opinion. 14 of the last 15 swift-tests runs are green, the previous
+      version bump passed the same workflow, and the licence fixture carries no
+      version field, so a ten-value version bump cannot reach licence JSON
+      parsing.
+      WHY IT IS RECORDED RATHER THAN WAVED THROUGH: it is the LICENCE VERIFIER.
+      A test that reds at random on that surface teaches everyone to press
+      rerun, and the next red for a real reason gets the same treatment.
+      NOT CLAIMED: the mechanism. The test mints a fresh random Curve25519 key
+      each run and then mutates the signature by byte offset, which is the only
+      source of variation, but a single base64 flip inside a quoted value
+      should not make the document unparseable and I did not reproduce it."
+    proof: "gh run rerun --failed on the identical sha turned FAILURE into SUCCESS with no code change"
+  - issue: 1765
+    title: "the namespace migrator is looked for in ~/.ostler/scripts, which never exists, so it has never run"
+    gate: "OPEN, NOT BLOCKING THIS CUT, and found by driving the v1.0.74 payload
+      on a box rather than by cutting a DMG.
+      install.sh:25725 builds the path as
+      ${OSTLER_DIR:-$PWD}/scripts/migrate_graph_namespace.py. OSTLER_DIR is
+      ~/.ostler, and ~/.ostler/scripts DOES NOT EXIST -- nothing in install.sh
+      copies scripts/ into it. The script actually ships at
+      ${SCRIPT_DIR}/scripts/. So `[[ -r ]]` is false on every install and the
+      graph namespace migration has never run, on any install, silently.
+      MEASURED on the walk box during a full drive of the v1.0.74 payload:
+      the installer warned `Namespace migrator not found at
+      ~/.ostler/scripts/migrate_graph_namespace.py; skipping`;
+      `ls ~/.ostler/scripts` returns No such file or directory; and
+      find(1) locates the file at Resources/scripts/. CONTROL that the search
+      for a copy step is not itself broken: grepping install.sh for `cp
+      .*scripts` returns exactly one hit, :20617, copying a DIFFERENT file, so
+      the pattern does match real copy statements.
+      FOURTH OCCURRENCE OF THE WRONG-BASE-VARIABLE CLASS. #177 baked a
+      /tmp/ostler-prelaunch path into a LaunchAgent, #578 had nine more plists
+      baking ${OSTLER_DIR}, #595 is the store-auth .pth. install.sh:327 carries
+      the rule in capitals: OSTLER_FINAL_DIR, NEVER OSTLER_DIR.
+      AND IT SILENTLY DEFEATS #1703. That fix exists so this migrator's REFUSAL
+      is loud. The block never executes, so there is no rc to classify and the
+      refusal is silent again by a different route.
+      NOT GATED BLOCKING: it has never run, so shipping v1.0.74 does not make
+      it worse, and the fix is a one-line base-variable change that wants its
+      own test asserting the resolved path is READABLE rather than merely
+      non-empty."
+    proof: "ls ~/.ostler/scripts -> No such file or directory, against find Resources -name migrate_graph_namespace.py -> Resources/scripts/migrate_graph_namespace.py, on the same box in the same run"
+  - issue: 1772
+    title: "there are three registers and two are called manifest, and a walk failure can be gated non-blocking forever"
+    gate: "OPEN, NOT BLOCKING THIS CUT, and it is a process defect rather than a
+      payload defect. MEASURED: the five probes that failed the v1.0.68 walk on
+      2026-09-05 appear 0 times in manifest/capability_manifest.tsv (122 rows)
+      and across 8 rows of this checklist. So the loop is not broken at
+      RECORDING. It is broken at ADJUDICATION: of those 8 rows, 6 are gated NOT
+      BLOCKING and 2 BLOCKING, and nothing expires a non-blocking judgement. A
+      probe can therefore fail every walk and every cut ships past it, which is
+      exactly what happened to no_store_port_is_tcp_reachable and
+      assistant_answers_grounded across four cuts.
+      SECOND HALF: three registers exist and two are called manifest --
+      OS003 cuts/<v>/MUST_CONTAIN.tsv (what is IN the artefact), OS003
+      manifest/capability_manifest.tsv (how it is PROVEN in the artefact), and
+      this file (which open ISSUES are adjudicated). The first two are already
+      one relation split in two, because the BOM's capability_id column exists
+      solely to key into the second. This file is not a manifest at all; the
+      gate that reads it is called cut-checklist-complete.
+      NOT BLOCKING because neither half changes what v1.0.74 installs, and the
+      fix -- an expiry on non-blocking walk rows -- will deliberately RED the
+      next cut, which is a decision for Andy and not a mid-cut change."
+    proof: "grep -c per probe against both registers with row counts printed; the blocking/non-blocking split read from the parsed yaml rather than the text"

@@ -87,6 +87,8 @@ on:
       - 'tests/test_ollama_agent_does_not_depend_on_a_foreign_port.sh'
       - 'tests/test_ollama_agent_check_survives_a_not_yet_running_agent.sh'
       - 'tests/test_credential_generation_does_not_sigpipe.sh'
+      - 'tests/test_install_depth_reports_a_trustworthy_number.sh'
+      - 'scripts/install_depth.sh'
       - 'tests/test_store_health_does_not_depend_on_a_foreign_port.sh'
       - 'tests/test_every_fail_call_has_error_code.sh'
       - 'tests/test_a_plistbuddy_read_takes_its_exit_code.sh'
@@ -316,9 +318,11 @@ jobs:
         if: always()
         run: bash tests/test_ollama_agent_does_not_depend_on_a_foreign_port.sh
       # #1754: the agent check itself aborted the install. It was called as a
-      # BARE command under set -Eeuo pipefail, and its return 1 -- registered
-      # but not yet `state = running` -- tripped errexit, so the 90s poll built
-      # to wait out that window never ran an iteration.
+      # BARE command, and its return 1 -- registered but not yet
+      # `state = running` -- fired the ERR trap at :10793, so the 90s poll
+      # built to wait out that window never ran an iteration. NOT errexit:
+      # errexit is OFF at that line (:8140 set -uo pipefail) and an ERR trap
+      # fires either way, which is why `set +e` would not have helped.
       - name: The Ollama agent check must survive an agent that is not yet running
         if: always()
         run: bash tests/test_ollama_agent_check_survives_a_not_yet_running_agent.sh
@@ -328,6 +332,12 @@ jobs:
       - name: Credential generation must not abort the install on SIGPIPE
         if: always()
         run: bash tests/test_credential_generation_does_not_sigpipe.sh
+      # The depth number is what makes an install regression bisectable. A
+      # depth tool that cannot fail is worse than none: a silent 41/41 reads
+      # as 'it completed'. This asserts the must-fail control.
+      - name: install_depth reports a number that can be wrong
+        if: always()
+        run: bash tests/test_install_depth_reports_a_trustworthy_number.sh
       # D008: the SAME defect shape on the two colima stores. :6333 cannot be
       # closed the way :11434 was -- Qdrant and Oxigraph have no launchd
       # identity, so launchctl would answer a confident "absent" for a healthy

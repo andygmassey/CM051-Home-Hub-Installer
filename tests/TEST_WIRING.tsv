@@ -50,6 +50,7 @@ test_a_second_sync_does_not_unpin_the_first.sh	WIRED	.github/workflows/bom-pin-a
 test_a_security_note_cannot_claim_a_flag_is_off.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_a_self_removing_agent_deletes_its_plist_before_it_dies.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_a_slow_step_is_not_a_wedged_one.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_a_status_read_is_guarded.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_a_subshell_cannot_emit_a_terminal_done.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_a_tally_that_contradicts_the_log_is_not_a_pass.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_timed_out_probe_is_not_a_failing_probe.py	WIRED	.github/workflows/cut-manifest.yml
@@ -255,6 +256,7 @@ test_inferred_category_never_egresses.py	WIRED	.github/workflows/install-abort-a
 test_ingest_offpeak_throttle.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_ingest_slot_fairness.sh	WIRED	.github/workflows/ingest-slot.yml
 test_install_daily_briefs.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_install_depth_reports_a_trustworthy_number.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_install_diagnostics_survive_the_run.sh	WIRED	.github/workflows/install-diagnostics-durable.yml
 test_install_first_month_free.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_install_gui_contract.py	WIRED	.github/workflows/install-gui-contract.yml
@@ -353,6 +355,7 @@ test_pipefail_shortcircuit_inversion.sh	WIRED	.github/workflows/appcast-ship-wir
 test_placeholder_strip.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_port_preflight_covers_published.sh	WIRED	.github/workflows/colima-autostart.yml
 test_port_preflight_recognises_own_colima_567.sh	WIRED	.github/workflows/colima-autostart.yml
+test_port_preflight_survives_a_held_port.sh	WIRED	.github/workflows/colima-autostart.yml
 test_post_walk_qa_measures_the_artefact.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_pr_age_gate_declares_partial_runs.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pref_noise_source_cap.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
@@ -385,6 +388,7 @@ test_rollforward_pin_is_watched_on_prs.sh	WIRED	.github/workflows/cut-gate-wrapp
 test_rollforward_registry_pin.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_runtime_ready_does_not_require_optional_imports.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_runtime_ready_invariant.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_runtime_ready_status_is_read_not_fatal.sh	WIRED	.github/workflows/colima-autostart.yml
 test_scheduled_agent_failure_is_loud.sh	WIRED	.github/workflows/scheduled-agent-failure-is-loud.yml
 test_secrets_are_documented.sh	WIRED	.github/workflows/secrets-are-documented.yml
 test_section_contract.sh	WIRED	.github/workflows/section-contract.yml
@@ -431,6 +435,7 @@ test_the_cut_checklist_is_complete.py	WIRED	.github/workflows/cut-checklist-comp
 test_the_daemon_freshness_row_decides_on_the_scoped_count.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_downloads_watcher_survives_a_real_export.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
 test_the_egress_inventory_still_describes_the_software.py	WIRED	.github/workflows/install-abort-and-egress.yml
+test_the_egress_proof_can_go_red.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_the_emergency_cut_row_tells_the_truth.sh	WIRED	.github/workflows/cut-manifest.yml
 test_the_failed_to_look_message_can_actually_print.sh	WIRED	.github/workflows/dmg-delivery-gate.yml
 test_the_installer_downloads_from_the_repo_we_publish_to.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
