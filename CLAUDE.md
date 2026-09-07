@@ -65,6 +65,29 @@ See `PLAN.md` for the current workstream (channel configurator + OAuth for launc
 
 ---
 
+## The walk harness already exists. Do not rebuild it.
+
+Driving `install.sh` on a box is SOLVED, and the tooling is easy to miss
+because its documentation lives inside its own header rather than anywhere you
+would look first. This file named none of it until 2026-09-07, and an agent
+duly started hand-rolling a replacement.
+
+    scripts/ttywalk.sh          drives install.sh over ssh, adjudicates
+      -> scripts/walk_drive.py  reactive answer table, answers every prompt
+      -> install.sh
+    scripts/post_walk_qa.sh     writes walks/<version>.tsv after the install
+    scripts/verify_walk_record.sh  read by scripts/publish_release.sh
+
+`walks/README.md` carries the traps in full. The three that bite hardest:
+`install.sh` needs a real pty (`exec < /dev/tty` at `:1112`); `OSTLER_GUI=1`
+without `OSTLER_GUI_FD` is a state the product never ships, so never set it to
+dodge the pty; and use the DMG's bundled `python3.11`, because the box's own
+`python3` may be 3.9.6.
+
+**You do not need a tag push to exercise `install.sh`.** Mount the artefact,
+take its `Resources` tree, and drive that. A full cut-sign-notarise cycle to
+learn one line of shell is the expensive way to find a `head -c 20`.
+
 ## 🗿 THE CUT MECHANISM LIVES IN OS003 -- NON-NEGOTIABLE
 
 **Before answering any question about what ships, where a component lives, or whether a fix is in the cut, read `~/Documents/Projects/OS003 - Ostler Release`.** It is the canonical cut mechanism, cut register and release truth. Do not infer the answer from this repo's scripts or their defaults -- `release.sh`'s `HR015_DIR` sibling-path default caused two false cut-blockers on 2026-08-08.
