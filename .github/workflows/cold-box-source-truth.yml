@@ -85,6 +85,8 @@ on:
       - 'install.sh.strings.en-GB.sh'
       - 'tests/test_an_unmeasured_flag_must_be_read.sh'
       - 'tests/test_ollama_agent_does_not_depend_on_a_foreign_port.sh'
+      - 'tests/test_install_depth_reports_a_trustworthy_number.sh'
+      - 'scripts/install_depth.sh'
       - 'tests/test_store_health_does_not_depend_on_a_foreign_port.sh'
       - 'tests/test_every_fail_call_has_error_code.sh'
       - 'tests/test_a_plistbuddy_read_takes_its_exit_code.sh'
@@ -313,6 +315,12 @@ jobs:
       - name: The Ollama agent must not depend on a foreign port
         if: always()
         run: bash tests/test_ollama_agent_does_not_depend_on_a_foreign_port.sh
+      # The depth number is what makes an install regression bisectable. A
+      # depth tool that cannot fail is worse than none: a silent 41/41 reads
+      # as 'it completed'. This asserts the must-fail control.
+      - name: install_depth reports a number that can be wrong
+        if: always()
+        run: bash tests/test_install_depth_reports_a_trustworthy_number.sh
       # D008: the SAME defect shape on the two colima stores. :6333 cannot be
       # closed the way :11434 was -- Qdrant and Oxigraph have no launchd
       # identity, so launchctl would answer a confident "absent" for a healthy
