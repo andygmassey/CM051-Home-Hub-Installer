@@ -197,12 +197,19 @@ fi
 #          and wiki_password_file_path() reads $HOME/.ostler/secrets/wiki_password
 #   CM031  WikiWebView answers the basic-auth challenge with what oa returned
 #
-# 🗿 NOTHING ANYWHERE CHECKED THAT THOSE AGREE. Measured 2026-09-07: this file
-# verified the nginx SHAPE and never the username; oa's route test asserts the
-# endpoint is authenticated and never its constant. So renaming the htpasswd
-# user, or moving the secrets file, would leave every gate in both repos green
-# while the phone got a 401 on a credential it had correctly fetched. A
-# restriction gets gated and the way through does not.
+# 🗿 THIS SIDE CHECKED NEITHER. Measured 2026-09-07: this file verified the
+# nginx SHAPE and never the username or the path. oa is the better half -- its
+# wiki_credential_is_served_to_a_paired_caller DOES pin the username to
+# "ostler" -- but its DEFAULT path branch is unreached, because every oa test
+# sets OSTLER_WIKI_PASSWORD_FILE to a tempdir first. So:
+#
+#   the username   pinned in oa, and until now not here
+#   the path       pinned NOWHERE, on either side
+#
+# Renaming the htpasswd user, or moving the secrets file, would leave every
+# gate in both repos green while the phone got a 401 or a 503 on a credential
+# it had correctly fetched. A restriction gets gated and the way through does
+# not. oa's half is pinned by its own new test (oa tnm/pin-the-wiki-credential-constant).
 #
 # Neither repo can see the other at CI time, so each pins its own half and
 # names the twin. A change on either side goes red HERE or THERE, and the
