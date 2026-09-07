@@ -69,6 +69,7 @@ on:
       - 'scripts/ttywalk.sh'
       - 'tests/test_a_slow_step_is_not_a_wedged_one.sh'
       - 'tests/test_walk_driver_cancel_is_not_a_build_verdict.sh'
+      - 'tests/test_a_box_precondition_is_not_a_build_verdict.sh'
       - 'tests/test_a_tally_that_contradicts_the_log_is_not_a_pass.sh'
       - 'tests/test_artefact_walk_stages_the_dmg_payload.sh'
       - 'tests/test_consent_state_is_defined_before_it_is_called.sh'
@@ -239,6 +240,10 @@ jobs:
       - name: A cancel the harness caused is not a build verdict
         if: always()
         run: bash tests/test_walk_driver_cancel_is_not_a_build_verdict.sh
+
+      - name: A box precondition is not a build verdict
+        if: always()
+        run: bash tests/test_a_box_precondition_is_not_a_build_verdict.sh
 
       # The subshell that emits a phantom terminal marker also increments
       # its own copy of __OSTLER_FAILED_STEPS and then dies with it, while
