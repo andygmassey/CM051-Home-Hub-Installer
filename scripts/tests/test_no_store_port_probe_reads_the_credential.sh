@@ -26,7 +26,12 @@
 #   4  401 bare, and the fixture pw is    -> FAIL, the same lock-out: the
 #      WRONG                                 credential on disk is not honoured
 #   5  api-key via the -K store config    -> PASS  (the store kind, not basic)
-#   6  nothing listening on the surface   -> CANNOT-RUN, never PASS
+#   6  nothing listening on the surface   -> PASS as not-serving, said out loud
+#  6b  accept then hang up (8144, no owner) -> PASS as not-serving
+#  6c  404 with no credential demand       -> served -> FAIL
+#  6d  500                                 -> CANNOT-RUN, never a pass
+#  6e  listens, never answers              -> CANNOT-RUN, never a pass
+#  6f  FAIL beside a not-serving sibling   -> the FAIL text names the sibling
 #   7  the positive-control port is down  -> CANNOT-RUN, never PASS
 #   8  --self-test                        -> rc 1, no BROKEN (runner contract)
 #   9  the same PASS through a stub ssh   -> PASS under `zsh -c`, because the
@@ -93,7 +98,7 @@ trap cleanup EXIT
 #           expected api-key header, else 401
 # ---------------------------------------------------------------------------
 cat > "$TMP/fake.py" <<'PY'
-import argparse, base64, os, select, socket
+import argparse, base64, os, select, socket, time
 ap = argparse.ArgumentParser()
 ap.add_argument('--mode', required=True)
 ap.add_argument('--basic', default='')
@@ -117,7 +122,7 @@ want_basic = base64.b64encode(a.basic.encode()).decode() if a.basic else None
 
 def respond(c, code):
     body = b'fake\n'
-    reason = {200: 'OK', 401: 'Unauthorized'}[code]
+    reason = {200: 'OK', 401: 'Unauthorized', 404: 'Not Found', 500: 'Internal Server Error'}[code]
     hdr = 'HTTP/1.1 %d %s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\nConnection: close\r\n' % (code, reason, len(body))
     if code == 401:
         hdr += 'WWW-Authenticate: Basic realm="fake"\r\n'
@@ -145,8 +150,19 @@ while True:
             if ':' in line:
                 k, v = line.split(':', 1)
                 headers[k.strip().lower()] = v.strip()
+        if a.mode == 'reset':
+            c.close()          # accept, then hang up without a byte: curl 52
+            continue
+        if a.mode == 'timeout':
+            time.sleep(8)      # longer than the probe's --max-time 6: curl 28
+            c.close()
+            continue
         if a.mode == 'bare':
             code = 200
+        elif a.mode == 'notfound':
+            code = 404
+        elif a.mode == 'error':
+            code = 500
         elif a.mode == 'refuse':
             code = 401
         else:
@@ -240,7 +256,7 @@ arm_gated_is_pass() {         # 2
     stop_server
     [[ "$rc" -eq 0 ]] || return 1
     [[ "$(count 'VERDICT: PASS' "$out")" -eq 1 ]] || return 1
-    [[ "$(count "served by: ${HTTP}" "$out")" -eq 1 ]] || return 1
+    [[ "$(count "read on the box: ${HTTP}" "$out")" -eq 1 ]] || return 1
     return 0
 }
 arm_refuse_all_is_fail() {    # 3
@@ -272,15 +288,64 @@ arm_store_kind_is_pass() {    # 5
     [[ "$(count 'VERDICT: PASS' "$out")" -eq 1 ]] || return 1
     return 0
 }
-arm_nothing_listening_is_cannot_run() {   # 6
+arm_nothing_listening_is_not_serving() {   # 6: leaks nothing -> PASS, said out loud, never a liveness claim
     local out rc dead
     start_server auth "ostler:${GOOD_PW}" ""
     dead="$(closed_port)"
     out="$(run_probe "$1" "$CTRL" "$dead:wiki:/" "$TMP/wiki_password" "$TMP/store-curl.conf")"; rc=$?; LAST_OUT="$out"
     stop_server
+    [[ "$rc" -eq 0 ]] || return 1
+    [[ "$(count 'VERDICT: PASS' "$out")" -eq 1 ]] || return 1
+    [[ "$(count 'Not serving at all' "$out")" -eq 1 ]] || return 1
+    [[ "$(count "${dead}(000 7)" "$out")" -ge 1 ]] || return 1
+    [[ "$(count 'NOT a liveness verdict' "$out")" -eq 1 ]] || return 1
+    return 0
+}
+arm_reset_is_not_serving() {              # 6b: accept-then-hang-up (8144 with no owner bound) -> PASS as not-serving
+    local out rc
+    start_server reset "" ""
+    out="$(run_probe "$1" "$CTRL" "$HTTP:wiki:/" "$TMP/wiki_password" "$TMP/store-curl.conf")"; rc=$?; LAST_OUT="$out"
+    stop_server
+    [[ "$rc" -eq 0 ]] || return 1
+    [[ "$(count 'Not serving at all' "$out")" -eq 1 ]] || return 1
+    return 0
+}
+arm_404_bare_is_fail() {                  # 6c: answered without demanding a credential -> served -> FAIL
+    local out rc
+    start_server notfound "" ""
+    out="$(run_probe "$1" "$CTRL" "$HTTP:wiki:/" "$TMP/wiki_password" "$TMP/store-curl.conf")"; rc=$?; LAST_OUT="$out"
+    stop_server
+    [[ "$rc" -eq 1 ]] || return 1
+    [[ "$(count "${HTTP}(404)" "$out")" -ge 1 ]] || return 1
+    return 0
+}
+arm_500_is_cannot_run() {                 # 6d: a 5xx may hide a served body -> never a pass
+    local out rc
+    start_server error "" ""
+    out="$(run_probe "$1" "$CTRL" "$HTTP:wiki:/" "$TMP/wiki_password" "$TMP/store-curl.conf")"; rc=$?; LAST_OUT="$out"
+    stop_server
     [[ "$rc" -eq 78 ]] || return 1
     [[ "$(count 'VERDICT: CANNOT-RUN' "$out")" -eq 1 ]] || return 1
-    [[ "$(count "${dead}(000)" "$out")" -ge 1 ]] || return 1
+    [[ "$(count "${HTTP}(500" "$out")" -ge 1 ]] || return 1
+    return 0
+}
+arm_timeout_is_cannot_run() {             # 6e: listened, answered nothing in time -> cannot tell -> never a pass
+    local out rc
+    start_server timeout "" ""
+    out="$(run_probe "$1" "$CTRL" "$HTTP:wiki:/" "$TMP/wiki_password" "$TMP/store-curl.conf")"; rc=$?; LAST_OUT="$out"
+    stop_server
+    [[ "$rc" -eq 78 ]] || return 1
+    [[ "$(count "${HTTP}(000 28)" "$out")" -ge 1 ]] || return 1
+    return 0
+}
+arm_fail_text_names_the_unmeasured() {    # 6f: a FAIL beside a not-serving sibling names the sibling
+    local out rc
+    start_server bare "" ""
+    out="$(run_probe "$1" "$CTRL" "$HTTP:wiki:/ 65535:wiki:/" "$TMP/wiki_password" "$TMP/store-curl.conf")"; rc=$?; LAST_OUT="$out"
+    stop_server
+    [[ "$rc" -eq 1 ]] || return 1
+    [[ "$(count "${HTTP}(200)" "$out")" -ge 1 ]] || return 1
+    [[ "$(count 'Not serving (fail-closed or down)' "$out")" -eq 1 ]] || return 1
     return 0
 }
 arm_control_down_is_cannot_run() {        # 7
@@ -380,7 +445,12 @@ arm_gated_is_pass "$PROBE";                 report "2 refuses bare, serves the i
 arm_refuse_all_is_fail "$PROBE";            report "3 refuses everyone -> FAIL, a lock-out, never a pass" $?
 arm_wrong_password_is_fail "$PROBE";        report "4 the credential on disk is not honoured -> the same lock-out FAIL" $?
 arm_store_kind_is_pass "$PROBE";            report "5 the store kind presents the -K config (api-key) -> PASS" $?
-arm_nothing_listening_is_cannot_run "$PROBE"; report "6 nothing listening on the surface -> CANNOT-RUN, never PASS" $?
+arm_nothing_listening_is_not_serving "$PROBE"; report "6 nothing listening on the surface -> PASS as not-serving, said out loud, not a liveness verdict" $?
+arm_reset_is_not_serving "$PROBE";          report "6b accept-then-hang-up (8144 with no owner bound) -> PASS as not-serving" $?
+arm_404_bare_is_fail "$PROBE";              report "6c a 404 with no credential demand -> served -> FAIL" $?
+arm_500_is_cannot_run "$PROBE";             report "6d a 500 -> CANNOT-RUN, never a pass" $?
+arm_timeout_is_cannot_run "$PROBE";         report "6e a surface that never answers -> CANNOT-RUN, never a pass" $?
+arm_fail_text_names_the_unmeasured "$PROBE"; report "6f a FAIL beside a not-serving sibling names the sibling in its text" $?
 arm_control_down_is_cannot_run "$PROBE";    report "7 the positive control is down -> CANNOT-RUN, never PASS" $?
 arm_self_test_contract "$PROBE";            report "8 --self-test exits 1 without BROKEN (the runner's contract)" $?
 if command -v zsh >/dev/null 2>&1; then
@@ -428,10 +498,13 @@ run_mutant() {   # $1 name, $2 arm fn, $3 sed expression
 echo "-- mutants, one per arm"
 # shellcheck disable=SC2016
 run_mutant M1-arm1-stops-recording-a-bare-200 arm_bare_is_fail \
-    's/^            readable)     readable_list="${readable_list} ${p}(${r1})"; continue ;;$/            readable)     continue ;;/'
+    's/^            readable)     readable_list="${readable_list} ${p}(${r1% \*})"; continue ;;$/            readable)     continue ;;/'
 # shellcheck disable=SC2016
 run_mutant M2-arm2-stops-recording-a-refused-credential arm_refuse_all_is_fail \
-    's/^            refused)  locked_list="${locked_list} ${p}(${r2})" ;;$/            refused)  : ;;/'
+    's/^            refused)  locked_list="${locked_list} ${p}(${r2% \*})" ;;$/            refused)  : ;;/'
+# shellcheck disable=SC2016
+run_mutant M3-a-5xx-reads-as-not-serving arm_500_is_cannot_run \
+    's/^            2??|3??|4??) printf '"'"'readable\\n'"'"' ;;$/            2??|3??|4??) printf '"'"'readable\\n'"'"' ;; 5??) printf '"'"'notserving\\n'"'"' ;;/'
 
 echo ""
 echo "== ${pass} passed, ${fail} failed, ${cannot} cannot-run =="

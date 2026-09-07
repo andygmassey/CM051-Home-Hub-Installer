@@ -392,11 +392,14 @@ port_state() {
 # installer proves with), which is exactly the shape that bit, so the quotes
 # are load-bearing. The unit test drives these strings through `zsh -c` where
 # zsh exists.
+# Prints "<http_code> <curl_rc>" -- BOTH halves, because the status alone
+# cannot tell "answered nothing" from "answered, then the connection broke",
+# and those adjudicate differently (see _verdict_for_http).
 _http_code() {   # $1 url, $2 prelude: a box command printing a curl config ("" = no credential)
     if [ -n "$2" ]; then
-        box_run "{ $2; } | curl -s -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 6 -K - '$1'; echo"
+        box_run "{ $2; } | curl -s -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 6 -K - '$1'; echo \" \$?\""
     else
-        box_run "curl -s -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 6 '$1'; echo"
+        box_run "curl -s -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 6 '$1'; echo \" \$?\""
     fi
 }
 
@@ -414,15 +417,48 @@ _redis_state() {   # $1 port, $2 absolute .env path on the box ("" = no credenti
     fi
 }
 
-# Map a reading to one of: refused | readable | unmeasurable
-# "readable" is the word for a SERVED request in both arms: in arm 1 it is the
-# defect, in arm 2 it is the control passing. The mapper does not know which
-# arm it is feeding, and must not.
+# Map a reading to one of: readable | refused | notserving | unmeasurable
+#
+# ADJUDICATED BY STATUS, NOT BY THE PRESENCE OF AN ANSWER (Aesop, 2026-09-07,
+# on Archie's v1.0.74 walk, where 8144 answered nothing and this probe
+# abstained on the whole run). This probe asks the EXPOSURE question -- can an
+# uncredentialled client read a store -- and a port that serves nothing leaks
+# nothing. So:
+#
+#   2xx/3xx, or any 4xx that is not a credential demand   -> readable  (served)
+#   401/403                                               -> refused   (the gate)
+#   nothing served: connection refused, empty reply,      -> notserving
+#     reset -- the shape of 8144 with no owner bound
+#     (fail-closed by design) and of a service that is
+#     down; it PASSES this probe and is printed in the
+#     verdict as "not serving", because liveness is a
+#     different probe's question
+#   5xx, a timeout, a partial answer (a status with a     -> unmeasurable
+#     non-zero curl rc)                                      never a pass
+#
+# The guardrail: a wiki that is UP and served to a second account still reads
+# readable, and a 500 hiding a served body never reaches the pass bucket.
+# "readable" is the word for a SERVED request in both arms: in arm 1 it is
+# the defect, in arm 2 it is the control passing. The mapper does not know
+# which arm it is feeding, and must not.
+#
+#   _verdict_for_http <http_code> <curl_rc>
 _verdict_for_http() {
-    case "$1" in
-        401|403) printf 'refused\n' ;;
-        000|'')  printf 'unmeasurable\n' ;;
-        2??|3??) printf 'readable\n' ;;
+    _code="${1:-}"; _rc="${2:-}"
+    case "$_rc" in ''|*[!0-9]*) printf 'unmeasurable\n'; return ;; esac
+    if [ "$_rc" -eq 0 ]; then
+        case "$_code" in
+            401|403) printf 'refused\n' ;;
+            2??|3??|4??) printf 'readable\n' ;;
+            *)       printf 'unmeasurable\n' ;;
+        esac
+        return
+    fi
+    # curl exit codes: 7 connection refused, 52 empty reply, 56 recv failure
+    # (reset). Anything else non-zero -- 28 timeout, 18 partial, 35 TLS -- is
+    # a surface that may have served something we could not see.
+    case "$_rc" in
+        7|52|56) printf 'notserving\n' ;;
         *)       printf 'unmeasurable\n' ;;
     esac
 }
@@ -431,6 +467,7 @@ _verdict_for_redis() {
     case "$1" in
         *NOAUTH*|*WRONGPASS*|*"not permitted"*|*"invalid password"*) printf 'refused\n' ;;
         *PONG*)                                                       printf 'readable\n' ;;
+        '')                                                           printf 'notserving\n' ;;
         *)                                                            printf 'unmeasurable\n' ;;
     esac
 }
@@ -528,13 +565,16 @@ classify() {
 }
 
 run_probe() {
-    n_checked=0; listening_list=""; readable_list=""; locked_list=""; unmeasured_list=""; served_list=""; refused_list=""
+    n_checked=0; listening_list=""; readable_list=""; locked_list=""; unmeasured_list=""; served_list=""; refused_list=""; notserving_list=""
 
     c_state="$(port_state "$CONTROL_PORT")"
     case "$c_state" in open) c=1 ;; closed) c=0 ;; *) c="" ;; esac
     case "$(classify "$c" "" "" "" "")" in
         CANNOT_RUN)
             probe_examined 0 "store/UI surfaces"
+            if [ -n "${OSTLER_BOX_HOST:-}" ] && ! box_reachable; then
+                probe_cannot_run "the box ${OSTLER_BOX_HOST} is not reachable over ssh (BatchMode, ConnectTimeout ${OSTLER_SSH_TIMEOUT:-8}s), so the control port ${CONTROL_PORT} could not be asked at all (it read ${c_state}). Nothing here is a verdict on the product; fix the ssh alias or key and run again."
+            fi
             probe_cannot_run "control port ${CONTROL_PORT} is ${c_state}. A closed or unreadable control cannot be told apart from a closed store port, so this run proves nothing about #550."
             ;;
     esac
@@ -576,10 +616,11 @@ run_probe() {
         if [ "$kind" = redis ]; then
             r1="$(_redis_state "$p" "")"; v1="$(_verdict_for_redis "$r1")"
         else
-            r1="$(_http_code "http://127.0.0.1:${p}${path}" "")"; v1="$(_verdict_for_http "$r1")"
+            r1="$(_http_code "http://127.0.0.1:${p}${path}" "")"; v1="$(_verdict_for_http ${r1})"
         fi
         case "$v1" in
-            readable)     readable_list="${readable_list} ${p}(${r1})"; continue ;;
+            readable)     readable_list="${readable_list} ${p}(${r1% *})"; continue ;;
+            notserving)   notserving_list="${notserving_list} ${p}(${r1:-no-answer})"; continue ;;
             unmeasurable) unmeasured_list="${unmeasured_list} ${p}(${r1:-no-reading})"; continue ;;
         esac
         # Arm 1 refused. Declared arm-1-only: stop here, and say so at the end.
@@ -593,11 +634,11 @@ run_probe() {
         if [ "$kind" = redis ]; then
             r2="$(_redis_state "$p" "$prelude")"; v2="$(_verdict_for_redis "$r2")"
         else
-            r2="$(_http_code "http://127.0.0.1:${p}${path}" "$prelude")"; v2="$(_verdict_for_http "$r2")"
+            r2="$(_http_code "http://127.0.0.1:${p}${path}" "$prelude")"; v2="$(_verdict_for_http ${r2})"
         fi
         case "$v2" in
             readable) served_list="${served_list} ${p}" ;;
-            refused)  locked_list="${locked_list} ${p}(${r2})" ;;
+            refused)  locked_list="${locked_list} ${p}(${r2% *})" ;;
             *)        unmeasured_list="${unmeasured_list} ${p}(with-credential:${r2:-no-reading})" ;;
         esac
     done
@@ -607,9 +648,9 @@ run_probe() {
     case "$(classify "$c" "$listening_list" "$readable_list" "$locked_list" "$unmeasured_list")" in
         FAIL)
             if [ -n "$listening_list" ] || [ -n "$readable_list" ]; then
-                probe_fail "an uncredentialled client is served by these Ostler surfaces, so every account on this Mac can read them:${listening_list}${readable_list}. #550 was demonstrated against 7878 with one unauthenticated curl. A port listed with a 2xx answered a request that carried NO credential; a port listed bare should not be listening at all.${locked_list:+ Also refusing the credential the installer wrote:${locked_list}.}"
+                probe_fail "an uncredentialled client is served by these Ostler surfaces, so every account on this Mac can read them:${listening_list}${readable_list}. #550 was demonstrated against 7878 with one unauthenticated curl. A port listed with a status answered a request that carried NO credential; a port listed bare should not be listening at all.${locked_list:+ Also refusing the credential the installer wrote:${locked_list}.}${unmeasured_list:+ Also unmeasurable, not adjudicated either way:${unmeasured_list}.}${notserving_list:+ Not serving (fail-closed or down), which leaks nothing and is not a liveness verdict:${notserving_list}.}"
             else
-                probe_fail "these surfaces refused an uncredentialled request AND refused the install's OWN credential, read on the box from the file the installer wrote:${locked_list}. That refusal cannot be credited to a credential check -- it is the shape of a dead upstream or a mis-mounted htpasswd, and it is what the customer meets as a surface that will not open. Served with the credential, so genuinely gated:${served_list:- none}."
+                probe_fail "these surfaces refused an uncredentialled request AND refused the install's OWN credential, read on the box from the file the installer wrote:${locked_list}. That refusal cannot be credited to a credential check -- it is the shape of a dead upstream or a mis-mounted htpasswd, and it is what the customer meets as a surface that will not open. Served with the credential, so genuinely gated:${served_list:- none}.${unmeasured_list:+ Also unmeasurable, not adjudicated either way:${unmeasured_list}.}${notserving_list:+ Not serving (fail-closed or down):${notserving_list}.}"
             fi
             ;;
         PASS)
@@ -618,9 +659,9 @@ run_probe() {
             # gets quoted into a ship note, so WHICH mechanism refused each one
             # is not asserted.
             if [ "$PROBE_ARMS" = 1 ]; then
-                probe_pass "ARM 1 ONLY (OSTLER_PROBE_ARMS=1): every one of the ${n_checked} store/UI surfaces refused an uncredentialled request (401/403, or NOAUTH for redis):${refused_list}${MUST_NOT_LISTEN:+; the ${MUST_NOT_LISTEN} class refused a connection outright}. ${CONTROL_PORT} was confirmed open in the same run. Arm 2, the install's own credential must be served, was NOT RUN, so this verdict does NOT exclude a lock-out; run as the install owner with both arms for that"
+                probe_pass "ARM 1 ONLY (OSTLER_PROBE_ARMS=1): none of the ${n_checked} store/UI surfaces served an uncredentialled request. Refused (401/403, or NOAUTH for redis):${refused_list:- none}.${notserving_list:+ Not serving at all, which leaks nothing and is NOT a liveness verdict (fail-closed by design, or down; a separate probe answers that):${notserving_list}.}${MUST_NOT_LISTEN:+ The ${MUST_NOT_LISTEN} class refused a connection outright.} ${CONTROL_PORT} was confirmed open in the same run. Arm 2, the install's own credential must be served, was NOT RUN, so this verdict does NOT exclude a lock-out; run as the install owner with both arms for that"
             fi
-            probe_pass "every one of the ${n_checked} store/UI surfaces behaved on both arms: an uncredentialled request was refused (401/403, or NOAUTH for redis)${MUST_NOT_LISTEN:+, the ${MUST_NOT_LISTEN} class refused a connection outright}, and the install's own credential, read on the box, was served by:${served_list:- none needed}. ${CONTROL_PORT} was confirmed open in the same run, so this is a measured refusal and not a blind probe. WHICH mechanism gated each surface is NOT asserted here -- read the per-port table in this file"
+            probe_pass "none of the ${n_checked} store/UI surfaces served an uncredentialled request, and every surface that refused one served the install's own credential, read on the box:${served_list:- none}.${notserving_list:+ Not serving at all, which leaks nothing and is NOT a liveness verdict (fail-closed by design, or down; a separate probe answers that):${notserving_list}.}${MUST_NOT_LISTEN:+ The ${MUST_NOT_LISTEN} class refused a connection outright.} ${CONTROL_PORT} was confirmed open in the same run, so this is a measured result and not a blind probe. WHICH mechanism gated each surface is NOT asserted here -- read the per-port table in this file"
             ;;
         *)
             probe_cannot_run "adjudication was inconclusive for control='${c}' listening='${listening_list}' served-without-credential='${readable_list}' refused-the-credential='${locked_list}' unmeasurable='${unmeasured_list}'. A surface that could not be asked, on either arm, has NOT passed."
@@ -668,18 +709,29 @@ self_test() {
     # 10. And a lock-out also outranks an unmeasurable sibling.
     [ "$(classify 1 '' '' ' 8044(401)' ' 3000(000)')" = "FAIL" ] || fails="${fails} lock-out-downgraded-by-sibling-unmeasurable"
 
-    # 11-17. THE SENSOR MAPPERS. classify() is only as good as what feeds it.
+    # 11-24. THE SENSOR MAPPERS. classify() is only as good as what feeds it,
+    #    and the mapper is where Aesop's guardrail lives: adjudicate by STATUS
+    #    and curl rc, never by the mere presence of an answer.
     #    401 and 403 are both refusals: auth_basic answers 401, the store-proxy's
     #    host check answers 403, and either means the request was not served.
-    [ "$(_verdict_for_http 401)" = "refused" ]      || fails="${fails} http-401-not-refused"
-    [ "$(_verdict_for_http 403)" = "refused" ]      || fails="${fails} http-403-not-refused"
-    [ "$(_verdict_for_http 200)" = "readable" ]     || fails="${fails} http-200-not-readable"
-    [ "$(_verdict_for_http 000)" = "unmeasurable" ] || fails="${fails} http-000-not-unmeasurable"
+    [ "$(_verdict_for_http 401 0)" = "refused" ]      || fails="${fails} http-401-not-refused"
+    [ "$(_verdict_for_http 403 0)" = "refused" ]      || fails="${fails} http-403-not-refused"
+    [ "$(_verdict_for_http 200 0)" = "readable" ]     || fails="${fails} http-200-not-readable"
+    [ "$(_verdict_for_http 302 0)" = "readable" ]     || fails="${fails} http-302-not-readable"
+    [ "$(_verdict_for_http 404 0)" = "readable" ]     || fails="${fails} http-404-served-without-a-credential-demand-not-readable"
+    [ "$(_verdict_for_http 000 7)" = "notserving" ]   || fails="${fails} connection-refused-not-notserving"
+    [ "$(_verdict_for_http 000 52)" = "notserving" ]  || fails="${fails} empty-reply-not-notserving"
+    [ "$(_verdict_for_http 000 56)" = "notserving" ]  || fails="${fails} reset-not-notserving"
+    [ "$(_verdict_for_http 000 28)" = "unmeasurable" ] || fails="${fails} timeout-read-as-a-verdict"
+    [ "$(_verdict_for_http 500 0)" = "unmeasurable" ] || fails="${fails} http-500-not-unmeasurable"
+    [ "$(_verdict_for_http 200 18)" = "unmeasurable" ] || fails="${fails} partial-answer-not-unmeasurable"
+    [ "$(_verdict_for_http '' '')" = "unmeasurable" ] || fails="${fails} empty-reading-not-unmeasurable"
     [ "$(_verdict_for_redis '-NOAUTH Authentication required.')" = "refused" ] || fails="${fails} redis-noauth-not-refused"
     [ "$(_verdict_for_redis '+PONG')" = "readable" ] || fails="${fails} redis-pong-not-readable"
+    [ "$(_verdict_for_redis '')" = "notserving" ] || fails="${fails} redis-no-answer-not-notserving"
     [ "$(_verdict_for_redis 'no_client')" = "unmeasurable" ] || fails="${fails} redis-missing-client-not-unmeasurable"
 
-    probe_examined 17 "adjudication cases"
+    probe_examined 26 "adjudication cases"
 
     # ── THE RUNNER'S CONTRACT, WHICH THIS FUNCTION USED TO BREAK ──────────
     #
@@ -705,7 +757,7 @@ self_test() {
             "${PROBE_NAME:-no_store_port_is_tcp_reachable}" "$fails"
         exit 1
     fi
-    probe_fail "NEGATIVE CONTROL DEMONSTRATED (this red is the expected result of --self-test, not a finding): classify() returned FAIL on a port that must not listen, on a published port that served an UNCREDENTIALLED request, and on a surface that refused the install's OWN credential; PASS only with the control up and nothing found; CANNOT_RUN on a stopped or unreadable control and on a surface that could not be asked; and both kinds of FAIL outranked an unmeasurable sibling. The sensor mappers turned 401/403 into refused, 2xx into readable, 000 into unmeasurable, and redis NOAUTH/PONG/no-client into the same three. 17 of 17 adjudication cases behaved."
+    probe_fail "NEGATIVE CONTROL DEMONSTRATED (this red is the expected result of --self-test, not a finding): classify() returned FAIL on a port that must not listen, on a published port that served an UNCREDENTIALLED request, and on a surface that refused the install's OWN credential; PASS only with the control up and nothing found; CANNOT_RUN on a stopped or unreadable control and on a surface that could not be asked; and both kinds of FAIL outranked an unmeasurable sibling. The sensor mappers adjudicated by status and curl rc: 401/403 refused; 2xx, 3xx and a 404 with no credential demand readable; connection refused, empty reply and reset not-serving; a timeout, a 5xx, a partial answer and an empty reading unmeasurable; and redis NOAUTH/PONG/no-answer/no-client into the same four. 26 of 26 adjudication cases behaved."
 }
 
 probe_main "$@"

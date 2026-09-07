@@ -81,6 +81,15 @@ OXIGRAPH_URL="${OSTLER_OXIGRAPH_URL:-http://127.0.0.1:7878/query}"
 # blank. A probe should fail where the customer fails.
 DOCTOR_PEOPLE_URL="${OSTLER_DOCTOR_PEOPLE_URL:-http://127.0.0.1:8089/api/v1/hydration/status}"
 TOLERANCE_PCT="${OSTLER_PEOPLE_TOLERANCE_PCT:-2}"
+# THE ABSOLUTE CAP (Aesop, 2026-09-07, from Track B's Studio run). A percentage
+# alone scales the blindness with the store: 2% of 2939 is 58, which hid 25
+# orphan vectors. So the allowance is min(pct of the larger count, CAP), and
+# both halves are printed so the arithmetic is visible at every n -- at n < 50
+# the percentage rounds to 0 and the verdict must say so rather than let an
+# integer division pass for a decision. The cap must stay above the mid-ingest
+# drift the self-test allows (4 on 6376) and below the smallest real orphan
+# set measured (14 on Archie's v1.0.74 walk, 25 on the Studio).
+TOLERANCE_CAP="${OSTLER_PEOPLE_TOLERANCE_CAP:-5}"
 
 # STORE CREDENTIAL for the OXIGRAPH surface only (the Doctor surface at :8089 is
 # a different auth and is left untouched). Oxigraph 401s to a keyless request on
@@ -264,15 +273,23 @@ adjudicate_counts() {
         return
     fi
 
-    local diff hi
+    local diff hi cap
+    cap="${4:-${TOLERANCE_CAP:-5}}"
     if [ "$a" -ge "$b" ]; then diff=$((a - b)); hi="$a"; else diff=$((b - a)); hi="$b"; fi
-    local allowed=$(( hi * tol / 100 ))
+    local pct_allowed=$(( hi * tol / 100 ))
+    local allowed="$pct_allowed"
+    [ "$allowed" -gt "$cap" ] && allowed="$cap"
+    # The arithmetic is PRINTED, both halves, so a 0 at small n reads as
+    # "2% of 1 = 0" and not as an unexplained refusal, and a 58 at large n
+    # reads as "capped to 5" and not as a tolerance that quietly grew.
+    local arith
+    arith="$(printf 'allowed = min(%s%% of %s = %s, cap %s) = %s' "$tol" "$hi" "$pct_allowed" "$cap" "$allowed")"
 
     if [ "$diff" -gt "$allowed" ]; then
-        printf 'DISAGREE oxigraph=%s doctor=%s differ by %s, above the %s%% tolerance of %s' "$a" "$b" "$diff" "$tol" "$allowed"
+        printf 'DISAGREE oxigraph=%s doctor=%s differ by %s, above the allowance (%s)' "$a" "$b" "$diff" "$arith"
         return
     fi
-    printf 'AGREE oxigraph=%s doctor=%s differ by %s, within the %s%% tolerance of %s' "$a" "$b" "$diff" "$tol" "$allowed"
+    printf 'AGREE oxigraph=%s doctor=%s differ by %s, within the allowance (%s)' "$a" "$b" "$diff" "$arith"
 }
 
 run_probe() {
@@ -310,7 +327,7 @@ run_probe() {
 
 self_test() {
     SELF_TEST_LOCAL=1
-    probe_examined 4 "synthetic count pairs (negative control)"
+    probe_examined 6 "synthetic count pairs (negative control)"
     local r
 
     # 1. The #273 spread: 6376 vs 6755 is ~5.6%, must exceed a 2% tolerance.
@@ -337,7 +354,20 @@ self_test() {
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: a single readable surface adjudicated as '${r%% *}'."
     fi
 
-    probe_fail "negative control behaved correctly on all 4 pairs (real spread caught, drift allowed, double-zero and single-surface both refused)"
+    # THE CAP. The Studio, 2026-09-07: 2939 vs 2914 is 25 orphan vectors and
+    # 2% of 2939 is 58, so the percentage alone read it as AGREE.
+    r="$(adjudicate_counts 2939 2914 2)"
+    if [ "${r%% *}" != "DISAGREE" ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: 25 orphans on 2939 adjudicated as '${r%% *}'. The percentage hides them and the cap did not bind."
+    fi
+    # SMALL n, HONESTLY. On a one-person seed, 1 vs 0 is the doctor losing the
+    # only person there is; the allowance is 0 and the verdict must say why.
+    r="$(adjudicate_counts 1 0 2)"
+    if [ "${r%% *}" != "DISAGREE" ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: 1 vs 0 adjudicated as '${r%% *}'."
+    fi
+    case "$r" in *"2% of 1 = 0, cap 5) = 0"*) ;; *) probe_pass "the small-n verdict does not show its arithmetic: ${r}" ;; esac
+    probe_fail "negative control behaved correctly on all 6 pairs (real spread caught, drift allowed, double-zero and single-surface both refused, the cap catches 25 orphans a percentage hides, and 1 vs 0 says its allowance is 0 and why)"
 }
 
 probe_main "$@"
