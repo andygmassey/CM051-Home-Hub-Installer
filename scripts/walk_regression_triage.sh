@@ -41,6 +41,7 @@
 # USAGE
 #   scripts/walk_regression_triage.sh <version>       triage that walk
 #   scripts/walk_regression_triage.sh --newest        triage the newest record
+#   scripts/walk_regression_triage.sh --emit-rows <v>  the rows the record needs
 #   scripts/walk_regression_triage.sh --self-test     prove the classifier can fail
 #
 # Exit 0 when every failing probe was classified, 2 when any probe is
@@ -293,8 +294,55 @@ self_test() {
     return 0
 }
 
+# ── --emit-rows <version> ────────────────────────────────────────────────────
+# The same classification, as the exact rows the record needs. This is what
+# makes the procedure free rather than a chore: post_walk_qa.sh appends this
+# output, so a record is BORN classified instead of being classified by
+# somebody remembering to.
+#
+# One row per failing probe, and NEVER a row for a probe that is not failing:
+#
+#     regression_of<TAB><probe><TAB><v1.0.NN | NEVER-PASSED | CANNOT-CLASSIFY: why>
+#
+# Silent (and exit 0) when there is nothing to classify, so a caller can append
+# it unconditionally.
+emit_rows() {
+    local target="${1#walks/}"
+    local tf="${WALKS}/${target}.tsv"
+    [ -f "${tf}" ] || { echo "CANNOT-RUN: no walk record at ${tf}" >&2; return 2; }
+
+    local -a order=()
+    while IFS= read -r v; do order+=("${v}"); done < <(walk_versions_oldest_first)
+    local ti=-1 i
+    for i in "${!order[@]}"; do [ "${order[$i]}" = "${target}" ] && ti="${i}"; done
+    [ "${ti}" -ge 0 ] || { echo "CANNOT-RUN: ${target} is not among the walk records" >&2; return 2; }
+
+    local probe j state last_pass
+    while IFS= read -r probe; do
+        [ -n "${probe}" ] || continue
+        last_pass=""; state=""
+        for (( j=ti-1; j>=0; j-- )); do
+            state="$(classify "${WALKS}/${order[$j]}.tsv" "${probe}")"
+            case "${state}" in
+                PASSED)     last_pass="${order[$j]}"; break ;;
+                UNRECORDED) last_pass=""; break ;;
+            esac
+        done
+        if [ -n "${last_pass}" ]; then
+            printf 'regression_of\t%s\t%s\n' "${probe}" "${last_pass}"
+        elif [ "${state}" = "UNRECORDED" ]; then
+            printf 'regression_of\t%s\tCANNOT-CLASSIFY: history reaches %s, which records no probe names\n' \
+                   "${probe}" "${order[$j]}"
+        else
+            printf 'regression_of\t%s\tNEVER-PASSED\n' "${probe}"
+        fi
+    done < <(rows_of "${tf}" failed_probe)
+    return 0
+}
+
 case "${1:-}" in
     --self-test) self_test; exit $? ;;
+    --emit-rows) shift; emit_rows "${1:-}"; exit $? ;;
     --newest)
         newest="$(walk_versions_oldest_first | tail -1)"
         [ -n "${newest}" ] || die "CANNOT-RUN: no walk records under ${WALKS}"

@@ -779,6 +779,34 @@ if [[ -n "$CUT_VERSION" ]]; then
         printf '%s\n' "$BROKEN_NAMES"  | while IFS= read -r _n; do [ -n "$_n" ] && printf 'broken_probe\t%s\n' "$_n"; done
     } > "$RECORD"
 
+    # ── CLASSIFY THE FAILURES AGAINST HISTORY, WHILE THE RECORD IS BEING BORN ──
+    #
+    # Andy, 2026-09-07: nobody goes back to the last successful walk to work out
+    # what a failure is a regression OF, so the same ground gets reinvented. The
+    # gate that now requires an answer is tests/test_a_walk_failure_is_classified.sh.
+    # This is the half that makes complying free: the record arrives classified
+    # rather than waiting for someone to remember.
+    #
+    # ⚠️ FAIL-SOFT, DELIBERATELY. A walk that completed must never be lost
+    # because a classifier could not run. If it fails, the record keeps every
+    # measurement it already has and says so in a row, and the GATE is what
+    # refuses -- an unclassified record is caught where refusing is safe, not
+    # here where it would throw away a walk.
+    _triage="${REPO_ROOT}/scripts/walk_regression_triage.sh"
+    if [ -x "$_triage" ] || [ -f "$_triage" ]; then
+        if _rows="$(bash "$_triage" --emit-rows "$RECORDED_VERSION" 2>/dev/null)"; then
+            if [ -n "$_rows" ]; then
+                printf '%s\n' "$_rows" >> "$RECORD"
+                echo "  classified $(printf '%s\n' "$_rows" | grep -c .) failing probe(s) against walk history"
+            fi
+        else
+            printf 'regression_of_status\tCANNOT-RUN: walk_regression_triage.sh --emit-rows failed; classify by hand before committing\n' >> "$RECORD"
+            echo "  ⚠️  could not classify the failures automatically -- run scripts/walk_regression_triage.sh ${RECORDED_VERSION}"
+        fi
+    else
+        printf 'regression_of_status\tCANNOT-RUN: scripts/walk_regression_triage.sh not present in this tree\n' >> "$RECORD"
+    fi
+
     echo
     echo "  walk record written: ${RECORD}"
     if [[ "$overall" -eq 0 ]]; then
