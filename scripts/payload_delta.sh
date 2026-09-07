@@ -134,7 +134,10 @@ self_test() {
     fi
 
     # install.sh must be among them, or the parser is finding the wrong thing.
-    if printf '%s\n' "${s[@]}" | grep -qx 'install.sh'; then
+    # Herestring, not a pipe: `| grep -q` short-circuits and SIGPIPEs the
+    # producer, which pipefail can turn into a false verdict.
+    _parsed="$(printf '%s\n' "${s[@]}")"
+    if grep -qx 'install.sh' <<< "${_parsed}"; then
         printf '  [PASS] install.sh is among the parsed inputs, so the parse is on target\n'; pass=$((pass+1))
     else
         printf '  [FAIL] install.sh is NOT among the parsed inputs; the parse found something else\n'; fail=$((fail+1))

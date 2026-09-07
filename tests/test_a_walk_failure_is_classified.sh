@@ -96,8 +96,10 @@ for f in "${FILES[@]}"; do
 
     in_scope=$((in_scope+1))
     missing=()
+    # Herestring, not a pipe: see scripts/walk_regression_triage.sh.
+    _classified_rows="$(rows_of "${f}" regression_of)"
     for p in "${mapfile_failing[@]}"; do
-        if rows_of "${f}" regression_of | grep -qF "${p}"; then
+        if grep -qF "${p}" <<< "${_classified_rows}"; then
             classified=$((classified+1))
         else
             missing+=("${p}")

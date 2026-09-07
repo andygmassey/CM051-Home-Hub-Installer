@@ -69,12 +69,18 @@ rows_of() { awk -F'\t' -v k="$2" '$1==k{print $2}' "$1"; }
 
 # classify <walk-file> <probe> -> FAILED | NOT-MEASURED | PASSED | UNRECORDED
 classify() {
-    local f="$1" p="$2" nfail
+    local f="$1" p="$2" nfail failed notm
     nfail="$(rows_of "${f}" failed_probe | grep -c . || true)"
-    if rows_of "${f}" failed_probe | grep -qxF "${p}"; then
+    # Herestrings, not pipes. `... | grep -q` exits on the first match and
+    # SIGPIPEs the producer, which under `set -o pipefail` can invert the
+    # verdict of the condition it sits in. tests/pipefail_shortcircuit_baseline
+    # ratchets that class and caught these three.
+    failed="$(rows_of "${f}" failed_probe)"
+    notm="$(rows_of "${f}" not_measured_probe)"
+    if grep -qxF "${p}" <<< "${failed}"; then
         printf 'FAILED\n'; return
     fi
-    if rows_of "${f}" not_measured_probe | grep -qxF "${p}"; then
+    if grep -qxF "${p}" <<< "${notm}"; then
         printf 'NOT-MEASURED\n'; return
     fi
     if [ "${nfail}" -eq 0 ]; then
