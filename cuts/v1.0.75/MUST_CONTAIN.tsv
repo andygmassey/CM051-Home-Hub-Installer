@@ -1,0 +1,68 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.75.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.75/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN.
+#
+# ===========================================================================
+# EVERY ROW SAYS ONE OF THREE THINGS AND NEVER A FOURTH
+# ===========================================================================
+#   gate:<workflow>#<what>  a CI gate that FAILS on the real pre-fix tree
+#   artefact:<sha8>#<what>  measured on the published artefact itself
+#   needs-walk:<ver>#<what> UNPROVEN, and here is exactly what to look at
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS, IN ONE LINE
+# ===========================================================================
+# v1.0.75 IS THE CUT THAT CAN INSTALL. v1.0.73 aborted at step 5 of 41 on
+# every fresh install; this one completed all 41 steps with no errors raised.
+#
+# ===========================================================================
+# HOW THE ROWS WERE SELECTED, AND WHAT WAS LEFT OUT
+# ===========================================================================
+# 8 commits landed on CM051 main between the v1.0.73 artefact (c0401242) and
+# this cut. The predicate is the same one v1.0.73 used: the commit touches a
+# path that reaches the customer -- install.sh, gui/, vendor/ or
+# assistant-agent/. THREE did. Two carry rows; both are install.sh.
+#
+# TWO OF THE THREE ARE DELIBERATELY ABSENT, with the measurement rather than
+# the assertion:
+#
+#   ab286995 (#1751) touches vendor/VENDOR_MANIFEST.toml and NOTHING ELSE in
+#   the vendored file-set. It is a hold_ack, not a re-pin:
+#       git show ab286995 -- vendor/VENDOR_MANIFEST.toml \
+#         | grep -cE '^[+-][[:space:]]*pinned_sha[[:space:]]*='     -> 0
+#   with a positive control proving that pattern matches a real pin line. No
+#   pinned_sha moved, so no vendored byte changed, so the artefact is
+#   unaffected and a row asserting otherwise would be false.
+#
+#   e799a34a (#1748) touches gui/Makefile only. The Makefile builds the DMG
+#   and is not IN the DMG, so no capability pattern could ever find it in the
+#   artefact.
+#
+# ===========================================================================
+# EVERY PATTERN BEHIND A capability_id WAS RUN AGAINST BOTH REFS
+# ===========================================================================
+# A capability whose pattern also matches at v1.0.73 measures nothing: it
+# would go green on the PREVIOUS artefact, so it cannot notice this cut's
+# payload going missing. Each was checked at c0401242 (must be 0) and at the
+# v1.0.75 tree (must be non-zero), with two controls:
+#
+#     id                                        @v1.0.73  @v1.0.75
+#     ollama_agent_check_is_guarded                    0      1
+#     credential_generation_has_no_sigpipe             0      1
+#     port_preflight_status_is_read_not_fatal          0      1
+#     runtime_ready_status_is_read_not_fatal           0      1
+#     CONTROL present in both refs                     5      6   <- must NOT discriminate
+#     CONTROL present in neither                       0      0   <- must be broken
+#
+# MY FIRST TWO PATTERNS FOR TNM'S SITES WERE GUESSED AND BOTH FAILED THIS
+# TABLE -- one scored 0/0 and one scored 1/5, i.e. it already matched the
+# artefact it was meant to discriminate against. They were re-derived from the
+# added lines of 27236c3d. That is why the table is here rather than a claim.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+THE ASSISTANT COULD NOT ANSWER FROM THE CUSTOMER'S OWN FACTS. render_person in crates/zeroclaw-tools/src/pwg_people.rs projected name/organisation/title/last_contact/identifiers/wiki_url and NEVER read the facts array, so a person whose employer /people/context and /api/v1/people/{slug}/enrichment BOTH returned verbatim produced 'it does not explicitly state where she works'. The model reported its payload accurately; the payload was stripped at the tool boundary. Established with a control: extracting only field LABELS for a person WITH enrichment gave Name/Organisation/Wiki, so there was no facts field for anybody. Ships via signed hub-v0.4.74, sha e93e4f01.	ostler-assistant	b4118b456274beb51026b820079f1851defd388f	yes	assistant_answers_from_asserted_facts	TBD	ostler-assistant#386
+THE ASSISTANT CITED ITS OWN PRIOR NON-ANSWERS AS EVIDENCE. consolidation.rs Phase 1 wrote history_entry to MemoryCategory::Daily on EVERY turn unconditionally, while Phase 2 three lines below already guarded Core with a non-empty check. Measured on the v1.0.74 box: 4 of the 5 memories recalled for a person were records of the assistant's OWN earlier non-answers, top-ranked at 86 percent, and it answered from those instead of querying the graph. Self-reinforcing: each retelling wrote another copy. Ships via signed hub-v0.4.74.	ostler-assistant	99f31f597c06f7bc4a219c6f96f3ea0197fbe4ec	yes	daily_memory_skips_a_turn_that_learned_nothing	TBD	ostler-assistant#387
