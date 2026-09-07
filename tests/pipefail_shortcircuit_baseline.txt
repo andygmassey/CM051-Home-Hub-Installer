@@ -38,7 +38,7 @@ scripts/box_walk_probes/probes/ingest_coverage.sh	4
 scripts/box_walk_probes/probes/launchd_no_ephemeral_paths.sh	2
 scripts/classify_pr_pin_shape.sh	1
 scripts/dry_run_cut_checks.sh	1
-scripts/orphan_gate_selftest.sh	2
+scripts/orphan_gate_selftest.sh	1
 scripts/provenance_gate.sh	3
 scripts/regenerate_divergence_patch.sh	1
 scripts/stage_and_verify_dmg.sh	1

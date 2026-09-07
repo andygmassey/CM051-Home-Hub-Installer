@@ -36,6 +36,7 @@ on:
       - 'tests/test_orphan_gate_declared_skip_always_counts.sh'
       - 'tests/test_orphan_gate_skip_ceiling.sh'
       - 'tests/orphan_gate_skip_ceiling.txt'
+      - 'tests/test_open_prs_are_reported_not_counted.sh'
       - 'tests/test_deferral_reachability.sh'
       - 'tests/test_deferral_reason_reads_block_scalars.sh'
       # The expiry ratchet: its comparison, and the baseline it compares to.
@@ -94,7 +95,8 @@ jobs:
                    tests/test_orphan_gate_empty_pr_list_needs_a_control.sh \
                    tests/test_orphan_gate_failed_fetch_is_not_truth.sh \
                    tests/test_orphan_gate_declared_skip_always_counts.sh \
-                   tests/test_orphan_gate_skip_ceiling.sh; do
+                   tests/test_orphan_gate_skip_ceiling.sh \
+                   tests/test_open_prs_are_reported_not_counted.sh; do
             [ -x "$f" ] || { echo "::error::$f missing or not executable" >&2; exit 1; }
             echo "  ok $f"
           done
@@ -154,7 +156,8 @@ jobs:
           for f in scripts/verify_no_orphaned_fixes.sh \
                    scripts/orphan_gate_selftest.sh \
                    tests/test_no_orphaned_fixes_gate.sh \
-                   tests/test_orphan_gate_cannot_verify.sh; do
+                   tests/test_orphan_gate_cannot_verify.sh \
+                   tests/test_open_prs_are_reported_not_counted.sh; do
             if /bin/bash -n "$f"; then
               echo "  ok $f"
             else
@@ -167,6 +170,17 @@ jobs:
 
       - name: Orphan gate self-test
         run: ./scripts/orphan_gate_selftest.sh
+
+      - name: An OPEN PR is reported, not counted (launch directive item 4)
+        if: always()
+        # Four v1.0.74 tag pushes on 2026-09-07 died in check-orphans on 8 open
+        # PRs and 0 orphaned branches. Directive item 4: a cut from a frozen
+        # branch is not blocked by open PRs. This drives the real gate
+        # hermetically: the [open] row is printed and the verdict stays GREEN;
+        # the must-miss control (same branch, no PR) still goes RED; a deferred
+        # open PR still prints DEFERRED and stays consulted; and one mutant per
+        # property, proved landed by diff, shows each arm is load-bearing.
+        run: ./tests/test_open_prs_are_reported_not_counted.sh
 
       - name: Orphan gate harness
         if: always()

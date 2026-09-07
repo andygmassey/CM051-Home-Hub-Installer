@@ -238,17 +238,24 @@ git -C "$d7" commit -qm "fix: under review"
 git -C "$d7" push -q origin fix/has-an-open-pr
 git -C "$d7" checkout -q main
 out="$(run_gate "$d7" "acme/thing" open)"; rc=$?
-check "open PR: branch row defers to the PR row" RED "$out" "$rc" "reported once, by the PR check"
-# The point of case 9 is the COUNT. Before this change the same work was
+# Since 2026-09-07 an open PR is REPORTED, NOT COUNTED (launch directive
+# item 4: a cut from a frozen branch is not blocked by open PRs), so this
+# case is GREEN. What it still pins is the two things that must not change:
+# the branch row defers to the PR row (one piece of work, one row), and the
+# PR row is PRINTED -- silence is the bug this gate exists to stop.
+check "open PR: branch row defers to the PR row, and the PR row is reported, not counted" GREEN "$out" "$rc" "reported once, by the PR check"
+# The point of case 9 is the COUNT. Before 2026-08-11 the same work was
 # reported twice -- once as CM044:fix/v1018-d014a-person-summary-prompt and
 # again as CM044:#179 -- which inflated "15 orphaned" and made the RED list
-# read worse than the truth. One piece of work, one row.
+# read worse than the truth. One piece of work, one row: exactly one [open]
+# row naming #902, and no [RED] row at all.
 n_red="$(printf '%s\n' "$out" | grep -c '\[RED\]')"
-if [[ "$n_red" == "1" ]] && printf '%s' "$out" | grep -q 'T:#902'; then
-    printf '  [pass]   and exactly one RED row, from the PR sweep\n'; pass=$((pass + 1))
+n_open="$(printf '%s\n' "$out" | grep -c '\[open\] T:#902')"
+if [[ "$n_red" == "0" && "$n_open" == "1" ]]; then
+    printf '  [pass]   and exactly one [open] row naming #902, zero RED rows\n'; pass=$((pass + 1))
 else
-    printf '  [FAIL]   expected exactly 1 RED row naming #902, got %s\n' "$n_red"; fail=$((fail + 1))
-    printf '%s\n' "$out" | grep -E '\[RED\]|\[ok\]' | sed 's/^/         | /'
+    printf '  [FAIL]   expected 0 RED rows and exactly 1 [open] row naming #902, got RED=%s open=%s\n' "$n_red" "$n_open"; fail=$((fail + 1))
+    printf '%s\n' "$out" | grep -E '\[RED\]|\[open\]|\[ok\]' | sed 's/^/         | /'
 fi
 
 # 10. A branch that is a genuine ancestor needs no network call and is quiet.
