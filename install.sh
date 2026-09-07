@@ -12051,6 +12051,20 @@ except OSError:
             # loginwindow reads the pref as any user; keep it world-readable
             # (the SECRET lives in the 0600 /etc/kcpassword, never here).
             sudo -n chmod 644 /Library/Preferences/com.apple.loginwindow 2>/dev/null || true
+            # PROVENANCE. install.sh:11952 returns early when auto-login is
+            # already on for this user, so reaching this line means OSTLER
+            # turned it on -- and that is the only moment anyone can know it.
+            # Without a record, an uninstall cannot tell our change from a
+            # setting the customer made themselves, so it can only disclose
+            # and leave a recoverable /etc/kcpassword behind.
+            #
+            # Written to OUR OWN system domain, not under ~/.ostler, because
+            # the uninstall deletes that directory and would lose the record
+            # before it could act on it. The uninstaller removes this plist
+            # as part of the same teardown, so the marker cleans itself up.
+            sudo -n defaults write /Library/Preferences/com.creativemachines.ostler \
+                autoLoginEnabledByOstler -bool true 2>/dev/null || true
+            sudo -n chmod 644 /Library/Preferences/com.creativemachines.ostler.plist 2>/dev/null || true
             ok "$(printf "$MSG_OK_AUTOLOGIN_CONFIGURED" "$_display")"
         else
             warn "$(printf "$MSG_WARN_AUTOLOGIN_FAILED" "the loginwindow preference could not be written")"
@@ -20892,15 +20906,12 @@ echo "      this uninstall right now. Drag it to the Bin when you are done."
 echo "    - /usr/local/bin/gws (the official Google Workspace CLI)"
 echo "      installed by Ostler, but a working standalone tool that is"
 echo "      not ours to delete. To remove: sudo rm -f /usr/local/bin/gws"
-echo "    - Automatic login, if Ostler enabled it for you"
-echo "      The hub needs the Mac to reach a logged-in session after a"
-echo "      power cut, so the installer may have switched on automatic"
-echo "      login. macOS stores your login password for that in"
-echo "      /etc/kcpassword, obfuscated but NOT encrypted."
-echo "      This uninstall does not undo it, because it cannot tell"
-echo "      whether you had already enabled it yourself."
-echo "      To undo: System Settings > Users & Groups > Automatic login"
-echo "      > Off, then: sudo rm -f /etc/kcpassword"
+echo "    - Automatic login that you enabled yourself, and its"
+echo "      /etc/kcpassword. If OSTLER switched automatic login on, this"
+echo "      uninstall switches it back off and removes /etc/kcpassword"
+echo "      (macOS stores your login password there, obfuscated but NOT"
+echo "      encrypted). If you had already enabled it before installing,"
+echo "      it is left alone -- it was never ours to undo."
 echo ""
 # ── #1560: THE GATE. Three outcomes, and the third used to be absent ──
 #
@@ -21375,6 +21386,31 @@ fi
 
 echo "  Restoring sleep settings..."
 sudo pmset -a sleep 1 2>/dev/null || true
+
+# ── Automatic login: revert ONLY what we can prove we did ──────
+# Ostler enables macOS auto-login so the hub reaches a logged-in session
+# after a power cut, and macOS stores the login password for that in
+# /etc/kcpassword -- obfuscated with the fixed loginwindow cipher, which
+# is not encryption. Leaving both behind on an uninstalled machine is the
+# worst outcome here.
+#
+# But the installer returns early when auto-login was ALREADY on, so
+# without the marker written at install time this teardown cannot tell our
+# change from the customer's own. Reverting on a guess would switch off an
+# auto-login they configured and delete a kcpassword that was never ours.
+# So: marker present -> revert; marker absent -> say so and leave it.
+_autologin_ours="$(sudo defaults read /Library/Preferences/com.creativemachines.ostler autoLoginEnabledByOstler 2>/dev/null || echo 0)"
+if [ "$_autologin_ours" = "1" ]; then
+    echo "  Turning automatic login back off (Ostler enabled it)..."
+    sudo defaults delete /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null || true
+    sudo rm -f /etc/kcpassword 2>/dev/null || true
+else
+    echo "  Leaving automatic login as it is (Ostler did not enable it)."
+    echo "  If you want it off: System Settings > Users & Groups, then"
+    echo "  sudo rm -f /etc/kcpassword"
+fi
+# The marker is ours, so it goes whether or not it said yes.
+sudo rm -f /Library/Preferences/com.creativemachines.ostler.plist 2>/dev/null || true
 
 echo "  Removing Keychain entry..."
 security delete-generic-password -s "Ostler Recovery Key" 2>/dev/null || true
