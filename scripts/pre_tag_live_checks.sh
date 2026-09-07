@@ -265,6 +265,56 @@ else
     fi
 fi
 
+# ── 6. THE CUT'S OWN PREFLIGHT, THE PART THAT NEEDS NO ARTEFACT. ───────────
+#
+# EVERY OTHER ROW IN THIS FILE IS LIVE, AND THAT IS WHY v1.0.75 DIED. This
+# script was built to defend the read/push boundary: things a peer can change
+# in the seconds before a tag. It ran ZERO of the cut's own preflight gates,
+# so a GREEN here meant "nothing has moved since you looked" and NOT "this tag
+# will build". Measured 2026-09-07: it went GREEN at 15:51:33Z with two
+# preflight reds sitting unchanged in the tree, the tag was pushed inside the
+# same minute exactly as this file demands, and preflight killed it 37 seconds
+# later on:
+#
+#     No cut manifest at cut-manifests/v1.0.75.yaml
+#     CFBundleShortVersionString is 1.0.74 but the cut is 1.0.75
+#     CFBundleVersion is 7400, expected 7500
+#
+# Neither is live. Both had been true for hours. No amount of care at the
+# read/push boundary could have caught them, because this file was not looking.
+#
+# So these two rows are STATIC on purpose, and that is the point rather than an
+# inconsistency: a dry run that only checks mutable things cannot predict a
+# build. They are the preflight gates that need no artefact, which is exactly
+# the set that can be answered before a tag exists.
+_cutv_bare="${CUTV#v}"
+if [ -f "${HERE}/cut-manifests/${CUTV}.yaml" ]; then
+    row "cut manifest exists" "GREEN" "cut-manifests/${CUTV}.yaml present"
+else
+    RED=1; row "cut manifest exists" "RED" "NO cut-manifests/${CUTV}.yaml. A tag without a manifest is a cut nobody wrote down, and preflight kills it AFTER the tag is spent."
+fi
+
+_ivt="${HERE}/tests/test_installer_version_matches_the_cut.sh"
+if [ -f "$_ivt" ]; then
+    # CUT_VERSION_SOURCE IS REQUIRED, AND OMITTING IT IS NOT A FAILURE.
+    # The test refuses (#171) unless told where the version came from, so it
+    # cannot be handed a version read out of its own subject. Here the version
+    # IS the tag being cut, so source=tag is the honest answer.
+    #
+    # AND rc 2 IS CANNOT-RUN, NOT RED. My first draft of this row scored the
+    # refusal as RED -- three states collapsed into two, in the very row added
+    # to stop a dry run from claiming more than it measured.
+    _ivo="$(cd "$HERE" && CUT_VERSION_SOURCE=tag bash "$_ivt" "$CUTV" 2>&1)"; _ivrc=$?
+    _ivwhy="$(printf '%s\n' "$_ivo" | grep -E '^[[:space:]]*FAIL' | head -2 | sed 's/^[[:space:]]*//' | tr '\n' ' ')"
+    case "$_ivrc" in
+        0) row "installer version == cut" "GREEN" "gui/project.yml agrees with ${CUTV}" ;;
+        2) CANT=1; row "installer version == cut" "CANNOT-RUN" "the version test refused; coverage lost, not passed" ;;
+        *) RED=1; row "installer version == cut" "RED" "${_ivwhy:-rc=${_ivrc}, see tests/test_installer_version_matches_the_cut.sh}" ;;
+    esac
+else
+    CANT=1; row "installer version == cut" "CANNOT-RUN" "tests/test_installer_version_matches_the_cut.sh not found; a missing test is not a passing one"
+fi
+
 # ── report ─────────────────────────────────────────────────────────────────
 printf '  %-30s  %-12s  %s\n' "CHECK" "VERDICT" "DETAIL"
 for r in "${ROWS[@]}"; do
