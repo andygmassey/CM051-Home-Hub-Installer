@@ -12404,8 +12404,41 @@ OLLAMAPLIST
     # narrower one it is, rather than being quietly promoted to the same green.
     #
     # A customer in an Aqua session never reaches this branch.
+    # 🔴 THIS CALL MUST NOT BE A BARE SIMPLE COMMAND (#1754).
+    #
+    # 🔴 IT IS THE ERR TRAP THAT ABORTS HERE, **NOT** ERREXIT. This comment
+    # said errexit and that was wrong; correcting it because the wrong version
+    # invites the wrong fix.
+    #
+    # ERREXIT IS OFF AT THIS LINE. The governing flag word is :8140
+    # `set -uo pipefail` (no -e); -e does not come back until :12462. What
+    # aborts is the trap installed at :10793, and MEASURED, an ERR trap fires
+    # whether or not `set -e` is on:
+    #
+    #     set -Eeuo pipefail + trap, f returns 1  ->  trap fires
+    #     set -Euo  pipefail + trap, f returns 1  ->  trap fires
+    #
+    # So `set +e` DOES NOT make a site like this safe. The file already knows
+    # that: all 7 places that disarm the trap pair `trap - ERR` WITH `set +e`
+    # (22866, 27607, 27790, 28128, 28664, 28830) and not one uses `set +e`
+    # alone.
+    #
+    # `_ollama_agent_is_running` returns 1 for a state this code EXPECTS:
+    # the agent is registered but has not yet reached `state = running`.
+    # As a standalone command that return fires the trap, so the install
+    # aborted here -- and the 90s poll below, which exists to absorb exactly
+    # that window, never got a first iteration (measured: elapsed_s=0 on two
+    # consecutive box walks of v1.0.73).
+    #
+    # It reported as ERR-99-INSTALL-ABORT-L12423 because the trap's $LINENO
+    # resolves to the enclosing `fi`, not to the failing line.
+    #
+    # Left operand of `||` is errexit-exempt, so the rc is captured, not read
+    # from `$?` after a command that was never allowed to return.
     _ollama_domain_absent=0
-    _ollama_agent_is_running; [[ $? -eq 2 ]] && _ollama_domain_absent=1
+    _ollama_rc=0
+    _ollama_agent_is_running || _ollama_rc=$?
+    if [[ $_ollama_rc -eq 2 ]]; then _ollama_domain_absent=1; fi
     if [[ $_ollama_domain_absent -eq 1 ]]; then
         warn "There is no GUI (Aqua) session for this user, so launchd has no gui/ domain and the Ollama LaunchAgent cannot be inspected or registered. Falling back to a port check alone, which is WEAKER: a reply on 11434 does not prove it came from this install. Ollama will not restart after a reboot on this box."  # i18n-exempt
     fi
@@ -13033,7 +13066,7 @@ _seed_wiki_password() {
     # original call site is unchanged. #1660 reuses this for vane rather than
     # copying 20 lines: the reuse rule, the loudness rule and the 0600 rule are
     # the parts that matter and they should not be duplicated to be varied.
-    local _outvar="$1" _file="${SECRETS_DIR}/${2:-wiki_password}" _val="" _raw=""
+    local _outvar="$1" _file="${SECRETS_DIR}/${2:-wiki_password}" _val="" _raw="" _pool=""
     if [[ -s "$_file" ]]; then
         _val="$(cat "$_file")"
     else
@@ -13042,7 +13075,23 @@ _seed_wiki_password() {
         # produce an htpasswd line that no input can ever satisfy,
         # which reads to a customer as "the wiki is broken" and to a
         # gate as "auth is on".
-        _raw="$(LC_ALL=C /usr/bin/tr -dc 'abcdefghjkmnpqrstuvwxyz23456789' < /dev/urandom | /usr/bin/head -c 20)"
+        # 🔴 NO EARLY-EXITING CONSUMER ON A PIPE FROM AN INFINITE SOURCE (#1754).
+        #
+        # This was `tr -dc ... < /dev/urandom | head -c 20`. `head` takes its
+        # 20 bytes and exits, closing the pipe under `tr`, which dies on
+        # SIGPIPE. `pipefail` promotes that to 141 and the ERR trap aborts the
+        # install -- measured on a v1.0.73 box walk, step config_save, rc=141.
+        #
+        # The loud length check DIRECTLY BELOW is the intended failure path for
+        # a credential we could not generate, and it was unreachable: the
+        # assignment aborted the script before it could run. Same shape as the
+        # Ollama poll at :12403.
+        #
+        # `head -c` on a FILE argument has no upstream process to signal, and
+        # `tr` then reads to EOF and exits 0. The slice is pure shell, so
+        # nothing exits early anywhere in the chain.
+        _pool="$(LC_ALL=C /usr/bin/head -c 4096 /dev/urandom | LC_ALL=C /usr/bin/tr -dc 'abcdefghjkmnpqrstuvwxyz23456789')"
+        _raw="${_pool:0:20}"
         if [[ "${#_raw}" -ne 20 ]]; then
             fail_with_code "ERR-14-STORE-WIKI-CREDENTIAL" "Could not generate the wiki password (got ${#_raw} characters, expected 20). Refusing to publish the wiki without a credential."
         fi
