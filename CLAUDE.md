@@ -88,6 +88,56 @@ dodge the pty; and use the DMG's bundled `python3.11`, because the box's own
 take its `Resources` tree, and drive that. A full cut-sign-notarise cycle to
 learn one line of shell is the expensive way to find a `head -c 20`.
 
+## 🔴 A WALK FAILURE IS TRIAGED AGAINST HISTORY BEFORE IT IS DIAGNOSED
+
+Andy, 2026-09-07: *"when an installer walk happens, Archie doesn't go back and
+look at what changed since the last successful walk and figure out what the
+issue is a regression of. He reinvents the whole wheel again, and sometimes
+makes matters worse."*
+
+Reinventing is the RATIONAL move when the alternative is reading nine walk
+records by hand. So the answer is one command, and it is now mandatory.
+
+**THE PROCEDURE. Do these in this order, every time, before writing a line of
+fix code.**
+
+```
+1  walk the box, and let post_walk_qa.sh write walks/<version>.tsv
+2  scripts/walk_regression_triage.sh <version>
+3  paste its verdict into the record, one row per failing probe:
+       regression_of<TAB><probe><TAB><v1.0.NN | NEVER-PASSED | CANNOT-CLASSIFY: why>
+4  for each REGRESSION row, read the named range FIRST. The cause is in it.
+5  only then write the fix
+```
+
+`tests/test_a_walk_failure_is_classified.sh` fails the build if a walk record
+filed on or after 2026-09-07 names a failing probe with no `regression_of` row.
+Silence is not an available answer. The three classifications mean:
+
+    v1.0.NN                 it PASSED there and fails now. The range
+                            v1.0.NN..<this walk> CONTAINS the cause. Read it
+                            before theorising; `scripts/install_depth.sh
+                            --bisect N` turns it into `git bisect run`.
+    NEVER-PASSED            no earlier walk records it passing. NOT a
+                            regression. Treat as unbuilt, not broken -- and do
+                            not go hunting for the commit that "broke" it.
+    CANNOT-CLASSIFY: why    the history cannot answer. A real third state, and
+                            it must carry a reason. Do NOT name a commit range
+                            from a CANNOT-CLASSIFY.
+
+**⚠️ FOUR STATES PER PROBE, AND THE FOURTH IS WHY YOU DO NOT DO THIS BY EYE.**
+A probe missing from a record's `failed_probe` list has NOT necessarily passed:
+it may be in `not_measured_probe`, or the record may predate the field
+entirely. Measured 2026-09-07: `no_person_holds_two_contact_cards` is absent
+from v1.0.50 and v1.0.51 and passed in NEITHER -- it was not measured. Reading
+absence as a pass would have named an innocent 18-version range as the
+regression.
+
+**🔴 AND THE FACT THAT CHANGES THE QUESTION: there has never been a green
+walk.** All nine records say `verdict FAILED`. "The last successful walk" does
+not exist, so the baseline is PER PROBE and never per walk. Anyone reasoning
+from "the last good walk" is reasoning from something that has never happened.
+
 ## 🗿 THE CUT MECHANISM LIVES IN OS003 -- NON-NEGOTIABLE
 
 **Before answering any question about what ships, where a component lives, or whether a fix is in the cut, read `~/Documents/Projects/OS003 - Ostler Release`.** It is the canonical cut mechanism, cut register and release truth. Do not infer the answer from this repo's scripts or their defaults -- `release.sh`'s `HR015_DIR` sibling-path default caused two false cut-blockers on 2026-08-08.
