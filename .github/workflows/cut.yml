@@ -706,8 +706,27 @@ jobs:
       # skip everything downstream of itself. Adding one gate quietly weakened
       # a neighbour, which is the same class of defect this file is here to
       # stop. At the end it guards itself and shadows nothing.
+      #
+      # ⚠️ AND GUARDED ON THE REF, ADDED 2026-09-07. This step killed the dry
+      # run for three days and nothing announced it. On a workflow_dispatch
+      # the preflight resolves CUT_VERSION from the plist and exports
+      # CUT_VERSION_SOURCE=plist, so this gate correctly reports CANNOT-RUN and
+      # exits 2 -- and `if: always()` means that exit fails the whole job.
+      # Measured: 71 dispatches all time, 16 green, and ZERO since 983270cf
+      # landed on 2026-09-04. The last green dispatch was 33760954595 on
+      # 2026-09-03T13:24:13Z.
+      #
+      # The dry run is the one mechanism that exists so a broken cut-path check
+      # stops costing a version number, and it was switched off by a change
+      # that made a DIFFERENT gate more honest.
+      #
+      # 🗿 BOTH CONDITIONS ARE LOAD-BEARING AND THE OBVIOUS FIX DROPS ONE.
+      # Replacing `always()` with the ref test alone would fix the dispatch and
+      # quietly make this gate SKIPPABLE on a tag push by any earlier failure,
+      # undoing the unmaskability the header above argues for. Keep both:
+      # unmaskable where it can answer, silent where it cannot.
       - name: The installer's own version IS the version being cut
-        if: always()
+        if: always() && startsWith(github.ref, 'refs/tags/v1.0.')
         run: bash tests/test_installer_version_matches_the_cut.sh "${CUT_VERSION}"
 
   cut:
