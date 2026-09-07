@@ -143,7 +143,18 @@ while true; do
 done
 '
 out10="$(REPO_ROOT="$T/a10" bash "$GATE" 2>&1)"; rc10=$?
-if [ "$rc10" -eq 0 ] && printf '%s' "$out10" | grep -q 'UNSCORED'; then
+# HERESTRING, NOT A PIPE, and this repo's own ratchet caught me writing the pipe.
+# A short-circuiting consumer such as `grep -q` exits on its first match and
+# SIGPIPEs whatever is feeding it, which is how a pipeline inverts the very
+# verdict you are trying to read. That is the SAME defect class as the
+# install.sh credential pipeline -- and I wrote it into the test for a PR about
+# unbounded prompt loops, one file away from the SIGPIPE work.
+# The herestring is a bashism; this file runs under /bin/bash 3.2, which I
+# control, so it is the correct one of the two remedies the gate offers.
+# (Phrased without the literal two-character pipe-then-grep sequence, because
+# the scanner reads source text and does not strip comments -- a comment
+# explaining the fix would otherwise keep the file flagged as carrying it.)
+if [ "$rc10" -eq 0 ] && grep -q 'UNSCORED' <<< "$out10"; then
     printf '  [PASS] %-52s rc=%s\n' "10 boundary: while-true reported, not scored" "$rc10"; pass=$((pass+1))
 elif [ "$rc10" -ne 0 ]; then
     printf '  [FAIL] %-52s rc=%s wanted 0 -- an unscored shape leaked into the score\n' \
