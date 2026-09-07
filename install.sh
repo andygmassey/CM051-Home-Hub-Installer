@@ -16611,13 +16611,27 @@ if [ -z "${_PF_PY}" ]; then
     warn "$MSG_WARN_PORT_BIND_PROBE_UNAVAILABLE"
 fi
 for _pf_port in ${OSTLER_PREFLIGHT_PORTS}; do
-    _check_port "${_pf_port}" "${_PF_PY}"
-    case $? in
+    # `_check_port` returns STATUS AS DATA -- 0 free, 1 held, 2 could not
+    # measure, its own contract stated at its definition. A BARE call under
+    # `set -e` therefore aborts the installer on 1 and 2, which are the two
+    # answers this loop exists to collect, and the `case` below never runs.
+    # Same class as #1756's :12399 and :13022.
+    #
+    # The failure direction is the cruel one: a FREE port returns 0 and the
+    # preflight passes, so this breaks ONLY when it finds what it is looking
+    # for. What it kills is the #1208 message a few lines below, written
+    # because "continuing past a known collision is what put another
+    # account's services behind our containers" -- so the customer gets a
+    # generic abort instead of the collision report someone added after a
+    # real incident.
+    _pf_rc=0
+    _check_port "${_pf_port}" "${_PF_PY}" || _pf_rc=$?
+    case $_pf_rc in
         1) PORT_CONFLICT=true ;;
         2) PORT_UNMEASURED=true ;;
     esac
 done
-unset _pf_port _PF_PY
+unset _pf_port _PF_PY _pf_rc
 
 # FAIL, not warn (#1208). Continuing past a known collision is what put
 # another account's services behind our containers.
