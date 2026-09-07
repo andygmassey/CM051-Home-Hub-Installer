@@ -94,7 +94,7 @@ set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/probe.sh"
 
 PROBE_NAME="no_store_port_is_tcp_reachable"
-PROBE_QUESTION="can any local account open a TCP connection to an Ostler store or UI without a credential?"
+PROBE_QUESTION="can any local account be SERVED by an Ostler store or UI without a credential, and does the install's own credential still get in?"
 
 # The ports that MUST NOT answer after the fix, and why each is here.
 #
@@ -248,8 +248,26 @@ PROBE_QUESTION="can any local account open a TCP connection to an Ostler store o
 # Per-port grounds are in the table above, read out of install.sh rather than
 # recalled. 6334 is unpublished (#1209, zero consumers). Everything else is
 # published deliberately and carries a credential.
-MUST_NOT_LISTEN="6334"
-MUST_REFUSE_UNAUTH="6333 7878 6379 8044 3000 8144"
+# Both lists are INJECTABLE (set-but-empty is honoured, so a test can empty
+# one) so scripts/tests/test_no_store_port_probe_reads_the_credential.sh can
+# aim the real probe at a fake surface on a free port. The defaults are the
+# product.
+MUST_NOT_LISTEN="${OSTLER_PROBE_MUST_NOT_LISTEN-6334}"
+
+# port:kind:path -- each published surface, the credential the installer minted
+# for it, and the path the installer's OWN post-install checks request:
+#   store     curl config at secrets/store-curl.conf (bearer + api-key, -K)
+#             6333 /collections and 7878 /query?query=ASK{} are what
+#             install.sh's signal-2 check proves with, verbatim
+#   wiki      auth_basic, user ostler, secrets/wiki_password (8044, the
+#             installer's own last check requests / and expects 200)
+#   wikigate  the same credential INSIDE the tailnet gate block (#1683), plus
+#             the owner header the gate maps; refuses everyone until Tailscale
+#             has named an owner, BY DESIGN, and that state is reported as
+#             such rather than as a lock-out
+#   vane      auth_basic, user ostler, secrets/vane_password (#1660)
+#   redis     requirepass, the password in the REDIS_AUTH_ARGS line of .env
+SURFACES="${OSTLER_PROBE_SURFACES-6333:store:/collections 7878:store:/query?query=ASK%7B%7D 8044:wiki:/ 8144:wikigate:/ 3000:vane:/ 6379:redis:-}"
 
 # 6379 is redis, not HTTP, so it cannot be asked with curl. It is listed here
 # because the PROPERTY is identical -- an uncredentialled client must be refused
@@ -331,6 +349,23 @@ port_state() {
 
 # ── THE CREDENTIAL SENSORS ───────────────────────────────────────────────────
 #
+# TWO ARMS PER PUBLISHED SURFACE, AND THE SECOND IS WHAT MAKES THE FIRST MEAN
+# ANYTHING. A surface that refuses EVERYTHING -- a dead upstream, a proxy whose
+# htpasswd mount failed, a store booted with a key nobody holds -- answers 401
+# to an uncredentialled request exactly as a healthy one does. One arm cannot
+# tell those apart, and "refuses everyone" is the state a customer meets as
+# "the wiki will not open". So every published surface is asked twice:
+#
+#   arm 1  WITHOUT a credential        must be refused     a 2xx here is #550
+#   arm 2  WITH the install's own      must be served      a 401 here is a lock-out
+#
+# The credential is the install's own, read ON THE BOX from the file the
+# installer wrote, and never by this probe. The remote command names a PATH;
+# curl consumes the secret from a config piped on stdin (-K -), so it is in no
+# argv on either machine. argv is readable across accounts on macOS, which is
+# the class this probe polices -- a probe that leaked the credential it was
+# checking would be the defect wearing a badge.
+#
 # --noproxy '*' IS NOT OPTIONAL. A local proxy answers for EVERY host, so
 # without it a 200 can come from the proxy rather than from the service, and
 # this probe would report a store readable that never saw the request. Same
@@ -340,30 +375,41 @@ port_state() {
 # out. That is NOT "refused" and it is NOT "readable": it is CANNOT-RUN for that
 # port, and it is returned as such rather than folded into either verdict.
 #
-# 🔴 NO QUERY STRING IN THESE URLS, AND DO NOT ADD ONE UNQUOTED. box_run sends
-# this line to the walk box over ssh, where the login shell is ZSH, and zsh
-# treats a bare ? as a single-character glob: it matches no file and ABORTS THE
-# COMMAND before curl ever runs. That is #1737 -- it is why --wipe-stores had
-# never once succeeded, and it tests clean locally because bash does not glob a
-# bare ? the same way. The remote shell is not yours to choose.
-#
-# These two strings were executed under `zsh -c` verbatim before being trusted,
-# with the broken shape as the control:
-#     mine:    ... http://127.0.0.1:PORT/          -> ran, printed 000, rc 0
-#     control: ... http://127.0.0.1:PORT/store?x   -> zsh: no matches found, rc 1
-# If a path ever needs a query string here, single-quote the whole URL.
-_http_unauth_code() {
-    box_run "curl -s -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 6 http://127.0.0.1:$1/; echo"
+# 🔴 EVERY URL IS SINGLE-QUOTED IN THE REMOTE COMMAND. box_run sends the line
+# to the walk box over ssh, where the login shell is ZSH, and zsh treats a bare
+# ? as a single-character glob: it matches no file and ABORTS THE COMMAND before
+# curl ever runs. That is #1737 -- it is why --wipe-stores had never once
+# succeeded, and it tests clean locally because bash does not glob a bare ? the
+# same way. The 7878 row carries a query string ON PURPOSE (it is the URL the
+# installer proves with), which is exactly the shape that bit, so the quotes
+# are load-bearing. The unit test drives these strings through `zsh -c` where
+# zsh exists.
+_http_code() {   # $1 url, $2 prelude: a box command printing a curl config ("" = no credential)
+    if [ -n "$2" ]; then
+        box_run "{ $2; } | curl -s -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 6 -K - '$1'; echo"
+    else
+        box_run "curl -s -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 6 '$1'; echo"
+    fi
 }
 
 # Redis speaks its own protocol. An uncredentialled PING against a server with
-# requirepass answers -NOAUTH; without it, +PONG. redis-cli may not exist on the
-# box, so absence is CANNOT-RUN and never a pass.
-_redis_unauth_state() {
-    box_run "command -v redis-cli >/dev/null 2>&1 || { echo no_client; exit 0; }; redis-cli -h 127.0.0.1 -p $1 --no-auth-warning ping 2>&1 | head -1"
+# requirepass answers -NOAUTH; without it, +PONG. Asked with nc rather than
+# redis-cli: nc ships on macOS and this probe already relies on it, redis-cli
+# does not and its absence used to turn the whole 6379 row into CANNOT-RUN.
+# The credentialled arm reads the password on the box from the .env line the
+# installer upserted and hands it to a printf BUILTIN, so it is in no argv.
+_redis_state() {   # $1 port, $2 absolute .env path on the box ("" = no credential)
+    if [ -n "$2" ]; then
+        box_run "command -v nc >/dev/null 2>&1 || { echo no_client; exit 0; }; pw=\"\$(sed -n 's/^REDIS_AUTH_ARGS=--requirepass //p' '$2' | tr -d '\"')\"; [ -n \"\$pw\" ] || { echo no_credential; exit 0; }; printf 'AUTH %s\r\nPING\r\n' \"\$pw\" | nc -w 3 127.0.0.1 $1 2>&1 | tr -d '\r' | tail -n 1"
+    else
+        box_run "command -v nc >/dev/null 2>&1 || { echo no_client; exit 0; }; printf 'PING\r\n' | nc -w 3 127.0.0.1 $1 2>&1 | tr -d '\r' | head -n 1"
+    fi
 }
 
 # Map a reading to one of: refused | readable | unmeasurable
+# "readable" is the word for a SERVED request in both arms: in arm 1 it is the
+# defect, in arm 2 it is the control passing. The mapper does not know which
+# arm it is feeding, and must not.
 _verdict_for_http() {
     case "$1" in
         401|403) printf 'refused\n' ;;
@@ -375,9 +421,63 @@ _verdict_for_http() {
 
 _verdict_for_redis() {
     case "$1" in
-        *NOAUTH*|*WRONGPASS*|*"not permitted"*) printf 'refused\n' ;;
-        *PONG*)                                 printf 'readable\n' ;;
-        *)                                      printf 'unmeasurable\n' ;;
+        *NOAUTH*|*WRONGPASS*|*"not permitted"*|*"invalid password"*) printf 'refused\n' ;;
+        *PONG*)                                                       printf 'readable\n' ;;
+        *)                                                            printf 'unmeasurable\n' ;;
+    esac
+}
+
+# ── WHERE THE INSTALLER LEFT EACH CREDENTIAL ────────────────────────────────
+#
+# Resolved against the BOX's own $HOME, once, so every remote command carries
+# an absolute path in single quotes. #1284 is what an unexpanded $HOME inside
+# quotes costs: curl was handed a path that did not exist and issued no
+# request. Overridable so the unit test can point the probe at a fixture; the
+# defaults are the installer's own paths (_seed_wiki_password,
+# _ostler_write_store_curl_config, the REDIS_AUTH_ARGS upsert, the gate conf).
+# The single quotes are the point: $HOME must expand on the BOX, not here.
+# shellcheck disable=SC2016
+_box_home() { box_run 'printf %s "$HOME"'; }
+_file_on_box() { box_run "test -r '$1' && echo yes || echo no"; }
+
+_resolve_credential_paths() {   # $1 the box's $HOME
+    STORE_CURL_CONF="${OSTLER_PROBE_STORE_CURL_CONF:-$1/.ostler/secrets/store-curl.conf}"
+    WIKI_PASSWORD_FILE="${OSTLER_PROBE_WIKI_PASSWORD_FILE:-$1/.ostler/secrets/wiki_password}"
+    VANE_PASSWORD_FILE="${OSTLER_PROBE_VANE_PASSWORD_FILE:-$1/.ostler/secrets/vane_password}"
+    REDIS_ENV_FILE="${OSTLER_PROBE_REDIS_ENV_FILE:-$1/.ostler/.env}"
+    WIKI_GATE_CONF="${OSTLER_PROBE_WIKI_GATE_CONF:-$1/ostler-wiki-gate.conf}"
+    case "$WIKI_GATE_CONF" in "$1/ostler-wiki-gate.conf") WIKI_GATE_CONF="$1/.ostler/ostler-wiki-gate.conf" ;; esac
+}
+
+# The credentialled arm's curl config, as a command the BOX runs. Prints the
+# command on stdout. rc 2: the credential file is not on the box (path on
+# stdout). rc 3: the arm does not apply and the reason on stdout says why.
+_prelude_for() {   # $1 kind
+    case "$1" in
+        store)
+            [ "$(_file_on_box "$STORE_CURL_CONF")" = yes ] || { printf '%s\n' "$STORE_CURL_CONF"; return 2; }
+            printf "cat '%s'\n" "$STORE_CURL_CONF" ;;
+        wiki)
+            [ "$(_file_on_box "$WIKI_PASSWORD_FILE")" = yes ] || { printf '%s\n' "$WIKI_PASSWORD_FILE"; return 2; }
+            printf "sed 's/^/user = \"ostler:/; s/\$/\"/' '%s'\n" "$WIKI_PASSWORD_FILE" ;;
+        vane)
+            [ "$(_file_on_box "$VANE_PASSWORD_FILE")" = yes ] || { printf '%s\n' "$VANE_PASSWORD_FILE"; return 2; }
+            printf "sed 's/^/user = \"ostler:/; s/\$/\"/' '%s'\n" "$VANE_PASSWORD_FILE" ;;
+        wikigate)
+            [ "$(_file_on_box "$WIKI_PASSWORD_FILE")" = yes ] || { printf '%s\n' "$WIKI_PASSWORD_FILE"; return 2; }
+            if [ "$(_file_on_box "$WIKI_GATE_CONF")" != yes ]; then
+                printf 'the wiki gate conf %s is not on the box, so 8144 has no owner bound and refuses everyone BY DESIGN (fail-closed until Tailscale names the owner)\n' "$WIKI_GATE_CONF"; return 3
+            fi
+            _owner="$(box_run "sed -n 's/^    \"\(.*\)\" 1;\$/\1/p' '$WIKI_GATE_CONF' | head -n 1")"
+            if [ -z "$_owner" ]; then
+                printf 'the wiki gate conf %s names no owner yet, so 8144 refuses everyone BY DESIGN (fail-closed until Tailscale names the owner)\n' "$WIKI_GATE_CONF"; return 3
+            fi
+            printf "sed 's/^/user = \"ostler:/; s/\$/\"/' '%s'; printf 'header = \"Tailscale-User-Login: %%s\"\\n' '%s'\n" "$WIKI_PASSWORD_FILE" "$_owner" ;;
+        redis)
+            [ "$(_file_on_box "$REDIS_ENV_FILE")" = yes ] || { printf '%s\n' "$REDIS_ENV_FILE"; return 2; }
+            printf '%s\n' "$REDIS_ENV_FILE" ;;
+        *)
+            printf 'unknown surface kind %s -- the SURFACES table names a credential this probe does not know how to present\n' "$1"; return 3 ;;
     esac
 }
 
@@ -390,7 +490,8 @@ _verdict_for_redis() {
 # has demonstrated nothing about the probe.
 #
 #   classify <control_listener_count> <listening_that_must_not> \
-#            <readable_without_credential> <unmeasurable>
+#            <served_without_credential> <refused_the_installs_credential> \
+#            <unmeasurable>
 #     -> CANNOT_RUN | FAIL | PASS
 #
 # ORDER IS THE CONTRACT, and it is not the obvious one.
@@ -398,36 +499,45 @@ _verdict_for_redis() {
 #   1. a bad control first -- a run whose control failed proves nothing in
 #      EITHER direction, so it can never be read as a finding.
 #   2. then FAIL, and this outranks unmeasurable ON PURPOSE. If one port is
-#      demonstrably readable without a credential and another could not be
-#      measured, the demonstrated defect is the result. Downgrading a proven
-#      FAIL to CANNOT_RUN because a SIBLING was unreadable is how a real
-#      finding gets lost in a shrug.
+#      demonstrably wrong and another could not be measured, the demonstrated
+#      defect is the result. Downgrading a proven FAIL to CANNOT_RUN because a
+#      SIBLING was unreadable is how a real finding gets lost in a shrug. A
+#      lock-out is a demonstrated defect too: the surface answered, and it
+#      refused the credential the installer itself wrote.
 #   3. then unmeasurable -> CANNOT_RUN. Three outcomes, three branches. A port
 #      we could not ask has NOT passed.
-#   4. PASS only when every port was measured and every one behaved.
+#   4. PASS only when every port was measured and every one behaved on BOTH
+#      arms.
 classify() {
-    _c="$1"; _listening="$2"; _readable="$3"; _unmeasured="$4"
+    _c="$1"; _listening="$2"; _readable="$3"; _locked="$4"; _unmeasured="$5"
     case "$_c" in ''|*[!0-9]*) printf 'CANNOT_RUN\n'; return ;; esac
     # A closed control means the stack is down. Every store port then reads
     # closed for a reason that is not the fix.
     if [ "$_c" -eq 0 ]; then printf 'CANNOT_RUN\n'; return; fi
-    if [ -n "$_listening" ] || [ -n "$_readable" ]; then printf 'FAIL\n'; return; fi
+    if [ -n "$_listening" ] || [ -n "$_readable" ] || [ -n "$_locked" ]; then printf 'FAIL\n'; return; fi
     if [ -n "$_unmeasured" ]; then printf 'CANNOT_RUN\n'; return; fi
     printf 'PASS\n'
 }
 
 run_probe() {
-    n_checked=0; listening_list=""; readable_list=""; unmeasured_list=""
+    n_checked=0; listening_list=""; readable_list=""; locked_list=""; unmeasured_list=""; served_list=""
 
     c_state="$(port_state "$CONTROL_PORT")"
     case "$c_state" in open) c=1 ;; closed) c=0 ;; *) c="" ;; esac
-    case "$(classify "$c" "" "" "")" in
+    case "$(classify "$c" "" "" "" "")" in
         CANNOT_RUN)
-            probe_examined 0 "store/UI ports"
+            probe_examined 0 "store/UI surfaces"
             probe_cannot_run "control port ${CONTROL_PORT} is ${c_state}. A closed or unreadable control cannot be told apart from a closed store port, so this run proves nothing about #550."
             ;;
     esac
     probe_note "positive control: ${CONTROL_PORT} has a listener, so this probe can see an open port"
+
+    box_home="$(_box_home)"
+    if [ -z "$box_home" ]; then
+        probe_examined 0 "store/UI surfaces"
+        probe_cannot_run "could not read \$HOME on the box, so no credential path can be resolved and the second arm cannot run. A probe that cannot present the credential cannot tell a refusal from a lock-out."
+    fi
+    _resolve_credential_paths "$box_home"
 
     # CLASS 1: nothing may answer. A successful connect IS the defect.
     for p in $MUST_NOT_LISTEN; do
@@ -439,43 +549,58 @@ run_probe() {
         esac
     done
 
-    # CLASS 2: published on purpose; an UNCREDENTIALLED request must be refused.
-    # Connect state is deliberately not consulted here -- these ports are
-    # SUPPOSED to accept a connection, so asking whether they do answers a
-    # question nobody has.
-    for p in $MUST_REFUSE_UNAUTH; do
+    # CLASS 2: published on purpose. Arm 1: an UNCREDENTIALLED request must be
+    # refused. Arm 2: the install's OWN credential must be served. Connect
+    # state is deliberately not consulted -- these ports are SUPPOSED to accept
+    # a connection, so asking whether they do answers a question nobody has.
+    for e in $SURFACES; do
+        p="${e%%:*}"; rest="${e#*:}"; kind="${rest%%:*}"; path="${rest#*:}"
         n_checked=$((n_checked + 1))
-        if [ "$p" = "6379" ]; then
-            reading="$(_redis_unauth_state "$p")"
-            v="$(_verdict_for_redis "$reading")"
+        if [ "$kind" = redis ]; then
+            r1="$(_redis_state "$p" "")"; v1="$(_verdict_for_redis "$r1")"
         else
-            reading="$(_http_unauth_code "$p")"
-            v="$(_verdict_for_http "$reading")"
+            r1="$(_http_code "http://127.0.0.1:${p}${path}" "")"; v1="$(_verdict_for_http "$r1")"
         fi
-        case "$v" in
-            readable)     readable_list="${readable_list} ${p}(${reading})" ;;
-            unmeasurable) unmeasured_list="${unmeasured_list} ${p}(${reading:-no-reading})" ;;
+        case "$v1" in
+            readable)     readable_list="${readable_list} ${p}(${r1})"; continue ;;
+            unmeasurable) unmeasured_list="${unmeasured_list} ${p}(${r1:-no-reading})"; continue ;;
+        esac
+        # Arm 1 refused. Arm 2: is that refusal a credential check, or a wall?
+        prelude="$(_prelude_for "$kind")"; prc=$?
+        case "$prc" in
+            2) unmeasured_list="${unmeasured_list} ${p}(credential-file-absent:${prelude})"; continue ;;
+            3) probe_note "${p}: credentialled arm not applicable -- ${prelude}"; continue ;;
+        esac
+        if [ "$kind" = redis ]; then
+            r2="$(_redis_state "$p" "$prelude")"; v2="$(_verdict_for_redis "$r2")"
+        else
+            r2="$(_http_code "http://127.0.0.1:${p}${path}" "$prelude")"; v2="$(_verdict_for_http "$r2")"
+        fi
+        case "$v2" in
+            readable) served_list="${served_list} ${p}" ;;
+            refused)  locked_list="${locked_list} ${p}(${r2})" ;;
+            *)        unmeasured_list="${unmeasured_list} ${p}(with-credential:${r2:-no-reading})" ;;
         esac
     done
 
-    probe_examined "$n_checked" "store/UI ports (control ${CONTROL_PORT} confirmed open)"
+    probe_examined "$n_checked" "store/UI surfaces (control ${CONTROL_PORT} confirmed open)"
 
-    case "$(classify "$c" "$listening_list" "$readable_list" "$unmeasured_list")" in
+    case "$(classify "$c" "$listening_list" "$readable_list" "$locked_list" "$unmeasured_list")" in
         FAIL)
-            probe_fail "an uncredentialled client is served by these Ostler surfaces, so every account on this Mac can read them:${listening_list}${readable_list}. #550 was demonstrated against 7878 with one unauthenticated curl. A port listed with a 2xx answered a request that carried NO credential; a port listed bare should not be listening at all."
+            if [ -n "$listening_list" ] || [ -n "$readable_list" ]; then
+                probe_fail "an uncredentialled client is served by these Ostler surfaces, so every account on this Mac can read them:${listening_list}${readable_list}. #550 was demonstrated against 7878 with one unauthenticated curl. A port listed with a 2xx answered a request that carried NO credential; a port listed bare should not be listening at all.${locked_list:+ Also refusing the credential the installer wrote:${locked_list}.}"
+            else
+                probe_fail "these surfaces refused an uncredentialled request AND refused the install's OWN credential, read on the box from the file the installer wrote:${locked_list}. That refusal cannot be credited to a credential check -- it is the shape of a dead upstream or a mis-mounted htpasswd, and it is what the customer meets as a surface that will not open. Served with the credential, so genuinely gated:${served_list:- none}."
+            fi
             ;;
         PASS)
-            # States ONLY what was measured. The previous wording explained the
-            # pass by saying the stores were "reachable only over the unix
-            # socket, where the 0700 directory is the authorisation" -- a route
-            # this same file measures as UNAVAILABLE (a UDS inside the colima VM
-            # crosses the bind-mount as a file, not a connection). A green
-            # verdict that hands the reader a false mechanism is worse than a
-            # terse one: it is the sentence that gets quoted into a ship note.
-            probe_pass "none of the ${n_checked} store/UI surfaces served an uncredentialled request: the ${MUST_NOT_LISTEN} class refused a connection outright and every published surface answered 401/403 (or NOAUTH for redis), with ${CONTROL_PORT} confirmed open in the same run so this is a measured refusal and not a blind probe. WHICH mechanism refused each one is NOT asserted here -- read the per-port table in this file"
+            # States ONLY what was measured, on both arms. A green verdict that
+            # hands the reader a mechanism is the sentence that gets quoted into
+            # a ship note, so WHICH mechanism refused each one is not asserted.
+            probe_pass "every one of the ${n_checked} store/UI surfaces behaved on both arms: an uncredentialled request was refused (401/403, or NOAUTH for redis)${MUST_NOT_LISTEN:+, the ${MUST_NOT_LISTEN} class refused a connection outright}, and the install's own credential, read on the box, was served by:${served_list:- none needed}. ${CONTROL_PORT} was confirmed open in the same run, so this is a measured refusal and not a blind probe. WHICH mechanism gated each surface is NOT asserted here -- read the per-port table in this file"
             ;;
         *)
-            probe_cannot_run "adjudication was inconclusive for control='${c}' listening='${listening_list}' readable='${readable_list}' unmeasurable='${unmeasured_list}'. A port that could not be asked has NOT passed."
+            probe_cannot_run "adjudication was inconclusive for control='${c}' listening='${listening_list}' served-without-credential='${readable_list}' refused-the-credential='${locked_list}' unmeasurable='${unmeasured_list}'. A surface that could not be asked, on either arm, has NOT passed."
             ;;
     esac
 }
@@ -486,50 +611,52 @@ self_test() {
     fails=""
 
     # 1. THE ORIGINAL DEFECT. Control up, something LISTENING that must not be.
-    [ "$(classify 1 ' 6334' '' '')" = "FAIL" ] || fails="${fails} listening-port-not-FAIL"
+    [ "$(classify 1 ' 6334' '' '' '')" = "FAIL" ] || fails="${fails} listening-port-not-FAIL"
 
     # 2. #1618's DEFECT, and the one the old predicate could not see: the port
     #    is published (as it must be) and served an UNCREDENTIALLED request.
-    #    This is the "8044 answers 200 without a credential" arm of the
-    #    closing condition.
-    [ "$(classify 1 '' ' 8044(200)' '')" = "FAIL" ] || fails="${fails} uncredentialled-200-not-FAIL"
+    [ "$(classify 1 '' ' 8044(200)' '' '')" = "FAIL" ] || fails="${fails} uncredentialled-200-not-FAIL"
 
     # 3. THE FIX, and the arm that matters most for THIS probe specifically.
     #    It is named in 7 walk records and has passed in NONE, so "it went
     #    green" is unreadable until PASS is shown to be reachable at all.
-    [ "$(classify 1 '' '' '')" = "PASS" ] || fails="${fails} clean-box-not-PASS"
+    [ "$(classify 1 '' '' '' '')" = "PASS" ] || fails="${fails} clean-box-not-PASS"
 
     # 4. THE TRAP THIS PROBE EXISTS TO AVOID. Control DOWN, nothing found.
-    #    A stopped stack must never be adjudicated PASS.
-    [ "$(classify 0 '' '' '')" = "CANNOT_RUN" ] || fails="${fails} stopped-stack-read-as-PASS"
+    [ "$(classify 0 '' '' '' '')" = "CANNOT_RUN" ] || fails="${fails} stopped-stack-read-as-PASS"
 
     # 5. Control unreadable -> CANNOT_RUN, not PASS.
-    [ "$(classify '' '' '' '')" = "CANNOT_RUN" ] || fails="${fails} unreadable-control-not-CANNOT_RUN"
+    [ "$(classify '' '' '' '' '')" = "CANNOT_RUN" ] || fails="${fails} unreadable-control-not-CANNOT_RUN"
 
-    # 6. Control down AND a finding -> still CANNOT_RUN. We cannot claim a
-    #    finding from a run whose control failed, in either direction.
-    [ "$(classify 0 ' 6333' '' '')" = "CANNOT_RUN" ] || fails="${fails} down-control-with-finding-adjudicated"
+    # 6. Control down AND a finding -> still CANNOT_RUN, in either direction.
+    [ "$(classify 0 ' 6333' '' '' '')" = "CANNOT_RUN" ] || fails="${fails} down-control-with-finding-adjudicated"
 
     # 7. A port we COULD NOT ASK has not passed. Three outcomes, three branches.
-    [ "$(classify 1 '' '' ' 3000(000)')" = "CANNOT_RUN" ] || fails="${fails} unmeasurable-read-as-PASS"
+    [ "$(classify 1 '' '' '' ' 3000(000)')" = "CANNOT_RUN" ] || fails="${fails} unmeasurable-read-as-PASS"
 
     # 8. FAIL OUTRANKS CANNOT_RUN. A demonstrated uncredentialled read must not
     #    be softened to "inconclusive" because a SIBLING port was unreadable.
-    [ "$(classify 1 '' ' 8044(200)' ' 3000(000)')" = "FAIL" ] || fails="${fails} fail-downgraded-by-sibling-unmeasurable"
+    [ "$(classify 1 '' ' 8044(200)' '' ' 3000(000)')" = "FAIL" ] || fails="${fails} fail-downgraded-by-sibling-unmeasurable"
 
-    # 9-13. THE SENSOR MAPPERS. classify() is only as good as what feeds it, and
-    #    these translate a raw reading into the three outcomes. 401 and 403 are
-    #    both refusals: auth_basic answers 401, the store-proxy's host check
-    #    answers 403, and either means the request was not served.
+    # 9. THE SECOND ARM. Refused without a credential AND refused WITH the
+    #    install's own. "Refuses everyone" is not a pass; it is a lock-out.
+    [ "$(classify 1 '' '' ' 8044(401)' '')" = "FAIL" ] || fails="${fails} lock-out-not-FAIL"
+
+    # 10. And a lock-out also outranks an unmeasurable sibling.
+    [ "$(classify 1 '' '' ' 8044(401)' ' 3000(000)')" = "FAIL" ] || fails="${fails} lock-out-downgraded-by-sibling-unmeasurable"
+
+    # 11-17. THE SENSOR MAPPERS. classify() is only as good as what feeds it.
+    #    401 and 403 are both refusals: auth_basic answers 401, the store-proxy's
+    #    host check answers 403, and either means the request was not served.
     [ "$(_verdict_for_http 401)" = "refused" ]      || fails="${fails} http-401-not-refused"
     [ "$(_verdict_for_http 403)" = "refused" ]      || fails="${fails} http-403-not-refused"
     [ "$(_verdict_for_http 200)" = "readable" ]     || fails="${fails} http-200-not-readable"
     [ "$(_verdict_for_http 000)" = "unmeasurable" ] || fails="${fails} http-000-not-unmeasurable"
-    [ "$(_verdict_for_redis 'NOAUTH Authentication required.')" = "refused" ] || fails="${fails} redis-noauth-not-refused"
-    [ "$(_verdict_for_redis 'PONG')" = "readable" ] || fails="${fails} redis-pong-not-readable"
+    [ "$(_verdict_for_redis '-NOAUTH Authentication required.')" = "refused" ] || fails="${fails} redis-noauth-not-refused"
+    [ "$(_verdict_for_redis '+PONG')" = "readable" ] || fails="${fails} redis-pong-not-readable"
     [ "$(_verdict_for_redis 'no_client')" = "unmeasurable" ] || fails="${fails} redis-missing-client-not-unmeasurable"
 
-    probe_examined 15 "adjudication cases"
+    probe_examined 17 "adjudication cases"
 
     # ── THE RUNNER'S CONTRACT, WHICH THIS FUNCTION USED TO BREAK ──────────
     #
@@ -544,16 +671,10 @@ self_test() {
     # what the v1.0.50 walk recorded, and why its store-port verdict was
     # discarded rather than counted.
     #
-    # The measurement was never wrong. The probe was reporting "my logic is
-    # correct" in a slot that asks "prove you can fail", and the runner was
-    # right to refuse it.
-    #
     # THE TWO OUTCOMES STAY DISTINGUISHABLE, which is the whole point:
     #   cases misbehave -> emit VERDICT: BROKEN, runner reports BROKEN
     #   cases behave    -> probe_fail, exit 1, no BROKEN string, runner ok
-    # Both exit 1; the RUNNER discriminates on the string, not the code. A
-    # single exit code carrying two meanings is the defect class this whole
-    # suite exists to refuse, so the discriminator is made explicit here.
+    # Both exit 1; the RUNNER discriminates on the string, not the code.
     if [ -n "$fails" ]; then
         printf 'VERDICT: BROKEN -- %s self-test adjudication is wrong:%s\n' \
             "${PROBE_NAME:-no_store_port_is_tcp_reachable}" "$fails"
@@ -561,7 +682,7 @@ self_test() {
             "${PROBE_NAME:-no_store_port_is_tcp_reachable}" "$fails"
         exit 1
     fi
-    probe_fail "NEGATIVE CONTROL DEMONSTRATED (this red is the expected result of --self-test, not a finding): classify() returned FAIL both on a port that must not listen and on a published port that served an UNCREDENTIALLED request, PASS only with the control up and nothing found, CANNOT_RUN on a stopped or unreadable control and on a port that could not be asked, and FAIL still outranked an unmeasurable sibling. The four sensor mappers turned 401/403 into refused, 2xx into readable, 000 into unmeasurable, and redis NOAUTH/PONG/no-client into the same three. 15 of 15 adjudication cases behaved."
+    probe_fail "NEGATIVE CONTROL DEMONSTRATED (this red is the expected result of --self-test, not a finding): classify() returned FAIL on a port that must not listen, on a published port that served an UNCREDENTIALLED request, and on a surface that refused the install's OWN credential; PASS only with the control up and nothing found; CANNOT_RUN on a stopped or unreadable control and on a surface that could not be asked; and both kinds of FAIL outranked an unmeasurable sibling. The sensor mappers turned 401/403 into refused, 2xx into readable, 000 into unmeasurable, and redis NOAUTH/PONG/no-client into the same three. 17 of 17 adjudication cases behaved."
 }
 
 probe_main "$@"

@@ -600,6 +600,7 @@ scripts/tests/test_no_env_trust_anchors.sh	WIRED	.github/workflows/cut-gate-wrap
 scripts/tests/test_no_foreign_ontology_namespace.sh	WIRED	.github/workflows/foreign-ontology-namespace.yml
 scripts/tests/test_no_invisible_reusable_workflows.sh	WIRED	.github/workflows/enforce-ledger-write.yml
 scripts/tests/test_no_person_holds_two_contact_cards_probe.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
+scripts/tests/test_no_store_port_probe_reads_the_credential.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_ollama_contract_controls.sh	WIRED	.github/workflows/consent-data-handling.yml
 scripts/tests/test_people_count_agreement_probe.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
 scripts/tests/test_people_seed_and_retrieval_probe.sh	WIRED	.github/workflows/cut-manifest.yml
