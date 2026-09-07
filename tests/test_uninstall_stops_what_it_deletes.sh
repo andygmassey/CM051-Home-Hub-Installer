@@ -80,7 +80,14 @@ fi
 
 # The bundles the uninstaller actually unlinks, read out of the source rather
 # than hard-coded here: a new bundle must be covered without editing this file.
-mapfile -t _rm_bundles < <(
+# NOT mapfile: that is a bash 4 builtin and macOS ships /bin/bash 3.2, which
+# is the shell a customer's machine actually runs. Under 3.2 mapfile is
+# "command not found" and the array below is then an unbound variable, so the
+# file did not merely degrade -- it stopped at the first array read.
+_rm_bundles=()
+while IFS= read -r _line; do
+    [ -n "$_line" ] && _rm_bundles+=("$_line")
+done < <(
     grep -oE 'rm -rf "(/Applications/[^"]+\.app)"' "$INSTALL_SH" \
         | sed -E 's/.*"(.*)"/\1/' | sort -u
 )
