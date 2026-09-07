@@ -31228,7 +31228,7 @@ if [[ "${OSTLER_SKIP_CONFIRMATION:-0}" != "1" ]]; then
     if [[ -n "$_confirm_py" && -f "$_confirm_cal_py" && -f "$_confirm_events" ]]; then
         _confirm_cal_rows="$("$_confirm_py" "$_confirm_cal_py" enumerate \
             --events "$_confirm_events" --owner-name "$_confirm_owner_name" \
-            2>>/tmp/ostler-confirm.log || true)"
+            2>>"${OSTLER_DIAG_DIR}/confirm.log" || true)"
         if [[ -n "$_confirm_cal_rows" ]]; then
             info "$MSG_CONFIRM_CALENDARS_INTRO"
             _confirm_answers="$(mktemp -t ostler-cal-answers.XXXXXX)"
@@ -31251,7 +31251,7 @@ if [[ "${OSTLER_SKIP_CONFIRMATION:-0}" != "1" ]]; then
             if "$_confirm_py" "$_confirm_cal_py" write \
                     --answers "$_confirm_answers" \
                     --out "${OSTLER_DIR}/calendars.json" \
-                    >>/tmp/ostler-confirm.log 2>&1; then
+                    >>"${OSTLER_DIAG_DIR}/confirm.log" 2>&1; then
                 ok "$MSG_CONFIRM_CALENDARS_SAVED"
             else
                 warn "$MSG_CONFIRM_CALENDARS_FAILED"
@@ -31264,7 +31264,7 @@ if [[ "${OSTLER_SKIP_CONFIRMATION:-0}" != "1" ]]; then
     if [[ -n "$_confirm_py" && -f "$_confirm_id_py" ]]; then
         _confirm_id_props="$("$_confirm_py" "$_confirm_id_py" propose \
             --oxigraph-url "${OXIGRAPH_URL:-http://localhost:7878}" \
-            --user-id "${USER_ID:-}" 2>>/tmp/ostler-confirm.log || true)"
+            --user-id "${USER_ID:-}" 2>>"${OSTLER_DIAG_DIR}/confirm.log" || true)"
         if [[ -n "$_confirm_id_props" ]]; then
             _confirm_merge_args=()
             _confirm_distinct_args=()
@@ -31300,7 +31300,7 @@ if [[ "${OSTLER_SKIP_CONFIRMATION:-0}" != "1" ]]; then
                         --corrections-dir "$_confirm_corrections" \
                         ${_confirm_merge_args[@]+"${_confirm_merge_args[@]}"} \
                         ${_confirm_distinct_args[@]+"${_confirm_distinct_args[@]}"} \
-                        >>/tmp/ostler-confirm.log 2>&1; then
+                        >>"${OSTLER_DIAG_DIR}/confirm.log" 2>&1; then
                     ok "$MSG_CONFIRM_IDENTITY_SAVED"
                 else
                     warn "$MSG_CONFIRM_IDENTITY_FAILED"
