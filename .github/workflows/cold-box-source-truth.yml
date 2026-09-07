@@ -86,6 +86,7 @@ on:
       - 'tests/test_an_unmeasured_flag_must_be_read.sh'
       - 'tests/test_ollama_agent_does_not_depend_on_a_foreign_port.sh'
       - 'tests/test_ollama_agent_check_survives_a_not_yet_running_agent.sh'
+      - 'tests/test_credential_generation_does_not_sigpipe.sh'
       - 'tests/test_store_health_does_not_depend_on_a_foreign_port.sh'
       - 'tests/test_every_fail_call_has_error_code.sh'
       - 'tests/test_a_plistbuddy_read_takes_its_exit_code.sh'
@@ -321,6 +322,12 @@ jobs:
       - name: The Ollama agent check must survive an agent that is not yet running
         if: always()
         run: bash tests/test_ollama_agent_check_survives_a_not_yet_running_agent.sh
+      # #1754 second instance: `tr < /dev/urandom | head -c 20` SIGPIPEs, and
+      # pipefail made that fatal -- with the loud ERR-14 length check sitting
+      # unreachable directly below it. Same shape as the Ollama poll above.
+      - name: Credential generation must not abort the install on SIGPIPE
+        if: always()
+        run: bash tests/test_credential_generation_does_not_sigpipe.sh
       # D008: the SAME defect shape on the two colima stores. :6333 cannot be
       # closed the way :11434 was -- Qdrant and Oxigraph have no launchd
       # identity, so launchctl would answer a confident "absent" for a healthy

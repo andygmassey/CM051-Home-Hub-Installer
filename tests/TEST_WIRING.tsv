@@ -133,6 +133,7 @@ test_conversation_bundle_user_id_wired.sh	WIRED	.github/workflows/tests-unwired-
 test_conversation_process_metadata_conversation_id.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_conversations_ingest_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_creation_name_writes.sh	WIRED	.github/workflows/creation-name-writes.yml
+test_credential_generation_does_not_sigpipe.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_customer_download_path_gate.sh	WIRED	.github/workflows/customer-download-path.yml
 test_cut_bom_is_fresh.sh	WIRED	.github/workflows/cut.yml
 test_cut_deferrals_no_duplicate_keys.sh	WIRED	.github/workflows/cut-manifest.yml

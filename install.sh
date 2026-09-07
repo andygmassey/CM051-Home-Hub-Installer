@@ -13041,7 +13041,7 @@ _seed_wiki_password() {
     # original call site is unchanged. #1660 reuses this for vane rather than
     # copying 20 lines: the reuse rule, the loudness rule and the 0600 rule are
     # the parts that matter and they should not be duplicated to be varied.
-    local _outvar="$1" _file="${SECRETS_DIR}/${2:-wiki_password}" _val="" _raw=""
+    local _outvar="$1" _file="${SECRETS_DIR}/${2:-wiki_password}" _val="" _raw="" _pool=""
     if [[ -s "$_file" ]]; then
         _val="$(cat "$_file")"
     else
@@ -13050,7 +13050,23 @@ _seed_wiki_password() {
         # produce an htpasswd line that no input can ever satisfy,
         # which reads to a customer as "the wiki is broken" and to a
         # gate as "auth is on".
-        _raw="$(LC_ALL=C /usr/bin/tr -dc 'abcdefghjkmnpqrstuvwxyz23456789' < /dev/urandom | /usr/bin/head -c 20)"
+        # 🔴 NO EARLY-EXITING CONSUMER ON A PIPE FROM AN INFINITE SOURCE (#1754).
+        #
+        # This was `tr -dc ... < /dev/urandom | head -c 20`. `head` takes its
+        # 20 bytes and exits, closing the pipe under `tr`, which dies on
+        # SIGPIPE. `pipefail` promotes that to 141 and the ERR trap aborts the
+        # install -- measured on a v1.0.73 box walk, step config_save, rc=141.
+        #
+        # The loud length check DIRECTLY BELOW is the intended failure path for
+        # a credential we could not generate, and it was unreachable: the
+        # assignment aborted the script before it could run. Same shape as the
+        # Ollama poll at :12403.
+        #
+        # `head -c` on a FILE argument has no upstream process to signal, and
+        # `tr` then reads to EOF and exits 0. The slice is pure shell, so
+        # nothing exits early anywhere in the chain.
+        _pool="$(LC_ALL=C /usr/bin/head -c 4096 /dev/urandom | LC_ALL=C /usr/bin/tr -dc 'abcdefghjkmnpqrstuvwxyz23456789')"
+        _raw="${_pool:0:20}"
         if [[ "${#_raw}" -ne 20 ]]; then
             fail_with_code "ERR-14-STORE-WIKI-CREDENTIAL" "Could not generate the wiki password (got ${#_raw} characters, expected 20). Refusing to publish the wiki without a credential."
         fi
