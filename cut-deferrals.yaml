@@ -4821,3 +4821,35 @@ deferrals:
       the moment v1.0.74 is published, together with its daemon_hold_ack row,
       so the two land as one decision rather than as a fix and an apology.
     until_cut: "v1.0.75"
+  - ref: "CM051:#1755"
+    reason: >-
+      THE ORPHAN-GATE HALF OF A DEFERRAL THAT ALREADY EXISTS, and it exists
+      twice on purpose rather than by duplication. This file feeds TWO gates
+      from two different keys, and #1784 answered one of them:
+        pr_exemptions  -> check-pr-age (cut.yml:862), keyed
+                          "CM051-Home-Hub-Installer#1755", line 142. Present.
+        deferrals      -> verify_no_orphaned_fixes.sh, keyed "CM051:#1755".
+                          Absent, which is why check-orphans still printed
+                          [RED] CM051:#1755 after #1784 merged.
+      Measured on origin/main by running the gate locally: 7 RED, #1755 among
+      them, while rows keyed CM051:#1211, CM051:#1214 and CM051:#1654 printed
+      [warn] DEFERRED in the SAME run. Same file, same run, same mechanism --
+      the ones in this section were consumed and the one in the other section
+      was not. That is the control, and it is why this is a section problem and
+      not a judgement problem.
+      THE SUBSTANCE IS ARCHIE'S AND IS CARRIED UNCHANGED. 'feat(uninstall):
+      revert the auto-login WE enabled, and only that one'. It is mine, it is
+      MERGEABLE/CLEAN on its own checks, and it is NOT pin-safe: install.sh
+      +44 -9. Deferred because it is open and because it touches install.sh
+      during a cut whose payload is the first in nine walk records measured to
+      complete an install -- not on merit. His measurement, quoted rather than
+      re-derived: every hunk lands at line 20949 or later, the uninstaller
+      region begins around 20816, the single deleted line's variable
+      _OSTLER_DOCKER is used only at 21220-21234, and bash -n passes. The
+      INSTALL path is untouched, so the 41-of-41 depth measurement still holds.
+      Clears by merging off main once v1.0.74 publishes. It cannot simply be
+      rebased today: it is stacked on #1752, which merged at 09:22:16Z, so a
+      rebase now conflicts in install.sh AND
+      tests/test_uninstall_stops_what_it_deletes.sh, and resolving a multi-file
+      install.sh conflict mid-cut is the trade this file exists to refuse.
+    until_cut: "v1.0.75"
