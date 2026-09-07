@@ -756,3 +756,25 @@ open_issues:
       own test asserting the resolved path is READABLE rather than merely
       non-empty."
     proof: "ls ~/.ostler/scripts -> No such file or directory, against find Resources -name migrate_graph_namespace.py -> Resources/scripts/migrate_graph_namespace.py, on the same box in the same run"
+  - issue: 1772
+    title: "there are three registers and two are called manifest, and a walk failure can be gated non-blocking forever"
+    gate: "OPEN, NOT BLOCKING THIS CUT, and it is a process defect rather than a
+      payload defect. MEASURED: the five probes that failed the v1.0.68 walk on
+      2026-09-05 appear 0 times in manifest/capability_manifest.tsv (122 rows)
+      and across 8 rows of this checklist. So the loop is not broken at
+      RECORDING. It is broken at ADJUDICATION: of those 8 rows, 6 are gated NOT
+      BLOCKING and 2 BLOCKING, and nothing expires a non-blocking judgement. A
+      probe can therefore fail every walk and every cut ships past it, which is
+      exactly what happened to no_store_port_is_tcp_reachable and
+      assistant_answers_grounded across four cuts.
+      SECOND HALF: three registers exist and two are called manifest --
+      OS003 cuts/<v>/MUST_CONTAIN.tsv (what is IN the artefact), OS003
+      manifest/capability_manifest.tsv (how it is PROVEN in the artefact), and
+      this file (which open ISSUES are adjudicated). The first two are already
+      one relation split in two, because the BOM's capability_id column exists
+      solely to key into the second. This file is not a manifest at all; the
+      gate that reads it is called cut-checklist-complete.
+      NOT BLOCKING because neither half changes what v1.0.74 installs, and the
+      fix -- an expiry on non-blocking walk rows -- will deliberately RED the
+      next cut, which is a decision for Andy and not a mid-cut change."
+    proof: "grep -c per probe against both registers with row counts printed; the blocking/non-blocking split read from the parsed yaml rather than the text"

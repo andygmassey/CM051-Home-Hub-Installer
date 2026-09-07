@@ -1,0 +1,70 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.74.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.74/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN.
+#
+# ===========================================================================
+# EVERY ROW SAYS ONE OF THREE THINGS AND NEVER A FOURTH
+# ===========================================================================
+#   gate:<workflow>#<what>  a CI gate that FAILS on the real pre-fix tree
+#   artefact:<sha8>#<what>  measured on the published artefact itself
+#   needs-walk:<ver>#<what> UNPROVEN, and here is exactly what to look at
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS, IN ONE LINE
+# ===========================================================================
+# v1.0.74 IS THE CUT THAT CAN INSTALL. v1.0.73 aborted at step 5 of 41 on
+# every fresh install; this one completed all 41 steps with no errors raised.
+#
+# ===========================================================================
+# HOW THE ROWS WERE SELECTED, AND WHAT WAS LEFT OUT
+# ===========================================================================
+# 8 commits landed on CM051 main between the v1.0.73 artefact (c0401242) and
+# this cut. The predicate is the same one v1.0.73 used: the commit touches a
+# path that reaches the customer -- install.sh, gui/, vendor/ or
+# assistant-agent/. THREE did. Two carry rows; both are install.sh.
+#
+# TWO OF THE THREE ARE DELIBERATELY ABSENT, with the measurement rather than
+# the assertion:
+#
+#   ab286995 (#1751) touches vendor/VENDOR_MANIFEST.toml and NOTHING ELSE in
+#   the vendored file-set. It is a hold_ack, not a re-pin:
+#       git show ab286995 -- vendor/VENDOR_MANIFEST.toml \
+#         | grep -cE '^[+-][[:space:]]*pinned_sha[[:space:]]*='     -> 0
+#   with a positive control proving that pattern matches a real pin line. No
+#   pinned_sha moved, so no vendored byte changed, so the artefact is
+#   unaffected and a row asserting otherwise would be false.
+#
+#   e799a34a (#1748) touches gui/Makefile only. The Makefile builds the DMG
+#   and is not IN the DMG, so no capability pattern could ever find it in the
+#   artefact.
+#
+# ===========================================================================
+# EVERY PATTERN BEHIND A capability_id WAS RUN AGAINST BOTH REFS
+# ===========================================================================
+# A capability whose pattern also matches at v1.0.73 measures nothing: it
+# would go green on the PREVIOUS artefact, so it cannot notice this cut's
+# payload going missing. Each was checked at c0401242 (must be 0) and at the
+# v1.0.74 tree (must be non-zero), with two controls:
+#
+#     id                                        @v1.0.73  @v1.0.74
+#     ollama_agent_check_is_guarded                    0      1
+#     credential_generation_has_no_sigpipe             0      1
+#     port_preflight_status_is_read_not_fatal          0      1
+#     runtime_ready_status_is_read_not_fatal           0      1
+#     CONTROL present in both refs                     5      6   <- must NOT discriminate
+#     CONTROL present in neither                       0      0   <- must be broken
+#
+# MY FIRST TWO PATTERNS FOR TNM'S SITES WERE GUESSED AND BOTH FAILED THIS
+# TABLE -- one scored 0/0 and one scored 1/5, i.e. it already matched the
+# artefact it was meant to discriminate against. They were re-derived from the
+# added lines of 27236c3d. That is why the table is here rather than a claim.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+THE OLLAMA AGENT CHECK ABORTED EVERY FRESH INSTALL AT 12%. install.sh called _ollama_agent_is_running as a BARE command. It returns 1 for a state the code EXPECTS -- the LaunchAgent is registered but has not yet reached state = running -- and the ERR trap installed at :10793 fires on any non-zero simple command, so the install died there. Errexit is OFF at that line (:8140 set -uo pipefail), so it is the trap and not errexit; measured on two arms differing only in -e, both fired. The 90-second poll immediately below exists to absorb exactly that window and never ran one iteration, which is what elapsed_s=0 recorded on two consecutive console walks.	CM051	5c19f097	yes	ollama_agent_check_is_guarded	gate:cold-box-source-truth.yml#test_ollama_agent_check_survives_a_not_yet_running_agent.sh	#1754
+CREDENTIAL GENERATION SIGPIPEd AND ABORTED THE INSTALL AT 14%. `tr -dc <alphabet> < /dev/urandom | head -c 20` -- head takes its bytes and exits, closing the pipe under tr, which dies on SIGPIPE, and pipefail promotes it to 141. The loud ERR-14-STORE-WIKI-CREDENTIAL guard three lines below was unreachable for the same reason the Ollama poll was: the handling for the failure sat downstream of the line that aborts. Reproduced 10/10 against the pre-fix construct, so it is deterministic and not a race. The fix removes the early-exiting consumer rather than suppressing the status: head -c on a FILE argument has no upstream process to signal.	CM051	9aff7147	yes	credential_generation_has_no_sigpipe	gate:cold-box-source-truth.yml#test_credential_generation_does_not_sigpipe.sh	#1754
+THE PORT PREFLIGHT ABORTED THE INSTALL INSTEAD OF REPORTING A HELD PORT. _check_port returns 1 for a conflict and 2 for unmeasured -- status as data -- and it was called bare, so the ERR trap fired on the very condition the preflight exists to report. Same class as the two rows above and found by TNM sweeping the class after my fix, not by another walk.	CM051	27236c3d	yes	port_preflight_status_is_read_not_fatal	gate:colima-autostart.yml#test_port_preflight_survives_a_held_port.sh	#1759
+THE RUNTIME-READY CHECK ABORTED ON THE INSTALL PATH. _ostler_verify_runtime_ready returns 2 for CANNOT-RUN, and the assignment carried the substitution's status, so the install aborted at the assignment and the case statement that classifies 0/2/other never ran. The upgrade-path twin was NOT a live defect -- errexit is off there from :499 and the ERR trap is not installed until :10793 -- and TNM withdrew that one himself rather than bill it.	CM051	27236c3d	yes	runtime_ready_status_is_read_not_fatal	gate:colima-autostart.yml#test_runtime_ready_status_is_read_not_fatal.sh	#1759
