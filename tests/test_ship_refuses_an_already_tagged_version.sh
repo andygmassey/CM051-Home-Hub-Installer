@@ -110,6 +110,69 @@ version_is_already_tagged() {
     '
 }
 
+# THE TAG PUSH *IS* THE CUT, WHICH INVERTS ARM A's PREMISE ON THE CI PATH.
+#
+# MEASURED 2026-09-07T08:57:31Z, cut run 34103178059, the first cut to reach
+# `make ship` after #1748 landed at 03:10Z:
+#
+#     [ship-version] Info.plist CFBundleShortVersionString: 1.0.74
+#     [ship-version] newest cut record in tree:             v1.0.74
+#     [ship-version] tags on origin:                        333
+#     FAIL: refusing to build. v1.0.74 is ALREADY TAGGED on origin.
+#
+# Arm B passed. Arm A refused, and it would refuse EVERY cut forever, because
+# `.github/workflows/cut.yml` fires ON a `v1.0.*` tag push. By the time its
+# `cut:` job runs `make ship`, the tag it is cutting necessarily exists on
+# origin -- pushing it is what started the run. Arm A was therefore
+# unconditionally true on the only path that produces a DMG.
+#
+# THE HEADER ABOVE ALREADY SAW HALF OF THIS. "WHY SHIP-TIME AND NOT PUSH-TIME"
+# argues the question only has a right answer when an artefact is about to be
+# built. That is correct. What it missed is that in this repo the build is
+# TRIGGERED BY the tag, so ship-time is strictly AFTER tag-time and the two are
+# not separable. The gate was written for the operator path, where a human
+# builds first and tags after, and applied to the CI path, where the order is
+# reversed.
+#
+# THE NARROWING, and it keeps the whole defect the gate was written for.
+# Refuse only when the version is tagged AT A COMMIT THAT IS NOT THIS BUILD.
+# A tag pointing at the very commit being built is this cut's own tag; a tag
+# pointing anywhere else means bytes are being stamped with a version that
+# already shipped from different source, which is exactly the v1.0.73 case:
+# there the tree said 1.0.72 while cuts/ said v1.0.73, so HEAD was nowhere
+# near a v1.0.72 tag and this narrowing still refuses it. Arm B catches that
+# one first regardless.
+#
+# FAIL-CLOSED. If either sha cannot be resolved the answer is unknown, and an
+# unknown answer is not a safe one -- tag_is_this_build() returns false and the
+# refusal stands.
+
+# The commit a tag names, from an `ls-remote --tags` listing. The peeled form
+# `refs/tags/vX^{}` wins when present, because for an ANNOTATED tag the bare
+# ref names the tag OBJECT and only the peeled line names the commit. A
+# lightweight tag has no peeled line and its bare ref is already the commit.
+tagged_commit() {
+    local _version="$1" _taglist="$2"
+    printf '%s\n' "$_taglist" | awk -v want="refs/tags/v${_version}" '
+        {
+            ref = $NF; sha = $1; peeled = 0
+            if (ref ~ /\^\{\}$/) { sub(/\^\{\}$/, "", ref); peeled = 1 }
+            if (ref == want) {
+                if (peeled)          { p = sha }
+                else if (l == "")    { l = sha }
+            }
+        }
+        END { if (p != "") print p; else if (l != "") print l }
+    '
+}
+
+# Both shas must resolve AND agree. Empty is never a match: an unresolvable sha
+# is a failure to look, and this gate does not treat those as passes.
+tag_is_this_build() {
+    local _tag_sha="${1:-}" _head_sha="${2:-}"
+    [[ -n "$_tag_sha" && -n "$_head_sha" && "$_tag_sha" == "$_head_sha" ]]
+}
+
 # The newest version in a list. Field-wise numeric rather than `sort -V`:
 # -V exists on this host and on GNU, but its tie-breaking is not identical
 # across implementations and the self-test runs on the CI runner, not here.
@@ -156,6 +219,33 @@ if [[ $SELF_TEST -eq 1 ]]; then
     version_is_already_tagged "1.0.7"  "$REAL_TAGS"; _arm "3 SUBSTRING v1.0.7 does not match v1.0.72" 1 $?
     version_is_already_tagged "1.0.71" "$REAL_TAGS"; _arm "4 annotated tag matches via its peeled ref" 0 $?
     version_is_already_tagged "1.0.72" "";           _arm "5 empty tag list matches nothing"          1 $?
+
+    # ── tagged_commit + tag_is_this_build ────────────────────────────────
+    #
+    # THE SUBTLE ONE IS ARM 30, and it is the control that makes 34 mean
+    # anything. For an ANNOTATED tag the bare `refs/tags/vX` line carries the
+    # TAG OBJECT's sha, not the commit's. If tagged_commit returned that, it
+    # could never equal `git rev-parse HEAD`, the exemption would never fire,
+    # and the gate would keep refusing every cut while LOOKING exactly as it
+    # does now -- a fix that reads as applied and is not. So the peeled line
+    # must win, and 30 asserts it does by demanding the peeled sha and not the
+    # tag-object sha that sits one line above it in the same fixture.
+    echo "self-test: tagged_commit"
+    _arm "30 ANNOTATED tag yields the PEELED commit, not the tag object" \
+         "dddd" "$(tagged_commit "1.0.72" "$REAL_TAGS")"
+    _arm "31 a LIGHTWEIGHT tag yields its own ref sha" \
+         "eeee" "$(tagged_commit "1.0.80" "$(printf '%s\n' 'eeee	refs/tags/v1.0.80')")"
+    _arm "32 an untagged version yields nothing" \
+         "" "$(tagged_commit "1.0.99" "$REAL_TAGS")"
+    _arm "33 SUBSTRING v1.0.7 does not pick up v1.0.72's sha" \
+         "" "$(tagged_commit "1.0.7" "$REAL_TAGS")"
+
+    echo "self-test: tag_is_this_build"
+    tag_is_this_build "dddd" "dddd"; _arm "34 tag AT the built commit is this cut"      0 $?
+    tag_is_this_build "dddd" "cccc"; _arm "35 tag at ANOTHER commit still refuses"      1 $?
+    tag_is_this_build ""     "dddd"; _arm "36 unresolvable tag sha is NOT a pass"       1 $?
+    tag_is_this_build "dddd" "";     _arm "37 unresolvable HEAD is NOT a pass"          1 $?
+    tag_is_this_build ""     "";     _arm "38 two unknowns are NOT a match"             1 $?
 
     echo "self-test: version_has_valid_shape"
     version_has_valid_shape "1.0.72";                                  _arm "6 a real version"        0 $?
@@ -351,8 +441,21 @@ fi
 echo "[ship-version] tags on ${REMOTE}:                       ${TAG_COUNT}"
 
 if version_is_already_tagged "$VERSION" "$TAGS"; then
+    # See "THE TAG PUSH *IS* THE CUT" above. A tag naming the commit being
+    # built is this run's own trigger, not a version that already shipped.
+    TAG_SHA="$(tagged_commit "$VERSION" "$TAGS")"
+    HEAD_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null)" || HEAD_SHA=""
+    if tag_is_this_build "$TAG_SHA" "$HEAD_SHA"; then
+        echo "[ship-version] v${VERSION} is tagged at ${TAG_SHA}, which IS the"
+        echo "[ship-version] commit being built. That is this cut's own tag --"
+        echo "[ship-version] cut.yml fires ON the tag push, so the tag always"
+        echo "[ship-version] exists by the time ship runs. Arm A does not apply."
+        echo "PASS: v${VERSION} is this cut's tag, not a shipped version (${TAG_COUNT} tags checked)"
+        exit 0
+    fi
     echo "" >&2
-    echo "FAIL: refusing to build. v${VERSION} is ALREADY TAGGED on ${REMOTE}." >&2
+    echo "FAIL: refusing to build. v${VERSION} is ALREADY TAGGED on ${REMOTE}," >&2
+    echo "      at ${TAG_SHA:-<unresolvable>}, and this build is at ${HEAD_SHA:-<unresolvable>}." >&2
     echo "" >&2
     echo "  You are about to produce a release artefact stamped with a version" >&2
     echo "  that has already shipped. CFBundleVersion is what Sparkle compares," >&2
