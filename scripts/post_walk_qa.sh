@@ -673,7 +673,14 @@ if [[ -n "$CUT_VERSION" ]]; then
         printf '# or people_count_agreement means something different in each case. A\n'
         printf '# reset does NOT wipe: ttywalk.sh runs the shipped uninstaller if it can\n'
         printf '# find one and says so when it cannot.\n'
-        printf 'stores_provenance\t%%s\n' "$STORES_PROVENANCE"
+        # %s, NOT %%s. `%%` is an ESCAPED percent, so the old line emitted the
+        # LITERAL two characters "%s" and silently discarded $STORES_PROVENANCE.
+        # Measured 2026-09-07 on the only two records written since this field
+        # was added -- both v1.0.71 walks -- and both read `stores_provenance %s`.
+        # The nine older committed records predate the field entirely, which is
+        # why the estate looks clean: the denominator of records that COULD
+        # carry the value is 2, and 2 of 2 are wrong.
+        printf 'stores_provenance\t%s\n' "$STORES_PROVENANCE"
         printf 'counts_scope\tbox_walk_probes_only(phase1); verdict+qa_exit cover all phases\n'
         printf 'pass\t%s\n'        "${n_pass:-0}"
         printf 'fail\t%s\n'        "${n_fail:-0}"

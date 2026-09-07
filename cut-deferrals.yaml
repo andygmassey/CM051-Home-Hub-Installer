@@ -585,6 +585,46 @@ deferrals:
   # at all. A prohibition whose grounds nobody wrote down can only be obeyed, not
   # audited. Rather than infer intent from a close event, both were resolved by
   # measuring whether the content had landed. It had.
+  - ref: "CM051:archie/land-1744-either-spelling"
+    reason: >-
+      Mine. THREE commits, and until 2026-09-07T10:50Z they existed ONLY on
+      this operator Mac -- no remote ref, no PR, one `rm -rf` from gone. That
+      is the rule-3 violation, not the deferral: a branch with no remote is
+      invisible to every other agent and to every sweep, so it is not saved, it
+      is lost with extra steps. PUSHED FIRST, THEN DEFERRED, because a deferral
+      row records a decision and does nothing whatever to protect the commits
+      it defers. Verified after pushing: remote and local both at 04cd3c82.
+      WHY IT WAS INVISIBLE TO CI AND VISIBLE TO ME, which is worth knowing: the
+      orphan gate run on a hosted runner clones fresh and sees only what is on
+      the remote, so it reported 7 REDs while the same gate run on this Mac
+      reported 9. The two extra were this branch and its neighbour below. A
+      local-only branch is not merely unsafe, it is UNCOUNTABLE by the gate
+      built to count it.
+      CONTENT, and it is not v1.0.74 scope: a walk-gate key fix -- "a walk
+      record filed as 1.0.71 was invisible to a gate asking for v1.0.71" --
+      plus its TEST_WIRING regeneration and a pipefail fix in its own test.
+      PIN-SAFE, 0 install.sh hits, measured. It wants to land with the
+      walk_verdict work rather than be swept into a tag, and the walk-closure
+      gate for this cut already passes without it.
+    until_cut: "v1.0.75"
+  - ref: "CM051:tnm/end-of-install-confirmation-regraft"
+    reason: >-
+      TNM's. THREE commits, same rule-3 story as the row above: local-only until
+      2026-09-07T10:50Z, now pushed and verified at d1912f71 remote and local.
+      This is the #399 end-of-install confirmation work, re-derived against
+      current main rather than merged from the rotted original -- which is
+      exactly the right way to revive a stale branch and is why deleting it
+      would have been the expensive mistake.
+      🔴 NOT PIN-SAFE: it touches install.sh, measured, 1 hit. cuts/v1.0.74/
+      cut.env pins CM051 by install.sh BLOB (cac0e345), so landing this now
+      unpins the cut for a second time in one morning -- the first was #1752
+      and #1753 merging mid-flight at 09:22Z. It also adds a NEW question to
+      the end of the install, and the payload's one measured property is that
+      it completes 41 of 41 steps; a new prompt is precisely the thing that
+      measurement would no longer cover.
+      Held for v1.0.75 with #1755, where the install depth is re-measured after
+      the uninstaller contract lands whole.
+    until_cut: "v1.0.75"
   - ref: "CM051:fix/all-kickstart-sites-bounded-509"
     reason: >-
       SUPERSEDED BY CONTENT via #1102, which is MERGED (2026-08-27T03:29:19Z)
