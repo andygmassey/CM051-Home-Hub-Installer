@@ -131,8 +131,8 @@ def _wiki_slug(name: str) -> str:
 # v1018-D658. Andy's ruling 2026-08-10: a displayName is RANKED and
 # overwrites go UPWARD ONLY.
 #
-#   tier 0  "+852 1234 5678"       replaces nothing
-#   tier 1  "j.smith@company.com"  replaces tier 0
+#   tier 0  "+44 7700 900123"      replaces nothing
+#   tier 1  "j.smith@example.com"  replaces tier 0
 #   tier 2  "Jane Smith"           replaces tier 0 or 1
 #
 # His reasoning: a phone number is "totally indecipherable to a human",

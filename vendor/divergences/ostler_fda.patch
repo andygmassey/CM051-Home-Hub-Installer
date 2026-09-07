@@ -1,6 +1,8 @@
+diff --git a/apple_mail.py b/apple_mail.py
+index eefc9bba..2247621a 100644
 --- a/apple_mail.py
 +++ b/apple_mail.py
-@@ -82,14 +82,17 @@
+@@ -82,14 +82,17 @@ def _find_envelope_index(mail_dir: Optional[Path] = None) -> Path:
  
  def extract_messages(
      db_path: Optional[Path] = None,
@@ -21,9 +23,446 @@
          limit: Maximum number of messages to extract.
  
      Returns:
+diff --git a/apple_mail_mbox.py b/apple_mail_mbox.py
+index e00ea165..d9ae1ce6 100644
+--- a/apple_mail_mbox.py
++++ b/apple_mail_mbox.py
+@@ -82,6 +82,39 @@ discarded and the checkpoint stays put -- no silent partial-state
+ leak. Mirrors the no-silent-fallback discipline applied to the
+ H4 / H5 audit fixes 2026-05-01.
+ 
++Memory contract
++---------------
++Peak memory is bounded by MESSAGE COUNT, not by mailbox SIZE.
++
++The tick runs in two passes:
++
++1. **Scan** -- ``scan_emlx_metadata`` reads at most
++   ``HEADER_SCAN_BYTES`` (64 KiB) from the front of each ``.emlx``,
++   just far enough to read ``Date:``, and retains only an
++   ``EmlxMeta`` (a path and a datetime). Bodies are never held.
++2. **Emit** -- only the messages the two sweeps selected are opened,
++   with ``parse_emlx``, ONE AT A TIME, and streamed straight to the
++   mbox. Each body is released before the next file is opened.
++
++So peak retained bytes are roughly
++``(messages in mailbox * sizeof(EmlxMeta)) + (largest single message)``
++-- tens of MB on a mailbox of any size -- rather than the total
++number of bytes in the mail store.
++
++This is load-bearing, not a tidy-up. The previous implementation
++built a ``list[ParsedEmlx]`` covering the WHOLE mailbox before
++filtering, so a tick's resident set was the size of the user's mail
++store: measured at 11.49 GB with 11.21 GB of swap in use on a 16 GB
++Mac mini, held for a ~14-minute tick every ~70 minutes. That is the
++same memory precondition that killed the Colima VM and took the wiki
++down. Worse, it was paid in full even on ticks that emitted NOTHING,
++because the filtering happened after every body had already been
++read and retained.
++
++If you add a pass over the mailbox here, keep it body-free, and keep
++``test_apple_mail_mbox_memory.py`` passing -- it is the regression
++guard on this contract.
++
+ Observability posture
+ ---------------------
+ Each tick (success or failure) records an observability-posture
+@@ -126,6 +159,15 @@ DEFAULT_INITIAL_BACKFILL_DAYS = 365
+ # can correlate the marker with the launchctl entry.
+ SERVICE_NAME = "email-ingest"
+ 
++# How much of each .emlx the metadata scan reads to find ``Date:``.
++# RFC 5322 sets no cap on a header block, but Apple Mail writes Date:
++# within the first couple of KiB; 64 KiB is generous headroom and
++# still ~30x smaller than the mean message on a mailbox with
++# attachments. A header block that overruns this window falls back to
++# a full parse of that ONE file (see ``scan_emlx_metadata``), so the
++# window is a performance knob and never a correctness one.
++HEADER_SCAN_BYTES = 64 * 1024
++
+ 
+ def _ostler_home() -> Path:
+     """Return ``$OSTLER_HOME`` or the default ``~/.ostler``.
+@@ -291,18 +333,30 @@ class ParsedEmlx:
+     source_path: Path
+ 
+ 
+-def parse_emlx(path: Path) -> ParsedEmlx:
+-    """Read a single ``.emlx`` file and return its RFC 822 body.
++@dataclass(frozen=True)
++class EmlxMeta:
++    """Ordering key for one ``.emlx`` -- WITHOUT its body.
++
++    This is the per-message record the scan pass retains for every
++    file in the mailbox. Holding ``ParsedEmlx`` here instead is what
++    made peak memory proportional to total mailbox SIZE rather than
++    to message COUNT: ``ParsedEmlx`` carries ``rfc822_bytes``, so a
++    list of them is a second copy of the entire mail store in RAM.
++    See ``emit_mbox`` for the two-pass structure that replaced it.
++    """
+ 
+-    The .emlx format prepends a decimal byte count + newline before
+-    the RFC 822 portion, then appends an XML plist with internal
+-    flags. We strip both wrappers and return the inner message.
++    path: Path
++    received_at: Optional[datetime]
+ 
+-    ``received_at`` comes from the message's ``Date:`` header when
+-    present, falling back to file mtime so the caller still has an
+-    ordering key for messages with malformed dates.
++
++def _split_length_prefix(data: bytes, path: Path) -> tuple[int, int]:
++    """Return ``(rfc822_start, length)`` for a length-prefixed .emlx.
++
++    Raises ``ValueError`` on a malformed prefix. Shared by the full
++    parse and the metadata scan so both agree on exactly which files
++    are unreadable -- a file the scan skips must be a file the emit
++    pass would also have skipped.
+     """
+-    data = path.read_bytes()
+     newline = data.find(b"\n")
+     if newline < 0:
+         raise ValueError(f"{path} has no length-prefix newline; malformed .emlx")
+@@ -312,21 +366,26 @@ def parse_emlx(path: Path) -> ParsedEmlx:
+         raise ValueError(
+             f"{path} length prefix is not an integer: {data[:newline]!r}"
+         ) from exc
++    return newline + 1, length
+ 
+-    rfc822_start = newline + 1
+-    rfc822_end = rfc822_start + length
+-    if rfc822_end > len(data):
+-        # Some Mail-versions truncate the trailing plist; clip to the
+-        # file size and continue rather than dropping the message.
+-        rfc822_end = len(data)
+-    rfc822 = data[rfc822_start:rfc822_end]
+ 
+-    # Pull Date and From out of the RFC 822 headers without invoking
+-    # the full email parser -- this is the hot path on the LaunchAgent
+-    # tick and we touch hundreds of files per run.
++def _header_fields(rfc822: bytes) -> tuple[Optional[datetime], str, bool]:
++    """Pull ``Date:`` and ``From:`` out of an RFC 822 header block.
++
++    Returns ``(received_at, sender_address, header_block_terminated)``.
++    ``header_block_terminated`` reports whether a blank line actually
++    closed the header block inside ``rfc822`` -- the metadata scan
++    uses it to detect a header block that overran its read window.
++
++    Deliberately does not invoke the full ``email`` parser: this is
++    the hot path on the LaunchAgent tick and we touch every file in
++    the mailbox on every run.
++    """
++    headers_blob = rfc822.split(b"\r\n\r\n", 1)[0].split(b"\n\n", 1)[0]
++    terminated = b"\r\n\r\n" in rfc822 or b"\n\n" in rfc822
++
+     received_at: Optional[datetime] = None
+     sender_address = ""
+-    headers_blob = rfc822.split(b"\r\n\r\n", 1)[0].split(b"\n\n", 1)[0]
+     for line in headers_blob.splitlines():
+         try:
+             line_s = line.decode("utf-8", errors="replace")
+@@ -347,13 +406,44 @@ def parse_emlx(path: Path) -> ParsedEmlx:
+                 sender_address = value.split("<", 1)[1].split(">", 1)[0].strip()
+             else:
+                 sender_address = value
++    return received_at, sender_address, terminated
++
++
++def _mtime_utc(path: Path) -> Optional[datetime]:
++    """File mtime as an aware UTC datetime, or ``None`` if unstattable."""
++    try:
++        return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
++    except OSError:
++        return None
++
++
++def parse_emlx(path: Path) -> ParsedEmlx:
++    """Read a single ``.emlx`` file and return its RFC 822 body.
++
++    The .emlx format prepends a decimal byte count + newline before
++    the RFC 822 portion, then appends an XML plist with internal
++    flags. We strip both wrappers and return the inner message.
++
++    ``received_at`` comes from the message's ``Date:`` header when
++    present, falling back to file mtime so the caller still has an
++    ordering key for messages with malformed dates.
++
++    Reads the whole file. Call it ONE MESSAGE AT A TIME and let the
++    result fall out of scope before the next -- see ``scan_emlx_metadata``
++    for the body-free pass used to decide which messages are wanted.
++    """
++    data = path.read_bytes()
++    rfc822_start, length = _split_length_prefix(data, path)
++    rfc822_end = rfc822_start + length
++    if rfc822_end > len(data):
++        # Some Mail-versions truncate the trailing plist; clip to the
++        # file size and continue rather than dropping the message.
++        rfc822_end = len(data)
++    rfc822 = data[rfc822_start:rfc822_end]
++
++    received_at, sender_address, _terminated = _header_fields(rfc822)
+     if received_at is None:
+-        try:
+-            received_at = datetime.fromtimestamp(
+-                path.stat().st_mtime, tz=timezone.utc,
+-            )
+-        except OSError:
+-            received_at = None
++        received_at = _mtime_utc(path)
+ 
+     return ParsedEmlx(
+         received_at=received_at,
+@@ -363,6 +453,53 @@ def parse_emlx(path: Path) -> ParsedEmlx:
+     )
+ 
+ 
++def scan_emlx_metadata(
++    path: Path, *, header_bytes: int = HEADER_SCAN_BYTES,
++) -> EmlxMeta:
++    """Read just enough of a ``.emlx`` to date it. Never retains the body.
++
++    The emit decision needs one field -- ``received_at`` -- and that
++    field lives in the header block at the very front of the file.
++    Reading the whole message to obtain it, and then KEEPING the
++    message so a later pass can filter it, is what put the entire
++    mail store in RAM.
++
++    Reads at most ``header_bytes`` and returns a body-free
++    ``EmlxMeta``, so the scan pass costs O(number of messages) in
++    memory instead of O(size of mailbox).
++
++    Raises the same ``ValueError`` / ``OSError`` as ``parse_emlx``
++    for a malformed or unreadable file, so the caller's skip
++    accounting is identical either way.
++    """
++    with path.open("rb") as fh:
++        head = fh.read(header_bytes)
++
++    rfc822_start, length = _split_length_prefix(head, path)
++    # Never read past the RFC 822 region into the plist trailer: the
++    # trailer is XML and could otherwise be mistaken for headers.
++    head_rfc822 = head[rfc822_start:rfc822_start + length]
++
++    received_at, _sender, terminated = _header_fields(head_rfc822)
++
++    if received_at is None and not terminated and len(head_rfc822) < length:
++        # The header block did not fit in the read window. Rare (Apple
++        # Mail puts Date: within the first few KiB), but correctness
++        # must not depend on the window size, so fall back to a full
++        # parse of THIS ONE file. Still bounded: one message at a time.
++        logger.debug(
++            "Header block of %s overran the %d-byte scan window; "
++            "falling back to a full parse for this file.",
++            path, header_bytes,
++        )
++        received_at = parse_emlx(path).received_at
++
++    if received_at is None:
++        received_at = _mtime_utc(path)
++
++    return EmlxMeta(path=path, received_at=received_at)
++
++
+ def discover_emlx_files(mail_dir: Path) -> Iterator[Path]:
+     """Yield every ``.emlx`` file under ``mail_dir`` recursively.
+ 
+@@ -600,25 +737,35 @@ def emit_mbox(
+ 
+     output_path.parent.mkdir(parents=True, exist_ok=True)
+ 
+-    # Discover everything once. parse_emlx is the hot path and we
+-    # already touched every file in v1; the new model adds another
+-    # filter pass over the same in-memory list rather than walking
+-    # the tree twice.
+-    discovered: list[ParsedEmlx] = []
++    # PASS 1 -- SCAN. Date every message in the mailbox WITHOUT keeping
++    # any bodies. This pass is what decides which messages the two
++    # sweeps want; it must therefore touch every file, but it retains
++    # only a path + a datetime per message.
++    #
++    # This used to build a list of ParsedEmlx, i.e. every RFC 822 body
++    # in the mailbox held in RAM simultaneously, and it did so even on
++    # a tick that went on to emit nothing at all. On a multi-gigabyte
++    # mail store that is a multi-gigabyte resident set on a 16 GB box:
++    # the precondition that took out the Colima VM. Peak memory is now
++    # O(message count) here plus O(largest single message) in pass 2,
++    # instead of O(total mailbox bytes).
++    discovered: list[EmlxMeta] = []
+     skipped_unparseable = 0
+     skipped_no_date = 0
++    scanned_files = 0
+     try:
+         for emlx_path in discover_emlx_files(mail_dir):
++            scanned_files += 1
+             try:
+-                parsed = parse_emlx(emlx_path)
++                meta = scan_emlx_metadata(emlx_path)
+             except (OSError, ValueError) as exc:
+                 logger.warning("Skipping unreadable .emlx %s: %s", emlx_path, exc)
+                 skipped_unparseable += 1
+                 continue
+-            if parsed.received_at is None:
++            if meta.received_at is None:
+                 skipped_no_date += 1
+                 continue
+-            discovered.append(parsed)
++            discovered.append(meta)
+     except PermissionError as exc:
+         # Apple Mail's ~/Library/Mail requires Full Disk Access.
+         # Map this to the dedicated posture status so Doctor can
+@@ -644,7 +791,7 @@ def emit_mbox(
+     # oldest_edge); strictly less than the edge so we don't
+     # double-emit a message that happens to land exactly on a
+     # chunk boundary.
+-    backward: list[ParsedEmlx] = []
++    backward: list[EmlxMeta] = []
+     new_oldest_edge = oldest_edge
+     if not backfill_complete and oldest_edge is not None and not is_seeding_tick:
+         chunk_floor = oldest_edge - _days(backfill_chunk_days)
+@@ -703,6 +850,27 @@ def emit_mbox(
+             oldest_edge.isoformat() if oldest_edge else "<none>",
+             backfill_complete,
+         )
++        # A tick that walked the whole mail store and produced nothing
++        # is not the same event as an idle tick on an empty mailbox,
++        # and it must not print like one. The 12:19 tick on 2026-08-23
++        # emitted zero messages while holding ~11.5 GB, and said only
++        # "no new messages" -- the cost was invisible in the log, so
++        # the only evidence it had happened at all was a memory graph.
++        # State the work done alongside the work produced, every time.
++        if scanned_files:
++            logger.warning(
++                "ZERO-OUTPUT TICK: scanned %d .emlx file(s) and emitted 0 "
++                "messages (%d dated, %d unparseable, %d undated). The scan "
++                "pass reads every file in the mail store every tick by "
++                "design; if this repeats with a large scan count the "
++                "checkpoint edges are not advancing (forward cutoff=%s, "
++                "oldest_edge=%s, backfill_complete=%s).",
++                scanned_files, len(discovered), skipped_unparseable,
++                skipped_no_date,
++                forward_cutoff.isoformat() if forward_cutoff else "the dawn of time",
++                oldest_edge.isoformat() if oldest_edge else "<none>",
++                backfill_complete,
++            )
+         # Persist the advanced edges + last_run_at even on a zero-
+         # emit tick: the backward sweep needs to advance one chunk
+         # whether or not it found mail, otherwise an empty 30-day
+@@ -729,21 +897,55 @@ def emit_mbox(
+         )
+         return 0
+ 
++    # PASS 2 -- EMIT. Read the selected messages ONE AT A TIME and
++    # stream each straight to the mbox. The body of message N is
++    # released before message N+1 is opened, so this pass costs one
++    # message in memory regardless of how many are being emitted or
++    # how large the mailbox is.
++    #
++    # `fresh` holds EmlxMeta (path + date), not bodies, so the emit
++    # set itself is cheap to hold even for a 5-year backfill chunk.
++    forward_paths = {m.path for m in forward}
++    emitted_forward_dates: list[datetime] = []
++    emitted_count = 0
++    skipped_at_emit = 0
+     try:
+         with output_path.open("ab") as fh:
+-            for parsed in fresh:
++            for meta in fresh:
++                try:
++                    parsed = parse_emlx(meta.path)
++                except (OSError, ValueError) as exc:
++                    # The file was readable during the scan pass and is
++                    # not now -- Apple Mail rearranges its tree mid-tick
++                    # (#197). Skip it and let a later tick pick it up
++                    # rather than failing the whole run.
++                    logger.warning(
++                        "Skipping .emlx that became unreadable between scan "
++                        "and emit %s: %s", meta.path, exc,
++                    )
++                    skipped_at_emit += 1
++                    continue
+                 fh.write(_format_mbox_record(parsed))
++                emitted_count += 1
++                if meta.path in forward_paths and meta.received_at is not None:
++                    emitted_forward_dates.append(meta.received_at)
++                # Drop the body before opening the next file. Without
++                # this the loop variable keeps the last message alive,
++                # which is harmless at one message but makes the intent
++                # of the pass unclear to the next reader.
++                del parsed
+     except OSError as exc:
+         _record("extract_failed", error_message=f"mbox write failed: {exc}")
+         raise
+ 
+-    # Forward edge advances to the latest received_at we just
+-    # emitted (or stays put if we only did backward work).
+-    forward_received = [
+-        p.received_at for p in forward if p.received_at is not None
+-    ]
++    # Forward edge advances to the latest received_at we actually
++    # emitted (or stays put if we only did backward work). Using the
++    # EMITTED dates rather than the candidate dates means a message
++    # that vanished between the two passes is not silently stepped
++    # over by the checkpoint.
+     advanced_newest = (
+-        max(forward_received) if forward_received else checkpoint.newest_processed
++        max(emitted_forward_dates) if emitted_forward_dates
++        else checkpoint.newest_processed
+     )
+ 
+     try:
+@@ -753,7 +955,7 @@ def emit_mbox(
+                 oldest_processed=new_oldest_edge,
+                 backfill_complete=new_backfill_complete,
+                 last_run_at=now,
+-                last_emit_count=len(fresh),
++                last_emit_count=emitted_count,
+             ),
+             checkpoint_path,
+         )
+@@ -762,21 +964,22 @@ def emit_mbox(
+         raise
+ 
+     logger.info(
+-        "Emitted %d messages to %s (forward=%d, backward=%d, latest=%s, "
+-        "oldest_edge=%s, backfill_complete=%s, %d unparseable, %d undated skipped).",
+-        len(fresh), output_path, len(forward), len(backward),
++        "Emitted %d messages to %s (scanned=%d, forward=%d, backward=%d, "
++        "latest=%s, oldest_edge=%s, backfill_complete=%s, %d unparseable, "
++        "%d undated, %d vanished between scan and emit).",
++        emitted_count, output_path, scanned_files, len(forward), len(backward),
+         advanced_newest.isoformat() if advanced_newest else "<none>",
+         new_oldest_edge.isoformat() if new_oldest_edge else "<none>",
+         new_backfill_complete,
+-        skipped_unparseable, skipped_no_date,
++        skipped_unparseable, skipped_no_date, skipped_at_emit,
+     )
+     _record(
+         "success",
+-        emitted=len(fresh),
++        emitted=emitted_count,
+         oldest=new_oldest_edge,
+         newest=advanced_newest,
+     )
+-    return len(fresh)
++    return emitted_count
+ 
+ 
+ def _days(n: int) -> "datetime":  # noqa: F821 -- forward ref to timedelta below
+diff --git a/dedupe_merge.py b/dedupe_merge.py
+index 8a352c8e..594a98fc 100644
 --- a/dedupe_merge.py
 +++ b/dedupe_merge.py
-@@ -45,19 +45,12 @@
+@@ -42,22 +42,22 @@ PWG = "https://schema.ostler.ai/ontology#"
+ # name-fuzzy signals only, never an exact-merge key.
+ EXACT_KEY_TYPES: Tuple[str, ...] = ("email", "phone")
+ 
++# RULE 2's canonical key. Exactly one macOS Contacts card, for ever. The
++# ratified ruleset says verbatim: "MUST NOT MERGE: different canonical keys,
++# even if identical display name." A Person node carrying two different values
++# of this type is an over-merge BY DEFINITION -- no judgement, no name
++# comparison involved.
++CANONICAL_KEY_TYPE = "icloud_contact_uid"
++
  
  def _canonical_phone(value: str) -> str:
      """Canonicalise a phone identifier so a WhatsApp JID collides with the
@@ -49,7 +488,7 @@
      v = value.strip()
      if v.lower().endswith("@s.whatsapp.net"):
          local = v.split("@", 1)[0]
-@@ -107,8 +100,6 @@
+@@ -107,8 +107,6 @@ def find_collisions() -> Dict[Tuple[str, str], List[str]]:
          groups: Dict[str, Set[str]] = {}
          for r in rows:
              value = r["v"]["value"]
@@ -58,9 +497,166 @@
              key = _canonical_phone(value) if typ == "phone" else value
              groups.setdefault(key, set()).add(r["p"]["value"])
          for value, persons in groups.items():
+@@ -151,9 +149,52 @@ def _components(collisions: Dict[Tuple[str, str], List[str]]) -> Dict[str, Set[s
+     return comps
+ 
+ 
++def canonical_keys_of(persons: Set[str]) -> Dict[str, Set[str]]:
++    """``{person_uri: {icloud_contact_uid value, ...}}`` for the given nodes.
++
++    One query for the whole component rather than one per node: this runs on
++    the install critical path and a per-node round trip over a large address
++    book is exactly the kind of thing that gets time-capped and killed.
++    """
++    if not persons:
++        return {}
++    values = " ".join(f"<{p}>" for p in sorted(persons))
++    rows = _sparql_query(
++        f"PREFIX pwg:<{PWG}> "
++        "SELECT ?p ?v WHERE { "
++        f"  VALUES ?p {{ {values} }} "
++        "  ?p pwg:hasIdentifier ?id . "
++        f'  ?id pwg:identifierType "{CANONICAL_KEY_TYPE}" ; pwg:identifierValue ?v . '
++        "}"
++    )
++    out: Dict[str, Set[str]] = {}
++    for r in rows:
++        out.setdefault(r["p"]["value"], set()).add(r["v"]["value"])
++    return out
++
++
+ def _merge_pair(canonical: str, dupe: str) -> None:
+-    """Move every triple referencing ``dupe`` onto ``canonical``. After
+-    both rewrites, no triple references ``dupe`` and it ceases to exist."""
++    """Move every triple referencing ``dupe`` onto ``canonical``, then leave
++    a ``mergedInto`` tombstone on ``dupe`` so it does not cease to exist.
++
++    THE TOMBSTONE IS NOT DECORATION (2026-09-07). This writer used to erase
++    ``dupe`` completely. ``identity_resolver.merge_persons`` and
++    ``batch_resolver._merge_oxigraph`` both leave ``<dupe> pwg:mergedInto
++    <canonical>``, and every consumer that meets a merged URI keys on it:
++    the assistant API reports ``merged_into`` instead of "unknown person",
++    and the box-walk probe ``people_stores_reconcile`` counts a Qdrant
++    vector as an ORPHAN only when its URI has no presence in the graph in
++    any position. This module writes no Qdrant lines, and the install
++    indexes people (step ``hydrate_people``) BEFORE this sweep runs, so
++    every duplicate it folded left a people vector pointing at a URI that
++    no longer existed: residual B on the reconcile probe (14 on the
++    v1.0.74 walk, 25 on the Studio, every one of them an exact-key merge).
++    The tombstone gives that vector something to resolve to, the same
++    thing the other two writers give it.
++
++    Written LAST, after both rewrites, because the outbound rewrite deletes
++    every ``<dupe> ?p ?o`` -- including a tombstone written before it.
++    """
+     # Outbound: <dupe> ?p ?o  ->  <canonical> ?p ?o
+     _sparql_update(
+         f"DELETE {{ <{dupe}> ?p ?o }} "
+@@ -166,6 +207,10 @@ def _merge_pair(canonical: str, dupe: str) -> None:
+         f"INSERT {{ ?s ?p <{canonical}> }} "
+         f"WHERE  {{ ?s ?p <{dupe}> }}"
+     )
++    # Tombstone: <dupe> pwg:mergedInto <canonical>
++    _sparql_update(
++        f"INSERT DATA {{ <{dupe}> <{PWG}mergedInto> <{canonical}> }}"
++    )
+ 
+ 
+ def run(dry_run: bool = False) -> Dict[str, int]:
+@@ -174,19 +219,86 @@ def run(dry_run: bool = False) -> Dict[str, int]:
+     folded away)."""
+     collisions = find_collisions()
+     comps = _components(collisions)
++
++    # ── RULE 2 VETO. THIS MODULE HAD NONE, AND IT IS WHY THE OVER-MERGE
++    #    SURVIVED TWO FIXES TO OTHER WRITERS. ────────────────────────────
++    #
++    # MEASURED on the v1.0.71 walk box, 2026-09-05, on a graph built entirely
++    # inside the walk window:
++    #
++    #     icloud_contact_uid identifiers        1673   (anti-vacuity control)
++    #     Person nodes with 2+ distinct uids      54
++    #     Contacts cards swallowed               117
++    #     mergedInto tombstones in the graph       1   (control: the predicate
++    #                                                   CAN see tombstones)
++    #     of the 54, how many carry a tombstone     0
++    #
++    # That last pair is the discriminator. `identity_resolver.merge_persons`
++    # and `batch_resolver._merge_oxigraph` ALWAYS write a `mergedInto`
++    # tombstone and both already veto on canonical keys (#1418, #1543). This
++    # module writes no tombstone. Not one of the 54 survivors carries one, so
++    # every one of them was welded here.
++    #
++    # WHY EVERY EARLIER AUDIT CAME BACK CLEAN: this file never mentions
++    # `icloud_contact_uid` at all. It groups on email and phone VALUES, so a
++    # search that starts from the canonical key -- or from the guarded
++    # function -- cannot see the writer that corrupts it.
++    #
++    # THE VETO MUST ACCUMULATE ACROSS THE COMPONENT, NOT JUST THE PAIR.
++    # `_components` is union-find, so A and C fold together through a bridging
++    # node B that shares A's phone and C's email while sharing nothing with
++    # each other. Checking only (canonical, dupe) in isolation would still let
++    # a second card arrive transitively. So the surviving node's key set is
++    # carried forward and every candidate is tested against it.
++    #
++    # FAIL CLOSED. If the key set cannot be read, refuse every merge in this
++    # run rather than merging blind: a missed RULE 1 merge is visible and
++    # fixable on the next sweep, while a RULE 2 violation is a silently
++    # corrupted person that no later pass looks for.
++    try:
++        keys = canonical_keys_of({p for members in comps.values() for p in members})
++    except Exception as exc:  # noqa: BLE001 -- deliberately broad; see above
++        logger.error(
++            "dedupe_merge: REFUSING ALL MERGES -- could not read %s values "
++            "to enforce RULE 2 (%s). No writes were made.",
++            CANONICAL_KEY_TYPE,
++            exc,
++        )
++        return {"collision_keys": len(collisions), "merged": 0, "refused_rule2": 0,
++                "refused_unreadable": True}
++
+     merged = 0
++    refused = 0
+     for canonical, members in comps.items():
++        held: Set[str] = set(keys.get(canonical, set()))
+         for dupe in sorted(members - {canonical}):
++            dupe_keys = keys.get(dupe, set())
++            if len(held | dupe_keys) > 1:
++                refused += 1
++                logger.warning(
++                    "dedupe_merge: RULE 2 veto -- not merging a node holding %d "
++                    "canonical key(s) into one already holding %d. RULE 1 says "
++                    "merge, RULE 2 says these are different people, and RULE 2 "
++                    "wins. Both nodes left intact.",
++                    len(dupe_keys),
++                    len(held),
++                )
++                continue
+             if not dry_run:
+                 _merge_pair(canonical, dupe)
++            held |= dupe_keys
+             merged += 1
++
+     logger.info(
+-        "dedupe_merge: %d exact-id collision key(s); merged %d duplicate Person node(s)%s",
++        "dedupe_merge: %d exact-id collision key(s); merged %d duplicate Person "
++        "node(s); refused %d on RULE 2%s",
+         len(collisions),
+         merged,
++        refused,
+         " (dry-run, no writes)" if dry_run else "",
+     )
+-    return {"collision_keys": len(collisions), "merged": merged}
++    return {"collision_keys": len(collisions), "merged": merged,
++            "refused_rule2": refused, "refused_unreadable": False}
+ 
+ 
+ def main() -> int:
+diff --git a/extract_all.py b/extract_all.py
+index 65da6f46..470d8119 100644
 --- a/extract_all.py
 +++ b/extract_all.py
-@@ -110,7 +110,16 @@
+@@ -134,7 +134,16 @@ def run_all(
      if "safari_history" in sources:
          try:
              from .safari_history import extract_history, top_domains, to_timeline_entries
@@ -78,7 +674,7 @@
              domains = top_domains(entries, limit=100)
  
              timeline = to_timeline_entries(entries)
-@@ -142,11 +151,9 @@
+@@ -166,11 +175,9 @@ def run_all(
          summary["sources"]["safari_history"] = {"status": "disabled_by_user"}
  
      # ── Chrome History (CX-86 Gap C) ────────────────────────────────
@@ -93,7 +689,7 @@
      if "chrome_history" in sources:
          try:
              from .chrome_history import (
-@@ -168,9 +175,6 @@
+@@ -192,9 +199,6 @@ def run_all(
                  "status": "ok",
                  "visits": len(chrome_entries),
                  "unique_domains": len(chrome_domains),
@@ -103,7 +699,7 @@
                  "top_3": [d.domain for d in chrome_domains[:3]],
              }
              logger.info(
-@@ -282,7 +286,13 @@
+@@ -306,7 +310,13 @@ def run_all(
                  chat_to_dict as _wa_to_dict,
                  TIER_T3_SKIP,
              )
@@ -118,7 +714,7 @@
              stats = _wa_stats(chats)
  
              # Drop T3 chats before writing the JSON -- they contain
-@@ -507,12 +517,31 @@
+@@ -599,12 +609,31 @@ def run_all(
              summary["sources"]["calendar"] = {"status": "no_fda"}
              logger.info("[skip] Calendar: Full Disk Access not granted")
          except FileNotFoundError:
@@ -152,7 +748,7 @@
  
      # ── Reminders ───────────────────────────────────────────────────
      if "reminders" in sources:
-@@ -683,7 +712,21 @@
+@@ -775,7 +804,21 @@ def run_all(
      if "apple_mail" in sources:
          try:
              from .apple_mail import extract_messages, email_stats, frequent_contacts
@@ -175,7 +771,7 @@
              stats = email_stats(messages)
              contacts = frequent_contacts(messages)
  
-@@ -694,14 +737,31 @@
+@@ -786,14 +829,31 @@ def run_all(
                  json.dumps(contacts, indent=2, default=str)
              )
  
@@ -215,9 +811,11 @@
  
          except PermissionError:
              summary["sources"]["apple_mail"] = {"status": "no_fda"}
+diff --git a/given_name_variants.py b/given_name_variants.py
+index 8396d5d7..8cbfd3c8 100644
 --- a/given_name_variants.py
 +++ b/given_name_variants.py
-@@ -104,7 +104,21 @@
+@@ -104,7 +104,21 @@ _DEFAULT_CLASSES: List[List[str]] = [
      ["timothy", "timmy"],
      ["victoria", "vicky", "tori"],
      ["william", "billy", "willie"],
@@ -240,7 +838,7 @@
      ["allison", "allie"],
      ["alexander", "xander"],
      ["alexandra", "sasha"],
-@@ -150,7 +164,9 @@
+@@ -150,7 +164,9 @@ def _build() -> Dict[str, str]:
          if not group:
              continue
          # The FIRST entry is the full name and the canon -- not the longest,
@@ -251,19 +849,78 @@
          canon = group[0]
          for name in group:
              if name in _AMBIGUOUS:
+diff --git a/identifier_quality.py b/identifier_quality.py
+index c5d3f8d0..6021f8c3 100644
+--- a/identifier_quality.py
++++ b/identifier_quality.py
+@@ -86,7 +86,7 @@ import re
+ import unicodedata
+ 
+ from nameparser import HumanName
+-from typing import Iterable, Set
++from typing import Dict, Iterable, Set
+ 
+ try:
+     from .role_addresses import is_role_identifier
+diff --git a/pwg_ingest.py b/pwg_ingest.py
+index 9f7339f1..c3e17e9e 100644
 --- a/pwg_ingest.py
 +++ b/pwg_ingest.py
-@@ -95,7 +95,214 @@
+@@ -33,6 +33,8 @@ import httpx
  
+ from .role_addresses import is_role_identifier  # noqa: F401
+ from .identifier_quality import observe as _observe_identifier
++from .usage_journal import record_usage as _record_usage
++from .usage_journal import tokens_from_ollama as _tokens_from_ollama
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -42,6 +44,35 @@ QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+ OXIGRAPH_URL = os.getenv("OXIGRAPH_URL", "http://localhost:7878")
+ OLLAMA_URL = os.getenv("EMBED_OLLAMA_URL", "http://localhost:11434")
+ EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
++
++# Identifies THIS run in the usage journal -- never the person. One id per
++# process so the panel can tell "one big import" from "forty small ones".
++_USAGE_SESSION_ID = f"ostler-fda-ingest-{uuid.uuid4().hex[:12]}"
++
++
++def _record_embed_usage(response: dict) -> None:
++    """Record one embedding call as `ingesting`, if the runtime measured it.
++
++    Embedding a source for the first time is the definition of ingesting, so
++    this is the purpose regardless of which extractor called us.
++
++    Silent when Ollama reported no counts. That is the contract's hard rule
++    (measured, never estimated) and not an oversight: the legacy
++    ``/api/embeddings`` endpoint returns the vector alone, so on an install
++    still pointed at it this stays dark rather than inventing a number.
++    """
++    prompt, completion = _tokens_from_ollama(response)
++    if prompt is None and completion is None:
++        return
++    _record_usage(
++        model=EMBED_MODEL,
++        input_tokens=prompt,
++        output_tokens=completion,
++        purpose="ingesting",
++        session_id=_USAGE_SESSION_ID,
++    )
++
++
+ QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "people")
+ DEFAULT_PRIVACY = os.getenv("DEFAULT_PRIVACY_LEVEL", "L2")
+ 
+@@ -96,6 +127,318 @@ def _wiki_slug(name: str) -> str:
  
  # ── Shared utilities (same patterns as contact_syncer) ────────────
-+
+ 
 +
 +# v1018-D658. Andy's ruling 2026-08-10: a displayName is RANKED and
 +# overwrites go UPWARD ONLY.
 +#
-+#   tier 0  "+852 1234 5678"       replaces nothing
-+#   tier 1  "j.smith@company.com"  replaces tier 0
++#   tier 0  "+44 7700 900123"      replaces nothing
++#   tier 1  "j.smith@example.com"  replaces tier 0
 +#   tier 2  "Jane Smith"           replaces tier 0 or 1
 +#
 +# His reasoning: a phone number is "totally indecipherable to a human",
@@ -346,11 +1003,55 @@
 +    return _KINSHIP_DEFAULT
 +
 +
++# Kinship words that also serve as a given name or a surname somewhere in
++# the English-speaking world, and therefore must NOT refuse a two-token
++# label on the strength of the first token alone:
++#
++#   Nan Goldin, Ma Rainey, Pop, Gran, Bro, Sis as nicknames; Boy, House,
++#   Work, Home, Bairn, Son and Daughter all occur as surnames; Aunt is
++#   rare but attested.
++#
++# Everything NOT on this list is a word no parent names a child, so
++# "<word> <surname>" is a relationship, not a name. Keeping the exception
++# list rather than an inclusion list means a customer's locale file gets
++# the composed rule for free on every word it adds.
++_KINSHIP_AMBIGUOUS = frozenset({
++    "nan", "gran", "ma", "pa", "pop", "bro", "sis", "aunt",
++    "brother", "sister", "cousin", "nephew", "niece",
++    "son", "daughter", "kid", "boy", "girl", "bairn",
++    "wife", "partner", "spouse", "missus", "fiance", "fiancee",
++    "other half", "home", "house", "work", "office", "landline",
++})
++
++
 +def _is_relationship_label(value: str) -> bool:
 +    """True when this label is a kinship/household term, not a name.
 +
-+    Matches the WHOLE label only. "Mum" is a relationship; "Mum Zhang" is
-+    plausibly somebody's actual name and is left alone.
++    Three shapes, and the third is the one that shipped broken.
++
++      1. the WHOLE label: "Mum"
++      2. a qualifier in front: "my mum", "our nan", "big sis"
++      3. a kinship word COMPOSED WITH A SURNAME: "Mum Okonjo"
++
++    Shape 3 used to be allowed through, on the reasoning -- written into
++    this docstring -- that '"Mum Zhang" is plausibly somebody's actual
++    name'. Measured on the founder box 2026-08-17, that reasoning cost:
++    13 people carried a name beginning with a kinship word, and the one
++    the owner noticed was his SPOUSE rendered as "Mum Okonjo", on a box
++    where his mother had died the previous year.
++
++    The premise was wrong in a specific way. The worry was about the
++    SECOND token being a real surname, but the thing that makes the label
++    a relationship is the FIRST token, and no parent names a child "Mum".
++    Words that genuinely double as names -- Nan, Ma, Pop, Sis, and the
++    surname-shaped Boy/House/Work -- are listed in _KINSHIP_AMBIGUOUS and
++    still require a whole-label match, so "Nan Goldin" survives.
++
++    Refusing shape 3 is also the only thing that unsticks such a record.
++    "Mum Okonjo" and "Fenella Okonjo" are BOTH tier 2, so the repair pass
++    in repair_placeholder_names.py sees two real-looking names, calls it
++    a tie, and by its own contract declines to choose. Nothing downstream
++    can fix a name the writer accepted.
 +    """
 +    n = re.sub(r"[^\w\s]", " ", (value or "").strip().lower(), flags=re.UNICODE)
 +    n = " ".join(n.split())
@@ -359,13 +1060,14 @@
 +    words = _kinship_words()
 +    if n in words:
 +        return True
-+    # "my mum", "our nan", "big sis" -- a single qualifier in front.
 +    parts = n.split()
++    # "my mum", "our nan", "big sis" -- a single qualifier in front.
 +    return (
 +        len(parts) == 2
 +        and parts[0] in _KINSHIP_QUALIFIERS
 +        and parts[1] in words
 +    )
++
 +
 +
 +_NAME_TIER_REFUSED = -1
@@ -415,6 +1117,54 @@
 +    return _display_name_tier(value) < _NAME_TIER_NAME
 +
 +
++def _is_kinship_composed_label(value: str) -> bool:
++    """True for "<kinship word> <anything>", e.g. a relationship plus a surname.
++
++    SEPARATE from _is_relationship_label ON PURPOSE, and the separation is
++    the whole point of this function existing.
++
++    _is_relationship_label feeds _display_name_tier, and
++    repair_placeholder_names.py DELETES any stored name whose tier is below
++    PLACEHOLDER. Folding the composed shape into that predicate makes the
++    repair pass delete "Auntie Emma" -- and its own suite pins the case
++    where that is somebody's ONLY name, which would leave a real person
++    with no name at all and no undo. Seven assertions caught exactly that
++    when this was first written as one predicate.
++
++    So the composed shape is refused at the WRITE path only. Refusing a
++    write is reversible in the way a delete is not: the node is still
++    created, still carries its identifiers, and `!BOUND(?old)` still holds,
++    so it stays eligible for the first real name any source offers.
++
++    The first token is what makes it a relationship, and no parent names a
++    child "Mum". Words that genuinely double as names are excluded via
++    _KINSHIP_AMBIGUOUS, so "Nan Goldin" and "Boy George" are untouched. The
++    tail is deliberately not inspected: the punctuation strip turns an
++    apostrophe surname into two words, so a len == 2 test lets a
++    three-token normalisation straight through.
++    """
++    n = re.sub(r"[^\w\s]", " ", (value or "").strip().lower(), flags=re.UNICODE)
++    parts = " ".join(n.split()).split()
++    if len(parts) < 2:
++        return False
++    return parts[0] in _kinship_words() and parts[0] not in _KINSHIP_AMBIGUOUS
++    # Shape 3: "Mum Okonjo". Everything after the first token is
++    # deliberately NOT inspected, for two reasons.
++    #
++    # Requiring the tail to match a surname already on the person would
++    # need caller context this predicate does not have, and would miss the
++    # CREATION write -- the write that does the damage.
++    #
++    # And the tail is not reliably one token. The punctuation strip above
++    # turns an apostrophe surname into two words, so "Grandma O'Rourke"
++    # normalises to "grandma o neill" and a len == 2 test lets it straight
++    # through. That case is SYNTHETIC -- no such contact was observed --
++    # but the surname shape is not: apostrophe surnames are ordinary, and
++    # the first version of this fix passed every hand-picked example while
++    # failing on one punctuation mark. Match on the FIRST token only.
++    return parts[0] in words and parts[0] not in _KINSHIP_AMBIGUOUS
++
++
 +def _creation_name_triples(person_uri: str, value: str) -> list:
 +    """The displayName triples for a person node being CREATED.
 +
@@ -453,6 +1203,18 @@
 +    """
 +    tier = _display_name_tier(value)
 +    flag = f'<{person_uri}> pwg:displayNameProvisional "true"^^xsd:boolean'
++    # "<kinship word> <surname>" is a relationship label wearing the shape
++    # of a name, so the tier alone cannot see it. Refused HERE rather than
++    # in the tier because the tier also drives deletion in
++    # repair_placeholder_names, and a delete has no undo. See
++    # _is_kinship_composed_label.
++    if _is_kinship_composed_label(value):
++        logger.debug(
++            "Refused %r as a displayName for %s at creation: a kinship word "
++            "composed with a surname is still a relationship (v1018-D659)",
++            value, person_uri,
++        )
++        return [flag]
 +    if tier < _NAME_TIER_PLACEHOLDER:
 +        logger.debug(
 +            "Refused %r as a displayName for %s at creation: it is a "
@@ -463,12 +1225,20 @@
 +    if tier < _NAME_TIER_NAME:
 +        triples.append(flag)
 +    return triples
- 
++
 +
  def _sparql_update(sparql: str) -> None:
      """Execute a SPARQL UPDATE against Oxigraph."""
      transport = httpx.HTTPTransport(proxy=None)
-@@ -285,13 +492,19 @@
+@@ -182,6 +525,7 @@ def _embed_text(text: str) -> list[float]:
+         )
+         resp.raise_for_status()
+         data = resp.json()
++    _record_embed_usage(data)
+     embs = data.get("embeddings") or [data.get("embedding")]
+     return embs[0]
+ 
+@@ -285,13 +629,19 @@ def ingest_imessage(fda_dir: Path) -> dict:
  
                  triples = [
                      f"<{uri}> a pwg:Person",
@@ -489,7 +1259,7 @@
                  # Add identifier
                  id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_imessage"
                  triples.extend([
-@@ -328,6 +541,12 @@
+@@ -328,6 +678,12 @@ def ingest_imessage(fda_dir: Path) -> dict:
                      _sparql_update(sparql)
                      people_enriched += 1
  
@@ -502,7 +1272,7 @@
              # Update last_contact if this conversation is more recent
              if last_msg and msg_count > 0:
                  _update_last_contact(uri, last_msg, "imessage")
-@@ -446,6 +665,77 @@
+@@ -446,6 +802,84 @@ def _update_last_contact(person_uri: str, timestamp: str, source: str) -> None:
          logger.debug("Could not update last_contact: %s", e)
  
  
@@ -533,6 +1303,13 @@
 +    both flagged and the flag cannot tell them apart.
 +    """
 +    tier = _display_name_tier(value)
++    if _is_kinship_composed_label(value):
++        logger.debug(
++            "Refused %r as a displayName for %s on upsert: a kinship word "
++            "composed with a surname is still a relationship (v1018-D659)",
++            value, person_uri,
++        )
++        return
 +    if tier < _NAME_TIER_PLACEHOLDER:
 +        # v1018-D659: refused outright. Not a weaker write, NO write --
 +        # a kinship word must not become a name, must not displace one,
@@ -580,7 +1357,7 @@
  # ── WhatsApp historical ingestion (CX-85) ─────────────────────────
  #
  # Three-tier model (Andy 2026-05-26 -- see whatsapp_history.py for
-@@ -548,21 +838,34 @@
+@@ -548,21 +982,34 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
              uri = _person_uri(person_id)
              exists = _person_exists(uri)
  
@@ -622,7 +1399,7 @@
                  id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_whatsapp"
                  triples.extend([
                      f"<{uri}> pwg:hasIdentifier <{id_uri}>",
-@@ -617,6 +920,12 @@
+@@ -617,6 +1064,12 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                      _sparql_update(sparql)
                      people_enriched += 1
  
@@ -635,7 +1412,7 @@
              # Always upsert lastContactWhatsApp regardless of person
              # existing or not. The DELETE-INSERT-WHERE-FILTER pattern
              # in _update_last_contact ensures older timestamps never
-@@ -687,12 +996,16 @@
+@@ -687,12 +1140,16 @@ def ingest_calendar(fda_dir: Path) -> dict:
                  if not _person_exists(uri):
                      triples = [
                          f"<{uri}> a pwg:Person",
@@ -653,7 +1430,7 @@
                      sparql = (
                          "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
                          "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
-@@ -700,6 +1013,12 @@
+@@ -700,6 +1157,12 @@ def ingest_calendar(fda_dir: Path) -> dict:
                      )
                      _sparql_update(sparql)
  
@@ -666,7 +1443,7 @@
              # Update last contact from meeting date
              if start_date:
                  _update_last_contact(uri, start_date, "calendar")
-@@ -792,12 +1111,16 @@
+@@ -792,12 +1255,16 @@ def ingest_photos_people(fda_dir: Path) -> dict:
  
              triples = [
                  f"<{uri}> a pwg:Person",
@@ -684,20 +1461,20 @@
  
              if first_seen:
                  triples.append(
-@@ -815,6 +1138,12 @@
-             )
+@@ -816,6 +1283,12 @@ def ingest_photos_people(fda_dir: Path) -> dict:
              _sparql_update(sparql)
              people_created += 1
-+
+ 
 +        # v1018-D658: runs for NEW and EXISTING alike. Every name write
 +        # above sits inside the not-exists guard, so an existing person's
 +        # placeholder was never revisited by any source. Upward-only -- a
 +        # same-tier or lower value is a no-op.
 +        _upsert_display_name(uri, name)
- 
++
      logger.info("Photos: %d people created from face labels", people_created)
      return {"status": "ok", "people_created": people_created}
-@@ -854,11 +1183,14 @@
+ 
+@@ -854,11 +1327,14 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
          if not _person_exists(uri):
              triples = [
                  f"<{uri}> a pwg:Person",
@@ -713,7 +1490,7 @@
  
              id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_mail"
              triples.extend([
-@@ -877,6 +1209,12 @@
+@@ -877,6 +1353,12 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
              _sparql_update(sparql)
              people_created += 1
  
@@ -726,6 +1503,895 @@
      logger.info("Apple Mail: %d contacts created", people_created)
      return {"status": "ok", "people_created": people_created}
  
+@@ -962,7 +1444,12 @@ def _ollama_embed_batch(texts: list[str]) -> list[list[float]]:
+                     json={"model": EMBED_MODEL, "input": chunk},
+                 )
+                 resp.raise_for_status()
+-                embs = resp.json().get("embeddings")
++                payload = resp.json()
++                # Recorded per CHUNK, because that is per HTTP call and so per
++                # measurement Ollama returns. The degraded per-text fallback
++                # below routes through _embed_text, which records its own.
++                _record_embed_usage(payload)
++                embs = payload.get("embeddings")
+                 if embs is None or len(embs) != len(chunk):
+                     # Malformed/short batch: degrade to one-at-a-time.
+                     embs = []
+@@ -1069,6 +1556,63 @@ def _qdrant_upsert_points(collection: str, points: list[dict]) -> int:
+     return upserted
+ 
+ 
++def _qdrant_scroll_points(collection: str, limit: int = 1000) -> Optional[list[dict]]:
++    """Enumerate every point in a collection with its payload.
++
++    Returns None on ANY failure. That is deliberate and load-bearing: the
++    caller uses this to decide what to DELETE, and an empty list from a failed
++    read is indistinguishable from a genuinely empty collection. A prune driven
++    by a failed read deletes everything. None means "could not look", which is
++    not the same as "nothing there".
++    """
++    out: list[dict] = []
++    transport = httpx.HTTPTransport(proxy=None)
++    url = f"{QDRANT_URL}/collections/{collection}/points/scroll"
++    offset = None
++    try:
++        with httpx.Client(timeout=60.0, transport=transport) as client:
++            while True:
++                body: dict = {"limit": limit, "with_payload": True,
++                              "with_vector": False}
++                if offset is not None:
++                    body["offset"] = offset
++                resp = client.post(url, json=body)
++                resp.raise_for_status()
++                result = resp.json().get("result") or {}
++                out.extend(result.get("points") or [])
++                offset = result.get("next_page_offset")
++                if offset is None:
++                    return out
++    except Exception as exc:
++        logger.warning(
++            "Qdrant scroll of %s failed: %s", collection, type(exc).__name__,
++        )
++        return None
++
++
++def _qdrant_delete_points(collection: str, ids: list) -> int:
++    """Delete points by id. Returns the count the server acknowledged."""
++    if not ids:
++        return 0
++    transport = httpx.HTTPTransport(proxy=None)
++    url = f"{QDRANT_URL}/collections/{collection}/points/delete"
++    deleted = 0
++    with httpx.Client(timeout=60.0, transport=transport) as client:
++        for start in range(0, len(ids), _BROWSING_QDRANT_BATCH_SIZE):
++            chunk = ids[start : start + _BROWSING_QDRANT_BATCH_SIZE]
++            try:
++                resp = client.post(url, json={"points": chunk},
++                                   params={"wait": "true"})
++                resp.raise_for_status()
++                deleted += len(chunk)
++            except Exception as exc:
++                logger.warning(
++                    "Qdrant delete from %s failed (start=%d, size=%d): %s",
++                    collection, start, len(chunk), type(exc).__name__,
++                )
++    return deleted
++
++
+ def _load_browsing_visits(fda_dir: Path) -> list[dict]:
+     """Read safari_history.json + chrome_history.json from ``fda_dir``.
+ 
+@@ -2113,6 +2657,64 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
+             "total": len(people),
+         }
+ 
++    # ── PRUNE: this sweep is a PROJECTION, and a projection must be able to
++    # ── remove as well as add. (task #273 / the 84-orphan finding, 2026-09-05)
++    #
++    # THE DEFECT THIS CLOSES. This function reads Oxigraph and writes Qdrant.
++    # It cannot create a vector without a Person node -- so it could only ever
++    # ADD. A node that LEAVES the graph left its point behind permanently.
++    # Measured on archie@.240 with v1.0.67 installed: 84 points carried
++    # person_uri values with NO presence anywhere in the graph, all 84 stamped
++    # source=fda_people_index, all 84 carrying a full contact payload (display
++    # name, organisation, job title, phones, emails). 297 points came from this
++    # sweep; 84 of them pointed at nothing.
++    #
++    # It is visible to a customer twice over: the People count the Doctor
++    # reports came from the vector store (1907) while the graph said 1823, and
++    # the difference was exactly these 84. Deleted people also stayed
++    # searchable.
++    #
++    # ⚠️ THREE GUARDS, AND THEY ARE THE WHOLE DESIGN.
++    #
++    # 1. WE ONLY REACH HERE WHEN sent > 0. The block above returns
++    #    status="error" when Oxigraph held Person nodes and none landed. So a
++    #    prune can never run off a failed projection.
++    # 2. A FAILED READ PRUNES NOTHING. _qdrant_scroll_points returns None on
++    #    any error, and None is handled separately from an empty list. An empty
++    #    list from a broken read and an empty collection are indistinguishable
++    #    by value, and one of them would authorise deleting the lot.
++    # 3. WE ONLY DELETE WHAT THIS SWEEP OWNS. Points are removed only when
++    #    payload.source == "fda_people_index". contact_syncer writes
++    #    source="icloud_contacts" into the same collection and this sweep knows
++    #    nothing about which of those are current, so it must never touch them.
++    #    Measured: 1610 of the collection's points are icloud_contacts.
++    pruned: Optional[int] = None
++    projected_uris = {
++        (pt.get("payload") or {}).get("person_uri") for pt in points
++    }
++    projected_uris.discard(None)
++    existing = _qdrant_scroll_points(PEOPLE_QDRANT_COLLECTION)
++    if existing is None:
++        logger.warning(
++            "People: could not enumerate '%s', so nothing was pruned. "
++            "A prune driven by a failed read would delete everything.",
++            PEOPLE_QDRANT_COLLECTION,
++        )
++    else:
++        stale = [
++            pt["id"] for pt in existing
++            if (pt.get("payload") or {}).get("source") == "fda_people_index"
++            and (pt.get("payload") or {}).get("person_uri") not in projected_uris
++        ]
++        if stale:
++            pruned = _qdrant_delete_points(PEOPLE_QDRANT_COLLECTION, stale)
++            logger.info(
++                "People: pruned %d of %d point(s) whose Person node is no "
++                "longer in Oxigraph.", pruned, len(stale),
++            )
++        else:
++            pruned = 0
++
+     logger.info(
+         "People: %d of %d Person nodes indexed into Qdrant '%s'.",
+         sent, len(people), PEOPLE_QDRANT_COLLECTION,
+@@ -2122,6 +2724,7 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
+         "sent": sent,
+         "points_created": sent,
+         "total": len(people),
++        "pruned": pruned,
+     }
+ 
+ 
+diff --git b/repair_overmerged_contact_cards.py b/repair_overmerged_contact_cards.py
+new file mode 100644
+index 00000000..5be87fea
+--- /dev/null
++++ b/repair_overmerged_contact_cards.py
+@@ -0,0 +1,729 @@
++#!/usr/bin/env python3
++"""Un-merge Person nodes that swallowed more than one macOS Contacts card (#659).
++
++THE DEFECT
++==========
++``icloud_contact_uid`` is a CANONICAL key: exactly one macOS Contacts card, for
++ever. RULE 2 of the ratified dedupe ruleset (Andy + TNM, 2026-06-09) says
++verbatim:
++
++    MUST NOT MERGE: different canonical keys, even if identical display name.
++
++A Person node carrying two DIFFERENT ``icloud_contact_uid`` values is therefore
++an over-merge BY DEFINITION -- no judgement, no fuzzy call.
++
++MEASURED on a live v1.0.38 box, 2026-08-22 (re-measured, not inherited):
++
++    over-merged person nodes        128
++    Contacts cards swallowed        263   (135 people with no node of their own)
++    worst single node                 5   distinct cards collapsed into one
++    distribution (uids -> nodes)  {2:124, 3:2, 4:1, 5:1}
++    CONTROL: icloud_contact_uid identifiers in the graph  2259
++
++``identity_resolver.resolver`` RULE 2 (``_CANONICAL_ID_TYPES`` /
++``_canonical_key_conflict``) stops NEW ones. This module repairs the ones
++already written to a customer's graph. The detector -- box-walk probe
++``no_person_holds_two_contact_cards.sh`` -- measures the same predicate, so the
++probe going green IS this module's acceptance test.
++
++WHY A SPLIT AND NOT A DELETE
++============================
++Its sibling ``repair_role_address_people`` DELETES, and is right to: those nodes
++carry no identifiers, nothing points at them, and there is no per-name
++provenance to split on, so a split would be invention.
++
++This defect is the opposite shape. The nodes here carry real identifiers, real
++attributes, and inbound edges (measured on the same box: ``meetingAttendee``,
++``fromPerson``, ``about``, ``mergedInto``). Deleting one would destroy a real
++person's record. So this module never deletes a Person node. It moves
++identifiers back to the node they came from, and where it cannot prove where a
++card came from it REPORTS and leaves the graph alone.
++
++THE EVIDENCE THAT MAKES AN EXACT UN-MERGE POSSIBLE
++==================================================
++Identifier URIs are minted from the person_id of the node that owned them AT
++WRITE TIME, and the merge never rewrites them:
++
++    contact_syncer/syncer.py:1000   #id_{person_id}_icloud
++    contact_syncer/syncer.py:1009   #id_{person_id}_phone{idx}
++    contact_syncer/syncer.py:1041   #id_{person_id}_email{idx}
++    contact_syncer/syncer.py:1138   #id_{person_id}_{id_type}_{value_hash}
++    identity_resolver/resolver.py:950  #id_{person_short_id}_{id_type}_{hash}
++
++and a Person URI is ``#person_{person_id}``. So an identifier URI whose embedded
++person_id differs from the node currently holding it is WRITER-GENERATED
++PROVENANCE that the identifier was minted on a different node and moved here by
++``resolver.merge_persons`` step 1.
++
++That step is what makes the merge look irreversible: it MOVES identifiers off
++the discard (``DELETE { discard hasIdentifier ?id } INSERT { keep ... }``), so
++the tombstone retains none. Measured on the box: 1,046 tombstones, ZERO of them
++holding an ``icloud_contact_uid``. But steps 4-5 only COPY scalars and mark the
++discard ``mergedInto`` -- they never delete the discard's own attributes.
++Measured: of 1,046 tombstones, 1,013 still carry a displayName, 902 a givenName,
++896 a familyName, 759 an organization. The loser's record is INTACT apart from
++the identifiers that were moved off it.
++
++So the undo is: move the identifiers back to the pid their URI names, and lift
++the tombstone marker. Nothing is reconstructed from a heuristic.
++
++WHAT THIS MODULE DELIBERATELY DOES NOT REPAIR
++=============================================
++Merge steps 2 and 3 re-point ``aboutPerson`` facts and ``meetingAttendee`` links
++onto the keep node and leave NO record of which came from where. That
++attribution is genuinely gone. Facts and meetings therefore STAY on the node
++that currently holds them; this module never guesses which meeting belonged to
++which of two people. Reported per node so the residue is visible, never
++silently assumed away.
++
++SAFETY (every one of these is load-bearing)
++===========================================
++  * DRY RUN IS THE DEFAULT. ``--apply`` is required to write anything. There is
++    no config, env var or file that can turn applying on.
++  * ANTI-VACUITY REFUSAL. If the control query returns zero
++    ``icloud_contact_uid`` identifiers, the module REFUSES to run rather than
++    report a clean graph -- a zero from a broken predicate and a zero from a
++    healthy graph print identically.
++  * REPORT BEFORE MUTATE. The full plan is printed, and the move-log written
++    and fsynced to disk, before the first UPDATE.
++  * REVERSIBLE. The move-log is a complete inverse: every triple removed and
++    every triple added, per node. ``--undo <movelog>`` replays it backwards.
++    A raw N-Triples backup of every touched node is written alongside it.
++  * IDEMPOTENT. Re-running finds nothing to do: the planner skips any card
++    whose identifier already sits on its origin node.
++  * SAFE TO INTERRUPT. The move-log covers the whole plan before execution
++    starts, and undo is itself idempotent (removing an absent triple is a
++    no-op), so an interrupted run is fully undoable from the log on disk.
++  * NEVER DELETES A PERSON NODE. Not one code path deletes ``?s a pwg:Person``.
++  * WHEN UNCERTAIN, LEAVES IT. A node is only split when the origin node is
++    provably identified AND still present in the graph. Everything else is
++    classified, counted and reported untouched.
++
++PII
++===
++This output lands in logs and support bundles, and the whole defect is that
++these nodes carry the names of people who are not each other. So the report
++prints node URIs, counts and shapes ONLY -- never a display name, an email, a
++phone number or a Contacts UID. There is no flag to turn that off.
++
++Usage:
++    python3 -m ostler_fda.repair_overmerged_contact_cards             # dry run
++    python3 -m ostler_fda.repair_overmerged_contact_cards --apply
++    python3 -m ostler_fda.repair_overmerged_contact_cards --undo <movelog.json>
++"""
++from __future__ import annotations
++
++import argparse
++import json
++import logging
++import os
++import re
++import sys
++import urllib.parse
++import urllib.request
++from datetime import datetime, timezone
++from typing import Dict, Iterable, List, Optional, Tuple
++
++logger = logging.getLogger(__name__)
++
++NS = "https://schema.ostler.ai/ontology#"
++OXIGRAPH = os.environ.get("OXIGRAPH_URL", "http://127.0.0.1:7878")
++
++CANONICAL_ID_TYPE = "icloud_contact_uid"
++MOVELOG_SCHEMA = "ostler.repair_overmerged_contact_cards/1"
++
++# Person URI  -> #person_<pid>
++_PERSON_RE = re.compile(r"^" + re.escape(NS) + r"person_(?P<pid>[^_]+)$")
++# Identifier URI -> #id_<pid>_<rest>.  person_id is a uuid5 string or a 12-char
++# hex slug; neither can contain "_", so the pid is unambiguously the token
++# between the first and second underscore.
++_IDENT_RE = re.compile(r"^" + re.escape(NS) + r"id_(?P<pid>[^_]+)_(?P<rest>.+)$")
++
++
++# ---------------------------------------------------------------------------
++# N-Triples serialisation (shared shape with repair_role_address_people)
++# ---------------------------------------------------------------------------
++
++_NT_ESCAPES = {
++    "\\": "\\\\",
++    '"': '\\"',
++    "\n": "\\n",
++    "\r": "\\r",
++    "\t": "\\t",
++    "\b": "\\b",
++    "\f": "\\f",
++}
++
++
++def _nt_escape(value: str) -> str:
++    out = []
++    for ch in value:
++        if ch in _NT_ESCAPES:
++            out.append(_NT_ESCAPES[ch])
++        elif ord(ch) < 0x20 or ord(ch) == 0x7F:
++            out.append(f"\\u{ord(ch):04X}")
++        else:
++            out.append(ch)
++    return "".join(out)
++
++
++def _nt_term(node: Dict) -> str:
++    """Serialise one SPARQL-JSON result node as an N-Triples term."""
++    kind = node.get("type")
++    value = node.get("value", "")
++    if kind == "uri":
++        return f"<{value}>"
++    if kind == "bnode":
++        return f"_:{value}"
++    literal = f'"{_nt_escape(value)}"'
++    lang = node.get("xml:lang")
++    if lang:
++        return f"{literal}@{lang}"
++    datatype = node.get("datatype")
++    if datatype:
++        return f"{literal}^^<{datatype}>"
++    return literal
++
++
++# ---------------------------------------------------------------------------
++# Store I/O
++# ---------------------------------------------------------------------------
++
++def _select(sparql: str) -> List[Dict]:
++    url = f"{OXIGRAPH}/query?" + urllib.parse.urlencode({"query": sparql})
++    req = urllib.request.Request(
++        url, headers={"Accept": "application/sparql-results+json"}
++    )
++    with urllib.request.urlopen(req, timeout=180) as fh:
++        return json.load(fh)["results"]["bindings"]
++
++
++def _update(sparql: str) -> None:
++    req = urllib.request.Request(
++        f"{OXIGRAPH}/update",
++        data=sparql.encode("utf-8"),
++        headers={"Content-Type": "application/sparql-update"},
++        method="POST",
++    )
++    with urllib.request.urlopen(req, timeout=180) as fh:
++        fh.read()
++
++
++# ---------------------------------------------------------------------------
++# Parsing helpers
++# ---------------------------------------------------------------------------
++
++def person_pid(person_uri: str) -> Optional[str]:
++    m = _PERSON_RE.match(person_uri)
++    return m.group("pid") if m else None
++
++
++def identifier_pid(identifier_uri: str) -> Optional[str]:
++    """The person_id embedded in an identifier URI, or None if it does not parse.
++
++    This is the ONLY provenance the merge leaves behind, so a None here is the
++    difference between a provable un-merge and a guess. Callers must treat None
++    as "unattributable" and refuse to move the card.
++    """
++    m = _IDENT_RE.match(identifier_uri)
++    return m.group("pid") if m else None
++
++
++# ---------------------------------------------------------------------------
++# Detection -- the SAME predicate as the shipping box-walk probe
++# ---------------------------------------------------------------------------
++
++def control_count() -> int:
++    """Total icloud_contact_uid identifiers. MUST be non-zero to interpret a zero."""
++    rows = _select(
++        f'PREFIX p: <{NS}> SELECT (COUNT(DISTINCT ?i) AS ?n) '
++        f'WHERE {{ ?i p:identifierType "{CANONICAL_ID_TYPE}" }}'
++    )
++    return int(rows[0]["n"]["value"]) if rows else 0
++
++
++def find_overmerged_nodes() -> List[str]:
++    """Person nodes carrying 2+ distinct icloud_contact_uid values."""
++    rows = _select(f"""PREFIX p: <{NS}>
++SELECT ?person (COUNT(DISTINCT ?v) AS ?uids) WHERE {{
++  ?person a p:Person ; p:hasIdentifier ?i .
++  ?i p:identifierType "{CANONICAL_ID_TYPE}" ; p:identifierValue ?v .
++}} GROUP BY ?person HAVING (COUNT(DISTINCT ?v) > 1)""")
++    return [r["person"]["value"] for r in rows]
++
++
++def node_identifiers(person_uri: str) -> List[Tuple[str, str]]:
++    """[(identifier_uri, identifier_type)] for every identifier on a node."""
++    rows = _select(
++        f"PREFIX p: <{NS}> SELECT ?i ?t WHERE {{ "
++        f"<{person_uri}> p:hasIdentifier ?i . ?i p:identifierType ?t }}"
++    )
++    return [(r["i"]["value"], r["t"]["value"]) for r in rows]
++
++
++def node_triple_count(uri: str) -> int:
++    rows = _select(f"SELECT (COUNT(*) AS ?n) WHERE {{ <{uri}> ?p ?o }}")
++    return int(rows[0]["n"]["value"]) if rows else 0
++
++
++def is_tombstone(uri: str) -> bool:
++    rows = _select(
++        f"PREFIX p: <{NS}> SELECT (COUNT(*) AS ?n) WHERE {{ <{uri}> p:mergedInto ?o }}"
++    )
++    return bool(rows) and int(rows[0]["n"]["value"]) > 0
++
++
++def node_values(uri: str, predicate: str) -> List[str]:
++    rows = _select(
++        f"PREFIX p: <{NS}> SELECT ?v WHERE {{ <{uri}> p:{predicate} ?v }}"
++    )
++    return [r["v"]["value"] for r in rows]
++
++
++# ---------------------------------------------------------------------------
++# Planning
++# ---------------------------------------------------------------------------
++
++# Why a node could not be repaired. Reported verbatim so a blocked node is a
++# stated fact with a reason, never a silent omission.
++BLOCK_NO_HOME = (
++    "no card on this node was minted on this node, so there is no evidence "
++    "which of them is its own -- splitting would pick one arbitrarily"
++)
++BLOCK_UNATTRIBUTABLE = (
++    "identifier URI does not embed an origin person_id, so the card's origin "
++    "is unknowable from the graph"
++)
++BLOCK_ORIGIN_ABSENT = (
++    "the origin node has been erased from the graph, so restoring the card "
++    "would mean inventing a person record rather than reviving one"
++)
++BLOCK_ORIGIN_HAS_CARD = (
++    "the origin node already holds a Contacts card of its own, so returning "
++    "this one would over-merge the origin instead"
++)
++
++
++class NodePlan:
++    """What would happen to one over-merged node."""
++
++    def __init__(self, person_uri: str) -> None:
++        self.person_uri = person_uri
++        self.pid = person_pid(person_uri)
++        self.home_cards: List[str] = []          # identifier URIs minted here
++        self.movable: List[Dict] = []            # cards with a revivable origin
++        self.blocked: List[Dict] = []            # {"identifier","reason"}
++        self.residue_facts = 0
++        self.residue_meetings = 0
++
++    @property
++    def splittable(self) -> bool:
++        return bool(self.home_cards) and bool(self.movable)
++
++    @property
++    def cards(self) -> int:
++        """Contacts cards accounted for. Must reconcile with the probe's count.
++
++        ``movable`` holds GROUPS, not cards -- one origin node can have had
++        several cards -- so this sums each group's card count rather than
++        counting the groups. Getting that wrong under-reports the population by
++        exactly the number of multi-card origins, which is how a repair tool
++        and its detector come to disagree by one and nobody notices.
++        """
++        return (
++            len(self.home_cards)
++            + sum(g["cards"] for g in self.movable)
++            + len(self.blocked)
++        )
++
++
++def plan_node(person_uri: str) -> NodePlan:
++    plan = NodePlan(person_uri)
++    idents = node_identifiers(person_uri)
++
++    # Group EVERY identifier on the node by the pid its URI embeds. The merge
++    # moved a discard's identifiers as a set, so the whole group travels back
++    # together -- phones and emails included, not just the canonical card.
++    by_pid: Dict[Optional[str], List[Tuple[str, str]]] = {}
++    for uri, id_type in idents:
++        by_pid.setdefault(identifier_pid(uri), []).append((uri, id_type))
++
++    for pid, group in by_pid.items():
++        canonical = [(u, t) for u, t in group if t == CANONICAL_ID_TYPE]
++        if pid is None:
++            for uri, _t in canonical:
++                plan.blocked.append(
++                    {"identifier": uri, "reason": BLOCK_UNATTRIBUTABLE}
++                )
++            continue
++        if pid == plan.pid:
++            plan.home_cards.extend(u for u, _ in canonical)
++            continue
++        if not canonical:
++            # A foreign group with no Contacts card in it is not a RULE 2
++            # violation. Leave it alone; this module repairs canonical-key
++            # collisions and nothing else.
++            continue
++
++        origin = f"{NS}person_{pid}"
++        if node_triple_count(origin) == 0:
++            for uri, _t in canonical:
++                plan.blocked.append(
++                    {"identifier": uri, "reason": BLOCK_ORIGIN_ABSENT}
++                )
++            continue
++
++        # NEVER FIX AN OVER-MERGE BY CREATING ANOTHER ONE. If the origin node
++        # already holds a canonical card of its own, returning this one would
++        # leave the origin holding two -- the exact violation this module
++        # exists to remove, just moved to a different node. Measured on the
++        # box, every tombstone holds zero, so this costs nothing in the normal
++        # case and is the whole ballgame in the abnormal one.
++        already = node_identifiers(origin)
++        if any(t == CANONICAL_ID_TYPE for _u, t in already):
++            for uri, _t in canonical:
++                plan.blocked.append(
++                    {"identifier": uri, "reason": BLOCK_ORIGIN_HAS_CARD}
++                )
++            continue
++
++        plan.movable.append(
++            {
++                "origin": origin,
++                "origin_pid": pid,
++                "identifiers": [{"uri": u, "type": t} for u, t in group],
++                "cards": len(canonical),
++                "tombstone": is_tombstone(origin),
++            }
++        )
++
++    # A node with no home card cannot be split: we would be choosing which of
++    # several foreign cards gets to keep the node, which is exactly the
++    # arbitrary call this module exists to avoid.
++    if not plan.home_cards and plan.movable:
++        for grp in plan.movable:
++            for ident in grp["identifiers"]:
++                if ident["type"] == CANONICAL_ID_TYPE:
++                    plan.blocked.append(
++                        {"identifier": ident["uri"], "reason": BLOCK_NO_HOME}
++                    )
++        plan.movable = []
++
++    if plan.movable:
++        facts = _select(
++            f"PREFIX p: <{NS}> SELECT (COUNT(*) AS ?n) "
++            f"WHERE {{ ?f p:aboutPerson <{person_uri}> }}"
++        )
++        meets = _select(
++            f"PREFIX p: <{NS}> SELECT (COUNT(*) AS ?n) "
++            f"WHERE {{ ?m p:meetingAttendee <{person_uri}> }}"
++        )
++        plan.residue_facts = int(facts[0]["n"]["value"]) if facts else 0
++        plan.residue_meetings = int(meets[0]["n"]["value"]) if meets else 0
++
++    return plan
++
++
++def build_operations(plan: NodePlan) -> List[Dict]:
++    """The concrete triple-level changes for one node.
++
++    Each operation is a pair of triple lists: ``remove`` and ``add``. The undo
++    is the same pair swapped, which is why the move-log needs nothing else.
++    """
++    ops: List[Dict] = []
++    for grp in plan.movable:
++        origin = grp["origin"]
++        remove: List[Dict] = []
++        add: List[Dict] = []
++
++        for ident in grp["identifiers"]:
++            remove.append(
++                {"s": plan.person_uri, "p": f"{NS}hasIdentifier", "o": ident["uri"],
++                 "kind": "uri"}
++            )
++            add.append(
++                {"s": origin, "p": f"{NS}hasIdentifier", "o": ident["uri"],
++                 "kind": "uri"}
++            )
++
++        # Lift the tombstone: the node is a real person again, so the marker
++        # that hides it from every reader must go. ical-server.py:3107 treats
++        # pwg:mergedInto as "deprecated fragment" and suppresses the node.
++        if grp["tombstone"]:
++            for pred in ("mergedInto", "mergedAt"):
++                for row in _select(
++                    f"PREFIX p: <{NS}> SELECT ?o WHERE {{ <{origin}> p:{pred} ?o }}"
++                ):
++                    remove.append(
++                        {"s": origin, "p": f"{NS}{pred}",
++                         "o": row["o"]["value"],
++                         "kind": "uri" if row["o"]["type"] == "uri" else "literal",
++                         "datatype": row["o"].get("datatype"),
++                         "lang": row["o"].get("xml:lang")}
++                    )
++
++        # Re-type as a Person if the merge left it untyped. Measured: only 13
++        # of 1,046 tombstones kept rdf:type, so most revived nodes need this or
++        # they are invisible to every `?s a pwg:Person` query in the product.
++        typed = _select(
++            f"PREFIX p: <{NS}> SELECT (COUNT(*) AS ?n) "
++            f"WHERE {{ <{origin}> a p:Person }}"
++        )
++        if not typed or int(typed[0]["n"]["value"]) == 0:
++            add.append(
++                {"s": origin,
++                 "p": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
++                 "o": f"{NS}Person", "kind": "uri"}
++            )
++
++        ops.append({
++            "node": plan.person_uri,
++            "origin": origin,
++            "cards": grp["cards"],
++            "remove": remove,
++            "add": add,
++        })
++    return ops
++
++
++# ---------------------------------------------------------------------------
++# Execution
++# ---------------------------------------------------------------------------
++
++def _triple_nt(t: Dict) -> str:
++    if t["kind"] == "uri":
++        obj = f"<{t['o']}>"
++    else:
++        obj = f'"{_nt_escape(t["o"])}"'
++        if t.get("lang"):
++            obj += f"@{t['lang']}"
++        elif t.get("datatype"):
++            obj += f"^^<{t['datatype']}>"
++    return f"<{t['s']}> <{t['p']}> {obj} ."
++
++
++def apply_operation(op: Dict) -> None:
++    """Apply one operation as a SINGLE SPARQL update.
++
++    One request per operation means a node is never left half-moved: Oxigraph
++    applies DELETE DATA/INSERT DATA in one transaction. An interrupt lands
++    between operations, never inside one, and the move-log on disk already
++    describes every operation including the ones not yet run.
++    """
++    parts = []
++    if op["remove"]:
++        parts.append(
++            "DELETE DATA { " + " ".join(_triple_nt(t) for t in op["remove"]) + " }"
++        )
++    if op["add"]:
++        parts.append(
++            "INSERT DATA { " + " ".join(_triple_nt(t) for t in op["add"]) + " }"
++        )
++    if parts:
++        _update(" ; ".join(parts))
++
++
++def invert_operation(op: Dict) -> Dict:
++    return {**op, "remove": op["add"], "add": op["remove"]}
++
++
++# ---------------------------------------------------------------------------
++# Reporting -- URIs, counts and shapes ONLY. Never a name, value or UID.
++# ---------------------------------------------------------------------------
++
++def print_report(plans: List[NodePlan], control: int, apply: bool) -> None:
++    splittable = [p for p in plans if p.splittable]
++    blocked = [p for p in plans if not p.splittable]
++    cards_total = sum(p.cards for p in plans)
++    cards_moved = sum(len(g["identifiers"]) for p in splittable for g in p.movable)
++    cards_restored = sum(g["cards"] for p in splittable for g in p.movable)
++    blocked_cards = sum(len(p.blocked) for p in plans)
++
++    print("=" * 72)
++    print("OVER-MERGED CONTACTS CARDS -- REPAIR PLAN (#659)")
++    print("=" * 72)
++    print(f"  control: {control} icloud_contact_uid identifiers in the graph")
++    print(f"  over-merged Person nodes:            {len(plans)}")
++    print(f"  Contacts cards on those nodes:       {cards_total}")
++    print()
++    print(f"  REPAIRABLE nodes (provable origin):  {len(splittable)}")
++    print(f"    cards returned to their own node:  {cards_restored}")
++    print(f"    identifiers moved in total:        {cards_moved}")
++    print(f"  LEFT ALONE nodes (no proof):         {len(blocked)}")
++    print(f"    cards left in place:               {blocked_cards}")
++    print()
++
++    reasons: Dict[str, int] = {}
++    for p in plans:
++        for b in p.blocked:
++            reasons[b["reason"]] = reasons.get(b["reason"], 0) + 1
++    if reasons:
++        print("  WHY CARDS WERE LEFT ALONE:")
++        for reason, n in sorted(reasons.items(), key=lambda kv: -kv[1]):
++            print(f"    {n:>4}  {reason}")
++        print()
++
++    if splittable:
++        residue_f = sum(p.residue_facts for p in splittable)
++        residue_m = sum(p.residue_meetings for p in splittable)
++        print("  NOT REPAIRED BY THIS MODULE (attribution destroyed at merge time):")
++        print(f"    {residue_f} fact link(s) and {residue_m} meeting link(s) stay on the")
++        print("    node that holds them. resolver.merge_persons steps 2-3 re-pointed")
++        print("    them and kept no record of which person they came from.")
++        print()
++        print("  NODES THAT WOULD CHANGE (URIs only -- names are the defect):")
++        for p in sorted(splittable, key=lambda p: -len(p.movable))[:20]:
++            revived = ", ".join(g["origin"].rsplit("person_", 1)[-1][:8] for g in p.movable)
++            print(f"    {p.person_uri}")
++            print(f"      -> returns {sum(g['cards'] for g in p.movable)} card(s) "
++                  f"to {len(p.movable)} node(s): {revived}")
++        if len(splittable) > 20:
++            print(f"    ... and {len(splittable) - 20} more")
++        print()
++
++    print("-" * 72)
++    if not apply:
++        print("DRY RUN -- nothing has been written. Re-run with --apply to repair.")
++    print("=" * 72)
++
++
++# ---------------------------------------------------------------------------
++# Move-log
++# ---------------------------------------------------------------------------
++
++def default_movelog_path() -> str:
++    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
++    return os.path.expanduser(
++        f"~/.ostler/state/overmerge_repair_{stamp}.movelog.json"
++    )
++
++
++def write_movelog(path: str, ops: List[Dict], control: int) -> None:
++    """Write the COMPLETE plan, then fsync, BEFORE the first mutation.
++
++    fsync is not decoration. Without it an interrupt can lose the only record
++    of what was about to change, and a repair you cannot undo is not a repair.
++    """
++    os.makedirs(os.path.dirname(path), exist_ok=True)
++    payload = {
++        "schema": MOVELOG_SCHEMA,
++        "created": datetime.now(timezone.utc).isoformat(),
++        "oxigraph": OXIGRAPH,
++        "control_icloud_identifiers": control,
++        "operations": ops,
++    }
++    with open(path, "w", encoding="utf-8") as fh:
++        json.dump(payload, fh, indent=2)
++        fh.flush()
++        os.fsync(fh.fileno())
++
++
++def write_backup(path: str, uris: Iterable[str]) -> int:
++    """Raw N-Triples of every node this run will touch, for a manual restore."""
++    os.makedirs(os.path.dirname(path), exist_ok=True)
++    written = 0
++    with open(path, "w", encoding="utf-8") as fh:
++        for uri in sorted(set(uris)):
++            for row in _select(f"SELECT ?p ?o WHERE {{ <{uri}> ?p ?o }}"):
++                fh.write(f"<{uri}> <{row['p']['value']}> {_nt_term(row['o'])} .\n")
++                written += 1
++        fh.flush()
++        os.fsync(fh.fileno())
++    return written
++
++
++def run_undo(path: str) -> int:
++    with open(path, encoding="utf-8") as fh:
++        payload = json.load(fh)
++    if payload.get("schema") != MOVELOG_SCHEMA:
++        print(f"ERROR: {path} is not a {MOVELOG_SCHEMA} move-log.", file=sys.stderr)
++        return 2
++    ops = payload.get("operations", [])
++    print(f"Undoing {len(ops)} operation(s) from {path}")
++    for op in ops:
++        apply_operation(invert_operation(op))
++    print(f"Undone. {len(ops)} operation(s) reversed.")
++    print("Undo is idempotent -- re-running it is a no-op, so an interrupted")
++    print("undo can simply be run again.")
++    return 0
++
++
++# ---------------------------------------------------------------------------
++# CLI
++# ---------------------------------------------------------------------------
++
++def main(argv=None) -> int:
++    ap = argparse.ArgumentParser(
++        description="Un-merge Person nodes holding 2+ Contacts cards (#659)."
++    )
++    ap.add_argument("--apply", action="store_true",
++                    help="actually write the repair (default is a dry run)")
++    ap.add_argument("--undo", metavar="MOVELOG",
++                    help="reverse a previous --apply from its move-log")
++    ap.add_argument("--movelog", metavar="PATH", default=None,
++                    help="where to write the move-log (default ~/.ostler/state/)")
++    args = ap.parse_args(argv)
++    logging.basicConfig(level=logging.INFO, format="%(message)s")
++
++    if args.undo:
++        return run_undo(args.undo)
++
++    # ANTI-VACUITY GATE. A zero violation count is the pass condition, and it is
++    # also exactly what a wrong namespace, an empty store or an unreachable
++    # Oxigraph returns. Refuse to interpret one without a non-zero control.
++    control = control_count()
++    if control == 0:
++        print(
++            "REFUSING TO RUN: zero icloud_contact_uid identifiers in the graph.\n"
++            "Either contacts have not been imported, or the predicate/namespace\n"
++            "is wrong. A clean violation count would prove nothing here.",
++            file=sys.stderr,
++        )
++        return 2
++
++    nodes = find_overmerged_nodes()
++    if not nodes:
++        print(f"No over-merged Person nodes found "
++              f"(checked against {control} icloud_contact_uid identifiers, "
++              f"so this zero is a measurement).")
++        return 0
++
++    plans = [plan_node(uri) for uri in nodes]
++    print_report(plans, control, args.apply)
++
++    if not args.apply:
++        return 0
++
++    ops: List[Dict] = []
++    for p in plans:
++        if p.splittable:
++            ops.extend(build_operations(p))
++    if not ops:
++        print("Nothing repairable. Graph unchanged.")
++        return 0
++
++    movelog = args.movelog or default_movelog_path()
++    touched = {op["node"] for op in ops} | {op["origin"] for op in ops}
++    backup = movelog.replace(".movelog.json", ".backup.nt")
++
++    n = write_backup(backup, touched)
++    print(f"Backed up {n} triples from {len(touched)} node(s) to {backup}")
++    write_movelog(movelog, ops, control)
++    print(f"Move-log written to {movelog}")
++    print("  undo:  python3 -m ostler_fda.repair_overmerged_contact_cards "
++          f"--undo {movelog}")
++    print()
++
++    done = 0
++    for op in ops:
++        apply_operation(op)
++        done += 1
++    print(f"Repaired: {done} operation(s) applied across "
++          f"{len({op['node'] for op in ops})} over-merged node(s).")
++    print("Re-run without --apply to confirm, or run the box-walk probe "
++          "no_person_holds_two_contact_cards.sh.")
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git b/repair_placeholder_names.py b/repair_placeholder_names.py
+new file mode 100644
+index 00000000..e92a1ea9
 --- /dev/null
 +++ b/repair_placeholder_names.py
 @@ -0,0 +1,378 @@
@@ -755,8 +2421,8 @@
 +how two halves of a system come to disagree, and this cut produced several
 +of those.
 +
-+    tier 0  "+852 1234 5678"       replaces nothing
-+    tier 1  "j.smith@company.com"  replaces tier 0, KEEPS the flag
++    tier 0  "+44 7700 900123"      replaces nothing
++    tier 1  "j.smith@example.com"  replaces tier 0, KEEPS the flag
 +    tier 2  "Jane Smith"           replaces either, CLEARS the flag
 +
 +A tier-1 name is an improvement, not a resolution: the domain gives you the
@@ -1107,3 +2773,933 @@
 +
 +if __name__ == "__main__":
 +    sys.exit(main())
+diff --git b/test_vendor_browser_history.sh b/test_vendor_browser_history.sh
+new file mode 100755
+index 00000000..057be211
+--- /dev/null
++++ b/test_vendor_browser_history.sh
+@@ -0,0 +1,169 @@
++#!/usr/bin/env bash
++# CX-86 Gap A + Gap C vendor/ostler_fda browser-history regression
++# ================================================================
++#
++# Asserts that vendor/ostler_fda/ ships the pieces install.sh's
++# hydrate_browsing sub-phase needs:
++#
++#   - chrome_history.py       Chrome SQLite extractor (NEW in CX-86 Gap C)
++#   - safari_history.py       Safari extractor (guards re-vendor loss)
++#   - pwg_ingest.py           with ingest_browser_history + dispatcher entry
++#   - extract_all.py          with chrome_history in ALL_SOURCES + wiring
++
++set -euo pipefail
++
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++
++# Structural check.
++missing=""
++for path in chrome_history.py safari_history.py pwg_ingest.py extract_all.py; do
++    if [ ! -f "$SCRIPT_DIR/$path" ]; then
++        missing="$missing $path"
++    fi
++done
++if [ -n "$missing" ]; then
++    echo "FAIL: vendor/ostler_fda/ missing files:$missing" >&2
++    echo "      Re-sync from HR015 ostler_fda/ (see CX-86 Gap A + Gap C)." >&2
++    exit 1
++fi
++echo "structural check: vendor/ostler_fda/ contains chrome_history.py + safari_history.py + pwg_ingest.py + extract_all.py"
++
++# chrome_history.py must expose the symbols install.sh + extract_all rely on.
++for symbol in "CHROME_EPOCH_OFFSET" "DEFAULT_HISTORY_PATH" "_copy_history_db" "def extract_history" "def top_domains" "def to_timeline_entries"; do
++    if ! grep -q -- "$symbol" "$SCRIPT_DIR/chrome_history.py"; then
++        echo "FAIL: vendor/ostler_fda/chrome_history.py missing symbol: $symbol" >&2
++        exit 1
++    fi
++done
++echo "symbol check: chrome_history.py exposes WebKit epoch + copy-to-tempdir + extractor + helpers"
++
++# WebKit timestamp constant must be exactly 11644473600.
++if ! grep -qE "^CHROME_EPOCH_OFFSET = 11644473600\b" "$SCRIPT_DIR/chrome_history.py"; then
++    echo "FAIL: CHROME_EPOCH_OFFSET must be exactly 11644473600 (WebKit -> Unix)" >&2
++    exit 1
++fi
++echo "timestamp constant check: CHROME_EPOCH_OFFSET = 11644473600"
++
++# Lock-during-running workaround must be invoked in extract_history.
++if ! grep -q "with _copy_history_db" "$SCRIPT_DIR/chrome_history.py"; then
++    echo "FAIL: chrome_history.extract_history must use _copy_history_db (lock workaround)" >&2
++    exit 1
++fi
++echo "lock-workaround check: extract_history uses _copy_history_db context manager"
++
++# pwg_ingest must register ingest_browser_history in the dispatcher.
++# (Direct Ollama -> Qdrant writer since HR015 PR #138: no gateway.)
++if ! grep -qE "def ingest_browser_history" "$SCRIPT_DIR/pwg_ingest.py"; then
++    echo "FAIL: pwg_ingest.py missing ingest_browser_history()" >&2
++    exit 1
++fi
++if ! grep -q '"browser_history", "ingest_browser_history"' "$SCRIPT_DIR/pwg_ingest.py"; then
++    echo "FAIL: pwg_ingest.ingest_all dispatcher missing browser_history entry" >&2
++    echo "      Expected tuple form (key, name-as-string): ('browser_history', 'ingest_browser_history')" >&2
++    echo "      _INGEST_DISPATCH holds names as strings for late-binding." >&2
++    exit 1
++fi
++echo "pwg_ingest check: ingest_browser_history defined + registered in dispatcher"
++
++# Direct-Qdrant writer must self-create its collection. On a fresh
++# single-Mac install nothing else creates safari_history, and an upsert
++# into a missing collection 404s into zero rows -- a blank Browsing page
++# that looks "installed". Guards against re-vendoring a writer that
++# dropped the ensure (the exact disease browsing-at-v1.0 fixed).
++if ! grep -qE "def _qdrant_ensure_collection" "$SCRIPT_DIR/pwg_ingest.py"; then
++    echo "FAIL: pwg_ingest.py missing _qdrant_ensure_collection (direct writer must self-create its collection)" >&2
++    exit 1
++fi
++if ! grep -q "_qdrant_ensure_collection(BROWSING_QDRANT_COLLECTION" "$SCRIPT_DIR/pwg_ingest.py"; then
++    echo "FAIL: ingest_browser_history must call _qdrant_ensure_collection before upsert" >&2
++    exit 1
++fi
++echo "self-create check: ingest_browser_history ensures safari_history before upsert"
++
++# Direct-path writer must NOT carry the retired gateway POST machinery.
++# (The direct writer's explanatory comment mentions /api/safari/ingest
++# to say it does NOT use it, so we sentinel on the gateway config
++# constant that only the old POST writer defined.)
++if grep -qE "_GATEWAY_ENDPOINT_DEFAULT|OSTLER_GATEWAY_URL" "$SCRIPT_DIR/pwg_ingest.py"; then
++    echo "FAIL: pwg_ingest.py still carries the retired gateway POST machinery (stale vendor pre-PR #138)" >&2
++    exit 1
++fi
++echo "no-gateway check: pwg_ingest.py carries no gateway POST machinery"
++
++# Privacy AC: return dict must contain counts only -- key set is pinned
++# to the direct contract (status + sent + points_created + skipped +
++# total; the gateway-era errored/safari_entries/chrome_entries are gone).
++for key in '"status":' '"sent":' '"points_created":' '"skipped_sensitive":' '"total":'; do
++    if ! grep -q -- "$key" "$SCRIPT_DIR/pwg_ingest.py"; then
++        echo "FAIL: pwg_ingest.py missing return-dict key in ingest_browser_history: $key" >&2
++        exit 1
++    fi
++done
++echo "privacy contract check: ingest_browser_history returns counts-only dict"
++
++# extract_all must wire chrome_history (opt-in, default OFF).
++# ALL_SOURCES is a multi-line set literal, so grep-E on a single line
++# does not match. Use a small Python check that reads the block from
++# ALL_SOURCES to its closing brace and verifies chrome_history is inside.
++if ! python3 - "$SCRIPT_DIR/extract_all.py" <<'PY'
++import re, sys
++content = open(sys.argv[1]).read()
++match = re.search(r'ALL_SOURCES\s*=[^}]*chrome_history', content, re.DOTALL)
++sys.exit(0 if match else 1)
++PY
++then
++    echo "FAIL: extract_all.ALL_SOURCES missing chrome_history" >&2
++    echo "      Expected the set literal opened by ALL_SOURCES= to contain 'chrome_history'." >&2
++    exit 1
++fi
++if ! grep -q 'if "chrome_history" in sources:' "$SCRIPT_DIR/extract_all.py"; then
++    echo "FAIL: extract_all.run_all missing chrome_history conditional block" >&2
++    exit 1
++fi
++echo "extract_all check: chrome_history in ALL_SOURCES + run_all block present"
++
++# Safari extractor must remain importable (guard against re-vendor drop).
++if ! grep -q "def extract_history" "$SCRIPT_DIR/safari_history.py"; then
++    echo "FAIL: safari_history.py extractor was lost during re-vendor" >&2
++    exit 1
++fi
++echo "safari_history check: still present + extract_history defined"
++
++# Optional import-time check.
++PY_IMPORT_CHECK=$(/usr/bin/env python3 - "$SCRIPT_DIR/.." <<'PY'
++import sys, importlib
++sys.path.insert(0, sys.argv[1])
++try:
++    chrome = importlib.import_module("ostler_fda.chrome_history")
++    assert chrome.CHROME_EPOCH_OFFSET == 11644473600
++    assert callable(chrome._copy_history_db)
++    print("OK")
++except AssertionError as exc:
++    print(f"FAIL: constant value mismatch ({exc})")
++    sys.exit(2)
++except ImportError as exc:
++    msg = str(exc)
++    if "No module named 'ostler_fda.chrome_history'" in msg:
++        print(f"FAIL: {msg}")
++        sys.exit(2)
++    print(f"INCONCLUSIVE: external dep missing ({msg})")
++PY
++)
++case "$PY_IMPORT_CHECK" in
++    "OK")
++        echo "import check: chrome_history imports cleanly + WebKit constant matches"
++        ;;
++    INCONCLUSIVE:*)
++        echo "import check: skipped (${PY_IMPORT_CHECK#INCONCLUSIVE: })"
++        ;;
++    FAIL:*)
++        echo "$PY_IMPORT_CHECK" >&2
++        exit 1
++        ;;
++    *)
++        echo "import check: unexpected output: $PY_IMPORT_CHECK" >&2
++        exit 1
++        ;;
++esac
++
++echo "vendor/ostler_fda browser-history regression: PASS"
+diff --git b/test_vendor_imessage_history.sh b/test_vendor_imessage_history.sh
+new file mode 100755
+index 00000000..3f5a9229
+--- /dev/null
++++ b/test_vendor_imessage_history.sh
+@@ -0,0 +1,165 @@
++#!/usr/bin/env bash
++# CX-84 vendor/ostler_fda iMessage hydration regression
++# =====================================================
++#
++# Asserts that vendor/ostler_fda/ ships the pieces install.sh's
++# hydrate_imessage sub-phase needs:
++#
++#   - imessage.py        chat.db extractor (already vendored pre-CX-84)
++#   - pwg_ingest.py      with ingest_imessage + dispatcher entry
++#   - extract_all.py     with imessage in ALL_SOURCES + the
++#                        OSTLER_IMESSAGE_BACKFILL_DAYS env override
++#                        added by CX-84
++#
++# Pins the privacy contract: ingest_imessage's return dict surfaces
++# people-count keys only (status / people_created / people_enriched).
++# install.sh sums created + enriched for the customer-facing line.
++
++set -euo pipefail
++
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++
++# Structural check.
++missing=""
++for path in imessage.py pwg_ingest.py extract_all.py; do
++    if [ ! -f "$SCRIPT_DIR/$path" ]; then
++        missing="$missing $path"
++    fi
++done
++if [ -n "$missing" ]; then
++    echo "FAIL: vendor/ostler_fda/ missing files:$missing" >&2
++    echo "      Re-sync from HR015 ostler_fda/ (see CX-84)." >&2
++    exit 1
++fi
++echo "structural check: vendor/ostler_fda/ contains imessage.py + pwg_ingest.py + extract_all.py"
++
++# imessage.py must expose the chat.db reader install.sh implicitly
++# relies on (via extract_all -> imessage_conversations.json).
++for symbol in "def extract_conversations" "def conversation_stats" "since_days"; do
++    if ! grep -q -- "$symbol" "$SCRIPT_DIR/imessage.py"; then
++        echo "FAIL: vendor/ostler_fda/imessage.py missing symbol: $symbol" >&2
++        exit 1
++    fi
++done
++echo "symbol check: imessage.py exposes extract_conversations + conversation_stats + since_days"
++
++# pwg_ingest must register ingest_imessage in the dispatcher.
++if ! grep -qE "def ingest_imessage" "$SCRIPT_DIR/pwg_ingest.py"; then
++    echo "FAIL: pwg_ingest.py missing ingest_imessage()" >&2
++    exit 1
++fi
++# Parse the module rather than grep a spelling. This check went FALSE RED for
++# an unknown period because the dispatcher entry was refactored from
++#   ("imessage", ingest_imessage)     -> bare name
++# to
++#   ("imessage", "ingest_imessage")   -> string, for lazy import
++# The capability never left; only the formatting changed. A gate keyed to a
++# spelling reports a defect that does not exist, which costs exactly as much
++# trust as missing one that does.
++if ! python3 - "$SCRIPT_DIR/pwg_ingest.py" <<'PYEOF'; then
++import ast, sys
++src = open(sys.argv[1]).read()
++tree = ast.parse(src)
++# any tuple/list literal pairing "imessage" with something naming ingest_imessage
++found = False
++for node in ast.walk(tree):
++    if isinstance(node, (ast.Tuple, ast.List)) and len(node.elts) == 2:
++        a, b = node.elts
++        a_is = isinstance(a, ast.Constant) and a.value == "imessage"
++        b_is = ((isinstance(b, ast.Constant) and b.value == "ingest_imessage")
++                or (isinstance(b, ast.Name) and b.id == "ingest_imessage"))
++        if a_is and b_is:
++            found = True; break
++if not found:
++    sys.exit(1)
++PYEOF
++    echo "FAIL: pwg_ingest dispatcher has no ('imessage', ingest_imessage) pair" >&2
++    exit 1
++fi
++
++# POSITIVE CONTROL: the same parse must FAIL on a copy with the pair removed.
++_probe="$(mktemp)"; grep -v 'ingest_imessage' "$SCRIPT_DIR/pwg_ingest.py" > "$_probe"
++if python3 - "$_probe" <<'PYEOF'; then
++import ast, sys
++tree = ast.parse(open(sys.argv[1]).read())
++found = any(isinstance(n,(ast.Tuple,ast.List)) and len(n.elts)==2
++            and isinstance(n.elts[0],ast.Constant) and n.elts[0].value=="imessage"
++            and ((isinstance(n.elts[1],ast.Constant) and n.elts[1].value=="ingest_imessage")
++                 or (isinstance(n.elts[1],ast.Name) and n.elts[1].id=="ingest_imessage"))
++            for n in ast.walk(tree))
++sys.exit(0 if found else 1)
++PYEOF
++    rm -f "$_probe"
++    echo "POSITIVE CONTROL FAILED: the dispatcher check still passes with the" >&2
++    echo "  entry stripped. It is not checking anything." >&2
++    exit 1
++fi
++rm -f "$_probe"
++echo "pwg_ingest check: ingest_imessage defined + registered in dispatcher"
++
++# Privacy contract: return dict must surface people_created + people_enriched.
++# install.sh's hydrate_imessage block sums these two keys for the
++# customer-facing count, so renaming them silently would land an
++# install with always-zero counts. Pin the key set.
++for key in '"status":' '"people_created":' '"people_enriched":'; do
++    if ! grep -q -- "$key" "$SCRIPT_DIR/pwg_ingest.py"; then
++        echo "FAIL: pwg_ingest.py missing return-dict key in ingest_imessage: $key" >&2
++        exit 1
++    fi
++done
++echo "privacy contract check: ingest_imessage returns counts-only dict (status + people_created + people_enriched)"
++
++# extract_all must include imessage in ALL_SOURCES and honour the
++# CX-84 OSTLER_IMESSAGE_BACKFILL_DAYS env override.
++if ! grep -qE 'ALL_SOURCES.*\bimessage\b' "$SCRIPT_DIR/extract_all.py" \
++   && ! grep -qE '"imessage"' "$SCRIPT_DIR/extract_all.py"; then
++    echo "FAIL: extract_all.ALL_SOURCES missing imessage" >&2
++    exit 1
++fi
++if ! grep -q 'if "imessage" in sources:' "$SCRIPT_DIR/extract_all.py"; then
++    echo "FAIL: extract_all.run_all missing imessage conditional block" >&2
++    exit 1
++fi
++if ! grep -q 'OSTLER_IMESSAGE_BACKFILL_DAYS' "$SCRIPT_DIR/extract_all.py"; then
++    echo "FAIL: extract_all.py missing OSTLER_IMESSAGE_BACKFILL_DAYS env override (CX-84)" >&2
++    exit 1
++fi
++echo "extract_all check: imessage source + OSTLER_IMESSAGE_BACKFILL_DAYS env override present"
++
++# Optional import-time check.
++PY_IMPORT_CHECK=$(/usr/bin/env python3 - "$SCRIPT_DIR/.." <<'PY'
++import sys, importlib
++sys.path.insert(0, sys.argv[1])
++try:
++    ingest = importlib.import_module("ostler_fda.pwg_ingest")
++    assert callable(ingest.ingest_imessage), "ingest_imessage is not callable"
++    print("OK")
++except AssertionError as exc:
++    print(f"FAIL: {exc}")
++    sys.exit(2)
++except ImportError as exc:
++    msg = str(exc)
++    if "No module named 'ostler_fda.pwg_ingest'" in msg or "No module named 'ostler_fda.imessage'" in msg:
++        print(f"FAIL: {msg}")
++        sys.exit(2)
++    print(f"INCONCLUSIVE: external dep missing ({msg})")
++PY
++)
++case "$PY_IMPORT_CHECK" in
++    "OK")
++        echo "import check: pwg_ingest.ingest_imessage imports cleanly + is callable"
++        ;;
++    INCONCLUSIVE:*)
++        echo "import check: skipped (${PY_IMPORT_CHECK#INCONCLUSIVE: })"
++        ;;
++    FAIL:*)
++        echo "$PY_IMPORT_CHECK" >&2
++        exit 1
++        ;;
++    *)
++        echo "import check: unexpected output: $PY_IMPORT_CHECK" >&2
++        exit 1
++        ;;
++esac
++
++echo "vendor/ostler_fda iMessage hydration regression: PASS"
+diff --git b/test_vendor_whatsapp_history.sh b/test_vendor_whatsapp_history.sh
+new file mode 100755
+index 00000000..2f976bac
+--- /dev/null
++++ b/test_vendor_whatsapp_history.sh
+@@ -0,0 +1,205 @@
++#!/usr/bin/env bash
++# CX-85 vendor/ostler_fda whatsapp_history import regression
++# ===========================================================
++#
++# Asserts that vendor/ostler_fda/ ships the pieces install.sh's
++# hydrate_whatsapp sub-phase needs at customer install time:
++#
++#   - whatsapp_history.py     extractor + 3-tier classifier + main() CLI
++#   - pwg_ingest.py           with ingest_whatsapp + the whatsapp entry
++#                             in _SOURCE_PREDICATE
++#   - extract_all.py          with whatsapp_history in ALL_SOURCES
++#
++# Before CX-85 only iMessage + calendar + photos + apple_mail had
++# ingest_* functions. If a future refactor drops the whatsapp_history
++# module or breaks the pwg_ingest.ingest_whatsapp registration,
++# install.sh's hydrate_whatsapp block silently degrades to
++# MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING. This script catches
++# that regression at CI time so we surface it BEFORE a customer
++# install.
++#
++# Network-free, env-var-free, dependency-free for the structural
++# check. The optional import-time check exercises the same module
++# path install.sh runs ("python -m ostler_fda.whatsapp_history")
++# and falls back to inconclusive when the runtime deps the rest
++# of ostler_fda needs are missing in CI.
++
++set -euo pipefail
++
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++
++# Structural check -- always runs, deps-free.
++missing=""
++for path in \
++    whatsapp_history.py \
++    pwg_ingest.py \
++    extract_all.py
++do
++    if [ ! -f "$SCRIPT_DIR/$path" ]; then
++        missing="$missing $path"
++    fi
++done
++if [ -n "$missing" ]; then
++    echo "FAIL: vendor/ostler_fda/ missing files:$missing" >&2
++    echo "      Re-sync from HR015 ostler_fda/ (see CX-85)." >&2
++    exit 1
++fi
++echo "structural check: vendor/ostler_fda/ contains whatsapp_history.py + pwg_ingest.py + extract_all.py"
++
++# whatsapp_history.py must expose the load-bearing 3-tier symbols
++# the install.sh hydrate_whatsapp block + classifier consumers rely on.
++for symbol in \
++    "TIER_T1_DM" \
++    "TIER_T2_INTIMATE" \
++    "TIER_T2_ACTIVE" \
++    "TIER_T3_SKIP" \
++    "T2_CONFIDENCE" \
++    "INTIMATE_PARTICIPANT_MAX" \
++    "ENGAGEMENT_WINDOW_DAYS" \
++    "ENGAGEMENT_FLOOR_ABSOLUTE" \
++    "ENGAGEMENT_FLOOR_RELATIVE" \
++    "def classify_chat" \
++    "def extract_conversations" \
++    "def conversation_stats" \
++    "def main"
++do
++    if ! grep -q -- "$symbol" "$SCRIPT_DIR/whatsapp_history.py"; then
++        echo "FAIL: vendor/ostler_fda/whatsapp_history.py missing symbol: $symbol" >&2
++        echo "      The 3-tier classifier or CLI is incomplete; install.sh's" >&2
++        echo "      hydrate_whatsapp block will silently degrade or crash." >&2
++        exit 1
++    fi
++done
++echo "symbol check: whatsapp_history.py exposes 3-tier classifier + CLI"
++
++# Andy's threshold lock-ins (do not tune without sign-off). The
++# regression test pins the actual numeric values so a refactor
++# cannot silently shift them. The intimate cutoff was the
++# load-bearing addition vs. the original engagement-only model.
++if ! grep -qE "^INTIMATE_PARTICIPANT_MAX = 10\b" "$SCRIPT_DIR/whatsapp_history.py"; then
++    echo "FAIL: INTIMATE_PARTICIPANT_MAX must be exactly 10 (Andy 2026-05-26 lock-in)." >&2
++    exit 1
++fi
++if ! grep -qE "^ENGAGEMENT_WINDOW_DAYS = 90\b" "$SCRIPT_DIR/whatsapp_history.py"; then
++    echo "FAIL: ENGAGEMENT_WINDOW_DAYS must be exactly 90 (lock-in)." >&2
++    exit 1
++fi
++if ! grep -qE "^ENGAGEMENT_FLOOR_ABSOLUTE = 20\b" "$SCRIPT_DIR/whatsapp_history.py"; then
++    echo "FAIL: ENGAGEMENT_FLOOR_ABSOLUTE must be exactly 20 (lock-in)." >&2
++    exit 1
++fi
++if ! grep -qE "^ENGAGEMENT_FLOOR_RELATIVE = 0\.02\b" "$SCRIPT_DIR/whatsapp_history.py"; then
++    echo "FAIL: ENGAGEMENT_FLOOR_RELATIVE must be exactly 0.02 (lock-in)." >&2
++    exit 1
++fi
++if ! grep -qE "^T2_CONFIDENCE = 0\.7\b" "$SCRIPT_DIR/whatsapp_history.py"; then
++    echo "FAIL: T2_CONFIDENCE must be exactly 0.7 (lock-in)." >&2
++    exit 1
++fi
++echo "threshold lock-in check: < 10 / 90d / >= 20 / >= 0.02 / 0.7 all match"
++
++# pwg_ingest must register the whatsapp source predicate. Without
++# this the SPARQL upsert silently skips lastContactWhatsApp updates.
++if ! grep -qE '"whatsapp":\s*"pwg:lastContactWhatsApp"' "$SCRIPT_DIR/pwg_ingest.py"; then
++    echo "FAIL: pwg_ingest._SOURCE_PREDICATE missing whatsapp entry." >&2
++    echo "      ingest_whatsapp will call _update_last_contact with no predicate" >&2
++    echo "      and silently drop the freshness signal." >&2
++    exit 1
++fi
++echo "pwg_ingest check: whatsapp entry in _SOURCE_PREDICATE"
++
++# extract_all must include whatsapp_history in ALL_SOURCES (NOT
++# DEFAULT_SOURCES per Q3b sign-off -- opt-in only).
++# ALL_SOURCES is a MULTI-LINE set literal:
++#     ALL_SOURCES = DEFAULT_SOURCES | {
++#         "photos_faces", "google_takeout", "whatsapp_history", ...
++#     }
++# so a single-line `grep -E 'ALL_SOURCES.*whatsapp_history'` can NEVER match and
++# this gate was permanently, silently FALSE RED. Evaluate the module instead.
++if ! python3 - "$SCRIPT_DIR/extract_all.py" <<'PYEOF'; then
++import ast, sys
++tree = ast.parse(open(sys.argv[1]).read())
++for node in ast.walk(tree):
++    if isinstance(node, ast.Assign) and any(
++            isinstance(t, ast.Name) and t.id == "ALL_SOURCES" for t in node.targets):
++        names = {n.value for n in ast.walk(node) if isinstance(n, ast.Constant)
++                 and isinstance(n.value, str)}
++        sys.exit(0 if "whatsapp_history" in names else 1)
++sys.exit(1)
++PYEOF
++    echo "FAIL: extract_all.ALL_SOURCES missing whatsapp_history." >&2
++    echo "      The Phase 2 picker tickbox will be unwireable." >&2
++    exit 1
++fi
++echo "extract_all check: whatsapp_history in ALL_SOURCES"
++
++# POSITIVE CONTROL: the same evaluation must FAIL when the member is removed.
++_probe="$(mktemp)"; sed 's/"whatsapp_history", //' "$SCRIPT_DIR/extract_all.py" > "$_probe"
++if python3 - "$_probe" <<'PYEOF'; then
++import ast, sys
++tree = ast.parse(open(sys.argv[1]).read())
++for node in ast.walk(tree):
++    if isinstance(node, ast.Assign) and any(
++            isinstance(t, ast.Name) and t.id == "ALL_SOURCES" for t in node.targets):
++        names = {n.value for n in ast.walk(node) if isinstance(n, ast.Constant)
++                 and isinstance(n.value, str)}
++        sys.exit(0 if "whatsapp_history" in names else 1)
++sys.exit(1)
++PYEOF
++    rm -f "$_probe"
++    echo "POSITIVE CONTROL FAILED: ALL_SOURCES check passes with the member" >&2
++    echo "  removed -- it is not checking anything." >&2
++    exit 1
++fi
++rm -f "$_probe"
++echo "positive control: ALL_SOURCES check detects a missing member"
++
++# Optional import-time check. Mirrors how install.sh invokes the
++# CLI ("python -m ostler_fda.whatsapp_history --json"). Falls back
++# to inconclusive when bs4 / httpx / other ostler_fda runtime deps
++# are missing -- those are pip-installed by install.sh's email-ingest
++# venv setup, not by the structural test runner.
++PY_IMPORT_CHECK=$(/usr/bin/env python3 - "$SCRIPT_DIR/.." <<'PY'
++import sys, importlib
++sys.path.insert(0, sys.argv[1])
++try:
++    mod = importlib.import_module("ostler_fda.whatsapp_history")
++    # Spot-check the 3-tier constants are the actual values, not strings.
++    assert mod.INTIMATE_PARTICIPANT_MAX == 10
++    assert mod.ENGAGEMENT_WINDOW_DAYS == 90
++    assert mod.ENGAGEMENT_FLOOR_ABSOLUTE == 20
++    assert abs(mod.ENGAGEMENT_FLOOR_RELATIVE - 0.02) < 1e-9
++    assert abs(mod.T2_CONFIDENCE - 0.7) < 1e-9
++    assert mod.TIER_T1_DM == "whatsapp_dm"
++    assert mod.TIER_T2_INTIMATE == "whatsapp_group_intimate"
++    assert mod.TIER_T2_ACTIVE == "whatsapp_group_active"
++    print("OK")
++except AssertionError as exc:
++    print(f"FAIL: tier constant value mismatch ({exc})")
++    sys.exit(2)
++except ImportError as exc:
++    msg = str(exc)
++    if "No module named 'ostler_fda.whatsapp_history'" in msg:
++        print(f"FAIL: {msg}")
++        sys.exit(2)
++    print(f"INCONCLUSIVE: external dep missing ({msg})")
++PY
++)
++case "$PY_IMPORT_CHECK" in
++    "OK")
++        echo "import check: whatsapp_history imports cleanly + tier constants match lock-ins"
++        ;;
++    INCONCLUSIVE:*)
++        echo "import check: skipped (${PY_IMPORT_CHECK#INCONCLUSIVE: })"
++        ;;
++    FAIL:*)
++        echo "$PY_IMPORT_CHECK" >&2
++        exit 1
++        ;;
++    *)
++        echo "import check: unexpected output: $PY_IMPORT_CHECK" >&2
++        exit 1
++        ;;
++esac
++
++echo "vendor/ostler_fda whatsapp_history regression: PASS"
+diff --git b/tests/test_provisional_display_name.py b/tests/test_provisional_display_name.py
+new file mode 100644
+index 00000000..03ee46b5
+--- /dev/null
++++ b/tests/test_provisional_display_name.py
+@@ -0,0 +1,96 @@
++"""#576: WhatsApp/iMessage chat-only contacts get a raw phone/handle as
++their displayName because the extractor reads JIDs/handles only. Those
++placeholders must be FLAGGED provisional so the resolver may overwrite
++them and surfaces can suppress the "+44 7700 900123 as a name" leak.
++"""
++from ostler_fda import pwg_ingest as p
++from ostler_fda import pwg_ingest as p_mod
++
++
++def test_bare_e164_is_provisional():
++    assert p._is_provisional_display_name("+447700900123") is True
++    assert p._is_provisional_display_name("447700900123") is True
++    assert p._is_provisional_display_name("+44 7700 900123") is True
++
++
++def test_bare_email_is_provisional():
++    assert p._is_provisional_display_name("someone@example.com") is True
++
++
++def test_real_name_is_not_provisional():
++    assert p._is_provisional_display_name("Sam Wang") is False
++    assert p._is_provisional_display_name("Alex Brown") is False
++    # A human nickname with a few digits is still a name, not a phone.
++    assert p._is_provisional_display_name("Agent 3-2-1") is False
++
++
++def test_empty_is_provisional():
++    assert p._is_provisional_display_name("") is True
++    assert p._is_provisional_display_name("   ") is True
++
++
++def test_whatsapp_display_name_placeholder_is_flagged_provisional():
++    # End-to-end: the WhatsApp placeholder produced for an un-named JID
++    # is exactly the value the provisional guard rejects as a name.
++    display = p._whatsapp_display_name("447700900123@s.whatsapp.net")
++    assert display == "+447700900123"
++    assert p._is_provisional_display_name(display) is True
++
++
++# ---------------------------------------------------------------------------
++# v1018-D659, composed shape: "<kinship word> <surname>".
++#
++# Reported on a real box: a spouse rendering with a kinship word in place of
++# her given name, on a machine where the owner's mother had died the previous
++# year. `_is_relationship_label` matched the WHOLE label only, so the bare
++# word was refused and the composed form scored tier 2 -- a real human name --
++# and every guard downstream then behaved correctly on a value that should
++# never have been written.
++#
++# THE REFUSAL IS AT THE WRITE PATH, NOT IN THE TIER, and that is load-bearing.
++# repair_placeholder_names.py DELETES any stored name whose tier is below
++# PLACEHOLDER. Folding this shape into the tier makes it delete "Auntie Emma",
++# including where that is somebody's ONLY name. The repair suite pins that
++# case and caught it when this was first written as one predicate.
++#
++# All names below are SYNTHETIC.
++# ---------------------------------------------------------------------------
++
++def test_composed_kinship_is_refused_at_the_write_path():
++    for label in ("Mum Okonjo", "Dad Smith", "Mummy Jones", "Grandad Brown",
++                  "Auntie Pat", "Uncle Bob", "Stepdad Clarke",
++                  "Godmother Clare", "Hubby Wilson"):
++        assert p_mod._is_kinship_composed_label(label) is True, label
++
++
++def test_composed_kinship_keeps_a_delete_safe_tier():
++    # The repair pass must still see these as names, or it deletes them.
++    for label in ("Mum Okonjo", "Auntie Emma", "Mum Zhang", "Papa Okonkwo"):
++        assert p_mod._display_name_tier(label) == p_mod._NAME_TIER_NAME, label
++        assert p_mod._is_relationship_label(label) is False, label
++
++
++def test_apostrophe_surname_does_not_reopen_the_hole():
++    # The punctuation strip yields three tokens. A len == 2 test passes every
++    # example above and lets this one through, which the first fix did.
++    assert p_mod._is_kinship_composed_label("Grandma O'Rourke") is True
++
++
++def test_kinship_words_that_double_as_real_names_survive():
++    for label in ("Nan Goldin", "Ma Rainey", "Pop Smith", "Sis Jones",
++                  "Aunt Sally", "Boy George", "Son Volt", "House Wilson"):
++        assert p_mod._is_kinship_composed_label(label) is False, label
++        assert p_mod._display_name_tier(label) == p_mod._NAME_TIER_NAME, label
++
++
++def test_an_ordinary_name_is_never_touched():
++    for label in ("Fenella Okonjo", "Zhang Wei", "Marta Ilves",
++                  "Ciaran O'Rourke", "Sam Wang"):
++        assert p_mod._is_kinship_composed_label(label) is False, label
++        assert p_mod._display_name_tier(label) == p_mod._NAME_TIER_NAME, label
++
++
++def test_a_bare_kinship_word_is_still_refused_and_still_deletable():
++    for label in ("Mum", "mum", "  Mum  ", "my mum", "big sis", "Nan"):
++        assert p_mod._is_relationship_label(label) is True, label
++        assert p_mod._display_name_tier(label) == p_mod._NAME_TIER_REFUSED, label
+diff --git b/usage_journal.py b/usage_journal.py
+new file mode 100644
+index 00000000..fffc69bd
+--- /dev/null
++++ b/usage_journal.py
+@@ -0,0 +1,265 @@
++"""Local-model usage journal writer for the "What your Mac did" panel.
++
++The daemon shows the customer a monthly breakdown of the work their machine
++did, split by *purpose*: ingesting, enriching, answering, noticing. The
++``answering`` row is written by the Rust daemon itself. Everything else
++happens in short-lived Python processes in other repos, which cannot reach
++the daemon's ``tokio::task_local``. So the contract between them is a file:
++
++    <workspace_dir>/state/costs.jsonl
++
++One JSON object per line, append-only. The reader is
++``zeroclaw-config/src/cost/tracker.rs``; the record shape is
++``zeroclaw-config/src/cost/types.rs::CostRecord``. The full contract is
++``HR015/launch/USAGE_JOURNAL_CONTRACT.md``.
++
++**The hard rule: MEASURED, NEVER ESTIMATED.** If the runtime does not hand
++you a token count, write no record. Do not estimate from character length,
++do not divide by four, do not carry forward the last figure. This number is
++shown to a paying customer beside a price comparison. A missing record is a
++gap somebody can close; a guessed record is a fact that cannot be
++distinguished from a real one once it is in the file.
++
++Real counts come only from Ollama's ``prompt_eval_count`` / ``eval_count``,
++on ``/api/embed``, ``/api/generate`` and ``/api/chat``. NOT the legacy
++``/api/embeddings``, which returns the vector alone.
++
++Invariants enforced here, mirroring :mod:`ostler_fda.settling_progress`:
++ * An unknown purpose is a **programming error** and raises ``ValueError``.
++   The Rust side REJECTS an unknown purpose string rather than coercing it,
++   so ``"enrichment"`` (a plausible typo for ``"enriching"``) would make the
++   whole line unparseable and silently shrink the customer's totals.
++ * An I/O failure is an **environment problem** and is swallowed with a
++   ``logger.warning``. Usage accounting must never abort the work it
++   measures.
++
++No PII is written: model name, token counts, timestamp and a run label.
++``session_id`` identifies the RUN, never the person.
++"""
++from __future__ import annotations
++
++import json
++import logging
++import os
++import uuid
++from datetime import datetime, timezone
++from pathlib import Path
++from typing import Optional
++
++logger = logging.getLogger(__name__)
++
++
++# ── The five valid purpose strings ────────────────────────────────────────────
++#
++# Exact match required by `zeroclaw-config/src/cost/types.rs::Purpose`, which
++# is `#[serde(rename_all = "snake_case")]` over a closed enum. Serde REJECTS
++# an unknown variant, so a typo does not degrade to `unattributed` -- it makes
++# the entire record unparseable and the reader counts it as an unreadable line.
++PURPOSES = frozenset({
++    "ingesting",      # reading a source in for the first time
++    "enriching",      # turning raw material into facts, summaries, pages
++    "answering",      # work done because a person asked
++    "noticing",       # work the assistant chose to do unprompted
++    "unattributed",   # the serde default; the producer genuinely does not know
++})
++
++
++def _expand(raw: str) -> Path:
++    """Expand a leading ``~`` the way the daemon's ``expand_tilde_path`` does."""
++    return Path(os.path.expanduser(raw.strip()))
++
++
++def _default_config_dir() -> Path:
++    """``$HOME/.ostler``, matching the daemon's ``default_config_dir()``.
++
++    The daemon prefers the ``HOME`` env var over the passwd database, so we
++    do the same: a process launched with a different HOME must resolve to the
++    same tree the daemon is reading.
++    """
++    home = os.environ.get("HOME", "").strip()
++    if home:
++        return Path(home) / ".ostler"
++    return Path.home() / ".ostler"
++
++
++def _config_dir_from_marker(default_config_dir: Path) -> Optional[Path]:
++    """Read ``active_workspace.toml``, mirroring ``load_persisted_workspace_dirs``.
++
++    A malformed or empty marker is ignored (the daemon logs and falls
++    through), and a relative ``config_dir`` is resolved against the default
++    config dir, exactly as the Rust does.
++    """
++    marker = default_config_dir / "active_workspace.toml"
++    try:
++        contents = marker.read_text(encoding="utf-8")
++    except OSError:
++        return None
++
++    raw = ""
++    for line in contents.splitlines():
++        line = line.strip()
++        if not line.startswith("config_dir"):
++            continue
++        _, _, value = line.partition("=")
++        raw = value.strip().strip('"').strip("'").strip()
++        break
++
++    if not raw:
++        return None
++
++    parsed = _expand(raw)
++    return parsed if parsed.is_absolute() else default_config_dir / parsed
++
++
++def _workspace_for(workspace_env: Path) -> Path:
++    """Port of ``schema.rs::resolve_config_dir_for_workspace``, workspace half.
++
++    The installer sets ``ZEROCLAW_WORKSPACE=$OSTLER_DIR/assistant-config``,
++    which is a CONFIG dir, not a workspace -- so the daemon appends
++    ``workspace`` when it finds a ``config.toml`` beside it. Getting this
++    branch wrong writes the journal to a directory nothing reads, which is
++    indistinguishable from a producer that was never wired.
++    """
++    if (workspace_env / "config.toml").exists():
++        return workspace_env / "workspace"
++
++    legacy = workspace_env.parent / ".zeroclaw"
++    if (legacy / "config.toml").exists():
++        return workspace_env
++    if workspace_env.name == "workspace":
++        return workspace_env
++
++    return workspace_env / "workspace"
++
++
++def resolve_journal_path() -> Path:
++    """Resolve ``<workspace_dir>/state/costs.jsonl`` the way the daemon does.
++
++    Precedence, mirroring ``schema.rs::resolve_runtime_config_dirs``:
++      1. ``ZEROCLAW_CONFIG_DIR``            -> ``<dir>/workspace``
++      2. ``OSTLER_WORKSPACE`` / ``ZEROCLAW_WORKSPACE`` -> :func:`_workspace_for`
++      3. ``~/.ostler/active_workspace.toml`` marker -> ``<config_dir>/workspace``
++      4. default                            -> ``~/.ostler/workspace``
++
++    Resolved PER CALL, never at import. A producer that caches this at import
++    time and a daemon that resolves it at boot can disagree after an env
++    change, and the disagreement is silent on both sides.
++
++    Deliberately NOT keyed on ``OSTLER_HOME``: that name carries two meanings
++    in this product (task #325) and neither of them is this one.
++    """
++    config_dir_env = os.environ.get("ZEROCLAW_CONFIG_DIR", "").strip()
++    if config_dir_env:
++        return _expand(config_dir_env) / "workspace" / "state" / "costs.jsonl"
++
++    workspace_env = (
++        os.environ.get("OSTLER_WORKSPACE", "").strip()
++        or os.environ.get("ZEROCLAW_WORKSPACE", "").strip()
++    )
++    if workspace_env:
++        return _workspace_for(_expand(workspace_env)) / "state" / "costs.jsonl"
++
++    default_config_dir = _default_config_dir()
++    from_marker = _config_dir_from_marker(default_config_dir)
++    if from_marker is not None:
++        return from_marker / "workspace" / "state" / "costs.jsonl"
++
++    return default_config_dir / "workspace" / "state" / "costs.jsonl"
++
++
++def record_usage(
++    model: str,
++    input_tokens: Optional[int],
++    output_tokens: Optional[int],
++    purpose: str,
++    session_id: str,
++    *,
++    journal_path: Optional[Path] = None,
++) -> bool:
++    """Append one MEASURED local-model usage record. Returns True if written.
++
++    ``input_tokens`` / ``output_tokens`` come straight from the runtime.
++    Pass ``None`` for a count the runtime did not report -- it is treated as
++    zero for the total but does NOT on its own suppress the record, so a
++    pure-embedding call (which reports prompt tokens and no output tokens) is
++    still recorded. When BOTH are absent or zero there is nothing measured
++    and no record is written.
++
++    Raises ``ValueError`` on an unknown purpose (a programming error).
++    Never raises on I/O (an environment problem): a full disk must not abort
++    an ingest run.
++    """
++    if purpose not in PURPOSES:
++        raise ValueError(
++            f"unknown purpose {purpose!r}; must be one of {sorted(PURPOSES)}. "
++            "The daemon rejects an unknown purpose and the whole record is lost."
++        )
++
++    prompt = int(input_tokens or 0)
++    completion = int(output_tokens or 0)
++    if prompt <= 0 and completion <= 0:
++        # Nothing measured. Per the contract: write no record rather than
++        # inventing one. The absence is visible on the panel as a gap.
++        return False
++
++    record = {
++        "id": str(uuid.uuid4()),
++        "session_id": session_id,
++        "usage": {
++            "model": model,
++            "input_tokens": prompt,
++            "output_tokens": completion,
++            "total_tokens": prompt + completion,
++            # Zero is not a placeholder: a local model bought nothing. The
++            # panel prices this against a cloud rate card at render time.
++            "cost_usd": 0.0,
++            "timestamp": datetime.now(timezone.utc)
++            .isoformat(timespec="seconds")
++            .replace("+00:00", "Z"),
++            "purpose": purpose,
++        },
++    }
++
++    path = journal_path or resolve_journal_path()
++    try:
++        path.parent.mkdir(parents=True, exist_ok=True)
++        line = json.dumps(record, separators=(",", ":")) + "\n"
++        # One open-append-close per record, and one write() per line. Records
++        # are well under the 4 KB macOS pipe/file atomicity threshold, so
++        # concurrent producers interleave whole lines rather than corrupting
++        # each other. An O_APPEND write is positioned by the kernel, so no
++        # lock is needed and none is taken -- a lock here would put a
++        # contention point in the path of the work being measured.
++        with path.open("a", encoding="utf-8") as handle:
++            handle.write(line)
++        return True
++    except OSError as exc:
++        logger.warning(
++            "usage journal write failed (%s): %s", type(exc).__name__, exc
++        )
++        return False
++
++
++def tokens_from_ollama(response: dict) -> tuple[Optional[int], Optional[int]]:
++    """Extract MEASURED token counts from an Ollama JSON response.
++
++    Returns ``(prompt_eval_count, eval_count)``, either of which may be
++    ``None`` when the endpoint did not report it. The legacy
++    ``/api/embeddings`` endpoint reports neither, which is why callers on
++    that endpoint record nothing at all rather than guessing.
++
++    A non-integer value is treated as absent rather than coerced: a string
++    or float here means the response shape changed, and a silently coerced
++    number would enter the customer's total as though it were measured.
++    """
++    if not isinstance(response, dict):
++        return (None, None)
++
++    def _count(key: str) -> Optional[int]:
++        value = response.get(key)
++        # bool is a subclass of int; True would become 1 tokens.
++        if isinstance(value, bool) or not isinstance(value, int):
++            return None
++        return value if value > 0 else None
++
++    return (_count("prompt_eval_count"), _count("eval_count"))

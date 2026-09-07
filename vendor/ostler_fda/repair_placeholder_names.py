@@ -24,8 +24,8 @@ It is Andy's ranking of 2026-08-10, and this module imports it from
 how two halves of a system come to disagree, and this cut produced several
 of those.
 
-    tier 0  "+852 1234 5678"       replaces nothing
-    tier 1  "j.smith@company.com"  replaces tier 0, KEEPS the flag
+    tier 0  "+44 7700 900123"      replaces nothing
+    tier 1  "j.smith@example.com"  replaces tier 0, KEEPS the flag
     tier 2  "Jane Smith"           replaces either, CLEARS the flag
 
 A tier-1 name is an improvement, not a resolution: the domain gives you the
