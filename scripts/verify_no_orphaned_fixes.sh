@@ -30,8 +30,19 @@
 # =============================================================================
 # For every repo that feeds the cut, against the ref actually being shipped:
 #
-#   1. OPEN PRs (INCLUDING DRAFTS) whose head is not an ancestor  -> RED
-#      Drafts are checked LOUDEST: #154 was a green draft for four days.
+#   1. OPEN PRs (INCLUDING DRAFTS) whose head is not an ancestor  -> REPORTED,
+#      NOT COUNTED. Every one is printed as an [open] row, drafts loudest
+#      (#154 was a green draft for four days), and none of them fails the
+#      cut. Launch directive item 4 (Andy, 2026-09-07): the cut is made from
+#      a frozen branch and "open PRs on main do not block it". Until
+#      2026-09-07 this arm was RED, and four v1.0.74 tag pushes died on it
+#      with 8 open PRs and 0 orphaned branches; the only way past it was to
+#      merge every open PR, which put two new gates on main under the item 2
+#      freeze. An open PR is not abandoned work: it is visible, it has an
+#      author, and check-pr-age already bounds how long it may sit. What
+#      this arm still guards is SILENCE -- nothing open is ever absent from
+#      the report -- and the deferral lookup still runs, so a recorded
+#      decision prints as DEFERRED and stays consulted.
 #   2. Remote branches matching fix/ hotfix/ feat/ carrying commits
 #      not in the shipping ref                                    -> RED
 #   3. LOCAL-ONLY branches (not on origin at all)                 -> RED
@@ -134,6 +145,7 @@ trap 'rm -f "$CONSULTED_REFS" "$EXPIRED_REFS"' EXIT
 red=0
 expiry_ratchet_failed=0
 warn=0
+open_prs=0           # open PRs reported, not counted -- directive item 4
 checked=0
 unchecked=0          # declared unverifiable in THIS environment
 unverifiable=0       # undeclared and unreachable -- fails closed
@@ -398,6 +410,28 @@ report_orphan() {
     fi
 }
 
+# An OPEN PR: reported, not counted. See "WHAT IT CHECKS", arm 1. The
+# deferral lookup runs FIRST and for the same reason it runs everywhere
+# else: is_deferred() records the ref in CONSULTED_REFS, so the PR-keyed
+# rows in cut-deferrals.yaml keep binding and the reachability sweep at the
+# end does not suddenly report every one of them as unconsulted. A deferred
+# open PR prints as DEFERRED, exactly as before; an undeferred one prints as
+# [open] and moves a counter that the exit block reads for a SENTENCE, never
+# for a verdict.
+report_open_pr() {
+    local ref="$1" detail="$2"
+    if is_deferred "$ref"; then
+        local why; why="$(deferral_reason "$ref")"
+        deferred_note "$ref" "${why:-no reason recorded}"
+    else
+        printf '  [open] %s\n' "$ref"
+        printf '         %s\n' "$detail"
+        printf '         Reported, not counted: an open PR does not block a cut from a\n'
+        printf '         frozen branch (launch directive item 4). Not an orphan.\n'
+        open_prs=$((open_prs + 1))
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # ANCESTRY IS NOT LANDING. DO NOT REINTRODUCE `merge-base --is-ancestor` AS
 # THE ANSWER TO "DID THIS BRANCH LAND".
@@ -656,6 +690,7 @@ check_repo() {
     # say it was clean. Cosmetic, but it is the same class of bug as the rest
     # of this file -- a status line that does not describe what it names.
     local red_at_entry="$red"
+    local open_at_entry="$open_prs"
 
     # Per-repo credentials. The cut spans TWO GitHub accounts (andygmassey
     # owns CM0xx, ostler-ai owns the daemon), and `gh auth switch` is GLOBAL --
@@ -986,7 +1021,7 @@ except Exception: print(-1)' 2>/dev/null || printf '%s' -1)"
                     && continue
                 local tag="OPEN PR"
                 [[ "$draft" == "true" ]] && tag="OPEN **DRAFT** PR"
-                report_orphan "${label}:#${num}" \
+                report_open_pr "${label}:#${num}" \
                     "${tag} '${title}' (head ${head}) is NOT in ${ship_ref}"
             done < <(printf '%s' "$prs" | python3 -c '
 import json,sys
@@ -1011,7 +1046,14 @@ for p in json.load(sys.stdin):
             "uncommitted or untracked changes in the cut checkout"
     fi
 
-    [[ "$red" -eq "$red_at_entry" ]] && ok "${label}: nothing orphaned"
+    if [[ "$red" -eq "$red_at_entry" ]]; then
+        local _open_here=$((open_prs - open_at_entry))
+        if [[ "$_open_here" -gt 0 ]]; then
+            ok "${label}: nothing orphaned; ${_open_here} open PR(s) reported above, not counted"
+        else
+            ok "${label}: nothing orphaned"
+        fi
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -1322,6 +1364,18 @@ deferral_reachability_report() {
 }
 
 deferral_reachability_report "$DEFERRALS_FILE" "$CONSULTED_REFS" "$unchecked_labels"
+
+# Open PRs: a sentence, not a verdict. `red` means "work exists that is not
+# in what you are about to ship" and the exit block prints exactly that; an
+# open PR is a different fact (visible work, with an author, that a review
+# has not finished) and gets its own sentence. Same reasoning as the expiry
+# ratchet above, which also refuses to borrow the `red` counter.
+if [[ "$open_prs" -gt 0 ]]; then
+    say ""
+    say "   OPEN PRs: ${open_prs} reported above, NOT counted. Launch directive item 4:"
+    say "   the cut is made from a frozen branch and open PRs on main do not block it."
+    say "   They are visible work, not orphans; check-pr-age bounds how long they sit."
+fi
 
 if [[ "$red" -gt 0 ]]; then
     if [[ "$unverifiable" -gt 0 ]]; then
