@@ -12397,10 +12397,26 @@ OLLAMAPLIST
     # A customer in an Aqua session never reaches this branch.
     # 🔴 THIS CALL MUST NOT BE A BARE SIMPLE COMMAND (#1754).
     #
-    # The script runs `set -Eeuo pipefail` with an abort-on-error ERR trap.
+    # 🔴 IT IS THE ERR TRAP THAT ABORTS HERE, **NOT** ERREXIT. This comment
+    # said errexit and that was wrong; correcting it because the wrong version
+    # invites the wrong fix.
+    #
+    # ERREXIT IS OFF AT THIS LINE. The governing flag word is :8140
+    # `set -uo pipefail` (no -e); -e does not come back until :12462. What
+    # aborts is the trap installed at :10793, and MEASURED, an ERR trap fires
+    # whether or not `set -e` is on:
+    #
+    #     set -Eeuo pipefail + trap, f returns 1  ->  trap fires
+    #     set -Euo  pipefail + trap, f returns 1  ->  trap fires
+    #
+    # So `set +e` DOES NOT make a site like this safe. The file already knows
+    # that: all 7 places that disarm the trap pair `trap - ERR` WITH `set +e`
+    # (22866, 27607, 27790, 28128, 28664, 28830) and not one uses `set +e`
+    # alone.
+    #
     # `_ollama_agent_is_running` returns 1 for a state this code EXPECTS:
     # the agent is registered but has not yet reached `state = running`.
-    # As a standalone command that return trips errexit, so the install
+    # As a standalone command that return fires the trap, so the install
     # aborted here -- and the 90s poll below, which exists to absorb exactly
     # that window, never got a first iteration (measured: elapsed_s=0 on two
     # consecutive box walks of v1.0.73).
