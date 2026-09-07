@@ -109,7 +109,7 @@ TOKEN_PATH="${OSTLER_PROBE_TOKEN_PATH:-~/.ostler/secrets/zeroclaw_admin_token}"
 # OK, the turn completed -> grounded. Measured on the v1.0.74 seeded walk:
 # the assistant called pwg_people, got OK, and told the customer it had "no
 # explicit information about where she works" while /people/context carried
-# "Marian Okafor is a submarine cable engineer at the Trans-Atlantic Cable
+# "Jane Doe is a submarine cable engineer at the Trans-Atlantic Cable
 # Company" on two endpoints. The probe scored it GREEN. A blocking probe that
 # passes a wrong answer is worse than none.
 #
@@ -531,9 +531,9 @@ self_test() {
     # fact must read YES; case must not matter (OS003 check 1 lower-cases).
     _ws_client_py > "$_d/client.py"
     _fact='Trans-Atlantic Cable Company'
-    _reply_no='I found some information about Marian Okafor in the Personal World Graph, but it does not explicitly state where she works.'
-    _reply_yes='Marian Okafor is a submarine cable engineer at the Trans-Atlantic Cable Company.'
-    _reply_case='marian okafor works at the TRANS-ATLANTIC CABLE COMPANY as a submarine cable engineer.'
+    _reply_no='I found some information about Jane Doe in the Personal World Graph, but it does not explicitly state where she works.'
+    _reply_yes='Jane Doe is a submarine cable engineer at the Trans-Atlantic Cable Company.'
+    _reply_case='jane doe works at the TRANS-ATLANTIC CABLE COMPANY as a submarine cable engineer.'
     [ "$(printf '%s' "$_reply_no"   | python3 "$_d/client.py" --self-check "$_fact")" = "NO" ]  || _ok=0
     [ "$(printf '%s' "$_reply_yes"  | python3 "$_d/client.py" --self-check "$_fact")" = "YES" ] || _ok=0
     [ "$(printf '%s' "$_reply_case" | python3 "$_d/client.py" --self-check "$_fact")" = "YES" ] || _ok=0
