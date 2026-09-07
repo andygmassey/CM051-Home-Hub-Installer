@@ -171,3 +171,11 @@ jobs:
             echo "::endgroup::"
           done
           exit $fail
+
+      # INDIVIDUAL STEP, not an entry in the `for t in ...` list above: the list
+      # gives verify_test_wiring.sh a MENTION but gives
+      # verify_new_tests_are_wired.sh no execution verb on the same line, so a
+      # test added there scores WIRED by one gate and DARK by the other.
+      - name: a walk record is found under either spelling
+        if: always()
+        run: bash tests/test_a_walk_record_is_found_under_either_spelling.sh
