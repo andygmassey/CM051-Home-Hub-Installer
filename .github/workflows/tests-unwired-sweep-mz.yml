@@ -234,3 +234,13 @@ jobs:
       - name: the migrator authenticates and a refusal is loud
         if: always()
         run: python3 tests/test_the_migrator_authenticates_and_a_refusal_is_loud.py
+
+      # SELF-TEST ONLY, DELIBERATELY. The live arm reads the tag list and
+      # refuses when the tree's version is already tagged -- which is the
+      # NORMAL state of main between a tag and the next bump. Running it here
+      # would redden main for that whole window and teach people to route
+      # around it. The live arm runs at ship time, as a `make ship`
+      # prerequisite, which is the only moment the question has a right answer.
+      - name: ship refuses to build an already-tagged version
+        if: always()
+        run: bash tests/test_ship_refuses_an_already_tagged_version.sh --self-test
