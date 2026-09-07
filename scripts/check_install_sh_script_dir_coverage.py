@@ -172,6 +172,16 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     # above. The needle asserts the bundling reference, so removing the cp line
     # goes red instead of shipping a silent no-op.
     "lib/settling_progress.sh": ['${SRCROOT}/../lib/settling_progress.sh'],
+    # #399: the end-of-install confirmation helpers. install.sh's
+    # confirmation block probes ${SCRIPT_DIR}/lib/ostler-confirm-calendars.py
+    # and ${SCRIPT_DIR}/lib/ostler-confirm-identity.py and SILENTLY skips the
+    # whole propose-and-confirm step when either is absent, so a dropped cp
+    # line degrades the .app to no-confirmation without any error. The needle
+    # asserts the bundling reference in gui/project.yml, matching the
+    # ${SRCROOT}/../ form that cp line actually uses -- a bare path would name
+    # a string that no longer appears there and could never go red.
+    "lib/ostler-confirm-calendars.py": ['${SRCROOT}/../lib/ostler-confirm-calendars.py'],
+    "lib/ostler-confirm-identity.py": ['${SRCROOT}/../lib/ostler-confirm-identity.py'],
     # #550 (2026-08-28): the store-auth shim. install.sh:6523 seeds it from
     # ${SCRIPT_DIR}/lib/ostler_store_auth.py into ${OSTLER_DIR}/lib, and a .pth
     # in every venv imports it so the pinned Python clients authenticate to
