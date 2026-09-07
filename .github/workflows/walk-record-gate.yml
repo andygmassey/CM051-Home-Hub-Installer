@@ -90,6 +90,8 @@ on:
       # record would not run the gate that rejects it.
       - 'walks/**'
       - 'scripts/walk_regression_triage.sh'
+      - 'scripts/payload_delta.sh'
+      - 'gui/Makefile'
       - 'tests/test_a_walk_failure_is_classified.sh'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in the very PR that narrows it.
@@ -195,6 +197,15 @@ jobs:
       - name: The regression triage can tell a regression from a never-passed
         if: always()
         run: bash scripts/walk_regression_triage.sh --self-test
+
+      # "Which commits touch install.sh" is a PROXY for "what reaches the
+      # customer", and on 2026-09-07 it missed vendor/VENDOR_MANIFEST.toml,
+      # which ships and is written onto the customer's machine. This proves the
+      # payload list is still parseable from gui/Makefile and that an
+      # unparseable one is CANNOT-RUN rather than a clean delta.
+      - name: The payload list is parseable, and refuses when it is not
+        if: always()
+        run: bash scripts/payload_delta.sh --self-test
 
       # A walk may not record a failure without saying what it is a regression
       # of. Andy, 2026-09-07: nobody goes back to the last successful walk, so

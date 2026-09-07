@@ -138,6 +138,39 @@ walk.** All nine records say `verdict FAILED`. "The last successful walk" does
 not exist, so the baseline is PER PROBE and never per walk. Anyone reasoning
 from "the last good walk" is reasoning from something that has never happened.
 
+## 🔴 "WHAT SHIPS" IS TEN INPUTS, NOT install.sh
+
+Before you claim a payload delta, run it. Do not reason from
+`git log -- install.sh`.
+
+```
+scripts/payload_delta.sh <from-ref> [<to-ref>]
+```
+
+**MEASURED 2026-09-07, and this is why the tool exists.** The v1.0.74 payload
+delta was reasoned out as *"which commits touch install.sh"* plus *"gui/Makefile
+builds the DMG and is not in it"*. Both steps are true and neither can see the
+other nine inputs. Across `c0401242..origin/main`, **two** payload inputs had
+changed:
+
+```
+install.sh                    27236c3d
+vendor/VENDOR_MANIFEST.toml   ab286995   <- ships as vendor-manifest.toml, and
+                                            install.sh:1034 writes it onto the
+                                            customer's machine
+```
+
+It happened not to matter — the manifest is copied, not branched on — so the
+conclusion survived. The METHOD would wave through a launchd plist, a
+`services/doctor` bump or a stale `cut-bom.tsv` just as readily, and all three
+reach the customer without touching `install.sh`.
+
+The tool parses the input list **from `gui/Makefile`**, never from a hardcoded
+copy, because a second source of truth rots exactly like the reasoning it
+replaces. If it cannot parse the list it exits **2, CANNOT-RUN** — "no payload
+input changed" and "I could not find the payload inputs" print identically and
+only one of them is safe.
+
 ## 🗿 THE CUT MECHANISM LIVES IN OS003 -- NON-NEGOTIABLE
 
 **Before answering any question about what ships, where a component lives, or whether a fix is in the cut, read `~/Documents/Projects/OS003 - Ostler Release`.** It is the canonical cut mechanism, cut register and release truth. Do not infer the answer from this repo's scripts or their defaults -- `release.sh`'s `HR015_DIR` sibling-path default caused two false cut-blockers on 2026-08-08.
