@@ -286,6 +286,16 @@ adjudicate_counts() {
     arith="$(printf 'allowed = min(%s%% of %s = %s, cap %s) = %s' "$tol" "$hi" "$pct_allowed" "$cap" "$allowed")"
 
     if [ "$diff" -gt "$allowed" ]; then
+        # A DISAGREE that the OLD arithmetic would have passed says so in the
+        # verdict itself, because that sentence travels with the walk record to
+        # whoever reads two adjacent records (Archie, 2026-09-07): v1.0.74
+        # recorded 2008 vs 2018 as PASS under 2% alone (allowance 40); under
+        # the cap it is FAIL on identical data. That is the cap working, not a
+        # product regression, and it must not be bisected as one.
+        if [ "$diff" -le "$pct_allowed" ]; then
+            printf 'DISAGREE oxigraph=%s doctor=%s differ by %s, above the allowance (%s). NOTE: this gap passed under the pre-2026-09-07 rule (%s%% alone, allowance %s); the cap of %s landed in CM051 #1799 and a walk before it would have read PASS on the same data. Not a v1.0.75 regression to bisect.' "$a" "$b" "$diff" "$arith" "$tol" "$pct_allowed" "$cap"
+            return
+        fi
         printf 'DISAGREE oxigraph=%s doctor=%s differ by %s, above the allowance (%s)' "$a" "$b" "$diff" "$arith"
         return
     fi
@@ -327,7 +337,7 @@ run_probe() {
 
 self_test() {
     SELF_TEST_LOCAL=1
-    probe_examined 6 "synthetic count pairs (negative control)"
+    probe_examined 8 "synthetic count pairs (negative control)"
     local r
 
     # 1. The #273 spread: 6376 vs 6755 is ~5.6%, must exceed a 2% tolerance.
@@ -367,7 +377,15 @@ self_test() {
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: 1 vs 0 adjudicated as '${r%% *}'."
     fi
     case "$r" in *"2% of 1 = 0, cap 5) = 0"*) ;; *) probe_pass "the small-n verdict does not show its arithmetic: ${r}" ;; esac
-    probe_fail "negative control behaved correctly on all 6 pairs (real spread caught, drift allowed, double-zero and single-surface both refused, the cap catches 25 orphans a percentage hides, and 1 vs 0 says its allowance is 0 and why)"
+    # THE v1.0.74 PAIR, which passed under 2% alone and fails under the cap:
+    # the verdict must carry the provenance sentence so two adjacent walk
+    # records explain themselves. And a gap the OLD rule would ALSO have
+    # failed must NOT carry it, or the sentence becomes wallpaper.
+    r="$(adjudicate_counts 2008 2018 2)"
+    case "$r" in DISAGREE*"landed in CM051 #1799"*) ;; *) probe_pass "NEGATIVE CONTROL DID NOT FIRE: 2008 vs 2018 (v1.0.74, passed under 2% alone) did not carry the cap-provenance sentence: ${r}" ;; esac
+    r="$(adjudicate_counts 6376 6755 2)"
+    case "$r" in *"landed in CM051 #1799"*) probe_pass "the provenance sentence appeared on a gap the old rule also failed (379 on 6755): ${r}" ;; esac
+    probe_fail "negative control behaved correctly on all 8 pairs (real spread caught, drift allowed, double-zero and single-surface both refused, the cap catches 25 orphans a percentage hides, 1 vs 0 says its allowance is 0 and why, the v1.0.74 pair carries the cap-provenance sentence, and a gap the old rule also failed does not)"
 }
 
 probe_main "$@"
