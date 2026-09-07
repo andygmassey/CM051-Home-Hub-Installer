@@ -4,13 +4,19 @@
 #
 # ttywalk's identity refusal printed two strings that render IDENTICALLY.
 #
+# 🔴 THE EXAMPLE NAME IS DELIBERATELY GENERIC. CM051 is a PUBLIC repo and
+# bin/pii_name_guard.py refuses a real person's name anywhere in the tree --
+# it caught my first draft, which used the operator's actual ComputerName
+# because that is what the bug was found on. Do NOT restore it for realism:
+# the defect is the apostrophe, not whose Mac it is.
+#
 # MEASURED 2026-09-07. The walk box's ComputerName carries U+2019 (curly
 # apostrophe, bytes e2 80 99). ttywalk.sh's own usage example carries U+0027
 # (straight, byte 27) -- confirmed with `od -c` on the doc line. Copy the
 # documented example and the walk refuses with:
 #
-#     IDENTITY MISMATCH. Expected ComputerName 'Andrew's Mac mini',
-#     the host at <host> answers 'Andrew's Mac mini'. DHCP moves this address.
+#     IDENTITY MISMATCH. Expected ComputerName 'Studio's Mac mini',
+#     the host at <host> answers 'Studio's Mac mini'. DHCP moves this address.
 #
 # Both quoted strings look the same, and the next sentence blames DHCP, which
 # sends the operator to the network -- the one place the fault is not. It cost a
@@ -39,8 +45,8 @@ for _fn in identity_lookalike_verdict identity_bytes identity_mismatch_hint; do
     declare -F "$_fn" >/dev/null || { echo "CANNOT-RUN: ${LIB} lacks ${_fn}() (exit 2)" >&2; exit 2; }
 done
 
-CURLY="Andrew$(printf '\342\200\231')s Mac mini"
-STRAIGHT="Andrew's Mac mini"
+CURLY="Studio$(printf '\342\200\231')s Mac mini"
+STRAIGHT="Studio's Mac mini"
 
 _fails=0; _total=0
 arm() {
@@ -53,7 +59,7 @@ arm() {
 echo "identity look-alike verdicts"
 arm "1 curly vs straight is LOOKALIKE"        LOOKALIKE "$(identity_lookalike_verdict "$CURLY" "$STRAIGHT")"
 arm "2 a string equals itself"                IDENTICAL "$(identity_lookalike_verdict "$CURLY" "$CURLY")"
-arm "3 a real mismatch is DIFFERENT"          DIFFERENT "$(identity_lookalike_verdict "$CURLY" "Someone Elses Mac")"
+arm "3 a real mismatch is DIFFERENT"          DIFFERENT "$(identity_lookalike_verdict "$CURLY" "a completely different host")"
 
 # 4. THE POINT. The hint must name the BYTES, not merely say they differ.
 _hint="$(identity_mismatch_hint "$CURLY" "$STRAIGHT")"
@@ -83,7 +89,7 @@ fi
 # 6. a GENUINE mismatch must NOT claim look-alike punctuation -- that would be a
 #    false explanation, which is worse than none.
 _total=$((_total + 1))
-if ! identity_mismatch_hint "$CURLY" "Someone Elses Mac" | grep -qi 'LOOK-ALIKE'; then
+if ! identity_mismatch_hint "$CURLY" "a completely different host" | grep -qi 'LOOK-ALIKE'; then
     printf '  ok    6 a genuine mismatch is not mislabelled as look-alike\n'
 else
     printf '  FAIL  6 a genuine mismatch claimed look-alike punctuation\n'

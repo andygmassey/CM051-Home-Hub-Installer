@@ -4,9 +4,15 @@
 # ttywalk.sh:119 refuses when the host's ComputerName is not the expected one,
 # and prints:
 #
-#     IDENTITY MISMATCH. Expected ComputerName 'Andrew's Mac mini',
-#     the host at <host> answers 'Andrew's Mac mini'. DHCP moves this address.
+#     IDENTITY MISMATCH. Expected ComputerName 'Studio's Mac mini',
+#     the host at <host> answers 'Studio's Mac mini'. DHCP moves this address.
 #     Refusing rather than acting on the wrong machine.
+#
+# 🔴 THE EXAMPLE NAME IS DELIBERATELY GENERIC. CM051 is a PUBLIC repo and
+# bin/pii_name_guard.py refuses a real person's name anywhere in the tree --
+# it caught my first draft, which used the operator's actual ComputerName
+# because that is what the bug was found on. Do NOT restore it for realism:
+# the defect is the apostrophe, not whose Mac it is.
 #
 # MEASURED 2026-09-07: the walk box's ComputerName contains U+2019 (a curly
 # apostrophe). ttywalk.sh's own usage example at line 41 contains U+0027 (a
