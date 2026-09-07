@@ -81,7 +81,7 @@ git -C "$R" checkout -q -b fix/thing && echo x > "$R/x.txt"
 git -C "$R" add -A && git -C "$R" commit -qm "fix: a real fix nobody merged"
 git -C "$R" push -q -u origin fix/thing && git -C "$R" checkout -q main
 out="$(run_gate "$R")"; rc=$?
-if [[ $rc -ne 0 ]] && printf '%s' "$out" | grep -q "fix/thing"; then
+if [[ $rc -ne 0 ]] && [ "$(printf '%s' "$out" | grep -c "fix/thing")" -gt 0 ]; then
     ok "unmerged remote fix/ branch goes RED"
 else
     bad "unmerged remote fix/ branch did NOT go red (rc=$rc)"
@@ -93,7 +93,7 @@ git -C "$R" checkout -q -b fix/never-pushed && echo y > "$R/y.txt"
 git -C "$R" add -A && git -C "$R" commit -qm "fix: lives on one machine only"
 git -C "$R" checkout -q main
 out="$(run_gate "$R")"; rc=$?
-if [[ $rc -ne 0 ]] && printf '%s' "$out" | grep -q "LOCAL-ONLY"; then
+if [[ $rc -ne 0 ]] && [ "$(printf '%s' "$out" | grep -c "LOCAL-ONLY")" -gt 0 ]; then
     ok "local-only branch goes RED and is named as LOCAL-ONLY"
 else
     bad "local-only branch did NOT go red (rc=$rc) -- this is the #632 shape"
@@ -102,7 +102,7 @@ fi
 # (c) dirty tree -> RED
 R="$(make_repo dirty)"; echo scratch > "$R/uncommitted.txt"
 out="$(run_gate "$R")"; rc=$?
-if [[ $rc -ne 0 ]] && printf '%s' "$out" | grep -q "working-tree"; then
+if [[ $rc -ne 0 ]] && [ "$(printf '%s' "$out" | grep -c "working-tree")" -gt 0 ]; then
     ok "dirty working tree goes RED"
 else
     bad "dirty working tree did NOT go red (rc=$rc)"
@@ -128,7 +128,7 @@ YAML
 DEF_BASE="$TMP/deferral-baseline.txt"
 printf '%s\n' "CM044:fix/later" > "$DEF_BASE"
 out="$(run_gate "$R" "$DEF" "$DEF_BASE")"; rc=$?
-if [[ $rc -eq 0 ]] && printf '%s' "$out" | grep -q "DEFERRED"; then
+if [[ $rc -eq 0 ]] && [ "$(printf '%s' "$out" | grep -c "DEFERRED")" -gt 0 ]; then
     ok "recorded deferral passes AND is still printed"
 else
     bad "recorded deferral did not pass cleanly (rc=$rc)"
@@ -217,7 +217,7 @@ STUB
 chmod +x "$STUBDIR/mktemp"
 R="$(make_repo cannotrun)"
 out="$(PATH="$STUBDIR:$PATH" run_gate "$R")"; rc=$?
-if [[ $rc -eq 2 ]] && printf '%s' "$out" | grep -q "CANNOT-RUN"; then
+if [[ $rc -eq 2 ]] && [ "$(printf '%s' "$out" | grep -c "CANNOT-RUN")" -gt 0 ]; then
     ok "unwriteable expired-set is CANNOT-RUN (exit 2), not a silent pass"
 else
     bad "an unwriteable expired-set returned rc=$rc -- the ratchet can still go inert and report green"

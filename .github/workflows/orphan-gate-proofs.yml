@@ -43,6 +43,9 @@ on:
       # Both are watched, because a change to either can retire the ratchet --
       # a doctored baseline is as good as a deleted check.
       - 'tests/test_expired_deferral_ratchet.sh'
+      # The harnesses' own assertions, which is a surface of its own: on
+      # 2026-09-07 a harness bug, not a gate bug, killed a cut.
+      - 'tests/test_orphan_selftest_survives_a_wordy_gate.sh'
       - 'tests/test_expiry_needs_a_cut_version.sh'
       - 'tests/expired_deferrals_baseline.txt'
       # The gate READS this file, so a change to its shape (a reason moving to
@@ -110,6 +113,16 @@ jobs:
       - name: The deferral-expiry ratchet compares sets, not counts
         if: always()
         run: /bin/bash tests/test_expired_deferral_ratchet.sh
+
+      # THE HARNESS ITSELF, at a size that loses the SIGPIPE race. The gate can
+      # be perfect and still be reported broken by its own self-test: on
+      # 2026-09-07 `printf | grep -q` under pipefail inverted a verdict once the
+      # expiry ratchet's output crossed the 64KB pipe buffer, and it cost the
+      # v1.0.75 cut after preflight had passed for the first time. Runs on
+      # /bin/bash, the shell the cut runs these on, because that is where it bit.
+      - name: The harness assertions survive a wordy gate (SIGPIPE race)
+        if: always()
+        run: /bin/bash tests/test_orphan_selftest_survives_a_wordy_gate.sh
 
       # The ratchet compares sets correctly and could still be handed a set that
       # is empty BY CONSTRUCTION. Without a cut version nothing can expire, and
