@@ -39,6 +39,16 @@
 #
 # USAGE
 #   scripts/ttywalk.sh --host andy@192.168.1.238 --expect-name "Andrew's Mac mini"
+#
+#   🚨 THE APOSTROPHE ABOVE IS A STRAIGHT ONE (U+0027). A real macOS
+#   ComputerName usually contains a CURLY one (U+2019, bytes e2 80 99), so
+#   copying this line verbatim can refuse with an IDENTITY MISMATCH whose two
+#   quoted strings look identical. Deliberately NOT "fixed" by swapping in a
+#   curly character here: that edit is invisible in review and just as easy to
+#   retype wrongly. Read the name off the host once and paste THAT:
+#       ssh <host> scutil --get ComputerName
+#   If it still refuses, the die now prints both strings BYTE BY BYTE.
+#
 #   scripts/ttywalk.sh --host ... --expect-name ... --reset      # uninstall first
 #   scripts/ttywalk.sh --host ... --reset --wipe-stores          # AND wipe the stores
 #
@@ -56,6 +66,8 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib_identity_lookalike.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib_identity_lookalike.sh"
 REMOTE_DIR="ostler-ttywalk"
 
 PASS=0; FAIL=1; CANNOT_RUN=2
@@ -119,11 +131,13 @@ identity_check() {
     if [[ -n "$EXPECT_NAME" && "$name" != "$EXPECT_NAME" ]]; then
         die "IDENTITY MISMATCH (${when}). Expected ComputerName '${EXPECT_NAME}',
        the host at ${HOST} answers '${name}'. DHCP moves this address.
-       Refusing rather than acting on the wrong machine."
+       Refusing rather than acting on the wrong machine.
+$(identity_mismatch_hint "$EXPECT_NAME" "$name")"
     fi
     if [[ -n "$EXPECT_MODEL" && "$model" != "$EXPECT_MODEL" ]]; then
         die "IDENTITY MISMATCH (${when}). Expected hw.model '${EXPECT_MODEL}',
-       got '${model}'."
+       got '${model}'.
+$(identity_mismatch_hint "$EXPECT_MODEL" "$model")"
     fi
     say "identity ${when}: ${name} / ${model} (as $(printf '%s' "$ident" | sed -n 3p))"
 }

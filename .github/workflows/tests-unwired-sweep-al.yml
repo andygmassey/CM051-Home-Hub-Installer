@@ -172,10 +172,15 @@ jobs:
           done
           exit $fail
 
-      # INDIVIDUAL STEP, not an entry in the `for t in ...` list above: the list
-      # gives verify_test_wiring.sh a MENTION but gives
+      # INDIVIDUAL STEP, not an entry in the `for t in ...` list above. The list
+      # idiom gives verify_test_wiring.sh a MENTION but gives
       # verify_new_tests_are_wired.sh no execution verb on the same line, so a
-      # test added there scores WIRED by one gate and DARK by the other.
+      # test added to the list scores WIRED by one gate and DARK by the other.
+      # The existing list entries predate the second gate and are grandfathered.
+      # if: always() so a failure here cannot mask the steps after it.
       - name: a walk record is found under either spelling
         if: always()
         run: bash tests/test_a_walk_record_is_found_under_either_spelling.sh
+      - name: an identity mismatch shows the difference, not two identical strings
+        if: always()
+        run: bash tests/test_identity_mismatch_shows_the_difference.sh
