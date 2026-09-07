@@ -342,7 +342,7 @@ HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
 # The Hub app is ADHOC SIGNED BY DESIGN: Signature=adhoc, TeamIdentifier=not
 # set, `stapler validate` rc=65. That is the CORRECT reading, and the daemon's
 # rc=0 on the same command is the positive control that proves the probe works.
-HUB_APP_SHA256       ?= 61865f7afe89fe1530b6c4c6c94b0d0da9ae8a2fb9af8e991e17f0f67bb669ea
+HUB_APP_SHA256       ?= 9b977baa6b2bc8215182090b2f18fa6f97bf73216f6d153facec65341ecd906c
 
 # ---------------------------------------------------------------------------
 # SAFARI EXTENSION (CM020) -- the third artefact the cut cannot build itself.
