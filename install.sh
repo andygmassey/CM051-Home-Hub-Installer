@@ -992,10 +992,15 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         # permanently-frozen graph. Non-fatal by design -- the daemon swap has
         # already succeeded and a rollback here would be worse than a loud
         # log line the Hub health-check and support bundle both carry.
+        # `x="$(cmd)"` carries cmd's exit status, so under `set -e` a
+        # non-zero return aborts here -- and 1 and 2 are exactly the answers
+        # the case below exists to tell apart. Same class as the preflight
+        # above and as #1756's :12399 / :13022.
+        _upg_rr_out=""; _upg_rr_rc=0
         _upg_rr_out="$(_ostler_verify_runtime_ready \
             "${HOME}/.ostler/.venv/bin/python3" \
-            "${HOME}/.ostler/fda-module/ostler_fda" 2>&1)"
-        case $? in
+            "${HOME}/.ostler/fda-module/ostler_fda" 2>&1)" || _upg_rr_rc=$?
+        case $_upg_rr_rc in
             0) _upg_log "runtime-ready OK (upgrade path): ${_upg_rr_out}" ;;
             2) _upg_log "runtime-ready CANNOT-RUN (upgrade path): ${_upg_rr_out}" ;;
             *) _upg_log "ERROR: runtime-ready FAILED (upgrade path) -- com.ostler.fda-rerun will keep dying and the graph will NOT grow. See #595/#942. ${_upg_rr_out}" ;;
@@ -2938,10 +2943,14 @@ _ostler_promote_prelaunch_tree() {
     # Runs after the repair, on the venv that survives promote. Loud, and
     # distinguishes not-ready from could-not-look.
     local _rr_out _rr_rc
+    # `x="$(cmd)"` carries cmd's exit status, so `_rr_rc=$?` on the next
+    # line was never reached for a non-zero return: under `set -e` the
+    # assignment itself aborted. The case below distinguishes not-ready
+    # from could-not-look, and could only ever see 0.
+    _rr_out=""; _rr_rc=0
     _rr_out="$(_ostler_verify_runtime_ready \
         "${OSTLER_DIR}/.venv/bin/python3" \
-        "${OSTLER_FINAL_DIR}/fda-module/ostler_fda" 2>&1)"
-    _rr_rc=$?
+        "${OSTLER_FINAL_DIR}/fda-module/ostler_fda" 2>&1)" || _rr_rc=$?
     case "$_rr_rc" in
         0) _ostler_promote_venv_note "runtime-ready OK (install path): ${_rr_out}" ;;
         2) _ostler_promote_venv_note "runtime-ready CANNOT-RUN (install path): ${_rr_out}" ;;
@@ -16611,13 +16620,27 @@ if [ -z "${_PF_PY}" ]; then
     warn "$MSG_WARN_PORT_BIND_PROBE_UNAVAILABLE"
 fi
 for _pf_port in ${OSTLER_PREFLIGHT_PORTS}; do
-    _check_port "${_pf_port}" "${_PF_PY}"
-    case $? in
+    # `_check_port` returns STATUS AS DATA -- 0 free, 1 held, 2 could not
+    # measure, its own contract stated at its definition. A BARE call under
+    # `set -e` therefore aborts the installer on 1 and 2, which are the two
+    # answers this loop exists to collect, and the `case` below never runs.
+    # Same class as #1756's :12399 and :13022.
+    #
+    # The failure direction is the cruel one: a FREE port returns 0 and the
+    # preflight passes, so this breaks ONLY when it finds what it is looking
+    # for. What it kills is the #1208 message a few lines below, written
+    # because "continuing past a known collision is what put another
+    # account's services behind our containers" -- so the customer gets a
+    # generic abort instead of the collision report someone added after a
+    # real incident.
+    _pf_rc=0
+    _check_port "${_pf_port}" "${_PF_PY}" || _pf_rc=$?
+    case $_pf_rc in
         1) PORT_CONFLICT=true ;;
         2) PORT_UNMEASURED=true ;;
     esac
 done
-unset _pf_port _PF_PY
+unset _pf_port _PF_PY _pf_rc
 
 # FAIL, not warn (#1208). Continuing past a known collision is what put
 # another account's services behind our containers.

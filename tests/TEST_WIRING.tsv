@@ -351,6 +351,7 @@ test_pipefail_shortcircuit_inversion.sh	WIRED	.github/workflows/appcast-ship-wir
 test_placeholder_strip.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_port_preflight_covers_published.sh	WIRED	.github/workflows/colima-autostart.yml
 test_port_preflight_recognises_own_colima_567.sh	WIRED	.github/workflows/colima-autostart.yml
+test_port_preflight_survives_a_held_port.sh	WIRED	.github/workflows/colima-autostart.yml
 test_post_walk_qa_measures_the_artefact.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_pr_age_gate_declares_partial_runs.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pref_noise_source_cap.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
@@ -383,6 +384,7 @@ test_rollforward_pin_is_watched_on_prs.sh	WIRED	.github/workflows/cut-gate-wrapp
 test_rollforward_registry_pin.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_runtime_ready_does_not_require_optional_imports.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_runtime_ready_invariant.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_runtime_ready_status_is_read_not_fatal.sh	WIRED	.github/workflows/colima-autostart.yml
 test_scheduled_agent_failure_is_loud.sh	WIRED	.github/workflows/scheduled-agent-failure-is-loud.yml
 test_secrets_are_documented.sh	WIRED	.github/workflows/secrets-are-documented.yml
 test_section_contract.sh	WIRED	.github/workflows/section-contract.yml
