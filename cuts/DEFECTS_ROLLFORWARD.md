@@ -816,7 +816,18 @@ DIR="${OSTLER_WIKI_PEOPLE:-$HOME/Documents/Ostler/Wiki/People}"
 # EXAMINED-COUNT CONTROL. The previous body exited 0 on a machine with no wiki:
 # find matched nothing, the loop never ran, and "no violations" was reported as a
 # pass. Zero violations over zero pages is the vacuous green this file is about.
-[ -d "$DIR" ] || { echo "CANNOT RUN: $DIR does not exist. This is not a pass."; exit 1; }
+# EXIT 97, NOT 1. 97 is the runner vocabulary for "I could not look", as
+# distinct from "the defect is present". Exiting 1 made this gate report as a
+# MEASURED PRODUCT FAILURE on any box without a compiled wiki -- and this is
+# the gate that closes CM051 #1619, so that misreading says the kinship defect
+# is still present when nothing was examined at all.
+# Measured 2026-09-07 against the wiped walk box:
+#   before  ROLLFORWARD RED -- 1 measured failure(s), 0 CANNOT-RUN
+#   after   ROLLFORWARD RED -- 0 measured failure(s), 1 CANNOT-RUN
+# Both RED, so it never failed OPEN. It simply named the wrong cause.
+# ONLY OFFENDER: 26 of the 28 gate bodies declare CANNOT-RUN and 25 of them
+# already used the right code.
+[ -d "$DIR" ] || { echo "CANNOT RUN: $DIR does not exist. This is not a pass."; exit 97; }
 
 # SCOPE: PERSON PAGES ONLY (v1018-D011 narrowing, 2026-08-11).
 #

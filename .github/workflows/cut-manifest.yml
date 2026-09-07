@@ -18,6 +18,8 @@ name: cut-manifest
 on:
   pull_request:
     paths:
+      - 'tests/test_a_gate_that_cannot_look_says_97.sh'
+      - 'cuts/DEFECTS_ROLLFORWARD.md'
       - 'tests/test_the_emergency_cut_row_tells_the_truth.sh'
       - 'scripts/verify_cut_manifest.py'
       - 'scripts/verify_cut_manifest.sh'
@@ -91,6 +93,17 @@ jobs:
           # refusal, but a control that never ran. download-urls-resolve.yml
           # already carries this line for the same reason.
           fetch-depth: 0
+
+      # 97 is the runner's word for "I could not look". Measured 2026-09-07:
+      # 25 of 28 gate bodies used it and v1018-D011 did not -- it exited 1, so
+      # on any box without a compiled wiki it reported "1 measured failure"
+      # instead of "1 CANNOT-RUN". Both are RED and neither ships a cut, so it
+      # never failed open; what it did was say the kinship defect was still
+      # present on a box where nothing had been examined. #1619 is closed on
+      # exactly that reading.
+      - name: A gate that cannot look says 97
+        if: always()
+        run: bash tests/test_a_gate_that_cannot_look_says_97.sh
 
       # The emergency_cut row in SHIPPING_LEDGER.yaml had TWO lies in it.
       # Its `dirty` flag was computed inside a nested double-quoted echo, where
