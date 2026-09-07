@@ -1026,6 +1026,9 @@ MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1="System Settings is open at Full Disk Acces
 # mutation-tested by tests/test_fda_dialog_tells_the_truth.sh case-4.
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="Find \"%s\" in the list and turn its Full Disk Access switch on."
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="Not listed? Drag \"%s\" from the Finder window into the list, then turn its switch on. Order does not matter – click Done before or after; the installer waits until the switch is actually on."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3_NO_FINDER="Not listed? Ostler could not open a Finder window for you. In Finder press ⌘⇧G, enter the path below, then drag \"%s\" into the list and turn its switch on. Order does not matter – click Done before or after; the installer waits until the switch is actually on."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_PATH="The app is at: %s"
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_PATH_ON_CLIPBOARD="The app is at: %s – this path is on your clipboard, so in Finder press ⌘⇧G, then ⌘V, then Return."
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON="Done"
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_DONE_HINT="You can click Done before or after flipping the switch – the installer waits until it is actually on."
 
