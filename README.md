@@ -10,10 +10,10 @@ standalone entry point, and it refuses to install without a valid licence.
 
 | Requirement | Why |
 |---|---|
-| macOS 13 (Ventura) or later | Modern Docker, Ollama, security features |
+| macOS 14 (Sonoma) or later | The installer app is built for macOS 14.0 and will not open on anything older; Docker, Ollama and the security features Ostler relies on need it too |
 | Apple Silicon (M1+) | Performance for on-device AI |
 | 16 GB RAM minimum, 24 GB recommended | 16 GB runs the compact assistant; 24 GB unlocks the standard 9B model; 32 GB+ runs the full model |
-| 35 GB free disk | Docker images, AI model, embedding model, databases |
+| 35 GB free disk recommended; 15 GB is the hard floor | Docker images, AI model (7–23 GB depending on your RAM), embedding model, databases. The installer warns below 35 GB and refuses to start below 15 GB |
 | **Plugged into AC power** | Phase 3 takes 10-25 minutes of continuous Docker pulls + Ollama model downloads (longer on slower broadband). On a MacBook the hub power LaunchAgent (step 3.14) pauses Docker and Ollama on battery, which makes the installer's readiness probes time out. Stay on AC for the full install. |
 
 Run `bash install.sh --check` to verify prerequisites without installing anything. The check warns if you're on battery.

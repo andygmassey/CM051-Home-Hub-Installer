@@ -746,7 +746,6 @@ MSG_WARN_KNOWLEDGE_SERVICE_INSTALL_FAILED_CLONE="Knowledge service install faile
 MSG_WARN_LICENCE_SHIPS_UNDER_GOOGLE_S_GEMMA="Licence: %s ships under Google's Gemma Terms of Use, not Apache 2.0."
 MSG_WARN_MACBOOK_DEPLOYMENTS_NEED_THIS_BATTERY_SLEEP="MacBook deployments need this for battery / sleep handling."
 MSG_WARN_MACOS_CONTACTS_PERMISSION_WAS_DECLINED_NOT="macOS Contacts permission was declined or not yet granted."
-MSG_WARN_MACOS_OUTDATED_WE_RECOMMEND_MACOS_13="macOS %s is outdated. We recommend macOS 13 (Ventura) or later."
 MSG_WARN_MACOS_WILL_NOT_PROMPT_IT_FROM="macOS will NOT prompt for it from a script – you must grant it manually."
 MSG_WARN_MAC_MINI_DEPLOYMENTS_ARE_UNAFFECTED_MACBOOK="Mac Mini deployments are unaffected; MacBook users should retry."
 MSG_WARN_MAIL_DATA_STILL_INGESTIBLE_MANUALLY="Mail data is still ingestible manually:"
@@ -838,7 +837,6 @@ MSG_WARN_SKIPPING_EMAIL_INGEST_LAUNCHAGENT_INSTALL="Skipping email-ingest Launch
 MSG_WARN_SKIPPING_LAUNCHAGENT_INSTALL_MAC_MINI_DEPLOYMENTS="Skipping LaunchAgent install. Mac Mini deployments are unaffected."
 MSG_WARN_SKIPPING_LAUNCHAGENT_INSTALL_TRY_VERSION="Skipping LaunchAgent install. Try: %s --version"
 MSG_WARN_SKIPPING_WIKI_RECOMPILE_LAUNCHAGENT_INSTALL="Skipping wiki-recompile LaunchAgent install."
-MSG_WARN_SOME_FEATURES_MAY_NOT_WORK_CORRECTLY="Some features may not work correctly on older versions."
 MSG_WARN_SOME_PORTS_ARE_USE_DOCKER_CONTAINERS="Some ports are in use. Docker containers may fail to start."
 # #1208 port preflight. MSG_WARN_PORT_1_ALREADY_USE_PID above is RETIRED,
 # not reused: it declares three %s but every call site only ever passed
@@ -927,6 +925,7 @@ MSG_FAIL_IMPORT_PIPELINE_INSTALL_FAILED_RE_RUN_INSTALLER="Import pipeline instal
 MSG_FAIL_NEED_SUDO_ACCESS_DISABLE_SLEEP_INSTALL="Need sudo access to disable sleep + install Homebrew. Re-run when ready."
 MSG_FAIL_NEITHER_COLIMA_NOR_DOCKER_DESKTOP_COULD="Neither Colima nor Docker Desktop could start. Install Docker Desktop and re-run."
 MSG_FAIL_NOT_ENOUGH_DISK_SPACE_GB_FREE="Not enough disk space (%s GB). Free up space and try again."
+MSG_FAIL_MACOS_BELOW_FLOOR="macOS %s is older than Ostler supports. Ostler needs macOS %s or later: the installer app is built for it and will not open on anything older. Update macOS, then run the installer again."
 MSG_FAIL_NO_PASSKEY_SET_NO_EXISTING_SECURITY="No passkey set and no existing security configuration. Re-run with --allow-plaintext for dev/CI, or re-run the installer and acknowledge the Touch ID briefing."
 MSG_FAIL_CM048_PIPELINE_REQUIRED_RE_RUN="Conversation memory engine is required. Re-run with --allow-plaintext for dev/CI, or fix the missing bundle above and retry."
 MSG_FAIL_DAEMON_RUN_SOURCE_UNSUPPORTED_SKEW="The bundled Ostler daemon (v%s at %s) does not support the 'run-source' command this installer needs to route ingest through Full Disk Access. This is a version mismatch inside the installer bundle: installing it would leave every ingest source silently broken and the product would go stale with no visible error. Re-download the .app from ostler.ai/install and try again (Reference: ERR-11-DAEMON-RUN-SOURCE-SKEW)."

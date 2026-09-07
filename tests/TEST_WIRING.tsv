@@ -267,6 +267,7 @@ test_install_gui_contract_negatives.py	WIRED	.github/workflows/install-gui-contr
 test_install_log_follows_promotion.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_install_log_reads_like_a_product.sh	WIRED	.github/workflows/install-log-hygiene.yml
 test_install_manifest_gate.sh	WIRED	.github/workflows/install-manifest-gate.yml
+test_install_refuses_below_the_macos_floor.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_install_sh_no_call_before_definition.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_install_sh_prefers_bundled_python.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_installed_pipeline_packages_can_import_themselves.sh	WIRED	.github/workflows/cold-box-source-truth.yml
@@ -379,6 +380,7 @@ test_pyc_seed_excludes_nested_ostler_app.sh	WIRED	.github/workflows/cut-gate-wra
 test_qdrant_import_gate_refuses_empty_store.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_qdrant_membership_not_cardinality.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_qdrant_readiness_tests_the_authenticated_surface.sh	WIRED	.github/workflows/launchd-plist-paths.yml
+test_readme_states_the_floors_the_installer_enforces.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_readonly_flags_need_no_tty.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_reconcile_splits_our_fixtures_from_the_products.py	WIRED	.github/workflows/walk-record-gate.yml
 test_redis_health_probe_authenticates.sh	WIRED	.github/workflows/redis-health-probe.yml

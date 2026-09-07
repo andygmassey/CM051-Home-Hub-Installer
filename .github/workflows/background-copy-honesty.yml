@@ -59,6 +59,13 @@ on:
       # strings catalogue, both already in this filter above.
       - 'tests/test_qdrant_membership_not_cardinality.sh'
       - 'tests/TEST_WIRING.tsv'
+      # What a customer is told BEFORE they download, and the two files that
+      # decide whether it is true: the DMG's deployment target and the
+      # installer's own floor checks.
+      - 'README.md'
+      - 'gui/project.yml'
+      - 'tests/test_readme_states_the_floors_the_installer_enforces.sh'
+      - 'tests/test_install_refuses_below_the_macos_floor.sh'
       - '.github/workflows/background-copy-honesty.yml'
   push:
     branches: [main]
@@ -121,6 +128,22 @@ jobs:
       - name: The install names WHICH collections are missing, not just how many (#616)
         if: always()
         run: /bin/bash tests/test_qdrant_membership_not_cardinality.sh
+
+      - name: The README states the floors the installer actually enforces
+        if: always()
+        # The README said macOS 13 while the DMG is built for 14.0 and will not
+        # open on 13; it said 35 GB while the installer warns below 35 and
+        # refuses below 15. Each figure the customer reads before downloading
+        # is taken from the file that enforces it, not from a second copy.
+        run: bash tests/test_readme_states_the_floors_the_installer_enforces.sh
+
+      - name: The installer refuses below the macOS floor the DMG is built for
+        if: always()
+        # The prerequisite check warned below 13 and recommended 13 while the
+        # .app cannot open below 14. It now refuses below one pinned floor,
+        # and this test fails the moment that pin and gui/project.yml differ.
+        # Its control is the pre-fix block, which must NOT refuse on 13.
+        run: bash tests/test_install_refuses_below_the_macos_floor.sh
 
       - name: Tests parse under bash 3.2-compatible syntax
         if: always()

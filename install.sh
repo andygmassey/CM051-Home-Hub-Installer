@@ -4768,10 +4768,24 @@ MACOS_VERSION=$(sw_vers -productVersion)
 MACOS_MAJOR=$(echo "$MACOS_VERSION" | cut -d. -f1)
 ok "$(printf "$MSG_OK_MACOS_DETECTED" "${MACOS_VERSION}")"
 
-# Minimum macOS 13 (Ventura) -- needed for modern Docker, Ollama, and security features
-if [[ $MACOS_MAJOR -lt 13 ]]; then
-    warn "$(printf "$MSG_WARN_MACOS_OUTDATED_WE_RECOMMEND_MACOS_13" "${MACOS_VERSION}")"
-    warn "$MSG_WARN_SOME_FEATURES_MAY_NOT_WORK_CORRECTLY"
+# THE macOS FLOOR IS THE DMG'S, AND THIS CHECK REFUSES BELOW IT.
+#
+# Until 2026-09-07 this block WARNED below 13 and recommended 13, while the
+# installer app is built with MACOSX_DEPLOYMENT_TARGET 14.0 (gui/project.yml,
+# which feeds LSMinimumSystemVersion) and will not open on anything older. A
+# customer on 13 who got past the README would spend an hour installing an
+# app that cannot open. The README states 14; this is the same floor, told
+# after the download, and it refuses rather than warns because nothing below
+# it can work.
+#
+# ONE PLACE, AS FAR AS THE SHIPPED SCRIPT ALLOWS: it cannot read
+# gui/project.yml at runtime, so the floor is pinned here and
+# tests/test_install_refuses_below_the_macos_floor.sh fails the moment this
+# constant and project.yml disagree. Not an env override on purpose -- a
+# floor that can be lowered from the environment is not a floor.
+OSTLER_MACOS_FLOOR_MAJOR=14
+if [[ $MACOS_MAJOR -lt $OSTLER_MACOS_FLOOR_MAJOR ]]; then
+    fail_with_code "ERR-02-PREREQ-MACOS-OLD" "$(printf "$MSG_FAIL_MACOS_BELOW_FLOOR" "${MACOS_VERSION}" "${OSTLER_MACOS_FLOOR_MAJOR}")"
 fi
 gui_emit PCT "step=prereq_check" "pct=20"
 
