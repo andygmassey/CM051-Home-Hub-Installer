@@ -41,6 +41,34 @@
 # what makes the loop a question rather than a wait. A wait that never settles
 # is a different defect with a different fix.
 #
+# 🔴 THIS GATE'S SCOPE IS NARROWER THAN THE DEFECT, AND IT SAYS SO OUT LOUD.
+#
+# The `while [[ -z "$VAR" ]]` shape is not the only way to write this bug.
+# install.sh also contains `while true` prompt loops, and at least one of them
+# has the identical failure: install.sh:6752 asks for an IMAP host, and its
+# empty-input case does `continue`, so on EOF it re-prompts forever exactly as
+# the three scored loops do. Measured across the repo: 664 tracked .sh files,
+# 12 loops that ask a human something, 3 of the scored shape, 9 of the
+# `while true` shape.
+#
+# I DID NOT SCORE THE OTHERS, AND THE REASON IS THAT I COULD NOT DO IT HONESTLY.
+# Deciding whether empty input can reach a `break` means resolving which case
+# arm "" falls into, whether ${VAR:-default} already turned it into a real
+# answer, and whether that arm exits. I wrote that classifier. It disagreed with
+# my own line-by-line reading on four of nine loops -- calling 6752 UNKNOWN when
+# it plainly spins, and calling two others SPINS when they break correctly. A
+# predicate that disagrees with reading is not a measurement, and shipping its
+# number would have put a confident count on a guess.
+#
+# So: the scored count is 3, the class is larger, and every unscored loop is
+# PRINTED on stderr as UNSCORED rather than silently omitted. A reader must be
+# able to see the boundary of what this gate checked. A ceiling of 3 that looked
+# like the whole class would be exactly the false comfort this file exists to
+# remove -- guarding the proxy instead of the property.
+#
+# The follow-up is a classifier good enough to score the `while true` shape, or
+# the fix landing and both shapes going to zero. Tracked, not forgotten.
+#
 # ⚠️ THE SEARCH IS BY SHAPE, NOT BY THE ENGLISH. Archie's first grep for the
 # visible sentence returned ZERO, because the string lives in the locale file
 # as MSG_WARN_YOUR_ASSISTANT_NEEDS_NAME_PICK_FROM and install.sh names only the
@@ -80,6 +108,8 @@ lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
 
 # The subject: a while-loop guarding on a variable being EMPTY.
 WHILE = re.compile(r'^\s*while\s+\[\[\s+-z\s+"\$\{?(\w+)')
+# NOT the subject, but the same defect can live here. Reported, never scored.
+WHILETRUE = re.compile(r'^\s*while\s+(?:true|:)\s*;?\s*do')
 # A bound in the CONDITION -- a numeric comparison against an attempt counter.
 BOUND = re.compile(r'-(lt|le|gt|ge)\s')
 # The body asks a human something.
@@ -87,10 +117,24 @@ ASKS = re.compile(r'\bgui_read\b|(?<![\w-])read\s+(-[rp]\S*\s+)*\w')
 # An EOF guard: the loop notices the stream died instead of asking again.
 EOFG = re.compile(r'\bbreak\b|\bEOF\b|read\s+.*-t\s|\|\|\s*break')
 
-found, unbounded = [], []
+found, unbounded, unscored = [], [], []
 for i, ln in enumerate(lines):
     m = WHILE.match(ln)
     if not m:
+        # The other shape. Report it if it asks a human something, so the
+        # boundary of this gate is visible in its own output rather than
+        # inferred from a count.
+        if WHILETRUE.match(ln):
+            indent_t = len(ln) - len(ln.lstrip())
+            j, cap, seg = i + 1, min(len(lines), i + 400), []
+            while j < cap:
+                cur = lines[j]
+                if cur.strip() == "done" and (len(cur) - len(cur.lstrip())) == indent_t:
+                    break
+                seg.append(cur)
+                j += 1
+            if ASKS.search("\n".join(seg)):
+                unscored.append(i + 1)
         continue
     var = m.group(1)
     # Walk to the matching `done` at the same indent. Two independent stops:
@@ -140,6 +184,14 @@ if unclosed:
 n = len(unbounded)
 print(f"\n   loops of this shape: {len(found)}   asking input and unbounded: {n}   "
       f"ceiling: {ceiling}")
+
+# The boundary, printed every run. Not scored, not hidden. install.sh:6752 is a
+# known member of this list and a known instance of the same defect.
+if unscored:
+    print(f"\n   UNSCORED -- {len(unscored)} `while true` loop(s) also ask a human "
+          f"something.\n   This gate does not classify that shape; at least one of them "
+          f"(install.sh:6752)\n   spins on EOF exactly as the scored three do. Lines: "
+          f"{', '.join(str(x) for x in unscored)}", file=sys.stderr)
 
 if n > ceiling:
     print(f"\nFAIL: {n} unbounded re-prompt loop(s), ceiling is {ceiling}.", file=sys.stderr)

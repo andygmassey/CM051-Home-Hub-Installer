@@ -1,4 +1,11 @@
 #!/bin/bash
+# shellcheck disable=SC2016
+# FILE-LEVEL, AND DELIBERATE. Every single-quoted block below is install.sh
+# SOURCE TEXT written to a fixture and then scanned. "$VALUE" and $(gui_read ...)
+# must survive as literal characters; expanding them would write fixtures
+# containing this test's own empty variables, and every arm would then measure a
+# file with no loops in it. Scoped to the file because all three fixtures share
+# the property, not to wave a warning away.
 # =============================================================================
 # SELF-TEST for scripts/verify_prompt_loops_are_bounded.sh
 #
@@ -29,14 +36,6 @@ pass=0; fail=0; cannot=0
 
 # Every fixture starts from the real shape, so the arms test the gate and not a
 # toy grammar invented to agree with it.
-#
-# shellcheck disable=SC2016
-# The single quotes are LOAD-BEARING, not an oversight. These are install.sh
-# source text to be written to a file and scanned, so "$VALUE" and $(gui_read
-# ...) must survive as literal characters. Expanding them here would write
-# fixtures containing this test's own empty variables, and every arm would then
-# measure a file with no loops in it -- which arm 9 would catch, but as a
-# confusing CANNOT-RUN rather than as the mistake it is.
 ASKING_UNBOUNDED='
 VALUE=""
 while [[ -z "$VALUE" ]]; do
@@ -126,6 +125,33 @@ run "7 cannot-run: subject absent -> exit 2" 2 "$T/a7"
 # ARM 8 -- CANNOT-RUN, not a pass: a ceiling that is not a number.
 mkfix "$T/a8" ""; printf 'three\n' > "$T/a8/tests/PROMPT_LOOP_UNBOUNDED_CEILING"
 run "8 cannot-run: non-integer ceiling -> exit 2" 2 "$T/a8"
+
+# ARM 10 -- THE GATE MUST DECLARE ITS OWN BOUNDARY.
+# A `while true` loop that asks a human something is the SAME defect in a shape
+# this gate does not classify (install.sh:6752 is a live instance). Two things
+# must both hold: it is REPORTED on stderr, and it does NOT leak into the score.
+# Reporting without scoring is the honest position; silence would let a ceiling
+# of 3 read as "the class is 3".
+mkfix "$T/a10" '
+ANSWER=""
+while true; do
+    ANSWER="$(gui_read "$MSG_TITLE" text "" "" "" "field")"
+    case "$ANSWER" in
+        "") warn "$MSG_EMPTY"; continue ;;
+    esac
+    break
+done
+'
+out10="$(REPO_ROOT="$T/a10" bash "$GATE" 2>&1)"; rc10=$?
+if [ "$rc10" -eq 0 ] && printf '%s' "$out10" | grep -q 'UNSCORED'; then
+    printf '  [PASS] %-52s rc=%s\n' "10 boundary: while-true reported, not scored" "$rc10"; pass=$((pass+1))
+elif [ "$rc10" -ne 0 ]; then
+    printf '  [FAIL] %-52s rc=%s wanted 0 -- an unscored shape leaked into the score\n' \
+        "10 boundary: while-true reported, not scored" "$rc10"; fail=$((fail+1))
+else
+    printf '  [FAIL] %-52s no UNSCORED line -- the gate hid its own boundary\n' \
+        "10 boundary: while-true reported, not scored"; fail=$((fail+1))
+fi
 
 # ARM 9 -- VACUITY CONTROL. A subject with none of the shape must report
 # CANNOT-RUN. "Found nothing" and "could not look" print identically, and this
