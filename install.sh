@@ -20886,6 +20886,9 @@ echo "      To remove: ollama rm <model-name>"
 echo "    - Your original GDPR export files"
 echo "    - Your hub power policy (~/.ostler/power.conf)"
 echo "      kept so a reinstall reuses your existing policy"
+echo "    - /Applications/OstlerInstaller.app"
+echo "      the installer itself, which is very likely the app running"
+echo "      this uninstall right now. Drag it to the Bin when you are done."
 echo ""
 # ── #1560: THE GATE. Three outcomes, and the third used to be absent ──
 #
