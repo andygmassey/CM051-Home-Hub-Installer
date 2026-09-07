@@ -45,7 +45,8 @@ from typing import Any, Dict, List, Tuple
 # catch-all that maps to the reader's default (personal-grade) privacy.
 VALID_TYPES = ("personal", "work", "family", "shared", "other")
 
-# Generic Apple/Google calendar names that are always the operator's own and
+# Generic calendar names, from Apple and Google alike, that are always the
+# operator's own and
 # carry no other-person signal -> pre-fill You / personal.
 _SELF_GENERIC = {
     "calendar", "home", "personal", "icloud", "iphone",
