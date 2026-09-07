@@ -134,22 +134,37 @@ else
     sed 's/^/          /' "${WORK}/new" | head -10
 fi
 
-# 4. the ratchet: total occurrences must not grow
-_bt="$(awk -F'\t' '{s+=$1} END {print s+0}' "${WORK}/base")"
+# 4. THE RATCHET, AND IT LOWERS ITSELF. The ceiling is the baseline total
+#    MINUS anything that has since been fixed, so a struck shape tightens the
+#    gate instead of leaving slack behind. A plain "total <= baseline total"
+#    would let a fixed site's allowance be spent on a new one somewhere else.
+comm -23 <(cut -f2- "${WORK}/base" | sort) <(cut -f2- "${WORK}/now" | sort) > "${WORK}/gone"
+_ceiling="$(awk -F'\t' -v G="${WORK}/gone" '
+    FILENAME==G { gone[$0]=1; next }
+    !($2 in gone) { s+=$1 }
+    END { print s+0 }' "${WORK}/gone" "${WORK}/base")"
 _nt="$(awk -F'\t' '{s+=$1} END {print s+0}' "${WORK}/now")"
-if [[ "$_nt" -le "$_bt" ]]; then
-    ok "4 ratchet: ${_nt} occurrence(s), baseline ${_bt} (must not grow)"
+_bt="$(awk -F'\t' '{s+=$1} END {print s+0}' "${WORK}/base")"
+if [[ "$_nt" -le "$_ceiling" ]]; then
+    ok "4 ratchet: ${_nt} occurrence(s), ceiling ${_ceiling} (baseline ${_bt} minus $(grep -c . "${WORK}/gone" || true) struck)"
 else
-    bad "4 ratchet: ${_nt} occurrence(s), baseline ${_bt} -- the population GREW"
+    bad "4 ratchet: ${_nt} occurrence(s) exceeds the ceiling of ${_ceiling}"
 fi
 
-# 5. BASELINE ROT. Every frozen shape must still be found, or the baseline is
-#    describing a file that no longer exists and arm 3 is comparing fiction.
-comm -23 <(cut -f2- "${WORK}/base" | sort) <(cut -f2- "${WORK}/now" | sort) > "${WORK}/gone"
+# 5. STRUCK SHAPES ARE A NOTE, NOT A FAILURE, AND THIS IS DELIBERATE.
+#    A frozen shape disappearing means someone FIXED it. Failing on that
+#    would make my gate go red on somebody else's fix -- which it did, in a
+#    merge simulation against CM051 #1756: that PR removes
+#    `_ollama_agent_is_running; [[ $? -eq 2 ]]` from the population, and an
+#    earlier version of this file failed because of it. A gate that punishes
+#    the remedy teaches people to route around the gate.
+#
+#    Rot cannot hide growth here, because arm 4's ceiling already excludes
+#    struck shapes and arm 3 rejects new ones outright.
 if [[ ! -s "${WORK}/gone" ]]; then
-    ok "5 no baseline rot: every frozen shape was found by this scan"
+    ok "5 every frozen shape was found by this scan"
 else
-    bad "5 baseline rot: $(grep -c . "${WORK}/gone") frozen shape(s) no longer exist -- strike them:"
+    ok "5 $(grep -c . "${WORK}/gone") shape(s) fixed since the baseline; ceiling lowered, strike them when convenient:"
     sed 's/^/          /' "${WORK}/gone" | head -6
 fi
 
