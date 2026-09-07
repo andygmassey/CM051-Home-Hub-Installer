@@ -592,6 +592,7 @@ scripts/tests/test_egress_probe_attribution.sh	WIRED	.github/workflows/install-a
 scripts/tests/test_email_channel_toml.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
 scripts/tests/test_enforce_ledger_write.sh	WIRED	.github/workflows/enforce-ledger-write.yml
 scripts/tests/test_grep_in_source_at_sha_names_files.py	WIRED	.github/workflows/cut-manifest.yml
+scripts/tests/test_grounded_probe_asserts_the_fact.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_hint_coverage.sh	WIRED	.github/workflows/hint-coverage.yml
 scripts/tests/test_hydrate_contacts_timeout_arm.sh	WIRED	.github/workflows/consent-data-handling.yml
 scripts/tests/test_ingest_coverage_probe.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
