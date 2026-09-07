@@ -198,7 +198,16 @@ fi
 # So: take a tag the LIST just returned, and require the LOOKUP to find it. A
 # predicate that cannot return true cannot produce a finding, and a gate that
 # cannot produce a finding is decoration.
-NEWEST_TAG="$(gh api "repos/${RELEASES_SLUG}/releases" --jq '.[0].tag_name' 2>/dev/null || true)"
+# `--jq '.[0].tag_name'` on an EMPTY release list prints the literal string
+# `null`, which is 4 bytes, so the `-z` guard below does NOT fire. NEWEST_TAG
+# then carries "null" into the lookup, which asks for releases/tags/null, 404s,
+# and this gate reports "the LOOKUP could not find a tag the LIST just
+# returned" -- blaming the lookup for an empty list and sending the reader to
+# RELEASES_SLUG. `// empty` yields 0 bytes so the guard fires with its own
+# honest message. Found by TNM 2026-09-07 sweeping the same trap out of
+# HR015 CLAUDE.md. Verified: `printf '[]' | jq -r '.[0].tag_name'` = 4 bytes,
+# with `// empty` = 0 bytes, and a NON-empty list still yields its real value.
+NEWEST_TAG="$(gh api "repos/${RELEASES_SLUG}/releases" --jq '.[0].tag_name // empty' 2>/dev/null || true)"
 if [[ -z "$NEWEST_TAG" ]]; then
     cannot_run "C1b FAILED: could not read a tag_name from ${RELEASES_SLUG}'s release list."
 fi

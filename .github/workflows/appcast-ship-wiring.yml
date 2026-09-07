@@ -94,6 +94,14 @@ jobs:
       # into a short-circuiting consumer inverts a successful match into a
       # reported failure. That is not hypothetical: it turned CONTROL A red on
       # #890 while its own output named the dropped prerequisite correctly.
+      # A jq index read on an EMPTY list prints the literal string `null`, which
+      # is 4 bytes, so `[ -z "$x" ]` does not fire and the value flows on as if
+      # real. test_appcast_debt_is_collected.sh asked for releases/tags/null and
+      # then blamed the LOOKUP for not finding a tag the LIST just returned.
+      - name: A jq index read cannot return the string null
+        if: always()
+        run: bash tests/test_a_jq_index_read_cannot_return_the_string_null.sh
+
       - name: A pipe into a short-circuiting consumer cannot invert a verdict here
         if: always()
         run: bash tests/test_pipefail_shortcircuit_inversion.sh
