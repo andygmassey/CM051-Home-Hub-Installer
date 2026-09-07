@@ -49,7 +49,11 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="${WALK_TRIAGE_REPO:-$(cd "${HERE}/.." && pwd)}"
-WALKS="${REPO}/walks"
+# The walks dir is overridable SEPARATELY from the repo so a test can pair a
+# real git history with synthetic records. Without that split, the probe-drift
+# warning below could never be exercised: it needs real commits AND a record
+# pair it can control, and no single directory gives both.
+WALKS="${WALK_TRIAGE_WALKS:-${REPO}/walks}"
 
 die() { printf '%s\n' "$*" >&2; exit 1; }
 
@@ -68,6 +72,28 @@ walk_versions_oldest_first() {
 }
 
 field()   { awk -F'\t' -v k="$2" '$1==k{print $2; exit}' "$1"; }
+
+# probe_changed_between <probe> <since-iso> <until-iso>
+#
+# 🗿 A PROBE THAT STARTS FAILING MAY HAVE BECOME SIGHTED RATHER THAN THE
+# PRODUCT HAVING BROKEN. Those two print identically in a walk record and the
+# remedies are opposite: one is a bug to fix, the other is a gate that only
+# now works. Measured 2026-09-07 while using this tool on
+# no_store_port_is_tcp_reachable -- c93e0f83 changed that probe BETWEEN the
+# walk this tool named as the baseline and the next one.
+#
+# So a REGRESSION verdict carries this beside it. It is a WARNING and never a
+# verdict of its own: a probe can change for reasons that do not affect what it
+# measures, and deciding which is a reading job, not a grep job.
+probe_changed_between() {
+    local probe="$1" since="$2" until_="$3" f
+    f="scripts/box_walk_probes/probes/${probe}.sh"
+    git -C "${REPO}" rev-parse --git-dir >/dev/null 2>&1 || return 1
+    git -C "${REPO}" cat-file -e "HEAD:${f}" 2>/dev/null || return 1
+    [ -n "${since}" ] && [ -n "${until_}" ] || return 1
+    git -C "${REPO}" log --oneline --since="${since}" --until="${until_}" -- "${f}" 2>/dev/null \
+        | grep -c . || true
+}
 rows_of() { awk -F'\t' -v k="$2" '$1==k{print $2}' "$1"; }
 
 # classify <walk-file> <probe> -> FAILED | NOT-MEASURED | PASSED | UNRECORDED
@@ -140,7 +166,7 @@ triage() {
         return 2
     fi
 
-    local cannot=0 j state probe last_pass nfailed nnamed nnotm nbroken
+    local cannot=0 j state probe last_pass nfailed nnamed nnotm nbroken _bw _nchg
     for probe in "${failing[@]}"; do
         last_pass=""; state=""; nfailed=0; nnamed=0; nnotm=0; nbroken=0
         for (( j=ti-1; j>=0; j-- )); do
@@ -157,6 +183,16 @@ triage() {
         if [ -n "${last_pass}" ]; then
             printf '  REGRESSION   %-38s last passed at %s\n' "${probe}" "${last_pass}"
             printf '               range to examine: %s..%s\n' "${last_pass}" "${target}"
+            _bw="$(field "${WALKS}/${last_pass}.tsv" walked_at)"
+            _nchg="$(probe_changed_between "${probe}" "${_bw}" "${walked}")"
+            case "${_nchg}" in
+                ''|0) : ;;
+                *) printf '               ⚠️  the PROBE ITSELF changed %s time(s) in that window.\n' "${_nchg}"
+                   printf '                   Read those first: a probe that became SIGHTED and a product\n'
+                   printf '                   that BROKE print identically here, and the remedies are opposite.\n'
+                   git -C "${REPO}" log --oneline --since="${_bw}" --until="${walked}" \
+                       -- "scripts/box_walk_probes/probes/${probe}.sh" 2>/dev/null | sed 's/^/                   /' ;;
+            esac
         elif [ "${state}" = "UNRECORDED" ]; then
             printf '  CANNOT-RUN   %-38s history reaches %s, which records no probe names\n' "${probe}" "${order[$j]}"
             printf '               failed %d, not measured %d, BROKEN %d, of %d earlier records that name probes.\n' \
@@ -216,7 +252,37 @@ self_test() {
     printf 'walked_at\t2026-01-01T00:00:00Z\nverdict\tFAILED\nfailed_probe\tother\nbroken_probe\tsubject\n' > "${tmp}/walks/v1.0.1.tsv"
     _t 'NEVER-PASSED' 0 'BROKEN in every earlier record is NEVER-PASSED, never a regression'
 
+    # PROBE-DRIFT WARNING. Pair the REAL repo (so git can see real commits on a
+    # real probe) with synthetic records either side of a window that contains
+    # one. no_store_port_is_tcp_reachable changed on 2026-08-30 (c93e0f83),
+    # which is exactly the window that misled this tool.
+    local drift_out drift_rc
+    printf 'walked_at\t2026-08-29T00:00:00Z\nverdict\tFAILED\nfailed_probe\tother\n' > "${tmp}/walks/v9.0.1.tsv"
+    printf 'walked_at\t2026-08-31T00:00:00Z\nverdict\tFAILED\nfailed_probe\tno_store_port_is_tcp_reachable\n' > "${tmp}/walks/v9.0.2.tsv"
+    rm -f "${tmp}/walks/v1.0.1.tsv" "${tmp}/walks/v1.0.2.tsv" "${tmp}/walks/v1.0.3.tsv"
+    drift_out="$(WALK_TRIAGE_WALKS="${tmp}/walks" "$0" v9.0.2 2>&1)"; drift_rc=$?
+    if grep -q 'the PROBE ITSELF changed' <<< "${drift_out}"; then
+        printf '  [PASS] a REGRESSION whose window contains a change to the PROBE says so\n'; pass=$((pass+1))
+    else
+        printf '  [FAIL] the probe-drift warning did not fire on a window that contains c93e0f83 (rc=%s)\n' "${drift_rc}"
+        printf '%s\n' "${drift_out}" | sed 's/^/         /'; fail=$((fail+1))
+    fi
+
+    # MUST-MISS: a window with NO probe commits must not warn, or the warning
+    # is decoration that fires on everything.
+    printf 'walked_at\t2026-09-04T00:00:00Z\nverdict\tFAILED\nfailed_probe\tother\n' > "${tmp}/walks/v9.0.1.tsv"
+    printf 'walked_at\t2026-09-05T00:00:00Z\nverdict\tFAILED\nfailed_probe\tno_store_port_is_tcp_reachable\n' > "${tmp}/walks/v9.0.2.tsv"
+    drift_out="$(WALK_TRIAGE_WALKS="${tmp}/walks" "$0" v9.0.2 2>&1)"
+    if grep -q 'the PROBE ITSELF changed' <<< "${drift_out}"; then
+        printf '  [FAIL] CONTROL: the warning fired on a window with no probe commits\n'; fail=$((fail+1))
+    else
+        printf '  [PASS] CONTROL: a window with no probe commits does NOT warn\n'; pass=$((pass+1))
+    fi
+    rm -f "${tmp}/walks/v9.0.1.tsv" "${tmp}/walks/v9.0.2.tsv"
+
     # And with the subject failing all the way back, it never passed.
+    # v1.0.3 is recreated because the probe-drift arms above cleared it.
+    printf 'walked_at\t2026-01-03T00:00:00Z\nverdict\tFAILED\nfailed_probe\tsubject\n' > "${tmp}/walks/v1.0.3.tsv"
     printf 'walked_at\t2026-01-01T00:00:00Z\nverdict\tFAILED\nfailed_probe\tsubject\n' > "${tmp}/walks/v1.0.1.tsv"
     printf 'walked_at\t2026-01-02T00:00:00Z\nverdict\tFAILED\nfailed_probe\tsubject\n' > "${tmp}/walks/v1.0.2.tsv"
     _t 'NEVER-PASSED' 0 'failing in every earlier record -> NEVER-PASSED, not a regression'
