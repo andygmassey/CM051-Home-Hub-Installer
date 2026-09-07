@@ -23,7 +23,7 @@
 #
 #   /Applications/Ostler.app   absent by ls, by test -d AND by find
 #   pid 28913                  /Applications/Ostler.app/Contents/MacOS/
-#                              ostler-hub, running since Sat Sep 5 23:18
+#                              ostler-hub, running since 2026-09-05 23:18
 #   launchctl                  application.ai.creativemachines.ostler-hub...
 #
 # WHY THE EXISTING TEARDOWN COULD NEVER CATCH IT
@@ -112,7 +112,7 @@ echo "axis B: the helper actually stops a running process"
 # Extract the function from install.sh: from its definition to the first line
 # that is a bare closing brace.
 FN="$(awk '/^_u_quit_bundle_processes\(\) \{/{f=1} f{print} f&&/^\}$/{exit}' "$INSTALL_SH")"
-if [[ -n "$FN" ]] && printf '%s' "$FN" | grep -q '^}$'; then
+if [[ -n "$FN" ]] && grep -q '^}$' <<< "$FN"; then
     ok "4 extracted the helper as a complete function"
 else
     echo "CANNOT-RUN: could not extract a complete function body (exit 2)" >&2

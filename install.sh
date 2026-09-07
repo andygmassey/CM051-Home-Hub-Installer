@@ -20752,90 +20752,6 @@ _u_emit() {
     printf '\n'
 }
 
-# ── Quit what is still running out of a bundle we are about to delete ──
-#
-# THE MIRROR OF THE LAUNCHAGENT BUG, AND IT BITES THE OTHER WAY ROUND.
-# The teardown register below learned that `launchctl bootout` without
-# removing the plist is an uninstall that does not survive a reboot: the
-# file is the half that matters there. For an .app bundle the asymmetry is
-# reversed. Deleting the bundle does NOT stop a process already executing
-# from it -- on macOS the running image is held by its vnode, so the
-# process keeps going with its bundle unlinked underneath it.
-#
-# MEASURED, NOT THEORISED. On the walk box, 2026-09-07:
-#
-#   /Applications/Ostler.app   absent by ls, by test -d AND by find
-#   pid 28913                  /Applications/Ostler.app/Contents/MacOS/
-#                              ostler-hub, RUNNING since Sat Sep 5 23:18
-#   launchctl                  application.ai.creativemachines.ostler-hub
-#
-# That process holds no listening ports, so it is residue rather than a
-# live service -- but it is residue on a Mac the customer believes has no
-# Ostler on it, and `launchctl bootout` cannot reach it: the label is the
-# `application.*` form LaunchServices assigns to an app the user OPENED,
-# not one of the com.ostler.* / com.creativemachines.* agents this script
-# manages. Nothing in the teardown addressed it, because everything in the
-# teardown is keyed to labels we wrote.
-#
-# SELF-EXCLUSION IS NOT DEFENSIVE PROGRAMMING, IT IS THE POINT.
-# install.sh can itself be running from
-# /Applications/OstlerInstaller.app/Contents/Resources/install.sh, so a
-# bare `pkill -f` over an /Applications path is one bad pattern away from
-# the uninstaller killing itself half way through a teardown, leaving a
-# machine in a worse state than not uninstalling at all. Our own pid and
-# our parent are filtered explicitly, and the bundle path is regex-quoted
-# so `.app` cannot match `Xapp`.
-#
-# Fail-safe by construction: every branch returns 0. An uninstall that
-# cannot quit a process must still remove what it can, and it says so
-# rather than dying.
-_u_quit_bundle_processes() {
-    local _bundle="$1"
-    local _exec_prefix="${_bundle}/Contents/MacOS/"
-    # Quote every regex metacharacter: the literal path is the pattern.
-    local _pat
-    _pat="$(printf '%s' "$_exec_prefix" | sed 's/[][\.*^$(){}?+|/]/\\&/g')"
-
-    _u_running_pids() {
-        # `pgrep -f` matches the full argv. Filter ourselves and our parent
-        # out by pid rather than by pattern, so this is correct even if the
-        # pattern is later widened.
-        pgrep -f "$_pat" 2>/dev/null \
-            | grep -vx -e "$$" -e "${PPID:-0}" || true
-    }
-
-    local _pids
-    _pids="$(_u_running_pids)"
-    [[ -n "$_pids" ]] || { unset -f _u_running_pids; return 0; }
-
-    echo "  Quitting $(basename "$_bundle") (still running)..."
-    # SIGTERM first: the hub flushes state on termination, and a KILL here
-    # would be indistinguishable from a crash to whatever it was writing.
-    kill -TERM $_pids 2>/dev/null || true
-
-    local _waited=0
-    while [[ "$_waited" -lt 20 ]]; do
-        [[ -n "$(_u_running_pids)" ]] || { unset -f _u_running_pids; return 0; }
-        sleep 0.25
-        _waited=$((_waited + 1))
-    done
-
-    # Five seconds is long enough for a graceful exit and short enough that
-    # an uninstall does not appear to hang. Anything still up is not going
-    # to leave on its own.
-    _pids="$(_u_running_pids)"
-    if [[ -n "$_pids" ]]; then
-        kill -KILL $_pids 2>/dev/null || true
-        sleep 0.25
-    fi
-    if [[ -n "$(_u_running_pids)" ]]; then
-        echo "  (warning: something is still running from $(basename "$_bundle");"
-        echo "   it will stop at the next restart)"
-    fi
-    unset -f _u_running_pids
-    return 0
-}
-
 # ── Argument parsing ───────────────────────────────────────────
 # Default: prompt the customer interactively. Two non-interactive
 # overrides are supported for scripted use (CI, beta-onboarding
@@ -21308,6 +21224,90 @@ unset _label
 # loop so com.ostler.ollama is already unloaded and nothing is holding the
 # binary open.
 brew uninstall --cask ollama-app 2>/dev/null || true
+
+# ── Quit what is still running out of a bundle we are about to delete ──
+#
+# THE MIRROR OF THE LAUNCHAGENT BUG, AND IT BITES THE OTHER WAY ROUND.
+# The teardown register below learned that `launchctl bootout` without
+# removing the plist is an uninstall that does not survive a reboot: the
+# file is the half that matters there. For an .app bundle the asymmetry is
+# reversed. Deleting the bundle does NOT stop a process already executing
+# from it -- on macOS the running image is held by its vnode, so the
+# process keeps going with its bundle unlinked underneath it.
+#
+# MEASURED, NOT THEORISED. On the walk box, 2026-09-07:
+#
+#   /Applications/Ostler.app   absent by ls, by test -d AND by find
+#   pid 28913                  /Applications/Ostler.app/Contents/MacOS/
+#                              ostler-hub, RUNNING since 2026-09-05 23:18
+#   launchctl                  application.ai.creativemachines.ostler-hub
+#
+# That process holds no listening ports, so it is residue rather than a
+# live service -- but it is residue on a Mac the customer believes has no
+# Ostler on it, and `launchctl bootout` cannot reach it: the label is the
+# `application.*` form LaunchServices assigns to an app the user OPENED,
+# not one of the com.ostler.* / com.creativemachines.* agents this script
+# manages. Nothing in the teardown addressed it, because everything in the
+# teardown is keyed to labels we wrote.
+#
+# SELF-EXCLUSION IS NOT DEFENSIVE PROGRAMMING, IT IS THE POINT.
+# install.sh can itself be running from
+# /Applications/OstlerInstaller.app/Contents/Resources/install.sh, so a
+# bare `pkill -f` over an /Applications path is one bad pattern away from
+# the uninstaller killing itself half way through a teardown, leaving a
+# machine in a worse state than not uninstalling at all. Our own pid and
+# our parent are filtered explicitly, and the bundle path is regex-quoted
+# so `.app` cannot match `Xapp`.
+#
+# Fail-safe by construction: every branch returns 0. An uninstall that
+# cannot quit a process must still remove what it can, and it says so
+# rather than dying.
+_u_quit_bundle_processes() {
+    local _bundle="$1"
+    local _exec_prefix="${_bundle}/Contents/MacOS/"
+    # Quote every regex metacharacter: the literal path is the pattern.
+    local _pat
+    _pat="$(printf '%s' "$_exec_prefix" | sed 's/[][\.*^$(){}?+|/]/\\&/g')"
+
+    _u_running_pids() {
+        # `pgrep -f` matches the full argv. Filter ourselves and our parent
+        # out by pid rather than by pattern, so this is correct even if the
+        # pattern is later widened.
+        pgrep -f "$_pat" 2>/dev/null \
+            | grep -vx -e "$$" -e "${PPID:-0}" || true
+    }
+
+    local _pids
+    _pids="$(_u_running_pids)"
+    [[ -n "$_pids" ]] || { unset -f _u_running_pids; return 0; }
+
+    echo "  Quitting $(basename "$_bundle") (still running)..."
+    # SIGTERM first: the hub flushes state on termination, and a KILL here
+    # would be indistinguishable from a crash to whatever it was writing.
+    kill -TERM $_pids 2>/dev/null || true
+
+    local _waited=0
+    while [[ "$_waited" -lt 20 ]]; do
+        [[ -n "$(_u_running_pids)" ]] || { unset -f _u_running_pids; return 0; }
+        sleep 0.25
+        _waited=$((_waited + 1))
+    done
+
+    # Five seconds is long enough for a graceful exit and short enough that
+    # an uninstall does not appear to hang. Anything still up is not going
+    # to leave on its own.
+    _pids="$(_u_running_pids)"
+    if [[ -n "$_pids" ]]; then
+        kill -KILL $_pids 2>/dev/null || true
+        sleep 0.25
+    fi
+    if [[ -n "$(_u_running_pids)" ]]; then
+        echo "  (warning: something is still running from $(basename "$_bundle");"
+        echo "   it will stop at the next restart)"
+    fi
+    unset -f _u_running_pids
+    return 0
+}
 
 # ── Ostler RemoteCapture .app + container ──────────────────────
 _u_emit UNINSTALL_PHASE "name=remotecapture"
