@@ -139,46 +139,24 @@ pr_exemptions:
       after this cut. Do not read the two green journal rows in
       cut-manifests/v1.0.59.yaml as closing this. PIN-SAFE (0 install.sh hits).
     review_by: "2026-09-12"
-  - ref: "CM051-Home-Hub-Installer#1752"
-    reason: >-
-      'fix(uninstall): make the uninstaller's contract true'. Mine, opened
-      2026-09-07T03:51:39Z, and deferred on RISK not merit. 🔴 NOT PIN-SAFE and
-      it is the largest of the three: install.sh +199 -78, measured off the
-      PR patch, plus dev-wipe-studio.sh, a workflow and TEST_WIRING. The v1.0.74
-      payload is the first in nine walk records proven to complete an install --
-      41 of 41 steps, no errors raised, against v1.0.73's 6 of 41 -- and that
-      proof is about THIS install.sh blob, 5acf1c44, which cuts/v1.0.74/cut.env
-      pins via CM051=be55a984. Landing 199 new lines into the file whose four
-      abort defects have cost every walk this month, in the cut that is finally
-      reaching the signing stage, would replace a measured payload with an
-      unmeasured one to fix a path the walk does not take: the uninstaller runs
-      when a customer LEAVES, and no walk has yet got far enough to install.
-      Land it FIRST in v1.0.75, before anything else, and re-measure the depth.
-    review_by: "2026-09-09"
   - ref: "CM051-Home-Hub-Installer#1755"
     reason: >-
       'feat(uninstall): revert the auto-login WE enabled, and only that one'.
-      Mine, 2026-09-07T04:39:21Z, MERGEABLE/CLEAN on its own checks. 🔴 NOT
+      TNM's, on tnm/revert-autologin-we-enabled, 2026-09-07T04:39:21Z, MERGEABLE/CLEAN on its own checks. 🔴 NOT
       PIN-SAFE: install.sh +44 -9. Same reasoning as #1752 and it is the same
       uninstall path -- the provenance-gated auto-login revert is correct work
       and it changes nothing a customer meets before the install completes.
-      Deferring it does not weaken this DMG; merging it would unpin it. Goes
-      into v1.0.75 with #1752 and #1753, which is where the three of them
-      belong: they are one contract split across three PRs and landing them
-      together is how the uninstaller gets tested as a whole rather than in
-      thirds.
-    review_by: "2026-09-09"
-  - ref: "CM051-Home-Hub-Installer#1753"
-    reason: >-
-      'fix(test): the "docker daemon down" case never happened on a Mac with
-      Docker'. Mine, 2026-09-07T03:58:59Z. 🔴 NOT PIN-SAFE, though barely:
-      install.sh +7 -1, plus the uninstall-removal test it exists to make
-      honest. The finding behind it is real and worth keeping visible -- a test
-      case that silently never executed is the fixture-encodes-the-flag shape --
-      but seven lines in install.sh still moves the pinned blob, and a pin
-      compares the blob and not the commit. Held with #1752 and #1755 for the
-      same window, not because it is risky on its own but because splitting the
-      three would leave the uninstaller contract half-landed across two cuts.
+      CORRECTED 2026-09-07T10:05Z: this row said "Mine" and said the three
+      would land together in v1.0.75. Both are now wrong. It is TNM's, and he
+      MERGED #1752 and #1753 at 09:22:16Z and 09:22:22Z, while this cut was in
+      flight -- which unpinned cuts/v1.0.74/cut.env (install.sh blob 5acf1c44
+      -> cac0e345, +136 lines) and is why that pin is re-pointed in this same
+      change. Measured before accepting it: every hunk lands at line 20949 or
+      later, the uninstaller region begins around 20816, the single deleted
+      line's variable _OSTLER_DOCKER is used only at 21220-21234, and bash -n
+      passes. The INSTALL path is untouched, so the 41-of-41 depth measurement
+      still holds. This one row stays deferred because it is still open, not
+      because of any judgement about its merit.
     review_by: "2026-09-09"
   - ref: "CM051-Home-Hub-Installer#495"
     reason: >-
