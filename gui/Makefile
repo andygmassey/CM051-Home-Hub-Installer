@@ -560,6 +560,7 @@ STEP          := @printf '\n[STEP] %s\n'
         dmg-bg sparkle-embed verify-dmg-contents verify-stapling \
         check-orphans \
         check-pr-age \
+        check-ship-version \
         verify-commit-parity \
         download-python sign-python-bundle download-daemon download-hub-app \
         download-safari-extension stage-daemon \
@@ -1854,6 +1855,49 @@ check-provenance:
 # nothing. Zero-checkouts is the single most likely failure on a fresh cut
 # machine, so the wrong message was the one you would actually see.
 ORPHANS_SH ?= $(CURDIR)/../scripts/verify_no_orphaned_fixes.sh
+# ---------------------------------------------------------------------------
+# SHIP-VERSION GATE
+# ---------------------------------------------------------------------------
+# Refuse to build a release artefact at a version that has ALREADY been tagged.
+#
+# MEASURED 2026-09-06 on the artefact queued for the v1.0.73 walk: the mounted
+# DMG read 1.0.72/7200, origin/main read 1.0.72/7200 at all four sites, and
+# cut-manifests/v1.0.73.yaml said version: v1.0.73. The tree was never bumped,
+# and nothing bumps it -- every `bump` in this file is a manual python, daemon
+# or Ostler.app pin.
+#
+# check-manifest below asserts the four version sites AGREE and that the build
+# number is DERIVED (1.0.P -> P*100). 1.0.72 derives 7200, so that gate exits 0
+# on exactly this defect: it guards internal consistency, the PROXY, and never
+# compares the version to the set already shipped, the PROPERTY.
+#
+# Not cosmetic. CFBundleVersion is the field Sparkle compares, so an artefact
+# shipped as v1.0.73 carrying 7200 is indistinguishable from v1.0.72 and no box
+# on v1.0.72 is ever offered it.
+#
+# FIRST after guard-local-cut deliberately: one ls-remote, before any download,
+# signing or notarisation is spent on an artefact that will have to be rebuilt.
+# ---------------------------------------------------------------------------
+SHIP_VERSION_SH ?= $(CURDIR)/../tests/test_ship_refuses_an_already_tagged_version.sh
+check-ship-version:
+	$(STEP) "Ship-version preflight (is this version already tagged?)"
+	@rc=0; bash "$(SHIP_VERSION_SH)" || rc=$$?; \
+	if [ "$$rc" -eq 2 ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: the ship-version gate COULD NOT RUN (exit $$rc)." >&2; \
+	    echo "       It has NOT established that this version is unshipped -- it" >&2; \
+	    echo "       failed to look, usually because the tag list could not be" >&2; \
+	    echo "       read. An unknown answer is not a safe one. DO NOT SHIP." >&2; \
+	    exit "$$rc"; \
+	elif [ "$$rc" -ne 0 ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: this version has already been tagged. Bump before building," >&2; \
+	    echo "       or the artefact ships invisible to Sparkle and every record" >&2; \
+	    echo "       bound to its bytes names a version it does not claim." >&2; \
+	    echo "       DO NOT SHIP." >&2; \
+	    exit 1; \
+	fi
+
 check-orphans:
 	$(STEP) "Orphaned-fix preflight (is any written fix missing from this cut?)"
 	@rc=0; bash "$(ORPHANS_SH)" || rc=$$?; \
@@ -3122,7 +3166,7 @@ verify-appcast:
 # failure at the end destroyed the finished DMG (v1.0.34). It now runs from
 # cut.yml after the artefact is uploaded. See the publish-appcast block above.
 # ---------------------------------------------------------------------------
-ship: guard-local-cut check-orphans check-pr-age download-hub-app check-ostler-app download-safari-extension download-python stage-daemon stage-payload sparkle-embed notarise-hub release seed-installer-app-pyc sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
+ship: guard-local-cut check-ship-version check-orphans check-pr-age download-hub-app check-ostler-app download-safari-extension download-python stage-daemon stage-payload sparkle-embed notarise-hub release seed-installer-app-pyc sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"
