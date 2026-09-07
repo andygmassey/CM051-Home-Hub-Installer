@@ -50,6 +50,7 @@ test_a_second_sync_does_not_unpin_the_first.sh	WIRED	.github/workflows/bom-pin-a
 test_a_security_note_cannot_claim_a_flag_is_off.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_a_self_removing_agent_deletes_its_plist_before_it_dies.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_a_slow_step_is_not_a_wedged_one.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_a_status_read_is_guarded.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_a_subshell_cannot_emit_a_terminal_done.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_a_tally_that_contradicts_the_log_is_not_a_pass.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_timed_out_probe_is_not_a_failing_probe.py	WIRED	.github/workflows/cut-manifest.yml
