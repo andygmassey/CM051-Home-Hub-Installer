@@ -91,6 +91,16 @@ jobs:
         if: always()
         run: /bin/bash tests/test_install_manifest_gate.sh
 
+      # #1820. This gate FAILS on a box whose required collections were never
+      # created, and the v1.0.75 walk found exactly why: the #606 pre-creation
+      # sat inside the GDPR-import branch, so a customer who declines the import
+      # never reached it. Asserts the call is reachable without an import,
+      # structurally AND by running the region with an empty import set.
+      # Mutation-proved: with the call put back inside the branch it reports
+      # "NO top-level call ... this is #1820" and exits 1.
+      - name: The collection pre-creation runs even with nothing to import (#1820)
+        run: /bin/bash tests/test_collections_are_prepared_without_an_import.sh
+
       # The box-walk runner marks a probe BROKEN unless its --self-test returns
       # FAIL. Assert that directly here too, so a change that neuters the probe's
       # own negative control is caught in CI and not only on a live box walk
