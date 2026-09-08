@@ -34,6 +34,8 @@ on:
       # Caught by verify_invoked_tests_are_watched.py on this very PR.
       - 'scripts/new_cut.sh'
       - 'tests/test_new_cut_guard_scoped_is_not_started.sh'
+      - 'tests/test_new_cut_checks_what_preflight_checks.sh'
+      - '.github/workflows/cut.yml'
       - 'scripts/verify_cut_provenance.sh'
       - 'scripts/verify_no_orphaned_fixes.sh'
       - 'scripts/verify_pr_age.sh'
@@ -542,6 +544,26 @@ jobs:
       - name: new_cut.sh -- a SCOPED cut is not a STARTED cut
         if: always()
         run: bash tests/test_new_cut_guard_scoped_is_not_started.sh
+
+      # NEW_CUT.SH MUST CHECK WHAT THE PREFLIGHT CHECKS.
+      #
+      # Wired 2026-09-08, after the gap cost a tag. v1.0.76 was tagged on
+      # new_cut.sh's own "ALL GREEN. Safe to tag" and cut run 34201583498 died
+      # at preflight in about forty seconds, before the dry-run or cut job ran.
+      # Two hard preflight gates refused and NEITHER was in new_cut.sh: the
+      # missing cut-manifests/<version>.yaml, and an installer plist still
+      # stamped 1.0.75/7500 while the cut was 1.0.76.
+      #
+      # The operator did nothing wrong -- they ran every gate the tool offered
+      # and tagged on green. A checklist that omits a hard gate and then
+      # declares itself complete converts "I forgot" into "the tool said I was
+      # done", which is why this is a wired test and not a comment.
+      #
+      # Its mutation control is not synthetic: it runs against the REAL
+      # pre-fix new_cut.sh from origin/main, and fails naming both refusals.
+      - name: new_cut.sh gates on everything the cut preflight gates on
+        if: always()
+        run: bash tests/test_new_cut_checks_what_preflight_checks.sh
 
       # THE VENDORED ROLLFORWARD GATE MATCHES ITS OS003 PIN -- ON THE PR.
       #
