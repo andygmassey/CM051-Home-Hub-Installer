@@ -58,6 +58,16 @@
 # stable | unstable | unreadable | skipped | unrun
 CONVERGE_STATE="unrun"
 CONVERGE_DETAIL=""
+# The store credential path as the BOX sees it, resolved once by _cw_read_pair.
+CONVERGE_CONF_PATH=""
+# WHERE THE READER'S STDERR GOES, AND WHY IT IS NOT /dev/null ANY MORE.
+# curl is invoked with -sS precisely so that it PRINTS its failure, and this
+# block used to end with `2>/dev/null`, which threw that away. So 45 readings
+# of "x x" on the v1.0.79 walk carried no cause at all, and the cause had to be
+# recovered by reading this file rather than the log it produced. An instrument
+# that is built to explain itself and then gagged is worse than a silent one,
+# because the silence looks like an answer.
+CONVERGE_ERR_FILE=""
 
 _cw_box_exec() {
     if [ -z "${OSTLER_BOX_HOST:-}" ]; then
@@ -81,12 +91,37 @@ converge_gates_probe() {
 # mistaken for a stable one: "x x" repeated is not stability, and the loop
 # below refuses to count it.
 #
-# The credential is presented with -K, exactly as the probes do, and the path
-# carries a literal $HOME expanded ON THE BOX rather than here (#1284: a path
-# containing an unexpanded $HOME makes curl exit 26 before it issues anything,
-# which reads as a dead store).
+# THE PATH IS RESOLVED ON THE BOX BEFORE IT IS QUOTED, AND THAT ORDER IS THE
+# WHOLE POINT. This block used to interpolate the raw default, which carries a
+# literal $HOME, straight into `-K '${conf}'`. The single quotes then stopped
+# the remote shell expanding it, curl received a path with a dollar sign in it,
+# exited 26 before issuing any request, and the python fallback below printed
+# "x" for both stores. Measured on the v1.0.79 walk: 45 consecutive
+# "unreadable: x x (streak reset)" lines, one a minute, against two stores that
+# were healthy the whole time. The wait had never read a store on ANY box.
+#
+# The comment that stood here cited #1284 by number and the line below it
+# reproduced #1284. Citing a bug is not avoiding it.
+#
+# THE PROBES ALREADY SOLVED THIS AND THIS USES THEIR ROUTE, not a second
+# resolver: probes/people_count_agreement.sh:108 does
+#     STORE_CONF_PATH="$(box_run "printf '%s' \"${STORE_CURL_CONF}\"" | tr -d '\r\n')"
+# sending the literal to the box inside DOUBLE quotes so $HOME expands THERE,
+# and quoting the resolved value at the -K site. _cw_box_exec is this file's
+# box_run, so the same two steps apply unchanged.
+_cw_resolve_conf() {
+    # $1 = the possibly-unexpanded path. Prints the path as the BOX sees it.
+    _cw_box_exec "printf '%s' \"${1}\"" 2>/dev/null | tr -d '\r\n'
+}
+
 _cw_read_pair() {
-    local conf="${OSTLER_PROBE_STORE_CURL_CONF:-\$HOME/.ostler/secrets/store-curl.conf}"
+    local raw="${OSTLER_PROBE_STORE_CURL_CONF:-\$HOME/.ostler/secrets/store-curl.conf}"
+    # Resolve ONCE per run, not per reading: $HOME does not move, and a
+    # 45-reading wait would otherwise pay 45 extra round trips.
+    if [ -z "$CONVERGE_CONF_PATH" ]; then
+        CONVERGE_CONF_PATH="$(_cw_resolve_conf "$raw")"
+    fi
+    local conf="$CONVERGE_CONF_PATH"
     local oxi="${OSTLER_OXIGRAPH_URL:-http://127.0.0.1:7878/query}"
     local qd="${OSTLER_QDRANT_URL:-http://127.0.0.1:6333}"
     local coll="${OSTLER_PROBE_COLLECTION:-people}"
@@ -109,7 +144,7 @@ try:
 except Exception:
     print(\"x\")' 2>/dev/null)
         printf '%s %s\n' \"\${_o:-x}\" \"\${_p:-x}\"
-    " 2>/dev/null
+    " 2>"${CONVERGE_ERR_FILE:-/dev/null}"
 }
 
 converge_wait() {
@@ -120,6 +155,11 @@ converge_wait() {
     local gap="${OSTLER_STABILITY_INTERVAL_S:-60}"
 
     printf -- '--- CONVERGE: waiting for the two stores to STOP MOVING ---\n'
+
+    # A reading that cannot be made must say WHY on the line that reports it.
+    if [ -z "$CONVERGE_ERR_FILE" ]; then
+        CONVERGE_ERR_FILE="$(mktemp -t converge_err 2>/dev/null || printf '/tmp/converge_err.%s' "$$")"
+    fi
 
     if [ "${OSTLER_CONVERGE_SKIP:-0}" = "1" ]; then
         CONVERGE_STATE="skipped"
@@ -154,6 +194,14 @@ converge_wait() {
                 # A store we could not read is not a stable store. Reset, so a
                 # dead endpoint can never accumulate into a "settled" verdict.
                 printf '  [%4ss] unreadable: %s (streak reset)\n' "$waited" "${cur:-no answer}"
+                # The cause, not just the symptom. Both stores answering "x" is
+                # equally consistent with a dead store, a wrong credential and a
+                # credential path curl could not open, and those want different
+                # actions from whoever is reading the walk.
+                if [ -s "$CONVERGE_ERR_FILE" ]; then
+                    printf '           cause: %s\n' "$(tr -d '\r' < "$CONVERGE_ERR_FILE" | grep -v '^$' | tail -1)"
+                fi
+                printf '           credential curl was given: %s\n' "${CONVERGE_CONF_PATH:-<unresolved>}"
                 same=0; prev=""
                 ;;
             "$prev")
