@@ -35,6 +35,8 @@ on:
       - 'scripts/new_cut.sh'
       - 'tests/test_new_cut_guard_scoped_is_not_started.sh'
       - 'tests/test_new_cut_checks_what_preflight_checks.sh'
+      - 'tests/test_new_cut_covers_every_pretag_gate.sh'
+      - 'scripts/verify_bom_rows_are_in_the_pin.sh'
       - 'tests/test_store_port_first_install_stale_store.sh'
       - 'install.sh'
       - '.github/workflows/cut.yml'
@@ -566,6 +568,17 @@ jobs:
       - name: new_cut.sh gates on everything the cut preflight gates on
         if: always()
         run: bash tests/test_new_cut_checks_what_preflight_checks.sh
+
+      # new_cut.sh MUST NOT DRIFT FROM cut.yml's PRE-TAG GATE LIST.
+      # Wired 2026-09-08 after the THIRD tag was spent on exactly that drift.
+      # #1825 added two missing gates BY HAND and the list drifted again within
+      # the day. Two careful lists have now failed, so this DERIVES cut.yml's
+      # gates and requires new_cut.sh to invoke each one. Its mutation control
+      # is the REAL pre-fix new_cut.sh from origin/main, on which it fails and
+      # names verify_bom_rows_are_in_the_pin.sh -- the gate that killed v1.0.77.
+      - name: new_cut.sh covers every pre-tag gate cut.yml runs
+        if: always()
+        run: bash tests/test_new_cut_covers_every_pretag_gate.sh
 
       # A FIRST INSTALL MUST BE ABLE TO CLAIM ITS OWN COLIMA PORT.
       # Wired 2026-09-08 after the first honestly-cold walk aborted on it:

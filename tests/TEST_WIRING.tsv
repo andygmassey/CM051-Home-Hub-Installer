@@ -311,6 +311,7 @@ test_model_download_size_honesty.sh	WIRED	.github/workflows/model-download-hones
 test_model_fit.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_name_repair.sh	WIRED	.github/workflows/name-repair.yml
 test_new_cut_checks_what_preflight_checks.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_new_cut_covers_every_pretag_gate.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_new_cut_guard_scoped_is_not_started.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_no_committed_binary_leaks_a_home_path.sh	WIRED	.github/workflows/no-binary-home-path.yml
 test_no_data_is_not_success.sh	WIRED	.github/workflows/hydrate-sentinel.yml

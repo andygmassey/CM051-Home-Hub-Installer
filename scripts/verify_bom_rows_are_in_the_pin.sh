@@ -95,6 +95,41 @@ while IFS=$'\t' read -r what repo ref landed cap verify ticket; do
         | sed 's/^+//' \
         | awk '{ if (length($0)>40 && length($0)<200) print length($0)"\t"$0 }' \
         | sort -rn | head -1 | cut -f2-)"
+    # A REMOVAL IS AS MEASURABLE AS AN ADDITION, and this gate could not see one.
+    #
+    # MEASURED 2026-09-08: the v1.0.77 cut died here on CM051 #1835, whose whole
+    # substance is REMOVING the #1253 signal-2 block and merging two case labels.
+    # Its longest ADDED non-comment install.sh line is 23 characters
+    # ("return 0 ;;"), below the 40 floor above, so LINE came back empty and the
+    # row scored UNMEASURABLE -- which is CANNOT-RUN, which refuses the cut.
+    #
+    # The row was not unmeasurable. It was measurable in the other direction:
+    # the line the commit DELETED is 78 characters and must now be ABSENT from
+    # the pinned blob. That is a stronger claim than presence, not a weaker one:
+    # it proves the removal actually landed in the tree being cut, which is
+    # exactly what a BOM row for a removal-shaped fix should assert.
+    #
+    # So before declaring a row unmeasurable, try the removal. Only a commit
+    # that neither added nor removed a keyable line is genuinely unmeasurable.
+    if [ -z "$LINE" ]; then
+        GONE="$(git -C "$HERE" show "$ref" -- install.sh 2>/dev/null \
+            | grep '^-' | grep -vE '^---|^-[[:space:]]*#|^-[[:space:]]*$' \
+            | sed 's/^-//' \
+            | awk '{ if (length($0)>40 && length($0)<200) print length($0)"\t"$0 }' \
+            | sort -rn | head -1 | cut -f2-)"
+        if [ -n "$GONE" ]; then
+            # ABSENT from the pin is the PASS here. Present means the removal
+            # never reached the tree being cut.
+            if [ "$(grep -cF -- "$GONE" "$PINNED")" -eq 0 ]; then
+                IN=$((IN+1))
+                echo "  IN THE PIN    ${ticket}  by REMOVAL: the line it deleted is absent from the pinned install.sh"
+            else
+                OUT=$((OUT+1))
+                echo "  ABSENT        ${ticket}  the line it deleted is STILL PRESENT in the pinned install.sh -- the removal did not reach this tree"
+            fi
+            continue
+        fi
+    fi
     if [ -z "$LINE" ]; then
         # The commit changed no install.sh line we can key on. That is NOT a
         # pass: say which bucket it is in and why.

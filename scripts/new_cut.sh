@@ -174,6 +174,13 @@ run_gate "rollforward pin"      bash tests/test_rollforward_registry_pin.sh
 # CUT_VERSION_SOURCE=tag mirrors what cut.yml sets, and it is load-bearing:
 # without it the version test refuses rather than running, because a version of
 # unstated provenance may have been read out of its own subject (#171).
+# ADDED 2026-09-08 after it killed the v1.0.77 tag. cut.yml runs it at preflight
+# and this script did not, which is the THIRD time a gate present in cut.yml and
+# absent here has been discovered by spending a tag. The two before it were the
+# cut record and the version stamp, added in #1825 -- and the list drifted again
+# within the day, which is the argument for the drift TEST that now accompanies
+# this line rather than for more careful list-keeping.
+run_gate "BOM rows are in the pin" bash scripts/verify_bom_rows_are_in_the_pin.sh "$VERSION"
 run_gate "cut record exists"    test -f "cut-manifests/${VERSION}.yaml"
 CUT_VERSION_SOURCE=tag \
 run_gate "installer version IS the cut version" \
