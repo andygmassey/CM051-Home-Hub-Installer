@@ -19691,6 +19691,37 @@ if [[ -n "${OSTLER_MAILBOX_DIR:-}" && -d "${OSTLER_MAILBOX_DIR}" ]]; then
     _IMPORT_DIRS+=("${OSTLER_MAILBOX_DIR}")
 fi
 
+# ── #1820: THE COLLECTIONS MUST EXIST EVEN WHEN NOTHING IS IMPORTED ─────────
+#
+# This call used to live INSIDE the import branch below, and only there. That
+# made #606's pre-creation unreachable for the customer who needs it most: the
+# one with no exports on day one. Measured on the v1.0.75 cold walk, which
+# answered "n" to "Import these during install?" -- _IMPORT_DIRS was empty, the
+# branch never ran, ERR-14 never fired because the CODE never ran, and the box
+# finished the install with conversations and evernote_knowledge absent.
+# Authenticated on the box afterwards: people 200, preferences 200,
+# conversations 404, evernote_knowledge 404.
+#
+# WHY THAT IS NOT COSMETIC. The comment on _OSTLER_REQUIRED_QDRANT_COLLECTIONS
+# says it: those two are "never created until their source data first arrives,
+# which may be never on day one", and CM044's person_pages reader treats a
+# conversations 404 as FATAL, aborting the whole compile so /people/ 404s. The
+# pre-creation exists precisely to make an empty read return an empty set.
+#
+# WHY NO WALK CAUGHT IT BEFORE. A warm box already carries the collections from
+# an earlier run that DID import, so the probe passes. v1.0.74 passed on a warm
+# box; v1.0.75 is the first walk where they had to be created fresh AND the
+# import was declined. It is NOT cold-box-specific -- that was the first
+# hypothesis and it was wrong -- it is import-declined-specific.
+#
+# NON-FATAL HERE, DELIBERATELY, and the fatal case is preserved below. With no
+# import there is no data to lose, so a store that cannot be prepared is a
+# degraded wiki compile, not silent data loss. The import branch keeps its
+# ERR-14 refusal unchanged, because THAT is where 3810 people were lost.
+if ! _ostler_ensure_qdrant_collections; then
+    warn "Could not prepare the search collections: ${_OSTLER_QDRANT_MISSING_COLLECTIONS:-unknown}. Your wiki may show empty sections until the next sync."  # i18n-exempt
+fi
+
 if [[ ${#_IMPORT_DIRS[@]} -gt 0 && -x "$IMPORT_SCRIPT" ]]; then
     # ── v1061-D003 / reg#624: refuse to import into a store that cannot hold it ──
     # import_data embeds every person into Qdrant. If the collections were never
