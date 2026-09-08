@@ -57,6 +57,8 @@ on:
       - 'tests/test_probe_pgrep_is_scoped_to_this_account.sh'
       - 'tests/test_no_probe_lives_outside_the_walk_glob.sh'
       - 'tests/test_the_walk_seeds_the_grounded_probe.sh'
+      - 'tests/test_the_walk_waits_for_converge.sh'
+      - 'scripts/box_walk_probes/lib/converge_wait.sh'
       - 'scripts/box_walk_probes/lib/grounding_seed.sh'
       # Same rule as the workflow-self-trigger below, applied to a test: a
       # suite this workflow RUNS but does not WATCH is dark on self-edit --
@@ -522,6 +524,23 @@ jobs:
       - name: The walk seeds the grounded probe, and a failed seed is not a FAIL
         if: always()
         run: /bin/bash tests/test_the_walk_seeds_the_grounded_probe.sh
+
+      # THE OTHER HALF OF A HONEST PEOPLE READING. The seed above gives the
+      # grounded probe a fact to look for; this gives the two COUNT-reading
+      # probes a settled graph to read. On v1.0.78 they measured mid
+      # convergence: contacts read 1629 during the walk and 1920 an hour later
+      # on the same untouched box, and a disagreement measured then is not a
+      # store defect.
+      #
+      # It waits on MEASURED stability of two independent stores, never on the
+      # dedupe-converge.done marker, which the converge writes in the same
+      # second as "hit max_rounds=10 without a fixpoint" and therefore means
+      # only that the process exited. The arm that matters most asserts that
+      # stores holding steady while DISAGREEING still count as stable, because
+      # requiring agreement would mean people_stores_reconcile could never fail.
+      - name: The walk waits for the stores to stop moving, and never scores a pass for waiting
+        if: always()
+        run: /bin/bash tests/test_the_walk_waits_for_converge.sh
 
       - name: POSITIVE CONTROL -- the gate accepts a genuine clean record
         if: always()
