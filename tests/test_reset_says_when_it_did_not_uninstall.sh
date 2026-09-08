@@ -90,9 +90,10 @@ chk "the teardown block contains no apostrophe" "$r"
 if grep -vE '^[[:space:]]*#' "${WORK}/td" | grep -qE 'docker|compose|ostler-uninstall|qdrant_data|oxigraph_data|redis_data|vane_data'; then r=1; else r=0; fi
 chk "the teardown runs no store-wiping command (docker/compose/uninstaller/volume rm)" "$r"
 
-rm -rf "${WORK}/h"; mkdir -p "${WORK}/h/.ostler/config" "${WORK}/h/.ostler/security" "${WORK}/h/.ostler/assistant-config/memory" "${WORK}/h/.ostler/data"
+rm -rf "${WORK}/h"; mkdir -p "${WORK}/h/.ostler/config" "${WORK}/h/.ostler/security" "${WORK}/h/.ostler/assistant-config/workspace/memory" "${WORK}/h/.ostler/imports" "${WORK}/h/.ostler/data"
 printf 'USER_ID=old\n' > "${WORK}/h/.ostler/config/.env"
-printf 'poison\n'      > "${WORK}/h/.ostler/assistant-config/memory/brain.db"
+printf 'poison\n'      > "${WORK}/h/.ostler/assistant-config/workspace/memory/brain.db"
+printf 'vcf\n'         > "${WORK}/h/.ostler/imports/icloud-contacts.vcf"
 printf 'keys\n'        > "${WORK}/h/.ostler/security/keychain.json"
 printf 'runtime\n'     > "${WORK}/h/.ostler/data/keep"
 HOME="${WORK}/h" bash "${WORK}/td" >/dev/null 2>&1
@@ -100,7 +101,8 @@ r=0
 [ -e "${WORK}/h/.ostler/config" ] && r=1
 [ -e "${WORK}/h/.ostler/security" ] && r=1
 [ -e "${WORK}/h/.ostler/assistant-config" ] && r=1
-chk "teardown removed config, security and assistant-config (brain.db with them)" "$r"
+[ -e "${WORK}/h/.ostler/imports" ] && r=1
+chk "teardown removed config, security, assistant-config (brain.db), imports" "$r"
 [ -f "${WORK}/h/.ostler/data/keep" ] && r=0 || r=1
 chk "teardown left the non-config ~/.ostler/data untouched (targeted, not blanket)" "$r"
 

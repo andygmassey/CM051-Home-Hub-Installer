@@ -807,14 +807,16 @@ if [[ "$DO_RESET" -eq 1 ]]; then
         # interactive setup (the reuse gate at install.sh:5214 keys on
         # ~/.ostler/config/.env holding USER_ID) and every probe measures
         # carried-over state. Remove ONLY the host config that gates setup:
-        # config (the previous-answers .env), security (passkey/keychain), and
-        # assistant-config (which holds memory/brain.db, the poisoned count rows
-        # that made the grounded probe measure history). Leave the docker store
+        # config (the previous-answers .env), security (the keychain.json FILE,
+        # not the macOS Keychain), assistant-config (memory/brain.db, the poisoned
+        # count rows that made grounded measure history), and imports
+        # (icloud-contacts.vcf, the prior-export marker read below the reuse gate).
+        # Leave the container store
         # volumes untouched -- whether to wipe those stays the operators
         # --wipe-stores decision, exactly as the announcement above preserves.
         if [[ -z "$_ran_uninstaller" ]]; then
             echo "config-only teardown (#1828): clearing host config so the next install is a fresh setup"
-            for _cfg in ~/.ostler/config ~/.ostler/security ~/.ostler/assistant-config ~/.ostler/active_workspace.toml; do
+            for _cfg in ~/.ostler/config ~/.ostler/security ~/.ostler/assistant-config ~/.ostler/imports ~/.ostler/active_workspace.toml; do
                 if [[ -e "$_cfg" ]]; then
                     echo "  removing $_cfg"
                     rm -rf "$_cfg"
