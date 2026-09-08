@@ -428,6 +428,7 @@ test_store_auth_covers_every_interpreter.sh	WIRED	.github/workflows/store-auth-c
 test_store_auth_no_call_site_passes_staging_root.sh	WIRED	.github/workflows/store-auth-pth-final-dir.yml
 test_store_auth_pth_uses_final_dir.sh	WIRED	.github/workflows/store-auth-pth-final-dir.yml
 test_store_callers_authenticate.sh	WIRED	.github/workflows/venv-store-shim.yml
+test_store_curl_config_survives_the_promote.sh	WIRED	.github/workflows/venv-store-shim.yml
 test_store_health_does_not_depend_on_a_foreign_port.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_store_port_first_install_stale_store.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_stores_guard_fires.sh	WIRED	.github/workflows/store-host-exposure.yml
