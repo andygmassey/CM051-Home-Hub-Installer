@@ -103,15 +103,47 @@ GATEWAY="${OSTLER_PROBE_GATEWAY:-http://127.0.0.1:8000}"
 # every turn came back PROBE_FATAL no_token. Measured, not reasoned about.
 TOKEN_PATH="${OSTLER_PROBE_TOKEN_PATH:-~/.ostler/secrets/zeroclaw_admin_token}"
 
-# ── THE CONTENT ASSERTION (Aesop, 2026-09-07, from Archie's seeded walk) ────
+# ── THE CONTENT ASSERTION (Aesop, 2026-09-07) ───────────────────────────────
 #
 # This probe adjudicated on FRAME SHAPES ONLY: a pwg_ tool fired, returned
-# OK, the turn completed -> grounded. Measured on the v1.0.74 seeded walk:
-# the assistant called pwg_people, got OK, and told the customer it had "no
-# explicit information about where she works" while /people/context carried
-# the seed fixture's employer fact on two endpoints (the fact itself is the
-# seed oracle's, not spelled here). The probe scored it GREEN. A blocking probe that
-# passes a wrong answer is worse than none.
+# OK, the turn completed -> grounded. The defect that shape passes was
+# measured AD HOC on a v1.0.74 box and is recorded in ostler-assistant
+# b4118b45's commit message (2026-09-07): a person seeded through
+# POST /api/v1/memory/assert with her employer in the fact text; both
+# /people/context and /people/{slug}/enrichment served that sentence; the
+# assistant called pwg_people, got OK, and answered that it "does not
+# explicitly state where she works". The shape this probe scored GREEN.
+#
+# PROVENANCE, corrected 2026-09-08. Until then this header called that "the
+# v1.0.74 seeded walk". No such walk exists: the v1.0.74 walk log ran the
+# three unseeded questions and FAILED [no_tool_call] [tool_found_nothing].
+# The measurement is the commit message's, not a walk record's, and that
+# commit capped its own claim: "Item 9 word: MERGED on merge. It is not
+# PROVEN until a walk seeds ..." So this header did not merely write "walk"
+# for "run"; it asserted a walk where its source had written MERGED, which
+# is the item 9 failure mode, not a typo. A blocking probe that passes a
+# wrong answer is worse than none, and a header that upgrades its source's
+# word is the same disease one layer up.
+#
+# THE FIRST SEEDED WALK TURN: v1.0.75, 2026-09-08, Archie on the cold box.
+# OS003 gates/seed/load_seed.py (memory/assert -> PersonFact ->
+# /people/context) printed SEED-LOAD OK with 5 facts asserted and 5 read
+# back, the fixture fact present. The seeded fourth question ran with
+# OSTLER_GATE_KNOWN_PERSON / OSTLER_GATE_EXPECT_FACT set for the first time;
+# its verdict: grounded, i.e. FRAME reply_fact YES. The reply CARRIED
+# "cable engineer at example.com", a fact that reached the model only by
+# memory/assert -> PersonFact -> /people/context facts[] -> pwg_people. Run
+# 04:31:45Z to 04:36:00Z uncapped, 4 of 4 questions asked (the battery
+# declares 4). That is b4118b45 PROVEN at the reply hop, on the published
+# v1.0.75 artefact, by the run its own author asked for.
+#
+# THE PROBE'S VERDICT ON THAT WALK WAS STILL FAIL, and the good half does not
+# bury it: unseeded question 1 [no_tool_call], unseeded question 2
+# [tool_found_nothing:pwg_preferences], "2 of 4 questions COMPLETED without
+# reaching the customer's own data". Neither is the facts projection. The fix
+# is proven; the probe is not green; assistant_answers_grounded stays FAIL on
+# walks/v1.0.75.tsv. The synthetic person was removed afterwards
+# (load_seed.py --forget, rc=0, bare, no pipe).
 #
 # So the SEEDED turn asserts CONTENT: the reply must CARRY the fixture fact.
 # The mechanism mirrors OS003 gates/verify_behavioural_acceptance.sh check 1
@@ -273,7 +305,8 @@ adjudicate_turn() {
     # THE CONTENT ASSERTION, ahead of every frame-shape pass. A seeded turn
     # whose reply did not carry the fixture fact is a wrong answer whatever
     # its tool results said -- this is the exact shape that scored green on
-    # the v1.0.74 walk (pwg_people OK, then "no explicit information"). It
+    # a v1.0.74 box (pwg_people OK, then "no explicit information"; recorded
+    # in ostler-assistant b4118b45's commit message, not a walk). It
     # sits after the frame gates on purpose: no tool call is still no_tool_call.
     grep -q '^FRAME reply_fact NO$' "$_t" && { echo "fact_missing"; return; }
     # ── A RECOVERED TURN IS NOT A FAILED ONE ────────────────────────────────
@@ -503,10 +536,11 @@ self_test() {
     [ "$(adjudicate_turn "$_d/twoerrs")"    = "tool_error" ]         || _ok=0
 
     # ── THE CONTENT ASSERTION (2026-09-07) ──────────────────────────────────
-    # (g) MEASURED, Archie's seeded walk on v1.0.74, the minimal variant: one
-    #     pwg_ tool, OK, and a reply that said the workplace was not recorded
-    #     while the graph served it. The pre-fix adjudicator returned
-    #     `grounded` on exactly this file. It is the must-FAIL.
+    # (g) MEASURED ad hoc on a v1.0.74 box (ostler-assistant b4118b45's commit
+    #     message; NOT a walk, the v1.0.74 walk ran unseeded), the minimal
+    #     variant: one pwg_ tool, OK, and a reply that said the workplace was
+    #     not recorded while the graph served it. The pre-fix adjudicator
+    #     returned `grounded` on exactly this file. It is the must-FAIL.
     printf 'FRAME session_start\nFRAME tool_call pwg_people\nFRAME tool_result pwg_people OK\nFRAME chunk_reset\nFRAME reply_fact NO\nFRAME done\n' > "$_d/factmissing"
     # (h) CONSTRUCTED, not captured: no real passing transcript exists while
     #     the daemon drops the facts (ostler-assistant #386 in flight). The
@@ -585,7 +619,7 @@ self_test() {
     if [ "$_ok" -eq 1 ]; then
         # The control FIRED: six known-bad shapes each produced their own
         # non-grounded verdict, and the healthy ones did not.
-        probe_fail "control fired: tool_error, no_tool_call, incomplete, memory_only, tool_found_nothing and fact_missing (the seeded turn whose reply did not carry the fact, measured on the v1.0.74 walk) are each detected, the healthy fixtures are not misread as broken, and 8 of 8 verdicts route correctly -- a completed turn that missed the graph is a DEFECT, a turn that never completed is UNMEASURED, and an unrecognised verdict is unmeasured rather than announced as a product failure"
+        probe_fail "control fired: tool_error, no_tool_call, incomplete, memory_only, tool_found_nothing and fact_missing (the seeded turn whose reply did not carry the fact, measured on a v1.0.74 box, ostler-assistant b4118b45) are each detected, the healthy fixtures are not misread as broken, and 8 of 8 verdicts route correctly -- a completed turn that missed the graph is a DEFECT, a turn that never completed is UNMEASURED, and an unrecognised verdict is unmeasured rather than announced as a product failure"
     fi
     # Reaching here means the adjudicator could NOT tell a broken turn from a
     # healthy one. Passing is how this suite spells BROKEN.
