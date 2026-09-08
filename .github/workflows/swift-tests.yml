@@ -65,6 +65,8 @@ on:
       # next PR that happened to touch gui/, as somebody else's red.
       - 'install.sh.strings.*.sh'
       - 'scripts/verify_swift_tests_ran.sh'
+      # GAP3: the standalone Ostler Uninstaller.app logic test (swiftc-compiled).
+      - 'tests/test_uninstaller_app_decoder_and_flags.sh'
       - '.github/workflows/swift-tests.yml'
   push:
     branches: [main]
@@ -81,6 +83,8 @@ on:
       # next PR that happened to touch gui/, as somebody else's red.
       - 'install.sh.strings.*.sh'
       - 'scripts/verify_swift_tests_ran.sh'
+      # GAP3: the standalone Ostler Uninstaller.app logic test (swiftc-compiled).
+      - 'tests/test_uninstaller_app_decoder_and_flags.sh'
       - '.github/workflows/swift-tests.yml'
   schedule:
     # Daily, so a break cannot hide behind a quiet week in gui/.
@@ -191,6 +195,32 @@ jobs:
 
       - name: Generate the project from project.yml
         run: cd gui && xcodegen generate
+
+      # GAP3: the standalone Ostler Uninstaller.app must compile. It has no
+      # postBuildScripts and bundles nothing, so this build needs neither the
+      # Safari extension nor python -- it just proves the app target and its
+      # shared decoder link. CODE_SIGNING_ALLOWED=NO: this is a compile check,
+      # not the signed cut (that happens in cut.yml via `make -C gui ship`).
+      - name: Build the Uninstaller app (compile check)
+        run: |
+          set -euo pipefail
+          cd gui
+          xcodebuild build \
+            -project OstlerInstaller.xcodeproj \
+            -scheme "Ostler Uninstaller" \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/dd-uninstaller" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" \
+            > "$RUNNER_TEMP/uninstaller-build.log" 2>&1 || {
+              rc=$?; tail -80 "$RUNNER_TEMP/uninstaller-build.log" >&2; exit $rc
+            }
+          tail -3 "$RUNNER_TEMP/uninstaller-build.log"
+
+      # GAP3: the uninstaller's pure logic -- marker decode + flag builder --
+      # compiled with swiftc and asserted. Fast, and independent of the app UI.
+      - name: Uninstaller decoder + flag builder
+        run: bash tests/test_uninstaller_app_decoder_and_flags.sh
 
       # Redirected to a FILE, never piped. A pipe into an early-exiting consumer
       # loses xcodebuild's status; tests/test_no_xcodebuild_pipe_into_early_exit.sh

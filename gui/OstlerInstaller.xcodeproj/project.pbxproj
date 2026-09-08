@@ -17,12 +17,14 @@
 		1C0CC5EED1EDDEDE6E62BDCD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9EA7B9285055EFB24937AA9A /* Assets.xcassets */; };
 		1C7B2F24D57A40800C9D9BE3 /* IBMPlexSans-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 65879092ECF508D853DE6727 /* IBMPlexSans-Medium.ttf */; };
 		1D6CF8A897FD36AB98603A37 /* EmailSupportMailtoTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A4EFAAB976720F4BA6A416E /* EmailSupportMailtoTest.swift */; };
+		1E3D553B80B9247B871BE5CC /* UninstallerCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FE0C4238C7473834F25689D /* UninstallerCoordinator.swift */; };
 		2311C16E1DE97B3ADB33ED9E /* StepCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A68D9D961170201BC0E5A7 /* StepCatalog.swift */; };
 		297DB80C29C941936F57FD6A /* DeviceLimitReachedViewSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF043F37481F3CACC3130494 /* DeviceLimitReachedViewSnapshotTests.swift */; };
 		2AFE7F7954CBD0B88DC81C24 /* AppIconSource-ink.svg in Resources */ = {isa = PBXBuildFile; fileRef = 9930CEB0B4699812C7CF9060 /* AppIconSource-ink.svg */; };
 		2BCD8DD70C9BCF001725BC88 /* LicenseEntryDropzoneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD52331F131D4AD6BB9BB3AD /* LicenseEntryDropzoneTests.swift */; };
 		2D47AB35E1FB087DE3838834 /* ProgressDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88EEF0A1E14468F9B99A6663 /* ProgressDecoderTests.swift */; };
 		32EE05F704A2FC1663C79FBB /* AdminAuthorizationGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40241AAA50AAB3FC5CE4B5A8 /* AdminAuthorizationGateTests.swift */; };
+		334B7F253D89500E6A20408C /* ProgressProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F30F204F6FC5AB19BC84461 /* ProgressProtocol.swift */; };
 		35F58AE80A7E5EDE1D91C87A /* Outfit-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 61C44A9C151DC4ED7850E818 /* Outfit-SemiBold.ttf */; };
 		3F2BBCBFC481F5B4DD84D30E /* ErrorCodeBannerTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 206E78E1FD55698261A6A774 /* ErrorCodeBannerTest.swift */; };
 		3F2D87F797014DECDE6E74CA /* StepStatusGlyph.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D722F8B887182BE26B4B847 /* StepStatusGlyph.swift */; };
@@ -32,8 +34,10 @@
 		4356B5C68B06550290E1A2E5 /* PermissionsPrewarmer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 597E42EDE0E55239E92BBFF0 /* PermissionsPrewarmer.swift */; };
 		47875F42C956EED5EB0353A5 /* PermissionsIntroView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B1D6C35562EADC4DD07B5B0 /* PermissionsIntroView.swift */; };
 		4D4F8EDE2DB63519463E4666 /* generate_appicon.py in Resources */ = {isa = PBXBuildFile; fileRef = 2EAED9BF2C1D82930A1EBABB /* generate_appicon.py */; };
+		5103A82E183F789453A5C211 /* UninstallFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17105FDC6EFFD5D0E009D529 /* UninstallFlags.swift */; };
 		518D2D22C28A4FDC3193751D /* LicensePersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87045089A04409A175F1AD96 /* LicensePersistenceTests.swift */; };
 		51E255E2F487381E460923C0 /* HardwareFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BE0CF828CCF9ED9B1E1129C /* HardwareFingerprint.swift */; };
+		543AB900C5D7B0F432860346 /* OutputLineBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 550ED01700CFB0F35C724B93 /* OutputLineBuffer.swift */; };
 		57A0F57A55B5BB44859A4EA9 /* OutputLineBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 550ED01700CFB0F35C724B93 /* OutputLineBuffer.swift */; };
 		5A0CDE4242E182B01897F1D2 /* PermissionsPrewarmCodeShapeTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41FB5F2EB882E0395B4E1E95 /* PermissionsPrewarmCodeShapeTest.swift */; };
 		5C929EC9E1AA80A742F125FD /* OnboardingButtonFooterProofTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2506E3AD81DD970743B00309 /* OnboardingButtonFooterProofTests.swift */; };
@@ -47,6 +51,7 @@
 		698E66B03812406B6625AD73 /* JetBrainsMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1E50EE8CD2AF7059E753EEE6 /* JetBrainsMono-Regular.ttf */; };
 		6C2CC1B327BAB163D14B84F7 /* HintCopy.json in Resources */ = {isa = PBXBuildFile; fileRef = 648CD2F16A53E31F71B7BD82 /* HintCopy.json */; };
 		78403E2589F62D463406FC79 /* SelfRelocatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0544C4D9C05213F111A16263 /* SelfRelocatorTests.swift */; };
+		7C1712F4F2ED7AA8E4B62743 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 050884FD91C931C299F1697A /* ContentView.swift */; };
 		7C2FD24BFBC3AAB36EDE9263 /* OfflineGraceBoundTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFBC7113D093B3D11E09202A /* OfflineGraceBoundTests.swift */; };
 		7D0EA7F4FBAC12C193ECD443 /* PermissionsIntroCatalogueKeysTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0554AF9354860CD204FC3F51 /* PermissionsIntroCatalogueKeysTest.swift */; };
 		825F57CAB6FA252C9933EAA5 /* LicenseVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2CC753BA3079BE36F7A7CF4 /* LicenseVerifier.swift */; };
@@ -93,6 +98,7 @@
 		E5316E9CFE905AC4CFFAA6C0 /* Outfit-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 7872CDF57A4C636DE0B8BAB0 /* Outfit-Bold.ttf */; };
 		E645DB417FE085A54F3474A7 /* FullDiskAccessSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E26BE783EE21FCA4A614C436 /* FullDiskAccessSheet.swift */; };
 		E7E43757F0A029A93B6F7708 /* InstallCompleteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 260069E8B35BBB27233D9472 /* InstallCompleteView.swift */; };
+		EE2855BEB5855142F70AB7AA /* UninstallerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EE22C3D213CA4ADF6586210 /* UninstallerApp.swift */; };
 		F19AE79E344ACE0E6AF84DFF /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C1249B5BB363F304334F02 /* ContentView.swift */; };
 		F22ED4BB1C2FC75CA9CFAD41 /* GatewayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 524B76726D10373975055BD0 /* GatewayClient.swift */; };
 		F94300D944302E7EA4A88CCD /* LogRedactorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6BE908E9E4B90F6733DD6FD /* LogRedactorTests.swift */; };
@@ -111,13 +117,16 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		050884FD91C931C299F1697A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		0544C4D9C05213F111A16263 /* SelfRelocatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfRelocatorTests.swift; sourceTree = "<group>"; };
 		0554AF9354860CD204FC3F51 /* PermissionsIntroCatalogueKeysTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsIntroCatalogueKeysTest.swift; sourceTree = "<group>"; };
+		063705A8F5AF3894E91E3A00 /* Uninstaller.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Uninstaller.entitlements; sourceTree = "<group>"; };
 		08A68D9D961170201BC0E5A7 /* StepCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepCatalog.swift; sourceTree = "<group>"; };
 		091F620E783EA78D7DCFED68 /* OnboardingQuestionViewSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingQuestionViewSnapshotTests.swift; sourceTree = "<group>"; };
 		0A8FE4423B311BB14298C94D /* Outfit-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Outfit-Regular.ttf"; sourceTree = "<group>"; };
 		0B00C2C51EF6CA0F9AAC4D24 /* LogDrawerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogDrawerView.swift; sourceTree = "<group>"; };
 		143B97F50F4AF5CC13BFCECB /* ViewCopy.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ViewCopy.json; sourceTree = "<group>"; };
+		17105FDC6EFFD5D0E009D529 /* UninstallFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UninstallFlags.swift; sourceTree = "<group>"; };
 		18D9D6CCBEB829F2E872A349 /* ICON_HASHES.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = ICON_HASHES.txt; sourceTree = "<group>"; };
 		1BF3014DBC9CAECCD4EBBD90 /* DeviceLimitReachedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceLimitReachedView.swift; sourceTree = "<group>"; };
 		1C611D155502B912580B643B /* MemoryCeiling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryCeiling.swift; sourceTree = "<group>"; };
@@ -128,6 +137,7 @@
 		290A4E2AACD1F8BA2DABFE13 /* OstlerTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OstlerTheme.swift; sourceTree = "<group>"; };
 		2EAED9BF2C1D82930A1EBABB /* generate_appicon.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = generate_appicon.py; sourceTree = "<group>"; };
 		38CF88E41D08067999FC9583 /* IBMPlexSans-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "IBMPlexSans-Regular.ttf"; sourceTree = "<group>"; };
+		3AF50C9109B4719629174364 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		3B3A82C28A40E6D64666C5A3 /* DeviceRegistrationClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceRegistrationClientTests.swift; sourceTree = "<group>"; };
 		40241AAA50AAB3FC5CE4B5A8 /* AdminAuthorizationGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdminAuthorizationGateTests.swift; sourceTree = "<group>"; };
 		40B3FBFC7DF22BBAA50C76B2 /* Outfit-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Outfit-Medium.ttf"; sourceTree = "<group>"; };
@@ -137,9 +147,11 @@
 		49E6B2DE1EC06DA03AC2E651 /* LicenseVerifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseVerifierTests.swift; sourceTree = "<group>"; };
 		4A4EFAAB976720F4BA6A416E /* EmailSupportMailtoTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmailSupportMailtoTest.swift; sourceTree = "<group>"; };
 		4B61CA4E5C5CB6A987FF9652 /* test_icon_geometry.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = test_icon_geometry.py; sourceTree = "<group>"; };
+		4FE0C4238C7473834F25689D /* UninstallerCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UninstallerCoordinator.swift; sourceTree = "<group>"; };
 		524B76726D10373975055BD0 /* GatewayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayClient.swift; sourceTree = "<group>"; };
 		550ED01700CFB0F35C724B93 /* OutputLineBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputLineBuffer.swift; sourceTree = "<group>"; };
 		578EA8428F05B39C8652C7CA /* DeviceRegistration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceRegistration.swift; sourceTree = "<group>"; };
+		588E76A6DCB1EFE24634CB7B /* Ostler Uninstaller.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Ostler Uninstaller.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		58B578E0EB7E75E94715663D /* SidebarPhaseAdvanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarPhaseAdvanceTests.swift; sourceTree = "<group>"; };
 		59004E0EEBFBD192430CB5F7 /* FingerprintStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FingerprintStateTests.swift; sourceTree = "<group>"; };
 		597E42EDE0E55239E92BBFF0 /* PermissionsPrewarmer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsPrewarmer.swift; sourceTree = "<group>"; };
@@ -173,6 +185,7 @@
 		9C18346C952C441C63AC38B8 /* PassphraseMismatchUXTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassphraseMismatchUXTests.swift; sourceTree = "<group>"; };
 		9E1974AECCE8C351193A5257 /* DialogIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = DialogIcon.icns; sourceTree = "<group>"; };
 		9EA7B9285055EFB24937AA9A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		9EE22C3D213CA4ADF6586210 /* UninstallerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UninstallerApp.swift; sourceTree = "<group>"; };
 		A2CC753BA3079BE36F7A7CF4 /* LicenseVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseVerifier.swift; sourceTree = "<group>"; };
 		A7BB29D9449120BC392EE586 /* JetBrainsMono-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "JetBrainsMono-Medium.ttf"; sourceTree = "<group>"; };
 		AA415C1B21A151B849E39CE1 /* ViewCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewCopy.swift; sourceTree = "<group>"; };
@@ -227,6 +240,19 @@
 			path = Fonts;
 			sourceTree = "<group>";
 		};
+		22D2FD852525AD6870676FB8 /* Uninstaller */ = {
+			isa = PBXGroup;
+			children = (
+				050884FD91C931C299F1697A /* ContentView.swift */,
+				3AF50C9109B4719629174364 /* Info.plist */,
+				063705A8F5AF3894E91E3A00 /* Uninstaller.entitlements */,
+				9EE22C3D213CA4ADF6586210 /* UninstallerApp.swift */,
+				4FE0C4238C7473834F25689D /* UninstallerCoordinator.swift */,
+				17105FDC6EFFD5D0E009D529 /* UninstallFlags.swift */,
+			);
+			path = Uninstaller;
+			sourceTree = "<group>";
+		};
 		296BE68221AABD99A6B09E98 /* Views */ = {
 			isa = PBXGroup;
 			children = (
@@ -267,6 +293,7 @@
 		7FC686951F990D23E8C912BF /* Products */ = {
 			isa = PBXGroup;
 			children = (
+				588E76A6DCB1EFE24634CB7B /* Ostler Uninstaller.app */,
 				5BD159481AED14E0F2873891 /* OstlerInstaller.app */,
 				8D51C5C78001404B9496EC66 /* OstlerInstallerTests.xctest */,
 			);
@@ -334,6 +361,7 @@
 			children = (
 				F506F64F7264AEB88C7031EC /* OstlerInstaller */,
 				89CF886C4785D87342DA0608 /* OstlerInstallerTests */,
+				22D2FD852525AD6870676FB8 /* Uninstaller */,
 				7FC686951F990D23E8C912BF /* Products */,
 			);
 			sourceTree = "<group>";
@@ -395,6 +423,23 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		00769F4963986C8ACF28768B /* Ostler Uninstaller */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 760CEBCB37B3A281C2096631 /* Build configuration list for PBXNativeTarget "Ostler Uninstaller" */;
+			buildPhases = (
+				8DC4C6B615ACFBF1EC212F84 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Ostler Uninstaller";
+			packageProductDependencies = (
+			);
+			productName = "Ostler Uninstaller";
+			productReference = 588E76A6DCB1EFE24634CB7B /* Ostler Uninstaller.app */;
+			productType = "com.apple.product-type.application";
+		};
 		0CAFCBCDD4B741A744827019 /* OstlerInstallerTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 7EF033C85923020A3AF7362B /* Build configuration list for PBXNativeTarget "OstlerInstallerTests" */;
@@ -469,6 +514,10 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					00769F4963986C8ACF28768B = {
+						DevelopmentTeam = V95N2B8X7A;
+						ProvisioningStyle = Manual;
+					};
 					0CAFCBCDD4B741A744827019 = {
 						DevelopmentTeam = V95N2B8X7A;
 						ProvisioningStyle = Manual;
@@ -495,6 +544,7 @@
 			targets = (
 				26396ABC7C59F0222CB05FE6 /* OstlerInstaller */,
 				0CAFCBCDD4B741A744827019 /* OstlerInstallerTests */,
+				00769F4963986C8ACF28768B /* Ostler Uninstaller */,
 			);
 		};
 /* End PBXProject section */
@@ -1040,7 +1090,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/lib\"\n# Copy WITHOUT -p so we don't preserve source xattrs\n# (com.apple.provenance / com.apple.macl on Sonoma+ break codesign).\n#\n# progress_emitter.sh MUST land at ${DEST}/lib/progress_emitter.sh\n# (NOT ${DEST}/progress_emitter.sh). install.sh's source\n# resolution looks at \"${SCRIPT_DIR}/lib/progress_emitter.sh\"\n# first -- when install.sh runs from inside the .app,\n# SCRIPT_DIR is Contents/Resources so the lib/ subfolder is\n# mandatory. Pre-2026-05-13 this was bundled flat at\n# ${DEST}/progress_emitter.sh which caused the chicken-and-egg\n# fallback hang Andy hit on Mac Studio. Fix tracked in\n# HR015/launch/TNM_BRIEF_INSTALL_SH_PROGRESS_EMITTER_BOOTSTRAP_2026-05-13.md.\n#\n# install.sh.strings.en-GB.sh is the Rule 0.9 i18n catalogue.\n# install.sh sources it via ${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh\n# with en-GB fallback (install.sh:510-523), and hard-exits if missing.\n# Must be bundled flat alongside install.sh in Resources.\ncp \"${SRCROOT}/../install.sh\"                          \"${DEST}/install.sh\"\ncp \"${SRCROOT}/../lib/progress_emitter.sh\"             \"${DEST}/lib/progress_emitter.sh\"\n# #550 (2026-08-28): ostler_store_auth.py is the store-auth shim.\n# install.sh:6523 seeds it from \"${SCRIPT_DIR}/lib/ostler_store_auth.py\"\n# into ${OSTLER_DIR}/lib, and a .pth in every venv imports it so the\n# pinned Python clients authenticate to Qdrant/Oxigraph without four\n# separate client PRs.\n#\n# ⚠️ WITHOUT THIS LINE THE WHOLE CHAIN IS INERT ON A CUSTOMER BOX.\n# SCRIPT_DIR is Contents/Resources at install time, so an unbundled\n# shim means the seeder's [[ -f \"$_src\" ]] fails, it returns 1, the\n# caller warns, and EVERY venv reaches the data stores with NO\n# credential -- silently, on exactly the machines the fix is for.\n# The `contract` gate (scripts/check_install_sh_script_dir_coverage.py)\n# caught this: it demands every ${SCRIPT_DIR}/X probe have a matching\n# bundling line or a justified EXCEPTION. It was right and the gap\n# was real.\n#\n# 📌 Same lib/ subfolder rule as progress_emitter.sh above, and the\n# same class as the CX-34 note below: the file existed in the repo,\n# the code that reads it was correct, and it never reached the\n# artefact. MERGED is not DELIVERED is not RUN.\ncp \"${SRCROOT}/../lib/ostler_store_auth.py\"            \"${DEST}/lib/ostler_store_auth.py\"\n# CX-34 (2026-05-24, Studio retest #21): write_pipeline_signals.py is\n# invoked by install.sh:6220 (Mail content probe) to write\n# ~/.ostler/state/pipeline_signals.json. Pre-CX-34 it was missing from\n# the bundle, so install.sh fell through to the warn-only \"could not\n# write pipeline_signals.json\" branch -- which means Doctor's empty-\n# Mail diagnostic loses its sidecar and the install path silently\n# degrades. Bundle it alongside progress_emitter.sh.\ncp \"${SRCROOT}/../lib/write_pipeline_signals.py\"       \"${DEST}/lib/write_pipeline_signals.py\"\n# ostler-model-fit.sh (REUSE-4): install.sh sources it from\n# ${SCRIPT_DIR}/lib/ostler-model-fit.sh to pick an Ollama model the\n# box can actually run at num_ctx 32768. Missing = legacy RAM-ladder\n# fallback, but bundle it so customers get the fit assessment.\ncp \"${SRCROOT}/../lib/ostler-model-fit.sh\"             \"${DEST}/lib/ostler-model-fit.sh\"\n# settling_progress.sh: install.sh sources it from\n# ${SCRIPT_DIR}/lib/settling_progress.sh to report the `contacts` and\n# `emails` channels on the wiki's settling panel. Those two producers\n# (CM041 contact_syncer, CM021 pwg-email-ingest) cannot import HR015's\n# Python writer -- ostler_fda is never copied into PIPELINE_DIR -- so\n# this file IS their writer. Missing from the bundle = install.sh\n# falls back to a silent no-op and both channels ship permanently\n# blank, which looks identical to a feature nobody built.\ncp \"${SRCROOT}/../lib/settling_progress.sh\"            \"${DEST}/lib/settling_progress.sh\"\n# ostler-container-engine.sh + ostler-engine-supervisor.sh: the\n# periodic container-engine liveness check and its recovery path.\n# install.sh stages both into ~/.ostler and schedules\n# com.ostler.engine-supervisor from them, but ONLY if it finds them\n# at ${SCRIPT_DIR}/lib and ${SCRIPT_DIR}/bin. Missing from the\n# bundle = install.sh takes its warn branch and every customer gets\n# an install with NO automatic recovery of the runtime -- which is\n# exactly the state that left the walk box's wiki dark for a day\n# while every gate stayed green. Ships-dark by construction unless\n# they are copied here.\nmkdir -p \"${DEST}/bin\"\ncp \"${SRCROOT}/../lib/ostler-container-engine.sh\"      \"${DEST}/lib/ostler-container-engine.sh\"\ncp \"${SRCROOT}/../bin/ostler-engine-supervisor.sh\"     \"${DEST}/bin/ostler-engine-supervisor.sh\"\nchmod 755 \"${DEST}/lib/ostler-container-engine.sh\" \"${DEST}/bin/ostler-engine-supervisor.sh\"\ncp \"${SRCROOT}/../install.sh.strings.en-GB.sh\"         \"${DEST}/install.sh.strings.en-GB.sh\"\nchmod 755 \"${DEST}/install.sh\" \"${DEST}/lib/progress_emitter.sh\" \"${DEST}/lib/ostler-model-fit.sh\" \"${DEST}/lib/settling_progress.sh\"\nchmod 644 \"${DEST}/install.sh.strings.en-GB.sh\" \"${DEST}/lib/write_pipeline_signals.py\"\n# Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app\n# so the customer DMG ships a clean single-app layout (just the\n# installer + drag-to-Applications) yet install.sh's source-\n# preference path 2 (${SCRIPT_DIR}/Ostler.app) finds the bundle\n# at runtime when install.sh runs from inside Contents/Resources.\n# OSTLER_APP_PATH is passed as an xcodebuild build setting by\n# gui/Makefile's release target; if absent or missing the build\n# logs a warning and the customer install will skip the Hub-app\n# step (install.sh's existing source-not-found warning).\n#\n# IMPORTANT (2026-06-19 cut): capture the value via the `${VAR:-}`\n# default form FIRST. xcodegen performs its own ${VAR} substitution\n# on a plain brace-reference to OSTLER_APP_PATH at *generation* time\n# (replacing it with the empty string when the var exists but is\n# empty in the generator's env), which silently broke hub bundling\n# after a `make regen`. The `:-` form\n# is passed through literally to the shell, so we read the build\n# setting through it once and use a plain shell var thereafter.\nOSTLER_APP_SRC=\"${OSTLER_APP_PATH:-}\"\nif [ -n \"$OSTLER_APP_SRC\" ] && [ -d \"$OSTLER_APP_SRC\" ]; then\n  echo \"Bundling Ostler.app from $OSTLER_APP_SRC into Resources/\"\n  cp -R \"$OSTLER_APP_SRC\" \"${DEST}/Ostler.app\"\n  /usr/bin/xattr -cr \"${DEST}/Ostler.app\" || true\nelse\n  echo \"WARNING: OSTLER_APP_PATH not set or missing; OstlerInstaller will ship without bundled Ostler.app.\" >&2\nfi\n";
+			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/lib\"\n# Copy WITHOUT -p so we don't preserve source xattrs\n# (com.apple.provenance / com.apple.macl on Sonoma+ break codesign).\n#\n# progress_emitter.sh MUST land at ${DEST}/lib/progress_emitter.sh\n# (NOT ${DEST}/progress_emitter.sh). install.sh's source\n# resolution looks at \"${SCRIPT_DIR}/lib/progress_emitter.sh\"\n# first -- when install.sh runs from inside the .app,\n# SCRIPT_DIR is Contents/Resources so the lib/ subfolder is\n# mandatory. Pre-2026-05-13 this was bundled flat at\n# ${DEST}/progress_emitter.sh which caused the chicken-and-egg\n# fallback hang Andy hit on Mac Studio. Fix tracked in\n# HR015/launch/TNM_BRIEF_INSTALL_SH_PROGRESS_EMITTER_BOOTSTRAP_2026-05-13.md.\n#\n# install.sh.strings.en-GB.sh is the Rule 0.9 i18n catalogue.\n# install.sh sources it via ${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh\n# with en-GB fallback (install.sh:510-523), and hard-exits if missing.\n# Must be bundled flat alongside install.sh in Resources.\ncp \"${SRCROOT}/../install.sh\"                          \"${DEST}/install.sh\"\ncp \"${SRCROOT}/../lib/progress_emitter.sh\"             \"${DEST}/lib/progress_emitter.sh\"\n# #550 (2026-08-28): ostler_store_auth.py is the store-auth shim.\n# install.sh:6523 seeds it from \"${SCRIPT_DIR}/lib/ostler_store_auth.py\"\n# into ${OSTLER_DIR}/lib, and a .pth in every venv imports it so the\n# pinned Python clients authenticate to Qdrant/Oxigraph without four\n# separate client PRs.\n#\n# ⚠️ WITHOUT THIS LINE THE WHOLE CHAIN IS INERT ON A CUSTOMER BOX.\n# SCRIPT_DIR is Contents/Resources at install time, so an unbundled\n# shim means the seeder's [[ -f \"$_src\" ]] fails, it returns 1, the\n# caller warns, and EVERY venv reaches the data stores with NO\n# credential -- silently, on exactly the machines the fix is for.\n# The `contract` gate (scripts/check_install_sh_script_dir_coverage.py)\n# caught this: it demands every ${SCRIPT_DIR}/X probe have a matching\n# bundling line or a justified EXCEPTION. It was right and the gap\n# was real.\n#\n# 📌 Same lib/ subfolder rule as progress_emitter.sh above, and the\n# same class as the CX-34 note below: the file existed in the repo,\n# the code that reads it was correct, and it never reached the\n# artefact. MERGED is not DELIVERED is not RUN.\ncp \"${SRCROOT}/../lib/ostler_store_auth.py\"            \"${DEST}/lib/ostler_store_auth.py\"\n# CX-34 (2026-05-24, Studio retest #21): write_pipeline_signals.py is\n# invoked by install.sh:6220 (Mail content probe) to write\n# ~/.ostler/state/pipeline_signals.json. Pre-CX-34 it was missing from\n# the bundle, so install.sh fell through to the warn-only \"could not\n# write pipeline_signals.json\" branch -- which means Doctor's empty-\n# Mail diagnostic loses its sidecar and the install path silently\n# degrades. Bundle it alongside progress_emitter.sh.\ncp \"${SRCROOT}/../lib/write_pipeline_signals.py\"       \"${DEST}/lib/write_pipeline_signals.py\"\n# ostler-model-fit.sh (REUSE-4): install.sh sources it from\n# ${SCRIPT_DIR}/lib/ostler-model-fit.sh to pick an Ollama model the\n# box can actually run at num_ctx 32768. Missing = legacy RAM-ladder\n# fallback, but bundle it so customers get the fit assessment.\ncp \"${SRCROOT}/../lib/ostler-model-fit.sh\"             \"${DEST}/lib/ostler-model-fit.sh\"\n# settling_progress.sh: install.sh sources it from\n# ${SCRIPT_DIR}/lib/settling_progress.sh to report the `contacts` and\n# `emails` channels on the wiki's settling panel. Those two producers\n# (CM041 contact_syncer, CM021 pwg-email-ingest) cannot import HR015's\n# Python writer -- ostler_fda is never copied into PIPELINE_DIR -- so\n# this file IS their writer. Missing from the bundle = install.sh\n# falls back to a silent no-op and both channels ship permanently\n# blank, which looks identical to a feature nobody built.\ncp \"${SRCROOT}/../lib/settling_progress.sh\"            \"${DEST}/lib/settling_progress.sh\"\n# ostler-container-engine.sh + ostler-engine-supervisor.sh: the\n# periodic container-engine liveness check and its recovery path.\n# install.sh stages both into ~/.ostler and schedules\n# com.ostler.engine-supervisor from them, but ONLY if it finds them\n# at ${SCRIPT_DIR}/lib and ${SCRIPT_DIR}/bin. Missing from the\n# bundle = install.sh takes its warn branch and every customer gets\n# an install with NO automatic recovery of the runtime -- which is\n# exactly the state that left the walk box's wiki dark for a day\n# while every gate stayed green. Ships-dark by construction unless\n# they are copied here.\nmkdir -p \"${DEST}/bin\"\ncp \"${SRCROOT}/../lib/ostler-container-engine.sh\"      \"${DEST}/lib/ostler-container-engine.sh\"\ncp \"${SRCROOT}/../bin/ostler-engine-supervisor.sh\"     \"${DEST}/bin/ostler-engine-supervisor.sh\"\nchmod 755 \"${DEST}/lib/ostler-container-engine.sh\" \"${DEST}/bin/ostler-engine-supervisor.sh\"\ncp \"${SRCROOT}/../install.sh.strings.en-GB.sh\"         \"${DEST}/install.sh.strings.en-GB.sh\"\nchmod 755 \"${DEST}/install.sh\" \"${DEST}/lib/progress_emitter.sh\" \"${DEST}/lib/ostler-model-fit.sh\" \"${DEST}/lib/settling_progress.sh\"\nchmod 644 \"${DEST}/install.sh.strings.en-GB.sh\" \"${DEST}/lib/write_pipeline_signals.py\"\n# Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app\n# so the customer DMG ships a clean single-app layout (just the\n# installer + drag-to-Applications) yet install.sh's source-\n# preference path 2 (${SCRIPT_DIR}/Ostler.app) finds the bundle\n# at runtime when install.sh runs from inside Contents/Resources.\n# OSTLER_APP_PATH is passed as an xcodebuild build setting by\n# gui/Makefile's release target; if absent or missing the build\n# logs a warning and the customer install will skip the Hub-app\n# step (install.sh's existing source-not-found warning).\n#\n# IMPORTANT (2026-06-19 cut): capture the value via the `${VAR:-}`\n# default form FIRST. xcodegen performs its own ${VAR} substitution\n# on a plain brace-reference to OSTLER_APP_PATH at *generation* time\n# (replacing it with the empty string when the var exists but is\n# empty in the generator's env), which silently broke hub bundling\n# after a `make regen`. The `:-` form\n# is passed through literally to the shell, so we read the build\n# setting through it once and use a plain shell var thereafter.\nOSTLER_APP_SRC=\"${OSTLER_APP_PATH:-}\"\nif [ -n \"$OSTLER_APP_SRC\" ] && [ -d \"$OSTLER_APP_SRC\" ]; then\n  echo \"Bundling Ostler.app from $OSTLER_APP_SRC into Resources/\"\n  cp -R \"$OSTLER_APP_SRC\" \"${DEST}/Ostler.app\"\n  /usr/bin/xattr -cr \"${DEST}/Ostler.app\" || true\nelse\n  echo \"WARNING: OSTLER_APP_PATH not set or missing; OstlerInstaller will ship without bundled Ostler.app.\" >&2\nfi\n# GAP3: Ostler Uninstaller.app nested inside OstlerInstaller.app/Contents/\n# Resources so install.sh's ${SCRIPT_DIR}/Ostler Uninstaller.app copy finds\n# it at install time and places it in /Applications. Same dynamic-path\n# + `${VAR:-}` capture as Ostler.app above (xcodegen would otherwise\n# substitute a bare ${UNINSTALLER_APP_PATH} at generation time).\n# gui/Makefile's build-uninstaller target produces it and passes\n# UNINSTALLER_APP_PATH as a build setting on the release archive.\n# Non-fatal when absent so a Debug build (which does not build it)\n# still succeeds; verify-dmg-contents does not require it, so a dev\n# cut simply ships without it.\nUNINSTALLER_APP_SRC=\"${UNINSTALLER_APP_PATH:-}\"\nif [ -n \"$UNINSTALLER_APP_SRC\" ] && [ -d \"$UNINSTALLER_APP_SRC\" ]; then\n  echo \"Ostler Uninstaller.app: bundling $UNINSTALLER_APP_SRC into Resources/\"\n  cp -R \"$UNINSTALLER_APP_SRC\" \"${DEST}/Ostler Uninstaller.app\"\n  /usr/bin/xattr -cr \"${DEST}/Ostler Uninstaller.app\" || true\nelse\n  echo \"note: UNINSTALLER_APP_PATH not set or missing; OstlerInstaller will ship without bundled Ostler Uninstaller.app.\" >&2\nfi\n";
 		};
 		ED9B7924786866EDDAFDA889 /* Bundle cm024_knowledge Python package into Resources */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -1212,6 +1262,19 @@
 				0DC239B7F1A049A5293EEF7D /* StringsCatalogueYNSuffixTest.swift in Sources */,
 				D593E67900B5C491B3B2F624 /* TerminationExitCodeReconcileTests.swift in Sources */,
 				CB38667F41A4BC45C5B47258 /* TypedInstallGateTest.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8DC4C6B615ACFBF1EC212F84 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7C1712F4F2ED7AA8E4B62743 /* ContentView.swift in Sources */,
+				543AB900C5D7B0F432860346 /* OutputLineBuffer.swift in Sources */,
+				334B7F253D89500E6A20408C /* ProgressProtocol.swift in Sources */,
+				5103A82E183F789453A5C211 /* UninstallFlags.swift in Sources */,
+				EE2855BEB5855142F70AB7AA /* UninstallerApp.swift in Sources */,
+				1E3D553B80B9247B871BE5CC /* UninstallerCoordinator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1439,9 +1502,58 @@
 			};
 			name = Debug;
 		};
+		C44D7E1D2BC710BEEBF5573A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD)";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Uninstaller/Uninstaller.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = Uninstaller/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = ai.ostler.uninstaller;
+				PRODUCT_NAME = "Ostler Uninstaller";
+				SDKROOT = macosx;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Release;
+		};
+		DDC54AB55BF0B5996FA57626 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD)";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Uninstaller/Uninstaller.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = Uninstaller/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = ai.ostler.uninstaller;
+				PRODUCT_NAME = "Ostler Uninstaller";
+				SDKROOT = macosx;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		760CEBCB37B3A281C2096631 /* Build configuration list for PBXNativeTarget "Ostler Uninstaller" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DDC54AB55BF0B5996FA57626 /* Debug */,
+				C44D7E1D2BC710BEEBF5573A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		7EF033C85923020A3AF7362B /* Build configuration list for PBXNativeTarget "OstlerInstallerTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

@@ -37,6 +37,10 @@ on:
       - 'gui/OstlerInstaller/ProgressProtocol.swift'
       - 'tests/test_uninstall_cannot_claim_removal_it_did_not_do.sh'
       - 'tests/test_the_generated_uninstaller_parses.sh'
+      # GAP1/GAP2: the shared colima VM must never be blind-deleted, and
+      # knowledge-staging gains a --purge-data opt-in. Watched by name so
+      # editing either the uninstaller or this test re-fires the gate.
+      - 'tests/test_uninstall_colima_and_data_choices.sh'
       - '.github/workflows/uninstall-removal-honesty.yml'
   push:
     branches: [main]
@@ -150,3 +154,22 @@ jobs:
       - name: A GUI uninstall cannot land without its decoder cases
         if: always()
         run: bash tests/test_a_gui_uninstall_needs_its_decoder_cases.sh
+
+      # GAP1 (SAFETY-CRITICAL) + GAP2: the two destructive OPTIONS.
+      #
+      # colima `default` is the SHARED Docker VM. install.sh starts it with no
+      # --profile, so a customer may have created it for their own Docker work
+      # before installing Ostler; deleting it then wipes their unrelated data.
+      # Andy's rule: "if it could wipe something else that was already there,
+      # then we need to ask for permission first." So --yes on its own, and an
+      # EOF/no-tty run, KEEP the VM; only --remove-colima or an explicit 'yes'
+      # deletes it, the delete is verified gone, and a SIBLING profile (a build
+      # VM) is never touched. --purge-data wipes knowledge-staging (otherwise
+      # preserved for a reinstall); power.conf survives either way.
+      #
+      # Runs the two regions in a sandboxed HOME over a STUB colima -- no real
+      # colima, docker or /Applications path is touched. Both axes carry a
+      # negative control. if: always() so an earlier red cannot mask it.
+      - name: The colima VM is never blind-deleted, and --purge-data is honoured
+        if: always()
+        run: bash tests/test_uninstall_colima_and_data_choices.sh
