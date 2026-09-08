@@ -29540,7 +29540,7 @@ if [[ -n "$_INITIAL_HYDRATE_QDRANT_MISSING" ]] \
    && [[ "$_INITIAL_HYDRATE_QDRANT_MISSING" != CANNOT-RUN:* ]] \
    && [[ "$_INITIAL_HYDRATE_COLLECTIONS_AFTER" =~ ^[0-9]+$ ]]; then
     info "$(printf "$MSG_INFO_QDRANT_CREATING_AT_PROVEN_READY" \
-        "${_INITIAL_HYDRATE_QDRANT_MISSING}")"
+        "${_INITIAL_HYDRATE_QDRANT_MISSING}")" || true
     _ostler_ensure_qdrant_collections || true
     _INITIAL_HYDRATE_QDRANT_RETRIED=1
     # RE-MEASURE, do not believe the creator. _ostler_ensure_qdrant_collections
@@ -29577,8 +29577,17 @@ elif [[ -n "$_INITIAL_HYDRATE_QDRANT_MISSING" ]] \
     # the install do keep working, and aborting here would be a worse answer
     # than saying so loudly.
     if [[ "${_INITIAL_HYDRATE_QDRANT_RETRIED:-0}" -eq 1 ]]; then
+        # `|| true` DELIBERATELY, and not because err() is expected to fail.
+        # This file runs under `set -Eeuo pipefail` with the _ostler_on_err
+        # trap that killed the v1.0.71 and v1.0.73 installs, and this call is
+        # the LAST statement of its branch, so the branch's status is err()'s.
+        # err() ends in gui_log, whose TTY definition is `{ :; }` but whose GUI
+        # definition lives in lib/progress_emitter.sh and is not visible from
+        # here. The counted error must never become an aborted install, so the
+        # status is pinned rather than inherited from a function defined in
+        # another file.
         err "$(printf "$MSG_ERR_QDRANT_COLLECTIONS_UNCREATABLE" \
-            "${_INITIAL_HYDRATE_QDRANT_MISSING}")"
+            "${_INITIAL_HYDRATE_QDRANT_MISSING}")" || true
     else
         warn "$(printf "$MSG_WARN_QDRANT_COLLECTIONS_MISSING" \
             "${_INITIAL_HYDRATE_QDRANT_MISSING}")"
