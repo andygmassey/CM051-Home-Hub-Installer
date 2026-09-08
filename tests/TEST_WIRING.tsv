@@ -228,7 +228,6 @@ test_fda_rerun_agent_loads_after_its_binary.sh	WIRED	.github/workflows/cold-box-
 test_fda_rerun_ingests.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_fda_rerun_recurs.sh	WIRED	.github/workflows/fda-rerun-recurs.yml
 test_final_summary_nounset_safe.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
-test_first_install_can_claim_its_own_colima_port.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_frontpage_tick_emits_interest_profile.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_gdpr_export_detect.sh	WIRED	.github/workflows/gdpr-export-detect.yml
 test_gdpr_folder_access_denied.sh	WIRED	.github/workflows/consent-data-handling.yml
@@ -429,6 +428,7 @@ test_store_auth_no_call_site_passes_staging_root.sh	WIRED	.github/workflows/stor
 test_store_auth_pth_uses_final_dir.sh	WIRED	.github/workflows/store-auth-pth-final-dir.yml
 test_store_callers_authenticate.sh	WIRED	.github/workflows/venv-store-shim.yml
 test_store_health_does_not_depend_on_a_foreign_port.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_store_port_first_install_stale_store.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_stores_guard_fires.sh	WIRED	.github/workflows/store-host-exposure.yml
 test_stores_publish_no_host_port.sh	WIRED	.github/workflows/store-host-exposure.yml
 test_subscription_activation_path.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml

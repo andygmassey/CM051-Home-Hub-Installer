@@ -124,12 +124,15 @@ rc="$(run_check 6333)"
     || bad "arm 3: a FOREIGN forward was waved through (rc=${rc}) -- worse than the bug"
 
 # ---------------------------------------------------------------- arm 4  (matters)
-# signal 1 only: our colima argv, but the store 401s our credential -> HELD
+# our colima argv, but a stale store 401s our credential. #1253 signal 2 is
+# DROPPED for 6333/7878 (the first-install deadlock: graph_db_start, which this
+# preflight gates, is the very step that rewrites the store credential). So now,
+# exactly like 8044 in arm 7, signal 1 + the single-machine invariant suffices.
 STUB_ARGV="${OUR_ARGV}"; STUB_CURL_RC=22
 rc="$(run_check 6333)"
-[ "${rc}" = "1" ] \
-    && ok  "arm 4: our colima argv but store 401 (signal 2 absent) -> HELD, never 'ours' (no-auth-store trap closed)" \
-    || bad "arm 4: signal 1 alone was accepted (rc=${rc}) -- a keyless/foreign store would pass"
+[ "${rc}" = "0" ] \
+    && ok  "arm 4: our colima 6333, stale store 401 -> CONTINUE (signal 1 sufficient; first-install deadlock removed)" \
+    || bad "arm 4: our own 6333 stayed HELD on a stale-store 401 (rc=${rc}) -- the deadlock persists"
 
 # ---------------------------------------------------------------- arm 5  (B1: coverage)
 # 6379 (redis) has no HTTP credential probe: signal 1 + sole-tenancy -> PROCEED.
@@ -142,14 +145,14 @@ rc="$(run_check 6379)"
     || bad "arm 5: 6379 stayed HELD (rc=${rc}) -- the dead-end still fires on it"
 
 # ---------------------------------------------------------------- arm 6  (§2, matters)
-# store auth OFF: a keyless store 200s ANY request, so signal 2 goes vacuous.
-# Both apparent signals on 6333, but enforce=0 -> HELD, never "ours". Run in an
+# store auth OFF. Signal 2 is gone for 6333/7878, so enforce no longer gates
+# ownership: a store port held by OUR colima is ours regardless. Run in an
 # explicit subshell so the override does not leak into the summary.
 STUB_ARGV="${OUR_ARGV}"; STUB_CURL_RC=0
 rc="$( export OSTLER_STORE_AUTH_ENFORCE=0; _check_port 6333 /usr/bin/true >/dev/null 2>&1; echo $? )"
-[ "${rc}" = "1" ] \
-    && ok  "arm 6: OSTLER_STORE_AUTH_ENFORCE=0 -> signal 2 vacuous -> HELD (a keyless store cannot prove ownership)" \
-    || bad "arm 6: enforce=0 accepted (rc=${rc}) -- a keyless foreign forward would pass"
+[ "${rc}" = "0" ] \
+    && ok  "arm 6: enforce=0 on our colima 6333 -> CONTINUE (ownership no longer gated on store auth; a FOREIGN forward is still HELD by signal 1, arm 3)" \
+    || bad "arm 6: our own 6333 stayed HELD under enforce=0 (rc=${rc})"
 
 # ---------------------------------------------------------------- arm 7  (B1: 8044 fired)
 # 8044 is the wiki -- the port @ARCHIE measured aborting a torn-down Studio.
