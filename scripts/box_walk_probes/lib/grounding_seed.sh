@@ -44,6 +44,18 @@
 # visible line saying why rather than a silent skip. Exporting a fact the box
 # cannot serve would convert a harness failure into a FAIL against the product.
 #
+# WHAT A GREEN HERE DOES AND DOES NOT MEAN. The seeded turn asks a NOVEL
+# wording, "Who is <person> and where do they work?", so a pass says SEEDED
+# GROUNDING WORKS. It is not evidence about Q1, memory versus retrieval, in
+# either direction: a novel wording already passed before the Q1 fix, while the
+# memorised wording made zero tool calls and recited a stale count. Worse, the
+# memorised path self-poisons across runs, so on a box that has already
+# absorbed an answer the same question read grounded at 03:45:48Z and
+# no_tool_call at 04:31:45Z within one walk (Archie, v1.0.75). The Q1 A/B has
+# to be run separately, against BOTH wordings, on a box whose memory has not
+# already absorbed a prior answer. The forget step below removes the seeded
+# PERSON; it does not remove anything the assistant memorised about them.
+#
 # ENV
 #   OSTLER_SEED_DIR          path to the OS003 gates/seed directory. Set this
 #                            when the search below cannot find it.

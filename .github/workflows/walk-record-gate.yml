@@ -56,6 +56,8 @@ on:
       - 'tests/test_probe_absence_is_not_an_answer.sh'
       - 'tests/test_probe_pgrep_is_scoped_to_this_account.sh'
       - 'tests/test_no_probe_lives_outside_the_walk_glob.sh'
+      - 'tests/test_the_walk_seeds_the_grounded_probe.sh'
+      - 'scripts/box_walk_probes/lib/grounding_seed.sh'
       # Same rule as the workflow-self-trigger below, applied to a test: a
       # suite this workflow RUNS but does not WATCH is dark on self-edit --
       # it could be narrowed, or gutted, in a PR that never runs it. I added
@@ -504,6 +506,22 @@ jobs:
         # grounded on the measured transcript while the fixed one returns
         # fact_missing, and kills a mutant with the assertion removed.
         run: /bin/bash scripts/tests/test_grounded_probe_asserts_the_fact.sh
+
+      # THE OTHER HALF OF THAT PROBE. The step above proves the probe can tell
+      # a carried fact from a missing one. It cannot see whether the walk ever
+      # GIVES it a fact to look for, and until now the walk did not: nothing
+      # set OSTLER_GATE_KNOWN_PERSON or OSTLER_GATE_EXPECT_FACT, so the probe
+      # ran unseeded and its content assertion did not exist. That is the
+      # configuration recorded FAILED in walks/v1.0.74.tsv.
+      #
+      # This pins the wiring itself: the runner sources lib/grounding_seed.sh
+      # and calls it ABOVE the phase-2 loop, the gate values are exported ONLY
+      # on the loader's exit 0, and every other outcome exports nothing and
+      # says why. Its own mutation arm removes the exports and requires the
+      # exit-0 assertion to stop passing.
+      - name: The walk seeds the grounded probe, and a failed seed is not a FAIL
+        if: always()
+        run: /bin/bash tests/test_the_walk_seeds_the_grounded_probe.sh
 
       - name: POSITIVE CONTROL -- the gate accepts a genuine clean record
         if: always()

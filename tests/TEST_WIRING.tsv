@@ -466,6 +466,7 @@ test_the_uninstaller_resolves_docker_absolutely.sh	WIRED	.github/workflows/reset
 test_the_uninstaller_speaks_the_gui_marker_protocol.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_the_vane_port_demands_a_credential.sh	WIRED	.github/workflows/colima-autostart.yml
 test_the_walk_record_says_whether_the_stores_are_history.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_the_walk_seeds_the_grounded_probe.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_wiki_health_check_survives_the_credential.sh	WIRED	.github/workflows/colima-autostart.yml
 test_the_wiki_port_demands_a_credential.sh	WIRED	.github/workflows/colima-autostart.yml
 test_third_party_data_consent.sh	WIRED	.github/workflows/consent-contract.yml

@@ -48,6 +48,15 @@ RUNNER = BASE / "run_box_walk.sh"
 EXEMPT: dict[str, str] = {
     "lib/probe.sh":
         "a sourced library, not a probe: it defines probe_pass/probe_fail",
+    "lib/grounding_seed.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it between "
+        "phase 1 and phase 2 and calls grounding_seed_apply, which seeds the "
+        "known person the BLOCKING assistant_answers_grounded probe asks "
+        "about. It asserts nothing and has no verdict, so the collector could "
+        "not report it; collecting it would run a seed as if it were a "
+        "measurement. It IS invoked, and that invocation is pinned by "
+        "tests/test_the_walk_seeds_the_grounded_probe.sh, which fails if the "
+        "runner stops sourcing or calling it.",
     "acceptance_gate_v1013.sh":
         "BY DESIGN, and verified rather than assumed. verify_cut_manifest.py's "
         "registry searches probes/ FIRST and then the flat directory (see its "
