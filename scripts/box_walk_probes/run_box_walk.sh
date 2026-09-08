@@ -185,6 +185,28 @@ else
 fi
 
 # -------------------------------------------------------------------------
+# THE GROUNDING SEED, between the controls and the measurements.
+#
+# assistant_answers_grounded is BLOCKING and its content assertion exists only
+# when OSTLER_GATE_KNOWN_PERSON and OSTLER_GATE_EXPECT_FACT are set. Nothing
+# set them, so a bare walk ran that probe against an empty graph with no
+# fixture and no content assertion. That is the configuration recorded FAILED
+# in walks/v1.0.74.tsv; the probe has passed once, on v1.0.75, and only
+# because the seed was run by hand first.
+#
+# HERE, not in ttywalk.sh, because ttywalk does not invoke this runner at all
+# (measured: zero references), so a seed wired there would not reach these
+# probes. And AFTER phase 1, because the self-tests never touch the box: this
+# is the last moment before anything is measured.
+#
+# SOURCED AT THE POINT OF USE rather than beside PROBE_DIR at the top. Four
+# sibling tests and workflows cite this file by line number (:42 PROBE_DIR,
+# :44 EX_CANNOT_RUN, :83 the probe glob, :201-204 the BROKEN skip), and every
+# one of those citations stays true only while nothing is inserted above them.
+. "$HERE/lib/grounding_seed.sh"
+grounding_seed_apply || true
+
+# -------------------------------------------------------------------------
 # PHASE 2 -- the real measurements.
 # -------------------------------------------------------------------------
 printf -- '--- PHASE 2: measurements ---\n'
@@ -268,6 +290,11 @@ for p in $PROBES; do
         printf '%s\t%s\n' "$b" "$_why" >> "$FAIL_REASONS"
     fi
 done
+
+printf '\n'
+# Every measurement is taken by here, so removing the synthetic person cannot
+# change a verdict in this run. It never fails the walk.
+grounding_seed_forget || true
 
 # -------------------------------------------------------------------------
 # REPORT -- four numbers, never one.
