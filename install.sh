@@ -3004,6 +3004,27 @@ _ostler_promote_prelaunch_tree() {
         _ostler_write_store_curl_config || true
     fi
 
+    # AND THE WORKSPACE MARKER, SAME CLASS, SAME REASON (instance six).
+    # ${HOME}/.ostler/active_workspace.toml records ASSISTANT_CONFIG_DIR by
+    # VALUE, and is written before every main-flow call of this function, so
+    # without this it keeps the /tmp/ostler-prelaunch-<pid> prefix for the life
+    # of the install. Measured on the v1.0.79 box: usage_journal_producers read
+    # 346 journal lines from a costs.jsonl under that staging prefix, on a fully
+    # installed machine, from a directory the OS clears on boot.
+    #
+    # ASSISTANT_CONFIG_DIR is derived from OSTLER_DIR, which _ostler_set_paths
+    # has just rebound above, so calling the writer again here is sufficient and
+    # nothing needs recomputing by hand.
+    #
+    # Guarded for the same reason as the credential re-arm: one call site of
+    # this function precedes the writer's definition in source order, and an
+    # unguarded call there would print "command not found" and, behind
+    # `|| true`, do nothing while looking applied. That path is harmless anyway,
+    # because the marker write then runs later with OSTLER_DIR already final.
+    if declare -f _ostler_write_workspace_marker >/dev/null 2>&1; then
+        _ostler_write_workspace_marker || true
+    fi
+
     OSTLER_PRELAUNCH_PROMOTED=true
 
     # CX-95 (DMG #48g+, 2026-05-29): repair the venv after promote.
@@ -13385,18 +13406,37 @@ ASSISTANT_CONFIG="${ASSISTANT_CONFIG_DIR}/config.toml"
 #
 # Env vars still win in both resolvers, so the daemon is unaffected. This only
 # moves the processes that are currently resolving to a path nobody writes.
-_ostler_workspace_marker="${HOME}/.ostler/active_workspace.toml"
-mkdir -p "${HOME}/.ostler"
-if printf 'config_dir = "%s"\n' "$ASSISTANT_CONFIG_DIR" > "${_ostler_workspace_marker}.tmp.$$" \
-   && mv -f "${_ostler_workspace_marker}.tmp.$$" "$_ostler_workspace_marker"; then
-    dbg "Published workspace marker: ${_ostler_workspace_marker} -> ${ASSISTANT_CONFIG_DIR}"
-else
-    # Non-fatal: the daemon does not need this file, only the other readers do.
-    # But say so, because a silent miss here is exactly the failure it fixes.
-    rm -f "${_ostler_workspace_marker}.tmp.$$" 2>/dev/null || true
-    warn "Could not write ${_ostler_workspace_marker}. Usage-journal readers outside the daemon will resolve to \${HOME}/.ostler/workspace, which nothing writes."  # i18n-exempt
-fi
-unset _ostler_workspace_marker
+# ⛔ THE VALUE IN THIS MARKER IS CAPTURED AT WRITE TIME, SO IT MUST BE REWRITTEN
+# AFTER THE PROMOTE. This is a FUNCTION rather than an inline block for exactly
+# that reason: _ostler_promote_prelaunch_tree calls it again once OSTLER_DIR has
+# been rebound, and two copies of this logic would drift.
+#
+# MEASURED ON THE v1.0.79 BOX, record #2: usage_journal_producers read 346
+# journal lines from
+#     /tmp/ostler-prelaunch-50840/assistant-config/workspace/state/costs.jsonl
+# on a fully installed machine. Every main-flow call of the promote runs AFTER
+# the call below, so on every installed box this marker held the staging prefix,
+# under /tmp, which the OS clears on boot. The readers were pointed at a
+# directory that disappears.
+#
+# This is the SIXTH recorded instance of one class in this file: a value read
+# from OSTLER_DIR while it still names the staging tree, and never rebound. The
+# other five are catalogued around the credential-wiring default and the
+# WhatsApp session path. The class gate is still owed; this closes the instance.
+_ostler_write_workspace_marker() {
+    local _m="${HOME}/.ostler/active_workspace.toml"
+    mkdir -p "${HOME}/.ostler"
+    if printf 'config_dir = "%s"\n' "$ASSISTANT_CONFIG_DIR" > "${_m}.tmp.$$" \
+       && mv -f "${_m}.tmp.$$" "$_m"; then
+        dbg "Published workspace marker: ${_m} -> ${ASSISTANT_CONFIG_DIR}"
+    else
+        # Non-fatal: the daemon does not need this file, only the other readers do.
+        # But say so, because a silent miss here is exactly the failure it fixes.
+        rm -f "${_m}.tmp.$$" 2>/dev/null || true
+        warn "Could not write ${_m}. Usage-journal readers outside the daemon will resolve to \${HOME}/.ostler/workspace, which nothing writes."  # i18n-exempt
+    fi
+}
+_ostler_write_workspace_marker
 
 # P0-β (box-walk recut #2, 2026-07-26): PRESERVE existing gateway pairings
 # across upgrades. The `{ ... } > "$ASSISTANT_CONFIG"` block below REGENERATES

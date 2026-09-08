@@ -71,6 +71,7 @@ on:
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'tests/test_usage_journal_producer_gate.sh'
       - 'tests/test_usage_journal_readers_resolve_like_the_daemon.sh'
+      - 'tests/test_the_workspace_marker_survives_the_promote.sh'
       - 'tests/fixtures/usage_journal/costs_full.jsonl'
       # The SHIPPING producer itself. The roster names cm051_ostler_fda_ingest
       # as its one MEASURED row -- measured on HR015 source, which is not what
@@ -175,6 +176,20 @@ jobs:
       - name: Journal readers resolve to the daemon's path (W006)
         if: always()
         run: /bin/bash tests/test_usage_journal_readers_resolve_like_the_daemon.sh
+
+      # AND THE MARKER THOSE READERS RESOLVE THROUGH MUST NOT NAME /tmp.
+      # ${HOME}/.ostler/active_workspace.toml records ASSISTANT_CONFIG_DIR by
+      # VALUE and is written while OSTLER_DIR is still the staging tree. Every
+      # main-flow promote runs after it and nothing rewrote it, so on every
+      # installed box the marker held /tmp/ostler-prelaunch-<pid>. Measured in
+      # v1.0.79 walk record #2: usage_journal_producers read 346 journal lines
+      # from a costs.jsonl under that prefix, on a fully installed machine,
+      # from a directory macOS clears on boot. The gate above proves the
+      # readers agree with the daemon; this one proves the thing they agree on
+      # still exists after the install finishes.
+      - name: The workspace marker names the promoted tree, not the staging one
+        if: always()
+        run: /bin/bash tests/test_the_workspace_marker_survives_the_promote.sh
 
       # The three exit codes, asserted at the top level rather than only inside
       # the harness. CANNOT-RUN collapsing into PASS or FAIL is the exact
