@@ -444,6 +444,7 @@ test_tailscale_prompt_is_conditional_on_tailnet_state.sh	WIRED	.github/workflows
 test_tailscale_recovery_wrapper.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_takeout_split_zip_no_abort.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_converge_veto_actually_runs.py	WIRED	.github/workflows/rule-2-holds-on-the-write.yml
+test_the_converge_wait_resolves_the_credential_path.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_cron_reader_sees_both_toml_spellings.sh	WIRED	.github/workflows/install-manifest-gate.yml
 test_the_cut_checklist_is_complete.py	WIRED	.github/workflows/cut-checklist-complete.yml
 test_the_daemon_freshness_row_decides_on_the_scoped_count.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml

@@ -58,6 +58,7 @@ on:
       - 'tests/test_no_probe_lives_outside_the_walk_glob.sh'
       - 'tests/test_the_walk_seeds_the_grounded_probe.sh'
       - 'tests/test_the_walk_waits_for_converge.sh'
+      - 'tests/test_the_converge_wait_resolves_the_credential_path.sh'
       - 'scripts/box_walk_probes/lib/converge_wait.sh'
       - 'scripts/box_walk_probes/lib/grounding_seed.sh'
       # Same rule as the workflow-self-trigger below, applied to a test: a
@@ -541,6 +542,23 @@ jobs:
       - name: The walk waits for the stores to stop moving, and never scores a pass for waiting
         if: always()
         run: /bin/bash tests/test_the_walk_waits_for_converge.sh
+
+      # #1851: AND IT ACTUALLY READS THEM. The suite above proves the stability
+      # DECISION and stubs the reader, so nothing in it ever executed the
+      # command that crosses _cw_box_exec. The credential path was interpolated
+      # single-quoted while it still carried a literal $HOME, the remote shell
+      # never expanded it, curl exited 26 before issuing a request, and both
+      # stores read "x" on every reading. On the v1.0.79 walk that produced 45
+      # consecutive "unreadable: x x" lines against two healthy stores, and both
+      # people probes ended CANNOT-RUN by the harness's own hand.
+      #
+      # This arm crosses that seam: a real credential file at the real expanded
+      # path under a redirected HOME, a store on an ephemeral loopback port that
+      # RECORDS what reached it, and a must-fail arm restoring the old quoting
+      # that must print "x x" and must leave the store untouched.
+      - name: The converge wait resolves the credential path before it quotes it
+        if: always()
+        run: /bin/bash tests/test_the_converge_wait_resolves_the_credential_path.sh
 
       - name: POSITIVE CONTROL -- the gate accepts a genuine clean record
         if: always()
