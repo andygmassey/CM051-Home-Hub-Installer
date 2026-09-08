@@ -277,20 +277,25 @@ print(str(d[key]).strip())
 PY
 }
 
-# --- project.yml (single-occurrence keys; grep the quoted scalar) ------------
-# Keys are unique in project.yml: MARKETING_VERSION + CURRENT_PROJECT_VERSION
-# live once under settings.base; CFBundleShortVersionString + CFBundleVersion
-# live once under the target's info.properties. Guard against a future
-# duplicate by asserting exactly one match.
+# --- project.yml (occurrences must AGREE; grep the quoted scalar) ------------
+# MARKETING_VERSION + CURRENT_PROJECT_VERSION live once under settings.base.
+# CFBundleShortVersionString + CFBundleVersion live under the OstlerInstaller
+# target's info.properties AND, since GAP3, under the Uninstaller target's --
+# the two apps ship in one artefact and share a version deliberately. So the
+# guard is no longer "exactly one occurrence"; it is "one DISTINCT VALUE",
+# exactly as pbx_uniq treats the pbxproj's per-config duplicates. Two DIFFERENT
+# values is still the half-bump this gate exists to catch, and still fails.
 yml_val() {
-    local key="$1" matches
+    local key="$1" matches vals
     matches="$(grep -E "^[[:space:]]*${key}:[[:space:]]" "$PROJECT_YML" || true)"
     [[ -n "$matches" ]] || fail "$key not found in project.yml"
-    if [[ "$(printf '%s\n' "$matches" | wc -l | tr -d ' ')" != "1" ]]; then
-        fail "$key appears more than once in project.yml -- ambiguous:
-$matches"
+    vals="$(printf '%s\n' "$matches" \
+              | sed -E 's/.*:[[:space:]]*"?([^"]*)"?[[:space:]]*$/\1/' | sort -u)"
+    if [[ "$(printf '%s\n' "$vals" | wc -l | tr -d ' ')" != "1" ]]; then
+        fail "$key has more than one distinct value in project.yml -- ambiguous:
+$vals"
     fi
-    printf '%s\n' "$matches" | sed -E 's/.*:[[:space:]]*"?([^"]*)"?[[:space:]]*$/\1/'
+    printf '%s\n' "$vals"
 }
 
 # --- pbxproj (multiple occurrences: Debug + Release must all agree) ----------
