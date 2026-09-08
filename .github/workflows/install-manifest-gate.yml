@@ -32,6 +32,9 @@ on:
       - 'tests/test_install_manifest_gate.sh'
       # #1820: the pre-creation the collections in this gate depend on
       - 'tests/test_collections_are_prepared_without_an_import.sh'
+      # The other half of that: the creation that happens at the point where
+      # readiness is PROVEN, for the cold VM where every one-shot cap expired.
+      - 'tests/test_collections_are_created_where_readiness_is_proven.sh'
       # The cron reader's own gate: it pins a negative control to a fixed
       # blob, so editing it must trigger the workflow that runs it.
       - 'tests/test_the_cron_reader_sees_both_toml_spellings.sh'
@@ -103,6 +106,18 @@ jobs:
       - name: The collection pre-creation runs even with nothing to import (#1820)
         if: always()
         run: /bin/bash tests/test_collections_are_prepared_without_an_import.sh
+
+      # THE COLD-VM HALF. Every creator in install.sh is one-shot behind a
+      # single cap, and on a slow cold VM all of them expire before qdrant
+      # answers, after which nothing creates the collections at any later
+      # point. The install then promises an index it never built and the walk's
+      # people probes read a store without the collections they depend on.
+      # This drives the fix region with a store that answers LATE, and its
+      # must-fail arm strips the creator call out of that same region and
+      # requires the collection to stay missing.
+      - name: Collections are created where readiness is proven, not merely waited for
+        if: always()
+        run: /bin/bash tests/test_collections_are_created_where_readiness_is_proven.sh
 
       # The box-walk runner marks a probe BROKEN unless its --self-test returns
       # FAIL. Assert that directly here too, so a change that neuters the probe's

@@ -117,6 +117,7 @@ test_cm048_settings_models_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-
 test_codename_sweep_sees_an_early_leak.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_colima_autostart_mechanism.sh	WIRED	.github/workflows/colima-autostart.yml
 test_colima_start_retry.sh	WIRED	.github/workflows/colima-autostart.yml
+test_collections_are_created_where_readiness_is_proven.sh	WIRED	.github/workflows/install-manifest-gate.yml
 test_collections_are_prepared_without_an_import.sh	WIRED	.github/workflows/install-manifest-gate.yml
 test_composite_cleanup.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_config_reader_absence_does_not_abort_the_install.sh	WIRED	.github/workflows/cold-box-source-truth.yml
