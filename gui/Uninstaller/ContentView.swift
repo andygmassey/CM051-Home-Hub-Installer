@@ -155,7 +155,7 @@ struct DoneView: View {
                 summaryRow("Data stores",
                            coordinator.storesRemoved ? "removed"
                            : "NOT removed — start Docker and run: cd ~/.ostler && docker compose down -v")
-                summaryRow("Shared Docker VM", colimaSummary)
+                summaryRow("Shared colima VM", colimaSummary)
                 summaryRow("Knowledge data", knowledgeSummary)
             }
             .font(.callout)

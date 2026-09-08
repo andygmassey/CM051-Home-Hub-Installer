@@ -1381,7 +1381,7 @@ build-uninstaller: guard-local-cut check-tools check-identity check-pbxproj-sync
 	    -exportOptionsPlist "$(EXPORT_OPTS)"
 	$(STEP) "Stripping xattrs from exported Uninstaller.app (post-export hygiene)"
 	/usr/bin/xattr -cr "$(UNINSTALLER_APP_PATH)" || true
-	$(STEP) "Verifying Uninstaller signature"
+	$(STEP) "Verifying the Uninstaller.app signature"
 	codesign --verify --deep --strict --verbose=2 "$(UNINSTALLER_APP_PATH)"
 	@echo ""
 	@echo "Uninstaller .app: $(UNINSTALLER_APP_PATH)"

@@ -313,7 +313,7 @@ targets:
           # cut simply ships without it.
           UNINSTALLER_APP_SRC="${UNINSTALLER_APP_PATH:-}"
           if [ -n "$UNINSTALLER_APP_SRC" ] && [ -d "$UNINSTALLER_APP_SRC" ]; then
-            echo "Bundling Uninstaller.app from $UNINSTALLER_APP_SRC into Resources/"
+            echo "Uninstaller.app: bundling $UNINSTALLER_APP_SRC into Resources/"
             cp -R "$UNINSTALLER_APP_SRC" "${DEST}/Uninstaller.app"
             /usr/bin/xattr -cr "${DEST}/Uninstaller.app" || true
           else
