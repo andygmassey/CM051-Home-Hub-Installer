@@ -3,11 +3,12 @@
 # ============================================================================
 # assistant_answers_grounded is BLOCKING, and until 2026-09-07 it adjudicated
 # on FRAME SHAPES ONLY: a pwg_ tool fired, returned OK, the turn completed ->
-# grounded. Measured on Archie's seeded v1.0.74 walk: the assistant called
-# pwg_people, got OK, and told the customer it had "no explicit information"
-# about where she works while the graph served the fact on two endpoints. The
-# probe scored it GREEN. A blocking probe that passes a wrong answer is worse
-# than none.
+# grounded. Measured ad hoc on a v1.0.74 box and recorded in ostler-assistant
+# b4118b45's commit message (NOT a walk: the v1.0.74 walk ran unseeded and
+# failed): the assistant called pwg_people, got OK, and told the customer it
+# had "no explicit information" about where she works while the graph served
+# the fact on two endpoints. The probe scored it GREEN. A blocking probe that
+# passes a wrong answer is worse than none.
 #
 # The probe now asserts CONTENT on the seeded turn: the reply must carry the
 # fixture fact, computed on the box, with only a YES/NO crossing the wire.
