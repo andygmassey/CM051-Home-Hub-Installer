@@ -30,6 +30,8 @@ on:
       - 'scripts/box_walk_probes/probes/install_manifest_complete.sh'
       - 'scripts/box_walk_probes/lib/probe.sh'
       - 'tests/test_install_manifest_gate.sh'
+      # #1820: the pre-creation the collections in this gate depend on
+      - 'tests/test_collections_are_prepared_without_an_import.sh'
       # The cron reader's own gate: it pins a negative control to a fixed
       # blob, so editing it must trigger the workflow that runs it.
       - 'tests/test_the_cron_reader_sees_both_toml_spellings.sh'
@@ -99,6 +101,7 @@ jobs:
       # Mutation-proved: with the call put back inside the branch it reports
       # "NO top-level call ... this is #1820" and exits 1.
       - name: The collection pre-creation runs even with nothing to import (#1820)
+        if: always()
         run: /bin/bash tests/test_collections_are_prepared_without_an_import.sh
 
       # The box-walk runner marks a probe BROKEN unless its --self-test returns
