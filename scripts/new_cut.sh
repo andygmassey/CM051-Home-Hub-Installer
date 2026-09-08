@@ -145,6 +145,40 @@ run_gate "vendored BOM fresh"   bash tests/test_cut_bom_is_fresh.sh "$VERSION"
 run_gate "walk closure"         bash bin/rollforward_gate.sh --require-walk-closure --cut "$VERSION"
 run_gate "rollforward pin"      bash tests/test_rollforward_registry_pin.sh
 
+# ── THE TWO GATES THIS SCRIPT USED TO BE BLIND TO ───────────────────────────
+#
+# ADDED 2026-09-08, AFTER THEY COST A TAG. v1.0.76 was tagged on this script's
+# own "ALL GREEN. Safe to tag" and cut run 34201583498 died at preflight in
+# about forty seconds, before the dry-run or the cut job ran at all. Two hard
+# preflight gates refused, and NEITHER was in the list above:
+#
+#   cut-manifests/<version>.yaml missing
+#       "A tag without a manifest is a cut nobody wrote down."
+#   the installer's own version still 1.0.75/7500 while the cut was 1.0.76
+#       the v1.0.39 defect: a DMG that cannot tell you which installer it is.
+#
+# MEASURED ON THE FILE AS IT WAS: 8 references to cuts/, exactly 1 to
+# cut-manifests, and ZERO to plist or CFBundle. So this script could not see
+# either condition, while printing "there is no second round of discovery".
+#
+# THAT SENTENCE IS THE DEFECT, not the missing steps. A checklist that omits a
+# hard gate and then declares itself complete is worse than no checklist,
+# because it converts "I forgot" into "the tool told me I was done". The
+# operator did nothing wrong: they ran every gate offered and tagged on green.
+#
+# Both gates below are the SAME commands cut.yml runs, deliberately, so this
+# script cannot be green where the preflight is red. If cut.yml changes what it
+# checks, this list is stale by construction -- which is why each line names
+# its counterpart in that file rather than reimplementing the check.
+#
+# CUT_VERSION_SOURCE=tag mirrors what cut.yml sets, and it is load-bearing:
+# without it the version test refuses rather than running, because a version of
+# unstated provenance may have been read out of its own subject (#171).
+run_gate "cut record exists"    test -f "cut-manifests/${VERSION}.yaml"
+CUT_VERSION_SOURCE=tag \
+run_gate "installer version IS the cut version" \
+    bash tests/test_installer_version_matches_the_cut.sh "$VERSION"
+
 echo
 if [ "$RED" = "0" ]; then
   echo "ALL GREEN. Safe to tag ${VERSION}. This script does not tag: the tag is the ship."
