@@ -199,10 +199,14 @@ fi
 # probes. And AFTER phase 1, because the self-tests never touch the box: this
 # is the last moment before anything is measured.
 #
-# SOURCED AT THE POINT OF USE rather than beside PROBE_DIR at the top. Four
-# sibling tests and workflows cite this file by line number (:42 PROBE_DIR,
-# :44 EX_CANNOT_RUN, :83 the probe glob, :201-204 the BROKEN skip), and every
-# one of those citations stays true only while nothing is inserted above them.
+# SOURCED AT THE POINT OF USE rather than beside PROBE_DIR at the top. Sibling
+# tests and workflows cite this file by line number (:42 PROBE_DIR, :44
+# EX_CANNOT_RUN, :83 the probe glob) and those three stay true only while
+# nothing is inserted above them. A fourth citation, ":201-204 the BROKEN skip"
+# in test_walk_record_states_measured_count.sh and cut-manifest.yml, was ALREADY
+# WRONG on origin/main before this branch existed: the skip is at :249 there. It
+# is prose in both places, nothing executes a line lookup into this file, so it
+# is left for its owners rather than fixed under a freeze.
 . "$HERE/lib/grounding_seed.sh"
 grounding_seed_apply || true
 
@@ -215,10 +219,18 @@ grounding_seed_apply || true
 # people_stores_reconcile were not wrong about what they saw; they were asked
 # too early, and a disagreement measured mid-convergence is not a store defect.
 #
-# Sourced at the point of use for the same reason as the seed above: four
-# sibling tests and workflows cite this file by line number.
+# Sourced at the point of use for the same reason as the seed above: sibling
+# tests and workflows cite this file by line number.
+#
+# SOURCED HERE, CALLED LATE. The wait itself is deferred to the moment the first
+# gated probe is about to run (see the loop below). It used to be called right
+# here, which put a wait of up to 2700 s in front of EVERY probe in phase 2,
+# including the twenty-odd that never read a count and cannot be affected by a
+# moving graph. On a walk where the graph never settles that is 45 minutes
+# charged to probes that did not need it. Deferring also means a filtered run
+# that collects neither gated probe waits for nothing at all.
 . "$HERE/lib/converge_wait.sh"
-converge_wait || true
+_CONVERGE_WAIT_DONE=0
 
 # -------------------------------------------------------------------------
 # PHASE 2 -- the real measurements.
@@ -272,12 +284,36 @@ for p in $PROBES; do
     # exist to measure, so they are CANNOT-RUN with the cause named: never
     # FAIL, never PASS. This is a coverage statement, and it is counted in the
     # same four numbers as every other CANNOT-RUN rather than hidden.
-    if converge_gates_probe "$b" && [ "$CONVERGE_STATE" != "done" ]; then
-        printf '\n[%s]\n' "$b"
-        printf '  VERDICT: CANNOT-RUN -- %s\n' "$CONVERGE_DETAIL" | sed 's/^/  /'
-        CANNOT=$((CANNOT + 1)); CANNOT_LIST="$CANNOT_LIST $b"
-        printf '%s\t%s\n' "$b" "$CONVERGE_DETAIL" >> "$CANNOT_REASONS"
-        continue
+    # THE STATE THIS COMPARES AGAINST MUST BE ONE THE LIB CAN ACTUALLY SET.
+    # This read `!= "done"` until Aesop's review of #1849 caught it. converge_
+    # wait sets exactly five values -- unrun, skipped, stable, unreadable,
+    # unstable (lib/converge_wait.sh:59, 125, 170, 183-184) -- and "done" is
+    # not among them: it is the last remnant of the marker-file design that
+    # this lib deliberately abandoned. So the comparison was true for every
+    # value the lib can produce, and BOTH gated probes were CANNOT-RUN
+    # unconditionally, including after a wait that succeeded. The gate did not
+    # delay the two probes, it deleted them. The lib's own 21-arm suite could
+    # not see it because that suite tests the lib and this line is the wiring,
+    # which is why the arms added in test_the_walk_waits_for_converge.sh drive
+    # THIS block rather than converge_wait().
+    #
+    # PASS ONLY ON "stable". Every other value, including unrun, means the
+    # graph was not measured to have stopped moving.
+    if converge_gates_probe "$b"; then
+        # The wait happens once, here, immediately before the first probe that
+        # needs it, rather than in front of all of phase 2.
+        if [ "$_CONVERGE_WAIT_DONE" -eq 0 ]; then
+            printf '\n'
+            converge_wait || true
+            _CONVERGE_WAIT_DONE=1
+        fi
+        if [ "$CONVERGE_STATE" != "stable" ]; then
+            printf '\n[%s]\n' "$b"
+            printf '  VERDICT: CANNOT-RUN -- %s\n' "$CONVERGE_DETAIL" | sed 's/^/  /'
+            CANNOT=$((CANNOT + 1)); CANNOT_LIST="$CANNOT_LIST $b"
+            printf '%s\t%s\n' "$b" "$CONVERGE_DETAIL" >> "$CANNOT_REASONS"
+            continue
+        fi
     fi
 
     printf '\n[%s]\n' "$b"

@@ -71,16 +71,32 @@ drive() { # $1 = file of readings, $2... = env assignments
 # ---------------------------------------------------------------------------
 printf -- '-- 1. wired into the runner, gating exactly the two count-reading probes --\n'
 # ---------------------------------------------------------------------------
+# THESE TWO ARMS ONCE PINNED A POSITION AND NOW PIN THE PROPERTY. They read
+# `^converge_wait ||` at the top level and required it to sit above the loop,
+# which described the FIRST design: one wait in front of all of phase 2. That
+# put a budget of up to 2700 s ahead of every probe on the walk, including the
+# twenty-odd that never read a count (Aesop, review of #1849, criterion 5). The
+# call is now made lazily inside the loop, so an arm that insists on the old
+# POSITION would block the fix while claiming to protect the behaviour. What
+# actually has to hold is unchanged: the lib is sourced, the wait is called,
+# and the call happens before any gated probe is executed. Position is an
+# implementation detail; ordering is the requirement.
 src_line="$(grep -n 'lib/converge_wait.sh' "$RUNNER" | head -1 | cut -d: -f1)"
-call_line="$(grep -n '^converge_wait ||' "$RUNNER" | head -1 | cut -d: -f1)"
+call_line="$(grep -n 'converge_wait ||' "$RUNNER" | head -1 | cut -d: -f1)"
 gate_line="$(grep -n 'converge_gates_probe "\$b"' "$RUNNER" | head -1 | cut -d: -f1)"
 loop_line="$(grep -n '^    out="$(bash "$p" 2>&1)"' "$RUNNER" | head -1 | cut -d: -f1)"
 
 [ -n "$src_line" ] && [ -n "$call_line" ] && [ -n "$gate_line" ]
 ok_or $? "the runner sources the lib, calls converge_wait, and gates in the loop" \
     "source=$src_line call=$call_line gate=$gate_line"
-[ -n "$call_line" ] && [ -n "$loop_line" ] && [ "$call_line" -lt "$loop_line" ]
-ok_or $? "the wait runs BEFORE the probe loop" "call=$call_line loop=$loop_line"
+# The wait must be reached before a probe is EXECUTED. It now sits inside the
+# gate block, so it is above the execution line and below the gate line, and
+# the behavioural arms further down prove it actually fires (WAITS=1) rather
+# than merely appearing in the right place.
+[ -n "$call_line" ] && [ -n "$loop_line" ] && [ -n "$gate_line" ] \
+    && [ "$call_line" -lt "$loop_line" ] && [ "$call_line" -gt "$gate_line" ]
+ok_or $? "the wait is reached inside the gate and before any probe is executed" \
+    "gate=$gate_line call=$call_line exec=$loop_line"
 [ -n "$gate_line" ] && [ -n "$loop_line" ] && [ "$gate_line" -lt "$loop_line" ]
 ok_or $? "the gate is checked before the probe is executed" "gate=$gate_line loop=$loop_line"
 
@@ -199,6 +215,170 @@ if grep -q 'if \[ 1 -eq 1 \]; then' "$mutant"; then
     fi
 else
     bad "the mutation did not land; the arm below would prove nothing"
+fi
+
+# ===========================================================================
+# THE WIRING, NOT THE LIB. Everything above this line drives converge_wait()
+# and every one of those arms passed while the two probes it exists to protect
+# were being deleted from the walk.
+#
+# WHAT WAS WRONG, found by Aesop reviewing #1849 and reproduced here.
+# run_box_walk.sh gated the probes on
+#     converge_gates_probe "$b" && [ "$CONVERGE_STATE" != "done" ]
+# and converge_wait sets exactly five values: unrun, skipped, stable,
+# unreadable, unstable. "done" is not one of them -- it is the last remnant of
+# the dedupe-converge.done design this lib deliberately abandoned. So the
+# comparison was true for EVERY value the lib can produce, and both gated
+# probes were CANNOT-RUN unconditionally, including after a wait that
+# succeeded. Not delayed. Deleted.
+#
+# THE SUITE COULD NOT SEE IT BECAUSE IT WAS AIMED ONE FILE AWAY. A lib with a
+# perfect 21-arm suite, wired through a line no arm executed. So these arms
+# extract the gate region from the SHIPPED run_box_walk.sh and run it, with
+# converge_wait stubbed to whatever state is under test.
+# ===========================================================================
+printf '\n--- THE WIRING IN run_box_walk.sh, NOT THE LIB ---\n'
+
+WALK="$REPO/scripts/box_walk_probes/run_box_walk.sh"
+if [ ! -r "$WALK" ]; then
+    bad "CANNOT-RUN: no run_box_walk.sh at $WALK; the wiring arms measure nothing"
+else
+
+gate="$(awk '/^    if converge_gates_probe "\$b"; then$/ {f = 1} f {print} f && /^    fi$/ {exit}' "$WALK")"
+g_lines="$(printf '%s\n' "$gate" | grep -c .)"
+if [ "$g_lines" -lt 8 ] || [ "$g_lines" -gt 40 ]; then
+    bad "extracted ${g_lines} lines for the gate region, implausible; refusing to eval" \
+        "the anchor moved, so every wiring arm below would measure nothing"
+else
+ok "extracted the converge gate from the shipped run_box_walk.sh (${g_lines} lines)"
+
+# -------------------------------------------------------------------------
+# THE GENERAL FORM OF THE DEFECT, asserted directly: the literal this gate
+# compares CONVERGE_STATE against must be a value converge_wait can actually
+# ASSIGN. This arm fails on "done", on a typo, and on any future state the lib
+# renames out from under the wiring. It is the one that would have caught it.
+# -------------------------------------------------------------------------
+want="$(printf '%s\n' "$gate" | sed -n 's/.*\[ "\$CONVERGE_STATE" != "\([a-z]*\)" \].*/\1/p' | head -1)"
+if [ -z "$want" ]; then
+    bad "could not read the state literal out of the gate; the arm below cannot run"
+else
+    settable="$(grep -o 'CONVERGE_STATE="[a-z]*"' "$LIB" | sed 's/.*="\(.*\)"/\1/' | sort -u)"
+    if [ "$(printf '%s\n' "$settable" | grep -c "^${want}\$")" -gt 0 ]; then
+        ok "the gate compares against \"${want}\", which converge_wait can actually set"
+    else
+        bad "the gate compares against \"${want}\", which converge_wait NEVER sets" \
+            "assignable states: $(printf '%s' "$settable" | tr '\n' ' ')" \
+            "so the comparison is true for every reachable value and both probes are deleted, not gated"
+    fi
+    # MUST-MISS control on that same predicate: "done" must be rejected by it.
+    # Without this, a predicate that accepted anything would look identical.
+    if [ "$(printf '%s\n' "$settable" | grep -c '^done$')" -eq 0 ]; then
+        ok "control: \"done\" is NOT an assignable state, which is why the old gate was vacuous"
+    else
+        bad "\"done\" IS assignable now, so the arm above no longer discriminates"
+    fi
+fi
+
+# -------------------------------------------------------------------------
+# Drive the region. converge_wait is stubbed; converge_gates_probe is the real
+# one, sourced from the lib, so the probe NAMES are the shipped ones.
+# -------------------------------------------------------------------------
+drive_gate() { # $1 = region  $2 = state the stubbed wait sets  $3 = probe list
+    (
+        set +u
+        _WANT="$2"
+        . "$LIB"
+        converge_wait() { WAITS=$((WAITS + 1)); CONVERGE_STATE="$_WANT"; return 0; }
+        CONVERGE_DETAIL="stubbed detail"
+        CANNOT=0; CANNOT_LIST=""; WAITS=0; RAN=""
+        _CONVERGE_WAIT_DONE=0
+        CANNOT_REASONS="$WORK/reasons.$$"; : > "$CANNOT_REASONS"
+        for b in $3; do
+            eval "$1"
+            RAN="$RAN $b"
+        done
+        printf 'RAN=[%s] WAITS=%s CANNOT=%s REASONS=%s\n' \
+            "$RAN" "$WAITS" "$CANNOT" "$(grep -c . "$CANNOT_REASONS")"
+        rm -f "$CANNOT_REASONS"
+    ) 2>&1 | tail -1
+}
+
+# THE HARNESS ITSELF NEEDS A CONTROL. `continue` has to propagate out of the
+# eval into the enclosing for loop or every "did not run" arm below would pass
+# for the wrong reason -- a harness that can never run a probe would look
+# exactly like a gate that always blocks one.
+h_skip="$(drive_gate 'if true; then continue; fi' stable 'a b')"
+h_run="$(drive_gate 'if false; then continue; fi' stable 'a b')"
+[ "$(printf '%s\n' "$h_skip" | grep -c 'RAN=\[\]')" -gt 0 ] \
+    && ok "harness control: continue inside the eval DOES skip the enclosing loop body" \
+    || bad "harness control failed: continue did not propagate, so no arm below means anything" "$h_skip"
+[ "$(printf '%s\n' "$h_run" | grep -c 'RAN=\[ a b\]')" -gt 0 ] \
+    && ok "harness control: without a continue, both names reach the body" \
+    || bad "harness control failed: the loop body never ran at all" "$h_run"
+
+GATED="people_count_agreement people_stores_reconcile"
+
+# ARM: a stable graph lets both gated probes THROUGH. This is the one the
+# shipped bug broke, and it is the whole point of the change.
+o_stable="$(drive_gate "$gate" stable "$GATED")"
+if [ "$(printf '%s\n' "$o_stable" | grep -c 'RAN=\[ people_count_agreement people_stores_reconcile\]')" -gt 0 ]; then
+    ok "STABLE: both gated probes are INVOKED, which is what #1849 exists to do"
+else
+    bad "STABLE: a gated probe did not run even though the graph settled" "$o_stable"
+fi
+[ "$(printf '%s\n' "$o_stable" | grep -c 'CANNOT=0')" -gt 0 ] \
+    && ok "and neither is counted CANNOT-RUN" \
+    || bad "a probe was counted CANNOT-RUN on a stable graph" "$o_stable"
+
+# ARM: the wait is performed ONCE, not once per gated probe.
+[ "$(printf '%s\n' "$o_stable" | grep -c 'WAITS=1')" -gt 0 ] \
+    && ok "the wait runs exactly once, not once per gated probe" \
+    || bad "the wait did not run exactly once" "$o_stable"
+
+# ARM (criterion 5): a run that collects NO gated probe waits for NOTHING.
+# Before this change converge_wait was called before all of phase 2, so every
+# probe on the walk carried a budget of up to 2700 s it could not use.
+o_none="$(drive_gate "$gate" stable "no_store_port_is_tcp_reachable assistant_answers_grounded")"
+[ "$(printf '%s\n' "$o_none" | grep -c 'WAITS=0')" -gt 0 ] \
+    && ok "no gated probe collected means no wait at all, so ungated probes are not charged for it" \
+    || bad "the wait ran for a probe set containing no gated probe" "$o_none"
+[ "$(printf '%s\n' "$o_none" | grep -c 'RAN=\[ no_store_port_is_tcp_reachable assistant_answers_grounded\]')" -gt 0 ] \
+    && ok "and both ungated probes ran" \
+    || bad "an ungated probe was blocked by the converge gate" "$o_none"
+
+# ARM: an unstable graph still blocks, with the reason recorded. The gate must
+# not have been loosened into a no-op by the fix.
+o_unstable="$(drive_gate "$gate" unstable "$GATED")"
+[ "$(printf '%s\n' "$o_unstable" | grep -c 'RAN=\[\]')" -gt 0 ] \
+    && ok "UNSTABLE: both gated probes are held, so the fix did not turn the gate into a no-op" \
+    || bad "a gated probe ran on a graph that never settled" "$o_unstable"
+[ "$(printf '%s\n' "$o_unstable" | grep -c 'CANNOT=2 REASONS=2')" -gt 0 ] \
+    && ok "and both are counted CANNOT-RUN with a reason written, never FAIL and never PASS" \
+    || bad "the CANNOT-RUN count or the recorded reasons are wrong" "$o_unstable"
+
+# -------------------------------------------------------------------------
+# MUST-FAIL: put "done" back. This is the shipped defect, restored on purpose.
+# If the stable arm above still passed against it, that arm would be proving
+# nothing about the comparison.
+# -------------------------------------------------------------------------
+if [ "$(printf '%s\n' "$gate" | grep -c '"\$CONVERGE_STATE" != "stable"')" -eq 0 ]; then
+    bad "the line the mutation targets is not in the gate; the must-fail arm cannot mean anything"
+else
+    mut_gate="$(printf '%s\n' "$gate" | sed 's/"\$CONVERGE_STATE" != "stable"/"$CONVERGE_STATE" != "done"/')"
+    if [ "$(printf '%s\n' "$mut_gate" | grep -c '"\$CONVERGE_STATE" != "done"')" -eq 0 ]; then
+        bad "the mutation did not land; the must-fail arm below would prove nothing"
+    else
+        ok "the mutation landed (the gate compares against \"done\" again)"
+        o_mut="$(drive_gate "$mut_gate" stable "$GATED")"
+        if [ "$(printf '%s\n' "$o_mut" | grep -c 'RAN=\[\]')" -gt 0 ]; then
+            ok "MUST-FAIL: with \"done\" restored both probes vanish on a STABLE graph, which is the shipped defect"
+        else
+            bad "MUST-FAIL: the \"done\" gate still let the probes through; the stable arm proves nothing" "$o_mut"
+        fi
+    fi
+fi
+
+fi
 fi
 
 printf '\n== %s pass / %s fail / %s total ==\n' "$PASS" "$FAIL" "$((PASS + FAIL))"
