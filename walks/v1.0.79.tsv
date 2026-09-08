@@ -23,7 +23,7 @@ version	v1.0.79
 version_source	measured(CFBundleShortVersionString, matches argument)
 artefact_sha256	unavailable
 artefact_sha256_source	asserted-unverifiable(no OstlerInstaller-1.0.79.dmg on the box)
-walked_at	2026-09-08T22:39:28Z
+walked_at	2026-09-08T23:05:33Z
 box_fp	d09047bf3f706cbd
 #
 # instrument_rev answers the question this record has never
@@ -56,7 +56,7 @@ box_fp	d09047bf3f706cbd
 # reset fixes: a correct, clean, committed sha that was nonetheless
 # not main. Resolve the sha before assuming the lineage -- this
 # field answers WHICH probes ran, never WHERE they came from.
-instrument_rev	0feaa2fdbca161b3e0c231cb17698ffaa2a700df
+instrument_rev	d1e0cda0fe6825a2ddaceb2343bc872b4a11e51a
 instrument_source	measured(git rev-parse HEAD, scripts/box_walk_probes clean)
 #
 # stores_provenance answers the question every store-reading probe
@@ -68,23 +68,22 @@ instrument_source	measured(git rev-parse HEAD, scripts/box_walk_probes clean)
 # find one and says so when it cannot.
 stores_provenance	carried-over-from-previous-install
 counts_scope	box_walk_probes_only(phase1); verdict+qa_exit cover all phases
-pass	19
-fail	3
-cannot_run	4
+pass	21
+fail	4
+cannot_run	1
 broken	0
 measured	26 of 26 (pass+fail+cannot_run; a broken probe is SKIPPED in phase 2 and measures nothing) -- buckets partition the suite
 verdict	FAILED
 qa_exit	1
-failed_probe_names_recorded	3 of 3
+failed_probe_names_recorded	4 of 4
 failed_probe	assistant_answers_grounded
 failed_probe	converge_kill_is_recorded
+failed_probe	people_stores_reconcile
 failed_probe	usage_journal_producers
 failed_probe_reasons	withheld(public repo); run_box_walk.sh prints them under "WHAT EACH FAILURE FOUND"
 not_measured_reasons	withheld(public repo); run_box_walk.sh prints them under "PREREQUISITES THAT WERE ABSENT"
 not_measured_probe	app_signature_survives_first_run
-not_measured_probe	ingest_coverage
-not_measured_probe	people_count_agreement
-not_measured_probe	people_stores_reconcile
 regression_of	assistant_answers_grounded	CANNOT-CLASSIFY: history reaches v1.0.47, which records no probe names
 regression_of	converge_kill_is_recorded	v1.0.67
+regression_of	people_stores_reconcile	v1.0.71
 regression_of	usage_journal_producers	CANNOT-CLASSIFY: history reaches v1.0.47, which records no probe names
