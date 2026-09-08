@@ -29512,6 +29512,45 @@ gui_emit CX106_QDRANT_AFTER "count=${_INITIAL_HYDRATE_COLLECTIONS_AFTER}"
 _INITIAL_HYDRATE_QDRANT_MISSING="$(_initial_hydrate_qdrant_missing_required)"
 gui_emit CX106_QDRANT_MISSING "missing=${_INITIAL_HYDRATE_QDRANT_MISSING:-none}"
 
+# ── CREATE THEM HERE, WHERE READINESS IS PROVEN ─────────────────────────────
+#
+# Both existing creators are one-shot behind a single cap, and on a slow cold VM
+# every one of them expires before qdrant answers:
+#   _ostler_ensure_qdrant_collections()      waits _QDRANT_COLLECTIONS_READY_CAP
+#                                            (300 s) for the store, THEN creates
+#   the hoisted #1821 call                   runs before the import branch
+#   the inline pre-create loop               gated on graph_db_start's readiness
+# When the cap expires the loop simply stops waiting and the creates that follow
+# fail against a store that is not up yet. NOTHING then creates the collections
+# at a later point, so the install finishes with an index it promised and never
+# built, and the walk's people probes measure a store missing the collections
+# they read. That is what happened on the v1.0.78 walk.
+#
+# THIS IS THE FIRST MOMENT READINESS IS PROVEN RATHER THAN WAITED FOR. The count
+# above came back as a number, which means the store answered a credentialed GET
+# just now. So the creator is run once more here, against a store known to be up,
+# and then the membership is RE-MEASURED per name rather than trusting the
+# creator's own return value.
+#
+# NO BUDGET IS SCALED. The 300 s cap is untouched; this adds a second attempt at
+# a better moment, which is the cheaper and more honest fix than waiting longer
+# at a moment when waiting was not the problem.
+_INITIAL_HYDRATE_QDRANT_RETRIED=0
+if [[ -n "$_INITIAL_HYDRATE_QDRANT_MISSING" ]] \
+   && [[ "$_INITIAL_HYDRATE_QDRANT_MISSING" != CANNOT-RUN:* ]] \
+   && [[ "$_INITIAL_HYDRATE_COLLECTIONS_AFTER" =~ ^[0-9]+$ ]]; then
+    info "$(printf "$MSG_INFO_QDRANT_CREATING_AT_PROVEN_READY" \
+        "${_INITIAL_HYDRATE_QDRANT_MISSING}")"
+    _ostler_ensure_qdrant_collections || true
+    _INITIAL_HYDRATE_QDRANT_RETRIED=1
+    # RE-MEASURE, do not believe the creator. _ostler_ensure_qdrant_collections
+    # returns non-zero for the whole set if any one name failed, which says
+    # nothing about WHICH are present now. The per-name reader is the instrument.
+    _INITIAL_HYDRATE_QDRANT_MISSING="$(_initial_hydrate_qdrant_missing_required)"
+    gui_emit CX106_QDRANT_MISSING_AFTER_CREATE \
+        "missing=${_INITIAL_HYDRATE_QDRANT_MISSING:-none}"
+fi
+
 # SEVERITY IS DELIBERATE AND NOT UNIFORM. All three arms remain NON-FATAL --
 # the wiki, the LaunchAgents and the rest of the install genuinely do keep
 # working without a complete index, and failing the install here would be a
@@ -29528,8 +29567,22 @@ elif [[ -n "$_INITIAL_HYDRATE_QDRANT_MISSING" ]] \
     # THE v1.0.60 CASE, and the one the old cardinality test called healthy:
     # the store is up and serving collections, but not all the ones we
     # promised. Partial is a real defect, so it warns and it NAMES them.
-    warn "$(printf "$MSG_WARN_QDRANT_COLLECTIONS_MISSING" \
-        "${_INITIAL_HYDRATE_QDRANT_MISSING}")"
+    #
+    # AFTER A CREATE AGAINST A LIVE STORE, THIS IS NO LONGER A DEFERRAL. The
+    # block above proved the store answers and asked it for exactly these names.
+    # Still absent means the creates were refused, which is a failure to build
+    # what the install promised, not something first-run ingest will finish. It
+    # is counted as an error so the install cannot report clean, and it stays
+    # NON-FATAL for the reason above: the wiki, the LaunchAgents and the rest of
+    # the install do keep working, and aborting here would be a worse answer
+    # than saying so loudly.
+    if [[ "${_INITIAL_HYDRATE_QDRANT_RETRIED:-0}" -eq 1 ]]; then
+        err "$(printf "$MSG_ERR_QDRANT_COLLECTIONS_UNCREATABLE" \
+            "${_INITIAL_HYDRATE_QDRANT_MISSING}")"
+    else
+        warn "$(printf "$MSG_WARN_QDRANT_COLLECTIONS_MISSING" \
+            "${_INITIAL_HYDRATE_QDRANT_MISSING}")"
+    fi
 elif [[ -n "$_INITIAL_HYDRATE_QDRANT_MISSING" ]]; then
     # Nothing there yet. Hub readiness is deferred to first-run background
     # ingest and the Doctor surfaces the gap, so the severity stays at info

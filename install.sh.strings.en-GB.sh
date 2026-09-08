@@ -1289,6 +1289,8 @@ MSG_INITIAL_HYDRATE_QDRANT_EMPTY_DEFERRED="Search index will populate in the bac
 # completion time we can honestly quote (see background-copy-honesty.yml, where
 # an "hour" was measured wrong by two orders of magnitude); it may say work
 # CONTINUES, never when it will be DONE.
+MSG_INFO_QDRANT_CREATING_AT_PROVEN_READY="Search store is up now; creating the collections it is still missing: %s"
+MSG_ERR_QDRANT_COLLECTIONS_UNCREATABLE="Search index is incomplete: %s could not be created even though the search store is running and answering. Ostler will keep working and the Doctor shows this gap, but this part of search will stay empty until it is fixed."
 MSG_WARN_QDRANT_COLLECTIONS_MISSING="Search index is incomplete: %s could not be created. Ostler will keep working, and the Doctor shows this gap."
 MSG_WARN_QDRANT_MEMBERSHIP_UNMEASURED="Could not check which search collections exist (%s). This is not a report that they are missing."
 MSG_INITIAL_HYDRATE_QDRANT_EMPTY_DEFERRED_AWAITING="Search index will populate in the background after install completes (waiting for: %s)"
