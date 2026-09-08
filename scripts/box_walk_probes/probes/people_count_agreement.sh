@@ -302,9 +302,99 @@ adjudicate_counts() {
     printf 'AGREE oxigraph=%s doctor=%s differ by %s, within the allowance (%s)' "$a" "$b" "$diff" "$arith"
 }
 
+# ── THE CONVERGE WINDOW, AND WHY THIS PROBE MUST NOT MEASURE INSIDE IT ──────
+#
+# MEASURED 2026-09-08 on the v1.0.75 walk box, and this probe's FAIL on that
+# walk was entirely an artefact of it:
+#
+#   03:25:09Z  dedupe-converge SIGKILLed at its budget      (.killed written)
+#   03:29-03:45  post_walk_qa runs -> oxigraph=1838 doctor=1859, FAIL by 21
+#   03:49:25Z  the catch-up agent finishes                  (.done written)
+#   05:27Z     6 paired samples, 20s apart: 1882 = 1882, ZERO drift
+#
+# The 300s install budget is DELIBERATE (install.sh, OSTLER_DEDUPE_INSTALL_BUDGET_S):
+# the critical path lands the obvious merges and hands COMPLETION to the
+# ostler-dedupe-catchup LaunchAgent so the customer does not wait ~25 minutes.
+# So a box in this window is behaving exactly as designed, and the two surfaces
+# are a moving target rather than a disagreement -- hydration writes reach the
+# Doctor's counter before the RDF is committed. Both counts ROSE to a common
+# value (oxigraph +44, doctor +23); un-merged duplicates converging would have
+# made them FALL, which is how we know this is lag and not lost merges.
+#
+# A probe that reports FAIL on a correctly-behaving box is not a defect
+# detector, it is noise that trains people to ignore it. So: wait for the
+# catch-up, bounded, then measure. If the wait expires the honest verdict is
+# CANNOT-RUN -- the counts were never comparable, which is not the same as
+# their disagreeing.
+#
+# WHY BOTH MARKERS ARE READ, not just .done. Absence of .done alone cannot
+# distinguish "the catch-up is still running" from "the converge never ran at
+# all" (no identity_resolver on this box) from "it completed in-band before
+# these markers existed". Only .killed present AND .done absent is the
+# in-flight window. Every other combination measures immediately, so this
+# cannot become a blanket delay that hides a real disagreement.
+CONVERGE_WAIT_S="${OSTLER_PEOPLE_CONVERGE_WAIT_S:-1800}"
+CONVERGE_STATE_DIR="${OSTLER_PROBE_STATE_DIR:-\$HOME/.ostler/state}"
+
+# THE CLASSIFIER IS A PURE FUNCTION so the self-test can drive the REAL
+# decision instead of a fixture that just echoes the answer it wants. Takes the
+# two marker existence bits as they come off the box ("1"/"0") and echoes
+# DONE | INFLIGHT | NOMARKER. .done WINS over .killed on purpose: a box that
+# was killed and then caught up carries BOTH markers for ever, and reading
+# .killed first would make every subsequent walk on that box wait out the full
+# budget and then report CANNOT-RUN on counts that are perfectly settled.
+_converge_classify() {
+    local _done="$1" _killed="$2"
+    if [ "$_done" = "1" ]; then printf 'DONE'; return; fi
+    if [ "$_killed" = "1" ]; then printf 'INFLIGHT'; return; fi
+    printf 'NOMARKER'
+}
+
+# Sets _CONVERGE_RESULT to SETTLED | NOT_IN_WINDOW | EXPIRED <waited>.
+#
+# IT DOES NOT ECHO ITS RESULT, and that is not a style choice. probe_note writes
+# to STDOUT, so wrapping this in $( ) captured every note into the return value
+# and made the first word of the "token" the first word of a note -- the EXPIRED
+# branch then never matched and the probe measured a moving target anyway, which
+# is the very thing this function exists to prevent. Caught on the box, not in
+# review: the self-test could not see it because SELF_TEST never reaches here.
+_await_converge() {
+    _CONVERGE_RESULT=""
+    local _st _waited=0 _step=15 _bits
+    # ONE round trip reads both markers; the poll below only re-reads .done.
+    _bits="$(box_run "D=${CONVERGE_STATE_DIR}/dedupe-converge.done; K=${CONVERGE_STATE_DIR}/dedupe-converge.killed; test -e \"\$D\" && printf 1 || printf 0; test -e \"\$K\" && printf 1 || printf 0" | tr -d '\r\n ')"
+    # A round trip that answers nothing is not "no markers": say so and measure
+    # anyway, rather than inventing a settled box out of a failed read.
+    case "$_bits" in
+        [01][01]) _st="$(_converge_classify "${_bits%?}" "${_bits#?}")" ;;
+        *) probe_note "could not read the converge markers (got '${_bits}'); measuring without the settle wait"; _CONVERGE_RESULT='NOT_IN_WINDOW'; return ;;
+    esac
+    case "$_st" in
+        DONE|NOMARKER) _CONVERGE_RESULT='NOT_IN_WINDOW'; return ;;
+    esac
+    probe_note "dedupe-converge was killed at its budget and the catch-up has not finished; waiting up to ${CONVERGE_WAIT_S}s before measuring (counts inside this window are provisional by design)"
+    while [ "$_waited" -lt "$CONVERGE_WAIT_S" ]; do
+        sleep "$_step"
+        _waited=$((_waited + _step))
+        if [ "$(box_run "test -e ${CONVERGE_STATE_DIR}/dedupe-converge.done && printf 1 || printf 0" | tr -d '\r\n ')" = "1" ]; then
+            probe_note "catch-up finished after ${_waited}s of waiting; counts are now final"
+            _CONVERGE_RESULT='SETTLED'; return
+        fi
+    done
+    _CONVERGE_RESULT="EXPIRED ${_waited}"
+}
+
 run_probe() {
     if ! box_reachable; then
         probe_cannot_run "cannot reach box ${OSTLER_BOX_HOST:-(local)} over ssh; no counts read"
+    fi
+
+    # Do not adjudicate a moving target. See the block above.
+    local _cw _cw_token
+    _await_converge; _cw="$_CONVERGE_RESULT"; _cw_token="${_cw%% *}"
+    if [ "$_cw_token" = "EXPIRED" ]; then
+        probe_examined 0 "people-count surfaces"
+        probe_cannot_run "the install-time dedupe-converge was killed at its budget and its catch-up had still not written dedupe-converge.done after ${_cw#* }s of waiting. People counts inside that window are PROVISIONAL BY DESIGN -- the Doctor's counter leads the RDF commit -- so the two surfaces were never comparable. That is a probe that could not measure, NOT two surfaces that disagree, and it must not be recorded as either a pass or a defect."
     fi
 
     _OX_CODE_FILE="$(mktemp 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/pca_ox_code.$$")"
@@ -337,7 +427,7 @@ run_probe() {
 
 self_test() {
     SELF_TEST_LOCAL=1
-    probe_examined 8 "synthetic count pairs (negative control)"
+    probe_examined 12 "synthetic count pairs and converge-marker combinations (negative control)"
     local r
 
     # 1. The #273 spread: 6376 vs 6755 is ~5.6%, must exceed a 2% tolerance.
@@ -385,7 +475,25 @@ self_test() {
     case "$r" in DISAGREE*"landed in CM051 #1799"*) ;; *) probe_pass "NEGATIVE CONTROL DID NOT FIRE: 2008 vs 2018 (v1.0.74, passed under 2% alone) did not carry the cap-provenance sentence: ${r}" ;; esac
     r="$(adjudicate_counts 6376 6755 2)"
     case "$r" in *"landed in CM051 #1799"*) probe_pass "the provenance sentence appeared on a gap the old rule also failed (379 on 6755): ${r}" ;; esac
-    probe_fail "negative control behaved correctly on all 8 pairs (real spread caught, drift allowed, double-zero and single-surface both refused, the cap catches 25 orphans a percentage hides, 1 vs 0 says its allowance is 0 and why, the v1.0.74 pair carries the cap-provenance sentence, and a gap the old rule also failed does not)"
+    # THE CONVERGE CLASSIFIER, all four marker combinations, driving the real
+    # function. The one that matters is done=1 killed=1: a box that was killed
+    # and later caught up must classify DONE, or every later walk on that box
+    # waits out the whole budget and then reports CANNOT-RUN on settled counts.
+    local c
+    c="$(_converge_classify 1 1)"; [ "$c" = "DONE" ]     || probe_pass "CONVERGE CONTROL: done=1 killed=1 classified '${c}', not DONE. A caught-up box would stall every future walk."
+    c="$(_converge_classify 0 1)"; [ "$c" = "INFLIGHT" ] || probe_pass "CONVERGE CONTROL: done=0 killed=1 classified '${c}', not INFLIGHT. This is the exact v1.0.75 window and it must be waited out."
+    c="$(_converge_classify 1 0)"; [ "$c" = "DONE" ]     || probe_pass "CONVERGE CONTROL: done=1 killed=0 classified '${c}', not DONE."
+    c="$(_converge_classify 0 0)"; [ "$c" = "NOMARKER" ] || probe_pass "CONVERGE CONTROL: done=0 killed=0 classified '${c}', not NOMARKER. A box with no converge at all must measure immediately, not wait."
+    # MUST-BE-NON-ZERO CONTROL: exactly one of the four is INFLIGHT. If the
+    # classifier ever returned a constant, the four asserts above would still
+    # pass in three cases; this counts the population instead.
+    local _inflight=0
+    for pair in "1 1" "0 1" "1 0" "0 0"; do
+        [ "$(_converge_classify $pair)" = "INFLIGHT" ] && _inflight=$((_inflight + 1))
+    done
+    [ "$_inflight" -eq 1 ] || probe_pass "CONVERGE CONTROL: ${_inflight} of 4 marker combinations classified INFLIGHT, want exactly 1. A classifier that answers the same thing everywhere proves nothing."
+
+    probe_fail "negative control behaved correctly on all 8 pairs and all 4 converge-marker combinations (exactly 1 of 4 is the in-flight window) (real spread caught, drift allowed, double-zero and single-surface both refused, the cap catches 25 orphans a percentage hides, 1 vs 0 says its allowance is 0 and why, the v1.0.74 pair carries the cap-provenance sentence, and a gap the old rule also failed does not)"
 }
 
 probe_main "$@"
