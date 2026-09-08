@@ -802,6 +802,28 @@ if [[ "$DO_RESET" -eq 1 ]]; then
             echo "  wiki are CARRIED OVER from the previous install. Any probe reading them is"
             echo "  measuring history, not this artefact."
         fi
+        # #1828 config-only teardown. With no shipped uninstaller present the box
+        # keeps its previous ~/.ostler config, so the next install skips its
+        # interactive setup (the reuse gate at install.sh:5214 keys on
+        # ~/.ostler/config/.env holding USER_ID) and every probe measures
+        # carried-over state. Remove ONLY the host config that gates setup:
+        # config (the previous-answers .env), security (the keychain.json FILE,
+        # not the macOS Keychain), assistant-config (memory/brain.db, the poisoned
+        # count rows that made grounded measure history), and imports
+        # (icloud-contacts.vcf, the prior-export marker read below the reuse gate).
+        # Leave the container store
+        # volumes untouched -- whether to wipe those stays the operators
+        # --wipe-stores decision, exactly as the announcement above preserves.
+        if [[ -z "$_ran_uninstaller" ]]; then
+            echo "config-only teardown (#1828): clearing host config so the next install is a fresh setup"
+            for _cfg in ~/.ostler/config ~/.ostler/security ~/.ostler/assistant-config ~/.ostler/imports ~/.ostler/active_workspace.toml; do
+                if [[ -e "$_cfg" ]]; then
+                    echo "  removing $_cfg"
+                    rm -rf "$_cfg"
+                fi
+            done
+            echo "  store volumes (qdrant/oxigraph/redis/wiki/vane) LEFT INTACT: use --wipe-stores to remove them"
+        fi
         # RECORDED BELOW THE ANNOUNCEMENT, NOT ABOVE IT. The honesty gate for
         # this block extracts it with an awk RANGE that ends at the first
         # "        fi", so an `if` placed earlier truncates the extraction and
