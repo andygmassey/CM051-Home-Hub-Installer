@@ -36,9 +36,16 @@ BLOCK="$(awk '
     on { print }
     on && /_cx123_nounset_was_on:-0.* && set -u/ { exit }
 ' "$INSTALL_SH")"
-printf '%s\n' "$BLOCK" | grep -q 'set +u' \
+# NOT `| grep -q`. Under `set -o pipefail` grep -q exits on its FIRST match,
+# and `set +u` is line 3 of ~395, so printf still has ~17KB of a 21KB block to
+# write into a pipe nobody is reading: SIGPIPE, rc 141, and the pipeline
+# reports FAILURE for a match it actually FOUND. That is scheduling-dependent,
+# which is why it passed at 837c933b and failed at 78c22a78 on the same
+# install.sh, same runner, five minutes apart. grep -c reads to EOF, so there
+# is no early close and no race. House form: count, then compare.
+[ "$(printf '%s\n' "$BLOCK" | grep -c 'set +u')" -gt 0 ] \
     || { echo "FAIL: could not extract the set +u wrapped final-summary block" >&2; exit 1; }
-printf '%s\n' "$BLOCK" | grep -q '^gui_done ok' \
+[ "$(printf '%s\n' "$BLOCK" | grep -c '^gui_done ok')" -gt 0 ] \
     || { echo "FAIL: extracted block does not contain gui_done ok" >&2; exit 1; }
 echo "PASS: extracted the real wrapped final-summary block"
 
