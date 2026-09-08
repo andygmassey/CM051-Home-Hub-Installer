@@ -228,7 +228,7 @@ test_fda_rerun_agent_loads_after_its_binary.sh	WIRED	.github/workflows/cold-box-
 test_fda_rerun_ingests.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_fda_rerun_recurs.sh	WIRED	.github/workflows/fda-rerun-recurs.yml
 test_final_summary_nounset_safe.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
-test_first_install_can_claim_its_own_colima_port.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_store_port_first_install_stale_store.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_frontpage_tick_emits_interest_profile.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_gdpr_export_detect.sh	WIRED	.github/workflows/gdpr-export-detect.yml
 test_gdpr_folder_access_denied.sh	WIRED	.github/workflows/consent-data-handling.yml

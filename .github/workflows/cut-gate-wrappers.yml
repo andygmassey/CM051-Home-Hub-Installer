@@ -35,7 +35,7 @@ on:
       - 'scripts/new_cut.sh'
       - 'tests/test_new_cut_guard_scoped_is_not_started.sh'
       - 'tests/test_new_cut_checks_what_preflight_checks.sh'
-      - 'tests/test_first_install_can_claim_its_own_colima_port.sh'
+      - 'tests/test_store_port_first_install_stale_store.sh'
       - 'install.sh'
       - '.github/workflows/cut.yml'
       - 'scripts/verify_cut_provenance.sh'
@@ -575,7 +575,7 @@ jobs:
       # pre-fix install.sh from origin/main, on which this fails 2 of 5.
       - name: a first install can claim its own colima port (#567 signal 2)
         if: always()
-        run: bash tests/test_first_install_can_claim_its_own_colima_port.sh
+        run: bash tests/test_store_port_first_install_stale_store.sh
 
       # THE VENDORED ROLLFORWARD GATE MATCHES ITS OS003 PIN -- ON THE PR.
       #
