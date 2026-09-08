@@ -16641,6 +16641,44 @@ _port_is_our_own_forward() {
     # request, so signal 2 is vacuous under OSTLER_STORE_AUTH_ENFORCE=0 and the
     # store is HELD rather than claimed (kept from #1253's §2, unchanged).
     [ "${OSTLER_STORE_AUTH_ENFORCE:-1}" = "1" ] || return 1
+
+    # SIGNAL 2 IS UNSATISFIABLE DURING THE INSTALL THAT WRITES THE CREDENTIAL,
+    # and that made a FIRST install impossible on a genuinely cold box.
+    #
+    # MEASURED 2026-09-08 on the first honestly-cold walk of v1.0.76. The
+    # installer starts colima at docker_install; colima publishes 6333 and 7878
+    # through its own ssh multiplexer; graph_db_start then preflights those
+    # ports, signal 1 PASSES (the holder argv names ${HOME}/.colima/), and
+    # signal 2 fails only because ${OSTLER_DIR}/secrets/store-curl.conf HAS NOT
+    # BEEN WRITTEN YET -- this install is the thing that writes it. Result:
+    #
+    #   Port 6333 is already in use by ssh: ~/.colima/_lima/colima/ssh.sock [mux]
+    #   [ERR-06-PORTS-HELD] ... STEP_END id=graph_db_start status=error rc=1
+    #   DONE status=fail failed_steps=1 errors=4
+    #
+    # So the check refused the installer's OWN just-started runtime. Only 6333
+    # and 7878 tripped, because the other four return 0 on signal 1 plus the
+    # single-machine invariant above and never reach here.
+    #
+    # WHY NO WALK CAUGHT IT UNTIL NOW: no walk had ever been genuinely cold.
+    # ttywalk's --reset searched three paths for an uninstaller that install.sh
+    # writes to a fourth, so colima was always ALREADY running with the stores
+    # up and the credential already on disk from a previous install -- signal 2
+    # passed, and the first-install path was never exercised. Fixed in #1829;
+    # the very next walk found this in ninety seconds.
+    #
+    # ABSENT IS NOT UNREADABLE, and the difference is the whole safety of this.
+    #   ABSENT     no credential has been written, so no store of OURS can be
+    #              behind that forward to answer. Signal 1 has already proved
+    #              the forward belongs to THIS user's colima. Refusing here
+    #              refuses a first install, permanently.
+    #   UNREADABLE the file EXISTS and this reader cannot open it -- 0600 owned
+    #              by someone else is exactly the cross-account case #549 keeps
+    #              open. That stays HELD.
+    if [ ! -e "${_conf}" ]; then
+        info "port ${_p}: held by this user's own colima forward, and no store credential exists yet (${_conf} absent), so this is a FIRST install claiming its own port -- signal 2 cannot be satisfied by the run that writes the credential"
+        return 0
+    fi
     [ -r "${_conf}" ] || return 1
     curl -K "${_conf}" -sf -m 5 -o /dev/null "${_url}" 2>/dev/null || return 1
 

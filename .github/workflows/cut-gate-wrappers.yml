@@ -35,6 +35,8 @@ on:
       - 'scripts/new_cut.sh'
       - 'tests/test_new_cut_guard_scoped_is_not_started.sh'
       - 'tests/test_new_cut_checks_what_preflight_checks.sh'
+      - 'tests/test_first_install_can_claim_its_own_colima_port.sh'
+      - 'install.sh'
       - '.github/workflows/cut.yml'
       - 'scripts/verify_cut_provenance.sh'
       - 'scripts/verify_no_orphaned_fixes.sh'
@@ -564,6 +566,16 @@ jobs:
       - name: new_cut.sh gates on everything the cut preflight gates on
         if: always()
         run: bash tests/test_new_cut_checks_what_preflight_checks.sh
+
+      # A FIRST INSTALL MUST BE ABLE TO CLAIM ITS OWN COLIMA PORT.
+      # Wired 2026-09-08 after the first honestly-cold walk aborted on it:
+      # signal 2 of the #567 port exemption cannot be satisfied by the install
+      # that writes the credential it checks for, so ERR-06-PORTS-HELD refused
+      # the installer's own just-started runtime. Mutation control is the REAL
+      # pre-fix install.sh from origin/main, on which this fails 2 of 5.
+      - name: a first install can claim its own colima port (#567 signal 2)
+        if: always()
+        run: bash tests/test_first_install_can_claim_its_own_colima_port.sh
 
       # THE VENDORED ROLLFORWARD GATE MATCHES ITS OS003 PIN -- ON THE PR.
       #
