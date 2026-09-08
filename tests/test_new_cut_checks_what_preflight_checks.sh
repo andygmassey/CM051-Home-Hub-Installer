@@ -40,9 +40,9 @@ ok "denominator: ${gates} run_gate line(s) parsed from new_cut.sh"
 
 # 1. THE CUT RECORD. cut.yml refuses with "A tag without a manifest is a cut
 #    nobody wrote down"; new_cut.sh must test the same path.
-if grep -q 'A tag without a manifest' "$CY"; then
+if [ "$(grep -c 'A tag without a manifest' "$CY")" -gt 0 ]; then
     ok "cut.yml still enforces the cut record (the condition is real)"
-    if grep -qE 'run_gate .*cut-manifests/\$\{VERSION\}\.yaml' "$NC"; then
+    if [ "$(grep -cE 'run_gate .*cut-manifests/\$\{VERSION\}\.yaml' "$NC")" -gt 0 ]; then
         ok "new_cut.sh gates on cut-manifests/\${VERSION}.yaml"
     else
         bad "new_cut.sh does NOT gate on cut-manifests/\${VERSION}.yaml, so it can say ALL GREEN while the cut record is missing -- the v1.0.76 failure"
@@ -53,10 +53,12 @@ fi
 
 # 2. THE INSTALLER'S OWN VERSION. The v1.0.39 defect: a DMG that cannot say
 #    which installer it is.
-if grep -q 'test_installer_version_matches_the_cut.sh' "$CY"; then
+if [ "$(grep -c 'test_installer_version_matches_the_cut.sh' "$CY")" -gt 0 ]; then
     ok "cut.yml still runs the installer-version test (the condition is real)"
-    if grep -qE 'run_gate .*\n?.*test_installer_version_matches_the_cut\.sh' "$NC" \
-       || grep -q 'test_installer_version_matches_the_cut.sh' "$NC"; then
+    # ONE check, not two. The first arm here used \n? in an ERE, which grep
+    # cannot match because grep is line-based -- so that arm could never fire
+    # and the || made it look like belt and braces when it was one belt.
+    if [ "$(grep -c 'test_installer_version_matches_the_cut.sh' "$NC")" -gt 0 ]; then
         ok "new_cut.sh invokes test_installer_version_matches_the_cut.sh"
     else
         bad "new_cut.sh does NOT invoke test_installer_version_matches_the_cut.sh, so a stale plist reaches the tag -- the second half of the v1.0.76 failure"
@@ -68,7 +70,7 @@ fi
 # 3. THE PROVENANCE FLAG. Without CUT_VERSION_SOURCE the version test REFUSES
 #    rather than running (#171), so invoking it unset would add a gate that
 #    reports CANNOT-RUN for ever and reads, in a green list, as fine.
-if grep -q 'CUT_VERSION_SOURCE' "$NC"; then
+if [ "$(grep -c 'CUT_VERSION_SOURCE' "$NC")" -gt 0 ]; then
     ok "new_cut.sh sets CUT_VERSION_SOURCE, so the version test can actually run"
 else
     bad "new_cut.sh invokes the version test without CUT_VERSION_SOURCE; it would refuse rather than measure"
