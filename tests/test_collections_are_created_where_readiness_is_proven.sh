@@ -26,6 +26,13 @@
 # from that same region and require the test to stop passing, because a region
 # that would pass without doing the work is not evidence that the work happens.
 # ============================================================================
+# NO PIPE INTO grep -q ANYWHERE IN THIS FILE, and the counted form below is why.
+# grep -q exits at its FIRST match, which SIGPIPEs the producer, and under
+# `set -o pipefail` the pipeline then reports FAILURE for a pattern it actually
+# FOUND. It is scheduling dependent, so it passes locally and reds in CI, or
+# passes in CI and reds on the next run. `grep -c` reads to EOF, so the writer
+# is never orphaned. Not the `<<<` herestring either: that is a bashism and this
+# file must survive being run under sh -c or remotely.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -63,7 +70,7 @@ if [ "$n_lines" -lt 8 ] || [ "$n_lines" -gt 60 ]; then
 fi
 ok "extracted the create-at-proven-ready region from the shipped install.sh (${n_lines} lines)"
 
-printf '%s\n' "$region" | grep -q '_ostler_ensure_qdrant_collections' \
+[ "$(printf '%s\n' "$region" | grep -c '_ostler_ensure_qdrant_collections')" -gt 0 ] \
     && ok "the region calls the collection creator" \
     || bad "the region does not call the creator at all"
 
@@ -95,10 +102,10 @@ drive() { # $1 = region to run, $2 = marker file
 }
 
 out="$(drive "$region" "$WORK/called")"
-printf '%s\n' "$out" | grep -q 'MISSING=\[\]' \
+[ "$(printf '%s\n' "$out" | grep -c 'MISSING=\[\]')" -gt 0 ] \
     && ok "a store that answers LATE ends with every required collection present" \
     || bad "the collection was still missing after the region ran" "$out"
-printf '%s\n' "$out" | grep -q 'RETRIED=1' \
+[ "$(printf '%s\n' "$out" | grep -c 'RETRIED=1')" -gt 0 ] \
     && ok "the region records that it retried, so the severity block can escalate" \
     || bad "the retried flag was not set" "$out"
 [ -s "$WORK/called" ] \
@@ -110,13 +117,21 @@ printf '%s\n' "$out" | grep -q 'RETRIED=1' \
 # never clears, so the collection stays missing. If this still passed, the arm
 # above would be proving nothing about the creation.
 # ---------------------------------------------------------------------------
+# ASSERT THE TARGET IS THERE BEFORE MUTATING IT. BSD sed has no \s, so a
+# pattern that silently matches nothing yields a "mutant" identical to the
+# original, and the must-fail arm would then be running the UNMUTATED region
+# and passing for the wrong reason. A mutation that did not apply and one that
+# was not caught are indistinguishable from the verdict alone.
+if [ "$(printf '%s\n' "$region" | grep -c '_ostler_ensure_qdrant_collections || true')" -eq 0 ]; then
+    bad "the line the mutation targets is not in the region; the must-fail arm cannot mean anything"
+fi
 mutant="$(printf '%s\n' "$region" | sed 's/^\([[:space:]]*\)_ostler_ensure_qdrant_collections || true$/\1: ;/')"
-if printf '%s\n' "$mutant" | grep -q '_ostler_ensure_qdrant_collections || true'; then
+if [ "$(printf '%s\n' "$mutant" | grep -c '_ostler_ensure_qdrant_collections || true')" -gt 0 ]; then
     bad "the mutation did not land; the must-fail arm below would prove nothing"
 else
     ok "the mutation landed (creator call removed from the region)"
     out_m="$(drive "$mutant" "$WORK/called_m")"
-    if printf '%s\n' "$out_m" | grep -q 'MISSING=\[\]'; then
+    if [ "$(printf '%s\n' "$out_m" | grep -c 'MISSING=\[\]')" -gt 0 ]; then
         bad "MUST-FAIL: without the creator the collection still came back present" "$out_m"
     else
         ok "MUST-FAIL: without the creator the collection stays missing, so the arm is real"
@@ -131,12 +146,12 @@ sev="$(awk '
     f { print }
     f && /^fi$/ { n += 1; if (n == 2) exit }
 ' "$SRC")"
-if printf '%s\n' "$sev" | grep -q 'MSG_ERR_QDRANT_COLLECTIONS_UNCREATABLE'; then
+if [ "$(printf '%s\n' "$sev" | grep -c 'MSG_ERR_QDRANT_COLLECTIONS_UNCREATABLE')" -gt 0 ]; then
     ok "the severity block errs, not warns, once a live store has refused the creates"
 else
     bad "no escalation after a retry: a store that answered and refused still only warns"
 fi
-printf '%s\n' "$sev" | grep -q 'MSG_WARN_QDRANT_COLLECTIONS_MISSING' \
+[ "$(printf '%s\n' "$sev" | grep -c 'MSG_WARN_QDRANT_COLLECTIONS_MISSING')" -gt 0 ] \
     && ok "and the pre-retry warning is still there for the case that never retried" \
     || bad "the original warning arm was removed"
 
