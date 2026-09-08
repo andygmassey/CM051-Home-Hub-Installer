@@ -1,6 +1,6 @@
 // UninstallerCoordinator.swift
 //
-// The coordinator behind Uninstaller.app: a three-screen flow (confirm -> running ->
+// The coordinator behind Ostler Uninstaller.app: a three-screen flow (confirm -> running ->
 // done) that runs the installed ~/.ostler/bin/ostler-uninstall with the chosen
 // flags and OSTLER_GUI=1, and renders its #OSTLER phase markers.
 //

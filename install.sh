@@ -21068,7 +21068,7 @@ echo "      kept so a reinstall reuses your existing policy"
 echo "    - /Applications/OstlerInstaller.app"
 echo "      the installer itself, which is very likely the app running"
 echo "      this uninstall right now. Drag it to the Bin when you are done."
-echo "    - /Applications/Uninstaller.app"
+echo "    - /Applications/Ostler Uninstaller.app"
 echo "      this uninstaller app, if you launched the uninstall from it."
 echo "      Drag it to the Bin when you are done."
 echo "    - /usr/local/bin/gws (the official Google Workspace CLI)"
@@ -25367,12 +25367,12 @@ else
     info "$MSG_INFO_HUB_APP_DRAG_HINT"
 fi
 
-# ── 3.14a Uninstaller.app (GAP3) ────────────────────────────────
+# ── 3.14a Ostler Uninstaller.app (GAP3) ────────────────────────────────
 #
-# Place the standalone Uninstaller.app in /Applications at install time so it
+# Place the standalone Ostler Uninstaller.app in /Applications at install time so it
 # survives the customer deleting the DMG. It is Developer-ID-signed, notarised
 # and stapled INSIDE the installer (nested at
-# OstlerInstaller.app/Contents/Resources/Uninstaller.app by gui/project.yml's
+# OstlerInstaller.app/Contents/Resources/Ostler Uninstaller.app by gui/project.yml's
 # bundle phase and carried through the cut's sign/notarise/staple), so the copy
 # below preserves a fully signed bundle. Same SCRIPT_DIR source pattern as the
 # Hub app above; SCRIPT_DIR is Contents/Resources when install.sh runs from the
@@ -25382,12 +25382,12 @@ fi
 # the app) is a silent no-op rather than a false warning. The generated
 # ~/.ostler/bin/ostler-uninstall shell script is written regardless, so a box
 # without the .app is still fully uninstallable from the command line.
-UNINSTALLER_APP_DEST="/Applications/Uninstaller.app"
+UNINSTALLER_APP_DEST="/Applications/Ostler Uninstaller.app"
 UNINSTALLER_APP_SOURCE=""
-if [[ -d "${SCRIPT_DIR}/Uninstaller.app" ]]; then
-    UNINSTALLER_APP_SOURCE="${SCRIPT_DIR}/Uninstaller.app"
-elif [[ -d "${SCRIPT_DIR}/../Uninstaller.app" ]]; then
-    UNINSTALLER_APP_SOURCE="${SCRIPT_DIR}/../Uninstaller.app"
+if [[ -d "${SCRIPT_DIR}/Ostler Uninstaller.app" ]]; then
+    UNINSTALLER_APP_SOURCE="${SCRIPT_DIR}/Ostler Uninstaller.app"
+elif [[ -d "${SCRIPT_DIR}/../Ostler Uninstaller.app" ]]; then
+    UNINSTALLER_APP_SOURCE="${SCRIPT_DIR}/../Ostler Uninstaller.app"
 fi
 if [[ -n "$UNINSTALLER_APP_SOURCE" ]]; then
     # Quit a running copy before overwriting, then remove + copy, with a sudo

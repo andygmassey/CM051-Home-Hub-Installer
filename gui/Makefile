@@ -132,16 +132,16 @@ DMG_PATH      := $(DIST_DIR)/$(DMG_NAME)
 APP_PATH      := $(DIST_DIR)/$(APP_NAME).app
 DEBUG_APP     := $(DERIVED_DATA)/Build/Products/Debug/$(APP_NAME).app
 
-# GAP3: the standalone Uninstaller.app. Built by `build-uninstaller` and nested
+# GAP3: the standalone Ostler Uninstaller.app. Built by `build-uninstaller` and nested
 # into OstlerInstaller.app/Contents/Resources by the installer's bundle phase
 # (gui/project.yml), which reads UNINSTALLER_APP_PATH as a build setting exactly
 # as it reads OSTLER_APP_PATH. It then rides the existing sign / notarise-app /
 # staple-apps chain -- no separate notarise step. Exported as a build setting on
 # the release archive below and exported here so a plain `make build-uninstaller`
 # also resolves it.
-UNINSTALLER_SCHEME   := Uninstaller
-UNINSTALLER_APP_PATH ?= $(DIST_DIR)/Uninstaller.app
-UNINSTALLER_ARCHIVE  := $(BUILD_DIR)/Uninstaller.xcarchive
+UNINSTALLER_SCHEME   := Ostler Uninstaller
+UNINSTALLER_APP_PATH ?= $(DIST_DIR)/Ostler Uninstaller.app
+UNINSTALLER_ARCHIVE  := $(BUILD_DIR)/Ostler Uninstaller.xcarchive
 export UNINSTALLER_APP_PATH
 
 # ---------------------------------------------------------------------------
@@ -1345,7 +1345,7 @@ release: guard-local-cut check-tools check-identity check-version check-pbxproj-
 	@echo "Version:      $(VERSION)"
 
 # ---------------------------------------------------------------------------
-# GAP3: build the standalone Uninstaller.app (Developer ID signed)
+# GAP3: build the standalone Ostler Uninstaller.app (Developer ID signed)
 #
 # Mirrors `release` but for the Uninstaller scheme. Runs BEFORE `release` in
 # the ship chain so UNINSTALLER_APP_PATH exists when the installer's bundle
@@ -1365,7 +1365,7 @@ build-uninstaller: guard-local-cut check-tools check-identity check-pbxproj-sync
 	/usr/bin/xattr -cr "Uninstaller" "OstlerInstaller.xcodeproj" || true
 	xcodebuild \
 	    -project $(PROJECT) \
-	    -scheme $(UNINSTALLER_SCHEME) \
+	    -scheme "$(UNINSTALLER_SCHEME)" \
 	    -configuration Release \
 	    -archivePath "$(UNINSTALLER_ARCHIVE)" \
 	    -derivedDataPath $(DERIVED_DATA) \
@@ -1379,9 +1379,9 @@ build-uninstaller: guard-local-cut check-tools check-identity check-pbxproj-sync
 	    -archivePath "$(UNINSTALLER_ARCHIVE)" \
 	    -exportPath "$(DIST_DIR)" \
 	    -exportOptionsPlist "$(EXPORT_OPTS)"
-	$(STEP) "Stripping xattrs from exported Uninstaller.app (post-export hygiene)"
+	$(STEP) "Stripping xattrs from exported Ostler Uninstaller.app (post-export hygiene)"
 	/usr/bin/xattr -cr "$(UNINSTALLER_APP_PATH)" || true
-	$(STEP) "Verifying the Uninstaller.app signature"
+	$(STEP) "Verifying the Ostler Uninstaller.app signature"
 	codesign --verify --deep --strict --verbose=2 "$(UNINSTALLER_APP_PATH)"
 	@echo ""
 	@echo "Uninstaller .app: $(UNINSTALLER_APP_PATH)"

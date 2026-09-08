@@ -199,13 +199,13 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "THIRD_PARTY_NOTICES.md": ["vendor/THIRD_PARTY_NOTICES.md"],
     "LICENSES": ["vendor/LICENSES"],
     "Ostler.app": ["OSTLER_APP_PATH"],
-    # GAP3: the standalone Uninstaller.app is nested into Resources by the
+    # GAP3: the standalone Ostler Uninstaller.app is nested into Resources by the
     # "Bundle install.sh + ..." postBuildScript, gated on UNINSTALLER_APP_PATH
     # (built by gui/Makefile's build-uninstaller). The needle asserts that
     # bundling reference so removing the project.yml cp line goes RED. The
-    # ${SCRIPT_DIR}/../Uninstaller.app dev fallback is covered by the ".."
+    # ${SCRIPT_DIR}/../Ostler Uninstaller.app dev fallback is covered by the ".."
     # exception above, exactly as ../Ostler.app is.
-    "Uninstaller.app": ["UNINSTALLER_APP_PATH"],
+    "Ostler Uninstaller.app": ["UNINSTALLER_APP_PATH"],
     # W8 / F6: the Safari extension is now staged by the "Bundle Safari
     # extension into Resources" postBuildScript (and by release.sh for the
     # tarball path). Enforce the postBuildScript's presence so a future

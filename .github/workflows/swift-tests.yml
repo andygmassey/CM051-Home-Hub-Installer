@@ -65,7 +65,7 @@ on:
       # next PR that happened to touch gui/, as somebody else's red.
       - 'install.sh.strings.*.sh'
       - 'scripts/verify_swift_tests_ran.sh'
-      # GAP3: the standalone Uninstaller.app logic test (swiftc-compiled).
+      # GAP3: the standalone Ostler Uninstaller.app logic test (swiftc-compiled).
       - 'tests/test_uninstaller_app_decoder_and_flags.sh'
       - '.github/workflows/swift-tests.yml'
   push:
@@ -83,7 +83,7 @@ on:
       # next PR that happened to touch gui/, as somebody else's red.
       - 'install.sh.strings.*.sh'
       - 'scripts/verify_swift_tests_ran.sh'
-      # GAP3: the standalone Uninstaller.app logic test (swiftc-compiled).
+      # GAP3: the standalone Ostler Uninstaller.app logic test (swiftc-compiled).
       - 'tests/test_uninstaller_app_decoder_and_flags.sh'
       - '.github/workflows/swift-tests.yml'
   schedule:
@@ -196,7 +196,7 @@ jobs:
       - name: Generate the project from project.yml
         run: cd gui && xcodegen generate
 
-      # GAP3: the standalone Uninstaller.app must compile. It has no
+      # GAP3: the standalone Ostler Uninstaller.app must compile. It has no
       # postBuildScripts and bundles nothing, so this build needs neither the
       # Safari extension nor python -- it just proves the app target and its
       # shared decoder link. CODE_SIGNING_ALLOWED=NO: this is a compile check,
@@ -207,7 +207,7 @@ jobs:
           cd gui
           xcodebuild build \
             -project OstlerInstaller.xcodeproj \
-            -scheme Uninstaller \
+            -scheme "Ostler Uninstaller" \
             -configuration Debug \
             -destination 'platform=macOS' \
             -derivedDataPath "$RUNNER_TEMP/dd-uninstaller" \
