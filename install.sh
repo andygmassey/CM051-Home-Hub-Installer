@@ -16612,7 +16612,7 @@ _port_is_our_own_forward() {
             # preflight gates -- is the one that recreates the store WITH that
             # credential. So the check refused the install because the store held
             # the wrong key, and blocked the only step that rewrites it. On a
-            # single-Ostler Mac our own colima forward on this port IS our store,
+            # single-Ostler-stack Mac our own colima forward on this port IS our store,
             # stale or fresh; signal 1 plus the same single-machine invariant
             # used for the four ports below is sufficient. Structural
             # alternative -- run the preflight before colima -- filed post-launch.
