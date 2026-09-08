@@ -364,7 +364,13 @@ CONVERGE_STATE_DIR="${OSTLER_PROBE_STATE_DIR:-\$HOME/.ostler/state}"
 # rather than documenting it.
 _converge_classify() {
     local _done="$1" _killed="$2"
-    case "$_done$_killed" in *[!0-9]*) printf 'NOMARKER'; return ;; esac
+    # "COULD NOT LOOK" IS NOT "NOTHING THERE". An unreadable mtime pair used to
+    # classify NOMARKER, which measures immediately -- so a box that happened to
+    # be mid-catch-up at that instant would be sampled as a moving target on the
+    # strength of a failed read. Absent markers are 0 0, which IS numeric and
+    # still classifies NOMARKER; only a malformed read reaches UNREADABLE.
+    # (Aesop, on review of the mtime version.)
+    case "$_done$_killed" in ''|*[!0-9]*) printf 'UNREADABLE'; return ;; esac
     # No .done at all: in flight if a kill is recorded, otherwise no converge here.
     if [ "$_done" -eq 0 ]; then
         [ "$_killed" -gt 0 ] && printf 'INFLIGHT' || printf 'NOMARKER'
@@ -398,10 +404,10 @@ _await_converge() {
     # anyway, rather than inventing a settled box out of a failed read.
     set -- $_bits
     if [ "$#" -ne 2 ]; then
-        probe_note "could not read the converge marker mtimes (got '${_bits}'); measuring without the settle wait"
-        _CONVERGE_RESULT='NOT_IN_WINDOW'; return
+        _CONVERGE_RESULT="UNREADABLE ${_bits:-<empty>}"; return
     fi
     _st="$(_converge_classify "$1" "$2")"
+    if [ "$_st" = "UNREADABLE" ]; then _CONVERGE_RESULT="UNREADABLE $1 $2"; return; fi
     case "$_st" in
         DONE|NOMARKER) _CONVERGE_RESULT='NOT_IN_WINDOW'; return ;;
     esac
@@ -427,6 +433,10 @@ run_probe() {
     # Do not adjudicate a moving target. See the block above.
     local _cw _cw_token
     _await_converge; _cw="$_CONVERGE_RESULT"; _cw_token="${_cw%% *}"
+    if [ "$_cw_token" = "UNREADABLE" ]; then
+        probe_examined 0 "people-count surfaces"
+        probe_cannot_run "could not read the dedupe-converge marker mtimes on the box (got '${_cw#* }'), so this run cannot tell a settled graph from one still being merged by the catch-up. Counts inside that window are provisional by design, and a failed look is not evidence there is nothing to wait for."
+    fi
     if [ "$_cw_token" = "EXPIRED" ]; then
         probe_examined 0 "people-count surfaces"
         probe_cannot_run "the install-time dedupe-converge was killed at its budget and its catch-up had still not written dedupe-converge.done after ${_cw#* }s of waiting. People counts inside that window are PROVISIONAL BY DESIGN -- the Doctor's counter leads the RDF commit -- so the two surfaces were never comparable. That is a probe that could not measure, NOT two surfaces that disagree, and it must not be recorded as either a pass or a defect."
@@ -462,7 +472,7 @@ run_probe() {
 
 self_test() {
     SELF_TEST_LOCAL=1
-    probe_examined 15 "synthetic count pairs and converge-marker mtime combinations (negative control)"
+    probe_examined 18 "synthetic count pairs and converge-marker mtime combinations (negative control)"
     local r
 
     # 1. The #273 spread: 6376 vs 6755 is ~5.6%, must exceed a 2% tolerance.
@@ -527,17 +537,22 @@ self_test() {
     # A same-second catch-up must settle, not stall.
     c="$(_converge_classify 100 100)"; [ "$c" = "DONE" ]     || probe_pass "CONVERGE CONTROL: equal mtimes classified '${c}', not DONE. A fast box would be made to wait out the whole budget."
     # A read that came back as junk must not be dressed up as an answer.
-    c="$(_converge_classify x y)";     [ "$c" = "NOMARKER" ] || probe_pass "CONVERGE CONTROL: a non-numeric mtime pair classified '${c}', not NOMARKER."
+    c="$(_converge_classify x y)";     [ "$c" = "UNREADABLE" ] || probe_pass "CONVERGE CONTROL: a non-numeric mtime pair classified '${c}', not UNREADABLE. A failed look would be measuring as though nothing needed waiting for."
+    c="$(_converge_classify '' '')";   [ "$c" = "UNREADABLE" ] || probe_pass "CONVERGE CONTROL: an empty mtime pair classified '${c}', not UNREADABLE."
+    # AND THE DISCRIMINATOR: absent markers really are 0 0, which must stay
+    # NOMARKER. If UNREADABLE swallowed that too, every box without a converge
+    # would refuse instead of measuring.
+    c="$(_converge_classify 0 0)";     [ "$c" = "NOMARKER" ]   || probe_pass "CONVERGE CONTROL: absent markers (0 0) classified '${c}', not NOMARKER. UNREADABLE must not swallow the legitimate no-converge box."
     # MUST-BE-NON-ZERO CONTROL: exactly two of the seven are INFLIGHT. If the
     # classifier ever returned a constant, most asserts above would still pass;
     # this counts the population instead.
     local _inflight=0
-    for pair in "200 100" "0 100" "200 0" "0 0" "100 200" "100 100" "x y"; do
+    for pair in "200 100" "0 100" "200 0" "0 0" "100 200" "100 100" "x y" "z z"; do
         [ "$(_converge_classify $pair)" = "INFLIGHT" ] && _inflight=$((_inflight + 1))
     done
-    [ "$_inflight" -eq 2 ] || probe_pass "CONVERGE CONTROL: ${_inflight} of 7 mtime combinations classified INFLIGHT, want exactly 2. A classifier that answers the same thing everywhere proves nothing."
+    [ "$_inflight" -eq 2 ] || probe_pass "CONVERGE CONTROL: ${_inflight} of 8 mtime combinations classified INFLIGHT, want exactly 2. A classifier that answers the same thing everywhere proves nothing."
 
-    probe_fail "negative control behaved correctly on all 8 pairs and all 7 converge-marker mtime combinations (exactly 2 of 7 are the in-flight window, including a STALE .done that an existence test cannot see) (real spread caught, drift allowed, double-zero and single-surface both refused, the cap catches 25 orphans a percentage hides, 1 vs 0 says its allowance is 0 and why, the v1.0.74 pair carries the cap-provenance sentence, and a gap the old rule also failed does not)"
+    probe_fail "negative control behaved correctly on all 8 pairs and all 8 converge-marker mtime combinations (exactly 2 of 8 are the in-flight window, including a STALE .done that an existence test cannot see) (real spread caught, drift allowed, double-zero and single-surface both refused, the cap catches 25 orphans a percentage hides, 1 vs 0 says its allowance is 0 and why, the v1.0.74 pair carries the cap-provenance sentence, and a gap the old rule also failed does not)"
 }
 
 probe_main "$@"
