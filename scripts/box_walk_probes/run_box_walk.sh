@@ -206,6 +206,20 @@ fi
 . "$HERE/lib/grounding_seed.sh"
 grounding_seed_apply || true
 
+# ── AND WAIT FOR THE GRAPH TO SETTLE, for the two probes that read counts ──
+#
+# The install-time converge is SIGKILLed at a flat budget and the catch-up agent
+# does not tick for ten minutes, then runs for twenty to forty more. The v1.0.78
+# walk measured inside that window: contacts read 1629 during the walk and 1920
+# an hour later, on the same box, untouched. people_count_agreement and
+# people_stores_reconcile were not wrong about what they saw; they were asked
+# too early, and a disagreement measured mid-convergence is not a store defect.
+#
+# Sourced at the point of use for the same reason as the seed above: four
+# sibling tests and workflows cite this file by line number.
+. "$HERE/lib/converge_wait.sh"
+converge_wait || true
+
 # -------------------------------------------------------------------------
 # PHASE 2 -- the real measurements.
 # -------------------------------------------------------------------------
@@ -252,6 +266,19 @@ for p in $PROBES; do
             continue
             ;;
     esac
+
+    # A COUNT READ MID-CONVERGENCE IS NOT A STORE DEFECT. If the graph never
+    # settled, the two probes that read counts cannot measure the thing they
+    # exist to measure, so they are CANNOT-RUN with the cause named: never
+    # FAIL, never PASS. This is a coverage statement, and it is counted in the
+    # same four numbers as every other CANNOT-RUN rather than hidden.
+    if converge_gates_probe "$b" && [ "$CONVERGE_STATE" != "done" ]; then
+        printf '\n[%s]\n' "$b"
+        printf '  VERDICT: CANNOT-RUN -- %s\n' "$CONVERGE_DETAIL" | sed 's/^/  /'
+        CANNOT=$((CANNOT + 1)); CANNOT_LIST="$CANNOT_LIST $b"
+        printf '%s\t%s\n' "$b" "$CONVERGE_DETAIL" >> "$CANNOT_REASONS"
+        continue
+    fi
 
     printf '\n[%s]\n' "$b"
     out="$(bash "$p" 2>&1)"

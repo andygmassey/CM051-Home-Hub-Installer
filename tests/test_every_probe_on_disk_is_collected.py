@@ -48,6 +48,14 @@ RUNNER = BASE / "run_box_walk.sh"
 EXEMPT: dict[str, str] = {
     "lib/probe.sh":
         "a sourced library, not a probe: it defines probe_pass/probe_fail",
+    "lib/converge_wait.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it beside the "
+        "grounding seed and calls converge_wait, which waits for the two people "
+        "stores to STOP CHANGING before the two probes that read counts. It "
+        "asserts nothing and has no verdict of its own; collecting it would run "
+        "a wait as if it were a measurement. Its invocation is pinned by "
+        "tests/test_the_walk_waits_for_converge.sh, which fails if the runner "
+        "stops sourcing it, calling it, or gating on it.",
     "lib/grounding_seed.sh":
         "a sourced library, not a probe: run_box_walk.sh sources it between "
         "phase 1 and phase 2 and calls grounding_seed_apply, which seeds the "
