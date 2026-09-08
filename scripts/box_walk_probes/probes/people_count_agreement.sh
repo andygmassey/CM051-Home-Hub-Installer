@@ -334,6 +334,14 @@ adjudicate_counts() {
 # in-flight window. Every other combination measures immediately, so this
 # cannot become a blanket delay that hides a real disagreement.
 CONVERGE_WAIT_S="${OSTLER_PEOPLE_CONVERGE_WAIT_S:-1800}"
+# How long to keep re-reading both surfaces waiting for a repeated pair, and
+# the gap between reads. Deliberately short by comparison with the converge
+# wait: this is settling, not catching up.
+STABILITY_WAIT_S="${OSTLER_PEOPLE_STABILITY_WAIT_S:-300}"
+STABILITY_STEP_S="${OSTLER_PEOPLE_STABILITY_STEP_S:-20}"
+# How many CONSECUTIVE identical pairs before adjudicating. 2 was measurably
+# not enough: a real plateau held for four reads 25s apart and then moved.
+STABILITY_RUNS="${OSTLER_PEOPLE_STABILITY_RUNS:-3}"
 CONVERGE_STATE_DIR="${OSTLER_PROBE_STATE_DIR:-\$HOME/.ostler/state}"
 
 # THE CLASSIFIER IS A PURE FUNCTION so the self-test can drive the REAL
@@ -445,13 +453,75 @@ run_probe() {
     _OX_CODE_FILE="$(mktemp 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/pca_ox_code.$$")"
     _store_resolve
 
-    local oxi doc
-    oxi="$(count_oxigraph)"
+    # ── .done IS NOT "THE GRAPH HAS STOPPED CHANGING" ───────────────────────
+    #
+    # MEASURED ON THE v1.0.76 WALK, and it is a defect in the wait added above
+    # rather than in the box. The converge markers said settled -- .done at
+    # 09:24:22Z, newer than .killed at 08:59:56Z -- so the classifier correctly
+    # returned DONE and this probe measured immediately, exactly as designed.
+    # It read oxigraph=1870 doctor=1883 and called a 13 disagreement.
+    #
+    # Twenty minutes later the same box read oxigraph=1894, with the mergedInto
+    # tombstone count up from 13 to 24. THE GRAPH WAS STILL BEING WRITTEN. The
+    # 13 was never a settled quantity, and a verdict computed on it is a verdict
+    # about an instant, not about the box.
+    #
+    # dedupe-converge.done means THE DEDUPE CATCH-UP FINISHED. Hydration
+    # continues past it. So the marker is a proxy for the property we care
+    # about, and it is the wrong proxy.
+    #
+    # SO STOP USING A PROXY. The property is "the counts have stopped moving",
+    # and that is directly observable: read both surfaces twice, and only
+    # adjudicate when a full pair repeats. A moving graph produces a different
+    # pair and buys another round, bounded. On expiry this is CANNOT-RUN --
+    # counts that never settled were never comparable, which is not the same as
+    # counts that disagree.
+    #
+    # The .done wait above is KEPT rather than replaced. It is still the right
+    # thing to wait for before starting to sample: it avoids burning the
+    # stability budget during a catch-up that is guaranteed to be moving.
+    # TWO CONSECUTIVE READS WAS NOT ENOUGH, AND I HAVE THE COUNTEREXAMPLE.
+    # On 2026-09-08 this box sat at oxigraph=1894 doctor=1883 across FOUR reads
+    # 25s apart -- a plateau, not a settled graph. Minutes later the doctor
+    # caught up to 1894 and the surfaces agreed exactly. A 2-read check would
+    # have called that plateau stable and reported a disagreement that did not
+    # exist. I reported it as one, three times, before measuring again.
+    #
+    # SO THIS CANNOT BE PROVED, ONLY BOUNDED. Sampling cannot demonstrate that a
+    # graph has stopped changing; it can only say the counts did not move across
+    # a stated window. The verdict therefore CARRIES THAT WINDOW, so a reader
+    # judges the claim with its own limits attached rather than reading
+    # "disagree" as settled fact. Neither marker helps: dedupe-converge.done had
+    # fired, and hydration reported contacts state=done, while the count was
+    # still moving through both.
+    local oxi doc _prev_pair="" _pair _runs=0 _stable=0 _swaited=0
+    while :; do
+        oxi="$(count_oxigraph)"
+        doc="$(count_doctor)"
+        _pair="${oxi}/${doc}"
+        if [ "$_pair" = "$_prev_pair" ]; then
+            _runs=$((_runs + 1))
+            [ "$_runs" -ge "$STABILITY_RUNS" ] && { _stable=1; break; }
+        else
+            [ -n "$_prev_pair" ] && probe_note "counts moved ${_prev_pair} -> ${_pair} after ${_swaited}s; the graph is still being written"
+            _runs=0
+        fi
+        [ "$_swaited" -ge "$STABILITY_WAIT_S" ] && break
+        _prev_pair="$_pair"
+        sleep "$STABILITY_STEP_S"
+        _swaited=$((_swaited + STABILITY_STEP_S))
+    done
+    _STABILITY_WINDOW="$(( _runs * STABILITY_STEP_S ))"
+    if [ "$_stable" -ne 1 ]; then
+        probe_examined 0 "people-count surfaces"
+        probe_cannot_run "the two counts never stopped moving within ${_swaited}s (last two readings ${_prev_pair} then ${_pair}). A verdict computed while the graph is still being written describes an instant, not the box -- dedupe-converge.done had already fired, which is why this probe waits for STABILITY and not for that marker."
+    fi
+    probe_note "counts held at ${_pair} across ${STABILITY_RUNS} consecutive reads spanning ${_STABILITY_WINDOW}s -- a bound, not a proof that writing stopped"
+
     # Name the oxigraph auth/transport reason BEFORE the count comparison, so a
     # keyless 401 reads as "enforced, no key, not measured" and not as a vague
     # "1 of 2 surfaces readable". Exits on 000/401.
     _ox_adjudicate "oxigraph people count"
-    doc="$(count_doctor)"
     probe_note "oxigraph SPARQL count : $oxi"
     probe_note "doctor api count      : $doc"
 
@@ -464,7 +534,7 @@ run_probe() {
     token="${r%% *}"; detail="${r#* }"
 
     case "$token" in
-        DISAGREE)     probe_fail "people counts disagree: $detail (task #273). A count is the simplest claim the product makes." ;;
+        DISAGREE)     probe_fail "people counts disagree: $detail (task #273). A count is the simplest claim the product makes. STABILITY: the pair held for ${_STABILITY_WINDOW}s across ${STABILITY_RUNS} reads -- that BOUNDS the motion, it does not prove writing stopped, and a plateau of exactly this shape once produced a disagreement that vanished minutes later." ;;
         INSUFFICIENT) probe_cannot_run "$detail" ;;
         *)            probe_pass "$detail" ;;
     esac
