@@ -16616,6 +16616,15 @@ _port_is_our_own_forward() {
             # stale or fresh; signal 1 plus the same single-machine invariant
             # used for the four ports below is sufficient. Structural
             # alternative -- run the preflight before colima -- filed post-launch.
+            #
+            # LOAD-BEARING INVARIANT (@ARCHIE, sign-off condition). This return-0
+            # rests ENTIRELY on the single-machine invariant: on a one-Ostler-stack
+            # Mac, this user's colima forward on this port IS our store. That is the
+            # ONLY thing standing in for signal 2 here. If Ostler ever ships
+            # multi-stack, multi-user on one Mac, or a second colima profile, the
+            # invariant fails and this becomes a SILENT cross-service hole that
+            # nothing in this function would catch. Changing that invariant is not a
+            # config tweak -- it REQUIRES revisiting this function.
             return 0 ;;
         3000|6379|8044|8144)
             # ⛔ SOLE-TENANCY BOUND for the credential-less ports (#567 B1,
