@@ -87,7 +87,7 @@ chk "the teardown block contains no apostrophe" "$r"
 
 # strip comment lines first: prose that MENTIONS docker to explain what the
 # teardown leaves alone is fine; an actual store-wiping COMMAND is not.
-if grep -vE '^[[:space:]]*#' "${WORK}/td" | grep -qE 'docker|compose|ostler-uninstall|qdrant_data|oxigraph_data|redis_data|vane_data'; then r=1; else r=0; fi
+if [ "$(grep -vE '^[[:space:]]*#' "${WORK}/td" | grep -cE 'docker|compose|ostler-uninstall|qdrant_data|oxigraph_data|redis_data|vane_data')" -gt 0 ]; then r=1; else r=0; fi
 chk "the teardown runs no store-wiping command (docker/compose/uninstaller/volume rm)" "$r"
 
 rm -rf "${WORK}/h"; mkdir -p "${WORK}/h/.ostler/config" "${WORK}/h/.ostler/security" "${WORK}/h/.ostler/assistant-config/workspace/memory" "${WORK}/h/.ostler/imports" "${WORK}/h/.ostler/data"
