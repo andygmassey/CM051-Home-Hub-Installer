@@ -74,6 +74,36 @@ chk "an uninstaller present -> it is executed" "$r"
 printf '%s' "$out_some" | grep -q 'did NOT uninstall' && r=1 || r=0
 chk "an uninstaller present -> the warning does NOT fire" "$r"
 
-printf '  examined 8 assertions across 2 reset outcomes\n'
+# ── #1828: config-only teardown clears setup-gating config + poison, and
+#    NEVER reaches the store volumes or the store-wiping uninstaller. ────────
+{ printf '_ran_uninstaller=""\n'; awk '/# #1828 config-only teardown/,/^        fi$/' "$SRC"; } > "${WORK}/td"
+tdn="$(wc -l < "${WORK}/td" | tr -d ' ')"
+if [ "$tdn" -lt 8 ] || [ "$tdn" -gt 60 ]; then
+    printf 'CANNOT-RUN: extracted %s lines for the teardown; anchors moved.\n' "$tdn" >&2; exit 2; fi
+chk "the config-only teardown extracts to a sane size ($tdn lines)" 0
+
+if grep -q "'" "${WORK}/td"; then r=1; else r=0; fi
+chk "the teardown block contains no apostrophe" "$r"
+
+# strip comment lines first: prose that MENTIONS docker to explain what the
+# teardown leaves alone is fine; an actual store-wiping COMMAND is not.
+if grep -vE '^[[:space:]]*#' "${WORK}/td" | grep -qE 'docker|compose|ostler-uninstall|qdrant_data|oxigraph_data|redis_data|vane_data'; then r=1; else r=0; fi
+chk "the teardown runs no store-wiping command (docker/compose/uninstaller/volume rm)" "$r"
+
+rm -rf "${WORK}/h"; mkdir -p "${WORK}/h/.ostler/config" "${WORK}/h/.ostler/security" "${WORK}/h/.ostler/assistant-config/memory" "${WORK}/h/.ostler/data"
+printf 'USER_ID=old\n' > "${WORK}/h/.ostler/config/.env"
+printf 'poison\n'      > "${WORK}/h/.ostler/assistant-config/memory/brain.db"
+printf 'keys\n'        > "${WORK}/h/.ostler/security/keychain.json"
+printf 'runtime\n'     > "${WORK}/h/.ostler/data/keep"
+HOME="${WORK}/h" bash "${WORK}/td" >/dev/null 2>&1
+r=0
+[ -e "${WORK}/h/.ostler/config" ] && r=1
+[ -e "${WORK}/h/.ostler/security" ] && r=1
+[ -e "${WORK}/h/.ostler/assistant-config" ] && r=1
+chk "teardown removed config, security and assistant-config (brain.db with them)" "$r"
+[ -f "${WORK}/h/.ostler/data/keep" ] && r=0 || r=1
+chk "teardown left the non-config ~/.ostler/data untouched (targeted, not blanket)" "$r"
+
+printf '  examined 13 assertions across 3 reset outcomes\n'
 [ "$fails" -eq 0 ] || { printf 'FAIL: %s assertion(s) failed.\n' "$fails" >&2; exit 1; }
 printf 'PASS: a reset that skipped the uninstall announces it.\n'
