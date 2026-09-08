@@ -2951,6 +2951,59 @@ _ostler_promote_prelaunch_tree() {
     # Rebind every path variable to the canonical location so
     # subsequent install.sh writes land at ~/.ostler/.
     _ostler_set_paths "$OSTLER_FINAL_DIR"
+
+    # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
+    #
+    # _ostler_write_store_curl_config (defined :7626) captures the path BY
+    # VALUE and never re-reads it:
+    #     :7627   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :7672   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :7681 and :13232, both of which run
+    # while _ostler_set_paths still has OSTLER_DIR bound to the
+    # /tmp/ostler-prelaunch-<pid> staging tree. :2949 above has just deleted
+    # that tree and :2953 has just rebound OSTLER_DIR to the final one, so
+    # from this point the armed array held `-K <a path that no longer exists>`.
+    #
+    # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
+    # walk: curl given -K on a missing file exits 26 BEFORE it issues any
+    # request. The caller reads status 000, which is the same 000 it reads from
+    # a store that is down. Measured on the v1.0.78 walk: ZERO GET /collections
+    # ever reached the wire while the proxy served 9971 x 200, and rc=26 at the
+    # readers in initial_hydrate. Nothing was wrong with the store.
+    #
+    # THE FILE MOVES, THE VALUE DOES NOT. This is NOT a new class and this
+    # comment should not pretend to have found one. install.sh already carries
+    # it four times over, all catalogued at :353: #177 baked a staging path
+    # into the ollama-logrotate and ollama agent plists, #578 did it in nine
+    # more plists, and the store-credential wiring default did it too. The
+    # WhatsApp Web session path did it again at :13963, where the note reads
+    # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
+    # is not." This is the fifth. Counting it correctly matters, because the
+    # recurrence is the finding.
+    #
+    # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
+    # IS NOT ENOUGH. :13980 says of the previous one that its gate "is keyed to
+    # the PLISTS by name", and that a gate keyed to a name does not cover a
+    # class. The same is true of the gate added with this change: it is keyed
+    # to THIS array. A gate that enumerates every staging-time capture and
+    # requires each to be rebound is the actual answer, and it is deliberately
+    # not written here, because it moves no walk probe and the freeze admits
+    # only changes that do. It is owed, not done.
+    #
+    # GUARDED, because promote has one call site EARLIER IN THE FILE than the
+    # writer's own definition: :5385 against a definition at :7626. Top-level
+    # source order is execution order, so on that path the function does not
+    # exist yet, and an unguarded call would print "command not found" and,
+    # behind `|| true`, do nothing while looking applied. That path is harmless
+    # anyway: both armings (:7681, :13232) then run with OSTLER_DIR ALREADY
+    # rebound. The defect bites only when promote runs AFTER them, which is the
+    # :15744 / :15922 / :16079 / :16420 path. There the
+    # writer is defined, OSTLER_DIR is already final, and this call is the one
+    # that actually closes the defect described above.
+    if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
+        _ostler_write_store_curl_config || true
+    fi
+
     OSTLER_PRELAUNCH_PROMOTED=true
 
     # CX-95 (DMG #48g+, 2026-05-29): repair the venv after promote.
@@ -18489,7 +18542,27 @@ else
     # delta computed with a fragile parse would be a number that is sometimes
     # silently wrong, which is worse than a raw stamp the reader can diff.
     # `waited` is the loop's own count and needs no parsing at all.
+    # THE PATH THE CURL ACTUALLY USED, NOT ONE RECOMPUTED HERE.
+    #
+    # This used to read "${OSTLER_DIR}/secrets/store-curl.conf", recomputed at
+    # diagnostic time from the CURRENT OSTLER_DIR. When the armed array still
+    # held a staging path the readers were failing on, this printed the healthy
+    # promoted file instead, so the WARN described a file that was fine while
+    # every curl was opening a different one that was gone. A diagnostic that
+    # actively misleads, and it is why the v1.0.78 rc=26 took three agents to
+    # pin. Read the array's own -K value: it is the only string curl was given.
+    #
+    # The recomputed path stays as the FALLBACK for the case where the array is
+    # unset or too short to hold one, because printing nothing there would be a
+    # different way to say less than we know.
     _e6_conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    if [ "${#_OSTLER_STORE_CURL_ARGS[@]}" -gt 1 ] 2>/dev/null; then
+        _e6_i=0
+        for _e6_a in "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}"; do
+            if [ "$_e6_i" = "1" ]; then _e6_conf="$_e6_a"; break; fi
+            _e6_i=1
+        done
+    fi
     _e6_headers="none"
     _e6_conf_age="conf-absent"
     if [ -f "$_e6_conf" ]; then
