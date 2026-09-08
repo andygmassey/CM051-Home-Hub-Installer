@@ -61,12 +61,21 @@ CONVERGE_DETAIL=""
 # The store credential path as the BOX sees it, resolved once by _cw_read_pair.
 CONVERGE_CONF_PATH=""
 # WHERE THE READER'S STDERR GOES, AND WHY IT IS NOT /dev/null ANY MORE.
-# curl is invoked with -sS precisely so that it PRINTS its failure, and this
-# block used to end with `2>/dev/null`, which threw that away. So 45 readings
-# of "x x" on the v1.0.79 walk carried no cause at all, and the cause had to be
+# curl is invoked with -sS precisely so that it PRINTS its failure, and every
+# path that failure could take used to end at /dev/null. So 45 readings of
+# "x x" on the v1.0.79 walk carried no cause at all, and the cause had to be
 # recovered by reading this file rather than the log it produced. An instrument
-# that is built to explain itself and then gagged is worse than a silent one,
-# because the silence looks like an answer.
+# built to explain itself and then gagged is worse than a silent one, because
+# the silence looks like an answer.
+#
+# THERE WERE THREE REDIRECTS, NOT ONE, and the first version of this fix
+# removed only the outer one. That left curl's own
+# "(26) Failed to open/read local data from file" going to /dev/null ON THE
+# BOX, so this file stayed empty and the cause line never printed on the exact
+# failure the fix exists to diagnose. Caught by Archie reading the reader
+# first. The two CURL redirects are gone; the two PYTHON ones stay, because a
+# traceback from the parser is noise, not cause, and the parser failing is
+# already reported as "x".
 CONVERGE_ERR_FILE=""
 
 _cw_box_exec() {
@@ -115,13 +124,24 @@ _cw_resolve_conf() {
 }
 
 _cw_read_pair() {
-    local raw="${OSTLER_PROBE_STORE_CURL_CONF:-\$HOME/.ostler/secrets/store-curl.conf}"
-    # Resolve ONCE per run, not per reading: $HOME does not move, and a
-    # 45-reading wait would otherwise pay 45 extra round trips.
-    if [ -z "$CONVERGE_CONF_PATH" ]; then
-        CONVERGE_CONF_PATH="$(_cw_resolve_conf "$raw")"
-    fi
+    # RESOLVED IN converge_wait, IN THE PARENT SHELL, and re-resolved here only
+    # if that has not happened.
+    #
+    # It used to resolve ONLY here, and here is inside `cur="$(_cw_read_pair)"`,
+    # a command substitution and therefore a subshell. CONVERGE_CONF_PATH was
+    # assigned in a child, the parent never saw it, and the unreadable line
+    # printed "<unresolved>" on EVERY reading including the ones where the path
+    # had resolved perfectly well. The diagnostic would have named nothing on
+    # the exact failure it exists to explain.
+    #
+    # The fallback stays because the reader must be CORRECT for any caller, not
+    # only for converge_wait: without it a direct call gets `-K ''`, which is a
+    # silently wrong argument rather than an error. The parent assignment is
+    # what makes the path REPORTABLE; this one is what makes the read WORK.
     local conf="$CONVERGE_CONF_PATH"
+    if [ -z "$conf" ]; then
+        conf="$(_cw_resolve_conf "${OSTLER_PROBE_STORE_CURL_CONF:-\$HOME/.ostler/secrets/store-curl.conf}")"
+    fi
     local oxi="${OSTLER_OXIGRAPH_URL:-http://127.0.0.1:7878/query}"
     local qd="${OSTLER_QDRANT_URL:-http://127.0.0.1:6333}"
     local coll="${OSTLER_PROBE_COLLECTION:-people}"
@@ -130,14 +150,14 @@ _cw_read_pair() {
         _o=\$(/usr/bin/curl -sS --noproxy '*' --max-time 20 -K '${conf}' \
                 -H 'Content-Type: application/sparql-query' \
                 -H 'Accept: application/sparql-results+json' \
-                --data-binary \"\$_q\" '${oxi}' 2>/dev/null \
+                --data-binary \"\$_q\" '${oxi}' \
              | /usr/bin/python3 -c 'import json,sys
 try:
     print(json.load(sys.stdin)[\"results\"][\"bindings\"][0][\"n\"][\"value\"])
 except Exception:
     print(\"x\")' 2>/dev/null)
         _p=\$(/usr/bin/curl -sS --noproxy '*' --max-time 20 -K '${conf}' \
-                '${qd}/collections/${coll}' 2>/dev/null \
+                '${qd}/collections/${coll}' \
              | /usr/bin/python3 -c 'import json,sys
 try:
     print(json.load(sys.stdin)[\"result\"][\"points_count\"])
@@ -160,6 +180,15 @@ converge_wait() {
     if [ -z "$CONVERGE_ERR_FILE" ]; then
         CONVERGE_ERR_FILE="$(mktemp -t converge_err 2>/dev/null || printf '/tmp/converge_err.%s' "$$")"
     fi
+
+    # Resolve the credential path HERE, in the parent shell, once for the run.
+    # Not in _cw_read_pair: that runs inside a command substitution, so anything
+    # it assigns is lost with the subshell. $HOME does not move, and a
+    # 45-reading wait would otherwise pay 45 extra round trips.
+    if [ -z "$CONVERGE_CONF_PATH" ]; then
+        CONVERGE_CONF_PATH="$(_cw_resolve_conf "${OSTLER_PROBE_STORE_CURL_CONF:-\$HOME/.ostler/secrets/store-curl.conf}")"
+    fi
+    printf '  credential: %s\n' "${CONVERGE_CONF_PATH:-<could not resolve>}"
 
     if [ "${OSTLER_CONVERGE_SKIP:-0}" = "1" ]; then
         CONVERGE_STATE="skipped"
@@ -199,7 +228,12 @@ converge_wait() {
                 # credential path curl could not open, and those want different
                 # actions from whoever is reading the walk.
                 if [ -s "$CONVERGE_ERR_FILE" ]; then
-                    printf '           cause: %s\n' "$(tr -d '\r' < "$CONVERGE_ERR_FILE" | grep -v '^$' | tail -1)"
+                    # FIRST line, not last. curl prints the cause and then
+                    # "try 'curl --help'"; tailing gives the advice and drops
+                    # the diagnosis. Measured: -K on a missing file prints
+                    # "curl: option -K: error encountered when reading a file"
+                    # and then the help line, and rc is 26.
+                    printf '           cause: %s\n' "$(tr -d '\r' < "$CONVERGE_ERR_FILE" | grep -v '^$' | head -1)"
                 fi
                 printf '           credential curl was given: %s\n' "${CONVERGE_CONF_PATH:-<unresolved>}"
                 same=0; prev=""

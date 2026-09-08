@@ -219,17 +219,82 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# The reader's stderr is no longer discarded, so an x can carry its cause.
+# THE DIAGNOSTIC HALF, DRIVEN RATHER THAN GREPPED.
+#
+# The first version of this suite asserted that the LIB CONTAINS the strings
+# "CONVERGE_ERR_FILE" and "credential curl was given". Both were true, and the
+# cause line still never printed, because the fix had removed only the OUTER
+# 2>/dev/null and curl's own stderr was still going to /dev/null on the box.
+# Archie caught it by reading the reader. A grep for the mechanism is not a
+# test of the mechanism, which is the same mistake in a different costume as
+# the bug this PR fixes.
+#
+# So: run the real converge_wait against a credential path that does not
+# exist, and require the PRINTED line to carry curl's own words and the path.
 # ---------------------------------------------------------------------------
-[ "$(grep -c '2>/dev/null$' "$LIB")" -ge 0 ] && true
-if [ "$(grep -c 'CONVERGE_ERR_FILE' "$LIB")" -gt 0 ]; then
-    ok "the reader routes stderr to CONVERGE_ERR_FILE instead of /dev/null"
+ABSENT="$WORK/no-such-credential.conf"
+[ -e "$ABSENT" ] && rm -f "$ABSENT"
+diag="$( set +u
+    unset OSTLER_BOX_HOST
+    OSTLER_PROBE_STORE_CURL_CONF="$ABSENT"
+    OSTLER_OXIGRAPH_URL="http://127.0.0.1:${PORT}/query"
+    OSTLER_QDRANT_URL="http://127.0.0.1:${PORT}"
+    OSTLER_CONVERGE_WAIT_S=1
+    OSTLER_STABILITY_INTERVAL_S=0
+    OSTLER_STABILITY_READS=2
+    export OSTLER_PROBE_STORE_CURL_CONF OSTLER_OXIGRAPH_URL OSTLER_QDRANT_URL \
+           OSTLER_CONVERGE_WAIT_S OSTLER_STABILITY_INTERVAL_S OSTLER_STABILITY_READS
+    . "$LIB"
+    converge_wait 2>&1 )"
+
+[ "$(printf '%s\n' "$diag" | grep -c 'unreadable: x x')" -gt 0 ] \
+    && ok "a missing credential still produces the x x reading (the symptom is reproduced)" \
+    || bad "the failing case did not produce x x, so the arms below measure the wrong thing" "$diag"
+
+# curl's OWN words. Not a string this test supplies: measured on this machine,
+# `-K` on a missing file exits 26 and prints "curl: option -K: error
+# encountered when reading a file". The assertion keys on the "curl:" prefix
+# rather than the sentence, so a curl that words it differently still passes
+# while a SILENT curl still fails.
+if [ "$(printf '%s\n' "$diag" | grep -c '^ *cause: .*curl:')" -gt 0 ]; then
+    ok "and the printed line carries CURL'S OWN cause: $(printf '%s\n' "$diag" | grep '^ *cause:' | head -1 | sed 's/^ *//')"
 else
-    bad "the reader still discards its own stderr, so the next x carries no cause"
+    bad "no cause line carrying curl's own text; the diagnostic half of this fix does not work" \
+        "$(printf '%s\n' "$diag" | grep -A2 'unreadable' | head -4)"
 fi
-[ "$(grep -c 'credential curl was given' "$LIB")" -gt 0 ] \
-    && ok "and every unreadable line names the credential path curl was actually given" \
-    || bad "an unreadable line still does not say which path was used"
+
+[ "$(printf '%s\n' "$diag" | grep -c "credential curl was given: ${ABSENT}")" -gt 0 ] \
+    && ok "and it names the exact credential path curl was given" \
+    || bad "the printed path is not the one curl was handed" "$(printf '%s\n' "$diag" | grep 'credential curl was given' | head -1)"
+
+# MUST-FAIL on the diagnostic itself: put the inner curl redirects back and the
+# cause line must go silent. Without this, the arm above could pass on a build
+# where curl happened to print somewhere else.
+# Gag curl again by appending the redirect to both curl target lines.
+awk '{ if ($0 ~ /\047\$\{oxi\}\047 \\$/ || $0 ~ /collections\/\$\{coll\}\047 \\$/) { sub(/ \\$/, " 2>/dev/null \\") } print }' "$LIB" > "$WORK/gagged.sh"
+if [ "$(grep -c "2>/dev/null" "$WORK/gagged.sh")" -le "$(grep -c "2>/dev/null" "$LIB")" ]; then
+    bad "the gag mutation did not land; the diagnostic arm above is unproven" \
+        "shipped has $(grep -c '2>/dev/null' "$LIB"), mutant has $(grep -c '2>/dev/null' "$WORK/gagged.sh")"
+else
+    ok "the gag mutation landed (curl's stderr sent back to /dev/null)"
+    diag_m="$( set +u
+        unset OSTLER_BOX_HOST
+        OSTLER_PROBE_STORE_CURL_CONF="$ABSENT"
+        OSTLER_OXIGRAPH_URL="http://127.0.0.1:${PORT}/query"
+        OSTLER_QDRANT_URL="http://127.0.0.1:${PORT}"
+        OSTLER_CONVERGE_WAIT_S=1
+        OSTLER_STABILITY_INTERVAL_S=0
+        OSTLER_STABILITY_READS=2
+        export OSTLER_PROBE_STORE_CURL_CONF OSTLER_OXIGRAPH_URL OSTLER_QDRANT_URL \
+               OSTLER_CONVERGE_WAIT_S OSTLER_STABILITY_INTERVAL_S OSTLER_STABILITY_READS
+        . "$WORK/gagged.sh"
+        converge_wait 2>&1 )"
+    if [ "$(printf '%s\n' "$diag_m" | grep -c '^ *cause: .*curl:')" -eq 0 ]; then
+        ok "MUST-FAIL: gagged, the cause line vanishes, which is v1.0.79's 45 silent readings exactly"
+    else
+        bad "MUST-FAIL: the cause still printed with curl gagged; the arm above proves nothing" "$diag_m"
+    fi
+fi
 
 printf '\n== %s pass / %s fail / %s total ==\n' "$PASS" "$FAIL" "$((PASS + FAIL))"
 [ "$FAIL" -eq 0 ] || exit 1
