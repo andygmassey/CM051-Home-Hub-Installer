@@ -473,6 +473,7 @@ test_the_walk_seeds_the_grounded_probe.sh	WIRED	.github/workflows/walk-record-ga
 test_the_walk_waits_for_converge.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_wiki_health_check_survives_the_credential.sh	WIRED	.github/workflows/colima-autostart.yml
 test_the_wiki_port_demands_a_credential.sh	WIRED	.github/workflows/colima-autostart.yml
+test_the_workspace_marker_survives_the_promote.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_third_party_data_consent.sh	WIRED	.github/workflows/consent-contract.yml
 test_timeout_is_not_a_successful_hydrate.sh	WIRED	.github/workflows/hydrate-timeout-honesty.yml
 test_total_steps_denominator_ratchet.sh	WIRED	.github/workflows/total-steps-denominator-ratchet.yml
