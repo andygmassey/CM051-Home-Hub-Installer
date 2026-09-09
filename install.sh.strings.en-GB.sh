@@ -1436,10 +1436,9 @@ MSG_WARN_PREFS_UNCATEGORISED="%s of %s preferences (%s%%) have no category and w
 
 # Preference enrichment pipeline setup (CM019, own venv at
 # ~/.ostler/services/cm019). Idempotent + non-fatal; see install.sh 3.11b.
-MSG_CM019_SETUP_STARTED="Setting up preference enrichment (one-off)"
+MSG_CM019_SETUP_STARTED="Setting up preference enrichment"
 MSG_CM019_SETUP_DONE="Preference enrichment ready"
 MSG_CM019_SETUP_FAILED="Preference enrichment setup did not finish. Your preferences pages fill once it is fixed; the rest of Ostler is unaffected."
-MSG_CM019_SETUP_EXISTS="Preference enrichment already set up"
 MSG_CM019_SETUP_SKIPPED="Preference enrichment pipeline not bundled; skipping for now."
 
 # CX-84: iMessage hydration. Fires as a separate progress emission
