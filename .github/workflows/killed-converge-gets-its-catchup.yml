@@ -23,6 +23,7 @@ on:
     paths:
       - 'install.sh'
       - 'tests/test_a_killed_converge_still_gets_its_catchup_agent.sh'
+      - 'tests/test_the_merge_budget_scales_with_the_address_book.sh'
       - '.github/workflows/killed-converge-gets-its-catchup.yml'
   push:
     branches: [main]
@@ -53,3 +54,17 @@ jobs:
       # occurred on the box and the one the old guard got wrong.
       - name: A killed converge must still get its catch-up agent
         run: bash tests/test_a_killed_converge_still_gets_its_catchup_agent.sh
+
+      # AND THE BUDGET THAT CAUSED THE KILL IN THE FIRST PLACE.
+      # The gate above proves a killed converge still gets its catch-up agent,
+      # which is recovery. This one is prevention: the install-time budget was
+      # a flat 300 s and the v1.0.79 box recorded waited_s=300 budget_s=300
+      # with SIGTERM then SIGKILL. It now scales with the address book, with K
+      # measured from that box's own catch-up log (1822 persons, 10 rounds,
+      # 919 s), and the kill and its marker are deliberately untouched: the fix
+      # is that the kill does not fire on a real book, not that it stops being
+      # recorded. Both halves are asserted, including a must-fail arm that
+      # restores the flat constant.
+      - name: The merge budget scales with the address book, and K is the measured one
+        if: always()
+        run: bash tests/test_the_merge_budget_scales_with_the_address_book.sh
