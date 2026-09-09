@@ -87,6 +87,16 @@
 # not tolerance. A set that shrinks, grows or swaps is ingestion in flight and
 # is reported in those words. Residual A is exempt: nothing above touches the
 # argument that no race produces an untyped merge survivor.
+#
+# KNOW THE DIRECTION THIS CAN BEND. The re-read can only ever move a verdict
+# from FAIL to PASS, never the reverse: it starts from the first reading's set
+# and intersects, so the failing set can only shrink. Within its two minutes of
+# observation, a defect that reconciles INTERMITTENTLY on that timescale reads
+# as in flight by this probe's own definition and passes. That is the deliberate
+# trade -- the alternative is failing every box whose ingestion has not finished
+# -- but a check that can only get kinder should be known rather than discovered
+# by whoever is holding the next red. Anything slower than two minutes is
+# unaffected, which is the case the v1.0.79 box actually presented.
 # ============================================================================
 
 set -uo pipefail
@@ -552,6 +562,9 @@ run_probe() {
         probe_note "            readings                         : 1  -- re-reading was disabled (OSTLER_PROBE_RECONCILE_READS=${RECONCILE_READS}), so this verdict rests on a single reading and cannot tell a stable residual from one still in flight"
     else
         probe_note "            readings                         : ${reads} at ${RECONCILE_READ_GAP_S}s -- C persisted ${c_fail}, B persisted ${b_fail}  (URIs missing in EVERY reading)"
+        # THE NOTE TRAVELS WITH THE VERDICT, not just with the source. Whoever
+        # reads this row later must know the check bends one way only.
+        probe_note "            direction of the re-read         : it can only move a verdict FAIL -> PASS, never the reverse, so a residual that reconciles intermittently within ${reads} readings reads as in flight here"
         if [ "$c_named" -gt 0 ] && [ "$c_fail" -eq 0 ]; then
             probe_note "            residual C did not hold still    : no person URI was missing in all ${reads} readings, so the graph and the vector store are not disagreeing -- ingestion is still in flight and the set is changing under the probe"
         fi
