@@ -103,6 +103,30 @@ description: |
   #
   # ONE TAG PUSH. Item 4. v1.0.80 got exactly one and it is spent; v1.0.81 gets
   # exactly one.
+  #
+  # =========================================================================
+  # A PRE-TAG STEP THAT IS NOT A GATE, BECAUSE THE GATES DID NOT CATCH THIS.
+  # =========================================================================
+  # BEFORE MOVING ANY PIN, READ THE LEDGER ROW FOR THE LAST TIME IT WAS MOVED.
+  #
+  # v1.0.80 was tagged with a daemon re-pin that moved FOUR sites. It is SIX.
+  # The enumeration already existed in SHIPPING_LEDGER.yaml, on the v1.0.76 row,
+  # by file and by line, together with a record of the same failure happening
+  # before: "CM051 #983 moved three of them, left site 6 on v0.4.62, PASSED
+  # EVERY PR CHECK, and was caught only when the cut refused."
+  #
+  # It was not read. All seven pre-tag gates were green and correct; none of
+  # them asks what the operation consists of. A sweep cannot find site 6 either,
+  # because it is keyed on the outgoing daemon sha and version and site 6 holds
+  # a different digest containing neither -- outside the search BY CONSTRUCTION.
+  #
+  # So the step is: for a REPEATED operation, read the record of the last time
+  # before searching the tree. A grep answers only what its pattern covers; the
+  # register says what the operation IS. That is a reading step, not a gate, and
+  # writing it as a gate would miss the point -- the gates were all green.
+  #
+  # The six sites are now on the v1.0.81 ledger row itself, so the next re-pin
+  # meets them in the row it is amending rather than fifteen rows above it.
 entries:
 
   # ==========================================================================
