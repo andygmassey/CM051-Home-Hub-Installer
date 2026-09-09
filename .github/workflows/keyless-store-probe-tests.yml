@@ -63,3 +63,28 @@ jobs:
       - name: people_stores_reconcile urllib credential + 401/KEYLESS adjudication
         if: always()
         run: /bin/bash scripts/tests/test_people_stores_reconcile_probe.sh
+
+      # THE PROBE'S OWN NEGATIVE CONTROL, RUN WHERE A PR CAN SEE IT.
+      #
+      # The four steps above drive the credential adjudication. None of them
+      # runs the probe's --self-test, so until this step existed the 32 synthetic
+      # cases -- including every arm covering the multi-reading residual check --
+      # were exercised only by PHASE 1 of an actual box walk. A test that only a
+      # walk can run cannot stop a regression from reaching the walk.
+      #
+      # THE EXPECTED EXIT IS 1, AND THAT IS NOT A TYPO. run_box_walk.sh PHASE 1
+      # reads exit 1 as "this probe can go red on known-bad input" and marks the
+      # probe BROKEN on anything else. Exit 0 here means a negative control did
+      # NOT fire. GitHub runs `run:` under `bash -eo pipefail`, so the non-zero
+      # exit is captured rather than allowed to end the step.
+      - name: people_stores_reconcile negative control (--self-test must exit 1)
+        if: always()
+        run: |
+          rc=0
+          /bin/bash scripts/box_walk_probes/probes/people_stores_reconcile.sh --self-test || rc=$?
+          if [ "$rc" -ne 1 ]; then
+            echo "BROKEN: the probe --self-test returned $rc, not 1." >&2
+            echo "PHASE 1 of the box walk would mark this probe BROKEN and measure nothing." >&2
+            exit 1
+          fi
+          echo "OK: the negative control fires as the walk runner requires (returned 1)."
