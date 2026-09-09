@@ -363,6 +363,25 @@ arm "the summaries log's CONTENT never reaches the screen (name-shaped canary ab
 # ---------------------------------------------------------------------------
 printf -- '\n-- 3. completion is LIVENESS AND GROWTH, never the pid alone --\n'
 # ---------------------------------------------------------------------------
+# CONTROL FIRST: THE READING PROGRAM MUST NOT MATCH ITSELF. Measured on the
+# first CI run (ubuntu): a literal "name=wiki-compiler" inside the poll program
+# made pgrep -f select the /bin/sh -c running that very program and its $(...)
+# subshell, two fresh pids per reading, so nothing of ours ever read as dead.
+# With NOTHING spawned, the real reading must report 0 matching processes. If
+# a real wiki compile is running on the machine that runs this suite, this arm
+# goes red with that fact printed, which is the honest answer.
+reap
+BOX3z="$WORK/box3z"; make_box "$BOX3z"
+out3z="$(env OSTLER_BOX_HOST= PATH="$STUB_BIN:$PATH" OSTLER_DIR="$BOX3z" bash -c '
+    set -uo pipefail
+    . "$1"
+    _ww_poll_backfill none full
+' _ "$LIB" 2>&1)"
+grep -qE '^PROCS 0 *$' <<< "$out3z"
+arm "CONTROL: with nothing spawned, the reading program reports 0 matching processes (it does not match itself)" $? "$out3z"
+grep -qE '^CONTAINER (none|unknown|running)' <<< "$out3z"
+arm "CONTROL: and the container line is present on a full reading" $? "$out3z"
+
 # (a) alive, and not a byte for the whole budget: the FINDING "wrote nothing",
 # marked still alive, never CONVERGED and never a plain CANNOT-RUN.
 reap

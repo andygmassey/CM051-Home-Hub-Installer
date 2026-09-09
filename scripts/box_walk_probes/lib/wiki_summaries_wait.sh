@@ -399,7 +399,14 @@ exit 0
 # and the processes of THIS ACCOUNT whose command line names the compiler or
 # the tick. pgrep -U, never a bare -f: on the v1.0.67 walk a bare pgrep -f
 # selected another account's process. The bracket in the pattern keeps this
-# very program, whose text contains the words, from matching itself. The
+# very program, whose text contains the words, from matching itself, AND SO
+# MUST EVERY OTHER LITERAL IN THIS PROGRAM: the docker filter below is
+# assembled from two halves for that reason. Measured on the first CI run of
+# this lib (ubuntu, PR #1890): a literal "name=wiki-compiler" in the filter
+# made the reading program match its own /bin/sh -c and the $(...) subshell,
+# two fresh pids on every reading, so "something of ours is alive" never went
+# false and every completion arm ended NOT CONVERGED IN TIME. macOS pgrep did
+# not surface it; Linux does. The suite now has a control for it. The
 # container check runs only when asked: docker ps costs seconds when the
 # daemon is down, and it only matters once the wrapper is gone.
 #
@@ -457,7 +464,8 @@ printf "PROCS %s %s\n" "$n" "$procs"
 if [ "$full" = "full" ]; then
     PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
     if command -v docker >/dev/null 2>&1; then
-        c="$(docker ps --filter "name=wiki-compiler" --format "{{.Names}} {{.Status}}" 2>&1)"
+        nm="wiki-compile"; nm="${nm}r"
+        c="$(docker ps --filter "name=$nm" --format "{{.Names}} {{.Status}}" 2>&1)"
         rc=$?
         if [ "$rc" -ne 0 ]; then
             printf "CONTAINER unknown docker ps exit %s: %s\n" "$rc" "$(printf "%s" "$c" | head -1)"
