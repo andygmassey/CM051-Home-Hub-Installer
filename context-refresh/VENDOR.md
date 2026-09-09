@@ -18,10 +18,10 @@ turn.
 | Upstream path | `scripts/generate_pwg_context.py` |
 | Original vendor commit | `f441f09f` (feat(assistant): inject personal-graph CONTEXT.md digest + lookup guidance) |
 | Original SHA-256 | `58d0c5e31d899ad994fb9413bd8d6d511d27433c84acaf01cff7119b2254a613` (pre-graft, historical) |
-| Current SHA-256 | `ebfadc8de45ecc40af059a0662bf9ec09d8af4277fed2f4d88b53f5dba7b5164` (post-graft, this repo) |
+| Current SHA-256 | `27cc4d6e9a744a929e02e772185f406f9b8832b5acc64e887c4ed3ec2e89550b` (post-graft, this repo) |
 | Vendored | 2026-06-02 (v1.0.1 launch-blocker #608) |
 | Diverged | 2026-06-28 (calendar-owner attribution, BATCH1 #3) |
-| Last divergence | 2026-08-18 (service-token auth + loud failure) |
+| Last divergence | 2026-09-09 (one route to the graph: the lookup paragraph names the pwg_ tools, not http_request) |
 
 ## Local divergence (grafted on top of `f441f09f`)
 
@@ -78,8 +78,26 @@ re-vendor:
    `.github/workflows/context-digest-auth.yml`.
 
    **Re-vendor guidance.** A re-vendor from current upstream main takes
-   divergence 4 natively and DROPS 1, 2, 3 and 5. Carry 5 across, or
-   land it upstream first.
+   divergence 4 natively and DROPS 1, 2, 3, 5 and 6. Carry them across, or
+   land them upstream first. Divergence 6 IS filed upstream
+   (ostler-assistant#394) and will stop needing to be carried the moment
+   that merges and the vendor pin moves past it; until then it is carried
+   like the rest.
+
+6. **One route to the graph** (2026-09-09). The "Looking something up"
+   paragraph told the model to fetch people live with `http_request`
+   against `http://127.0.0.1:8090/api/v1/people/*`. That route works and
+   `install.sh` enables `allow_private_hosts` for it deliberately, but it
+   is invisible to everything that asks WHICH tool answered a turn.
+   `assistant_answers_grounded` grades on a `pwg_` tool having run, so a
+   correct answer fetched that way scores `memory_only`, which is one of
+   the two shapes behind that probe's FAIL on the v1.0.79 walk; and the
+   daemon's consolidation gate keyed live-graph state on the same prefix,
+   so a count fetched that way was memorised as though it were durable.
+   The paragraph now names `pwg_people` and `pwg_person_timeline`.
+   Upstream carries the same edit plus a test in ostler-assistant#394;
+   this copy is the one that SHIPS, because the release tarball carries
+   the daemon and its `.app` and never `scripts/`.
 
 ## Why vendored rather than shipped in the assistant release
 

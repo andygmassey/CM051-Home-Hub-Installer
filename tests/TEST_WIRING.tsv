@@ -556,6 +556,7 @@ test_wiki_tailnet_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_wiring_ceiling_only_ever_decreases.sh	WIRED	.github/workflows/test-wiring.yml
 test_write_pipeline_signals.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_youtube_parser_does_not_claim_facebook.py	WIRED	.github/workflows/parser-claim-separation.yml
+context-refresh/tests/test_context_digest_auth.py	WIRED	.github/workflows/context-digest-auth.yml
 gui/OstlerInstallerTests/AdminAuthorizationGateTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/AdminPromptFinderPreAnnounceTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/AutoQuitAndKeepInstallerTests.swift	WIRED	.github/workflows/swift-tests.yml
