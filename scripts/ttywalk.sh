@@ -647,7 +647,18 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         _LIC="$HOME/.ostler/license/license.json"
         _LIC_BAK=""
         if [ -s "$_LIC" ]; then
-            _LIC_BAK="$(mktemp -t ostler-walk-licence)"
+            # PORTABLE mktemp. The BSD-only form that takes a bare prefix after
+            # the -t flag is DESCRIBED rather than written here, for the reason
+            # this same file records at its #1560 note: a comment that reproduces
+            # the wrong form satisfies the very grep meant to find remaining uses
+            # of it. BSD accepts that form; GNU REFUSES it, "too few X-s in
+            # template".
+            # Measured on the Linux runner: the -t form failed, _LIC_BAK stayed
+            # empty, the limb printed LICENCE PRESENT BUT COULD NOT BE COPIED,
+            # and the licence was destroyed. This limb runs on the macOS box in
+            # life, so it would never have failed there, and the test running it
+            # on the runner is the ONLY reason it was caught before it shipped.
+            _LIC_BAK="$(mktemp "${TMPDIR:-/tmp}/ostler-walk-licence.XXXXXX")"
             if cp "$_LIC" "$_LIC_BAK" 2>/dev/null; then
                 echo "licence saved before the wipe: $(wc -c < "$_LIC_BAK" | tr -d " ") bytes"
             else
