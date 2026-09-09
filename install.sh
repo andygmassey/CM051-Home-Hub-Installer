@@ -19531,9 +19531,19 @@ mkdir -p "${OSTLER_DIR}/imports/preferences"
 
 # THE CODE IS RE-STAGED ON EVERY INSTALL; ONLY THE VENV IS SKIPPED WHEN IT
 # ALREADY EXISTS. That is the shape thirteen other staging sites in this file
-# already use (ostler_fda :7796, contact_syncer :18843, cm048 :19085, doctor
-# :21761, assistant_api :22069, cm024 :22328, email-ingest :22532, and the
-# rest): guard on the SOURCE existing, never on the destination.
+# already use, named rather than numbered: ostler_fda, contact_syncer, cm048,
+# doctor, assistant_api, cm024, email-ingest, and the rest. Guard on the SOURCE
+# existing, never on the destination.
+#
+# NAMES, NOT LINE NUMBERS, AND THIS COMMENT LEARNED IT THE HARD WAY. It first
+# cited all seven by absolute line. Four of those citations were dead before
+# this PR was even reviewed, each by exactly 21 lines, because THIS BLOCK adds
+# 21 net lines above them: a citation rots the moment anything above it moves,
+# and here the thing that moved them was the commit carrying the citation. A
+# name is checkable and never rots, and
+# tests/test_a_staging_copy_is_guarded_on_its_source.py enumerates every
+# staging site from install.sh itself, so the list above has an instrument
+# behind it rather than a reader's goodwill.
 #
 # 🔴 WHY IT WAS THE OTHER WAY, AND WHAT IT COST. The whole block used to sit
 # under `[[ ! -x "$CM019_PY" ]]`, so a box with a surviving venv skipped the
