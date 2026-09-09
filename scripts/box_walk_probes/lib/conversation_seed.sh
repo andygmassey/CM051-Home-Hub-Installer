@@ -69,17 +69,25 @@
 #                   returned 35 topics unfiltered while pwg_topics reported
 #                   nothing, because the model had passed a whole question as
 #                   q. A count from the graph cannot be filtered away.
-#   usage journal   rows whose session_id starts cm048-. This one CANNOT PASS
-#                   YET and says so: the VENDORED cm048_pipeline has no
-#                   usage-journal writer at all (grep for costs.jsonl,
-#                   usage_journal, record_usage, prompt_tokens, OSTLER_USAGE:
-#                   zero hits; the only cm048- strings are
-#                   record_posture("cm048-ingest") at ingest.py:52,59, a
-#                   security-posture marker). So a 0 here is a FINDING NAMING
-#                   THE ABSENT PRODUCER, never a CANNOT-RUN of this seed and
-#                   never a silent pass. Per the launch directive item 5,
-#                   usage_journal_producers is NOT blocking for v1.0, so this
-#                   arm does not decide the step's exit code.
+#   usage journal   rows whose session_id starts cm048-. THIS PARAGRAPH USED TO
+#                   SAY THE ARM COULD NOT PASS YET, because the vendored
+#                   cm048_pipeline carried no usage-journal writer at all: a
+#                   grep for costs.jsonl, usage_journal, record_usage,
+#                   prompt_tokens and OSTLER_USAGE returned zero hits, and the
+#                   only cm048- strings were record_posture("cm048-ingest") at
+#                   ingest.py:52,59, a security-posture marker. That stopped
+#                   being true when the producer was re-vendored by CM051 #1881
+#                   (CM048 #78 at 53fcdf0b), so the arm CAN pass now and the
+#                   meaning of a 0 has changed with it: a 0 is a FINDING naming
+#                   cm048_conversation_extract as a PRESENT producer that did
+#                   not write on this walk. PRESENCE IS NOT WRITING, and the
+#                   two findings have different owners -- an absent writer is a
+#                   vendoring gap, a silent one is a defect in the pipeline or
+#                   in what the runtime reported. It is still never a
+#                   CANNOT-RUN of this seed and never a silent pass. Per the
+#                   launch directive item 5, usage_journal_producers is NOT
+#                   blocking for v1.0, so this arm does not decide the step's
+#                   exit code.
 #
 # THE THIRD RISK THE ANALYSIS NAMES, AND WHY THE TWO ARMS ARE REPORTED APART.
 # Step 09 is the LAST of six sequential model calls (processor.py:2082), each
@@ -624,17 +632,19 @@ conversation_seed_apply() {
     printf '  READ-BACK usage journal  %-10s rows with session_id cm048-: %s\n' \
         "${_cs_v_jrn}" "${CONVERSATION_SEED_JOURNAL}"
 
-    # THE JOURNAL ARM, WHICH CANNOT PASS YET AND MUST NOT PRETEND TO. It is
-    # reported and it does not decide the exit code: the launch directive makes
-    # usage_journal_producers non-blocking for v1.0, and the producer this row
-    # needs is a code change in CM048 that has not reached the vendored tree.
+    # THE JOURNAL ARM. It is reported and it does not decide the exit code: the
+    # launch directive makes usage_journal_producers non-blocking for v1.0.
+    # This arm used to be unpassable, because the vendored tree carried no
+    # writer; the producer was re-vendored by CM051 #1881 (CM048 #78 at
+    # 53fcdf0b), so a zero now means the writer was there and stayed quiet.
     if [ "${_cs_v_jrn}" = "EMPTY" ]; then
         printf '  FINDING: the pipeline completed and wrote NO usage-journal row. The\n'
-        printf '  VENDORED vendor/cm048_pipeline carries no usage-journal writer at all\n'
-        printf '  -- no costs.jsonl, no record_usage, no prompt_tokens, no OSTLER_USAGE\n'
-        printf '  anywhere in it -- so the producer is ABSENT rather than silent, and\n'
-        printf '  this is a vendoring gap, not a box defect. It does not change the\n'
-        printf '  verdict below: usage_journal_producers is non-blocking for v1.0.\n'
+        printf '  producer cm048_conversation_extract IS vendored (re-vendored by CM051\n'
+        printf '  #1881, CM048 #78 at 53fcdf0b), so this is a PRESENT producer that did\n'
+        printf '  not write on this walk, not the absent one this block used to name.\n'
+        printf '  PRESENCE IS NOT WRITING: read it as a defect in the pipeline or in\n'
+        printf '  what the runtime reported, not as a vendoring gap. It does not change\n'
+        printf '  the verdict below: usage_journal_producers is non-blocking for v1.0.\n'
     elif [ "${_cs_v_jrn}" = "UNREADABLE" ]; then
         printf '  The journal file itself was not found, so this is NOT a count of\n'
         printf '  zero and must not be read as one. The resolved path is printed above.\n'

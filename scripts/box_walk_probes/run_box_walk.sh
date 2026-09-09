@@ -259,6 +259,36 @@ preference_seed_apply || true
 . "$HERE/lib/conversation_seed.sh"
 conversation_seed_apply || true
 
+# ── AND THE USAGE SEED, on the producer that had nothing to write ──
+#
+# The two seeds above put CONTENT in front of a probe. This one puts WORK in
+# front of one: usage_journal_producers asks whether every declared producer
+# has written a record, and on v1.0.81 cm051_ostler_fda_ingest had not, into a
+# journal holding 557 parsed rows. Not because the writer is missing -- it is
+# vendored and proven by execution -- but because a row is written only on a
+# MEASURED embedding call (pwg_ingest.py:65-66), and the one ingest leg with
+# guaranteed input on a wiped box was SKIPPED by a surviving hydrate sentinel
+# (install.sh:26392-26413 gating :29374).
+#
+# So the step below runs install.sh:29420-29424 verbatim and counts the
+# producer's rows either side of it. It states in its own output, every time,
+# that the sweep was run BY HAND, because that converts the probe from "the
+# install exercises the ingest" to "the ingest can write when run by hand" and
+# the record has to be readable by someone who was not here.
+#
+# LAST OF THE FOUR, and below the conversation seed in particular: that seed
+# makes six sequential model calls under its own budget, and this step reads a
+# journal those calls also write into. Counting the before edge after it has
+# finished keeps this delta attributable to THIS sweep. The line citations at
+# the top of this file (:42 PROBE_DIR, :44 EX_CANNOT_RUN, :83 the probe glob)
+# also keep their line numbers only while nothing is inserted above them.
+#
+# `|| true` for the reason both seeds above carry it: every path this step can
+# return 1 on is a named CANNOT-RUN or a named FINDING, and neither should
+# abort a walk that has not measured anything yet.
+. "$HERE/lib/usage_seed.sh"
+usage_seed_apply || true
+
 # ── AND WAIT FOR THE GRAPH TO SETTLE, for the two probes that read counts ──
 #
 # The install-time converge is SIGKILLed at a flat budget and the catch-up agent
@@ -409,6 +439,7 @@ printf '\n'
 grounding_seed_forget || true
 preference_seed_forget || true
 conversation_seed_forget || true
+usage_seed_forget || true
 
 # -------------------------------------------------------------------------
 # REPORT -- four numbers, never one.

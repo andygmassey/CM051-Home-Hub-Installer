@@ -30,8 +30,9 @@
 #   4. THE READ-BACKS ARE SEPARATE. A conversations point with no topic is the
 #      measured shape of a step-09 timeout, so the two are reported as two
 #      verdicts and never collapsed into one.
-#   5. A ZERO JOURNAL IS A FINDING, NOT A CANNOT-RUN. The vendored pipeline has
-#      no usage-journal writer at all, so the seed names the absent producer.
+#   5. A ZERO JOURNAL IS A FINDING, NOT A CANNOT-RUN. The producer is vendored
+#      since CM051 #1881 (CM048 #78 at 53fcdf0b), so a zero names
+#      cm048_conversation_extract as a PRESENT producer that did not write.
 #   6. THE FORGET IS DETERMINISTIC. Every delete is keyed on the conversation
 #      id or on sha1(id)[:8], never on a timestamp or a wildcard.
 #
@@ -338,7 +339,7 @@ out6="$(run_apply "$LIB" "$B_NOJ")"
 grep -q 'READ-BACK usage journal  EMPTY' <<< "$out6"
 arm "a journal with no cm048- row reads EMPTY" $? "$out6"
 grep -q 'FINDING: the pipeline completed and wrote NO usage-journal row' <<< "$out6"
-arm "which is reported as a FINDING naming the absent vendored producer" $? "$out6"
+arm "which is reported as a FINDING naming the vendored producer that stayed quiet" $? "$out6"
 grep -q 'STATE=seeded' <<< "$out6" && grep -q 'RC=0' <<< "$out6"
 arm "and it does NOT decide the exit code: the roster row is non-blocking for v1.0" $? "$out6"
 

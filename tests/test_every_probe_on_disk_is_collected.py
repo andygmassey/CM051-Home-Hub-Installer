@@ -95,6 +95,21 @@ EXEMPT: dict[str, str] = {
         "tests/test_the_walk_seeds_the_conversation.sh, which fails if the "
         "runner stops sourcing it, stops calling conversation_seed_apply, or "
         "moves the call below the phase-2 loop.",
+    "lib/usage_seed.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it between "
+        "phase 1 and phase 2, last of the four seeds and after the "
+        "conversation seed in particular, and calls "
+        "usage_seed_apply, which runs the installer's own people sweep "
+        "(install.sh:29420-29424) so the cm051_ostler_fda_ingest producer has "
+        "made a measured embedding call before usage_journal_producers reads "
+        "the journal. It asserts about the box, but it has no PROBE_NAME and "
+        "no probe_pass/probe_fail verdict, so the collector could not report "
+        "it; collecting it would run a sweep as if it were a measurement, and "
+        "would run it AFTER phase 2 rather than before, which is the one "
+        "ordering that seeds nothing. It IS invoked, and that invocation is "
+        "pinned by tests/test_the_walk_seeds_the_usage_producer.sh, which "
+        "fails if the runner stops sourcing it, stops calling usage_seed_apply, "
+        "or moves the call below the phase-2 loop.",
     "acceptance_gate_v1013.sh":
         "BY DESIGN, and verified rather than assumed. verify_cut_manifest.py's "
         "registry searches probes/ FIRST and then the flat directory (see its "
