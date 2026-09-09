@@ -420,7 +420,7 @@ _ostler_wire_store_auth_pth() {
     # and it cannot be caught by a control that varies the same variable twice.
     # `setdefault`, never assignment: a caller that has deliberately exported
     # OSTLER_SECRETS_DIR keeps its own value.
-    printf 'import sys, os; sys.path.append(%s); os.environ.setdefault("OSTLER_SECRETS_DIR", %s); __import__("ostler_store_auth")\n' \
+    printf 'import sys, os; sys.path.append(%s); os.environ.setdefault("OSTLER_SECRETS_DIR", %s); import importlib.util as _u; _u.find_spec("ostler_store_auth") is not None and __import__("ostler_store_auth")\n' \
         "\"${_root}/lib\"" "\"${_root}/secrets\"" > "${_sp}/ostler_store_auth.pth" || return 3
     chmod 0644 "${_sp}/ostler_store_auth.pth" 2>/dev/null || true
     return 0
