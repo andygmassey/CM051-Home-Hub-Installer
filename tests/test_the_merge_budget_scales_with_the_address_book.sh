@@ -181,6 +181,107 @@ fi
     && ok "and the marker now carries the person count beside the budget it failed to meet" \
     || bad "the marker records a budget with none of the inputs that produced it"
 
+# ===========================================================================
+# THE READER ITSELF, RUN FOR REAL, UNDER THE FILE'S OWN errexit AND ERR TRAP.
+#
+# Everything above stubs _DEDUPE_PERSONS and tests the arithmetic. That is why
+# none of it could see the defect Archie found: the reader was never invoked by
+# any arm (grep -c python3 on this file was 0, against 12 hits for budget), and
+# a driver that stubs the function cannot fail on how the function is written.
+#
+# THE DEFECT. The parse arm ran /usr/bin/python3. On a stock Mac with no
+# Command Line Tools that is an Apple STUB which fires the CLT dialog and
+# returns non-zero -- install.sh says so itself at :1983 and picks a bundled
+# interpreter for the licence verifier for exactly that reason. Under
+# `set -Eeuo pipefail` and the ERR trap the consequence was not a missing count
+# but an ABORTED INSTALL: stub exits non-zero, pipefail fails the pipeline, it
+# is the function's last command so the function returns non-zero, the bare
+# assignment carries that status, the trap fires. A budget optimisation would
+# have stopped the install on every customer Mac without developer tools.
+#
+# So these arms run the SHIPPED function with a stub interpreter, under the
+# same shell options and an ERR trap that records if it fires.
+# ===========================================================================
+printf '\n-- the reader, run for real under errexit + ERR trap --\n'
+
+fn_src="$(awk '
+    /^_ostler_dedupe_person_count\(\) \{$/ { f = 1 }
+    f { print }
+    f && /^\}$/ { exit }
+' "$SRC")"
+
+fn_lines="$(printf '%s\n' "$fn_src" | grep -c .)"
+if [ "$fn_lines" -lt 8 ] || [ "$fn_lines" -gt 60 ]; then
+    bad "extracted ${fn_lines} lines for the reader, implausible; the arms below would measure nothing"
+else
+    ok "extracted the shipped reader (${fn_lines} lines)"
+
+    [ "$(printf '%s\n' "$fn_src" | grep -vE '^[[:space:]]*#' | grep -c '/usr/bin/python3')" -eq 0 ] \
+        && ok "no CODE line in the reader calls /usr/bin/python3 (the stub that aborts a stock Mac)" \
+        || bad "the reader still calls /usr/bin/python3 on a code line"
+
+    # Drive it. $1 = what the fake interpreter does, $2 = label
+    drive_reader() {
+        local py_body="$1"
+        local dir; dir="$(mktemp -d)"
+        mkdir -p "$dir/.venv/bin" "$dir/bin"
+        printf '#!/bin/sh\n%s\n' "$py_body" > "$dir/.venv/bin/python3"
+        chmod +x "$dir/.venv/bin/python3"
+        # A curl that answers with a well-formed body, so the ONLY variable
+        # under test is the interpreter.
+        printf '#!/bin/sh\nprintf %s "{\\"results\\":{\\"bindings\\":[{\\"n\\":{\\"value\\":\\"1822\\"}}]}}"\n' "" \
+            > "$dir/bin/curl"
+        chmod +x "$dir/bin/curl"
+        (
+            PATH="$dir/bin:$PATH"; export PATH
+            PIPELINE_DIR="$dir"
+            set -Eeuo pipefail
+            trap 'printf "TRAP_FIRED\n"' ERR
+            eval "$fn_src"
+            _DEDUPE_PERSONS="$(_ostler_dedupe_person_count)"
+            printf 'COUNT=[%s] RC=%s\n' "$_DEDUPE_PERSONS" "$?"
+        ) 2>/dev/null
+        rm -rf "$dir"
+    }
+
+    # ARM: the CLT stub. Exits non-zero, prints nothing, exactly as the Apple
+    # stub does after firing its dialog.
+    out_stub="$(drive_reader 'exit 1')"
+    if [ "$(printf '%s\n' "$out_stub" | grep -c 'TRAP_FIRED')" -eq 0 ]; then
+        ok "a non-zero interpreter does NOT fire the ERR trap, so the install does not abort"
+    else
+        bad "the ERR trap fired: this is the aborted-install defect" "$out_stub"
+    fi
+    [ "$(printf '%s\n' "$out_stub" | grep -c 'COUNT=\[\]')" -gt 0 ] \
+        && ok "and it yields an empty count, which the derivation turns into the 300s floor" \
+        || bad "a failing interpreter did not yield an empty count" "$out_stub"
+
+    # ARM: a working interpreter still reads the number.
+    out_ok="$(drive_reader 'cat >/dev/null; printf "1822\n"')"
+    [ "$(printf '%s\n' "$out_ok" | grep -c 'COUNT=\[1822\]')" -gt 0 ] \
+        && ok "a working interpreter still returns the count (1822), so the guard did not blind the reader" \
+        || bad "the working case no longer reads a count" "$out_ok"
+    [ "$(printf '%s\n' "$out_ok" | grep -c 'TRAP_FIRED')" -eq 0 ] \
+        && ok "and the working case fires no trap either" \
+        || bad "the trap fired on the working case" "$out_ok"
+
+    # MUST-FAIL: put the unguarded stub interpreter back and the trap MUST fire.
+    # Without this the arms above would pass on a shell where errexit was not
+    # actually in force, which is the way this class of test lies.
+    mut_fn="$(printf '%s\n' "$fn_src" | sed 's|"$PIPELINE_DIR/.venv/bin/python3"|/usr/bin/false|; s|'"'"' 2>/dev/null \|\| true$|'"'"' 2>/dev/null|')"
+    if [ "$(printf '%s\n' "$mut_fn" | grep -c '/usr/bin/false')" -eq 0 ]; then
+        bad "the mutation did not land; the must-fail arm proves nothing"
+    else
+        ok "the mutation landed (unguarded, failing interpreter restored)"
+        out_mut="$( fn_src="$mut_fn" drive_reader 'exit 1' )"
+        if [ "$(printf '%s\n' "$out_mut" | grep -c 'TRAP_FIRED')" -gt 0 ]; then
+            ok "MUST-FAIL: unguarded, the ERR trap DOES fire, which is the aborted install on a stock Mac"
+        else
+            bad "MUST-FAIL: no trap even unguarded; errexit is not in force and the arms above are hollow" "$out_mut"
+        fi
+    fi
+fi
+
 printf '\n== %s pass / %s fail / %s total ==\n' "$PASS" "$FAIL" "$((PASS + FAIL))"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0

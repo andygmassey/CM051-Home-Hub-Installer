@@ -28855,12 +28855,29 @@ _ostler_dedupe_person_count() {
         -H 'Content-Type: application/sparql-query' \
         -H 'Accept: application/sparql-results+json' \
         --data-binary "$_q" "http://127.0.0.1:7878/query" 2>/dev/null)" || return 0
-    printf '%s' "$_out" | /usr/bin/python3 -c 'import json,sys
+    # ⛔ THE VENV INTERPRETER, NEVER /usr/bin/python3, AND `|| true` ON THIS ARM.
+    #
+    # On a stock Mac with no Command Line Tools, /usr/bin/python3 is an Apple
+    # STUB: it fires the CLT dialog and returns non-zero. This file already says
+    # so at :1983 and picks a bundled interpreter for the licence verifier for
+    # exactly that reason. Under `set -Eeuo pipefail` (:29) and the ERR trap
+    # (:10937) the consequence here was an ABORTED INSTALL, not a missing count:
+    # the stub exits non-zero, pipefail fails the pipeline, that is the
+    # function's last command so the function returns non-zero, the bare
+    # assignment `_DEDUPE_PERSONS="$(...)"` carries that status, and the trap
+    # fires. A budget optimisation would have stopped the install on every
+    # customer Mac without developer tools. The `|| return 0` above guards the
+    # curl arm only and never covered this one.
+    #
+    # The venv interpreter is proven present: the enclosing `if` tests
+    # -x "$PIPELINE_DIR/.venv/bin/python3" before this function can be called.
+    # `|| true` so an unreadable count reaches the floor rather than the trap.
+    printf '%s' "$_out" | "$PIPELINE_DIR/.venv/bin/python3" -c 'import json,sys
 try:
     v = json.load(sys.stdin)["results"]["bindings"][0]["n"]["value"]
     print(int(v))
 except Exception:
-    pass' 2>/dev/null
+    pass' 2>/dev/null || true
 }
 
 if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python3" ]]; then
