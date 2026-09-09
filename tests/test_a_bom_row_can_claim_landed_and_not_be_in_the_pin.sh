@@ -55,6 +55,10 @@ _bom() {  # $1 = ref to cite
     printf 'what\trepo\tref\tlanded\tcapability_id\tverify\tticket\n'
     printf 'THE SYNTHETIC FIX\tCM051\t%s\tyes\tnone\tgate:none#none\t#9999\n' "$1"
 }
+_bom2() {  # $1, $2 = two refs to cite, as two rows
+    _bom "$1"
+    printf 'THE SECOND SYNTHETIC ROW\tCM051\t%s\tyes\tnone\tgate:none#none\t#9998\n' "$2"
+}
 _cutenv() { printf 'CM051=%s\n' "$1"; }
 _run() {
     ( cd "$FIX" && bash scripts/verify_bom_rows_are_in_the_pin.sh v9.9.9 >"${WORK}/out" 2>&1; echo $? )
@@ -135,6 +139,74 @@ if [ "$rc" = "2" ] && grep -q 'not the installer' "${WORK}/out"; then
 else
     bad "a truncated pinned installer gave rc=${rc}"
 fi
+
+echo "── a row citing a commit OUTSIDE the pinned history is refused ──"
+# MEASURED 2026-09-09 on the v1.0.81 BOM. Row 4 cited the HEAD of CM051 #1863
+# rather than its merge commit bff5cfd8. That commit lives only at
+# refs/pull/1863/head, which no clone fetches by default, so the row resolved
+# on the machine that wrote it and nowhere else.
+#
+# THE FIXTURE PUTS THE CONTENT IN THE PIN ON PURPOSE. The side branch adds the
+# SAME keyable line, so the blob comparison would report this row present and
+# the gate would pass it. Only ancestry can tell the two apart, which is the
+# whole claim of this arm: it fires on a row the content check calls fine.
+( cd "$FIX" && git checkout -q -b side "$BEFORE" && printf '%s\n' "$MARK" >> install.sh \
+      && git commit -qam "the same fix, on a branch nobody merged" )
+SIDE="$(git -C "$FIX" rev-parse side)"
+git -C "$FIX" checkout -q -
+
+# Control on the fixture itself, in both directions, before reading a verdict:
+# the content must be IN the pinned blob, and the ref must NOT be an ancestor.
+# Without the first, this arm could pass because the content was missing.
+_content_in_pin="$(git -C "$FIX" show "${AFTER}:install.sh" | grep -cF -- "$MARK")"
+git -C "$FIX" merge-base --is-ancestor "$SIDE" "$AFTER" 2>/dev/null
+_side_is_ancestor=$?
+if [ "$_content_in_pin" -eq 0 ] || [ "$_side_is_ancestor" -eq 0 ]; then
+    echo "CANNOT-RUN: the fixture is not the shape this arm needs (content in pin: ${_content_in_pin}, side is ancestor rc: ${_side_is_ancestor})." >&2
+    exit 2
+fi
+
+_bom "$SIDE" > "$FIX/cuts/v9.9.9/MUST_CONTAIN.tsv"
+_cutenv "$AFTER" > "$FIX/cuts/v9.9.9/cut.env"
+rc="$(_run)"
+if [ "$rc" = "1" ] && [ "$(grep -cF 'NOT IN THE PINNED HISTORY' "${WORK}/out")" -gt 0 ] \
+   && [ "$(grep -cF '#9999' "${WORK}/out")" -gt 0 ]; then
+    ok "a row citing a commit outside the pinned history exits 1 and is NAMED, even though its content IS in the pin"
+else
+    bad "a row outside the pinned history gave rc=${rc}: $(tr '\n' ' ' < "${WORK}/out" | cut -c1-140)"
+fi
+
+echo "── an unmeasurable row is a refusal, not a line of output ──"
+# Until 2026-09-09 the gate had three exits and none read the unmeasurable
+# counter, so a row whose ref is not an object in this clone was printed and
+# then ignored: measured rc 0 on the v1.0.81 BOM in a clone with no pull refs,
+# while the gate's own comment claimed that state refuses the cut.
+#
+# TWO ROWS, DELIBERATELY. With one row the zero-denominator guard fires first
+# and this arm would pass through the wrong branch. The good row supplies the
+# denominator so the unmeasurable refusal is the guard under test.
+ABSENT_REF="$(printf 'deadbeef%s' "${AFTER:8}")"
+if git -C "$FIX" cat-file -e "${ABSENT_REF}^{commit}" 2>/dev/null; then
+    echo "CANNOT-RUN: the intended-absent ref exists in the fixture, so this arm proves nothing." >&2
+    exit 2
+fi
+_bom2 "$AFTER" "$ABSENT_REF" > "$FIX/cuts/v9.9.9/MUST_CONTAIN.tsv"
+_cutenv "$AFTER" > "$FIX/cuts/v9.9.9/cut.env"
+rc="$(_run)"
+if [ "$rc" = "2" ] && [ "$(grep -cF 'could not be measured against the pin' "${WORK}/out")" -gt 0 ]; then
+    ok "a row whose ref is not an object in this clone exits 2 through its OWN guard, with a measurable row present"
+elif [ "$rc" = "2" ]; then
+    bad "exited 2, but not through the unmeasurable guard: $(tr '\n' ' ' < "${WORK}/out" | cut -c1-140)"
+else
+    bad "an unmeasurable row gave rc=${rc}, so it was counted and ignored"
+fi
+
+echo "── and the same two-row BOM passes once every ref is in the history ──"
+# The discriminator for the two arms above: only the cited ref changes.
+_bom2 "$AFTER" "$AFTER" > "$FIX/cuts/v9.9.9/MUST_CONTAIN.tsv"
+rc="$(_run)"
+[ "$rc" = "0" ] && ok "two rows both citing a commit in the pinned history pass, so the arms above are about the REF and nothing else" \
+                || bad "a two-row BOM with both refs in the history gave rc=${rc}"
 
 echo "── a zero denominator is refused ──"
 # No CM051 rows at all: nothing was examined, and '0 absent' must not read as
