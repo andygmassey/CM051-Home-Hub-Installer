@@ -940,6 +940,52 @@ def query_gmail(query="is:unread", max_results=10):
 # People Graph endpoints (CM041 Phase 3)
 # ===========================================================================
 
+# Identifies THIS API-server RUN, never the person. The prefix is pinned by
+# CM051 scripts/usage_journal_producers.tsv (row cm041_identity_resolution,
+# match_kind session_prefix, match_value "cm041-"); a different prefix here
+# reports that producer ABSENT and takes the gate red.
+_USAGE_RUN_ID = "cm041-api-" + datetime.now(timezone.utc).strftime(
+    "%Y-%m-%dT%H:%M:%SZ"
+)
+
+
+def _record_embed_usage(payload, model):
+    """Record one ``enriching`` usage row from an ``/api/embed`` response.
+
+    Separate from :func:`_embed_text` so the accounting can be tested without
+    a network call -- ``_embed_text`` is the one arm no unit test reaches.
+
+    MEASURED, NEVER ESTIMATED: ``tokens_from_ollama`` returns ``(None, None)``
+    when Ollama reported no counts, and ``record_usage`` then writes nothing.
+    A guessed row is worse than a missing one on a panel the customer reads
+    beside a price comparison.
+
+    Never raises: usage accounting must not break the search endpoint it
+    measures.
+    """
+    try:
+        from _vendor.ostler_usage_journal.usage_journal import (
+            record_usage,
+            tokens_from_ollama,
+        )
+
+        prompt, completion = tokens_from_ollama(
+            payload if isinstance(payload, dict) else {}
+        )
+        record_usage(
+            model=model,
+            input_tokens=prompt,
+            output_tokens=completion,
+            purpose="enriching",
+            session_id=_USAGE_RUN_ID,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        # This file has no logger -- it diagnoses through stderr. Matching that
+        # rather than introducing a second facility for one line.
+        print(f"[usage] journal write skipped: {exc}",
+              file=sys.stderr, flush=True)
+
+
 def _embed_text(text):
     """Embed text via Ollama and return the vector."""
     data = json.dumps({"model": EMBED_MODEL, "input": [text]}).encode()
@@ -949,7 +995,9 @@ def _embed_text(text):
         headers={"Content-Type": "application/json"},
     )
     resp = urllib.request.urlopen(req, timeout=30)
-    return json.loads(resp.read())["embeddings"][0]
+    payload = json.loads(resp.read())
+    _record_embed_usage(payload, EMBED_MODEL)
+    return payload["embeddings"][0]
 
 
 def _sparql_select(sparql):

@@ -80,6 +80,12 @@ on:
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'vendor/ostler_fda/usage_journal.py'
       - 'tests/test_vendored_fda_writes_the_usage_journal.sh'
+      # The cm041 producer, same doctrine as the ostler_fda one above: the
+      # roster's row is only true of what SHIPS, and what ships is the
+      # vendored tree, not CM041's own repo.
+      - 'vendor/cm041/contact_syncer/**'
+      - 'vendor/cm041/assistant_api/**'
+      - 'tests/test_cm041_usage_journal_producer.sh'
       - 'cut-manifests/permanent.yaml'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in the very PR that narrows it.
@@ -169,6 +175,17 @@ jobs:
       - name: The SHIPPING ostler_fda actually writes a record (not just imports one)
         if: always()
         run: /bin/bash tests/test_vendored_fda_writes_the_usage_journal.sh
+
+      # THE SAME QUESTION, ASKED OF cm041_identity_resolution. Its producer is
+      # upstream (CM041 #137 at 82f45376) and this repo ships VENDORED copies
+      # pinned behind it, so "merged upstream" says nothing about what a
+      # customer runs. This step RUNS both vendored producers and requires a
+      # record, with the prefix and purpose read out of the roster. CM041's own
+      # commit message records py_compile passing on a version of this producer
+      # carrying two NameErrors, so a syntax check would not have caught it.
+      - name: The SHIPPING cm041 producers actually write a record
+        if: always()
+        run: /bin/bash tests/test_cm041_usage_journal_producer.sh
 
       # W006: explicit run step (#647). Drives the SHIPPED resolver, so it goes
       # red if install.sh ever stops publishing the workspace marker and the
@@ -388,6 +405,16 @@ jobs:
       - name: The SHIPPING ostler_fda writes a record, on bash 3.2 + BSD
         if: always()
         run: /bin/bash tests/test_vendored_fda_writes_the_usage_journal.sh
+
+      # Same reason as the ostler_fda pair: contact_syncer and ical-server run
+      # on the CUSTOMER'S Mac, so the cm041 producer guard is exercised on
+      # bash 3.2 + BSD userland too. This one leans on `cut -f`, `shasum` and a
+      # tab-anchored grep against the roster, all of which differ between GNU
+      # and BSD, so an ubuntu-only green would say nothing about the machine
+      # this ships to.
+      - name: The SHIPPING cm041 producers write a record, on bash 3.2 + BSD
+        if: always()
+        run: /bin/bash tests/test_cm041_usage_journal_producer.sh
 
       # THE PROBE'S OWN NEGATIVE CONTROL, driven exactly as run_box_walk.sh
       # phase 1 drives it: rc must be 1 AND the output must not say BROKEN.

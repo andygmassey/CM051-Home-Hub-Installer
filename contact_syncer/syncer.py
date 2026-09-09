@@ -930,6 +930,8 @@ class ContactSyncer:
          trust_env=False)
         resp.raise_for_status()
         data = resp.json()
+        from contact_syncer.usage import record_embed_usage  # usage journal: enriching
+        record_embed_usage(data, self.cfg.EMBED_MODEL)
         return data.get("embeddings", [])
 
     def _ensure_qdrant_collection(self, vector_size: int) -> None:
