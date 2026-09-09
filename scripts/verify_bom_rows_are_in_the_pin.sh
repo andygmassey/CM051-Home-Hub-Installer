@@ -32,6 +32,46 @@
 # exactly why ancestry alone is not the instrument.
 #
 # ─────────────────────────────────────────────────────────────────────────────
+# AND WHY IT NOW ASKS FOR ANCESTRY AS WELL, FOR A DIFFERENT QUESTION
+# ─────────────────────────────────────────────────────────────────────────────
+# The paragraph above is about CONTENT: did the fix land in the tree being
+# built. Ancestry cannot answer that, and it is not being asked to.
+#
+# The second question is about the REF ITSELF: can the commit this row cites be
+# resolved by whoever reads the BOM next. Those are not the same question and
+# only one of them is answered by a blob.
+#
+# MEASURED 2026-09-09 on v1.0.81. Row 4 cited 34c536c3, the HEAD of CM051
+# #1863, whose merge commit is bff5cfd8 and whose branch was deleted. That
+# commit exists in exactly one place, refs/pull/1863/head. `git clone` plus
+# `git fetch origin main` does not fetch refs/pull, so the object is absent
+# from a runner, and this gate printed UNMEASURABLE and exited 0 anyway. The
+# same row read as resolvable on the machine that wrote it, whose object store
+# happened to carry the pull ref: a gate answering from a local artefact.
+#
+# ANCESTRY OF THE PIN IS THE INSTRUMENT FOR THAT QUESTION, and it is exact
+# rather than a heuristic. If the ref is an ancestor of the pinned commit then
+# every clone that can read the pin can read the ref, because reaching the pin
+# means reaching everything behind it. If it is not, the row is citing
+# something outside the history being built: a PR head, a squash source, or a
+# ref someone happened to have fetched.
+#
+# MEASURED ACROSS THE CUTS BEFORE MAKING IT A REFUSAL, because a rule that
+# reds honest rows is worse than the gap it closes. CM051 rows, ref against
+# that cut's own pin, every version with a cuts/ directory:
+#
+#     v1.0.71  3 ancestors, 0 not      v1.0.77  1 ancestor,  0 not
+#     v1.0.72 11 ancestors, 0 not      v1.0.78  1 ancestor,  0 not
+#     v1.0.73  7 ancestors, 1 not      v1.0.79  2 ancestors, 0 not
+#     v1.0.74  2 ancestors, 2 not      v1.0.80  2 ancestors, 0 not
+#     v1.0.75  3 ancestors, 0 not      v1.0.81  2 ancestors, 1 not  <- the row
+#     v1.0.76  2 ancestors, 0 not
+#
+# So this refuses exactly one live row and three rows in two cuts that were
+# spent months of version numbers ago. It is not a rule the repo has been
+# quietly breaking; it is the convention every recent BOM already follows.
+#
+# ─────────────────────────────────────────────────────────────────────────────
 # WHERE IT IS MEANINGFUL
 # ─────────────────────────────────────────────────────────────────────────────
 # On a TAG PUSH. That is when the pin must already be correct. On a
@@ -41,6 +81,21 @@
 #
 # THREE STATES. 0 every checkable row is in the pin. 1 at least one is not.
 # 2 CANNOT-RUN: no BOM, no pin, unreadable blob, or no derivable discriminator.
+#
+# AND UNMEASURABLE IS NOW ONE OF THEM, WHICH THE COMMENT BELOW CLAIMED FOR
+# THREE DAYS WHILE THE CODE DID NOT. The note at the removal-shaped
+# discriminator says a row scoring UNMEASURABLE "is CANNOT-RUN, which refuses
+# the cut". It was not. There were three exits -- nothing examined, at least
+# one absent, otherwise 0 -- and none of them read the unmeasurable counter, so
+# an unmeasurable row was printed and then ignored. Measured 2026-09-09 on the
+# v1.0.81 BOM in a clone with no pull refs: one row unmeasurable, rc 0, "OK".
+# A comment asserting a refusal that the code never implements is worse than no
+# comment, because the next reader audits the sentence rather than the branch.
+#
+# PRECEDENCE, STATED BECAUSE TWO NON-ZERO EXITS CAN BOTH APPLY. A definite
+# finding outranks an unanswerable row: exit 1 names something a person can go
+# and fix, exit 2 says the question could not be put. Both refuse the cut, and
+# the counters for both are printed either way.
 set -uo pipefail
 
 VER="${1:-}"
@@ -76,8 +131,9 @@ echo "BOM rows against the pin"
 echo "  version : $VER"
 echo "  pin     : $PIN  (install.sh, ${_pl} lines)"
 
-IN=0; OUT=0; NA=0; UNMEASURABLE=0; TOTAL=0
+IN=0; OUT=0; NA=0; UNMEASURABLE=0; NOTINHIST=0; TOTAL=0
 MISSING=""
+OUTSIDE=""
 while IFS=$'\t' read -r what repo ref landed cap verify ticket; do
     case "${ref:-}" in ""|ref) continue ;; esac
     TOTAL=$((TOTAL+1))
@@ -85,6 +141,22 @@ while IFS=$'\t' read -r what repo ref landed cap verify ticket; do
     if ! git -C "$HERE" cat-file -e "${ref}^{commit}" 2>/dev/null; then
         UNMEASURABLE=$((UNMEASURABLE+1))
         echo "  UNMEASURABLE  ${ticket}  ref ${ref} is not an object in this clone"
+        continue
+    fi
+    # IS THE REF ITSELF CITABLE? See the header. This is not the content
+    # question and it does not replace the blob comparison below; it is the
+    # question of whether the commit this row names is inside the history that
+    # is about to be built, and therefore readable by anyone who can read the
+    # pin. An ancestor is; a PR head, a squash source or a stray fetched ref is
+    # not, and it resolves here only for whoever happens to hold it.
+    #
+    # A FAILURE, NOT AN UNMEASURABLE. The object is present and the question
+    # was answered: the answer is no. Calling it unmeasurable would hide a
+    # definite finding behind the softer word.
+    if ! git -C "$HERE" merge-base --is-ancestor "${ref}" "${PIN}" 2>/dev/null; then
+        NOTINHIST=$((NOTINHIST+1))
+        echo "  NOT IN THE PINNED HISTORY  ${ticket}  ref ${ref}"
+        OUTSIDE="${OUTSIDE}\n    ${ticket}  ${ref}  $(printf '%s' "$what" | cut -c1-64)"
         continue
     fi
     # Discriminator: the longest added, non-comment, non-trivial install.sh line
@@ -161,27 +233,62 @@ done < <(grep -v '^#' "$BOM" | grep -v '^[[:space:]]*$' | tail -n +2)
 echo "  rows        : $TOTAL"
 echo "  in the pin  : $IN"
 echo "  ABSENT      : $OUT"
+echo "  not in the pinned history : $NOTINHIST"
 echo "  not install.sh (nothing to key on in this blob) : $NA"
 echo "  unmeasurable: $UNMEASURABLE"
 
-# A run where NOTHING was checkable is not a pass. This is the zero-denominator
+# A run where NOTHING was answered is not a pass. This is the zero-denominator
 # shape: 0 absent looks identical whether every row was verified or none was.
-if [ "$((IN + OUT))" -eq 0 ]; then
+# A row refused for citing something outside the pinned history HAS been
+# answered, so it counts towards the denominator; leaving it out would let a
+# BOM whose every row is uncitable exit 2 as though the gate had been unable
+# to look, when in fact it looked and found the defect.
+if [ "$((IN + OUT + NOTINHIST))" -eq 0 ]; then
     echo
     echo "CANNOT-RUN: not one row was checkable against the pin, so '0 absent'"
     echo "  here means 'nothing was examined', which must not read as success."
     exit 2
 fi
 
-if [ "$OUT" -gt 0 ]; then
+if [ "$OUT" -gt 0 ] || [ "$NOTINHIST" -gt 0 ]; then
     echo
-    echo "FAIL: ${OUT} BOM row(s) claim landed=yes and are NOT in the pinned tree:"
-    printf "%b\n" "$MISSING"
-    echo
-    echo "  The pin is what gets BUILT. Re-point CM051= in cuts/${VER}/cut.env to"
-    echo "  the commit that actually carries these, AFTER the last merge, then"
-    echo "  re-run. Moving it before the last merge is how it goes stale again."
+    if [ "$OUT" -gt 0 ]; then
+        echo "FAIL: ${OUT} BOM row(s) claim landed=yes and are NOT in the pinned tree:"
+        printf "%b\n" "$MISSING"
+        echo
+        echo "  The pin is what gets BUILT. Re-point CM051= in cuts/${VER}/cut.env to"
+        echo "  the commit that actually carries these, AFTER the last merge, then"
+        echo "  re-run. Moving it before the last merge is how it goes stale again."
+    fi
+    if [ "$NOTINHIST" -gt 0 ]; then
+        [ "$OUT" -gt 0 ] && echo
+        echo "FAIL: ${NOTINHIST} BOM row(s) cite a commit that is NOT in the pinned history:"
+        printf "%b\n" "$OUTSIDE"
+        echo
+        echo "  Each of these resolves HERE and will not resolve on a runner or in"
+        echo "  any fresh clone: a PR head, a squash source, or a ref this store"
+        echo "  happens to have fetched. Cite the commit the change landed as, the"
+        echo "  one reachable from CM051= in cuts/${VER}/cut.env, and re-run."
+    fi
+    if [ "$UNMEASURABLE" -gt 0 ]; then
+        echo
+        echo "  ${UNMEASURABLE} further row(s) could not be measured at all; see above."
+    fi
     exit 1
+fi
+
+# UNMEASURABLE IS A REFUSAL, and until 2026-09-09 it was a line of output.
+# A row nobody could measure has not passed. Saying so here is what makes the
+# note at the removal-shaped discriminator true.
+if [ "$UNMEASURABLE" -gt 0 ]; then
+    echo
+    echo "CANNOT-RUN: ${UNMEASURABLE} BOM row(s) could not be measured against the pin."
+    echo "  Every row that WAS measurable is in the pin, and that is not the same"
+    echo "  as the BOM being satisfied. A row is unmeasurable here for one of two"
+    echo "  reasons, and both are fixable rather than tolerable: its ref is not an"
+    echo "  object in this clone, or its commit changed install.sh without adding"
+    echo "  or removing a line long enough to key on."
+    exit 2
 fi
 
 echo
