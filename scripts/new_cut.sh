@@ -145,6 +145,42 @@ run_gate "vendored BOM fresh"   bash tests/test_cut_bom_is_fresh.sh "$VERSION"
 run_gate "walk closure"         bash bin/rollforward_gate.sh --require-walk-closure --cut "$VERSION"
 run_gate "rollforward pin"      bash tests/test_rollforward_registry_pin.sh
 
+# ── GATE 8: EVERY ARTEFACT THE BUILD WILL FETCH ALREADY EXISTS ─────────────
+#
+# ADDED AFTER v1.0.80, WHICH THIS SCRIPT CLEARED. The tag was pushed on seven
+# green gates, preflight passed, and the cut died eleven seconds later:
+#
+#     [STEP] Ostler.app absent -- fetching ostler-hub-app-...-v0.4.76.tar.gz
+#     ERROR: could not read ostler-ai/ostler-assistant hub-v0.4.76 ...
+#     make: *** [download-hub-app] Error 1
+#
+# Not one of the seven asked whether the things the build downloads are there.
+# The daemon tarball was published and pinned correctly; the HUB APP is a second
+# artefact from a different repo, and a third (the Safari extension) comes from a
+# separately pinned tag. The gate lives in OS003 because that is where the cut
+# mechanism lives, and it covers all three, keyed on gui/Makefile's own values.
+#
+# AN OS003 CHECKOUT IS REQUIRED, AND ITS ABSENCE IS RED, NOT A SKIP. A gate that
+# quietly passes when it cannot find its own script is the defect this whole
+# change closes: supply-chain-pins printed "NOT a pass" and exited 0, and the tag
+# went out. So if the checkout cannot be located this prints RED with the
+# variable to set, and the operator does not get "ALL GREEN. Safe to tag".
+OS003_DIR="${OSTLER_OS003_DIR:-}"
+if [ -z "$OS003_DIR" ]; then
+  for _c in "$REPO/../OS003-Ostler-Release" \
+            "$HOME/Developer/OS003-Ostler-Release" \
+            "$HOME/Documents/Projects/OS003 - Ostler Release"; do
+    [ -d "$_c/gates" ] && { OS003_DIR="$_c"; break; }
+  done
+fi
+if [ -n "$OS003_DIR" ] && [ -x "$OS003_DIR/gates/verify_daemon_artefact_downloadable.sh" ]; then
+  run_gate "artefacts the build fetches exist" \
+    bash "$OS003_DIR/gates/verify_daemon_artefact_downloadable.sh" --cm051 "$REPO"
+else
+  run_gate "artefacts the build fetches exist" \
+    bash -c 'echo "no OS003 checkout with gates/verify_daemon_artefact_downloadable.sh."; echo "Set OSTLER_OS003_DIR. This gate is what stops a tag being spent on an"; echo "artefact that is not published, so it is RED rather than skipped."; exit 1'
+fi
+
 # ── THE TWO GATES THIS SCRIPT USED TO BE BLIND TO ───────────────────────────
 #
 # ADDED 2026-09-08, AFTER THEY COST A TAG. v1.0.76 was tagged on this script's
