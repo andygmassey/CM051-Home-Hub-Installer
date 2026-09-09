@@ -556,7 +556,6 @@ test_wiki_tailnet_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_wiring_ceiling_only_ever_decreases.sh	WIRED	.github/workflows/test-wiring.yml
 test_write_pipeline_signals.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_youtube_parser_does_not_claim_facebook.py	WIRED	.github/workflows/parser-claim-separation.yml
-context-refresh/tests/test_context_digest_auth.py	WIRED	.github/workflows/context-digest-auth.yml
 gui/OstlerInstallerTests/AdminAuthorizationGateTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/AdminPromptFinderPreAnnounceTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/AutoQuitAndKeepInstallerTests.swift	WIRED	.github/workflows/swift-tests.yml
@@ -596,6 +595,8 @@ gui/OstlerInstallerTests/StringsCatalogueEmDashTest.swift	WIRED	.github/workflow
 gui/OstlerInstallerTests/StringsCatalogueYNSuffixTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TerminationExitCodeReconcileTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TypedInstallGateTest.swift	WIRED	.github/workflows/swift-tests.yml
+context-refresh/tests/test_context_digest_auth.py	WIRED	.github/workflows/context-digest-auth.yml
+context-refresh/tests/test_generate_pwg_context.py	WIRED	.github/workflows/context-digest-auth.yml
 scripts/tests/test_acceptance_gate_v1013_probe.sh	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_an_unreachable_box_is_not_a_defect.sh	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_artefact_version_read_is_shaped.sh	WIRED	.github/workflows/cold-box-source-truth.yml
