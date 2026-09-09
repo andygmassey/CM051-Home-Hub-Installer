@@ -37,6 +37,10 @@ on:
       - 'tests/test_new_cut_checks_what_preflight_checks.sh'
       - 'tests/test_new_cut_covers_every_pretag_gate.sh'
       - 'scripts/verify_bom_rows_are_in_the_pin.sh'
+      # Wired 2026-09-09: a staging copy guarded on its DESTINATION leaves the
+      # previous DMG's vendored code on any box that already has the tree, so a
+      # v1.0.82 vendored fix never reaches the walk box that must demonstrate it.
+      - 'tests/test_a_staging_copy_is_guarded_on_its_source.py'
       - 'tests/test_store_port_first_install_stale_store.sh'
       - 'install.sh'
       - '.github/workflows/cut.yml'
@@ -680,3 +684,13 @@ jobs:
       - name: pinned wiki images carry the design system (presence)
         if: always()
         run: bash tests/test_pinned_wiki_image_has_design_system.sh --presence-only
+
+      # A VENDORED TREE MUST BE RE-STAGED ON EVERY INSTALL.
+      #
+      # Measured on the v1.0.81 walk box: cm019_setup read "already set up" in
+      # 0 s because its cp -R sat under [[ ! -x "$CM019_PY" ]], so the box kept
+      # the previous DMG's code while the install reported success. Thirteen
+      # other staging sites already guard on the SOURCE; this keeps that.
+      - name: no staging copy is guarded on its destination
+        if: always()
+        run: python3 tests/test_a_staging_copy_is_guarded_on_its_source.py

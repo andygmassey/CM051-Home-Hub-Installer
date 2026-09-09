@@ -19529,26 +19529,47 @@ CM019_PY="${CM019_VENV}/bin/python"
 # at it and the watcher/hydrate can scan it even before any exports land.
 mkdir -p "${OSTLER_DIR}/imports/preferences"
 
+# THE CODE IS RE-STAGED ON EVERY INSTALL; ONLY THE VENV IS SKIPPED WHEN IT
+# ALREADY EXISTS. That is the shape thirteen other staging sites in this file
+# already use (ostler_fda :7796, contact_syncer :18843, cm048 :19085, doctor
+# :21761, assistant_api :22069, cm024 :22328, email-ingest :22532, and the
+# rest): guard on the SOURCE existing, never on the destination.
+#
+# 🔴 WHY IT WAS THE OTHER WAY, AND WHAT IT COST. The whole block used to sit
+# under `[[ ! -x "$CM019_PY" ]]`, so a box with a surviving venv skipped the
+# `cp -R` as well and kept the PREVIOUS DMG's vendored code while the install
+# reported success. Measured on the v1.0.81 walk box: install.log :1016-1027
+# read "Preference enrichment already set up", elapsed_s=0, and the tree and
+# its .pth were dated eight days earlier. A fix shipped in
+# vendor/cm019_preferences/ would not have reached that box at all, and the
+# probe it was meant to move would not have moved, with nothing in the log to
+# say why.
+#
+# ⚠️ AND THE `rm -rf` IS GONE ON PURPOSE, not by oversight. CM019_VENV lives
+# INSIDE CM019_DIR, so deleting the tree deletes the interpreter, which is
+# almost certainly why the original guard wrapped everything. Copying over the
+# top keeps the venv and refreshes the code. The cost is that a file the new
+# bundle DELETED survives in the installed tree; that is true of every other
+# staging site here and is the trade the convention already makes.
 if [[ -d "$CM019_BUNDLE" && -f "$CM019_BUNDLE/requirements.txt" ]]; then
+    info "$MSG_CM019_SETUP_STARTED"
+    mkdir -p "$CM019_DIR"
+    cp -R "${CM019_BUNDLE}/" "$CM019_DIR/"
     if [[ ! -x "$CM019_PY" ]]; then
-        info "$MSG_CM019_SETUP_STARTED"
-        rm -rf "$CM019_DIR"
-        mkdir -p "$CM019_DIR"
-        cp -R "${CM019_BUNDLE}/" "$CM019_DIR/"
         "$PYTHON3_BIN" -m venv "$CM019_VENV"
-        _ostler_wire_store_auth_pth "$CM019_VENV" \
-            || warn "store-auth .pth not wired into "$CM019_VENV" -- that venv reaches the data stores with NO credential"
-        "$CM019_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
-        if "$CM019_VENV/bin/pip" install --quiet -r "${CM019_DIR}/requirements.txt" 2>"${OSTLER_DIAG_DIR}/cm019-pip.log"; then
-            ok "$MSG_CM019_SETUP_DONE"
-        else
-            warn "$MSG_CM019_SETUP_FAILED"
-            if [[ -s "${OSTLER_DIAG_DIR}/cm019-pip.log" ]]; then
-                sed -e 's/^/    /' "${OSTLER_DIAG_DIR}/cm019-pip.log" | tail -5
-            fi
-        fi
+    fi
+    _ostler_wire_store_auth_pth "$CM019_VENV" \
+        || warn "store-auth .pth not wired into "$CM019_VENV" -- that venv reaches the data stores with NO credential"
+    "$CM019_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+    # Runs on EVERY install, so a bumped requirements.txt is actually installed.
+    # It was inside the old guard, which is the second half of the same defect.
+    if "$CM019_VENV/bin/pip" install --quiet -r "${CM019_DIR}/requirements.txt" 2>"${OSTLER_DIAG_DIR}/cm019-pip.log"; then
+        ok "$MSG_CM019_SETUP_DONE"
     else
-        info "$MSG_CM019_SETUP_EXISTS"
+        warn "$MSG_CM019_SETUP_FAILED"
+        if [[ -s "${OSTLER_DIAG_DIR}/cm019-pip.log" ]]; then
+            sed -e 's/^/    /' "${OSTLER_DIAG_DIR}/cm019-pip.log" | tail -5
+        fi
     fi
 else
     info "$MSG_CM019_SETUP_SKIPPED"
