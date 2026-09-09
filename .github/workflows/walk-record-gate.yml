@@ -68,6 +68,13 @@ on:
       # records for test_post_walk_qa_measures_the_artefact.sh).
       - 'scripts/box_walk_probes/lib/preference_seed.sh'
       - 'tests/test_the_walk_seeds_the_preference_pair.sh'
+      # The conversation seed: the third write route, and the only one that
+      # needs a model call. Same rule as the two lines above -- the lib and
+      # its test go in the watch set together, or a PR could narrow the lib
+      # (drop the topics read-back, soften the person check on a PUBLIC repo)
+      # without running the suite that guards it.
+      - 'scripts/box_walk_probes/lib/conversation_seed.sh'
+      - 'tests/test_the_walk_seeds_the_conversation.sh'
       # Same rule as the workflow-self-trigger below, applied to a test: a
       # suite this workflow RUNS but does not WATCH is dark on self-edit --
       # it could be narrowed, or gutted, in a PR that never runs it. I added
@@ -551,6 +558,32 @@ jobs:
       - name: The walk seeds the preference pair, and both sides of the floor
         if: always()
         run: /bin/bash tests/test_the_walk_seeds_the_preference_pair.sh
+
+      # THE THIRD WRITE ROUTE, AND THE ONLY ONE THAT NEEDS A MODEL CALL. The
+      # two steps above give the walk a PERSON and a PREFERENCE. Nothing had
+      # ever put a CONVERSATION through the conversation pipeline, and that
+      # pipeline is the only writer of two things three probes read: the
+      # conversations Qdrant collection, which the installer pre-creates EMPTY
+      # (install.sh:18448), and the pwg:ConversationTopic nodes /api/v1/topics
+      # serves to pwg_topics. Nothing is processed at install time
+      # (install.sh:19178-19180 checks --help and an import and stops), so on a
+      # cold box those probes measured an empty store and could not tell that
+      # from a broken one.
+      #
+      # Pins the wiring, the fixture and the three-outcome discipline: the
+      # runner sources lib/conversation_seed.sh above the phase-2 loop and
+      # after the other two seeds; the fixture carries NO PERSON, with a
+      # must-fail arm that plants a name and requires the suite to refuse it,
+      # because CM051 is a PUBLIC repo; the conversations and topics read-backs
+      # are reported as SEPARATE verdicts, because a step-09 timeout yields a
+      # point and no topic; a zero usage journal is a FINDING naming the absent
+      # vendored producer and never a CANNOT-RUN; and the forget deletes only
+      # by the conversation id and sha1(id)[:8], proven by a decoy bundle that
+      # must survive. Its mutation arm disables the topics assertion and
+      # requires the suite to notice.
+      - name: The walk seeds one conversation, and a seed that did not work is not a FAIL
+        if: always()
+        run: /bin/bash tests/test_the_walk_seeds_the_conversation.sh
 
       # THE OTHER HALF OF A HONEST PEOPLE READING. The seed above gives the
       # grounded probe a fact to look for; this gives the two COUNT-reading
