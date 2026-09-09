@@ -65,6 +65,20 @@ EXEMPT: dict[str, str] = {
         "measurement. It IS invoked, and that invocation is pinned by "
         "tests/test_the_walk_seeds_the_grounded_probe.sh, which fails if the "
         "runner stops sourcing or calling it.",
+    "lib/preference_seed.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it between "
+        "phase 1 and phase 2, beside the grounding seed, and calls "
+        "preference_seed_apply, which seeds the PREFERENCE pair the interest "
+        "profile is read against and then asserts both sides of the 0.28 "
+        "confidence floor. It asserts about the box, but it has no PROBE_NAME "
+        "and no probe_pass/probe_fail verdict, so the collector could not "
+        "report it; collecting it would run a seed as if it were a "
+        "measurement, and would run it AFTER phase 2 rather than before, which "
+        "is the one ordering that seeds nothing. It IS invoked, and that "
+        "invocation is pinned by "
+        "tests/test_the_walk_seeds_the_preference_pair.sh, which fails if the "
+        "runner stops sourcing it, stops calling preference_seed_apply, or "
+        "moves the call below the phase-2 loop.",
     "acceptance_gate_v1013.sh":
         "BY DESIGN, and verified rather than assumed. verify_cut_manifest.py's "
         "registry searches probes/ FIRST and then the flat directory (see its "
