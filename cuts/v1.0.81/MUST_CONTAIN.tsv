@@ -1,0 +1,40 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.81.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.81/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN.
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS, IN ONE LINE
+# ===========================================================================
+# v1.0.80 was tagged once, built NOTHING, and is spent. v1.0.81 carries the
+# identical payload plus the one-line pin that killed it.
+#
+# THE THREE ROWS BELOW ARE CARRIED FORWARD UNCHANGED from v1.0.80, refs and
+# all, because that cut produced no artefact: nothing in them shipped, so
+# nothing in them is closed. The fourth row is the pin.
+#
+# WHY v1.0.80 DIED, since a BOM is read by whoever is deciding what shipped:
+# gui/Makefile:345 HUB_APP_SHA256 still named the 0.4.75 Ostler.app bundle
+# while DAEMON_VERSION had moved to 0.4.76. download-hub-app fetches that
+# bundle from HUB_APP_REPO = ostler-ai/ostler-assistant -- a DIFFERENT repo
+# from DAEMON_REPO = ostler-ai/ostler-releases, at the SAME tag string -- and
+# verifies it fail-closed at :980-991. No 0.4.76 bundle had been published, so
+# it failed at the fetch; had only that been fixed it would have failed at the
+# checksum. Both are fixed here.
+#
+# The fourth row's capability keys on the DIGEST ITSELF, which is the strongest
+# available predicate: it is present exactly when the tree names the bundle
+# that was actually published. Measured 1 on the pin branch and 0 on main, with
+# a control (the DAEMON_REPO line) reading 4 at both refs so the reader is
+# demonstrably working on each.
+#
+# This file is not the cut's readiness; gates/verify_must_contain.sh is.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+THE WORKSPACE MARKER NAMED A TREE THAT HAD BEEN DELETED. _ostler_write_workspace_marker ran while OSTLER_DIR still pointed at the /tmp/ostler-prelaunch-<pid> staging tree, so ~/.ostler/active_workspace.toml published a path the promote then rm -rf'd. SIXTH INSTANCE of the class install.sh names at :353 and :13963 and that #1850 fixed for the store credential: a value captured during staging and never rebound to the tree it will actually run from. The marker is now re-written after the promote, guarded on the writer existing because one call site precedes its definition in source order.	CM051	08b47ac4dcda34b86007c2a85c1fa99b236809d6	no	workspace_marker_names_the_promoted_tree	TBD	CM051 #1856
+THE CONTACT-MERGE BUDGET WAS A FLAT 300s AND KILLED ITS OWN CONVERGE AT THE CAP. On the v1.0.79 box state/dedupe-converge.killed recorded waited_s=300 budget_s=300, and converge_kill_is_recorded has failed on it since. The budget is now derived from the person count in the graph THIS install built, read through the installer's own store credential array rather than a recomputed secrets path, with K=0.7s per person measured from that box's own catch-up log (1822 persons in 919s) and the env override still winning. An unreadable count takes the floor and can never buy a longer install. Carries its own guard: the reader runs the bundled venv interpreter, because for one review cycle it ran /usr/bin/python3, which on a Mac with no Command Line Tools is an Apple stub that returns non-zero, and under set -Eeuo pipefail plus the ERR trap that ABORTED THE INSTALL instead of taking the floor.	CM051	1ae0d869d33597ede520b6b3621df06a0816d28f	no	merge_budget_scales_with_the_address_book	TBD	CM051 #1857
+A RAW TOOL CALL WAS SHIPPED TO THE CUSTOMER AS THE ANSWER. Measured on two installs and two builds: asked the memorised wording, the model emitted its call AS TEXT and the assistant sent it as the complete reply -- fourteen bytes, pwg_overview{}, with zero dispatches. Nothing between the model and the socket asserted that a reply is prose rather than an unexecuted call. The gateway now detects a reply that is, WHOLE AND TRIMMED, a call for a snake_case tool name with one balanced argument block, and dispatches ONE corrective turn through the agent loop with its events forwarded; if that also returns a bare call the raw text is still never sent, it falls to the existing retryable notice. The whole-reply rule and the balanced scan are what keep it off real prose: a reply explaining what pwg_people does is prose containing a name and must not be touched. Carries a second, inert half: usage is accumulated across the tool loop and recorded once at the answered-turn exit with Purpose::Answering, which cannot yet produce a record because the streaming path carries no token counts.	ostler-assistant	42abcf8a4d70b8576101b585e9b3b1050e1c797d	no	a_bare_tool_call_is_never_shipped_as_an_answer	TBD	ostler-assistant#390
+THE PIN THAT KILLED v1.0.80. gui/Makefile:345 HUB_APP_SHA256 still named the 0.4.75 Ostler.app bundle after DAEMON_VERSION moved to 0.4.76, so the cut fetched a bundle it then refused fail-closed at :980-991. Two causes, both fixed: no 0.4.76 hub app had been published to ostler-ai/ostler-assistant (a DIFFERENT repo from DAEMON_REPO, at the SAME tag string, which is what made the step invisible), and the digest itself had not moved. Ostler.app for 0.4.76 is now published at 2e2e5ea9, built by scripts/build-hub.sh at 42abcf8a -- the SAME commit as the daemon, so verify-commit-parity keeps its meaning -- adhoc-signed by design and not notarised, exactly the 0.4.75 discipline. The sweep that missed it searched for the outgoing DAEMON sha and version; a digest does not contain its version, and this block says three lines above the pin to sweep for the outgoing SHA-256 too.	CM051	34c536c3cb163fef55e7789fa31c95242b149895	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 #1863
