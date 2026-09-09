@@ -1,22 +1,521 @@
+--- a/PLAN.md
++++ b/PLAN.md
+@@ -167,12 +167,12 @@
+   ({partner})` when multi-user lands) — roll-up of `observations.db`,
+   with frequency/trend per tag
+ 
+-**C.4 Marvin wiring:**
++**C.4 Assistant wiring:**
+ - `/people/context?name=X` (unified API) already exists — extend to
+   include relationship-signals rollup
+ - New: `/coach/recent?days=7` — returns recent User-Coach
+   observations
+-- Marvin system prompt includes "before responding to a
++- Assistant system prompt includes "before responding to a
+   person-mention, check `/people/context` — include warmth + last
+   topic summary"
+ 
+@@ -184,7 +184,7 @@
+ - Dedicated list ensures automated items don't pollute the user's
+   manually-entered todos.
+ - Syncs back: if the user marks a Reminder complete, CM048 updates
+-  the action-item status in Oxigraph so Marvin stops nagging.
++  the action-item status in Oxigraph so the assistant stops nagging.
+ - Respect iOS Reminders permissions — user must have granted
+   Reminders access to the Companion app.
+ 
+@@ -223,14 +223,14 @@
+ 
+ ## Phase E — Knowledge graph optimisation (after D, when graph is populated)
+ 
+-**Prerequisite:** 50+ conversations processed, Marvin actively querying
++**Prerequisite:** 50+ conversations processed, the assistant actively querying
+ the graph for briefings and person context.
+ 
+ **E.1 Graph salience tuning ("memify").**
+ Inspired by Cognee's `memify()` concept (Apache 2.0, open source).
+ Run a periodic optimisation pass over the Oxigraph + Qdrant stores:
+ 
+-- **Strengthen frequently-traversed paths.** If Marvin's person-context
++- **Strengthen frequently-traversed paths.** If the assistant's person-context
+   queries consistently follow `conversation → participant → relationship
+   signal → topic`, boost those edges' retrieval priority.
+ - **Decay stale edges.** Relationship signals from conversations >12
+@@ -243,13 +243,13 @@
+   episodic and semantic memory (per Lilian Weng's agent memory
+   taxonomy).
+ - **Auto-tune retrieval weights** based on actual query patterns from
+-  Marvin's logs — which person-context queries returned useful results
++  the assistant's logs — which person-context queries returned useful results
+   vs. which ones the user ignored or re-queried differently.
+ 
+ **Inputs already available from day one:**
+ - `retention_score_inputs` on every stored item (signal_density,
+   centrality_refs, fact_count, is_pinned)
+-- Marvin query logs (which endpoints called, which person IDs queried)
++- Assistant query logs (which endpoints called, which person IDs queried)
+ - Conversation frequency per person (from Oxigraph relationship signals)
+ - User pin/unpin actions
+ 
+@@ -258,7 +258,7 @@
+   backends including Qdrant) — evaluate whether it can sit alongside
+   existing stores or would require migration.
+ - Build a simpler bespoke pass that reads `retention_score_inputs` +
+-  Marvin query logs and updates Qdrant payload weights + Oxigraph edge
++  assistant query logs and updates Qdrant payload weights + Oxigraph edge
+   annotations. Less sophisticated but no new dependency.
+ - Hybrid: use Cognee for the graph intelligence, keep existing stores
+   as the source of truth.
+@@ -354,7 +354,7 @@
+ 3. **Relationship signal: per-conversation records with explicit
+    `confidence` field.** Low-confidence filtered out of Person-page
+    rollups.
+-4. **LLM budget acceptable** (~7 calls / 2-4min on gamingrig per
++4. **LLM budget acceptable** (~7 calls / 2-4min on the dev hub per
+    work-meeting). Watch backlog growth; participate in hub-wide
+    priority scheduling from day one.
+ 5. **Bulletproof failure handling:** per-step state persistence,
+--- /dev/null
++++ b/prompts/__init__.py
+@@ -0,0 +1,7 @@
++"""Package marker so setuptools ships prompts/*.md beside src/.
++
++Vendor-only: no CM048 commit carries this file. It must not be empty --
++a zero-byte vendor-only file produces no ``diff -u /dev/null`` hunk, so
++vendor/divergences cannot describe it and sync_vendor.sh would delete it
++on the next swap. See vendor/VENDOR_ONLY.tsv for the measurement.
++"""
 --- a/pyproject.toml
 +++ b/pyproject.toml
-@@ -21,7 +21,10 @@
-
+@@ -14,20 +14,17 @@
+ ]
+ 
+ [project.optional-dependencies]
+-# pyoxigraph backs the topic-bridge acceptance test
+-# (tests/test_topic_bridge_readback.py): it stands up a real SPARQL
+-# engine so the test can read back through the CONSUMER's own query
+-# instead of asserting the triples it just wrote. It is a hard import
+-# in that module, not an importorskip -- a silently skipped acceptance
+-# test is the same false green as the empty endpoint it guards.
+-dev = ["pytest>=7", "pytest-mock", "pyoxigraph>=0.4,<1.0"]
++dev = ["pytest>=7", "pytest-mock"]
+ 
+ [project.scripts]
+ pwg-convo = "src.cli:main"
+ 
  [tool.setuptools.packages.find]
  where = ["."]
 -include = ["src*"]
 +include = ["src*", "prompts*"]
-
+ 
 +[tool.setuptools.package-data]
 +prompts = ["*.md"]
 +
  [tool.pytest.ini_options]
  testpaths = ["tests"]
+--- a/README.md
++++ b/README.md
+@@ -17,7 +17,7 @@
+ - Phase B live: **validated** — 5 conversations processed end-to-end
+   against a Hub Ollama (qwen3.5:9b classifier, qwen3.5:35b-a3b enrichment)
+ - Phase C (integration): **in progress** — linker wired, API spec
+-  drafted, Marvin endpoint implementation underway
++  drafted, assistant endpoint implementation underway
+ - Phase D (backfill): pending
+ - Phase E (graph optimisation): designed, pending 50+ conversations
+ 
+@@ -104,7 +104,7 @@
+ ## Architecture
+ 
+ See `CLAUDE.md` for full architecture. See `docs/api.md` for the
+-Marvin unified API endpoint spec. See `PLAN.md` for phased build plan
++assistant unified API endpoint spec. See `PLAN.md` for phased build plan
+ with locked-in design decisions.
+ 
+ ## Consumed by
+@@ -112,5 +112,5 @@
+ - CM042 — Remote Conversations (Mac audio capture)
+ - CM031 — PWG Companion (iOS, Watch, wearable capture)
+ - CM044 — Personal Wiki compiler (Person pages, User Coach page)
+-- Marvin — via `/api/v1/conversation/process` endpoint on ical-server.py
++- Assistant — via `/api/v1/conversation/process` endpoint on ical-server.py
+ - Manual paste (testing, historic imports)
+--- a/src/enrichment_validation.py
++++ b/src/enrichment_validation.py
+@@ -107,6 +107,42 @@
+ }
+ 
+ 
++# v1018-D014b. Sub-headings (`### `) that live INSIDE a `## ` section.
++#
++# Only two variants declare any; every other conversation shape is flat.
++# These were previously known ONLY to the prompt template files, which is
++# how they came to be dropped: the chunk-merge pass loads
++# `02b_merge_chunks` rather than the variant template, so nothing told the
++# model to keep them -- and the expected-heading check is `##`-only, so
++# nothing noticed they were gone. 29 of 129 conversation summaries on the
++# founder box carry `### Participants` and `### Thread` with no
++# `### Narrative` at all: the prose the section exists for is simply
++# absent, and the surrounding metadata reads as raw scaffolding.
++#
++# Measured, and it tracks CHUNKING rather than sparse input, which is the
++# opposite of D014a's failure mode:
++#
++#   1 msg   83 ok /  2 missing    2% fail
++#   2 msg   10 ok / 10 missing   50% fail
++#   3 msg    1 ok / 10 missing   91% fail
++#   4+ msgs  6 ok /  7 missing   54% fail
++EXPECTED_SUBHEADINGS_BY_PROMPT: dict[str, list[str]] = {
++    "02_enrich_email_thread": ["Participants", "Thread", "Narrative"],
++    "02_enrich_work_one-on-one": ["Participants", "Location", "Narrative"],
++}
++
++
++def expected_subheadings_for(prompt_name: str) -> list[str]:
++    """Return the expected `### ` sub-heading list for a prompt name.
++
++    Unknown or flat variants return [] -- unlike `expected_headings_for`,
++    there is NO fallback to another variant's list. Asserting
++    work_one-on-one's sub-sections against a family conversation would
++    manufacture failures for sections that variant never declares.
++    """
++    return list(EXPECTED_SUBHEADINGS_BY_PROMPT.get(prompt_name, []))
++
++
+ def expected_headings_for(prompt_name: str) -> list[str]:
+     """Return the expected `## ` heading list for a prompt name.
+ 
+@@ -158,6 +194,53 @@
+     )
+ 
+ 
++_PLACEHOLDER_TOKEN = re.compile(r"\{[a-z][a-z0-9_]*\}")
++
++
++def strip_placeholder_tokens(text: str) -> tuple[str, list[str]]:
++    """Remove prompt-template placeholder tokens the model copied verbatim.
++
++    v1018-D014c. The enrichment prompts are INSTRUCTIONS; the real values
++    arrive in `prompt_body` below a `---` separator (see the ten
++    `load_prompt` call sites in processor.py, all of which do
++    `template + "\n\n---\n\n" + prompt_body`). The `{token}` forms inside
++    a template are ILLUSTRATIVE -- they show the model the shape of the
++    output it should produce. `prompts.render()` exists but has zero
++    callers; nothing substitutes them and nothing is meant to.
++
++    The defect is that the model sometimes copies an illustrative token
++    into its answer instead of substituting the value it can see below the
++    rule, so a customer's wiki page ends up carrying a literal
++    `{user_email}`. It is intermittent for exactly that reason -- a
++    plumbing bug would fire every time.
++
++    STRIPS rather than retries, deliberately. A retry costs a model call,
++    and v1018-D031 established that those run to 900s each and that the
++    step's total budget is the scarce resource. Dropping a token is
++    deterministic, free, and a strict improvement on shipping it.
++
++    Lowercase-initial only: `{user_email}` and `{conversation_id}` are
++    template tokens, while prose legitimately contains `{...}` in code
++    samples and JSON, and those overwhelmingly start with a quote, a
++    digit, an uppercase letter or a brace. Narrow beats clever here --
++    a missed token is a cosmetic defect, a false positive silently edits
++    the customer's content.
++
++    Returns the cleaned text and the sorted unique tokens removed, so the
++    caller can log WHICH ones fired rather than just that something did.
++    """
++    found = sorted(set(_PLACEHOLDER_TOKEN.findall(text)))
++    if not found:
++        return text, []
++    cleaned = _PLACEHOLDER_TOKEN.sub("", text)
++    # Collapse the double spaces and orphaned separators a removal leaves
++    # behind, so the sentence still reads.
++    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
++    cleaned = re.sub(r"[ \t]+([,.;:])", r"\1", cleaned)
++    cleaned = re.sub(r"\(\s*\)", "", cleaned)
++    return cleaned, found
++
++
+ def _extract_top_level_headings(text: str) -> list[str]:
+     """Return every `## Heading` line in `text`, skipping fenced code blocks.
+ 
+@@ -181,6 +264,78 @@
+     return headings
+ 
+ 
++def _extract_sub_headings(text: str) -> list[str]:
++    """Return every `### Heading` line in `text`, skipping fenced code.
++
++    Mirrors `_extract_top_level_headings`. The `(?!#)` guard keeps `####`
++    and deeper out, so a model that over-nests does not satisfy the
++    contract by accident.
++    """
++    headings: list[str] = []
++    in_fence = False
++    fence_re = re.compile(r"^```")
++    heading_re = re.compile(r"^###\s+(?!#)(.+?)\s*$")
++    for line in text.splitlines():
++        if fence_re.match(line):
++            in_fence = not in_fence
++            continue
++        if in_fence:
++            continue
++        m = heading_re.match(line)
++        if m:
++            headings.append(m.group(1).strip())
++    return headings
++
++
++def validate_subheadings(text: str, expected: list[str]) -> HeadingValidation:
++    """Validate that every expected `### Heading` appears in `text`.
++
++    Extras are NOT reported for sub-headings. A cleaned transcript
++    legitimately contains one `###` per speaker turn, so every real
++    document has dozens of them and an extras list would be noise.
++    """
++    if not expected:
++        return HeadingValidation(ok=True, missing=[], extras=[], found=[])
++    found = _extract_sub_headings(text)
++    found_lower = {h.lower() for h in found}
++    missing = [h for h in expected if h.lower() not in found_lower]
++    return HeadingValidation(
++        ok=not missing, missing=missing, extras=[], found=found,
++    )
++
++
++def build_section_contract(prompt_name: str) -> str:
++    """The section contract, as one string, for ANY pass over a document.
++
++    Single source of truth so the chunk-merge pass cannot drift from the
++    per-chunk pass -- that drift IS v1018-D014b. Callers append this to
++    whatever body they are building.
++    """
++    lines = [
++        "--- SECTION STRUCTURE REMINDER ---",
++        "You MUST use EXACTLY these section headings in this order. Do NOT",
++        "invent your own headings. Do NOT skip sections. If a section has no",
++        'content, write the heading followed by "_Nothing to report._"',
++        "",
++    ]
++    lines += [f"## {h}" for h in expected_headings_for(prompt_name)]
++    subs = expected_subheadings_for(prompt_name)
++    if subs:
++        lines += [
++            "",
++            "Inside `## " + expected_headings_for(prompt_name)[0] + "`, keep these",
++            "sub-sections, in this order, each with its own content:",
++            "",
++        ]
++        lines += [f"### {h}" for h in subs]
++        lines += [
++            "",
++            "`### " + subs[-1] + "` carries the prose. Metadata sub-sections",
++            "without it are not a summary.",
++        ]
++    return "\n".join(lines)
++
++
+ def build_system_prompt(prompt_name: str) -> str:
+     """Build the per-variant system prompt the LLM receives.
+ 
+--- a/src/ollama_client.py
++++ b/src/ollama_client.py
+@@ -109,12 +109,30 @@
+         """Call /api/generate and return raw response text."""
+         t0 = time.time()
+         url = f"{self.base_url}/api/generate"
+-        # Always pin a large context window + generation budget. Without
++        # Always pin an explicit context window + generation budget. Without
+         # num_ctx, Ollama silently truncates long transcripts to its small
+         # default window, degenerating extraction output to a bare `{}`
+         # (same class as the daemon's one-token #118 bug). num_predict=-1
+         # means "generate until done".
+-        options = {"temperature": temperature, "num_ctx": 32768, "num_predict": -1}
++        #
++        # The WINDOW is resolved, not hardcoded: install.sh sets
++        # OSTLER_ENRICH_NUM_CTX per resource tier, and a 16 GB Mac (the
++        # installer's hard minimum) sits at `low` = 8192. Pinning 32768 here
++        # would ask the smallest supported box for four times its own budget,
++        # in the very code path added to be polite about resources. On `high`
++        # the variable is deliberately empty and we fall back to 32768, which
++        # matches the daemon and so causes no model reload between turns.
++        num_ctx = 32768
++        try:
++            from .ollama_user_active import resolve_enrich_num_ctx
++            num_ctx = resolve_enrich_num_ctx()
++        except Exception as exc:  # pragma: no cover - defensive
++            logger.debug("enrichment num_ctx resolve skipped: %s", exc)
++        options = {
++            "temperature": temperature,
++            "num_ctx": num_ctx,
++            "num_predict": -1,
++        }
+         payload = {
+             "model": model,
+             "prompt": prompt,
+@@ -136,6 +154,16 @@
+             priority,
+             len(prompt),
+         )
++        # Yield to the user before starting a new request. This pipeline is a
++        # background enrichment job; while the user is actively chatting the
++        # daemon refreshes a lease file and we wait so their foreground chat
++        # keeps the Ollama slots. Crash-safe: a missing/stale lease returns
++        # immediately, and the helper's max_wait caps the yield.
++        try:
++            from .ollama_user_active import wait_until_user_idle
++            wait_until_user_idle()
++        except Exception as exc:  # pragma: no cover - defensive
++            logger.debug("user-active lease check skipped: %s", exc)
+         # Bypass any HTTP proxy for LAN Ollama calls
+         transport = httpx.HTTPTransport(proxy=None)
+         with httpx.Client(timeout=timeout or self.default_timeout, transport=transport) as client:
+--- /dev/null
++++ b/src/ollama_user_active.py
+@@ -0,0 +1,138 @@
++"""Cross-process "user-active lease" reader for background Ollama callers.
++
++The Ostler daemon (Rust) refreshes a lease file on every foreground chat
++turn so background batch jobs (wiki recompile, this enrichment pipeline)
++can yield their Ollama (:11434) slots to the user. This is the *reader*
++half of the contract; the daemon owns the *writer* half.
++
++Contract (agreed with the daemon side, Archie):
++
++- Path: ``~/.ostler/run/ollama-user-active``.
++- Format: a single integer = epoch-MILLIS "active until" (TTL ~8s,
++  refreshed per foreground turn).
++- Semantics: before starting a *new* background Ollama request, read the
++  file; while ``now_ms < active_until``, sleep briefly and re-check. Never
++  preempt an in-flight call.
++
++Crash-safety: a missing or garbage lease file is treated as "idle" so a
++background batch is never blocked by the daemon being absent, and a
++stuck/far-future lease can never deadlock the run (``max_wait`` caps the
++total yield).
++
++Pure stdlib so it can be vendored / duplicated per repo without adding a
++cross-repo dependency. Intentionally identical to the copies in the wiki
++compiler (CM044) and the cm024 knowledge package -- three small copies,
++no shared dep, no version-drift coupling.
++"""
++from __future__ import annotations
++
++import os
++import time
++from pathlib import Path
++
++# Default lease path. Override with OSTLER_USER_ACTIVE_LEASE for tests or
++# non-standard layouts.
++_DEFAULT_LEASE = "~/.ostler/run/ollama-user-active"
++
++
++def _lease_path() -> Path:
++    raw = os.environ.get("OSTLER_USER_ACTIVE_LEASE", _DEFAULT_LEASE)
++    return Path(raw).expanduser()
++
++
++def _read_active_until_ms(path: Path) -> int | None:
++    """Return the lease's epoch-millis value, or None if absent/garbage."""
++    try:
++        text = path.read_text(encoding="utf-8").strip()
++    except (FileNotFoundError, NotADirectoryError, IsADirectoryError, PermissionError, OSError):
++        return None
++    if not text:
++        return None
++    try:
++        return int(text)
++    except ValueError:
++        return None
++
++
++def wait_until_user_idle(
++    poll: float = 0.5,
++    max_wait: float = 30.0,
++    *,
++    path: Path | None = None,
++) -> float:
++    """Block while the user is active, then return.
++
++    Reads the lease file and, while ``now_ms < active_until``, sleeps for
++    ``poll`` seconds and re-checks. Returns the number of seconds spent
++    waiting (0.0 if the user was idle).
++
++    Args:
++        poll: seconds between re-checks while the user is active.
++        max_wait: hard cap on total wait so a stuck/far-future lease can
++            never deadlock a batch run. Returns once exceeded even if the
++            lease still reads active.
++        path: override the lease path (test seam).
++
++    Never raises on a missing/garbage lease -- that is treated as idle and
++    returns immediately.
++    """
++    lease = path if path is not None else _lease_path()
++    waited = 0.0
++    while True:
++        active_until = _read_active_until_ms(lease)
++        if active_until is None:
++            return waited
++        now_ms = time.time() * 1000.0
++        if now_ms >= active_until:
++            return waited
++        if waited >= max_wait:
++            return waited
++        step = min(poll, max(0.0, max_wait - waited))
++        if step <= 0:
++            return waited
++        time.sleep(step)
++        waited += step
++
++
++# ─── Enrichment context budget ────────────────────────────────────────────
++
++# Fallback when the installer has not set a budget. Matches the daemon's own
++# DEFAULT_NUM_CTX (crates/zeroclaw-providers/src/ollama.rs), which is the whole
++# point: a background caller that requests a DIFFERENT window from the
++# foreground daemon makes Ollama reload the model between the two sizes, which
++# is the churn this module exists to stop.
++_DEFAULT_ENRICH_NUM_CTX = 32768
++
++# Below this a request cannot hold its own prompt. Mirrors the daemon's own
++# floor so the two halves cannot disagree about what "too small" means.
++_MIN_NUM_CTX = 2048
++
++
++def resolve_enrich_num_ctx(default: int = _DEFAULT_ENRICH_NUM_CTX) -> int:
++    """Return the context window a BACKGROUND enrichment request should use.
++
++    WHY THIS IS NOT A CONSTANT. install.sh detects a resource tier and sets
++    OSTLER_ENRICH_NUM_CTX per tier: unset on `high` (>=32 GB), 8192 on `low`,
++    4096 on `floor`. A 16 GB Mac is `low`, and 16 GB is the installer's hard
++    minimum, so the BASELINE supported machine wants 8192 here. Hardcoding
++    32768 would ask the smallest supported box for four times its own budget,
++    in the very code path added to be polite about resources.
++
++    On `high` the variable is deliberately EMPTY, which means "no reduction":
++    fall through to `default` so the background window matches the daemon's
++    and no model reload happens between foreground and background turns.
++
++    Garbage, empty, or below `_MIN_NUM_CTX` all fall back to `default`. A
++    malformed budget must not silently shrink the window to something that
++    truncates the prompt, because Ollama truncates SILENTLY.
++    """
++    raw = os.environ.get("OSTLER_ENRICH_NUM_CTX", "").strip()
++    if not raw:
++        return default
++    try:
++        value = int(raw)
++    except ValueError:
++        return default
++    if value < _MIN_NUM_CTX:
++        return default
++    return value
 --- a/src/ostler_paths.py
 +++ b/src/ostler_paths.py
-@@ -370,11 +370,27 @@ def migrate_pwg_dotdir_if_needed(
+@@ -370,11 +370,27 @@
          return MigrationOutcome(status="locked")
-
+ 
      try:
 -        # Fresh install: nothing to migrate, but drop the
 -        # sentinel so subsequent launches short-circuit and
@@ -44,83 +543,280 @@
 +                legacy_root,
 +            )
              return MigrationOutcome(status="fresh_install")
-
+ 
          # Backup BEFORE touching anything. shutil.copytree
---- a/src/channel_adapter.py
-+++ b/src/channel_adapter.py
-@@ -828,6 +828,16 @@ def _build_extra_metadata(
-         reason = metadata.get("non_relational_reason")
-         if isinstance(reason, str) and reason.strip():
-             extra["non_relational_reason"] = reason.strip()
-+    # v1018-D021. Set by ``seed.seed_conversation`` on a bundle written
-+    # WITHOUT a model call, so the page is browseable on the tick the
-+    # thread arrives instead of weeks later. It must reach the frontmatter:
-+    # CM044 renders from these artefacts and has no other way to tell a
-+    # placeholder summary from a real one, and a reader has no way to tell
-+    # "the assistant read this and this is what it said" from "nothing has
-+    # read this yet". The full pass rewrites the same folder and, because
-+    # it never sets the flag, clears it.
-+    if metadata.get("enrichment_pending"):
-+        extra["enrichment_pending"] = True
-     return extra
+--- a/src/processor.py
++++ b/src/processor.py
+@@ -19,6 +19,8 @@
+ import hashlib
+ import json
+ import logging
++import os
++import time
+ import uuid
+ from dataclasses import asdict
+ from datetime import datetime, timezone
+@@ -365,6 +367,76 @@
  
  
---- a/src/cli.py
-+++ b/src/cli.py
-@@ -38,6 +38,22 @@ def main(argv: list[str] | None = None) -> int:
-     p_process.add_argument("--priority", default="medium", choices=["high", "medium", "low", "deferred"])
-     p_process.add_argument("--no-sinks", action="store_true")
- 
-+    # v1018-D021. The fast first pass: write the four artefacts with no
-+    # model call so a thread is browseable in the wiki on the tick it
-+    # arrives, then let `process` rewrite the same folder when enrichment
-+    # reaches it. Batched via a JSONL manifest because the whole point is
-+    # that a seed costs milliseconds -- one interpreter start per
-+    # conversation would dwarf the work.
-+    p_seed = sub.add_parser(
-+        "seed",
-+        help="Write four-artefact bundles with no LLM call (fast first pass)",
-+    )
-+    p_seed.add_argument(
-+        "manifest",
-+        type=Path,
-+        help='JSONL, one {"transcript": path, "metadata": path} per line',
-+    )
+ MAX_RETRIES = 3
 +
-     p_status = sub.add_parser("status", help="Show status of one or all conversations")
-     p_status.add_argument("conversation_id", nargs="?")
- 
-@@ -107,6 +123,8 @@ def main(argv: list[str] | None = None) -> int:
- 
-     if args.cmd == "process":
-         return cmd_process(args, settings)
-+    if args.cmd == "seed":
-+        return cmd_seed(args, settings)
-     if args.cmd == "status":
-         return cmd_status(args, settings)
-     if args.cmd == "retry":
-@@ -148,6 +166,24 @@ def cmd_process(args, settings) -> int:
-     return 0 if state.failed_step is None else 1
- 
- 
-+def cmd_seed(args, settings) -> int:
-+    """v1018-D021 fast first pass. Always exits 0 on a readable manifest.
++# --- v1018-D031: a total wall-clock allowance for the enrichment step ----
++#
++# Every LLM call in _step_enrich was already individually bounded at 900s.
++# That is why no per-call timeout could fix this: nothing was ever stuck.
++# The step simply has a very large BOUNDED worst case --
++#
++#   3-4 chunks x 900s + merge 900s + validation retry 900s   ~= 1h15m
++#   x MAX_RETRIES (3), backoff 30s + 60s                     ~= 4h30m
++#
++# -- four and a half hours, by design, for one email. On the shipped box a
++# single 236KB newsletter thread (2.8x the next largest document) sat in
++# this step from 03:47 until it was killed, holding the shared ingest lock
++# and stopping all four conversation feeds.
++#
++# So the ceiling belongs on the STEP, not on the call. Each call is given
++# whatever remains of the document's allowance, so the total cannot exceed
++# it however the chunks divide up.
++#
++# The deadline is module-level rather than threaded through
++# _merge_chunk_outputs / _validate_and_maybe_retry because pwg-convo
++# processes exactly ONE document per invocation (`pwg-convo process
++# <transcript> <metadata>`), single-threaded -- so there is never a second
++# concurrent budget in this process. Threading it through would mean
++# changing three signatures in a vendored tree whose source repo is
++# git-sick and whose divergence patch must be hand-crafted.
++_ENRICH_BUDGET_DEFAULT_SECS = 1800
++_ENRICH_CALL_CEILING_SECS = 900.0
 +
-+    A seed is an optimisation on top of the durable pipeline. Failing the
-+    caller because some conversations could not be seeded would stop the
-+    enrichment pass that follows, which is the thing that actually has to
-+    run. The counts are reported so a tick log still shows what happened.
++_enrich_deadline: float | None = None
++
++
++class EnrichmentBudgetExceeded(Exception):
++    """The enrichment step used up its total wall-clock allowance."""
++
++
++def _enrich_budget_secs():
++    """Total allowance for one document, or None for unbounded.
++
++    ``OSTLER_ENRICH_BUDGET_SECS=0`` restores the old behaviour. A
++    malformed value falls back to the default rather than raising -- a
++    typo in an env var must not be the thing that stops ingest.
 +    """
-+    from .seed import seed_from_manifest
++    raw = os.environ.get("OSTLER_ENRICH_BUDGET_SECS")
++    if raw is None or not raw.strip():
++        return float(_ENRICH_BUDGET_DEFAULT_SECS)
++    try:
++        secs = float(raw)
++    except ValueError:
++        return float(_ENRICH_BUDGET_DEFAULT_SECS)
++    return None if secs <= 0 else secs
 +
-+    if not args.manifest.exists():
-+        print(f"No such manifest: {args.manifest}", file=sys.stderr)
-+        return 2
-+    seeded, other = seed_from_manifest(args.manifest, settings)
-+    print(json.dumps({"seeded": seeded, "skipped_or_failed": other}))
-+    return 0
++
++def _budget_timeout(ceiling: float = _ENRICH_CALL_CEILING_SECS) -> float:
++    """Timeout for the next LLM call: whatever is left of the allowance.
++
++    Raises EnrichmentBudgetExceeded rather than issuing a call that
++    cannot finish inside the document's remaining time.
++    """
++    if _enrich_deadline is None:
++        return ceiling
++    remaining = _enrich_deadline - time.monotonic()
++    if remaining <= 0:
++        raise EnrichmentBudgetExceeded(
++            f"enrichment budget exhausted before the next model call "
++            f"(allowance {_enrich_budget_secs()}s; raise or disable it with "
++            f"OSTLER_ENRICH_BUDGET_SECS)"
++        )
++    return min(ceiling, remaining)
++# ------------------------------------------------------------------------
+ BASE_DELAY_SECONDS = 30
+ 
+ 
+@@ -379,6 +451,14 @@
+     """
+     import httpx
+ 
++    # v1018-D031. Retrying a budget exhaustion just spends the budget
++    # again, and MAX_RETRIES would multiply the step ceiling by three --
++    # which is precisely the arithmetic that made a 4h30m worst case
++    # possible in the first place. Checked FIRST because the function
++    # ends in `return True`: every unrecognised exception is retried.
++    if isinstance(exc, EnrichmentBudgetExceeded):
++        return False
++
+     if isinstance(exc, (TimeoutError, ConnectionError, OSError)):
+         return True
+     if isinstance(exc, httpx.TimeoutException):
+@@ -592,7 +672,42 @@
+     sidecar_path = state_dir / "02_enrichment_sidecar.json"
+     if out_path.exists():
+         return
++
++    # v1018-D031. Arm the document's total allowance. Disarmed in the
++    # finally below so a later step never inherits a spent budget, and so
++    # a _run_step retry starts from a full one rather than a stale
++    # deadline in the past.
++    global _enrich_deadline
++    _budget = _enrich_budget_secs()
++    _enrich_deadline = None if _budget is None else time.monotonic() + _budget
++    if _budget is not None:
++        logger.info(
++            "Enrichment budget for %s: %.0fs total across all model calls.",
++            metadata["conversation_id"],
++            _budget,
++        )
++    try:
++        _step_enrich_inner(
++            client, transcript, metadata, classification, settings, dry_run,
++            state_dir, out_path, sidecar_path,
++        )
++    finally:
++        _enrich_deadline = None
++    return
+ 
++
++def _step_enrich_inner(
++    client: OllamaClient,
++    transcript: str,
++    metadata: dict,
++    classification: Classification,
++    settings: Settings,
++    dry_run: bool,
++    state_dir,
++    out_path,
++    sidecar_path,
++) -> None:
++
+     prompt_name = prompts.enrichment_prompt_name_for(
+         classification.suggested_type_slug
+     )
+@@ -635,7 +750,7 @@
+             full_prompt,
+             system=enrichment_system,
+             priority="medium",
+-            timeout=900.0,
++            timeout=_budget_timeout(),
+         )
+         rendered, retry_attempted, validation = _validate_and_maybe_retry(
+             client=client,
+@@ -645,6 +760,17 @@
+             expected_headings=expected_headings,
+             settings=settings,
+         )
++        # v1018-D014c: last stop before the customer's wiki page. A
++        # placeholder the model copied out of the prompt template must not
++        # reach disk. Stripped, not retried -- see the helper's docstring.
++        rendered, _dropped = enrichment_validation.strip_placeholder_tokens(rendered)
++        if _dropped:
++            logger.warning(
++                "Dropped %d prompt-template placeholder(s) from %s output: %s",
++                len(_dropped),
++                metadata.get("conversation_id"),
++                ", ".join(_dropped),
++            )
+         out_path.write_text(rendered)
+         # Pre-meeting brief input: walk the enrichment's Action items
+         # table and emit a per-participant outstanding_todos.json
+@@ -705,7 +831,7 @@
+                 full_prompt,
+                 system=enrichment_system,
+                 priority="medium",
+-                timeout=900.0,
++                timeout=_budget_timeout(),
+             )
+             per_chunk_outputs.append(result.raw_response)
+ 
+@@ -740,6 +866,17 @@
+             expected_headings=expected_headings,
+             settings=settings,
+         )
++        # v1018-D014c: last stop before the customer's wiki page. A
++        # placeholder the model copied out of the prompt template must not
++        # reach disk. Stripped, not retried -- see the helper's docstring.
++        rendered, _dropped = enrichment_validation.strip_placeholder_tokens(rendered)
++        if _dropped:
++            logger.warning(
++                "Dropped %d prompt-template placeholder(s) from %s output: %s",
++                len(_dropped),
++                metadata.get("conversation_id"),
++                ", ".join(_dropped),
++            )
+         out_path.write_text(rendered)
+         # See note above (single-chunk branch) for the rationale on
+         # extracting outstanding_todos here rather than during ingest.
+@@ -770,6 +907,31 @@
+                 },
+             },
+         )
 +
 +
- def cmd_status(args, settings) -> int:
-     if args.conversation_id:
-         path = settings.processing_state_dir / args.conversation_id / "state.json"
++def _validate_document(
++    text: str, prompt_name: str, expected_headings: list[str],
++):
++    """Validate a document against BOTH heading levels.
++
++    v1018-D014b. The `##` check alone passed a merged document whose
++    `### Narrative` had been dropped -- the check was one level coarser
++    than the defect, so the defect was invisible to it. A missing
++    sub-section is reported as `### Name` so the retry prompt and the
++    log say which level is wrong.
++    """
++    top = enrichment_validation.validate_headings(text, expected_headings)
++    subs = enrichment_validation.validate_subheadings(
++        text, enrichment_validation.expected_subheadings_for(prompt_name),
++    )
++    if subs.ok:
++        return top
++    return enrichment_validation.HeadingValidation(
++        ok=False,
++        missing=top.missing + [f"### {m}" for m in subs.missing],
++        extras=top.extras,
++        found=top.found + subs.found,
++    )
+ 
+ 
+ def _validate_and_maybe_retry(
+@@ -790,9 +952,7 @@
+     is still written - downstream consumers will see whatever the model
+     produced and the sidecar records the gap.
+     """
+-    validation = enrichment_validation.validate_headings(
+-        initial_text, expected_headings,
+-    )
++    validation = _validate_document(initial_text, prompt_name, expected_headings)
+     if validation.ok:
+         if validation.extras:
+             logger.info(
+@@ -814,10 +974,10 @@
+         full_prompt,
+         system=retry_system,
+         priority="medium",
+-        timeout=900.0,
++        timeout=_budget_timeout(),
+     )
+-    retry_validation = enrichment_validation.validate_headings(
+-        retry_result.raw_response, expected_headings,
++    retry_validation = _validate_document(
++        retry_result.raw_response, prompt_name, expected_headings,
+     )
+     if not retry_validation.ok:
+         logger.warning(
+@@ -937,6 +1097,8 @@
+ {conventions}
+ 
+ {chunks_body}
++
++{enrichment_validation.build_section_contract(prompt_name)}
+ """
+     merge_system = (
+         "You are merging multiple enrichment outputs into one coherent "
+@@ -949,7 +1111,7 @@
+         full_prompt,
+         system=merge_system,
+         priority="medium",
+-        timeout=900.0,
++        timeout=_budget_timeout(),
+     )
+     return result.raw_response
+ 
