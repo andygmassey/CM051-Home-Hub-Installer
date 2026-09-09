@@ -207,6 +207,74 @@ description: |
   #
   # ONE TAG PUSH. Item 4.
 
+  # =========================================================================
+  # POST-TAG CORRECTIONS. Written after refs/tags/v1.0.83 was pushed ONCE at
+  # db5319542064b67e8b023b1d06d7d8111ba89e0c, 2026-09-09T19:41:42Z.
+  # =========================================================================
+  # NOTHING BELOW CHANGES THE ARTEFACT. It changes the RECORD. It is appended
+  # rather than edited into the text above so the wrong version stays readable,
+  # which is the rule this file already applied to the ingest_coverage finding.
+  #
+  # 1. THIS FILE CONTRADICTED ITSELF ABOUT install_error_honesty, AND THE WRONG
+  #    HALF IS THE ONE A READER HITS FIRST. Lines 181-182 say the .pth ordering
+  #    defect is "Not fixed in this cut". Lines 199-201 say the store-auth .pth
+  #    import guard IS in the artefact. THE SECOND IS RIGHT AND THE FIRST IS
+  #    VOID. CM051 #1886, merge 2845cad3, is BOM row 3 of 3, counted on
+  #    cuts/v1.0.83/MUST_CONTAIN.tsv AT THE TAG rather than remembered, and
+  #    2845cad3 is this cut's own branch point.
+  #
+  # 2. THE APPARATUS FIXES ARE NO LONGER "IN FLIGHT". Three merged before the
+  #    tag and one after. This matters because a walk is artefact X judged by
+  #    instrument Y: the DMG is fixed at the tag, the probes are whatever the
+  #    walk checkout holds. Ancestry measured against refs/tags/v1.0.83 with
+  #    git merge-base, ALL FOUR, and the fourth is its own control: a reading in
+  #    which everything came back IN would prove only that the test cannot say
+  #    NO.
+  #
+  #      #1885  8e5a451f  19:08:19Z  conversation seed quoting   IN the tag
+  #      #1886  2845cad3  19:09:08Z  .pth guard, ARTEFACT        IN the tag
+  #      #1888  668e819a  19:28:37Z  preference seed compile     IN the tag
+  #      #1887  50cd1f7d  19:43:12Z  ingest_coverage NEVER-RAN   NOT in the tag
+  #
+  # 3. SO TWO FORECASTS ABOVE ARE NOW STALE, BOTH IN THE FAVOURABLE DIRECTION,
+  #    AND SAYING SO IS THE POINT: a forecast that only ever gets corrected
+  #    downward is not a forecast, it is a hedge.
+  #
+  #    pwg_preferences was forecast STRUCTURAL AND UNMOVED, on the reasoning
+  #    that the tool reads an hourly-compiled profile that predates the seed.
+  #    That reasoning is still correct about the PRODUCT and is still a customer
+  #    fact: a fresh customer's assistant knows no preferences for up to an hour
+  #    after install, and this cut does not change that. But #1888 makes the
+  #    SEED kickstart the compile, wait for generated_at to advance, and read
+  #    the subject back through the same API the tool reads, so the WALK can now
+  #    find the seed's rows. The probe may move. The product note stands.
+  #
+  #    ingest_coverage was forecast to stay FAIL with its fixes "in flight" and
+  #    "not in the DMG, so neither gates this cut's branch point". Both halves
+  #    are still true of the ARTEFACT and both are now false of the WALK: #1887
+  #    carries the NEVER-RAN arm and the wiped-box baseline reset, and it is in
+  #    the instrument if the walk checkout is taken at main's head after
+  #    19:43:12Z, which is how it is being run.
+  #
+  #    THE VERDICT RULE IS UNCHANGED. Under Andy's decision A, if every other
+  #    probe passes and usage_journal_producers does not, the record reads
+  #    FAILED. A probe moving because the instrument was fixed is a real move
+  #    only where the instrument was wrong, and for these two it was.
+  #
+  # 4. allow_private_hosts IS CARRIED FORWARD AND THIS FILE OMITTED IT. The
+  #    v1.0.82 manifest committed it in writing: "It is flipped in the cut AFTER
+  #    this one, behind ONE BEHAVIOURAL ARM run on the walk box: the daemon with
+  #    the flag FALSE, a pwg_ tool still answering, and #608's own probe green."
+  #    THIS IS THE CUT AFTER THAT ONE AND IT IS NOT FLIPPED. The reason is
+  #    sound and was never written down here: v1.0.83 is producers-only and
+  #    install.sh is BYTE-IDENTICAL to its branch point, blob
+  #    113a289a85b048bc7ad76f802f3d9a66cb3e7ec3 at 2845cad3 and at v1.0.83, so
+  #    nothing in this artefact could have flipped a flag install.sh writes.
+  #    The commitment is not discharged and is not cancelled; it moves to the
+  #    next cut with the same behavioural arm attached. A carried commitment
+  #    that quietly stops being mentioned is indistinguishable from one nobody
+  #    kept, which is the whole reason it is written here instead.
+
 entries:
 
   # ==========================================================================
