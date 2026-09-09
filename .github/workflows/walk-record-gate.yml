@@ -75,6 +75,11 @@ on:
       # without running the suite that guards it.
       - 'scripts/box_walk_probes/lib/conversation_seed.sh'
       - 'tests/test_the_walk_seeds_the_conversation.sh'
+      # The usage seed: the same discipline on the producer that had nothing
+      # to write. Lib and test together, for the reason above -- a PR could
+      # otherwise narrow the lib without running the test that guards it.
+      - 'scripts/box_walk_probes/lib/usage_seed.sh'
+      - 'tests/test_the_walk_seeds_the_usage_producer.sh'
       # Same rule as the workflow-self-trigger below, applied to a test: a
       # suite this workflow RUNS but does not WATCH is dark on self-edit --
       # it could be narrowed, or gutted, in a PR that never runs it. I added
@@ -584,6 +589,30 @@ jobs:
       - name: The walk seeds one conversation, and a seed that did not work is not a FAIL
         if: always()
         run: /bin/bash tests/test_the_walk_seeds_the_conversation.sh
+      # THE PRODUCER THAT HAD NOTHING TO WRITE. The two steps above give a
+      # probe CONTENT. usage_journal_producers needed WORK: on v1.0.81
+      # cm051_ostler_fda_ingest was absent from a journal holding 557 parsed
+      # rows, and the writer was not the reason. A row is written only on a
+      # MEASURED embedding call (pwg_ingest.py:65-66), and the one ingest leg
+      # with guaranteed input on a wiped box was skipped by a hydrate sentinel
+      # that ttywalk's --reset does not clear (install.sh:26392-26413 gating
+      # :29374). So "the writer is broken" and "the writer was never asked"
+      # printed identically.
+      #
+      # Pins the wiring and the three-outcome discipline: the runner sources
+      # lib/usage_seed.sh above the phase-2 loop with the forget below it; the
+      # runtime assumption (a real /api/embed reporting a USABLE
+      # prompt_eval_count, observed once on the walk box at
+      # 2026-09-09T17:42:35Z under Ollama 0.33.3 and re-measured every walk
+      # because one box is not every box) is measured before anything is built
+      # on it and is CANNOT-RUN when absent or zero; the JOURNAL DELTA is the verdict and the sweep's exit code
+      # never is; a zero delta on a status-ok sweep is a named FINDING. Its
+      # mutation arm disables the delta check and requires the suite to notice.
+      # The stub box runs the real remote command text through /bin/sh, so this
+      # needs no box and no network.
+      - name: The walk runs the people sweep, so the FDA usage producer is measured
+        if: always()
+        run: /bin/bash tests/test_the_walk_seeds_the_usage_producer.sh
 
       # THE OTHER HALF OF A HONEST PEOPLE READING. The seed above gives the
       # grounded probe a fact to look for; this gives the two COUNT-reading
