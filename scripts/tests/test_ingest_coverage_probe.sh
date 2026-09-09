@@ -121,6 +121,148 @@ if [ "$V" != "VERDICT: CANNOT-RUN" ]; then fail arm6-unreadable "got '${V}', exp
 elif [ "$(printf '%s' "$OUT" | grep -cF 'not readable')" -eq 0 ]; then fail arm6-unreadable-reason "populated unreadable conf reported as empty, not as denied -- the exact residual-a defect"
 else note "arm6 unreadable populated conf -> CANNOT-RUN, reason names permission not emptiness ✅"; fi
 
+# ============================================================================
+# THE TOP-UP AGENT PARSER, DRIVEN ON REAL launchctl print TEXT (v1.0.82 walk,
+# 2026-09-09). Until this section existed the self-test substituted the WHOLE
+# health verdict (FAKE_topup_health) and returned before the awk, so no test
+# had ever run the parser: this file read 0 for "last exit code" and 0 for
+# "never exited". The walk then printed "top-up agent com.ostler.fda-rerun :
+# DEAD:(never" about an agent whose launchctl print said runs = 0 and last
+# exit code = (never exited), and convicted the box.
+#
+# Same shape as tests/test_an_absent_launchd_domain_is_not_a_service_that_is_down.sh:
+# extract the reader by FUNCTION NAME (never a line number), drive it against
+# fixture text, and pin a negative control to the pre-fix blob so the harness
+# is shown to measure the change. Exit 2 (CANNOT-RUN) when a reader or the
+# control blob cannot be read: scanning nothing is not a pass.
+# ============================================================================
+printf '\nparser arms: topup_health_from_print on the four launchctl print forms\n'
+
+# The four forms as launchctl print renders them (tab-indented, one body).
+# No "path = " line: the parser never reads it, and a home-directory-shaped
+# literal trips the operator-PII shape scan.
+_lc_body() { # $1 = the value after "last exit code = "   $2 = runs
+    printf 'gui/502/com.ostler.fda-rerun = {\n\tactive count = 0\n\ttype = LaunchAgent\n\tstate = not running\n\n\tprogram = /bin/bash\n\n\truns = %s\n\tlast exit code = %s\n\n\trun interval = 3600 seconds\n}\n' "$2" "$1"
+}
+LC_NEVER="$(_lc_body '(never exited)' 0)"
+LC_ZERO="$(_lc_body '0' 3)"
+LC_ONE="$(_lc_body '1' 3)"
+LC_EX_CONFIG="$(_lc_body '78: EX_CONFIG' 3)"
+
+# Extract one function from a tree, pinned to its name.
+_extract_fn() { # $1 tree  $2 function name
+    awk -v fn="$2" '
+        $0 ~ ("^" fn "\\(\\) \\{") { f = 1 }
+        f { print }
+        f && /^\}$/ { exit }
+    ' "$1"
+}
+
+# Drive the NEW parser (pure: text in, state out) from a tree. Prints the state.
+_drive_parser() { # $1 tree  $2 launchctl text
+    local fn r="${WORK}/parser"
+    rm -rf "$r"; mkdir -p "$r"
+    fn="$(_extract_fn "$1" topup_health_from_print)"
+    [ -n "$fn" ] || { printf 'NOFN'; return; }
+    printf '%s' "$2" > "$r/fixture"
+    {
+        printf '%s\n' 'set -uo pipefail'
+        printf '%s\n' "$fn"
+        printf '%s\n' 'topup_health_from_print "$(cat "$1")"'
+    } > "$r/run.sh"
+    bash "$r/run.sh" "$r/fixture" 2>/dev/null
+}
+
+# Drive the OLD reader (topup_agent_health, which read the box itself) from a
+# tree, with box_run stubbed so the launchctl text is presented deterministically.
+_drive_old() { # $1 tree  $2 launchctl text
+    local fn r="${WORK}/old"
+    rm -rf "$r"; mkdir -p "$r"
+    fn="$(_extract_fn "$1" topup_agent_health)"
+    [ -n "$fn" ] || { printf 'NOFN'; return; }
+    printf '%s' "$2" > "$r/fixture"
+    {
+        printf '%s\n' 'set -uo pipefail'
+        printf '%s\n' 'TOPUP_AGENT=com.ostler.fda-rerun'
+        printf '%s\n' 'box_run() { case "$1" in "id -u") printf "502\n" ;; *launchctl*) cat "$FIXTURE" ;; *) : ;; esac; }'
+        printf '%s\n' "$fn"
+        printf '%s\n' 'topup_agent_health'
+    } > "$r/run.sh"
+    FIXTURE="$r/fixture" SELF_TEST_LOCAL=0 bash "$r/run.sh" 2>/dev/null
+}
+
+# ── subject: this tree ──
+S="$(_drive_parser "$PROBE" "$LC_NEVER")"
+case "$S" in
+    NOFN) echo "CANNOT-RUN: topup_health_from_print was not found in ${PROBE}." >&2; exit 2 ;;
+    NEVER-RAN:runs=0) note "parser: (never exited) + runs = 0 -> ${S} ✅" ;;
+    DEAD:*) fail parser-never-DEAD "(never exited) read as ${S}: the v1.0.82 conviction, an agent that never fired called dying" ;;
+    *) fail parser-never "(never exited) read as '${S}', expected NEVER-RAN:runs=0" ;;
+esac
+
+S="$(_drive_parser "$PROBE" "$LC_ONE")"
+case "$S" in
+    DEAD:1) note "parser CONTROL: a genuine last exit code = 1 (runs = 3) -> ${S}, never NEVER-RAN ✅" ;;
+    NEVER-RAN:*) fail parser-one-neverran "a real exit 1 read as ${S}: the fix blinded the reader to a dying agent" ;;
+    *) fail parser-one "last exit code = 1 read as '${S}', expected DEAD:1" ;;
+esac
+
+S="$(_drive_parser "$PROBE" "$LC_ZERO")"
+[ "$S" = "HEALTHY" ] && note "parser CONTROL: last exit code = 0 -> HEALTHY ✅" || fail parser-zero "last exit code = 0 read as '${S}', expected HEALTHY"
+
+S="$(_drive_parser "$PROBE" "$LC_EX_CONFIG")"
+case "$S" in
+    DEAD:78) note "parser: last exit code = 78: EX_CONFIG -> ${S}, the code alone, no trailing colon ✅" ;;
+    DEAD:78:*) fail parser-exconfig-colon "78: EX_CONFIG read as '${S}': a malformed reason code would reach walks/*.tsv" ;;
+    *) fail parser-exconfig "78: EX_CONFIG read as '${S}', expected DEAD:78" ;;
+esac
+
+S="$(_drive_parser "$PROBE" "$(printf 'gui/502/com.ostler.fda-rerun = {\n\tstate = not running\n}\n')")"
+[ "$S" = "UNKNOWN:NO_EXIT_CODE_FIELD" ] && note "parser CONTROL: a body with no exit-code field -> ${S}, not a guess ✅" || fail parser-nofield "field-less body read as '${S}', expected UNKNOWN:NO_EXIT_CODE_FIELD"
+
+# ── the seam the WHOLE probe reads the text through (FAKE_topup_print) ──
+# FLAT baseline + the never-exited body -> PASS naming NEVER-RAN and the interval.
+BL_FLAT="${WORK}/bl_flat.tsv"
+printf 'conversations\t1024\t2026-01-01T00:00:00Z\npeople\t6889\t2026-01-01T00:00:00Z\nsafari_history\t8788\t2026-01-01T00:00:00Z\npreferences\t9025\t2026-01-01T00:00:00Z\n' > "$BL_FLAT"
+OUT="$(SELF_TEST_LOCAL=1 OSTLER_INGEST_BASELINE="$BL_FLAT" FAKE_topup_print="$LC_NEVER" FAKE_ollama=REACHABLE \
+       FAKE_conversations=1024 FAKE_people=6889 FAKE_safari_history=8788 FAKE_preferences=9025 \
+       bash "$PROBE" 2>&1)"; RC=$?
+if [ "$RC" -ne 0 ]; then fail seam-rc "whole probe on FLAT + never-exited text exited ${RC}, expected 0 (PASS)"
+elif [ "$(grep -c 'top-up agent com.ostler.fda-rerun : NEVER-RAN:runs=0' <<<"$OUT")" -ne 1 ]; then fail seam-state "PASS but the note does not carry NEVER-RAN:runs=0"
+elif [ "$(grep -c 'StartInterval 3600s (read from launchctl print)' <<<"$OUT")" -ne 1 ]; then fail seam-interval "PASS but the interval was not read from the text"
+else note "whole probe: FLAT + never-exited launchctl text -> PASS (rc 0), NEVER-RAN:runs=0, StartInterval 3600s read ✅"; fi
+
+# ── NEGATIVE CONTROL, pinned to the tree that convicted v1.0.82 ──
+_CONTROL_SHA="ae5707d4"
+printf 'negative control: %s (the parser that ran on the v1.0.82 walk)\n' "$_CONTROL_SHA"
+CTL="${WORK}/ctl_probe.sh"
+if ! git -C "$HERE" show "${_CONTROL_SHA}:scripts/box_walk_probes/probes/ingest_coverage.sh" > "$CTL" 2>/dev/null; then
+    echo "CANNOT-RUN: control blob ${_CONTROL_SHA}:scripts/box_walk_probes/probes/ingest_coverage.sh is unreadable." >&2
+    echo "  A shallow clone cannot see it, and scanning nothing must not read as a passing control." >&2
+    exit 2
+fi
+S="$(_drive_old "$CTL" "$LC_NEVER")"
+case "$S" in
+    NOFN) echo "CANNOT-RUN: topup_agent_health was not found in the control blob." >&2; exit 2 ;;
+    "DEAD:(never") note "control ${_CONTROL_SHA}: (never exited) -> ${S}, the v1.0.82 reading reproduced ✅" ;;
+    NEVER-RAN:*) fail control-already-fixed "control ${_CONTROL_SHA} already reads NEVER-RAN, so this harness is not measuring the change" ;;
+    *) fail control-other "control ${_CONTROL_SHA} read '${S}'; the walk record says DEAD:(never, so the harness is not reproducing the defect" ;;
+esac
+S="$(_drive_old "$CTL" "$LC_EX_CONFIG")"
+[ "$S" = "DEAD:78:" ] && note "control ${_CONTROL_SHA}: 78: EX_CONFIG -> ${S}, the trailing-colon code reproduced ✅" || fail control-exconfig "control read '${S}' for 78: EX_CONFIG, expected the malformed DEAD:78:"
+# CONTROL ON THE CONTROL: the pre-fix reader must be RIGHT about the forms it
+# did handle, or its red above could be general breakage of the harness.
+S="$(_drive_old "$CTL" "$LC_ZERO")"
+[ "$S" = "HEALTHY" ] && note "control on the control: pre-fix reader reads exit 0 as HEALTHY, so (never exited) is the discriminator ✅" || fail control-on-control "pre-fix reader read exit 0 as '${S}'; its red proves nothing specific"
+
+# ── the probe's own negative control, as run_box_walk.sh PHASE 1 reads it ──
+# Exit 1 means every arm behaved; anything else marks the probe BROKEN on the
+# walk and its real measurement is discarded.
+RC=0; SELF_OUT="$(bash "$PROBE" --self-test 2>&1)" || RC=$?
+if [ "$RC" -ne 1 ]; then fail selftest-rc "probe --self-test exited ${RC}, expected 1; the walk would mark it BROKEN"
+elif [ "$(grep -c 'BROKEN' <<<"$SELF_OUT")" -ne 0 ]; then fail selftest-broken "probe --self-test exited 1 but an arm printed BROKEN"
+else note "probe --self-test: exit 1 with $(grep -c ' OK: ' <<<"$SELF_OUT") arms OK and 0 BROKEN ✅"; fi
+
 echo
 [ -n "$FAILURES" ] && { printf 'RESULT: FAILURES ->%s\n' "$FAILURES"; exit 1; }
 printf 'RESULT: all arms passed\n'
