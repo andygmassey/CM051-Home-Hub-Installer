@@ -105,7 +105,16 @@ SWIFT_TEST_DIRS = ("gui/OstlerInstallerTests",)
 # Keyed by REPO-RELATIVE PATH, not basename, for the same reason as Swift: a
 # bare basename could collide with a tests/ file of the same name and silently
 # merge two rows into one.
-SCRIPT_TEST_DIRS = ("scripts/tests",)
+# context-refresh/tests joined on 2026-09-09, and it is the same shape as
+# scripts/tests was: two python test files, BOTH run by
+# .github/workflows/context-digest-auth.yml and both invisible to this
+# manifest, so the header count silently excluded them. Found the way the last
+# one was found, by trying to record a row for a test and watching
+# --regenerate delete it: a manifest that cannot enumerate a file cannot be
+# hand-corrected either, and the hand correction is what surfaced the gap.
+# Neither file grows the unwired set; both resolve WIRED on the workflow that
+# already names them.
+SCRIPT_TEST_DIRS = ("scripts/tests", "context-refresh/tests")
 
 # What it takes to START a Swift test. Xcode runs a TARGET, never a file, so
 # searching starters for an individual .swift filename would be the wrong

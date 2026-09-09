@@ -266,6 +266,42 @@ def test_context_md_written_with_valid_token(hub, tmp_path):
     )
 
 
+def test_the_digest_names_exactly_one_route_to_the_graph(hub, tmp_path):
+    """The shipped digest must name the pwg_ tools and nothing else.
+
+    It used to end by telling the model to fetch people live with the
+    http_request tool against http://127.0.0.1:8090/api/v1/people/*. That
+    route works, and install.sh enables allow_private_hosts for it on
+    purpose, but it is invisible to everything that asks WHICH tool answered
+    a turn: assistant_answers_grounded grades on a pwg_ tool having run, so a
+    correct answer fetched that way scores memory_only, one of the two shapes
+    behind that probe's FAIL on the v1.0.79 walk.
+
+    ASSERTED ON THE FILE THE INSTALL WRITES, not on the source that builds
+    it, because this file IS the copy that ships and a grep of the generator
+    would pass on prose that never reaches a customer.
+
+    MUST-MISS AND MUST-HIT TOGETHER: a digest naming NEITHER route would
+    satisfy the must-miss while telling the model nothing.
+    """
+    workspace = tmp_path / "workspace"
+    _run(hub, workspace, token=_GOOD_TOKEN)
+    body = (workspace / "CONTEXT.md").read_text(encoding="utf-8")
+    assert body.strip(), "no digest to inspect"
+
+    assert "http_request tool" not in body, (
+        "the shipped digest instructs a second route to the graph; a turn "
+        "that follows it reaches the real graph and is graded memory_only"
+    )
+    assert "/api/v1/people/search" not in body, (
+        "the shipped digest still hands the model a raw graph URL to fetch"
+    )
+    assert "pwg_people" in body, (
+        "the lookup paragraph must name the route it DOES want, or it is a "
+        "refusal with no destination"
+    )
+
+
 def test_token_is_read_from_the_secrets_file_when_env_is_unset(hub, tmp_path):
     """Fresh installs never seeded the env for this agent, so the file
     fallback is the path that actually runs on a customer Mac."""
