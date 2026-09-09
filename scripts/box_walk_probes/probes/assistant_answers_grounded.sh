@@ -256,10 +256,22 @@ while time.time() < deadline:
         # SUBSTRING of the label or slug, so a question passed as a filter
         # matches nothing. Whether that happened is not recorded anywhere.
         #
-        # KEYS AND LENGTHS, NEVER VALUES. This record is committed to a public
-        # repo and a tool argument can carry a person's name or a search term
-        # about them. The key names and a length answer "did it filter and with
-        # roughly what" without carrying the content.
+        # KEYS AND LENGTHS, NEVER VALUES. These lines are probe STDOUT, not the
+        # committed record: measured, zero FRAME lines appear in any of the 15
+        # files under walks/, and neither run_box_walk.sh nor post_walk_qa.sh
+        # references FRAME at all. But stdout is routinely pasted into public
+        # PRs, issues and channel posts, so values never go in either. A tool
+        # argument can carry a person's name or a search term about them; the
+        # key names and a length answer "did it filter, and with roughly what"
+        # without carrying the content.
+        #
+        # THE REASON MATTERS AS MUCH AS THE RULE. An earlier draft of this
+        # comment justified the discipline with "this record is committed to a
+        # public repo", which is false of FRAME lines. A caution with a wrong
+        # justification is fragile in a specific way: the next reader checks
+        # whether FRAME lines reach the record, finds they do not, and concludes
+        # the caution is unnecessary. State the true reason or the rule dies of
+        # its own footnote.
         _a = ev.get("arguments")
         if isinstance(_a, str):
             try: _a = json.loads(_a)
