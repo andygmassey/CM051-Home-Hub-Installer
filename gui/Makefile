@@ -342,7 +342,18 @@ HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
 # The Hub app is ADHOC SIGNED BY DESIGN: Signature=adhoc, TeamIdentifier=not
 # set, `stapler validate` rc=65. That is the CORRECT reading, and the daemon's
 # rc=0 on the same command is the positive control that proves the probe works.
-HUB_APP_SHA256       ?= 1bad546c79a1449ab8bcf4156819b8bc159ed20b57fa8b08292d09cb1396c353
+# v1.0.81 (2026-09-09 ORM): 1bad546c -> 2e2e5ea9, hub-v0.4.76, built from
+# 42abcf8a -- the SAME commit as the v0.4.76 daemon above, so
+# verify-commit-parity keeps its meaning. THIS PIN COST v1.0.80. That tag
+# moved DAEMON_VERSION to 0.4.76 and left this digest on the 0.4.75 bundle,
+# so the cut fetched an Ostler.app it then refused fail-closed. The sweep
+# that missed it searched for the outgoing DAEMON sha and the outgoing
+# version -- and this block says three lines up to sweep for the outgoing
+# SHA-256 too, which is right and which I read only afterwards. There are
+# TWO digests here, each with its own outgoing value; a sweep keyed on one
+# of them cannot see the other, because a digest does not contain its
+# version. Bump BOTH or the bump lands half done, exactly as written.
+HUB_APP_SHA256       ?= 2e2e5ea9b592b7d239fb7bb4c68b8dbbd6c860d7996391f3151d9e2b826625f4
 
 # ---------------------------------------------------------------------------
 # SAFARI EXTENSION (CM020) -- the third artefact the cut cannot build itself.
