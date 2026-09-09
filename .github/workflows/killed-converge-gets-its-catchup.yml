@@ -23,6 +23,7 @@ on:
     paths:
       - 'install.sh'
       - 'tests/test_a_killed_converge_still_gets_its_catchup_agent.sh'
+      - 'tests/test_the_merge_budget_scales_with_the_address_book.sh'
       - '.github/workflows/killed-converge-gets-its-catchup.yml'
   push:
     branches: [main]
