@@ -61,6 +61,13 @@ on:
       - 'tests/test_the_converge_wait_resolves_the_credential_path.sh'
       - 'scripts/box_walk_probes/lib/converge_wait.sh'
       - 'scripts/box_walk_probes/lib/grounding_seed.sh'
+      # The preference seed: the same discipline on the other write route.
+      # The lib, its test and the fixture-facing docs all go in the watch
+      # set together, or a PR could narrow the lib without running the test
+      # that guards it (the 'DARK ON SELF-EDIT' case this file already
+      # records for test_post_walk_qa_measures_the_artefact.sh).
+      - 'scripts/box_walk_probes/lib/preference_seed.sh'
+      - 'tests/test_the_walk_seeds_the_preference_pair.sh'
       # Same rule as the workflow-self-trigger below, applied to a test: a
       # suite this workflow RUNS but does not WATCH is dark on self-edit --
       # it could be narrowed, or gutted, in a PR that never runs it. I added
@@ -525,6 +532,25 @@ jobs:
       - name: The walk seeds the grounded probe, and a failed seed is not a FAIL
         if: always()
         run: /bin/bash tests/test_the_walk_seeds_the_grounded_probe.sh
+
+      # THE OTHER WRITE ROUTE. The step above gives the grounded probe a PERSON.
+      # Nothing gave the walk a PREFERENCE, so an empty preference wiki, an
+      # ingest that never ran and a broken write route were three faults
+      # wearing one face. On v1.0.81 it was the first of those: cm019_setup
+      # logged "already set up" with elapsed_s=0 and install.log holds no
+      # ingest-dir and no "Files processed".
+      #
+      # Pins the wiring, the currency check and both floor arms: the runner
+      # sources lib/preference_seed.sh above the phase-2 loop; the staged
+      # cm019 tree is compared BY CONTENT against the cm019 bundle inside the
+      # ARTEFACT (never this checkout, which can agree with the DMG while the
+      # box lags); and the profile must show BOTH an interest that cleared the
+      # 0.28 floor and a row that was screened by it, because one arm alone
+      # cannot tell a working screen from an absent one. Its mutation arm
+      # disables the suppressed check and requires the suite to notice.
+      - name: The walk seeds the preference pair, and both sides of the floor
+        if: always()
+        run: /bin/bash tests/test_the_walk_seeds_the_preference_pair.sh
 
       # THE OTHER HALF OF A HONEST PEOPLE READING. The seed above gives the
       # grounded probe a fact to look for; this gives the two COUNT-reading
