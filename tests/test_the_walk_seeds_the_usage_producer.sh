@@ -11,7 +11,7 @@
 #
 # scripts/box_walk_probes/lib/usage_seed.sh closes that by running the
 # installer's own people sweep (install.sh:29420-29424) once, by hand, and
-# counting the producer's rows either side of it. This test pins the five
+# counting the producer's rows either side of it. This test pins the six
 # things that make it worth having:
 #
 #   1. IT IS WIRED. The runner sources the lib and calls usage_seed_apply
@@ -34,13 +34,19 @@
 #      and an explicit skip each print a named CANNOT-RUN, never a bare red.
 #   5. THE VECTOR NEVER LEAVES THE BOX. The embed measurement prints the
 #      response KEY LIST and nothing else.
+#   6. THE REMOTE TEXT SURVIVES THE SHELL THE BOX USES. Over ssh the command
+#      is handed to the box's LOGIN shell, which on this estate is zsh, and
+#      zsh has already cost this repo releases over exactly this class of
+#      difference. Section 8 swaps the transport for zsh and requires the same
+#      verdict off the same input.
 #
 # THE STUB BOX. OSTLER_BOX_HOST is empty, so the lib's own _us_box_exec runs
 # each remote program through /bin/sh on this machine -- the REAL remote
 # command text, not a mock of it -- against a fake ~/.ostler, a fake curl on
 # PATH and a fake email-ingest interpreter. So the suite runs on a CI runner
-# with no box, while still executing the shell the box would execute. What it
-# cannot cover is ssh itself, which no test in this estate covers.
+# with no box, while still executing the shell a box would execute. What it
+# still cannot cover is the ssh transport itself, which no test in this estate
+# covers.
 # ============================================================================
 set -uo pipefail
 
@@ -52,12 +58,18 @@ PROBE="$REPO/scripts/box_walk_probes/probes/usage_journal_producers.sh"
 
 PASS=0
 FAIL=0
+SKIP=0
 arm() { # $1 = label, $2 = condition already evaluated (0/1), $3 = detail on failure
     if [ "$2" -eq 0 ]; then
         printf '  [PASS] %s\n' "$1"; PASS=$((PASS + 1))
     else
         printf '  [FAIL] %s\n' "$1"; printf '%s\n' "$3" | sed 's/^/         /'; FAIL=$((FAIL + 1))
     fi
+}
+# An arm whose prerequisite is absent is NOT a pass. It is counted in its own
+# column and printed, so a runner without zsh cannot quietly shrink the suite.
+skip_arm() { # $1 = label, $2 = the missing prerequisite
+    printf '  [CANNOT-RUN] %s\n' "$1"; printf '         %s\n' "$2"; SKIP=$((SKIP + 1))
 }
 
 WORK="$(mktemp -d)"
@@ -386,14 +398,49 @@ grep -q 'FRC=0' <<< "$outf" && grep -q 'nothing to remove' <<< "$outf"
 arm "forget removes nothing, returns 0, and prints why" $? "$outf"
 
 # ---------------------------------------------------------------------------
-printf -- '\n-- 8. the vector never leaves the box --\n'
+printf -- '\n-- 8. the remote programs run under the shell the BOX runs them under --\n'
+# ---------------------------------------------------------------------------
+# MEASURE ON THE HOST THAT RUNS IT. Every arm above drives _us_box_exec's local
+# branch, which is /bin/sh: dash on this runner, bash-as-sh on a Mac. Over ssh
+# the remote command is handed to the box's LOGIN shell, and on this estate
+# that is zsh, which differs from sh in ways that have already cost this repo
+# releases. Nothing else in the suite crosses that boundary, so this arm swaps
+# the transport for zsh and requires the same verdict off the same input.
+ZSH_BIN="$(command -v zsh || true)"
+if [ -z "$ZSH_BIN" ]; then
+    skip_arm "the remote programs behave the same under zsh" \
+        "no zsh on this runner, so the login-shell path was NOT exercised. Not a pass."
+else
+    BOXZ="$WORK/boxz"; make_box "$BOXZ"
+    JZ="$WORK/journalz.jsonl"; : > "$JZ"
+    RZ="$WORK/ranz"
+    outz="$(env -u OSTLER_USAGE_SEED_SKIP \
+        OSTLER_BOX_HOST= PATH="$STUB_BIN:$PATH" OSTLER_DIR="$BOXZ" \
+        OSTLER_USAGE_JOURNAL="$JZ" STUB_JOURNAL="$JZ" STUB_RAN="$RZ" \
+        STUB_EMBED_BODY="$BODY_MEASURED" STUB_SWEEP_ROWS=2 \
+        STUB_SWEEP_DICT='{"status": "ok", "sent": 5, "points_created": 5, "total": 5}' \
+        ZSH_BIN="$ZSH_BIN" \
+        bash -c '
+            set -uo pipefail
+            . "$1"
+            _us_box_exec() { "$ZSH_BIN" -c "$1"; }
+            usage_seed_apply
+            printf "RC=%s\n" "$?"
+            printf "STATE=%s\n" "${USAGE_SEED_STATE}"
+        ' _ "$LIB" 2>&1)"
+    grep -q 'STATE=seeded' <<< "$outz" && grep -q 'delta  : 2 row' <<< "$outz"
+    arm "the remote programs reach the same verdict under zsh as under sh" $? "$outz"
+fi
+
+# ---------------------------------------------------------------------------
+printf -- '\n-- 9. the vector never leaves the box --\n'
 # ---------------------------------------------------------------------------
 ! grep -q "$VECTOR_CANARY" <<< "$out2$out5$out5b"
 arm "no embedding value is printed on any embed path, only the key list" $? \
     "the canary $VECTOR_CANARY reached the operator's screen"
 
 # ---------------------------------------------------------------------------
-printf -- '\n-- 9. MUTATION: with the delta check disabled, arm 4 must fail --\n'
+printf -- '\n-- 10. MUTATION: with the delta check disabled, arm 4 must fail --\n'
 # ---------------------------------------------------------------------------
 # The delta check is the whole assertion. A future edit that reads the sweep's
 # status or its exit code instead would turn this step into a decoration that
@@ -424,6 +471,7 @@ if [ $? -eq 0 ]; then mut_rc=0; else mut_rc=1; fi
 arm "MUST-FAIL: the mutant reports SEEDED on a zero delta, so arm 4 is a real assertion" "$mut_rc" \
     "the mutant did not pass a zero delta: $outm"
 
-printf '\n== %s pass / %s fail / %s total ==\n' "$PASS" "$FAIL" "$((PASS + FAIL))"
+printf '\n== %s pass / %s fail / %s cannot-run / %s total ==\n' \
+    "$PASS" "$FAIL" "$SKIP" "$((PASS + FAIL + SKIP))"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0
