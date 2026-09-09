@@ -541,6 +541,19 @@ jobs:
       # on the loader's exit 0, and every other outcome exports nothing and
       # says why. Its own mutation arm removes the exports and requires the
       # exit-0 assertion to stop passing.
+      # zsh, SO THE LOGIN-SHELL ARMS ARE MEASUREMENTS RATHER THAN CANNOT-RUN.
+      # `ssh host "cmd"` hands the remote text to the account's LOGIN shell,
+      # which on the walk boxes is zsh, while a runner and local mode use sh.
+      # Two suites below carry an arm that runs the real remote text under zsh
+      # and both were reporting CANNOT-RUN on ubuntu-latest for want of the
+      # binary (the usage seed's section 8, run 34389415936). A CANNOT-RUN is
+      # not a pass, so those arms were costing a line of output and asserting
+      # nothing. The update runs first because the runner image's package index
+      # can be stale enough to 404 the fetch, which would redden the job over a
+      # missing mirror rather than over anything this repo did.
+      - name: zsh, so the login-shell arms measure instead of skipping
+        run: sudo apt-get update -qq && sudo apt-get install -y zsh
+
       - name: The walk seeds the grounded probe, and a failed seed is not a FAIL
         if: always()
         run: /bin/bash tests/test_the_walk_seeds_the_grounded_probe.sh

@@ -50,12 +50,20 @@ RUNNER="$REPO/scripts/box_walk_probes/run_box_walk.sh"
 
 PASS=0
 FAIL=0
+CANNOT=0
 arm() { # $1 = label, $2 = condition already evaluated (0/1), $3 = detail on failure
     if [ "$2" -eq 0 ]; then
         printf '  [PASS] %s\n' "$1"; PASS=$((PASS + 1))
     else
         printf '  [FAIL] %s\n' "$1"; printf '%s\n' "$3" | sed 's/^/         /'; FAIL=$((FAIL + 1))
     fi
+}
+# ITS OWN COLUMN, NOT A PASS AND NOT A FAIL. An arm that could not run has not
+# passed, and printing it as either would make this suite report a coverage
+# number it did not earn. The summary carries all three.
+cannot() { # $1 = label, $2 = the missing prerequisite
+    printf '  [CANNOT-RUN] %s\n' "$1"; printf '         missing: %s\n' "$2"
+    CANNOT=$((CANNOT + 1))
 }
 
 WORK="$(mktemp -d)"
@@ -115,8 +123,16 @@ person_check() { # $1 = file to check
 # ---------------------------------------------------------------------------
 make_box() { # $1 = box root, $2 = cli exit code, $3 = write bundle? yes|no
     local root="$1" clirc="$2" bundle="$3"
-    mkdir -p "$root/.ostler" "$root/bin" "$root/stub"
+    mkdir -p "$root/.ostler" "$root/.ostler/secrets" "$root/bin" "$root/stub"
     printf 'user_id: walkbox\nollama_url: http://127.0.0.1:11434\n' > "$root/.ostler/settings.yaml"
+    # THE STORE CREDENTIAL EXISTS ON A REAL BOX, so it exists here. Before the
+    # NO-CONF fix these tests passed with no config at all, because an absent
+    # credential silently produced an empty -K and the stub answered anyway.
+    # That is precisely the defect, and a fixture that omits the file cannot
+    # tell a credentialled read from a credential-less one.
+    printf 'header = "authorization: Bearer stub-store-token"\n' \
+        > "$root/.ostler/secrets/store-curl.conf"
+    chmod 600 "$root/.ostler/secrets/store-curl.conf"
 
     cat > "$root/bin/pwg-convo" <<STUB
 #!/bin/bash
@@ -512,6 +528,199 @@ if [ $? -eq 0 ]; then mut_rc=0; else mut_rc=1; fi
 arm "MUST-FAIL: the mutant calls topics=0 a pass, so arm 5 is a real assertion" "$mut_rc" \
     "the mutant did not pass topics=0: $outm"
 
-printf '\n== %s pass / %s fail / %s total ==\n' "$PASS" "$FAIL" "$((PASS + FAIL))"
+# ---------------------------------------------------------------------------
+printf -- '\n-- 11. $HOME is expanded ON THE BOX, not single-quoted into oblivion --\n'
+# ---------------------------------------------------------------------------
+# THE v1.0.82 QA DEFECT, both instances. The walk printed
+#   CANNOT-RUN: the box cannot run the conversation pipeline.
+#     NO-SETTINGS $HOME/.ostler/settings.yaml
+# with the literal characters $HOME, on a box where the file was present and
+# 213 bytes. Both defaults are the STRING "$HOME/..." and every call site put
+# them through _cs_q, which SINGLE-QUOTES, so the remote shell never expanded
+# them. `[ ! -f ]` on a path containing a literal dollar is always true.
+#
+# The arms below run the REAL preflight with the REAL default, with only HOME
+# redirected. Each is paired with a mutant that restores the old form and MUST
+# fail, because an arm that passes on both forms tests nothing.
+
+# The validator first: a whitelist has to say yes to the ordinary case, or the
+# refusals below prove only that it refuses everything (which is what the first
+# version of it did).
+# A QUOTED HEREDOC, NOT AN INLINE LIST. The first version of this probe put the
+# candidates in a double-quoted context, so the OUTER shell expanded them before
+# _cs_path_is_safe ever saw them: $HOME became the driver's home, $OTHER became empty,
+# and the backtick candidate EXECUTED `id` and pasted the account's uid, gid and
+# group list into the test output. The probe was measuring the outer shell.
+# 'VAL' is quoted so nothing here expands, which is the whole point: the
+# validator must be handed the literal characters an operator would set.
+cat > "$WORK/val_probe.sh" <<'VAL'
+. "$1"
+while IFS= read -r v; do
+    if _cs_path_is_safe "$v"; then printf 'SAFE %s\n' "$v"; else printf 'REFUSED %s\n' "$v"; fi
+done <<'CANDIDATES'
+$HOME/x
+${HOME}/x
+/tmp/plain
+~/x
+$HOME/x;id
+$HOME/x`id`
+$OTHER/x
+/tmp/a b
+/tmp/a*b
+CANDIDATES
+# The empty string, which a here-doc line cannot carry.
+if _cs_path_is_safe ""; then printf 'SAFE <empty>\n'; else printf 'REFUSED <empty>\n'; fi
+VAL
+val_out="$(bash "$WORK/val_probe.sh" "$LIB" 2>&1)"
+[ "$(grep -c '^SAFE ' <<< "$val_out")" = "3" ]
+arm "CONTROL: the path validator accepts \$HOME, \${HOME} and a plain path" $? "$val_out"
+[ "$(grep -c '^REFUSED ' <<< "$val_out")" = "7" ]
+arm "and refuses a tilde, a separator, a backtick, a second variable, a space, a glob and empty" $? "$val_out"
+
+CS_HOME="$WORK/boxhome"; mkdir -p "$CS_HOME/.ostler/secrets"
+printf 'user_id: walkbox\n' > "$CS_HOME/.ostler/settings.yaml"
+printf 'header = "authorization: Bearer stub"\n' > "$CS_HOME/.ostler/secrets/store-curl.conf"
+
+# Runs _cs_preflight with the SHIPPED default for the settings path, nothing
+# overridden but HOME. $1 = lib to source, $2 = shell to run remote text under.
+preflight_default() {
+    env -u OSTLER_CONVO_SEED_SETTINGS -u OSTLER_BOX_HOST HOME="$CS_HOME" \
+        OSTLER_CONVO_SEED_LOCAL_SH="${2:-/bin/sh}" \
+        bash -c '
+            . "$1"
+            _CS_CLI="/bin/sh"
+            _CS_SETTINGS="${OSTLER_CONVO_SEED_SETTINGS:-\$HOME/.ostler/settings.yaml}"
+            _CS_SETTINGS_PATH="$(_cs_resolve_on_box "${_CS_SETTINGS}")"
+            _cs_preflight
+            printf "RC=%s\nOUT=%s\n" "$?" "${_cs_pre_out}"
+        ' _ "$1" 2>&1
+}
+
+out11="$(preflight_default "$LIB")"
+grep -q 'USER-ID walkbox' <<< "$out11" && grep -q 'RC=0' <<< "$out11"
+arm "preflight finds settings.yaml through the default \$HOME path and reads user_id" $? "$out11"
+
+grep -q '[$]HOME' <<< "$out11"
+if [ $? -ne 0 ]; then lit_rc=0; else lit_rc=1; fi
+arm "and no literal dollar-HOME survives into the report" "$lit_rc" "$out11"
+
+# MUST-FAIL ON THE OLD FORM, instance 1. Restore the single-quoted value and
+# the same arm has to break, with the exact string the QA printed.
+MUT_S="$WORK/mutant-settings.sh"
+sed 's/^S=\$(_cs_q "\${_CS_SETTINGS_PATH}")$/S=$(_cs_q "${_CS_SETTINGS}")/' "$LIB" > "$MUT_S"
+grep -q 'S=$(_cs_q "${_CS_SETTINGS}")' "$MUT_S"
+arm "the old-form mutant really restores the single-quoted settings value" $? \
+    "injection did not land"
+outm11="$(preflight_default "$MUT_S")"
+grep -q 'NO-SETTINGS [$]HOME/.ostler/settings.yaml' <<< "$outm11"
+if [ $? -eq 0 ]; then m11_rc=0; else m11_rc=1; fi
+arm "MUST-FAIL: the old form prints the QA's exact 'NO-SETTINGS \$HOME/...' line" "$m11_rc" \
+    "the old form did not reproduce the v1.0.82 failure: $outm11"
+
+# ---------------------------------------------------------------------------
+printf -- '\n-- 12. an unreadable store credential is NO-CONF, never a keyless request --\n'
+# ---------------------------------------------------------------------------
+# THE SECOND INSTANCE, AND THE ONE THAT FAILS SILENTLY. _CS_STORE_CONF had the
+# same escaped default and reached three sites shaped
+#     K=''; [ -r "$CONF" ] && K="-K $CONF"
+# with no refusal branch, so an unreadable path left K EMPTY and the request
+# went to an auth-gated store with no credential. The read-back then reports
+# the conversation ABSENT while it is present, and the forget deletes nothing
+# while reporting success.
+B_NC="$WORK/noconf"; make_box "$B_NC" 0 yes; set_counts "$B_NC" 1 1 3 3
+rm -f "$B_NC/.ostler/secrets/store-curl.conf"
+out12="$(run_apply "$LIB" "$B_NC")"
+
+grep -q 'CANNOT-RUN: NO-CONF' <<< "$out12"
+arm "a missing store credential is a NAMED CANNOT-RUN, not an empty count" $? "$out12"
+
+grep -q 'STATE=sinks-refused' <<< "$out12"
+arm "and the state says the sinks were not read, not that they were empty" $? "$out12"
+
+# THE ASSERTION THAT MATTERS: no request was issued at all.
+if [ -f "$B_NC/stub/curl.log" ]; then
+    nk="$(grep -c 'collections/conversations' "$B_NC/stub/curl.log" || true)"
+else
+    nk=0
+fi
+[ "$nk" = "0" ]
+arm "NOT ONE store request was made without a credential" $? \
+    "curl.log shows $nk store call(s): $(cat "$B_NC/stub/curl.log" 2>/dev/null | head -5)"
+
+# MUST-FAIL ON THE OLD FORM, instance 2: restore the keyless build and the
+# request goes out with an empty -K.
+MUT_K="$WORK/mutant-keyless.sh"
+python3 - "$LIB" "$MUT_K" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+s = open(src, encoding='utf-8').read()
+guard = "if [ -z \\\"\\$CONF\\\" ] || [ ! -r \\\"\\$CONF\\\" ]; then printf 'NO-CONF %s\\n' \\\"\\$CONF\\\"; exit 4; fi\nK=\\\"-K \\$CONF\\\"\n"
+old   = "K=''\n[ -r \\\"\\$CONF\\\" ] && K=\\\"-K \\$CONF\\\"\n"
+n = s.count(guard)
+s = s.replace(guard, old)
+open(dst, 'w', encoding='utf-8').write(s)
+print("reverted %d read-back guard(s)" % n)
+PY
+grep -q "K=''" "$MUT_K"
+arm "the keyless mutant really restores the old K='' build" $? "injection did not land"
+
+B_NCM="$WORK/noconf-mut"; make_box "$B_NCM" 0 yes; set_counts "$B_NCM" 1 1 3 3
+rm -f "$B_NCM/.ostler/secrets/store-curl.conf"
+outm12="$(run_apply "$MUT_K" "$B_NCM")"
+km="$(grep -c 'collections/conversations' "$B_NCM/stub/curl.log" 2>/dev/null || true)"
+[ "$km" != "0" ] && ! grep -q 'CANNOT-RUN: NO-CONF' <<< "$outm12"
+if [ $? -eq 0 ]; then m12_rc=0; else m12_rc=1; fi
+arm "MUST-FAIL: the old form sends $km credential-less store request(s) and never says NO-CONF" "$m12_rc" \
+    "the old form refused as the fixed one does, so this arm proves nothing: $outm12"
+
+# The forget half: no credential means the store deletes are NOT attempted, and
+# the report says the rows are still there rather than claiming success.
+B_NCF="$WORK/noconf-forget"; make_box "$B_NCF" 0 yes; set_counts "$B_NCF" 1 1 3 3
+fnc="$(env -u OSTLER_CONVO_SEED_KEEP HOME="$B_NCF" OSTLER_BOX_HOST= \
+    OSTLER_CONVO_SEED_CLI="$B_NCF/bin/pwg-convo" \
+    OSTLER_CONVO_SEED_SETTINGS="$B_NCF/.ostler/settings.yaml" \
+    OSTLER_CONVO_SEED_CURL="$B_NCF/bin/curl" \
+    OSTLER_PROBE_STORE_CURL_CONF="$B_NCF/.ostler/secrets/store-curl.conf" \
+    bash -c '
+        . "$1"
+        conversation_seed_apply >/dev/null 2>&1
+        rm -f "$2"
+        conversation_seed_forget
+        printf "FORGET_RC=%s\n" "$?"
+    ' _ "$LIB" "$B_NCF/.ostler/secrets/store-curl.conf" 2>&1)"
+grep -q 'STORE_DELETES skipped' <<< "$fnc" && grep -q 'STILL ON THE BOX' <<< "$fnc"
+arm "forget refuses the store deletes and SAYS the seeded rows remain" $? "$fnc"
+grep -q 'FORGET_RC=0' <<< "$fnc"
+arm "and still returns 0, because a tidy-up must never fail a walk" $? "$fnc"
+[ ! -d "$B_NCF/.ostler/processing/$SEED_ID" ]
+arm "the credential-free disk deletes still ran, so NO-CONF leaves less behind, not more" $? \
+    "the processing dir survived: $fnc"
+
+# ---------------------------------------------------------------------------
+printf -- '\n-- 13. the remote text runs under zsh, which is what ssh hands it to --\n'
+# ---------------------------------------------------------------------------
+# `ssh host "cmd"` runs the text under the REMOTE ACCOUNT'S LOGIN SHELL, which
+# on this estate is zsh, while local mode runs /bin/sh. Nothing had ever
+# executed these programs under zsh, so a zsh-only quoting fault would have
+# been seen first on a walk. zsh does not word-split unquoted parameters, which
+# is exactly the kind of difference that changes what a remote program does.
+ZSH_BIN="$(command -v zsh || true)"
+if [ -z "$ZSH_BIN" ]; then
+    cannot "the preflight text under zsh" \
+        "no zsh on this host; the walk-record-gate workflow installs it so CI measures this"
+else
+    out13="$(preflight_default "$LIB" "$ZSH_BIN")"
+    grep -q 'USER-ID walkbox' <<< "$out13" && grep -q 'RC=0' <<< "$out13"
+    arm "the preflight program yields the same USER-ID under zsh as under sh" $? \
+        "zsh=$ZSH_BIN: $out13"
+    outm13="$(preflight_default "$MUT_S" "$ZSH_BIN")"
+    grep -q 'NO-SETTINGS [$]HOME' <<< "$outm13"
+    if [ $? -eq 0 ]; then z_rc=0; else z_rc=1; fi
+    arm "MUST-FAIL: the old form is broken under zsh too, so this arm can fail" "$z_rc" \
+        "$outm13"
+fi
+
+printf '\n== %s pass / %s fail / %s cannot-run / %s total ==\n' \
+    "$PASS" "$FAIL" "$CANNOT" "$((PASS + FAIL + CANNOT))"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0

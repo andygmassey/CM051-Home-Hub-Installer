@@ -113,8 +113,16 @@
 #   OSTLER_CONVO_SEED_KEEP=1   leave everything on the box afterwards.
 #   OSTLER_CONVO_SEED_CLI      the pipeline entry point. Default
 #                              /usr/local/bin/pwg-convo, the installer's symlink.
-#   OSTLER_CONVO_SEED_SETTINGS ~/.ostler/settings.yaml by default; read for
+#   OSTLER_CONVO_SEED_SETTINGS $HOME/.ostler/settings.yaml by default; read for
 #                              user_id, which names the graph the ingest writes.
+#                              $HOME is expanded ON THE BOX, never here: in ssh
+#                              mode the driver's home is not the box's. A tilde
+#                              is NOT accepted, because a shell only expands one
+#                              at the start of an unquoted word and this value
+#                              is never in that position; use $HOME.
+#   OSTLER_CONVO_SEED_LOCAL_SH the shell local mode runs the remote programs
+#                              under. A TEST SEAM, so the same text can be run
+#                              under zsh, which is what ssh hands them to.
 #   OSTLER_CONVO_SEED_BUDGET_S wall-clock bound on the CLI. Default 900.
 #   OSTLER_CONVO_SEED_CURL     absolute curl. A variable ONLY so the read-backs
 #                              are testable against a stub, the same reason
@@ -133,6 +141,13 @@ CONVERSATION_SEED_MINE=""         # points carrying our conversation_id, or x
 CONVERSATION_SEED_TOPICS_API=""   # /api/v1/topics count, or x
 CONVERSATION_SEED_TOPICS_SPARQL=""
 CONVERSATION_SEED_JOURNAL=""      # cm048- rows, or x when the file is absent
+
+# The two $HOME-bearing paths, AS THE BOX EXPANDS THEM. Initialised here rather
+# than only in apply() because the runner sources this under `set -u` and
+# forget() reads the second one; an unset variable there would abort the tidy
+# up with a shell error rather than reporting what it could not remove.
+_CS_SETTINGS_PATH=""
+_CS_STORE_CONF_PATH=""
 
 # THE ONE IDENTIFIER EVERYTHING IS KEYED ON. The Qdrant payload
 # (ingest.py:355), the conversation node urn:ostler:conversation/<id>, the
@@ -156,7 +171,13 @@ _CS_PWG_NS="https://schema.ostler.ai/ontology#"
 
 _cs_box_exec() {
     if [ -z "${OSTLER_BOX_HOST:-}" ]; then
-        /bin/sh -c "$1"
+        # THE SHELL IS A VARIABLE ONLY SO THE REMOTE TEXT CAN BE TESTED UNDER
+        # THE SHELL THE BOX ACTUALLY USES. `ssh host "cmd"` hands the text to
+        # the remote account's LOGIN shell, which on this estate is zsh, while
+        # local mode runs /bin/sh. Without a seam, nothing ever executes these
+        # programs under zsh and a zsh-only quoting fault would first be seen
+        # on a walk. Production never sets it.
+        "${OSTLER_CONVO_SEED_LOCAL_SH:-/bin/sh}" -c "$1"
     else
         /usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=10 \
             -o StrictHostKeyChecking=accept-new "$OSTLER_BOX_HOST" "$1"
@@ -165,7 +186,13 @@ _cs_box_exec() {
 
 _cs_box_exec_stdin() {
     if [ -z "${OSTLER_BOX_HOST:-}" ]; then
-        /bin/sh -c "$1"
+        # THE SHELL IS A VARIABLE ONLY SO THE REMOTE TEXT CAN BE TESTED UNDER
+        # THE SHELL THE BOX ACTUALLY USES. `ssh host "cmd"` hands the text to
+        # the remote account's LOGIN shell, which on this estate is zsh, while
+        # local mode runs /bin/sh. Without a seam, nothing ever executes these
+        # programs under zsh and a zsh-only quoting fault would first be seen
+        # on a walk. Production never sets it.
+        "${OSTLER_CONVO_SEED_LOCAL_SH:-/bin/sh}" -c "$1"
     else
         /usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=10 \
             -o StrictHostKeyChecking=accept-new "$OSTLER_BOX_HOST" "$1"
@@ -179,6 +206,71 @@ _cs_box_exec_stdin() {
 # of the value would be read as shell.
 _cs_q() {
     printf "'%s'" "$(printf '%s' "$1" | tr -d "'")"
+}
+
+# ---------------------------------------------------------------------------
+# A PATH THAT CARRIES $HOME MUST BE EXPANDED ON THE BOX, AND _cs_q CANNOT DO IT.
+#
+# THE DEFECT THIS CLOSES, measured on the v1.0.82 QA. The walk printed
+#
+#     CANNOT-RUN: the box cannot run the conversation pipeline.
+#       NO-SETTINGS $HOME/.ostler/settings.yaml
+#
+# with the literal characters $HOME, on a box where
+# the walk account's own settings.yaml was present and 213 bytes. The default
+# for these two values is the STRING "$HOME/..." (escaped dollar), and every
+# call site passed it through _cs_q, which SINGLE-QUOTES. A single-quoted
+# dollar is a dollar, so the remote shell never expanded it, and `[ ! -f ]` on
+# a path containing a literal dollar is always true. The seed refused on every
+# box it has ever run on, and the read-backs would have gone keyless for the
+# same reason on the store credential.
+#
+# WHY NOT EXPAND AT ASSIGNMENT. Because in ssh mode the local home is not the
+# box's. On this estate the driver runs as andy and the box runs as archie, so
+# "$HOME/.ostler/settings.yaml" expanded here names the DRIVER's home and fails
+# in exactly the same way, with a path that LOOKS right in the report. The
+# expansion has to happen where the answer is true.
+#
+# HOW THE TWELVE PROBES DO IT, and this now does the same: hand the value to
+# the box with the variable UNQUOTED inside a double-quoted remote string, let
+# the remote shell expand it, and take the expanded path back. Everything
+# downstream then quotes the RESOLVED path, which carries no dollar.
+#
+# THAT MEANS THE VALUE IS SHELL FOR ONE INSTANT, so it is validated first. The
+# only expansion allowed is $HOME or ${HOME}; any quote, backtick, command
+# substitution, redirection, separator, glob or other dollar is refused by
+# name rather than escaped. An operator override that cannot be expanded
+# safely is a named CANNOT-RUN, never a silent fallback to a path we invented.
+# ---------------------------------------------------------------------------
+# A WHITELIST, NOT A DENYLIST. The first version of this function listed the
+# characters it refused, and it refused EVERYTHING, plain paths included: one
+# alternative in a long quoted case list degenerated to a bare `*`, so the
+# first arm matched every input. It was caught by a control that fed it
+# /tmp/plain and expected SAFE. A denylist would have been the wrong shape even
+# had it worked, because it can only refuse what somebody thought of.
+#
+# So: remove the one substitution that is allowed, then require every remaining
+# character to come from a set that cannot act as shell. A space is refused
+# too. That is not an oversight: $HOME is expanded on the box inside double
+# quotes, so a home directory containing a space is handled correctly, while a
+# space in the TEMPLATE would have to survive word splitting and is refused
+# rather than gambled on.
+_cs_path_is_safe() {
+    [ -n "$1" ] || return 1
+    # Order matters: ${HOME} before $HOME, or the longer spelling is left
+    # holding a stray brace and is then refused for carrying one.
+    _cs_rest="$(printf '%s' "$1" | sed 's/\${HOME}/@/g; s/\$HOME/@/g')"
+    case "${_cs_rest}" in
+        *[!A-Za-z0-9@._/-]*) return 1 ;;
+    esac
+    return 0
+}
+
+# Prints the expanded path, or nothing. The caller decides what an empty
+# answer means; it never falls back to a guess.
+_cs_resolve_on_box() {
+    _cs_path_is_safe "$1" || return 2
+    _cs_box_exec "printf '%s' \"$1\""
 }
 
 # ---------------------------------------------------------------------------
@@ -265,8 +357,7 @@ FIXTURE
 _cs_preflight() {
     _cs_pre_out="$(_cs_box_exec "
 CLI=$(_cs_q "${_CS_CLI}")
-S=$(_cs_q "${_CS_SETTINGS}")
-case \"\$S\" in \"~/\"*) S=\"\$HOME/\${S#~/}\" ;; esac
+S=$(_cs_q "${_CS_SETTINGS_PATH}")
 if [ ! -e \"\$CLI\" ]; then printf 'NO-CLI %s\n' \"\$CLI\"; exit 3; fi
 if [ ! -x \"\$CLI\" ]; then printf 'CLI-NOT-EXECUTABLE %s\n' \"\$CLI\"; exit 3; fi
 if [ ! -f \"\$S\" ]; then printf 'NO-SETTINGS %s\n' \"\$S\"; exit 3; fi
@@ -356,10 +447,17 @@ rm -rf \"\$d\"
 # ---------------------------------------------------------------------------
 _cs_read_conversations() {
     _cs_box_exec "
-CONF=$(_cs_q "${_CS_STORE_CONF}")
-case \"\$CONF\" in \"~/\"*) CONF=\"\$HOME/\${CONF#~/}\" ;; esac
-K=''
-[ -r \"\$CONF\" ] && K=\"-K \$CONF\"
+CONF=$(_cs_q "${_CS_STORE_CONF_PATH}")
+# A CREDENTIAL-LESS REQUEST IS NEVER MADE. This used to be
+#     K=''; [ -r \"\$CONF\" ] && K=\"-K \$CONF\"
+# which, on an unreadable path, left K EMPTY and sent the request anyway.
+# Against an auth-gated store that returns a 401, which this file parses as
+# x and reports as UNREADABLE at best; at the delete site it meant the
+# forget silently removed nothing. An absent credential is now a NAMED
+# refusal BEFORE any request, so 'we could not ask' can never be printed as
+# 'the store says no'.
+if [ -z \"\$CONF\" ] || [ ! -r \"\$CONF\" ]; then printf 'NO-CONF %s\n' \"\$CONF\"; exit 4; fi
+K=\"-K \$CONF\"
 Q=$(_cs_q "${_CS_QDRANT}")
 p=\$($(_cs_q "${_CS_CURL}") -sS --noproxy '*' -m 20 \$K \"\$Q/collections/conversations\" 2>/dev/null \\
   | python3 -c 'import json,sys
@@ -397,10 +495,17 @@ printf 'POINTS %s MINE %s\n' \"\${p:-x}\" \"\${m:-x}\"
 # ---------------------------------------------------------------------------
 _cs_read_topics() {
     _cs_box_exec "
-CONF=$(_cs_q "${_CS_STORE_CONF}")
-case \"\$CONF\" in \"~/\"*) CONF=\"\$HOME/\${CONF#~/}\" ;; esac
-K=''
-[ -r \"\$CONF\" ] && K=\"-K \$CONF\"
+CONF=$(_cs_q "${_CS_STORE_CONF_PATH}")
+# A CREDENTIAL-LESS REQUEST IS NEVER MADE. This used to be
+#     K=''; [ -r \"\$CONF\" ] && K=\"-K \$CONF\"
+# which, on an unreadable path, left K EMPTY and sent the request anyway.
+# Against an auth-gated store that returns a 401, which this file parses as
+# x and reports as UNREADABLE at best; at the delete site it meant the
+# forget silently removed nothing. An absent credential is now a NAMED
+# refusal BEFORE any request, so 'we could not ask' can never be printed as
+# 'the store says no'.
+if [ -z \"\$CONF\" ] || [ ! -r \"\$CONF\" ]; then printf 'NO-CONF %s\n' \"\$CONF\"; exit 4; fi
+K=\"-K \$CONF\"
 a=\$($(_cs_q "${_CS_CURL}") -sS --noproxy '*' -m 20 \"$(printf '%s' "${_CS_API}")/api/v1/topics\" 2>/dev/null \\
   | python3 -c 'import json,sys
 try:
@@ -527,6 +632,41 @@ conversation_seed_apply() {
     printf '  entry point:     %s\n' "${_CS_CLI}"
     printf '  conversation_id: %s\n' "${CONVERSATION_SEED_ID}"
 
+    # RESOLVE THE TWO $HOME-BEARING PATHS ON THE BOX, ONCE, BEFORE ANYTHING
+    # READS THEM. See _cs_resolve_on_box for the defect this closes: until
+    # v1.0.82 both of these reached the box single-quoted, so the dollar was
+    # never expanded, the settings file was never found on any box, and the
+    # store credential was never presented to any read-back.
+    _CS_SETTINGS_PATH="$(_cs_resolve_on_box "${_CS_SETTINGS}")"
+    _cs_res_rc=$?
+    if [ ${_cs_res_rc} -eq 2 ] || [ -z "${_CS_SETTINGS_PATH}" ]; then
+        CONVERSATION_SEED_STATE="absent"
+        printf '  CANNOT-RUN: the settings path could not be resolved on the box.\n'
+        printf '    value: %s\n' "${_CS_SETTINGS}"
+        if [ ${_cs_res_rc} -eq 2 ]; then
+            printf '  It carries a character this step refuses to hand to a remote shell\n'
+            printf '  (a quote, a backtick, a command substitution, a separator, a glob\n'
+            printf '  or a second variable). Set OSTLER_CONVO_SEED_SETTINGS to a plain\n'
+            printf '  path, optionally using $HOME.\n'
+        else
+            printf '  The box answered with nothing, so the transport failed rather than\n'
+            printf '  the path being wrong.\n'
+        fi
+        printf '  Nothing was seeded and no conversation assertion was made.\n\n'
+        return 1
+    fi
+    _CS_STORE_CONF_PATH="$(_cs_resolve_on_box "${_CS_STORE_CONF}")"
+    if [ -z "${_CS_STORE_CONF_PATH}" ]; then
+        # NOT fatal, and NOT silently swallowed either: a keyless read is a
+        # real state the read-backs already report as UNREADABLE, and the
+        # operator needs to know it was decided here rather than at the store.
+        printf '  NOTE: the store credential path could not be resolved (%s).\n' "${_CS_STORE_CONF}"
+        printf '  Every store read below will be keyless, and a 401 reports as\n'
+        printf '  UNREADABLE, which is not a count of zero.\n'
+    fi
+    printf '  settings:        %s\n' "${_CS_SETTINGS_PATH}"
+    printf '  store cred:      %s\n' "${_CS_STORE_CONF_PATH:-<unresolved>}"
+
     if ! _cs_preflight; then
         CONVERSATION_SEED_STATE="absent"
         printf '  CANNOT-RUN: the box cannot run the conversation pipeline.\n'
@@ -589,6 +729,12 @@ conversation_seed_apply() {
     printf '  the pipeline completed: exit 0 and the step-09 bundle is present\n'
 
     # ---- READ BACK, THREE TIMES, THREE WORDS ------------------------------
+    # NO-CONF IS NAMED, NOT LEFT TO READ AS "THE STORE SAID NOTHING". Each
+    # read-back now refuses before issuing a credential-less request, and the
+    # refusal has to reach the operator as the credential fact it is. Without
+    # this the output would be an honest UNREADABLE with the wrong cause
+    # attached, and the walk record would send somebody to look at the store.
+    CONVERSATION_SEED_NOCONF=""
     _cs_c="$(_cs_read_conversations)"
     CONVERSATION_SEED_POINTS="$(printf '%s\n' "${_cs_c}" | sed -n 's/^POINTS \([^ ]*\) MINE .*/\1/p' | head -1)"
     CONVERSATION_SEED_MINE="$(printf '%s\n' "${_cs_c}" | sed -n 's/^POINTS [^ ]* MINE \([^ ]*\).*/\1/p' | head -1)"
@@ -600,6 +746,13 @@ conversation_seed_apply() {
     CONVERSATION_SEED_TOPICS_SPARQL="$(printf '%s\n' "${_cs_t}" | sed -n 's/^TOPICS_API [^ ]* TOPICS_SPARQL \([^ ]*\).*/\1/p' | head -1)"
     [ -n "${CONVERSATION_SEED_TOPICS_API}" ] || CONVERSATION_SEED_TOPICS_API="x"
     [ -n "${CONVERSATION_SEED_TOPICS_SPARQL}" ] || CONVERSATION_SEED_TOPICS_SPARQL="x"
+
+    case "${_cs_c}${_cs_t}" in
+        *NO-CONF*)
+            CONVERSATION_SEED_NOCONF="$(printf '%s\n%s\n' "${_cs_c}" "${_cs_t}" \
+                | sed -n 's/^NO-CONF //p' | head -1)"
+            ;;
+    esac
 
     _cs_j="$(_cs_read_journal)"
     CONVERSATION_SEED_JOURNAL="$(printf '%s\n' "${_cs_j}" | sed -n 's/^JOURNAL \([^ ]*\).*/\1/p' | head -1)"
@@ -662,11 +815,23 @@ conversation_seed_apply() {
     fi
 
     CONVERSATION_SEED_STATE="sinks-refused"
-    if [ "${_cs_v_conv}" = "UNREADABLE" ] || [ "${_cs_v_top}" = "UNREADABLE" ]; then
+    if [ -n "${CONVERSATION_SEED_NOCONF}" ]; then
+        printf '  CANNOT-RUN: NO-CONF. The store credential config is not readable, so\n'
+        printf '  no request was made at all.\n'
+        printf '    path: %s\n' "${CONVERSATION_SEED_NOCONF}"
+        printf '  This is deliberately NOT a credential-less request. The stores are\n'
+        printf '  auth-gated, so an uncredentialled read takes a 401, which this file\n'
+        printf '  would parse as x and print as UNREADABLE with the store blamed for a\n'
+        printf '  fault that is ours. The config is written 0600 owner-only, so a walk\n'
+        printf '  driven as another account cannot read a file that may be perfectly\n'
+        printf '  good: that is NOT evidence the credential is absent.\n'
+        printf '  Nothing is asserted about what landed. The rows may be there.\n'
+    elif [ "${_cs_v_conv}" = "UNREADABLE" ] || [ "${_cs_v_top}" = "UNREADABLE" ]; then
         printf '  CANNOT-RUN: a store did not answer, so the seed cannot say what\n'
-        printf '  landed. An UNREADABLE above is a store we could not ask -- a missing\n'
-        printf '  credential config, a 401, or a transport failure -- and it is NOT a\n'
-        printf '  count of zero. The rows may be there.\n'
+        printf '  landed. An UNREADABLE above is a store we could not ask -- a 401 or a\n'
+        printf '  transport failure -- and it is NOT a count of zero. The credential\n'
+        printf '  itself was readable and was presented, so this is not NO-CONF.\n'
+        printf '  The rows may be there.\n'
     else
         printf '  FINDING: the pipeline completed and a sink is empty.\n'
         if [ "${_cs_v_conv}" = "EMPTY" ]; then
@@ -733,16 +898,32 @@ conversation_seed_forget() {
 ID=$(_cs_q "${CONVERSATION_SEED_ID}")
 SHORT=$(_cs_q "${CONVERSATION_SEED_SHORTID}")
 UID_=$(_cs_q "${CONVERSATION_SEED_USER_ID}")
-CONF=$(_cs_q "${_CS_STORE_CONF}")
-case \"\$CONF\" in \"~/\"*) CONF=\"\$HOME/\${CONF#~/}\" ;; esac
-K=''
-[ -r \"\$CONF\" ] && K=\"-K \$CONF\"
+CONF=$(_cs_q "${_CS_STORE_CONF_PATH}")
+# A CREDENTIAL-LESS REQUEST IS NEVER MADE. This used to be
+#     K=''; [ -r \"\$CONF\" ] && K=\"-K \$CONF\"
+# which, on an unreadable path, left K EMPTY and sent the request anyway.
+# Against an auth-gated store that returns a 401, which this file parses as
+# x and reports as UNREADABLE at best; at the delete site it meant the
+# forget silently removed nothing. An absent credential is now a NAMED
+# refusal BEFORE any request, so 'we could not ask' can never be printed as
+# 'the store says no'.
+# AT THE FORGET SITE THE REFUSAL IS PER-SINK, NOT A WHOLE-PROGRAM EXIT.
+# The disk and SQLite deletes need no credential, and abandoning them
+# because the STORE cannot be reached would leave more behind, not less.
+# So HAVE_CONF gates only the curl blocks, and the caller reports exactly
+# which half ran.
+HAVE_CONF=1
+if [ -z \"\$CONF\" ] || [ ! -r \"\$CONF\" ]; then printf 'NO-CONF %s\n' \"\$CONF\"; HAVE_CONF=0; fi
+K=\"-K \$CONF\"
 CURL=$(_cs_q "${_CS_CURL}")
 Q=$(_cs_q "${_CS_QDRANT}")
 OXI=$(_cs_q "${_CS_OXIGRAPH}")
 UPD=\"\${OXI%/query}/update\"
 NS=$(_cs_q "${_CS_PWG_NS}")
 
+if [ \"\$HAVE_CONF\" -eq 0 ]; then
+  printf 'STORE_DELETES skipped: no readable credential, so nothing was asked of Qdrant or Oxigraph\n'
+else
 # 1. Qdrant, filtered on the payload key the ingest writes (ingest.py:355).
 #    Counted BEFORE the delete, because a delete endpoint that reports
 #    'acknowledged' says nothing about how many rows it touched.
@@ -793,6 +974,7 @@ for u in \"\$u3\" \"\$u4\"; do
     --data-binary \"\$u\" \"\$UPD\" >/dev/null 2>&1
   printf 'NAMED_GRAPH_UPDATE rc=%s\n' \"\$?\"
 done
+fi
 
 # 4. Disk. The processing state dir, the flat Conversations markdown
 #    (ingest.py:288-304) and the four-artefact bundle folder, which is
@@ -847,9 +1029,27 @@ else
 fi
 " 2>&1)"
     printf '%s\n' "${_cs_fout}" | sed 's/^/    /'
-    printf '  Every delete above is keyed on the conversation id, on\n'
-    printf '  payload.conversation_id or on sha1(id)[:8]. A topic another\n'
-    printf '  conversation also mentions is deliberately left in place.\n'
+    case "${_cs_fout}" in
+        *NO-CONF*)
+            # THE SILENT HALF OF THE SAME DEFECT. With no credential this
+            # block used to issue the deletes anyway; every one took a 401,
+            # curl exited 0 because the transport worked, and the forget
+            # reported success having removed nothing. The seed's rows then
+            # sat on the box and the NEXT walk measured them as product data.
+            printf '  CANNOT-RUN: NO-CONF. The store credential is not readable, so the\n'
+            printf '  Qdrant and Oxigraph deletes were NOT attempted. THE SEEDED ROWS ARE\n'
+            printf '  STILL ON THE BOX, and a later walk will read them as product data\n'
+            printf '  unless they are removed. The disk and SQLite deletes above need no\n'
+            printf '  credential and did run; their lines say what happened.\n'
+            printf '  Remove the store rows by hand, or re-run with a readable\n'
+            printf '  OSTLER_PROBE_STORE_CURL_CONF.\n'
+            ;;
+        *)
+            printf '  Every delete above is keyed on the conversation id, on\n'
+            printf '  payload.conversation_id or on sha1(id)[:8]. A topic another\n'
+            printf '  conversation also mentions is deliberately left in place.\n'
+            ;;
+    esac
     printf '\n'
     return 0
 }
