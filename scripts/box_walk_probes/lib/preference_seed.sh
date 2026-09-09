@@ -46,6 +46,39 @@
 #      compiler and asserts BOTH arms: at least one interest cleared the
 #      confidence floor, and at least one row was suppressed by it. One arm
 #      alone cannot tell a working screen from an absent one.
+#   3. THE ARTEFACT THE TOOL READS IS RECOMPILED, AND READ BACK THROUGH THE
+#      API THE TOOL READS. Measured on the v1.0.82 walk, 2026-09-09: steps 1
+#      and 2 both passed ("graph post-count for the seed subjects: 2",
+#      "SEEDED AND ASSERTED: 1 interest(s) cleared the floor") and the
+#      grounded probe still reported [tool_found_nothing:pwg_preferences].
+#      The daemon's pwg_preferences tool (ostler-assistant
+#      crates/zeroclaw-tools/src/pwg_preferences.rs, preferences_url) GETs
+#      /api/v1/preferences, and the vendored API serves that endpoint
+#      READ-ONLY from a compiled file (vendor/cm041/assistant_api/
+#      ical-server.py:454-470 resolves it, api_preferences at :6650 reads
+#      it, the handler at :7648 serves it): ~/.ostler/preferences/
+#      interest_profile.json. That file is written by the CM059 front-page
+#      LaunchAgent (install.sh 3.14d-editor block at :23798 sources
+#      vendor/cm059_editor/INSTALL_SNIPPET.sh, which renders
+#      ~/.ostler/bin/editor-frontpage-tick.sh and bootstraps
+#      com.creativemachines.ostler.editor-frontpage with RunAtLoad and
+#      StartInterval 3600). Its RunAtLoad tick fires at the END OF THE
+#      INSTALL, before any seed exists, and on that walk it left
+#      {"interests": [], "count": 0, "generated_at": "2026-09-09T18:17:09Z"}
+#      which nothing rewrote for an hour. So the seed wrote to the store,
+#      the tool read the artefact, and the two never met inside a walk.
+#
+#      Step 2 in-process runs compiler.interest_profile.build_from_live(),
+#      the same function compiler/emit_artefact.py:134 calls, so a step-2
+#      pass already proves the compiler CAN see the rows. What was missing
+#      was the EMIT. This step triggers the installer's own tick (launchctl
+#      kickstart, so it runs under the agent's own launchd environment; the
+#      installed tick script directly only if kickstart is refused), waits
+#      for generated_at in the artefact to ADVANCE past the value read
+#      before the trigger, then GETs the endpoint with the box's own
+#      service token and asserts the fixture's clearing subject is served
+#      at or above the floor: once unfiltered, once with the domain the
+#      compiled row carries and min_confidence at the floor.
 #
 # THE RULE THIS FILE OBEYS, THE SAME ONE grounding_seed.sh OBEYS: A SEED THAT
 # DID NOT WORK MUST NOT LOOK LIKE A PRODUCT DEFECT. Every path where we could
@@ -63,12 +96,32 @@
 #                              with grounding_seed.sh.
 #   OSTLER_PREF_SEED_SKIP=1    do not seed at all. Prints that it was skipped.
 #   OSTLER_PREF_SEED_KEEP=1    leave the synthetic rows on the box afterwards.
+#   OSTLER_PREF_COMPILE_SKIP=1 seed and assert the screen, but do not trigger
+#                              the compile or read the API. A named
+#                              CANNOT-RUN, never a pass.
+#   OSTLER_PREF_COMPILE_BUDGET_S  seconds to wait for generated_at to advance
+#                              after the trigger (default 180).
+#   OSTLER_PREF_COMPILE_POLL_S seconds between polls (default 2).
+#   OSTLER_PREF_API_BASE       the Assistant API the tool reads
+#                              (default http://127.0.0.1:8090).
+#   OSTLER_PREF_LAUNCHCTL      launchctl on the box (default /bin/launchctl).
+#                              Exists ONLY so the trigger is testable without
+#                              kickstarting a real agent on the test machine.
 #   OSTLER_BOX_HOST            unset means this machine, per the suite contract.
 #
-# BASH 3.2 (macOS system bash). No associative arrays, no mapfile.
+# BASH 3.2 (macOS system bash). No associative arrays, no mapfile. Every remote
+# program is POSIX sh: it is run by /bin/sh here and by the box's login shell
+# over ssh. Inside it, $HOME is written bare or double-quoted and is expanded
+# ON THE BOX; a single-quoted literal $HOME hands the box a path it cannot
+# open (people_seed_and_retrieval.sh, the v1.0.51 walk).
 # ============================================================================
 
-PREFERENCE_SEED_STATE="unrun"   # unrun|skipped|absent|stale|failed|screen-moved|seeded
+# unrun|skipped|absent|stale|failed|screen-moved|uncompiled|unserved|seeded
+#   uncompiled  rows are in the graph and the screen holds, but the artefact
+#               recompile or its read-back could not be measured (CANNOT-RUN)
+#   unserved    the artefact was recompiled and the API still does not serve
+#               the seed subject (FINDING, and it names the compiler)
+PREFERENCE_SEED_STATE="unrun"
 PREFERENCE_SEED_DIR=""
 PREFERENCE_SEED_STALE=""
 
@@ -406,6 +459,454 @@ for b in p[\"domains\"]:
 }
 
 # ---------------------------------------------------------------------------
+# 3. THE ARTEFACT IS RECOMPILED AND READ BACK THROUGH THE TOOL'S OWN ROUTE.
+#
+# Six small pieces, each measured on the box and each printing named lines
+# that the step reads back, so no outcome is inferred from an exit code alone.
+#
+# THE SUBJECT AND THE FLOOR COME FROM THE FIXTURE, the oracle of record:
+# expect_rows[clears_floor=true].subject and compiler.min_confidence in
+# OS003 gates/seed/preferences/preference_fixture.json. Nothing here spells
+# the subject or the floor a second time.
+# ---------------------------------------------------------------------------
+PREFERENCE_SEED_SUBJECT=""
+PREFERENCE_SEED_FLOOR=""
+PREFERENCE_SEED_TRIGGER=""      # kickstart|tick|"" : how the compile was started
+PREFERENCE_SEED_BEFORE=""       # generated_at read before the trigger, or absent
+_PS_LABEL="com.creativemachines.ostler.editor-frontpage"
+
+_ps_fixture_target() {
+    PREFERENCE_SEED_SUBJECT=""
+    PREFERENCE_SEED_FLOOR=""
+    _ps_ft="$(python3 - "${PREFERENCE_SEED_DIR}/preferences/preference_fixture.json" <<'PY'
+import json, sys
+try:
+    fx = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception as exc:
+    print("unreadable fixture: " + type(exc).__name__, file=sys.stderr)
+    sys.exit(1)
+rows = [r for r in fx.get("expect_rows", []) if isinstance(r, dict) and r.get("clears_floor") is True]
+floor = (fx.get("compiler") or {}).get("min_confidence")
+if not rows or not rows[0].get("subject") or floor is None:
+    print("fixture names no clears_floor subject or no compiler.min_confidence", file=sys.stderr)
+    sys.exit(1)
+print(rows[0]["subject"])
+print(floor)
+PY
+)" || return 1
+    PREFERENCE_SEED_SUBJECT="$(printf '%s\n' "${_ps_ft}" | sed -n '1p')"
+    PREFERENCE_SEED_FLOOR="$(printf '%s\n' "${_ps_ft}" | sed -n '2p')"
+    [ -n "${PREFERENCE_SEED_SUBJECT}" ] && [ -n "${PREFERENCE_SEED_FLOOR}" ]
+}
+
+# The artefact's generated_at and mtime, read on the box. Prints
+#   PATH <path>
+#   STAMP <generated_at|absent|missing-field|unreadable:X> <mtime|absent>
+# The path is the emitter's default (compiler/emit_artefact.py:57, the same
+# default ical-server.py:459-468 reads), under OSTLER_DIR when the box sets
+# it and $HOME/.ostler otherwise. Neither the LaunchAgent plist nor the API's
+# plist sets OSTLER_INTEREST_PROFILE or OSTLER_PREFERENCES_DIR (measured:
+# zero references in install.sh), so the default is the path both sides use.
+_ps_profile_stamp() {
+    _ps_box_exec '
+O="${OSTLER_DIR:-$HOME/.ostler}"
+P="$O/preferences/interest_profile.json"
+python3 - "$P" <<"PY"
+import json, os, sys
+p = sys.argv[1]
+print("PATH " + p)
+if not os.path.exists(p):
+    print("STAMP absent absent")
+    sys.exit(0)
+try:
+    g = json.load(open(p, encoding="utf-8")).get("generated_at")
+except Exception as exc:
+    g = "unreadable:" + type(exc).__name__
+print("STAMP %s %s" % (g if g else "missing-field", int(os.path.getmtime(p))))
+PY
+'
+}
+
+# Trigger the installer's own compile. Prints, in order:
+#   PLIST present|absent <path>
+#   LABEL loaded|not-loaded gui/<uid>/<label> [rc=N]
+#   KICKSTART ok|refused rc=N|skipped ...
+#   TICK ran rc=N <path> | TICK absent <path>      (fallback only)
+#   TRIGGER kickstart|tick|none
+# Exit 0 when something was started, 3 when nothing could be, 4 when the
+# direct tick ran and failed.
+#
+# kickstart -k is preferred because it runs the tick under the agent's OWN
+# launchd environment (the PATH and PYTHONPYCACHEPREFIX in the plist), which
+# is the environment the hourly compile the customer depends on actually
+# runs in. A direct run of the rendered tick is the same file launchd would
+# run, and is used only when launchd will not (no GUI domain for the walk
+# user over ssh, or an agent that was never bootstrapped). launchctl answers
+# 113 for a label it cannot find (measured 2026-09-10).
+_ps_trigger_compile() {
+    _ps_box_exec '
+O="${OSTLER_DIR:-$HOME/.ostler}"
+L="'"${_PS_LABEL}"'"
+LC="'"${OSTLER_PREF_LAUNCHCTL:-/bin/launchctl}"'"
+PL="$HOME/Library/LaunchAgents/$L.plist"
+T="$O/bin/editor-frontpage-tick.sh"
+if [ ! -f "$PL" ]; then
+    echo "PLIST absent $PL"
+    echo "TRIGGER none"
+    exit 3
+fi
+echo "PLIST present $PL"
+U=$(id -u)
+if "$LC" print "gui/$U/$L" >/dev/null 2>&1; then
+    lrc=0
+    echo "LABEL loaded gui/$U/$L"
+else
+    lrc=$?
+    echo "LABEL not-loaded gui/$U/$L rc=$lrc"
+fi
+if [ "$lrc" -eq 0 ]; then
+    "$LC" kickstart -k "gui/$U/$L" 2>&1
+    krc=$?
+    if [ "$krc" -eq 0 ]; then
+        echo "KICKSTART ok gui/$U/$L"
+        echo "TRIGGER kickstart"
+        exit 0
+    fi
+    echo "KICKSTART refused rc=$krc"
+else
+    echo "KICKSTART skipped (label not loaded in gui/$U)"
+fi
+if [ ! -f "$T" ]; then
+    echo "TICK absent $T"
+    echo "TRIGGER none"
+    exit 3
+fi
+b=$(mktemp) || { echo "TICK no-mktemp"; echo "TRIGGER none"; exit 3; }
+/bin/bash "$T" >"$b" 2>&1
+trc=$?
+sed "s/^/TICK-LOG /" "$b" | tail -n 8
+rm -f "$b"
+echo "TICK ran rc=$trc $T"
+if [ "$trc" -ne 0 ]; then
+    echo "TRIGGER none"
+    exit 4
+fi
+echo "TRIGGER tick"
+exit 0
+'
+}
+
+# Poll the artefact until generated_at ADVANCES past $1 (the value read
+# before the trigger; "absent" when there was no file). Budget $2 seconds,
+# step $3. Prints POLL lines as the file changes and ends with exactly one of
+#   ADVANCED before=.. now=.. mtime=.. after=Ns        exit 0
+#   NOT-ADVANCED before=.. now=.. mtime=.. after=Ns    exit 4
+#   UNPARSEABLE generated_at=..                        exit 5
+# Timestamps are PARSED, never string-compared: the emitter writes
+# now.isoformat() (+00:00, microseconds) and a file written by another build
+# can carry a Z. An equal value after a rewrite is NOT an advance, even
+# though the mtime moved; that is the distinction the whole step rests on.
+_ps_poll_profile() {
+    _ps_box_exec '
+O="${OSTLER_DIR:-$HOME/.ostler}"
+P="$O/preferences/interest_profile.json"
+python3 - "$P" "'"${1}"'" "'"${2}"'" "'"${3}"'" <<"PY"
+import json, os, sys, time
+from datetime import datetime, timezone
+p, before, budget, step = sys.argv[1], sys.argv[2], float(sys.argv[3]), float(sys.argv[4])
+
+def parse(s):
+    if not s or s in ("absent", "missing-field") or s.startswith("unreadable"):
+        return None
+    try:
+        d = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+def stamp():
+    if not os.path.exists(p):
+        return "absent", "absent"
+    try:
+        g = json.load(open(p, encoding="utf-8")).get("generated_at") or "missing-field"
+    except Exception as exc:
+        g = "unreadable:" + type(exc).__name__
+    return str(g), str(int(os.path.getmtime(p)))
+
+b = parse(before)
+t0 = time.time()
+last = None
+while True:
+    g, m = stamp()
+    now = parse(g)
+    if now is not None and (b is None or now > b):
+        print("ADVANCED before=%s now=%s mtime=%s after=%.1fs" % (before, g, m, time.time() - t0))
+        sys.exit(0)
+    if (g, m) != last:
+        print("POLL generated_at=%s mtime=%s t=%.1fs" % (g, m, time.time() - t0))
+        last = (g, m)
+    if time.time() - t0 >= budget:
+        if now is None and g != "absent":
+            print("UNPARSEABLE generated_at=%s" % g)
+            sys.exit(5)
+        print("NOT-ADVANCED before=%s now=%s mtime=%s after=%.1fs" % (before, g, m, time.time() - t0))
+        sys.exit(4)
+    time.sleep(step)
+PY
+'
+}
+
+# GET the endpoint the tool reads, with the box's own service token, and look
+# for the fixture subject. $1 = API base, $2 = subject (base64, so no quoting
+# of the subject ever reaches a shell), $3 = floor.
+#
+# THE TOKEN NEVER LEAVES THE BOX. It is read into the python process on the
+# box from the file install.sh writes (~/.ostler/secrets/service_token,
+# install.sh:28207) and put in the Authorization header; nothing prints it
+# and nothing carries it back over ssh. The people probe reads the same file
+# (people_seed_and_retrieval.sh:134).
+#
+# Two GETs, both through urllib with an EMPTY proxy map: the operator shell
+# routinely carries HTTP_PROXY, and a proxy will answer for 127.0.0.1 with
+# its own error, which reads exactly like the service being down.
+#   1  ?limit=200                               the tool's own unfiltered shape
+#   2  ?domain=<row.domain>&min_confidence=<floor>&limit=200
+#      with the domain READ OFF THE COMPILED ROW in GET 1, because the
+#      endpoint matches domain case-sensitively (pwg_preferences.rs:217-219
+#      measured Reading 3, reading 0) and a guessed case would be a wrong
+#      answer wearing the shape of an empty profile.
+# Prints URLn, HTTPn, COUNTn, GENERATEDn, MATCHn lines. Exit 0 both matched at
+# or above the floor; 1 served without the subject (or below the floor);
+# 2 transport or non-200; 3 no usable token.
+_ps_api_readback() {
+    _ps_box_exec '
+O="${OSTLER_DIR:-$HOME/.ostler}"
+T="$O/secrets/service_token"
+if [ ! -r "$T" ]; then
+    echo "NO-TOKEN $T"
+    exit 3
+fi
+python3 - "$T" "'"${1}"'" "'"${2}"'" "'"${3}"'" <<"PY"
+import base64, json, sys, urllib.error, urllib.parse, urllib.request
+tok_path, base, subj_b64, floor_s = sys.argv[1:5]
+tok = open(tok_path, encoding="utf-8").read().strip()
+if not tok:
+    print("EMPTY-TOKEN")
+    sys.exit(3)
+subject = base64.b64decode(subj_b64).decode("utf-8")
+floor = float(floor_s)
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+def get(tag, query):
+    url = base.rstrip("/") + "/api/v1/preferences?" + query
+    print("URL%s %s" % (tag, url))
+    req = urllib.request.Request(url, headers={
+        "Authorization": "Bearer " + tok, "Accept": "application/json"})
+    try:
+        with opener.open(req, timeout=20) as resp:
+            code = resp.status
+            body = resp.read()
+    except urllib.error.HTTPError as e:
+        print("HTTP%s %s" % (tag, e.code))
+        return None
+    except Exception as exc:
+        print("HTTP%s 000 %s" % (tag, type(exc).__name__))
+        return None
+    print("HTTP%s %s" % (tag, code))
+    if code != 200:
+        return None
+    try:
+        doc = json.loads(body.decode("utf-8"))
+    except Exception as exc:
+        print("BODY%s unreadable %s" % (tag, type(exc).__name__))
+        return None
+    items = doc.get("interests") if isinstance(doc, dict) else None
+    if not isinstance(items, list):
+        print("BODY%s no-interests-list" % tag)
+        return None
+    print("COUNT%s %d" % (tag, len(items)))
+    print("GENERATED%s %s" % (tag, doc.get("generated_at")))
+    hit = [it for it in items if isinstance(it, dict) and it.get("subject") == subject]
+    if not hit:
+        print("MATCH%s no" % tag)
+        return {"match": False}
+    it = hit[0]
+    conf = float(it.get("confidence") or 0.0)
+    print("MATCH%s yes subject=%s confidence=%.4f score=%.4f domain=%s polarity=%s" % (
+        tag, subject, conf, float(it.get("score") or 0.0), it.get("domain"), it.get("polarity")))
+    return {"match": True, "conf": conf, "domain": str(it.get("domain") or "")}
+
+r1 = get("1", "limit=200")
+if r1 is None:
+    sys.exit(2)
+if not r1["match"]:
+    sys.exit(1)
+if r1["conf"] < floor:
+    print("BELOW-FLOOR confidence=%.4f floor=%.4f" % (r1["conf"], floor))
+    sys.exit(1)
+r2 = get("2", "domain=%s&min_confidence=%s&limit=200" % (
+    urllib.parse.quote(r1["domain"], safe=""), floor_s))
+if r2 is None:
+    sys.exit(2)
+if not r2["match"]:
+    sys.exit(1)
+sys.exit(0)
+PY
+'
+}
+
+# The orchestration. Called after the two floor arms passed. Returns 0 only
+# when the compile was triggered, generated_at advanced, and BOTH GETs served
+# the subject at or above the floor. Every return-1 path sets the state and
+# prints a line beginning CANNOT-RUN or FINDING.
+_ps_compile_and_serve() {
+    printf '  --- 3. the artefact the tool reads: recompiled, then read back ---\n'
+
+    if [ "${OSTLER_PREF_COMPILE_SKIP:-0}" = "1" ]; then
+        PREFERENCE_SEED_STATE="uncompiled"
+        printf '  CANNOT-RUN: OSTLER_PREF_COMPILE_SKIP=1. The rows are in the graph and\n'
+        printf '  the screen holds, but the artefact was not recompiled and the API was\n'
+        printf '  not read, so pwg_preferences will serve whatever the last hourly tick\n'
+        printf '  left. That is not a pass.\n\n'
+        return 1
+    fi
+
+    if ! _ps_fixture_target; then
+        PREFERENCE_SEED_STATE="uncompiled"
+        printf '  CANNOT-RUN: the fixture names no clears_floor subject or no\n'
+        printf '  compiler.min_confidence, so there is nothing to look for in the API.\n'
+        printf '    %s/preferences/preference_fixture.json\n\n' "${PREFERENCE_SEED_DIR}"
+        return 1
+    fi
+    printf '  looking for : %s\n' "${PREFERENCE_SEED_SUBJECT}"
+    printf '  floor       : min_confidence %s\n' "${PREFERENCE_SEED_FLOOR}"
+
+    _ps_budget="${OSTLER_PREF_COMPILE_BUDGET_S:-180}"
+    _ps_step="${OSTLER_PREF_COMPILE_POLL_S:-2}"
+    _ps_base="${OSTLER_PREF_API_BASE:-http://127.0.0.1:8090}"
+
+    # -- before -------------------------------------------------------------
+    _ps_st="$(_ps_profile_stamp 2>&1)"
+    _ps_strc=$?
+    _ps_stamp_line="$(printf '%s\n' "${_ps_st}" | sed -n 's/^STAMP //p' | head -1)"
+    if [ "${_ps_strc}" -ne 0 ] || [ -z "${_ps_stamp_line}" ]; then
+        PREFERENCE_SEED_STATE="uncompiled"
+        printf '  CANNOT-RUN: could not read the artefact before the trigger (exit %s),\n' "${_ps_strc}"
+        printf '  so an advance would have nothing to be measured against.\n'
+        printf '%s\n' "${_ps_st}" | sed 's/^/    /'
+        printf '\n'
+        return 1
+    fi
+    PREFERENCE_SEED_BEFORE="${_ps_stamp_line%% *}"
+    printf '  artefact    : %s\n' "$(printf '%s\n' "${_ps_st}" | sed -n 's/^PATH //p' | head -1)"
+    printf '  before      : generated_at %s (mtime %s)\n' "${PREFERENCE_SEED_BEFORE}" "${_ps_stamp_line##* }"
+
+    # -- trigger ------------------------------------------------------------
+    _ps_tr="$(_ps_trigger_compile 2>&1)"
+    _ps_trrc=$?
+    printf '%s\n' "${_ps_tr}" | sed 's/^/    /'
+    PREFERENCE_SEED_TRIGGER="$(printf '%s\n' "${_ps_tr}" | sed -n 's/^TRIGGER //p' | tail -n 1)"
+    case "${PREFERENCE_SEED_TRIGGER}" in
+        kickstart)
+            printf '  trigger     : launchctl kickstart -k, under the agent own launchd environment\n' ;;
+        tick)
+            printf '  trigger     : kickstart was refused, so the installed tick was run directly\n'
+            printf '                (same file launchd runs, not the same environment)\n' ;;
+        *)
+            PREFERENCE_SEED_STATE="uncompiled"
+            PREFERENCE_SEED_TRIGGER=""
+            case "${_ps_tr}" in
+                *"PLIST absent"*)
+                    printf '  CANNOT-RUN: label absent. The installer did not leave\n'
+                    printf '  %s in ~/Library/LaunchAgents, so\n' "${_PS_LABEL}"
+                    printf '  there is no agent to kickstart and no hourly compile on this box.\n'
+                    printf '  A hand-run compile would measure something the product never\n'
+                    printf '  scheduled. Nothing was recompiled.\n\n' ;;
+                *"TICK absent"*)
+                    printf '  CANNOT-RUN: kickstart refused and no rendered tick to fall back\n'
+                    printf '  to. Nothing was recompiled.\n\n' ;;
+                *"TICK ran rc="*)
+                    printf '  CANNOT-RUN: kickstart refused, and the installed tick run directly\n'
+                    printf '  exited non-zero (exit %s from the trigger). Its output is above.\n' "${_ps_trrc}"
+                    printf '  Nothing is asserted about the artefact.\n\n' ;;
+                *)
+                    printf '  CANNOT-RUN: the trigger could not be made (exit %s). Nothing was\n' "${_ps_trrc}"
+                    printf '  recompiled.\n\n' ;;
+            esac
+            return 1 ;;
+    esac
+
+    # -- wait for generated_at to advance ----------------------------------
+    _ps_po="$(_ps_poll_profile "${PREFERENCE_SEED_BEFORE}" "${_ps_budget}" "${_ps_step}" 2>&1)"
+    _ps_porc=$?
+    printf '%s\n' "${_ps_po}" | sed 's/^/    /'
+    if [ "${_ps_porc}" -ne 0 ]; then
+        PREFERENCE_SEED_STATE="uncompiled"
+        case "${_ps_po}" in
+            *"NOT-ADVANCED"*)
+                printf '  CANNOT-RUN: budget of %ss exhausted and generated_at did not ADVANCE\n' "${_ps_budget}"
+                printf '  past %s. A rewrite that leaves the same value is not a\n' "${PREFERENCE_SEED_BEFORE}"
+                printf '  recompile, and an unchanged file means the tick never emitted. Read\n'
+                printf '  ~/.ostler/logs/editor-frontpage.log and .err on the box for the tick\n'
+                printf '  own account. Nothing is asserted about the artefact.\n\n' ;;
+            *"UNPARSEABLE"*)
+                printf '  CANNOT-RUN: the artefact generated_at could not be parsed as a\n'
+                printf '  timestamp, so advance cannot be measured. Nothing is asserted.\n\n' ;;
+            *)
+                printf '  CANNOT-RUN: the poll itself failed (exit %s). Nothing is asserted.\n\n' "${_ps_porc}" ;;
+        esac
+        return 1
+    fi
+
+    # -- read back through the API the tool reads --------------------------
+    _ps_b64="$(printf '%s' "${PREFERENCE_SEED_SUBJECT}" | base64 | tr -d '\n')"
+    _ps_rb="$(_ps_api_readback "${_ps_base}" "${_ps_b64}" "${PREFERENCE_SEED_FLOOR}" 2>&1)"
+    _ps_rbrc=$?
+    printf '%s\n' "${_ps_rb}" | sed 's/^/    /'
+    _ps_count1="$(printf '%s\n' "${_ps_rb}" | sed -n 's/^COUNT1 //p' | head -1)"
+    _ps_count2="$(printf '%s\n' "${_ps_rb}" | sed -n 's/^COUNT2 //p' | head -1)"
+    case "${_ps_rbrc}" in
+        0) : ;;
+        3)
+            PREFERENCE_SEED_STATE="uncompiled"
+            printf '  CANNOT-RUN: token absent. The artefact WAS recompiled (generated_at\n'
+            printf '  advanced above), but the API fails closed with 401 without the\n'
+            printf '  service token and none was readable on the box, so what it serves\n'
+            printf '  could not be examined. Nothing is asserted about the read path.\n\n'
+            return 1 ;;
+        1)
+            PREFERENCE_SEED_STATE="unserved"
+            printf '  FINDING: THE COMPILE RAN AND THE API DOES NOT SERVE THE SEED SUBJECT.\n'
+            printf '  generated_at advanced, the token was accepted, and the endpoint\n'
+            printf '  returned %s interest(s) unfiltered' "${_ps_count1:-?}"
+            if [ -n "${_ps_count2}" ]; then
+                printf ' and %s with the domain and floor applied' "${_ps_count2}"
+            fi
+            printf ',\n  none of them "%s"\n' "${PREFERENCE_SEED_SUBJECT}"
+            printf '  at or above %s. The rows are in the graph (step 1) and\n' "${PREFERENCE_SEED_FLOOR}"
+            printf '  build_from_live() sees them in-process (step 2), so the gap is the\n'
+            printf '  compiler as launchd runs it: vendor/cm059_editor/compiler/\n'
+            printf '  emit_artefact.py (emit at :130-136, artefact_path at :61-74) under\n'
+            printf '  bin/editor-frontpage-tick.sh:174-184, or api_preferences in\n'
+            printf '  vendor/cm041/assistant_api/ical-server.py:6650 reading a different\n'
+            printf '  path than the emitter wrote. Read the artefact and the tick log on the\n'
+            printf '  box before calling this a walk failure.\n\n'
+            return 1 ;;
+        *)
+            PREFERENCE_SEED_STATE="uncompiled"
+            printf '  CANNOT-RUN: the API could not be read (exit %s): a non-200, a refused\n' "${_ps_rbrc}"
+            printf '  connection or an unreadable body, named above. 401 with the box own\n'
+            printf '  token is an auth fault, not a compiler fault. Nothing is asserted\n'
+            printf '  about the read path.\n\n'
+            return 1 ;;
+    esac
+
+    printf '  served      : %s interest(s) unfiltered, %s with domain and floor applied\n' \
+        "${_ps_count1:-?}" "${_ps_count2:-?}"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # THE STEP. Sourced and called by run_box_walk.sh in the caller's own shell,
 # beside the grounding seed, for the same reason: this is the last moment
 # before anything is measured, and ttywalk.sh does not invoke this runner at
@@ -557,10 +1058,25 @@ preference_seed_apply() {
         return 1
     fi
 
+    printf '  SCREEN HOLDS: %s interest(s) cleared the floor and %s row(s) were\n' "${_ps_interests}" "${_ps_suppressed}"
+    printf '  screened by it, in-process. That is what the tool WOULD see; what it\n'
+    printf '  DOES see is the compiled artefact, measured next.\n'
+
+    # The rows are in the graph and the screen holds. Now make the artefact
+    # the tool reads say so, and read it back through the tool's own route.
+    # Every return-1 path inside has already set the state and printed a
+    # named CANNOT-RUN or FINDING.
+    if ! _ps_compile_and_serve; then
+        return 1
+    fi
+
     PREFERENCE_SEED_STATE="seeded"
-    printf '  SEEDED AND ASSERTED: %s interest(s) cleared the floor and %s row(s)\n' "${_ps_interests}" "${_ps_suppressed}"
-    printf '  were screened by it. An export file reaches the graph as a preference\n'
-    printf '  row and the confidence screen still holds.\n'
+    printf '  SEEDED, COMPILED AND SERVED: %s interest(s) cleared the floor, %s row(s)\n' "${_ps_interests}" "${_ps_suppressed}"
+    printf '  were screened by it, the artefact was recompiled (generated_at advanced\n'
+    printf '  past %s) and /api/v1/preferences serves\n' "${PREFERENCE_SEED_BEFORE}"
+    printf '  "%s" at or above %s, unfiltered\n' "${PREFERENCE_SEED_SUBJECT}" "${PREFERENCE_SEED_FLOOR}"
+    printf '  and with the domain and floor applied. pwg_preferences has something\n'
+    printf '  to find.\n'
     printf '  THIS DOES NOT CLEAR #1872: nothing here ran the install, so nothing\n'
     printf '  here says whether a real install ever ingests a customer own exports.\n\n'
     return 0
@@ -574,7 +1090,7 @@ preference_seed_apply() {
 # ---------------------------------------------------------------------------
 preference_seed_forget() {
     case "${PREFERENCE_SEED_STATE}" in
-        seeded|screen-moved) : ;;
+        seeded|screen-moved|uncompiled|unserved) : ;;
         *) return 0 ;;
     esac
     if [ "${OSTLER_PREF_SEED_KEEP:-0}" = "1" ]; then
@@ -590,7 +1106,43 @@ preference_seed_forget() {
         printf '  already taken, so this changes no verdict in this run. Run\n'
         printf '  load_preference_seed.py --forget by hand on any box that is not a\n'
         printf '  throwaway.\n'
+        printf '\n'
+        return 0
     fi
+
+    # THE COMPILED ARTEFACT IS NOT THE GRAPH. --forget removes the rows; the
+    # artefact under ~/.ostler/preferences/ still carries the seed subject
+    # until the next hourly tick rewrites it. When this run triggered a
+    # compile, trigger it once more the same way, and MEASURE it: generated_at
+    # must advance again. Neither outcome changes a verdict; every measurement
+    # was taken before this function was called.
+    if [ -z "${PREFERENCE_SEED_TRIGGER}" ]; then
+        printf '  The compiled artefact was not recompiled in this run, so it is left\n'
+        printf '  as it was. If it carries the seed subject, the next hourly tick of\n'
+        printf '  %s rewrites it.\n\n' "${_PS_LABEL}"
+        return 0
+    fi
+    printf '  recompiling the artefact so it stops carrying the seed subject\n'
+    _ps_fst="$(_ps_profile_stamp 2>&1)"
+    _ps_fbefore="$(printf '%s\n' "${_ps_fst}" | sed -n 's/^STAMP //p' | head -1)"
+    _ps_fbefore="${_ps_fbefore%% *}"
+    _ps_ftr="$(_ps_trigger_compile 2>&1)"
+    printf '%s\n' "${_ps_ftr}" | sed 's/^/    /'
+    case "${_ps_ftr}" in
+        *"TRIGGER kickstart"*|*"TRIGGER tick"*)
+            _ps_fpo="$(_ps_poll_profile "${_ps_fbefore:-absent}" "${OSTLER_PREF_COMPILE_BUDGET_S:-180}" "${OSTLER_PREF_COMPILE_POLL_S:-2}" 2>&1)"
+            _ps_fporc=$?
+            printf '%s\n' "${_ps_fpo}" | sed 's/^/    /'
+            if [ "${_ps_fporc}" -eq 0 ]; then
+                printf '  recompiled: generated_at advanced past %s after the rows were removed.\n' "${_ps_fbefore:-absent}"
+            else
+                printf '  Left carrying the seed subject: the re-trigger ran but generated_at did\n'
+                printf '  not advance (exit %s). The next hourly tick rewrites it.\n' "${_ps_fporc}"
+            fi ;;
+        *)
+            printf '  Left carrying the seed subject: the re-trigger could not be made. The\n'
+            printf '  next hourly tick rewrites it.\n' ;;
+    esac
     printf '\n'
     return 0
 }
