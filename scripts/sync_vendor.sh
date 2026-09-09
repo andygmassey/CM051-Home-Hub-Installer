@@ -60,6 +60,10 @@ patch_rel="$(vlib_field "$TREE" divergence_patch)"
 [ -z "$patch_rel" ] && patch_rel="vendor/divergences/${TREE//\//_}.patch"
 abs_patch="$VLIB_REPO_ROOT/$patch_rel"
 
+# THE regenerate_forbidden BAN APPLIES HERE TOO, and until now it did not.
+# Checked BEFORE resolve_source_repo so no source is touched on a banned tree.
+vlib_refuse_if_regenerate_forbidden "$TREE" || exit 1
+
 repo="$(resolve_source_repo "$TREE")"
 if [ -z "$repo" ] || [ ! -d "$repo" ]; then
     echo "source repo for $TREE not found: $repo" >&2
