@@ -57,6 +57,21 @@ MAKEFILE="$REPO_ROOT/gui/Makefile"
 pass=0; fail=0
 ok()  { printf '  [PASS] %s\n' "$1"; pass=$((pass+1)); }
 bad() { printf '  [FAIL] %s\n' "$1"; fail=$((fail+1)); }
+# A SITE THAT COULD NOT BE VERIFIED IS NOT A PASS, AND MUST NOT EXIT 0.
+#
+# Every branch below used to print "[skip] ..." and fall through, leaving both
+# counters untouched. One of them even said "NOT a pass: site 6 is unverified in
+# this run" and then the run reported "9 passed, 0 failed" and exited 0. Measured
+# on supply-chain-pins run 34317749743, against the very pin commit whose hub-app
+# release did not exist: the gate printed the truth and returned green, and the
+# v1.0.80 cut then died fetching the artefact this test exists to guarantee.
+#
+# So an unverifiable site counts as a FAILURE while being WORDED as CANNOT-RUN.
+# The three outcomes stay distinct in the text, because "we could not look" and
+# "we looked and it is wrong" want different actions from whoever reads it, but
+# neither of them is allowed to be green. A control that cannot fail is not a
+# control.
+cannot() { printf '  [CANNOT-RUN] %s\n' "$1"; fail=$((fail+1)); }
 
 printf '== test_daemon_pins_agree ==\n'
 for f in "$INSTALL" "$MAKEFILE"; do
@@ -125,7 +140,7 @@ if [[ -n "$LOCAL_TARBALL" ]]; then
         bad "pinned SHA does NOT match $LOCAL_TARBALL (real=$REAL) -- the pin describes bytes nobody has"
     fi
 elif [[ "${SKIP_REMOTE:-0}" == "1" ]]; then
-    echo "  [skip] no local tarball and SKIP_REMOTE=1"
+    cannot "the daemon pin was checked against NOTHING: no local tarball and SKIP_REMOTE=1. Setting an env var must not turn an unverified pin green."
 elif command -v gh >/dev/null 2>&1; then
     TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
     if gh release download "hub-v${INSTALL_VER}" --repo ostler-ai/ostler-releases \
@@ -139,10 +154,10 @@ elif command -v gh >/dev/null 2>&1; then
             bad "pinned SHA != published asset (published=$PUB) -- the release was rebuilt without re-pinning"
         fi
     else
-        echo "  [skip] could not reach the hub-v${INSTALL_VER} release (auth/offline)"
+        cannot "could not reach hub-v${INSTALL_VER} on ostler-releases (auth/offline), so the daemon pin is UNVERIFIED. A private repo also 404s an asset that exists, so this cannot be read as absent-and-fine."
     fi
 else
-    echo "  [skip] no local tarball and gh unavailable"
+    cannot "the daemon pin is UNVERIFIED: no local tarball and gh is not on PATH, so nothing compared the pin to any bytes."
 fi
 
 # ---------------------------------------------------------------------------
@@ -173,7 +188,7 @@ if [[ -n "$LOCAL_HUB" ]]; then
         bad "HUB_APP_SHA256 does NOT match $LOCAL_HUB (real=$REAL_HUB) -- gui/Makefile:${HUB_SHA_LN} describes bytes nobody has"
     fi
 elif [[ "${SKIP_REMOTE:-0}" == "1" ]]; then
-    echo "  [skip] no local hub-app tarball and SKIP_REMOTE=1"
+    cannot "site 6 (HUB_APP_SHA256) was checked against NOTHING: no local hub-app tarball and SKIP_REMOTE=1."
 elif command -v gh >/dev/null 2>&1; then
     # ostler-ASSISTANT, not ostler-releases. Different repo, and PRIVATE, so an
     # anonymous fetch returns an HTML error page whose sha256 is a perfectly
@@ -192,10 +207,10 @@ elif command -v gh >/dev/null 2>&1; then
             bad "HUB_APP_SHA256 != published hub-app asset (published=$PUB_HUB) -- gui/Makefile:${HUB_SHA_LN} was not moved with DAEMON_VERSION"
         fi
     else
-        echo "  [skip] could not reach hub-v${MAKE_VER} in ostler-assistant (auth/offline). NOT a pass: site 6 is unverified in this run."
+        cannot "could not reach hub-v${MAKE_VER} in ostler-assistant, so site 6 (HUB_APP_SHA256) is UNVERIFIED. This is the exact branch that printed NOT a pass and then exited 0 while the release was a DRAFT: a draft 404s to a read token, and the v1.0.80 cut died on that artefact."
     fi
 else
-    echo "  [skip] no local hub-app tarball and gh unavailable"
+    cannot "site 6 (HUB_APP_SHA256) is UNVERIFIED: no local hub-app tarball and gh is not on PATH."
 fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
