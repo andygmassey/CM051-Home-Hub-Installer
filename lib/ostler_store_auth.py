@@ -87,7 +87,24 @@ STATUS = {
 
 
 def _record(arm, exc):
-    """Note that an arm failed. Cannot raise, by construction."""
+    """Note that an arm failed. Cannot raise, by construction.
+
+    🔴 AN ABSENT LIBRARY HAS NOT FAILED, AND LOGGING IT AS A FAILURE BURIES THE
+    ONES THAT DID. Measured on the v1.0.81 walk box 2026-09-09: this log held
+    351 lines and every one of them was an arm reporting ModuleNotFoundError,
+    288 for aiohttp and 63 for httpx, one per process, on a box where nothing
+    uses aiohttp at all. The comment above says the log exists because "the
+    rare case is the one nobody can currently see"; at 351 routine lines to
+    zero real ones, the rare case is exactly what it hides.
+
+    An interpreter without the library makes no requests through it, so there
+    is nothing there to authenticate and nothing to fix. It is recorded in
+    STATUS, where a diagnostic can still read it, and NOT written to the log,
+    which is reserved for an arm that was present and could not be patched.
+    """
+    if isinstance(exc, ImportError):
+        STATUS[arm] = "not-installed"
+        return
     STATUS[arm] = "FAILED: %s: %s" % (type(exc).__name__, exc)
     try:
         d = os.path.join(os.path.dirname(_SECRETS_DIR.rstrip(os.sep)), "logs")
