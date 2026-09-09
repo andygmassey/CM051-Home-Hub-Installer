@@ -31,6 +31,11 @@ on:
       - 'tests/test_no_divergent_vendor_twin.sh'
       - 'tests/test_context_refresh_vendor_sha.sh'
       - 'tests/test_vendor_fresh_gate.sh'
+      # Wired 2026-09-09: the interest-profile generator lives in the vendored
+      # editor compiler and its output is what pwg_preferences serves. The
+      # v1.0.81 walk read that artefact as zero interests on a box with 830
+      # preference points, so what the generator does WITH data is now pinned.
+      - 'tests/test_interest_profile_emits_on_seeded_preferences.py'
       - 'tests/test_conversation_process_metadata_conversation_id.sh'
       - 'tests/test_vendor_import_resolution.py'
       - 'tests/test_vendor_entrypoint_resolution.py'
@@ -466,6 +471,19 @@ jobs:
       - name: ical-server vendor regression (routes + proxy paths + bind)
         if: always()
         run: bash tests/test_ical_server_vendor_wired.sh
+
+      # THE INTEREST-PROFILE GENERATOR, PINNED GIVEN DATA.
+      #
+      # Measured on the v1.0.81 walk: /api/v1/preferences returned 200 with
+      # count 0 from a 245-byte artefact holding zero interests, on a box with
+      # 830 preference points, so pwg_preferences reported finding nothing and
+      # the grounded probe scored tool_found_nothing. The tool is correct on an
+      # empty origin. This pins what the generator does WITH data, including
+      # the confidence floor that no number of observations in the "interest"
+      # category can clear.
+      - name: the interest profile emits on seeded preferences
+        if: always()
+        run: python3 tests/test_interest_profile_emits_on_seeded_preferences.py
 
       # Doctor pairing-panel vendor regression step removed 2026-07-30:
       # the referenced test script vendor/doctor/test_vendor_pairing.sh
