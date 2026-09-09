@@ -231,6 +231,34 @@ grounding_seed_apply || true
 . "$HERE/lib/preference_seed.sh"
 preference_seed_apply || true
 
+# ── AND THE CONVERSATION SEED, the third write route, and the only one that
+#    needs a model call ──
+#
+# The two seeds above write a PERSON and a PREFERENCE. Nothing had ever put a
+# CONVERSATION through the conversation pipeline, and the pipeline is the only
+# writer of two things three probes read: the conversations Qdrant collection,
+# which the installer pre-creates EMPTY (install.sh:18448) and which
+# ingest_coverage scores EMPTY at 0, and the pwg:ConversationTopic nodes that
+# /api/v1/topics serves to pwg_topics. Nothing is processed at install time
+# (install.sh:19178-19180 checks --help and an import, and that is all), so on
+# a cold box those probes measure an empty store and cannot tell that from a
+# broken one.
+#
+# BELOW the two seeds above, so the line citations at the top of this file
+# (:42 PROBE_DIR, :44 EX_CANNOT_RUN, :83 the probe glob) keep their line
+# numbers, for the reason the block above gives.
+#
+# IT IS THE SLOWEST STEP IN THE WALK, ON PURPOSE. It makes six sequential model
+# calls, measured around 100 s each on a shipped box, and it is bounded at
+# OSTLER_CONVO_SEED_BUDGET_S (default 900). That cost buys the only assertion
+# in this suite that the conversation pipeline runs at all.
+#
+# `|| true` for the same reason the two above carry it: it reports its own
+# outcome in words, and every path it can fail on is either a named CANNOT-RUN
+# or a named FINDING.
+. "$HERE/lib/conversation_seed.sh"
+conversation_seed_apply || true
+
 # ── AND WAIT FOR THE GRAPH TO SETTLE, for the two probes that read counts ──
 #
 # The install-time converge is SIGKILLed at a flat budget and the catch-up agent
@@ -380,6 +408,7 @@ printf '\n'
 # change a verdict in this run. It never fails the walk.
 grounding_seed_forget || true
 preference_seed_forget || true
+conversation_seed_forget || true
 
 # -------------------------------------------------------------------------
 # REPORT -- four numbers, never one.
