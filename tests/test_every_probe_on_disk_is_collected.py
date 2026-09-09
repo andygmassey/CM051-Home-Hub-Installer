@@ -120,6 +120,30 @@ EXEMPT: dict[str, str] = {
         "it anyway. It IS invoked, through its permanent.yaml row, and "
         "post_walk_qa.sh runs the manifest verifier alongside the walk, so its "
         "result does reach the QA output under the manifest section.",
+    "lib/wiki_summaries_wait.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it between "
+        "phase 1 and phase 2, below the usage seed and above the phase-2 loop, "
+        "and calls wiki_summaries_wait, which kickstarts the wiki-recompile "
+        "LaunchAgent so the compile includes what the seeds wrote and then "
+        "waits, bounded, for every sign of life in the detached summary "
+        "backfill (wiki-recompile-tick.sh:394-451) to end: the wrapper pid, "
+        "the summaries log growing, the slot lock's holder, the processes of "
+        "this account naming the compiler, the compile container; never the "
+        "pid alone, because on the v1.0.82 box at 19:08Z the wrapper was gone "
+        "with a 0-byte log and every signal green. That is how "
+        "cm044_wiki_compiler gets its one chance to write a cm044-compile- "
+        "row before usage_journal_producers reads the journal. It "
+        "asserts about the box (the row delta either side of the backfill), "
+        "but it has no PROBE_NAME and no probe_pass/probe_fail verdict, so the "
+        "collector could not report it; collecting it would run a wait as if "
+        "it were a measurement, and would run it AFTER phase 2 rather than "
+        "before, which is the one ordering that waits for nothing. It IS "
+        "invoked, and that invocation is pinned by "
+        "tests/test_the_walk_waits_for_wiki_summaries.sh, which fails if the "
+        "runner stops sourcing it, stops calling wiki_summaries_wait, moves "
+        "the call above the usage seed or below the phase-2 loop, or if the "
+        "lib treats an empty summaries log, or a dead pid alone, as a "
+        "finished compile.",
 }
 
 PASS = 0
