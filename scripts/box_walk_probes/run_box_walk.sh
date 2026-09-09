@@ -210,6 +210,27 @@ fi
 . "$HERE/lib/grounding_seed.sh"
 grounding_seed_apply || true
 
+# ── AND THE PREFERENCE SEED, the same discipline on the other write route ──
+#
+# The seed above puts a PERSON in the graph. Nothing put a PREFERENCE there,
+# so an empty preference wiki, an ingest that never ran and a broken write
+# route were three faults wearing one face. On v1.0.81 the root cause turned
+# out to be the first of those: cm019_setup logged "already set up" with
+# elapsed_s=0 and install.log holds no ingest-dir and no "Files processed".
+#
+# BELOW the grounding seed, not above it, so the line citations at the top of
+# this file (:42 PROBE_DIR, :44 EX_CANNOT_RUN, :83 the probe glob) keep their
+# line numbers. Nothing executes a line lookup into this file, but three
+# places quote those three, and an insertion above them would rot all three
+# for no gain.
+#
+# `|| true` for the same reason the seed above carries it: this step reports
+# its own outcome in words, and every path it can fail on is either a named
+# CANNOT-RUN or a named FINDING. Neither should abort a walk that has not
+# measured anything yet.
+. "$HERE/lib/preference_seed.sh"
+preference_seed_apply || true
+
 # ── AND WAIT FOR THE GRAPH TO SETTLE, for the two probes that read counts ──
 #
 # The install-time converge is SIGKILLed at a flat budget and the catch-up agent
@@ -358,6 +379,7 @@ printf '\n'
 # Every measurement is taken by here, so removing the synthetic person cannot
 # change a verdict in this run. It never fails the walk.
 grounding_seed_forget || true
+preference_seed_forget || true
 
 # -------------------------------------------------------------------------
 # REPORT -- four numbers, never one.
