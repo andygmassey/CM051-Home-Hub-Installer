@@ -289,6 +289,44 @@ conversation_seed_apply || true
 . "$HERE/lib/usage_seed.sh"
 usage_seed_apply || true
 
+# ── AND WAIT FOR THE WIKI SUMMARY BACKFILL, so cm044_wiki_compiler has written ──
+#
+# The four seeds above give the box a person, a preference, a conversation and
+# one measured embedding call. usage_journal_producers also needs
+# cm044_wiki_compiler to have written, and on the wiped v1.0.82 box it had not:
+# the compiler writes a cm044-compile- row only from its summary pass, which
+# wiki-recompile-tick.sh:394-451 runs as a DETACHED background backfill. Measured
+# at 18:53:06Z on that walk: the install-time tick had launched the backfill at
+# 18:48:11Z, wiki-recompile-summaries.log was still 0 bytes, and the probe had
+# read the journal at about 18:51Z. Asked too early, the same shape as the two
+# count-reading probes below.
+#
+# And at 19:08Z on the same box, twenty minutes after that launch, the log was
+# STILL 0 bytes, no process of ours was alive, both LaunchAgents read "not
+# running, runs 1, last exit code 0", and the journal held 290 rows with
+# cm044-compile- 0: the backfill was gone and had written nothing while every
+# liveness signal read green, because the tick exits 0 for having LAUNCHED it.
+#
+# So this kickstarts the recompile LaunchAgent (after the seeds, so the compile
+# sees what they wrote) and waits, bounded by OSTLER_WIKI_WAIT_BUDGET_S, for
+# every sign of life to end: the wrapper pid in
+# ~/.ostler/.wiki-recompile-summaries.pid, the summaries log GROWING, the slot
+# lock's holder, the processes of this account naming the compiler, and the
+# compile container once the wrapper is gone. Never the pid alone, and an empty
+# log is never "complete": 0 bytes for the whole wait is the FINDING "the
+# backfill wrote nothing", a growing log at the budget is CANNOT-RUN "not
+# converged in time", and a finished compile with no row names the producer.
+# Then it counts the cm044-compile- rows either side. BELOW the usage seed, so
+# the line citations at the top of this file (:42 PROBE_DIR, :44 EX_CANNOT_RUN,
+# :83 the probe glob) keep their line numbers, and so the usage seed's own delta
+# stays attributable to its sweep.
+#
+# `|| true` for the reason the seeds carry it: every path this step can return 1
+# on is a named CANNOT-RUN or a named FINDING. No forget: the compile is the
+# product's own.
+. "$HERE/lib/wiki_summaries_wait.sh"
+wiki_summaries_wait || true
+
 # ── AND WAIT FOR THE GRAPH TO SETTLE, for the two probes that read counts ──
 #
 # The install-time converge is SIGKILLed at a flat budget and the catch-up agent

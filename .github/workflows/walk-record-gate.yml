@@ -80,6 +80,12 @@ on:
       # otherwise narrow the lib without running the test that guards it.
       - 'scripts/box_walk_probes/lib/usage_seed.sh'
       - 'tests/test_the_walk_seeds_the_usage_producer.sh'
+      # The wiki summaries wait: the same discipline on the producer that
+      # writes from a DETACHED backfill. Lib and test together, for the reason
+      # above -- a PR could otherwise narrow the lib (read an empty log as a
+      # finished compile) without running the test that guards it.
+      - 'scripts/box_walk_probes/lib/wiki_summaries_wait.sh'
+      - 'tests/test_the_walk_waits_for_wiki_summaries.sh'
       # Same rule as the workflow-self-trigger below, applied to a test: a
       # suite this workflow RUNS but does not WATCH is dark on self-edit --
       # it could be narrowed, or gutted, in a PR that never runs it. I added
@@ -626,6 +632,44 @@ jobs:
       - name: The walk runs the people sweep, so the FDA usage producer is measured
         if: always()
         run: /bin/bash tests/test_the_walk_seeds_the_usage_producer.sh
+
+      # THE PRODUCER THAT WRITES FROM A DETACHED BACKFILL. The step above makes
+      # the FDA producer write. cm044_wiki_compiler writes a cm044-compile- row
+      # only from the wiki compiler's summary pass, which wiki-recompile-tick.sh
+      # runs as a nohup'd background backfill (:394-451) that nothing in the
+      # walk waited for. Measured on the v1.0.82 walk at 18:53:06Z: the
+      # install-time tick had launched the backfill at 18:48:11Z, the summaries
+      # log was still 0 bytes, and usage_journal_producers had read the journal
+      # at about 18:51Z; cm044 rows: 0 (v1.0.81, a long-lived box: 553). And
+      # at 19:08Z, twenty minutes after the launch, the log was STILL 0 bytes,
+      # no process of ours was alive, both LaunchAgents read "not running,
+      # runs 1, last exit code 0": the backfill was gone and had written
+      # nothing while every liveness signal read green.
+      #
+      # Pins the wiring and the three-outcome discipline: the runner sources
+      # lib/wiki_summaries_wait.sh below the usage seed and above the phase-2
+      # loop; the kickstart text is exactly `kickstart -k
+      # gui/<id -u>/com.creativemachines.ostler.wiki-recompile`; completion is
+      # LIVENESS AND GROWTH, never the pid alone: the wrapper pid, the log's
+      # size growing, the slot holder, the account's processes naming the
+      # compiler (real pgrep -u against a real stub process), the container;
+      # a live pid with a 0-byte log is the FINDING "wrote nothing, still
+      # alive", a growing log at the budget is CANNOT-RUN "not converged in
+      # time", a dead wrapper with a 0-byte log and nothing alive is the 19:08Z
+      # FINDING "wrote nothing" reached without burning the budget, a positive
+      # delta is CONVERGED, a zero delta on a finished compile is a FINDING
+      # naming cm044_wiki_compiler as a present producer that did not write,
+      # and a refused kickstart, absent label plus absent tick, a tick that
+      # ends without a backfill, an unreadable box and an explicit skip are
+      # each a named CANNOT-RUN; the diagnostic block is printed and the
+      # summaries log's content never is (a name-shaped canary). Its mutation
+      # arm disables the delta check and requires the suite to notice. The
+      # stub box runs the real remote command text through /bin/sh against a
+      # real background process and the real pidfile path, so this needs no
+      # box and no launchd.
+      - name: The walk waits for the wiki summary backfill, so cm044_wiki_compiler has written before the journal is read
+        if: always()
+        run: /bin/bash tests/test_the_walk_waits_for_wiki_summaries.sh
 
       # THE OTHER HALF OF A HONEST PEOPLE READING. The seed above gives the
       # grounded probe a fact to look for; this gives the two COUNT-reading
