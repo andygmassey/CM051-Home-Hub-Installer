@@ -625,6 +625,52 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         _CTL_CONTENT_BEFORE=0; [ -d "$HOME/Documents/Ostler" ] && _CTL_CONTENT_BEFORE=1
         echo "positive control before the wipe: ~/.ostler=${_CTL_OSTLER_BEFORE} content-root=${_CTL_CONTENT_BEFORE}"
 
+        # ── PRESERVE THE LICENCE ACROSS THE WIPE ──────────────────────────────
+        #
+        # 🔴 MEASURED 2026-09-09, and it kills every wipe walk. The shipped
+        # uninstaller removes EVERYTHING under ~/.ostler except power.conf
+        # (install.sh:21732), and the licence lives at
+        # ~/.ostler/license/license.json (install.sh:1970). The licence
+        # preflight in this file runs at :487, BEFORE this block, so it passes;
+        # the wipe then deletes the licence; and the install that follows dies
+        # at ERR-02-LICENCE-REQUIRED with the box already wiped and no
+        # uninstaller left for a retry.
+        #
+        # That is not a hypothetical: the v1.0.82 walk hit the ERR-02 shape on
+        # its second priming attempt, straight after its first attempt had run
+        # the real uninstaller. Tonight was the FIRST wipe that ever found a
+        # shipped uninstaller to run, which is the only reason this had never
+        # fired before.
+        #
+        # The copy goes to mktemp OUTSIDE ~/.ostler on purpose: anywhere inside
+        # it is deleted by the very find this is protecting against.
+        _LIC="$HOME/.ostler/license/license.json"
+        _LIC_BAK=""
+        if [ -s "$_LIC" ]; then
+            # PORTABLE mktemp. The BSD-only form that takes a bare prefix after
+            # the -t flag is DESCRIBED rather than written here, for the reason
+            # this same file records at its #1560 note: a comment that reproduces
+            # the wrong form satisfies the very grep meant to find remaining uses
+            # of it. BSD accepts that form; GNU REFUSES it, "too few X-s in
+            # template".
+            # Measured on the Linux runner: the -t form failed, _LIC_BAK stayed
+            # empty, the limb printed LICENCE PRESENT BUT COULD NOT BE COPIED,
+            # and the licence was destroyed. This limb runs on the macOS box in
+            # life, so it would never have failed there, and the test running it
+            # on the runner is the ONLY reason it was caught before it shipped.
+            _LIC_BAK="$(mktemp "${TMPDIR:-/tmp}/ostler-walk-licence.XXXXXX")"
+            if cp "$_LIC" "$_LIC_BAK" 2>/dev/null; then
+                echo "licence saved before the wipe: $(wc -c < "$_LIC_BAK" | tr -d " ") bytes"
+            else
+                _LIC_BAK=""
+                echo "LICENCE PRESENT BUT COULD NOT BE COPIED. The install after this wipe"
+                echo "  will refuse at ERR-02-LICENCE-REQUIRED. Continuing so the wipe itself"
+                echo "  is still measured, but expect that failure."
+            fi
+        else
+            echo "no licence to preserve at ~/.ostler/license/license.json"
+        fi
+
         # The REAL uninstaller. install.sh writes ~/.ostler/bin/ostler-uninstall
         # and the store teardown (docker compose down -v) lives inside it.
         if [ -x "$HOME/.ostler/bin/ostler-uninstall" ]; then
@@ -783,6 +829,33 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         # exists to stop a red being blamed on the wrong thing. Written only
         # AFTER the volume count is confirmed zero, so the claim is measured.
         printf "wiped-by-explicit-store-wipe(0 ostler_ volumes remain)\n" > ~/.walk-stores-provenance-run
+
+        # ── AND PUT THE LICENCE BACK, AFTER THE COUNT, NEVER BEFORE ───────────
+        #
+        # THE ORDER IS THE WHOLE POINT. The residue count above reads FILES under
+        # ~/.ostler and refuses on any it finds. Restoring the licence before it
+        # would make this harness plant a file and then fail the walk for finding
+        # it. So the restore happens here: after the count, after WIPE CONFIRMED,
+        # and after the provenance marker, so nothing downstream reads it as
+        # residue and the wipe is still measured on a genuinely empty tree.
+        #
+        # The RESET block below cannot undo this. It searches three paths for an
+        # uninstaller and the wipe has just deleted all of them, so it finds none
+        # and says so. If that ever changes, this restore moves after it.
+        if [ -n "$_LIC_BAK" ] && [ -s "$_LIC_BAK" ]; then
+            mkdir -p "$HOME/.ostler/license"
+            if cp "$_LIC_BAK" "$_LIC" 2>/dev/null; then
+                chmod 600 "$_LIC"
+                echo "licence restored ($(wc -c < "$_LIC" | tr -d " ") bytes)"
+            else
+                echo "LICENCE COULD NOT BE RESTORED. The install after this wipe will refuse"
+                echo "  at ERR-02-LICENCE-REQUIRED. The wipe itself is measured and confirmed."
+            fi
+            rm -f "$_LIC_BAK"
+        else
+            echo "no saved licence to restore; the preflight at :487 already refuses a walk"
+            echo "  that starts without one, so this path means the licence was unreadable."
+        fi
     ' || die "the store wipe did not complete; refusing to walk against a half-wiped box"
 fi
 
