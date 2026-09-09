@@ -28831,10 +28831,96 @@ unset _CONV_GUARD_FDA_DIR _CONV_GUARD_OX
 # priority and triggers a wiki recompile so late merges surface without
 # the customer waiting. Install critical path for this step is capped at
 # OSTLER_DEDUPE_INSTALL_BUDGET_S (default 300s / 5 min).
+# HOW MANY PEOPLE ARE IN THE GRAPH THIS INSTALL JUST BUILT.
+#
+# Prints a bare integer, or nothing at all when the graph cannot be read. It
+# NEVER prints 0 as a stand-in for "could not ask": the caller distinguishes an
+# unreadable graph from a small one, and a 0 would silently buy the floor while
+# looking like a measurement. This is the same distinction the walk's own
+# stability wait had to learn the hard way.
+#
+# THE CREDENTIAL IS THE INSTALLER'S OWN ARRAY, never a path recomputed here.
+# _OSTLER_STORE_CURL_ARGS is what #1850 re-arms inside the promote, so it is
+# correct on both sides of it. Recomputing "${OSTLER_DIR}/secrets/..." at this
+# point would reintroduce exactly the staging-path bug that cost the v1.0.78
+# walk, one file over.
+#
+# The predicate is the same one the walk uses, so the installer and the probe
+# are counting the same thing and a disagreement between them means something.
+_ostler_dedupe_person_count() {
+    local _q='SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { ?p a <https://schema.ostler.ai/ontology#Person> }'
+    local _out
+    _out="$(curl -sS --noproxy '*' --max-time 20 \
+        "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
+        -H 'Content-Type: application/sparql-query' \
+        -H 'Accept: application/sparql-results+json' \
+        --data-binary "$_q" "http://127.0.0.1:7878/query" 2>/dev/null)" || return 0
+    printf '%s' "$_out" | /usr/bin/python3 -c 'import json,sys
+try:
+    v = json.load(sys.stdin)["results"]["bindings"][0]["n"]["value"]
+    print(int(v))
+except Exception:
+    pass' 2>/dev/null
+}
+
 if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python3" ]]; then
     info "Merging duplicate contacts across your sources"
     _DEDUPE_LOG="${OSTLER_DIAG_DIR}/hydrate-dedupe.log"
-    _DEDUPE_BUDGET_S="${OSTLER_DEDUPE_INSTALL_BUDGET_S:-300}"
+    # ── THE BUDGET SCALES WITH THE ADDRESS BOOK, AND K IS MEASURED ──
+    #
+    # This was a flat 300 s. On the v1.0.79 box it killed the pass at exactly
+    # the cap: state/dedupe-converge.killed recorded
+    #     waited_s=300 budget_s=300 signal=SIGTERM then SIGKILL
+    # and converge_kill_is_recorded has FAILED on that ever since. A flat cap
+    # cannot be right for a loop whose cost grows with the book: the same 300 s
+    # is generous for 200 contacts and impossible for 2000.
+    #
+    # K IS MEASURED, NOT GUESSED. From the same box's catch-up log, which ran
+    # the identical converge to its round cap with nothing else on the machine:
+    #     Loaded 1822 active person nodes            05:44:15
+    #     Converge hit max_rounds=10                 05:59:33
+    #     Rounds run 10, total merged 340
+    # That is 919 s for 1822 persons, or 0.504 s per person. Scaled to a book
+    # of 1800 the same work is ~908 s, and the brief asks for at least a 1.5x
+    # margin over it, so the budget at 1800 must be >= 1362 s.
+    #
+    #     K = 0.7 s/person  ->  budget(1800) = 1490 s  ->  margin 1.64x
+    #
+    # ⚠️ THE FORMULA CARRIES A BASELINE, AND THAT IS A DELIBERATE DEVIATION.
+    # The brief said clamp(300 + persons * K, 300, 1800) AND that persons=100
+    # must give 300. Those cannot both hold for any K > 0: 300 + 100K > 300.
+    # The baseline reconciles them, makes the lower clamp mean something, and
+    # keeps both stated acceptance cases true:
+    #     budget = clamp(300 + max(0, persons - 100) * K, 300, 1800)
+    #     persons=100  -> 300          persons=1800 -> 1490
+    #
+    # Integer arithmetic only: bash 3.2 has no floating point, so K is applied
+    # as *7/10 rather than *0.7, and the division truncates, which errs toward
+    # the smaller budget and never toward a longer install.
+    #
+    # THE ENV OVERRIDE STILL WINS, for the walk harness and for support.
+    # THE KILL AND ITS MARKER ARE UNTOUCHED: the fix is that on a real book the
+    # kill does not fire, NOT that it stops being recorded. A budget that is
+    # still exceeded must still leave the same durable evidence it does today.
+    _DEDUPE_PERSONS="$(_ostler_dedupe_person_count)"
+    _DEDUPE_K_NUM=7    # K = 7/10 = 0.7 s per person, measured above
+    _DEDUPE_K_DEN=10
+    _DEDUPE_BASELINE=100
+    if [[ "$_DEDUPE_PERSONS" =~ ^[0-9]+$ ]] && [[ "$_DEDUPE_PERSONS" -gt "$_DEDUPE_BASELINE" ]]; then
+        _DEDUPE_BUDGET_DERIVED=$(( 300 + (_DEDUPE_PERSONS - _DEDUPE_BASELINE) * _DEDUPE_K_NUM / _DEDUPE_K_DEN ))
+    else
+        # Unreadable count or a small book: the floor. An unreadable graph must
+        # not silently buy a longer install, so it takes the same 300 s the flat
+        # constant used to give and says which case it was.
+        _DEDUPE_BUDGET_DERIVED=300
+    fi
+    [[ "$_DEDUPE_BUDGET_DERIVED" -lt 300 ]]  && _DEDUPE_BUDGET_DERIVED=300
+    [[ "$_DEDUPE_BUDGET_DERIVED" -gt 1800 ]] && _DEDUPE_BUDGET_DERIVED=1800
+    _DEDUPE_BUDGET_S="${OSTLER_DEDUPE_INSTALL_BUDGET_S:-$_DEDUPE_BUDGET_DERIVED}"
+    # On the STEP line, so the walk log carries the derivation and not just the
+    # outcome. A budget without its inputs is a number nobody can audit later.
+    info "$(printf 'Merge budget %ss (persons=%s, K=%s/%s s per person over a baseline of %s)' \
+        "$_DEDUPE_BUDGET_S" "${_DEDUPE_PERSONS:-unreadable}" "$_DEDUPE_K_NUM" "$_DEDUPE_K_DEN" "$_DEDUPE_BASELINE")" || true
     _DEDUPE_DONE_MARKER="${OSTLER_DIR}/state/dedupe-converge.done"
     # A killed converge can tear a merge (see the hard-cap comment below), and
     # the absence of the .done marker cannot distinguish "killed at the budget"
@@ -28943,6 +29029,11 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
                 printf 'killed_at_utc=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
                 printf 'waited_s=%s\n'      "$_DEDUPE_WAITED"
                 printf 'budget_s=%s\n'      "$_DEDUPE_BUDGET_S"
+                # The INPUTS beside the outcome: a marker saying only that 1490 s
+                # was not enough cannot tell a later reader whether the book was
+                # large or the derivation wrong.
+                printf 'persons=%s\n'       "${_DEDUPE_PERSONS:-unreadable}"
+                printf 'budget_k=%s/%s per person over baseline %s\n' "$_DEDUPE_K_NUM" "$_DEDUPE_K_DEN" "$_DEDUPE_BASELINE"
                 printf 'signal=SIGTERM then SIGKILL\n'
                 printf 'risk=a merge interrupted between its identifier move and its mergedInto tombstone leaves an unauthorised rehoming; see identity_resolver merge_persons\n'
             } > "$_DEDUPE_KILLED_MARKER" 2>/dev/null || true
