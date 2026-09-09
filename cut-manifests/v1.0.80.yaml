@@ -57,13 +57,28 @@ description: |
   #     fix is in the producers, which are outside this repo and outside the
   #     freeze, and a builder has them.
   #
-  #     The fourth is a writer/reader contract defect, not a silent producer.
-  #     oa_daemon_chat is matched on purpose=answering. All 2080 records carry
-  #     exactly ['id', 'session_id', 'usage']; records carrying a purpose key
-  #     number ZERO. A matcher keyed on a field the writer never emits cannot
-  #     pass whatever the daemon does. The roster stays as it is and the daemon
-  #     writes the key -- that lands with the daemon pin below, so if the pin
-  #     lands this row may improve and the forecast here is the pessimistic one.
+  #     The fourth is a writer/reader contract defect, not a silent producer,
+  #     and it is UNMEASURABLE ON THIS CUT BY CONSTRUCTION. oa_daemon_chat is
+  #     matched on purpose=answering. All 2080 records carry exactly
+  #     ['id', 'session_id', 'usage']; records carrying a purpose key number
+  #     ZERO. A matcher keyed on a field the writer never emits cannot pass
+  #     whatever the daemon does.
+  #
+  #     THE DAEMON PIN DOES NOT MOVE IT, AND THE MECHANISM IS READABLE. The pin
+  #     adds the accumulation and one record_local_work(.., Purpose::Answering)
+  #     at the answered-turn exit. But on the STREAMING path -- the one the walk
+  #     and the A/B drive -- no stream event carries token counts, so the
+  #     provider response's usage is None, the accumulator stays (0, 0), and
+  #     zeroclaw-config/src/cost/tracker.rs opens record_local_work with:
+  #
+  #         if input_tokens == 0 && output_tokens == 0 { return; }
+  #
+  #     So the result is NO ROW, not a row of zeros. The purpose key can only
+  #     appear on a row that gets written, and none is. What would move it is a
+  #     provider-trait change carrying token counts on the stream, which is its
+  #     own PR AFTER this release and is explicitly NOT in this pin. This row is
+  #     therefore forecast to fail for the same reason on v1.0.80 as on v1.0.79,
+  #     and the pin is not credited with an improvement it cannot deliver.
   #
   #     "Four of five wrote nothing" would OVERSTATE it and this file will not
   #     say it. Three wrote nothing; one is unmeasurable by construction.
@@ -91,15 +106,30 @@ description: |
   #     the box has a genuinely stable residual, which is exactly what the
   #     probe must still fail on and what its new arms assert it does.
   #
-  #   assistant_answers_grounded   EXPECTED TO MOVE, IF THE DAEMON PIN LANDS.
-  #     The v1.0.79 red was grounded to a DISPATCH failure: a raw tool call was
-  #     emitted as TEXT to the customer. That is separate from the memory-vs-
-  #     retrieval question and only the first is addressed by the pin.
+  #   assistant_answers_grounded   EXPECTED TO IMPROVE ON ONE CASE, AND NOT TO
+  #     PASS. The pin adds an output guard so a reply that is, whole and
+  #     trimmed, a tool call is dispatched rather than shipped: the v1.0.79 red
+  #     included a raw pwg_overview{} emitted as TEXT to the customer, fourteen
+  #     bytes with zero dispatches, and that specific case should stop.
   #
-  # WHAT WOULD MAKE THIS CUT WORTH ANDY'S TIME. Three of the four rows above
-  # moving, with usage_journal_producers the only red and non-blocking. That is
-  # the ONLY shape on which he is asked to walk, and it is not asked for on a
-  # forecast -- it is asked for on the thin walk, per directive item 3.
+  #     BUT RECORD #2's FAIL CARRIED THREE REASONS, NOT ONE. Beside the
+  #     dispatch-as-text case it carried no_tool_call and memory_only -- the
+  #     assistant answering from memory instead of querying the graph -- and the
+  #     output guard touches NEITHER. A row that goes from three reasons to two
+  #     is not a row that passes, and this forecast will not imply it might.
+  #     Expect this row still FAIL, with one of its three reasons gone.
+  #
+  # WHAT WOULD MAKE THIS CUT WORTH ANDY'S TIME, STATED HONESTLY. On the forecast
+  # above this cut does NOT reach a clean walk: usage_journal_producers is
+  # forecast FAIL for reasons outside this repo, and assistant_answers_grounded
+  # is forecast FAIL with one of its three reasons gone. The two rows genuinely
+  # in play are converge_kill_is_recorded and people_stores_reconcile.
+  #
+  # So v1.0.80 is a cut that should MOVE TWO ROWS and is not expected to be
+  # walkable by Andy. Saying otherwise here would be the mis-sale this section
+  # exists to prevent. He is asked to walk on the THIN WALK's numbers, per
+  # directive item 3, never on a forecast -- and on this forecast he is not
+  # asked at all.
   #
   # THE PAYLOAD CHANGES AND IT IS MEASURED. install.sh at v1.0.79 against this
   # cut's base (1ae0d869), /usr/bin/grep -Ec on both trees:
