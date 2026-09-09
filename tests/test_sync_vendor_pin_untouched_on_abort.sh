@@ -134,17 +134,17 @@ printf '\n[[tree]]\nname             = "selftest/banned"\nvendor_path      = "ve
 printf '\n[[tree]]\nname             = "selftest/unbanned"\nvendor_path      = "vendor/selftest_unbanned"\nsource_repo      = "$SELFTEST_ABSENT"\nsource_path      = "."\npinned_sha       = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"\n' >> "$MANIFEST"
 
 _out4="$(bash "$SCRIPT" selftest/banned 2>&1)"; _rc4=$?
-if [ "$_rc4" -eq 1 ] && printf '%s' "$_out4" | grep -q 'REFUSED: selftest/banned is marked regenerate_forbidden'; then
+if [ "$_rc4" -eq 1 ] && grep -q 'REFUSED: selftest/banned is marked regenerate_forbidden' <<<"$_out4"; then
 	pass "sync_vendor.sh REFUSES a regenerate_forbidden tree (rc=1, names the tree)"
 else
 	fail "sync_vendor.sh did not refuse a banned tree: rc=$_rc4"
 fi
-if printf '%s' "$_out4" | grep -q 'synthetic ban for the self-test'; then
+if grep -q 'synthetic ban for the self-test' <<<"$_out4"; then
 	pass "and it prints the declared reason rather than a bare refusal"
 else
 	fail "the refusal did not carry regenerate_forbidden_reason"
 fi
-if printf '%s' "$_out4" | grep -q 'source repo'; then
+if grep -q 'source repo' <<<"$_out4"; then
 	fail "the refusal happened AFTER source resolution; it must come first"
 else
 	pass "and no source was touched: the run never reached source resolution"
@@ -152,7 +152,7 @@ fi
 
 # THE CONTROL. Without it, a check that refused every tree would pass above.
 _out5="$(bash "$SCRIPT" selftest/unbanned 2>&1)"; _rc5=$?
-if printf '%s' "$_out5" | grep -q 'regenerate_forbidden'; then
+if grep -q 'regenerate_forbidden' <<<"$_out5"; then
 	fail "CONTROL: an UNFLAGGED tree was refused by the ban; the check is indiscriminate"
 else
 	pass "CONTROL: an unflagged tree proceeds past the ban check (rc=$_rc5)"
