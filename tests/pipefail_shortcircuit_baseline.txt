@@ -27,69 +27,123 @@
 #
 # TOTAL INSTANCES AT THIS BASELINE: 224 across 76 files.
 #
+# 🔴 2026-09-09: THIS LIST GREW FROM 74 TO 106 BECAUSE THE PREDICATE STOPPED
+# BEING BLIND TO THE `||` FORM, NOT BECAUSE ANYONE ADDED 32 DEFECTS.
+#
+# CONSTRUCT anchored on `^(if|elif|while)`, so it saw the construct only inside
+# a CONDITION. The other way a pipeline's status is consumed is
+# `... | grep -q PAT || failure` and `... && action`, which invert identically.
+# CM051 #1865 was reddened by tests/test_resource_tier_governor.sh, twenty
+# instances of that shape in a file this ratchet could not see, on a pull
+# request that touched one unrelated file.
+#
+# `|| true` and `|| :` are excluded: they take the status and discard it, so no
+# verdict can invert. Comment lines are excluded too, and that is not tidiness:
+# without it the scan counts the prose explaining the rule, which it did on the
+# first regeneration, in the very file this change was fixing.
+#
+# tests/test_resource_tier_governor.sh is NOT below because its twenty
+# instances were converted to the counted form in the same change. It is the
+# only file fixed here; the rest are baselined as found.
+#
+# TOTAL INSTANCES AT THIS BASELINE: 296 across 106 files.
+# (The line above previously read 224 across 76 while the file held 74 rows and
+# 217 instances. A total nobody recomputes is a total that rots; it is derived
+# from the rows now and must be re-derived whenever they change.)
+#
+.github/workflows/cut.yml	4
 .github/workflows/dry-run-ledger.yml	4
 .github/workflows/fda-deps-installed.yml	1
 bin/redact_selftest.sh	1
 bin/rollforward_gate.sh	1
 gui/scripts/sign-python-bundle.sh	2
-install.sh	21
+install.sh	27
 scripts/_vendor_lib.sh	2
 scripts/box_walk_probes/probes/ingest_coverage.sh	4
 scripts/box_walk_probes/probes/launchd_no_ephemeral_paths.sh	2
+scripts/box_walk_probes/probes/no_unexpected_egress.sh	1
 scripts/classify_pr_pin_shape.sh	1
 scripts/dry_run_cut_checks.sh	1
+scripts/pre_tag_live_checks.sh	1
 scripts/provenance_gate.sh	3
 scripts/regenerate_divergence_patch.sh	1
 scripts/stage_and_verify_dmg.sh	1
 scripts/sync_vendor.sh	2
-scripts/tests/test_daemon_fda_case6_controls.sh	2
+scripts/tests/test_daemon_fda_case6_controls.sh	3
 scripts/tests/test_regenerate_divergence_patch.sh	16
 scripts/verify_appcast_published.sh	1
 scripts/verify_cut_freshness.sh	1
+scripts/verify_declared_gates_reachable.sh	2
 scripts/verify_no_orphaned_fixes.sh	1
+scripts/verify_permission_briefing.sh	1
+scripts/verify_swift_tests_ran.sh	2
+tests/test_a_broken_ci_query_is_not_a_green_main.sh	3
+tests/test_a_missing_tarball_is_not_a_network_problem.sh	1
 tests/test_ai_model_env_contract.sh	1
+tests/test_aiconv_without_owner_email_does_not_redden_health_check.sh	1
 tests/test_bookmarks_ingest_wired.sh	1
 tests/test_bootstrap_prelude.sh	2
 tests/test_calendar_hydrate_venv.sh	5
+tests/test_closing_verdict_consults_failed_steps.sh	1
 tests/test_colima_autostart_mechanism.sh	1
 tests/test_contact_resync_scheduled.sh	2
 tests/test_container_engine_liveness_and_recovery.sh	1
+tests/test_context_refresh_vendor_sha.sh	1
+tests/test_conversation_process_metadata_conversation_id.sh	1
 tests/test_cut_dispatch_is_dry.sh	1
 tests/test_cut_gate_wrappers.sh	3
 tests/test_cx30_33_python_library_validation_entitlement.sh	3
+tests/test_cx92_calendar_historical_backfill.sh	2
 tests/test_cx98_previous_install_detection.sh	1
 tests/test_dmg_contains_bundled_python.sh	1
+tests/test_doctor_probe_errtrap_regression.sh	4
 tests/test_email_folder_prompt.sh	3
 tests/test_email_ingest_bootstrap_guard.sh	2
 tests/test_email_ingest_loud_guard.sh	2
+tests/test_err_trap_emits_done_fail.sh	2
 tests/test_every_launchagent_is_torn_down.sh	1
+tests/test_every_marker_pattern_compiles.sh	1
+tests/test_export_detect_large_zip_behaviour.sh	1
 tests/test_fda_dialog_tells_the_truth.sh	1
 tests/test_fda_prewarm_no_early_messages_popup.sh	4
-tests/test_fda_rerun_ingests.sh	1
-tests/test_fda_rerun_recurs.sh	1
-tests/test_grep_c_arith_safety.sh	1
+tests/test_fda_rerun_ingests.sh	3
+tests/test_fda_rerun_recurs.sh	2
+tests/test_gdpr_folder_access_denied.sh	1
+tests/test_governor_pause_throttle.sh	9
+tests/test_grep_c_arith_safety.sh	2
+tests/test_hydrate_counters_survive_a_failed_producer.sh	1
 tests/test_hydrate_sentinel_not_on_error.sh	2
 tests/test_imessage_fda_probe.sh	1
 tests/test_imessage_tcc_posture.sh	1
 tests/test_install_daily_briefs.sh	19
 tests/test_install_first_month_free.sh	1
+tests/test_installer_app_pyc_is_seeded.sh	1
 tests/test_installer_version_consistency.sh	3
+tests/test_killed_converge_leaves_a_record.sh	1
 tests/test_laptop_hub_power_copy_fires_on_laptops_only.sh	3
 tests/test_launchd_plist_no_tmp.sh	1
 tests/test_linkedin_export_detect.sh	2
 tests/test_mailbox_ingest_leg_wired.sh	1
 tests/test_memory_embeddings_wired.sh	2
 tests/test_no_local_cuts.sh	2
-tests/test_pipefail_shortcircuit_inversion.sh	5
-tests/test_secrets_are_documented.sh	3
+tests/test_ollama_agent_check_survives_a_not_yet_running_agent.sh	1
+tests/test_pinned_wiki_image_has_design_system.sh	1
+tests/test_pipefail_shortcircuit_inversion.sh	7
+tests/test_reset_says_when_it_did_not_uninstall.sh	4
+tests/test_secrets_are_documented.sh	5
 tests/test_shipped_compose_usage_journal_mount.sh	1
 tests/test_social_ingest_wired.sh	1
 tests/test_stay_awake_agent_survives_installer_exit.sh	6
 tests/test_step_end_does_not_report_a_timed_out_step_as_ok.sh	8
+tests/test_store_auth_pth_uses_final_dir.sh	1
+tests/test_tailscale_daemon_gate.sh	1
 tests/test_tailscale_recovery_wrapper.sh	2
+tests/test_uninstaller_counts_do_not_abort_on_an_unreadable_dir.sh	3
 tests/test_upgrade_reloads_the_launchagent_it_rewrote.sh	1
 tests/test_usr_local_bin_symlinks_gui_safe.sh	2
+tests/test_v1010_ical_doctor_service_auth.sh	4
 tests/test_v1010_redteam3_supply_chain_pins.sh	2
+tests/test_v1010_store_front_proxy.sh	3
 tests/test_vendor_cm052_ai_conversations.sh	1
 tests/test_vendor_fresh_gate.sh	14
 tests/test_verify_ci_steps_are_maskless.sh	1
@@ -98,6 +152,8 @@ tests/test_verify_test_wiring.sh	12
 tests/test_walkaway_no_phase2_input_leak.sh	2
 tests/test_wiki_baseline_background.sh	3
 tests/test_wiki_recompile_after_late_hydration.sh	2
-tests/test_wiki_tailnet_gate.sh	2
+tests/test_wiki_tailnet_gate.sh	3
 vendor/cm019_preferences/test_vendor_preferences.sh	2
+vendor/hub_power/bin/hub-power-actions.sh	2
+vendor/hub_power/bin/hub-power-state.sh	1
 vendor/imessage_bridge/test_vendor_import.sh	2

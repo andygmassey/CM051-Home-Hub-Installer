@@ -176,7 +176,43 @@ fi
 # GROWING, not to rewrite every file on the eve of a cut. Ratcheting BOTH ways
 # means a fix that forgets to lower the baseline is also caught, so the number
 # cannot rot in either direction.
-CONSTRUCT='^[[:space:]]*(if|elif|while)[[:space:]].*\|[[:space:]]*(grep [^|]*-q|grep [^|]*-m1|head( |$)|read )'
+#
+# 🔴 AND THE PREDICATE ITSELF WAS ONE FORM SHORT, WHICH IS WHY THE COUNT BELOW
+# GREW A SECOND TIME.
+#
+# CONSTRUCT anchored on `^(if|elif|while)`, so it saw the construct only in a
+# CONDITION. The other way a pipeline's status is consumed is the `||` and `&&`
+# form, and it inverts exactly as badly:
+#
+#     printf '%s\n' "$out" | grep -q PATTERN || failure "not found"
+#
+# On a match, grep -q exits first, the producer takes SIGPIPE, pipefail reports
+# the pipeline failed, and `failure` fires BECAUSE the pattern was there.
+#
+# MEASURED 2026-09-09, and this is not hypothetical. CM051 #1865 was reddened
+# by tests/test_resource_tier_governor.sh on run 34322378706: `echo: write
+# error: Broken pipe` and then `FAIL: HIGH should cap concurrency 4`, on a PR
+# that touched one unrelated file. That file carried TWENTY instances of this
+# shape and was absent from the baseline altogether, because every one of them
+# is `... || failure`, not `if ...`. The gate existed, was wired, ratcheted
+# both ways, and could not see the file that fabricated the red.
+#
+# MEASURED over the same 704-file population, joined continuations, pipefail
+# required, tests/fixtures excluded:
+#
+#     if/elif/while only (the old predicate)     74 files, 217 instances
+#     plus the || and && form (this predicate)   99 files, 295 instances
+#     any pipe into a short-circuiting consumer 358 files, 1016 instances
+#
+# The third is what NOT to do: it counts pipelines whose status nobody reads,
+# and a ceiling four times too high is a place for a real regression to hide.
+#
+# `|| true` and `|| :` are EXCLUDED and that exclusion is load-bearing rather
+# than tidy. Both consume the status and then discard it, so the inversion
+# cannot change any verdict; counting them would inflate the ceiling with lines
+# that have nothing to fix.
+CONSTRUCT='(^[[:space:]]*(if|elif|while|until)[[:space:]].*\|[[:space:]]*(grep [^|]*-q|grep [^|]*-m1|head( |$)|read )|\|[[:space:]]*(grep [^|]*-q|grep [^|]*-m1|head( |$)|read )[^|]*(\|\||&&))'
+BENIGN='\|\|[[:space:]]*(true|:)[[:space:]]*(#.*)?$'
 BASELINE_FILE='tests/pipefail_shortcircuit_baseline.txt'
 
 # Only files that ALSO set pipefail can invert. Without it the pipeline status
@@ -234,7 +270,24 @@ population_in() {
         # single-line and the multi-line form -- left the ratchet saying "no new
         # instances", because `install.sh` was already a row and the row did not
         # change. With the count in the row, 21 becomes 22 and it is caught.
-        _n="$(_joined_lines "$f" | grep -cE "$CONSTRUCT")"
+        # THREE STAGES, and grep -c in the counting one because this file must
+        # obey its own rule. Drop comment lines, select the construct, then drop
+        # the lines whose only consumption is `|| true` or `|| :`. Every stage
+        # reads to EOF, so none can SIGPIPE another. An empty selection leaves
+        # the last stage counting nothing, which prints 0 and exits 1; the count
+        # is read and the status is not, the shape
+        # tests/test_grep_c_arith_safety.sh guards elsewhere.
+        #
+        # 🔴 THE COMMENT FILTER IS NOT TIDINESS. The old predicate anchored on
+        # `^[[:space:]]*(if|elif|while)` and so could never match a comment. The
+        # `||` arm has no such anchor, and without this stage it counts every
+        # line of PROSE that quotes the banned shape -- including the note above
+        # each fixed call site explaining why the shape is banned. Caught
+        # immediately: the first regeneration reported one surviving instance in
+        # tests/test_resource_tier_governor.sh, and it was the comment this
+        # file's own rule had just asked that file to write. An assertion that
+        # fires on its own explanatory prose is the fourth of that shape here.
+        _n="$(_joined_lines "$f" | grep -vE '^[[:space:]]*#' | grep -E "$CONSTRUCT" | grep -cvE "$BENIGN")"
         if [ "${_n:-0}" -gt 0 ]; then
             printf '%s\t%s\n' "$f" "$_n"
         fi
@@ -292,6 +345,50 @@ set -uo pipefail
 if printf 'needle\n' | grep -q needle; then echo found; fi
 FIXTURE
 
+# THE `||` FORM. This is the one that reddened CM051 #1865 from a file the
+# scanner could not see, because every instance in it is `... || failure` and
+# CONSTRUCT anchored on `if`. Seeded in BOTH the `||` and `&&` spellings: they
+# consume the pipeline's status identically and a predicate that catches one
+# and not the other is half a predicate.
+cat > "$CTL_DIR/seeded_or_form.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -uo pipefail
+out="$(printf 'needle\n')"
+printf '%s\n' "$out" | grep -q needle || echo "not found"
+FIXTURE
+
+cat > "$CTL_DIR/seeded_and_form.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -uo pipefail
+out="$(printf 'needle\n')"
+printf '%s\n' "$out" | grep -q needle && echo found
+FIXTURE
+
+# Discriminator 4: the same pipe into grep -q, consumed by `|| true`. The
+# status is taken and thrown away, so the inversion cannot change a verdict and
+# there is nothing here to fix. Counting it would raise the ceiling for free,
+# which is the only way a ratchet lies while staying green.
+cat > "$CTL_DIR/or_true_is_benign.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -uo pipefail
+printf 'needle\n' | grep -q needle || true
+FIXTURE
+
+# Discriminator 5: a file whose ONLY occurrence of the shape is in a COMMENT
+# explaining why the shape is banned. Every call site fixed under this rule
+# grows exactly such a comment, so a scanner without the comment filter charges
+# the repo for its own documentation and the ceiling rises every time someone
+# does the right thing. Measured: the first regeneration reported one instance
+# in tests/test_resource_tier_governor.sh, and it was the note above the fix.
+cat > "$CTL_DIR/only_in_prose.sh" <<'FIXTURE'
+#!/usr/bin/env bash
+set -uo pipefail
+# Never write `printf '%s\n' "$out" | grep -q PAT || failure "..."` here: under
+# pipefail that reports failure when PAT matches. Use the counted form.
+n="$(printf 'needle\n' | grep -c needle)"
+[ "$n" -gt 0 ] && echo found
+FIXTURE
+
 # THE MULTI-LINE FORM. This is the one the scanner used to miss entirely, and
 # missing it is how CM051 #1471 added an instance to install.sh while this file
 # reported "no new instances". CONSTRUCT anchors on the keyword, so with the
@@ -322,6 +419,26 @@ if grep -qF 'seeded_multiline.sh' <<< "$CTL_POP"; then
     ok "POSITIVE CONTROL: the scanner finds a MULTI-LINE instance (the form it was blind to)"
 else
     bad "POSITIVE CONTROL FAILED: a condition split across a backslash continuation was NOT found. The scanner is blind to the multi-line form, which is how an instance landed in install.sh under a green verdict."
+fi
+if grep -qF 'seeded_or_form.sh' <<< "$CTL_POP"; then
+    ok "POSITIVE CONTROL: the scanner finds the '|| failure' form (the one that reddened #1865)"
+else
+    bad "POSITIVE CONTROL FAILED: a pipeline consumed by '||' was NOT found. That is the shape of all twenty instances in tests/test_resource_tier_governor.sh, and the scanner is blind to it again."
+fi
+if grep -qF 'seeded_and_form.sh' <<< "$CTL_POP"; then
+    ok "POSITIVE CONTROL: the scanner finds the '&& action' form as well"
+else
+    bad "POSITIVE CONTROL FAILED: a pipeline consumed by '&&' was NOT found. It inverts identically to '||' and a predicate that sees one and not the other is half a predicate."
+fi
+if grep -qF 'only_in_prose.sh' <<< "$CTL_POP"; then
+    bad "DISCRIMINATOR FAILED: the scanner reported a file whose only occurrence is in a COMMENT. Every fixed call site grows such a comment, so this charges the repo for its own documentation and raises the ceiling each time someone does the right thing."
+else
+    ok "DISCRIMINATOR: the shape quoted in a comment is prose, not a call site, not reported"
+fi
+if grep -qF 'or_true_is_benign.sh' <<< "$CTL_POP"; then
+    bad "DISCRIMINATOR FAILED: the scanner reported '|| true', which takes the status and discards it. No verdict can invert there, so this inflates the ceiling with lines that have nothing to fix."
+else
+    ok "DISCRIMINATOR: '|| true' discards the status, cannot invert a verdict, not reported"
 fi
 if grep -qF 'no_pipefail.sh' <<< "$CTL_POP"; then
     bad "DISCRIMINATOR FAILED: the scanner reported a file with NO pipefail. It is matching the construct alone, so the population is inflated and the baseline is meaningless."
