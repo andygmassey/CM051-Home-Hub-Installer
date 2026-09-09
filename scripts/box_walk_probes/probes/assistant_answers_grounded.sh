@@ -245,6 +245,45 @@ while time.time() < deadline:
     t = ev.get("type", "?")
     if t == "tool_call":
         print("FRAME tool_call %s" % ev.get("name", "?"))
+        # WAS THE CALL FILTERED, AND BY HOW MUCH TEXT.
+        #
+        # The frame stream records tool NAMES and nothing else, so a tool that
+        # asked the wrong question and a tool whose origin had nothing produce
+        # identical records. Measured 2026-09-09: /api/v1/topics returns 35
+        # topics unfiltered, and pwg_topics reported finding nothing on the
+        # same box. The tool sends /api/v1/topics?q=<text> when the model
+        # supplies a query, and the origin applies q as a case-insensitive
+        # SUBSTRING of the label or slug, so a question passed as a filter
+        # matches nothing. Whether that happened is not recorded anywhere.
+        #
+        # KEYS AND LENGTHS, NEVER VALUES. These lines are probe STDOUT, not the
+        # committed record: measured, zero FRAME lines appear in any of the 15
+        # files under walks/, and neither run_box_walk.sh nor post_walk_qa.sh
+        # references FRAME at all. But stdout is routinely pasted into public
+        # PRs, issues and channel posts, so values never go in either. A tool
+        # argument can carry a person's name or a search term about them; the
+        # key names and a length answer "did it filter, and with roughly what"
+        # without carrying the content.
+        #
+        # THE REASON MATTERS AS MUCH AS THE RULE. An earlier draft of this
+        # comment justified the discipline with "this record is committed to a
+        # public repo", which is false of FRAME lines. A caution with a wrong
+        # justification is fragile in a specific way: the next reader checks
+        # whether FRAME lines reach the record, finds they do not, and concludes
+        # the caution is unnecessary. State the true reason or the rule dies of
+        # its own footnote.
+        _a = ev.get("arguments")
+        if isinstance(_a, str):
+            try: _a = json.loads(_a)
+            except Exception: _a = None
+        if isinstance(_a, dict):
+            _parts = []
+            for _k in sorted(_a.keys()):
+                _v = _a.get(_k)
+                _parts.append("%s=%s" % (_k, ("len%d" % len(_v)) if isinstance(_v, str) else "nonstr"))
+            print("FRAME tool_args %s %s" % (ev.get("name", "?"), ",".join(_parts) if _parts else "none"))
+        else:
+            print("FRAME tool_args %s unreadable" % ev.get("name", "?"))
     elif t == "tool_result":
         out = str(ev.get("output", "")); low = out.lstrip().lower()
         # THREE outcomes, not two. A tool that succeeds and announces an empty
@@ -259,6 +298,22 @@ while time.time() < deadline:
         else:
             mark = "OK"
         print("FRAME tool_result %s %s" % (ev.get("name", "?"), mark))
+        # DID THE TOOL RESULT ITSELF CARRY THE SEEDED FACT?
+        #
+        # Without this, a fact_missing verdict is un-diagnosable from the
+        # record. OK means "not an error and not success-shaped emptiness"; it
+        # does NOT mean the output contained what was asked for. So a tool that
+        # returned a person with no employer in it and a model that was handed
+        # the employer and ignored it produce the SAME verdict and the same
+        # frames, and they are different defects with different owners.
+        #
+        # Measured 2026-09-09 on the v1.0.81 walk: one fact_missing, and
+        # nothing in the record could say which of the two it was. The daemon
+        # plumbing was cleared separately and offline (ostler-assistant, a
+        # fixture driving the real turn loop and reading what the provider was
+        # handed), which left exactly these two, and neither is visible here.
+        if expect_fact:
+            print("FRAME tool_fact %s" % ("YES" if carries(out, expect_fact) else "NO"))
     elif t == "chunk":
         text += ev.get("content") or ""
     elif t in ("done", "session_start", "error", "chunk_reset"):
@@ -270,6 +325,30 @@ PYEOF
 }
 
 # ── THE ADJUDICATOR ─────────────────────────────────────────────────────────
+# WHICH SIDE LOST THE SEEDED FACT: the retrieval or the model.
+#
+# A fact_missing verdict names a wrong answer and says nothing about whose
+# fault it was, and the two have different owners. `FRAME tool_result X OK`
+# means "not an error and not success-shaped emptiness"; it does NOT mean the
+# output contained what was asked for. So a tool that returned a person with no
+# employer in it, and a model that was handed the employer and ignored it,
+# produce the same verdict and the same frames.
+#
+# Measured 2026-09-09 on the v1.0.81 walk: one fact_missing, and nothing in the
+# record could say which. The daemon plumbing was cleared separately and offline
+# (a fixture driving the real turn loop and reading what the provider was
+# handed), which leaves exactly these two and neither was visible here.
+#
+# A named function over a TRANSCRIPT FILE so the self-test drives the same code
+# the walk runs. grep -c, never `| grep -q`: this file runs under pipefail.
+_fact_missing_side() {   # _fact_missing_side <transcript>
+    if [ "$(grep -c '^FRAME tool_fact YES$' "$1")" -gt 0 ]; then
+        echo "ignored"
+    else
+        echo "not_retrieved"
+    fi
+}
+
 # A named function over a TRANSCRIPT FILE. The self-test drives this exact
 # function over planted fixtures, so the control exercises the real judgement
 # and not a re-implementation of it. Echoes one verdict word.
@@ -449,7 +528,16 @@ run_probe() {
                 _failed=$(( _failed + 1 ))
                 _tname="$(_offending_tool "$_tmp" "$_v")"
                 if [ "$_v" = "fact_missing" ]; then
-                    _detail="${_detail} [fact_missing: a pwg_ tool answered and the reply did not carry '${EXPECT_FACT}']"
+                    # WHICH SIDE LOST THE FACT. The verdict token is unchanged,
+                    # so every consumer of it keeps working; the reason gains
+                    # the discriminator, which is the thing a reader needs and
+                    # could not get. grep -c, never `| grep -q`: this file runs
+                    # under `set -o pipefail`.
+                    if [ "$(_fact_missing_side "$_tmp")" = "ignored" ]; then
+                        _detail="${_detail} [fact_missing: a pwg_ tool RETURNED '${EXPECT_FACT}' and the reply did not carry it -- the model had it and did not use it]"
+                    else
+                        _detail="${_detail} [fact_missing: a pwg_ tool answered, NO tool result carried '${EXPECT_FACT}', and neither did the reply -- retrieval did not deliver it]"
+                    fi
                 else
                     _detail="${_detail} [${_v}${_tname:+:${_tname}}]"
                 fi ;;
@@ -556,6 +644,19 @@ self_test() {
     [ "$(adjudicate_turn "$_d/factcarried")"      = "grounded" ]      || _ok=0
     [ "$(adjudicate_turn "$_d/factmissing_full")" = "fact_missing" ]  || _ok=0
     [ "$(adjudicate_turn "$_d/notool_fact")"      = "no_tool_call" ]  || _ok=0
+
+    # (l) WHICH SIDE LOST IT. Same verdict, two different owners, and until
+    #     2026-09-09 the record could not tell them apart. The verdict token is
+    #     deliberately unchanged on both, so every consumer of it keeps working.
+    printf 'FRAME session_start\nFRAME tool_call pwg_people\nFRAME tool_result pwg_people OK\nFRAME tool_fact YES\nFRAME chunk_reset\nFRAME reply_fact NO\nFRAME done\n' > "$_d/fact_ignored"
+    printf 'FRAME session_start\nFRAME tool_call pwg_people\nFRAME tool_result pwg_people OK\nFRAME tool_fact NO\nFRAME chunk_reset\nFRAME reply_fact NO\nFRAME done\n' > "$_d/fact_not_retrieved"
+    [ "$(adjudicate_turn "$_d/fact_ignored")"       = "fact_missing" ]   || _ok=0
+    [ "$(adjudicate_turn "$_d/fact_not_retrieved")" = "fact_missing" ]   || _ok=0
+    [ "$(_fact_missing_side "$_d/fact_ignored")"       = "ignored" ]       || _ok=0
+    [ "$(_fact_missing_side "$_d/fact_not_retrieved")" = "not_retrieved" ] || _ok=0
+    # MUST-MISS: a transcript with NO tool_fact frame at all is the pre-change
+    # shape, and it must read not_retrieved rather than crash or claim ignored.
+    [ "$(_fact_missing_side "$_d/factmissing")"        = "not_retrieved" ] || _ok=0
     # (k) UNSEEDED turns carry no reply_fact frame and are unchanged.
     [ "$(adjudicate_turn "$_d/good")"             = "grounded" ]      || _ok=0
 
