@@ -35,6 +35,17 @@ on:
       - 'tests/test_vendor_import_resolution.py'
       - 'tests/test_vendor_entrypoint_resolution.py'
       - 'tests/test_vendor_manifest_is_valid_toml.py'
+      # Watched because the step below RUNS it, plus the two files it READS
+      # that nothing here watched yet. Its SUBJECT, vendor/VENDOR_MANIFEST.toml,
+      # is already covered by the vendor/** glob at the top of this list, so it
+      # is deliberately NOT repeated: a second entry would read as coverage this
+      # change added and it is not. permanent.yaml is where the test takes its
+      # rules from, and gui/Makefile carries the two copy lines that make the
+      # manifest shipped at all, which the test asserts and refuses on rather
+      # than passing if they move.
+      - 'tests/test_the_shipped_vendor_manifest_names_no_operator.py'
+      - 'cut-manifests/permanent.yaml'
+      - 'gui/Makefile'
       # The D024 harness. A path entry alone would only make the workflow
       # TRIGGER; the run step above is what makes it CHECK. Both are needed,
       # and the pair is the point: the gate must fire on changes to itself.
@@ -126,6 +137,24 @@ jobs:
       # stayed green, so the format claim in the filename was asserted nowhere.
       - name: VENDOR_MANIFEST.toml is valid TOML
         run: python3 tests/test_vendor_manifest_is_valid_toml.py
+
+      # THE SAME FILE IS SHIPPED. gui/Makefile:1215 sets VENDOR_MANIFEST_SRC to
+      # $SRC_ROOT/vendor/VENDOR_MANIFEST.toml and :1249 copies it into the .app as
+      # ostler-payload/vendor-manifest.toml, so its PROSE is customer-facing bytes.
+      # The v1.0.83 cut was refused at "Build, sign, notarise, staple" on exactly
+      # that: one no-operator-hostname hit in the payload copy, arrived in #1881,
+      # 0 at tag v1.0.82 and 1 at v1.0.83. Every PR check on #1881 was green,
+      # because .github/scripts/operator-pii-scan.sh has no hostname alternative
+      # in its master pattern -- that pattern lives only in cut-manifests/
+      # permanent.yaml, which runs at CUT time. So the one instrument carrying it
+      # could not fire until a tag had been spent. This step moves the same rules
+      # to PR time for the one file the cut copies in verbatim. It declares no
+      # pattern of its own: it READS the no-operator-* rows out of permanent.yaml,
+      # so it cannot drift from the gate it anticipates and no second copy of an
+      # operator identifier enters the tree to make it work.
+      - name: The shipped vendor manifest obeys the cut's own operator-PII rules
+        if: always()
+        run: python3 tests/test_the_shipped_vendor_manifest_names_no_operator.py
 
       - name: Divergent non-shipping twin guard (legacy, intra-repo only)
         if: always()
