@@ -65,13 +65,31 @@
 #
 # PINNED BY THIS FILE, not yet observable, because the producer is not written:
 #
-#   cm048_conversation_extract, cm041_identity_resolution. Their prefixes
-#   follow the contract's own naming of the CM044 example. If either lands
-#   writing a DIFFERENT session_id prefix, this gate reports it ABSENT and goes
-#   RED, and the fix is to correct the row in the same change that wires the
-#   producer. That direction is deliberate: a false RED here is one line of
-#   review, and a false GREEN is a customer being shown a cost figure that is
-#   wrong in the flattering direction.
+#   NOBODY. THIS CATEGORY IS EMPTY as of 2026-09-09Z, and it is left in place
+#   rather than deleted so the next producer that needs it finds the rule
+#   already written down.
+#
+#   Both of its former occupants left on the same day, in two changes that
+#   crossed: cm048_conversation_extract, whose producer landed upstream as
+#   CM048 #78 (merge 53fcdf0b) and reaches the customer as a vendored tree
+#   (CM051 #1881); and cm041_identity_resolution, whose producer is upstream
+#   CM041 #137 (82f45376) and reaches the customer as CM051-local grafts
+#   (CM051 #1884). Each row below now cites the tree that ships it, so both
+#   prefixes are MEASURED from shipped code rather than pinned by this file.
+#
+#   THE RULE THAT OUTLIVES THEM. A producer named here is one whose prefix this
+#   file is guessing. If such a producer lands writing a DIFFERENT session_id
+#   prefix, this gate reports it ABSENT and goes RED, and the fix is to correct
+#   the row in the same change that wires the producer. That direction is
+#   deliberate: a false RED here is one line of review, and a false GREEN is a
+#   customer being shown a cost figure that is wrong in the flattering
+#   direction.
+#
+#   AND WHY EMPTYING IT MATTERS, which is the same reason the
+#   cm051_ostler_fda_ingest note above was corrected: while a producer is listed
+#   here, a reader who sees this probe RED reads a benign explanation for the
+#   absence and stops looking. A RED against either of these two now means
+#   something else entirely, and it has an owner.
 #
 # ===========================================================================
 # status
@@ -86,7 +104,7 @@
 #
 # producer_id	repo	purpose	match_kind	match_value	status	provenance
 cm044_wiki_compiler	CM044	enriching	session_prefix	cm044-compile-	required	contract WHAT EACH REPO OWES: every embedding + every summarisation call in the compiler. Prefix from the contract's THE RECORD worked example.
-cm048_conversation_extract	CM048	enriching	session_prefix	cm048-	required	contract WHAT EACH REPO OWES: conversation fact extraction. Prefix pinned by this roster; not yet observable, the producer is unwired.
+cm048_conversation_extract	CM048	enriching	session_prefix	cm048-	required	contract WHAT EACH REPO OWES: conversation fact extraction. THE PREFIX IS NOW MEASURED, NOT PINNED, and this row no longer explains an expected absence: CM048 #78 (merge 53fcdf0b) added _record_model_usage to src/ollama_client.py at the generate and embed call sites, and CM051 vendored it on 2026-09-09Z, so the producer is WIRED. Prefix read from vendor/cm048_pipeline/src/ollama_client.py:43 (_USAGE_RUN_ID = 'cm048-' + a UTC timestamp) and purpose from :42 (_USAGE_PURPOSE = 'enriching'). Proven by running the vendored module, not by grep: the row it wrote was fed to this gate's own adjudicator and moved cm048_conversation_extract from 0 to 1, with the same journal minus that row as the negative control (FAIL, exit 1, naming this producer). WIRED IS NECESSARY AND NOT SUFFICIENT, exactly as for cm051_ostler_fda_ingest below: tokens_from_ollama returns (None, None) when the runtime reported no counts and record_usage then writes nothing, and /api/embeddings reports neither by design. So ABSENT on a walk means 'no measured model call happened during conversation extraction', NOT 'the writer is missing'. Two findings, two owners.
 cm041_identity_resolution	CM041	enriching	session_prefix	cm041-	required	contract WHAT EACH REPO OWES: identity resolution, where it calls a model. WIRED AS OF CM051 #1884, and this row USED TO SAY THE PRODUCER WAS UNWIRED -- the same stale-benign-explanation shape corrected on cm051_ostler_fda_ingest below, where a reader seeing RED would think 'expected, it is dark' and move on. The producer is upstream CM041 #137 (82f45376) and reaches the customer as CM051-local GRAFTS in the vendored trees, because this repo ships vendored copies pinned BEHIND that commit: vendor/cm041/contact_syncer (six /api/embed sites via contact_syncer/usage.py, session_id cm041-enrich-<utc>) and vendor/cm041/assistant_api/ical-server.py (_embed_text, session_id cm041-api-<utc>). Both match this row's prefix cm041- AND purpose enriching. Proven BY EXECUTION in tests/test_cm041_usage_journal_producer.sh, not by grep. NECESSARY AND NOT SUFFICIENT, same as the fda row: the writer returns without recording when the runtime reports no counts, which is correct and required by the gate's own must-miss arm. So ABSENT here means 'no measured model call happened on this box', NOT 'the writer is missing' -- two different findings with two different owners.
 cm051_ostler_fda_ingest	CM051	ingesting	session_prefix	ostler-fda-ingest-	required	contract WHAT EACH REPO OWES: vendored ostler_fda, per source parse that invokes a model. Prefix measured from vendor/ostler_fda/pwg_ingest.py:50. The writer IS vendored as of #1305 (usage_journal.py present; pwg_ingest imports record_usage at :36-37, calls it at :72) and is proven by execution in tests/test_vendored_fda_writes_the_usage_journal.sh, so the writer is WIRED. That is necessary and NOT sufficient: pwg_ingest.py:64-66 returns early without writing when _tokens_from_ollama yields no counts, which is correct (the gate's own must-miss arm requires it -- an unmeasured response must invent no numbers). So this producer emits only on an ingest that actually made a measured model call. ABSENT here means 'no measured call happened', NOT 'the writer is missing' -- two different findings with two different owners.
 oa_daemon_chat	oa	answering	purpose	answering	required	contract, sentence below the table: the daemon already writes answering for the chat path. Matched on purpose because its session_id is a bare uuid4 (oa cost/tracker.rs:32).
