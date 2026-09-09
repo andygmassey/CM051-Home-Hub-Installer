@@ -397,8 +397,11 @@ exit 0
 # GNU stat -c first, because GNU stat -f is filesystem status and answers a
 # mount point for %m without failing, then BSD stat -f),
 # and the processes of THIS ACCOUNT whose command line names the compiler or
-# the tick. pgrep -U, never a bare -f: on the v1.0.67 walk a bare pgrep -f
-# selected another account's process. The bracket in the pattern keeps this
+# the tick. pgrep -u, never a bare -f: on the v1.0.67 walk a bare pgrep -f
+# selected another account's process, and
+# tests/test_probe_pgrep_is_scoped_to_this_account.sh requires the literal
+# `pgrep -u ` on every code line under box_walk_probes (measured: it went red
+# on `-U` on the second CI run of PR #1890). The bracket in the pattern keeps this
 # very program, whose text contains the words, from matching itself, AND SO
 # MUST EVERY OTHER LITERAL IN THIS PROGRAM: the docker filter below is
 # assembled from two halves for that reason. Measured on the first CI run of
@@ -458,7 +461,7 @@ if [ -d "$K" ]; then
 else
     printf "SLOT free %s\n" "$K"
 fi
-procs="$(pgrep -U "$(id -u)" -f "wiki-compile[r]|wiki-recompile-tic[k]" 2>/dev/null | tr "\n" " ")"
+procs="$(pgrep -u "$(id -u)" -f "wiki-compile[r]|wiki-recompile-tic[k]" 2>/dev/null | tr "\n" " ")"
 n="$(printf "%s" "$procs" | wc -w | tr -d " ")"
 printf "PROCS %s %s\n" "$n" "$procs"
 if [ "$full" = "full" ]; then

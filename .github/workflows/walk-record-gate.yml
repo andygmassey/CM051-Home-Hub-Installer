@@ -639,7 +639,7 @@ jobs:
       # gui/<id -u>/com.creativemachines.ostler.wiki-recompile`; completion is
       # LIVENESS AND GROWTH, never the pid alone: the wrapper pid, the log's
       # size growing, the slot holder, the account's processes naming the
-      # compiler (real pgrep -U against a real stub process), the container;
+      # compiler (real pgrep -u against a real stub process), the container;
       # a live pid with a 0-byte log is the FINDING "wrote nothing, still
       # alive", a growing log at the budget is CANNOT-RUN "not converged in
       # time", a dead wrapper with a 0-byte log and nothing alive is the 19:08Z

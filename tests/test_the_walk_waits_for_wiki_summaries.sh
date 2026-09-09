@@ -62,7 +62,7 @@
 # fake tick that writes the real tick's log lines in the real tick's format,
 # spawns a REAL background process as the backfill (with "wiki-compiler" in its
 # argv so the real pgrep sees it) and records its pid in the real pidfile path,
-# so kill -0, pgrep -U and the growth reading are exercised for real. What it
+# so kill -0, pgrep -u and the growth reading are exercised for real. What it
 # cannot cover is the ssh transport, launchd, and a docker daemon.
 # ============================================================================
 set -uo pipefail
@@ -91,7 +91,7 @@ skip_arm() { # $1 = label, $2 = the missing prerequisite
 WORK="$(mktemp -d)"
 PIDS="$WORK/pids"; : > "$PIDS"
 # Every backfill the stub spawns is a REAL process whose argv carries
-# "wiki-compiler", so the lib's real pgrep -U sees it, which is the point. It
+# "wiki-compiler", so the lib's real pgrep -u sees it, which is the point. It
 # is also why each arm reaps the previous arm's stubs before it starts: a
 # 60-second sleeper left over from a budget arm would keep "something of ours
 # is alive" true for every arm after it, and the lib would be right to refuse
@@ -333,10 +333,10 @@ grep -q 'no new line yet' <<< "$out2"
 arm "the tick phase POLLED: a reading before the tick had logged anything was printed" $? "$out2"
 
 # LIVENESS IS READ FROM MORE THAN THE PID. While the backfill was alive the
-# real pgrep -U found it by the wiki-compiler in its argv, and its pid is on
+# real pgrep -u found it by the wiki-compiler in its argv, and its pid is on
 # the reading line beside the wrapper pid.
 grep -qE "wrapper pid ${PID2} alive; .*matching processes: [1-9][0-9]* \[.*${PID2}.*\]" <<< "$out2"
-arm "a reading shows the wrapper pid alive AND pgrep -U listing that same pid" $? "pid=$PID2 :: $out2"
+arm "a reading shows the wrapper pid alive AND pgrep -u listing that same pid" $? "pid=$PID2 :: $out2"
 grep -q 'GREW from' <<< "$out2"
 arm "and the summaries log was seen GROWING between readings" $? "$out2"
 grep -q 'nothing of ours is alive any more: the backfill is over' <<< "$out2"
