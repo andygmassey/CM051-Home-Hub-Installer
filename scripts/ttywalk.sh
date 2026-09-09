@@ -730,9 +730,36 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         # DECLARES in its own --help: "Always removes ~/.ostler/ (except
         # power.conf)". An UNDECLARED survivor is residue, and residue is
         # CANNOT-RUN rather than a reset that quietly did less than it said.
+        #
+        # 🔴 COUNT FILES, NOT ENTRIES, AND THIS COST A WALK. MEASURED
+        # 2026-09-09T17:16:52Z on the v1.0.82 walk box. This counted ENTRIES at
+        # maxdepth 1 and aborted the walk on ONE of them:
+        # ~/.ostler/data, which contained only ~/.ostler/data/knowledge-staging,
+        # which contained NOTHING. Zero files, zero bytes, and docker volume ls
+        # returned no volumes at all. The wipe had SUCCEEDED and the check said
+        # "The next walk would be grading carried-over content" about a tree with
+        # no content in it.
+        #
+        # IT IS NOT A ONE-OFF, IT IS A CLOSED LOOP. install.sh:22341 creates
+        # ~/.ostler/data/knowledge-staging on EVERY install, unconditionally, and
+        # says so at :22324-22327. The shipped uninstaller preserves it by design
+        # (install.sh:21724-21741, which only ever preserves an EXISTING one and
+        # never creates it). So install makes it, uninstall keeps it, and this
+        # check called it residue. Every wipe walk that finds a real uninstaller
+        # aborted here, and under the WIPE decision Andy made on 2026-09-09 that
+        # is every
+        # walk from now on. It had never fired before only because no earlier
+        # walk had found a shipped uninstaller to run.
+        #
+        # The two halves of this check disagreed about their own question: the
+        # content root below counts FILES (-type f), this counted ENTRIES. The
+        # question the error line asks is about CONTENT. So this counts files
+        # too, at any depth, and the declared keep is excluded BY ITS EXACT PATH
+        # rather than by name, so that a file called power.conf buried somewhere
+        # deeper is still residue.
         _fs_left=0
         if [ -d "$HOME/.ostler" ]; then
-            _fs_left=$(find "$HOME/.ostler" -mindepth 1 -maxdepth 1 ! -name power.conf 2>/dev/null | grep -c . || true)
+            _fs_left=$(find "$HOME/.ostler" -mindepth 1 -type f ! -path "$HOME/.ostler/power.conf" 2>/dev/null | grep -c . || true)
         fi
         _content_left=0
         if [ -e "$_CONTENT_ROOT" ]; then
@@ -741,7 +768,7 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         if [ "${_fs_left:-0}" -gt 0 ] || [ "${_content_left:-0}" -gt 0 ]; then
             echo "WIPE INCOMPLETE ON DISK: ${_fs_left} undeclared entr(ies) under ~/.ostler,"
             echo "  ${_content_left} file(s) under ${_CONTENT_ROOT}."
-            find "$HOME/.ostler" -mindepth 1 -maxdepth 1 ! -name power.conf 2>/dev/null \
+            find "$HOME/.ostler" -mindepth 1 -type f ! -path "$HOME/.ostler/power.conf" 2>/dev/null \
                 | head -10 | sed "s|^|    |"
             echo "  The next walk would be grading carried-over content, so this is"
             echo "  CANNOT-RUN, not a wipe."
