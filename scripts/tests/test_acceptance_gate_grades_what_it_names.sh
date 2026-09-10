@@ -152,7 +152,10 @@ if grep -qE '  PASS  A4 ' "${WORK}/out.txt"; then
 else
     bad "the unpaired healthy box did not pass A4: $(row A4)"
 fi
-if grep -A1 -E '  PASS  A4 ' "${WORK}/out.txt" | grep -q 'token=true'; then
+# No pipe into grep -q: under pipefail the arm would read the producer's
+# status, not the match. Read the two lines into a variable first.
+a4_lines="$(grep -A1 -E '  PASS  A4 ' "${WORK}/out.txt")"
+if grep -q 'token=true' <<< "${a4_lines}"; then
     ok "the token flag is reported as evidence rather than judged"
 else
     bad "A4's evidence does not report the token flag"

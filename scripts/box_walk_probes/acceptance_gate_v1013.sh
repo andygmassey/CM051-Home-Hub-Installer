@@ -111,12 +111,13 @@ WIKILOGDIRS='~/.ostler/logs ~/Library/Logs/Ostler'   # the wiki jobs write wiki-
 # word-split an unquoted variable (both read as a refusal when this was first
 # run against the walk box), but does split an unquoted $(...). Then reads
 # grep's own status: 0 and 1 are counts, anything else (an unreadable file, a
-# permission error) is a refusal, never a 0.
+# permission error) is a refusal, never a 0. stderr is not merged into the
+# counted file: a diagnostic that leaves the status alone must not count as a match.
 wikicount(){
   local n
   n=$(box "cnt=\$(find $WIKILOGDIRS -maxdepth 1 -type f \( -name 'wiki-*.log' -o -name 'wiki-*.err' \) 2>/dev/null | wc -l | tr -d ' '); \
            if [ \"\$cnt\" -eq 0 ]; then echo NOLOGS; \
-           else t=\$(mktemp); grep -hoE '$1' \$(find $WIKILOGDIRS -maxdepth 1 -type f \( -name 'wiki-*.log' -o -name 'wiki-*.err' \) 2>/dev/null) > \"\$t\" 2>&1; rc=\$?; \
+           else t=\$(mktemp); grep -hoE '$1' \$(find $WIKILOGDIRS -maxdepth 1 -type f \( -name 'wiki-*.log' -o -name 'wiki-*.err' \) 2>/dev/null) > \"\$t\" 2>/dev/null; rc=\$?; \
              case \"\$rc\" in 0|1) wc -l < \"\$t\" | tr -d ' ';; *) echo GREPERR;; esac; rm -f \"\$t\"; fi")
   if [ -z "$n" ]; then echo UNREACHABLE; else echo "$n"; fi
 }
