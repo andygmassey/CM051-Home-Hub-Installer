@@ -43,7 +43,7 @@ o="$(run "${f}")"; [ "$(reply_fact "${o}")" = YES ] && [ "$(reply_source "${o}")
 
 echo "== 2. full_response omits the fact: NO, whatever the draft said =="
 f=$(mk omitted '{"type":"session_start"}' '{"type":"tool_call","name":"pwg_people"}' '{"type":"tool_result","name":"pwg_people","output":"Jane is a cable engineer at example.com"}' '{"type":"chunk","content":"Jane is a cable engineer at example.com"}' '{"type":"chunk_reset"}' '{"type":"done","full_response":"Jane is someone you know."}')
-o="$(run "${f}")"; [ "$(reply_fact "${o}")" = NO ] && ok "chunks carried the fact, full_response did not: NO (the draft is not graded, and chunk_reset cleared it)" || bad "arm 2 read '$(reply_fact "${o}")'"
+o="$(run "${f}")"; [ "$(reply_fact "${o}")" = NO ] && ok "chunks carried the fact, full_response did not: NO (the draft is not the graded surface)" || bad "arm 2 read '$(reply_fact "${o}")'"
 
 echo "== 3. no full_response key at all (pre-full_response daemon): the chunks are graded =="
 f=$(mk oldshape '{"type":"session_start"}' '{"type":"tool_call","name":"pwg_people"}' '{"type":"tool_result","name":"pwg_people","output":"x"}' '{"type":"chunk","content":"Jane is a cable engineer at example.com"}' '{"type":"done"}')
@@ -53,10 +53,20 @@ echo "== 4. EMPTY full_response is a real empty answer: NO, never a silent read 
 f=$(mk emptyfinal '{"type":"session_start"}' '{"type":"tool_call","name":"pwg_people"}' '{"type":"tool_result","name":"pwg_people","output":"x"}' '{"type":"chunk","content":"Jane is a cable engineer at example.com"}' '{"type":"chunk_reset"}' '{"type":"done","full_response":""}')
 o="$(run "${f}")"; [ "$(reply_fact "${o}")" = NO ] && [ "$(reply_source "${o}")" = "full_response EMPTY" ] && ok "empty full_response graded NO and named EMPTY" || bad "arm 4 read '$(reply_fact "${o}")' from '$(reply_source "${o}")'"
 
-echo "== 5. CONTROL: a mutant that grades the chunks again flips arm 1 =="
+echo "== 5. chunk_reset clears the draft: fact in the chunks, reset, chunks without it, done with NO key =="
+f=$(mk resetclears '{"type":"session_start"}' '{"type":"tool_call","name":"pwg_people"}' '{"type":"tool_result","name":"pwg_people","output":"x"}' '{"type":"chunk","content":"Jane is a cable engineer at example.com"}' '{"type":"chunk_reset"}' '{"type":"chunk","content":"Jane is someone you know."}' '{"type":"done"}')
+o="$(run "${f}")"; [ "$(reply_fact "${o}")" = NO ] && [ "$(reply_source "${o}")" = chunks ] && ok "the fact written before chunk_reset is discarded; only the post-reset chunks are graded: NO" || bad "arm 5 read '$(reply_fact "${o}")' from '$(reply_source "${o}")': without the clearing this reads YES"
+
+echo "== 6. CONTROL: a mutant that grades the chunks again flips arm 1 =="
 sed -e 's/            if "full_response" in ev:/            if False:/' "${WORK}/probe.py" > "${WORK}/mutant.py"
 [ "$(diff "${WORK}/probe.py" "${WORK}/mutant.py" | /usr/bin/grep -c '^<')" -eq 1 ] || cant "the mutant did not land"
 mo="$(OSTLER_GROUNDED_FRAMES="${WORK}/corrected" python3 "${WORK}/mutant.py" 8000 "${WORK}/token" "q" 5 "${FACT}" 2>&1)"
 [ "$(reply_fact "${mo}")" = NO ] && ok "CONTROL: the mutant grades the draft and reads NO on the corrected turn, so arm 1 measures the fix" || bad "CONTROL: the mutant still read '$(reply_fact "${mo}")'; arm 1 proves nothing"
+
+echo "== 7. CONTROL: a mutant without the chunk_reset clearing flips arm 5 =="
+sed -e '/^        if t == "chunk_reset":$/,/^            text = ""$/d' "${WORK}/probe.py" > "${WORK}/mutant2.py"
+[ "$(diff "${WORK}/probe.py" "${WORK}/mutant2.py" | /usr/bin/grep -c '^<')" -eq 2 ] || cant "the clearing mutant did not land"
+m2="$(OSTLER_GROUNDED_FRAMES="${WORK}/resetclears" python3 "${WORK}/mutant2.py" 8000 "${WORK}/token" "q" 5 "${FACT}" 2>&1)"
+[ "$(reply_fact "${m2}")" = YES ] && ok "CONTROL: without the clearing the pre-reset fact survives and arm 5 reads YES, so arm 5 measures the clearing" || bad "CONTROL: the clearing mutant read '$(reply_fact "${m2}")'; arm 5 proves nothing"
 
 echo; echo "== ${pass} pass / ${fail} fail / $((pass+fail)) total =="; [ "${fail}" -eq 0 ]
