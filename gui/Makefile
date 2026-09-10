@@ -353,7 +353,7 @@ HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
 # TWO digests here, each with its own outgoing value; a sweep keyed on one
 # of them cannot see the other, because a digest does not contain its
 # version. Bump BOTH or the bump lands half done, exactly as written.
-HUB_APP_SHA256       ?= feea7708a2d74402bc5af1c2eeb5a47be1ec541835df3b46e0ac877d51e6d4ac
+HUB_APP_SHA256       ?= 280e181b2a4fb2635d59def4bbabe34beab62f7e8d9474c9fc5bfd9c436b158e
 
 # ---------------------------------------------------------------------------
 # SAFARI EXTENSION (CM020) -- the third artefact the cut cannot build itself.
