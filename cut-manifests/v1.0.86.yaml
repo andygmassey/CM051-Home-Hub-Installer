@@ -71,6 +71,33 @@ description: |
   the control phrase pwg_topics reading 6 in BOTH. The commit string reads
   1d83d4bf 1 and a9af0595 0 in the new binary, the reverse in the old.
 
+  CARRIED FORWARD, AND IT IS CARRIED BECAUSE FOUR CUTS HAVE NOW ALMOST DROPPED
+  IT, THIS ONE INCLUDED. allow_private_hosts is STILL TRUE and is NOT flipped in
+  this cut. Verified in the tree at this cut's head rather than copied forward
+  as a claim: install.sh:13756 writes `allow_private_hosts = true`, and
+  tests/test_context_refresh_wired.sh:81 asserts that it does. The v1.0.82
+  manifest committed in writing that it is flipped in the cut after that one,
+  behind ONE BEHAVIOURAL ARM run on the walk box: the daemon with the flag
+  FALSE, a pwg_ tool still answering, and #608's own probe green. v1.0.83 did
+  not flip it and did not mention it; v1.0.84 restated it; v1.0.85 restated it;
+  this cut does not flip it either, and THE REASON IS NOT v1.0.85's REASON.
+  v1.0.85 gave "it is producers-only", which is false of v1.0.86: this cut moves
+  the daemon pin. The reason that IS true here is the second half of v1.0.85's:
+  install.sh is BYTE-IDENTICAL to this cut's branch point 4e4c6541, so nothing
+  in this artefact could flip a flag install.sh writes. The commitment is not
+  discharged and is not cancelled. It moves to the next cut WITH ITS BEHAVIOURAL
+  ARM ATTACHED.
+
+  THIS PARAGRAPH WAS DROPPED FROM THIS FILE ONCE ALREADY AND PUT BACK BEFORE THE
+  TAG. Rewriting the description to avoid inheriting stale facts is right and it
+  is how the rest of this file was written; doing it without asking which facts
+  were STANDING dropped the one paragraph that exists to survive a rewrite.
+  Caught by Aesop on the cut PR at fcf4f1d1, before the tag was pushed. The
+  check that found it is cheap and belongs in any future rewrite: diff the
+  distinctive identifiers of the old description against the new one, then keep
+  every paragraph that DECLARES itself carried. Run here, 24 identifiers were
+  absent from the rewrite and exactly one of them was a standing commitment.
+
   WHAT THE DMG CANNOT PROVE, SAID HERE RATHER THAN DISCOVERED ON THE WALK. The
   fixed tool code is NOT in the DMG. Measured on the v1.0.85 artefact: the only
   Mach-O under Ostler.app is ostler-hub, which carries the build commit but not
