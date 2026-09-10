@@ -218,8 +218,13 @@ run_probe() {
            # producer is the one that backfill writes, refuse with the wait's own detail.
            # Any other missing producer, or any other wait state (converged, finding,
            # unrun, skipped), keeps the FAIL: "finding" is the defect this probe exists for.
+           # Exactly ONE missing producer, and it is cm044: the gate's summary line reads
+           # "N of M REQUIRED producers wrote nothing into P parsed record(s): <names>", and
+           # a glob on the whole output matched whenever cm044 was AMONG the missing (Archie,
+           # #1917 review, measured on the gate's own shape), which would have hidden a second
+           # producer's genuine failure inside the refusal, the mirror of the defect this fixes.
            case "$out" in
-               *"wrote nothing"*"cm044_wiki_compiler"*)
+               *"1 of "*"REQUIRED producers wrote nothing"*"cm044_wiki_compiler"*)
                    if [ "${OSTLER_WIKI_WAIT_STATE:-}" = "cannot-run" ]; then
                        probe_cannot_run "cm044_wiki_compiler wrote nothing into ${journal_path} AND the walk's wait for its summary backfill did not converge (${OSTLER_WIKI_WAIT_DETAIL:-no detail}). The producer had provably not run when the journal was read; nothing about it was measured. Coverage lost, not a pass and not a defect."
                    fi ;;
@@ -354,6 +359,19 @@ self_test() {
         printf 'arm 8 OK: the wait state excuses only the producer it watched\n'
     fi
 
+    # ARM 9 (CONTROL): cm044 AND another producer missing with the wait cannot-run -> FAIL (1):
+    # the refusal needs cm044 to be the ONLY missing producer, or a dead producer hides inside it.
+    tmp9="$(mktemp -t ujprobeself-XXXXXX)"
+    grep -v 'cm044-compile-' "$fixture" | grep -v 'ostler-fda-ingest-' > "$tmp9"
+    out="$(USAGE_JOURNAL_PROBE_LOCAL=1 OSTLER_USAGE_JOURNAL="$tmp9" OSTLER_WIKI_WAIT_STATE=cannot-run \
+           bash "${BASH_SOURCE[0]}" 2>&1)"; rc=$?
+    rm -f "$tmp9"
+    if [ "$rc" -ne 1 ] || ! grep -q 'cm051_ostler_fda_ingest' <<< "$out"; then
+        printf 'SELF-TEST ARM 9 BROKEN: cm044 plus cm051 missing with the wait cannot-run returned rc=%s, expected 1 naming cm051 (a second dead producer must not hide in the refusal)\n' "$rc"; fails=$((fails + 1))
+    else
+        printf 'arm 9 OK: with a second producer also missing the refusal does not fire; the dead producer is named as FAIL\n'
+    fi
+
     # ARM 5: the two must not collapse. If both evidence states give the same
     # verdict the distinction is decorative and the benign message is back.
     if [ "$fails" -eq 0 ]; then
@@ -369,8 +387,8 @@ self_test() {
         probe_examined "$fails" "self-test arm(s) that did NOT behave as required"
         probe_pass "SELF-TEST BROKEN: ${fails} arm(s) failed. This probe cannot demonstrate a FAIL, so its real result must not be trusted."
     fi
-    probe_examined 8 "self-test arms (complete journal / one producer deleted / absent on a fresh box / absent on a worked box / the two do not collapse / cm044 absent with the wait cannot-run refuses / the same after a converged wait fails / another producer with the wait cannot-run fails)"
-    probe_fail "negative control behaved correctly on all 8 arms: a complete journal PASSes; a deleted producer FAILs and is NAMED; an absent journal on an unworked box is CANNOT-RUN rather than five regressions; the same absence on a box that HAS ingested and compiled is FAIL rather than a shrug; and those two do not collapse onto one verdict"
+    probe_examined 9 "self-test arms (complete journal / one producer deleted / absent on a fresh box / absent on a worked box / the two do not collapse / cm044 absent with the wait cannot-run refuses / the same after a converged wait fails / another producer with the wait cannot-run fails / cm044 plus another missing with the wait cannot-run fails)"
+    probe_fail "negative control behaved correctly on all 9 arms: a complete journal PASSes; a deleted producer FAILs and is NAMED; an absent journal on an unworked box is CANNOT-RUN rather than five regressions; the same absence on a box that HAS ingested and compiled is FAIL rather than a shrug; and those two do not collapse onto one verdict"
 }
 
 # A path-resolution passthrough, so tests/test_usage_journal_producer_gate.sh
