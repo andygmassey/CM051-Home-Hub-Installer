@@ -638,6 +638,7 @@ scripts/tests/test_permission_briefing.sh	WIRED	.github/workflows/permission-bri
 scripts/tests/test_probes_do_not_emit_derivable_person_uris.py	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_regenerate_divergence_patch.sh	WIRED	.github/workflows/vendor-integrity.yml
 scripts/tests/test_resolve_cut_daemon_pin.sh	WIRED	gui/Makefile
+scripts/tests/test_run_box_walk_records_phase1_verdicts.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_store_curl_conf_permissions.sh	WIRED	.github/workflows/secrets-dir-mode.yml
 scripts/tests/test_the_keyword_and_the_prose_agree.py	WIRED	.github/workflows/enforce-ledger-write.yml
 scripts/tests/test_verify_app_provenance.sh	WIRED	gui/Makefile
