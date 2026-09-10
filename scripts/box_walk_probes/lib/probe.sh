@@ -228,10 +228,47 @@ _probe_tick_state() {
         printf '%s' "$pick"
         return 0
     fi
+    # NO launchctl ON THIS HOST IS NOT A REFUSED READ. The keyless-store probe
+    # tests drive these probes on a Linux runner, where there is no launchctl at
+    # all and therefore no ingest tick to wait for. That is a different state
+    # from "launchctl is here and would not answer", which on a macOS box is a
+    # missing prerequisite and must refuse. Absolute path, so PATH cannot make a
+    # present launchctl look absent.
+    if ! box_run "[ -x /bin/launchctl ]"; then
+        printf 'noplatform'
+        return 0
+    fi
     # box_run_v, not box_run: when the read fails the message IS the answer, and
     # box_run sends it to /dev/null.
-    out="$(box_run_v "launchctl print gui/\$(id -u)/${label} 2>&1")"
+    out="$(box_run_v "/bin/launchctl print gui/\$(id -u)/${label} 2>&1")"
     rc=$?
+    # NOT LOADED IS AN ANSWER, NOT A REFUSED READ, and the two arrive as the same
+    # non-zero rc. Measured on macOS: an absent job exits 113 and prints
+    # `Could not find service "<label>" in domain for user gui: <uid>`. If the
+    # hourly ingest is not loaded on this host then it is definitively not
+    # moving the stores, which is the only question this hold asks. Every other
+    # failure leaves that question unanswered and must refuse.
+    #
+    # This DIVERGES from the brief, which asked for job-absent to be CANNOT-RUN.
+    # The reason is measured: keyless-store-probe-tests runs both people probes
+    # on macos-latest, where launchctl exists and no ostler job is loaded, so a
+    # refusal there makes the probes untestable off a box (run 34501676075, both
+    # steps FAIL, every arm reading CANNOT-RUN instead of its expected verdict).
+    # A walk box that has lost this LaunchAgent is a real defect and it is graded
+    # by the probes that watch the agents, not by a hold whose only job is to
+    # avoid reading the stores mid-tick.
+    # BOTH THE RC AND THE MESSAGE, never the message alone. A predicate built
+    # only from words a failure is known to print is a predicate that widens
+    # every time the words change: 113 with some other message is a different
+    # failure and must still refuse.
+    if [ "$rc" -eq 113 ]; then
+        case "$out" in
+            *"Could not find service"*)
+                printf 'notloaded'
+                return 0
+                ;;
+        esac
+    fi
     if [ "$rc" -ne 0 ] || [ -z "$out" ]; then
         printf 'UNREADABLE rc=%s %s' "$rc" "$(printf '%s' "$out" | tr '\n\t' '  ' | cut -c1-140)"
         return 0
@@ -268,6 +305,14 @@ box_wait_ingest_quiet() {
                 [ "$PROBE_TICK_WAITED" -eq 0 ] && probe_note "ingest tick ${label}: read \"running\"; holding the store reads until it stops (budget ${budget}s)"
                 _probe_tick_sleep "$step"
                 PROBE_TICK_WAITED=$((PROBE_TICK_WAITED + step))
+                ;;
+            notloaded)
+                probe_note "ingest tick ${label}: not loaded on this host, so it is not moving the stores"
+                return 0
+                ;;
+            noplatform)
+                probe_note "ingest tick ${label}: /bin/launchctl is not present on this host, so there is no hourly ingest to wait for"
+                return 0
                 ;;
             *)
                 probe_note "ingest tick ${label}: read \"not running\" after ${PROBE_TICK_WAITED}s"

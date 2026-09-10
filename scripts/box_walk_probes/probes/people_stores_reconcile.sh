@@ -834,6 +834,32 @@ self_test() {
     _KBUDGET=900
     _kcase "tick state UNREADABLE -> CANNOT-RUN" "quiet" 1 "$PROBE_EX_CANNOT_RUN"
 
+    # 3a. The job is not loaded on this host: the tick is definitively not
+    #     moving the stores, which is the only question the hold asks. The note
+    #     says "not loaded" verbatim, so a WALK log carrying it is a finding on
+    #     its face: the walked box has that agent loaded and must read running
+    #     or not running, never not loaded.
+    _KBUDGET=900
+    _kcase "the job is not loaded here -> the probe proceeds" "notloaded" 0 "$PROBE_EX_PASS"
+    case "$_KLAST_OUT" in
+        *'not loaded on this host'*) printf '  ok [the note says "not loaded" verbatim, with the label]\n' ;;
+        *) printf '  SELF-TEST FAIL [the not-loaded note]: absent from the output\n'
+           fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="notloaded note" ;;
+    esac
+
+    # 3b. A host with no /bin/launchctl has no hourly ingest to wait for, and
+    #     that is NOT the same as a launchctl that would not answer. The keyless
+    #     probe tests drive this probe on a Linux runner; without this branch the
+    #     hold refuses there and every one of those arms reads CANNOT-RUN.
+    #     Measured: it did exactly that on run 34501676075 before this existed.
+    _KBUDGET=900
+    _kcase "no launchctl on the host -> the probe proceeds" "noplatform" 0 "$PROBE_EX_PASS"
+    case "$_KLAST_OUT" in
+        *'is not present on this host'*) printf '  ok [the note says why the hold did not apply]\n' ;;
+        *) printf '  SELF-TEST FAIL [the note says why the hold did not apply]: absent from the output\n'
+           fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="noplatform note" ;;
+    esac
+
     # 4. CONTROL: with the hold replaced by a no-op, arm 2's input passes.
     #    Without this, arms 2 and 3 would read the same on a probe that never
     #    called the helper at all. The real function is captured before it is
