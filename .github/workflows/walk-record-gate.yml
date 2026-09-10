@@ -544,6 +544,7 @@ jobs:
         if: always()
         run: /bin/bash scripts/tests/test_grounded_probe_grades_the_answer.sh
       - name: run_box_walk.sh records phase 1 verdicts for the manifest replay
+        if: always()
         run: /bin/bash scripts/tests/test_run_box_walk_records_phase1_verdicts.sh
 
       # THE OTHER HALF OF THAT PROBE. The step above proves the probe can tell
