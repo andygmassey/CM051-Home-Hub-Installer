@@ -1011,3 +1011,94 @@ wiki_summaries_wait() {
     printf '\n'
     return 1
 }
+
+# ---------------------------------------------------------------------------
+# wiki_baseline_resync -- after the walk has REMOVED its synthetic rows, bring
+# the compiled wiki back in step with the live stores before anything reads
+# the two side by side again.
+#
+# Measured on the v1.0.87 record (2026-09-10): phase 1 compiled the wiki with
+# the grounding seed's synthetic person in the graph (that is what the wait
+# above is for), the probes passed with graph = vectors = tile, then the four
+# forgets removed the person, and the manifest replay in post_walk_qa.sh read
+# people_stores_reconcile again: graph 1838, vectors 1838, tile 1839. Two FAIL
+# rows, "wiki tile matches neither store", on a box with no defect. The
+# comment above the forgets ("cannot change a verdict in this run") is true
+# of run_box_walk.sh and was false of the replay that runs after it.
+#
+# The fix is the property, not a tolerance: the walk changed the box, so the
+# walk recompiles the artefact that describes the box. It kickstarts the same
+# tick the wait above kickstarts, and waits for the tick's own "wiki baseline
+# published" line to appear AFTER the kickstart (wiki-recompile-tick.sh:339),
+# which is the moment index.md and its tiles are rewritten. The detached LLM
+# backfill is not waited for; the tiles do not depend on it.
+#
+# Never fails the walk. Every measurement is already taken. It prints what it
+# did and sets WIKI_RESYNC_STATE to one of:
+#   resynced    the baseline line appeared after the kickstart
+#   timed-out   the budget passed with no new baseline line (the replay may
+#               read a stale tile; that is then a true reading of this box)
+#   cannot-run  the box could not be read, or the kickstart was refused
+#   skipped     OSTLER_WIKI_RESYNC_SKIP=1
+# ---------------------------------------------------------------------------
+wiki_baseline_resync() {
+    local budget="${OSTLER_WIKI_RESYNC_BUDGET_S:-900}"
+    local gap="${OSTLER_WIKI_RESYNC_INTERVAL_S:-15}"
+    [ "$gap" -lt 1 ] && gap=1
+    local start; start="$(_ww_now)"
+    WIKI_RESYNC_STATE="unrun"; WIKI_RESYNC_ELAPSED=0; WIKI_RESYNC_DETAIL=""
+
+    printf -- '--- WIKI BASELINE: recompile after the forgets, so the replay reads the box the probes read ---\n'
+    printf '  budget: %ss (OSTLER_WIKI_RESYNC_BUDGET_S), reading every %ss\n' "$budget" "$gap"
+    if [ "${OSTLER_WIKI_RESYNC_SKIP:-0}" = "1" ]; then
+        WIKI_RESYNC_STATE="skipped"
+        WIKI_RESYNC_DETAIL="skipped by OSTLER_WIKI_RESYNC_SKIP=1; the compiled wiki still carries the synthetic rows"
+        printf '  CANNOT-RUN: %s\n\n' "$WIKI_RESYNC_DETAIL"
+        return 0
+    fi
+
+    # Where the tick log ends NOW. Only lines after this count.
+    local n0
+    n0="$(_ww_box_exec 'O="${OSTLER_DIR:-$HOME/.ostler}"; L="${OSTLER_LOGS:-$O/logs}"; T="$L/wiki-recompile.log"; if [ -f "$T" ]; then wc -l < "$T" | tr -d " "; else echo 0; fi' 2>/dev/null)"
+    case "$n0" in
+        ''|*[!0-9]*)
+            WIKI_RESYNC_STATE="cannot-run"
+            WIKI_RESYNC_ELAPSED=$(( $(_ww_now) - start ))
+            WIKI_RESYNC_DETAIL="the tick log could not be read before acting (got '${n0}'); nothing was kickstarted"
+            printf '  CANNOT-RUN: %s\n\n' "$WIKI_RESYNC_DETAIL"
+            return 0 ;;
+    esac
+
+    local ks
+    ks="$(_ww_kickstart 2>&1)"
+    printf '%s\n' "$ks" | sed 's/^/  /'
+    if ! printf '%s\n' "$ks" | grep -qE '^KICKSTART ok|^FALLBACK started'; then
+        WIKI_RESYNC_STATE="cannot-run"
+        WIKI_RESYNC_ELAPSED=$(( $(_ww_now) - start ))
+        WIKI_RESYNC_DETAIL="the recompile could not be started; the compiled wiki still carries the synthetic rows"
+        printf '  CANNOT-RUN: %s\n\n' "$WIKI_RESYNC_DETAIL"
+        return 0
+    fi
+
+    local waited=0 got=""
+    while :; do
+        got="$(_ww_box_exec 'O="${OSTLER_DIR:-$HOME/.ostler}"; L="${OSTLER_LOGS:-$O/logs}"; T="$L/wiki-recompile.log"; n='"$n0"'; if [ -f "$T" ]; then tail -n +$((n + 1)) "$T" | grep -c "wiki baseline published"; else echo 0; fi' 2>/dev/null)"
+        case "$got" in ''|*[!0-9]*) got=0 ;; esac
+        if [ "$got" -gt 0 ]; then
+            WIKI_RESYNC_STATE="resynced"
+            WIKI_RESYNC_ELAPSED=$(( $(_ww_now) - start ))
+            WIKI_RESYNC_DETAIL="baseline published ${WIKI_RESYNC_ELAPSED}s after the kickstart"
+            printf '  resynced: %s\n\n' "$WIKI_RESYNC_DETAIL"
+            return 0
+        fi
+        waited=$(( $(_ww_now) - start ))
+        if [ "$waited" -ge "$budget" ]; then
+            WIKI_RESYNC_STATE="timed-out"
+            WIKI_RESYNC_ELAPSED="$waited"
+            WIKI_RESYNC_DETAIL="no 'wiki baseline published' line within ${budget}s of the kickstart; a replay may read a tile that still counts the synthetic rows"
+            printf '  TIMED OUT: %s\n\n' "$WIKI_RESYNC_DETAIL"
+            return 0
+        fi
+        sleep "$gap"
+    done
+}

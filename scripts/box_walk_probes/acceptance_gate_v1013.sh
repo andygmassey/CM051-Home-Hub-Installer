@@ -97,6 +97,52 @@ boxcount(){
   if [ -z "$n" ]; then echo UNREACHABLE; else echo "$n"; fi
 }
 
+# A6 grades the WIKI COMPILER, so it must read the wiki compiler's logs and
+# nothing else. Measured 2026-09-10 on the v1.0.87 walk: boxcount over all of
+# LOGDIRS found ONE "400 Bad Request", and it was in imessage-bundle.err (the
+# conversation-ingest pipeline talking to the store), not in any wiki-*.log.
+# A6 then reported the wiki image stale. Same shape as the A7 footer: text
+# that reads like a diagnosis and measured a different component.
+# shellcheck disable=SC2088  # tilde expands on the box, see LOGDIRS.
+WIKILOGDIRS='~/.ostler/logs ~/Library/Logs/Ostler'   # the wiki jobs write wiki-*.log and wiki-*.err here (install.sh: LOGS_DIR)
+# Enumerates the files with find, never a shell glob, and passes them to grep
+# through an unquoted command substitution, never a variable: the box's login
+# shell is zsh, which ABORTS the command on an unmatched glob and does NOT
+# word-split an unquoted variable (both read as a refusal when this was first
+# run against the walk box), but does split an unquoted $(...). Then reads
+# grep's own status: 0 and 1 are counts, anything else (an unreadable file, a
+# permission error) is a refusal, never a 0. stderr is not merged into the
+# counted file: a diagnostic that leaves the status alone must not count as a match.
+wikicount(){
+  local n
+  n=$(box "cnt=\$(find $WIKILOGDIRS -maxdepth 1 -type f \( -name 'wiki-*.log' -o -name 'wiki-*.err' \) 2>/dev/null | wc -l | tr -d ' '); \
+           if [ \"\$cnt\" -eq 0 ]; then echo NOLOGS; \
+           else t=\$(mktemp); grep -hoE '$1' \$(find $WIKILOGDIRS -maxdepth 1 -type f \( -name 'wiki-*.log' -o -name 'wiki-*.err' \) 2>/dev/null) > \"\$t\" 2>/dev/null; rc=\$?; \
+             case \"\$rc\" in 0|1) wc -l < \"\$t\" | tr -d ' ';; *) echo GREPERR;; esac; rm -f \"\$t\"; fi")
+  if [ -z "$n" ]; then echo UNREACHABLE; else echo "$n"; fi
+}
+
+# The compiler pinned from CM044 v0.1.31 (#268) logs "BROKEN LINK: ..." for
+# every internal link it cannot resolve and THEN degrades it to plain text in
+# the written page, summarising per compile as "Link audit: N broken links
+# found out of M checked; R degraded to plain text" (compile.py:1604 and
+# :1632 at 3bc0f3bb). A failed rewrite logs "Link repair failed for ...".
+# So on that image a BROKEN LINK line is a source defect made visible, not a
+# dead link a customer can click. "No dead links" is found minus degraded,
+# summed over every compile in the logs (the catchup log is append-only, so
+# the two sums pair per compile), plus zero failed repairs. Prints
+# "FOUND DEGRADED FAILED_FILES SUMMARIES" or a refusal token. FOUND is
+# events summed over SUMMARIES compiles, not distinct links; FAILED_FILES
+# counts files whose rewrite failed (one line per file), not links.
+wikiaudit(){
+  local n
+  n=$(box "cnt=\$(find $WIKILOGDIRS -maxdepth 1 -type f \( -name 'wiki-*.log' -o -name 'wiki-*.err' \) 2>/dev/null | wc -l | tr -d ' '); \
+           if [ \"\$cnt\" -eq 0 ]; then echo NOLOGS; \
+           else t=\$(mktemp); grep -hoE 'Link audit: [0-9]+ broken links found out of [0-9]+ checked(; [0-9]+ degraded)?|Link repair failed' \$(find $WIKILOGDIRS -maxdepth 1 -type f \( -name 'wiki-*.log' -o -name 'wiki-*.err' \) 2>/dev/null) > \"\$t\" 2>/dev/null; rc=\$?; \
+             case \"\$rc\" in 0|1) awk '/^Link audit/{n++; f+=\$3; if (\$12==\"degraded\") d+=\$11} /^Link repair failed/{x++} END{printf \"%d %d %d %d\\n\", f, d, x, n}' \"\$t\";; *) echo GREPERR;; esac; rm -f \"\$t\"; fi")
+  if [ -z "$n" ]; then echo UNREACHABLE; else echo "$n"; fi
+}
+
 # True when a boxcount result is a real number rather than a refusal token.
 is_count(){ case "${1:-}" in ''|*[!0-9]*) return 1;; *) return 0;; esac }
 
@@ -159,6 +205,7 @@ health=$(box "curl -s --max-time 5 $DAEMON/health")
 cp=$(echo "$health" | grep -oE '"companion_paired"[: ]*(true|false)' | grep -oE 'true|false')
 pd=$(echo "$health" | grep -oE '"paired"[: ]*(true|false)' | grep -oE 'true|false')
 tp=$(echo "$health" | grep -oE '"token_paired"[: ]*(true|false)' | grep -oE 'true|false')
+rp=$(echo "$health" | grep -oE '"require_pairing"[: ]*(true|false)' | grep -oE 'true|false')
 dev_ct=$(box "sqlite3 \$(find ~/.ostler -name devices.db 2>/dev/null | head -1) 'select count(*) from devices' 2>/dev/null")
 [ -z "$dev_ct" ] && dev_ct="err"
 if [ "$EXPECT_PAIRED" = "1" ]; then
@@ -168,11 +215,30 @@ if [ "$EXPECT_PAIRED" = "1" ]; then
     result FAIL A4 "Pairing complete + consistent" "companion=$cp paired=$pd token=$tp devices=$dev_ct (want all-true + >=1 device)"
   fi
 else
-  # unpaired box: the 3 flags must AGREE (shipped bug = token_paired:true while others false)
-  if [ "$cp" = "$pd" ] && [ "$pd" = "$tp" ]; then
-    result PASS A4 "Pairing signals consistent" "companion=$cp paired=$pd token=$tp (agree)"
+  # Unpaired box. What the daemon guarantees (ostler-assistant #208, read from
+  # crates/zeroclaw-gateway/src/lib.rs:1946-1972 on 2026-09-10): paired and
+  # companion_paired come from the device registry and the passkey file, and
+  # are false with no device; token_paired is the bearer-token set being
+  # non-empty, which the installer makes TRUE on every install by seeding the
+  # admin token (install.sh: the paired_tokens merge). So on a healthy
+  # unpaired box the truth is companion=false paired=false token=true and
+  # devices=0. The old predicate demanded all three flags AGREE, which no
+  # correctly installed box can satisfy; it read FAIL on v1.0.82, v1.0.85 and
+  # v1.0.87 behind the A7 footer. The device-state assertion is the two device
+  # flags plus the device count. token_paired is reported, not judged.
+  if [ "$rp" = "false" ]; then
+    # The device registry (and devices.db) exists only when require_pairing is
+    # true (ostler-assistant lib.rs:1581-1587); the default is true and the
+    # installer never sets it. A false here is a different box, not a broken probe.
+    result CANNOT A4 "Pairing signals consistent" \
+      "require_pairing=false: this box has pairing disabled, so there is no device registry to grade; companion='$cp' paired='$pd' token='$tp'"
+  elif [ -z "$cp" ] || [ -z "$pd" ] || ! is_count "$dev_ct"; then
+    result CANNOT A4 "Pairing signals consistent" \
+      "companion='$cp' paired='$pd' token='$tp' devices='$dev_ct': a signal could not be read, so NOTHING about pairing was measured"
+  elif [ "$cp" = "false" ] && [ "$pd" = "false" ] && [ "$dev_ct" -eq 0 ]; then
+    result PASS A4 "Pairing signals consistent" "companion=$cp paired=$pd devices=$dev_ct (unpaired, agree); token=$tp is the installer's admin token, expected"
   else
-    result FAIL A4 "Pairing signals consistent" "companion=$cp paired=$pd token=$tp -- signals DISAGREE (lying-UI)"
+    result FAIL A4 "Pairing signals consistent" "companion=$cp paired=$pd devices=$dev_ct -- a device flag or the device count claims a pairing that does not exist (lying-UI); token=$tp"
   fi
 fi
 
@@ -189,16 +255,40 @@ else
 fi
 
 # -- A6 -- wiki-compiler image is fresh: no SPARQL-400, no parser crash, no dead links [MAPS: #5/#260/#252] --
-ox400=$(boxcount '400 Bad Request')
-crash=$(boxcount 'unhashable type|object has no attribute')
-brk=$(boxcount 'BROKEN LINK')
-if ! is_count "$ox400" || ! is_count "$crash" || ! is_count "$brk"; then
+ox400=$(wikicount '400 Bad Request')
+crash=$(wikicount 'unhashable type|object has no attribute')
+brk=$(wikicount 'BROKEN LINK')
+aud=$(wikiaudit)
+found=""; degraded=""; rfail=""; nsum=""
+case "$aud" in
+  *[!0-9\ ]*|"") : ;;
+  *) set -- $aud; if [ $# -eq 4 ]; then found="$1"; degraded="$2"; rfail="$3"; nsum="$4"; fi ;;
+esac
+if ! is_count "$ox400" || ! is_count "$crash" || ! is_count "$brk" || [ -z "$rfail" ]; then
   result CANNOT A6 "Wiki compiler clean (fresh image)" \
-    "log counts came back sparql-400='$ox400' crashes='$crash' broken-links='$brk': NOTHING was read, so 'clean' is not available"
-elif [ "$ox400" -eq 0 ] && [ "$crash" -eq 0 ] && [ "$brk" -eq 0 ]; then
-  result PASS A6 "Wiki compiler clean (fresh image)" "sparql-400=$ox400 crashes=$crash broken-links=$brk"
+    "wiki log counts came back sparql-400='$ox400' crashes='$crash' broken-links='$brk' audit='$aud': NOTHING was read from the wiki compiler logs, so 'clean' is not available"
 else
-  result FAIL A6 "Wiki compiler clean (fresh image)" "sparql-400=$ox400 (stale image, pre-#219) parser-crashes=$crash broken-links=$brk"
+  # Dead links come from the per-compile summaries, where found and degraded
+  # are paired. The per-link BROKEN LINK lines are NOT retained the same way
+  # (measured 2026-09-10: the catchup log held 7 summaries and 1 such line),
+  # so they are reported, never subtracted from. A log with BROKEN LINK lines
+  # and no summary at all is an older compiler: every one of them counts.
+  if [ "$found" -gt 0 ]; then dead=$((found - degraded)); else dead="$brk"; fi
+  if [ "$dead" -lt 0 ]; then
+    # This compiler bounds degraded by found per compile, and the sums keep
+    # that, so a negative residual is not a state of the wiki: it is the one
+    # arithmetic signal that the summary format moved under the reader.
+    result CANNOT A6 "Wiki compiler clean (fresh image)" \
+      "the summaries do not parse as this reader expects: found=$found degraded=$degraded over $nsum summaries (degraded exceeds found); nothing about dead links can be read from that"
+  elif [ "$ox400" -eq 0 ] && [ "$crash" -eq 0 ] && [ "$dead" -eq 0 ] && [ "$rfail" -eq 0 ]; then
+    result PASS A6 "Wiki compiler clean (fresh image)" "sparql-400=$ox400 crashes=$crash broken-link-lines=$brk found=$found(summed over $nsum compiles) repaired=$degraded dead=0 repair-failed-files=$rfail"
+  else
+  # The evidence is the three counts. This line used to append a fixed
+  # "stale image" diagnosis naming a CM044 PR number, unconditionally: a guess
+  # from when that PR was the suspect, printed on every FAIL since, and read
+  # as a finding on three records.
+    result FAIL A6 "Wiki compiler clean (fresh image)" "sparql-400=$ox400 parser-crashes=$crash broken-link-lines=$brk found=$found(summed over $nsum compiles) repaired=$degraded dead=$dead repair-failed-files=$rfail (read from the wiki compiler logs only)"
+  fi
 fi
 
 # -- A7 -- Home/Wiki phase coherence -- needs a rendered SPA, can't assert headlessly --
