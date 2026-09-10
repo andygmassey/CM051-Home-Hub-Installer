@@ -97,6 +97,21 @@ _fake_box() {
                 *found=0*)              echo 0 ;;
                 *)                      echo "" ;;
             esac ;;
+        wiki_unreadable)
+            case "${cmd}" in
+                */health*)              echo '{"companion_paired":false,"paired":false,"token_paired":true}' ;;
+                *sqlite3*)              echo 0 ;;
+                *wiki-*)                echo GREPERR ;;              # grep could not read a wiki log
+                *found=0*)              echo 0 ;;
+                *)                      echo "" ;;
+            esac ;;
+        pairing_disabled)
+            case "${cmd}" in
+                */health*)              echo '{"companion_paired":false,"paired":false,"token_paired":true,"require_pairing":false}' ;;
+                *sqlite3*)              echo "" ;;                   # no devices.db on such a box
+                *found=0*)              echo 0 ;;
+                *)                      echo "" ;;
+            esac ;;
         wiki_dirty)
             case "${cmd}" in
                 */health*)              echo '{"companion_paired":false,"paired":false,"token_paired":true}' ;;
@@ -188,6 +203,22 @@ if grep -q 'pre-#219' "${WORK}/out.txt"; then
     bad "the FAIL evidence still carries the hardcoded 'pre-#219' diagnosis"
 else
     ok "the FAIL evidence carries measured counts and no baked-in diagnosis"
+fi
+
+echo "== A6: a wiki log grep could not read is could-not-run, not clean =="
+rc="$(run_gate wiki_unreadable)"
+if grep -qE '  CANT  A6 ' "${WORK}/out.txt" && [ "${rc}" = "78" ]; then
+    ok "a grep error on the wiki logs renders A6 as could-not-run and exits 78, never as sparql-400=0"
+else
+    bad "a grep error on the wiki logs rendered as '$(row A6)' rc=${rc}, expected CANT and 78"
+fi
+
+echo "== A4: a box with pairing disabled is named, not reported as an unreadable probe =="
+rc="$(run_gate pairing_disabled)"
+if grep -qE '  CANT  A4 ' "${WORK}/out.txt" && grep -q 'pairing disabled' "${WORK}/out.txt"; then
+    ok "require_pairing=false renders A4 as could-not-run and says the registry does not exist"
+else
+    bad "require_pairing=false rendered as '$(row A4)' without naming the disabled registry"
 fi
 
 echo "== SOURCE: the baked-in diagnosis and the all-logs A6 reads are gone =="

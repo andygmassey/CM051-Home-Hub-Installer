@@ -86,7 +86,7 @@ _fake_box() {
     case "${mode}" in
         dead)     return 0 ;;                        # ssh produces nothing at all
         nologs)   case "${cmd}" in
-                      *found=0*)     echo NOLOGS ;;  # the dirs are not there
+                      *found=0*|*wiki-*)     echo NOLOGS ;;  # the dirs are not there
                       *"echo ok"*)   echo ok ;;
                       *http_code*)   echo 200 ;;
                       *frontpage*)   echo '{"id":"welcome-1"}' ;;
@@ -95,7 +95,7 @@ _fake_box() {
                       *)             echo "" ;;
                   esac ;;
         clean)    case "${cmd}" in
-                      *found=0*)     echo 0 ;;
+                      *found=0*|*wiki-*)     echo 0 ;;
                       *"echo ok"*)   echo ok ;;
                       *http_code*)   echo 200 ;;
                       *frontpage*)   echo '{"id":"welcome-1"}' ;;
@@ -104,7 +104,7 @@ _fake_box() {
                       *)             echo "" ;;
                   esac ;;
         dirty)    case "${cmd}" in
-                      *found=0*)     echo 7 ;;       # real errors in the logs
+                      *found=0*|*wiki-*)     echo 7 ;;       # real errors in the logs
                       *"echo ok"*)   echo ok ;;
                       *http_code*)   echo 200 ;;
                       *frontpage*)   echo '{"id":"welcome-1"}' ;;
@@ -114,7 +114,7 @@ _fake_box() {
                   esac ;;
         a8trunc)  case "${cmd}" in
                       *"echo ok"*)   echo ok ;;
-                      *found=0*)     echo 0 ;;
+                      *found=0*|*wiki-*)     echo 0 ;;
                       *launchctl*)   echo "" ;;      # reply lost, no terminator
                       *http_code*)   echo 200 ;;
                       *frontpage*)   echo '{"id":"welcome-1"}' ;;

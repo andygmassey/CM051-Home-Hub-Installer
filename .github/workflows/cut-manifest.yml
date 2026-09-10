@@ -177,12 +177,14 @@ jobs:
       # ingest 400 against the wiki compiler because it read every log. Hermetic
       # fake-box arms for both, plus the controls that they still fail.
       - name: the acceptance gate grades what its titles name
+        if: always()
         run: /bin/bash scripts/tests/test_acceptance_gate_grades_what_it_names.sh
 
       # v1.0.87: the manifest replay read people_stores_reconcile after the walk
       # removed its synthetic person, against a wiki compiled with the person in
       # it. The walk now recompiles after the forgets; this proves the wiring.
       - name: the replay reads the box the probes read
+        if: always()
         run: /bin/bash tests/test_the_replay_reads_the_box_the_probes_read.sh
 
       # A grep_in_source_at_sha row must be provable by the SOURCE it names, not
