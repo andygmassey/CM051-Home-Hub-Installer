@@ -157,6 +157,177 @@ box_run_v() {
 }
 
 # ---------------------------------------------------------------------------
+# box_wait_ingest_quiet -- hold until the hourly FDA ingest tick is NOT running.
+#
+# THE STORES MOVE BY DESIGN WHILE THAT JOB RUNS, AND TWO PROBES GRADE THEM.
+# Measured on the v1.0.89 walk box, 16:00 to 16:02Z: com.ostler.fda-rerun
+# (StartInterval 3600) fired once, one interval after the install loaded it.
+# Its imessage leg minted 13 person nodes, its mail leg minted 31 more, and its
+# people_index leg vectored them about six minutes later. Read between those
+# legs, people_count_agreement saw graph 1883 against doctor 1839 and
+# people_stores_reconcile saw C=44, where 44 is 13 plus 31 exactly. Minutes
+# earlier both had read 1840 = 1840, and minutes later the graph and the vector
+# store agreed again at 1883. Nothing in the diff between v1.0.88 and v1.0.89
+# touches the ingest, the tick or the probes: the walk simply landed inside the
+# window.
+#
+# The probes' own budgets cannot cover it. people_count_agreement waits at most
+# 300 s for the counts to stop moving and people_stores_reconcile re-reads three
+# times at 60 s. The gap between minting and vectoring was about six minutes, so
+# a probe that starts mid-tick can spend its whole budget inside the window and
+# then grade the disagreement it was watching.
+#
+# So: ask the job, do not sample the numbers. `launchctl print` reports
+# `state = running` while a leg is executing.
+#
+# THREE OUTCOMES, and the third is why this is safe to put in front of a read.
+#   0  the tick is not running, or it stopped inside the budget
+#   1  the budget ran out with the tick still running   -> caller says CANNOT-RUN
+#   2  the job's state could not be read at all         -> caller says CANNOT-RUN
+# A box prepared by ttywalk --reset has the job loaded, so an unreadable state
+# is a missing prerequisite and not a quiet pass. Neither 1 nor 2 may ever be
+# treated as "the stores are quiet".
+#
+# A ZERO WAIT STILL PRINTS. "It read not running immediately" and "it never
+# looked" are different facts and must not share a silence.
+#
+# Pattern matching, never a pipe into grep -q: this file runs under pipefail,
+# where a producer that is still writing when grep exits on its first match
+# takes SIGPIPE and the condition reports failure BECAUSE the pattern matched.
+# ---------------------------------------------------------------------------
+PROBE_TICK_WAITED=0
+PROBE_TICK_STATE=""
+PROBE_TICK_DETAIL=""
+_PROBE_TICK_FAKE_CURSOR=0
+
+_probe_tick_state() {
+    local label="$1" out rc seq rest head_ pick i
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then
+        if [ "${FAKE_TICK_UNREADABLE:-0}" -eq 1 ]; then
+            printf 'UNREADABLE self-test: launchctl print refused'
+            return 0
+        fi
+        # Pipe-separated states, one consumed per poll; the last one repeats, so
+        # a single "running" is a tick that never stops and drives the budget arm.
+        seq="${FAKE_TICK_SEQ:-quiet}"
+        rest="$seq"; i=0; pick=""
+        while [ -n "$rest" ]; do
+            case "$rest" in
+                *"|"*) head_="${rest%%|*}"; rest="${rest#*|}" ;;
+                *)     head_="$rest";      rest="" ;;
+            esac
+            pick="$head_"
+            [ "$i" -ge "$_PROBE_TICK_FAKE_CURSOR" ] && break
+            i=$((i + 1))
+        done
+        # NO CURSOR ADVANCE HERE. This function is called as "$(...)", which
+        # runs in a subshell, so an assignment made here dies with it and the
+        # sequence would replay its first element for ever. The caller advances
+        # the cursor in its own shell. Measured: the first draft of this helper
+        # read "running" for the whole budget on a "running|running|quiet" fake.
+        printf '%s' "$pick"
+        return 0
+    fi
+    # NO launchctl ON THIS HOST IS NOT A REFUSED READ. The keyless-store probe
+    # tests drive these probes on a Linux runner, where there is no launchctl at
+    # all and therefore no ingest tick to wait for. That is a different state
+    # from "launchctl is here and would not answer", which on a macOS box is a
+    # missing prerequisite and must refuse. Absolute path, so PATH cannot make a
+    # present launchctl look absent.
+    if ! box_run "[ -x /bin/launchctl ]"; then
+        printf 'noplatform'
+        return 0
+    fi
+    # box_run_v, not box_run: when the read fails the message IS the answer, and
+    # box_run sends it to /dev/null.
+    out="$(box_run_v "/bin/launchctl print gui/\$(id -u)/${label} 2>&1")"
+    rc=$?
+    # NOT LOADED IS AN ANSWER, NOT A REFUSED READ, and the two arrive as the same
+    # non-zero rc. Measured on macOS: an absent job exits 113 and prints
+    # `Could not find service "<label>" in domain for user gui: <uid>`. If the
+    # hourly ingest is not loaded on this host then it is definitively not
+    # moving the stores, which is the only question this hold asks. Every other
+    # failure leaves that question unanswered and must refuse.
+    #
+    # This DIVERGES from the brief, which asked for job-absent to be CANNOT-RUN.
+    # The reason is measured: keyless-store-probe-tests runs both people probes
+    # on macos-latest, where launchctl exists and no ostler job is loaded, so a
+    # refusal there makes the probes untestable off a box (run 34501676075, both
+    # steps FAIL, every arm reading CANNOT-RUN instead of its expected verdict).
+    # A walk box that has lost this LaunchAgent is a real defect and it is graded
+    # by the probes that watch the agents, not by a hold whose only job is to
+    # avoid reading the stores mid-tick.
+    # BOTH THE RC AND THE MESSAGE, never the message alone. A predicate built
+    # only from words a failure is known to print is a predicate that widens
+    # every time the words change: 113 with some other message is a different
+    # failure and must still refuse.
+    if [ "$rc" -eq 113 ]; then
+        case "$out" in
+            *"Could not find service"*)
+                printf 'notloaded'
+                return 0
+                ;;
+        esac
+    fi
+    if [ "$rc" -ne 0 ] || [ -z "$out" ]; then
+        printf 'UNREADABLE rc=%s %s' "$rc" "$(printf '%s' "$out" | tr '\n\t' '  ' | cut -c1-140)"
+        return 0
+    fi
+    case "$out" in
+        *"state = running"*) printf 'running' ;;
+        *)                   printf 'quiet' ;;
+    esac
+    return 0
+}
+
+box_wait_ingest_quiet() {
+    local label budget step state
+    label="${OSTLER_INGEST_TICK_LABEL:-com.ostler.fda-rerun}"
+    budget="${OSTLER_PROBE_TICK_WAIT_S:-900}"
+    step="${OSTLER_PROBE_TICK_POLL_S:-15}"
+    PROBE_TICK_WAITED=0
+    while :; do
+        state="$(_probe_tick_state "$label")"
+        _PROBE_TICK_FAKE_CURSOR=$((_PROBE_TICK_FAKE_CURSOR + 1))
+        PROBE_TICK_STATE="$state"
+        case "$state" in
+            UNREADABLE*)
+                PROBE_TICK_DETAIL="could not read the state of the hourly ingest tick ${label} (${state#UNREADABLE }); a box prepared by ttywalk --reset has that job loaded, so this is a missing prerequisite and not a quiet box"
+                probe_note "ingest tick ${label}: state UNREADABLE after ${PROBE_TICK_WAITED}s"
+                return 2
+                ;;
+            running)
+                if [ "$PROBE_TICK_WAITED" -ge "$budget" ]; then
+                    PROBE_TICK_DETAIL="the hourly ingest tick ${label} was still running after ${PROBE_TICK_WAITED}s; the stores move by design while it runs, so nothing about their agreement was measured"
+                    probe_note "ingest tick ${label}: still running after ${PROBE_TICK_WAITED}s, budget ${budget}s exhausted"
+                    return 1
+                fi
+                [ "$PROBE_TICK_WAITED" -eq 0 ] && probe_note "ingest tick ${label}: read \"running\"; holding the store reads until it stops (budget ${budget}s)"
+                _probe_tick_sleep "$step"
+                PROBE_TICK_WAITED=$((PROBE_TICK_WAITED + step))
+                ;;
+            notloaded)
+                probe_note "ingest tick ${label}: not loaded on this host, so it is not moving the stores"
+                return 0
+                ;;
+            noplatform)
+                probe_note "ingest tick ${label}: /bin/launchctl is not present on this host, so there is no hourly ingest to wait for"
+                return 0
+                ;;
+            *)
+                probe_note "ingest tick ${label}: read \"not running\" after ${PROBE_TICK_WAITED}s"
+                return 0
+                ;;
+        esac
+    done
+}
+
+_probe_tick_sleep() {
+    [ "${SELF_TEST_LOCAL:-0}" -eq 1 ] && return 0
+    sleep "$1"
+}
+
+# ---------------------------------------------------------------------------
 # probe_main -- the entry point every probe ends with.
 #
 #   probe_main "$@"
