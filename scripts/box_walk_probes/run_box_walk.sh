@@ -386,12 +386,26 @@ CANNOT_REASONS="$(mktemp)"
 FAIL_REASONS="$(mktemp)"
 trap 'rm -f "$CANNOT_REASONS" "$FAIL_REASONS"' EXIT
 
+# OSTLER_PHASE1_VERDICTS: when set, every verdict the loop below reaches is
+# appended there as <probe>\t<PASS|FAIL|CANNOT-RUN|BROKEN>\t<utc>\t<reason>, so
+# the cut-manifest replay (verify_cut_manifest.py, box_walk_probe rows) can take
+# the verdict measured HERE, against the seed fixture and after each probe's
+# negative control, instead of running the script again after the forgets at
+# the end of this file. v1.0.89: the replay re-ran assistant_answers_grounded
+# after SEED-FORGET OK and read tool_found_nothing on stores it had emptied.
+_record_verdict() {
+    [ -n "${OSTLER_PHASE1_VERDICTS:-}" ] || return 0
+    printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        "$(printf '%s' "${3:-}" | tr '\n\t' '  ')" >> "$OSTLER_PHASE1_VERDICTS"
+}
+
 for p in $PROBES; do
     b="$(basename "$p" .sh)"
 
     case " $BROKEN_LIST " in
         *" $b "*)
             printf '\n[%s]\n  SKIPPED -- probe failed its own negative control in phase 1.\n' "$b"
+            _record_verdict "$b" BROKEN "failed its own negative control in phase 1"
             continue
             ;;
     esac
@@ -429,6 +443,7 @@ for p in $PROBES; do
             printf '  VERDICT: CANNOT-RUN -- %s\n' "$CONVERGE_DETAIL" | sed 's/^/  /'
             CANNOT=$((CANNOT + 1)); CANNOT_LIST="$CANNOT_LIST $b"
             printf '%s\t%s\n' "$b" "$CONVERGE_DETAIL" >> "$CANNOT_REASONS"
+            _record_verdict "$b" CANNOT-RUN "$CONVERGE_DETAIL"
             continue
         fi
     fi
@@ -440,6 +455,7 @@ for p in $PROBES; do
 
     if [ "$rc" -eq 0 ]; then
         PASS=$((PASS + 1))
+        _record_verdict "$b" PASS ""
     elif [ "$rc" -eq "$EX_CANNOT_RUN" ]; then
         CANNOT=$((CANNOT + 1)); CANNOT_LIST="$CANNOT_LIST $b"
         # Everything from the marker to the END of the probe's output is the
@@ -455,6 +471,7 @@ for p in $PROBES; do
         # contract breach and a different problem entirely.
         [ -n "$_why" ] || _why="UNRECORDED -- exited ${EX_CANNOT_RUN} with no 'VERDICT: CANNOT-RUN --' line, so it bypassed probe_cannot_run and named no prerequisite"
         printf '%s\t%s\n' "$b" "$_why" >> "$CANNOT_REASONS"
+        _record_verdict "$b" CANNOT-RUN "$_why"
     else
         FAIL=$((FAIL + 1)); FAIL_LIST="$FAIL_LIST $b"
         # Same extraction as CANNOT-RUN above: probe_fail() prints its detail
@@ -468,6 +485,7 @@ for p in $PROBES; do
         # nothing, which is a contract breach, not a finding without a reason.
         [ -n "$_why" ] || _why="UNRECORDED -- exited ${rc} with no 'VERDICT: FAIL --' line, so it bypassed probe_fail and named no finding"
         printf '%s\t%s\n' "$b" "$_why" >> "$FAIL_REASONS"
+        _record_verdict "$b" FAIL "$_why"
     fi
 done
 

@@ -2710,3 +2710,99 @@ def test_a_response_with_no_state_field_is_still_measured(tmp_path, monkeypatch)
     assert result.status == "PASS", result.detail
     assert "up to date" in result.detail
 
+
+
+# ---------------------------------------------------------------------------
+# box_walk_probe rows take the phase 1 verdict (OSTLER_PHASE1_VERDICTS)
+#
+# v1.0.89, 2026-09-10: the replay re-ran assistant_answers_grounded AFTER
+# run_box_walk.sh had forgotten the seeds and read tool_found_nothing on stores
+# it had emptied, minutes after phase 1 read 4 of 4 grounded against the seed
+# fixture. The probe stub below leaves a marker file when it runs, so every arm
+# can assert whether the script was invoked, not just what the row said.
+# ---------------------------------------------------------------------------
+
+def _phase1_setup(cm051, tmp_path, monkeypatch, probe, verdict_rows, body="exit 0"):
+    marker = tmp_path / f"{probe}.ran"
+    monkeypatch.setenv("OSTLER_BOX_HOST", "1.2.3.4")
+    monkeypatch.setenv("PROBE_MARKER", str(marker))
+    _write_probe(cm051, probe, 'touch "$PROBE_MARKER"\n' + body)
+    vf = tmp_path / "phase1.tsv"
+    vf.write_text("".join(r + "\n" for r in verdict_rows))
+    monkeypatch.setenv("OSTLER_PHASE1_VERDICTS", str(vf))
+    _write_manifest(cm051, "permanent.yaml", [])
+    _write_manifest(cm051, "v1.0.0.yaml", [{
+        "id": f"box-walk-{probe}",
+        "title": f"box-walk probe must PASS: {probe}",
+        "proof": {"kind": "box_walk_probe", "probe": probe},
+    }])
+    return marker
+
+
+def test_box_walk_probe_takes_phase1_pass_and_does_not_rerun(fake_cm051, fake_app, tmp_path, monkeypatch):
+    """A PASS phase 1 row is the row's verdict, and the script is NOT invoked."""
+    marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "green",
+                           ["green\tPASS\t2026-09-10T15:36:00Z\t"], body="exit 0")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+    assert "took the phase 1 verdict" in r.stdout, r.stdout
+    assert not marker.exists(), "the probe script ran; the row must take phase 1's verdict, not re-measure"
+
+
+def test_box_walk_probe_takes_phase1_fail_even_when_a_rerun_would_pass(fake_cm051, fake_app, tmp_path, monkeypatch):
+    """The strongest arm: phase 1 said FAIL, the script would exit 0 now. The row
+    is FAIL with phase 1's reason, and the script is not run to launder it."""
+    marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "red",
+                           ["red\tFAIL\t2026-09-10T15:40:00Z\tpeople counts disagree by 44"],
+                           body="exit 0")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "disagree by 44" in r.stdout, r.stdout
+    assert not marker.exists()
+
+
+def test_box_walk_probe_takes_phase1_cannot_run(fake_cm051, fake_app, tmp_path, monkeypatch):
+    marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "cr",
+                           ["cr\tCANNOT-RUN\t2026-09-10T15:41:00Z\tno seed directory"],
+                           body="exit 0")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert "CANNOT-RUN" in r.stdout, r.stdout
+    assert "no seed directory" in r.stdout, r.stdout
+    assert not marker.exists()
+
+
+def test_box_walk_probe_phase1_broken_reads_fail_not_pass(fake_cm051, fake_app, tmp_path, monkeypatch):
+    """A probe whose negative control did not fire is a defect; the old replay
+    re-ran the script and let it exit 0."""
+    marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "brk",
+                           ["brk\tBROKEN\t2026-09-10T15:30:00Z\tself-test returned 0, expected 1"],
+                           body="exit 0")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "BROKEN" in r.stdout, r.stdout
+    assert not marker.exists()
+
+
+def test_box_walk_probe_reruns_when_phase1_has_no_row_for_it(fake_cm051, fake_app, tmp_path, monkeypatch):
+    """Mutant control for the arms above: a file that names OTHER probes only
+    must leave this row measured by running the script (marker present)."""
+    marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "fresh",
+                           ["someone_else\tPASS\t2026-09-10T15:36:00Z\t"], body="exit 0")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+    assert "took the phase 1 verdict" not in r.stdout, r.stdout
+    assert marker.exists(), "no phase 1 row for this probe: the script must run"
+
+
+def test_box_walk_probe_last_phase1_row_wins_and_unknown_word_reruns(fake_cm051, fake_app, tmp_path, monkeypatch):
+    marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "twice",
+                           ["twice\tFAIL\t2026-09-10T15:36:00Z\tfirst",
+                            "twice\tPASS\t2026-09-10T15:39:00Z\t"], body="exit 0")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+    assert not marker.exists()
+    marker2 = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "odd",
+                            ["odd\tMAYBE\t2026-09-10T15:36:00Z\t"], body="exit 0")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+    assert marker2.exists(), "an unknown verdict word must fall back to measuring"
