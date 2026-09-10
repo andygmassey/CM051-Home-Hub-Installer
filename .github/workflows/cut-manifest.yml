@@ -66,6 +66,13 @@ on:
       # BOTH are triggers, or an edit to one is dark.
       - 'scripts/tests/test_an_unreachable_box_is_not_a_defect.sh'
       - 'scripts/box_walk_probes/acceptance_gate_v1013.sh'
+      # A4 graded a flag the installer sets by design and A6 read every log on
+      # the box; both stood red behind the A7 footer for three records.
+      - 'scripts/tests/test_acceptance_gate_grades_what_it_names.sh'
+      # The replay reads the box after the walk's forgets; the walk recompiles first.
+      - 'tests/test_the_replay_reads_the_box_the_probes_read.sh'
+      - 'scripts/box_walk_probes/lib/wiki_summaries_wait.sh'
+      - 'scripts/box_walk_probes/run_box_walk.sh'
   push:
     branches: [main]
 
@@ -163,6 +170,20 @@ jobs:
         # same job SKIPS this step, and a skipped test reports nothing at all.
         if: always()
         run: /bin/bash scripts/tests/test_wiki_digest_pin_assertion.sh
+
+      # v1.0.87: A4 asserted three pairing flags agree on an unpaired box, which
+      # no correctly installed box satisfies (the installer seeds the admin
+      # token, so token_paired is true by design); A6 counted a conversation
+      # ingest 400 against the wiki compiler because it read every log. Hermetic
+      # fake-box arms for both, plus the controls that they still fail.
+      - name: the acceptance gate grades what its titles name
+        run: /bin/bash scripts/tests/test_acceptance_gate_grades_what_it_names.sh
+
+      # v1.0.87: the manifest replay read people_stores_reconcile after the walk
+      # removed its synthetic person, against a wiki compiled with the person in
+      # it. The walk now recompiles after the forgets; this proves the wiring.
+      - name: the replay reads the box the probes read
+        run: /bin/bash tests/test_the_replay_reads_the_box_the_probes_read.sh
 
       # A grep_in_source_at_sha row must be provable by the SOURCE it names, not
       # by the manifest text that makes the claim.

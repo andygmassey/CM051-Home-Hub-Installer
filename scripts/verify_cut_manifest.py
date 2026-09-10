@@ -950,7 +950,14 @@ def check_plist_env_key_present(entry: dict, ctx: dict) -> Result:
 GIT_SHOW_TIMEOUT_SECONDS = 30
 GIT_GREP_TIMEOUT_SECONDS = 60
 
-BOX_WALK_PROBE_TIMEOUT_SECONDS = 180
+# 180 s was measured too small on 2026-09-10: assistant_answers_grounded asks
+# four questions of a local model and PASSED 4 of 4 in phase 1, then was
+# killed at 180 s in this replay and reported CANNOT-RUN twice on the v1.0.87
+# record (walks/v1.0.87.tsv). A cap the passing probe cannot fit under turns a
+# CLEAN record into PARTIAL by construction. The env override lets a walk on a
+# slower box raise it without a code change; the default fits the measured
+# probe with headroom.
+BOX_WALK_PROBE_TIMEOUT_SECONDS = int(os.environ.get("OSTLER_BOX_WALK_PROBE_TIMEOUT_SECONDS", "600"))
 
 # The box-walk probes' CANNOT-RUN exit code. This is NOT a number invented here:
 # scripts/box_walk_probes/run_box_walk.sh:44 declares `EX_CANNOT_RUN=78` and 13

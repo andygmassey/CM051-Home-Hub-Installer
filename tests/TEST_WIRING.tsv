@@ -465,6 +465,7 @@ test_the_pii_hook_asks_cis_question.sh	WIRED	.github/workflows/operator-pii-scan
 test_the_port_preflight_aborts_carry_distinct_support_codes.sh	WIRED	.github/workflows/colima-autostart.yml
 test_the_promote_instructions_name_what_makes_it_fail.sh	WIRED	.github/workflows/customer-download-path.yml
 test_the_recovery_key_is_disclosed_where_it_is_minted.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_the_replay_reads_the_box_the_probes_read.sh	WIRED	.github/workflows/cut-manifest.yml
 test_the_sentinel_vocabulary_is_declared_and_complete.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_shipped_vendor_manifest_names_no_operator.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_success_screen_names_the_wiki_credential.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
@@ -605,6 +606,7 @@ gui/OstlerInstallerTests/TerminationExitCodeReconcileTests.swift	WIRED	.github/w
 gui/OstlerInstallerTests/TypedInstallGateTest.swift	WIRED	.github/workflows/swift-tests.yml
 context-refresh/tests/test_context_digest_auth.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_generate_pwg_context.py	WIRED	.github/workflows/context-digest-auth.yml
+scripts/tests/test_acceptance_gate_grades_what_it_names.sh	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_acceptance_gate_v1013_probe.sh	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_an_unreachable_box_is_not_a_defect.sh	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_artefact_version_read_is_shaped.sh	WIRED	.github/workflows/cold-box-source-truth.yml

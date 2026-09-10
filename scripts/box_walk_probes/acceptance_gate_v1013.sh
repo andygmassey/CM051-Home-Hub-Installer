@@ -97,6 +97,22 @@ boxcount(){
   if [ -z "$n" ]; then echo UNREACHABLE; else echo "$n"; fi
 }
 
+# A6 grades the WIKI COMPILER, so it must read the wiki compiler's logs and
+# nothing else. Measured 2026-09-10 on the v1.0.87 walk: boxcount over all of
+# LOGDIRS found ONE "400 Bad Request", and it was in imessage-bundle.err (the
+# conversation-ingest pipeline talking to the store), not in any wiki-*.log.
+# A6 then reported the wiki image stale. Same shape as the A7 footer: text
+# that reads like a diagnosis and measured a different component.
+# shellcheck disable=SC2088  # tilde expands on the box, see LOGDIRS.
+WIKILOGS='~/.ostler/logs/wiki-*.log ~/.ostler/logs/wiki-*.err ~/Library/Logs/Ostler/wiki-*.log'
+wikicount(){
+  local n
+  n=$(box "found=0; for f in $WIKILOGS; do [ -f \"\$f\" ] && found=1; done; \
+           if [ \"\$found\" -eq 0 ]; then echo NOLOGS; \
+           else grep -hoE '$1' $WIKILOGS 2>/dev/null | wc -l | tr -d ' '; fi")
+  if [ -z "$n" ]; then echo UNREACHABLE; else echo "$n"; fi
+}
+
 # True when a boxcount result is a real number rather than a refusal token.
 is_count(){ case "${1:-}" in ''|*[!0-9]*) return 1;; *) return 0;; esac }
 
@@ -168,11 +184,24 @@ if [ "$EXPECT_PAIRED" = "1" ]; then
     result FAIL A4 "Pairing complete + consistent" "companion=$cp paired=$pd token=$tp devices=$dev_ct (want all-true + >=1 device)"
   fi
 else
-  # unpaired box: the 3 flags must AGREE (shipped bug = token_paired:true while others false)
-  if [ "$cp" = "$pd" ] && [ "$pd" = "$tp" ]; then
-    result PASS A4 "Pairing signals consistent" "companion=$cp paired=$pd token=$tp (agree)"
+  # Unpaired box. What the daemon guarantees (ostler-assistant #208, read from
+  # crates/zeroclaw-gateway/src/lib.rs:1946-1972 on 2026-09-10): paired and
+  # companion_paired come from the device registry and the passkey file, and
+  # are false with no device; token_paired is the bearer-token set being
+  # non-empty, which the installer makes TRUE on every install by seeding the
+  # admin token (install.sh: the paired_tokens merge). So on a healthy
+  # unpaired box the truth is companion=false paired=false token=true and
+  # devices=0. The old predicate demanded all three flags AGREE, which no
+  # correctly installed box can satisfy; it read FAIL on v1.0.82, v1.0.85 and
+  # v1.0.87 behind the A7 footer. The device-state assertion is the two device
+  # flags plus the device count. token_paired is reported, not judged.
+  if [ -z "$cp" ] || [ -z "$pd" ] || ! is_count "$dev_ct"; then
+    result CANNOT A4 "Pairing signals consistent" \
+      "companion='$cp' paired='$pd' token='$tp' devices='$dev_ct': a signal could not be read, so NOTHING about pairing was measured"
+  elif [ "$cp" = "false" ] && [ "$pd" = "false" ] && [ "$dev_ct" -eq 0 ]; then
+    result PASS A4 "Pairing signals consistent" "companion=$cp paired=$pd devices=$dev_ct (unpaired, agree); token=$tp is the installer's admin token, expected"
   else
-    result FAIL A4 "Pairing signals consistent" "companion=$cp paired=$pd token=$tp -- signals DISAGREE (lying-UI)"
+    result FAIL A4 "Pairing signals consistent" "companion=$cp paired=$pd devices=$dev_ct -- a device flag or the device count claims a pairing that does not exist (lying-UI); token=$tp"
   fi
 fi
 
@@ -189,16 +218,20 @@ else
 fi
 
 # -- A6 -- wiki-compiler image is fresh: no SPARQL-400, no parser crash, no dead links [MAPS: #5/#260/#252] --
-ox400=$(boxcount '400 Bad Request')
-crash=$(boxcount 'unhashable type|object has no attribute')
-brk=$(boxcount 'BROKEN LINK')
+ox400=$(wikicount '400 Bad Request')
+crash=$(wikicount 'unhashable type|object has no attribute')
+brk=$(wikicount 'BROKEN LINK')
 if ! is_count "$ox400" || ! is_count "$crash" || ! is_count "$brk"; then
   result CANNOT A6 "Wiki compiler clean (fresh image)" \
-    "log counts came back sparql-400='$ox400' crashes='$crash' broken-links='$brk': NOTHING was read, so 'clean' is not available"
+    "wiki log counts came back sparql-400='$ox400' crashes='$crash' broken-links='$brk': NOTHING was read from the wiki compiler logs, so 'clean' is not available"
 elif [ "$ox400" -eq 0 ] && [ "$crash" -eq 0 ] && [ "$brk" -eq 0 ]; then
   result PASS A6 "Wiki compiler clean (fresh image)" "sparql-400=$ox400 crashes=$crash broken-links=$brk"
 else
-  result FAIL A6 "Wiki compiler clean (fresh image)" "sparql-400=$ox400 (stale image, pre-#219) parser-crashes=$crash broken-links=$brk"
+  # The evidence is the three counts. This line used to append a fixed
+  # "stale image" diagnosis naming a CM044 PR number, unconditionally: a guess
+  # from when that PR was the suspect, printed on every FAIL since, and read
+  # as a finding on three records.
+  result FAIL A6 "Wiki compiler clean (fresh image)" "sparql-400=$ox400 parser-crashes=$crash broken-links=$brk (read from the wiki compiler logs only)"
 fi
 
 # -- A7 -- Home/Wiki phase coherence -- needs a rendered SPA, can't assert headlessly --

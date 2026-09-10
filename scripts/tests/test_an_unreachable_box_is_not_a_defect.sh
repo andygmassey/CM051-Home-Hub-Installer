@@ -73,6 +73,16 @@ cat > "${WORK}/stub.sh" <<'STUB'
 _fake_box() {
     local cmd="$1"
     local mode; mode="$(cat "${STUB_MODE}")"
+    # A4 reads the daemon's pairing signals and the device count, and an
+    # EMPTY read is could-not-run, never pass. This fixture used to answer
+    # both with nothing, which the old predicate scored as "agree". Every
+    # reachable box here is a healthy unpaired one; only "dead" says nothing.
+    if [ "${mode}" != dead ]; then
+        case "${cmd}" in
+            */health*)  echo '{"companion_paired":false,"paired":false,"token_paired":true}'; return 0 ;;
+            *sqlite3*)  echo 0; return 0 ;;
+        esac
+    fi
     case "${mode}" in
         dead)     return 0 ;;                        # ssh produces nothing at all
         nologs)   case "${cmd}" in

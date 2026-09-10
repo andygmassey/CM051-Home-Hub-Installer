@@ -473,11 +473,18 @@ done
 
 printf '\n'
 # Every measurement is taken by here, so removing the synthetic person cannot
-# change a verdict in this run. It never fails the walk.
+# change a verdict in THIS run. It never fails the walk.
 grounding_seed_forget || true
 preference_seed_forget || true
 conversation_seed_forget || true
 usage_seed_forget || true
+
+# But post_walk_qa.sh replays probes against this box AFTER this script exits
+# (the cut manifest's runtime proofs), and the compiled wiki still counts the
+# rows just removed. v1.0.87: graph 1838, vectors 1838, tile 1839, two FAIL
+# rows on a box with no defect. Recompile so the replay reads the box the
+# probes read. Never fails the walk; see lib/wiki_summaries_wait.sh.
+wiki_baseline_resync || true
 
 # -------------------------------------------------------------------------
 # REPORT -- four numbers, never one.
