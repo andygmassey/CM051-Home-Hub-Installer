@@ -395,6 +395,79 @@ arm "(a) and it names the log path and says 0 bytes for the whole budget" $? "$o
 grep -q 'RC=1' <<< "$out3" && ! grep -q 'CONVERGED' <<< "$out3"
 arm "(a) and it returns 1 and never says CONVERGED" $? "$out3"
 grep -q 'not a pass and not a producer defect' <<< "$out3"
+
+# (a2) THE SHAPE v1.0.89 RUN 5 PRODUCED, from the observations and not from a
+# state word: backfill alive, 0 bytes for the whole budget, and the shared
+# Ollama slot held by ANOTHER live process (holder unnamed, like the email
+# feed's on the box). That is contention: cannot-run, blocked before its first
+# line, and the holder is named. Until 2026-09-10 this read "finding" and the
+# consumer that keys on the state word (usage_journal_producers, #1917) never
+# retried and never refused.
+reap
+BOXa2="$WORK/boxa2"; make_box "$BOXa2"
+Ja2="$WORK/journala2.jsonl"; : > "$Ja2"
+Ka2="$WORK/slot-a2.lock.d"; mkdir -p "$Ka2"; printf '%s\n' "$$" > "$Ka2/pid"; printf '%s\n' "$(date +%s)" > "$Ka2/acquired_at"
+outa2="$(run_wait "$LIB" "$BOXa2" "$Ja2" STUB_BACKFILL_S=60 STUB_BACKFILL_ROWS=5 OSTLER_WIKI_WAIT_BUDGET_S=3 OSTLER_INGEST_LOCK="$Ka2")"
+grep -q 'STATE=cannot-run' <<< "$outa2" && grep -q 'CANNOT-RUN: BLOCKED BEFORE ITS FIRST LINE' <<< "$outa2" && grep -q "pid $$" <<< "$outa2"
+arm "(a2) run 5's shape: alive, 0 bytes, slot held by ANOTHER live process -> cannot-run, blocked before its first line, holder pid named" $? "$outa2"
+! grep -q 'STATE=finding' <<< "$outa2" && ! grep -q 'WROTE NOTHING' <<< "$outa2"
+arm "(a2) and it is NOT the wrote-nothing finding" $? "$outa2"
+STATE_A2="$(sed -n 's/^STATE=//p' <<< "$outa2" | tail -n 1)"
+
+# (a3) the backfill holds the slot ITSELF and has written nothing: not blocked,
+# not yet a defect (a model load takes minutes). Its own word, "stalled", so it
+# is never forced into cannot-run (which would hide a stuck backfill for ever
+# behind refusals) or into finding (which would call a slow box a defect).
+reap
+BOXa3="$WORK/boxa3"; make_box "$BOXa3"
+Ja3="$WORK/journala3.jsonl"; : > "$Ja3"
+Ka3="$WORK/slot-a3.lock.d"; mkdir -p "$Ka3"; printf 'wiki-recompile\n' > "$Ka3/holder"; printf '%s\n' "$$" > "$Ka3/pid"; printf '%s\n' "$(date +%s)" > "$Ka3/acquired_at"
+outa3="$(run_wait "$LIB" "$BOXa3" "$Ja3" STUB_BACKFILL_S=60 STUB_BACKFILL_ROWS=5 OSTLER_WIKI_WAIT_BUDGET_S=3 OSTLER_INGEST_LOCK="$Ka3")"
+grep -q 'STATE=stalled' <<< "$outa3" && grep -q 'STALLED: the summary backfill HOLDS the shared Ollama slot itself' <<< "$outa3"
+arm "(a3) the backfill holding the slot itself with nothing written is STALLED, its own state word" $? "$outa3"
+! grep -q 'STATE=cannot-run' <<< "$outa3" && ! grep -q 'STATE=finding' <<< "$outa3"
+arm "(a3) and it is neither cannot-run nor finding" $? "$outa3"
+
+# (a4) a slot held by a DEAD foreign pid is not contention: nothing is blocking
+# the backfill now, so it had its chance -> finding, as with a free slot.
+reap
+BOXa4="$WORK/boxa4"; make_box "$BOXa4"
+Ja4="$WORK/journala4.jsonl"; : > "$Ja4"
+Ka4="$WORK/slot-a4.lock.d"; mkdir -p "$Ka4"; printf 'email-bundle\n' > "$Ka4/holder"; printf '999999\n' > "$Ka4/pid"; printf '%s\n' "$(date +%s)" > "$Ka4/acquired_at"
+outa4="$(run_wait "$LIB" "$BOXa4" "$Ja4" STUB_BACKFILL_S=60 STUB_BACKFILL_ROWS=5 OSTLER_WIKI_WAIT_BUDGET_S=3 OSTLER_INGEST_LOCK="$Ka4")"
+grep -q 'STATE=finding' <<< "$outa4" && grep -q 'WROTE NOTHING' <<< "$outa4"
+arm "(a4) a slot held by a DEAD foreign pid blocks nothing: finding, as with a free slot" $? "$outa4"
+
+# (a5) END TO END: the state word the LIB produced on run 5's shape, not a
+# hand-set one, reaches the usage probe and turns a cm044-only miss into a
+# refusal (78). This is the arm that would have caught #1917 keying on a
+# state the lib never emits for this shape.
+if [ -n "$PY3" ] && [ -f "$PROBE" ] && [ -f "$REPO/tests/fixtures/usage_journal/costs_full.jsonl" ]; then
+    Ja5="$WORK/journala5.jsonl"; grep -v 'cm044-compile-' "$REPO/tests/fixtures/usage_journal/costs_full.jsonl" > "$Ja5"
+    outa5="$(USAGE_JOURNAL_PROBE_LOCAL=1 OSTLER_USAGE_JOURNAL="$Ja5" OSTLER_WIKI_WAIT_STATE="$STATE_A2" OSTLER_WIKI_WAIT_DETAIL="from arm a2" bash "$PROBE" 2>&1)"; rca5=$?
+    [ "$rca5" -eq 78 ] && grep -q 'from arm a2' <<< "$outa5"
+    arm "(a5) END TO END: the lib's own state word from run 5's shape (${STATE_A2:-none}) makes the usage probe REFUSE (78) with the wait's detail" $? "rc=${rca5} state=${STATE_A2:-none}: $(printf '%s\n' "$outa5" | tail -n 2)"
+else
+    skip_arm "(a5) END TO END through the usage probe" "python3, the probe or the journal fixture"
+fi
+
+# (a6) MUTATION: a classifier that cannot tell another process's slot from its
+# own reads run 5's shape as STALLED, so arm a2 measures the holder check.
+# The lib resolves the usage probe RELATIVE TO ITSELF (lib/../probes/), so the
+# mutant must sit in a tree of the same shape or it refuses for a checkout
+# reason before the classifier ever runs (measured: the first cut of this arm).
+mkdir -p "$WORK/mut/lib" "$WORK/mut/probes"
+cp "$PROBE" "$WORK/mut/probes/"
+mutlib="$WORK/mut/lib/wiki_summaries_wait.sh"
+sed -e 's/^            _ww_ours=0$/            _ww_ours=1/' "$LIB" > "$mutlib"
+[ "$(diff "$LIB" "$mutlib" | grep -c '^<')" -eq 1 ] || { printf 'CANNOT-RUN: the holder mutant did not land\n'; exit 78; }
+reap
+BOXa6="$WORK/boxa6"; make_box "$BOXa6"
+Ja6="$WORK/journala6.jsonl"; : > "$Ja6"
+Ka6="$WORK/slot-a6.lock.d"; mkdir -p "$Ka6"; printf '%s\n' "$$" > "$Ka6/pid"; printf '%s\n' "$(date +%s)" > "$Ka6/acquired_at"
+outa6="$(run_wait "$mutlib" "$BOXa6" "$Ja6" STUB_BACKFILL_S=60 STUB_BACKFILL_ROWS=5 OSTLER_WIKI_WAIT_BUDGET_S=3 OSTLER_INGEST_LOCK="$Ka6")"
+! grep -q 'STATE=cannot-run' <<< "$outa6"
+arm "(a6) MUST-FAIL: the mutant that owns every holder does NOT read cannot-run on run 5's shape, so arm a2 is a real assertion" $? "$outa6"
 arm "(a) and it says in words that this is not a pass and not a producer defect" $? "$out3"
 
 # (b) alive, and the log is GROWING at the budget: CANNOT-RUN, not converged

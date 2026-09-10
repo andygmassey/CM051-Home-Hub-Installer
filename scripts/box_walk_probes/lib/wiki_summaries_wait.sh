@@ -146,7 +146,7 @@
 # which is the converge_wait defect measured on the v1.0.79 walk.
 # ============================================================================
 
-WIKI_WAIT_STATE="unrun"   # unrun|skipped|cannot-run|finding|converged
+WIKI_WAIT_STATE="unrun"   # unrun|skipped|cannot-run|stalled|finding|converged
 WIKI_WAIT_DETAIL=""
 WIKI_WAIT_BEFORE=""
 WIKI_WAIT_AFTER=""
@@ -890,16 +890,54 @@ wiki_summaries_wait() {
     if [ "$finished" -ne 1 ]; then
         WIKI_WAIT_ELAPSED="$waited"
         if [ "$sum_max" -eq 0 ]; then
-            # Alive, and not one byte in the whole budget: blocked before its
-            # first line. The slot holder on the line is the usual reason.
+            # Alive, and not one byte in the whole budget. WHO HOLDS THE SLOT
+            # decides what that means, and until 2026-09-10 this branch did not
+            # ask: it called every such wait a "finding" while its own prose
+            # named the holder and said "not a producer defect". v1.0.89 run 5
+            # (a cold install, the email feed holding the slot since install):
+            # the consumer keyed on the state word, read "finding", skipped its
+            # retry and refused nothing, and the usage probe reported a FAIL
+            # for a producer that had never been allowed to run. Three cases:
+            #   held by ANOTHER live process  -> cannot-run  (blocked before its
+            #                                    first line; contention, retryable)
+            #   held by the backfill ITSELF   -> stalled     (not blocked, not yet a
+            #                                    defect: a model load takes minutes;
+            #                                    its own word so it is never forced
+            #                                    into either neighbour)
+            #   slot free, still nothing      -> finding     (it had its chance)
+            # A dead backfill with 0 bytes is the branch below this one and stays
+            # a finding: a crashed producer is a producer defect.
+            _ww_hn="$(printf '%s' "$slot_i" | sed -n 's/.*holder=\([^ ]*\).*/\1/p')"
+            _ww_hp="$(printf '%s' "$slot_i" | sed -n 's/.*pid=\([^ ]*\).*/\1/p')"
+            _ww_hs="$(printf '%s' "$slot_i" | sed -n 's/.*pid=[^ ]* \([a-z]*\).*/\1/p')"
+            _ww_ours=0
+            [ "$_ww_hn" = "wiki-recompile" ] && _ww_ours=1
+            [ -n "$_ww_hp" ] && [ "$_ww_hp" = "$pid" ] && _ww_ours=1
+            case " $procs_l " in *" $_ww_hp "*) [ -n "$_ww_hp" ] && _ww_ours=1 ;; esac
+            if [ "$slot_s" = "held" ] && [ "$_ww_ours" -eq 0 ] && [ "$_ww_hs" = "alive" ]; then
+                WIKI_WAIT_STATE="cannot-run"
+                WIKI_WAIT_DETAIL="BLOCKED BEFORE ITS FIRST LINE: the shared Ollama slot is held by another live process (holder ${_ww_hn:-?} pid ${_ww_hp:-?}, ${slot_i}), so the summary backfill never got to run in ${waited}s; nothing is measured about the producer, and this is contention, not a producer defect"
+                printf '  CANNOT-RUN: BLOCKED BEFORE ITS FIRST LINE. After %ss the summary backfill has written\n' "$waited"
+                printf '  nothing because the shared Ollama slot is held by ANOTHER live process (holder %s\n' "${_ww_hn:-?}"
+                printf '  pid %s; %s). It never got to run, so nothing is measured about the producer.\n' "${_ww_hp:-?}" "$slot_i"
+                printf '  Contention, not a defect: the caller may wait again once the slot frees.\n'
+            elif [ "$slot_s" = "held" ] && [ "$_ww_ours" -eq 1 ]; then
+                WIKI_WAIT_STATE="stalled"
+                WIKI_WAIT_DETAIL="STALLED HOLDING THE SLOT: the summary backfill holds the shared Ollama slot itself (${slot_i}) and wrote nothing in ${waited}s; not blocked by anyone, not yet proven a defect (a model load takes minutes); it needs its own budget, not a retry and not a pass"
+                printf '  STALLED: the summary backfill HOLDS the shared Ollama slot itself (%s) and has\n' "$slot_i"
+                printf '  written nothing in %ss. Not blocked by anyone and not yet a proven defect: a model\n' "$waited"
+                printf '  load takes minutes. Its own state word, so it is never mistaken for contention\n'
+                printf '  (retryable) or for a finding (the producer had its chance).\n'
+            else
             WIKI_WAIT_STATE="finding"
             WIKI_WAIT_DETAIL="THE BACKFILL WROTE NOTHING: $(_ww_field "$reading" SUMLOG | cut -d' ' -f2-) was 0 bytes for the whole ${waited}s and something of ours is still alive (wrapper pid ${pid} ${alive}; slot ${slot_s}${slot_i:+, $slot_i}; ${procs_n} matching process(es)); the compile never printed its first line"
             printf '  FINDING: THE BACKFILL WROTE NOTHING in %ss, and it is STILL ALIVE. %s\n' "$waited" "$(_ww_field "$reading" SUMLOG | cut -d' ' -f2-)"
             printf '  was 0 bytes for the whole budget while the wrapper pid %s was %s, the slot was\n' "$pid" "$alive"
             printf '  %s%s and %s process(es) of this account named the compiler or the tick.\n' "$slot_s" "${slot_i:+ ($slot_i)}" "$procs_n"
-            printf '  The compile never printed its first line: it is blocked before it, and the slot\n'
-            printf '  holder above is the usual reason. Nothing is measured about the producer yet;\n'
-            printf '  this is a finding about the backfill, not a pass and not a producer defect.\n'
+            printf '  The compile never printed its first line with the slot free, so it had its chance.\n'
+            printf '  Nothing is measured about the producer yet; this is a finding about the backfill,\n'
+            printf '  not a pass and not a producer defect.\n'
+            fi
         elif [ "$grew" -eq 1 ]; then
             WIKI_WAIT_STATE="cannot-run"
             WIKI_WAIT_DETAIL="NOT CONVERGED IN TIME: the summary backfill was still alive at the ${budget}s budget and its log was growing (${sum_max} bytes); a compile that has not finished has not had its chance to write"
