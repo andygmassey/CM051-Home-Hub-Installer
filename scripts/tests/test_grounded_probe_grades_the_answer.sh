@@ -57,6 +57,29 @@ echo "== 5. chunk_reset clears the draft: fact in the chunks, reset, chunks with
 f=$(mk resetclears '{"type":"session_start"}' '{"type":"tool_call","name":"pwg_people"}' '{"type":"tool_result","name":"pwg_people","output":"x"}' '{"type":"chunk","content":"Jane is a cable engineer at example.com"}' '{"type":"chunk_reset"}' '{"type":"chunk","content":"Jane is someone you know."}' '{"type":"done"}')
 o="$(run "${f}")"; [ "$(reply_fact "${o}")" = NO ] && [ "$(reply_source "${o}")" = chunks ] && ok "the fact written before chunk_reset is discarded; only the post-reset chunks are graded: NO" || bad "arm 5 read '$(reply_fact "${o}")' from '$(reply_source "${o}")': without the clearing this reads YES"
 
+echo "== 7. a PARAPHRASE that carries every component of the fact reads YES; the exact-phrase reading beside it reads NO =="
+f=$(mk paraphrase '{"type":"session_start"}' '{"type":"tool_call","name":"pwg_people"}' '{"type":"tool_result","name":"pwg_people","output":"Works as a submarine cable engineer at example.com."}' '{"type":"chunk","content":"x"}' '{"type":"chunk_reset"}' '{"type":"done","full_response":"Based on the memory I have, the seeded person is a submarine cable engineer who works at example.com in Riverside."}')
+o="$(run "${f}")"
+rp="$(printf '%s\n' "${o}" | /usr/bin/grep -E '^FRAME reply_fact_phrase ' | tail -1 | awk '{print $3}')"
+[ "$(reply_fact "${o}")" = YES ] && [ "${rp}" = NO ] && ok "paraphrase (the v1.0.89 reply shape) reads YES on components, NO on the exact phrase, both printed" || bad "arm 7 read reply_fact='$(reply_fact "${o}")' phrase='${rp}'"
+
+echo "== 8. a reply that OMITS the employer reads NO on both readings =="
+f=$(mk omitemployer '{"type":"session_start"}' '{"type":"tool_call","name":"pwg_people"}' '{"type":"tool_result","name":"pwg_people","output":"Works as a submarine cable engineer at example.com."}' '{"type":"chunk_reset"}' '{"type":"done","full_response":"The seeded person is a submarine cable engineer in Riverside."}')
+o="$(run "${f}")"
+rp="$(printf '%s\n' "${o}" | /usr/bin/grep -E '^FRAME reply_fact_phrase ' | tail -1 | awk '{print $3}')"
+[ "$(reply_fact "${o}")" = NO ] && [ "${rp}" = NO ] && ok "employer omitted: NO on components and NO on the phrase" || bad "arm 8 read reply_fact='$(reply_fact "${o}")' phrase='${rp}'"
+
+echo "== 9. a reply that OMITS the role reads NO: components are all-or-nothing, not any =="
+f=$(mk omitrole '{"type":"session_start"}' '{"type":"tool_call","name":"pwg_people"}' '{"type":"tool_result","name":"pwg_people","output":"Works as a submarine cable engineer at example.com."}' '{"type":"chunk_reset"}' '{"type":"done","full_response":"The seeded person works at example.com."}')
+o="$(run "${f}")"
+[ "$(reply_fact "${o}")" = NO ] && ok "role omitted: NO" || bad "arm 9 read '$(reply_fact "${o}")'"
+
+echo "== 10. CONTROL: a mutant whose carries() is the exact-phrase reading flips arm 7 back to NO =="
+sed -e 's/^    cs = components(fact)$/    return carries_phrase(text, fact)/' "${WORK}/probe.py" > "${WORK}/mutant3.py"
+[ "$(diff "${WORK}/probe.py" "${WORK}/mutant3.py" | /usr/bin/grep -c '^<')" -eq 1 ] || cant "mutant 3 did not land"
+m3="$(OSTLER_GROUNDED_FRAMES="${WORK}/paraphrase" python3 "${WORK}/mutant3.py" 8000 "${WORK}/token" "q" 5 "${FACT}" 2>&1)"
+[ "$(reply_fact "${m3}")" = NO ] && ok "MUST-FAIL: the phrase-only mutant reads NO on the paraphrase, so arm 7 measures the component reading" || bad "mutant 3 still read '$(reply_fact "${m3}")'"
+
 echo "== 6. CONTROL: a mutant that grades the chunks again flips arm 1 =="
 sed -e 's/            if "full_response" in ev:/            if False:/' "${WORK}/probe.py" > "${WORK}/mutant.py"
 [ "$(diff "${WORK}/probe.py" "${WORK}/mutant.py" | /usr/bin/grep -c '^<')" -eq 1 ] || cant "the mutant did not land"
