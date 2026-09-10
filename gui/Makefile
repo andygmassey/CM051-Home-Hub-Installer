@@ -199,7 +199,7 @@ PYTHON_BUNDLE_TARBALL  := $(BUILD_DIR)/python-bundle.tar.gz
 # DAEMON_VERSION + DAEMON_SHA256 and run `make download-daemon` to
 # verify the fetch + checksum still pass.
 # ---------------------------------------------------------------------------
-DAEMON_VERSION       ?= 0.4.78
+DAEMON_VERSION       ?= 0.4.79
 # SHA-256 of the published hub-v$(DAEMON_VERSION) tarball
 # (ostler-assistant-aarch64-apple-darwin-v$(DAEMON_VERSION).tar.gz). Verified
 # fail-closed in download-daemon: a mismatch deletes the file + aborts the cut,
@@ -258,7 +258,7 @@ DAEMON_VERSION       ?= 0.4.78
 # Both re-downloaded FROM THE SERVER and re-hashed rather than trusted from the
 # upload. Daemon: spctl accepted, source=Notarized Developer ID, V95N2B8X7A,
 # with a de-signed copy returning rc=3 as the negative control.
-DAEMON_SHA256        ?= a6caa77348dc8163c66de35b47947a7fa573218371781c3857bd62efd56036c3
+DAEMON_SHA256        ?= 39abd49f07e240b90a6bcc1732dce5022c6c0c96aa016bd806bad277a0926f4f
 DAEMON_REPO          ?= ostler-ai/ostler-releases
 DAEMON_TARGET        ?= aarch64-apple-darwin
 DAEMON_TARBALL_NAME  := ostler-assistant-$(DAEMON_TARGET)-v$(DAEMON_VERSION).tar.gz
@@ -353,7 +353,7 @@ HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
 # TWO digests here, each with its own outgoing value; a sweep keyed on one
 # of them cannot see the other, because a digest does not contain its
 # version. Bump BOTH or the bump lands half done, exactly as written.
-HUB_APP_SHA256       ?= feea7708a2d74402bc5af1c2eeb5a47be1ec541835df3b46e0ac877d51e6d4ac
+HUB_APP_SHA256       ?= 280e181b2a4fb2635d59def4bbabe34beab62f7e8d9474c9fc5bfd9c436b158e
 
 # ---------------------------------------------------------------------------
 # SAFARI EXTENSION (CM020) -- the third artefact the cut cannot build itself.
