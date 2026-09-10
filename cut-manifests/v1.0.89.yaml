@@ -86,6 +86,35 @@ description: |
   head and again on main after the squash, and the merged tree is byte-identical
   to the head that was instrumented.
 
+  CARRIED FORWARD, AND THE SIXTH CUT ACTUALLY DROPPED IT BEFORE AN INSTRUMENT
+  CAUGHT IT. allow_private_hosts is STILL TRUE and is NOT flipped in this cut.
+  Verified in the tree at this cut's head rather than copied forward as a claim:
+  install.sh:13756 writes `allow_private_hosts = true`, and
+  tests/test_context_refresh_wired.sh:81 asserts that it does. Both line numbers
+  were RE-CHECKED at ff44dacc rather than carried over, and both still hold. The
+  v1.0.82 manifest committed in writing that the flag is flipped in the cut
+  after that one, behind ONE BEHAVIOURAL ARM run on the walk box: the daemon
+  with the flag FALSE, a pwg_ tool still answering, and #608's own probe green.
+  v1.0.83 did not flip it and did not mention it; v1.0.84, v1.0.85, v1.0.86 and
+  v1.0.88 restated it. THIS MANIFEST'S FIRST DRAFT OMITTED IT ENTIRELY, which is
+  exactly the failure the paragraph had been warning about for five cuts, and it
+  was caught by an instrument rather than by me re-reading what I had rewritten.
+  A paragraph that survives only by being copied forward does not survive a
+  rewrite, which is the same shape as the v1.0.88 manifest naming #1905 and not
+  #1906.
+
+  AND THE REASON IT IS NOT FLIPPED IS NOT v1.0.88's REASON. v1.0.88 said
+  install.sh was BYTE-IDENTICAL to its branch point, so nothing in the artefact
+  could flip a flag install.sh writes. THAT IS FALSE HERE and reusing it would
+  have been a carried claim rather than a measurement: install.sh DID move
+  between the v1.0.88 tag 2eca12e0 and this branch point ff44dacc, 2 lines,
+  OSTLER_ASSISTANT_VERSION and DEFAULT_ASSISTANT_TARBALL_SHA256. What is true
+  here, measured: allow_private_hosts appears ZERO times in that diff, and this
+  cut branch changes install.sh not at all relative to ff44dacc. So the flag is
+  untouched by the only install.sh change in this cut's lineage. The commitment
+  is not discharged and is not cancelled. It moves to the next cut WITH ITS
+  BEHAVIOURAL ARM ATTACHED.
+
   WHAT THIS CUT DOES NOT DO. It does not touch the wiki images, the walk
   instrument, or any probe. A6 stays where the v1.0.88 record left it:
   found=253 repaired=253 dead=0, the CM044 source defect CONTAINED by the repair
