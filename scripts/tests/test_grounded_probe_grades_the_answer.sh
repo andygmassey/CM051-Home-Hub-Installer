@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# scripts/tests/test_grounded_probe_grades_the_answer.sh
+#
+# The grounded probe's frame parser used to compute reply_fact from the chunk
+# accumulator, the DRAFT the gateway tells every client to discard on
+# chunk_reset. The authoritative reply is the done frame's full_response, and
+# the 0.4.79 omission guard puts a corrected reply ONLY there, so a corrected
+# turn scored fact_missing exactly like an uncorrected one (found 2026-09-10,
+# TNM, reading ws.rs beside the probe). The parser now grades full_response
+# when the daemon sent the key, an EMPTY one as a real empty answer, and the
+# chunks only when the key is absent.
+#
+# Drives the probe's own python, extracted from its heredoc, in its fixture
+# mode (OSTLER_GROUNDED_FRAMES): four recorded streams, then a mutant control.
+#
+# THREE STATES. 0 every arm held, 1 an arm failed, 2 a prerequisite is absent.
+set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "${HERE}/../.." && pwd)"
+PROBE="${REPO}/scripts/box_walk_probes/probes/assistant_answers_grounded.sh"
+pass=0; fail=0
+ok()   { pass=$((pass+1)); printf '  [PASS] %s\n' "$1"; }
+bad()  { fail=$((fail+1)); printf '  [FAIL] %s\n' "$1"; }
+cant() { printf 'CANNOT-RUN: %s\n' "$1" >&2; exit 2; }
+command -v python3 >/dev/null 2>&1 || cant "no python3"
+[ -r "${PROBE}" ] || cant "no probe at ${PROBE}"
+WORK="$(mktemp -d)" || cant "no scratch dir"; trap 'rm -rf "${WORK}"' EXIT
+awk '/cat <<'"'"'PYEOF'"'"'/{on=1; next} /^PYEOF$/{on=0} on{print}' "${PROBE}" > "${WORK}/probe.py"
+[ -s "${WORK}/probe.py" ] || cant "could not extract the python heredoc from the probe"
+python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "${WORK}/probe.py" || cant "the extracted python does not parse"
+printf 'fixture-token\n' > "${WORK}/token"
+FACT="cable engineer at example.com"
+# run <fixture file> -> prints the FRAME lines
+run() { OSTLER_GROUNDED_FRAMES="$1" python3 "${WORK}/probe.py" 8000 "${WORK}/token" "what do you know about the seeded person" 5 "${FACT}" 2>&1; }
+reply_fact() { printf '%s\n' "$1" | /usr/bin/grep -E '^FRAME reply_fact ' | tail -1 | awk '{print $3}'; }
+reply_source() { printf '%s\n' "$1" | /usr/bin/grep -E '^FRAME reply_source ' | tail -1 | cut -d' ' -f3-; }
+mk() { # name, then the event lines
+  local f="${WORK}/$1"; shift; printf '%s\n' "$@" > "${f}"; printf '%s' "${f}"; }
+
+echo "== 1. chunks omit the fact, full_response carries it: the guard's corrected turn reads YES =="
+f=$(mk corrected '{"type":"session_start"}' '{"type":"tool_call","name":"pwg_people"}' '{"type":"tool_result","name":"pwg_people","output":"Jane is a cable engineer at example.com"}' '{"type":"chunk","content":"Jane is someone you know."}' '{"type":"chunk_reset"}' '{"type":"done","full_response":"Jane is a cable engineer at example.com, from your own records."}')
+o="$(run "${f}")"; [ "$(reply_fact "${o}")" = YES ] && [ "$(reply_source "${o}")" = full_response ] && ok "corrected turn graded YES from full_response" || bad "corrected turn read '$(reply_fact "${o}")' from '$(reply_source "${o}")': $(printf '%s' "${o}" | tr '\n' '|' | cut -c1-200)"
+
+echo "== 2. full_response omits the fact: NO, whatever the draft said =="
+f=$(mk omitted '{"type":"session_start"}' '{"type":"tool_call","name":"pwg_people"}' '{"type":"tool_result","name":"pwg_people","output":"Jane is a cable engineer at example.com"}' '{"type":"chunk","content":"Jane is a cable engineer at example.com"}' '{"type":"chunk_reset"}' '{"type":"done","full_response":"Jane is someone you know."}')
+o="$(run "${f}")"; [ "$(reply_fact "${o}")" = NO ] && ok "chunks carried the fact, full_response did not: NO (the draft is not graded, and chunk_reset cleared it)" || bad "arm 2 read '$(reply_fact "${o}")'"
+
+echo "== 3. no full_response key at all (pre-full_response daemon): the chunks are graded =="
+f=$(mk oldshape '{"type":"session_start"}' '{"type":"tool_call","name":"pwg_people"}' '{"type":"tool_result","name":"pwg_people","output":"x"}' '{"type":"chunk","content":"Jane is a cable engineer at example.com"}' '{"type":"done"}')
+o="$(run "${f}")"; [ "$(reply_fact "${o}")" = YES ] && [ "$(reply_source "${o}")" = chunks ] && ok "absent key falls back to the chunks and reads YES" || bad "arm 3 read '$(reply_fact "${o}")' from '$(reply_source "${o}")'"
+
+echo "== 4. EMPTY full_response is a real empty answer: NO, never a silent read of the draft =="
+f=$(mk emptyfinal '{"type":"session_start"}' '{"type":"tool_call","name":"pwg_people"}' '{"type":"tool_result","name":"pwg_people","output":"x"}' '{"type":"chunk","content":"Jane is a cable engineer at example.com"}' '{"type":"chunk_reset"}' '{"type":"done","full_response":""}')
+o="$(run "${f}")"; [ "$(reply_fact "${o}")" = NO ] && [ "$(reply_source "${o}")" = "full_response EMPTY" ] && ok "empty full_response graded NO and named EMPTY" || bad "arm 4 read '$(reply_fact "${o}")' from '$(reply_source "${o}")'"
+
+echo "== 5. CONTROL: a mutant that grades the chunks again flips arm 1 =="
+sed -e 's/            if "full_response" in ev:/            if False:/' "${WORK}/probe.py" > "${WORK}/mutant.py"
+[ "$(diff "${WORK}/probe.py" "${WORK}/mutant.py" | /usr/bin/grep -c '^<')" -eq 1 ] || cant "the mutant did not land"
+mo="$(OSTLER_GROUNDED_FRAMES="${WORK}/corrected" python3 "${WORK}/mutant.py" 8000 "${WORK}/token" "q" 5 "${FACT}" 2>&1)"
+[ "$(reply_fact "${mo}")" = NO ] && ok "CONTROL: the mutant grades the draft and reads NO on the corrected turn, so arm 1 measures the fix" || bad "CONTROL: the mutant still read '$(reply_fact "${mo}")'; arm 1 proves nothing"
+
+echo; echo "== ${pass} pass / ${fail} fail / $((pass+fail)) total =="; [ "${fail}" -eq 0 ]

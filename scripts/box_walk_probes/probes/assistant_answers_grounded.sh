@@ -186,49 +186,61 @@ try:
 except Exception as e:
     print("PROBE_FATAL no_token %s" % e); sys.exit(3)
 deadline = time.time() + deadline_s
-try:
+# FIXTURE MODE, for the parser's own tests: OSTLER_GROUNDED_FRAMES names a file
+# of one JSON event per line, read in place of the websocket. Nothing else
+# changes, so the arms below grade a recorded stream exactly as a live one.
+_frames_file = os.environ.get("OSTLER_GROUNDED_FRAMES")
+if _frames_file:
+    _fx = open(_frames_file, "rb").read().split(b"\n")
+    _fx = [l for l in _fx if l.strip()]
+    def frame():
+        if not _fx: return 8, b""
+        return 1, _fx.pop(0)
+    def send(p): pass
+else:
+  try:
     s = socket.create_connection((host, port), timeout=20)
-except Exception as e:
+  except Exception as e:
     print("PROBE_FATAL no_connect %s" % e); sys.exit(3)
-key = base64.b64encode(os.urandom(16)).decode()
-s.sendall(("GET /ws/chat HTTP/1.1\r\nHost: %s:%d\r\nUpgrade: websocket\r\n"
-           "Connection: Upgrade\r\nSec-WebSocket-Key: %s\r\n"
-           "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: zeroclaw.v1\r\n"
-           "Authorization: Bearer %s\r\n\r\n" % (host, port, key, token)).encode())
-buf = b""
-while b"\r\n\r\n" not in buf:
-    c = s.recv(4096)
-    if not c:
-        print("PROBE_FATAL handshake_eof"); sys.exit(3)
-    buf += c
-head, rest = buf.split(b"\r\n\r\n", 1)
-status = head.split(b"\r\n")[0].decode(errors="replace")
-if "101" not in status:
-    print("PROBE_FATAL handshake %s" % status); sys.exit(3)
-def send(p):
-    d = p.encode(); m = os.urandom(4)
-    mk = bytes(b ^ m[i % 4] for i, b in enumerate(d)); n = len(d)
-    if n < 126:      h = struct.pack("!BB", 0x81, 0x80 | n)
-    elif n < 65536:  h = struct.pack("!BBH", 0x81, 0x80 | 126, n)
-    else:            h = struct.pack("!BBQ", 0x81, 0x80 | 127, n)
-    s.sendall(h + m + mk)
-def rd(n):
-    global rest
-    o = b""
-    while len(o) < n:
-        if rest:
-            t = rest[: n - len(o)]; o += t; rest = rest[len(t):]
-        else:
-            s.settimeout(max(1, deadline - time.time()))
-            c = s.recv(65536)
-            if not c: raise EOFError
-            rest = c
-    return o
-def frame():
-    b0, b1 = rd(2); op = b0 & 0x0F; n = b1 & 0x7F
-    if n == 126:   n = struct.unpack("!H", rd(2))[0]
-    elif n == 127: n = struct.unpack("!Q", rd(8))[0]
-    return op, rd(n)
+  key = base64.b64encode(os.urandom(16)).decode()
+  s.sendall(("GET /ws/chat HTTP/1.1\r\nHost: %s:%d\r\nUpgrade: websocket\r\n"
+             "Connection: Upgrade\r\nSec-WebSocket-Key: %s\r\n"
+             "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: zeroclaw.v1\r\n"
+             "Authorization: Bearer %s\r\n\r\n" % (host, port, key, token)).encode())
+  buf = b""
+  while b"\r\n\r\n" not in buf:
+      c = s.recv(4096)
+      if not c:
+          print("PROBE_FATAL handshake_eof"); sys.exit(3)
+      buf += c
+  head, rest = buf.split(b"\r\n\r\n", 1)
+  status = head.split(b"\r\n")[0].decode(errors="replace")
+  if "101" not in status:
+      print("PROBE_FATAL handshake %s" % status); sys.exit(3)
+  def send(p):
+      d = p.encode(); m = os.urandom(4)
+      mk = bytes(b ^ m[i % 4] for i, b in enumerate(d)); n = len(d)
+      if n < 126:      h = struct.pack("!BB", 0x81, 0x80 | n)
+      elif n < 65536:  h = struct.pack("!BBH", 0x81, 0x80 | 126, n)
+      else:            h = struct.pack("!BBQ", 0x81, 0x80 | 127, n)
+      s.sendall(h + m + mk)
+  def rd(n):
+      global rest
+      o = b""
+      while len(o) < n:
+          if rest:
+              t = rest[: n - len(o)]; o += t; rest = rest[len(t):]
+          else:
+              s.settimeout(max(1, deadline - time.time()))
+              c = s.recv(65536)
+              if not c: raise EOFError
+              rest = c
+      return o
+  def frame():
+      b0, b1 = rd(2); op = b0 & 0x0F; n = b1 & 0x7F
+      if n == 126:   n = struct.unpack("!H", rd(2))[0]
+      elif n == 127: n = struct.unpack("!Q", rd(8))[0]
+      return op, rd(n)
 send(json.dumps({"type": "message", "content": question}))
 # Emit ONLY frame types and tool outcomes. Never the answer prose: it is the
 # operator's personal data and this transcript lands in support bundles. The
@@ -317,8 +329,25 @@ while time.time() < deadline:
     elif t == "chunk":
         text += ev.get("content") or ""
     elif t in ("done", "session_start", "error", "chunk_reset"):
+        # THE CLIENT DISCARDS THE DRAFT ON chunk_reset AND SHOWS full_response.
+        # The gateway sends chunk_reset then done{full_response} on every turn
+        # (ws.rs), and the 0.4.79 omission guard puts a corrected reply ONLY
+        # in full_response. Until 2026-09-10 this parser graded the chunk
+        # accumulator, so a turn the guard corrected scored fact_missing
+        # exactly like one it did not. Grade what the customer reads:
+        # full_response when the daemon sent the key (an EMPTY one is a real
+        # empty answer, graded NO, never a silent fall back to the draft);
+        # the chunks only when the key is absent, the pre-full_response shape.
+        if t == "chunk_reset":
+            text = ""
         if t == "done" and expect_fact:
-            print("FRAME reply_fact %s" % ("YES" if carries(text, expect_fact) else "NO"))
+            if "full_response" in ev:
+                graded = ev.get("full_response") or ""
+                print("FRAME reply_source full_response%s" % ("" if graded.strip() else " EMPTY"))
+            else:
+                graded = text
+                print("FRAME reply_source chunks")
+            print("FRAME reply_fact %s" % ("YES" if carries(graded, expect_fact) else "NO"))
         print("FRAME %s" % t)
         if t in ("done", "error"): break
 PYEOF
