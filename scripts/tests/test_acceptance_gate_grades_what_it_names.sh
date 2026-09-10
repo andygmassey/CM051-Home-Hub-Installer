@@ -71,6 +71,7 @@ _fake_box() {
             case "${cmd}" in
                 */health*)              echo '{"companion_paired":false,"paired":false,"token_paired":true}' ;;
                 *sqlite3*)              echo 0 ;;
+                *"Link audit"*)         echo "0 0 0" ;;           # no compile found anything
                 *wiki-*)                echo 0 ;;                 # the wiki logs are clean
                 *"400 Bad Request"*)    echo 1 ;;                 # ONE 400, in a non-wiki log
                 *found=0*)              echo 0 ;;
@@ -97,6 +98,36 @@ _fake_box() {
                 *found=0*)              echo 0 ;;
                 *)                      echo "" ;;
             esac ;;
+        wiki_repaired)
+            case "${cmd}" in
+                */health*)              echo '{"companion_paired":false,"paired":false,"token_paired":true}' ;;
+                *sqlite3*)              echo 0 ;;
+                *"Link audit"*)         echo "133 133 0" ;;          # found 133, degraded 133, no failed repair
+                *wiki-*"BROKEN LINK"*)  echo 133 ;;
+                *wiki-*)                echo 0 ;;
+                *found=0*)              echo 0 ;;
+                *)                      echo "" ;;
+            esac ;;
+        wiki_repaired_many_compiles)
+            case "${cmd}" in
+                */health*)              echo '{"companion_paired":false,"paired":false,"token_paired":true}' ;;
+                *sqlite3*)              echo 0 ;;
+                *"Link audit"*)         echo "931 931 0" ;;          # seven compiles' summaries, all repaired
+                *wiki-*"BROKEN LINK"*)  echo 134 ;;                  # per-link lines retained for one compile only
+                *wiki-*)                echo 0 ;;
+                *found=0*)              echo 0 ;;
+                *)                      echo "" ;;
+            esac ;;
+        wiki_repair_failed)
+            case "${cmd}" in
+                */health*)              echo '{"companion_paired":false,"paired":false,"token_paired":true}' ;;
+                *sqlite3*)              echo 0 ;;
+                *"Link audit"*)         echo "133 132 1" ;;          # one rewrite failed
+                *wiki-*"BROKEN LINK"*)  echo 133 ;;
+                *wiki-*)                echo 0 ;;
+                *found=0*)              echo 0 ;;
+                *)                      echo "" ;;
+            esac ;;
         wiki_unreadable)
             case "${cmd}" in
                 */health*)              echo '{"companion_paired":false,"paired":false,"token_paired":true}' ;;
@@ -116,6 +147,7 @@ _fake_box() {
             case "${cmd}" in
                 */health*)              echo '{"companion_paired":false,"paired":false,"token_paired":true}' ;;
                 *sqlite3*)              echo 0 ;;
+                *"Link audit"*)         echo "0 0 0" ;;              # the OLD image: no repair pass ran
                 *wiki-*"BROKEN LINK"*)  echo 133 ;;
                 *wiki-*)                echo 0 ;;
                 *found=0*)              echo 0 ;;
@@ -197,8 +229,8 @@ fi
 
 echo "== CONTROL: A6 still fails on the wiki compiler's own log =="
 rc="$(run_gate wiki_dirty)"
-if grep -qE '  FAIL  A6 ' "${WORK}/out.txt" && grep -q 'broken-links=133' "${WORK}/out.txt"; then
-    ok "133 broken links in wiki-*.log is FAIL and the evidence carries the count"
+if grep -qE '  FAIL  A6 ' "${WORK}/out.txt" && grep -q 'broken-links=133 found=0 repaired=0 dead=133' "${WORK}/out.txt"; then
+    ok "133 broken links with no repair pass is FAIL and the evidence carries found, repaired and dead"
 else
     bad "broken links in the wiki log did not fail A6 with the count: $(row A6)"
 fi
@@ -206,6 +238,26 @@ if grep -q 'pre-#219' "${WORK}/out.txt"; then
     bad "the FAIL evidence still carries the hardcoded 'pre-#219' diagnosis"
 else
     ok "the FAIL evidence carries measured counts and no baked-in diagnosis"
+fi
+
+echo "== A6: links the compiler found and degraded to text are not dead links =="
+rc="$(run_gate wiki_repaired)"
+if grep -qE '  PASS  A6 ' "${WORK}/out.txt" && grep -q 'found=133 repaired=133 dead=0' "${WORK}/out.txt"; then
+    ok "133 found and 133 degraded is PASS with the counts in the evidence (rc ${rc})"
+else
+    bad "133 found and 133 degraded did not pass A6: $(row A6)"
+fi
+rc="$(run_gate wiki_repaired_many_compiles)"
+if grep -qE '  PASS  A6 ' "${WORK}/out.txt" && grep -q 'found=931 repaired=931 dead=0' "${WORK}/out.txt"; then
+    ok "summaries from seven compiles pair found with degraded; the thinner per-link count is reported, not subtracted"
+else
+    bad "accumulated summaries with a thinner per-link count did not pass A6: $(row A6)"
+fi
+rc="$(run_gate wiki_repair_failed)"
+if grep -qE '  FAIL  A6 ' "${WORK}/out.txt" && grep -q 'repair-failures=1' "${WORK}/out.txt"; then
+    ok "CONTROL: one failed rewrite is FAIL and named"
+else
+    bad "CONTROL: a failed rewrite did not fail A6: $(row A6)"
 fi
 
 echo "== A6: a wiki log grep could not read is could-not-run, not clean =="

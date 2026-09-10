@@ -122,6 +122,25 @@ wikicount(){
   if [ -z "$n" ]; then echo UNREACHABLE; else echo "$n"; fi
 }
 
+# The compiler pinned from CM044 v0.1.31 (#268) logs "BROKEN LINK: ..." for
+# every internal link it cannot resolve and THEN degrades it to plain text in
+# the written page, summarising per compile as "Link audit: N broken links
+# found out of M checked; R degraded to plain text" (compile.py:1604 and
+# :1632 at 3bc0f3bb). A failed rewrite logs "Link repair failed for ...".
+# So on that image a BROKEN LINK line is a source defect made visible, not a
+# dead link a customer can click. "No dead links" is found minus degraded,
+# summed over every compile in the logs (the catchup log is append-only, so
+# the two sums pair per compile), plus zero failed repairs. Prints
+# "FOUND DEGRADED FAILED" or a refusal token.
+wikiaudit(){
+  local n
+  n=$(box "cnt=\$(find $WIKILOGDIRS -maxdepth 1 -type f \( -name 'wiki-*.log' -o -name 'wiki-*.err' \) 2>/dev/null | wc -l | tr -d ' '); \
+           if [ \"\$cnt\" -eq 0 ]; then echo NOLOGS; \
+           else t=\$(mktemp); grep -hoE 'Link audit: [0-9]+ broken links found out of [0-9]+ checked(; [0-9]+ degraded)?|Link repair failed' \$(find $WIKILOGDIRS -maxdepth 1 -type f \( -name 'wiki-*.log' -o -name 'wiki-*.err' \) 2>/dev/null) > \"\$t\" 2>/dev/null; rc=\$?; \
+             case \"\$rc\" in 0|1) awk '/^Link audit/{f+=\$3; if (\$12==\"degraded\") d+=\$11} /^Link repair failed/{x++} END{printf \"%d %d %d\\n\", f, d, x}' \"\$t\";; *) echo GREPERR;; esac; rm -f \"\$t\"; fi")
+  if [ -z "$n" ]; then echo UNREACHABLE; else echo "$n"; fi
+}
+
 # True when a boxcount result is a real number rather than a refusal token.
 is_count(){ case "${1:-}" in ''|*[!0-9]*) return 1;; *) return 0;; esac }
 
@@ -237,17 +256,32 @@ fi
 ox400=$(wikicount '400 Bad Request')
 crash=$(wikicount 'unhashable type|object has no attribute')
 brk=$(wikicount 'BROKEN LINK')
-if ! is_count "$ox400" || ! is_count "$crash" || ! is_count "$brk"; then
+aud=$(wikiaudit)
+found=""; degraded=""; rfail=""
+case "$aud" in
+  *[!0-9\ ]*|"") : ;;
+  *) set -- $aud; if [ $# -eq 3 ]; then found="$1"; degraded="$2"; rfail="$3"; fi ;;
+esac
+if ! is_count "$ox400" || ! is_count "$crash" || ! is_count "$brk" || [ -z "$rfail" ]; then
   result CANNOT A6 "Wiki compiler clean (fresh image)" \
-    "wiki log counts came back sparql-400='$ox400' crashes='$crash' broken-links='$brk': NOTHING was read from the wiki compiler logs, so 'clean' is not available"
-elif [ "$ox400" -eq 0 ] && [ "$crash" -eq 0 ] && [ "$brk" -eq 0 ]; then
-  result PASS A6 "Wiki compiler clean (fresh image)" "sparql-400=$ox400 crashes=$crash broken-links=$brk"
+    "wiki log counts came back sparql-400='$ox400' crashes='$crash' broken-links='$brk' audit='$aud': NOTHING was read from the wiki compiler logs, so 'clean' is not available"
 else
+  # Dead links come from the per-compile summaries, where found and degraded
+  # are paired. The per-link BROKEN LINK lines are NOT retained the same way
+  # (measured 2026-09-10: the catchup log held 7 summaries and 1 such line),
+  # so they are reported, never subtracted from. A log with BROKEN LINK lines
+  # and no summary at all is an older compiler: every one of them counts.
+  if [ "$found" -gt 0 ]; then dead=$((found - degraded)); else dead="$brk"; fi
+  [ "$dead" -lt 0 ] && dead=0
+  if [ "$ox400" -eq 0 ] && [ "$crash" -eq 0 ] && [ "$dead" -eq 0 ] && [ "$rfail" -eq 0 ]; then
+    result PASS A6 "Wiki compiler clean (fresh image)" "sparql-400=$ox400 crashes=$crash broken-links=$brk found=$found repaired=$degraded dead=0 repair-failures=$rfail"
+  else
   # The evidence is the three counts. This line used to append a fixed
   # "stale image" diagnosis naming a CM044 PR number, unconditionally: a guess
   # from when that PR was the suspect, printed on every FAIL since, and read
   # as a finding on three records.
-  result FAIL A6 "Wiki compiler clean (fresh image)" "sparql-400=$ox400 parser-crashes=$crash broken-links=$brk (read from the wiki compiler logs only)"
+    result FAIL A6 "Wiki compiler clean (fresh image)" "sparql-400=$ox400 parser-crashes=$crash broken-links=$brk found=$found repaired=$degraded dead=$dead repair-failures=$rfail (read from the wiki compiler logs only)"
+  fi
 fi
 
 # -- A7 -- Home/Wiki phase coherence -- needs a rendered SPA, can't assert headlessly --

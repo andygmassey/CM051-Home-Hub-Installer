@@ -81,6 +81,9 @@ _fake_box() {
         case "${cmd}" in
             */health*)  echo '{"companion_paired":false,"paired":false,"token_paired":true}'; return 0 ;;
             *sqlite3*)  echo 0; return 0 ;;
+            # A6's repair audit reads "FOUND DEGRADED FAILED"; a box with no
+            # logs refuses, every other mode here ran no repair pass.
+            *"Link audit"*) if [ "${mode}" = nologs ]; then echo NOLOGS; else echo "0 0 0"; fi; return 0 ;;
         esac
     fi
     case "${mode}" in
