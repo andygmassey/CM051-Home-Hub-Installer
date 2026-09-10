@@ -1,0 +1,61 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.87.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.87/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN.
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS, IN ONE LINE
+# ===========================================================================
+# THE SAME THREE ROWS AS v1.0.86, WHOSE TAG WAS SPENT WITHOUT A BUILD.
+#
+# v1.0.85 walked 25 pass / 1 fail / 0 cannot-run, and the one fail was
+# assistant_answers_grounded arm 3 of 4: pwg_topics returned tool_found_nothing
+# for a free-text question against a store holding 18 topics and 24 mentions,
+# which the API served at the same count. A daemon question, not a store or an
+# installer one. ostler-assistant #399 (1d83d4bf) is the fix. This cut carries
+# that fix and nothing else.
+#
+# v1.0.86 was tagged ONCE at fb1e7843 and built NOTHING. Its cut died at step 8
+# in `make check-pr-age` before any build, on two PRs open past 48h. TIME, NOT
+# CODE, turned that gate red: it passed for v1.0.85 the evening before with the
+# same tree. The remedy was a register edit (CM051 #1901, two exemptions with
+# reasons and a review date), which moves no capability, so THE ROWS BELOW ARE
+# UNCHANGED FROM v1.0.86 AND SO ARE THEIR REFS. If any ref here differed from
+# the v1.0.86 BOM it would mean the artefact changed, and it did not: install.sh
+# and gui/Makefile are byte-identical to 4e4c6541.
+#
+# ===========================================================================
+# THE DAEMON DOES NOT ARRIVE BY DAEMON_COMMIT, AND THAT COST A DRAFT OF THIS FILE
+# ===========================================================================
+# cut.env DAEMON_COMMIT is a RECORD of which commit the pinned release was built
+# from. It causes no fetch. The daemon arrives as the PUBLISHED RELEASE TARBALL
+# pinned by VERSION and SHA256 at six sites, so a cut naming the new commit while
+# leaving DAEMON_VERSION at 0.4.77 downloads the OLD daemon, verifies it
+# fail-closed, and fails the same probe identically. That is why rows 2 and 3
+# exist and are keyed on the pin move rather than on the daemon commit.
+#
+# ===========================================================================
+# WHAT THIS BOM CANNOT PROMISE
+# ===========================================================================
+# THE FIXED TOOL CODE IS NOT IN THE DMG AND ROW 1 DOES NOT CLAIM IT IS. Measured
+# on the v1.0.85 artefact: the only Mach-O under Ostler.app is ostler-hub, which
+# carries the daemon build commit but not the pwg_topics tool text; install.sh
+# downloads the daemon tarball at install time. So rows 2 and 3 prove the
+# ARTEFACT will fetch 0.4.78, and row 1 proves 0.4.78 CONTAINS the fix by
+# ancestry. Neither proves the tool answers. Only the walk does, and the walk
+# prompt reads the four counts off the installed binary after install for
+# exactly that reason.
+#
+# ===========================================================================
+# THE ref COLUMN IS THE MERGE COMMIT, NEVER THE PR HEAD.
+# ===========================================================================
+# On v1.0.81 a row named a PR head, which is reachable only through
+# refs/pull/<n>/head and so resolved on the author's box and nowhere else.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+THE 0.4.78 DAEMON, ONE MERGED FIX. ostler-assistant #399, merged at 1d83d4bf, is the pwg_topics free-text answer: a question that matched no topic filter was forwarded as ?q= and returned tool_found_nothing, so a populated store answered nothing. summarise_unmatched now says what the store does hold. KEYED BY ANCESTRY AND NOT BY A DIGEST, for the reason daemon_lineage_contains_hub_v0469 and _v0477 both state in their own prose: a digest-keyed row goes stale at the next re-pin and then reads FAIL through a shipped cut with nobody noticing. Ancestry measured: c6fc48c0 (0.4.69) and a9af0595 (0.4.77) are both ancestors of 1d83d4bf, rc 0 each, with the reversed direction returning rc 1 as the control, so this pin drops nothing either earlier row protects.	ostler-assistant	1d83d4bfc6a91a1cc69733172eabefce5c7c81d2	no	daemon_lineage_contains_hub_v0478	TBD	ostler-assistant#399
+THE DAEMON PIN, MOVED AT ALL SIX SITES. install.sh OSTLER_ASSISTANT_VERSION to 0.4.78 and DEFAULT_ASSISTANT_TARBALL_SHA256 to the published digest; gui/Makefile DAEMON_VERSION and DAEMON_SHA256 to the same; the two published artefacts. ASSISTANT_FALLBACK_VERSION stays 0.4.62, untouched deliberately, as #1876 left it. BOTH DIGESTS WERE READ FROM THE PUBLISHED .sha256 SIDECARS AND NEVER TYPED, and the reading predicate was proven first against the 0.4.77 sidecars, where it reproduced the two digests already in the tree.	CM051	4e4c654176a3677b7d7ace143ef21e7c8b4671ec	no	daemon_pinned_at_hub_v0478	TBD	CM051 re-pin
+THE HUB APP PIN, SAME COMMIT, SEPARATE CAPABILITY BECAUSE IT IS A SEPARATE REPO AND A SEPARATE FAILURE. gui/Makefile HUB_APP_SHA256 names the Ostler.app bundle published for this daemon version; HUB_APP_TARBALL_NAME interpolates DAEMON_VERSION, so the hub app digest MUST move whenever the daemon one does or download-hub-app fails closed, which is how v1.0.80 died. Its capability row is the one unversioned digest-keyed row in the manifest and is RE-POINTED in this same change, because it read FAIL through the whole #1876 cut when that was not done.	CM051	4e4c654176a3677b7d7ace143ef21e7c8b4671ec	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 re-pin
