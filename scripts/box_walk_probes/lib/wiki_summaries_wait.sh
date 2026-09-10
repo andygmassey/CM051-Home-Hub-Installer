@@ -1072,7 +1072,11 @@ wiki_baseline_resync() {
     local ks
     ks="$(_ww_kickstart 2>&1)"
     printf '%s\n' "$ks" | sed 's/^/  /'
-    if ! printf '%s\n' "$ks" | grep -qE '^KICKSTART ok|^FALLBACK started'; then
+    # No pipe into grep -q: this file inherits pipefail from run_box_walk.sh,
+    # and on a MATCH grep exits first, printf can take SIGPIPE, and the
+    # negated pipeline would announce could-not-run at the exact moment the
+    # kickstart succeeded, skipping the wait (TNM, #1905 review).
+    if ! grep -qE '^KICKSTART ok|^FALLBACK started' <<< "$ks"; then
         WIKI_RESYNC_STATE="cannot-run"
         WIKI_RESYNC_ELAPSED=$(( $(_ww_now) - start ))
         WIKI_RESYNC_DETAIL="the recompile could not be started; the compiled wiki still carries the synthetic rows"

@@ -42,6 +42,10 @@ if grep -q 'wiki baseline published' "$LIB"; then ok "it waits for the tick's ow
 if grep -qE 'tail -n \+\$\(\(n \+ 1\)\)' "$LIB"; then ok "it counts only lines written after the kickstart, so an old baseline line cannot satisfy it"; else bad "it does not restrict the search to lines after the kickstart"; fi
 if grep -qE '_ww_kickstart' "$LIB"; then ok "it kickstarts the same tick the summaries wait kickstarts"; else bad "it does not kickstart the tick"; fi
 
+echo "== 1b. the resync's own success check cannot invert under the caller's pipefail =="
+n_pipes="$(sed -n '/^wiki_baseline_resync()/,/^}/p' "$LIB" | grep -cE '\| *grep -q' || true)"
+if [ "${n_pipes}" -eq 0 ]; then ok "no pipe into grep -q inside wiki_baseline_resync (a match must not read as could-not-run)"; else bad "wiki_baseline_resync pipes into grep -q ${n_pipes}x; under run_box_walk.sh's pipefail a MATCH can read as could-not-run"; fi
+
 echo "== 2. the runner calls it after every forget, guarded =="
 case "$(call_after_forgets "$RUNNER")" in
     ok)      ok "run_box_walk.sh calls wiki_baseline_resync after the fourth forget, guarded with || true" ;;
