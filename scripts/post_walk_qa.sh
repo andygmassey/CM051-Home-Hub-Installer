@@ -231,6 +231,12 @@ else
     } > "$PROBE_LOG"
     echo "  probe detail will be kept at: ${PROBE_LOG}"
 fi
+# Phase 2's box_walk_probe rows take the verdict phase 1 reaches for the same
+# probe (verify_cut_manifest.py, _phase1_verdict): run_box_walk.sh appends each
+# verdict to this file as it goes, with the seed fixture present, and the replay
+# below reads it instead of running the script again after the forgets.
+OSTLER_PHASE1_VERDICTS="$(mktemp -t ostler-phase1-verdicts)"
+export OSTLER_PHASE1_VERDICTS
 OSTLER_BOX_HOST="$BOX" "${REPO_ROOT}/scripts/box_walk_probes/run_box_walk.sh" 2>&1 | tee -a "$PROBE_LOG"
 probe_rc="${PIPESTATUS[0]}"
 

@@ -1018,6 +1018,100 @@ def _resolve_box_walk_probe(cm051_dir: Path, probe: str):
     return None
 
 
+# Probe rows that took their verdict from phase 1 in this run, by probe name,
+# and the number of box_walk_probe rows that reached a box at all. Printed
+# beside the summary so a log reader can see which rows were NOT re-run, AND
+# whether the phase 1 file was wired: with the take scoped to three probes,
+# silence is the normal outcome for the other 23, so the absence of a "taken"
+# line carries no information, and an env var that quietly stops being passed
+# restores the exact re-run that failed v1.0.89 with the record looking the
+# same either way. So when any box row ran, the summary always says what the
+# file was: unset, unreadable (with the path), or read (with its row counts).
+_PHASE1_TAKEN: list = []
+_BOX_WALK_ROWS_SEEN: list = []
+
+
+def _phase1_summary_line() -> str:
+    """One line on the state of OSTLER_PHASE1_VERDICTS, printed whenever a
+    box_walk_probe row reached a box. Never silent."""
+    path = os.environ.get("OSTLER_PHASE1_VERDICTS")
+    if not path:
+        return ("  box_walk_probe rows: OSTLER_PHASE1_VERDICTS is UNSET, so every probe row "
+                "was measured here, the seed-dependent ones included, after "
+                "run_box_walk.sh's forgets; the replay is not taking phase 1 verdicts")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            rows = [ln.rstrip("\n").split("\t") for ln in fh
+                    if ln.strip() and not ln.startswith("#")]
+    except OSError as e:
+        return (f"  box_walk_probe rows: OSTLER_PHASE1_VERDICTS={path} is UNREADABLE "
+                f"({e.__class__.__name__}: {e}), so every probe row was measured here, "
+                f"the seed-dependent ones included, after run_box_walk.sh's forgets")
+    seeded = sum(1 for r in rows if len(r) > 4 and r[4].strip() == "seed-fixture")
+    taken = ", ".join(sorted(_PHASE1_TAKEN)) if _PHASE1_TAKEN else "none"
+    return (f"  box_walk_probe rows: OSTLER_PHASE1_VERDICTS={path} read, {len(rows)} row(s), "
+            f"{seeded} marked seed-fixture; {len(_PHASE1_TAKEN)} row(s) took the phase 1 "
+            f"verdict (fixture present then, forgotten since) and were not re-run: {taken}; "
+            f"every other probe row was measured again")
+
+
+def _phase1_verdict(probe: str):
+    """The verdict run_box_walk.sh recorded for this probe in THIS QA run, or None.
+
+    OSTLER_PHASE1_VERDICTS names a TSV that run_box_walk.sh appends to as it
+    goes: <probe>\t<PASS|FAIL|CANNOT-RUN|BROKEN>\t<utc>\t<reason>\t<fixture>.
+    Phase 1 runs every probe against the seed fixture with its negative control
+    first. Until 2026-09-10 phase 2 ran the same script AGAIN, after
+    run_box_walk.sh had forgotten the seeds, so a fixture-dependent probe asked
+    its questions of stores that had been deliberately emptied (v1.0.89:
+    assistant_answers_grounded read 2 of 3 tool_found_nothing right after
+    SEED-FORGET OK, having read 4 of 4 grounded in phase 1). Directive item 5
+    says the grounded probe runs against the seed fixture; the only run that
+    does is phase 1, so the row takes that verdict and says so.
+
+    ONLY rows whose fixture column reads seed-fixture are taken (run_box_walk.sh
+    writes it from its own SEED_DEPENDENT_PROBES list). A probe that reads live
+    state is run here again, as before, because that second reading is an
+    independent measurement: on v1.0.89 it is what caught the graph and the
+    vector store diverging by 44 mid-tick while phase 1 had read them equal.
+    Taking every row would have turned 26 of that manifest's 30 rows into an
+    echo of phase 1.
+
+    Unset, unreadable, no row for this probe, or a row not marked seed-fixture
+    -> None -> the probe is run here exactly as before. BROKEN (the probe's own
+    negative control did not fire) is a defect and reads FAIL, never PASS:
+    re-running a broken probe used to let it pass here.
+    """
+    path = os.environ.get("OSTLER_PHASE1_VERDICTS")
+    if not path:
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            rows = [ln.rstrip("\n").split("\t") for ln in fh
+                    if ln.strip() and not ln.startswith("#")]
+    except OSError:
+        return None
+    hit = None
+    for r in rows:
+        if len(r) >= 2 and r[0] == probe:
+            hit = r          # last row wins: the latest verdict phase 1 reached
+    if hit is None:
+        return None
+    fixture = hit[4].strip() if len(hit) > 4 else ""
+    if fixture != "seed-fixture":
+        return None          # a live-state probe: measure it again, independently
+    status = hit[1].strip()
+    when = hit[2].strip() if len(hit) > 2 else "?"
+    why = hit[3].strip() if len(hit) > 3 else ""
+    if status == "BROKEN":
+        return ("FAIL", when,
+                "phase 1 marked the probe BROKEN (its negative control did not fire): "
+                + why)
+    if status not in ("PASS", "FAIL", "CANNOT-RUN"):
+        return None          # a word this reader does not know: measure, do not trust
+    return (status, when, why)
+
+
 def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
     """Invoke a named box-walk probe shell script and return its result.
 
@@ -1058,6 +1152,7 @@ def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
                       "OSTLER_BOX_HOST not set (runtime probe requires a reachable box)",
                       entry.get("source_pr", ""))
 
+    _BOX_WALK_ROWS_SEEN.append(probe)
     script = _resolve_box_walk_probe(cm051_dir, probe)
     if script is None:
         searched = ", ".join(
@@ -1065,6 +1160,17 @@ def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
         )
         return Result(entry["id"], entry["title"], "box_walk_probe", "FAIL",
                       f"probe {probe!r} not registered. Searched: {searched}",
+                      entry.get("source_pr", ""))
+    phase1 = _phase1_verdict(probe)
+    if phase1 is not None:
+        status, when, why = phase1
+        _PHASE1_TAKEN.append(probe)
+        detail = (f"probe={probe} took the phase 1 verdict {status} (run_box_walk.sh at "
+                  f"{when}, seed fixture present, negative control first); not re-run "
+                  f"after the forgets")
+        if why:
+            detail += f" reason={why[:200]!r}"
+        return Result(entry["id"], entry["title"], "box_walk_probe", status, detail,
                       entry.get("source_pr", ""))
     try:
         result = subprocess.run(
@@ -2606,6 +2712,7 @@ def main() -> int:
     if args.json:
         print(json.dumps({
             "app_path": str(app_path),
+            "phase1_verdicts": (_phase1_summary_line().strip() if _BOX_WALK_ROWS_SEEN else None),
             "results": [asdict(r) for r in results],
             "summary": {"pass": passes, "fail": fails, "skip": skips,
                         "cannot_run": cannot_runs, "total": len(results),
@@ -2640,6 +2747,8 @@ def main() -> int:
                 if r.status == "CANNOT-RUN":
                     print(f"    - {r.id}  [{r.kind}]  {r.detail}")
             print()
+        if _BOX_WALK_ROWS_SEEN:
+            print(_phase1_summary_line())
         print(f"=== Summary: {passes} PASS  {fails} FAIL  {skips} SKIP  "
               f"{cannot_runs} CANNOT-RUN  ({len(results)} total"
               + (f", {entries_filtered_out} filtered out by --only-kind" if only_kinds else "")
