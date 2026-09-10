@@ -70,9 +70,13 @@ if ls "$T"/*.tsv "${WORK}"/t2*.tsv >/dev/null 2>&1; then bad "a tsv appeared wit
 
 printf -- '--- arm 3: mutant control, the PASS write removed must lose the PASS row ---\n'
 T="$(_stage t3)"; V="${WORK}/t3.tsv"
-mut=$(grep -c '_record_verdict "\$b" PASS ""' "$T/run_box_walk.sh")
-[ "$mut" -eq 1 ] || { bad "mutant anchor count ${mut}, expected 1"; }
-sed -i '' '/_record_verdict "\$b" PASS ""/d' "$T/run_box_walk.sh"
+# Portable deletion: `sed -i ''` is BSD-only and on the GNU runner reads '' as the
+# script and the pattern as a filename (measured 2026-09-10, run 34502389353).
+mut=$(grep -cF '_record_verdict "$b" PASS ""' "$T/run_box_walk.sh")
+[ "$mut" -eq 1 ] || bad "mutant anchor count ${mut}, expected 1"
+grep -vF '_record_verdict "$b" PASS ""' "$T/run_box_walk.sh" > "$T/run_box_walk.sh.mut" && mv "$T/run_box_walk.sh.mut" "$T/run_box_walk.sh"
+after=$(grep -cF '_record_verdict "$b" PASS ""' "$T/run_box_walk.sh")
+[ "$after" -eq 0 ] && ok "mutant applied (anchor ${mut} -> ${after})" || bad "mutant did NOT apply (anchor still ${after}); a mutant that did not apply looks exactly like one that was not caught"
 _run "$T" "$V"
 if [ -n "$(_row "$V" stub_pass)" ]; then bad "mutant: PASS row still present, the arm 1 assertion is not reading the write"; else ok "mutant lost the PASS rows ($(wc -l < "$V" | tr -d ' ') rows left: $(cut -f1 "$V" | tr '\n' ' '))"; fi
 
