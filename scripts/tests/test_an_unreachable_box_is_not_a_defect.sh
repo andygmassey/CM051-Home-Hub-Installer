@@ -83,7 +83,7 @@ _fake_box() {
             *sqlite3*)  echo 0; return 0 ;;
             # A6's repair audit reads "FOUND DEGRADED FAILED"; a box with no
             # logs refuses, every other mode here ran no repair pass.
-            *"Link audit"*) if [ "${mode}" = nologs ]; then echo NOLOGS; else echo "0 0 0"; fi; return 0 ;;
+            *"Link audit"*) if [ "${mode}" = nologs ]; then echo NOLOGS; else echo "0 0 0 0"; fi; return 0 ;;
         esac
     fi
     case "${mode}" in

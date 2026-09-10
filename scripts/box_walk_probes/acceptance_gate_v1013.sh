@@ -131,13 +131,15 @@ wikicount(){
 # dead link a customer can click. "No dead links" is found minus degraded,
 # summed over every compile in the logs (the catchup log is append-only, so
 # the two sums pair per compile), plus zero failed repairs. Prints
-# "FOUND DEGRADED FAILED" or a refusal token.
+# "FOUND DEGRADED FAILED_FILES SUMMARIES" or a refusal token. FOUND is
+# events summed over SUMMARIES compiles, not distinct links; FAILED_FILES
+# counts files whose rewrite failed (one line per file), not links.
 wikiaudit(){
   local n
   n=$(box "cnt=\$(find $WIKILOGDIRS -maxdepth 1 -type f \( -name 'wiki-*.log' -o -name 'wiki-*.err' \) 2>/dev/null | wc -l | tr -d ' '); \
            if [ \"\$cnt\" -eq 0 ]; then echo NOLOGS; \
            else t=\$(mktemp); grep -hoE 'Link audit: [0-9]+ broken links found out of [0-9]+ checked(; [0-9]+ degraded)?|Link repair failed' \$(find $WIKILOGDIRS -maxdepth 1 -type f \( -name 'wiki-*.log' -o -name 'wiki-*.err' \) 2>/dev/null) > \"\$t\" 2>/dev/null; rc=\$?; \
-             case \"\$rc\" in 0|1) awk '/^Link audit/{f+=\$3; if (\$12==\"degraded\") d+=\$11} /^Link repair failed/{x++} END{printf \"%d %d %d\\n\", f, d, x}' \"\$t\";; *) echo GREPERR;; esac; rm -f \"\$t\"; fi")
+             case \"\$rc\" in 0|1) awk '/^Link audit/{n++; f+=\$3; if (\$12==\"degraded\") d+=\$11} /^Link repair failed/{x++} END{printf \"%d %d %d %d\\n\", f, d, x, n}' \"\$t\";; *) echo GREPERR;; esac; rm -f \"\$t\"; fi")
   if [ -z "$n" ]; then echo UNREACHABLE; else echo "$n"; fi
 }
 
@@ -257,10 +259,10 @@ ox400=$(wikicount '400 Bad Request')
 crash=$(wikicount 'unhashable type|object has no attribute')
 brk=$(wikicount 'BROKEN LINK')
 aud=$(wikiaudit)
-found=""; degraded=""; rfail=""
+found=""; degraded=""; rfail=""; nsum=""
 case "$aud" in
   *[!0-9\ ]*|"") : ;;
-  *) set -- $aud; if [ $# -eq 3 ]; then found="$1"; degraded="$2"; rfail="$3"; fi ;;
+  *) set -- $aud; if [ $# -eq 4 ]; then found="$1"; degraded="$2"; rfail="$3"; nsum="$4"; fi ;;
 esac
 if ! is_count "$ox400" || ! is_count "$crash" || ! is_count "$brk" || [ -z "$rfail" ]; then
   result CANNOT A6 "Wiki compiler clean (fresh image)" \
@@ -272,15 +274,20 @@ else
   # so they are reported, never subtracted from. A log with BROKEN LINK lines
   # and no summary at all is an older compiler: every one of them counts.
   if [ "$found" -gt 0 ]; then dead=$((found - degraded)); else dead="$brk"; fi
-  [ "$dead" -lt 0 ] && dead=0
-  if [ "$ox400" -eq 0 ] && [ "$crash" -eq 0 ] && [ "$dead" -eq 0 ] && [ "$rfail" -eq 0 ]; then
-    result PASS A6 "Wiki compiler clean (fresh image)" "sparql-400=$ox400 crashes=$crash broken-links=$brk found=$found repaired=$degraded dead=0 repair-failures=$rfail"
+  if [ "$dead" -lt 0 ]; then
+    # This compiler bounds degraded by found per compile, and the sums keep
+    # that, so a negative residual is not a state of the wiki: it is the one
+    # arithmetic signal that the summary format moved under the reader.
+    result CANNOT A6 "Wiki compiler clean (fresh image)" \
+      "the summaries do not parse as this reader expects: found=$found degraded=$degraded over $nsum summaries (degraded exceeds found); nothing about dead links can be read from that"
+  elif [ "$ox400" -eq 0 ] && [ "$crash" -eq 0 ] && [ "$dead" -eq 0 ] && [ "$rfail" -eq 0 ]; then
+    result PASS A6 "Wiki compiler clean (fresh image)" "sparql-400=$ox400 crashes=$crash broken-link-lines=$brk found=$found(summed over $nsum compiles) repaired=$degraded dead=0 repair-failed-files=$rfail"
   else
   # The evidence is the three counts. This line used to append a fixed
   # "stale image" diagnosis naming a CM044 PR number, unconditionally: a guess
   # from when that PR was the suspect, printed on every FAIL since, and read
   # as a finding on three records.
-    result FAIL A6 "Wiki compiler clean (fresh image)" "sparql-400=$ox400 parser-crashes=$crash broken-links=$brk found=$found repaired=$degraded dead=$dead repair-failures=$rfail (read from the wiki compiler logs only)"
+    result FAIL A6 "Wiki compiler clean (fresh image)" "sparql-400=$ox400 parser-crashes=$crash broken-link-lines=$brk found=$found(summed over $nsum compiles) repaired=$degraded dead=$dead repair-failed-files=$rfail (read from the wiki compiler logs only)"
   fi
 fi
 
