@@ -543,6 +543,76 @@ pr_exemptions:
       the same invisibility the 176-PR backlog was made of.
     review_by: "2026-09-12"
 
+
+  # ── v1.0.89 cut, 2026-09-10 (Archie). SEVEN PRs over 48h, none of them in
+  #    CM051 and none of them ours to merge on someone else's behalf. The tag
+  #    would die in-build at cut.yml:862 exactly as v1.0.86 did, which is why
+  #    this is filed under freeze item 2(c), a cut build failure, and not as
+  #    tidy-up. NOTHING HERE IS CLOSED OR MERGED: the PRs stay open and stay
+  #    printed on every run. review_by is 2026-09-12 for all seven, which is
+  #    two days, not a parking space.
+  #
+  #    ⚠️ TWO OF THESE RECORD A REAL TENSION RATHER THAN HIDING IT. HR015 #846
+  #    and #847 are docs-only and register-only changes, so freeze item 2
+  #    forbids merging them, and that is precisely why they aged past 48h. The
+  #    freeze says do not merge; the pr-age gate refuses to ship while they are
+  #    open. An exemption is the only move that keeps both rules true and says
+  #    so out loud. When the freeze lifts they merge, they do not linger.
+  - ref: "CM044-PWG-Personal-Wiki#271"
+    reason: >-
+      'build(deps): bump python from b0aed0e to 8edbf9e in /docker', a
+      dependabot base-image bump owned by the wiki repo. Not merged during the
+      launch freeze: a dependency bump at T-minus buys this cut nothing and
+      costs it an unmeasured delta. The wiki images this artefact pins are
+      already built and pinned by digest, so CM044 main moving changes no byte
+      of this DMG. Deferred on that arithmetic, not on merit.
+    review_by: "2026-09-12"
+  - ref: "CM044-PWG-Personal-Wiki#272"
+    reason: >-
+      'build(deps): update lxml requirement', a dependabot bump owned by the
+      wiki repo, same arithmetic as #271: the pinned wiki images are pinned by
+      DIGEST, so CM044 main moving cannot reach this artefact. Not ours to
+      merge on the wiki repo's behalf during the freeze.
+    review_by: "2026-09-12"
+  - ref: "CM044-PWG-Personal-Wiki#273"
+    reason: >-
+      'build(deps): update pyoxigraph requirement', a dependabot bump owned by
+      the wiki repo, same arithmetic as #271 and #272. Deferred, not dismissed:
+      these three are cheap and should be swept the week after launch.
+    review_by: "2026-09-12"
+  - ref: "CM044-PWG-Personal-Wiki#269"
+    reason: >-
+      'docs(release-images): the header promised multi-arch that the workflow
+      stopped building'. A DRAFT, and docs-only, so the freeze holds it on two
+      counts. It describes a real documentation defect in the wiki repo and is
+      deferred on freeze status, not on merit.
+    review_by: "2026-09-12"
+  - ref: "CM031-PWG-Companion#189"
+    reason: >-
+      'test(#185): the fetch between the two tested ends of the wiki credential
+      chain', owned by the iOS repo. CM031 is not in the customer install path
+      for this cut and its source enters no part of this DMG, so merging it
+      changes nothing here and is not ours to decide at T-minus.
+    review_by: "2026-09-12"
+  - ref: "HR015-Gaming-PC#846"
+    reason: >-
+      'chore(docs): correct stale launch-state and the local-cut recipe that
+      points at the refused path'. DOCS-ONLY, which freeze item 2 forbids
+      merging, and that is exactly why it aged past 48h. It touches no
+      installer source, no pin and no vendored tree, so it cannot reach this
+      DMG. The exemption records the collision between the freeze and this gate
+      rather than resolving it by quietly merging a PR the freeze excludes.
+    review_by: "2026-09-12"
+  - ref: "HR015-Gaming-PC#847"
+    reason: >-
+      'chore(tokens): register the 5 Apple signing/notary secrets and flag the
+      unrecorded cert expiry'. A REGISTER change in HR015, no values, and
+      docs-only in the freeze's sense, so item 2 holds it. It reaches no
+      installer source and no pin. Worth landing the day the freeze lifts: an
+      unrecorded certificate expiry is a real future outage, and this row is
+      the reminder that it is written down nowhere else yet.
+    review_by: "2026-09-12"
+
 deferrals:
   - ref: "CM051:#1437"
     reason: >-
