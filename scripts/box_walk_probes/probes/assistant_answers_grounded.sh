@@ -189,6 +189,20 @@ import base64, json, os, re, socket, struct, sys, time
 # evidence, so a record shows both and a reader can see which one moved.
 # --self-check drives the SAME predicate the walk does; --self-check-phrase
 # drives the old one.
+#
+# Each component must match as a whole token (alphanumeric boundaries), so
+# "cables engineered at example.common" does not satisfy cable, engineer,
+# example.com (TNM, #1916 review; measured). Boundaries rather than a length
+# floor, because a real component can be a three-letter role or an initialism.
+#
+# A PROPERTY TO KNOW, NOT FIXED HERE: order-freedom means a reply that DENIES
+# the fact while echoing its words ("I could not find a cable engineer at
+# example.com in your data") grades YES. The exact-phrase reading has the same
+# hole whenever the denial quotes the phrase. A negation check would be a
+# phrase list that fails OPEN on this surface (a missed phrasing grades a
+# wrong answer PASS), so it is not added; the trade taken is a measured false
+# FAIL on every correct paraphrase (five for five, 2026-09-10) against a
+# hypothetical false PASS on a denial no captured turn has produced.
 _FUNCTION_WORDS = {"a", "an", "and", "as", "at", "by", "for", "from", "in", "is",
                    "of", "on", "or", "the", "to", "with"}
 def components(fact):
@@ -199,7 +213,8 @@ def carries_phrase(text, fact):
 def carries(text, fact):
     cs = components(fact)
     t = text.lower()
-    return bool(cs) and all(c in t for c in cs)
+    return bool(cs) and all(
+        re.search(r"(?<![a-z0-9])" + re.escape(c) + r"(?![a-z0-9])", t) for c in cs)
 if len(sys.argv) > 1 and sys.argv[1] == "--self-check":
     print("YES" if carries(sys.stdin.read(), sys.argv[2]) else "NO"); sys.exit(0)
 if len(sys.argv) > 1 and sys.argv[1] == "--self-check-phrase":

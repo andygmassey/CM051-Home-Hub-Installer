@@ -74,6 +74,11 @@ f=$(mk omitrole '{"type":"session_start"}' '{"type":"tool_call","name":"pwg_peop
 o="$(run "${f}")"
 [ "$(reply_fact "${o}")" = NO ] && ok "role omitted: NO" || bad "arm 9 read '$(reply_fact "${o}")'"
 
+echo "== 9b. components match whole tokens: a reply with the components buried inside longer words reads NO =="
+f=$(mk longerwords '{"type":"session_start"}' '{"type":"tool_call","name":"pwg_people"}' '{"type":"tool_result","name":"pwg_people","output":"Works as a submarine cable engineer at example.com."}' '{"type":"chunk_reset"}' '{"type":"done","full_response":"The seeded person has cables engineered at example.common."}')
+o="$(run "${f}")"
+[ "$(reply_fact "${o}")" = NO ] && ok "components inside longer words do not count (TNM, #1916 review)" || bad "arm 9b read '$(reply_fact "${o}")'"
+
 echo "== 10. CONTROL: a mutant whose carries() is the exact-phrase reading flips arm 7 back to NO =="
 sed -e 's/^    cs = components(fact)$/    return carries_phrase(text, fact)/' "${WORK}/probe.py" > "${WORK}/mutant3.py"
 [ "$(diff "${WORK}/probe.py" "${WORK}/mutant3.py" | /usr/bin/grep -c '^<')" -eq 1 ] || cant "mutant 3 did not land"
