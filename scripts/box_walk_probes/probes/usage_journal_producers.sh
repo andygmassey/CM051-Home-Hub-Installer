@@ -212,7 +212,19 @@ run_probe() {
 
     case "$rc" in
         0) probe_pass "every required producer in ${ROSTER} wrote into ${journal_path} (${lines} lines read)" ;;
-        1) probe_fail "a declared producer wrote NOTHING into ${journal_path}. See the gate output above for which one; the cost panel is short by exactly that producer's work." ;;
+        1) # A producer the WALK saw had not run is unmeasured, not failed. run_box_walk.sh
+           # hands over the wiki summaries wait's final state; when it ended cannot-run
+           # (the backfill never got the Ollama slot inside the budget) and the missing
+           # producer is the one that backfill writes, refuse with the wait's own detail.
+           # Any other missing producer, or any other wait state (converged, finding,
+           # unrun, skipped), keeps the FAIL: "finding" is the defect this probe exists for.
+           case "$out" in
+               *"wrote nothing"*"cm044_wiki_compiler"*)
+                   if [ "${OSTLER_WIKI_WAIT_STATE:-}" = "cannot-run" ]; then
+                       probe_cannot_run "cm044_wiki_compiler wrote nothing into ${journal_path} AND the walk's wait for its summary backfill did not converge (${OSTLER_WIKI_WAIT_DETAIL:-no detail}). The producer had provably not run when the journal was read; nothing about it was measured. Coverage lost, not a pass and not a defect."
+                   fi ;;
+           esac
+           probe_fail "a declared producer wrote NOTHING into ${journal_path}. See the gate output above for which one; the cost panel is short by exactly that producer's work." ;;
         2) probe_cannot_run "the gate could not measure ${journal_path}: see its CANNOT-RUN line above. Coverage lost, not a pass." ;;
         *) probe_fail "the gate exited ${rc}, which is not one of its three declared codes (0/1/2). An unrecognised code from an adjudicator is not a verdict." ;;
     esac
@@ -302,6 +314,46 @@ self_test() {
         printf 'arm 4 OK: an absent journal on a box that HAS worked is FAIL, not a shrug\n'
     fi
 
+    # ARM 6: cm044 rows deleted AND the walk's wait ended cannot-run -> CANNOT-RUN (78),
+    # naming the producer and carrying the wait's detail. The walk saw the producer
+    # had not run; that is not a measurement of it.
+    tmp6="$(mktemp -t ujprobeself-XXXXXX)"
+    grep -v 'cm044-compile-' "$fixture" > "$tmp6"
+    if [ "$(grep -c . "$tmp6")" -ge "$(grep -c . "$fixture")" ]; then
+        printf 'SELF-TEST ARM 6 BROKEN: the cm044 mutation removed nothing\n'; fails=$((fails + 1))
+    else
+        out="$(USAGE_JOURNAL_PROBE_LOCAL=1 OSTLER_USAGE_JOURNAL="$tmp6" OSTLER_WIKI_WAIT_STATE=cannot-run \
+               OSTLER_WIKI_WAIT_DETAIL="fixture: the backfill never got the slot" bash "${BASH_SOURCE[0]}" 2>&1)"; rc=$?
+        if [ "$rc" -ne 78 ] || ! grep -q 'never got the slot' <<< "$out"; then
+            printf 'SELF-TEST ARM 6 BROKEN: cm044 absent with the wait cannot-run returned rc=%s, expected 78 carrying the wait detail\n' "$rc"
+            printf '%s\n' "$out" | sed 's/^/    /'; fails=$((fails + 1))
+        else
+            printf 'arm 6 OK: cm044 absent when the walk saw its backfill never ran is CANNOT-RUN, with the wait detail\n'
+        fi
+        # ARM 7 (CONTROL): the SAME journal with the wait converged is still a FAIL naming cm044:
+        # the refusal is keyed on the wait state, not on the producer name alone.
+        out="$(USAGE_JOURNAL_PROBE_LOCAL=1 OSTLER_USAGE_JOURNAL="$tmp6" OSTLER_WIKI_WAIT_STATE=converged \
+               bash "${BASH_SOURCE[0]}" 2>&1)"; rc=$?
+        if [ "$rc" -ne 1 ] || ! grep -q 'cm044_wiki_compiler' <<< "$out"; then
+            printf 'SELF-TEST ARM 7 BROKEN: cm044 absent with the wait CONVERGED returned rc=%s, expected 1 naming it\n' "$rc"; fails=$((fails + 1))
+        else
+            printf 'arm 7 OK: cm044 absent after a converged wait is a FAIL, so arm 6 measures the wait state\n'
+        fi
+    fi
+    rm -f "$tmp6"
+    # ARM 8 (CONTROL): a DIFFERENT producer absent with the wait cannot-run stays a FAIL:
+    # the wait vouches for the wiki producer only.
+    tmp8="$(mktemp -t ujprobeself-XXXXXX)"
+    grep -v 'ostler-fda-ingest-' "$fixture" > "$tmp8"
+    out="$(USAGE_JOURNAL_PROBE_LOCAL=1 OSTLER_USAGE_JOURNAL="$tmp8" OSTLER_WIKI_WAIT_STATE=cannot-run \
+           bash "${BASH_SOURCE[0]}" 2>&1)"; rc=$?
+    rm -f "$tmp8"
+    if [ "$rc" -ne 1 ] || ! grep -q 'cm051_ostler_fda_ingest' <<< "$out"; then
+        printf 'SELF-TEST ARM 8 BROKEN: cm051 absent with the wait cannot-run returned rc=%s, expected 1 (the wait vouches only for cm044)\n' "$rc"; fails=$((fails + 1))
+    else
+        printf 'arm 8 OK: the wait state excuses only the producer it watched\n'
+    fi
+
     # ARM 5: the two must not collapse. If both evidence states give the same
     # verdict the distinction is decorative and the benign message is back.
     if [ "$fails" -eq 0 ]; then
@@ -317,8 +369,8 @@ self_test() {
         probe_examined "$fails" "self-test arm(s) that did NOT behave as required"
         probe_pass "SELF-TEST BROKEN: ${fails} arm(s) failed. This probe cannot demonstrate a FAIL, so its real result must not be trusted."
     fi
-    probe_examined 5 "self-test arms (complete journal / one producer deleted / absent on a fresh box / absent on a worked box / the two do not collapse)"
-    probe_fail "negative control behaved correctly on all 5 arms: a complete journal PASSes; a deleted producer FAILs and is NAMED; an absent journal on an unworked box is CANNOT-RUN rather than five regressions; the same absence on a box that HAS ingested and compiled is FAIL rather than a shrug; and those two do not collapse onto one verdict"
+    probe_examined 8 "self-test arms (complete journal / one producer deleted / absent on a fresh box / absent on a worked box / the two do not collapse / cm044 absent with the wait cannot-run refuses / the same after a converged wait fails / another producer with the wait cannot-run fails)"
+    probe_fail "negative control behaved correctly on all 8 arms: a complete journal PASSes; a deleted producer FAILs and is NAMED; an absent journal on an unworked box is CANNOT-RUN rather than five regressions; the same absence on a box that HAS ingested and compiled is FAIL rather than a shrug; and those two do not collapse onto one verdict"
 }
 
 # A path-resolution passthrough, so tests/test_usage_journal_producer_gate.sh

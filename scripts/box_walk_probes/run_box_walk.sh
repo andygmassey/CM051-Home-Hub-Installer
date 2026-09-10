@@ -441,6 +441,32 @@ for p in $PROBES; do
     # which is why the arms added in test_the_walk_waits_for_converge.sh drive
     # THIS block rather than converge_wait().
     #
+    # ── THE WIKI PRODUCER GETS A SECOND WAIT, RIGHT BEFORE THE PROBE THAT NEEDS IT ──
+    #
+    # usage_journal_producers requires cm044_wiki_compiler to have written, and
+    # the only writer is the summary backfill, which queues for the shared
+    # Ollama slot behind whatever job won it at install. v1.0.89 run 3
+    # (2026-09-10, a cold install): the email conversation feed took the slot at
+    # 18:10Z and held it past 19:00Z; the wait at the top of this file watched
+    # "slot held; matching processes: 1" and expired at 900 s; the probe then
+    # read 0 rows and called it FAIL. A precondition the walk SAW unmet is not a
+    # measurement of the producer. So, when the first wait ended cannot-run (it
+    # did not converge in time), wait once more here, after the other probes
+    # have spent their time, with a budget sized to outlast a feed batch (run 1
+    # measured about 47 min from install). The wait's final state is handed to
+    # the probe, which refuses rather than fails if the producer still has not
+    # run. "finding" (the backfill ran and wrote nothing) is NOT retried: that
+    # is the defect the probe exists to catch.
+    if [ "$b" = "usage_journal_producers" ]; then
+        if [ "${WIKI_WAIT_STATE:-unrun}" = "cannot-run" ]; then
+            printf '\n  wiki summaries: the first wait ended cannot-run (%s); waiting once more here, before the only probe that needs it, budget %ss\n' \
+                "${WIKI_WAIT_DETAIL:-no detail}" "${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}"
+            OSTLER_WIKI_WAIT_BUDGET_S="${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}" wiki_summaries_wait || true
+        fi
+        export OSTLER_WIKI_WAIT_STATE="${WIKI_WAIT_STATE:-unrun}"
+        export OSTLER_WIKI_WAIT_DETAIL="${WIKI_WAIT_DETAIL:-}"
+    fi
+
     # PASS ONLY ON "stable". Every other value, including unrun, means the
     # graph was not measured to have stopped moving.
     if converge_gates_probe "$b"; then
