@@ -1,0 +1,60 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.89.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.89/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN.
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS
+# ===========================================================================
+# The v1.0.88 walk read verdict FAILED on ONE blocking probe,
+# assistant_answers_grounded, with phase 1 at 25 pass / 1 fail / 0 cannot-run
+# and phase 2 clean at 70 PASS / 0 FAIL of 72. The rate measured afterwards on
+# the SAME box against the SAME daemon says the defect was ONE QUESTION and not
+# a suite-wide sampling wobble: the three fixed questions grounded 15 of 15,
+# while the seeded-person question failed 4 of 5 in TWO distinct shapes.
+# memory_only is the model never calling the tool; fact_missing is it calling
+# the tool and dropping what came back. This cut carries ostler-assistant #400,
+# the omission guard for a reply that ignores what a pwg_ tool returned.
+#
+# ===========================================================================
+# THE THREE COMMITS COINCIDE, AND THAT IS MEASURED
+# ===========================================================================
+# Lineage, tag and build-info are ONE commit, 4fe9691b. hub-v0.4.79 is an
+# ANNOTATED tag object peeling to it, and the published build-info.json reads
+# that commit_sha with dirty_worktree false. There is no version-sync step to
+# diverge them: a code search for the literal 0.4.78 across ostler-assistant
+# returns 0 hits against a pwg_topics control returning 8, so that zero is a
+# real absence and not a broken predicate. THE REASON IS STRUCTURAL: the
+# workspace version in Cargo.toml reads 0.4.1 and every crate takes
+# version.workspace = true, so the daemon tree has NEVER carried its release
+# version. A probe reading the shipped version from the source tree would read
+# 0.4.1 and be wrong by seventy-seven releases while looking healthy. The
+# release version lives only in the tag, the tarball name and the CM051 pins,
+# which is why keying the pin capability on the DIGEST is the right instrument.
+#
+# ===========================================================================
+# THE WRAPPER COMES FROM A DIFFERENT REPO AND IT MOVES
+# ===========================================================================
+# gui/Makefile keeps TWO repo variables: DAEMON_REPO at :262 is
+# ostler-ai/ostler-releases, HUB_APP_REPO at :305 is ostler-ai/ostler-ASSISTANT.
+# The wrapper is fetched from hub-v$(DAEMON_VERSION) THERE. This was got wrong
+# once already, by comparing asset counts in ostler-releases and concluding no
+# wrapper ships: both counts were correct and the conclusion did not follow,
+# because gui/Makefile is the file that DECIDES the source. A control proves a
+# predicate, never the compartment the predicate was pointed at. Caught by
+# tests/test_daemon_pins_agree.sh at site 6 UNVERIFIED, 9 passed 1 failed.
+#
+# ===========================================================================
+# WHAT IS DELIBERATELY NOT A ROW
+# ===========================================================================
+# Nothing else moves in this cut. The wiki images, the daemon's own pins other
+# than the version and digest, and every walk-instrument change stay where the
+# v1.0.88 register left them.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+THE OMISSION GUARD FOR THE PROBE THAT FAILED THE v1.0.88 WALK. ostler-assistant #400 catches a reply that ignores what a pwg_ tool returned. The v1.0.88 walk measured the seeded-person question failing 4 of 5 on one box against one daemon, in two shapes: memory_only, where the tool was never called, and fact_missing, where it was called and its result dropped. The three fixed questions grounded 15 of 15, so the subject is that one question rather than a suite-wide wobble, and the single replay PASS is the only reason phase 2 read GREEN on the probe at all.	ostler-assistant	4fe9691b770cc172b29d51b7d7750224828c2c87	no	daemon_lineage_contains_hub_v0479	TBD	ostler-assistant#400
+THE DAEMON RE-PIN, which is what puts row 1 in the artefact. Six sites move and the digest was verified three ways before it was filed: my own shasum of the downloaded tarball, the published .sha256 sidecar, and shasum -c exiting 0. Keyed on the DIGEST rather than the version label because a label can be re-tagged and a digest cannot. The 0.4.62 fallback is deliberately untouched and asserted so.	CM051	ff44dacc2167ef99c23c02fbd5e40a1d0a31e99c	no	daemon_pinned_at_hub_v0479	TBD	CM051 #1909
+THE HUB APP WRAPPER, which moves with this daemon and comes from ostler-ASSISTANT rather than ostler-releases. Digest verified independently: my own shasum equals the published sidecar and shasum -c exits 0, on a 3697875-byte download. The row keeps its full 64-character key rather than adopting the pin row's 16, because shortening a key has already made one stale-row sweep blind.	CM051	ff44dacc2167ef99c23c02fbd5e40a1d0a31e99c	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 #1909
