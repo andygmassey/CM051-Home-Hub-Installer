@@ -169,15 +169,56 @@ SEEDED_QUESTION="${OSTLER_GATE_QUESTION:-Who is ${KNOWN_PERSON} and where do the
 # either `sh -c` locally or ssh remotely.
 _ws_client_py() {
     cat <<'PYEOF'
-import base64, json, os, socket, struct, sys, time
-# The content predicate, mirrored from OS003 check 1 (grep -qiF): the fact as
-# a fixed string, case-insensitive, anywhere in the reply. One function, used
-# by the live turn below and by --self-check, so the self-test drives the
-# SAME predicate the walk does.
-def carries(text, fact):
+import base64, json, os, re, socket, struct, sys, time
+# THE CONTENT PREDICATE, TWO READINGS, BOTH PRINTED.
+#
+# Until 2026-09-10 the only reading was the fixture phrase as a fixed string,
+# case-insensitive, anywhere in the reply (the OS003 check 1 mirror). That is a
+# test of PHRASING, not of grounding: on the v1.0.89 walk the box answered
+# "<person> is a submarine cable engineer who works at example.com" and the
+# probe read NO, because four words sit between the halves of "cable engineer
+# at example.com". Five captured turns that night carried every component of
+# the fact and scored NO on all five; the record read FAILED on a correct
+# answer.
+#
+# carries() is now order-free over the fact's distinctive components: every
+# word of the fixture phrase that is not a function word must appear in the
+# reply. A reply that omits the employer still reads NO; a reply that
+# paraphrases reads YES. carries_phrase() keeps the exact-substring reading and
+# is printed beside it (FRAME reply_fact_phrase, FRAME tool_fact_phrase) as
+# evidence, so a record shows both and a reader can see which one moved.
+# --self-check drives the SAME predicate the walk does; --self-check-phrase
+# drives the old one.
+#
+# Each component must match as a whole token (alphanumeric boundaries), so
+# "cables engineered at example.common" does not satisfy cable, engineer,
+# example.com (TNM, #1916 review; measured). Boundaries rather than a length
+# floor, because a real component can be a three-letter role or an initialism.
+#
+# A PROPERTY TO KNOW, NOT FIXED HERE: order-freedom means a reply that DENIES
+# the fact while echoing its words ("I could not find a cable engineer at
+# example.com in your data") grades YES. The exact-phrase reading has the same
+# hole whenever the denial quotes the phrase. A negation check would be a
+# phrase list that fails OPEN on this surface (a missed phrasing grades a
+# wrong answer PASS), so it is not added; the trade taken is a measured false
+# FAIL on every correct paraphrase (five for five, 2026-09-10) against a
+# hypothetical false PASS on a denial no captured turn has produced.
+_FUNCTION_WORDS = {"a", "an", "and", "as", "at", "by", "for", "from", "in", "is",
+                   "of", "on", "or", "the", "to", "with"}
+def components(fact):
+    return [w for w in re.split(r"[^a-z0-9.@'-]+", fact.lower())
+            if w and w not in _FUNCTION_WORDS]
+def carries_phrase(text, fact):
     return fact.lower() in text.lower()
+def carries(text, fact):
+    cs = components(fact)
+    t = text.lower()
+    return bool(cs) and all(
+        re.search(r"(?<![a-z0-9])" + re.escape(c) + r"(?![a-z0-9])", t) for c in cs)
 if len(sys.argv) > 1 and sys.argv[1] == "--self-check":
     print("YES" if carries(sys.stdin.read(), sys.argv[2]) else "NO"); sys.exit(0)
+if len(sys.argv) > 1 and sys.argv[1] == "--self-check-phrase":
+    print("YES" if carries_phrase(sys.stdin.read(), sys.argv[2]) else "NO"); sys.exit(0)
 host, port = "127.0.0.1", int(sys.argv[1])
 token_path, question, deadline_s = sys.argv[2], sys.argv[3], float(sys.argv[4])
 expect_fact = sys.argv[5] if len(sys.argv) > 5 else ""
@@ -326,6 +367,7 @@ while time.time() < deadline:
         # handed), which left exactly these two, and neither is visible here.
         if expect_fact:
             print("FRAME tool_fact %s" % ("YES" if carries(out, expect_fact) else "NO"))
+            print("FRAME tool_fact_phrase %s" % ("YES" if carries_phrase(out, expect_fact) else "NO"))
     elif t == "chunk":
         text += ev.get("content") or ""
     elif t in ("done", "session_start", "error", "chunk_reset"):
@@ -348,6 +390,7 @@ while time.time() < deadline:
                 graded = text
                 print("FRAME reply_source chunks")
             print("FRAME reply_fact %s" % ("YES" if carries(graded, expect_fact) else "NO"))
+            print("FRAME reply_fact_phrase %s" % ("YES" if carries_phrase(graded, expect_fact) else "NO"))
         print("FRAME %s" % t)
         if t in ("done", "error"): break
 PYEOF
@@ -563,7 +606,7 @@ run_probe() {
                     # could not get. grep -c, never `| grep -q`: this file runs
                     # under `set -o pipefail`.
                     if [ "$(_fact_missing_side "$_tmp")" = "ignored" ]; then
-                        _detail="${_detail} [fact_missing: a pwg_ tool RETURNED '${EXPECT_FACT}' and the reply did not carry it -- the model had it and did not use it]"
+                        _detail="${_detail} [fact_missing: a pwg_ tool RETURNED '${EXPECT_FACT}' and the reply did not carry every component of it (order-free; exact-phrase reading $(grep -q '^FRAME reply_fact_phrase YES$' "$_tmp" && echo YES || echo NO)) -- the model had it and did not use it]"
                     else
                         _detail="${_detail} [fact_missing: a pwg_ tool answered, NO tool result carried '${EXPECT_FACT}', and neither did the reply -- retrieval did not deliver it]"
                     fi
