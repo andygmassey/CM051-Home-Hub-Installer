@@ -33,6 +33,24 @@ FAILED=0
 failure() { echo "FAIL: $*" >&2; FAILED=1; }
 pass() { echo "ok: $*"; }
 
+# `echo "$x" | grep -q PAT || failure` UNDER pipefail REPORTS FAILURE WHEN PAT
+# MATCHES, and that is how this file reddened a pull request that did not touch
+# it. grep -q exits at the FIRST match and closes the read end; the producer
+# takes SIGPIPE; pipefail makes that signal the pipeline's status; the `||`
+# then fires on a successful match. Intermittent, because the consumer has to
+# win the race, so a loaded runner is where it shows up and a re-run is where
+# it hides. Measured 2026-09-09 on run 34322378706: `echo: write error: Broken
+# pipe` immediately followed by `FAIL: HIGH should cap concurrency 4`.
+#
+# grep -c HAS to read to EOF to produce a count, so nothing short-circuits and
+# there is nothing left to invert. This is the repo's portable form; the
+# herestring is the other remedy and is bash-only.
+# tests/test_pipefail_shortcircuit_inversion.sh proves both, and now ratchets
+# against this shape as well as the `if | grep -q` one.
+has_line() {   # has_line <text> <basic regex>: true when the text has a matching LINE
+    [ "$(printf '%s\n' "$1" | grep -c -- "$2")" -gt 0 ]
+}
+
 [ -f "$LIB" ] || { echo "FAIL: missing $LIB" >&2; exit 1; }
 bash -n "$LIB" || failure "lib has a bash syntax error"
 
@@ -84,22 +102,22 @@ detect_with() {
 
 # 64GB / 16 cores / 12 P-cores -> high, concurrency 4, defer 0.
 out="$(detect_with $((64*1073741824)) 16 12)"
-echo "$out" | grep -q '^OSTLER_TIER=high$'             || failure "64GB should be HIGH tier, got: $out"
-echo "$out" | grep -q '^OSTLER_ENRICH_CONCURRENCY=4$'  || failure "HIGH should cap concurrency 4"
-echo "$out" | grep -q '^OSTLER_DEFER_NONESSENTIAL=0$'  || failure "HIGH should not defer"
+has_line "$out" '^OSTLER_TIER=high$'             || failure "64GB should be HIGH tier, got: $out"
+has_line "$out" '^OSTLER_ENRICH_CONCURRENCY=4$'  || failure "HIGH should cap concurrency 4"
+has_line "$out" '^OSTLER_DEFER_NONESSENTIAL=0$'  || failure "HIGH should not defer"
 [ "$FAILED" -eq 0 ] && pass "64GB/16-core -> HIGH (concurrency 4, no defer)"
 
 out="$(detect_with $((16*1073741824)) 10 8)"
-echo "$out" | grep -q '^OSTLER_TIER=low$'              || failure "16GB/8P should be LOW tier, got: $out"
-echo "$out" | grep -q '^OSTLER_ENRICH_CONCURRENCY=2$'  || failure "LOW should cap concurrency 2"
-echo "$out" | grep -q '^OSTLER_DEFER_NONESSENTIAL=1$'  || failure "LOW should defer non-essential"
+has_line "$out" '^OSTLER_TIER=low$'              || failure "16GB/8P should be LOW tier, got: $out"
+has_line "$out" '^OSTLER_ENRICH_CONCURRENCY=2$'  || failure "LOW should cap concurrency 2"
+has_line "$out" '^OSTLER_DEFER_NONESSENTIAL=1$'  || failure "LOW should defer non-essential"
 [ "$FAILED" -eq 0 ] && pass "16GB/8-P-core -> LOW (concurrency 2, defer)"
 
 # 8GB / 8 cores / 4 P-cores -> floor (sub-16 RAM): concurrency 1, defer 1.
 out="$(detect_with $((8*1073741824)) 8 4)"
-echo "$out" | grep -q '^OSTLER_TIER=floor$'            || failure "8GB should be FLOOR tier, got: $out"
-echo "$out" | grep -q '^OSTLER_ENRICH_CONCURRENCY=1$'  || failure "FLOOR should cap concurrency 1"
-echo "$out" | grep -q '^OSTLER_DEFER_NONESSENTIAL=1$'  || failure "FLOOR should defer non-essential"
+has_line "$out" '^OSTLER_TIER=floor$'            || failure "8GB should be FLOOR tier, got: $out"
+has_line "$out" '^OSTLER_ENRICH_CONCURRENCY=1$'  || failure "FLOOR should cap concurrency 1"
+has_line "$out" '^OSTLER_DEFER_NONESSENTIAL=1$'  || failure "FLOOR should defer non-essential"
 [ "$FAILED" -eq 0 ] && pass "8GB -> FLOOR (concurrency 1, defer)"
 
 # --------------------------------------------------------------------
@@ -131,47 +149,47 @@ echo "$out" | grep -q '^OSTLER_DEFER_NONESSENTIAL=1$'  || failure "FLOOR should 
 
 # 16GB base M4 (4P + 6E). THE MODAL CUSTOMER MACHINE.
 out="$(detect_with $((16*1073741824)) 10 4)"
-echo "$out" | grep -q '^OSTLER_TIER=low$'              || failure "16GB base M4 (4P/10 total) must be LOW, not floor -- the RAM ladder must not be overridden by P-core count, got: $out"
-echo "$out" | grep -q '^OSTLER_ENRICH_CONCURRENCY=2$'  || failure "16GB base M4 must get concurrency 2"
+has_line "$out" '^OSTLER_TIER=low$'              || failure "16GB base M4 (4P/10 total) must be LOW, not floor -- the RAM ladder must not be overridden by P-core count, got: $out"
+has_line "$out" '^OSTLER_ENRICH_CONCURRENCY=2$'  || failure "16GB base M4 must get concurrency 2"
 [ "$FAILED" -eq 0 ] && pass "16GB base M4 (4 P-cores, 10 total) -> LOW, not FLOOR"
 
 # 24GB base M4. The RAM step must be visible, not flattened to the floor.
 out="$(detect_with $((24*1073741824)) 10 4)"
-echo "$out" | grep -q '^OSTLER_TIER=low$'              || failure "24GB base M4 must be LOW, got: $out"
+has_line "$out" '^OSTLER_TIER=low$'              || failure "24GB base M4 must be LOW, got: $out"
 [ "$FAILED" -eq 0 ] && pass "24GB base M4 -> LOW"
 
 # 16GB base M1/M2/M3 (4P + 4E, 8 total).
 out="$(detect_with $((16*1073741824)) 8 4)"
-echo "$out" | grep -q '^OSTLER_TIER=low$'              || failure "16GB base M1/M2/M3 (4P/8 total) must be LOW, got: $out"
+has_line "$out" '^OSTLER_TIER=low$'              || failure "16GB base M1/M2/M3 (4P/8 total) must be LOW, got: $out"
 [ "$FAILED" -eq 0 ] && pass "16GB base M1/M2/M3 (4 P-cores, 8 total) -> LOW"
 
 # 32GB base M4 must reach HIGH. Under the old rule no base M-series chip
 # could reach HIGH at ANY RAM size, which is the sharpest form of the bug.
 out="$(detect_with $((32*1073741824)) 10 4)"
-echo "$out" | grep -q '^OSTLER_TIER=high$'             || failure "32GB base M4 must reach HIGH -- under the P-core rule no base M-series could reach HIGH at any RAM size, got: $out"
-echo "$out" | grep -q '^OSTLER_ENRICH_CONCURRENCY=4$'  || failure "32GB base M4 must get concurrency 4"
+has_line "$out" '^OSTLER_TIER=high$'             || failure "32GB base M4 must reach HIGH -- under the P-core rule no base M-series could reach HIGH at any RAM size, got: $out"
+has_line "$out" '^OSTLER_ENRICH_CONCURRENCY=4$'  || failure "32GB base M4 must get concurrency 4"
 [ "$FAILED" -eq 0 ] && pass "32GB base M4 -> HIGH (a base chip can reach the top tier)"
 
 # THE OVERRIDE MUST STILL FIRE where it was meant to. A genuinely
 # core-starved machine with plenty of RAM is still demoted one step. This
 # is the control that stops the fix from being "delete the override".
 out="$(detect_with $((32*1073741824)) 4 4)"
-echo "$out" | grep -q '^OSTLER_TIER=low$'              || failure "32GB but only 4 TOTAL cores must still demote HIGH->LOW, got: $out"
+has_line "$out" '^OSTLER_TIER=low$'              || failure "32GB but only 4 TOTAL cores must still demote HIGH->LOW, got: $out"
 [ "$FAILED" -eq 0 ] && pass "32GB with 4 TOTAL cores still demotes HIGH -> LOW (the override still works)"
 
 out="$(detect_with $((16*1073741824)) 2 2)"
-echo "$out" | grep -q '^OSTLER_TIER=floor$'            || failure "16GB but only 2 TOTAL cores must demote LOW->FLOOR, got: $out"
+has_line "$out" '^OSTLER_TIER=floor$'            || failure "16GB but only 2 TOTAL cores must demote LOW->FLOOR, got: $out"
 [ "$FAILED" -eq 0 ] && pass "16GB with 2 TOTAL cores demotes LOW -> FLOOR (the override still works)"
 
 # Detection failure (sysctl returns nothing) -> conservative FLOOR.
 out="$(detect_with "" "" "")"
-echo "$out" | grep -q '^OSTLER_TIER=floor$'            || failure "detection failure must fall back to FLOOR, got: $out"
-echo "$out" | grep -q '^OSTLER_ENRICH_CONCURRENCY=1$'  || failure "detection-failure fallback must cap to the conservative 1"
+has_line "$out" '^OSTLER_TIER=floor$'            || failure "detection failure must fall back to FLOOR, got: $out"
+has_line "$out" '^OSTLER_ENRICH_CONCURRENCY=1$'  || failure "detection-failure fallback must cap to the conservative 1"
 [ "$FAILED" -eq 0 ] && pass "detection failure -> conservative FLOOR (never the unbounded storm)"
 
 # Operator/test override pins the tier.
 out="$(env PATH="$TMP/bin:$PATH" FAKE_MEMSIZE=$((64*1073741824)) FAKE_NCPU=16 FAKE_PERF=12 OSTLER_TIER=floor bash "$LIB")"
-echo "$out" | grep -q '^OSTLER_TIER=floor$'            || failure "OSTLER_TIER override must win, got: $out"
+has_line "$out" '^OSTLER_TIER=floor$'            || failure "OSTLER_TIER override must win, got: $out"
 [ "$FAILED" -eq 0 ] && pass "OSTLER_TIER override pins the tier"
 
 # --------------------------------------------------------------------
