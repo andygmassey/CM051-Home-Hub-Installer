@@ -223,8 +223,11 @@ run_probe() {
            # a glob on the whole output matched whenever cm044 was AMONG the missing (Archie,
            # #1917 review, measured on the gate's own shape), which would have hidden a second
            # producer's genuine failure inside the refusal, the mirror of the defect this fixes.
+           # The count is anchored to the verdict line's prefix so "1 of " cannot match inside
+           # "11 of 12" (TNM, same review: one number matched inside another is the shape that
+           # was just closed; unreachable with today's roster, closed anyway).
            case "$out" in
-               *"1 of "*"REQUIRED producers wrote nothing"*"cm044_wiki_compiler"*)
+               *"VERDICT: FAIL -- 1 of "*"REQUIRED producers wrote nothing"*"cm044_wiki_compiler"*)
                    if [ "${OSTLER_WIKI_WAIT_STATE:-}" = "cannot-run" ]; then
                        probe_cannot_run "cm044_wiki_compiler wrote nothing into ${journal_path} AND the walk's wait for its summary backfill did not converge (${OSTLER_WIKI_WAIT_DETAIL:-no detail}). The producer had provably not run when the journal was read; nothing about it was measured. Coverage lost, not a pass and not a defect."
                    fi ;;
