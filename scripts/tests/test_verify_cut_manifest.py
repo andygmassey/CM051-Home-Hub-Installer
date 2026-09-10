@@ -2742,7 +2742,7 @@ def _phase1_setup(cm051, tmp_path, monkeypatch, probe, verdict_rows, body="exit 
 def test_box_walk_probe_takes_phase1_pass_and_does_not_rerun(fake_cm051, fake_app, tmp_path, monkeypatch):
     """A PASS phase 1 row is the row's verdict, and the script is NOT invoked."""
     marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "green",
-                           ["green\tPASS\t2026-09-10T15:36:00Z\t"], body="exit 0")
+                           ["green\tPASS\t2026-09-10T15:36:00Z\t\tseed-fixture"], body="exit 0")
     r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
     assert r.returncode == 0, r.stdout
     assert "took the phase 1 verdict" in r.stdout, r.stdout
@@ -2753,17 +2753,17 @@ def test_box_walk_probe_takes_phase1_fail_even_when_a_rerun_would_pass(fake_cm05
     """The strongest arm: phase 1 said FAIL, the script would exit 0 now. The row
     is FAIL with phase 1's reason, and the script is not run to launder it."""
     marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "red",
-                           ["red\tFAIL\t2026-09-10T15:40:00Z\tpeople counts disagree by 44"],
+                           ["red\tFAIL\t2026-09-10T15:40:00Z\tfact missing on the seeded question\tseed-fixture"],
                            body="exit 0")
     r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
     assert r.returncode == 1, r.stdout
-    assert "disagree by 44" in r.stdout, r.stdout
+    assert "fact missing on the seeded question" in r.stdout, r.stdout
     assert not marker.exists()
 
 
 def test_box_walk_probe_takes_phase1_cannot_run(fake_cm051, fake_app, tmp_path, monkeypatch):
     marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "cr",
-                           ["cr\tCANNOT-RUN\t2026-09-10T15:41:00Z\tno seed directory"],
+                           ["cr\tCANNOT-RUN\t2026-09-10T15:41:00Z\tno seed directory\tseed-fixture"],
                            body="exit 0")
     r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
     assert "CANNOT-RUN" in r.stdout, r.stdout
@@ -2775,7 +2775,7 @@ def test_box_walk_probe_phase1_broken_reads_fail_not_pass(fake_cm051, fake_app, 
     """A probe whose negative control did not fire is a defect; the old replay
     re-ran the script and let it exit 0."""
     marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "brk",
-                           ["brk\tBROKEN\t2026-09-10T15:30:00Z\tself-test returned 0, expected 1"],
+                           ["brk\tBROKEN\t2026-09-10T15:30:00Z\tself-test returned 0, expected 1\tseed-fixture"],
                            body="exit 0")
     r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
     assert r.returncode == 1, r.stdout
@@ -2787,7 +2787,7 @@ def test_box_walk_probe_reruns_when_phase1_has_no_row_for_it(fake_cm051, fake_ap
     """Mutant control for the arms above: a file that names OTHER probes only
     must leave this row measured by running the script (marker present)."""
     marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "fresh",
-                           ["someone_else\tPASS\t2026-09-10T15:36:00Z\t"], body="exit 0")
+                           ["someone_else\tPASS\t2026-09-10T15:36:00Z\t\tseed-fixture"], body="exit 0")
     r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
     assert r.returncode == 0, r.stdout
     assert "took the phase 1 verdict" not in r.stdout, r.stdout
@@ -2796,13 +2796,32 @@ def test_box_walk_probe_reruns_when_phase1_has_no_row_for_it(fake_cm051, fake_ap
 
 def test_box_walk_probe_last_phase1_row_wins_and_unknown_word_reruns(fake_cm051, fake_app, tmp_path, monkeypatch):
     marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "twice",
-                           ["twice\tFAIL\t2026-09-10T15:36:00Z\tfirst",
-                            "twice\tPASS\t2026-09-10T15:39:00Z\t"], body="exit 0")
+                           ["twice\tFAIL\t2026-09-10T15:36:00Z\tfirst\tseed-fixture",
+                            "twice\tPASS\t2026-09-10T15:39:00Z\t\tseed-fixture"], body="exit 0")
     r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
     assert r.returncode == 0, r.stdout
     assert not marker.exists()
     marker2 = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "odd",
-                            ["odd\tMAYBE\t2026-09-10T15:36:00Z\t"], body="exit 0")
+                            ["odd\tMAYBE\t2026-09-10T15:36:00Z\t\tseed-fixture"], body="exit 0")
     r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
     assert r.returncode == 0, r.stdout
     assert marker2.exists(), "an unknown verdict word must fall back to measuring"
+
+
+def test_box_walk_probe_live_state_row_is_measured_again(fake_cm051, fake_app, tmp_path, monkeypatch):
+    """Scope control: a phase 1 row marked live (a probe that reads live state,
+    not the seed fixture) does NOT replace the second measurement. 26 of the 30
+    rows in cut-manifests/v1.0.89.yaml are box_walk_probe rows; only the three
+    seed-dependent probes are echoed, the rest are re-run. A four-column row
+    with no fixture word is measured again too."""
+    marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "people_x",
+                           ["people_x\tPASS\t2026-09-10T15:36:00Z\t\tlive"], body="exit 3")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "exit=3" in r.stdout, r.stdout
+    assert "took the phase 1 verdict" not in r.stdout, r.stdout
+    assert marker.exists(), "a live-state row must not stop the probe from running"
+    marker2 = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "four_col",
+                            ["four_col\tPASS\t2026-09-10T15:36:00Z\t"], body="exit 0")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert marker2.exists(), "a row without the fixture column must be measured again"

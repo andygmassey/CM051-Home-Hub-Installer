@@ -387,16 +387,29 @@ FAIL_REASONS="$(mktemp)"
 trap 'rm -f "$CANNOT_REASONS" "$FAIL_REASONS"' EXIT
 
 # OSTLER_PHASE1_VERDICTS: when set, every verdict the loop below reaches is
-# appended there as <probe>\t<PASS|FAIL|CANNOT-RUN|BROKEN>\t<utc>\t<reason>, so
-# the cut-manifest replay (verify_cut_manifest.py, box_walk_probe rows) can take
-# the verdict measured HERE, against the seed fixture and after each probe's
-# negative control, instead of running the script again after the forgets at
-# the end of this file. v1.0.89: the replay re-ran assistant_answers_grounded
-# after SEED-FORGET OK and read tool_found_nothing on stores it had emptied.
+# appended there as <probe>\t<PASS|FAIL|CANNOT-RUN|BROKEN>\t<utc>\t<reason>\t<fixture>,
+# so the cut-manifest replay (verify_cut_manifest.py, box_walk_probe rows) can
+# take the verdict measured HERE, against the seed fixture and after each
+# probe's negative control, instead of running the script again after the
+# forgets at the end of this file. v1.0.89: the replay re-ran
+# assistant_answers_grounded after SEED-FORGET OK and read tool_found_nothing
+# on stores it had emptied.
+#
+# The fifth column says whether the probe's verdict DEPENDS on that fixture, and
+# the replay takes only rows that read seed-fixture. The grounding seed
+# (OSTLER_GATE_*) and the preference seed feed assistant_answers_grounded; the
+# conversation seed feeds ingest_coverage's conversations count and the
+# grounded probe's pwg_topics; the usage seed feeds usage_journal_producers
+# (each lib's header names its consumer). Every other probe reads live state,
+# and its phase 2 re-run stays an independent second measurement: on v1.0.89
+# that second reading is what caught the stores diverging by 44 mid-tick.
+SEED_DEPENDENT_PROBES="assistant_answers_grounded ingest_coverage usage_journal_producers"
 _record_verdict() {
     [ -n "${OSTLER_PHASE1_VERDICTS:-}" ] || return 0
-    printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        "$(printf '%s' "${3:-}" | tr '\n\t' '  ')" >> "$OSTLER_PHASE1_VERDICTS"
+    local fixture=live
+    case " $SEED_DEPENDENT_PROBES " in *" $1 "*) fixture=seed-fixture ;; esac
+    printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        "$(printf '%s' "${3:-}" | tr '\n\t' '  ')" "$fixture" >> "$OSTLER_PHASE1_VERDICTS"
 }
 
 for p in $PROBES; do

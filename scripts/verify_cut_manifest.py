@@ -1027,19 +1027,27 @@ def _phase1_verdict(probe: str):
     """The verdict run_box_walk.sh recorded for this probe in THIS QA run, or None.
 
     OSTLER_PHASE1_VERDICTS names a TSV that run_box_walk.sh appends to as it
-    goes: <probe>\t<PASS|FAIL|CANNOT-RUN|BROKEN>\t<utc>\t<reason>. Phase 1 runs
-    every probe against the seed fixture with its negative control first. Until
-    2026-09-10 phase 2 ran the same script AGAIN, after run_box_walk.sh had
-    forgotten the seeds, so a fixture-dependent probe asked its questions of
-    stores that had been deliberately emptied (v1.0.89: assistant_answers_grounded
-    read 2 of 3 tool_found_nothing right after SEED-FORGET OK, having read 4 of 4
-    grounded in phase 1), and a store-reading probe read the box in a different
-    state (v1.0.89: the hourly FDA tick mid-run, 44 persons minted and not yet
-    vectored, read 1840 = 1840 in phase 1). Directive item 5 says the grounded
-    probe runs against the seed fixture; the only run that does is phase 1, so
-    the row takes that verdict and says so. Unset, unreadable, or no row for this
-    probe -> None -> the probe is run here exactly as before. BROKEN (the probe's
-    own negative control did not fire) is a defect and reads FAIL, never PASS:
+    goes: <probe>\t<PASS|FAIL|CANNOT-RUN|BROKEN>\t<utc>\t<reason>\t<fixture>.
+    Phase 1 runs every probe against the seed fixture with its negative control
+    first. Until 2026-09-10 phase 2 ran the same script AGAIN, after
+    run_box_walk.sh had forgotten the seeds, so a fixture-dependent probe asked
+    its questions of stores that had been deliberately emptied (v1.0.89:
+    assistant_answers_grounded read 2 of 3 tool_found_nothing right after
+    SEED-FORGET OK, having read 4 of 4 grounded in phase 1). Directive item 5
+    says the grounded probe runs against the seed fixture; the only run that
+    does is phase 1, so the row takes that verdict and says so.
+
+    ONLY rows whose fixture column reads seed-fixture are taken (run_box_walk.sh
+    writes it from its own SEED_DEPENDENT_PROBES list). A probe that reads live
+    state is run here again, as before, because that second reading is an
+    independent measurement: on v1.0.89 it is what caught the graph and the
+    vector store diverging by 44 mid-tick while phase 1 had read them equal.
+    Taking every row would have turned 26 of that manifest's 30 rows into an
+    echo of phase 1.
+
+    Unset, unreadable, no row for this probe, or a row not marked seed-fixture
+    -> None -> the probe is run here exactly as before. BROKEN (the probe's own
+    negative control did not fire) is a defect and reads FAIL, never PASS:
     re-running a broken probe used to let it pass here.
     """
     path = os.environ.get("OSTLER_PHASE1_VERDICTS")
@@ -1057,6 +1065,9 @@ def _phase1_verdict(probe: str):
             hit = r          # last row wins: the latest verdict phase 1 reached
     if hit is None:
         return None
+    fixture = hit[4].strip() if len(hit) > 4 else ""
+    if fixture != "seed-fixture":
+        return None          # a live-state probe: measure it again, independently
     status = hit[1].strip()
     when = hit[2].strip() if len(hit) > 2 else "?"
     why = hit[3].strip() if len(hit) > 3 else ""
@@ -2703,9 +2714,9 @@ def main() -> int:
                     print(f"    - {r.id}  [{r.kind}]  {r.detail}")
             print()
         if _PHASE1_TAKEN:
-            print(f"  box_walk_probe rows: {len(_PHASE1_TAKEN)} took the phase 1 verdict "
-                  f"(run_box_walk.sh, seed fixture present) and were not re-run: "
-                  + ", ".join(sorted(_PHASE1_TAKEN)))
+            print(f"  box_walk_probe rows: {len(_PHASE1_TAKEN)} seed-dependent probe(s) took the "
+                  f"phase 1 verdict (fixture present then, forgotten since) and were not re-run: "
+                  + ", ".join(sorted(_PHASE1_TAKEN)) + "; every other probe row was measured again")
         print(f"=== Summary: {passes} PASS  {fails} FAIL  {skips} SKIP  "
               f"{cannot_runs} CANNOT-RUN  ({len(results)} total"
               + (f", {entries_filtered_out} filtered out by --only-kind" if only_kinds else "")

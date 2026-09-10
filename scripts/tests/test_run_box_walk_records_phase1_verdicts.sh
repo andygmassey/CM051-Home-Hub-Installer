@@ -25,6 +25,7 @@ _stage() {   # $1 = tree name; copies the runner + lib, replaces probes/ with st
     _stub "$t" stub_fail 1  1 "FAIL -- known-bad"
     _stub "$t" stub_cant 78 1 "CANNOT-RUN -- no box"
     _stub "$t" stub_brok 0  0 "PASS -- but my negative control never fires"
+    _stub "$t" assistant_answers_grounded 0 1 "PASS -- a stub wearing a seed-dependent name"
     printf '%s' "$t"
 }
 _stub() {    # tree name exit self_test_exit message
@@ -41,12 +42,12 @@ _row() {     # file probe -> the LAST row for that probe, or empty
     awk -F'\t' -v p="$2" '$1 == p {r = $0} END {print r}' "$1"
 }
 
-printf -- '--- arm 1: the four verdict words reach the file, with their reasons ---\n'
+printf -- '--- arm 1: the four verdict words reach the file, with reasons and the fixture column ---\n'
 T="$(_stage t1)"; V="${WORK}/t1.tsv"
 _run "$T" "$V"; rc=$?
 [ -f "$V" ] || { bad "no verdict file was written (run_box_walk rc=${rc})"; cat "${WORK}/out.txt" | tail -n 20; exit 1; }
 n=$(wc -l < "$V" | tr -d ' ')
-[ "$n" -eq 4 ] && ok "4 rows for 4 stubs" || bad "expected 4 rows, read ${n}: $(tr '\n' '|' < "$V")"
+[ "$n" -eq 5 ] && ok "5 rows for 5 stubs" || bad "expected 5 rows, read ${n}: $(tr '\n' '|' < "$V")"
 for spec in "stub_pass|PASS|" "stub_fail|FAIL|known-bad" "stub_cant|CANNOT-RUN|no box" "stub_brok|BROKEN|negative control"; do
     p=${spec%%|*}; rest=${spec#*|}; w=${rest%%|*}; why=${rest#*|}
     row="$(_row "$V" "$p")"
@@ -56,7 +57,11 @@ for spec in "stub_pass|PASS|" "stub_fail|FAIL|known-bad" "stub_cant|CANNOT-RUN|n
     if [ -n "$why" ]; then
         case "$reason" in *"$why"*) ok "${p} reason carries '${why}'" ;; *) bad "${p}: reason column reads '${reason}', expected it to carry '${why}'" ;; esac
     fi
+    fx="$(printf '%s' "$row" | cut -f5)"
+    [ "$fx" = "live" ] && ok "${p} fixture column reads live" || bad "${p}: fixture column reads '${fx}', expected live"
 done
+fx="$(_row "$V" assistant_answers_grounded | cut -f5)"
+[ "$fx" = "seed-fixture" ] && ok "assistant_answers_grounded fixture column reads seed-fixture (in SEED_DEPENDENT_PROBES)" || bad "assistant_answers_grounded: fixture column reads '${fx}', expected seed-fixture"
 
 printf -- '--- arm 2: control, env unset writes nothing ---\n'
 T="$(_stage t2)"
@@ -69,8 +74,8 @@ mut=$(grep -c '_record_verdict "\$b" PASS ""' "$T/run_box_walk.sh")
 [ "$mut" -eq 1 ] || { bad "mutant anchor count ${mut}, expected 1"; }
 sed -i '' '/_record_verdict "\$b" PASS ""/d' "$T/run_box_walk.sh"
 _run "$T" "$V"
-if [ -n "$(_row "$V" stub_pass)" ]; then bad "mutant: PASS row still present, the arm 1 assertion is not reading the write"; else ok "mutant lost the PASS row (3 rows: $(cut -f1 "$V" | tr '\n' ' '))"; fi
+if [ -n "$(_row "$V" stub_pass)" ]; then bad "mutant: PASS row still present, the arm 1 assertion is not reading the write"; else ok "mutant lost the PASS rows ($(wc -l < "$V" | tr -d ' ') rows left: $(cut -f1 "$V" | tr '\n' ' '))"; fi
 
 printf '\n'
-if [ "$fails" -eq 0 ]; then echo "PASS: run_box_walk.sh records phase 1 verdicts (3 arms)"; exit 0; fi
+if [ "$fails" -eq 0 ]; then echo "PASS: run_box_walk.sh records phase 1 verdicts with the fixture column (3 arms)"; exit 0; fi
 echo "FAIL: ${fails} finding(s)"; exit 1
