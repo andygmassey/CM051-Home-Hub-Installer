@@ -1,0 +1,56 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.88.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.88/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN.
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS
+# ===========================================================================
+# The v1.0.87 walk read 26 of 26 probes with 0 failures and verdict FAILED from
+# phase 2. Three findings: a stale people tile, acceptance A4 (pairing signals
+# disagree) and acceptance A6 (sparql-400=1, broken-links=133). This cut carries
+# the artefact half of A6: the wiki images move to CM044 v0.1.31, which carries
+# the broken-links fix.
+#
+# ===========================================================================
+# WHAT IS DELIBERATELY NOT A ROW, AND THE REGISTER ALREADY DECIDED THIS
+# ===========================================================================
+# CM051 #1905 is NOT a row. It is walk APPARATUS: it rescopes acceptance A6,
+# changes A4's predicate, adds a post-forget wiki resync and raises the replay
+# cap. MEASURED, not assumed: eight of its nine files are named ZERO times in
+# gui/Makefile, which is what decides staging, against a control where
+# install.sh reads 29; the ninth hit is a COMMENT at gui/Makefile:121, not a
+# staging line; and gui/project.yml bundles box_walk_probes ZERO times, so
+# nothing under that directory can reach a DMG by construction.
+#
+# The v1.0.85 BOM ruled this case in these words and they still bind: "A BOM row
+# says what the artefact CONTAINS. Putting apparatus in one would make this file
+# claim the artefact holds things it does not, which is the single thing it
+# exists to prevent."
+#
+# #1905 is recorded in cut-manifests/v1.0.88.yaml instead, under
+# the_instrument_moved_and_the_artefact_did_not, so that an A6 green on this
+# walk is read as one part re-pin and one part rescope.
+#
+# ===========================================================================
+# WHAT THIS BOM CANNOT PROMISE
+# ===========================================================================
+# ROW 1 PROBES cm044 SOURCE, AND SOURCE IS NOT THE ARTEFACT. This manifest says
+# so at capability_manifest.tsv:154-164: a cm044 row reading IN says the fix is
+# on CM044 main, not that it is in the DMG, because the matrix has no method
+# that can probe a container. Row 2 is the artefact truth: the digest in the
+# shipped install.sh.
+#
+# FOR THIS CUT THAT GAP WAS CLOSED BY HAND. Both image digests were pulled and
+# grepped INSIDE the containers: WIKI_REPAIR_BROKEN_LINKS reads 0 in the
+# outgoing compiler image and 3 in the incoming one, with written_uris in
+# person_pages 22 then 29 and a def-count control non-zero in both. A SYMBOL
+# GREP WOULD HAVE LIED: _audit_internal_links reads 3 in BOTH images, because
+# CM044 #268 changed an existing function rather than adding one.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+THE BROKEN INTERNAL LINKS FIX, WHICH HAD BEEN ON MAIN AND IN NO ARTEFACT FOR FOUR DAYS. CM044 #268 fixes them two ways: the root cause, where a person page linked co-attendees through a slug map covering every person URI while filtered contacts never get a page written; and a safety net that degrades ANY internal .md link whose target does not resolve to plain text in one pass over the built output, leaving external, anchor and mailto links alone. The v1.0.87 walk measured 133 broken links, all file-not-found, in two shapes the safety net has tests for. It merged 2026-09-06 and the pinned image was built 2026-09-04, which is the whole defect. NOT a fix for CM044 #219: that has been in the pinned image since it was built, and the gate's (stale image, pre-#219) is a hardcoded label in its FAIL branch, not a measurement.	CM044	a60bc3da90ec	no	wiki_compiler_repairs_broken_internal_links	TBD	CM044 #268
+THE WIKI IMAGE PIN, MOVED AT BOTH SITES, WHICH IS WHAT PUTS ROW 1 IN THE ARTEFACT. install.sh:17064 wiki-site to sha256:2287c37e and :17108 wiki-compiler to sha256:a613f429, both built from CM044 tag v0.1.31 at 3bc0f3bb, plus the two appended rows in scripts/wiki_image_provenance.tsv that verify_cut_freshness.sh reads and reds on when a pinned digest has none. Digests were read back from GHCR by manifest HEAD rather than taken from the build log, and the read path was proven first against :0.1.30 returning the pair being replaced. Provenance rows are APPENDED and the outgoing rows stay as the record of what shipped before.	CM051	72b76b2446c31b4e7cd5ee7adac1c0c2f55c6057	no	wiki_images_pinned_at_cm044_v0131	TBD	CM051 #1904
