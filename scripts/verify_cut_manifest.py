@@ -1018,9 +1018,41 @@ def _resolve_box_walk_probe(cm051_dir: Path, probe: str):
     return None
 
 
-# Probe rows that took their verdict from phase 1 in this run, by probe name.
-# Printed beside the summary so a log reader can see which rows were NOT re-run.
+# Probe rows that took their verdict from phase 1 in this run, by probe name,
+# and the number of box_walk_probe rows that reached a box at all. Printed
+# beside the summary so a log reader can see which rows were NOT re-run, AND
+# whether the phase 1 file was wired: with the take scoped to three probes,
+# silence is the normal outcome for the other 23, so the absence of a "taken"
+# line carries no information, and an env var that quietly stops being passed
+# restores the exact re-run that failed v1.0.89 with the record looking the
+# same either way. So when any box row ran, the summary always says what the
+# file was: unset, unreadable (with the path), or read (with its row counts).
 _PHASE1_TAKEN: list = []
+_BOX_WALK_ROWS_SEEN: list = []
+
+
+def _phase1_summary_line() -> str:
+    """One line on the state of OSTLER_PHASE1_VERDICTS, printed whenever a
+    box_walk_probe row reached a box. Never silent."""
+    path = os.environ.get("OSTLER_PHASE1_VERDICTS")
+    if not path:
+        return ("  box_walk_probe rows: OSTLER_PHASE1_VERDICTS is UNSET, so every probe row "
+                "was measured here, the seed-dependent ones included, after "
+                "run_box_walk.sh's forgets; the replay is not taking phase 1 verdicts")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            rows = [ln.rstrip("\n").split("\t") for ln in fh
+                    if ln.strip() and not ln.startswith("#")]
+    except OSError as e:
+        return (f"  box_walk_probe rows: OSTLER_PHASE1_VERDICTS={path} is UNREADABLE "
+                f"({e.__class__.__name__}: {e}), so every probe row was measured here, "
+                f"the seed-dependent ones included, after run_box_walk.sh's forgets")
+    seeded = sum(1 for r in rows if len(r) > 4 and r[4].strip() == "seed-fixture")
+    taken = ", ".join(sorted(_PHASE1_TAKEN)) if _PHASE1_TAKEN else "none"
+    return (f"  box_walk_probe rows: OSTLER_PHASE1_VERDICTS={path} read, {len(rows)} row(s), "
+            f"{seeded} marked seed-fixture; {len(_PHASE1_TAKEN)} row(s) took the phase 1 "
+            f"verdict (fixture present then, forgotten since) and were not re-run: {taken}; "
+            f"every other probe row was measured again")
 
 
 def _phase1_verdict(probe: str):
@@ -1120,6 +1152,7 @@ def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
                       "OSTLER_BOX_HOST not set (runtime probe requires a reachable box)",
                       entry.get("source_pr", ""))
 
+    _BOX_WALK_ROWS_SEEN.append(probe)
     script = _resolve_box_walk_probe(cm051_dir, probe)
     if script is None:
         searched = ", ".join(
@@ -2679,6 +2712,7 @@ def main() -> int:
     if args.json:
         print(json.dumps({
             "app_path": str(app_path),
+            "phase1_verdicts": (_phase1_summary_line().strip() if _BOX_WALK_ROWS_SEEN else None),
             "results": [asdict(r) for r in results],
             "summary": {"pass": passes, "fail": fails, "skip": skips,
                         "cannot_run": cannot_runs, "total": len(results),
@@ -2713,10 +2747,8 @@ def main() -> int:
                 if r.status == "CANNOT-RUN":
                     print(f"    - {r.id}  [{r.kind}]  {r.detail}")
             print()
-        if _PHASE1_TAKEN:
-            print(f"  box_walk_probe rows: {len(_PHASE1_TAKEN)} seed-dependent probe(s) took the "
-                  f"phase 1 verdict (fixture present then, forgotten since) and were not re-run: "
-                  + ", ".join(sorted(_PHASE1_TAKEN)) + "; every other probe row was measured again")
+        if _BOX_WALK_ROWS_SEEN:
+            print(_phase1_summary_line())
         print(f"=== Summary: {passes} PASS  {fails} FAIL  {skips} SKIP  "
               f"{cannot_runs} CANNOT-RUN  ({len(results)} total"
               + (f", {entries_filtered_out} filtered out by --only-kind" if only_kinds else "")

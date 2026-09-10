@@ -2790,7 +2790,9 @@ def test_box_walk_probe_reruns_when_phase1_has_no_row_for_it(fake_cm051, fake_ap
                            ["someone_else\tPASS\t2026-09-10T15:36:00Z\t\tseed-fixture"], body="exit 0")
     r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
     assert r.returncode == 0, r.stdout
-    assert "took the phase 1 verdict" not in r.stdout, r.stdout
+    row = json.loads(r.stdout)["results"][0]
+    assert "took the phase 1 verdict" not in row["detail"], row
+    assert "exit=0" in row["detail"], row
     assert marker.exists(), "no phase 1 row for this probe: the script must run"
 
 
@@ -2818,10 +2820,54 @@ def test_box_walk_probe_live_state_row_is_measured_again(fake_cm051, fake_app, t
                            ["people_x\tPASS\t2026-09-10T15:36:00Z\t\tlive"], body="exit 3")
     r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
     assert r.returncode == 1, r.stdout
-    assert "exit=3" in r.stdout, r.stdout
-    assert "took the phase 1 verdict" not in r.stdout, r.stdout
+    row = json.loads(r.stdout)["results"][0]
+    assert "exit=3" in row["detail"], row
+    assert "took the phase 1 verdict" not in row["detail"], row
     assert marker.exists(), "a live-state row must not stop the probe from running"
     marker2 = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "four_col",
                             ["four_col\tPASS\t2026-09-10T15:36:00Z\t"], body="exit 0")
     r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
     assert marker2.exists(), "a row without the fixture column must be measured again"
+    assert "2 row(s), 0 marked seed-fixture" in r.stdout or "1 row(s), 0 marked seed-fixture" in r.stdout, r.stdout
+    assert "took the phase 1 verdict (fixture present then, forgotten since) and were not re-run: none" in r.stdout, r.stdout
+
+
+def test_box_walk_probe_phase1_env_unset_is_said_out_loud(fake_cm051, fake_app, tmp_path, monkeypatch):
+    """The disengaged path must not be silent (TNM, #1913): with the take scoped
+    to three probes, silence is normal for the other 23, so an env var that
+    stops being passed would restore the v1.0.89 re-run with the record
+    looking the same. Unset: the probe runs AND the summary says UNSET."""
+    marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "loud",
+                           ["loud\tFAIL\t2026-09-10T15:36:00Z\twould be taken\tseed-fixture"], body="exit 0")
+    monkeypatch.delenv("OSTLER_PHASE1_VERDICTS", raising=False)
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+    assert marker.exists(), "with the env unset the probe must run"
+    assert "OSTLER_PHASE1_VERDICTS is UNSET" in r.stdout, r.stdout
+
+
+def test_box_walk_probe_phase1_file_unreadable_is_said_with_the_path(fake_cm051, fake_app, tmp_path, monkeypatch):
+    marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "gone",
+                           ["gone\tFAIL\t2026-09-10T15:36:00Z\twould be taken\tseed-fixture"], body="exit 0")
+    missing = tmp_path / "not-there.tsv"
+    monkeypatch.setenv("OSTLER_PHASE1_VERDICTS", str(missing))
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+    assert marker.exists(), "with the file unreadable the probe must run"
+    assert "is UNREADABLE" in r.stdout and str(missing) in r.stdout, r.stdout
+
+
+def test_box_walk_probe_phase1_summary_silent_without_box_rows(fake_cm051, fake_app, monkeypatch):
+    """No box row reached a box (OSTLER_BOX_HOST unset, rows SKIP): the line is
+    not printed, so CI runs without a box stay quiet about a file they never use."""
+    monkeypatch.delenv("OSTLER_BOX_HOST", raising=False)
+    monkeypatch.delenv("OSTLER_PHASE1_VERDICTS", raising=False)
+    _write_probe(fake_cm051, "quiet", "exit 0")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-quiet", "title": "runtime probe smoke check",
+        "proof": {"kind": "box_walk_probe", "probe": "quiet"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+    assert "OSTLER_PHASE1_VERDICTS" not in r.stdout, r.stdout
