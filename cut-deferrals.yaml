@@ -157,7 +157,24 @@ pr_exemptions:
       passes. The INSTALL path is untouched, so the 41-of-41 depth measurement
       still holds. This one row stays deferred because it is still open, not
       because of any judgement about its merit.
-    review_by: "2026-09-09"
+      RENEWED 2026-09-10T05:3xZ (Aesop): this review date expired at 2026-09-09
+      and cut run 34441097038 for v1.0.86 was refused by check-pr-age on it,
+      before the build, at 05:29:08Z. The PR is still open under the launch
+      freeze (directive item 2: it moves no walk probe), TNM was asked to
+      renew or close and renewal is the default. Re-decide on the new date.
+    review_by: "2026-09-12"
+  - ref: "CM051-Home-Hub-Installer#1818"
+    reason: >-
+      '[LAUNCH ITEM, do not merge until walk clears] Ostler Uninstaller:
+      colima-safe teardown, --purge-data, standalone Uninstaller.app'. A DRAFT
+      opened 2026-09-08T03:58Z and held open on ANDY'S INSTRUCTION under the
+      launch freeze: it must not merge until a clean walk record exists, and
+      it moves no walk probe (directive item 2). It crossed 48h during the
+      v1.0.86 cut and check-pr-age refused run 34441097038 on it at
+      05:29:08Z, 2026-09-10, before the build, with no row here. Deferred on
+      Andy's standing instruction, not on merit. Retire this row when the
+      freeze lifts or the PR merges.
+    review_by: "2026-09-12"
   - ref: "CM051-Home-Hub-Installer#495"
     reason: >-
       'feat(cut-infra): vendor drift check + .vendor-manifests'. DRAFT, and
