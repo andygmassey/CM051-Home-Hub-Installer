@@ -54,7 +54,7 @@ f=$(mk emptyfinal '{"type":"session_start"}' '{"type":"tool_call","name":"pwg_pe
 o="$(run "${f}")"; [ "$(reply_fact "${o}")" = NO ] && [ "$(reply_source "${o}")" = "full_response EMPTY" ] && ok "empty full_response graded NO and named EMPTY" || bad "arm 4 read '$(reply_fact "${o}")' from '$(reply_source "${o}")'"
 
 echo "== 5. chunk_reset clears the draft: fact in the chunks, reset, chunks without it, done with NO key =="
-f=$(mk resetclears '{"type":"session_start"}' '{"type":"tool_call","name":"pwg_people"}' '{"type":"tool_result","name":"pwg_people","output":"x"}' '{"type":"chunk","content":"Jane is a cable engineer at example.com"}' '{"type":"chunk_reset"}' '{"type":"chunk","content":"Jane is someone you know."}' '{"type":"done"}')
+f=$(mk resetclears '{"type":"session_start"}' '{"type":"tool_call","name":"pwg_people"}' '{"type":"tool_result","name":"pwg_people","output":"x"}' '{"type":"chunk","content":"Jane is a cable engineer at example.com."}' '{"type":"chunk_reset"}' '{"type":"chunk","content":"Jane is someone you know."}' '{"type":"done"}')
 o="$(run "${f}")"; [ "$(reply_fact "${o}")" = NO ] && [ "$(reply_source "${o}")" = chunks ] && ok "the fact written before chunk_reset is discarded; only the post-reset chunks are graded: NO" || bad "arm 5 read '$(reply_fact "${o}")' from '$(reply_source "${o}")': without the clearing this reads YES"
 
 echo "== 7. a PARAPHRASE that carries every component of the fact reads YES; the exact-phrase reading beside it reads NO =="
