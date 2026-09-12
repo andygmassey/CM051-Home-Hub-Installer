@@ -472,6 +472,7 @@ test_the_migrator_authenticates_and_a_refusal_is_loud.py	WIRED	.github/workflows
 test_the_operator_rollforward_refuses_a_blind_environment.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_the_permanent_manifest_is_not_optional.sh	WIRED	.github/workflows/cut-manifest.yml
 test_the_pii_hook_asks_cis_question.sh	WIRED	.github/workflows/operator-pii-scan.yml
+test_the_pii_scan_reads_every_file_in_the_tree.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_port_preflight_aborts_carry_distinct_support_codes.sh	WIRED	.github/workflows/colima-autostart.yml
 test_the_promote_instructions_name_what_makes_it_fail.sh	WIRED	.github/workflows/customer-download-path.yml
 test_the_recovery_key_is_disclosed_where_it_is_minted.sh	WIRED	.github/workflows/cold-box-source-truth.yml

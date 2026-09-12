@@ -239,6 +239,42 @@ _TEXT_EXTS = {".sh", ".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".yaml", ".ym
 # _TEXT_EXTS: an omission here is silent, not loud.
 _COMPILED_EXTS = {".pyc", ".dylib", ".so", ".a", ".o", ".node", ".wasm"}
 
+# Containers whose contents are unreachable to both a text read and strings(1).
+_ARCHIVE_EXTS = {".zip", ".jar", ".whl", ".tar", ".tgz", ".gz", ".bz2", ".xz"}
+_MAX_ARCHIVE_DEPTH = 3
+_ARCHIVE_TMPDIRS: list = []      # kept alive; cleaned at interpreter exit
+
+
+def _expand_archive(path: Path, depth: int):
+    """Expand `path` to a temp dir and return [root]; None if it cannot be read.
+
+    None is the load-bearing return: it means the bytes are still unexamined,
+    and the caller records that rather than treating an unopenable archive as
+    an absence of findings. A corrupt zip and a clean zip must not look alike.
+    """
+    if depth >= _MAX_ARCHIVE_DEPTH:
+        return None
+    import tarfile
+    import tempfile
+    import zipfile
+    try:
+        d = tempfile.mkdtemp(prefix="ostler-pii-scan-")
+        _ARCHIVE_TMPDIRS.append(d)
+        if zipfile.is_zipfile(path):
+            with zipfile.ZipFile(path) as z:
+                z.extractall(d)
+        elif tarfile.is_tarfile(path):
+            with tarfile.open(path) as t:
+                try:
+                    t.extractall(d, filter="data")
+                except TypeError:          # filter= is 3.12+
+                    t.extractall(d)
+        else:
+            return None
+    except Exception:
+        return None
+    return [Path(d)]
+
 
 class CouldNotMeasure(Exception):
     """A scan that did not complete. NEVER convert this back into a count.
@@ -343,7 +379,8 @@ def _is_gate_definition_file(p: Path) -> bool:
     return False
 
 
-def _iter_dmg_tree_scan_files(root: Path, unscanned: Optional[list] = None):
+def _iter_dmg_tree_scan_files(root: Path, unscanned: Optional[list] = None,
+                              depth: int = 0):
     """Yield (path, use_strings) for every file under `root` worth scanning for
     operator-PII, faithful to "anywhere in the shipped DMG".
 
@@ -395,8 +432,35 @@ def _iter_dmg_tree_scan_files(root: Path, unscanned: Optional[list] = None):
                 continue
             yield (p, size >= 500_000)
             continue
-        if unscanned is not None:
-            unscanned.append(p)
+        if suffix in _ARCHIVE_EXTS:
+            # 🔴 strings(1) CANNOT SEE INSIDE A COMPRESSED ARCHIVE. Deflated
+            # bytes carry no readable literal, so scanning a .zip as a binary
+            # returns a confident zero about a file whose contents were never
+            # examined. That is the exact false-zero shape this whole function
+            # exists to refuse, so an archive is EXPANDED and its members are
+            # scanned as files in their own right.
+            members = _expand_archive(p, depth)
+            if members is None:
+                if unscanned is not None:
+                    unscanned.append(p)      # could not expand: still honest
+                continue
+            for inner_root in members:
+                yield from _iter_dmg_tree_scan_files(inner_root, unscanned,
+                                                     depth=depth + 1)
+            continue
+        # ANY OTHER SUFFIX IS SCANNED, NOT SKIPPED. It used to be appended to
+        # `unscanned`, which was honest but fatal: the shipped .app carries 660
+        # files whose extensions are not on either list (.icns, .car, .svg,
+        # .example among them), so the operator-PII rows could never reach a
+        # verdict and the cut could never be built. An unknown extension is not
+        # evidence that a file is unreadable -- it is only evidence that nobody
+        # enumerated it. strings(1) reads any byte sequence, so the honest move
+        # is to READ it rather than to record that we did not.
+        #
+        # `unscanned` is deliberately NOT emptied of meaning by this. It still
+        # collects the files that genuinely cannot be read -- an archive that
+        # will not expand, above -- and one of those still poisons the row.
+        yield (p, True)
 
 
 # ---------------------------------------------------------------------------
