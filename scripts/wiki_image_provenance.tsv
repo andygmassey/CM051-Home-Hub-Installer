@@ -146,3 +146,34 @@ wiki-compiler	sha256:64debb2e220994e1ca07d2aaab5fdc68968db70411f33d8d203e17a511c
 wiki-site	sha256:77eee04f13b1e08e34be222847b363a2b2f09299e5a6afb1989351be29adcfab	8a7c1c3d9bd4f3f63178cdf5514fc07fe2cf7938
 wiki-compiler	sha256:a613f429fec8455f4244b18d5f9407dc8abb4bd019b3ea3b12a706233755b585	3bc0f3bbb0a58ca869bef2591ae215128e704997
 wiki-site	sha256:2287c37e9e74651576fd1e505cc7e2a5aef5352bbd66139fe323ae10a1049619	3bc0f3bbb0a58ca869bef2591ae215128e704997
+# v1.0.95 (2026-09-12/13 ORM): both images rebuilt arm64 by CM044 CI
+# (release-images.yml) from tag v0.1.32 = main HEAD 67fe4054, twelve commits
+# past the previously-pinned 3bc0f3bb (v0.1.31). Andy had asked repeatedly for
+# the decimal-hour ages fix; the twelve include it plus per-source status
+# icons, a duplicate nav entry removal, and the People/timeline + People/index
+# dated-list treatment (CM044 #275), the operator privacy/hide control (#124),
+# the Reply Debt wing (#120), and the Decisions+Commitments nav entry (#118).
+# v1.0.94 was tagged and never built on the stale 3bc0f3bb pin; rebuilt and
+# re-pinned rather than held, because a hold_ack here would have asserted
+# shipping_bugfixes_grafted = true while shipping none of them -- the pin gap
+# contained exactly the work Andy asked for.
+#
+# BOTH DIGESTS READ FROM CM044 CI's OWN "Print the digest to pin in CM051
+# install.sh" step (run 34713998954), which resolves via the full multi-type
+# Accept-header probe (#220) rather than the first digest a push prints, and
+# independently re-verified by a second instrument
+# (docker buildx imagetools inspect), both reading
+# application/vnd.oci.image.manifest.v1+json (a plain manifest, not an
+# index -- single-arch arm64 as required).
+#
+# The digest -> 67fe4054 binding was verified BY CONTENT before being
+# recorded, not taken from the CI job's claim: docker create + docker cp on
+# both new images, sha256 of the extracted file compared against
+# `git show 67fe4054:<path>` -- IDENTICAL for compiler/locale.py (carries the
+# new humanize_source_age() function, absent from the superseded image) and
+# mkdocs/overrides/stylesheets/extra.css (carries 12 pwg-settling-source-icon
+# rules, 0 in the superseded image). The superseded image's own extracted
+# files were cross-checked the same way against `git show 3bc0f3bb:<path>`
+# and also matched exactly, confirming the extraction method itself.
+wiki-compiler	sha256:d9b005cd5046dc194d088a2a90ead3586773aeee48a3328feacb66b8cfeead43	67fe40540cea040d41fa750455fafcba35cfdc55
+wiki-site	sha256:81a4bde3bacf33c2f7a92174b8e2051ca73ea62d1d23300766f6e8b96e0e6c1c	67fe40540cea040d41fa750455fafcba35cfdc55
