@@ -97,7 +97,7 @@ if [[ -n "${MPN:-}" && -n "${MSC:-}" ]]; then
   FAIL  box-walk-no-unexpected-egress                no Ostler-owned process may hold a connection outside the declared local boundary
         probe=no_unexpected_egress exit=1 stdout='VERDICT: FAIL -- 1 connection(s) attributable to Ostler reached an undeclared destination'
   FAIL  some-static-grep-row                         a row this parse cannot attribute to a probe
-        pattern 'BEGIN_FDA_TOKEN' matched in install.sh:412, which must not ship
+        pattern 'BEGIN_FDA_TOKEN' matched in install.sh:412, a static leak check unrelated to any probe
 
 === Summary: 1 PASS  2 FAIL  0 SKIP  0 CANNOT-RUN  (3 total) ===
 EOF
