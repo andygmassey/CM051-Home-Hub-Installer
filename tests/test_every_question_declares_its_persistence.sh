@@ -47,7 +47,15 @@ PERSISTED="USER_ID USER_NAME ASSISTANT_NAME USER_TZ COUNTRY_CODE
            CHANNEL_EMAIL_IMAP_HOST CHANNEL_EMAIL_SMTP_HOST CHANNEL_EMAIL_USERNAME"
 TRANSIENT="REUSE TZ_CONFIRM CC_CONFIRM RP_CONFIRM PERMS_OK ACK_PASSKEY
            IMPORT_CONFIRM TAKEOUT_CONFIRM FV_CONTINUE MANUAL_PATH CONSENT"
-SECRET="RECOVERY_PASSPHRASE CHANNEL_EMAIL_PASSWORD"
+SECRET="RECOVERY_PASSPHRASE CHANNEL_EMAIL_PASSWORD _DISNEY_XLSX_PASSWORD"
+#
+# _DISNEY_XLSX_PASSWORD (task #270 second pass, Andy's ruling "Installer
+# should ask"): a password for one Disney+ export's encrypted spreadsheet,
+# asked only when that export is detected. Never written to config/.env or
+# any other artefact -- it is exported as DISNEY_XLSX_PASSWORD for the one
+# Phase 3 import call that needs it and unset immediately after. A reuse run
+# is expected to ask again if the same encrypted export is still present;
+# there is nothing to restore.
 #
 # ⚠️ CONSENT WAS IN THIS LIST AND WAS WRONG. I put it here on the strength of
 # its NAME. Read: it resolves to INSTALL or CANCEL at install.sh:10102 and does

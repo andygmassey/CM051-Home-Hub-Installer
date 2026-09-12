@@ -11,7 +11,7 @@ from typing import AsyncIterator, Optional, Dict, Any, List
 from datetime import datetime
 import aiofiles
 
-from .base import BaseParser, ParsedPreference
+from .base import BaseParser, ParsedPreference, describe_json_parse_failure
 
 logger = logging.getLogger(__name__)
 
@@ -316,8 +316,8 @@ class DisneyPlusParser(BaseParser):
                         data = json.loads(content)
                         async for pref in self._parse_json_content(data, name_lower, default_compartment):
                             yield pref
-                    except json.JSONDecodeError:
-                        logger.warning(f"Failed to parse JSON: {name}")
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Failed to parse JSON from {name}: {describe_json_parse_failure(content, e)}")
 
                 elif name_lower.endswith('.csv'):
                     content = zf.read(name).decode('utf-8')
@@ -338,7 +338,7 @@ class DisneyPlusParser(BaseParser):
             async for pref in self._parse_json_content(data, file_path.name.lower(), default_compartment):
                 yield pref
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON: {e}")
+            logger.error(f"Failed to parse JSON from {file_path}: {describe_json_parse_failure(content, e)}")
 
     async def _parse_csv_file(
         self,

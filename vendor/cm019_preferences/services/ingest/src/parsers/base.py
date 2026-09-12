@@ -5,7 +5,49 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Dict, Any, AsyncIterator
 from pathlib import Path
+import json
 import uuid
+
+
+def describe_json_parse_failure(content: str, exc: "json.JSONDecodeError") -> str:
+    """Classify WHAT a parser was actually handed when json.loads() failed.
+
+    task #270 (CM051 install_error_honesty box-walk probe): a real customer
+    install logged the identical line "Failed to parse JSON: Expecting value:
+    line 1 column 1 (char 0)" nine times. That message is true of at least
+    three completely different situations -- a genuinely empty export file
+    (nothing in that category, not a failure), an HTML/XML error or redirect
+    page saved with a .json extension by an interrupted download, and a
+    download that stops mid-structure -- and gives a customer or a support
+    reader reading install.log no way to tell which one happened, or what to
+    do about it. "Nothing to import here" and "re-download this export" are
+    different instructions; json.JSONDecodeError's own text does not choose
+    between them.
+
+    Every ingest parser in this package reads a whole file into `content`
+    before calling json.loads(content), so this can always be handed the raw
+    text that failed to parse, not just the exception.
+    """
+    size = len(content.encode("utf-8", errors="replace"))
+    stripped = content.strip()
+
+    if not stripped:
+        return (f"empty file ({size} bytes) -- likely an export category "
+                f"with nothing in it, not a failure")
+
+    if stripped[0] == "<":
+        return (f"content starts with '<', not JSON -- looks like an "
+                f"HTML/XML page rather than export data ({size} bytes)")
+
+    # The parser stopped at, or within a couple of bytes of, the end of the
+    # content rather than at a specific wrong token part-way through: the
+    # file looks like it simply stops, which is what an interrupted
+    # download produces rather than a wrong-shaped export.
+    if exc.pos >= len(content.rstrip()) - 2:
+        return (f"JSON ends abruptly after {size} bytes ({exc}) -- the "
+                f"download may be incomplete")
+
+    return f"malformed JSON, {size} bytes ({exc})"
 
 
 @dataclass

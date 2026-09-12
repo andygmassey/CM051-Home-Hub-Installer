@@ -349,40 +349,32 @@ class WikidataClient(BaseClient[WikidataEntity]):
 
         Returns:
             JSON response or None on error
+
+        THIS USED TO BE A HAND-ROLLED httpx CALL THAT NEVER RETRIED. Every
+        other read on this client (search_entity, get_entity) goes through
+        _get -> _make_request, which retries a 5xx with exponential backoff
+        (see base.py). This method reimplemented a subset of that logic with
+        its own one-shot httpx.AsyncClient and returned None the first time
+        Wikidata answered 502 -- measured on a real install as a logged
+        "SPARQL error 502: <html>..." with no retry attempted, silently
+        dropping whatever hierarchy/type/detail lookup depended on the
+        answer. get_broader_concepts, get_related_topics, _fetch_types and
+        _fetch_detail all call this, so that one un-retried transient was a
+        real data-loss path, not just a noisy log line.
+
+        Fix: delegate to _make_request, which already retries 429 and 5xx,
+        tracks _errors/_last_transport_failure the same way every other
+        endpoint on this client does, and only needed a header override
+        (the SPARQL endpoint requires Accept: application/sparql-results+json
+        or it answers HTML) to be usable here -- see base.py's
+        _make_request(headers=...) parameter, added for this call site.
         """
-        import httpx
-
-        # Wait for rate limiter
-        async with self.rate_limiter:
-            try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    self._request_count += 1
-
-                    response = await client.get(
-                        self.SPARQL_URL,
-                        params={"query": query, "format": "json"},
-                        headers={
-                            "Accept": "application/sparql-results+json",
-                            "User-Agent": self._get_headers()["User-Agent"],
-                        },
-                    )
-
-                    if response.status_code == 429:
-                        # Rate limited - wait and indicate failure
-                        logger.warning("SPARQL endpoint rate limited")
-                        return None
-
-                    if response.status_code >= 400:
-                        logger.error(f"SPARQL error {response.status_code}: {response.text[:200]}")
-                        self._errors += 1
-                        return None
-
-                    return response.json()
-
-            except Exception as e:
-                logger.error(f"SPARQL query error: {e}")
-                self._errors += 1
-                return None
+        return await self._make_request(
+            "GET",
+            self.SPARQL_URL,
+            params={"query": query, "format": "json"},
+            headers={"Accept": "application/sparql-results+json"},
+        )
 
     async def normalize_topic(
         self,
