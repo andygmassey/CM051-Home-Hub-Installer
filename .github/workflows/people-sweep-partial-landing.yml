@@ -1,0 +1,100 @@
+# people-sweep-partial-landing -- a partial people-sweep delivery must be
+# reported as an error, and must not write a success sentinel.
+#
+# MEASURED on a real customer install, ten hours after it completed: the graph
+# held 8679 Person nodes, the Qdrant `people` collection held 8643 points, a
+# gap of 36 that stayed exactly 36. ingest_people_to_qdrant's only failure
+# guard was `sent == 0`; a partial landing (some points dropped for an empty
+# vector, or one chunk of several failing) fell through that guard and
+# returned "ok" carrying the smaller count, and install.sh only ever read the
+# process exit code -- 0, because the function catches its own exceptions --
+# to decide whether to write a success sentinel. The sentinel's own multi-day
+# freshness window then suppressed the retry that would otherwise have picked
+# the 36 back up.
+#
+# Two suites pin this: the Python one drives the real ingest_people_to_qdrant
+# with its network I/O stubbed; the shell one extracts the real hydrate_people
+# message + sentinel block out of install.sh and drives it directly, so
+# neither can pass against a copy of the logic.
+name: people-sweep-partial-landing
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'install.sh'
+      - 'tests/test_people_sweep_partial_landing_is_not_success.py'
+      - 'tests/test_people_hydrate_partial_landing_sentinel.sh'
+      - '.github/workflows/people-sweep-partial-landing.yml'
+  pull_request:
+    paths:
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'install.sh'
+      - 'tests/test_people_sweep_partial_landing_is_not_success.py'
+      - 'tests/test_people_hydrate_partial_landing_sentinel.sh'
+      - '.github/workflows/people-sweep-partial-landing.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same branch/PR. NEVER cancels main or a
+  # tag: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+jobs:
+  partial-landing-is-an-error:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # httpx is a RUNTIME dependency of pwg_ingest (imported at module
+      # scope), and pwg_ingest relatively imports identifier_quality, which
+      # imports nameparser. Missing either makes pytest exit 2 on COLLECTION,
+      # not a failing assertion -- an unimportable module, same as the
+      # sibling people-projection-prune.yml workflow.
+      - name: Install pytest and the module's runtime dependencies
+        run: python -m pip install --quiet pytest httpx nameparser
+      # THE FLOOR AND THE RUN ARE ONE STEP ON PURPOSE, same reasoning as
+      # people-projection-prune.yml: a floor in a separate step would skip
+      # this one when it failed, hiding the real result behind an earlier
+      # red, and pytest exits 5 on "collected 0 items" which `|| true` on the
+      # assignment below would otherwise mask entirely.
+      - name: A partial sweep is an error, not an ok, and never prunes
+        run: |
+          out="$(python -m pytest tests/test_people_sweep_partial_landing_is_not_success.py -q 2>&1)" || true
+          echo "$out"
+          n="$(printf '%s' "$out" | grep -cE '^[0-9]+ passed' )" || n=0
+          if [ "$n" -eq 0 ]; then
+            echo "::error::pytest reported no passing summary line -- the suite did not run"
+            exit 1
+          fi
+          got="$(printf '%s' "$out" | sed -nE 's/^([0-9]+) passed.*/\1/p' | head -1)"
+          if [ "${got:-0}" -lt 6 ]; then
+            echo "::error::expected at least 6 arms, saw ${got:-0}. An arm that stops"
+            echo "::error::matching does not fail, it DISAPPEARS -- a shrinking"
+            echo "::error::denominator is the only tell."
+            exit 1
+          fi
+          echo "arms passed: ${got}"
+
+  partial-landing-sentinel:
+    # macOS deliberately: install.sh ships and runs on macOS, and this test
+    # extracts and executes the REAL hydrate_people block out of it, using
+    # the same shell (/bin/bash) the cut host runs. Same reasoning as
+    # tests-unwired-sweep-mz.yml's shell-macos job.
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: A partial landing does not write a success sentinel
+        run: bash tests/test_people_hydrate_partial_landing_sentinel.sh

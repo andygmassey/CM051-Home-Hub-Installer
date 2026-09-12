@@ -29724,7 +29724,39 @@ except Exception:
     print(0)' 2>/dev/null
         )" || { _HYDRATE_PEOPLE_UNMEASURED=true; _HYDRATE_PEOPLE_SENT=""; }
         _HYDRATE_PEOPLE_SENT="${_HYDRATE_PEOPLE_SENT:-0}"
-        if [[ "$_HYDRATE_PEOPLE_SENT" -gt 0 ]]; then
+        # 'total' is how many Person nodes the sweep was ASKED to land.
+        # ingest_people_to_qdrant's own partial-landing guard reports it
+        # alongside 'sent' precisely so this comparison can be made again
+        # here: _qdrant_upsert_points already collapsed any dropped or
+        # chunk-failed points into a smaller 'sent' by the time this JSON
+        # is written, so 'total' is the only surviving record of what was
+        # asked for. Read as its own measurement rather than trusted via
+        # 'status', so a future drift in that string cannot silently
+        # disable the comparison below.
+        _HYDRATE_PEOPLE_TOTAL="$(
+            printf '%s' "$_HYDRATE_PEOPLE_JSON" \
+            | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(d.get("total", 0)))
+except Exception:
+    print(0)' 2>/dev/null
+        )" || { _HYDRATE_PEOPLE_UNMEASURED=true; _HYDRATE_PEOPLE_TOTAL=""; }
+        _HYDRATE_PEOPLE_TOTAL="${_HYDRATE_PEOPLE_TOTAL:-0}"
+        # A PARTIAL LANDING IS NOT DONE. sent > 0 used to be read as
+        # complete on its own; it is complete only when it also equals
+        # what the sweep was asked to land. MEASURED on a real customer
+        # install: sent=8643, total=8679, a gap of 36 that a week of
+        # daily re-runs never closed because nothing here compared the
+        # two numbers -- the success message and the success sentinel
+        # both fired on the smaller count alone.
+        _HYDRATE_PEOPLE_PARTIAL=false
+        if [[ "$_HYDRATE_PEOPLE_SENT" -gt 0 && "$_HYDRATE_PEOPLE_TOTAL" -gt "$_HYDRATE_PEOPLE_SENT" ]]; then
+            _HYDRATE_PEOPLE_PARTIAL=true
+        fi
+        if [[ "$_HYDRATE_PEOPLE_PARTIAL" == "true" ]]; then
+            warn "$(printf "$MSG_HYDRATE_PEOPLE_PARTIAL" "$_HYDRATE_PEOPLE_SENT" "$_HYDRATE_PEOPLE_TOTAL")"
+        elif [[ "$_HYDRATE_PEOPLE_SENT" -gt 0 ]]; then
             ok "$(printf "$MSG_HYDRATE_PEOPLE_DONE" "$_HYDRATE_PEOPLE_SENT")"
         else
             info "$MSG_HYDRATE_PEOPLE_SKIPPED_NO_DATA"
@@ -29743,6 +29775,30 @@ except Exception:
         # measurement. See the browsing call site for the full account.
         _hydrate_sentinel_record_error "people" "$_HYDRATE_PEOPLE_RC" \
             "sent=${_HYDRATE_PEOPLE_SENT:-unknown},collection_points=$(_hydrate_qdrant_points people)"
+    elif [[ ! ( "${_HYDRATE_PEOPLE_RC:-0}" -ne 0 ) ]] && [[ "${_HYDRATE_PEOPLE_PARTIAL:-false}" == "true" ]]; then
+        # THE GAP THE RC CHECK ABOVE CANNOT SEE ON ITS OWN. ingest_people_to_qdrant
+        # catches its own exceptions, so a run that landed only PART of
+        # the sweep still exits this python invocation at rc=0 -- the
+        # branch above never fires for it. That is exactly the shape
+        # measured on the customer's box: sent=8643, total=8679, rc=0,
+        # and a success sentinel that suppressed the retry for good. This
+        # is not a process failure, so rc is recorded as whatever it
+        # actually was rather than invented; 'reason' says what happened.
+        # The `rc` half of this guard is stated rather than left implicit
+        # in the elif fall-through, so it reads the same as every sibling
+        # error-recorder guard in this file: rc is still the first thing
+        # checked, and this only fires when it did NOT indicate a failure.
+        #
+        # NO `:-0` FALLBACK BELOW (#852 class). Both _HYDRATE_PEOPLE_RC and
+        # _HYDRATE_PEOPLE_SENT are unconditionally assigned earlier in THIS
+        # block before either branch of the outer if/elif is reached -- rc
+        # right after the python invocation, sent inside the same JSON-parse
+        # arm that set _HYDRATE_PEOPLE_PARTIAL=true -- so a `:-0` here would
+        # not be a real fallback, it would be a fabricated zero standing in
+        # for a measurement that was actually taken. `$_HYDRATE_PEOPLE_RC`
+        # bare matches how the sibling arm above calls the same recorder.
+        _hydrate_sentinel_record_error "people" "$_HYDRATE_PEOPLE_RC" \
+            "sent=${_HYDRATE_PEOPLE_SENT:-unknown},total=${_HYDRATE_PEOPLE_TOTAL:-unknown},reason=partial_landing"
     else
         # W012 class: reachable zero on the rc=0 arm. #852 fixed the
         # FABRICATED zero on the error arm; this is the honest zero on the
@@ -29762,6 +29818,7 @@ except Exception:
 
     unset _HYDRATE_PEOPLE_TIMED_OUT _HYDRATE_PEOPLE_JSON
     unset _HYDRATE_PEOPLE_RC _HYDRATE_PEOPLE_SENT _HYDRATE_PEOPLE_TIMEOUT_WRAP _HYDRATE_PEOPLE_LOG
+    unset _HYDRATE_PEOPLE_TOTAL _HYDRATE_PEOPLE_PARTIAL
 else
     info "$MSG_HYDRATE_PEOPLE_SKIPPED_FDA_PENDING"
 fi
