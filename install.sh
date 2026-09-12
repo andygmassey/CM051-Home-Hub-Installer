@@ -29075,17 +29075,49 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
     # must give 300. Those cannot both hold for any K > 0: 300 + 100K > 300.
     # The baseline reconciles them, makes the lower clamp mean something, and
     # keeps both stated acceptance cases true:
-    #     budget = clamp(300 + max(0, persons - 100) * K, 300, 1800)
+    #     budget = clamp(300 + max(0, persons - 100) * K, 300, 2700)
     #     persons=100  -> 300          persons=1800 -> 1490
+    #
+    # ⚠️ THE UPPER CLAMP ITSELF WAS PICKED AGAINST THE WRONG BOOK, AND A REAL
+    # INSTALL FOUND THE GAP. 1800 was chosen against the largest book this
+    # formula had ever been measured on -- about 1800 persons, the same
+    # number used for the margin case above. A customer's first install, on a
+    # real address book of about 8700 persons, asked this formula for
+    #     300 + (8700 - 100) * 7 / 10 = 6320 s
+    # and the 1800 s clamp handed it 1800 instead: killed at exactly the cap
+    # with under a third of that time run. A budget that scales and then hits
+    # a FLAT ceiling has the same defect the flat 300 s constant had, one
+    # level up -- it was never re-derived once a real book outgrew the
+    # assumption it was picked against.
+    #
+    # THE CHOICE, NOT JUST THE NUMBER. Raising the ceiling to fully cover an
+    # 8700-person book (6320 s, close to two hours) is the wrong fix on its
+    # own: that is a bad first-install experience and it may simply move the
+    # failure to a different timeout further down the line rather than
+    # remove it. This file already ships the other half of the answer: a
+    # pass that is killed here still gets handed to a background LaunchAgent
+    # (_install_dedupe_catchup_agent, installed a little further down this
+    # same block whenever the pass was killed or did not mark itself done)
+    # which finishes the fixpoint loop off the critical path and triggers a
+    # wiki recompile when it does -- proven on the same box this K was
+    # measured from. So the ceiling is raised only MODESTLY, to 2700 s, which
+    # matches the wait budget this product's own walk harness already treats
+    # as a reasonable patience limit for the identical kind of convergence
+    # (OSTLER_CONVERGE_WAIT_S). That covers an ordinary large book inline up
+    # to about 3500 persons -- roughly double the old ~2240-person ceiling --
+    # while a book the size of the one that found this gap still relies on
+    # the catch-up agent, exactly as that agent was built to.
     #
     # Integer arithmetic only: bash 3.2 has no floating point, so K is applied
     # as *7/10 rather than *0.7, and the division truncates, which errs toward
     # the smaller budget and never toward a longer install.
     #
     # THE ENV OVERRIDE STILL WINS, for the walk harness and for support.
-    # THE KILL AND ITS MARKER ARE UNTOUCHED: the fix is that on a real book the
-    # kill does not fire, NOT that it stops being recorded. A budget that is
-    # still exceeded must still leave the same durable evidence it does today.
+    # THE KILL AND ITS MARKER ARE UNTOUCHED: the fix is that on an ordinary
+    # book the kill does not fire, NOT that it stops being recorded. A budget
+    # that is still exceeded -- as it deliberately still is on the largest
+    # books -- must still leave the same durable evidence it does today, and
+    # still hand off to the same catch-up agent.
     _DEDUPE_PERSONS="$(_ostler_dedupe_person_count)"
     _DEDUPE_K_NUM=7    # K = 7/10 = 0.7 s per person, measured above
     _DEDUPE_K_DEN=10
@@ -29099,7 +29131,7 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
         _DEDUPE_BUDGET_DERIVED=300
     fi
     [[ "$_DEDUPE_BUDGET_DERIVED" -lt 300 ]]  && _DEDUPE_BUDGET_DERIVED=300
-    [[ "$_DEDUPE_BUDGET_DERIVED" -gt 1800 ]] && _DEDUPE_BUDGET_DERIVED=1800
+    [[ "$_DEDUPE_BUDGET_DERIVED" -gt 2700 ]] && _DEDUPE_BUDGET_DERIVED=2700
     _DEDUPE_BUDGET_S="${OSTLER_DEDUPE_INSTALL_BUDGET_S:-$_DEDUPE_BUDGET_DERIVED}"
     # On the STEP line, so the walk log carries the derivation and not just the
     # outcome. A budget without its inputs is a number nobody can audit later.

@@ -26,6 +26,21 @@
 # The implementation subtracts a baseline of 100 so both stated acceptance
 # cases hold, and both are asserted below as the brief wrote them.
 #
+# THE UPPER CLAMP ITSELF WAS THE NEXT DEFECT, AND THIS TEST NOW PINS THAT TOO.
+# 1800 was picked against the largest book this formula had ever been measured
+# on -- about 1800 persons. A customer's first install, on a real address book
+# of about 8700 persons, asked this formula for 300 + (8700-100)*7/10 = 6320 s
+# and the 1800 s clamp handed it 1800 instead: killed at exactly the cap with
+# under a third of that time run. Raising the ceiling to cover 6320 s inline
+# is the wrong fix (a two-hour install step, and it may just move the failure
+# to a different timeout), so the ceiling is raised only MODESTLY, to 2700 s --
+# matching OSTLER_CONVERGE_WAIT_S, the patience this product's own walk harness
+# already gives the identical kind of convergence elsewhere -- and the rest is
+# left to the background catch-up agent this file already installs whenever a
+# pass is killed (see tests/test_a_killed_converge_still_gets_its_catchup_agent.sh
+# for that half). 2700 s covers an ordinary large book inline up to about 3500
+# persons, roughly double the old ~2240-person ceiling.
+#
 # NO PIPE INTO grep -q: it SIGPIPEs the producer and under pipefail reports
 # failure for a pattern it found. Counted form only.
 # ============================================================================
@@ -112,9 +127,42 @@ b_small="$(derive 5 "" "$region")"
     || bad "a tiny book gave ${b_small}"
 
 b_huge="$(derive 99999 "" "$region")"
-[ "$b_huge" = "1800" ] \
-    && ok "an enormous book is capped at 1800s, so the install cannot hang for ever" \
-    || bad "a huge book gave ${b_huge}, expected the 1800 cap"
+[ "$b_huge" = "2700" ] \
+    && ok "an enormous book is capped at 2700s, so the install cannot hang for ever" \
+    || bad "a huge book gave ${b_huge}, expected the 2700 cap"
+
+# ---------------------------------------------------------------------------
+# THE DEFECT THAT WAS MEASURED: a book big enough to need the ceiling must not
+# get a budget SMALLER than the work K says it implies by more than the old,
+# too-small ceiling did. This is the arm that must fail against the ORIGINAL
+# 1800s ceiling and pass against the fix.
+# ---------------------------------------------------------------------------
+REAL_BOOK_PERSONS=8700
+IMPLIED_UNCAPPED=$(( 300 + (REAL_BOOK_PERSONS - 100) * 7 / 10 ))
+[ "$IMPLIED_UNCAPPED" -eq 6320 ] \
+    && ok "a book of ${REAL_BOOK_PERSONS} persons implies ${IMPLIED_UNCAPPED}s of work at the measured K, matching the confirmed defect" \
+    || bad "the implied-work arithmetic for ${REAL_BOOK_PERSONS} persons gave ${IMPLIED_UNCAPPED}, expected 6320 -- the arms below would mean nothing"
+
+b_real="$(derive "$REAL_BOOK_PERSONS" "" "$region")"
+if [ "$b_real" -gt 1800 ]; then
+    ok "a ${REAL_BOOK_PERSONS}-person book now gets ${b_real}s, more than the old 1800s ceiling that killed it at under a third of ${IMPLIED_UNCAPPED}s"
+else
+    bad "a ${REAL_BOOK_PERSONS}-person book got only ${b_real}s -- no more room than the defect that was measured"
+fi
+[ "$b_real" -eq 2700 ] \
+    && ok "and it is capped at the new 2700s ceiling, not the full ${IMPLIED_UNCAPPED}s -- the rest is the catch-up agent's job, not the install's" \
+    || bad "a ${REAL_BOOK_PERSONS}-person book gave ${b_real}s, expected the 2700s cap"
+
+# THE OTHER HALF: a book that is merely LARGE, not extreme, must not be
+# truncated at all -- it must get exactly what K implies, no shortfall. 3000
+# persons sits between the old ceiling's ~2240-person reach and the new one's
+# ~3500-person reach, so this is the arm the old ceiling could not pass.
+ORDINARY_LARGE_PERSONS=3000
+IMPLIED_ORDINARY=$(( 300 + (ORDINARY_LARGE_PERSONS - 100) * 7 / 10 ))
+b_ordinary="$(derive "$ORDINARY_LARGE_PERSONS" "" "$region")"
+[ "$b_ordinary" -eq "$IMPLIED_ORDINARY" ] \
+    && ok "an ordinary large book (${ORDINARY_LARGE_PERSONS} persons) gets its full ${IMPLIED_ORDINARY}s inline, no shortfall against the work K implies" \
+    || bad "an ordinary large book (${ORDINARY_LARGE_PERSONS} persons) got ${b_ordinary}s but K implies ${IMPLIED_ORDINARY}s -- the budget is smaller than the work it implies"
 
 b_unread="$(derive "" "" "$region")"
 [ "$b_unread" = "300" ] \
