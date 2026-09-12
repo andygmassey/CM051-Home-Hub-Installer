@@ -578,6 +578,7 @@ YML
 fi
 
 SHA="${1:-}"
-REPO="${2:-${GITHUB_REPOSITORY:-andygmassey/CM051-Home-Hub-Installer}}"
-[ -n "$SHA" ] || { red "usage: $0 <head-sha> [owner/repo]   or   $0 --self-test"; exit 2; }
+REPO="${2:-${GITHUB_REPOSITORY:-}}"
+[ -n "$SHA" ]  || { red "usage: $0 <head-sha> [owner/repo]   or   $0 --self-test"; exit 2; }
+[ -n "$REPO" ] || { red "CANNOT-RUN: no repo given and GITHUB_REPOSITORY is unset."; exit 2; }
 poll_and_decide "$SHA" "$REPO"
