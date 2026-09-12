@@ -275,12 +275,52 @@ open(p, "w").write(s)
 PY
 expect "a COMMENT naming codesign/notarytool is NOT a violation" 0 "$WF" "cannot write contents"
 
-# --- 11. CANNOT RUN is not a pass ------------------------------------------
+# --- 11. THE DEFECT: the push gate is widened with an OR --------------------
+# The substring `github.event_name == 'push'` is still there -- a plain
+# .search() over the `if:` line finds it and calls the job gated -- but the OR
+# means the job also runs on a dispatch. A gate reading the substring instead
+# of the boolean would report this CLEAN while `make -C gui ship` is
+# dispatch-reachable.
+WF="$(baseline or-widened)"
+python3 - "$WF" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read().replace(
+    "    if: github.event_name == 'push'\n",
+    "    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'\n", 1)
+open(p, "w").write(s)
+PY
+expect "an OR-widened push gate is a violation" 1 "$WF" "NOT gated on a tag push"
+
+# --- 12. THE DEFECT: a producing make target split by a line continuation ---
+# `run: make \` then `       ship` on the next physical line is ONE shell
+# command. SHIPPING_CAPABILITIES bounds its `make` pattern to `[^\n]*` so a
+# `make` on one line is never satisfied by an unrelated word many lines below
+# -- but the same bound made the regex blind to a command a backslash split
+# across two YAML lines. The step lands in dry-run, which is dispatch-only
+# with `permissions: contents: read`, so a gate that finds no capability here
+# calls it merely read-only rather than a shipping route.
+WF="$(baseline backslash-split)"
+python3 - "$WF" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read().replace(
+    "      - name: gates only\n        run: bash scripts/dry_run_cut_checks.sh\n",
+    "      - name: gates only\n        run: bash scripts/dry_run_cut_checks.sh\n"
+    "      - name: a quiet build helper\n"
+    "        run: |\n"
+    "          make \\\n"
+    "            ship\n")
+open(p, "w").write(s)
+PY
+expect "a make target split by a backslash continuation is a violation" 1 "$WF" "NOT gated on a tag push"
+
+# --- 13. CANNOT RUN is not a pass ------------------------------------------
 expect "a missing workflow is CANNOT RUN, not a pass" 2 "$WORK/nope/cut.yml"
 printf 'on: [push, workflow_dispatch]\njobs:\n  a:\n    runs-on: x\n' > "$WORK/inline.yml"
 expect "an inline 'on:' list is CANNOT RUN, not a pass" 2 "$WORK/inline.yml"
 
-# --- 12. THE LIVE ASSERTION ------------------------------------------------
+# --- 14. THE LIVE ASSERTION ------------------------------------------------
 expect "this repo's own .github/workflows/cut.yml is CLEAN" 0 "$LIVE"
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"

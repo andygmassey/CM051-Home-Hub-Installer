@@ -20,13 +20,19 @@
 # WHAT IT CHECKS, and the limit of it:
 #   1. PERMISSIONS_TOTAL equals the number of numbered lines actually printed.
 #      Cheap, exact, and catches the "bumped one, forgot the other" edit.
-#   2. Every TCC service string the SHIPPED TREE references is represented by a
-#      keyword in the printed list.
+#   2. Every TCC service string a hand-kept registry names is represented by a
+#      keyword in the printed list (five entries: FDA and the assistant's
+#      re-asks, none of which come from a plist).
+#   3. Every NS*UsageDescription key the SHIPPED gui/OstlerInstaller/Info.plist
+#      actually declares is represented by a keyword in the printed list. This
+#      one is DERIVED from the plist, not hand-kept, so a new permission key
+#      added to the plist and never mapped here is a FAIL, not a silent pass.
 #
-# Check 2 is the load-bearing one and it is deliberately keyword-based rather
-# than exact-match: the list is customer copy and must stay readable English,
-# so it says "Data from other apps", not "kTCCServiceSystemPolicyAppData".
-# The mapping between the two lives here, visibly, instead of in someone's head.
+# Checks 2 and 3 are the load-bearing ones and both are deliberately
+# keyword-based rather than exact-match: the list is customer copy and must
+# stay readable English, so it says "Data from other apps", not
+# "kTCCServiceSystemPolicyAppData". The mapping between the two lives here,
+# visibly, instead of in someone's head.
 set -uo pipefail
 
 ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -130,6 +136,69 @@ check_prompt "kTCCServiceSystemPolicyDownloadsFolder" "installer" "Downloads"   
 check_prompt "kTCCServiceSystemPolicyDownloadsFolder" "assistant" "Downloads"        yes
 check_prompt "kTCCServiceSystemPolicyDocumentsFolder" "assistant" "Documents"        yes
 check_prompt "kTCCServiceSystemPolicyAppData"         "assistant" "other apps"       yes
+
+# ---------------------------------------------------------------------------
+# THIS WOULD BE THE THIRD RECURRENCE OF THE SAME SHAPE. The five check_prompt
+# calls above are hand-kept, exactly like the tree-scanning worklist this file
+# replaced on 2026-08-20 was hand-kept -- a fixed list someone has to remember
+# to extend. Measured 2026-09-12: the shipped installer's own Info.plist
+# declares EIGHT distinct NS*UsageDescription keys -- each one a live TCC
+# prompt the customer can see -- and the five calls above account for at most
+# three of them (Downloads and Documents, both via a DIFFERENT naming scheme,
+# the older System-Policy folder services). Contacts, Calendar, Reminders,
+# Desktop and Photos have no row above at all.
+#
+# So the worklist below is no longer typed out by hand: it is READ from the
+# plist that actually ships. A key present in the plist and absent from
+# keyword_for_key() is not skipped, it is a FAIL that names the exact key --
+# the one shape a hand-kept list can never produce, because a hand-kept list
+# does not know what it forgot.
+# ---------------------------------------------------------------------------
+PLIST="$ROOT/gui/OstlerInstaller/Info.plist"
+[[ -r "$PLIST" ]] || { echo "CANNOT: Info.plist not readable at $PLIST"; exit 2; }
+
+declared_keys="$(grep -oE '<key>NS[A-Za-z]+UsageDescription</key>' "$PLIST" \
+    | sed -E 's#</?key>##g' | sort -u)"
+[[ -n "$declared_keys" ]] || { echo "CANNOT: no NS*UsageDescription keys found in $PLIST"; exit 2; }
+
+# key -> "keyword|needs_assistant". One entry per usage-description key the
+# INSTALLER'S OWN bundle can declare. `needs_assistant` is "no" for every row
+# here because each of these keys belongs to the installer's identity, not
+# the assistant's -- the assistant's own re-asks are the five hand-kept
+# checks above, which this loop does not duplicate or replace.
+#
+# Extend this on the SAME PR that adds a new NS*UsageDescription key to
+# gui/OstlerInstaller/Info.plist, never after. A key with no case here falls
+# through to the `*)` arm below and fails loudly, by name.
+keyword_for_key() {
+    case "$1" in
+        NSContactsUsageDescription)             printf 'Contacts|no' ;;
+        NSCalendarsFullAccessUsageDescription)  printf 'Calendar|no' ;;
+        NSRemindersFullAccessUsageDescription)  printf 'Reminders|no' ;;
+        NSDesktopFolderUsageDescription)        printf 'Desktop|no' ;;
+        NSDocumentsFolderUsageDescription)      printf 'Documents|no' ;;
+        NSDownloadsFolderUsageDescription)      printf 'Downloads|no' ;;
+        NSAppleEventsUsageDescription)          printf 'Messages automation|no' ;;
+        NSPhotoLibraryUsageDescription)         printf 'Photos|no' ;;
+        *)                                       printf '' ;;
+    esac
+}
+
+while IFS= read -r key; do
+    [[ -n "$key" ]] || continue
+    mapping="$(keyword_for_key "$key")"
+    if [[ -z "$mapping" ]]; then
+        printf '  [FAIL] %-42s is declared in Info.plist with NO mapping in this file.\n' "$key"
+        printf '         Every NS*UsageDescription key the shipped app declares is a live\n'
+        printf '         TCC prompt the customer will see. Add it to keyword_for_key() AND\n'
+        printf '         a row to the printed list in install.sh before this can go green.\n'
+        FAIL=$((FAIL+1))
+        continue
+    fi
+    keyword="${mapping%%|*}"
+    needs_assistant="${mapping##*|}"
+    check_prompt "$key" "installer" "$keyword" "$needs_assistant"
+done <<< "$declared_keys"
 
 echo
 [[ $FAIL -eq 0 ]] || { echo "REFUSING: the permission briefing does not describe what the install does."; exit 1; }

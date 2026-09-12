@@ -370,6 +370,66 @@ def test_grep_in_dmg_tree_strings_pass_on_binary(fake_cm051, fake_app):
     assert r.returncode == 1, r.stdout
 
 
+def test_grep_in_dmg_tree_catches_pii_in_compiled_pyc(fake_cm051, fake_app):
+    """A verbatim literal baked into a vendored .pyc must be caught.
+
+    Before _COMPILED_EXTS existed, `.pyc` was in neither _TEXT_EXTS nor the
+    extensionless branch, so _iter_dmg_tree_scan_files never yielded it at
+    all: not read as text, not run through strings(1), not counted as
+    unscanned. hits stayed 0 and must_match=False turned that into a PASS --
+    a leak compiled into a vendored .pyc reading as a clean cut.
+    """
+    vendored = fake_app / "Contents" / "Resources" / "identity_resolver" / "__pycache__"
+    vendored.mkdir(parents=True)
+    # Not valid bytecode -- doesn't need to be. strings(1) reads whatever
+    # printable bytes are in the file, exactly as it would a real compiled
+    # marshal stream carrying a string constant.
+    (vendored / "compartment.cpython-311.pyc").write_bytes(
+        b"\xf3\r\r\n\x00\x00\x00\x00fake marshal header connect to gamingrig for sync\x00"
+    )
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [_PII_ABSENCE_ENTRY])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "compartment.cpython-311.pyc" in r.stdout
+
+
+def test_grep_in_dmg_tree_unrecognised_extension_is_cannot_run_not_pass(fake_cm051, fake_app):
+    """A file whose extension is neither text nor a known compiled type, with
+    the pattern found nowhere else, must report CANNOT-RUN -- never PASS.
+
+    hits=0 with a file that was never opened is not a finding about the
+    artefact: it is a finding about what this scan looked at. Manufacturing a
+    PASS here is the exact failure CouldNotMeasure exists to prevent, just
+    reached through the enumerator instead of through a read error.
+    """
+    mystery = fake_app / "Contents" / "Resources" / "weird.xyz123"
+    mystery.write_bytes(b"nothing interesting here")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [_PII_ABSENCE_ENTRY])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "CANNOT-RUN" in r.stdout
+    assert "weird.xyz123" in r.stdout
+    assert "never opened" in r.stdout
+
+
+def test_grep_in_dmg_tree_unrecognised_extension_does_not_mask_a_real_hit(fake_cm051, fake_app):
+    """An unscanned file must not swallow a genuine hit found elsewhere: the
+    CANNOT-RUN path is scoped to hits==0 only, so a real leak still FAILs
+    loudly rather than being softened to CANNOT-RUN."""
+    mystery = fake_app / "Contents" / "Resources" / "weird.xyz123"
+    mystery.write_bytes(b"nothing interesting here")
+    leaking = fake_app / "Contents" / "Resources" / "leak.py"
+    leaking.write_text("# talks to gamingrig directly\n")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [_PII_ABSENCE_ENTRY])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "leak.py" in r.stdout
+    assert "CANNOT-RUN" not in r.stdout
+
+
 def test_grep_in_dmg_tree_scans_source_install_sh_without_build(fake_cm051, tmp_path):
     """Even with no built app, absence is proven against the source install.sh."""
     (fake_cm051 / "install.sh").write_text(

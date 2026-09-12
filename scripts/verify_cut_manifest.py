@@ -225,6 +225,20 @@ _TEXT_EXTS = {".sh", ".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".yaml", ".ym
               ".toml", ".md", ".txt", ".html", ".css", ".xml", ".plist", ".rs",
               ".swift", ".conf", ".ini", ".env"}
 
+# Compiled artefacts. A verbatim literal (a hostname, an email, an IP) baked
+# into source survives compilation, and strings(1) reads it straight back out
+# -- the same primitive already used for the large extensionless Mach-O case
+# below. Before this set existed, none of these suffixes were in _TEXT_EXTS,
+# none matched the extensionless branch, and _iter_dmg_tree_scan_files simply
+# never yielded them: not scanned as text, not scanned as binary, not counted,
+# not named. A leak compiled into a vendored .pyc read as CLEAN for the exact
+# reason CouldNotMeasure exists to prevent -- a file nobody opened produced a
+# zero that the must_match=False arm turned into a PASS.
+#
+# Extend this set before ever routing a new compiled/executable suffix out of
+# _TEXT_EXTS: an omission here is silent, not loud.
+_COMPILED_EXTS = {".pyc", ".dylib", ".so", ".a", ".o", ".node", ".wasm"}
+
 
 class CouldNotMeasure(Exception):
     """A scan that did not complete. NEVER convert this back into a count.
@@ -329,16 +343,28 @@ def _is_gate_definition_file(p: Path) -> bool:
     return False
 
 
-def _iter_dmg_tree_scan_files(root: Path):
+def _iter_dmg_tree_scan_files(root: Path, unscanned: Optional[list] = None):
     """Yield (path, use_strings) for every file under `root` worth scanning for
     operator-PII, faithful to "anywhere in the shipped DMG".
 
     - Text-extension files and small (<500KB) extensionless files are read as
       text (`use_strings=False`).
-    - Large (>=500KB) extensionless files are Mach-O-shaped binaries; they are
-      scanned via strings(1) (`use_strings=True`) so verbatim Rust/Swift-literal
-      PII compiled into a binary is still caught.
+    - Compiled-extension files (`_COMPILED_EXTS`: .pyc, .dylib, .so, .a, .o,
+      .node, .wasm) and large (>=500KB) extensionless files are binary-shaped;
+      they are scanned via strings(1) (`use_strings=True`) so a verbatim
+      Rust/Swift/Python-literal carrying PII survives compilation and is still
+      caught.
     - The gate's own pattern-definition files are skipped.
+
+    Any OTHER suffix -- one this function does not recognise as text, as a
+    known compiled type, or as extensionless -- is not yielded, exactly as
+    before. The difference is that it is no longer INVISIBLE: if `unscanned`
+    is given, the path is appended to it. 🔴 A suffix silently missing from
+    both _TEXT_EXTS and _COMPILED_EXTS used to mean the file was never opened,
+    never counted, and no line said so -- an unreadable-but-real file producing
+    the exact same zero as a genuinely clean tree. The caller decides what a
+    non-empty `unscanned` means for its verdict; this function's only job is to
+    never let that count go unrecorded.
 
     NOTE (documented limitation): Tauri packs the daemon's web/dist COMPRESSED
     inside its main binary, so neither a text read nor strings(1) can reach
@@ -359,12 +385,18 @@ def _iter_dmg_tree_scan_files(root: Path):
         if suffix in _TEXT_EXTS:
             yield (p, False)
             continue
+        if suffix in _COMPILED_EXTS:
+            yield (p, True)
+            continue
         if suffix == "":
             try:
                 size = p.stat().st_size
             except OSError:
                 continue
             yield (p, size >= 500_000)
+            continue
+        if unscanned is not None:
+            unscanned.append(p)
 
 
 # ---------------------------------------------------------------------------
@@ -569,9 +601,10 @@ def check_grep_in_dmg_tree(entry: dict, ctx: dict) -> Result:
     total = 0
     exempted = 0
     hit_paths: list[str] = []
+    unscanned: list[Path] = []
     seen: set[Path] = set()
     for root in roots:
-        for path, use_strings in _iter_dmg_tree_scan_files(root):
+        for path, use_strings in _iter_dmg_tree_scan_files(root, unscanned):
             rp = path.resolve()
             if rp in seen:
                 continue
@@ -593,6 +626,23 @@ def check_grep_in_dmg_tree(entry: dict, ctx: dict) -> Result:
                 continue
             total += n
             hit_paths.append(str(path))
+
+    # A file with an unrecognised suffix was never opened. That is silent and
+    # safe ONLY while it cannot change the verdict -- i.e. only while `total`
+    # is already positive on the side that means "found it". The moment the
+    # decision rests on total == 0, an unscanned file makes that a conclusion
+    # about the files we looked at, not about the artefact: CANNOT-RUN, never
+    # a manufactured PASS (must_match=False) or FAIL (must_match=True) either
+    # way, because the missing evidence could have flipped it.
+    if unscanned and total == 0:
+        shown = [str(p) for p in unscanned[:8]]
+        more = f" (+{len(unscanned) - len(shown)} more)" if len(unscanned) > len(shown) else ""
+        return Result(
+            entry["id"], entry["title"], "grep_in_dmg_tree", "CANNOT-RUN",
+            f"{len(unscanned)} file(s) carry an extension this scan does not recognise "
+            f"and were never opened: {', '.join(shown)}{more} -- hits=0 is not a finding "
+            f"about this artefact while part of the tree went unlooked-at.",
+            entry.get("source_pr", ""))
 
     ok = (total > 0) if must_match else (total == 0)
     status = "PASS" if ok else "FAIL"

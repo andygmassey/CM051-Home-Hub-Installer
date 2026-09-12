@@ -94,6 +94,40 @@ SHIPPING_CAPABILITIES = [
 PUSH_GATE = re.compile(r"github\.event_name\s*==\s*['\"]push['\"]")
 CONTENTS_WRITE = re.compile(r"contents:\s*write|permissions:\s*write-all")
 
+# A backslash immediately before a newline, GitHub-Actions-YAML style, is a
+# shell line continuation: the two physical lines are ONE logical command.
+# SHIPPING_CAPABILITIES bounds its `make` pattern to `[^\n]*` on purpose (so a
+# `make` on one line can never be satisfied by an unrelated `release` many
+# lines later in the same job body), but that same bound made it BLIND to
+#     run: make \
+#            ship
+# which is one command split across two YAML lines. Undo exactly that split,
+# and nothing else, before the capability regex ever runs.
+LINE_CONTINUATION = re.compile(r"\\\r?\n[ \t]*")
+
+
+def join_line_continuations(text):
+    return LINE_CONTINUATION.sub(" ", text)
+
+
+def is_safely_push_gated(if_line):
+    """True only if this `if:` line CANNOT be satisfied by any event other
+    than a tag push.
+
+    A plain substring search on `github.event_name == 'push'` is not enough:
+    it is satisfied by
+
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+
+    which is TRUE on a dispatch -- the substring is present, the boolean is
+    not push-only. Reject any `if:` containing a top-level `||`: an OR can
+    only ever widen what the condition accepts, never narrow it, so its mere
+    presence alongside the push check means the check no longer bounds the
+    condition. An `&&` is safe by construction -- it can only narrow -- so it
+    is not checked for here.
+    """
+    return "||" not in if_line and bool(PUSH_GATE.search(if_line))
+
 
 def read_lines(path):
     with open(path, "r", encoding="utf-8") as fh:
@@ -242,12 +276,12 @@ def main(argv):
 
     for job_name, job_i in job_keys:
         body = child_lines(jobs_block, job_i, 2)
-        text = "\n".join(strip_full_line_comments(body))
+        text = join_line_continuations("\n".join(strip_full_line_comments(body)))
 
         gated = False
         perms = None
         for k, ki in keys_at(body, 4):
-            if k == "if" and PUSH_GATE.search(body[ki]):
+            if k == "if" and is_safely_push_gated(body[ki]):
                 gated = True
             if k == "permissions":
                 perms = "\n".join([body[ki]] + child_lines(body, ki, 4))
@@ -269,7 +303,7 @@ def main(argv):
                                     "this gate did not look inside it."
                                     % (job_name, rel, exc))
                     continue
-                for what in capabilities_in("\n".join(sub)):
+                for what in capabilities_in(join_line_continuations("\n".join(sub))):
                     found.append("%s (in %s)" % (what, rel))
 
         if found:
