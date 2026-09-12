@@ -429,6 +429,43 @@ arm_unknown_arms_is_cannot_run() {      # 12
     return 0
 }
 
+# ── #two-probes-that-cannot-pass-on-a-real-box, PROBLEM ONE ────────────────
+#
+# DECISION: two credential schemes are correct (install.sh #1594: "the wiki is
+# a browser surface, so the credential is HTTP Basic rather than a bearer").
+# The probe already presents a DIFFERENT credential per surface KIND (arms 2
+# and 5 above each prove ONE kind in isolation), but nothing before this arm
+# ever ran two DIFFERENT kinds in the SAME invocation -- which is exactly the
+# shape of the real SURFACES default (store ports and the wiki port measured
+# together on every real walk). A regression that collapsed credential lookup
+# to one kind for every surface -- the shape the walk record described, the
+# wiki refusing the store's own bearer/api-key credential -- would pass every
+# existing arm here, because every existing arm asks only one kind at a time.
+arm_mixed_kinds_use_their_own_credential() {   # 13
+    local out rc http_store http_wiki pid_store
+    start_server auth "" "$API_KEY"                 # plays the STORE kind
+    http_store="$HTTP"; pid_store="$LAST_SERVER_PID"
+    start_server auth "ostler:${GOOD_PW}" ""         # plays the WIKI kind: a DIFFERENT credential
+    http_wiki="$HTTP"
+    out="$(run_probe "$1" "$CTRL" "${http_store}:store:/collections ${http_wiki}:wiki:/" \
+                      "$TMP/wiki_password" "$TMP/store-curl.conf")"; rc=$?; LAST_OUT="$out"
+    kill "$pid_store" 2>/dev/null; wait "$pid_store" 2>/dev/null
+    stop_server
+    [[ "$rc" -eq 0 ]] || return 1
+    [[ "$(count 'VERDICT: PASS' "$out")" -eq 1 ]] || return 1
+    # Both surfaces measured, both served -- each by the credential fixture
+    # that matches ITS OWN kind. Either fake server would answer 401 to the
+    # OTHER surface's credential (the api-key means nothing to the wiki
+    # fixture and the Basic header means nothing to the store fixture), so a
+    # PASS here is only reachable if the probe read the credential that
+    # matches each port's declared kind.
+    [[ "$(count "${http_store}" "$out")" -ge 1 ]] || return 1
+    [[ "$(count "${http_wiki}" "$out")" -ge 1 ]] || return 1
+    [[ "$(count 'refused the install' "$out")" -eq 0 ]] || return 1
+    [[ "$(count 'served by these Ostler surfaces' "$out")" -eq 0 ]] || return 1
+    return 0
+}
+
 report() {   # $1 name, $2 rc of the arm
     if [[ "$2" -eq 0 ]]; then
         printf '  [pass] %s\n' "$1"; pass=$((pass + 1))
@@ -461,6 +498,7 @@ fi
 arm_arm1_only_refuse_all_is_pass "$PROBE";  report "10 OSTLER_PROBE_ARMS=1: refuses everyone -> PASS that SAYS arm 2 was not run" $?
 arm_arm1_only_bare_is_fail "$PROBE";        report "11 OSTLER_PROBE_ARMS=1: answers bare -> still FAIL" $?
 arm_unknown_arms_is_cannot_run "$PROBE";    report "12 OSTLER_PROBE_ARMS=bogus -> CANNOT-RUN, never a guess" $?
+arm_mixed_kinds_use_their_own_credential "$PROBE"; report "13 store AND wiki together, each with its OWN credential -> PASS (no cross-kind wiring)" $?
 
 # ---------------------------------------------------------------------------
 # Mutants. The probe sources ../lib/probe.sh relative to its own directory, so
@@ -505,6 +543,13 @@ run_mutant M2-arm2-stops-recording-a-refused-credential arm_refuse_all_is_fail \
 # shellcheck disable=SC2016
 run_mutant M3-a-5xx-reads-as-not-serving arm_500_is_cannot_run \
     's/^            2??|3??|4??) printf '"'"'readable\\n'"'"' ;;$/            2??|3??|4??) printf '"'"'readable\\n'"'"' ;; 5??) printf '"'"'notserving\\n'"'"' ;;/'
+# M4 reproduces the exact shape the real walk record described: the wiki
+# surface presented with the STORE's credential instead of its own. Targets
+# _prelude_for's wiki branch, the one line that names WIKI_PASSWORD_FILE as
+# the credential source rather than merely checking for its existence.
+# shellcheck disable=SC2016
+run_mutant M4-wiki-kind-presents-the-store-credential arm_mixed_kinds_use_their_own_credential \
+    's/"\$WIKI_PASSWORD_FILE" ;;/"\$STORE_CURL_CONF" ;;/'
 
 echo ""
 echo "== ${pass} passed, ${fail} failed, ${cannot} cannot-run =="

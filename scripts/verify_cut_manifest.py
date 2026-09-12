@@ -959,6 +959,142 @@ GIT_GREP_TIMEOUT_SECONDS = 60
 # probe with headroom.
 BOX_WALK_PROBE_TIMEOUT_SECONDS = int(os.environ.get("OSTLER_BOX_WALK_PROBE_TIMEOUT_SECONDS", "600"))
 
+# ── people_count_agreement's CAP IS PER-PROBE, AND IT SCALES WITH THE BOOK ──
+#
+# MEASURED: the customer's address book is about 8700 people. The flat
+# BOX_WALK_PROBE_TIMEOUT_SECONDS above was sized for the largest book ever
+# walked, about 1800 people, and people_count_agreement was reported
+# CANNOT-RUN -- "exceeded BOX_WALK_PROBE_TIMEOUT_SECONDS" -- against the real
+# book. Same failure the 180s cap hit on assistant_answers_grounded above:
+# an instrument error standing in for a diagnosis.
+#
+# THE PROBE'S OWN COST DRIVER, READ FROM scripts/box_walk_probes/probes/
+# people_count_agreement.sh RATHER THAN GUESSED: the probe does two O(1) count
+# queries (an Oxigraph SPARQL COUNT and a Doctor hydration-status GET), so its
+# own arithmetic does not grow with the book. What DOES grow with the book is
+# _await_converge(): when the install-time dedupe was killed at its own budget
+# (install.sh, OSTLER_DEDUPE_INSTALL_BUDGET_S), this probe waits up to
+# CONVERGE_WAIT_S (default 1800s) for the background ostler-dedupe-catchup
+# LaunchAgent to write dedupe-converge.done before it will trust either count.
+# That catch-up is the IDENTICAL identity-resolver convergence install.sh
+# already measured, so this reuses install.sh's own K rather than inventing a
+# second one: "THE BUDGET SCALES WITH THE ADDRESS BOOK, AND K IS MEASURED"
+# measured 1822 persons converging in 919s (0.504 s/person) and applied a
+# 1.5x margin to reach K = 0.7 s/person = 7/10, integer arithmetic only.
+#
+# install.sh caps the IN-BAND pass on purpose (#1927 raised that clamp from
+# 1800s to 2700s -- still a flat ceiling, still saturated by a book big
+# enough), so the customer is never held at the console; it hands anything
+# left to the uncapped background catch-up. For a book past ~3500 people that
+# in-band cap is already saturated (300 + (3500-100)*7/10 = 2680, near the
+# 2700 clamp), so the catch-up this probe waits on is doing real work for a
+# book like the customer's (8700), and this probe's own fixed
+# CONVERGE_WAIT_S(1800)+STABILITY_WAIT_S(300s) budget cannot see it finish.
+#
+# So the floor below (2200s) is CONVERGE_WAIT_S(1800) + STABILITY_WAIT_S(300)
+# + a 100s margin for the ingest-quiet wait and the two queries themselves --
+# the probe's own worst case for ANY book at or under the baseline this cap
+# was last known to fit (1800 people, per the walk history above). Past that
+# baseline the SAME K extends the wait by the same formula shape install.sh
+# uses (a baseline-relative clamp, never a bare multiply):
+#
+#     budget(persons) = clamp(2200 + max(0, persons - 1800) * 7/10, 2200, 9000)
+#     persons=1800  -> 2200 (floor, matches the largest book ever walked)
+#     persons=8700  -> 2200 + 6900*7/10 = 7030s (~117 min)
+#
+# The 9000s (2.5h) ceiling is a hard stop: a walk still running past that on
+# any book size is itself the finding, not a bigger number to reach for.
+#
+# AN UNREADABLE COUNT TAKES THE FLOOR, never a guess in the generous
+# direction -- same rule install.sh's own _ostler_dedupe_person_count follows
+# (install.sh: "It NEVER prints 0 as a stand-in for 'could not ask'"): a count
+# this gate could not read must not silently buy a longer timeout while
+# looking like a measurement.
+PEOPLE_COUNT_AGREEMENT_TIMEOUT_BASELINE_PERSONS = 1800
+PEOPLE_COUNT_AGREEMENT_TIMEOUT_FLOOR_SECONDS = 2200
+# THE ENV OVERRIDE STILL WINS, for the walk harness and for support -- same
+# rule install.sh states for its own converge budget, same reason: a box that
+# needs longer than the ceiling below must be raisable without a code change.
+PEOPLE_COUNT_AGREEMENT_TIMEOUT_CEILING_SECONDS = int(
+    os.environ.get("OSTLER_BOX_WALK_PEOPLE_COUNT_TIMEOUT_CEILING", "9000")
+)
+PEOPLE_COUNT_AGREEMENT_TIMEOUT_K_NUM = 7   # K = 7/10 = 0.7 s/person, install.sh's own measured K
+PEOPLE_COUNT_AGREEMENT_TIMEOUT_K_DEN = 10
+
+# The SPARQL predicate this reads is the SAME UNION the probe itself counts
+# with (people_count_agreement.sh), so a disagreement between this budget
+# input and the probe's own measurement means something rather than being two
+# unrelated guesses at the same graph.
+_PEOPLE_COUNT_QUERY = (
+    "SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { "
+    "{ ?p a <https://schema.ostler.ai/ontology#Person> } "
+    "UNION { ?p a <http://xmlns.com/foaf/0.1/Person> } }"
+)
+
+
+def _people_count_agreement_timeout_seconds(persons: Optional[int]) -> int:
+    """The per-probe timeout for people_count_agreement, scaled by population.
+
+    A pure function on purpose: the self-test below drives the formula
+    directly, with no ssh and no clock, the same way classify() in the shell
+    probe is self-tested apart from its sensors.
+    """
+    _explicit = os.environ.get("OSTLER_BOX_WALK_PEOPLE_COUNT_TIMEOUT_SECONDS", "")
+    if _explicit.strip().isdigit():
+        return int(_explicit)
+    baseline = PEOPLE_COUNT_AGREEMENT_TIMEOUT_BASELINE_PERSONS
+    floor_s = PEOPLE_COUNT_AGREEMENT_TIMEOUT_FLOOR_SECONDS
+    if persons is None or not isinstance(persons, int) or persons <= baseline:
+        derived = floor_s
+    else:
+        derived = floor_s + (
+            (persons - baseline)
+            * PEOPLE_COUNT_AGREEMENT_TIMEOUT_K_NUM
+            // PEOPLE_COUNT_AGREEMENT_TIMEOUT_K_DEN
+        )
+    return max(floor_s, min(derived, PEOPLE_COUNT_AGREEMENT_TIMEOUT_CEILING_SECONDS))
+
+
+def _people_count_for_timeout(cm051_dir: Path) -> Optional[int]:
+    """Best-effort person count, to SIZE the timeout above -- never a verdict.
+
+    Reads the same store credential and asks the same question
+    people_count_agreement.sh's own count_oxigraph() does, over the same
+    transport probe.sh's box_run() uses (ssh when OSTLER_BOX_HOST is set,
+    a local login shell otherwise). Any failure -- unreachable box, no
+    credential, an unparseable reply -- returns None, and the caller takes
+    the floor rather than guessing a population.
+    """
+    host = os.environ.get("OSTLER_BOX_HOST", "")
+    ssh_timeout = os.environ.get("OSTLER_SSH_TIMEOUT", "8")
+    store_conf = os.environ.get(
+        "OSTLER_PROBE_STORE_CURL_CONF", "$HOME/.ostler/secrets/store-curl.conf"
+    )
+    remote_cmd = (
+        "conf=\"{conf}\"; k=\"\"; "
+        "[ -r \"$conf\" ] 2>/dev/null && k=\"-K $conf\"; "
+        "curl -sS --noproxy '*' -m 10 -G $k 'http://127.0.0.1:7878/query' "
+        "--data-urlencode 'query={query}' -H 'Accept: application/sparql-results+json'"
+    ).format(conf=store_conf, query=_PEOPLE_COUNT_QUERY)
+    try:
+        if host:
+            proc = subprocess.run(
+                ["ssh", "-o", f"ConnectTimeout={ssh_timeout}", "-o", "BatchMode=yes",
+                 host, remote_cmd],
+                capture_output=True, check=False, timeout=20,
+            )
+        else:
+            proc = subprocess.run(
+                ["/bin/bash", "-lc", remote_cmd],
+                capture_output=True, check=False, timeout=20,
+            )
+        data = json.loads(proc.stdout.decode("utf-8", "replace"))
+        n = data["results"]["bindings"][0]["n"]["value"]
+        return int(n)
+    except Exception:
+        return None
+
+
 # The box-walk probes' CANNOT-RUN exit code. This is NOT a number invented here:
 # scripts/box_walk_probes/run_box_walk.sh:44 declares `EX_CANNOT_RUN=78` and 13
 # of the 17 registered probes exit with it when a prerequisite is unreadable.
@@ -1172,11 +1308,21 @@ def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
             detail += f" reason={why[:200]!r}"
         return Result(entry["id"], entry["title"], "box_walk_probe", status, detail,
                       entry.get("source_pr", ""))
+    # THE CAP IS PER-PROBE FOR people_count_agreement, AND IT SCALES WITH THE
+    # BOOK. Every other probe still takes the flat BOX_WALK_PROBE_TIMEOUT_SECONDS
+    # above -- "until the cap is per-probe" is no longer true for this one, and
+    # it is the one it was measured false against: 8700 real people, timed out
+    # at the flat 600s cap sized for the largest book ever walked (~1800).
+    _timeout_s = BOX_WALK_PROBE_TIMEOUT_SECONDS
+    _timeout_persons: Optional[int] = None
+    if probe == "people_count_agreement":
+        _timeout_persons = _people_count_for_timeout(cm051_dir)
+        _timeout_s = _people_count_agreement_timeout_seconds(_timeout_persons)
     try:
         result = subprocess.run(
             ["/bin/bash", str(script)],
             capture_output=True, check=False,
-            timeout=BOX_WALK_PROBE_TIMEOUT_SECONDS,
+            timeout=_timeout_s,
         )
     except subprocess.TimeoutExpired:
         # A TIMEOUT IS CANNOT-RUN, NOT A FAILURE, AND THE DIFFERENCE IS NOT
@@ -1190,12 +1336,24 @@ def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
         #
         # A probe that drives a real conversation over a websocket against a
         # local model is legitimately slow. The cap is right for a probe that
-        # greps a file and wrong for that one. Until the cap is per-probe, the
-        # least this can do is refuse to call the result a failure.
+        # greps a file and wrong for that one. people_count_agreement is the
+        # other shape: not slow because it talks to a model, slow because it
+        # waits on a convergence whose cost is measured in install.sh, so its
+        # cap is derived above rather than raised by hand.
         #
         # CANNOT-RUN is already a first-class status here: it is rendered,
         # counted separately, and excluded from the "ran" denominator. This arm
         # simply never used it.
+        if probe == "people_count_agreement":
+            return Result(entry["id"], entry["title"], "box_walk_probe", "CANNOT-RUN",
+                          f"probe {probe!r} exceeded its population-scaled timeout of "
+                          f"{_timeout_s}s (persons="
+                          f"{_timeout_persons if _timeout_persons is not None else 'unreadable, floor applied'}"
+                          f") and was killed. NOTHING was measured: this is not a failing "
+                          f"probe, it is an unrun one. Re-run it directly with no cap, or "
+                          f"raise OSTLER_BOX_WALK_PEOPLE_COUNT_TIMEOUT_CEILING, to get its "
+                          f"verdict.",
+                          entry.get("source_pr", ""))
         return Result(entry["id"], entry["title"], "box_walk_probe", "CANNOT-RUN",
                       f"probe {probe!r} exceeded BOX_WALK_PROBE_TIMEOUT_SECONDS="
                       f"{BOX_WALK_PROBE_TIMEOUT_SECONDS}s and was killed. NOTHING was "
