@@ -35,6 +35,7 @@ test_a_gui_uninstall_needs_its_decoder_cases.sh	WIRED	.github/workflows/uninstal
 test_a_jq_index_read_cannot_return_the_string_null.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_a_killed_converge_still_gets_its_catchup_agent.sh	WIRED	.github/workflows/killed-converge-gets-its-catchup.yml
 test_a_loopback_probe_must_not_ask_a_proxy.sh	WIRED	.github/workflows/colima-autostart.yml
+test_a_manual_brew_tarball_must_target_a_branch_that_still_exists.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_a_missing_tarball_is_not_a_network_problem.sh	WIRED	.github/workflows/download-urls-resolve.yml
 test_a_name_grep_cannot_see_a_dead_definition.py	WIRED	.github/workflows/cut-manifest.yml
 test_a_named_log_must_outlive_the_message.sh	WIRED	.github/workflows/install-diagnostics-durable.yml
