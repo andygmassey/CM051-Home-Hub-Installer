@@ -74,6 +74,14 @@ on:
       # A4 graded a flag the installer sets by design and A6 read every log on
       # the box; both stood red behind the A7 footer for three records.
       - 'scripts/tests/test_acceptance_gate_grades_what_it_names.sh'
+      # daemon_is_listening.sh and the_recovery_key_reached_the_customer.sh
+      # each drove their self-test through a LOCAL copy of the decision logic
+      # rather than the code run_probe actually calls: a regression in the
+      # real chain left the negative control byte-identical. BOTH are
+      # triggers, or an edit to either is dark on self-edit.
+      - 'scripts/tests/test_a_probes_self_test_must_drive_its_own_decision.sh'
+      - 'scripts/box_walk_probes/probes/daemon_is_listening.sh'
+      - 'scripts/box_walk_probes/probes/the_recovery_key_reached_the_customer.sh'
       # The replay reads the box after the walk's forgets; the walk recompiles first.
       - 'tests/test_the_replay_reads_the_box_the_probes_read.sh'
       - 'scripts/box_walk_probes/lib/wiki_summaries_wait.sh'
@@ -191,6 +199,27 @@ jobs:
         # same job SKIPS this step, and a skipped test reports nothing at all.
         if: always()
         run: /bin/bash scripts/tests/test_wiki_digest_pin_assertion.sh
+
+      # daemon_is_listening.sh and the_recovery_key_reached_the_customer.sh
+      # each defined a local decision function inside self_test (classify,
+      # _decide) and drove fixtures through THAT, while run_probe's real
+      # adjudication was a separately written if/case chain reaching
+      # probe_pass/probe_fail/probe_cannot_run directly and never called
+      # either function. A regression that turned a real FAIL into a PASS
+      # left the self-test byte-identical -- measured directly against the
+      # pre-fix files: mutating the named v1.0.31 and v1.0.68 FAIL calls into
+      # PASS left both self-tests reporting "ok" (rc=1, no BROKEN).
+      #
+      # Both probes now share ONE decision function between run_probe and
+      # self_test. This proves the coupling by mutating that function (the
+      # same named-incident FAIL -> PASS) and requiring the self-test to go
+      # BROKEN, using run_box_walk.sh's own phase-1 predicate.
+      #
+      # if: always() -- ci-maskless (#1695): a red earlier in the job must not
+      # skip the one check that would catch this class of regression.
+      - name: A probe's self-test must drive its own decision, not a copy
+        if: always()
+        run: /bin/bash scripts/tests/test_a_probes_self_test_must_drive_its_own_decision.sh
 
       # v1.0.87: A4 asserted three pairing flags agree on an unpaired box, which
       # no correctly installed box satisfies (the installer seeds the admin

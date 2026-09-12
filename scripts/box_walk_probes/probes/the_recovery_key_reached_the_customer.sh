@@ -79,6 +79,32 @@ TRANSCRIPT='$HOME/.ostler/logs/install.log'
 _DISCLOSE_GUI='RECOVERY_KEY value='
 _DISCLOSE_TTY='Your recovery key:'
 
+# _decide -- THE ONE DECISION FUNCTION, used by run_probe AND self_test.
+#
+# 🔴 UNTIL THIS FIX, self_test drove its OWN local _decide, and run_probe's
+# real adjudication was a separately written chain of `if` statements reaching
+# probe_pass/probe_fail/probe_cannot_run directly. The two never touched. A
+# regression that flipped run_probe's real chain left the self-test output
+# byte identical, because the negative control never executed that code. See
+# tests/test_a_probes_self_test_must_drive_its_own_decision.sh, which mutates
+# this function and requires the self-test to go BROKEN.
+#
+# _decide <delta> <markers-seen> <has-block> -> verdict word:
+#   pass-not-applicable        no recovery block on this box
+#   cannot-run-skip            keychain predates this run by more than 60s
+#   cannot-run-ambiguous       keychain predates this run by 6-60s (retry window)
+#   pass-disclosed             this run minted the key and disclosed it
+#   fail-minted-not-disclosed  this run minted the key and did NOT disclose it
+_decide() {
+    # $1 delta, $2 markers seen, $3 has-block -> the verdict word
+    _d="$1"; _s="$2"; _b="$3"
+    [ "$_b" = "NOBLOCK" ] && { printf 'pass-not-applicable'; return; }
+    [ "$_d" -lt -60 ] && { printf 'cannot-run-skip'; return; }
+    [ "$_d" -lt -5 ]  && { printf 'cannot-run-ambiguous'; return; }
+    [ "$_s" -gt 0 ] && { printf 'pass-disclosed'; return; }
+    printf 'fail-minted-not-disclosed'
+}
+
 run_probe() {
     box_reachable || probe_cannot_run "box ${OSTLER_BOX_HOST:-<local>} is not reachable over ssh. Nothing was inspected, and that is not a pass."
 
@@ -158,33 +184,42 @@ print('BLOCK' if 'recovery_encrypted_key' in d else 'NOBLOCK')
     # So the window is split rather than widened or narrowed. Beyond -60 the
     # keychain is plainly older and the run plainly skipped. Inside it the
     # probe does not know, and saying so is the only honest verdict available.
-    if [ "$_delta" -lt -60 ]; then
-        probe_cannot_run "THE KEYCHAIN PREDATES THIS RUN by $(( -_delta )) second(s), so this install took install.sh's already-configured skip and could not have disclosed anything -- demanding that it had would be demanding a key nobody knows. THIS RUN'S code is not implicated and no verdict is offered on it. ⚠️ BUT THE BOX MAY BE STRANDED: the key was minted by an EARLIER run, and if THAT run never disclosed it, nothing ever will -- the keychain persists and every later run skips. Read the earlier transcript if one survives; ostler-recovery cannot succeed here otherwise. (disclosure markers in this run's transcript: gui=${_gui} tty=${_tty})"
-    fi
-
-    if [ "$_delta" -lt -5 ]; then
-        probe_cannot_run "THE KEYCHAIN IS ${_delta}s OLDER THAN THIS RUN, which is more than clock and parse granularity can explain and less than a confident skip. A keychain a run wrote itself cannot predate it, so this one came from somewhere else -- most likely an install in the previous minute, which is exactly what a walk retry or a double-click produces. This probe CANNOT tell a run that minted-and-missed from a run that correctly skipped a key disclosed moments ago, and guessing would put a red on a box where the customer HAS the key. (disclosure markers in this run: gui=${_gui} tty=${_tty}; searched ${_lines} lines)"
-    fi
-
-    if [ "$_seen" -gt 0 ]; then
-        probe_pass "this run MINTED the recovery block (keychain written ${_delta}s after the run began) AND disclosed it: ${_gui} structured marker(s) and ${_tty} rendered line(s) in ${_lines} transcript lines. No key value was read or compared."
-    fi
-
-    probe_fail "🔴 THIS RUN CREATED recovery_encrypted_key AND NEVER DISCLOSED THE KEY. The keychain was written ${_delta}s after this run began, so this is the minting run and it was the only run that could ever hand the key over: the key is deliberately never stored, the keychain IS, and every later install takes the already-configured skip and emits nothing. Searched ${_lines} transcript lines and found 0 structured markers and 0 rendered lines. ostler-recovery ships on this box and can never succeed for it. This is the v1.0.68 defect (#1540) and it is customer-permanent, not a papercut."
+    #
+    # 🔴 THIS DISPATCH NOW CALLS _decide, THE SAME FUNCTION self_test DRIVES.
+    # It used to be written out here as its own if-chain, a second copy of the
+    # logic self_test exercised in isolation, so a regression to THIS chain
+    # (for instance flipping the `-gt 0` on disclosure count) left the
+    # self-test's verdict untouched. See tests/... mutation guard.
+    _verdict="$(_decide "$_delta" "$_seen" "$_has_block")"
+    case "$_verdict" in
+        cannot-run-skip)
+            probe_cannot_run "THE KEYCHAIN PREDATES THIS RUN by $(( -_delta )) second(s), so this install took install.sh's already-configured skip and could not have disclosed anything -- demanding that it had would be demanding a key nobody knows. THIS RUN'S code is not implicated and no verdict is offered on it. ⚠️ BUT THE BOX MAY BE STRANDED: the key was minted by an EARLIER run, and if THAT run never disclosed it, nothing ever will -- the keychain persists and every later run skips. Read the earlier transcript if one survives; ostler-recovery cannot succeed here otherwise. (disclosure markers in this run's transcript: gui=${_gui} tty=${_tty})"
+            ;;
+        cannot-run-ambiguous)
+            probe_cannot_run "THE KEYCHAIN IS ${_delta}s OLDER THAN THIS RUN, which is more than clock and parse granularity can explain and less than a confident skip. A keychain a run wrote itself cannot predate it, so this one came from somewhere else -- most likely an install in the previous minute, which is exactly what a walk retry or a double-click produces. This probe CANNOT tell a run that minted-and-missed from a run that correctly skipped a key disclosed moments ago, and guessing would put a red on a box where the customer HAS the key. (disclosure markers in this run: gui=${_gui} tty=${_tty}; searched ${_lines} lines)"
+            ;;
+        pass-disclosed)
+            probe_pass "this run MINTED the recovery block (keychain written ${_delta}s after the run began) AND disclosed it: ${_gui} structured marker(s) and ${_tty} rendered line(s) in ${_lines} transcript lines. No key value was read or compared."
+            ;;
+        fail-minted-not-disclosed)
+            probe_fail "🔴 THIS RUN CREATED recovery_encrypted_key AND NEVER DISCLOSED THE KEY. The keychain was written ${_delta}s after this run began, so this is the minting run and it was the only run that could ever hand the key over: the key is deliberately never stored, the keychain IS, and every later install takes the already-configured skip and emits nothing. Searched ${_lines} transcript lines and found 0 structured markers and 0 rendered lines. ostler-recovery ships on this box and can never succeed for it. This is the v1.0.68 defect (#1540) and it is customer-permanent, not a papercut."
+            ;;
+        *)
+            probe_cannot_run "internal: _decide returned an unrecognised verdict '${_verdict}' for delta=${_delta} seen=${_seen} block=${_has_block}. Nothing was adjudicated."
+            ;;
+    esac
 }
 
 self_test() {
     # Drives the DECISION, not the box. Four arms over the three states plus the
     # one that must not collapse into another.
-    _decide() {
-        # $1 delta, $2 markers seen, $3 has-block -> the verdict word
-        _d="$1"; _s="$2"; _b="$3"
-        [ "$_b" = "NOBLOCK" ] && { printf 'pass-not-applicable'; return; }
-        [ "$_d" -lt -60 ] && { printf 'cannot-run-skip'; return; }
-        [ "$_d" -lt -5 ]  && { printf 'cannot-run-ambiguous'; return; }
-        [ "$_s" -gt 0 ] && { printf 'pass-disclosed'; return; }
-        printf 'fail-minted-not-disclosed'
-    }
+    #
+    # 🔴 _decide IS DEFINED ONCE, ABOVE run_probe, AND SHARED. This function
+    # used to define its own local copy here, so a regression to run_probe's
+    # separately-written if-chain left this self-test's output byte identical.
+    # run_probe now calls this exact function to adjudicate a live box; a
+    # mutation to it breaks BOTH in the same commit. See
+    # tests/test_a_probes_self_test_must_drive_its_own_decision.sh.
     fails=0
     _t() { got="$(_decide "$1" "$2" "$3")"; if [ "$got" = "$4" ]; then printf 'arm OK: delta=%s seen=%s block=%s -> %s\n' "$1" "$2" "$3" "$got"; else printf 'arm BROKEN: delta=%s seen=%s block=%s -> %s, wanted %s\n' "$1" "$2" "$3" "$got" "$4"; fails=$((fails+1)); fi; }
 

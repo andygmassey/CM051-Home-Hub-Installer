@@ -58,9 +58,38 @@ cat > "${WORK}/stub.sh" <<'STUB'
 _fake_box() {
     local cmd="$1"
     local mode; mode="$(cat "${STUB_MODE}")"
+
+    # A1/A3 UNREACHABLE-SIMULATION OVERRIDES, checked BEFORE the common
+    # healthy defaults below. These two modes each make ONE specific probe's
+    # target unreachable while everything else stays on its healthy answer;
+    # the common block's own BINLS_OK/http_code defaults would otherwise mask
+    # exactly the fixture this finding needs.
+    case "${mode}" in
+        a1_app_missing)
+            case "${cmd}" in
+                *BINLS_OK*)
+                    printf 'BINLS_ERR\nls: /Applications/Ostler.app/Contents/MacOS/: No such file or directory\n'
+                    return 0 ;;
+            esac
+            ;;
+        a3_daemon_unreachable)
+            # Scoped to the three A3 routes ONLY, so A2's frontpage http_code
+            # check is untouched and this fixture isolates the one finding.
+            case "${cmd}" in
+                *pause*|*resume*|*governor-status*)
+                    case "${cmd}" in
+                        *content_type*) echo ""; return 0 ;;
+                        *http_code*)    echo 000; return 0 ;;
+                    esac
+                    ;;
+            esac
+            ;;
+    esac
+
     # Common, healthy answers for everything A4 and A6 do not grade.
     case "${cmd}" in
         *"echo ok"*)   echo ok; return 0 ;;
+        *BINLS_OK*)    printf 'BINLS_OK\nostler-assistant\n'; return 0 ;;
         *http_code*)   echo 200; return 0 ;;
         *frontpage*)   echo '{"id":"welcome-1"}'; return 0 ;;
         *launchctl*)   echo __A8_OK__; return 0 ;;
@@ -74,6 +103,29 @@ _fake_box() {
                 *"Link audit"*)         echo "0 0 0 0" ;;         # no compile found anything
                 *wiki-*)                echo 0 ;;                 # the wiki logs are clean
                 *"400 Bad Request"*)    echo 1 ;;                 # ONE 400, in a non-wiki log
+                *found=0*)              echo 0 ;;
+                *)                      echo "" ;;
+            esac ;;
+        a1_app_missing)
+            # Everything ELSE is healthy -- the ls override above is the only
+            # unreachable surface, so a red anywhere but A1 would mean this
+            # fixture leaked into a check it was not built to move.
+            case "${cmd}" in
+                */health*)              echo '{"companion_paired":false,"paired":false,"token_paired":true}' ;;
+                *sqlite3*)              echo 0 ;;
+                *"Link audit"*)         echo "0 0 0 0" ;;
+                *wiki-*)                echo 0 ;;
+                *found=0*)              echo 0 ;;
+                *)                      echo "" ;;
+            esac ;;
+        a3_daemon_unreachable)
+            # Everything ELSE is healthy -- the three A3 routes above are the
+            # only unreachable surface.
+            case "${cmd}" in
+                */health*)              echo '{"companion_paired":false,"paired":false,"token_paired":true}' ;;
+                *sqlite3*)              echo 0 ;;
+                *"Link audit"*)         echo "0 0 0 0" ;;
+                *wiki-*)                echo 0 ;;
                 *found=0*)              echo 0 ;;
                 *)                      echo "" ;;
             esac ;;
@@ -290,6 +342,57 @@ if grep -qE '  CANT  A4 ' "${WORK}/out.txt" && grep -q 'pairing disabled' "${WOR
     ok "require_pairing=false renders A4 as could-not-run and says the registry does not exist"
 else
     bad "require_pairing=false rendered as '$(row A4)' without naming the disabled registry"
+fi
+
+echo "== A1: an app that is not where this probe expects is could-not-run, not clean =="
+# 🔴 THE FIRST OF TWO CHECKS THAT USED TO PASS WHEN THEIR SUBJECT WAS NEVER
+# REACHED. `ls` discarded its own stderr, so an unlisted /Applications path
+# and a directory that genuinely listed nothing produced the SAME empty
+# string, and `grep -c` on that empty string is 0 -- PASS, with an empty
+# binary name. This fixture makes the ls fail exactly as it would off a box
+# that never received the app; A1 must not report clean on it.
+rc="$(run_gate a1_app_missing)"
+if grep -qE '  CANT  A1 ' "${WORK}/out.txt"; then
+    ok "an unlistable /Applications/Ostler.app renders A1 as could-not-run"
+else
+    bad "an unlistable /Applications/Ostler.app rendered A1 as '$(row A1)', not CANT -- the exact defect this test guards"
+fi
+if grep -qE '  PASS  A1 ' "${WORK}/out.txt"; then
+    bad "CONTROL FAILED: A1 still reports PASS when the app was never reached"
+else
+    ok "CONTROL: A1 does not report PASS on an unreached app"
+fi
+
+echo "== A3: a wholly unreachable daemon is could-not-run, not 'all routes valid' =="
+# 🔴 THE SECOND. curl prints http_code=000 and an empty content_type on a
+# connection failure, the same shape as a route that answers neither
+# '200 text/html' (the defect) nor anything else this check flags. A daemon
+# that is not there for these three routes left a3_bad empty and this printed
+# "all probed /api routes return JSON or 404" having reached NOTHING. A3 must
+# not report clean on it, independent of whatever an adjacent check (A2) also
+# does with the same fixture.
+rc="$(run_gate a3_daemon_unreachable)"
+if grep -qE '  CANT  A3 ' "${WORK}/out.txt"; then
+    ok "three unreachable /api routes render A3 as could-not-run"
+else
+    bad "three unreachable /api routes rendered A3 as '$(row A3)', not CANT -- the exact defect this test guards"
+fi
+if grep -qE '  PASS  A3 ' "${WORK}/out.txt"; then
+    bad "CONTROL FAILED: A3 still reports PASS -- 'all probed /api routes return valid responses' -- when nothing answered"
+else
+    ok "CONTROL: A3 does not report PASS when its routes were never reached"
+fi
+a3_line="$(grep -E '  CANT  A3 ' "${WORK}/out.txt" -A1 | tail -1)"
+# A COUNT, not a chained '||' of 'grep -q' calls: three short-circuiting
+# consumers in one condition line reads to a pipefail scanner as a pipe into
+# grep -q (the '||' itself contains a '|' immediately before 'grep'), which
+# is exactly the shape tests/test_pipefail_shortcircuit_inversion.sh exists
+# to catch. One grep -c over an alternation has no pipe adjacent to a
+# short-circuiting consumer at all.
+if [ "$(grep -cE 'pause|resume|governor-status' <<< "${a3_line}")" -gt 0 ]; then
+    ok "A3's could-not-run evidence names which route(s) never answered"
+else
+    bad "A3's could-not-run evidence does not name the unreached route(s): '${a3_line}'"
 fi
 
 echo "== SOURCE: the baked-in diagnosis and the all-logs A6 reads are gone =="

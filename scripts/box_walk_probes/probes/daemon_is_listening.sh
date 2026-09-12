@@ -101,6 +101,106 @@ config_loads() {
     box_run "\"${DAEMON_BIN}\" --config-dir \"${CONFIG_DIR}\" config list >/dev/null 2>\$TMPDIR/ostler_probe_cfg.err && echo OK || (grep -m1 -E '^Error|missing field' \$TMPDIR/ostler_probe_cfg.err 2>/dev/null || echo 'FAILED (no error line captured)')"
 }
 
+# _daemon_classify -- THE ONE DECISION FUNCTION, used by run_probe AND self_test.
+#
+# 🔴 UNTIL THIS FIX, self_test drove its OWN local `classify()`, and run_probe's
+# real adjudication was a separately written chain of `if`/`case` reaching
+# probe_pass/probe_fail/probe_cannot_run directly. The two never touched. A
+# regression that flipped run_probe's real chain -- for instance turning a FAIL
+# into a PASS -- left the self-test output byte identical, because the
+# negative control never executed that code. See tests/... mutation guard.
+#
+# This function IS the adjudication now. run_probe gathers the signals and
+# calls it; self_test calls it too, with synthetic signals. A mutation to the
+# logic below breaks BOTH in the same commit.
+#
+# _daemon_classify <signals> <lsof_readable> <listening> <config-answer> <port-http>
+# Echoes one of:
+#   PASS
+#   CANNOT-RUN-NOSIGNAL       neither lsof nor launchctl answered
+#   CANNOT-RUN-PORT-UNREADABLE  lsof's own enumeration errored
+#   CANNOT-RUN-FOREIGN        port answers but this account owns no listener
+#   FAIL-PARSE-THEN-DIE       config loads, nothing listening
+#   FAIL-V1031                the v1.0.31 deserialise shape
+#   FAIL-CONFIG-ERROR         daemon names a different config error
+#   FAIL-CONFIG-UNKNOWN       not listening, config check gave no usable answer
+_daemon_classify() {
+    local signals="$1" lsof_readable="$2" listening="$3" cfg="$4" http="${5:-000}"
+
+    # 🔴 THIS USED TO REQUIRE **BOTH** SIGNALS TO BE MISSING, and that
+    # conjunction is what turned a permission boundary into a product FAIL on
+    # the v1.0.66 artefact walk. launchctl answered happily (loaded,
+    # last_exit=0), so `signals` was non-zero, this arm was skipped, and the
+    # run fell through to a FAIL that named a defect nobody had. **The honest
+    # verdict was one branch away and an AND closed it.**
+    #
+    # The two signals answer DIFFERENT questions -- "is a socket bound" and
+    # "is the job loaded" -- so a second signal cannot stand in for the first.
+    # An unreadable port enumeration is disqualifying ON ITS OWN.
+    if [ "${signals:-0}" -eq 0 ]; then
+        echo CANNOT-RUN-NOSIGNAL
+        return
+    fi
+    if [ "${lsof_readable:-0}" -eq 0 ]; then
+        echo CANNOT-RUN-PORT-UNREADABLE
+        return
+    fi
+
+    if [ "${listening:-0}" -gt 0 ]; then
+        # A bound socket is the end-state assertion. Nothing else is needed.
+        echo PASS
+        return
+    fi
+
+    # ── IS THE PORT EMPTY, OR MERELY NOT OURS? ───────────────────────────
+    #
+    # 🔴 MEASURED 2026-09-04 on the v1.0.66 artefact walk. This probe reported
+    #
+    #     FAIL -- config loads cleanly but NOTHING is listening on :8000
+    #             (launchd last_exit=0). The daemon is failing after config parse.
+    #
+    # and every word of the diagnosis was wrong. Something WAS listening:
+    #
+    #     curl --noproxy '*' http://127.0.0.1:8000/  ->  HTTP 200
+    #     ps  ->  andy 20075 ostler-assistant   (a DIFFERENT ACCOUNT's Hub,
+    #                                            running since the day before)
+    #     archie's own daemon log: 27x "Address already in use (os error 48)"
+    #                              and ZERO successful binds
+    #
+    # `lsof` ran as the walked account and could not see another user's socket,
+    # so it returned 0, and this probe read that PERMISSION BOUNDARY as
+    # ABSENCE -- then blamed the product for a port collision it did not cause.
+    # Ten sibling probes failed downstream of the same fact.
+    #
+    # A foreign occupant is not a product defect and it is not a clean port.
+    # It is CANNOT-RUN: we could not measure OUR daemon, because we could not
+    # get at the port to ask. Reporting FAIL there is the accusation form of a
+    # false green, and it is exactly what "print remote_ip, do not trust an
+    # enumeration you are not privileged to make" exists to prevent.
+    case "${http:-000}" in
+        000|"")
+            : ;;   # genuinely nothing there -- fall through and adjudicate
+        *)
+            echo CANNOT-RUN-FOREIGN
+            return
+            ;;
+    esac
+
+    # Not listening, and nothing else answered either. Now find out WHETHER IT
+    # IS THE v1.0.31 SHAPE, because "not listening" during a still-running
+    # install is very different from "cannot parse its own config".
+    case "$cfg" in
+        OK)
+            echo FAIL-PARSE-THEN-DIE ;;
+        *"missing field"*|*"deserialize"*)
+            echo FAIL-V1031 ;;
+        *Error*|*FAILED*)
+            echo FAIL-CONFIG-ERROR ;;
+        *)
+            echo FAIL-CONFIG-UNKNOWN ;;
+    esac
+}
+
 run_probe() {
     if ! box_reachable; then
         probe_cannot_run "cannot reach box ${OSTLER_BOX_HOST:-(local)} over ssh; nothing inspected"
@@ -132,82 +232,44 @@ run_probe() {
     [ -n "$status" ] && signals=$((signals + 1))
     probe_examined "$signals" "of 2 daemon liveness signals readable"
 
-    # 🔴 THIS GUARD USED TO REQUIRE **BOTH** SIGNALS TO BE MISSING, and that
-    # conjunction is what turned a permission boundary into a product FAIL on
-    # the v1.0.66 artefact walk. launchctl answered happily (loaded,
-    # last_exit=0), so `signals` was non-zero, this arm was skipped, and the
-    # run fell through to a FAIL that named a defect nobody had. **The honest
-    # verdict was one branch away and an AND closed it.**
-    #
-    # The two signals answer DIFFERENT questions -- "is a socket bound" and
-    # "is the job loaded" -- so a second signal cannot stand in for the first.
-    # An unreadable port enumeration is disqualifying ON ITS OWN.
-    if [ "$signals" -eq 0 ]; then
-        probe_cannot_run "neither lsof nor launchctl returned anything; cannot tell a stopped daemon from an unreadable box"
-    fi
-    if [ "$lsof_readable" -eq 0 ]; then
-        probe_cannot_run "the port enumeration ERRORED (lsof wrote to stderr) and was therefore never made. On a shared Mac that is normally a socket owned by ANOTHER ACCOUNT, which this user may not see. launchctl answering is not a substitute: it says the job is loaded, not that a socket is bound. Nothing about :${GATEWAY_PORT} was measured."
-    fi
-
-    if [ "${listening:-0}" -gt 0 ]; then
-        # A bound socket is the end-state assertion. Nothing else is needed.
-        probe_pass "Hub gateway is listening on :${GATEWAY_PORT} (launchd pid ${pid:-unknown})"
-    fi
-
-    # ── IS THE PORT EMPTY, OR MERELY NOT OURS? ───────────────────────────
-    #
-    # 🔴 MEASURED 2026-09-04 on the v1.0.66 artefact walk. This probe reported
-    #
-    #     FAIL -- config loads cleanly but NOTHING is listening on :8000
-    #             (launchd last_exit=0). The daemon is failing after config parse.
-    #
-    # and every word of the diagnosis was wrong. Something WAS listening:
-    #
-    #     curl --noproxy '*' http://127.0.0.1:8000/  ->  HTTP 200
-    #     ps  ->  andy 20075 ostler-assistant   (a DIFFERENT ACCOUNT's Hub,
-    #                                            running since the day before)
-    #     archie's own daemon log: 27x "Address already in use (os error 48)"
-    #                              and ZERO successful binds
-    #
-    # `lsof` ran as the walked account and could not see another user's socket,
-    # so it returned 0, and this probe read that PERMISSION BOUNDARY as
-    # ABSENCE -- then blamed the product for a port collision it did not cause.
-    # Ten sibling probes failed downstream of the same fact.
-    #
-    # A foreign occupant is not a product defect and it is not a clean port.
-    # It is CANNOT-RUN: we could not measure OUR daemon, because we could not
-    # get at the port to ask. Reporting FAIL there is the accusation form of a
-    # false green, and it is exactly what "print remote_ip, do not trust an
-    # enumeration you are not privileged to make" exists to prevent.
-    local answered refusals
+    # Gathered UNCONDITIONALLY (not lazily short-circuited past this point) so
+    # that _daemon_classify -- the SAME function self_test drives -- always
+    # receives real values for every parameter. The alternative (fetch these
+    # only when the earlier signals leave the outcome undecided) would mean
+    # run_probe and self_test call the function with differently-shaped inputs
+    # depending on the branch, which is exactly the kind of divergence that let
+    # the old copy rot unnoticed. The extra curl/grep/config-list calls this
+    # costs on an already-listening box are read-only and cheap.
+    local answered refusals cfg verdict
     answered="$(port_answers)"
     refusals="$(bind_refusals)"
     probe_note "  connect test on :${GATEWAY_PORT} : HTTP ${answered:-000} (000 = nothing answered)"
     probe_note "  daemon 'Address already in use' lines : ${refusals:-0}"
-    case "${answered:-000}" in
-        000|"")
-            : ;;   # genuinely nothing there -- fall through and adjudicate
-        *)
+    cfg="$(config_loads)"
+    probe_note "  config load (only decisive if nothing is listening): ${cfg:-<no answer>}"
+
+    verdict="$(_daemon_classify "$signals" "$lsof_readable" "${listening:-0}" "$cfg" "${answered:-000}")"
+
+    case "$verdict" in
+        CANNOT-RUN-NOSIGNAL)
+            probe_cannot_run "neither lsof nor launchctl returned anything; cannot tell a stopped daemon from an unreadable box"
+            ;;
+        CANNOT-RUN-PORT-UNREADABLE)
+            probe_cannot_run "the port enumeration ERRORED (lsof wrote to stderr) and was therefore never made. On a shared Mac that is normally a socket owned by ANOTHER ACCOUNT, which this user may not see. launchctl answering is not a substitute: it says the job is loaded, not that a socket is bound. Nothing about :${GATEWAY_PORT} was measured."
+            ;;
+        PASS)
+            probe_pass "Hub gateway is listening on :${GATEWAY_PORT} (launchd pid ${pid:-unknown})"
+            ;;
+        CANNOT-RUN-FOREIGN)
             probe_cannot_run "the port is OCCUPIED BY SOMETHING THIS ACCOUNT DOES NOT OWN: lsof (run as the walked user) saw 0 listeners, but a connect to :${GATEWAY_PORT} answered HTTP ${answered}, and this daemon logged ${refusals:-0} 'Address already in use' refusal(s). Our gateway cannot bind, so its health was NOT MEASURED. On a shared Mac this is another account's Hub holding the port; stop it and re-run. This is not a pass and it is not a product failure."
             ;;
-    esac
-
-    # Not listening, and nothing else answered either. Now find out WHETHER IT
-    # IS THE v1.0.31 SHAPE, because "not listening" during a still-running
-    # install is very different from "cannot parse its own config".
-    probe_note "not listening -- asking the daemon whether it can load its config"
-    local cfg
-    cfg="$(config_loads)"
-    probe_note "  config load: ${cfg:-<no answer>}"
-
-    case "$cfg" in
-        OK)
+        FAIL-PARSE-THEN-DIE)
             probe_fail "config loads cleanly but NOTHING is listening on :${GATEWAY_PORT} (launchd last_exit=${last_exit:-unknown}). The daemon is failing after config parse -- a different defect from v1.0.31, and it still means the Hub is down."
             ;;
-        *"missing field"*|*"deserialize"*)
+        FAIL-V1031)
             probe_fail "THE v1.0.31 SHAPE: the daemon cannot deserialise the config the installer wrote it -- ${cfg}. The Hub will never start on this box, and it will never start on any customer's."
             ;;
-        *Error*|*FAILED*)
+        FAIL-CONFIG-ERROR)
             probe_fail "daemon refuses its own config: ${cfg}. Nothing listening on :${GATEWAY_PORT}."
             ;;
         *)
@@ -223,65 +285,66 @@ self_test() {
     #
     # This is the honest scope. A control that pretended to prove the ssh and
     # lsof plumbing would be claiming more than it measures.
+    #
+    # 🔴 THIS USED TO DRIVE A LOCAL classify() THAT WAS NOT run_probe's
+    # DECISION LOGIC -- a separate, hand-maintained copy. run_probe now calls
+    # _daemon_classify directly (defined above, once), and so does this
+    # function. A regression to the real adjudication and a regression to this
+    # control are now the SAME EDIT, which is the whole point: see
+    # tests/test_a_probes_self_test_must_drive_its_own_decision.sh, which
+    # mutates _daemon_classify and requires this self-test to go BROKEN.
     SELF_TEST_LOCAL=1
-    probe_examined 6 "synthetic reading sets (negative control)"
+    probe_examined 8 "synthetic reading sets (negative control)"
 
-    classify() {
-        # classify <listening> <config-answer> [port-http] -> PASS | FAIL | CANNOT-RUN
-        #
-        # The third reading was added 2026-09-04. lsof runs as the walked
-        # account and cannot see another user's socket, so <listening> alone
-        # cannot tell an EMPTY port from one held by a FOREIGN owner.
-        local l="$1" c="$2" h="${3:-000}"
-        if [ "${l:-0}" -gt 0 ]; then echo PASS; return; fi
-        case "$h" in
-            000|"") : ;;
-            *) echo CANNOT-RUN; return ;;
-        esac
-        case "$c" in
-            OK) echo FAIL ;;
-            *)  echo FAIL ;;
-        esac
-    }
+    # 0. Neither signal readable -> CANNOT-RUN-NOSIGNAL.
+    if [ "$(_daemon_classify 0 1 0 OK 000)" != "CANNOT-RUN-NOSIGNAL" ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: zero readable signals adjudicated as $(_daemon_classify 0 1 0 OK 000), not CANNOT-RUN-NOSIGNAL."
+    fi
+
+    # 0b. The port enumeration itself errored -> CANNOT-RUN-PORT-UNREADABLE,
+    #     even though launchctl answered (signals=1).
+    if [ "$(_daemon_classify 1 0 0 OK 000)" != "CANNOT-RUN-PORT-UNREADABLE" ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: an unreadable lsof enumeration adjudicated as $(_daemon_classify 1 0 0 OK 000), not CANNOT-RUN-PORT-UNREADABLE. launchctl answering must not stand in for a bound-socket check."
+    fi
 
     # 1. Listening -> must PASS. Anything else and the probe reds a healthy box.
-    if [ "$(classify 1 OK)" != "PASS" ]; then
-        probe_pass "NEGATIVE CONTROL OVER-FIRED: a bound socket adjudicated as FAIL. This probe would red every working Hub."
+    if [ "$(_daemon_classify 2 1 1 OK 000)" != "PASS" ]; then
+        probe_pass "NEGATIVE CONTROL OVER-FIRED: a bound socket adjudicated as $(_daemon_classify 2 1 1 OK 000), not PASS. This probe would red every working Hub."
     fi
 
-    # 2. The exact v1.0.31 shape -> must FAIL.
-    if [ "$(classify 0 'Error: Failed to deserialize config file')" != "FAIL" ]; then
-        probe_pass "NEGATIVE CONTROL DID NOT FIRE: no listener plus a deserialise error adjudicated as PASS. This probe cannot detect the defect it exists for."
+    # 2. The exact v1.0.31 shape -> must FAIL-V1031.
+    if [ "$(_daemon_classify 2 1 0 'Error: Failed to deserialize config file' 000)" != "FAIL-V1031" ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: no listener plus a deserialise error adjudicated as $(_daemon_classify 2 1 0 'Error: Failed to deserialize config file' 000), not FAIL-V1031. This probe cannot detect the defect it exists for."
     fi
 
-    # 3. Config fine, still not listening -> must FAIL. A daemon that parses
-    #    and then dies is still a Hub that is down.
-    if [ "$(classify 0 OK)" != "FAIL" ]; then
-        probe_pass "NEGATIVE CONTROL DID NOT FIRE: no listener with a healthy config adjudicated as PASS. A parseable config is not a running product."
+    # 3. Config fine, still not listening -> must FAIL-PARSE-THEN-DIE. A
+    #    daemon that parses and then dies is still a Hub that is down.
+    if [ "$(_daemon_classify 2 1 0 OK 000)" != "FAIL-PARSE-THEN-DIE" ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: no listener with a healthy config adjudicated as $(_daemon_classify 2 1 0 OK 000), not FAIL-PARSE-THEN-DIE. A parseable config is not a running product."
     fi
 
     # 4. Zero listeners must never be read as success just because the config
     #    check was inconclusive.
-    if [ "$(classify 0 '')" != "FAIL" ]; then
-        probe_pass "NEGATIVE CONTROL DID NOT FIRE: no listener and no config answer adjudicated as PASS."
+    if [ "$(_daemon_classify 2 1 0 '' 000)" != "FAIL-CONFIG-UNKNOWN" ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: no listener and no config answer adjudicated as $(_daemon_classify 2 1 0 '' 000), not FAIL-CONFIG-UNKNOWN."
     fi
 
     # 5. MEASURED 2026-09-04: no listener THIS ACCOUNT can see, but the port
-    #    answers -> CANNOT-RUN. Another account's Hub held :8000, our gateway
-    #    logged 29 "Address already in use" refusals and never bound once, and
-    #    this probe called it a product defect. A foreign occupant is not an
-    #    empty port and it is not our daemon failing.
-    if [ "$(classify 0 OK 200)" != "CANNOT-RUN" ]; then
-        probe_pass "NEGATIVE CONTROL DID NOT FIRE: a port answering HTTP 200 with 0 visible listeners adjudicated as $(classify 0 OK 200), not CANNOT-RUN. The probe would blame the product for another account's service."
+    #    answers -> CANNOT-RUN-FOREIGN. Another account's Hub held :8000, our
+    #    gateway logged 29 "Address already in use" refusals and never bound
+    #    once, and this probe called it a product defect. A foreign occupant
+    #    is not an empty port and it is not our daemon failing.
+    if [ "$(_daemon_classify 2 1 0 OK 200)" != "CANNOT-RUN-FOREIGN" ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: a port answering HTTP 200 with 0 visible listeners adjudicated as $(_daemon_classify 2 1 0 OK 200), not CANNOT-RUN-FOREIGN. The probe would blame the product for another account's service."
     fi
 
-    # 6. MUST-MISS, and it is the important half of 5. The new CANNOT-RUN path
-    #    must not swallow the genuine defect: nothing answering is still FAIL.
-    if [ "$(classify 0 OK 000)" != "FAIL" ]; then
-        probe_pass "NEGATIVE CONTROL OVER-FIRED: a genuinely dead port adjudicated as $(classify 0 OK 000), not FAIL. The occupancy check has disabled the defect this probe exists for."
+    # 6. MUST-MISS, and it is the important half of 5. The occupancy check
+    #    must not swallow the genuine defect: nothing answering is still a FAIL.
+    if [ "$(_daemon_classify 2 1 0 OK 000)" != "FAIL-PARSE-THEN-DIE" ]; then
+        probe_pass "NEGATIVE CONTROL OVER-FIRED: a genuinely dead port adjudicated as $(_daemon_classify 2 1 0 OK 000), not FAIL-PARSE-THEN-DIE. The occupancy check has disabled the defect this probe exists for."
     fi
 
-    probe_fail "negative control behaved correctly on all 6 reading sets (bound socket passes; the v1.0.31 shape, parse-then-die and inconclusive all fail; a foreign occupant is CANNOT-RUN; and a genuinely dead port is still FAIL)"
+    probe_fail "negative control behaved correctly on all 8 reading sets (a bound socket passes; the v1.0.31 shape, parse-then-die and inconclusive-config all fail; a foreign occupant and either unreadable signal are CANNOT-RUN; and a genuinely dead port is still FAIL)"
 }
 
 probe_main "$@"
