@@ -75,6 +75,9 @@ on:
       - 'tests/test_product_seed_regex_does_not_exclude_the_bundle.sh'
       - 'tests/test_provenance_gate_cannot_run_is_not_stale.sh'
       - 'tests/test_provenance_gate_marker_read_is_not_piped.sh'
+      # The anti-vacuity floor and its subject. BOTH are triggers: a run: with
+      # no matching paths: entry is dark on self-edit.
+      - 'tests/test_provenance_gate_refuses_when_it_examined_nothing.sh'
       - 'scripts/walk_dmg.sh'
       - 'tests/test_arm8b_vetoes_on_importable_not_merely_uncovered.sh'
       - 'tests/test_walk_arms_distinguish_cannot_run_from_fail.sh'
@@ -384,6 +387,20 @@ jobs:
       - name: provenance gate -- cannot-run is never reported as stale
         if: always()
         run: bash tests/test_provenance_gate_cannot_run_is_not_stale.sh
+
+      # THE ANTI-VACUITY FLOOR. Demonstrated live: OSTLER_PROVENANCE_ONLY_KINDS
+      # set to a kind matching no manifest row printed "0 pass / 0 fail / 0
+      # could-not-run / 47 not-run-here" and then PROVENANCE GREEN, exit 0. The
+      # verdict block checked FAIL > 0, then CANNOT > 0, and fell through to
+      # GREEN with no assertion that the three counts summed to more than
+      # zero -- cut.yml deliberately splits this gate by kind filter across two
+      # jobs, so a typo'd filter or an emptied manifest side certified a cut it
+      # never inspected. This drives the real gate over a genuine one-row
+      # manifest and proves a filter that matches nothing refuses (CANNOT-RUN),
+      # never GREEN, while a filter that matches something is untouched.
+      - name: provenance gate refuses when it examined nothing
+        if: always()
+        run: bash tests/test_provenance_gate_refuses_when_it_examined_nothing.sh
 
       # A marker pattern that cannot RUN must never report the component absent.
       # The wiki_image_absent rows are the #84 LOCK rows; rc=2 used to print green.

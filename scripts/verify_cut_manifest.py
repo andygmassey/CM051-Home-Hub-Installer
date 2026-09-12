@@ -2889,11 +2889,31 @@ def main() -> int:
 
     colour = sys.stdout.isatty() and not args.json
 
-    manifests = []
-    if permanent.is_file():
-        manifests.append(("permanent", load_manifest(permanent)))
-    else:
-        print(f"WARN: {permanent} not present — skipping never-regress backstop", file=sys.stderr)
+    # THE PERMANENT MANIFEST IS NOT OPTIONAL. IT USED TO BE A WARN.
+    #
+    # permanent.yaml carries the never-regress backstop -- the operator
+    # personal-data and leak checks, and every box-walk probe row that is not
+    # specific to one cut. Before this check it was loaded "if present": an
+    # absent file, a wrong --manifest-dir, or a rename printed one WARN line to
+    # stderr and the run continued on the per-cut manifest alone. Nothing
+    # incremented fails or cannot_runs for the rows that were never read, so a
+    # run that examined a fraction of the estate still exited 0 and read GREEN.
+    #
+    # A missing required input is CANNOT-RUN, not a footnote: this gate has not
+    # found the artefact clean, it has failed to look at most of what "clean"
+    # is supposed to mean. Exit 2 is this repo's established CANNOT-RUN code
+    # (see the crash handler at the bottom of this file).
+    if not permanent.is_file():
+        print(f"ERROR: {permanent} not present -- refusing to run without the", file=sys.stderr)
+        print("       permanent never-regress backstop (operator PII, leak checks,", file=sys.stderr)
+        print("       every box-walk probe row not specific to one cut). Running", file=sys.stderr)
+        print("       on the per-cut manifest alone would silently drop the largest", file=sys.stderr)
+        print("       part of what this gate is supposed to examine.", file=sys.stderr)
+        print("       CANNOT-RUN, not a pass. Pass --manifest-dir correctly, or", file=sys.stderr)
+        print("       restore cut-manifests/permanent.yaml.", file=sys.stderr)
+        return 2
+
+    manifests = [("permanent", load_manifest(permanent))]
     manifests.append((per_cut.stem, load_manifest(per_cut)))
 
     ctx = {
