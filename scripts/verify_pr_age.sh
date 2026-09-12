@@ -86,8 +86,8 @@ REPOS="${PR_AGE_REPOS:-$DEFAULT_REPOS}"
 
 say() { printf '%s\n' "$*"; }
 
-# Resolve a token for a repo's OWNER, the same fix #643 gave the sibling
-# verify_no_orphaned_fixes.sh. One token is not right for two owners: a
+# Resolve a token for a repo's OWNER, the same mechanism PR #643 gave the
+# sibling verify_no_orphaned_fixes.sh. One token is not right for two owners: a
 # repo-scoped token cannot read a sibling repo even under the SAME owner, and
 # never reads across an org boundary at all (andygmassey/* vs ostler-ai/*).
 #
