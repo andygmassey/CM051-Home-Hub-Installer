@@ -48,6 +48,11 @@ on:
       - 'cut-deferrals.yaml'
       - 'scripts/post_walk_qa.sh'
       - 'tests/test_walk_record_names_the_failing_probes.sh'
+      # A failing box_walk_probe's full output, and a phase-2 (cut-manifest)
+      # failure reaching the walk record by name. BOTH are triggers: a run:
+      # with no matching paths: entry is dark on self-edit.
+      - 'tests/test_a_failing_probes_early_output_is_not_discarded.py'
+      - 'tests/test_phase_2_failures_reach_the_walk_record.sh'
       - 'tests/test_cannot_run_names_its_prerequisite.sh'
       - 'tests/test_walk_record_states_measured_count.sh'
       # A walk record named its SUBJECT six ways and its INSTRUMENT not at all,
@@ -250,6 +255,15 @@ jobs:
         if: always()
         run: python3 tests/test_a_timed_out_probe_is_not_a_failing_probe.py
 
+      # A FAILING PROBE'S EARLY OUTPUT MUST SURVIVE, NOT ONLY ITS LAST LINE.
+      # no_unexpected_egress prints the offending process and remote address
+      # BEFORE its closing VERDICT line; check_box_walk_probe used to keep
+      # only that last line, truncated to 200 characters, so on two
+      # consecutive real cuts the failure could not be attributed to anything.
+      - name: A failing probe's early output is not discarded
+        if: always()
+        run: python3 tests/test_a_failing_probes_early_output_is_not_discarded.py
+
       # THE SAME DEFECT ONE LAYER DOWN, AND IT SURVIVED THE ROW ABOVE. The
       # probe timeouts were fixed; the GH API timeouts were not.
       # _gh_api_json and _fetch_asset_content returned (None, "...timed out")
@@ -293,6 +307,20 @@ jobs:
       - name: the walk record names the failing probes, and leaks no host
         if: always()
         run: /bin/bash tests/test_walk_record_names_the_failing_probes.sh
+
+      # THE SAME NAMING, FOR A PHASE-2 (CUT-MANIFEST) FAILURE. no_unexpected_
+      # egress failed on two consecutive real cuts in the manifest replay
+      # while phase 1 stayed clean, and the walk record named nobody:
+      # failed_probe_names_recorded read "0 of 0" while a blocking probe was
+      # red, so scripts/verify_walk_record.sh's promote gate could not scope
+      # its decision and refused unscoped. This checks the manifest gate's
+      # output is captured, a FAIL/CANNOT-RUN row's probe name is recovered
+      # from it, and the merge into failed_probe/not_measured_probe turns
+      # "0 of 0" into "N of N" without inventing a failure that was never
+      # measured.
+      - name: a phase-2 (cut-manifest) failure reaches the walk record too
+        if: always()
+        run: /bin/bash tests/test_phase_2_failures_reach_the_walk_record.sh
 
   # The box-walk probe body itself. The primitive above only proves the
   # verifier honours a probe's exit code; this job proves the people probe

@@ -318,14 +318,91 @@ if [[ -n "$CUT_VERSION" ]]; then
     echo "      not a pass, so they are driven against the real box here)"
     echo
     if [[ -f "${REPO_ROOT}/cut-manifests/${CUT_VERSION}.yaml" ]]; then
+        # THIS RUN'S OUTPUT SURVIVES THE RUN, THE SAME WAY PROBE_LOG DOES.
+        #
+        # Until now this command's stdout went straight to whatever terminal
+        # or CI log happened to be listening, and NOTHING here read it back --
+        # so a phase-2 FAIL or CANNOT-RUN (a box_walk_probe row re-run live,
+        # independently of phase 1) never reached the walk record below. That
+        # is the "failed_probe_names_recorded 0 of 0" defect: a blocking probe
+        # failed here, this script never looked at the output, and the record
+        # named nobody. MANIFEST_LOG is that missing read-back, kept next to
+        # PROBE_LOG for the same reason PROBE_LOG itself is kept: this repo is
+        # public and the record can only carry NAMES, never a probe's output.
+        MANIFEST_LOG="${PROBE_LOG}.manifest"
+        : > "$MANIFEST_LOG" 2>/dev/null || MANIFEST_LOG="$(mktemp)"
+        # Colocates a failing probe's full stdout+stderr with this run's own
+        # logs -- see scripts/verify_cut_manifest.py's _box_walk_evidence_dir.
+        # Unset falls back to ~/.ostler/walks/evidence, which is correct but
+        # not tied to this particular run.
+        export OSTLER_BOX_WALK_EVIDENCE_DIR="${PROBE_LOG%.log}.evidence"
         # --version, NOT a positional. The first version of this line passed
         # the version positionally, argparse rejected it, and the script
         # reported "manifest: rows FAILED" -- a usage error dressed up as a
         # product defect. Caught by running it against a real box, which is
         # the only reason it is not still in here.
+        #
+        # PIPED THROUGH tee, NOT `$?` ON A BARE COMMAND: piping also makes
+        # sys.stdout.isatty() false inside the gate, so it never emits ANSI
+        # colour codes into MANIFEST_LOG -- the same reason run_box_walk.sh's
+        # own PROBE_LOG capture above is plain text. PIPESTATUS[0] is the
+        # gate's own exit code, not tee's.
         OSTLER_BOX_HOST="$BOX" python3 "${REPO_ROOT}/scripts/verify_cut_manifest.py" \
-            --version "$CUT_VERSION" --require-runtime-proofs
-        manifest_rc=$?
+            --version "$CUT_VERSION" --require-runtime-proofs 2>&1 | tee -a "$MANIFEST_LOG"
+        manifest_rc="${PIPESTATUS[0]}"
+
+        # NAME WHICH ROWS FAILED, THE SAME WAY THE PROBE_LOG PARSE ABOVE DOES.
+        #
+        # verify_cut_manifest.py prints one line per entry as
+        #   "  <STATUS>  <id>  <title>"
+        # and, for anything but PASS, the entry's own detail on the NEXT line.
+        # Every box_walk_probe detail this file builds now starts `probe=NAME`
+        # (scripts/verify_cut_manifest.py, check_box_walk_probe) precisely so
+        # that name can be read back here -- the same identifier
+        # walk_promote_scope.tsv and run_box_walk.sh both key on, not the
+        # cut-manifest row id (which the scope file has never heard of).
+        #
+        # A non-box_walk_probe row (no "probe=" on the line beneath it) is
+        # counted in manifest_summary_count() below but cannot be named here --
+        # left unnamed, on purpose: the summary count comes from the gate's own
+        # closing line, independently of this per-row parse, so a row this
+        # parse cannot attribute still shows up as a gap between "named" and
+        # "total" instead of silently disappearing.
+        #
+        # NAMED FUNCTIONS, NOT INLINE, so a test can lift them the same way
+        # tests/test_walk_record_names_the_failing_probes.sh already lifts
+        # section_names() out of this file.
+        manifest_probe_names() { # $1 = badge (FAIL|CANNOT-RUN), $2 = log path
+            awk -v want="$1" '
+                $1=="FAIL" || $1=="CANNOT-RUN" {
+                    badge = $1
+                    if ((getline line) > 0 && index(line, "probe=") > 0) {
+                        rest = substr(line, index(line, "probe=") + 6)
+                        sub(/ .*/, "", rest)
+                        if (rest != "" && badge == want) print rest
+                    }
+                    next
+                }
+            ' "$2"
+        }
+        # The independent total: the gate's own closing
+        #   === Summary: N PASS  N FAIL  N SKIP  N CANNOT-RUN  (N total) ===
+        # parsed the same way count_of() reads run_box_walk.sh's summary above.
+        manifest_summary_count() { # $1 = badge (FAIL|CANNOT-RUN), $2 = log path
+            awk -v want="$1" '
+                /^=== Summary:/ {
+                    for (i = 2; i <= NF; i++) {
+                        if ($i == want && $(i-1) ~ /^[0-9]+$/) { print $(i-1); exit }
+                    }
+                }' "$2"
+        }
+        PHASE2_FAILED_NAMES="$(manifest_probe_names FAIL "$MANIFEST_LOG")"
+        PHASE2_CANNOTRUN_NAMES="$(manifest_probe_names CANNOT-RUN "$MANIFEST_LOG")"
+        PHASE2_FAIL_TOTAL="$(manifest_summary_count FAIL "$MANIFEST_LOG")"
+        PHASE2_CANNOT_TOTAL="$(manifest_summary_count CANNOT-RUN "$MANIFEST_LOG")"
+        [[ "$PHASE2_FAIL_TOTAL" =~ ^[0-9]+$ ]] || PHASE2_FAIL_TOTAL=0
+        [[ "$PHASE2_CANNOT_TOTAL" =~ ^[0-9]+$ ]] || PHASE2_CANNOT_TOTAL=0
+
         if [[ "$manifest_rc" -ne 0 ]]; then
             echo "  manifest: rows FAILED"
             overall=1
@@ -605,10 +682,43 @@ if [[ -n "$CUT_VERSION" ]]; then
             grab { exit }
         ' "$PROBE_LOG"
     }
-    FAILED_NAMES="$(section_names 'FAILED:')"
-    NOTMEAS_NAMES="$(section_names 'NOT MEASURED')"
+    FAILED_NAMES_P1="$(section_names 'FAILED:')"
+    NOTMEAS_NAMES_P1="$(section_names 'NOT MEASURED')"
     BROKEN_NAMES="$(section_names 'BROKEN (')"
+
+    # PHASE 2 NAMES A FAILURE TOO, NOW.
+    #
+    # verify_cut_manifest.py re-runs every box_walk_probe row LIVE and
+    # independently of phase 1 (a fixture-dependent row takes the phase 1
+    # verdict instead; a live one, like no_unexpected_egress, does not), so a
+    # probe can fail there without ever failing in phase 1 -- egress samples
+    # network sockets on a schedule, and a real intermittent connection can
+    # miss one sampling window and be caught by the other. Before this, that
+    # phase-2 verdict flipped `verdict` to FAILED and named NOBODY:
+    # `failed_probe_names_recorded` read "0 of 0" while a blocking probe was
+    # red, and scripts/verify_walk_record.sh's promote gate could not scope
+    # its decision against walk_promote_scope.tsv -- it refused unscoped,
+    # correctly given what it could see, but for the wrong reason: the record
+    # could have named the probe and did not.
+    #
+    # MERGED INTO THE SAME failed_probe/not_measured_probe ROWS AS PHASE 1,
+    # not a parallel phase2_* field: scripts/verify_walk_record.sh's
+    # `_NONPASS` reads exactly those two row names (`awk -F'\t' '$1=="failed_
+    # probe" || $1=="not_measured_probe"'`), and a differently-named row would
+    # be invisible to it. DEDUPED against phase 1 with sort -u: the same probe
+    # failing in both phases is one broken probe, not two, in the promote
+    # scope's eyes.
+    FAILED_NAMES="$(printf '%s\n%s\n' "$FAILED_NAMES_P1" "${PHASE2_FAILED_NAMES:-}" | sed '/^$/d' | sort -u)"
+    NOTMEAS_NAMES="$(printf '%s\n%s\n' "$NOTMEAS_NAMES_P1" "${PHASE2_CANNOTRUN_NAMES:-}" | sed '/^$/d' | sort -u)"
     n_failed_named="$(printf '%s' "$FAILED_NAMES" | grep -c . || true)"
+    # The denominator below is phase 1's own FAIL count PLUS phase 2's, the
+    # latter read INDEPENDENTLY from the gate's closing summary line rather
+    # than from the count of names just built -- deriving the denominator from
+    # the same list as the numerator would make this reconciliation prove
+    # nothing. A phase-2 FAIL this parse could not attribute to a named probe
+    # (any manifest row that is not a box_walk_probe) still counts in
+    # PHASE2_FAIL_TOTAL, so it shows up here as a gap instead of vanishing.
+    n_fail_total=$(( ${n_fail:-0} + ${PHASE2_FAIL_TOTAL:-0} ))
 
     {
         printf '# Ostler walk record -- written by scripts/post_walk_qa.sh\n'
@@ -627,6 +737,10 @@ if [[ -n "$CUT_VERSION" ]]; then
         printf '# They are phase 1 ONLY -- parsed from run_box_walk.sh. Phase 2 (the cut\n'
         printf '# manifest runtime proofs) contributes to verdict and qa_exit but emits no\n'
         printf '# counts, so it is deliberately absent from these four numbers.\n'
+        printf '# failed_probe_names_recorded and the failed_probe/not_measured_probe rows\n'
+        printf '# below are the EXCEPTION: those DO cover both phases, because a phase-2-\n'
+        printf '# only failure still has to reach scripts/verify_walk_record.sh by name or\n'
+        printf '# its promote gate cannot scope its decision and refuses unscoped.\n'
         printf '# READ verdict AND qa_exit FOR THE WHOLE-SUITE RESULT. The four counts are\n'
         printf '# a subset and summing them will not reconcile against the console tally --\n'
         printf '# 2026-08-24 that mismatch (13 here vs 33 on console) was carried for hours\n'
@@ -687,7 +801,7 @@ if [[ -n "$CUT_VERSION" ]]; then
         # why the estate looks clean: the denominator of records that COULD
         # carry the value is 2, and 2 of 2 are wrong.
         printf 'stores_provenance\t%s\n' "$STORES_PROVENANCE"
-        printf 'counts_scope\tbox_walk_probes_only(phase1); verdict+qa_exit cover all phases\n'
+        printf 'counts_scope\tbox_walk_probes_only(phase1); verdict+qa_exit+failed_probe_names_recorded+failed_probe+not_measured_probe cover all phases\n'
         printf 'pass\t%s\n'        "${n_pass:-0}"
         printf 'fail\t%s\n'        "${n_fail:-0}"
         printf 'cannot_run\t%s\n'  "${n_cannot:-0}"
@@ -744,7 +858,16 @@ if [[ -n "$CUT_VERSION" ]]; then
         # back to counts with no names, which is the exact blindness being
         # fixed and would look like a clean walk with nothing to report. This
         # line makes that visible to anyone reading the record.
-        printf 'failed_probe_names_recorded\t%s of %s\n' "${n_failed_named:-0}" "${n_fail:-0}"
+        #
+        # THE DENOMINATOR NOW COVERS BOTH PHASES (n_fail_total = phase 1's
+        # n_fail + phase 2's PHASE2_FAIL_TOTAL), even though the `fail` row
+        # two lines above stays phase-1-only -- see counts_scope. This field
+        # answers a different question than that row: not "how many phase-1
+        # probes failed" but "of everything that failed anywhere, how many did
+        # we manage to name". Reading `fail` and `failed_probe_names_recorded`
+        # as the same population is the mistake this comment exists to head
+        # off.
+        printf 'failed_probe_names_recorded\t%s of %s\n' "${n_failed_named:-0}" "${n_fail_total:-0}"
         printf '%s\n' "$FAILED_NAMES"  | while IFS= read -r _n; do [ -n "$_n" ] && printf 'failed_probe\t%s\n' "$_n"; done
         # 🔴 AND THE SAME COURTESY FOR THE FAILURES, WHICH NEVER GOT IT.
         #
@@ -765,8 +888,16 @@ if [[ -n "$CUT_VERSION" ]]; then
         # interpolate ${OSTLER_BOX_HOST}, store URLs, ~/.ostler/... paths and
         # record counts, and walks/ is a PUBLIC repo. This row is a pointer,
         # never the prose.
+        #
+        # NOW POINTS AT BOTH PHASES. A name in FAILED_NAMES can have come from
+        # phase 1 (console, under "WHAT EACH FAILURE FOUND"), phase 2 ($MANIFEST_LOG,
+        # operator-local, named earlier in this script), or both -- the reader
+        # is sent to whichever survives on their own box rather than told which
+        # phase produced which name, because that would mean publishing the
+        # phase split itself, and the split carries no information a reader
+        # needs that "check both logs" does not already give them.
         if [ -n "$FAILED_NAMES" ]; then
-            printf 'failed_probe_reasons\twithheld(public repo); run_box_walk.sh prints them under "WHAT EACH FAILURE FOUND"\n'
+            printf 'failed_probe_reasons\twithheld(public repo); phase 1 -- run_box_walk.sh prints them under "WHAT EACH FAILURE FOUND"; phase 2 -- the cut-manifest gate'"'"'s own log on the walked box, and any full_output=... path it names\n'
         fi
         # THE REASONS ARE WITHHELD, AND THE RECORD SAYS SO RATHER THAN LEAVING
         # A READER TO CONCLUDE NONE EXIST.
@@ -785,8 +916,10 @@ if [[ -n "$CUT_VERSION" ]]; then
         # says where to look. A reader who sees not_measured_probe rows and no
         # explanation would otherwise reasonably infer the reason was never
         # captured -- which was true until 2026-08-30 and is now not.
+        # NOW POINTS AT BOTH PHASES, for the same reason failed_probe_reasons
+        # does above.
         if [ -n "$NOTMEAS_NAMES" ]; then
-            printf 'not_measured_reasons\twithheld(public repo); run_box_walk.sh prints them under "PREREQUISITES THAT WERE ABSENT"\n'
+            printf 'not_measured_reasons\twithheld(public repo); phase 1 -- run_box_walk.sh prints them under "PREREQUISITES THAT WERE ABSENT"; phase 2 -- the cut-manifest gate'"'"'s own log on the walked box, and any full_output=... path it names\n'
         fi
         printf '%s\n' "$NOTMEAS_NAMES" | while IFS= read -r _n; do [ -n "$_n" ] && printf 'not_measured_probe\t%s\n' "$_n"; done
         printf '%s\n' "$BROKEN_NAMES"  | while IFS= read -r _n; do [ -n "$_n" ] && printf 'broken_probe\t%s\n' "$_n"; done
