@@ -1,0 +1,90 @@
+name: ci-required-gate
+
+# THE ONE CHECK BRANCH PROTECTION CAN HONESTLY REQUIRE.
+#
+# Measured 2026-09-12: this repository's default branch has NO protection at
+# all. The protection endpoint answers "Branch not protected" and the ruleset
+# list is empty. Around 150 workflow files run pull-request checks, several
+# describe themselves as unbypassable in their own header comments, and not
+# one of them can block a merge. Red has been mergeable the whole time, and in
+# sibling repositories with the same gap it demonstrably was merged.
+#
+# THE FIRST FIX ATTEMPT LASTED UNDER A MINUTE. Requiring the job named `gate`
+# looks obvious and is wrong: `gate` is a job inside PATH-FILTERED workflows
+# (cannot-run-branch-reachable.yml, customer-download-path.yml and others),
+# not an aggregate. A required check with that name blocks every PR that does
+# not touch those workflows' watched paths forever -- GitHub waits for a
+# required check a path filter guarantees will never be reported.
+#
+# Requiring every check individually is equally unworkable, for the same
+# reason multiplied: of 142 workflow files with a `pull_request:` trigger, 110
+# are path-filtered by design. A required check the diff never triggers blocks
+# that PR forever too.
+#
+# THE FIX. This workflow is deliberately unconditional -- no `paths:` filter,
+# so it always fires -- and exposes exactly one job, named "CI Required Gate".
+# Its own logic (scripts/verify_pr_gate_aggregate.sh) polls every OTHER
+# check-run reported against the PR's head commit until each has concluded,
+# then passes only when none failed, was cancelled, or reported a conclusion
+# it cannot establish as a legitimate skip. Branch protection needs only this
+# one context. See that script's header for the full anti-vacuity design: it
+# refuses to pass on an unreachable API, a zero enumeration, an enumeration
+# below the tree's own measured floor, or a single sample taken before
+# everything else has actually finished.
+#
+# HANDOVER: the exact steps to require this check are in the pull request that
+# introduced this file.
+#
+# NO paths: FILTER, deliberately, same reasoning as test-wiring.yml and
+# declared-gates-reachable.yml: a whole-PR aggregate that only watches its own
+# few files would stay green on exactly the PR that adds a new unreachable or
+# always-red workflow elsewhere in the tree.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  checks: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  gate:
+    name: CI Required Gate
+    runs-on: ubuntu-latest
+    # This job WAITS for the slowest other check on the same head to
+    # conclude before it can pass -- keyless-store-probe-tests.yml alone has
+    # measured up to 21.2 minutes (see workflow-jobs-have-timeouts.yml). 60
+    # minutes matches that workflow's own tier and leaves headroom for this
+    # job's internal wait window (45 minutes) to close on its own and report
+    # CANNOT-RUN, rather than being killed by the job timeout mid-poll, which
+    # would report nothing at all instead of an honest refusal.
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PyYAML (the floor computation reads every workflow file)
+        run: pip install --quiet pyyaml
+
+      - name: The aggregate cannot pass vacuously (self-test, hermetic, no network)
+        run: bash tests/test_pr_gate_aggregate.sh
+
+      - name: Wait for every other check on this head, then decide
+        if: always()
+        env:
+          # `checks: read` above grants the scope; GH_TOKEN is what actually
+          # puts it somewhere `gh` looks. Without this the CLI runs
+          # unauthenticated and the gate exits 2 CANNOT-RUN on every PR --
+          # measured as a real incident in this same repo's cut.yml history.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          chmod +x scripts/verify_pr_gate_aggregate.sh
+          scripts/verify_pr_gate_aggregate.sh \
+            "${{ github.event.pull_request.head.sha }}" \
+            "${{ github.repository }}"
