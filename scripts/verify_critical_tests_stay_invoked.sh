@@ -72,6 +72,8 @@ scripts/tests/test_new_tests_are_wired_predicate.sh  a newly added test never be
 scripts/tests/test_comment_strip_is_quote_aware.sh   a quoted # read as a comment, so a real invocation is deleted before this gate sees it
 scripts/tests/test_invocation_predicate_rejects_non_execution.sh  bash -n scoring as a run, and the sh inside shipping scoring as a shell
 tests/test_usage_journal_producer_gate.sh         a usage-journal producer going dark while the cost panel merely shows a smaller number, and the box-walk half returning SKIP for its whole life (#713/#719)
+tests/test_people_sweep_partial_landing_is_not_success.py  a partial people sweep (some, not all, points landed) reporting ok and pruning on an unreliable delivery
+tests/test_people_hydrate_partial_landing_sentinel.sh      a partial people sweep writing a success sentinel and suppressing its own retry, measured on a real customer install (sent=8643, total=8679)
 "
 
 cannot_run() { echo "CANNOT-RUN: $*" >&2; exit 2; }

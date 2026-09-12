@@ -2533,11 +2533,23 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
     stably from the person URI so a re-install is idempotent) with a
     payload matching the reader contract, (5) returns a counts-only
     dict, (6) fails LOUD (status "error") if Oxigraph held Person nodes
-    but nothing landed in Qdrant.
+    but nothing landed in Qdrant, OR if only SOME of them landed.
+
+    THE (6) HALF WAS ONCE ALL-OR-NOTHING. ``_qdrant_upsert_points`` drops
+    any point with an empty vector and keeps going after a failed chunk,
+    returning only the count that landed -- so a partial sweep used to
+    come back here as ``sent > 0`` and fall through to the "ok" return,
+    carrying the smaller number as if it were the whole job. Measured on a
+    real customer install: 8679 Person nodes, 8643 points, a gap of 36
+    that a week of daily re-runs never closed, because "ok" told
+    install.sh there was nothing left to retry. ``sent`` is now compared
+    against ``total`` before anything is called a success.
 
     Returns counts only (parity with the other ingesters; install.sh
     reads ``sent``):
       ``status``         : "ok" | "no_data" | "error"
+      ``reason``         : present only on a partial landing;
+                           "partial_landing" when 0 < sent < total
       ``sent``           : points upserted into Qdrant
       ``points_created`` : alias of ``sent``
       ``total``          : Person nodes considered (with a display name)
@@ -2654,6 +2666,40 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
             "status": "error",
             "sent": 0,
             "points_created": 0,
+            "total": len(people),
+        }
+
+    # ── A PARTIAL LANDING IS NOT A SUCCESS ──────────────────────────────
+    #
+    # The check above only ever caught the ALL-OR-NOTHING case. Anything
+    # between -- an empty vector dropped by _qdrant_upsert_points, or one
+    # chunk out of several failing while the others land -- fell straight
+    # through to the "ok" return below, carrying whatever count DID make
+    # it. That count is real, but the status calling it "ok" is not: it is
+    # indistinguishable, to every caller, from a complete sweep.
+    #
+    # MEASURED on a real customer install, ten hours after completion: the
+    # graph held 8679 Person nodes, the vector store held 8643 points, a
+    # gap of 36 that never closed on its own. install.sh only reads `sent`
+    # to decide the customer-facing message and reads process rc (which
+    # this function's own internal try/except keeps at 0 for any failure
+    # it already caught) to decide whether to write a success sentinel --
+    # so a shortfall here had no way to reach either decision. Comparing
+    # what was SENT against what was ASKED is the only place that
+    # information still exists once _qdrant_upsert_points returns.
+    if sent < len(people):
+        logger.warning(
+            "People: %d of %d Person nodes landed in Qdrant '%s'; %d did "
+            "not. Reporting error, not ok -- the missing %d would stay "
+            "unsearchable and invisible under a success status.",
+            sent, len(people), PEOPLE_QDRANT_COLLECTION,
+            len(people) - sent, len(people) - sent,
+        )
+        return {
+            "status": "error",
+            "reason": "partial_landing",
+            "sent": sent,
+            "points_created": sent,
             "total": len(people),
         }
 
