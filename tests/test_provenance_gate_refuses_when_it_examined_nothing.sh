@@ -49,13 +49,13 @@ run_gate() {  # extra env assignments as "$@"
 
 echo "== 1. TEETH: a real, passing row still exits 0 GREEN =="
 OUT="$(run_gate)"; RC=$?
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q 'PROVENANCE GREEN'; then
+if [ "$RC" -eq 0 ] && grep -q 'PROVENANCE GREEN' <<< "$OUT"; then
     ok "a manifest with one genuine pass exits 0 GREEN (the fix narrows nothing)"
 else
     bad "a genuinely passing manifest gave rc=${RC}, expected 0 GREEN"
     printf '%s\n' "$OUT" | sed 's/^/          /'
 fi
-if printf '%s' "$OUT" | grep -q '1 pass / 0 fail / 0 could-not-run'; then
+if grep -q '1 pass / 0 fail / 0 could-not-run' <<< "$OUT"; then
     ok "the summary line shows the one row was actually examined"
 else
     bad "the summary line does not show 1 pass -- the fixture itself is not measuring what it claims"
@@ -65,7 +65,7 @@ fi
 echo
 echo "== 2. THE DEFECT: --only-kind matching nothing must CANNOT-RUN, never GREEN =="
 OUT="$(run_gate OSTLER_PROVENANCE_ONLY_KINDS=this_kind_does_not_exist_anywhere)"; RC=$?
-if printf '%s' "$OUT" | grep -q '0 pass / 0 fail / 0 could-not-run'; then
+if grep -q '0 pass / 0 fail / 0 could-not-run' <<< "$OUT"; then
     ok "the fixture reproduces the exact 0/0/0 shape from the live incident"
 else
     bad "the only-kind filter did not zero out pass/fail/cannot -- the repro did not fire"
@@ -76,13 +76,13 @@ case "$RC" in
     0) bad "0 pass / 0 fail / 0 cannot-run exited 0 GREEN -- the anti-vacuity floor is absent or broken" ;;
     *) bad "0 pass / 0 fail / 0 cannot-run gave rc=${RC}, expected 2" ;;
 esac
-if printf '%s' "$OUT" | grep -qi 'examined NOTHING'; then
+if grep -qi 'examined NOTHING' <<< "$OUT"; then
     ok "the refusal says plainly that nothing was examined"
 else
     bad "the refusal does not say the run examined nothing"
     printf '%s\n' "$OUT" | sed 's/^/          /'
 fi
-if printf '%s' "$OUT" | grep -q 'PROVENANCE GREEN'; then
+if grep -q 'PROVENANCE GREEN' <<< "$OUT"; then
     bad "the output STILL contains 'PROVENANCE GREEN' text alongside the refusal"
 fi
 

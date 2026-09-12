@@ -90,13 +90,13 @@ else
     bad "with permanent.yaml present, the gate gave rc=${RC} (expected 0)"
     printf '%s\n' "${OUT}" | sed 's/^/          /'
 fi
-if printf '%s' "${OUT}" | grep -q '2 PASS'; then
+if grep -q '2 PASS' <<< "${OUT}"; then
     ok "both the permanent AND the per-cut fixture row were measured (2 PASS)"
 else
     bad "the summary does not show 2 PASS -- the fixture is not exercising both manifests"
     printf '%s\n' "${OUT}" | sed 's/^/          /'
 fi
-if printf '%s' "${OUT}" | grep -q -- '--- permanent (1 entries) ---'; then
+if grep -q -- '--- permanent (1 entries) ---' <<< "${OUT}"; then
     ok "the permanent manifest section header is printed"
 else
     bad "no 'permanent (1 entries)' section header -- permanent.yaml was not loaded"
@@ -124,7 +124,7 @@ case "${FIRST_LINE}" in
     *)
         bad "the first line of output does not name permanent.yaml as absent: ${FIRST_LINE}" ;;
 esac
-if printf '%s' "${OUT}" | grep -q '=== Summary'; then
+if grep -q '=== Summary' <<< "${OUT}"; then
     bad "the run printed a Summary line for a permanent-manifest-absent run -- it scored something despite the missing backstop"
 else
     ok "no Summary line is printed -- the run refused before scoring anything"
