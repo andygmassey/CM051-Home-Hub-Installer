@@ -1261,6 +1261,20 @@ say "control: ostler_fda resolves beside install.sh (the run-2 killer is closed)
     else
         printf 'unknown-no-reset-step\n' > ~/.walk-stores-provenance
     fi
+    # THE HUB PASSPHRASE PROMPT HAS NO WAY PAST, so the walk must be able
+    # to answer it or the install re-prompts for ever (install.sh:8032-8051
+    # loops while true on empty or under-12-character input). walk_drive.py
+    # answers it with @passphrase, which resolves from this file at answer
+    # time, so the value is never an argument and never in the process table.
+    #
+    # GENERATED ON THE BOX, not passed in: it must not cross the wire, appear
+    # in an operator's shell history, or reach a transcript. It is a throwaway
+    # for a disposable walk account and is regenerated whenever it is absent.
+    if [ ! -s ~/.walk-passphrase ]; then
+        ( umask 077
+          LC_ALL=C tr -dc 'a-z' < /dev/urandom | head -c 24 > ~/.walk-passphrase )
+        chmod 600 ~/.walk-passphrase
+    fi
     : > \"\$HOME/${REMOTE_DIR}/ttywalk.log\"
     chmod +x \"\$HOME/${REMOTE_DIR}/install.sh\" 2>/dev/null || true
     echo 'walk config written:'
