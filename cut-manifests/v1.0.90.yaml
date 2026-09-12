@@ -388,6 +388,24 @@ entries:
 open_issues:
 
   # ==========================================================================
+  # OPENED WHILE PREPARING THIS CUT, NOT INHERITED.
+  # ==========================================================================
+  - issue: 1922
+    title: "swift-tests: LicenseVerifierTests.testTamperedSignatureFailsVerification fails, unrelated to v1.0.90"
+    gate: 'NOT BLOCKING: surfaced only because this cut''s version-bump commit is
+      the first change to touch gui/** since swift-tests.yml last ran green
+      (2026-09-11T08:55:31Z, run 34581581740). `git log --since that timestamp --
+      gui/` shows zero commits before this cut''s own version-bump, none touching
+      Swift source, so the defect predates this cut and is not caused by it.
+      swift-tests is invoked nowhere in .github/workflows/cut.yml or
+      gui/Makefile (grep for xcodebuild test / test-without-building / swift-tests
+      returns nothing in either), and main carries no branch protection requiring
+      it (gh api .../branches/main/protection -> 404 Branch not protected), so it
+      does not gate the DMG build or the tag-push cut path. Filed for the owner
+      rather than fixed, per this session''s scope (cut v1.0.90 only, no
+      product-code changes).'
+
+  # ==========================================================================
   # CARRIED FROM v1.0.82 AND NOT RE-JUSTIFIED ROW BY ROW.
   #
   # Same sentence every manifest since v1.0.76 has carried, and it is still the
