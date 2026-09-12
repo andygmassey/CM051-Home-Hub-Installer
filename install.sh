@@ -5425,19 +5425,22 @@ step "$MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK" "setup_questions"
 #   1. Contacts                       (line ~1140 contact-card read)
 #   2. Calendar                       (CX-69 pre-warm, line ~1117)
 #   3. Reminders                      (CX-46 pre-warm, existing)
-#   4. Downloads folder               (CX-70 pre-warm)
-#   5. Desktop folder                 (CX-70 pre-warm)
-#   6. Documents folder               (CX-70 pre-warm)
-#   7. Full Disk Access -- installer  (FDA-only data sources)
-#   8. Full Disk Access -- daemon     (CX-60 ostler-assistant chat.db)
-#   9. Downloads folder -- daemon     (the DAEMON asks AGAIN, separately from
-#                                      the installer's #4. Measured on a fresh
+#   4. Photos                         (CX-17 pre-warm, same batch as
+#                                      Contacts/Calendar/Reminders --
+#                                      metadata only: date, place, caption)
+#   5. Downloads folder               (CX-70 pre-warm)
+#   6. Desktop folder                 (CX-70 pre-warm)
+#   7. Documents folder               (CX-70 pre-warm)
+#   8. Full Disk Access -- installer  (FDA-only data sources)
+#   9. Full Disk Access -- daemon     (CX-60 ostler-assistant chat.db)
+#  10. Downloads folder -- daemon     (the DAEMON asks AGAIN, separately from
+#                                      the installer's #5. Measured on a fresh
 #                                      install 2026-08-17:
 #                                      kTCCServiceSystemPolicyDownloadsFolder
 #                                      -> ai.ostler.assistant at 07:22:53)
-#  10. Documents folder -- daemon     (kTCCServiceSystemPolicyDocumentsFolder.
+#  11. Documents folder -- daemon     (kTCCServiceSystemPolicyDocumentsFolder.
 #                                      The daemon asks AGAIN, separately from
-#                                      the installer's #6, for the same reason
+#                                      the installer's #7, for the same reason
 #                                      the Downloads pair exists: TCC pins a
 #                                      grant to the requesting identifier+team,
 #                                      so the installer cannot pre-warm on the
@@ -5450,7 +5453,7 @@ step "$MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK" "setup_questions"
 #                                      and named in NEITHER the inventory nor
 #                                      the printed list. The count said 12 and
 #                                      the customer saw 13.)
-#  11. App data -- daemon             (kTCCServiceSystemPolicyAppData, granted
+#  12. App data -- daemon             (kTCCServiceSystemPolicyAppData, granted
 #                                      07:23:32, 39s after the one above. macOS
 #                                      words this "wants to access data from
 #                                      other apps" -- which matched NOTHING in
@@ -5458,11 +5461,11 @@ step "$MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK" "setup_questions"
 #                                      30 steps into a run that had promised a
 #                                      complete inventory. Naming it here is the
 #                                      whole point of this list.)
-#  12. iMessage Automation            (CX-55 if iMessage channel enabled)
-#  13. macOS admin password           (sudo for Homebrew, sleep-disable)
+#  13. iMessage Automation            (CX-55 if iMessage channel enabled)
+#  14. macOS admin password           (sudo for Homebrew, sleep-disable)
 # Plus, on a fresh Mac: the Xcode CLT installer dialog (not a TCC
 # permission per se, but customer-visible).
-PERMISSIONS_TOTAL=13
+PERMISSIONS_TOTAL=14
 gui_emit STEP "name=permissions_briefing" "total_permissions=${PERMISSIONS_TOTAL}"
 
 echo ""
@@ -5479,15 +5482,16 @@ echo ""
 echo -e "    1. ${BOLD}Contacts${NC}              Your name + your address book"
 echo -e "    2. ${BOLD}Calendar${NC}              Meetings + events in your graph"
 echo -e "    3. ${BOLD}Reminders${NC}             Tasks in your graph"
-echo -e "    4-6. ${BOLD}Downloads/Desktop/Documents${NC}    Find data exports"
-echo -e "    7. ${BOLD}Full Disk Access (installer)${NC}     Read Safari, Notes etc. (asked now, upfront)"
-echo -e "    8. ${BOLD}Full Disk Access (daemon)${NC}        Read iMessage history (asked near the end)"
-echo -e "    9. ${BOLD}Downloads (assistant)${NC}            The assistant asks for itself, after the installer (near the end)"
-echo -e "    10. ${BOLD}Documents (assistant)${NC}            The assistant asks for itself too, same as 9 (near the end)"
-echo -e "    11. ${BOLD}Data from other apps${NC}            macOS words it exactly that way. It is the assistant"
+echo -e "    4. ${BOLD}Photos${NC}                Dates, places + captions in your graph"
+echo -e "    5-7. ${BOLD}Downloads/Desktop/Documents${NC}    Find data exports"
+echo -e "    8. ${BOLD}Full Disk Access (installer)${NC}     Read Safari, Notes etc. (asked now, upfront)"
+echo -e "    9. ${BOLD}Full Disk Access (daemon)${NC}        Read iMessage history (asked near the end)"
+echo -e "    10. ${BOLD}Downloads (assistant)${NC}            The assistant asks for itself, after the installer (near the end)"
+echo -e "    11. ${BOLD}Documents (assistant)${NC}            The assistant asks for itself too, same as 10 (near the end)"
+echo -e "    12. ${BOLD}Data from other apps${NC}            macOS words it exactly that way. It is the assistant"
 echo -e "        ${BOLD}(assistant)${NC}                     reading the app data you already approved (near the end)"
-echo -e "    12. ${BOLD}Messages automation${NC}    Send + receive iMessages as you (asked now, upfront)"
-echo -e "    13. ${BOLD}macOS admin password${NC}            One-off for Homebrew + sleep"
+echo -e "    13. ${BOLD}Messages automation${NC}    Send + receive iMessages as you (asked now, upfront)"
+echo -e "    14. ${BOLD}macOS admin password${NC}            One-off for Homebrew + sleep"
 echo ""
 echo "  Plus, on a fresh Mac, a Command Line Tools installer dialog"
 echo "  from Apple (Xcode); these are downloaded in the background"
