@@ -94,6 +94,12 @@ def run(probe_name):
 # the invocation path, not the box.
 os.environ["OSTLER_BOX_HOST"] = "probe@example.invalid"
 
+# A non-PASS row now writes its full stdout/stderr to an evidence file (see
+# _write_box_walk_evidence in verify_cut_manifest.py). Pointed at this test's
+# own tmp dir, not the real ~/.ostler/walks/evidence -- an unset override
+# would leave real files behind in whoever's home directory runs this test.
+os.environ["OSTLER_BOX_WALK_EVIDENCE_DIR"] = str(work / "evidence")
+
 # Squeeze the cap so "slow" is reachable in a test rather than in three minutes.
 _original_cap = vcm.BOX_WALK_PROBE_TIMEOUT_SECONDS
 vcm.BOX_WALK_PROBE_TIMEOUT_SECONDS = 2

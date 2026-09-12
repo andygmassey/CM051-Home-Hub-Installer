@@ -45,6 +45,7 @@
 #     /opt/homebrew/bin/python3   3.14.4   <- what the build wants
 
 import argparse
+import datetime
 import fnmatch
 import hashlib
 import json
@@ -1248,6 +1249,69 @@ def _phase1_verdict(probe: str):
     return (status, when, why)
 
 
+def _box_walk_evidence_dir() -> Path:
+    """Where a non-PASS probe's FULL output survives this run, for a person to
+    read afterwards.
+
+    WHY THIS EXISTS. This function used to keep only the last line of a
+    probe's stdout, truncated to 200 characters -- enough for the probe's own
+    closing VERDICT sentence and nothing above it. no_unexpected_egress prints
+    the offending process and remote address on the lines BEFORE that verdict
+    (probe_note, in scripts/box_walk_probes/probes/no_unexpected_egress.sh),
+    so on a real failure that identifying detail was destroyed before anyone
+    could read it. Measured: two consecutive cuts with a red
+    no_unexpected_egress and no recoverable holder or address in either --
+    the defect could not be attributed, bisected, or fixed.
+
+    NEVER under a path this repo tracks. A box-walk probe runs against a live
+    customer machine and its output can carry paths, process names and remote
+    addresses -- the exact reason walks/*.tsv (public, committed) has only
+    ever carried probe NAMES, never probe OUTPUT (see the "NAMES ONLY, never a
+    probe's output" note in scripts/post_walk_qa.sh). ~/.ostler/ is already
+    the operator-local, untracked home for this kind of detail --
+    scripts/post_walk_qa.sh's own PROBE_LOG lives under ~/.ostler/walks/.
+
+    OSTLER_BOX_WALK_EVIDENCE_DIR lets a caller that already keeps a per-run
+    directory point this at THAT run instead of a fresh directory on every
+    invocation.
+    """
+    override = os.environ.get("OSTLER_BOX_WALK_EVIDENCE_DIR")
+    if override:
+        return Path(override)
+    return Path.home() / ".ostler" / "walks" / "evidence"
+
+
+def _write_box_walk_evidence(probe: str, status: str, exit_code: Optional[int],
+                              stdout: Optional[bytes], stderr: Optional[bytes]) -> str:
+    """Persist a non-PASS probe's full stdout+stderr and return where.
+
+    Returns a path on success, or a string starting "UNWRITEABLE:" naming why
+    not -- this NEVER raises and never silently drops the attempt. A detail
+    line that says the write itself failed is still more actionable than one
+    that is silent about it.
+    """
+    try:
+        evdir = _box_walk_evidence_dir()
+        evdir.mkdir(parents=True, exist_ok=True)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        ts = now.strftime("%Y%m%dT%H%M%S.%fZ")
+        evidence_file = evdir / f"{probe}.{status}.{ts}.{os.getpid()}.log"
+        with open(evidence_file, "w", encoding="utf-8") as fh:
+            fh.write(f"# probe    {probe}\n")
+            fh.write(f"# status   {status}\n")
+            fh.write(f"# exit     {exit_code}\n")
+            fh.write(f"# recorded {ts}\n")
+            fh.write("#\n# Operator-local and untracked ON PURPOSE: this can name paths,\n")
+            fh.write("# process names and remote addresses. Never move it under a tracked path.\n")
+            fh.write("\n=== stdout ===\n")
+            fh.write((stdout or b"").decode("utf-8", "replace"))
+            fh.write("\n=== stderr ===\n")
+            fh.write((stderr or b"").decode("utf-8", "replace"))
+        return str(evidence_file)
+    except OSError as e:
+        return f"UNWRITEABLE: {e.__class__.__name__}: {e}"
+
+
 def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
     """Invoke a named box-walk probe shell script and return its result.
 
@@ -1294,8 +1358,14 @@ def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
         searched = ", ".join(
             str(d / f"{probe}.sh") for d in _box_walk_probe_search_dirs(cm051_dir)
         )
+        # `probe={probe}` (not `probe {probe!r}`) ON PURPOSE, matching every
+        # other box_walk_probe detail below: a caller reconstructing WHICH
+        # probe a phase-2 FAIL/CANNOT-RUN row names (scripts/post_walk_qa.sh
+        # extends the walk record's failed_probe/not_measured_probe rows to
+        # cover this phase) parses this exact prefix, and a probe that could
+        # not even be found is as attributable as one that ran and failed.
         return Result(entry["id"], entry["title"], "box_walk_probe", "FAIL",
-                      f"probe {probe!r} not registered. Searched: {searched}",
+                      f"probe={probe} not registered. Searched: {searched}",
                       entry.get("source_pr", ""))
     phase1 = _phase1_verdict(probe)
     if phase1 is not None:
@@ -1324,7 +1394,7 @@ def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
             capture_output=True, check=False,
             timeout=_timeout_s,
         )
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as e:
         # A TIMEOUT IS CANNOT-RUN, NOT A FAILURE, AND THE DIFFERENCE IS NOT
         # PEDANTIC. MEASURED 2026-09-06 on the first live-box run of this
         # manifest: assistant_answers_grounded was 1 of 12 FAILs, reported as
@@ -1344,27 +1414,44 @@ def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
         # CANNOT-RUN is already a first-class status here: it is rendered,
         # counted separately, and excluded from the "ran" denominator. This arm
         # simply never used it.
+        #
+        # WHATEVER THE PROBE MANAGED TO PRINT BEFORE THE KILL IS STILL
+        # EVIDENCE. subprocess.TimeoutExpired carries .stdout/.stderr with
+        # whatever capture_output had buffered at the moment it was killed --
+        # dropping that on the same reasoning as a genuine FAIL would repeat
+        # the exact defect this file exists to fix. Computed ONCE, above the
+        # people_count_agreement branch below, so both CANNOT-RUN messages
+        # carry the same pointer.
+        evidence_path = _write_box_walk_evidence(probe, "CANNOT-RUN", None,
+                                                  e.stdout, e.stderr)
         if probe == "people_count_agreement":
+            # `probe={probe}`, not `probe {probe!r}`: matches the convention
+            # every other box_walk_probe detail uses so a caller (scripts/
+            # post_walk_qa.sh's phase-2 name extraction) can recover which
+            # probe this CANNOT-RUN names.
             return Result(entry["id"], entry["title"], "box_walk_probe", "CANNOT-RUN",
-                          f"probe {probe!r} exceeded its population-scaled timeout of "
+                          f"probe={probe} exceeded its population-scaled timeout of "
                           f"{_timeout_s}s (persons="
                           f"{_timeout_persons if _timeout_persons is not None else 'unreadable, floor applied'}"
                           f") and was killed. NOTHING was measured: this is not a failing "
                           f"probe, it is an unrun one. Re-run it directly with no cap, or "
                           f"raise OSTLER_BOX_WALK_PEOPLE_COUNT_TIMEOUT_CEILING, to get its "
-                          f"verdict.",
+                          f"verdict. full_output={evidence_path}",
                           entry.get("source_pr", ""))
         return Result(entry["id"], entry["title"], "box_walk_probe", "CANNOT-RUN",
-                      f"probe {probe!r} exceeded BOX_WALK_PROBE_TIMEOUT_SECONDS="
+                      f"probe={probe} exceeded BOX_WALK_PROBE_TIMEOUT_SECONDS="
                       f"{BOX_WALK_PROBE_TIMEOUT_SECONDS}s and was killed. NOTHING was "
                       f"measured: this is not a failing probe, it is an unrun one. "
-                      f"Re-run it directly with no cap to get its verdict.",
+                      f"Re-run it directly with no cap to get its verdict. "
+                      f"full_output={evidence_path}",
                       entry.get("source_pr", ""))
     except FileNotFoundError as e:
         # A probe that is not on disk IS a defect, and stays a FAIL: the row
-        # names a runtime proof that does not exist.
+        # names a runtime proof that does not exist. Nothing ran, so there is
+        # no process output to preserve -- unlike the branches below, this one
+        # never writes an evidence file.
         return Result(entry["id"], entry["title"], "box_walk_probe", "FAIL",
-                      f"probe invocation failed: {e}", entry.get("source_pr", ""))
+                      f"probe={probe} invocation failed: {e}", entry.get("source_pr", ""))
     exit_code = result.returncode
     stdout_snippet = result.stdout.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
     stderr_snippet = result.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
@@ -1409,6 +1496,26 @@ def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
     detail = f"probe={probe} exit={exit_code} stdout={stdout_snippet[0][:200]!r}"
     if status != "PASS" and stderr_snippet[0]:
         detail += f" stderr={stderr_snippet[0][:200]!r}"
+    # 🔴 THE LAST LINE ALONE IS THE VERDICT SENTENCE, NOT THE EVIDENCE.
+    #
+    # stdout_snippet/stderr_snippet above are each ONE line -- the probe's own
+    # closing "VERDICT: ..." -- because lib/probe.sh's probe_fail() prints that
+    # sentence last and exits immediately after. Everything a probe prints
+    # BEFORE its verdict (probe_note, probe_examined) is the actual finding:
+    # no_unexpected_egress names the offending process and remote address on
+    # exactly those lines. Truncating to the last 200 characters of the last
+    # line discards them, which is why two consecutive real failures of that
+    # probe could not be attributed to a holder or an address by anyone
+    # reading only this detail string.
+    #
+    # So a non-PASS status ALSO gets its full, untruncated stdout+stderr
+    # written to an evidence file (see _write_box_walk_evidence) and the path
+    # is appended here. The short verdict line above stays as the thing a
+    # human reads first; the path is where the rest of it survives.
+    if status != "PASS":
+        evidence_path = _write_box_walk_evidence(probe, status, exit_code,
+                                                  result.stdout, result.stderr)
+        detail += f" full_output={evidence_path}"
     return Result(entry["id"], entry["title"], "box_walk_probe", status, detail, entry.get("source_pr", ""))
 
 

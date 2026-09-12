@@ -84,6 +84,17 @@ def _run(cm051: Path, app: Path, *extra, env: dict | None = None) -> subprocess.
     # resolution is driven only by what a test explicitly provides (env kwarg
     # or a gui/Makefile pin), never by the developer's/CI's shell environment.
     run_env = {k: v for k, v in os.environ.items() if k != "DAEMON_VERSION"}
+    # A non-PASS box_walk_probe row writes its full stdout/stderr to an
+    # evidence file (_write_box_walk_evidence). Every box_walk_probe test in
+    # this file goes through THIS helper, so defaulting the override here --
+    # not per test -- keeps all of them hermetic: without it, the many FAIL
+    # and CANNOT-RUN arms below (test_box_walk_probe_fail_on_nonzero,
+    # test_box_walk_probe_exit_78_is_cannot_run_not_fail, and others) would
+    # each leave a real file behind in whoever's actual ~/.ostler/walks/
+    # evidence runs this suite. cm051.parent is tmp_path, unique per test.
+    # setdefault, not assignment: a test that passes its own value via `env`
+    # keeps it.
+    run_env.setdefault("OSTLER_BOX_WALK_EVIDENCE_DIR", str(cm051.parent / "box_walk_evidence"))
     if env:
         run_env.update(env)
     return subprocess.run(
