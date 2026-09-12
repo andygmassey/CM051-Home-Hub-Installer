@@ -15048,7 +15048,7 @@ fi
 # meantime. A `config encrypt-secrets` subcommand would close the
 # window; flagged as a follow-up Rust PR (or roll into Phase E).
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.79}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.80}"
 
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
@@ -15161,7 +15161,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="39abd49f07e240b90a6bcc1732dce5022c6c0c96aa016bd806bad277a0926f4f"
+DEFAULT_ASSISTANT_TARBALL_SHA256="16fff1a542fa463d9f4c5bb31c720f2873938ea93e75dd22be933e05fe069828"
 # The FALLBACK's own digest. HR015 #583: there was only ever ONE baked pin, and
 # the retry re-pointed the URLs without re-pointing it, so the fallback tarball
 # was checked against the PRIMARY's digest, mismatched, and the install aborted
