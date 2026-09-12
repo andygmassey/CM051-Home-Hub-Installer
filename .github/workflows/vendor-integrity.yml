@@ -44,6 +44,8 @@ on:
       # manifest shipped at all, which the test asserts and refuses on rather
       # than passing if they move.
       - 'tests/test_the_shipped_vendor_manifest_names_no_operator.py'
+      - 'tests/test_the_pii_scan_reads_every_file_in_the_tree.py'
+      - 'scripts/verify_cut_manifest.py'
       - 'cut-manifests/permanent.yaml'
       - 'gui/Makefile'
       # The D024 harness. A path entry alone would only make the workflow
@@ -173,6 +175,15 @@ jobs:
       - name: The shipped vendor manifest obeys the cut's own operator-PII rules
         if: always()
         run: python3 tests/test_the_shipped_vendor_manifest_names_no_operator.py
+
+      # The scan that test relies on must be able to READ the whole tree. The
+      # v1.0.92 cut proved it could not: 660 files in the built .app carried a
+      # suffix nobody had enumerated, so the operator-PII rows returned
+      # CANNOT-RUN and no DMG was ever produced. This asserts both halves of
+      # the fix -- that the newly reachable shapes really are scanned, and that
+      # a file which genuinely cannot be read still refuses rather than passing.
+      - name: The operator-PII scan reads every file in the tree
+        run: python3 tests/test_the_pii_scan_reads_every_file_in_the_tree.py
 
       - name: Divergent non-shipping twin guard (legacy, intra-repo only)
         if: always()
