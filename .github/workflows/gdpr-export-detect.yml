@@ -13,6 +13,7 @@ on:
       - 'lib/ostler-detect-exports.sh'
       - 'tests/test_gdpr_export_detect.sh'
       - 'tests/test_export_detect_large_zip_behaviour.sh'
+      - 'tests/test_unzip_every_archive_is_opened_or_reported.sh'
       - 'install.sh'
       - '.github/workflows/gdpr-export-detect.yml'
   push:
@@ -38,6 +39,9 @@ jobs:
 
       - name: Detector functional + drift guard
         run: bash tests/test_gdpr_export_detect.sh
+
+      - name: Every archive the scan finds is opened, or reported (2026-09-12)
+        run: bash tests/test_unzip_every_archive_is_opened_or_reported.sh
 
   # ==========================================================================
   # #889 RESIDUAL -- AND IT HAS TO RUN ON macOS, WHICH WAS MEASURED, NOT ASSUMED.

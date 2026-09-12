@@ -8285,14 +8285,16 @@ cat > "${HOME}/.ostler/lib/ostler-detect-exports.sh" <<'OSTLER_DETECT_EXPORTS_EO
 #
 # The actual importer (ostler-import) is content-based and recurses the whole
 # search dir, so detection only has to (a) decide whether an import is worth
-# running and (b) --unzip any signature-bearing .zip first so its loose files
+# running and (b) --unzip any export-shaped .zip first so its loose files
 # become visible to the parsers.
 #
 # Usage:
 #   ostler-detect-exports.sh <dir> [--unzip]
 # Prints one  "LABEL<TAB>path"  line per detected export (path = the export's
 # top-level folder under <dir>, or the .zip itself). Exit 0 if >=1 detected,
-# 1 if none. With --unzip, signature-bearing zips are extracted in place first.
+# 1 if none. With --unzip: every .zip the scan finds is either opened, or its
+# skip is counted and reported on stderr as one UNZIP_SUMMARY line (counts
+# only, no filenames) -- see section 1 below.
 set -uo pipefail
 
 DIR="${1:-}"
@@ -8303,6 +8305,11 @@ DO_UNZIP=0
 # platform <US> extended-regex of signature basenames (a file OR dir whose
 # name is specific enough to identify the source export). Kept deliberately
 # high-signal to avoid false positives. <US> = unit separator (0x1f).
+#
+# USED FOR LABELLING ONLY (section 2, below) -- which platform a detected
+# export belongs to. It is NOT the gate for whether a zip gets opened; see
+# the 2026-09-12 note in section 1 for why that used to be the same test and
+# why that was the defect.
 SIGS=(
   $'LinkedIn\x1f^Connections\\.csv$'
   $'Facebook\x1f^your_friends\\.json$|^friends\\.json$'
@@ -8318,8 +8325,27 @@ SIGS=(
   $'Discord\x1f^messages\\.csv$|^activity$'
 )
 
-# --- 1. Optionally unzip any signature-bearing archive -----------------------
-# Build one combined regex (path form) for matching zip member lists.
+# --- 1. Optionally unzip archives worth opening -------------------------------
+# Build one combined regex (path form) for matching zip member lists: the
+# per-platform SIGS basenames above, PLUS a broad export-SHAPE test (any
+# csv/json/html/ics/js member -- the file types every GDPR/platform export
+# actually ships).
+#
+# WHY THE SHAPE TEST EXISTS (measured 2026-09-12, a real install, Andy's
+# explicit instruction, outside the launch freeze): this gate used to be
+# SIGS alone. SIGS names exactly 12 platforms' manifest files. A customer's
+# Downloads can hold genuine exports from MORE than 12 platforms, or a
+# multi-part / split archive whose manifest file lives in a DIFFERENT
+# volume than the one being tested. Gating extraction on SIGS alone meant
+# every such zip was silently never opened: no branch, no log line, no
+# count -- found by the find below, then dropped with nothing said. The
+# customer's content-based importer then saw nothing and nothing said why.
+# 46 real archives, 25 never opened, zero of the 25 named anywhere.
+#
+# The shape test is a FLOOR, not a replacement for SIGS, and not "unzip
+# everything": a zip with NO data-shaped member at all (an installer, a
+# photo archive, the empty decoy in
+# tests/test_export_detect_large_zip_behaviour.sh) is still left alone.
 _zip_re=""
 for entry in "${SIGS[@]}"; do
     re="${entry#*$'\x1f'}"
@@ -8327,19 +8353,54 @@ for entry in "${SIGS[@]}"; do
     re_unanchored="${re//^/}"; re_unanchored="${re_unanchored//\$/}"
     _zip_re="${_zip_re:+$_zip_re|}${re_unanchored}"
 done
+_zip_shape_re='\.(csv|json|html?|ics|js)$'
+_zip_open_re="${_zip_re}|${_zip_shape_re}"
 
 if [[ "$DO_UNZIP" == "1" ]]; then
+    _uz_found=0; _uz_opened=0; _uz_already=0
+    _uz_skipped_norecognised=0; _uz_skipped_password=0; _uz_skipped_other=0
     while IFS= read -r z; do
         [[ -f "$z" ]] || continue
-        if [ "$(unzip -Z1 "$z" 2>/dev/null | grep -ciE "(${_zip_re})")" -gt 0 ]; then
-            dest="${z%.zip}"
-            # Only extract once; never clobber an already-unzipped folder.
-            if [[ ! -d "$dest" ]]; then
-                mkdir -p "$dest" 2>/dev/null || true
-                unzip -oq "$z" -d "$dest" 2>/dev/null || true
+        _uz_found=$((_uz_found + 1))
+        # `grep -c` (never `-q`) so it always reads the whole listing: under
+        # `pipefail`, a short-circuiting consumer can make unzip take SIGPIPE
+        # and invert a real match to "not found" (#889/#1124). Measured only
+        # on Darwin; see tests/test_export_detect_large_zip_behaviour.sh.
+        if [ "$(unzip -Z1 "$z" 2>/dev/null | grep -ciE "(${_zip_open_re})")" -eq 0 ]; then
+            # Nothing export-shaped in this archive at all. Counted, not silent.
+            _uz_skipped_norecognised=$((_uz_skipped_norecognised + 1))
+            continue
+        fi
+        dest="${z%.zip}"
+        # Only extract once; never clobber an already-unzipped folder.
+        if [[ -d "$dest" ]]; then
+            _uz_already=$((_uz_already + 1))
+            continue
+        fi
+        mkdir -p "$dest" 2>/dev/null || true
+        _uz_err="$(unzip -oq "$z" -d "$dest" 2>&1 1>/dev/null)"; _uz_rc=$?
+        if [[ "$_uz_rc" -eq 0 ]]; then
+            _uz_opened=$((_uz_opened + 1))
+        else
+            # Extraction failed for an archive that WAS worth opening. Remove
+            # the empty dest so a later run retries rather than mistaking it
+            # for "already extracted", and count + classify the failure
+            # rather than swallowing it -- the previous form here was
+            # `... || true`, which is exactly the silence this fix removes.
+            rmdir "$dest" 2>/dev/null || true
+            # `grep -c` (never `-q`), same reason as the shape test above.
+            if [ "$(printf '%s' "$_uz_err" | grep -ci "password")" -gt 0 ]; then
+                _uz_skipped_password=$((_uz_skipped_password + 1))
+            else
+                _uz_skipped_other=$((_uz_skipped_other + 1))
             fi
         fi
     done < <(find "$DIR" -maxdepth 2 -type f -iname '*.zip' 2>/dev/null || true)
+    # Counts only, no filenames, on STDERR -- so it never mixes with the
+    # "LABEL<TAB>path" hits on stdout that callers (install.sh, the export
+    # watcher) already parse.
+    printf 'UNZIP_SUMMARY found=%s opened=%s already=%s skipped_norecognised=%s skipped_password=%s skipped_other=%s\n' \
+        "$_uz_found" "$_uz_opened" "$_uz_already" "$_uz_skipped_norecognised" "$_uz_skipped_password" "$_uz_skipped_other" >&2
 fi
 
 # --- 2. Content detection over loose files (post-unzip) ----------------------
@@ -9510,13 +9571,42 @@ ostler_slot_release() {
 OSTLER_INGEST_SLOT_EOF
 chmod +x "${HOME}/.ostler/lib/ostler-ingest-slot.sh" 2>/dev/null || true
 
-# Auto-unzip any signature-bearing export zips in the scan dirs FIRST, so the
-# content detection below (and the parsers) can read a still-zipped download.
-# Runs AFTER the prewarm above has cleared the TCC prompts and AFTER the lib is
-# written, so the call always finds it. Name-agnostic; failure-tolerant.
+# Auto-unzip export zips in the scan dirs FIRST, so the content detection
+# below (and the parsers) can read a still-zipped download. Runs AFTER the
+# prewarm above has cleared the TCC prompts and AFTER the lib is written, so
+# the call always finds it. Name-agnostic; failure-tolerant.
+#
+# 2026-09-12 (Andy's explicit instruction, outside the launch freeze): every
+# zip the detector finds is now either opened or its skip is counted (see
+# lib/ostler-detect-exports.sh). Accumulate the per-dir UNZIP_SUMMARY (stderr,
+# counts only, no filenames) into install-wide totals so the closing verdict
+# can tell a customer how much of what was found actually landed, rather than
+# staying completely silent about it, which is what happened before this fix.
+_OSTLER_ZIPS_FOUND=0
+_OSTLER_ZIPS_OPENED=0
+_OSTLER_ZIPS_ALREADY=0
+_OSTLER_ZIPS_SKIPPED_NORECOGNISED=0
+_OSTLER_ZIPS_SKIPPED_PASSWORD=0
+_OSTLER_ZIPS_SKIPPED_OTHER=0
+_ostler_zip_count_add() {  # $1=running total  $2="key=NN"; echoes the new total
+    local cur="$1" raw="${2#*=}"
+    case "$raw" in
+        ''|*[!0-9]*) raw=0 ;;
+    esac
+    echo "$(( cur + raw ))"
+}
 for _sd in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     [[ -d "$_sd" ]] || continue
-    bash "${HOME}/.ostler/lib/ostler-detect-exports.sh" "$_sd" --unzip >/dev/null 2>&1 || true
+    _uz_line="$(bash "${HOME}/.ostler/lib/ostler-detect-exports.sh" "$_sd" --unzip 2>&1 >/dev/null | grep '^UNZIP_SUMMARY ' || true)"
+    if [[ -n "${_uz_line:-}" ]]; then
+        read -r _ _uzf _uzo _uza _uzsn _uzsp _uzso <<<"$_uz_line" || true
+        _OSTLER_ZIPS_FOUND="$(_ostler_zip_count_add "$_OSTLER_ZIPS_FOUND" "${_uzf:-found=0}")"
+        _OSTLER_ZIPS_OPENED="$(_ostler_zip_count_add "$_OSTLER_ZIPS_OPENED" "${_uzo:-opened=0}")"
+        _OSTLER_ZIPS_ALREADY="$(_ostler_zip_count_add "$_OSTLER_ZIPS_ALREADY" "${_uza:-already=0}")"
+        _OSTLER_ZIPS_SKIPPED_NORECOGNISED="$(_ostler_zip_count_add "$_OSTLER_ZIPS_SKIPPED_NORECOGNISED" "${_uzsn:-skipped_norecognised=0}")"
+        _OSTLER_ZIPS_SKIPPED_PASSWORD="$(_ostler_zip_count_add "$_OSTLER_ZIPS_SKIPPED_PASSWORD" "${_uzsp:-skipped_password=0}")"
+        _OSTLER_ZIPS_SKIPPED_OTHER="$(_ostler_zip_count_add "$_OSTLER_ZIPS_SKIPPED_OTHER" "${_uzso:-skipped_other=0}")"
+    fi
 done
 
 for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
@@ -32340,6 +32430,19 @@ if [[ "${_OSTLER_RUN_ERRORS:-0}" -gt 0 || "${__OSTLER_FAILED_STEPS:-0}" -gt 0 ]]
 else
     ok "$MSG_OK_INSTALL_FINISHED_NO_ERRORS_RAISED"
 fi
+
+# Archive-scan summary (2026-09-12, Andy's explicit instruction, outside the
+# launch freeze): the closing verdict above can read "no errors raised" while
+# most of a customer's data exports were never opened, because the import
+# region below it is best-effort by design and does not raise err() for a
+# skipped archive -- correctly so, since one bad export must never abort the
+# install. But best-effort is not the same as silent: this line states how
+# many zip archives the scan found, how many were opened, and how many were
+# skipped (with reasons), read from the same UNZIP_SUMMARY totals the pre-scan
+# accumulated above. Counts only, no filenames, matching the source-status
+# line below.
+_OSTLER_ZIPS_SKIPPED=$(( ${_OSTLER_ZIPS_SKIPPED_NORECOGNISED:-0} + ${_OSTLER_ZIPS_SKIPPED_PASSWORD:-0} + ${_OSTLER_ZIPS_SKIPPED_OTHER:-0} ))
+info "Archive scan: ${_OSTLER_ZIPS_FOUND:-0} zip archive(s) found, ${_OSTLER_ZIPS_OPENED:-0} opened, ${_OSTLER_ZIPS_ALREADY:-0} already extracted, ${_OSTLER_ZIPS_SKIPPED} skipped (${_OSTLER_ZIPS_SKIPPED_NORECOGNISED:-0} not recognised as export data, ${_OSTLER_ZIPS_SKIPPED_PASSWORD:-0} password protected, ${_OSTLER_ZIPS_SKIPPED_OTHER:-0} could not be opened)"
 
 # E1 (#599): a T+0 source-status readout into the install log, read from the SAME
 # /api/v1/sources artefact the Doctor panel and the box walk read (G1c/G3), so the
