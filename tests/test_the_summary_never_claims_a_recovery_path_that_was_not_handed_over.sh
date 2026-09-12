@@ -13,6 +13,16 @@
 # "Encryption: passphrase-wrapped DEK (recovery passphrase)", and the whole run
 # contained 2 prompts, neither of them the key. The key is never stored, so
 # that disclosure could never happen later.
+#
+# #1540b (this update): SECURITY_PREEXISTED alone used to be treated as "an
+# earlier run must have handed it over", which is the same inferential leap
+# #1540 removed from the FILE-PRESENCE claim, just moved one variable over.
+# The summary now also consults a persisted delivery marker
+# (RECOVERY_DELIVERY_MARKER, a file under SECURITY_CONFIG_DIR written only at
+# the moment delivery actually happens) before it will say "set up by an
+# earlier run". Arm 2 below now supplies that marker explicitly, and a new
+# arm 2b covers the case it did not exist for: a pre-existing keychain with
+# no delivery record on file, which must warn, not skip.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -43,16 +53,18 @@ fi
 # The lifted text must be a complete construct, or every arm below is vacuous.
 bash -n "$BLOCK" 2>/dev/null || cant "the lifted block is not valid bash on its own; the extraction is wrong"
 
-run_state() {   # $1=delivered $2=preexisted $3=passkey(0|1) -> OUT
-    local d="$1" p="$2" pk="$3" dir="$WORK/sec.$RANDOM"
+run_state() {   # $1=delivered $2=preexisted $3=passkey(0|1) $4=marker(0|1) -> OUT
+    local d="$1" p="$2" pk="$3" mk="${4:-0}" dir="$WORK/sec.$RANDOM"
     mkdir -p "$dir"
     : > "$dir/keychain.json"
     [[ "$pk" == "1" ]] && : > "$dir/passkey.json"
+    [[ "$mk" == "1" ]] && : > "$dir/recovery_key_delivered.json"
     OUT="$(
         SECURITY_CONFIG_DIR="$dir" \
         RECOVERY_KEY_DELIVERED="$d" \
         SECURITY_PREEXISTED="$p" \
-        YELLOW="" BOLD="" NC="" \
+        RECOVERY_DELIVERY_MARKER="$dir/recovery_key_delivered.json" \
+        YELLOW="" BOLD="" NC="" RED="" \
         bash "$BLOCK" 2>&1
     )"
 }
@@ -60,23 +72,33 @@ run_state() {   # $1=delivered $2=preexisted $3=passkey(0|1) -> OUT
 echo "── subject: ${INSTALL} (summary block, executed) ──"
 
 # ── arm 1: minted AND handed over ───────────────────────────────────────────
-run_state true false 0
+run_state true false 0 1
 if grep -qi 'shown above' <<<"$OUT" && ! grep -qi 'UNAVAILABLE' <<<"$OUT"; then
     ok "key handed over this run: the summary says so, and does not warn"
 else
     bad "expected a 'shown above' claim and no warning. Got: $OUT"
 fi
 
-# ── arm 2: an EARLIER run owed the disclosure ───────────────────────────────
-run_state false true 0
+# ── arm 2: an EARLIER run owed the disclosure, AND recorded doing so ────────
+run_state false true 0 1
 if grep -qi 'earlier run' <<<"$OUT" && ! grep -qi 'shown above' <<<"$OUT" && ! grep -qi 'UNAVAILABLE' <<<"$OUT"; then
-    ok "pre-existing keychain: neither claims to have shown it nor cries wolf"
+    ok "pre-existing keychain WITH a delivery record: neither claims to have shown it nor cries wolf"
 else
     bad "expected an 'earlier run' line only. Got: $OUT"
 fi
 
+# ── arm 2b: #1540b THE DANGEROUS STATE. keychain pre-exists, NO delivery
+# record on file -- nobody can prove the customer has ever seen a key. This
+# is the case the old SECURITY_PREEXISTED-only check treated as safe. ───────
+run_state false true 0 0
+if grep -qi 'UNAVAILABLE' <<<"$OUT" && ! grep -qi 'earlier run' <<<"$OUT" && ! grep -qi 'shown above' <<<"$OUT"; then
+    ok "pre-existing keychain, NO delivery record: the summary warns instead of claiming an earlier run covered it"
+else
+    bad "pre-existing keychain with no delivery record must warn, not say 'earlier run'. Got: $OUT"
+fi
+
 # ── arm 3: THE DEFECT. minted here, never handed over ───────────────────────
-run_state false false 0
+run_state false false 0 0
 if grep -qi 'UNAVAILABLE' <<<"$OUT" && ! grep -qi 'recovery passphrase)' <<<"$OUT"; then
     ok "minted but NOT handed over: the summary says recovery is UNAVAILABLE"
 else
@@ -85,7 +107,7 @@ fi
 
 # ── arm 4: CONTROL -- the passkey path must be untouched ────────────────────
 # Without this the block could satisfy arms 1-3 by firing unconditionally.
-run_state false false 1
+run_state false false 1 0
 if [[ -z "${OUT//[[:space:]]/}" ]]; then
     ok "CONTROL: with passkey.json present this block prints nothing at all"
 else

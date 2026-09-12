@@ -7924,6 +7924,15 @@ PASSKEY_PRIMED=false
 RECOVERY_KEY_DELIVERED=false
 SECURITY_PREEXISTED=false
 
+# #1540b. SECURITY_PREEXISTED alone is NOT a delivery fact -- it only says
+# a config file exists. The one thing that turns "a key was minted" into
+# "the customer holds a key" is a persisted record written AT THE MOMENT
+# OF DISCLOSURE (see the mint site below, ~line 14541). RECOVERY_KEY_DELIVERED
+# is scoped to THIS PROCESS ONLY and answers nothing about a previous run;
+# this file is what a later run reads instead of inferring delivery from
+# keychain.json's mere presence. It never holds the key or any part of it.
+RECOVERY_DELIVERY_MARKER="${SECURITY_CONFIG_DIR}/recovery_key_delivered.json"
+
 # Check if security is already configured (re-run detection)
 #
 # Two artefacts can mark "security configured":
@@ -7931,11 +7940,14 @@ SECURITY_PREEXISTED=false
 #   - keychain.json -- legacy passphrase path OR opt-in recovery passphrase
 #                       written by setup_passphrase() during a previous run
 #
-# Either is sufficient to skip security setup on a re-run.
+# Either is sufficient to skip the INTERACTIVE setup screens on a re-run
+# (nobody is asked to pick a passphrase twice). It is NOT, on its own,
+# sufficient to claim the customer has a recovery key -- that is decided
+# separately, per-artefact, at the elif site below (~line 14544).
 if [[ -f "${SECURITY_CONFIG_DIR}/passkey.json" || -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
     ok "$MSG_OK_SECURITY_ALREADY_CONFIGURED_PREVIOUS_RUN"
     SECURITY_PREEXISTED=true   # #1540: an earlier run owed the disclosure
-    HAS_SECURITY_MODULE=false  # skip security setup on re-run
+    HAS_SECURITY_MODULE=false  # skip the interactive setup screens on re-run
 elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
     # ── Passphrase-primary unlock (v1.0) ──────────────────────────────
     # Replaces the passkey/Touch ID path (PR #137, 2026-05-22). Studio
@@ -14506,45 +14518,78 @@ except Exception as e:
         RECOVERY_KEY=$(echo "$SETUP_OUTPUT" | grep "^RECOVERY_PHRASE=" | cut -d= -f2- || true)
         ok "$MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP"
 
-        # #1540: DISCLOSE THE KEY WHERE IT IS MINTED.
+        # #1540 moved the reveal here (the mint site) on 2026-09-05, after a
+        # run that minted a key and then failed before reaching the
+        # original reveal site (15,490 lines below) destroyed that key
+        # permanently: it is never stored, keychain.json IS, and every
+        # later run took the "already configured" skip and could no longer
+        # disclose anything.
         #
-        # MEASURED on archie2, Mini 16, 2026-09-05. The assignment
-        # above and the reveal were 15,490 lines apart, and a run
-        # that died in between destroyed the key for good. Not a
-        # hypothetical: an attempt at 10:43:53Z minted a key and
-        # failed, the attempt at 11:04:08Z finished clean, took the
-        # "already configured" skip below, and printed a summary
-        # line promising a recovery passphrase that had been
-        # unreachable for twenty minutes.
-        #
-        # The GUI half is HintPanelView.swift, which presented the
-        # reveal sheet only inside `finished == .ok`. Both had to
-        # move. Moving this one alone still loses the key on every
-        # failing install, which is the case that needs it most:
-        # the customer's next act is to re-run, and the re-run is
-        # what makes the key unreachable for ever.
-        #
-        # The Keychain-save offer stays where it was. It is a
-        # convenience and it can be lost. The disclosure cannot.
-        if [[ -n "$RECOVERY_KEY" ]]; then
-            gui_emit RECOVERY_KEY "value=$RECOVERY_KEY"
-            echo ""
-            echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo ""
-            echo -e "  ${BOLD}Your recovery key:${NC}"
-            echo ""
-            echo -e "    ${YELLOW}${BOLD}${RECOVERY_KEY}${NC}"
-            echo ""
-            # #1540. The honest boundary: we HANDED IT OVER. Whether the human
-            # wrote it down is not knowable from here, and claiming otherwise
-            # would be the same overreach this flag exists to remove.
-            RECOVERY_KEY_DELIVERED=true
-        fi
+        # #1540b MOVES IT BACK, on the owner's explicit instruction: the
+        # recovery key belongs beside the Keychain-save decision it is
+        # actually made for, which is where it always was before #1540 and
+        # where "Show recovery key" now is again, a few thousand lines
+        # below (search #1540b there). RECOVERY_KEY is left set here so
+        # that reveal can still happen even on a run that fails somewhere
+        # in between -- when that happens, RECOVERY_KEY_DELIVERED and the
+        # persisted delivery marker both stay unset, so the very NEXT run
+        # detects the gap (see the elif chain immediately below) and
+        # discloses it loudly instead of silently claiming the customer is
+        # covered. That is what makes moving the reveal back safe: the
+        # failure-in-between case is now diagnosed and disclosed, not
+        # merely made rarer.
     fi
-elif [[ -f "${SECURITY_CONFIG_DIR}/passkey.json" || -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
-    # Re-run: security already configured in a previous install.
-    # This is the legitimate skip path; nothing to do.
+elif [[ -f "${SECURITY_CONFIG_DIR}/passkey.json" ]]; then
+    # Passkey-primary configs never go through the recovery-key mint/
+    # disclose path above -- there is nothing to check delivery of.
+    # Re-run: legitimate skip.
     :
+elif [[ -f "${RECOVERY_DELIVERY_MARKER}" ]]; then
+    # Re-run: security (keychain.json) already configured in a previous
+    # install, AND that run's #1540 disclosure is a persisted FACT (the
+    # marker written at the mint site above), not an inference drawn from
+    # keychain.json's mere presence. This is the legitimate skip.
+    :
+elif [[ -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
+    # #1540b: THE DANGEROUS STATE. keychain.json exists (a recovery key
+    # was minted at some point) and no delivery was ever recorded --
+    # either an earlier run died between the mint and the disclosure (the
+    # exact #1540 incident this file documents) or predates this marker
+    # entirely. Either way, nothing on this Mac can prove the customer
+    # has ever seen a recovery key for this install.
+    #
+    # We do NOT silently re-mint. setup_passphrase()
+    # (vendor/ostler_security/passphrase.py:331-340) refuses outright
+    # when keychain.json already exists. The only vendored path that
+    # replaces a recovery key, change_passphrase(), takes the OLD
+    # recovery key as a REQUIRED argument to re-wrap the databases' key
+    # -- exactly the value this state proves nobody has. A safe
+    # rotate-only primitive (reuse unlock() to recover the existing DEK
+    # under the passphrase the customer still holds, then re-wrap that
+    # SAME DEK under a freshly generated recovery key without touching
+    # encryption_salt, so no existing database is put at risk) is
+    # possible in principle, but it is new mutating surface in a module
+    # with a long numbered history of security fixes (BT8/BT9/BH/AV/RT
+    # series) and no test coverage for that operation today. That is a
+    # separate, reviewed change, not something to improvise inside a
+    # data-loss fix.
+    #
+    # So: disclose it loudly, and do not let the summary claim otherwise
+    # (the summary block near the end of this script is guarded by the
+    # same marker). Passphrase unlock is completely unaffected -- nothing
+    # here is broken today. There is simply no recovery path if the
+    # passphrase is ever forgotten, until security is re-run against a
+    # fresh security directory.
+    echo ""
+    echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "  ${RED}${BOLD}Your recovery key was never shown to you${NC}"
+    echo ""
+    warn "$MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_1"
+    warn "$MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_2"
+    warn "$MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_3"
+    echo ""
+    echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 else
     # Not primed and no existing security configuration. Deployed
     # services refuse to start without encryption, so this would
@@ -31098,16 +31143,90 @@ if [[ -n "$RECOVERY_KEY" ]]; then
     # key value -- LOG markers land in the GUI Log drawer (visible
     # to anyone the customer hands the laptop to). The RECOVERY_KEY
     # marker bypasses logLines on the Swift side.
-    # #1540: THE REVEAL NOW HAPPENS AT THE MINT SITE, not here.
     #
-    # It used to be these lines. The key is minted 15,490 lines
-    # above and used to be handed over here, so any failure in
-    # between destroyed it permanently: the key is never stored,
-    # the keychain IS, and every later run takes the "already
-    # configured" skip and can no longer disclose anything.
+    # #1540 MOVED THE REVEAL TO THE MINT SITE on 2026-09-05: a run that
+    # minted the key and then failed before reaching this point (15,490
+    # lines below the mint) destroyed the key permanently, since it is
+    # never stored, keychain.json IS, and every later run took the
+    # "already configured" skip and could no longer disclose anything.
     #
-    # What remains below is the Keychain-save OFFER, which is a
-    # convenience and may be lost. The disclosure may not.
+    # #1540b MOVES IT BACK, on the owner's explicit instruction: the
+    # recovery key belongs here, beside the Keychain-save decision it is
+    # actually made for. What makes that safe again is not this file
+    # alone -- it is the persisted delivery marker written a few lines
+    # below (RECOVERY_DELIVERY_MARKER) plus the loud, non-silent re-run
+    # check in Phase 3.6 (search #1540b near "Your recovery key was
+    # never shown to you"). A run that mints here and then fails before
+    # finishing leaves RECOVERY_KEY_DELIVERED and the marker both unset,
+    # so the NEXT run now detects that gap and discloses it, instead of
+    # silently taking the "already configured" skip and telling the
+    # customer an earlier run covered it. A mint that is never delivered
+    # is a diagnosed, disclosed gap now, not a permanent, silent one.
+    gui_emit RECOVERY_KEY "value=$RECOVERY_KEY"
+    echo ""
+    echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "  ${BOLD}Your recovery key:${NC}"
+    echo ""
+    echo -e "    ${YELLOW}${BOLD}${RECOVERY_KEY}${NC}"
+    echo ""
+    # #1540. The honest boundary: we HANDED IT OVER. Whether the human
+    # wrote it down is not knowable from here, and claiming otherwise
+    # would be the same overreach this flag exists to remove.
+    RECOVERY_KEY_DELIVERED=true
+
+    # #1540b: PERSIST the fact that delivery happened, so a run that starts
+    # AFTER this one is not left inferring it from keychain.json's mere
+    # presence (that inference is the defect this file exists to remove;
+    # see the elif chain in Phase 3.6). Written ONLY here, ONLY after the
+    # reveal above has already run. NEVER the key value or any part of it
+    # -- delivered_at, and, since keychain.json already carries one, the
+    # non-secret recovery_verification hash, so a later re-mint under a
+    # repaired security directory cannot be mistaken for THIS delivery
+    # having covered it.
+    _recovery_marker_stderr="$(mktemp)"
+    if ! "$OSTLER_PYTHON" - "${SECURITY_CONFIG_DIR}" "${RECOVERY_DELIVERY_MARKER}" 2>"$_recovery_marker_stderr" <<'PY'
+import json
+import os
+import sys
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+config_dir = Path(sys.argv[1])
+marker_path = Path(sys.argv[2])
+
+identity = None
+try:
+    keychain = json.loads((config_dir / "keychain.json").read_text())
+    identity = keychain.get("recovery_verification")  # already a non-secret hash
+except Exception:
+    identity = None
+
+marker = {
+    "version": 1,
+    "delivered": True,
+    "delivered_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "delivery_channel": "install_reveal",
+    "recovery_key_identity": identity,
+}
+
+fd, tmp_path = tempfile.mkstemp(dir=str(config_dir), suffix=".tmp")
+try:
+    with os.fdopen(fd, "w") as f:
+        json.dump(marker, f, indent=2)
+    os.chmod(tmp_path, 0o600)
+    os.replace(tmp_path, str(marker_path))
+except Exception:
+    if os.path.exists(tmp_path):
+        os.unlink(tmp_path)
+    raise
+PY
+    then
+        warn "$MSG_WARN_COULD_NOT_RECORD_RECOVERY_KEY_DELIVERY"
+        sed -e 's/^/    /' "$_recovery_marker_stderr" | head -5
+    fi
+    rm -f "$_recovery_marker_stderr"
 
     # v1.0.11 UX fix (keychain-save stall): pre-warm the Swift toolchain
     # module cache in the BACKGROUND now, so it runs concurrently with the
@@ -31885,10 +32004,23 @@ echo "     AI model:      ${AI_MODEL}"
 if [[ ! -f "${SECURITY_CONFIG_DIR}/passkey.json" && -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
     if [[ "$RECOVERY_KEY_DELIVERED" == true ]]; then
         echo "     Encryption:    passphrase-wrapped DEK (recovery key shown above)"
-    elif [[ "$SECURITY_PREEXISTED" == true ]]; then
-        # A previous run minted it and owed the disclosure. This run has
-        # nothing to hand over and must not imply that it did.
+    elif [[ "$SECURITY_PREEXISTED" == true && -f "${RECOVERY_DELIVERY_MARKER}" ]]; then
+        # A previous run minted it AND its delivery is a persisted FACT
+        # (#1540b), not an inference from keychain.json's mere presence.
+        # This run has nothing to hand over and must not imply that it did.
         echo "     Encryption:    passphrase-wrapped DEK (set up by an earlier run)"
+    elif [[ "$SECURITY_PREEXISTED" == true ]]; then
+        # #1540b: keychain.json exists, SECURITY_PREEXISTED is true, and
+        # there is no delivery record -- the dangerous state, already
+        # disclosed loudly earlier in this run (see the elif chain around
+        # "Your recovery key was never shown to you"). Repeating the old
+        # "set up by an earlier run" line here would be exactly the false
+        # claim this fix removes, so it does not appear in this branch.
+        echo "     Encryption:    passphrase-wrapped DEK"
+        echo -e "     ${RED}${BOLD}Recovery:      UNAVAILABLE -- see the warning above.${NC}"
+        echo "                    Your passphrase still works and nothing is"
+        echo "                    locked today. Contact support to have a"
+        echo "                    recovery key minted and shown to you."
     else
         # Minted here and NOT handed over. Do not dress this as a feature.
         echo "     Encryption:    passphrase-wrapped DEK"
