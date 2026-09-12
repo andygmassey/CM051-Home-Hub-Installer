@@ -584,7 +584,7 @@ MSG_OK_WIKI_RECOMPILE_CATCHUP_LOADED="First-day wiki catch-up LaunchAgent loaded
 # ── Deferred whole-graph dedupe converge (v1.0.2) ──
 MSG_INFO_DEDUPE_STILL_MERGING="Still merging duplicate contacts – large address books can take several minutes (%ss elapsed)"
 MSG_INFO_DEDUPE_MERGED="Duplicate contacts merged"
-MSG_INFO_DEDUPE_DEFERRED_BACKGROUND="Most duplicate contacts merged. The rest will finish in the background after install – your wiki updates automatically when it does."
+MSG_INFO_DEDUPE_DEFERRED_BACKGROUND="Merging duplicate contacts is taking a while for an address book this size. It will keep going in the background after install – your wiki updates automatically when it finishes."
 MSG_WARN_DEDUPE_INCOMPLETE="Whole-graph dedupe pass did not complete cleanly (see %s); continuing"
 MSG_INFO_DEDUPE_COMPLETE_NO_CATCHUP="Duplicate contacts fully merged during install; no background catch-up needed"
 MSG_OK_DEDUPE_CATCHUP_LOADED="Background contact-dedupe LaunchAgent loaded (finishes merging duplicates after install, then stops)"
