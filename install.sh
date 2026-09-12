@@ -29775,8 +29775,8 @@ except Exception:
         # measurement. See the browsing call site for the full account.
         _hydrate_sentinel_record_error "people" "$_HYDRATE_PEOPLE_RC" \
             "sent=${_HYDRATE_PEOPLE_SENT:-unknown},collection_points=$(_hydrate_qdrant_points people)"
-    elif [[ "${_HYDRATE_PEOPLE_PARTIAL:-false}" == "true" ]]; then
-        # THE GAP THE RC CHECK ABOVE CANNOT SEE. ingest_people_to_qdrant
+    elif [[ ! ( "${_HYDRATE_PEOPLE_RC:-0}" -ne 0 ) ]] && [[ "${_HYDRATE_PEOPLE_PARTIAL:-false}" == "true" ]]; then
+        # THE GAP THE RC CHECK ABOVE CANNOT SEE ON ITS OWN. ingest_people_to_qdrant
         # catches its own exceptions, so a run that landed only PART of
         # the sweep still exits this python invocation at rc=0 -- the
         # branch above never fires for it. That is exactly the shape
@@ -29784,6 +29784,10 @@ except Exception:
         # and a success sentinel that suppressed the retry for good. This
         # is not a process failure, so rc is recorded as whatever it
         # actually was rather than invented; 'reason' says what happened.
+        # The `rc` half of this guard is stated rather than left implicit
+        # in the elif fall-through, so it reads the same as every sibling
+        # error-recorder guard in this file: rc is still the first thing
+        # checked, and this only fires when it did NOT indicate a failure.
         _hydrate_sentinel_record_error "people" "${_HYDRATE_PEOPLE_RC:-0}" \
             "sent=${_HYDRATE_PEOPLE_SENT:-0},total=${_HYDRATE_PEOPLE_TOTAL:-unknown},reason=partial_landing"
     else
