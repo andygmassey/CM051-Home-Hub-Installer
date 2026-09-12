@@ -91,6 +91,7 @@ _fake_box() {
         nologs)   case "${cmd}" in
                       *found=0*|*wiki-*)     echo NOLOGS ;;  # the dirs are not there
                       *"echo ok"*)   echo ok ;;
+                      *BINLS_OK*)    printf 'BINLS_OK\nostler-assistant\n' ;;
                       *http_code*)   echo 200 ;;
                       *frontpage*)   echo '{"id":"welcome-1"}' ;;
                       *launchctl*)   echo __A8_OK__ ;;
@@ -100,6 +101,7 @@ _fake_box() {
         clean)    case "${cmd}" in
                       *found=0*|*wiki-*)     echo 0 ;;
                       *"echo ok"*)   echo ok ;;
+                      *BINLS_OK*)    printf 'BINLS_OK\nostler-assistant\n' ;;
                       *http_code*)   echo 200 ;;
                       *frontpage*)   echo '{"id":"welcome-1"}' ;;
                       *launchctl*)   echo __A8_OK__ ;;
@@ -109,6 +111,7 @@ _fake_box() {
         dirty)    case "${cmd}" in
                       *found=0*|*wiki-*)     echo 7 ;;       # real errors in the logs
                       *"echo ok"*)   echo ok ;;
+                      *BINLS_OK*)    printf 'BINLS_OK\nostler-assistant\n' ;;
                       *http_code*)   echo 200 ;;
                       *frontpage*)   echo '{"id":"welcome-1"}' ;;
                       *launchctl*)   echo __A8_OK__ ;;
@@ -117,6 +120,7 @@ _fake_box() {
                   esac ;;
         a8trunc)  case "${cmd}" in
                       *"echo ok"*)   echo ok ;;
+                      *BINLS_OK*)    printf 'BINLS_OK\nostler-assistant\n' ;;
                       *found=0*|*wiki-*)     echo 0 ;;
                       *launchctl*)   echo "" ;;      # reply lost, no terminator
                       *http_code*)   echo 200 ;;

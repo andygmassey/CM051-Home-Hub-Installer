@@ -169,8 +169,27 @@ if [ "$(box 'echo ok')" != "ok" ]; then
 fi
 
 # -- A1 -- hub binary name is brand-neutral (no codename leak) [MAPS: #1] --
-bin_name=$(box "ls /Applications/Ostler.app/Contents/MacOS/ 2>/dev/null | head -1")
-if [ "$(echo "$bin_name" | grep -ciE 'zeroclaw|gamingrig|andypedia' || true)" -gt 0 ]; then
+# 🔴 THIS USED TO DISCARD `ls`'s OWN STDERR (the `2>/dev/null` inside the
+# remote command), so an app that is not where this probe expects -- wrong
+# path, not yet installed, an `ls` that errored -- produced the SAME empty
+# string as a directory that genuinely listed nothing. `grep -c` on empty
+# input is 0, `-gt 0` is false, and the gate printed PASS with an empty binary
+# name: "the subject was never reached" and "the subject is clean" read
+# identically. This is the check built after a real codename leak; a probe
+# that cannot tell "did not look" from "looked and found nothing" must not
+# report PASS on either. The remote side now reports its own exit status and
+# ls's stderr on a marker line, so an unreachable path or an ls error is
+# CANNOT-RUN, and only a listing that actually enumerated files is graded.
+bin_probe=$(box "if bin_out=\$(ls /Applications/Ostler.app/Contents/MacOS/ 2>&1); then printf 'BINLS_OK\n%s\n' \"\$bin_out\"; else printf 'BINLS_ERR\n%s\n' \"\$bin_out\"; fi")
+bin_status=$(printf '%s\n' "$bin_probe" | sed -n '1p')
+bin_name=$(printf '%s\n' "$bin_probe" | sed -n '2,$p' | head -1)
+if [ "$bin_status" != "BINLS_OK" ]; then
+  result CANNOT A1 "Hub binary name is brand-neutral" \
+    "could not list /Applications/Ostler.app/Contents/MacOS/ on the box (status='${bin_status:-<no answer>}', ls said: '${bin_name}'): the app is not where this probe expects, so no codename check was made"
+elif [ -z "$bin_name" ]; then
+  result CANNOT A1 "Hub binary name is brand-neutral" \
+    "listed /Applications/Ostler.app/Contents/MacOS/ but it is EMPTY: there is no binary there to check, which is not the same as a binary that checked clean"
+elif [ "$(echo "$bin_name" | grep -ciE 'zeroclaw|gamingrig|andypedia' || true)" -gt 0 ]; then
   result FAIL A1 "Hub binary name is brand-neutral" "found codename in Contents/MacOS: '$bin_name'"
 else
   result PASS A1 "Hub binary name is brand-neutral" "binary: '$bin_name'"
@@ -186,16 +205,37 @@ else
 fi
 
 # -- A3 -- missing /api routes 404, don't masquerade as 200-SPA-HTML [MAPS: #2] --
+# 🔴 curl prints a ZERO status code and an EMPTY content type on a connection
+# FAILURE, the same as it would for a route that legitimately answers neither
+# "200 text/html" nor anything this check flags. So a wholly unreachable
+# daemon left $code/$ct at "000"/"" for every probed path, `a3_bad` stayed
+# empty, and this printed "all probed /api routes return valid responses" on
+# a box where NOTHING was reached. The adjacent A2 check would separately
+# fail if the daemon were entirely down -- but that is luck, not this check's
+# own design, and it does not cover a daemon that answers OTHER paths but not
+# these three. Each path is now graded into exactly one of three buckets:
+# masked-by-SPA (the defect), unreachable (measured nothing), or answered.
 a3_bad=""
+a3_unreachable=""
 for p in /api/v1/pause /api/v1/resume /api/v1/governor-status; do
   ct=$(box "curl -s -o /dev/null -w '%{content_type}' --max-time 4 $DAEMON$p")
   code=$(box "curl -s -o /dev/null -w '%{http_code}' --max-time 4 $DAEMON$p")
-  if [ "$code" = "200" ] && [ "$(echo "$ct" | grep -ci 'text/html' || true)" -gt 0 ]; then
-    a3_bad="$a3_bad $p(200-html)"
-  fi
+  case "${code:-000}" in
+    000|"")
+      a3_unreachable="$a3_unreachable $p(no-response)"
+      ;;
+    200)
+      if [ "$(echo "$ct" | grep -ci 'text/html' || true)" -gt 0 ]; then
+        a3_bad="$a3_bad $p(200-html)"
+      fi
+      ;;
+  esac
 done
 if [ -n "$a3_bad" ]; then
   result FAIL A3 "SPA fallback doesn't mask missing /api routes" "these return SPA-HTML instead of JSON/404:$a3_bad"
+elif [ -n "$a3_unreachable" ]; then
+  result CANNOT A3 "SPA fallback doesn't mask missing /api routes" \
+    "no response at all (http_code=000) for:$a3_unreachable -- these routes were NEVER REACHED, so 'does not mask a 404' is not available. This is not a pass and it is not the SPA-fallback defect."
 else
   result PASS A3 "SPA fallback doesn't mask missing /api routes" "all probed /api routes return JSON or 404"
 fi

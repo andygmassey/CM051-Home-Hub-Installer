@@ -14,19 +14,27 @@
 # kept anyway, as the cheap first line -- but it is NOT what catches this.
 #
 # WHAT GREEN HERE MEANS. The checker prints the number of shell files it
-# examined on every run, so the colour can never stand in for the count; a
-# zero denominator exits 2 (CANNOT-RUN) rather than reporting a pass over
-# nothing. The predicate is deliberately narrow and its narrowness is
-# measured: 527 shell files in this repo carry TEN legitimate
-# backslash-spaces (case globs like `OK\ *)`, a `[[ ]]` pattern, an escaped
-# path in a comment), so a blanket ban would be ten false accusations. It
-# fires only on the full defect shape -- a backslash-space whose NEXT line is
-# an orphaned continuation of bare identifiers.
+# examined AGAINST THE TRUE DENOMINATOR every run, so the colour can never
+# stand in for the count; a zero denominator exits 2 (CANNOT-RUN), and an
+# implausibly small one -- the population enumeration itself regressing, not
+# a real shrink of the tree -- exits 1 (FAIL) rather than reporting a clean
+# sweep over less than it claims. The population is every `.sh` file this
+# repo TRACKS (`git ls-files`, not a hand-maintained glob list): it used to
+# reach only 645 of 708 real shell files, missing everything under lib/,
+# bin/, gui/scripts/, tools/, .githooks/, .github/scripts/ and every vendor/
+# subtree -- 63 files, several of them live runtime scripts. The predicate
+# itself is deliberately narrow and its narrowness is measured on the FULL
+# population: 36 backslash-spaces across 13 files, every one legitimate
+# (case globs like `OK\ *)`, a `[[ ]]` pattern, an escaped path in a
+# comment), so a blanket ban would be dozens of false accusations. It fires
+# only on the full defect shape -- a backslash-space whose NEXT line is an
+# orphaned continuation of bare identifiers.
 #
-# The self-test runs first and carries five negative controls plus an arm
-# that plants a real defect beside a legitimate glob in one file. A gate that
-# cannot fail is not a gate, and one that cannot tell the two apart gets
-# switched off.
+# The self-test runs first and carries five negative controls, an arm
+# that plants a real defect beside a legitimate glob in one file, and a pair
+# pinning the denominator floor -- a plainly collapsed count must trip it,
+# and the real population on this checkout must not. A gate that cannot fail
+# is not a gate, and one that cannot tell the two apart gets switched off.
 name: broken-line-continuation
 
 on:
