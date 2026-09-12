@@ -32,6 +32,41 @@
 # ============================================================================
 
 pr_exemptions:
+  # ── v1.0.90 cut, 2026-09-12 (ORM). Three DRAFT PRs over 48h, self-titled
+  #    HELD by their own authors under the launch-directive freeze (item 2:
+  #    "main accepts only PRs that move a walk probe, fix an install abort, or
+  #    fix a cut build failure -- if a change does not move a probe, it
+  #    waits"). check-pr-age caught this on a workflow_dispatch dry run
+  #    (34674986834), before any tag was spent -- exactly what the dispatch
+  #    exists for. None of the three touches install.sh, gui/, cuts/,
+  #    cut-manifests/ or vendor/, so exempting them changes nothing about what
+  #    v1.0.90 ships: this cut's tree is unaffected whether they stay open,
+  #    merge, or close. Not a judgement on any of the three changes.
+  - ref: "CM051-Home-Hub-Installer#1873"
+    reason: >-
+      DRAFT, "HELD: an absent HTTP library has not failed, and saying so
+      buried the ones that did". Opened 2026-09-09, 149 additions / 1
+      deletion across .github/workflows/venv-store-shim.yml,
+      lib/ostler_store_auth.py, tests/TEST_WIRING.tsv and one new test.
+      Self-declared HELD, not yet qualifying under the freeze criteria.
+      Held state and file list confirmed via `gh pr view 1873`.
+    review_by: "2026-09-19"
+  - ref: "CM051-Home-Hub-Installer#1872"
+    reason: >-
+      DRAFT, "HELD: why the interest profile was empty on a box with 830
+      preference points". Opened 2026-09-09, 190 additions across
+      .github/workflows/vendor-integrity.yml, tests/TEST_WIRING.tsv and one
+      new test. Self-declared HELD, not yet qualifying under the freeze
+      criteria. Held state and file list confirmed via `gh pr view 1872`.
+    review_by: "2026-09-19"
+  - ref: "CM051-Home-Hub-Installer#1868"
+    reason: >-
+      DRAFT, "HELD UNDER FREEZE: the pipefail ratchet could not see the form
+      that reddened #1865". Opened 2026-09-09, 221 additions / 30 deletions,
+      all three files under tests/ (a baseline fixture and two test scripts).
+      Held state and file list confirmed via `gh pr view 1868`.
+    review_by: "2026-09-19"
+
   # ── v1.0.61 cut, 2026-09-03 (Archie). Six PRs over 48h, none of which can
   #    reach this DMG, deferred so check-pr-age does not kill `make ship` at
   #    cut.yml:862. Every row here is deferred on ARITHMETIC or on DRAFT
