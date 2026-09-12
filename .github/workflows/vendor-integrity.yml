@@ -183,6 +183,7 @@ jobs:
       # the fix -- that the newly reachable shapes really are scanned, and that
       # a file which genuinely cannot be read still refuses rather than passing.
       - name: The operator-PII scan reads every file in the tree
+        if: success() || failure()
         run: python3 tests/test_the_pii_scan_reads_every_file_in_the_tree.py
 
       - name: Divergent non-shipping twin guard (legacy, intra-repo only)

@@ -394,24 +394,69 @@ def test_grep_in_dmg_tree_catches_pii_in_compiled_pyc(fake_cm051, fake_app):
     assert "compartment.cpython-311.pyc" in r.stdout
 
 
-def test_grep_in_dmg_tree_unrecognised_extension_is_cannot_run_not_pass(fake_cm051, fake_app):
-    """A file whose extension is neither text nor a known compiled type, with
-    the pattern found nowhere else, must report CANNOT-RUN -- never PASS.
+def test_grep_in_dmg_tree_unrecognised_extension_is_scanned_not_skipped(fake_cm051, fake_app):
+    """A file whose extension is on neither list is READ, so a leak inside it
+    is FOUND rather than quietly unexamined.
 
-    hits=0 with a file that was never opened is not a finding about the
-    artefact: it is a finding about what this scan looked at. Manufacturing a
-    PASS here is the exact failure CouldNotMeasure exists to prevent, just
-    reached through the enumerator instead of through a read error.
+    THIS TEST USED TO ASSERT CANNOT-RUN, and that was right for the code it
+    was written against: the enumerator skipped an unknown suffix, so hits=0
+    was a statement about what the scan opened rather than about the artefact,
+    and manufacturing a PASS from it was the failure CouldNotMeasure exists to
+    prevent. The scan no longer skips it. An unfamiliar extension is evidence
+    about our enumeration, not about the file, so it is scanned with strings(1)
+    and the stronger assertion is now available: the leak is caught.
+
+    Measured consequence of the old behaviour, which is why this changed: the
+    v1.0.92 cut produced no DMG at all. 660 files in the real built app carry
+    such a suffix, so both operator-PII rows returned CANNOT-RUN for ever and
+    check-manifest, a prerequisite of ship, could never pass.
+
+    The refusal itself is NOT gone. It moved to where it is real, and the test
+    below this one proves a file that genuinely cannot be read still produces
+    CANNOT-RUN rather than a pass.
     """
     mystery = fake_app / "Contents" / "Resources" / "weird.xyz123"
-    mystery.write_bytes(b"nothing interesting here")
+    mystery.write_bytes(b"\x00\x01 connect to gamingrig now\x00")
     _write_manifest(fake_cm051, "permanent.yaml", [])
     _write_manifest(fake_cm051, "v1.0.0.yaml", [_PII_ABSENCE_ENTRY])
     r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
     assert r.returncode == 1, r.stdout
-    assert "CANNOT-RUN" in r.stdout
-    assert "weird.xyz123" in r.stdout
-    assert "never opened" in r.stdout
+    assert "weird.xyz123" in r.stdout, r.stdout
+    assert "CANNOT-RUN" not in r.stdout, r.stdout
+
+
+def test_grep_in_dmg_tree_clean_unrecognised_extension_reaches_a_verdict(fake_cm051, fake_app):
+    """The same file WITHOUT the pattern must PASS, not stall at CANNOT-RUN.
+
+    The negative control for the test above. Without it, "the leak is found"
+    could be satisfied by a scan that flags everything, and the v1.0.92
+    deadlock would still be in place.
+    """
+    mystery = fake_app / "Contents" / "Resources" / "weird.xyz123"
+    mystery.write_bytes(b"\x00\x01 nothing interesting here \x00")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [_PII_ABSENCE_ENTRY])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+    assert "CANNOT-RUN" not in r.stdout, r.stdout
+
+
+def test_grep_in_dmg_tree_unreadable_archive_is_still_cannot_run(fake_cm051, fake_app):
+    """A container whose bytes cannot be reached still refuses.
+
+    strings(1) cannot see through deflate, so an archive is expanded rather
+    than scanned in place. One that will NOT expand is genuinely unread, and
+    must not look like a clean one. This is the half of the old guard that
+    survives, and it is the half that was always load-bearing.
+    """
+    broken = fake_app / "Contents" / "Resources" / "busted.zip"
+    broken.write_bytes(b"PK\x03\x04THISISNOTAVALIDARCHIVE")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [_PII_ABSENCE_ENTRY])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "CANNOT-RUN" in r.stdout, r.stdout
+    assert "busted.zip" in r.stdout, r.stdout
 
 
 def test_grep_in_dmg_tree_unrecognised_extension_does_not_mask_a_real_hit(fake_cm051, fake_app):
