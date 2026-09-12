@@ -2164,3 +2164,4 @@ phrase	safari web	from Apple's API name 'Safari Web Extension'. Product noun, no
 phrase	extension app	window artefact of 'Safari Web Extension App-Group queue'. The detector pairs the tail of one noun with the head of the next; neither word is a name.
 phrase	live activities	Apple framework name (WidgetKit Live Activities). Product noun, no person.
 phrase	notion markdown	product name plus a file format, from the CM024 Notion adapter's own docstring. No person.
+phrase	required gate	CI check/context name, not a person. This repository has no branch protection at all, and this PR adds one required GitHub Checks context named "CI Required Gate" (.github/workflows/ci-required-gate.yml). That literal string is the value branch protection must match, so it recurs verbatim in the job's display name, its script's exclude-self default and self-test fixtures, and the comments naming it. No person; the second word is the noun "gate" as in a merge gate, not a surname.
