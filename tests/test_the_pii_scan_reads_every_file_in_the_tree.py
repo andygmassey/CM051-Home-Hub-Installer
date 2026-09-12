@@ -29,6 +29,7 @@ import importlib.util
 import pathlib
 import sys
 import tempfile
+import gzip
 import zipfile
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
@@ -77,6 +78,20 @@ inner.unlink()
 hits, unscanned = scan(d)
 check("unknown-extension binary and compressed zip both hit", hits, 2)
 check("nothing recorded unread", unscanned, [])
+
+print("CASE 1b: a bare .gz is one compressed stream, not an archive")
+# Measured on the v1.0.93 cut: after the enumerator fix took 660 unread files
+# down to 1, the survivor was a single .gz. zipfile and tarfile both refuse it,
+# so it was still recorded unread and STILL held every operator-PII row at
+# CANNOT-RUN. One file was enough to block the whole cut.
+d1b = pathlib.Path(tempfile.mkdtemp())
+with gzip.open(d1b / "list.dat.gz", "wb") as fh:
+    fh.write(b"harmless preamble\n" + NEEDLE.encode() + b"\n")
+with gzip.open(d1b / "clean.dat.gz", "wb") as fh:
+    fh.write(b"nothing of interest\n")
+hits1b, unscanned1b = scan(d1b)
+check("needle inside a .gz is found", hits1b, 1)
+check("and the clean .gz is not flagged", unscanned1b, [])
 
 print("CASE 2: a file that truly cannot be read STILL poisons the row")
 d2 = pathlib.Path(tempfile.mkdtemp())

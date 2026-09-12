@@ -270,7 +270,26 @@ def _expand_archive(path: Path, depth: int):
                 except TypeError:          # filter= is 3.12+
                     t.extractall(d)
         else:
-            return None
+            # 🔴 A BARE .gz IS NOT AN ARCHIVE, IT IS ONE COMPRESSED STREAM.
+            # zipfile and tarfile both refuse it, so the first version of this
+            # function returned None and the file went down as unread. Measured
+            # on the v1.0.93 cut: after the enumerator fix took 660 unread
+            # files to 1, that 1 was
+            # python/lib/tcl9.0/cookiejar0.2/public_suffix_list.dat.gz, and it
+            # alone held every operator-PII row at CANNOT-RUN. Decompress the
+            # single stream to one file and let the caller scan that.
+            opener = {".gz": "gzip", ".bz2": "bz2", ".xz": "lzma"}.get(
+                path.suffix.lower())
+            if opener is None:
+                return None
+            mod = __import__(opener)
+            out = Path(d) / (path.stem or "decompressed")
+            with mod.open(path, "rb") as fh, open(out, "wb") as w:
+                while True:
+                    chunk = fh.read(1 << 20)
+                    if not chunk:
+                        break
+                    w.write(chunk)
     except Exception:
         return None
     return [Path(d)]
