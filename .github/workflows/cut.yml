@@ -912,6 +912,36 @@ jobs:
           # credentials, three jobs, each failing where its own cause is.
           OSTLER_GH_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
           #
+          # THE PR-AGE GATE CLAIMS SEVEN REPOSITORIES; THIS JOB'S OWN
+          # GITHUB_TOKEN CAN RESOLVE ONE. check-pr-age (below, via `make ship`)
+          # used to run with only GH_TOKEN in scope -- repo-scoped, so every
+          # sibling's `gh pr list` failed -- and reported GREEN, PARTIAL with
+          # rc=0 regardless, because an unreachable repo was a footnote, not a
+          # failure. That is fixed in verify_pr_age.sh itself now (an
+          # undeclared unreachable repo fails the gate); this line is the
+          # OTHER half -- giving the gate the credential to actually try.
+          #
+          # Same per-owner resolution as the orphan gate above: andygmassey ->
+          # PR_AGE_TOKEN_ANDYGMASSEY, ostler-ai -> PR_AGE_TOKEN_OSTLER_AI.
+          # NO CREDENTIAL WAS CREATED OR RE-SCOPED FOR THIS -- both variables
+          # point at the SAME EXISTING secret, OSTLER_GH_TOKEN_ANDYGMASSEY.
+          # TOKEN_INVENTORY.md (HR015 repo) records it MEASURED 2026-08-27 to
+          # read pull requests on ostler-ai/ostler-assistant -- the harder
+          # cross-org case -- which is why it is wired for both owner slots.
+          #
+          # Its coverage of pull-request READ on the five andygmassey siblings
+          # (CM044, CM041, CM059, CM031, HR015) is NOT separately confirmed in
+          # that register -- only its use for commit/tree reads in the
+          # freshness gate above is. If its scope panel does not cover one of
+          # them, verify_pr_age.sh now reports that repo CANNOT VERIFY by name
+          # (rather than a silent pass), so wiring it here can only make this
+          # gate more honest, never less. A human should still open the scope
+          # panel and confirm, or provision a narrower credential if it turns
+          # out not to cover one of these repos -- see the PR that added this
+          # comment for the exact ask.
+          PR_AGE_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          PR_AGE_TOKEN_OSTLER_AI: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          #
           # The wiki-image kinds need docker, which macos-26 does not have.
           # They are verified in the preflight job on ubuntu instead -- see the
           # step there. Skipped checks are counted and named in this gate's own
@@ -1507,6 +1537,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OSTLER_RELEASES_TOKEN: ${{ secrets.CM051_RELEASES_READ }}
           OSTLER_GH_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          # Same wiring as the `cut` job's `make ship` step; see its comment
+          # there for what this does and does not prove. No credential was
+          # created or re-scoped for it -- both point at the existing
+          # OSTLER_GH_TOKEN_ANDYGMASSEY secret.
+          PR_AGE_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          PR_AGE_TOKEN_OSTLER_AI: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
           OSTLER_PROVENANCE_SKIP_KINDS: wiki_image_grep,wiki_image_absent
           PROV_GATE_SKIP_CLASSES: wiki
           OSTLER_ORPHAN_GATE_SKIP: CM044,CM041,CM059,CM031,daemon

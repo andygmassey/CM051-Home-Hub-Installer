@@ -1,17 +1,12 @@
 #!/usr/bin/env bash
 # ============================================================================
-# THE PR-AGE GATE MUST SAY WHAT IT COULD NOT CHECK.
+# THE PR-AGE GATE MUST SAY WHAT IT COULD NOT CHECK -- AND MUST NOT PASS ON IT.
 #
 # scripts/verify_pr_age.sh sweeps seven repos. When `gh pr list` fails for one
 # -- which on a hosted runner is EVERY sibling, because the ship step sets
 # GH_TOKEN to the repo-scoped secrets.GITHUB_TOKEN and a repo-scoped token
 # cannot list a sibling repo's PRs even under the same owner -- it prints one
-# [warn] line and CONTINUES. Its exit logic fails closed only when NOTHING
-# resolved:
-#
-#     if (( checked == 0 )); then ... exit 3
-#
-# So one reachable repo is enough to pass, however many were unreadable.
+# [warn] line and CONTINUES.
 #
 # MEASURED 2026-08-20, same tree, same hour, same script:
 #
@@ -23,13 +18,27 @@
 # "GREEN, PARTIAL" and "NOT CHECKED IN THIS ENVIRONMENT" since #643. Same
 # repo, same cut, two gates, opposite honesty.
 #
-# THIS FIX CHANGES REPORTING ONLY -- NOT PASS/FAIL. Control 6 pins that,
-# because a gate change that quietly reds a launch cut is a release decision,
-# not a gate decision.
+# THIS WAS ONCE REPORTING-ONLY, ON PURPOSE (#881): the exit code was left
+# unchanged, and control 6 below pinned that, because "quietly red a launch
+# cut" was called a release decision, not a gate decision, and printing the
+# shortfall was the first, safer step. MEASURED 2026-09-12 against the live
+# estate that deferral cost: the one repo CI could resolve had 1 unmarked PR
+# over 30 days old; the six it could not see had 13 between them. The debt
+# accumulated exactly where the gate was blind, while every run said success.
 #
-# Making the gate actually SEE the siblings (resolving OSTLER_GH_TOKEN_<ACCOUNT>
-# the way #643 taught the orphan gate) is deliberately NOT in this change. That
-# turns the gate red with 17 real rows and is Archie's to sequence.
+# So this is the follow-up #881 named and Archie's own comment deferred:
+# an UNDECLARED blind spot is now a FAILURE (exit 3, "CANNOT VERIFY" --
+# reusing the code and the wrapper message the total-blindness case already
+# had, so gui/Makefile's check-pr-age needs no change to report it correctly).
+# A human can still choose a genuinely narrowed run on purpose, by naming the
+# repo(s) in PR_AGE_ALLOW_PARTIAL -- the same grammar PR_AGE_REPOS already
+# uses. Control 6 below now asserts the OPPOSITE of what it asserted before:
+# an undeclared partial run must FAIL, and a declared one must not.
+#
+# Making the gate actually SEE the siblings in CI (resolving a per-owner token
+# the way #643 taught the orphan gate) is the companion fix, wired in cut.yml
+# with the existing OSTLER_GH_TOKEN_ANDYGMASSEY secret -- no credential was
+# created or rotated for it. See the PR body for what remains unconfirmed.
 # ============================================================================
 set -uo pipefail
 
@@ -49,10 +58,20 @@ trap 'rm -rf "${WORK}"' EXIT
 # every other repo exits 1, which is exactly what a repo-scoped token produces.
 # An answered repo returns [] -- zero PRs -- so no scenario here can generate a
 # violation by accident and every rc below is attributable to the patch alone.
+#
+# `auth token -u <owner>` is answered (refused) FIRST and BEFORE the call is
+# logged: the fixed gate now calls this once per repo, resolving a per-owner
+# credential (see token_for_owner() in the gate). Logging it would inflate the
+# call count in assertion 0 for a reason that has nothing to do with the
+# scenario being tested. Refusing it (exit 1, no output) reproduces exactly
+# what a hosted runner does -- there is no `gh auth login` there -- so the
+# gate falls through to its ambient GH_TOKEN, unchanged from before this
+# function existed.
 # ---------------------------------------------------------------------------
 mkdir -p "${WORK}/bin"
 cat > "${WORK}/bin/gh" <<'SHIM'
 #!/usr/bin/env bash
+if [[ "$1" == "auth" ]]; then exit 1; fi
 repo=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -101,11 +120,14 @@ fi
 
 PARTIAL_OUT="${OUT}"; PARTIAL_RC="${RC}"
 
-# --- 1. a partial run is LABELLED partial -----------------------------------
-if grep -q 'VERDICT: GREEN, PARTIAL' <<< "${PARTIAL_OUT}"; then
-    ok "1. partial run prints 'VERDICT: GREEN, PARTIAL'"
+# --- 1. an UNDECLARED partial run is LABELLED RED, never GREEN --------------
+# Nobody named these repos in PR_AGE_ALLOW_PARTIAL, so this is the accident-
+# of-credentials shape, not a decision -- it can never read as GREEN.
+if grep -q 'VERDICT: RED, PARTIAL' <<< "${PARTIAL_OUT}" \
+   && grep -q 'NOT DECLARED' <<< "${PARTIAL_OUT}"; then
+    ok "1. undeclared partial run prints 'VERDICT: RED, PARTIAL ... NOT DECLARED'"
 else
-    bad "1. partial run did NOT print a PARTIAL verdict"
+    bad "1. undeclared partial run did NOT print the RED/NOT-DECLARED verdict"
 fi
 
 # --- 2. it NAMES the repos it could not read --------------------------------
@@ -185,12 +207,85 @@ else
     fi
 fi
 
-# --- 6. PASS/FAIL IS UNCHANGED ----------------------------------------------
-# The whole claim that this can land mid-cut rests on this control.
-if [[ "${PARTIAL_RC}" == "0" && "${COMPLETE_RC}" == "0" ]]; then
-    ok "6. reporting-only: rc unchanged (partial=0, complete=0) -- cannot red a cut"
+# --- 6. THE GUARD: an unreachable repo must fail the gate, where it used to
+# pass. NEW pinned baseline, per the instruction on PREFIX_REF above -- a
+# rewritten gate needs its OWN anti-vacuity proof, not the old one moved.
+#
+# 5eece4c0 is #881's own merge commit: the gate that FIRST printed "GREEN,
+# PARTIAL" and "NOT CHECKED IN THIS ENVIRONMENT" -- correct reporting -- but
+# left the exit code at 0 on purpose (see the header). That is the immediate
+# pre-this-fix state, distinct from cac9299 above (which predates #881
+# entirely and printed no partiality marker at all). Two different defects,
+# two different pinned baselines.
+MAKES_PARTIAL_RED_REF="5eece4c0"
+BASE2="$(git -C "${REPO_ROOT}" show "${MAKES_PARTIAL_RED_REF}:scripts/verify_pr_age.sh" 2>/dev/null)"
+if [[ -z "${BASE2}" ]]; then
+    cannot "6. ${MAKES_PARTIAL_RED_REF}:scripts/verify_pr_age.sh unreachable (shallow clone?) -- guard NOT demonstrated"
 else
-    bad "6. rc changed (partial=${PARTIAL_RC}, complete=${COMPLETE_RC}) -- this is no longer reporting-only"
+    if [[ "${BASE2}" == "$(cat "${GATE}")" ]]; then
+        bad "6a. pinned baseline ${MAKES_PARTIAL_RED_REF} is IDENTICAL to the current gate -- the pin is wrong or the fix was reverted"
+    else
+        ok "6a. pinned baseline ${MAKES_PARTIAL_RED_REF} differs from the current gate, so the comparison is meaningful"
+    fi
+
+    printf '%s' "${BASE2}" > "${WORK}/prefix2-gate.sh"
+    run_gate "owner/CM051-Home-Hub-Installer" "${WORK}/prefix2-gate.sh"
+    PREFIX_PARTIAL_RC="${RC}"
+
+    # THE PROOF THE TASK ASKS FOR: same scenario (2 of 3 repos unreachable, 0
+    # violations among what was checked), run against BOTH scripts. The old
+    # one must have PASSED (rc=0, the defect); the new one must FAIL (rc!=0).
+    if [[ "${PREFIX_PARTIAL_RC}" == "0" ]]; then
+        ok "6b. DEMONSTRATED RED: pre-fix gate (${MAKES_PARTIAL_RED_REF}) exits 0 on a 2-of-3-blind, zero-violation run -- the defect this PR fixes"
+    else
+        bad "6b. pre-fix gate (${MAKES_PARTIAL_RED_REF}) did NOT exit 0 on the partial scenario (rc=${PREFIX_PARTIAL_RC}) -- control invalid, assertion 6c proves nothing"
+    fi
+
+    if [[ "${PARTIAL_RC}" != "0" && "${PARTIAL_RC}" == "3" ]]; then
+        ok "6c. the FIX: same scenario now exits 3 (CANNOT VERIFY) where it previously exited 0 -- it now fails where it used to pass"
+    else
+        bad "6c. fixed gate did not fail closed on the undeclared partial run (rc=${PARTIAL_RC}, expected 3)"
+    fi
+fi
+
+# --- 6d. a genuinely DECLARED narrowing is still allowed to pass ------------
+# The fix must not become a blanket ban on partial runs -- only on UNDECLARED
+# ones. Naming the exact unreachable repos in PR_AGE_ALLOW_PARTIAL is the
+# escape hatch, same grammar PR_AGE_REPOS already uses (see the gate's USAGE).
+: > "${WORK}/calls"
+DECLARED_OUT="$(PATH="${WORK}/bin:${PATH}" \
+       GH_SHIM_REACHABLE="owner/CM051-Home-Hub-Installer" \
+       GH_SHIM_CALLS="${WORK}/calls" \
+       PR_AGE_REPOS="${THREE}" \
+       PR_AGE_ALLOW_PARTIAL="owner/CM044-PWG-Personal-Wiki,owner/HR015-Gaming-PC" \
+       OSTLER_CUT_DEFERRALS="${WORK}/empty-deferrals.yaml" \
+       bash "${GATE}" 2>&1)"
+DECLARED_RC=$?
+if [[ "${DECLARED_RC}" == "0" ]] \
+   && grep -q 'PARTIAL (DECLARED)' <<< "${DECLARED_OUT}" \
+   && grep -q -- '- owner/CM044-PWG-Personal-Wiki (declared in PR_AGE_ALLOW_PARTIAL)' <<< "${DECLARED_OUT}"; then
+    ok "6d. naming both unreachable repos in PR_AGE_ALLOW_PARTIAL passes (rc=0), and says so"
+else
+    bad "6d. a deliberately narrowed run did not pass (rc=${DECLARED_RC}) or did not label itself DECLARED"
+fi
+
+# --- 6e. a PARTIAL declaration is not a BLANKET one -------------------------
+# Naming only one of the two unreachable repos must still fail on the other --
+# the escape hatch is per-repo, not "any narrowing forgives every gap".
+: > "${WORK}/calls"
+HALF_OUT="$(PATH="${WORK}/bin:${PATH}" \
+       GH_SHIM_REACHABLE="owner/CM051-Home-Hub-Installer" \
+       GH_SHIM_CALLS="${WORK}/calls" \
+       PR_AGE_REPOS="${THREE}" \
+       PR_AGE_ALLOW_PARTIAL="owner/CM044-PWG-Personal-Wiki" \
+       OSTLER_CUT_DEFERRALS="${WORK}/empty-deferrals.yaml" \
+       bash "${GATE}" 2>&1)"
+HALF_RC=$?
+if [[ "${HALF_RC}" == "3" ]] \
+   && grep -q -- '- owner/HR015-Gaming-PC$' <<< "${HALF_OUT}"; then
+    ok "6e. declaring only ONE of two unreachable repos still fails, naming the undeclared one"
+else
+    bad "6e. a partial declaration incorrectly forgave a repo nobody named (rc=${HALF_RC})"
 fi
 
 # --- 7. fail-closed on TOTAL blindness is preserved -------------------------
