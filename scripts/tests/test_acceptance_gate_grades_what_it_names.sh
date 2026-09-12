@@ -383,7 +383,13 @@ else
     ok "CONTROL: A3 does not report PASS when its routes were never reached"
 fi
 a3_line="$(grep -E '  CANT  A3 ' "${WORK}/out.txt" -A1 | tail -1)"
-if grep -q 'pause' <<< "${a3_line}" || grep -q 'resume' <<< "${a3_line}" || grep -q 'governor-status' <<< "${a3_line}"; then
+# A COUNT, not a chained '||' of 'grep -q' calls: three short-circuiting
+# consumers in one condition line reads to a pipefail scanner as a pipe into
+# grep -q (the '||' itself contains a '|' immediately before 'grep'), which
+# is exactly the shape tests/test_pipefail_shortcircuit_inversion.sh exists
+# to catch. One grep -c over an alternation has no pipe adjacent to a
+# short-circuiting consumer at all.
+if [ "$(grep -cE 'pause|resume|governor-status' <<< "${a3_line}")" -gt 0 ]; then
     ok "A3's could-not-run evidence names which route(s) never answered"
 else
     bad "A3's could-not-run evidence does not name the unreached route(s): '${a3_line}'"

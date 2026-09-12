@@ -611,6 +611,7 @@ gui/OstlerInstallerTests/TerminationExitCodeReconcileTests.swift	WIRED	.github/w
 gui/OstlerInstallerTests/TypedInstallGateTest.swift	WIRED	.github/workflows/swift-tests.yml
 context-refresh/tests/test_context_digest_auth.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_generate_pwg_context.py	WIRED	.github/workflows/context-digest-auth.yml
+scripts/tests/test_a_probes_self_test_must_drive_its_own_decision.sh	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_acceptance_gate_grades_what_it_names.sh	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_acceptance_gate_v1013_probe.sh	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_an_unreachable_box_is_not_a_defect.sh	WIRED	.github/workflows/cut-manifest.yml
