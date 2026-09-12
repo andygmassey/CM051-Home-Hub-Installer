@@ -11,7 +11,7 @@ import aiofiles
 import zipfile
 import tempfile
 
-from .base import BaseParser, ParsedPreference
+from .base import BaseParser, ParsedPreference, describe_json_parse_failure
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -263,7 +263,7 @@ class GoogleTakeoutParser(BaseParser):
         try:
             data = json.loads(content)
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON: {e}")
+            logger.error(f"Failed to parse JSON from {file_path}: {describe_json_parse_failure(content, e)}")
             return
 
         parser_method = getattr(self, f"_parse_{file_type}", None)

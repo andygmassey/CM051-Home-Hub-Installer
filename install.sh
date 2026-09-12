@@ -2958,7 +2958,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :7648   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :7693   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :7702 and :13356, both of which run
+    # Its two top-level arming calls are :7702 and :13413, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :2949 above has just deleted
     # that tree and :2953 has just rebound OSTLER_DIR to the final one, so
@@ -2976,13 +2976,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :14106, where the note reads
+    # WhatsApp Web session path did it again at :14163, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :14123 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :14180 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -2995,9 +2995,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:7702, :13356) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:7702, :13413) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :15920 / :16098 / :16255 / :16596 path. There the
+    # :15977 / :16155 / :16312 / :16653 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -9609,6 +9609,63 @@ for _sd in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
         _OSTLER_ZIPS_SKIPPED_OTHER="$(_ostler_zip_count_add "$_OSTLER_ZIPS_SKIPPED_OTHER" "${_uzso:-skipped_other=0}")"
     fi
 done
+
+# ── Disney+ encrypted export: ASK, do not drop it (Andy, 2026-09-12) ────────
+#
+# Disney+'s GDPR export ships viewing history as a password-protected .xlsx
+# (msoffcrypto/OLE2, not a zip password). DisneyPlusParser already reads a
+# password from the 'password' kwarg or DISNEY_XLSX_PASSWORD env var
+# (vendor/cm019_preferences/services/ingest/src/parsers/disney.py); nothing
+# upstream of it ever asked the customer for one, so every install with a
+# genuine Disney+ export logged "File is encrypted..." and silently imported
+# zero rows from that platform. Measured on a real install: 43,327 preference
+# points landed across twenty platforms and the encrypted one was the only
+# platform at zero -- indistinguishable in the closing summary from a
+# customer who simply has no Disney+ account. Ruling: "Installer should ask."
+#
+# WHY HERE, NOT DEEP IN PHASE 3: the locked "answer the questions upfront,
+# then walk away" promise (see the Tailscale WALK-1 hoist below) means a
+# blocking prompt has no safe place in the unattended middle. Detection
+# already runs here, right after the auto-unzip pass over the same three
+# scan dirs, so a candidate file is on disk by this point whether it arrived
+# zipped or loose. Ask now; the Phase 3 import call picks up the answer via
+# an exported env var and never re-prompts.
+#
+# DETECTION IS PYTHON-FREE ON PURPOSE: the CM019 venv (and msoffcrypto)
+# do not exist yet at this point in Phase 2, so this cannot just ask the
+# file itself. An unencrypted .xlsx is OOXML -- a zip -- and always starts
+# with the 4-byte "PK\x03\x04" signature. msoffcrypto's Agile/CryptoAPI
+# encryption wraps the whole workbook in an OLE2 compound-file container
+# instead, whose fixed 8-byte magic (d0cf11e0a1b11ae1) is never a valid
+# zip. That one signature check is enough to tell "encrypted" from "not".
+_DISNEY_XLSX_PASSWORD=""
+_disney_xlsx_encrypted_found=0
+for _sd in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
+    [[ -d "$_sd" ]] || continue
+    while IFS= read -r _dxf; do
+        [[ -f "$_dxf" ]] || continue
+        _dx_magic="$(head -c 8 "$_dxf" 2>/dev/null | od -An -tx1 2>/dev/null | tr -d ' \n')"
+        if [[ "$_dx_magic" == "d0cf11e0a1b11ae1" ]]; then
+            _disney_xlsx_encrypted_found=1
+            break 2
+        fi
+    done < <(find "$_sd" -maxdepth 4 -type f \( -iname "*.xlsx" -o -iname "*.xls" \) -iname "*disney*" 2>/dev/null || true)
+done
+
+if [[ "$_disney_xlsx_encrypted_found" == "1" ]]; then
+    echo ""
+    echo -e "  ${BOLD}Disney+ export${NC}"
+    echo "  Found a password-protected Disney+ data export. That is how"
+    echo "  Disney+ ships it, not a problem with your download."
+    echo ""
+    _DISNEY_XLSX_PASSWORD="$(gui_read "$MSG_PROMPT_DISNEY_XLSX_PASSWORD_TITLE" secret "" "$MSG_PROMPT_DISNEY_XLSX_PASSWORD_HELP" "" "disney_xlsx_password")"
+    if [[ -n "$_DISNEY_XLSX_PASSWORD" ]]; then
+        export DISNEY_XLSX_PASSWORD="$_DISNEY_XLSX_PASSWORD"
+        ok "$MSG_OK_DISNEY_XLSX_PASSWORD_CAPTURED"
+    else
+        info "$MSG_INFO_DISNEY_XLSX_PASSWORD_SKIPPED"
+    fi
+fi
 
 for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     [[ -d "$search_dir" ]] || continue
@@ -20048,6 +20105,56 @@ if [[ ${#_IMPORT_DIRS[@]} -gt 0 && -x "$IMPORT_SCRIPT" ]]; then
         warn "$MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN"
         warn "$(printf "$MSG_WARN_OSTLER_IMPORT_USER_NAME_VERBOSE" "${_IMPORT_DIRS[0]}" "${USER_NAME}")"
     fi
+    # The password (if any) was only ever needed for this one call. Drop it
+    # from the environment now rather than let it sit for the rest of the
+    # run, same discipline as RECOVERY_PASSPHRASE's `unset` after use.
+    unset _DISNEY_XLSX_PASSWORD DISNEY_XLSX_PASSWORD 2>/dev/null || true
+
+    # ── install_error_honesty (task #270): count what the import path ──────
+    # actually logged, so the closing verdict below can never say "no errors
+    # raised" over a run whose own log carries them.
+    #
+    # THE IMPORT REGION STAYS BEST-EFFORT. This does not turn a parse failure
+    # or an encrypted export into an install-aborting error -- that would be
+    # the wrong fix for the wrong reason. It only makes sure such a problem
+    # is COUNTED into the same _OSTLER_RUN_ERRORS tally the closing verdict
+    # already reads (see err(), and "CLOSING VERDICT (#616)" far below),
+    # which until now counted bash-level err() calls only and was blind to
+    # anything a Python subprocess logged into this same tee'd log.
+    #
+    # `|| true` after `grep -c`, never `|| echo N` -- grep -c already prints
+    # the count on a clean read; appending a second literal doubles it into
+    # an unparseable "N\nM" (this exact class cost four release tags; see
+    # scripts/box_walk_probes/probes/install_error_honesty.sh's own header
+    # and tests/test_grep_c_arith_safety.sh).
+    _import_error_count=0
+    _import_json_parse_issues=0
+    _import_encrypted_skipped=0
+    if [[ -r "$_import_log" ]]; then
+        _import_error_count="$(grep -cE ' - (ERROR|FATAL) - |Traceback \(most recent call last\)' "$_import_log" || true)"
+        case "${_import_error_count:-}" in ''|*[!0-9]*) _import_error_count=0 ;; esac
+        # ERROR-level only, matching _import_error_count's own scope --
+        # two of the seven call sites for this message log it at WARNING
+        # (a JSON member inside a zip archive that failed to parse, where
+        # the archive itself is still processed), and counting those here
+        # would let this sub-count exceed the total it is meant to be a
+        # slice of.
+        _import_json_parse_issues="$(grep -cE ' - ERROR - .*Failed to parse JSON from' "$_import_log" || true)"
+        case "${_import_json_parse_issues:-}" in ''|*[!0-9]*) _import_json_parse_issues=0 ;; esac
+        _import_encrypted_skipped="$(grep -cF 'File is encrypted.' "$_import_log" || true)"
+        case "${_import_encrypted_skipped:-}" in ''|*[!0-9]*) _import_encrypted_skipped=0 ;; esac
+    fi
+    _import_error_other=$(( _import_error_count - _import_json_parse_issues - _import_encrypted_skipped ))
+    [[ "$_import_error_other" -lt 0 ]] && _import_error_other=0
+    if [[ "$_import_error_count" -gt 0 ]]; then
+        info "Import diagnostics: ${_import_error_count} issue(s) logged (${_import_json_parse_issues} could not be parsed, ${_import_encrypted_skipped} skipped as encrypted without a password, ${_import_error_other} other). See install.log for detail."
+        # Extends the meaning of _OSTLER_RUN_ERRORS beyond bash-level err()
+        # calls to include these -- see the CLOSING VERDICT comment far
+        # below, which this line is why it is no longer accurate to call
+        # "MESSAGE errors (err()) only".
+        _OSTLER_RUN_ERRORS=$(( ${_OSTLER_RUN_ERRORS:-0} + _import_error_count ))
+    fi
+
     # ── reg#625 yield floor: attempted people but stored nothing is a FAILED import ──
     # The importer prints one [i/N] line per person. If it processed any and the
     # people vector collection is still empty, every write was discarded (the
@@ -32405,12 +32512,28 @@ fi
 # session with 43+ real errors." I went to fix that line and found the filing
 # is PARTLY A MISREADING, so the fix is not what the row asked for.
 #
-# The string at :27036 is MSG_OK_OSTLER_ASSISTANT_DOCTOR_NO_ERRORS_DETECTED,
-# and it renders as "ostler-assistant doctor: no errors detected". It is
-# SCOPED, TRUE, and it is about the assistant doctor's own output -- it counts
-# the doctor's own error markers, nothing else. Rewriting a truthful line
-# because it sits near the end of a log would have been the wrong repair, and
-# would have destroyed a real signal.
+# The string at :31351 is MSG_OK_OSTLER_ASSISTANT_DOCTOR_NO_ERRORS_DETECTED.
+# It was "ostler-assistant doctor: no errors detected". It is SCOPED, TRUE,
+# and it is about the assistant doctor's own output -- it counts the
+# doctor's own error markers, nothing else. Rewriting a truthful line
+# because it sits near the end of a log looked like the wrong repair, and
+# that was PARTLY WRONG TOO, corrected here.
+#
+# CORRECTION (install_error_honesty / task #270, second pass): the box-walk
+# probe that enforces this whole section does not read SCOPE. It greps the
+# WHOLE log, case-insensitively, for "no errors detected" among a small set
+# of clean-claim phrases, and independently counts ERROR-shaped lines
+# anywhere in the same log; if both are non-zero it fails, regardless of
+# which line said which. A truthful, narrowly-scoped claim and a false,
+# whole-run one are indistinguishable to that predicate once the words
+# match, so a doctor line that happens to spell "no errors detected" reads
+# to the probe exactly like the false summary #270 was filed against, on
+# ANY install where the doctor is healthy and ANYTHING else in a ~30,000
+# line log matched ERROR|FATAL|Traceback -- which is most real installs.
+# The doctor's underlying COUNT was never wrong; only the words it chose
+# collided with the phrase this file exists to distrust. Reworded to "0
+# errors in its own startup checks", which says the identical true, scoped
+# thing without the collision.
 #
 # THE ACTUAL DEFECT IS AN ABSENCE, NOT A FALSEHOOD: there was no whole-run
 # verdict at all. The customer reaches the end, sees a scoped doctor line, and
@@ -32419,12 +32542,12 @@ fi
 #
 # PLACEMENT IS LEAD, NOT STYLE. It goes ABOVE `gui_done ok`, which is where
 # @TNM measured the boundary: `gui_done ok` is unconditional, and everything
-# below :27904 is documented post-success cosmetics. A verdict printed after
+# below :32631 is documented post-success cosmetics. A verdict printed after
 # the GUI has flipped to success can describe a problem but cannot stop the
 # customer being told it worked.
 #
 # BRACE-AND-DEFAULT EVERY EXPANSION. @TNM's constraint, and it is a
-# correctness property here rather than a style note: :27627 documents that
+# correctness property here rather than a style note: :32201 documents that
 # everything from there to `gui_done ok` runs with `set -u` SUPPRESSED
 # (CX-123/#643), so an unset variable in this block will NOT abort -- it will
 # expand to nothing and silently produce a wrong sentence. Which would be this
@@ -32435,7 +32558,9 @@ fi
 # genuinely saw none. That is the safe direction for a claim of health.
 #
 # TWO INDEPENDENT KINDS OF TROUBLE, #616. `_OSTLER_RUN_ERRORS` counts MESSAGE
-# errors (err()). It is blind to a STEP that ran and FAILED: a hydrate step
+# errors (err()) -- and, since the "install_error_honesty (task #270)" block
+# above the import call, also the import path's own logged error count. It
+# is blind to a STEP that ran and FAILED: a hydrate step
 # killed by its timeout cap raises no err(), so on the v1.0.60 walk this verdict
 # printed "no errors raised" beside `DONE ... failed_steps=2`, telling a customer
 # whose search index came out empty that the install went fine. So the verdict

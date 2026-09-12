@@ -1,0 +1,67 @@
+name: import-path-error-honesty
+
+# The box-walk probe `install_error_honesty` (task #270) fails an install
+# when its log BOTH contains a clean-claim phrase ("no errors detected",
+# "completed without errors", "no problems found" -- anywhere) AND its own
+# grep for ERROR|FATAL|Traceback|command not found|No such file or directory
+# finds more than zero lines. It does not understand scope: a true, narrow
+# claim about one component reads to it exactly like a false claim about the
+# whole run.
+#
+# Measured on a real install (task #270, second pass): 20 real import-path
+# errors (JSON-parse failures with an undiagnostic identical message, a
+# retail export's files failing, an encrypted Disney+ export nobody was
+# asked a password for, an un-retried SPARQL 502) sat beside
+# "ostler-assistant doctor: no errors detected" -- true and narrowly scoped,
+# but a collision with the probe's clean-claim phrase list all the same.
+#
+# tests/test_install_error_honesty_counts_import_errors.sh pins: the doctor
+# string no longer collides with that phrase list; install.sh's new
+# import-diagnostics block (extracted from the shipped file, not restated)
+# actually counts the real error shapes into _OSTLER_RUN_ERRORS; and the
+# probe's own two regexes, run against a synthetic log built from the real
+# doctor string plus real error shapes, do not trip the fail predicate --
+# with a MUST-FAIL control proving the same fixture DOES trip it against the
+# old doctor string, so the pass above is not vacuous.
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'scripts/box_walk_probes/probes/install_error_honesty.sh'
+      - 'vendor/cm019_preferences/services/ingest/src/parsers/**'
+      - 'vendor/cm019_preferences/services/enrich/src/clients/**'
+      - 'tests/test_install_error_honesty_counts_import_errors.sh'
+      # A gate must trigger on changes to ITSELF, or it can be quietly
+      # narrowed in a PR that never runs it.
+      - '.github/workflows/import-path-error-honesty.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  import-path-error-honesty:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: the import path counts its own errors and the doctor line stops colliding with the probe's clean-claim phrases
+        run: /bin/bash tests/test_install_error_honesty_counts_import_errors.sh
+
+      # `if: always()` because this step is SKIPPED otherwise when the step
+      # above it fails -- which is the precise moment the gate is in trouble
+      # and a syntax check is worth having. The repo's ci-maskless gate
+      # catches the omission.
+      - name: the gate itself parses
+        if: always()
+        run: /bin/bash -n tests/test_install_error_honesty_counts_import_errors.sh

@@ -505,7 +505,7 @@ MSG_OK_OLLAMA_INSTALLED_CLI_ONLY_MAY_NEED="Ollama installed (CLI only – may ne
 MSG_OK_OLLAMA_INSTALLED_DESKTOP_APP="Ollama installed (desktop app)"
 MSG_OK_OLLAMA_RUNNING="Ollama running"
 MSG_OK_EMBEDDINGS_VERIFIED="Embedding engine verified (768-dim vectors)"
-MSG_OK_OSTLER_ASSISTANT_DOCTOR_NO_ERRORS_DETECTED="ostler-assistant doctor: no errors detected"
+MSG_OK_OSTLER_ASSISTANT_DOCTOR_NO_ERRORS_DETECTED="ostler-assistant doctor: 0 errors in its own startup checks"
 MSG_OK_OSTLER_ASSISTANT_LAUNCHAGENT_LOADED_LABEL_COM="Ostler assistant LaunchAgent loaded (label com.creativemachines.ostler.assistant)"
 MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED="ostler-assistant v%s staged at %s (signed)"
 MSG_OK_OSTLER_ASSISTANT_V_STAGED_UNSIGNED="ostler-assistant v%s staged at %s (unsigned)"
@@ -518,6 +518,8 @@ MSG_OK_OXIGRAPH_HEALTHY="Oxigraph healthy"
 MSG_OK_RECOVERY_PASSPHRASE_CAPTURED_FOR_PHASE_3="Passphrase noted. It will encrypt your databases during Phase 3."
 MSG_OK_RECOVERY_PASSPHRASE_CONFIGURED="Recovery passphrase configured."
 MSG_OK_PASSPHRASE_BRIEFING_ACKNOWLEDGED="Passphrase briefing acknowledged."
+MSG_OK_DISNEY_XLSX_PASSWORD_CAPTURED="Disney+ export password noted. It will be used during import."
+MSG_INFO_DISNEY_XLSX_PASSWORD_SKIPPED="Skipping the Disney+ export: no password was given. Nothing else is affected."
 MSG_OK_POWER_SOURCE_AC_DESKTOP_MAC_NO="Power source: AC (desktop Mac, no battery)"
 MSG_OK_POWER_SOURCE_AC_GOOD_10_15="Power source: AC (good – the install can run 45 minutes to a few hours, so mains power keeps it steady)"
 MSG_OK_PREVIOUS_INSTALLATION_DETECTED_LOADING_CONFIG="Previous installation detected. Loading config..."
@@ -1147,6 +1149,9 @@ MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="Re-enter the same passphrase to con
 
 MSG_PROMPT_IMPORT_CONFIRM_TITLE="Import these during install?"
 MSG_PROMPT_IMPORT_CONFIRM_HELP="Found GDPR exports will be imported into your knowledge graph during install."
+
+MSG_PROMPT_DISNEY_XLSX_PASSWORD_TITLE="Disney+ export password"
+MSG_PROMPT_DISNEY_XLSX_PASSWORD_HELP="Disney+ ships its GDPR export as a password-protected spreadsheet, which is normal and not a problem with your download. Enter the password to import your Disney+ viewing history now, or leave this blank to skip it; everything else still imports."
 
 MSG_PROMPT_MANUAL_EXPORTS_PATH_TITLE="Do you have data exports ready?"
 MSG_PROMPT_MANUAL_EXPORTS_PATH_HELP="Ostler can import social media and platform archives – your full history with friends, family, places, opinions – right from the start. The more Ostler knows on day one, the more useful it is on day one. You can also add this later; no rush.

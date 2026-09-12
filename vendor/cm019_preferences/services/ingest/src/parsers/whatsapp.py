@@ -25,7 +25,7 @@ from datetime import datetime
 from collections import Counter, defaultdict
 import aiofiles
 
-from .base import BaseParser, ParsedPreference
+from .base import BaseParser, ParsedPreference, describe_json_parse_failure
 
 logger = logging.getLogger(__name__)
 
@@ -464,8 +464,8 @@ class WhatsAppParser(BaseParser):
                         data = json.loads(content)
                         async for pref in self._parse_json_content(data, default_compartment):
                             yield pref
-                    except json.JSONDecodeError:
-                        logger.warning(f"Failed to parse JSON: {name}")
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Failed to parse JSON from {name}: {describe_json_parse_failure(content, e)}")
 
                 elif name_lower.endswith('.txt') and 'chat' in name_lower:
                     content = zf.read(name).decode('utf-8')
@@ -486,7 +486,7 @@ class WhatsAppParser(BaseParser):
             async for pref in self._parse_json_content(data, default_compartment):
                 yield pref
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON: {e}")
+            logger.error(f"Failed to parse JSON from {file_path}: {describe_json_parse_failure(content, e)}")
 
     async def _parse_txt(
         self,
