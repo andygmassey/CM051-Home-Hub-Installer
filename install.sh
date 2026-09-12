@@ -29788,8 +29788,17 @@ except Exception:
         # in the elif fall-through, so it reads the same as every sibling
         # error-recorder guard in this file: rc is still the first thing
         # checked, and this only fires when it did NOT indicate a failure.
-        _hydrate_sentinel_record_error "people" "${_HYDRATE_PEOPLE_RC:-0}" \
-            "sent=${_HYDRATE_PEOPLE_SENT:-0},total=${_HYDRATE_PEOPLE_TOTAL:-unknown},reason=partial_landing"
+        #
+        # NO `:-0` FALLBACK BELOW (#852 class). Both _HYDRATE_PEOPLE_RC and
+        # _HYDRATE_PEOPLE_SENT are unconditionally assigned earlier in THIS
+        # block before either branch of the outer if/elif is reached -- rc
+        # right after the python invocation, sent inside the same JSON-parse
+        # arm that set _HYDRATE_PEOPLE_PARTIAL=true -- so a `:-0` here would
+        # not be a real fallback, it would be a fabricated zero standing in
+        # for a measurement that was actually taken. `$_HYDRATE_PEOPLE_RC`
+        # bare matches how the sibling arm above calls the same recorder.
+        _hydrate_sentinel_record_error "people" "$_HYDRATE_PEOPLE_RC" \
+            "sent=${_HYDRATE_PEOPLE_SENT:-unknown},total=${_HYDRATE_PEOPLE_TOTAL:-unknown},reason=partial_landing"
     else
         # W012 class: reachable zero on the rc=0 arm. #852 fixed the
         # FABRICATED zero on the error arm; this is the honest zero on the
