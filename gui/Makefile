@@ -199,7 +199,7 @@ PYTHON_BUNDLE_TARBALL  := $(BUILD_DIR)/python-bundle.tar.gz
 # DAEMON_VERSION + DAEMON_SHA256 and run `make download-daemon` to
 # verify the fetch + checksum still pass.
 # ---------------------------------------------------------------------------
-DAEMON_VERSION       ?= 0.4.79
+DAEMON_VERSION       ?= 0.4.80
 # SHA-256 of the published hub-v$(DAEMON_VERSION) tarball
 # (ostler-assistant-aarch64-apple-darwin-v$(DAEMON_VERSION).tar.gz). Verified
 # fail-closed in download-daemon: a mismatch deletes the file + aborts the cut,
@@ -258,7 +258,42 @@ DAEMON_VERSION       ?= 0.4.79
 # Both re-downloaded FROM THE SERVER and re-hashed rather than trusted from the
 # upload. Daemon: spctl accepted, source=Notarized Developer ID, V95N2B8X7A,
 # with a de-signed copy returning rc=3 as the negative control.
-DAEMON_SHA256        ?= 39abd49f07e240b90a6bcc1732dce5022c6c0c96aa016bd806bad277a0926f4f
+#
+# v1.0.91 (2026-09-12 ORM): 0.4.79 -> 0.4.80, daemon commit 4fe9691b ->
+# b014faf5. Built LOCALLY on the signing build host (release/build-local.sh
+# 0.4.80), because the daemon's release workflow signs only on that host's
+# keychain identity + notarytool profile, not in CI. Carries three merged
+# ostler-assistant fixes: b5a3a24f (off-state toggle/slider track invisible
+# against its card), 6dbff407 (authenticate the daemon's hop to the wiki
+# instead of the browser's -- fixes the bare nginx 401 on the Personal wiki
+# tab), b014faf5 (fences the wiki_proxy doc-comment quotes as text, not Rust,
+# an unrelated doctest-CI fix carried along because it is the tip of main).
+# Verified on the DOWNLOADED bytes, not the build log or the release page:
+#   - independent `shasum -a 256` on the built tarball matches both the
+#     published .sha256 sidecar and GitHub's own asset digest, and again
+#     after a fresh re-download from ostler-ai/ostler-releases.
+#   - codesign: Authority=Developer ID Application: Creative Machines
+#     Limited (V95N2B8X7A); spctl: accepted, source=Notarized Developer ID;
+#     stapler: "The validate action worked!".
+#   - build-info.json commit_sha = b014faf593123676e00fa1197360f5142081705e
+#     (the exact target tip) and dirty_worktree = false.
+#   - the wiki_proxy fix is checkable directly: `strings` on the daemon
+#     Mach-O finds the new module's distinctive literals ("Ostler/0.1
+#     (wiki_proxy)", "wiki is still starting up") which are ABSENT (0
+#     occurrences) from the currently-shipped hub-v0.4.79 binary, downloaded
+#     and hash-verified as the control.
+#   - the toggle/slider fix is checkable in the bundled web assets: the new
+#     CSS tokens --pc-bg-track-off (#BDB4A3) and --pc-border-track-off
+#     (#7D776A) are present in OstlerAssistant.app/Contents/Resources/
+#     web/dist/assets/*.css and ABSENT from the same path in hub-v0.4.79.
+#   ostler-releases  hub-v0.4.80  ostler-assistant-...-v0.4.80.tar.gz  16fff1a5
+# HUB_APP_SHA256 is UNCHANGED and NOT re-pinned by this commit: the fixes
+# above ship inside the daemon tarball's own bundled web/dist copy (wrapped
+# by release/wrap-in-app-bundle.sh), and no ostler-hub-app-...-v0.4.80.tar.gz
+# has been published at ostler-ai/ostler-assistant. Cutting v1.0.91 before
+# that second artefact exists will fail exactly as v1.0.81 did (see the
+# v1.0.81 note above) -- out of scope for this pin, flagged for whoever cuts.
+DAEMON_SHA256        ?= 16fff1a542fa463d9f4c5bb31c720f2873938ea93e75dd22be933e05fe069828
 DAEMON_REPO          ?= ostler-ai/ostler-releases
 DAEMON_TARGET        ?= aarch64-apple-darwin
 DAEMON_TARBALL_NAME  := ostler-assistant-$(DAEMON_TARGET)-v$(DAEMON_VERSION).tar.gz
@@ -353,7 +388,33 @@ HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
 # TWO digests here, each with its own outgoing value; a sweep keyed on one
 # of them cannot see the other, because a digest does not contain its
 # version. Bump BOTH or the bump lands half done, exactly as written.
-HUB_APP_SHA256       ?= 280e181b2a4fb2635d59def4bbabe34beab62f7e8d9474c9fc5bfd9c436b158e
+#
+# v1.0.91 (2026-09-12 ORM): 280e181b -> 29f0d6f6, hub-v0.4.80, built from
+# b014faf5 -- the SAME commit as the v0.4.80 daemon above, so
+# verify-commit-parity keeps its meaning. Closes the gap this file itself
+# flagged when DAEMON_VERSION first moved to 0.4.80: no ostler-hub-app
+# tarball existed for that tag, so this pin still named the 0.4.79 bundle.
+# Built via scripts/build-hub.sh (cargo tauri build, CWD=apps/tauri) from a
+# fresh clone of the same commit the daemon was built from; adhoc signed by
+# design (Signature=adhoc, TeamIdentifier=not set -- CORRECT reading, same
+# as every prior Hub-app pin here). The sidecar was EMITTED by
+# release/emit-hub-build-info.py, never hand-authored: it probes
+# WRAPPER_FRONTEND_COMMIT out of the packaged Mach-O and refuses (exit 2) if
+# it disagrees with git HEAD, and it agreed (b014faf593123676e00fa1197360f5142081705e
+# both sides). Re-downloaded from ostler-ai/ostler-assistant hub-v0.4.80 and
+# re-hashed rather than trusted from the upload.
+#
+# The toggle/slider fix (b5a3a24f) is NOT independently greppable inside
+# this Mach-O the way it is in the daemon's OstlerAssistant.app: Tauri
+# embeds the frontend compressed into the binary rather than as a plain
+# filesystem copy, so a raw `strings` scan finds the asset FILENAME
+# (index-DxN_3TyC.css) but not its decompressed byte content. Verified
+# instead on the intermediate build artefact Tauri actually embeds: the
+# `web/dist/assets/index-DxN_3TyC.css` this build's own beforeBuildCommand
+# produced is byte-identical (sha256 2b65537ee0...) to the copy already
+# grepped and differentially proven inside the hub-v0.4.80 daemon tarball,
+# and both binaries carry the same *_FRONTEND_COMMIT marker.
+HUB_APP_SHA256       ?= 29f0d6f63d87048d43b6bb43f334f8c0d2d9f7b367af435e178e510b11992238
 
 # ---------------------------------------------------------------------------
 # SAFARI EXTENSION (CM020) -- the third artefact the cut cannot build itself.
