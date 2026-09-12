@@ -51,7 +51,20 @@
 #   PR_AGE_HOURS=24 bash scripts/verify_pr_age.sh
 #   PR_AGE_REPOS="andygmassey/CM044-PWG-Personal-Wiki" bash scripts/verify_pr_age.sh
 #
-# Exit: 0 clean (or all exempt) | 1 violation | 3 cannot verify (fails closed)
+#   # Accept that named repo(s) cannot be reached, as a DELIBERATE decision --
+#   # see "PARTIAL RUNS FAIL CLOSED" below. Never set this because a run
+#   # happened to fail; set it because a human decided a narrower run is fine.
+#   PR_AGE_ALLOW_PARTIAL="andygmassey/CM044-PWG-Personal-Wiki" bash scripts/verify_pr_age.sh
+#
+#   # Per-owner credential, for an environment with no `gh auth login` (CI).
+#   # <OWNER> is the repo owner uppercased, non-alnum -> `_`.
+#   PR_AGE_TOKEN_ANDYGMASSEY=... PR_AGE_TOKEN_OSTLER_AI=... bash scripts/verify_pr_age.sh
+#
+# Exit: 0 clean (or all exempt, or every unreachable repo was declared via
+#       PR_AGE_ALLOW_PARTIAL)
+#     | 1 violation
+#     | 3 cannot verify -- nothing resolved, OR a repo was unreachable and
+#       nobody declared that on purpose (fails closed either way)
 # ============================================================================
 
 set -uo pipefail
@@ -59,6 +72,7 @@ set -uo pipefail
 RULE_EFFECTIVE_DATE="${PR_RULE_EFFECTIVE_DATE:-2026-08-06}"
 MAX_HOURS="${PR_AGE_HOURS:-48}"
 DEFERRALS="${OSTLER_CUT_DEFERRALS:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/cut-deferrals.yaml}"
+ALLOW_PARTIAL="${PR_AGE_ALLOW_PARTIAL:-}"
 
 DEFAULT_REPOS="andygmassey/CM051-Home-Hub-Installer
 andygmassey/CM044-PWG-Personal-Wiki
@@ -71,6 +85,39 @@ ostler-ai/ostler-assistant"
 REPOS="${PR_AGE_REPOS:-$DEFAULT_REPOS}"
 
 say() { printf '%s\n' "$*"; }
+
+# Resolve a token for a repo's OWNER, the same fix #643 gave the sibling
+# verify_no_orphaned_fixes.sh. One token is not right for two owners: a
+# repo-scoped token cannot read a sibling repo even under the SAME owner, and
+# never reads across an org boundary at all (andygmassey/* vs ostler-ai/*).
+#
+# Precedence:
+#   1. An explicit per-owner override, for an environment with no
+#      `gh auth login` (CI): PR_AGE_TOKEN_<OWNER>, e.g. PR_AGE_TOKEN_OSTLER_AI.
+#      Absent means "fall through", never "use a token that cannot reach here".
+#   2. `gh auth token -u <owner>` -- the operator's Mac, multi-account gh CLI.
+#   3. Nothing. gh_as() below then calls gh with whatever it already has
+#      ambient (an exported GH_TOKEN/GITHUB_TOKEN, or a logged-in session) --
+#      exactly the behaviour this script had before this function existed.
+token_for_owner() {
+    local owner="$1" var tok
+    var="PR_AGE_TOKEN_$(printf '%s' "$owner" | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9' '_')"
+    var="${var%_}"
+    tok="${!var:-}"
+    if [[ -z "$tok" ]] && command -v gh >/dev/null 2>&1; then
+        tok="$(gh auth token -u "$owner" 2>/dev/null || true)"
+    fi
+    printf '%s' "$tok"
+}
+
+# GH_TOKEN="$tok" gh ... is NOT equivalent to this when $tok is empty: an
+# empty GH_TOKEN means UNAUTHENTICATED, not "fall back to ambient auth". #643
+# hit exactly this in the orphan gate (v1.0.22, run 31478119136) and gh_as()
+# is that fix, copied here rather than re-derived.
+gh_as() {
+    local t="$1"; shift
+    if [[ -n "$t" ]]; then GH_TOKEN="$t" gh "$@"; else gh "$@"; fi
+}
 
 # Exempt refs, one per line, from the pr_exemptions: block of cut-deferrals.yaml.
 # Parsed with grep/sed rather than a YAML library so this has no dependencies
@@ -147,7 +194,9 @@ say ""
 
 while IFS= read -r repo; do
     [[ -z "$repo" ]] && continue
-    if ! json=$(gh pr list --repo "$repo" --state open --limit 200 \
+    _owner="${repo%%/*}"
+    _tok="$(token_for_owner "$_owner")"
+    if ! json=$(gh_as "$_tok" pr list --repo "$repo" --state open --limit 200 \
                  --json number,title,createdAt,isDraft 2>/dev/null); then
         say "  [warn] ${repo}: could not list PRs (auth/billing?) -- NOT checked"
         unreachable=$(( unreachable + 1 ))
@@ -213,22 +262,81 @@ say ""
 total_repos=$(( checked + unreachable ))
 say "== ${checked} of ${total_repos} repo(s) checked | ${violations} over ${MAX_HOURS}h | ${exempted} exempt | ${legacy} pre-rule =="
 
+# ============================================================================
+# PARTIAL RUNS FAIL CLOSED, DELIBERATELY.
+# ============================================================================
+# This used to stop at printing the shortfall. Printing is not enforcement:
+# the exit code below still fell through to "0 violations found -> GREEN",
+# and PARTIAL was decoration on a pass. Measured 2026-09-12 against the live
+# estate: the one repo CI can resolve carried 1 PR over 30 days unmarked; the
+# six it could not see carried 13 between them. The debt accumulated exactly
+# where the gate was blind, while every run reported success.
+#
+# So: an unreachable repo is now a FAILURE unless a human named it on purpose.
+# PR_AGE_ALLOW_PARTIAL is that decision -- same grammar as PR_AGE_REPOS above,
+# a comma-separated list of the exact "owner/repo" strings this gate would
+# otherwise refuse to pass over silently. Partitioned below into repos that
+# WERE declared (a real, recorded choice to narrow this run) and repos that
+# were not (an accident of which credential happened to be active).
+declared=0
+undeclared=0
+declared_names=""
+undeclared_names=""
+if (( unreachable > 0 )); then
+    while IFS= read -r r; do
+        [[ -z "$r" ]] && continue
+        if [[ ",${ALLOW_PARTIAL}," == *",${r},"* ]]; then
+            declared=$(( declared + 1 ))
+            declared_names="${declared_names}${r}"$'\n'
+        else
+            undeclared=$(( undeclared + 1 ))
+            undeclared_names="${undeclared_names}${r}"$'\n'
+        fi
+    done <<< "$unreachable_names"
+fi
+
 # The verdict word, so a partial run can never be read as a complete one. Its
 # sibling verify_no_orphaned_fixes.sh has said "GREEN, PARTIAL" and "NOT
 # CHECKED IN THIS ENVIRONMENT" since #643; this gate is the same shape and was
 # silent about it. Same repo, same cut, two gates -- now the same honesty.
+#
+# An UNDECLARED blind spot can never be certified GREEN, whatever the checked
+# repos found -- that is the whole fix. A DECLARED one keeps the ordinary
+# colour, because a human already chose to accept the gap.
 if (( unreachable > 0 )); then
-    colour="GREEN"; (( violations > 0 )) && colour="RED"
-    say "== VERDICT: ${colour}, PARTIAL -- ${unreachable} of ${total_repos} repo(s) NOT CHECKED =="
+    if (( undeclared > 0 )); then
+        say "== VERDICT: RED, PARTIAL -- ${undeclared} of ${total_repos} repo(s) NOT CHECKED and NOT DECLARED =="
+    else
+        colour="GREEN"; (( violations > 0 )) && colour="RED"
+        say "== VERDICT: ${colour}, PARTIAL (DECLARED) -- ${declared} of ${total_repos} repo(s) deliberately narrowed via PR_AGE_ALLOW_PARTIAL =="
+    fi
     say ""
     say "NOT CHECKED IN THIS ENVIRONMENT:"
-    while IFS= read -r r; do [[ -n "$r" ]] && say "  - ${r}"; done <<< "$unreachable_names"
+    while IFS= read -r r; do
+        [[ -z "$r" ]] && continue
+        marker=""
+        [[ ",${ALLOW_PARTIAL}," == *",${r},"* ]] && marker=" (declared in PR_AGE_ALLOW_PARTIAL)"
+        say "  - ${r}${marker}"
+    done <<< "$unreachable_names"
     say ""
-    say "This run says NOTHING about those repos either way -- it did not fail to"
-    say "find overdue PRs there, it failed to look. The usual cause is a"
-    say "repo-scoped token: gh cannot list a sibling repo's PRs even under the"
-    say "same owner. Re-run where all accounts resolve (the operator's Mac)"
-    say "before treating this verdict as estate-wide."
+    if (( undeclared > 0 )); then
+        say "This run says NOTHING about ${undeclared} of those repo(s) either way -- it did"
+        say "not fail to find overdue PRs there, it failed to look, and nobody said that"
+        say "was fine. The usual cause is a repo-scoped token: gh cannot list a sibling"
+        say "repo's PRs even under the same owner, and never across an org boundary."
+        say ""
+        say "This run FAILS (see exit code) rather than passing quietly. Restore access"
+        say "(a per-owner credential -- see PR_AGE_TOKEN_<OWNER> at the top of this"
+        say "script) and re-run, or accept a genuinely narrowed run on purpose:"
+        first_undeclared="$(head -1 <<< "$undeclared_names")"
+        say "  PR_AGE_ALLOW_PARTIAL=\"${first_undeclared}\" bash scripts/verify_pr_age.sh"
+        say "That is a decision someone takes, not an accident of which credential"
+        say "happened to be active."
+    else
+        say "Every unreachable repo above was named in PR_AGE_ALLOW_PARTIAL -- a"
+        say "deliberate, recorded decision to narrow this run, not a credential"
+        say "accident. This does NOT mean those repos are clean; it means nobody asked."
+    fi
 else
     colour="GREEN"; (( violations > 0 )) && colour="RED"
     say "== VERDICT: ${colour} -- all ${total_repos} repo(s) checked =="
@@ -267,6 +375,35 @@ Deliberately blocked is fine. Silently blocked is what produced a 176-PR
 backlog and six fixes that Andy found by hand on a shipped DMG.
 EOF
     exit 1
+fi
+
+# THIS IS THE FIX. An undeclared blind spot is a failure, never a footnote --
+# see "PARTIAL RUNS FAIL CLOSED" above. Checked AFTER violations, on purpose:
+# a real violation found in what WAS checked is reported as that violation
+# (exit 1, above), not laundered into a vaguer "could not verify" (exit 3).
+# Reusing exit 3 here, rather than inventing a fourth code, means the existing
+# CI wrapper (gui/Makefile check-pr-age) already prints the right remedy for
+# this case with no wrapper change: "COULD NOT RUN ... it failed to look ...
+# DO NOT SHIP."
+if (( undeclared > 0 )); then
+    cat >&2 <<EOF
+
+ERROR: ${undeclared} repo(s) this gate is supposed to police could NOT be
+checked, and nobody declared that on purpose.
+
+A gate that could not look has not found "no violations" -- it has found
+nothing. Reporting success here is exactly how debt accumulates: measured
+2026-09-12, the one repo CI could resolve had 1 unmarked PR over 30 days old;
+the six it could not see had 13 between them.
+
+Restore access -- usually a per-owner credential, see PR_AGE_TOKEN_<OWNER> at
+the top of scripts/verify_pr_age.sh -- and re-run. Or accept a genuinely
+narrowed run as a deliberate decision:
+  PR_AGE_ALLOW_PARTIAL="owner/repo1,owner/repo2" bash scripts/verify_pr_age.sh
+
+DO NOT SHIP on the strength of a run that did not look everywhere it claims to.
+EOF
+    exit 3
 fi
 
 say "GREEN: no PR has outstayed the ${MAX_HOURS}h limit."
