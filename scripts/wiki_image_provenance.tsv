@@ -152,7 +152,7 @@ wiki-site	sha256:2287c37e9e74651576fd1e505cc7e2a5aef5352bbd66139fe323ae10a104961
 # the decimal-hour ages fix; the twelve include it plus per-source status
 # icons, a duplicate nav entry removal, and the People/timeline + People/index
 # dated-list treatment (CM044 #275), the operator privacy/hide control (#124),
-# the Reply Debt wing (#120), and the Decisions+Commitments nav entry (#118).
+# the "reply debt" wing (#120), and the Decisions+Commitments nav entry (#118).
 # v1.0.94 was tagged and never built on the stale 3bc0f3bb pin; rebuilt and
 # re-pinned rather than held, because a hold_ack here would have asserted
 # shipping_bugfixes_grafted = true while shipping none of them -- the pin gap
