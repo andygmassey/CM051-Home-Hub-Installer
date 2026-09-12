@@ -40,7 +40,10 @@ jobs:
       - name: Detector functional + drift guard
         run: bash tests/test_gdpr_export_detect.sh
 
+      # if: always() -- ci-maskless: without it a red in the step above SKIPS
+      # this one, and a skipped test reports nothing rather than a failure.
       - name: Every archive the scan finds is opened, or reported (2026-09-12)
+        if: always()
         run: bash tests/test_unzip_every_archive_is_opened_or_reported.sh
 
   # ==========================================================================

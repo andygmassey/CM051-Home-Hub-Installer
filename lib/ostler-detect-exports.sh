@@ -103,7 +103,8 @@ if [[ "$DO_UNZIP" == "1" ]]; then
             continue
         fi
         mkdir -p "$dest" 2>/dev/null || true
-        _uz_err="$(unzip -oq "$z" -d "$dest" 2>&1 1>/dev/null)"; _uz_rc=$?
+        _uz_rc=0
+        _uz_err="$(unzip -oq "$z" -d "$dest" 2>&1 1>/dev/null)" || _uz_rc=$?
         if [[ "$_uz_rc" -eq 0 ]]; then
             _uz_opened=$((_uz_opened + 1))
         else
