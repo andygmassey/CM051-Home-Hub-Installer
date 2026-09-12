@@ -388,7 +388,33 @@ HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
 # TWO digests here, each with its own outgoing value; a sweep keyed on one
 # of them cannot see the other, because a digest does not contain its
 # version. Bump BOTH or the bump lands half done, exactly as written.
-HUB_APP_SHA256       ?= 280e181b2a4fb2635d59def4bbabe34beab62f7e8d9474c9fc5bfd9c436b158e
+#
+# v1.0.91 (2026-09-12 ORM): 280e181b -> 29f0d6f6, hub-v0.4.80, built from
+# b014faf5 -- the SAME commit as the v0.4.80 daemon above, so
+# verify-commit-parity keeps its meaning. Closes the gap this file itself
+# flagged when DAEMON_VERSION first moved to 0.4.80: no ostler-hub-app
+# tarball existed for that tag, so this pin still named the 0.4.79 bundle.
+# Built via scripts/build-hub.sh (cargo tauri build, CWD=apps/tauri) from a
+# fresh clone of the same commit the daemon was built from; adhoc signed by
+# design (Signature=adhoc, TeamIdentifier=not set -- CORRECT reading, same
+# as every prior Hub-app pin here). The sidecar was EMITTED by
+# release/emit-hub-build-info.py, never hand-authored: it probes
+# WRAPPER_FRONTEND_COMMIT out of the packaged Mach-O and refuses (exit 2) if
+# it disagrees with git HEAD, and it agreed (b014faf593123676e00fa1197360f5142081705e
+# both sides). Re-downloaded from ostler-ai/ostler-assistant hub-v0.4.80 and
+# re-hashed rather than trusted from the upload.
+#
+# The toggle/slider fix (b5a3a24f) is NOT independently greppable inside
+# this Mach-O the way it is in the daemon's OstlerAssistant.app: Tauri
+# embeds the frontend compressed into the binary rather than as a plain
+# filesystem copy, so a raw `strings` scan finds the asset FILENAME
+# (index-DxN_3TyC.css) but not its decompressed byte content. Verified
+# instead on the intermediate build artefact Tauri actually embeds: the
+# `web/dist/assets/index-DxN_3TyC.css` this build's own beforeBuildCommand
+# produced is byte-identical (sha256 2b65537ee0...) to the copy already
+# grepped and differentially proven inside the hub-v0.4.80 daemon tarball,
+# and both binaries carry the same *_FRONTEND_COMMIT marker.
+HUB_APP_SHA256       ?= 29f0d6f63d87048d43b6bb43f334f8c0d2d9f7b367af435e178e510b11992238
 
 # ---------------------------------------------------------------------------
 # SAFARI EXTENSION (CM020) -- the third artefact the cut cannot build itself.
