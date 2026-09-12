@@ -61,6 +61,18 @@
 #      quiet pass -- conflating "I got tired of waiting" with "it finished
 #      clean" is exactly the vacuous-pass defect this file exists to refuse.
 #
+# A FIFTH CLASS, not a vacuous pass but its mirror image: a vacuous FAIL. A
+# check name can have more than one attempt on the same commit (a concurrency
+# rule cancels an in-flight run when the PR is pushed to again, or edited, or
+# anything else refires the workflow), and a check-run object is immutable --
+# a superseded cancellation stays attached to the commit forever. Evaluating
+# every attempt would mean a PR that was ever pushed to twice could never go
+# green, which is protection nobody can satisfy. So for each name, only the
+# LATEST attempt (by `id`, see the comment where attempts are reduced, below)
+# decides: a cancellation superseded by a later success is not a failure; a
+# cancellation that is still the latest attempt for its name is one, because
+# nobody re-ran it. Measured 2026-09-12, CM051 PR #1937: exactly this shape.
+#
 # A conclusion of `skipped` or `neutral` is accepted at face value -- that is
 # the normal, reviewed shape of a job with a deliberate `if:` guard, and this
 # repository's own idiom (verify_tagged_commit_is_green.sh) already treats it
@@ -294,6 +306,65 @@ else:
 seen = len(runs)
 runs = [r for r in runs if r.get("name") not in own]
 excluded = seen - len(runs)
+
+# ONE CHECK NAME CAN HAVE MULTIPLE ATTEMPTS ON THE SAME COMMIT. A concurrency
+# rule (this repo uses `cancel-in-progress` almost everywhere) cancels an
+# in-flight run when the same PR is pushed to again, or edited, or anything
+# else refires the workflow -- enforce-ledger-write.yml alone listens for
+# `edited` deliberately. Each attempt gets its OWN check-run object, and a
+# check-run is immutable and permanent: the cancelled one from attempt 1 does
+# not disappear when attempt 2 succeeds.
+#
+# Measured 2026-09-12, CM051 PR #1937, head 3af2269f: `no-invisible-workflows`
+# and `ledger-pr` each had TWO check-run entries on the identical head SHA --
+# an earlier one, cancelled, and a later one, success -- and evaluating the
+# raw list treated the dead cancellation as a live failure. Under real branch
+# protection that PR could never have gone green no matter how many times it
+# was re-run, because the cancelled attempt is permanent evidence that stays
+# attached to the commit forever: pushing twice is routine here, so this was
+# "protection nobody can satisfy", worse than the missing protection this
+# gate exists to replace.
+#
+# FOR EACH NAME, ONLY THE LATEST ATTEMPT DECIDES. A cancellation superseded by
+# a later success for the SAME name is not a failure; a cancellation that IS
+# the latest attempt for its name still is one, because nobody re-ran it and
+# nothing verified that check.
+#
+# Reduced by `id`, not by list order and not by `started_at`/`completed_at`:
+#   * list order is a pagination artefact. Nothing in the endpoint's contract
+#     promises attempts arrive oldest-first, so trusting it is trusting an
+#     accident.
+#   * `completed_at` is null on anything not yet finished. Comparing a
+#     completed OLD attempt against a still-RUNNING new one by this field
+#     would silently keep the old, finished one and hide the pending
+#     replacement -- exactly backwards.
+#   * `started_at` IS present on every attempt regardless of status (verified
+#     against a live queued check-run: it already carries one), but it has
+#     one-second resolution, so two attempts created in the same second tie.
+#   * `id` is a GitHub-assigned integer, strictly increasing in creation
+#     order, present on every check run in every status, and it cannot tie.
+#     On the #1937 incident above the cancelled attempt's id (103562866141)
+#     is lower than the successful attempt's id (103562901507) for BOTH
+#     duplicated names, consistent with creation order, and it stays
+#     comparable even while the newer attempt is still queued or running.
+latest_by_name = {}
+collapsed = 0
+for r in runs:
+    name = r.get("name")
+    prior = latest_by_name.get(name)
+    if prior is None:
+        latest_by_name[name] = r
+        continue
+    collapsed += 1
+    if (r.get("id") or 0) > (prior.get("id") or 0):
+        latest_by_name[name] = r
+runs = list(latest_by_name.values())
+
+# The anti-vacuity floor counts DISTINCT check NAMES, never raw check-run
+# rows. `total` here is computed AFTER the collapse above, so it already is
+# that count -- computing it from the pre-collapse list would let re-triggered
+# attempts inflate the denominator and quietly loosen the floor the more often
+# a PR happens to be pushed to or edited.
 total = len(runs)
 
 if total == 0:
@@ -338,7 +409,8 @@ if unknown:
 
 skipped = sorted(r.get("name") for r in completed if r.get("conclusion") == "skipped")
 skip_note = ("skipped: " + ", ".join(skipped)) if skipped else "none skipped"
-print(f"DONE\tGREEN\t{total}\t{len(completed)}\t{excluded}\tall clean ({skip_note})")
+collapsed_note = f"; {collapsed} superseded attempt(s) collapsed" if collapsed else ""
+print(f"DONE\tGREEN\t{total}\t{len(completed)}\t{excluded}\tall clean ({skip_note}{collapsed_note})")
 PY
 }
 
@@ -470,11 +542,11 @@ if [ "${1:-}" = "--self-test" ]; then
 
     # A subshell can't just prefix env vars before a function call the way it
     # can before a binary, so wrap it.
-    run_case2() {
-        local want="$1" label="$2" file="$3"
+    run_case2() {  # run_case2 <want-rc> <label> <fixture-file> [floor, default 3]
+        local want="$1" label="$2" file="$3" floor="${4:-3}"
         (
             OSTLER_CHECKRUNS_JSON="$TMP/$file.json" \
-            OSTLER_GATE_FLOOR=3 \
+            OSTLER_GATE_FLOOR="$floor" \
             OSTLER_GATE_MAX_WAIT_SECONDS=1 \
             OSTLER_GATE_POLL_INTERVAL_SECONDS=1 \
             poll_and_decide deadbeefdeadbeef owner/repo
@@ -513,6 +585,47 @@ if [ "${1:-}" = "--self-test" ]; then
     else
         note "FAIL  rc=$rc want=0  the second poll's clean result was not picked up"; fail=1
     fi
+
+    echo "=== a superseded attempt must not outvote the one that replaced it ==="
+    # The CM051 #1937 shape: one name has TWO check-run objects on the same
+    # commit (a cancelled attempt, then a later successful one). The correct
+    # read is the LATEST attempt's conclusion, by `id` -- not list order. Both
+    # fixtures below carry the SAME two attempts for "b" in the OPPOSITE
+    # array order, so a reducer that (bug-for-bug) trusted "last in the array"
+    # or "first in the array" instead of comparing `id` would get exactly one
+    # of the two right and the other wrong. Both must pass.
+    mk supersede_old_first '{"check_runs":[
+        {"id":100,"name":"a","status":"completed","conclusion":"success"},
+        {"id":201,"name":"b","status":"completed","conclusion":"cancelled"},
+        {"id":205,"name":"b","status":"completed","conclusion":"success"},
+        {"id":100,"name":"c","status":"completed","conclusion":"success"}]}'
+    mk supersede_new_first '{"check_runs":[
+        {"id":100,"name":"a","status":"completed","conclusion":"success"},
+        {"id":205,"name":"b","status":"completed","conclusion":"success"},
+        {"id":201,"name":"b","status":"completed","conclusion":"cancelled"},
+        {"id":100,"name":"c","status":"completed","conclusion":"success"}]}'
+    run_case2 0 "GUARD: name b's latest attempt (higher id) succeeded after an earlier cancellation -- must PASS (array order: old, then new)" supersede_old_first
+    run_case2 0 "GUARD: same as above, array order reversed (new, then old) -- must still PASS, proving this is not reading list order" supersede_new_first
+
+    # The mirror case: name b's LATEST attempt is the cancellation. Nobody
+    # re-ran it, so this must refuse, regardless of array order again.
+    mk latest_cancel_old_first '{"check_runs":[
+        {"id":100,"name":"a","status":"completed","conclusion":"success"},
+        {"id":201,"name":"b","status":"completed","conclusion":"success"},
+        {"id":205,"name":"b","status":"completed","conclusion":"cancelled"},
+        {"id":100,"name":"c","status":"completed","conclusion":"success"}]}'
+    mk latest_cancel_new_first '{"check_runs":[
+        {"id":100,"name":"a","status":"completed","conclusion":"success"},
+        {"id":205,"name":"b","status":"completed","conclusion":"cancelled"},
+        {"id":201,"name":"b","status":"completed","conclusion":"success"},
+        {"id":100,"name":"c","status":"completed","conclusion":"success"}]}'
+    run_case2 1 "GUARD: name b's latest attempt (higher id) is a cancellation nobody re-ran -- must FAIL (array order: old, then new)" latest_cancel_old_first
+    run_case2 1 "GUARD: same as above, array order reversed -- must still FAIL, proving this is not reading list order" latest_cancel_new_first
+
+    # The floor must count DISTINCT NAMES, not raw rows: this fixture has 3
+    # names but 4 check-run rows (b has two attempts). Floor 3 must still be
+    # satisfied by 3, not demand 4 -- and floor 4 must correctly refuse it.
+    run_case2 2 "CONTROL: the SAME clean fixture fails a floor of 4 -- proves total is the collapsed (3), not the raw (4), count" supersede_old_first 4
 
     echo "=== the floor is recomputed from the tree, not a stale constant ==="
     FLOOR_TMP="$(mktemp -d)"
