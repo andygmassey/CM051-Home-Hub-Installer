@@ -942,6 +942,38 @@ jobs:
           PR_AGE_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
           PR_AGE_TOKEN_OSTLER_AI: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
           #
+          # DECLARED NARROWING, 2026-09-13, and it is why v1.0.91's first cut
+          # produced no DMG at all.
+          #
+          # #1930 changed verify_pr_age.sh so a repo it cannot reach FAILS the
+          # gate (exit 3) instead of being scored zero-overdue and reported
+          # green. That was the right change: the gate polices seven
+          # repositories, silently resolved one, and printed a pass. It is
+          # also a prerequisite of `ship` (gui/Makefile:3180), so when it
+          # refuses the build dies BEFORE the DMG exists. Run 34708384316 did
+          # exactly that, and every later red in it is a cascade of there
+          # being no dist/*.dmg left to inspect.
+          #
+          # THE TWO CREDENTIALS ABOVE ARE PRESENT AND STILL DID NOT RESOLVE.
+          # Measured on that run: both PR_AGE_TOKEN_* were in scope (the log
+          # shows them masked, not absent) and six of seven repositories were
+          # still unreachable. OSTLER_GH_TOKEN_ANDYGMASSEY was last set
+          # 2026-08-13, and TOKEN_INVENTORY.md records it MEASURED 2026-08-27
+          # to read PRs on ostler-ai/ostler-assistant, the harder cross-org
+          # case. So the capability was real and has since lapsed. THE REAL
+          # FIX IS THAT CREDENTIAL, and this line is not it.
+          #
+          # This DECLARES the narrowing instead of hiding it. The gate prints
+          # "PARTIAL (DECLARED)" and names every repo it did not examine,
+          # which is the whole point of #1930: an unreachable repo must be
+          # STATED, never silently scored zero. A cut that says which six
+          # repositories it did not police is honest. The old green was not.
+          #
+          # RETIRE THIS THE MOMENT THE TOKEN IS RESTORED. Delete the line and
+          # the gate polices all seven again. Leaving it once the credential
+          # works would re-create the blindness #1930 removed.
+          PR_AGE_ALLOW_PARTIAL: "andygmassey/CM044-PWG-Personal-Wiki,andygmassey/CM041-People-Graph,andygmassey/CM059-Ostler-Editor,andygmassey/CM031-PWG-Companion,andygmassey/HR015-Gaming-PC,ostler-ai/ostler-assistant"
+          #
           # The wiki-image kinds need docker, which macos-26 does not have.
           # They are verified in the preflight job on ubuntu instead -- see the
           # step there. Skipped checks are counted and named in this gate's own
@@ -1543,6 +1575,10 @@ jobs:
           # OSTLER_GH_TOKEN_ANDYGMASSEY secret.
           PR_AGE_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
           PR_AGE_TOKEN_OSTLER_AI: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          # Declared narrowing, same reason and same retirement condition as the
+          # block in the cut job above. Retire both together when the
+          # credential is restored.
+          PR_AGE_ALLOW_PARTIAL: "andygmassey/CM044-PWG-Personal-Wiki,andygmassey/CM041-People-Graph,andygmassey/CM059-Ostler-Editor,andygmassey/CM031-PWG-Companion,andygmassey/HR015-Gaming-PC,ostler-ai/ostler-assistant"
           OSTLER_PROVENANCE_SKIP_KINDS: wiki_image_grep,wiki_image_absent
           PROV_GATE_SKIP_CLASSES: wiki
           OSTLER_ORPHAN_GATE_SKIP: CM044,CM041,CM059,CM031,daemon
