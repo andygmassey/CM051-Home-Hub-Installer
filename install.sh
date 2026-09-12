@@ -11401,7 +11401,7 @@ else
     # https://docs.brew.sh/Installation#untar-anywhere-unsupported
     if [[ "${OSTLER_GUI:-0}" == "1" ]] && [[ -d /opt/homebrew ]] && [[ -w /opt/homebrew ]]; then
         echo "Using manual tarball install (prefix is pre-chowned)" >> "$BREW_INSTALL_LOG"
-        curl -fsSL https://github.com/Homebrew/brew/tarball/master 2>>"$BREW_INSTALL_LOG" \
+        curl -fsSL https://github.com/Homebrew/brew/tarball/main 2>>"$BREW_INSTALL_LOG" \
             | tar xz --strip 1 -C /opt/homebrew 2>>"$BREW_INSTALL_LOG"
         BREW_EXIT=${PIPESTATUS[0]:-0}
         # If curl succeeded, validate via brew --version. If brew is
