@@ -37,6 +37,11 @@ on:
       - 'scripts/box_walk_probes/**'
       - 'tests/test_promote_scope_refuses_on_the_artefact.sh'
       - 'tests/test_promote_scope_only_ever_grows.sh'
+      # broken_probe visibility in the scoped adjudication, and its guard.
+      # scripts/post_walk_qa.sh (the broken_probe writer) is already watched
+      # above; this test file is the other trigger a run: step needs, or
+      # editing it would be dark on self-edit.
+      - 'tests/test_a_broken_probe_blocks_the_promote.sh'
       - 'scripts/walk_promote_scope.tsv'
       - 'scripts/verify_walk_record.sh'
       - 'tests/test_a_pairing_non_answer_is_not_a_rejection.sh'
@@ -364,6 +369,22 @@ jobs:
       - name: The scoped promote refuses on the artefact
         if: always()
         run: bash tests/test_promote_scope_refuses_on_the_artefact.sh
+
+      # A BROKEN PROBE MUST NOT BE INVISIBLE TO THE SCOPED ADJUDICATION.
+      #
+      # The awk that builds the scoped promote's non-pass list matched
+      # failed_probe and not_measured_probe rows only. broken_probe rows --
+      # written by the BROKEN_NAMES loop in post_walk_qa.sh for a probe that
+      # failed its own negative control and measured nothing -- were never
+      # read. A record could carry a broken probe alongside a failed_probe the
+      # scope file declares advisory and reach "every ARTEFACT-OWNED probe
+      # passed", exit 0, with the broken probe never considered. This drives
+      # the real gate over synthetic records and proves a broken probe is
+      # unconditionally blocking -- never scopable to advisory -- while an
+      # identical record without it still passes.
+      - name: A broken probe blocks the promote
+        if: always()
+        run: bash tests/test_a_broken_probe_blocks_the_promote.sh
 
       - name: The blocking set only ever grows
         if: always()

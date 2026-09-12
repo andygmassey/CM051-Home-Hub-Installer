@@ -78,6 +78,9 @@ on:
       - 'tests/test_the_replay_reads_the_box_the_probes_read.sh'
       - 'scripts/box_walk_probes/lib/wiki_summaries_wait.sh'
       - 'scripts/box_walk_probes/run_box_walk.sh'
+      # The permanent-manifest-is-not-optional guard and its subject. BOTH are
+      # triggers: a run: with no matching paths: entry is dark on self-edit.
+      - 'tests/test_the_permanent_manifest_is_not_optional.sh'
   push:
     branches: [main]
 
@@ -144,6 +147,19 @@ jobs:
         if: always()
         run: |
           python -m pytest scripts/tests/test_verify_cut_manifest.py scripts/tests/test_grep_in_source_at_sha_names_files.py -v
+
+      # THE PERMANENT NEVER-REGRESS BACKSTOP IS NOT OPTIONAL.
+      #
+      # verify_cut_manifest.py used to load cut-manifests/permanent.yaml "if
+      # present": an absent file, a wrong --manifest-dir, or a rename printed
+      # one WARN to stderr and the run continued scoring the per-cut manifest
+      # alone, with no fail/cannot_run recorded for the rows never read. A run
+      # that examined a fraction of the estate still exited 0 GREEN. This drives
+      # the real gate over synthetic fixtures and proves an absent permanent.yaml
+      # now refuses with CANNOT-RUN before anything is scored.
+      - name: The permanent manifest backstop is not optional
+        if: always()
+        run: bash tests/test_the_permanent_manifest_is_not_optional.sh
 
       # A walk record travels -- logs, support bundles, CI output -- and this
       # repo is PUBLIC. A Person URI is derivable from an email or phone via

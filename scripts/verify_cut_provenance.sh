@@ -444,5 +444,25 @@ if [[ "${CANNOT}" -gt 0 ]]; then
   echo "  absent: supply it and set OSTLER_ASSISTANT_DIR."
   exit 2
 fi
+# THE ANTI-VACUITY FLOOR. EXAMINING NOTHING MUST NEVER PRINT GREEN.
+#
+# By this point FAIL and CANNOT are both proven zero, so the only way PASS can
+# also be zero is that every marker row was filtered out of this invocation --
+# by ONLY_KINDS/SKIP_KINDS, or because the manifest held nothing to run. That
+# is not evidence the estate is clean; it is evidence this run looked at
+# nothing, and the two must not read the same on the one line an operator
+# tails. Demonstrated live: OSTLER_PROVENANCE_ONLY_KINDS set to a kind that
+# does not exist printed "0 pass / 0 fail / 0 could-not-run / 47 not-run-here"
+# and then PROVENANCE GREEN, exit 0. A typo'd kind filter, or a future manifest
+# edit that empties one side of the cut workflow's two-job split, must refuse
+# here rather than certify a cut it never inspected.
+if [[ "${PASS}" -eq 0 ]]; then
+  echo "  PROVENANCE CANNOT-RUN -- 0 pass / 0 fail / 0 could-not-run (${SKIPPED} not-run-here)."
+  echo "  This invocation examined NOTHING: every marker row was filtered out of"
+  echo "  scope (only=${ONLY_KINDS:-<all>} skip=${SKIP_KINDS:-<none>}), or the"
+  echo "  manifest held no rows at all. Silence here proves nothing about the"
+  echo "  artefact. Fail-closed, exit 2 -- an empty run is not a green one."
+  exit 2
+fi
 echo "  PROVENANCE GREEN -- every merged fix is present. Safe to cut."
 exit 0
