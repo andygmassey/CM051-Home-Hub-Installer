@@ -26,7 +26,7 @@ The obvious repair is an ``EnvironmentVariables`` entry in
 ``~/Library/LaunchAgents/com.ostler.ical-server.plist``. It is the wrong
 one, and the reason is written down in this repo already:
 
-``vendor/ostler_security/SECURITY_MODEL.md`` lists "Time-Machine backup
+``SECURITY_MODEL.md``, beside this file, lists "Time-Machine backup
 theft" as a threat the product DEFENDS AGAINST, and names the defence:
 the wrapped DEK is pinned to ``kSecAttrAccessibleWhenUnlockedThisDeviceOnly``
 so "it doesn't travel in backups". ``install.sh`` pays for that property

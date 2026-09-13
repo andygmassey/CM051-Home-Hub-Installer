@@ -23,9 +23,10 @@ is built entirely for the Touch ID passkey subsystem: it calls
 Keychain-wrapped DEK. install.sh disables that subsystem for v1.0 (the
 passphrase-primary decision at the Phase 3.6 mint site), so
 ``ostler-recovery`` exits 2 on every v1.0 install: there is no
-Keychain-wrapped recovery DEK to find. The repo already says so out loud,
-in ``scripts/box_walk_probes/probes/the_recovery_key_reached_the_customer.sh``:
-"ostler-recovery ships and can never succeed for it".
+Keychain-wrapped recovery DEK to find. The installer repo already says
+so out loud, in its box-walk probe
+``the_recovery_key_reached_the_customer.sh``: "ostler-recovery ships and
+can never succeed for it".
 
 So the shipped state was: mint a key, print it, tell the customer it is
 their way back in, and ship nothing that can accept it. A customer who

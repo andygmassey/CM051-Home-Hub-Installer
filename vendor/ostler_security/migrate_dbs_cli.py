@@ -147,9 +147,17 @@ def _resolve_key() -> str | None:
     reaches for when things are already wrong; it must not be the thing
     that cannot start.
     """
+    # The SECURITY-IMPORT-SOFT-ALLOWED opt-out is correct here and the
+    # guard's usual reasoning does not apply. That guard exists to stop a
+    # missing ostler_security silently DOWNGRADING an encrypted path to a
+    # plaintext one (ENCRYPTION_FALLBACK_RUNTIME_GAP_2026-04-28.md). This
+    # fallback cannot do that: it returns the environment key or None, and
+    # None makes main() refuse with exit 2 rather than open anything. The
+    # degraded behaviour is EXACTLY the behaviour this CLI shipped with
+    # before db_key existed.
     try:
         from ostler_security.db_key import resolve_db_key
-    except ImportError:
+    except ImportError:  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
         return os.environ.get("OSTLER_DB_KEY") or None
     return resolve_db_key().key
 
