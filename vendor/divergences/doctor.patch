@@ -2913,6 +2913,288 @@
      return [
          {"distinct": [ids[i], ids[j]]}
 --- /dev/null
++++ b/agent/editor_feedback.py
+@@ -0,0 +1,279 @@
++"""Record one Front Page card tap as a durable correction.
++
++WHY THIS FILE EXISTS. The Front Page renders "Spot on" / "Not me" / "Don't
++show" on every card. MEASURED 2026-09-13 on a walked box: tapping them did
++NOTHING. The page's only handlers were two onclick functions that add a CSS
++class, there was no fetch, no form and no endpoint anywhere in the daemon's 31
++routes, and ~/.ostler/editor/interest_corrections.json had never been written.
++
++Worse than a dead button: the handler adds a "chosen" class, so the control
++LIGHTS UP as though the tap registered. The customer is told their correction
++landed and it went nowhere.
++
++Everything underneath was already built and tested. cm059-editor's
++compiler/feedback.py record_feedback() routes a tap through CorrectionStore and
++re-emits the feed, and interest_profile.apply_corrections folds corrections into
++every recompile. Its own docstring names the missing piece: "the Hub API POST
++route". That route is what this adds. No new storage, no second mechanism --
++thin HTTP plumbing onto the handler that already exists, exactly as
++duplicate_decision.py is for the wiki's Combine / Different buttons.
++"""
++from __future__ import annotations
++
++import inspect
++import os
++import sys
++
++_EDITOR_DIRS = (
++    os.environ.get("OSTLER_EDITOR_HOME", ""),
++    os.path.expanduser("~/.ostler/services/cm059-editor"),
++)
++
++# The three card verbs, plus the labels the UI actually prints. feedback.py
++# normalises both, but validating here keeps an unknown verb a 400 rather than
++# a 500 from deep inside the store.
++_ACTIONS = {"strengthen", "weaken", "drop", "spot on", "not me", "don't show"}
++
++# ``add`` is the FOURTH verb and it is a different shape from the other three.
++#
++# WHY IT IS HERE. CM059 PR #24 renders a masthead control ("Tell Ostler what
++# you're into") that POSTs ``{action:'add', subject}`` to this very endpoint.
++# The allowlist above excludes "add" and ``validate_payload`` demanded a
++# ``card_id`` that a masthead control has no concept of, so a customer typing
++# an interest and pressing Add got HTTP 400 and a "not saved" line. The store
++# side was never the problem: ``CorrectionStore.add`` has existed and been
++# folded into every recompile by ``interest_profile.apply_corrections`` the
++# whole time.
++#
++# Aliases match CM059's ``feedback._ACTION_ALIASES`` exactly, including its
++# separator-insensitivity, so the two normalisers cannot answer differently
++# for the same string.
++_ADD_ACTIONS = {"add", "add_interest", "add-interest", "add interest"}
++
++# CorrectionStore.add's own default. Named here because the response has to be
++# able to say which category was stored when the caller sent none.
++_DEFAULT_ADD_CATEGORY = "user_added"
++
++
++# Origins a browser may issue this WRITE from. MEASURED 2026-09-13 on a box:
++# the Doctor's own routes on :8089 answer 200 with NO credential at all
++# (/api/v1/sources proves it), and the app's only middleware is CORS with
++# allow_origins=["*"]. The 401 seen elsewhere on that port comes from a
++# DIFFERENT scheme entirely, a paired-device bearer, which the service token
++# does not satisfy either.
++#
++# 🔴 SO AN Authorization HEADER HERE WOULD BE DECORATION, and shipping one
++# would be worse than shipping nothing: it would look like security to the next
++# reader while enforcing nothing (Archie stopped me adding exactly that).
++#
++# What IS real: this route WRITES to the customer's store, and with a wildcard
++# CORS policy any page they open can issue the write. allow_credentials=False
++# limits reading the answer back, but a write does not need to read. So the
++# origin is checked here rather than left to a middleware that permits all of
++# them. A request with no Origin at all is allowed: that is a same-process or
++# curl caller, not a browser acting on a page's behalf.
++_ALLOWED_ORIGIN_HOSTS = ("127.0.0.1", "localhost", "[::1]", "::1")
++
++
++def origin_is_local(origin: str | None) -> bool:
++    """True when a browser Origin is loopback, or absent entirely."""
++    if not origin:
++        return True          # non-browser caller; CORS does not apply
++    o = origin.strip().lower()
++    for scheme in ("http://", "https://"):
++        if o.startswith(scheme):
++            o = o[len(scheme):]
++            break
++    else:
++        return False         # an origin we cannot parse is not a local one
++    host = o.split("/")[0].rsplit(":", 1)[0] if not o.startswith("[") else o.split("]")[0] + "]"
++    return host in _ALLOWED_ORIGIN_HOSTS
++
++
++class ValidationError(Exception):
++    def __init__(self, detail: str, status: int = 400):
++        super().__init__(detail)
++        self.detail = detail
++        self.status = status
++
++
++def _load_feedback_module():
++    for d in _EDITOR_DIRS:
++        if d and os.path.isdir(d):
++            if d not in sys.path:
++                sys.path.insert(0, d)
++            try:
++                from compiler import feedback  # noqa: PLC0415
++                return feedback
++            except Exception as exc:  # noqa: BLE001
++                raise ValidationError(
++                    f"the editor's feedback module is present but would not "
++                    f"import: {exc}", 500) from exc
++    raise ValidationError(
++        "the Front Page editor is not installed on this box, so a card tap has "
++        "nowhere to go. This is CANNOT-RECORD, not a silent success.", 503)
++
++
++def validate_payload(body) -> dict:
++    if not isinstance(body, dict):
++        raise ValidationError("body must be a JSON object")
++    action = (body.get("action") or "").strip()
++
++    # The add verb first, because it is the one that must NOT be asked for a
++    # card_id. A masthead control has no card.
++    if action.lower() in _ADD_ACTIONS:
++        subject = (body.get("subject") or "").strip()
++        if not subject:
++            raise ValidationError("subject is required for the add action")
++        domain = body.get("domain")
++        if domain is not None:
++            domain = str(domain).strip() or None
++        category = body.get("category")
++        if category is not None:
++            category = str(category).strip() or None
++        return {"card_id": None, "action": "add", "interest_id": None,
++                "subject": subject, "domain": domain, "category": category}
++
++    card_id = (body.get("card_id") or "").strip()
++    if not card_id:
++        raise ValidationError("card_id is required")
++    if action.lower() not in _ACTIONS:
++        raise ValidationError(
++            f"unknown action {action!r}; expected one of "
++            f"{', '.join(sorted(_ACTIONS | _ADD_ACTIONS))}")
++    interest_id = body.get("interest_id")
++    if interest_id is not None:
++        interest_id = str(interest_id).strip() or None
++    return {"card_id": card_id, "action": action, "interest_id": interest_id,
++            "subject": None, "domain": None, "category": None}
++
++
++def record(normalised: dict) -> dict:
++    """Write the correction. Raises ValidationError; never returns a bare ok.
++
++    🔴 THE RESULT MUST SAY WHAT WAS WRITTEN. Returning {"ok": true} would put
++    this endpoint in the same class as the buttons it replaces: a success
++    report that is not evidence of anything.
++    """
++    feedback = _load_feedback_module()
++
++    if normalised["action"] == "add":
++        return _record_add(feedback, normalised)
++
++    verb = feedback.normalise_action(normalised["action"])
++    if not verb:
++        raise ValidationError(f"unknown action {normalised['action']!r}")
++    try:
++        out = feedback.record_feedback(
++            normalised["card_id"], normalised["interest_id"], verb)
++    except Exception as exc:  # noqa: BLE001
++        raise ValidationError(f"could not record the tap: {exc}", 500) from exc
++    _refuse_if_not_ok(out)
++    result = {"status": "recorded", "action": verb,
++              "card_id": normalised["card_id"]}
++    if isinstance(out, dict):
++        for k in ("path", "corrections_path", "reemitted", "applied_to"):
++            if k in out:
++                result[k] = out[k]
++    return result
++
++
++def _refuse_if_not_ok(out) -> None:
++    """A handler that answered ``ok: False`` REFUSED the write. Say so.
++
++    🔴 This used to be missing, and its absence is the same defect the whole
++    file exists to kill. ``record_feedback`` never raises for the ordinary
++    refusals (unknown action, no interest_id, no subject) -- it returns
++    ``{"ok": False, "error": ...}``. Without this check the route turned that
++    into ``{"status": "recorded"}`` with HTTP 200: a refusal wearing the
++    clothes of a success, exactly like the button that lit up and wrote
++    nothing.
++    """
++    if isinstance(out, dict) and out.get("ok") is False:
++        raise ValidationError(
++            str(out.get("error") or "the editor refused the correction"), 400)
++
++
++def _record_add(feedback, normalised: dict) -> dict:
++    """Persist one "tell Ostler what you're into" subject.
++
++    TWO PATHS, and the response says which one ran.
++
++    1. The installed editor already knows the verb (CM059 PR #24 onward):
++       ``record_feedback`` grew ``subject`` / ``domain`` / ``category``
++       keywords and an ``add`` branch. Use it, so there is one writer.
++    2. The installed editor predates it. CM051 vendors CM059 at a pin that
++       does NOT carry #24 -- measured against ``vendor/cm059_editor`` --
++       where ``normalise_action("add")`` returns None and passing
++       ``subject=`` is a TypeError. Calling it anyway would turn the Add
++       button from a 400 into a 500, which is not a fix. So this falls back
++       to the same place #24's branch goes: ``CorrectionStore.add``, against
++       the same store path resolved by the same module, then the same cheap
++       re-emit. The row written is the row #24 writes.
++
++    The capability is PROBED, not inferred from a version: the signature must
++    carry ``subject`` AND the normaliser must know the verb. Either alone
++    would be a guess.
++    """
++    subject = normalised["subject"]
++    domain = normalised["domain"]
++    category = normalised["category"]
++
++    try:
++        params = inspect.signature(feedback.record_feedback).parameters
++        native = ("subject" in params
++                  and feedback.normalise_action("add") == "add")
++    except Exception:  # noqa: BLE001 - an unprobeable module is not a native one
++        native = False
++
++    if native:
++        try:
++            out = feedback.record_feedback(
++                None, None, "add", subject=subject,
++                domain=domain, category=category)
++        except Exception as exc:  # noqa: BLE001
++            raise ValidationError(
++                f"could not record the interest: {exc}", 500) from exc
++        _refuse_if_not_ok(out)
++        result = {"status": "recorded", "action": "add", "subject": subject,
++                  "domain": domain,
++                  "category": category or _DEFAULT_ADD_CATEGORY,
++                  "via": "editor_feedback_module"}
++        if isinstance(out, dict) and "reemitted" in out:
++            result["reemitted"] = out["reemitted"]
++        return result
++
++    try:
++        from compiler import corrections as corr_mod  # noqa: PLC0415
++    except Exception as exc:  # noqa: BLE001
++        raise ValidationError(
++            f"the editor's correction store would not import: {exc}",
++            500) from exc
++
++    try:
++        editor_dir = feedback._editor_dir()
++        store = corr_mod.CorrectionStore(
++            path=feedback._corrections_path(editor_dir))
++        add_kwargs = {}
++        if domain:
++            add_kwargs["domain"] = domain
++        if category:
++            add_kwargs["category"] = category
++        store.add(subject, **add_kwargs)
++    except Exception as exc:  # noqa: BLE001
++        raise ValidationError(
++            f"could not record the interest: {exc}", 500) from exc
++
++    # Same re-emit the other verbs get, and the same honest caveat #24 writes
++    # down: a brand-new interest has no row in the already-compiled artefact,
++    # so it cannot appear until the next FULL recompile. The re-emit is still
++    # run, for consistency and because it is harmless.
++    reemitted = False
++    try:
++        reemitted = bool(feedback._reemit(None))
++    except Exception:  # noqa: BLE001 - a failed re-emit does not undo the write
++        reemitted = False
++
++    return {"status": "recorded", "action": "add", "subject": subject,
++            "domain": domain, "category": category or _DEFAULT_ADD_CATEGORY,
++            "reemitted": reemitted, "via": "correction_store"}
+--- /dev/null
 +++ b/agent/extension_token.py
 @@ -0,0 +1,210 @@
 +"""Report the browser-extension bearer token to Doctor, for the customer.
@@ -4861,7 +5143,109 @@
      REPORT_SECTION_CONTAINERS,
      REPORT_SECTION_DISK,
      REPORT_SECTION_FINDINGS,
-@@ -386,6 +431,18 @@
+@@ -260,6 +305,101 @@
+ )
+ 
+ SUPPORT_EMAIL = os.getenv("DOCTOR_SUPPORT_EMAIL", "support@creativemachines.ai")
++
++
++# ── Cross-site refusal on the credential routes ──────────────────────
++#
++# WHAT THIS CLOSES, AND, JUST AS IMPORTANTLY, WHAT IT DOES NOT.
++#
++# MEASURED on origin/main 2026-09-13, in this file: 34 ``@app.<verb>`` route
++# decorators, ``Depends(`` appears ZERO times in all 5235 lines (positive
++# control, same search shape: ``CORSMiddleware`` appears twice, so the zero is
++# a real absence and not a broken predicate), and the only ``add_middleware``
++# in the whole ``vendor/doctor`` tree is CORS with ``allow_origins=["*"]``.
++# Every Doctor-native route therefore answers with no credential at all.
++#
++# Four of those routes hand out or rotate a CREDENTIAL:
++#
++#   POST /api/v1/auth/chat-token   mints a ZeroClaw device bearer
++#   GET  /api/v1/extension/token   returns the browser-extension ingest key
++#   GET  /api/v1/pair/status       returns the section 3.3 pairing envelope
++#                                  (the QR encodes the pairing token itself)
++#   POST /api/v1/pair/regenerate   rotates that pairing credential
++#
++# With ``allow_origins=["*"]`` and ``allow_credentials=False`` a POST with no
++# body and no custom header is a CORS "simple request", so ANY page the
++# customer happens to open can issue these calls AND READ THE ANSWER BACK. A
++# drive-by site was one fetch away from a device bearer and from the pairing
++# envelope. That is the hole this closes.
++#
++# 🔴 THIS IS NOT AUTHENTICATION AND MUST NEVER BE DESCRIBED AS ANY. It refuses
++# a request that a BROWSER is making on behalf of a page the Hub did not
++# serve, which is the only attacker this predicate can see. It does NOTHING
++# against:
++#
++#   * a local process running as the customer, which sets whatever Origin and
++#     Sec-Fetch-Site it likes. That attacker is also not meaningfully held
++#     back by gating this route: the ZeroClaw admin token sits in
++#     ~/.ostler/secrets at mode 0600 under that same uid, so it can mint
++#     directly from the gateway without asking the Doctor at all.
++#   * a non-browser peer on the tailnet. install.sh raw-TCP serves :8089 to
++#     the tailnet (see the "v1.0.10 security lockdown" block), and its comment
++#     there claims 8089 "has its own device-pairing bearer auth" -- which is
++#     true of the PROXIED paths only, never of these Doctor-native ones.
++#
++# Both of those remain open on purpose and are recorded as such. The shipped
++# CM031 Companion presents NO credential on the chat-token mint (verified on
++# CM031 origin/main, ``ChatTokenService.mint`` sets only ``Accept``), so any
++# credential requirement here breaks pairing-to-chat for every customer. A
++# broken pairing flow at launch is worse than a documented hole.
++#
++# THE PREDICATE, and why both halves are needed:
++#
++#   * ``Sec-Fetch-Site`` is stamped by the browser and cannot be set by page
++#     script. ``same-origin`` is the Doctor's own pages; ``none`` is a typed
++#     URL or a bookmark. Anything else is another site driving the call.
++#     Browsers before the header existed simply do not send it.
++#   * ``Origin`` catches those older browsers on the requests that carry it.
++#     A GET normally carries no Origin at all, which is why the header alone
++#     is not enough and why absence must stay permitted.
++#
++# Absence of BOTH is the non-browser caller: curl, the installer's own probes,
++# and the iOS Companion. Those are allowed through, unchanged.
++
++_SAME_SITE_FETCH_VALUES = ("same-origin", "none")
++
++CROSS_SITE_REFUSAL_DETAIL = (
++    "refused: this Hub credential route is not available to another site"
++)
++
++
++def _cross_site_refusal(request: Request) -> "JSONResponse | None":
++    """Return the 403 to send, or ``None`` when the caller may proceed.
++
++    Fails CLOSED: if the shared origin predicate cannot be imported at all the
++    request is refused rather than waved through, because a guard that cannot
++    run has not passed.
++    """
++    site = (request.headers.get("sec-fetch-site") or "").strip().lower()
++    if site and site not in _SAME_SITE_FETCH_VALUES:
++        return JSONResponse(
++            {"error": CROSS_SITE_REFUSAL_DETAIL, "refused_on": "sec-fetch-site"},
++            status_code=403,
++        )
++    try:
++        from editor_feedback import origin_is_local as _origin_is_local
++    except Exception:  # noqa: BLE001 - a guard that cannot run has not passed
++        return JSONResponse(
++            {"error": CROSS_SITE_REFUSAL_DETAIL, "refused_on": "guard-unavailable"},
++            status_code=403,
++        )
++    if not _origin_is_local(request.headers.get("origin")):
++        return JSONResponse(
++            {"error": CROSS_SITE_REFUSAL_DETAIL, "refused_on": "origin"},
++            status_code=403,
++        )
++    return None
++
+ 
+ # ── Snapshot history (in-memory, last 10) ─────────────────────────
+ 
+@@ -386,6 +526,18 @@
  
      # Check services
      for svc in snapshot.services:
@@ -4880,7 +5264,7 @@
          if svc.status == "unreachable":
              findings.append({
                  "severity": "critical",
-@@ -547,17 +604,45 @@
+@@ -547,17 +699,45 @@
          # On macOS, check if we're on Apple Silicon
          pass  # RAM check is done in install.sh, not here
  
@@ -4907,7 +5291,7 @@
 +    # A whole-report verdict has to be decided where the whole report
 +    # exists. See _append_all_clear(), which every caller now uses.
 +    return findings
- 
++
 +
 +def _append_all_clear(
 +    findings: list[dict],
@@ -4918,7 +5302,7 @@
 +    The banner is a statement about the entire report, so it must be decided
 +    after every source of findings has been combined -- the rules engine, the
 +    local checks, and any per-stage ``errors`` recorded by the caller.
-+
+ 
 +    ``errors`` is consulted because a stage that blew up is not a stage that
 +    found nothing: if the caller could not run part of the report, the report
 +    is not clean and must not say it is.
@@ -4936,10 +5320,12 @@
      return findings
  
  
-@@ -669,7 +754,114 @@
+@@ -667,6 +847,113 @@
+ _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+ _IPV4_RE = re.compile(
      r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
- )
- 
++)
++
 +# Credential-shaped values that must never leave the machine in a report the
 +# customer is about to paste into an email.
 +#
@@ -5017,7 +5403,7 @@
 +    r"|token|private[\s_-]?key|signing[\s_-]?key|credential))\b\s*[:=]\s*"
 +    r"(?:bearer\s+)?\S+"
 +)
- 
++
 +# 🔴 A LABEL-ANCHORED PATTERN CANNOT CATCH AN UNLABELLED SECRET, AND THE ONE
 +# THAT MATTERS MOST IS UNLABELLED. The vault recovery key appears in install.log
 +# both labelled and BARE, so every label added above is still blind to the bare
@@ -5045,13 +5431,10 @@
 +    r"(?i)\b[a-z0-9]+(?:[._-][a-z0-9]+)*"
 +    r"-(?:gmail|icloud|outlook|hotmail|yahoo|proton(?:mail)?|aol|live|msn|fastmail)"
 +    r"-(?:com|net|org|co[-.]uk)\b"
-+)
-+
-+
- def _home_username() -> str | None:
-     """Best-effort current username for home-path redaction.
+ )
  
-@@ -717,8 +909,22 @@
+ 
+@@ -717,8 +1004,22 @@
      )
  
      redacted = _EMAIL_RE.sub(placeholder, redacted)
@@ -5074,7 +5457,7 @@
      return f"{REPORT_REDACTED_BANNER}\n\n{redacted}"
  
  
-@@ -822,6 +1028,8 @@
+@@ -822,6 +1123,8 @@
              f for f in findings
              if f.get("title") not in seen and not seen.add(f.get("title"))
          ]
@@ -5083,7 +5466,7 @@
      except Exception as exc:
          errors["findings"] = f"{type(exc).__name__}: {exc}"
          findings = []
-@@ -845,15 +1053,27 @@
+@@ -845,15 +1148,27 @@
      except Exception as exc:
          errors["report"] = f"{type(exc).__name__}: {exc}"
          report = REPORT_HEADER
@@ -5113,7 +5496,90 @@
      except Exception as exc:
          errors["mailto"] = f"{type(exc).__name__}: {exc}"
          mailto = f"mailto:{SUPPORT_EMAIL}"
-@@ -1149,6 +1369,7 @@
+@@ -896,6 +1211,74 @@
+ 
+ 
+ # ── HTML template ────────────────────────────────────────────────────
++
++
++def render_source_status() -> str:
++    """The per-source ingest table: did each source read in, and when.
++
++    WHY THIS EXISTS. /api/v1/sources has served one honest row per canonical
++    source for a long time, and a box-walk probe asserts it does. Nothing ever
++    RENDERED it. Andy, 2026-09-13: "the data sources are supposed to have a
++    Doctor table showing that they were successfully ingested ... but I have
++    never seen this." He had not, because only the supply side was ever built.
++
++    🔴 THE PROBE THAT COVERS THIS PASSES EITHER WAY. "The Doctor must serve
++    /api/v1/sources with one honest per-source row" is true whether or not a
++    human can ever see a single one. A gate on the producer cannot tell you
++    the feature exists.
++
++    Reads the same read_source_status the endpoint does, so the page and the
++    API can never disagree. A source that never ran shows as "not run", never
++    omitted: an absent row would read as "fine".
++    """
++    try:
++        rows = read_source_status()
++    except Exception as exc:  # noqa: BLE001
++        return (
++            '<div class="section"><h2>Where your data came from</h2>'
++            f'<p class="muted">Could not read the ingest record: {exc}. '
++            "That is not the same as nothing having been ingested.</p></div>"
++        )
++    if not rows:
++        return (
++            '<div class="section"><h2>Where your data came from</h2>'
++            "<p class=\"muted\">No ingest record yet. On a fresh install this "
++            "fills in as each source reads in.</p></div>"
++        )
++    _LABEL = {"ok": "read in", "no_data": "nothing to read",
++              "not_run": "not run yet", "unreadable": "record unreadable",
++              "error": "failed"}
++    _COLOUR = {"ok": "#5cb579", "no_data": "rgba(236,232,225,0.55)",
++               "not_run": "#d4a052", "unreadable": "#d96666",
++               "error": "#d96666"}
++    body = []
++    for r in rows:
++        st = (r.get("status") or "not_run")
++        when = r.get("last_update_at") or r.get("recorded_at")
++        n = r.get("item_count")
++        # None and 0 are different answers and must not print the same.
++        count = "&mdash;" if n is None else f"{n:,}"
++        body.append(
++            '<tr>'
++            f'<td>{html.escape(str(r.get("source", "?")).replace("_", " "))}</td>'
++            f'<td><span style="color:{_COLOUR.get(st, "#d4a052")}">'
++            f'{html.escape(_LABEL.get(st, st))}</span></td>'
++            f'<td style="text-align:right">{count}</td>'
++            f'<td>{html.escape(str(when)) if when else "never"}</td>'
++            f'<td class="muted">{html.escape(str(r.get("kind", "")))}</td>'
++            '</tr>'
++        )
++    return (
++        '<div class="section"><h2>Where your data came from</h2>'
++        '<p class="muted">Every source Ostler reads, whether it has run, how '
++        "much it found and when it last looked. A source that has never run "
++        'says so rather than being left out.</p>'
++        '<table class="src-table" style="width:100%;border-collapse:collapse">'
++        '<thead><tr><th align="left">Source</th><th align="left">Status</th>'
++        '<th align="right">Items</th><th align="left">Last read</th>'
++        '<th align="left">Kind</th></tr></thead><tbody>'
++        + "".join(body) + "</tbody></table></div>"
++    )
+ 
+ 
+ def render_dashboard(
+@@ -1019,6 +1402,7 @@
+     # when no commitments have been pushed yet. Catches the case the
+     # install-time tile cannot: access granted at install, later revoked.
+     reminders_runtime_section = render_reminders_runtime()
++    source_status_section = render_source_status()
+ 
+     # Build findings
+     findings_html = ""
+@@ -1149,6 +1533,7 @@
              display: inline-flex;
              align-items: center;
              gap: 6px;
@@ -5121,7 +5587,7 @@
          }}
          .refresh-btn:hover, .auto-refresh-btn:hover {{
              border-color: var(--ostler-accent);
-@@ -1543,6 +1764,7 @@
+@@ -1543,6 +1928,7 @@
              </div>
              <div>
                  <div class="header-controls">
@@ -5129,7 +5595,15 @@
                      <button class="refresh-btn" onclick="manualRefresh()">{DASHBOARD_BTN_REFRESH}</button>
                      <button class="auto-refresh-btn active" id="autoRefreshBtn" onclick="toggleAutoRefresh()">{DASHBOARD_BTN_AUTO_ON}</button>
                      <button class="refresh-btn" id="emailReportBtn" onclick="sendByEmail()" title="{DASHBOARD_BTN_EMAIL_TITLE}">{DASHBOARD_BTN_EMAIL}</button>
-@@ -1611,7 +1833,7 @@
+@@ -1577,6 +1963,7 @@
+         {reminders_section}
+ 
+         {reminders_runtime_section}
++        {source_status_section}
+ 
+         <div class="section">
+             <div class="section-title">{DASHBOARD_SECTION_MODELS}</div>
+@@ -1611,7 +1998,7 @@
          </div>
  
          <div class="meta" id="metaInfo">
@@ -5138,7 +5612,7 @@
          </div>
      </div>
  
-@@ -2002,8 +2224,34 @@
+@@ -2002,8 +2389,34 @@
  
  
  # ── Endpoints ────────────────────────────────────────────────────────
@@ -5147,19 +5621,19 @@
 +@app.get("/")
 +async def front_door():
 +    """Send the bare root to the dashboard. v1018-D023.
- 
++
 +    Every route on this service lives under /doctor or /api/v1, and nothing
 +    served `/` at all, so the front door returned 404. A customer who opens the
 +    Doctor at its host and port -- the only address they have been given -- gets
 +    a 404 from a service that is running perfectly.
- 
++
 +    302 rather than 307 or 301, deliberately:
 +      * 307 is FastAPI's RedirectResponse default and preserves the method,
 +        meaningless for a browser hitting the root, and the D023 gate accepts
 +        only 200/301/302 -- a 307 would leave the gate red.
 +      * 301 is permanent and browsers cache it hard. If the dashboard ever
 +        moves, every customer who visited once keeps the stale target.
-+
+ 
 +    GRAFTED into the vendor tree, not re-vendored: CM051's doctor pin is held
 +    deliberately. Reconstruction is source@upstream + vendor/divergences/
 +    doctor.patch. RedirectResponse was NOT imported in this copy -- grafting the
@@ -5167,13 +5641,13 @@
 +    so the import moved to the parenthesised form upstream already uses.
 +    """
 +    return RedirectResponse(url="/doctor", status_code=302)
-+
+ 
 +
 +
  @app.get("/doctor", response_class=HTMLResponse)
  async def dashboard():
      """Serve the diagnostic dashboard or first-run wizard."""
-@@ -2025,6 +2273,10 @@
+@@ -2025,6 +2438,10 @@
      # Deduplicate by title
      seen = set()
      findings = [f for f in findings if f["title"] not in seen and not seen.add(f["title"])]
@@ -5184,7 +5658,7 @@
      _record_snapshot(snapshot, findings)
      # CM024 Block 3.4: surface the Evernote import nav link only when
      # the feature flag is on. Read here (not inside the renderer) so
-@@ -2114,6 +2366,258 @@
+@@ -2114,6 +2531,258 @@
      return {"status": "healthy", "service": "ostler-doctor"}
  
  
@@ -5443,7 +5917,86 @@
  @app.get("/api/v1/box-status", response_class=JSONResponse)
  async def api_box_status():
      """Aggregated live box status for the Hub header chip + Governor page.
-@@ -2294,6 +2798,220 @@
+@@ -2248,6 +2917,59 @@
+     return result
+ 
+ 
++@app.post("/api/v1/editor/feedback", response_class=JSONResponse)
++async def api_editor_feedback(request: Request):
++    """Record one Front Page card tap ("Spot on" / "Not me" / "Don't show").
++
++    The Front Page renders these controls on every card and, until this route
++    existed, tapping them did nothing at all: the page's only handlers added a
++    CSS class, so the button LIT UP as though the tap had registered while
++    nothing was written anywhere. Measured 2026-09-13 on a walked box, with
++    interest_corrections.json never once created.
++
++    The store, the verbs and the recompile fold were all already built and
++    tested in cm059-editor's compiler/feedback.py, whose docstring names the
++    missing piece as "the Hub API POST route". This is that route. Thin HTTP
++    plumbing only -- validation and the write live in editor_feedback.py, the
++    same split duplicate_decision.py uses for the wiki's Combine buttons.
++    """
++    from editor_feedback import (
++        ValidationError as _FbError,
++        origin_is_local as _origin_ok,
++        record as _record,
++        validate_payload as _validate,
++    )
++
++    # This route WRITES to the customer's store and the app's only middleware
++    # is CORS with allow_origins=["*"], so without this any page the customer
++    # opens could issue the write. An Authorization header would be decoration
++    # here: measured on a box, the Doctor's own routes answer 200 with no
++    # credential at all.
++    if not _origin_ok(request.headers.get("origin")):
++        return JSONResponse(
++            {"error": "this write is only accepted from the Hub itself"},
++            status_code=403,
++        )
++
++    try:
++        body = await request.json()
++    except Exception as exc:
++        return JSONResponse({"error": f"invalid JSON: {exc}"}, status_code=400)
++
++    try:
++        normalised = _validate(body)
++    except _FbError as exc:
++        return JSONResponse({"error": exc.detail}, status_code=exc.status)
++
++    try:
++        return _record(normalised)
++    except _FbError as exc:
++        return JSONResponse({"error": exc.detail}, status_code=exc.status)
++    except Exception as exc:  # noqa: BLE001
++        return JSONResponse(
++            {"error": f"could not record the tap: {exc}"}, status_code=500)
++
++
+ @app.post("/api/v1/auth/chat-token", response_class=JSONResponse)
+ async def api_chat_token(request: Request):
+     """Mint a fresh ZeroClaw bearer token for the iOS chat tab.
+@@ -2261,7 +2983,18 @@
+     See ``chat_token.py`` for the end-to-end logic, the admin-token
+     seed convention, and the public-URL resolution rules. This
+     handler only owns the HTTP plumbing.
++
++    This route VENDS A CREDENTIAL and until 2026-09-13 any page the
++    customer opened could fetch it and read the bearer straight out of
++    the response (wildcard CORS, no preflight needed for a bodyless
++    POST). ``_cross_site_refusal`` closes that. It closes NOTHING ELSE:
++    read its block above for what stays open and why the shipped
++    Companion forbids requiring a credential here.
+     """
++    refusal = _cross_site_refusal(request)
++    if refusal is not None:
++        return refusal
++
+     from chat_token import (
+         TokenIssueError as _ChatTokenError,
+         issue_chat_token as _issue,
+@@ -2294,6 +3027,220 @@
      return all_observability_postures()
  
  
@@ -5664,19 +6217,17 @@
  # ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────
  #
  # Forwards iOS-initiated CM019 paths to the local gateway over
-@@ -3331,8 +4049,475 @@
-     </script>
- </body>
+@@ -3333,6 +4280,482 @@
  </html>"""
-+
-+
+ 
+ 
 +def _render_whatsapp_pair_page() -> str:
 +    """Render the WhatsApp pair-code panel.
- 
++
 +    Vanilla HTML + JS, no framework, chassis tokens inlined the same way
 +    ``_render_pair_ios_page`` does so the two pairing surfaces sit together
 +    rather than one feeling bolted on.
- 
++
 +    THREE DESIGN RULES, each load-bearing:
 +
 +    1. The countdown renders the daemon's MEASURED ``expires_at``. Doctor
@@ -6126,13 +6677,22 @@
 +
 +
 +@app.get("/api/v1/extension/token", response_class=JSONResponse)
-+async def api_extension_token():
++async def api_extension_token(request: Request):
 +    """Return the browser-extension key and the state it is in.
 +
 +    Read fresh on every call rather than cached. Two of the five states are
 +    cleared by restarting Ostler, and a cached answer would keep telling the
 +    customer to do the thing they have already done.
++
++    Its only caller in this repo is the Doctor's own ``/extension-setup``
++    panel, a same-origin ``fetch("/api/v1/extension/token")`` (see
++    ``_render_extension_setup_page``), so the cross-site refusal costs the
++    real consumer nothing and stops a drive-by page reading the ingest key.
 +    """
++    refusal = _cross_site_refusal(request)
++    if refusal is not None:
++        return refusal
++
 +    from extension_token import fetch_token_status
 +    return JSONResponse(fetch_token_status().to_dict(), status_code=200)
 +
@@ -6140,6 +6700,108 @@
  @app.get("/pair-ios", response_class=HTMLResponse)
  async def pair_ios_page():
      """Render the Pair iOS device panel (DFA-002)."""
+@@ -3340,8 +4763,20 @@
+ 
+ 
+ @app.get("/api/v1/pair/status", response_class=JSONResponse)
+-async def api_pair_status():
+-    """Return the current pair code, QR SVG, and any error state."""
++async def api_pair_status(request: Request):
++    """Return the current pair code, QR SVG, and any error state.
++
++    THE QR CARRIES THE PAIRING TOKEN. ``pair_status`` re-serialises the
++    gateway's section 3.3 envelope (``{v, hub_addr, rp_id, pairing_token,
++    expires_at}``) into the string the QR encodes, so this response IS the
++    pairing credential in visual form. Wildcard CORS made it readable by any
++    page the customer opened; the refusal below is what stops that. Its only
++    caller here is the Doctor's own ``/pair-ios`` panel, same-origin.
++    """
++    refusal = _cross_site_refusal(request)
++    if refusal is not None:
++        return refusal
++
+     from pair_status import fetch_pair_status
+     return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
+ 
+@@ -3353,18 +4788,17 @@
+     Cross-origin POSTs from a malicious local browser tab can DOS the
+     pair code (rotate it under the customer's feet) even though the
+     same-origin policy blocks the attacker from reading the new code.
+-    Modern browsers set ``Sec-Fetch-Site`` automatically; reject
+-    anything that is not ``same-origin`` or ``none`` (the latter
+-    covers direct navigation and bookmarks). Older browsers do not
+-    send the header; in that case the request is allowed through and
+-    the same-origin policy remains the defence-in-depth.
++
++    This used to check ``Sec-Fetch-Site`` alone, inline. It now calls the
++    shared ``_cross_site_refusal``, which adds the ``Origin`` half: a browser
++    old enough not to stamp ``Sec-Fetch-Site`` still sends ``Origin`` on a
++    POST, and that case was the gap. One predicate, so the four credential
++    routes cannot drift apart the way this one and the chat-token mint had.
+     """
+-    sec_fetch_site = request.headers.get("sec-fetch-site")
+-    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
+-        return JSONResponse(
+-            {"error": "Cross-site request refused"},
+-            status_code=403,
+-        )
++    refusal = _cross_site_refusal(request)
++    if refusal is not None:
++        return refusal
++
+     from pair_status import fetch_pair_status
+     return JSONResponse(
+         fetch_pair_status(fresh=True).to_dict(), status_code=200,
+@@ -3867,12 +5301,22 @@
+ 
+ 
+ @app.get("/api/v1/config", response_class=JSONResponse)
+-async def api_config_get():
++async def api_config_get(request: Request):
+     """Return the current config view model.
+ 
+     Secrets are never included as values: secret-looking keys are
+     reported presence-only (set / not set). See ``config_panel.py``.
++
++    Not a credential route, so it is not in the list above -- but it is the
++    customer's settings (channels, schedule, model, privacy default) and
++    wildcard CORS made it readable by any page they opened. The POST beside it
++    already refused a cross-site write; the READ refused nothing. Its only
++    caller is the Doctor's own ``/config`` panel, same-origin.
+     """
++    refusal = _cross_site_refusal(request)
++    if refusal is not None:
++        return refusal
++
+     from config_panel import ConfigError as _ConfigError, read_config_view
+ 
+     try:
+@@ -3885,18 +5329,16 @@
+ async def api_config_post(request: Request):
+     """Validate + persist a whitelist of safe config edits.
+ 
+-    Same cross-site guard as the pair-regenerate route: reject any POST
+-    whose ``Sec-Fetch-Site`` is present and not same-origin, so a
+-    malicious local tab cannot mutate the customer's config under them.
++    Same cross-site guard as the pair-regenerate route, and now literally the
++    same function, so a malicious local tab cannot mutate the customer's
++    config under them. The inline copy this replaces checked
++    ``Sec-Fetch-Site`` only; ``_cross_site_refusal`` adds the ``Origin`` half.
+     Only whitelisted, non-secret fields are writable; everything else is
+     rejected by ``config_panel.write_config``.
+     """
+-    sec_fetch_site = request.headers.get("sec-fetch-site")
+-    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
+-        return JSONResponse(
+-            {"error": "Cross-site request refused"},
+-            status_code=403,
+-        )
++    refusal = _cross_site_refusal(request)
++    if refusal is not None:
++        return refusal
+ 
+     from config_panel import ConfigError as _ConfigError, write_config
+ 
 --- /dev/null
 +++ b/agent/whatsapp_pair.py
 @@ -0,0 +1,192 @@

@@ -58,6 +58,13 @@ on:
       - 'tests/test_frontpage_tick_emits_interest_profile.sh'
       - 'tests/test_vendor_symbol_resolution.py'
       - 'tests/test_doctor_web_ui_strings_complete.py'
+      # The two behavioural gates added with the credential-route refusal and
+      # the Front Page add verb. Both BOOT the shipped Doctor over real HTTP,
+      # so both are watched here as well as run below: a path entry alone only
+      # makes the workflow trigger, and a run with no path entry is a gate that
+      # never fires on a change to itself.
+      - 'tests/test_doctor_credential_routes_refuse_cross_site.sh'
+      - 'tests/test_editor_feedback_accepts_the_add_verb.sh'
       # v1018-D024, customer-visible half. Listed here AND run below, for the
       # reason recorded above: a path entry only makes the workflow trigger.
       # The gate also reads lib/ostler-resource-tier.sh and install.sh, so both
@@ -450,6 +457,36 @@ jobs:
         # cut.yml already uses the `./` form for test_doctor_secret_scrub.py; this
         # matches it rather than widening a shared predicate at cut time.
         run: python3 ./tests/test_doctor_silent_failure_grafts.py
+
+      # The Doctor's four credential routes, and the Front Page add verb.
+      #
+      # Both gates BOOT the shipped app and drive it over HTTP, because the
+      # thing under test is what a request gets back, not what the source says.
+      # They need the Doctor's own runtime deps; without them both exit 2
+      # (CANNOT-RUN) and CI goes red, which is correct -- a subject that could
+      # not be loaded is not one that passed.
+      - name: Install the vendored Doctor's runtime deps (behavioural gates)
+        if: always()
+        run: python3 -m pip install --quiet -r vendor/doctor/agent/requirements.txt
+
+      # web_ui.py has 34 routes, zero uses of Depends(, and one middleware:
+      # CORS with allow_origins=["*"]. Four routes vend or rotate a credential,
+      # and a bodyless POST is a CORS simple request, so any page the customer
+      # opened could mint a ZeroClaw device bearer and read it back. This
+      # asserts the refusal AND the success: the shipped iOS Companion sends no
+      # credential at all, so a gate that only proved the refusal could not
+      # tell a closed hole from a broken pairing flow.
+      - name: Credential routes refuse cross-site, and still serve the real callers
+        if: always()
+        run: bash tests/test_doctor_credential_routes_refuse_cross_site.sh
+
+      # CM059 #24's masthead control POSTs {action:'add', subject}; the Doctor's
+      # allowlist excluded "add" and demanded a card_id, so the customer got a
+      # 400. The last assertion is the one that matters: it runs the compile the
+      # next full recompile runs and requires the added subject to come out.
+      - name: The Front Page add verb reaches the store and survives a compile
+        if: always()
+        run: bash tests/test_editor_feedback_accepts_the_add_verb.sh
 
       # v1.0.38 walk, 2026-08-23: the wiki was dead for about a day
       # and NOTHING said so. No alert, no card, no banner -- it was found only

@@ -183,6 +183,7 @@ test_dispatch_timeout.sh	WIRED	.github/workflows/dispatch-timeout.yml
 test_dispatch_timing.sh	WIRED	.github/workflows/dispatch-timing.yml
 test_display_name_tiers.sh	WIRED	.github/workflows/display-name-tiers.yml
 test_dmg_contains_bundled_python.sh	UNWIRED	-
+test_doctor_credential_routes_refuse_cross_site.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_governor_routes_vendored.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_probe_cap_exceeds_the_command.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_doctor_probe_errtrap_regression.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -193,6 +194,7 @@ test_doctor_secret_scrub.py	WIRED	.github/workflows/cut.yml
 test_doctor_silent_failure_grafts.py	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_web_ui_strings_complete.py	WIRED	.github/workflows/vendor-integrity.yml
 test_e1_source_readout_emits.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_editor_feedback_accepts_the_add_verb.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_egress_verdict_claims_only_what_it_checked.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_email_folder_prompt.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_email_ingest_bootstrap_guard.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
