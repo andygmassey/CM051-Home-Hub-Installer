@@ -46,6 +46,7 @@ on:
       - 'tests/test_hydrate_apple_notes_wired.sh'
       - 'tests/test_hydrate_email_preferences_wired.sh'
       - 'tests/test_hydrate_people_wired.sh'
+      - 'tests/test_hydrate_reminders_wired.sh'
   push:
     branches: [main]
 
@@ -93,6 +94,7 @@ jobs:
                    tests/test_hydrate_people_wired.sh \
                    tests/test_hydrate_apple_notes_wired.sh \
                    tests/test_hydrate_email_preferences_wired.sh \
+                   tests/test_hydrate_reminders_wired.sh \
                    tests/test_fda_rerun_ingests.sh; do
               if [ ! -f "$t" ]; then
                   echo "CANNOT RUN: $t is missing. That is NOT a pass -- this job"
