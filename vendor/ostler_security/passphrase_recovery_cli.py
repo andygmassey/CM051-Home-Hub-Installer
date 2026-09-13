@@ -366,10 +366,32 @@ def run(
             rc = EXIT_KEY_FILE_WRITE_FAILED
         else:
             _err(stderr, f"Database key written to {written} (mode 0600).")
+            _err(stderr, "")
+            # NAME THE SECOND HALF. Delivering the key encrypts nothing that
+            # is already on disk. A customer who runs this, sees "Unlocked",
+            # and stops has a working Hub and a pile of readable databases,
+            # and nothing told them. The command is printed rather than run:
+            # re-keying every database is a mutating operation and a recovery
+            # tool should not do it as a side effect of being asked for a key.
             _err(
                 stderr,
-                "Restart the Hub services to pick it up: "
-                "launchctl kickstart -k gui/$(id -u)/com.ostler.ical-server",
+                "Two things left, in this order:",
+            )
+            _err(
+                stderr,
+                "  1. Encrypt what is already on disk (this rewrites your "
+                "databases):",
+            )
+            _err(stderr, "       ostler-migrate-dbs --dry-run   # see what would change")
+            _err(stderr, "       ostler-migrate-dbs             # do it")
+            _err(
+                stderr,
+                "  2. Restart the Hub services so they pick the key up:",
+            )
+            _err(
+                stderr,
+                "       launchctl kickstart -k "
+                "gui/$(id -u)/com.ostler.ical-server",
             )
 
     # stdout is the clean channel. Nothing else is ever written to it.

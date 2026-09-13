@@ -2997,7 +2997,7 @@ _ostler_promote_prelaunch_tree() {
     # behind `|| true`, do nothing while looking applied. That path is harmless
     # anyway: both armings (:7706, :13553) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :16273 / :16451 / :16608 / :16949 path. There the
+    # :16301 / :16479 / :16636 / :16977 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -15045,7 +15045,35 @@ fi
 if [[ -f "${SECURITY_CONFIG_DIR}/keychain.json" \
       && ! -f "${SECURITY_CONFIG_DIR}/db_key" ]]; then
     warn "$MSG_WARN_DB_KEY_MISSING_ON_RERUN"
+
+    # SAY HOW MANY, NOT JUST THAT. "your databases are unencrypted" is a
+    # sentence; "3 databases are readable on this Mac right now" is a
+    # measurement, and only the second one gets acted on. The dry run needs
+    # no key (that is a deliberate property of the CLI, argued at its key
+    # check) and writes nothing, so it is safe to run on a box in exactly
+    # this state -- which is the only box that cannot answer the question
+    # any other way.
+    #
+    # Best effort throughout: a missing venv, a missing sqlcipher3 or a
+    # non-zero exit degrades to the generic warning above rather than
+    # failing an install. But it must not INVENT a count, so the number is
+    # printed only when the CLI actually emitted one.
+    _db_plaintext_log="${OSTLER_DIAG_DIR}/db-plaintext-report.log"
+    _db_plaintext_n=""
+    if [[ -x "$OSTLER_PYTHON" ]]; then
+        "$OSTLER_PYTHON" -m ostler_security.migrate_dbs_cli --dry-run \
+            >"$_db_plaintext_log" 2>&1 || true
+        _db_plaintext_n=$(grep "^PLAINTEXT_REMAINING=" "$_db_plaintext_log" \
+            | tail -1 | cut -d= -f2- || true)
+    fi
+    case "$_db_plaintext_n" in
+        ''|*[!0-9]*) : ;;
+        0) : ;;
+        *) warn "$(printf "$MSG_WARN_DB_PLAINTEXT_COUNT" "${_db_plaintext_n}")" ;;
+    esac
+
     info "$(printf "$MSG_INFO_DB_KEY_RECOVER_HINT" "${OSTLER_DIR}")"
+    info "$(printf "$MSG_INFO_DB_MIGRATE_HINT" "${OSTLER_DIR}")"
 fi
 
 # Posture marker for --allow-plaintext installs. Runtime guards in

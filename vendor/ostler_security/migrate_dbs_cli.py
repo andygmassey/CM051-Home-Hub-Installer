@@ -203,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     key = _resolve_key()
-    if not key:
+    if not key and not args.dry_run:
         print(
             "ERROR: no database key could be resolved. Set OSTLER_DB_KEY to "
             "the 64-character hex key the running services use, or recover it "
@@ -212,6 +212,28 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
+
+    # A DRY RUN NEEDS NO KEY, AND REQUIRING ONE MADE IT USELESS WHERE IT WAS
+    # MOST NEEDED.
+    #
+    # --dry-run only opens each candidate with plain sqlite3 to see whether it
+    # is still plaintext. It never decrypts, never writes, and never touches
+    # the key. But the key check above ran FIRST and unconditionally, so the
+    # one box that most needs the answer -- an existing install with no key
+    # delivered, every database readable -- was the one box that could not
+    # ask the question. It got exit 2 and no list.
+    #
+    # The live path still demands a key, one branch up. Nothing is weakened:
+    # what changes is that "which of my databases are readable right now" is
+    # now answerable by someone who does not hold the key, which is the whole
+    # population this matters to.
+    if not key:
+        print(
+            "NOTE: no database key is available, so this is a report only. "
+            "Nothing below can be migrated until a key is delivered "
+            "(ostler-unlock --install-key-file).",
+            file=sys.stderr,
+        )
 
     targets: list[Path]
     if args.db:
@@ -272,7 +294,17 @@ def main(argv: list[str] | None = None) -> int:
             failed += 1
         print(f"  [{marker}] {status:<40s} {db_path}")
     print("-" * 60)
+    # A MACHINE-READABLE PLAINTEXT COUNT, because a caller that has to parse
+    # the table above to learn the one number that matters will parse it
+    # wrong. install.sh reads this line on a re-run it cannot repair, to say
+    # how many databases are readable on disk RIGHT NOW rather than the
+    # vaguer "your databases are unencrypted".
+    plaintext = sum(
+        1 for _, status in results
+        if status in ("would migrate", "migrated")
+    )
     print(f"  {len(results)} target(s), {failed} failed")
+    print(f"PLAINTEXT_REMAINING={plaintext if args.dry_run else 0}")
 
     return 0 if failed == 0 else 1
 

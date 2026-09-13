@@ -539,6 +539,80 @@ def main() -> int:
             "and not a byte-check that passes on everything",
         )
 
+        # ── ARM 7: the box that CANNOT be repaired must still be able to
+        # count what is at risk ──────────────────────────────────────
+        # An install that predates the key handoff reaches the installer
+        # with a keychain, no key file, and plaintext databases, and the
+        # installer cannot repair it: the DEK is derive_key(passphrase,
+        # salt) and the passphrase is not stored. All it can do is say
+        # how bad it is, and it can only do that if the dry run works
+        # WITHOUT a key. It did not: the key check ran first and
+        # unconditionally, so exit 2 and no list, on precisely the
+        # population that needed the answer.
+        home7 = work / "h7"
+        pwg7 = work / "h7-pwg"
+        at_risk = [
+            pwg7 / "coach" / "observations.db",
+            home7 / "coach" / "observations.db",
+        ]
+        for path in at_risk:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            conn = sqlite3.connect(str(path))
+            conn.execute("CREATE TABLE legacy (body TEXT)")
+            conn.execute("INSERT INTO legacy VALUES ('still readable')")
+            conn.commit()
+            conn.close()
+
+        keyless = run_module(
+            [sec_site], "ostler_security.migrate_dbs_cli", ["--dry-run"],
+            {
+                "OSTLER_HOME": str(home7),
+                "PWG_HOME": str(pwg7),
+                "OSTLER_DB_KEY": "",
+                "OSTLER_DB_KEY_FILE": str(home7 / "security" / "db_key"),
+                "MEMORY_CORRECTIONS_DB": "",
+            },
+        )
+        check(
+            keyless.returncode == 0,
+            f"arm 7: a dry run with NO key available succeeds instead of "
+            f"exiting 2 (rc={keyless.returncode})",
+        )
+        counted = ""
+        for line in keyless.stdout.splitlines():
+            if line.startswith("PLAINTEXT_REMAINING="):
+                counted = line.split("=", 1)[1].strip()
+        check(
+            counted == "2",
+            f"arm 7: and it reports the count the installer prints, "
+            f"PLAINTEXT_REMAINING={counted!r}, for the 2 seeded databases",
+        )
+        for path in at_risk:
+            if not is_plaintext_sqlite(path):
+                bad("arm 7 (control): the dry run MODIFIED a database. It "
+                    "must only look")
+                break
+        else:
+            ok("arm 7 (control): both databases are byte-for-byte plaintext "
+               "still, so the dry run looked and did not touch")
+
+        keyless_live = run_module(
+            [sec_site], "ostler_security.migrate_dbs_cli", [],
+            {
+                "OSTLER_HOME": str(home7),
+                "PWG_HOME": str(pwg7),
+                "OSTLER_DB_KEY": "",
+                "OSTLER_DB_KEY_FILE": str(home7 / "security" / "db_key"),
+                "MEMORY_CORRECTIONS_DB": "",
+            },
+        )
+        check(
+            keyless_live.returncode == 2,
+            "arm 7 (control): a LIVE run with no key still refuses with exit "
+            f"2 (got {keyless_live.returncode}), so relaxing the dry run did "
+            "not relax the migration",
+        )
+
         rerun = run_module(
             [sec_site], "ostler_security.migrate_dbs_cli", [],
             {
