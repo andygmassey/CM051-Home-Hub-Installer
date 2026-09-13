@@ -67,6 +67,12 @@ import pwg_privacy
 try:
     from ostler_security.database import get_db_connection as _secure_connect
     from ostler_security.posture import record_posture
+    # Same hard-fail bracket as the two above, deliberately. A vendored
+    # ostler_security too old to carry db_key is exactly the stale-vendor
+    # condition that shipped the consent bug (see consent-registry.yml),
+    # and the consequence here is a service that silently opens every
+    # database in plaintext. That is a deploy bug, not a degrade path.
+    from ostler_security.db_key import resolve_db_key
 except ImportError as exc:
     raise RuntimeError(
         "ostler_security is required but not installed in this Python "
@@ -78,8 +84,26 @@ except ImportError as exc:
 # Read the database encryption key. Clean cut from LIFELINE_DB_KEY
 # 2026-05-01 (no beta testers were dispatched, so no deprecation
 # window is required).
-_ENCRYPTION_KEY = os.environ.get("OSTLER_DB_KEY")
-_KEY_SOURCE = "OSTLER_DB_KEY" if _ENCRYPTION_KEY else None
+#
+# 🔴 UNTIL THIS LINE CHANGED, THE KEY WAS NEVER DELIVERED TO THIS PROCESS.
+# It read OSTLER_DB_KEY out of the environment and nothing anywhere set
+# it. Measured across the whole tree with a positive control on the same
+# search shape: OSTLER_DB_KEY had 17 mentions, 3 readers and 0 setters,
+# while OSTLER_AI_CONVERSATIONS_DIR and OSTLER_AI_CONV_GIST_PRIVACY were
+# found being set in a rendered plist by the identical query. So the
+# setter query worked and there was nothing to find. This service has
+# therefore taken the plaintext branch below on every install ever
+# shipped, while the installer printed "Databases encrypted".
+#
+# resolve_db_key() keeps the environment variable first (unchanged, so
+# every existing harness and `ostler-migrate-dbs` run behaves exactly as
+# before) and adds the file the installer now writes into the 0700
+# security directory. The key is NOT carried in this agent's plist: see
+# the long note at the top of ostler_security/db_key.py for why a plist
+# is the wrong home for it.
+_DB_KEY = resolve_db_key()
+_ENCRYPTION_KEY = _DB_KEY.key
+_KEY_SOURCE = _DB_KEY.source
 _PLAINTEXT_WARNED = False
 
 # Record the security posture for Doctor / external introspection.
@@ -96,7 +120,11 @@ else:
     record_posture(
         "ical-server",
         "disabled",
-        reason="no_key",
+        # The reason is now the resolver's, not a hardcoded "no_key".
+        # "no key was configured" and "a key was configured and I refused
+        # to read it because another local account could read it too" are
+        # different facts, and Doctor must not print them identically.
+        reason=_DB_KEY.reason,
         backend="plaintext",
     )
 
@@ -106,16 +134,18 @@ def _warn_plaintext_once(db_path: str) -> None:
     to plaintext SQLite. Loud is the right level here: silent plaintext
     is the bug we are fixing.
 
-    Reachable only when ostler_security imported but no key was set;
-    a missing module hard-fails at import."""
+    Reachable only when ostler_security imported but no key was
+    resolved; a missing module hard-fails at import."""
     global _PLAINTEXT_WARNED
     if _PLAINTEXT_WARNED:
         return
     _PLAINTEXT_WARNED = True
+    detail = f" {_DB_KEY.detail}" if _DB_KEY.detail else ""
     print(
         f"WARNING: opening {db_path} as plaintext SQLite "
-        "(OSTLER_DB_KEY env var not set). Set OSTLER_DB_KEY to "
-        "enable at-rest encryption.",
+        f"(no database key: {_DB_KEY.reason}).{detail} "
+        "Recover the key with `ostler-unlock --install-key-file`, or set "
+        "OSTLER_DB_KEY, to enable at-rest encryption.",
         file=sys.stderr,
         flush=True,
     )

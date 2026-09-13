@@ -7973,16 +7973,37 @@ elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
     echo "  relationship, every conversation, every pattern in your life."
     echo "  Think of it like the lock for your entire digital soul."
     echo ""
+    # 🔴 THIS SCREEN MADE TWO PROMISES THE PRODUCT DID NOT KEEP, and they
+    # pointed in opposite directions, which is how both survived review.
+    #
+    #   "You will type it each time you start the Hub UI."
+    #       Nothing has ever asked for it. passphrase.unlock() had zero
+    #       callers; no service, agent or UI prompts at startup. The
+    #       passphrase is typed here, once, and never again.
+    #
+    #   "If you forget this passphrase, your data is gone forever."
+    #       True when it was written, because the recovery key minted two
+    #       phases later had no redeemer: unlock_with_recovery_key() had
+    #       zero callers and the only shipped recovery tool is built for
+    #       the passkey subsystem this release disables. It is no longer
+    #       true, because ostler-unlock redeems that key. Leaving it in
+    #       would frighten a customer out of a recovery path that now
+    #       works, which is the same class of harm as the overclaim
+    #       above, just pointing the other way.
     echo "  Ostler's sensitive databases are encrypted with SQLCipher"
-    echo "  using a passphrase you choose on the next screen. You will"
-    echo "  type it each time you start the Hub UI. For full at-rest"
-    echo "  protection of everything on your Mac, keep macOS FileVault on."
+    echo "  using a passphrase you choose on the next screen. You type it"
+    echo "  once, here. The Hub services then read the key from a"
+    echo "  protected file only your account can open, so they start"
+    echo "  without asking you again. For full at-rest protection of"
+    echo "  everything on your Mac, keep macOS FileVault on."
     echo ""
     echo "  Pick something memorable but strong. A password manager"
     echo "  is a good place to store it."
     echo ""
-    echo -e "  ${RED}If you forget this passphrase, your data is gone${NC}"
-    echo -e "  ${RED}forever. We cannot help. That is the point.${NC}"
+    echo -e "  ${RED}Keep it. Nobody can look it up for you.${NC}"
+    echo "  You will also be shown a recovery key at the end of this"
+    echo "  install. That key, and only that key, gets you back in if"
+    echo "  the passphrase is ever lost. Lose both and the data is gone."
     echo ""
 
     ACK_PASSKEY="$(gui_read "$MSG_PROMPT_PASSKEY_ACK_TITLE" acknowledge "OK" "$MSG_PROMPT_PASSKEY_ACK_HELP" "OK,CANCEL" "passkey_ack")"
@@ -14756,6 +14777,46 @@ try:
     # at Phase 4 keychain-save (line ~6373). Format is the
     # XXXX-XXXX-XXXX-XXXX-XXXX-XXXX recovery key, not BIP39.
     print('RECOVERY_PHRASE=' + result['recovery_key'])
+
+    # DELIVER THE DATABASE KEY TO THE SERVICES THAT OPEN THE DATABASES.
+    #
+    # Until this block, the DEK minted above went nowhere. Every service
+    # that opens an encrypted database read the key from the
+    # OSTLER_DB_KEY environment variable, and nothing in this installer,
+    # in any plist, or in any launchctl call ever set it. Measured across
+    # the tree with a control: 17 mentions, 3 readers, 0 setters, while
+    # OSTLER_AI_CONVERSATIONS_DIR was found being set in a plist by the
+    # identical query. So both services took their plaintext fallback on
+    # every install, one line after this script printed 'Databases
+    # encrypted'.
+    #
+    # unlock() is used rather than re-deriving by hand so the key written
+    # here is the key that comes back out of the config we just wrote,
+    # verified against its own HMAC. install_key_file() is the same
+    # writer ostler-unlock uses, so the 0700-dir / 0600-file discipline
+    # has one definition rather than two.
+    #
+    # The key is NOT put in a plist. See the note at the head of
+    # ostler_security/db_key.py: SECURITY_MODEL.md claims Time Machine
+    # backup theft as a defended threat, and ~/Library/LaunchAgents is
+    # backed up by default.
+    #
+    # WRAPPED SEPARATELY ON PURPOSE. Security setup has already
+    # SUCCEEDED at this point and keychain.json is on disk. If this
+    # handoff fails, the install must not report the setup as failed and
+    # abort: that would abandon a minted recovery key that has not yet
+    # been shown to anyone, which is the #1540 data-loss shape. A failure
+    # here is a warning and a named remedy.
+    try:
+        from ostler_security.passphrase import unlock
+        from ostler_security.passphrase_recovery_cli import install_key_file
+        _dek = unlock(passphrase, config_dir=Path('${SECURITY_CONFIG_DIR}'))
+        _key_path = install_key_file(
+            _dek.hex(), Path('${SECURITY_CONFIG_DIR}') / 'db_key',
+        )
+        print('DB_KEY_FILE=' + str(_key_path))
+    except Exception as _e:
+        print('DB_KEY_FILE_ERROR=' + str(_e))
 except SystemExit as e:
     print('ERROR=passphrase setup exited with code ' + str(e.code), file=sys.stderr)
     sys.exit(int(e.code) if isinstance(e.code, int) else 1)
@@ -14783,7 +14844,77 @@ except Exception as e:
         # CX-122 / #640). An empty RECOVERY_KEY is handled downstream by
         # the `[[ -n "$RECOVERY_KEY" ]]` guard before the show-once render.
         RECOVERY_KEY=$(echo "$SETUP_OUTPUT" | grep "^RECOVERY_PHRASE=" | cut -d= -f2- || true)
-        ok "$MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP"
+
+        # ── Database key handoff (the half that was never wired) ──────
+        #
+        # Same `|| true` discipline as the line above: a grep no-match
+        # must not fire the ERR trap inside the subshell.
+        DB_KEY_FILE=$(echo "$SETUP_OUTPUT" | grep "^DB_KEY_FILE=" | cut -d= -f2- || true)
+        DB_KEY_FILE_ERROR=$(echo "$SETUP_OUTPUT" | grep "^DB_KEY_FILE_ERROR=" | cut -d= -f2- || true)
+
+        if [[ -n "$DB_KEY_FILE" && -f "$DB_KEY_FILE" ]]; then
+            # The "databases are encrypted" line lives INSIDE this
+            # branch, and that placement is the whole correction. It used
+            # to be unconditional, printed the moment setup_passphrase
+            # returned, on every install, while no key had reached any
+            # service. A claim about encryption must be made where the
+            # key was delivered, not where it was minted.
+            ok "$MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP"
+            ok "$(printf "$MSG_OK_DB_KEY_DELIVERED" "${DB_KEY_FILE}")"
+
+            # Keep the key out of Time Machine. SECURITY_MODEL.md names
+            # "Time-Machine backup theft" as a DEFENDED threat, and the
+            # defence it names is that key material does not travel in
+            # backups. A DEK in a backed-up file would delete that
+            # defence silently, so the exclusion is set here rather than
+            # left as an assumption. Best effort: tmutil is absent under
+            # some harnesses, and a missing exclusion is not a reason to
+            # fail an otherwise good install. The at-rest boundary is
+            # still FileVault either way.
+            if command -v tmutil &>/dev/null; then
+                tmutil addexclusion "$DB_KEY_FILE" &>/dev/null || true
+            fi
+
+            # ── UPGRADE PATH: what already exists is still plaintext ──
+            #
+            # Delivering the key from here on does NOT encrypt a single
+            # byte that is already on disk. Every box installed before
+            # this change holds plaintext databases, and they stay
+            # plaintext forever unless something re-keys them. A fix
+            # that only covers the clean install is the same defect
+            # wearing the fix's clothes: the gate goes green and every
+            # existing customer stays readable.
+            #
+            # ostler-migrate-dbs is the tool for it and already ships.
+            # It skips a database that is missing and skips one that is
+            # already encrypted, so on a genuinely fresh box this is a
+            # short no-op, and on an upgrade it is the whole point.
+            #
+            # NOT fatal. A migration failure leaves the ORIGINAL file
+            # untouched (migrate_to_encrypted writes a .encrypted
+            # sidecar and only replaces after it verifies), so the
+            # worst case is data that stays readable, which is exactly
+            # where the box already was. Aborting the install over it
+            # would trade a disclosed weakness for an unusable Hub.
+            info "$MSG_INFO_DB_MIGRATION_RUNNING"
+            if ! OSTLER_DB_KEY_FILE="$DB_KEY_FILE" \
+                 "$OSTLER_PYTHON" -m ostler_security.migrate_dbs_cli \
+                 >"${OSTLER_DIAG_DIR}/db-migration.log" 2>&1; then
+                warn "$MSG_WARN_DB_MIGRATION_FAILED"
+                sed -e 's/^/    /' "${OSTLER_DIAG_DIR}/db-migration.log" | tail -10
+            fi
+        else
+            # Setup SUCCEEDED and the handoff did not. Say so plainly:
+            # the customer's passphrase works, their recovery key is
+            # about to be shown, and their databases are open. Three
+            # separate facts, and the old code could only print one.
+            warn "$MSG_WARN_DB_KEY_NOT_DELIVERED"
+            if [[ -n "$DB_KEY_FILE_ERROR" ]]; then
+                echo "    ${DB_KEY_FILE_ERROR}"  # i18n-exempt: python exception text, diagnostic only
+            fi
+            info "$(printf "$MSG_INFO_DB_KEY_RECOVER_HINT" "${OSTLER_DIR}")"
+            HEALTHY=false
+        fi
 
         # #1540 moved the reveal here (the mint site) on 2026-09-05, after a
         # run that minted a key and then failed before reaching the
@@ -14869,6 +15000,37 @@ else
     else
         fail_with_code "ERR-09-NO-PASSKEY" "$MSG_FAIL_NO_PASSKEY_SET_NO_EXISTING_SECURITY"
     fi
+fi
+
+# ── Re-run with a config but no delivered key ────────────────────────
+#
+# The chain above only writes the key file on the run that MINTS the
+# config, because that is the only run that holds the passphrase. Every
+# box installed before the key handoff existed therefore reaches this
+# line with keychain.json present, no db_key beside it, and both
+# services quietly opening plaintext databases.
+#
+# This installer cannot repair it on its own. The key is
+# derive_key(passphrase, salt) and the passphrase is not stored
+# anywhere, by design; a re-run is not asked for it (the interactive
+# security screens are skipped once a config exists) and must not start
+# asking, because a wrong answer there is indistinguishable from a
+# forgotten one and the user would be typing a passphrase to no effect.
+#
+# So this discloses rather than pretends. The remedy is one command the
+# customer already has everything for: ostler-unlock takes either the
+# passphrase they still know or the recovery key they were shown, and
+# --install-key-file writes exactly what this block found missing.
+#
+# Deliberately NOT gated on SECURITY_PREEXISTED. That flag says a config
+# was there when this run started; what matters here is whether a key is
+# there NOW, which is a question about the filesystem and is answered by
+# looking. A box whose key file was deleted after install is in the same
+# state and deserves the same warning.
+if [[ -f "${SECURITY_CONFIG_DIR}/keychain.json" \
+      && ! -f "${SECURITY_CONFIG_DIR}/db_key" ]]; then
+    warn "$MSG_WARN_DB_KEY_MISSING_ON_RERUN"
+    info "$(printf "$MSG_INFO_DB_KEY_RECOVER_HINT" "${OSTLER_DIR}")"
 fi
 
 # Posture marker for --allow-plaintext installs. Runtime guards in
@@ -22574,6 +22736,38 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
              matching CM041's fix/v1010-ical-server-auth reader. -->
         <key>PWG_SERVICE_TOKEN</key>
         <string>${PWG_SERVICE_TOKEN}</string>
+        <!-- THE DATABASE KEY'S PATH, NOT THE DATABASE KEY.
+             ical-server.py opens the coach and memory-corrections
+             databases through ostler_security, and it used to get its
+             key from OSTLER_DB_KEY, which nothing on any install ever
+             set (17 mentions, 3 readers, 0 setters, measured with
+             OSTLER_AI_CONVERSATIONS_DIR as the positive control on the
+             same query). So it took its plaintext branch every time.
+             LaunchAgents inherit no environment, so the value has to
+             reach this agent from its plist one way or another.
+             ⛔ AND THE KEY ITSELF MUST NOT BE THE WAY.
+             SECURITY_MODEL.md lists "Time-Machine backup theft" as a
+             threat this product DEFENDS AGAINST, and names the defence:
+             key material does not travel in backups. That is why the
+             recovery-key save a few thousand lines below shells out to
+             swift purely to pin kSecAttrAccessibleWhenUnlockedThisDeviceOnly.
+             ~/Library/LaunchAgents IS backed up by default, so a DEK in
+             this file would put the unwrapped key in every backup beside
+             a copy of the database it opens, and delete that defence
+             without a line of code admitting it.
+             Two more surfaces a path survives and a key does not:
+             `launchctl print gui/<uid>/<label>` renders
+             EnvironmentVariables in full, and that output gets pasted
+             into support threads; and rendered config reaches the
+             diagnostics bundle, which is why this repo has log-hygiene
+             gates at all.
+             So the key lives at 0600 inside the 0700 security
+             directory, next to keychain.json, excluded from Time
+             Machine at the write site, and this variable says where.
+             The resolver and the full argument are in
+             vendor/ostler_security/db_key.py. -->
+        <key>OSTLER_DB_KEY_FILE</key>
+        <string>${SECURITY_CONFIG_DIR}/db_key</string>
     </dict>
 </dict>
 </plist>
@@ -31653,6 +31847,17 @@ PY
 
     # Offer to save to macOS Keychain automatically
     SAVED_TO_KEYCHAIN=false
+    # NAME THE REDEEMER. A key with no named way to spend it is what
+    # this fix is repairing: the key was minted, shown, and described as
+    # the way back in, while nothing shipped could accept it. Telling the
+    # customer the command is part of making the claim true, and it costs
+    # two lines here.
+    echo "  If you ever lose your passphrase, this is how you get back in:"
+    echo ""
+    echo "      ~/.ostler/.venv/bin/ostler-unlock --install-key-file"
+    echo ""
+    echo "  It asks for the key below and puts your Hub back to work."
+    echo ""
     echo "  We can save this to your macOS Keychain (Passwords app)"
     echo "  so you do not have to write it down. It is your only"
     echo "  way back in if you ever lose your passphrase."
@@ -32404,9 +32609,18 @@ echo "     AI model:      ${AI_MODEL}"
 # `DONE status=ok failed_steps=0 errors=0`, wrote a live recovery block, and
 # printed this line, while the run had exactly 2 prompts and neither was the
 # recovery key. The key is deliberately never stored, so a missed disclosure
-# is permanent and `ostler-recovery` -- a shipped, working CLI -- could never
-# succeed for that install. Asserting the capability anyway is worse than
-# silence: it stops the customer taking their own backup.
+# is permanent. Asserting the capability anyway is worse than silence: it
+# stops the customer taking their own backup.
+#
+# CORRECTION: this used to call `ostler-recovery` "a shipped, working CLI".
+# It ships and it does not work here. ostler-recovery is the PASSKEY
+# subsystem's recovery path (BIP39 phrase, Keychain-wrapped DEK) and this
+# release disables that subsystem, so it exits 2 on every v1.0 install for
+# want of a Keychain item that was never written. The redeemer for a
+# passphrase-primary install is `ostler-unlock`, which did not exist when
+# this note was written and is what the branches below now point at. The
+# distinction matters: an operator who reads "working CLI", runs it, and
+# gets exit 2 concludes the customer's key is bad.
 if [[ ! -f "${SECURITY_CONFIG_DIR}/passkey.json" && -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
     if [[ "$RECOVERY_KEY_DELIVERED" == true ]]; then
         echo "     Encryption:    passphrase-wrapped DEK (recovery key shown above)"

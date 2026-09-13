@@ -30,10 +30,34 @@
 # intact. That is a RUNTIME property of one install, and the install's own
 # transcript is the only place it is written down.
 #
-# THE INVARIANT, and it is deliberately narrow:
+# THE INVARIANT, and it used to be one clause when it needed two:
 #
 #     a run that CREATED recovery_encrypted_key MUST have emitted the
 #     disclosure before it ended
+#     AND the box MUST carry something that can redeem what was emitted
+#
+# 🔴 WHY THE SECOND CLAUSE WAS ADDED, AND WHY ITS ABSENCE WAS WORSE THAN A
+# MISSING PROBE. This file measured only whether a key was SHOWN. Whether the
+# shipped artefact could ever ACCEPT one back was measured by nothing, and the
+# answer was no: passphrase.unlock_with_recovery_key() had zero call sites for
+# the whole of v1.0, and the only shipped recovery command, ostler-recovery,
+# drives the passkey subsystem this release disables. So a walk could report
+# this probe green on a box where the key it had just watched being handed over
+# could never be spent. A probe that grades the ceremony and not the capability
+# certifies the ceremony.
+#
+# 🔴 AND THE NOBLOCK ARM USED TO PASS, WHICH IS GREEN-ON-ABSENT-FEATURE. It
+# read "the keychain carries NO recovery_encrypted_key, so no key was minted
+# and none was owed", and called that a pass. On a v1.0 box that reasoning is
+# inverted: setup_passphrase() ALWAYS writes recovery_encrypted_key, so on a
+# passphrase-primary install the block's absence does not mean nothing was
+# owed, it means the recovery feature did not happen. The probe went green
+# precisely where the customer had no recovery path at all. The arm one level
+# up already knew better -- a box with no keychain is CANNOT-RUN, "coverage
+# absent, not a clean bill" -- and this arm contradicted it. It is now split
+# on the one fact that distinguishes the two cases: passkey.json. A
+# passkey-primary config legitimately has no passphrase recovery envelope and
+# yields CANNOT-RUN; a passphrase-primary one without it is a FAIL.
 #
 # THE THREE STATES, and the middle one is the whole design:
 #
@@ -89,16 +113,40 @@ _DISCLOSE_TTY='Your recovery key:'
 # tests/test_a_probes_self_test_must_drive_its_own_decision.sh, which mutates
 # this function and requires the self-test to go BROKEN.
 #
-# _decide <delta> <markers-seen> <has-block> -> verdict word:
-#   pass-not-applicable        no recovery block on this box
-#   cannot-run-skip            keychain predates this run by more than 60s
-#   cannot-run-ambiguous       keychain predates this run by 6-60s (retry window)
-#   pass-disclosed             this run minted the key and disclosed it
-#   fail-minted-not-disclosed  this run minted the key and did NOT disclose it
+# _decide <delta> <markers-seen> <has-block> <has-passkey> <redeemable>
+#   -> verdict word:
+#   cannot-run-passkey-primary  no recovery envelope AND passkey.json present,
+#                               so this box is on the other subsystem and the
+#                               passphrase recovery path does not apply
+#   fail-no-recovery-envelope   no recovery envelope and NO passkey.json: a
+#                               passphrase-primary install with no way back in
+#   fail-not-redeemable         a recovery envelope exists and nothing on this
+#                               box can open one
+#   cannot-run-redeemer-unknown the redemption check itself did not produce a
+#                               usable answer, so redeemability is unmeasured
+#   cannot-run-skip             keychain predates this run by more than 60s
+#   cannot-run-ambiguous        keychain predates this run by 6-60s (retry window)
+#   pass-disclosed              this run minted the key, disclosed it, and the
+#                               box can redeem one
+#   fail-minted-not-disclosed   this run minted the key and did NOT disclose it
+#
+# ORDER MATTERS AND IS ARGUED, NOT INHERITED.
+#
+# Redeemability is adjudicated BEFORE the delta arms, because it is not a fact
+# about who minted the key. "This box holds a recovery envelope and ships
+# nothing that can open one" is a defect of the artefact under test whether the
+# envelope was written eight seconds ago or last month, and a CANNOT-RUN about
+# THIS run's disclosure must not swallow it. The old order would have let a
+# re-install walk return CANNOT-RUN on a box with no redeemer at all.
 _decide() {
-    # $1 delta, $2 markers seen, $3 has-block -> the verdict word
-    _d="$1"; _s="$2"; _b="$3"
-    [ "$_b" = "NOBLOCK" ] && { printf 'pass-not-applicable'; return; }
+    # $1 delta, $2 markers seen, $3 has-block, $4 has-passkey, $5 redeemable
+    _d="$1"; _s="$2"; _b="$3"; _p="${4:-NOPASSKEY}"; _r="${5:-UNKNOWN}"
+    if [ "$_b" = "NOBLOCK" ]; then
+        [ "$_p" = "PASSKEY" ] && { printf 'cannot-run-passkey-primary'; return; }
+        printf 'fail-no-recovery-envelope'; return
+    fi
+    [ "$_r" = "NOREDEEMER" ] && { printf 'fail-not-redeemable'; return; }
+    [ "$_r" = "UNKNOWN" ]    && { printf 'cannot-run-redeemer-unknown'; return; }
     [ "$_d" -lt -60 ] && { printf 'cannot-run-skip'; return; }
     [ "$_d" -lt -5 ]  && { printf 'cannot-run-ambiguous'; return; }
     [ "$_s" -gt 0 ] && { printf 'pass-disclosed'; return; }
@@ -128,12 +176,64 @@ except Exception as e:
 print('BLOCK' if 'recovery_encrypted_key' in d else 'NOBLOCK')
 \"")"
     case "$_has_block" in
-        BLOCK)   : ;;
-        NOBLOCK) probe_examined 1 "keychains (no recovery block in it)"
-                 probe_pass "the keychain on this box carries NO recovery_encrypted_key, so no key was minted and none was owed. The invariant is not violated because it does not apply." ;;
+        BLOCK|NOBLOCK) : ;;
         UNREADABLE) probe_cannot_run "${KEYCHAIN} exists but could not be parsed as JSON. Nothing about the recovery block was established." ;;
         *)       probe_cannot_run "the keychain reader returned '${_has_block}', which is neither BLOCK nor NOBLOCK. Nothing was measured." ;;
     esac
+
+    # Which subsystem is this box on? It is the ONLY thing that makes a
+    # missing recovery envelope innocent, so it is read rather than assumed.
+    _has_pk="$(box_run "test -f \$HOME/.ostler/security/passkey.json && echo PASSKEY || echo NOPASSKEY")"
+    case "$_has_pk" in
+        PASSKEY|NOPASSKEY) : ;;
+        *) probe_cannot_run "could not determine whether passkey.json exists (reader returned '${_has_pk}'). Without it, a box with no recovery envelope cannot be told apart from one that legitimately has none, and those want opposite verdicts." ;;
+    esac
+
+    if [ "$_has_block" = "NOBLOCK" ]; then
+        probe_examined 1 "keychains (no recovery envelope in it)"
+        _v="$(_decide 0 0 NOBLOCK "$_has_pk" UNKNOWN)"
+        case "$_v" in
+            cannot-run-passkey-primary)
+                probe_cannot_run "this box carries passkey.json and no recovery_encrypted_key, so it is on the passkey subsystem and the passphrase recovery envelope does not apply to it. NOTHING about the passphrase recovery path was measured here. That is coverage absent, not a clean bill." ;;
+            *)
+                probe_fail "🔴 THIS IS A PASSPHRASE-PRIMARY INSTALL WITH NO RECOVERY ENVELOPE. keychain.json exists, passkey.json does not, and the keychain carries no recovery_encrypted_key. setup_passphrase() writes that envelope on every run it completes, so its absence is not 'nothing was owed' -- it is the recovery feature not happening. This customer has exactly one secret standing between them and their data, and no second one. This arm used to PASS and that is how it stayed invisible." ;;
+        esac
+    fi
+
+    # ── CAN ANYTHING ON THIS BOX ACTUALLY REDEEM A KEY? ──────────────────
+    #
+    # The half of "reached the customer" that nothing measured. A key handed
+    # over and a key that can be spent are different facts, and for the whole
+    # of v1.0 the second one was false while the first was true.
+    #
+    # ⛔ NO SECRET IS READ, TYPED, LOGGED OR COMPARED. The measurement is a
+    # DELIBERATELY WRONG key of the right shape. A box whose redeemer is
+    # present, importable, pointed at this keychain and able to reach
+    # unlock_with_recovery_key answers "Incorrect recovery key" and exits 1.
+    # That string cannot be produced without having loaded THIS box's
+    # keychain.json and verified against its recovery_verification hash, so a
+    # rejection is a positive proof of reachability, not an absence.
+    #
+    # WHAT THE OTHER OUTCOMES MEAN, and they are distinguishable on purpose:
+    #   rc 127 / no such file   the redeemer is not installed at all
+    #   rc 2                    it ran and found no config or no envelope
+    #   rc 3 / traceback        it ran and broke
+    # None of those is "the key was wrong", and none of them may read as one.
+    _redeem_rc="$(box_run "printf 'AAAA-BBBB-CCCC-DDDD-EEEE-FFFF-GG\\n' | \$HOME/.ostler/.venv/bin/ostler-unlock --recovery-key --secret-file - >/dev/null 2>\$HOME/.ostler/logs/.probe-redeem.err; echo \$?")"
+    _redeem_msg="$(box_run "grep -ac 'Incorrect recovery key' \$HOME/.ostler/logs/.probe-redeem.err 2>/dev/null || echo 0")"
+    box_run "rm -f \$HOME/.ostler/logs/.probe-redeem.err" >/dev/null 2>&1 || true
+    case "$_redeem_rc" in ''|*[!0-9]*) _redeem_rc=-1 ;; esac
+    case "$_redeem_msg" in ''|*[!0-9]*) _redeem_msg=0 ;; esac
+
+    if [ "$_redeem_rc" -eq 1 ] && [ "$_redeem_msg" -gt 0 ]; then
+        _redeemable=REDEEMABLE
+    elif [ "$_redeem_rc" -eq 127 ] || [ "$_redeem_rc" -eq 126 ]; then
+        _redeemable=NOREDEEMER
+    elif [ "$_redeem_rc" -eq 2 ]; then
+        _redeemable=NOREDEEMER
+    else
+        _redeemable=UNKNOWN
+    fi
 
     # ── THE DISCRIMINATOR: did THIS run create that keychain? ────────────
     # Both stamps in UTC, taken on the box. A `Z` suffix written by someone
@@ -190,8 +290,14 @@ print('BLOCK' if 'recovery_encrypted_key' in d else 'NOBLOCK')
     # logic self_test exercised in isolation, so a regression to THIS chain
     # (for instance flipping the `-gt 0` on disclosure count) left the
     # self-test's verdict untouched. See tests/... mutation guard.
-    _verdict="$(_decide "$_delta" "$_seen" "$_has_block")"
+    _verdict="$(_decide "$_delta" "$_seen" "$_has_block" "$_has_pk" "$_redeemable")"
     case "$_verdict" in
+        fail-not-redeemable)
+            probe_fail "🔴 THIS BOX HOLDS A RECOVERY ENVELOPE AND SHIPS NOTHING THAT CAN OPEN ONE. A deliberately wrong recovery key was offered to ~/.ostler/.venv/bin/ostler-unlock and the run came back rc=${_redeem_rc} with ${_redeem_msg} rejection message(s); a working redeemer answers rc=1 and 'Incorrect recovery key', which it can only do by loading THIS keychain and verifying against it. So the key the customer was shown cannot be spent on the machine that showed it. No key value was used: the probe offered a wrong one on purpose."
+            ;;
+        cannot-run-redeemer-unknown)
+            probe_cannot_run "the redemption check did not produce a usable answer (rc=${_redeem_rc}, rejection messages=${_redeem_msg}). Neither 'a wrong key is correctly rejected' nor 'nothing can redeem' was established, so whether this box's recovery key can be spent is UNMEASURED. Disclosure was not adjudicated either, because a disclosed key that cannot be redeemed is not a pass."
+            ;;
         cannot-run-skip)
             probe_cannot_run "THE KEYCHAIN PREDATES THIS RUN by $(( -_delta )) second(s), so this install took install.sh's already-configured skip and could not have disclosed anything -- demanding that it had would be demanding a key nobody knows. THIS RUN'S code is not implicated and no verdict is offered on it. ⚠️ BUT THE BOX MAY BE STRANDED: the key was minted by an EARLIER run, and if THAT run never disclosed it, nothing ever will -- the keychain persists and every later run skips. Read the earlier transcript if one survives; ostler-recovery cannot succeed here otherwise. (disclosure markers in this run's transcript: gui=${_gui} tty=${_tty})"
             ;;
@@ -199,10 +305,10 @@ print('BLOCK' if 'recovery_encrypted_key' in d else 'NOBLOCK')
             probe_cannot_run "THE KEYCHAIN IS ${_delta}s OLDER THAN THIS RUN, which is more than clock and parse granularity can explain and less than a confident skip. A keychain a run wrote itself cannot predate it, so this one came from somewhere else -- most likely an install in the previous minute, which is exactly what a walk retry or a double-click produces. This probe CANNOT tell a run that minted-and-missed from a run that correctly skipped a key disclosed moments ago, and guessing would put a red on a box where the customer HAS the key. (disclosure markers in this run: gui=${_gui} tty=${_tty}; searched ${_lines} lines)"
             ;;
         pass-disclosed)
-            probe_pass "this run MINTED the recovery block (keychain written ${_delta}s after the run began) AND disclosed it: ${_gui} structured marker(s) and ${_tty} rendered line(s) in ${_lines} transcript lines. No key value was read or compared."
+            probe_pass "this run MINTED the recovery block (keychain written ${_delta}s after the run began), disclosed it (${_gui} structured marker(s) and ${_tty} rendered line(s) in ${_lines} transcript lines), AND this box can redeem one: a deliberately wrong key was rejected by ostler-unlock with rc=1 and 'Incorrect recovery key', which requires having loaded this keychain. No key value was read or compared."
             ;;
         fail-minted-not-disclosed)
-            probe_fail "🔴 THIS RUN CREATED recovery_encrypted_key AND NEVER DISCLOSED THE KEY. The keychain was written ${_delta}s after this run began, so this is the minting run and it was the only run that could ever hand the key over: the key is deliberately never stored, the keychain IS, and every later install takes the already-configured skip and emits nothing. Searched ${_lines} transcript lines and found 0 structured markers and 0 rendered lines. ostler-recovery ships on this box and can never succeed for it. This is the v1.0.68 defect (#1540) and it is customer-permanent, not a papercut."
+            probe_fail "🔴 THIS RUN CREATED recovery_encrypted_key AND NEVER DISCLOSED THE KEY. The keychain was written ${_delta}s after this run began, so this is the minting run and it was the only run that could ever hand the key over: the key is deliberately never stored, the keychain IS, and every later install takes the already-configured skip and emits nothing. Searched ${_lines} transcript lines and found 0 structured markers and 0 rendered lines. The redeemer on this box works, which makes it worse, not better: a key that could have been spent was never handed over. This is the v1.0.68 defect (#1540) and it is customer-permanent, not a papercut."
             ;;
         *)
             probe_cannot_run "internal: _decide returned an unrecognised verdict '${_verdict}' for delta=${_delta} seen=${_seen} block=${_has_block}. Nothing was adjudicated."
@@ -221,22 +327,38 @@ self_test() {
     # mutation to it breaks BOTH in the same commit. See
     # tests/test_a_probes_self_test_must_drive_its_own_decision.sh.
     fails=0
-    _t() { got="$(_decide "$1" "$2" "$3")"; if [ "$got" = "$4" ]; then printf 'arm OK: delta=%s seen=%s block=%s -> %s\n' "$1" "$2" "$3" "$got"; else printf 'arm BROKEN: delta=%s seen=%s block=%s -> %s, wanted %s\n' "$1" "$2" "$3" "$got" "$4"; fails=$((fails+1)); fi; }
+    _t() { got="$(_decide "$1" "$2" "$3" "$4" "$5")"; if [ "$got" = "$6" ]; then printf 'arm OK: delta=%s seen=%s block=%s passkey=%s redeem=%s -> %s\n' "$1" "$2" "$3" "$4" "$5" "$got"; else printf 'arm BROKEN: delta=%s seen=%s block=%s passkey=%s redeem=%s -> %s, wanted %s\n' "$1" "$2" "$3" "$4" "$5" "$got" "$6"; fails=$((fails+1)); fi; }
 
-    _t   5  2 BLOCK   pass-disclosed
-    _t   5  0 BLOCK   fail-minted-not-disclosed
-    _t -1215 0 BLOCK  cannot-run-skip
-    _t   5  0 NOBLOCK pass-not-applicable
+    _t   5  2 BLOCK   NOPASSKEY REDEEMABLE pass-disclosed
+    _t   5  0 BLOCK   NOPASSKEY REDEEMABLE fail-minted-not-disclosed
+    _t -1215 0 BLOCK  NOPASSKEY REDEEMABLE cannot-run-skip
     # BOUNDARY ARMS. The suite drove 5 and -1215 and nothing between them, and
     # the whole false-red lives in that gap. Pin both sides of both edges.
-    _t  -1  0 BLOCK   fail-minted-not-disclosed
-    _t -40  0 BLOCK   cannot-run-ambiguous
-    _t -59  0 BLOCK   cannot-run-ambiguous
-    _t -61  0 BLOCK   cannot-run-skip
-    # ARM 5, the one that matters: the skip and the miss must NOT collapse.
-    # They are the two runs of the archie2 walk and they want opposite verdicts.
-    a="$(_decide -1215 0 BLOCK)"; b="$(_decide 5 0 BLOCK)"
+    _t  -1  0 BLOCK   NOPASSKEY REDEEMABLE fail-minted-not-disclosed
+    _t -40  0 BLOCK   NOPASSKEY REDEEMABLE cannot-run-ambiguous
+    _t -59  0 BLOCK   NOPASSKEY REDEEMABLE cannot-run-ambiguous
+    _t -61  0 BLOCK   NOPASSKEY REDEEMABLE cannot-run-skip
+    # THE NOBLOCK SPLIT. These two arms used to be one, and it returned PASS.
+    # A passphrase-primary box with no recovery envelope is the feature not
+    # happening; only a passkey-primary box is legitimately exempt.
+    _t   5  0 NOBLOCK PASSKEY   REDEEMABLE cannot-run-passkey-primary
+    _t   5  0 NOBLOCK NOPASSKEY REDEEMABLE fail-no-recovery-envelope
+    # THE REDEEMABILITY ARMS. A disclosed key on a box that cannot spend it
+    # must NOT reach pass-disclosed, which is exactly what shipped.
+    _t   5  2 BLOCK   NOPASSKEY NOREDEEMER fail-not-redeemable
+    _t   5  2 BLOCK   NOPASSKEY UNKNOWN    cannot-run-redeemer-unknown
+    # AND IT MUST OUTRANK THE SKIP ARM. "This box cannot redeem" is a property
+    # of the artefact, not of who minted, so a re-install walk must not bury it
+    # under a CANNOT-RUN about a disclosure this run was never able to make.
+    _t -1215 0 BLOCK  NOPASSKEY NOREDEEMER fail-not-redeemable
+    # ARM: the skip and the miss must NOT collapse. They are the two runs of
+    # the archie2 walk and they want opposite verdicts.
+    a="$(_decide -1215 0 BLOCK NOPASSKEY REDEEMABLE)"; b="$(_decide 5 0 BLOCK NOPASSKEY REDEEMABLE)"
     if [ "$a" = "$b" ]; then printf 'arm BROKEN: skip and miss collapse onto %s\n' "$a"; fails=$((fails+1)); else printf 'arm OK: skip (%s) and miss (%s) do not collapse\n' "$a" "$b"; fi
+    # ARM: the two NOBLOCK cases must NOT collapse either. Collapsing them is
+    # precisely the defect being removed, and it collapsed onto a PASS.
+    c="$(_decide 5 0 NOBLOCK PASSKEY REDEEMABLE)"; d="$(_decide 5 0 NOBLOCK NOPASSKEY REDEEMABLE)"
+    if [ "$c" = "$d" ]; then printf 'arm BROKEN: the two no-envelope cases collapse onto %s\n' "$c"; fails=$((fails+1)); else printf 'arm OK: passkey-primary (%s) and passphrase-primary-with-no-envelope (%s) do not collapse\n' "$c" "$d"; fi
 
     # INVERTED ON PURPOSE, same as usage_journal_producers.sh: --self-test must
     # come back FAIL when the control behaved correctly, because that is what
@@ -245,8 +367,8 @@ self_test() {
         probe_examined "$fails" "self-test arm(s) that did NOT behave as required"
         probe_pass "SELF-TEST BROKEN: ${fails} arm(s) failed. This probe cannot demonstrate a FAIL, so its real result must not be trusted."
     fi
-    probe_examined 9 "self-test arms (disclosed / minted-and-missed / skip-path / no-block / two ambiguous-window arms / two boundary arms / the first two do not collapse)"
-    probe_fail "negative control behaved correctly on all 9 arms: a disclosing run PASSes; a minting run with no disclosure FAILs; a keychain 1215s older is CANNOT-RUN skip; a box with no recovery block passes as not-applicable; -1 still FAILs while -40 and -59 are CANNOT-RUN ambiguous and -61 is a confident skip, which pins BOTH edges of the window TNM found untested; and the skip and the miss reach different verdicts"
+    probe_examined 14 "self-test arms (disclosed / minted-and-missed / skip-path / two ambiguous-window arms / two boundary arms / passkey-primary no-envelope / passphrase-primary no-envelope / no-redeemer / unknown-redeemer / no-redeemer outranks skip / skip and miss do not collapse / the two no-envelope cases do not collapse)"
+    probe_fail "negative control behaved correctly on all 14 arms: a disclosing run on a redeemable box PASSes; a minting run with no disclosure FAILs; a keychain 1215s older is CANNOT-RUN skip; -1 still FAILs while -40 and -59 are CANNOT-RUN ambiguous and -61 is a confident skip, which pins BOTH edges of the window TNM found untested; a box with no recovery envelope is CANNOT-RUN only when passkey.json says it is on the other subsystem and FAILs otherwise, where it used to PASS; a box that cannot redeem FAILs even when the key was disclosed, and even on the skip path; an unmeasurable redeemer is CANNOT-RUN, not a pass; and neither the skip-versus-miss pair nor the two no-envelope cases collapse onto one verdict"
 }
 
 probe_main "$@"
