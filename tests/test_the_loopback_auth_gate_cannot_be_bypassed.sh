@@ -50,6 +50,43 @@ requests.get(u)
 '
 want_caught "a public literal does not excuse a route built at runtime"
 
+# Archie's finding: one authed call used to exempt every OTHER client in the
+# same module, and a module with an authed admin call beside an unauthed data
+# call is completely ordinary code, not an evasion.
+mk c.py 'import os, requests
+tok = open(os.path.expanduser("~/.ostler/secrets/service_token")).read().strip()
+requests.get("http://127.0.0.1:8090/api/v1/admin",
+             headers={"Authorization": "Bearer " + tok})
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def later_and_far_away():
+    return requests.get("http://127.0.0.1:8090/api/v1/suggestions")
+'
+want_caught "an authed call elsewhere in the file does not exempt an unauthed one"
+
+# A shell client, which the first version could not see at all.
+mk c.sh '#!/bin/bash
+curl -s "http://127.0.0.1:8090/api/v1/people"
+'
+want_caught "a shell client is in scope"
+rm -f "$T/vendor/fake_component/c.sh"
+
 mk c.py 'import os, requests
 tok = open(os.path.expanduser("~/.ostler/secrets/service_token")).read().strip()
 requests.get("http://127.0.0.1:8090/api/v1/suggestions",

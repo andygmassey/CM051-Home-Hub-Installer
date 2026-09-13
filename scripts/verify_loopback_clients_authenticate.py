@@ -75,7 +75,8 @@ BUILDS_REQUEST = re.compile(
     r"|\.(?:get|post|put|delete|patch|head|request)\s*\(\s*[\"'f]?(?:https?://|url|base|endpoint)"
     r"|httpx\.(?:get|post|put|delete|patch|Client|AsyncClient|request)"
     r"|http\.client\.|HTTPConnection|HTTPSConnection"
-    r"|\bfetch\s*\(|XMLHttpRequest|axios\.")
+    r"|\bfetch\s*\(|XMLHttpRequest|axios\."
+    r"|\bcurl\b|\bwget\b")
 
 # DECLARED OPEN DEBT. Each entry is a client that IS refused today, recorded
 # with its reason so the gate can land against real debt instead of being
@@ -95,8 +96,29 @@ KNOWN_OPEN = {
         "rather than this CLI.",
 }
 
-SCAN_ROOTS = ("vendor",)
-SCAN_EXT = (".py", ".js")
+# How many lines either side of a request-construction site count as "at this
+# call site". Wide enough for a headers dict assembled a few lines above, tight
+# enough that an unrelated authed call elsewhere in the module is not evidence.
+_CALLSITE_WINDOW = 25
+
+SCAN_ROOTS = ("vendor", "lib", "wiki-recompile")
+SCAN_EXT = (".py", ".js", ".mjs", ".ts", ".sh")
+
+
+def _py_function_spans(code):
+    """(start_line, end_line) for every function in `code`, or None."""
+    import ast as _ast
+    try:
+        tree = _ast.parse(code)
+    except SyntaxError:
+        return None
+    out = []
+    for node in _ast.walk(tree):
+        if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+            end = getattr(node, "end_lineno", None)
+            if end:
+                out.append((node.lineno, end))
+    return out or None
 
 
 def _code_only(src, ext):
@@ -108,6 +130,8 @@ def _code_only(src, ext):
     be a comment is checking prose, not behaviour, and that is the exact defect
     class this gate exists to catch -- sitting inside the gate.
     """
+    if ext == ".sh":
+        return re.sub(r"(?m)#.*$", "", src)
     if ext == ".py":
         src = re.sub(r'(?s)""".*?"""|\'\'\'.*?\'\'\'', "", src)
         src = re.sub(r"(?m)#.*$", "", src)
@@ -196,7 +220,32 @@ def main():
         if any(rel.startswith(v) for v in VENV_BACKED) and _venv_for(repo, rel):
             exempt_venv += 1
             continue
-        if CREDENTIALLED.search(code):
+        # 🔴 ONE AUTHENTICATED CALL USED TO EXEMPT EVERY OTHER CLIENT IN THE
+        # SAME FILE. Review (Archie, 2026-09-13): `CREDENTIALLED.search(code)`
+        # searched the WHOLE MODULE, so a file with an authed admin call and an
+        # unauthed data call passed cleanly -- and that is a completely ordinary
+        # way for a module to be written, not an evasion. The credential has to
+        # be evidence about THIS call, so it is looked for around the call site.
+        lines = code.splitlines()
+        unauthed = []
+        spans = _py_function_spans(code) if path.endswith(".py") else None
+        for i, ln in enumerate(lines):
+            if not BUILDS_REQUEST.search(ln):
+                continue
+            # An enclosing function is the honest unit: a credential three
+            # lines above the call is evidence about it, one in a different
+            # function is not. Falls back to a line window where there is no
+            # parseable function structure (shell, minified js, a syntax error).
+            lo = hi = None
+            if spans:
+                for a, b in spans:
+                    if a <= i + 1 <= b and (lo is None or a > lo):
+                        lo, hi = a, b
+            if lo is None:
+                lo, hi = max(1, i + 1 - _CALLSITE_WINDOW), min(len(lines), i + 1 + _CALLSITE_WINDOW)
+            if not CREDENTIALLED.search("\n".join(lines[lo - 1:hi])):
+                unauthed.append(i + 1)
+        if not unauthed:
             continue
         # Only public paths named? Then being uncredentialled is correct.
         paths = re.findall(r"[\"'](/(?:api/v1|doctor|health)[a-z0-9/_.-]*)", code)
