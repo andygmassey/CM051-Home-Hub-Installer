@@ -219,9 +219,23 @@ print('BLOCK' if 'recovery_encrypted_key' in d else 'NOBLOCK')
     #   rc 2                    it ran and found no config or no envelope
     #   rc 3 / traceback        it ran and broke
     # None of those is "the key was wrong", and none of them may read as one.
-    _redeem_rc="$(box_run "printf 'AAAA-BBBB-CCCC-DDDD-EEEE-FFFF-GG\\n' | \$HOME/.ostler/.venv/bin/ostler-unlock --recovery-key --secret-file - >/dev/null 2>\$HOME/.ostler/logs/.probe-redeem.err; echo \$?")"
-    _redeem_msg="$(box_run "grep -ac 'Incorrect recovery key' \$HOME/.ostler/logs/.probe-redeem.err 2>/dev/null || echo 0")"
-    box_run "rm -f \$HOME/.ostler/logs/.probe-redeem.err" >/dev/null 2>&1 || true
+    # ONE round trip, and a PER-RUN mktemp sink rather than a fixed path.
+    # bash ABORTS a command whose redirection cannot be opened, so a fixed
+    # sink in a directory that happens not to exist would turn "the redeemer
+    # ran and rejected the key" into an unexplained non-zero. Same class as
+    # #910, and the reason that gate exists.
+    _redeem_out="$(box_run "
+        _e=\$(mktemp -t ostler-probe-redeem) || exit 90
+        printf 'AAAA-BBBB-CCCC-DDDD-EEEE-FFFF-GG\\n' \
+          | \$HOME/.ostler/.venv/bin/ostler-unlock --recovery-key --secret-file - \
+              >/dev/null 2>\"\$_e\"
+        _rc=\$?
+        _m=\$(grep -ac 'Incorrect recovery key' \"\$_e\" 2>/dev/null || echo 0)
+        rm -f \"\$_e\"
+        printf 'rc=%s msg=%s\\n' \"\$_rc\" \"\$_m\"
+    ")"
+    _redeem_rc="$(printf '%s' "$_redeem_out" | sed -n 's/.*rc=\([0-9-]*\).*/\1/p' | head -1)"
+    _redeem_msg="$(printf '%s' "$_redeem_out" | sed -n 's/.*msg=\([0-9]*\).*/\1/p' | head -1)"
     case "$_redeem_rc" in ''|*[!0-9]*) _redeem_rc=-1 ;; esac
     case "$_redeem_msg" in ''|*[!0-9]*) _redeem_msg=0 ;; esac
 

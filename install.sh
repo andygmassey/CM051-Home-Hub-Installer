@@ -22755,12 +22755,17 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
              this file would put the unwrapped key in every backup beside
              a copy of the database it opens, and delete that defence
              without a line of code admitting it.
-             Two more surfaces a path survives and a key does not:
-             `launchctl print gui/<uid>/<label>` renders
-             EnvironmentVariables in full, and that output gets pasted
-             into support threads; and rendered config reaches the
-             diagnostics bundle, which is why this repo has log-hygiene
-             gates at all.
+             Two more surfaces a path survives and a key does not: a
+             launchctl print of this job renders EnvironmentVariables in
+             full, and that output gets pasted into support threads; and
+             rendered config reaches the diagnostics bundle, which is why
+             this repo has log-hygiene gates at all.
+             NOTE FOR THE NEXT EDITOR: this heredoc is UNQUOTED, so a
+             backtick in this comment is EXECUTED and its output replaces
+             the text (#873). The launchctl invocation above is spelled
+             without backticks for that reason, not by accident, and
+             tests/test_no_live_command_substitution_in_heredocs.sh
+             caught the first draft of this very comment doing it.
              So the key lives at 0600 inside the 0700 security
              directory, next to keychain.json, excluded from Time
              Machine at the write site, and this variable says where.
