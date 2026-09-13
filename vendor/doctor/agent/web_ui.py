@@ -1118,6 +1118,74 @@ def _degraded_snapshot() -> SystemSnapshot:
 # ── HTML template ────────────────────────────────────────────────────
 
 
+def render_source_status() -> str:
+    """The per-source ingest table: did each source read in, and when.
+
+    WHY THIS EXISTS. /api/v1/sources has served one honest row per canonical
+    source for a long time, and a box-walk probe asserts it does. Nothing ever
+    RENDERED it. Andy, 2026-09-13: "the data sources are supposed to have a
+    Doctor table showing that they were successfully ingested ... but I have
+    never seen this." He had not, because only the supply side was ever built.
+
+    🔴 THE PROBE THAT COVERS THIS PASSES EITHER WAY. "The Doctor must serve
+    /api/v1/sources with one honest per-source row" is true whether or not a
+    human can ever see a single one. A gate on the producer cannot tell you
+    the feature exists.
+
+    Reads the same read_source_status the endpoint does, so the page and the
+    API can never disagree. A source that never ran shows as "not run", never
+    omitted: an absent row would read as "fine".
+    """
+    try:
+        rows = read_source_status()
+    except Exception as exc:  # noqa: BLE001
+        return (
+            '<div class="section"><h2>Where your data came from</h2>'
+            f'<p class="muted">Could not read the ingest record: {exc}. '
+            "That is not the same as nothing having been ingested.</p></div>"
+        )
+    if not rows:
+        return (
+            '<div class="section"><h2>Where your data came from</h2>'
+            "<p class=\"muted\">No ingest record yet. On a fresh install this "
+            "fills in as each source reads in.</p></div>"
+        )
+    _LABEL = {"ok": "read in", "no_data": "nothing to read",
+              "not_run": "not run yet", "unreadable": "record unreadable",
+              "error": "failed"}
+    _COLOUR = {"ok": "#5cb579", "no_data": "rgba(236,232,225,0.55)",
+               "not_run": "#d4a052", "unreadable": "#d96666",
+               "error": "#d96666"}
+    body = []
+    for r in rows:
+        st = (r.get("status") or "not_run")
+        when = r.get("last_update_at") or r.get("recorded_at")
+        n = r.get("item_count")
+        # None and 0 are different answers and must not print the same.
+        count = "&mdash;" if n is None else f"{n:,}"
+        body.append(
+            '<tr>'
+            f'<td>{html.escape(str(r.get("source", "?")).replace("_", " "))}</td>'
+            f'<td><span style="color:{_COLOUR.get(st, "#d4a052")}">'
+            f'{html.escape(_LABEL.get(st, st))}</span></td>'
+            f'<td style="text-align:right">{count}</td>'
+            f'<td>{html.escape(str(when)) if when else "never"}</td>'
+            f'<td class="muted">{html.escape(str(r.get("kind", "")))}</td>'
+            '</tr>'
+        )
+    return (
+        '<div class="section"><h2>Where your data came from</h2>'
+        '<p class="muted">Every source Ostler reads, whether it has run, how '
+        "much it found and when it last looked. A source that has never run "
+        'says so rather than being left out.</p>'
+        '<table class="src-table" style="width:100%;border-collapse:collapse">'
+        '<thead><tr><th align="left">Source</th><th align="left">Status</th>'
+        '<th align="right">Items</th><th align="left">Last read</th>'
+        '<th align="left">Kind</th></tr></thead><tbody>'
+        + "".join(body) + "</tbody></table></div>"
+    )
+
+
 def render_dashboard(
     snapshot: SystemSnapshot,
     findings: list[dict],
@@ -1239,6 +1307,7 @@ def render_dashboard(
     # when no commitments have been pushed yet. Catches the case the
     # install-time tile cannot: access granted at install, later revoked.
     reminders_runtime_section = render_reminders_runtime()
+    source_status_section = render_source_status()
 
     # Build findings
     findings_html = ""
@@ -1799,6 +1868,7 @@ def render_dashboard(
         {reminders_section}
 
         {reminders_runtime_section}
+        {source_status_section}
 
         <div class="section">
             <div class="section-title">{DASHBOARD_SECTION_MODELS}</div>
@@ -2750,6 +2820,47 @@ async def api_wiki_duplicates_decision(request: Request):
         )
 
     return result
+
+
+@app.post("/api/v1/editor/feedback", response_class=JSONResponse)
+async def api_editor_feedback(request: Request):
+    """Record one Front Page card tap ("Spot on" / "Not me" / "Don't show").
+
+    The Front Page renders these controls on every card and, until this route
+    existed, tapping them did nothing at all: the page's only handlers added a
+    CSS class, so the button LIT UP as though the tap had registered while
+    nothing was written anywhere. Measured 2026-09-13 on a walked box, with
+    interest_corrections.json never once created.
+
+    The store, the verbs and the recompile fold were all already built and
+    tested in cm059-editor's compiler/feedback.py, whose docstring names the
+    missing piece as "the Hub API POST route". This is that route. Thin HTTP
+    plumbing only -- validation and the write live in editor_feedback.py, the
+    same split duplicate_decision.py uses for the wiki's Combine buttons.
+    """
+    from editor_feedback import (
+        ValidationError as _FbError,
+        record as _record,
+        validate_payload as _validate,
+    )
+
+    try:
+        body = await request.json()
+    except Exception as exc:
+        return JSONResponse({"error": f"invalid JSON: {exc}"}, status_code=400)
+
+    try:
+        normalised = _validate(body)
+    except _FbError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+    try:
+        return _record(normalised)
+    except _FbError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            {"error": f"could not record the tap: {exc}"}, status_code=500)
 
 
 @app.post("/api/v1/auth/chat-token", response_class=JSONResponse)
