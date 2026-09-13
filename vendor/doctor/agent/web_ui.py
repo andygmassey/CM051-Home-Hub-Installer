@@ -2840,9 +2840,21 @@ async def api_editor_feedback(request: Request):
     """
     from editor_feedback import (
         ValidationError as _FbError,
+        origin_is_local as _origin_ok,
         record as _record,
         validate_payload as _validate,
     )
+
+    # This route WRITES to the customer's store and the app's only middleware
+    # is CORS with allow_origins=["*"], so without this any page the customer
+    # opens could issue the write. An Authorization header would be decoration
+    # here: measured on a box, the Doctor's own routes answer 200 with no
+    # credential at all.
+    if not _origin_ok(request.headers.get("origin")):
+        return JSONResponse(
+            {"error": "this write is only accepted from the Hub itself"},
+            status_code=403,
+        )
 
     try:
         body = await request.json()

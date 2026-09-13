@@ -34,6 +34,41 @@ _EDITOR_DIRS = (
 _ACTIONS = {"strengthen", "weaken", "drop", "spot on", "not me", "don't show"}
 
 
+# Origins a browser may issue this WRITE from. MEASURED 2026-09-13 on a box:
+# the Doctor's own routes on :8089 answer 200 with NO credential at all
+# (/api/v1/sources proves it), and the app's only middleware is CORS with
+# allow_origins=["*"]. The 401 seen elsewhere on that port comes from a
+# DIFFERENT scheme entirely, a paired-device bearer, which the service token
+# does not satisfy either.
+#
+# 🔴 SO AN Authorization HEADER HERE WOULD BE DECORATION, and shipping one
+# would be worse than shipping nothing: it would look like security to the next
+# reader while enforcing nothing (Archie stopped me adding exactly that).
+#
+# What IS real: this route WRITES to the customer's store, and with a wildcard
+# CORS policy any page they open can issue the write. allow_credentials=False
+# limits reading the answer back, but a write does not need to read. So the
+# origin is checked here rather than left to a middleware that permits all of
+# them. A request with no Origin at all is allowed: that is a same-process or
+# curl caller, not a browser acting on a page's behalf.
+_ALLOWED_ORIGIN_HOSTS = ("127.0.0.1", "localhost", "[::1]", "::1")
+
+
+def origin_is_local(origin: str | None) -> bool:
+    """True when a browser Origin is loopback, or absent entirely."""
+    if not origin:
+        return True          # non-browser caller; CORS does not apply
+    o = origin.strip().lower()
+    for scheme in ("http://", "https://"):
+        if o.startswith(scheme):
+            o = o[len(scheme):]
+            break
+    else:
+        return False         # an origin we cannot parse is not a local one
+    host = o.split("/")[0].rsplit(":", 1)[0] if not o.startswith("[") else o.split("]")[0] + "]"
+    return host in _ALLOWED_ORIGIN_HOSTS
+
+
 class ValidationError(Exception):
     def __init__(self, detail: str, status: int = 400):
         super().__init__(detail)
