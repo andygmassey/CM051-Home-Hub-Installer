@@ -1,0 +1,198 @@
+name: db-key-delivery-and-recovery
+
+# TWO CONSUMER-SIDE GATES FOR TWO FIXES THAT LOOKED DONE FROM THE PRODUCER SIDE.
+#
+# Both defects were the same shape: something was produced correctly and
+# nothing consumed it, so every test anyone would naturally write passed.
+#
+#   THE RECOVERY KEY. setup_passphrase() minted an XXXX-XXXX-... key and the
+#   installer showed it to every customer as their way back in.
+#   unlock_with_recovery_key() had ZERO call sites for the whole of v1.0. It
+#   was defined, exported from __init__.py, named in DAY_ZERO_AUDIT.md and
+#   mirrored in the AAD migrator's docstring, and none of that is use. A
+#   customer who forgot their passphrase was locked out permanently and no
+#   later release could give it back.
+#
+#   THE DATABASE KEY. install.sh minted a DEK. Three consumers read it from
+#   OSTLER_DB_KEY. Nothing set OSTLER_DB_KEY: 17 mentions, 3 readers, 0
+#   setters, measured with OSTLER_AI_CONVERSATIONS_DIR as the positive control
+#   on the identical query. Both services took their plaintext fallback on
+#   every install, one line after the installer printed "Databases encrypted".
+#
+# WHAT THESE TESTS REFUSE TO BE
+# -----------------------------
+# Not "the plist sets the variable" and not "the function now has a caller".
+# Both of those are producer-side and both would have passed on the broken
+# tree. The assertions end at BYTES ON DISK and at a ROUND TRIP:
+#
+#   * a real SQLCipher database written by the REAL ical-server and the REAL
+#     CM048 writer, checked for the absence of the SQLite magic header and for
+#     the absence of a canary string in the raw file
+#   * a recovery key minted, the passphrase discarded, the SHIPPED redeemer
+#     driven as a subprocess with the key on stdin, and the encrypted database
+#     opened with what came back
+#
+# Every such arm carries a matched control that produces the plaintext case,
+# so an arm cannot pass because the reader is broken.
+#
+# DEMONSTRATED RED, not assumed. Measured before this workflow landed:
+#   pre-fix vendor tree, recovery test              rc=1 (round trip fails)
+#   pre-fix vendor tree, db-key test                rc=2 CANNOT-RUN (no module)
+#   new resolver + PRE-FIX consumers, db-key test   rc=1, 6 FAILs including
+#                                                   both byte-level arms
+#   fixed tree                                      rc=0, 26/26 and 19/19
+#
+# THE UPGRADE PATH IS PART OF THE GATE. Setting the key going forward does not
+# encrypt one byte that already exists, so a fix covering only clean installs
+# leaves every existing customer plaintext while CI goes green. Arm 6 of the
+# db-key test seeds plaintext databases at the paths the shipped readers
+# actually use, runs the real ostler-migrate-dbs, and checks the bytes, with a
+# control file OUTSIDE the candidate list that must STILL be plaintext.
+#
+# macOS ON PURPOSE, not for convenience. It is the platform the artefact ships
+# on, sqlcipher3 publishes macOS wheels (the pyproject comment records the
+# 2026-05-22 launch blocker that got the project off pysqlcipher3), and the
+# permission arms read modes the way the product's own host does. Running the
+# at-rest assertions anywhere but the shipping platform would be testing
+# locally and shipping for the runner.
+
+on:
+  pull_request:
+    paths:
+      - 'vendor/ostler_security/db_key.py'
+      - 'vendor/ostler_security/passphrase_recovery_cli.py'
+      - 'vendor/ostler_security/passphrase.py'
+      - 'vendor/ostler_security/migrate_dbs_cli.py'
+      - 'vendor/ostler_security/database.py'
+      - 'vendor/ostler_security/posture.py'
+      - 'vendor/ostler_security/__init__.py'
+      - 'vendor/ostler_security/pyproject.toml'
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm048_pipeline/src/ingest.py'
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_the_recovery_key_can_be_redeemed_end_to_end.py'
+      - 'tests/test_the_db_key_reaches_the_services_and_the_disk.py'
+      # A suite this workflow RUNS but does not WATCH is dark on self-edit:
+      # it could be narrowed, or gutted, in the very PR that narrows it.
+      - 'scripts/box_walk_probes/probes/the_recovery_key_reached_the_customer.sh'
+      - 'scripts/tests/test_a_probes_self_test_must_drive_its_own_decision.sh'
+      - '.github/workflows/db-key-delivery-and-recovery.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  db-key-delivery-and-recovery:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Pins taken from vendor/ostler_security/pyproject.toml and
+      # vendor/cm048_pipeline/pyproject.toml rather than invented here, so
+      # the gate exercises the dependency set the product actually installs.
+      #
+      # sqlcipher3 is NOT optional for this job even though it is an optional
+      # extra of the package. Without it every at-rest assertion below would
+      # compare a plaintext file against a plaintext file and pass. The step
+      # after this one refuses to continue if it is missing, rather than
+      # letting the suite degrade into a green.
+      - name: Install the runtime the services actually use
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            "cryptography>=50.0.0,<51.0.0" \
+            "sqlcipher3>=0.6.0,<0.7.0" \
+            "httpx>=0.27,<1.0" \
+            "PyYAML>=6.0"
+
+      - name: Refuse to grade encryption without SQLCipher
+        run: |
+          python - <<'PY'
+          import sys
+          try:
+              from sqlcipher3 import dbapi2  # noqa: F401
+          except ImportError as exc:
+              print(
+                  "::error title=CANNOT-RUN (harness, not product)::"
+                  "sqlcipher3 did not install on this runner (%s). Every "
+                  "at-rest assertion in this workflow would pass on a "
+                  "plaintext file. NOTHING about encryption can be measured "
+                  "here, and that is not a pass." % exc
+              )
+              sys.exit(1)
+          print("sqlcipher3 present; at-rest assertions can be made")
+          PY
+
+      # THE ROUND TRIP. Mint a key, write a real encrypted database, throw the
+      # passphrase away, drive the shipped redeemer with the key on stdin, and
+      # open the database with what comes back.
+      #
+      # rc=2 is CANNOT-RUN per the repo's three-state rule and is annotated
+      # rather than silently passed or blamed on the product.
+      - name: A recovery key that was shown must actually open the data
+        run: |
+          set -uo pipefail
+          rc=0
+          python tests/test_the_recovery_key_can_be_redeemed_end_to_end.py || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The recovery round-trip harness could not obtain a verdict: ostler_security would not import, or sqlcipher3 is absent so no real encrypted database could be built. NOTHING about redemption has been measured. This is not evidence that the recovery key works."
+          fi
+          exit "$rc"
+
+      # THE BYTES. The real services, their real databases, and the upgrade
+      # path that a clean-install-only fix would leave plaintext forever.
+      #
+      # `if: always()` for the same reason as every step in this repo's
+      # multi-step gates (CM051 #656): an earlier limb's failure must not
+      # delete this measurement.
+      - name: The db key must reach the services, and the databases must be encrypted on disk
+        if: always()
+        run: |
+          set -uo pipefail
+          rc=0
+          python tests/test_the_db_key_reaches_the_services_and_the_disk.py || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The db-key harness could not obtain a verdict: ostler_security.db_key would not import, sqlcipher3 is absent, or a vendored consumer is missing from this tree. NOTHING about at-rest encryption has been measured, and in particular this is NOT evidence that the services received a key."
+          fi
+          exit "$rc"
+
+      # The probe that HID the recovery defect is part of the defect. It used
+      # to PASS on a box whose keychain carried no recovery envelope at all,
+      # calling that "no key was minted and none was owed" -- green on an
+      # absent feature -- and it never asked whether a minted key could be
+      # redeemed. Both are fixed, so both need their negative control run.
+      - name: The recovery-key box probe can still demonstrate a FAIL
+        if: always()
+        run: |
+          set -uo pipefail
+          rc=0
+          bash scripts/box_walk_probes/probes/the_recovery_key_reached_the_customer.sh --self-test || rc=$?
+          # INVERTED ON PURPOSE, and this is the probe framework's contract,
+          # not a quirk: --self-test drives the decision function against
+          # known-bad input and must come back rc=1 with no 'VERDICT: BROKEN'.
+          # A self-test that exits 0 means the negative control did NOT go red,
+          # which is the stub shape the framework exists to make impossible.
+          if [ "$rc" -ne 1 ]; then
+            echo "::error title=probe self-test did not go red::the_recovery_key_reached_the_customer.sh --self-test exited ${rc}, wanted 1. Its negative control no longer demonstrates a FAIL, so its real verdict on a box must not be trusted."
+            exit 1
+          fi
+
+      - name: A mutation to the probe's decision must break its self-test
+        if: always()
+        run: bash scripts/tests/test_a_probes_self_test_must_drive_its_own_decision.sh
