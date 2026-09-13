@@ -14896,12 +14896,27 @@ except Exception as e:
             # worst case is data that stays readable, which is exactly
             # where the box already was. Aborting the install over it
             # would trade a disclosed weakness for an unusable Hub.
+            # ⚠️ THE `if` BELOW IS ONE LINE ENDING IN `then`, DELIBERATELY.
+            # tests/test_the_recovery_key_is_disclosed_where_it_is_minted.sh
+            # LIFTS this whole Phase 3.6 construct and EXECUTES it against
+            # stubs, tracking block depth with an awk predicate that counts
+            # `^[[:space:]]*if .*then$` up and `^[[:space:]]*fi$` down. A
+            # multi-line `if` whose first line ends in a backslash is never
+            # counted up, while its `fi` still counts down, so the lift stops
+            # early and hands the harness a truncated fragment. The first
+            # draft of this block did exactly that and turned that test from
+            # a 9-arm PASS into a CANNOT-RUN. The command therefore runs
+            # first and its status is captured, which keeps the `if` on one
+            # line. Keep it that way.
             info "$MSG_INFO_DB_MIGRATION_RUNNING"
-            if ! OSTLER_DB_KEY_FILE="$DB_KEY_FILE" \
-                 "$OSTLER_PYTHON" -m ostler_security.migrate_dbs_cli \
-                 >"${OSTLER_DIAG_DIR}/db-migration.log" 2>&1; then
+            _db_migration_log="${OSTLER_DIAG_DIR}/db-migration.log"
+            _db_migration_rc=0
+            OSTLER_DB_KEY_FILE="$DB_KEY_FILE" "$OSTLER_PYTHON" \
+                -m ostler_security.migrate_dbs_cli \
+                >"$_db_migration_log" 2>&1 || _db_migration_rc=$?
+            if [[ "$_db_migration_rc" -ne 0 ]]; then
                 warn "$MSG_WARN_DB_MIGRATION_FAILED"
-                sed -e 's/^/    /' "${OSTLER_DIAG_DIR}/db-migration.log" | tail -10
+                sed -e 's/^/    /' "$_db_migration_log" | tail -10
             fi
         else
             # Setup SUCCEEDED and the handoff did not. Say so plainly:
