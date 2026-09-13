@@ -39,6 +39,7 @@ on:
     paths:
       - 'lib/ostler-ingest-slot.sh'
       - 'tests/test_ingest_slot_fairness.sh'
+      - 'tests/test_a_hung_slot_holder_is_stopped.sh'
       - 'vendor/email_source/bin/email-bundle-tick.sh'
       - 'vendor/imessage_source/bin/imessage-bundle-tick.sh'
       - 'vendor/whatsapp_source/bin/whatsapp-bundle-tick.sh'
@@ -52,6 +53,7 @@ on:
     paths:
       - 'lib/ostler-ingest-slot.sh'
       - 'tests/test_ingest_slot_fairness.sh'
+      - 'tests/test_a_hung_slot_holder_is_stopped.sh'
       - 'vendor/email_source/bin/email-bundle-tick.sh'
       - 'vendor/imessage_source/bin/imessage-bundle-tick.sh'
       - 'vendor/whatsapp_source/bin/whatsapp-bundle-tick.sh'
@@ -80,6 +82,16 @@ jobs:
 
       - name: Ingest slot fairness suite
         run: bash tests/test_ingest_slot_fairness.sh
+
+      # The fairness suite above cannot see this case. The max-hold watchdog
+      # arms only when a feed is ENROLLED AND WAITING, and a hung holder's
+      # victims die before they can stay enrolled, so nothing ever bounds it.
+      # Measured on a real box: 8h49m of hold with a zero-byte log, and no line
+      # anywhere saying so. Cumulative cpu is the discriminator; the negative
+      # control proves a genuinely busy payload is left alone.
+      - name: A hung slot holder is stopped, a busy one is not
+        if: success() || failure()
+        run: bash tests/test_a_hung_slot_holder_is_stopped.sh
 
   shell-3-2:
     name: The shipped ticks parse under bash 3.2, the customer's shell

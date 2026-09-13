@@ -2958,7 +2958,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :7652   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :7697   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :7706 and :13417, both of which run
+    # Its two top-level arming calls are :7706 and :13532, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :2949 above has just deleted
     # that tree and :2953 has just rebound OSTLER_DIR to the final one, so
@@ -2976,13 +2976,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :14167, where the note reads
+    # WhatsApp Web session path did it again at :14282, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :14184 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :14299 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -2995,9 +2995,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:7706, :13417) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:7706, :13532) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :15981 / :16159 / :16316 / :16657 path. There the
+    # :16096 / :16274 / :16431 / :16772 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -9008,6 +9008,37 @@ _OSTLER_SLOT_MAX_HOLD="${OSTLER_SLOT_MAX_HOLD_SECS:-180}"
 _OSTLER_SLOT_WAIT="${OSTLER_SLOT_WAIT_SECS:-75}"
 _OSTLER_SLOT_GRACE="${OSTLER_SLOT_GRACE_SECS:-60}"
 _OSTLER_SLOT_POLL="${OSTLER_SLOT_POLL_SECS:-5}"
+# How long a holder's payload may burn ZERO cpu before it is called hung
+# rather than busy. The max-hold watchdog below only arms when another feed is
+# ENROLLED AND WAITING, which is deliberate -- a multi-hour backfill on an idle
+# box must not be disturbed. But that makes the bound unreachable in exactly
+# the case that hurt: MEASURED 2026-09-13, email-bundle/tick.sh held the slot
+# 8h49m with a ZERO-BYTE log while its would-be waiters enrolled, died, and
+# were reaped, so "waiters present" was false almost every poll and the
+# watchdog never armed. A holder whose victims keep dying is protected BY
+# starving them.
+#
+# CUMULATIVE CPU, NEVER ELAPSED TIME. Elapsed says only that a process still
+# exists; cpu says whether it is doing anything. A payload genuinely working
+# for hours accrues cpu every poll and is never touched by this.
+# 🔴 IT MUST BE STRICTLY GREATER THAN THE LONGEST LEGITIMATE QUIET WINDOW, AND
+# THE FIRST VERSION WAS EXACTLY EQUAL TO IT. Review caught it: a single
+# conversation dispatch is explicitly allowed 900s
+# (pipeline.py:70 _DISPATCH_TIMEOUT_DEFAULT_SECS), and this was also 900, so
+# which one won was decided by poll phase. A watchdog whose threshold
+# coincides with the payload's own permitted maximum cannot tell a hang from
+# a permitted wait by construction. Derived from the dispatch ceiling, with a
+# wide margin, rather than hard-coded to a number that happened to match it.
+_OSTLER_SLOT_DISPATCH_CEILING="${OSTLER_DISPATCH_TIMEOUT_SECS:-900}"
+if [ "$_OSTLER_SLOT_DISPATCH_CEILING" = "0" ]; then
+    # pipeline.py:79-84 documents 0 as "restores the old unbounded behaviour
+    # for debugging". An operator who set that asked for an unbounded wait, so
+    # arming a stall killer against it would hand them the opposite of what the
+    # docstring promises. Disarm instead, and be loud about it.
+    _OSTLER_SLOT_STALL_SECS=0
+else
+    _OSTLER_SLOT_STALL_SECS="${OSTLER_SLOT_STALL_SECS:-$(( _OSTLER_SLOT_DISPATCH_CEILING * 2 + 300 ))}"
+fi
 _OSTLER_SLOT_STARVE_AFTER="${OSTLER_SLOT_STARVE_AFTER_SECS:-1800}"
 _OSTLER_SLOT_LEGACY_HOLD="${OSTLER_SLOT_LEGACY_MAX_HOLD_SECS:-3600}"
 # How long a payload gets to honour SIGTERM before the watchdog escalates to
@@ -9411,8 +9442,53 @@ _ostler_slot_kill_tree() {
     return 1
 }
 
+# Cumulative CPU for a process TREE, in centiseconds, as a single integer.
+#
+# 🔴 MEASURING THE PARENT ALONE IS WRONG AND WOULD HAVE KILLED WORKING INGEST.
+# Review (Archie, 2026-09-13) on the first version of this: ostler_slot_run
+# backgrounds "$@", so work_pid is `python -m email_source.pipeline`, and that
+# process does its real work by SHELLING OUT -- pipeline.py:273 and :361 call
+# subprocess.run(pwg-convo ...) with capture_output=True. While the CHILD
+# works, the PARENT blocks on a pipe read and burns essentially no cpu. So
+# "the parent is burning no cpu" is the EXPECTED STEADY STATE of a correctly
+# working holder, not evidence of a hang, and a watchdog reading only the
+# parent would kill healthy ingest on a customer's box on every tick.
+#
+# Summing the whole tree is the measurement that actually answers the question
+# the check asks: is ANYTHING in here doing work?
+#
+# CENTISECONDS, not seconds. macOS ps prints mm:ss.cc, so a tree doing even a
+# few milliseconds of work per second moves this counter. Truncating to whole
+# seconds would have invented stillness that is not there.
+_ostler_slot_tree_cpu() {
+    local root="$1" pids frontier next depth=0
+    case "$root" in ''|*[!0-9]*) return 1 ;; esac
+    kill -0 "$root" 2>/dev/null || return 1
+    pids="$root"; frontier="$root"
+    # Bounded walk: a cycle in ppid is impossible, but a cap keeps a pathological
+    # tree from spinning this loop.
+    while [ -n "$frontier" ] && [ "$depth" -lt 12 ]; do
+        next="$(ps -axo pid=,ppid= 2>/dev/null | awk -v list="$frontier" '
+            BEGIN { n = split(list, a, " "); for (i = 1; i <= n; i++) parent[a[i]] = 1 }
+            parent[$2] { print $1 }')"
+        [ -n "$next" ] || break
+        pids="$pids $(printf '%s' "$next" | tr '\n' ' ')"
+        frontier="$next"
+        depth=$(( depth + 1 ))
+    done
+    ps -p "$(printf '%s' "$pids" | tr ' ' ',' | sed 's/,,*/,/g; s/^,//; s/,$//')" -o time= 2>/dev/null \
+      | awk -F'[:-]' '
+          { cs = 0
+            if (NF == 4)      { split($4, t, "."); cs = ((($1*24+$2)*3600)+($3*60)+t[1])*100 + (t[2]+0) }
+            else if (NF == 3) { split($3, t, "."); cs = (($1*3600)+($2*60)+t[1])*100 + (t[2]+0) }
+            else if (NF == 2) { split($2, t, "."); cs = (($1*60)+t[1])*100 + (t[2]+0) }
+            total += cs }
+          END { if (total == "") print 0; else print total }'
+}
+
 _ostler_slot_watchdog() {
     local work_pid="$1" now deadline
+    local _cpu_last="" _cpu_since=0 _cpu_now
     while :; do
         sleep "$_OSTLER_SLOT_POLL"
         kill -0 "$work_pid" 2>/dev/null || return 0
@@ -9421,12 +9497,51 @@ _ostler_slot_watchdog() {
         # Read the deadline EVERY poll rather than using the value fixed at
         # acquire time: it does not exist until a waiter enrols, and the whole
         # correction in #783 is that enrolment is the event that starts it.
+        # --- STALL CHECK, and it runs BEFORE the waiter gate on purpose ---
+        #
+        # WHY IT DOES NOT GET THE IDLE-BOX EXEMPTION, and "a hang is not a long
+        # job" is NOT the reason -- that is a definition, not an argument
+        # (Archie, 2026-09-13). The real one:
+        #
+        # Max-hold already evicts ANY holder 180s after a waiter enrols, busy
+        # or hung alike. So where a waiter exists this check adds almost
+        # nothing, and its UNIQUE contribution is exactly the no-waiter case.
+        # The harm it prevents there is not about the slot at all: a wedged
+        # payload means THAT FEED NEVER PROGRESSES, on a box where nobody is
+        # competing for anything. Stopping it lets the next tick retry.
+        #
+        # That is a real harm, with a real beneficiary, and no waiter in sight
+        # -- which is precisely the case the idle-box exemption assumes cannot
+        # exist. Hence the precedence.
+        #
+        # It fires on evidence of doing nothing, never on a clock.
+        if [ "$_OSTLER_SLOT_STALL_SECS" = "0" ]; then
+            :   # disarmed: the dispatch ceiling is unbounded by operator choice
+        elif _cpu_now="$(_ostler_slot_tree_cpu "$work_pid")"; then
+            if [ "$_cpu_now" = "$_cpu_last" ]; then
+                _cpu_since=$(( _cpu_since + _OSTLER_SLOT_POLL ))
+            else
+                _cpu_since=0
+                _cpu_last="$_cpu_now"
+            fi
+            if [ "$_cpu_since" -ge "$_OSTLER_SLOT_STALL_SECS" ]; then
+                _ostler_slot_log "HUNG: the process TREE under pid ${work_pid} has burned NO cpu for ${_cpu_since}s (tree cpu stuck at ${_cpu_now} centiseconds) while holding the shared Ollama slot. That is a hang, not a long job, so the waiter gate does not apply. Stopping it."
+                if _ostler_slot_kill_tree "$work_pid"; then
+                    return 0
+                fi
+                _ostler_slot_log "stop attempt on the hung holder failed; STAYING UP and retrying each poll."
+                continue
+            fi
+        fi
         deadline="$(_ostler_slot_holder_deadline)"
         case "$deadline" in ''|*[!0-9]*) continue ;; esac
         [ "$now" -ge "$deadline" ] || continue
-        # Nobody waiting: a long backfill on an idle box is not a
-        # problem, so let it run. This is why the wiki summary pass is
-        # still allowed to take hours.
+        # THIS EXEMPTION GOVERNS THE MAX-HOLD PATH ONLY, and the scoping
+        # matters because it reads as governing the whole function. Nobody
+        # waiting: a long backfill on an idle box is not a problem, so let it
+        # run. This is why the wiki summary pass is still allowed to take
+        # hours. The stall check above deliberately does NOT consult it, and
+        # the reason is written there.
         _ostler_slot_waiters_present || continue
         : > "$_OSTLER_SLOT_DIR/preempted" 2>/dev/null || true
         _ostler_slot_log "reached the ${_OSTLER_SLOT_MAX_HOLD}s maximum hold with another feed waiting; stopping cleanly so the waiting feed gets a turn. Progress is watermarked; the next tick resumes."
