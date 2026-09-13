@@ -2463,6 +2463,7 @@ _SOURCE_KINDS = {
     "imessage": "source",
     "people": "source",
     "places": "source",
+    "reminders": "source",
     "whatsapp": "source",
     "dedupe": "operation",
     "privacy_backfill": "operation",

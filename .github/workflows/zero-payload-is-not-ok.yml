@@ -84,6 +84,13 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: hydrate_reminders wiring guard
+        # Explicit, single-line invocation (verb + path on the same line):
+        # scripts/verify_new_tests_are_wired.sh requires this for a newly
+        # ADDED test file -- the for-loop membership just below does not
+        # satisfy it, because the loop variable indirection puts the
+        # execution verb and the literal filename on different lines.
+        run: /bin/bash tests/test_hydrate_reminders_wired.sh
       - name: The existing hydrate guards must still hold
         run: |
           set +e
