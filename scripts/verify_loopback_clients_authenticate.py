@@ -65,8 +65,17 @@ VENV_BACKED = ("vendor/cm048_pipeline", "vendor/cm041", "vendor/ostler_fda",
 # (measured: it was the gate's first false positive, on its first run). So a
 # file is only a client if it BUILDS a request of its own.
 BUILDS_REQUEST = re.compile(
-    r"urllib\.request\.(?:Request|urlopen)|requests\.(?:get|post|put|delete|patch)"
-    r"|httpx\.(?:get|post|Client|AsyncClient)|\bfetch\s*\(|XMLHttpRequest")
+    # Deliberately wide. Review found three shapes the first version missed --
+    # requests.Session().get, a bare urlopen, and http.client -- and each one
+    # was a real unauthenticated client the gate called "not a client". A
+    # detector that is too narrow does not under-report politely, it reports
+    # CLEAN about code it never considered.
+    r"urlopen\s*\(|urllib\.request\.Request|Request\s*\("
+    r"|requests\.(?:get|post|put|delete|patch|head|request|Session)"
+    r"|\.(?:get|post|put|delete|patch|head|request)\s*\(\s*[\"'f]?(?:https?://|url|base|endpoint)"
+    r"|httpx\.(?:get|post|put|delete|patch|Client|AsyncClient|request)"
+    r"|http\.client\.|HTTPConnection|HTTPSConnection"
+    r"|\bfetch\s*\(|XMLHttpRequest|axios\.")
 
 # DECLARED OPEN DEBT. Each entry is a client that IS refused today, recorded
 # with its reason so the gate can land against real debt instead of being
@@ -90,6 +99,24 @@ SCAN_ROOTS = ("vendor",)
 SCAN_EXT = (".py", ".js")
 
 
+def _code_only(src, ext):
+    """Source with comments and docstrings removed.
+
+    🔴 THE FIRST VERSION SEARCHED THE WHOLE FILE FOR "Authorization", SO A
+    COMMENT SAYING "# TODO: add Authorization" MADE AN UNAUTHENTICATED CLIENT
+    PASS. Review demonstrated it with a working file. A gate whose evidence can
+    be a comment is checking prose, not behaviour, and that is the exact defect
+    class this gate exists to catch -- sitting inside the gate.
+    """
+    if ext == ".py":
+        src = re.sub(r'(?s)""".*?"""|\'\'\'.*?\'\'\'', "", src)
+        src = re.sub(r"(?m)#.*$", "", src)
+    else:
+        src = re.sub(r"(?s)/\*.*?\*/", "", src)
+        src = re.sub(r"(?m)//.*$", "", src)
+    return src
+
+
 def _iter_sources(repo):
     for root in SCAN_ROOTS:
         base = os.path.join(repo, root)
@@ -100,6 +127,26 @@ def _iter_sources(repo):
             for fn in filenames:
                 if fn.endswith(SCAN_EXT):
                     yield os.path.join(dirpath, fn)
+
+
+def _venv_for(repo, rel):
+    """True only when install.sh builds a venv for THIS component.
+
+    Review's finding: the old check asked whether "ostler_store_auth.pth"
+    appeared anywhere in install.sh, then exempted any file under one of five
+    path prefixes. That is an exemption granted by a tuple, not by packaging,
+    and any new file dropped under those prefixes inherited it. The shim only
+    reaches code that runs from a venv, so that is what gets asserted.
+    """
+    comp = rel.split(os.sep)[1] if os.sep in rel else rel
+    try:
+        with open(os.path.join(repo, "install.sh"), "r", encoding="utf-8",
+                  errors="replace") as fh:
+            sh = fh.read()
+    except OSError:
+        return False
+    stem = comp.replace("_", "[-_]").replace("cm0", "cm0")
+    return bool(re.search(r"%s[^\n]{0,200}\.venv|\.venv[^\n]{0,200}%s" % (stem, stem), sh))
 
 
 def _venv_backed_is_real(repo):
@@ -138,21 +185,30 @@ def main():
                 src = fh.read()
         except OSError:
             continue
-        if not GATED_HOSTS.search(src):
+        code = _code_only(src, os.path.splitext(path)[1])
+        if not GATED_HOSTS.search(code):
             continue
-        if not BUILDS_REQUEST.search(src):
+        if not BUILDS_REQUEST.search(code):
             delegated += 1
             continue
         examined += 1
         rel = os.path.relpath(path, repo)
-        if any(rel.startswith(v) for v in VENV_BACKED):
+        if any(rel.startswith(v) for v in VENV_BACKED) and _venv_for(repo, rel):
             exempt_venv += 1
             continue
-        if CREDENTIALLED.search(src):
+        if CREDENTIALLED.search(code):
             continue
         # Only public paths named? Then being uncredentialled is correct.
-        paths = re.findall(r"[\"'](/(?:api/v1|doctor|health)[a-z0-9/_.-]*)", src)
-        if paths and all(any(p.startswith(x) for x in PUBLIC) for p in paths):
+        paths = re.findall(r"[\"'](/(?:api/v1|doctor|health)[a-z0-9/_.-]*)", code)
+        # A path assembled at runtime is not a path this gate has read. Review
+        # showed a file whose only literal route was /health while its real
+        # call was built from os.environ.get(...) -- every literal was public
+        # and the file sailed through. So the exemption requires that NOTHING
+        # is assembled.
+        assembles = re.search(r"(?:environ\.get|\+\s*[a-z_]+|format\(|f[\"'])[^\n]*"
+                              r"(?:/api|url|endpoint)", code)
+        if paths and not assembles and all(
+                any(p.startswith(x) for x in PUBLIC) for p in paths):
             exempt_public += 1
             continue
         if rel in KNOWN_OPEN:

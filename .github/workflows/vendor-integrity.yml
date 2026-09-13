@@ -46,6 +46,7 @@ on:
       - 'tests/test_the_shipped_vendor_manifest_names_no_operator.py'
       - 'tests/test_the_pii_scan_reads_every_file_in_the_tree.py'
       - 'scripts/verify_loopback_clients_authenticate.py'
+      - 'tests/test_the_loopback_auth_gate_cannot_be_bypassed.sh'
       - 'scripts/verify_cut_manifest.py'
       - 'cut-manifests/permanent.yaml'
       - 'gui/Makefile'
@@ -195,6 +196,14 @@ jobs:
       - name: Every loopback client of a gated service authenticates
         if: success() || failure()
         run: python3 scripts/verify_loopback_clients_authenticate.py .
+
+      # The gate above was reviewed adversarially and four working bypasses were
+      # found, including a comment mentioning "Authorization" counting as a
+      # credential. This fires each of those shapes at it, plus two negative
+      # controls, so the gate cannot silently weaken back.
+      - name: The loopback-auth gate cannot be bypassed
+        if: success() || failure()
+        run: bash tests/test_the_loopback_auth_gate_cannot_be_bypassed.sh
 
       - name: Divergent non-shipping twin guard (legacy, intra-repo only)
         if: always()
