@@ -462,6 +462,7 @@ test_the_converge_wait_resolves_the_credential_path.sh	WIRED	.github/workflows/w
 test_the_cron_reader_sees_both_toml_spellings.sh	WIRED	.github/workflows/install-manifest-gate.yml
 test_the_cut_checklist_is_complete.py	WIRED	.github/workflows/cut-checklist-complete.yml
 test_the_daemon_freshness_row_decides_on_the_scoped_count.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_the_db_key_reaches_the_services_and_the_disk.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_the_downloads_watcher_survives_a_real_export.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
 test_the_dry_run_can_still_go_green.sh	WIRED	.github/workflows/version-gate-not-tautological.yml
 test_the_egress_inventory_still_describes_the_software.py	WIRED	.github/workflows/install-abort-and-egress.yml
@@ -479,6 +480,7 @@ test_the_pii_hook_asks_cis_question.sh	WIRED	.github/workflows/operator-pii-scan
 test_the_pii_scan_reads_every_file_in_the_tree.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_port_preflight_aborts_carry_distinct_support_codes.sh	WIRED	.github/workflows/colima-autostart.yml
 test_the_promote_instructions_name_what_makes_it_fail.sh	WIRED	.github/workflows/customer-download-path.yml
+test_the_recovery_key_can_be_redeemed_end_to_end.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_the_recovery_key_is_disclosed_where_it_is_minted.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_replay_reads_the_box_the_probes_read.sh	WIRED	.github/workflows/cut-manifest.yml
 test_the_sentinel_vocabulary_is_declared_and_complete.sh	WIRED	.github/workflows/cold-box-source-truth.yml

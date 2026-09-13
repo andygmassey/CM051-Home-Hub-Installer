@@ -396,7 +396,21 @@ MSG_OK_STALE_COLIMA_LAUNCHAGENT_REMOVED="Removed a stale Colima start-up item le
 MSG_OK_CONFIG_SAVED_ENV="Config saved to %s/.env"
 MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE="Consent records and region persisted to ~/.ostler/posture/"
 MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="Could not save your background-enrichment choice to ~/.ostler/posture/. Your choice is still being applied to this install; it simply will not appear in a support report."
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Databases encrypted. Passphrase required at each startup."
+# The old text read "Databases encrypted. Passphrase required at each
+# startup." Both halves were false. Nothing delivered the key to the
+# services, so the databases were plaintext; and no service, agent or UI
+# has ever asked for the passphrase at startup, so nothing was required
+# at any startup. The key ID is left alone: renaming it would churn every
+# translation catalogue for a copy fix.
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Databases encrypted. The Hub services read the key from a protected file in your home folder, so they start without prompting you."
+MSG_OK_DB_KEY_DELIVERED="Database key delivered to the Hub services (%s, readable only by you)."
+MSG_WARN_DB_KEY_NOT_DELIVERED="Could not hand the database key to the Hub services. They will open databases unencrypted until this is fixed."
+MSG_INFO_DB_KEY_RECOVER_HINT="Run this to recover it and hand it over: %s/.venv/bin/ostler-unlock --install-key-file"
+MSG_INFO_DB_MIGRATION_RUNNING="Encrypting any databases left over from an earlier install"
+MSG_WARN_DB_MIGRATION_FAILED="Some existing databases could not be encrypted. They remain readable on disk."
+MSG_WARN_DB_KEY_MISSING_ON_RERUN="This install has no database key file, so the Hub services are opening databases unencrypted."
+MSG_WARN_DB_PLAINTEXT_COUNT="%s database(s) on this Mac are readable on disk right now."
+MSG_INFO_DB_MIGRATE_HINT="Then encrypt what is already there: %s/.venv/bin/ostler-migrate-dbs"
 MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS="Deferred device-registration retry installed (runs hourly until queue clears)"
 MSG_OK_DOCKER_RUNNING="Docker running"
 MSG_OK_DOCKER_RUNNING_TOOK_S="Docker running (took %ss)"
