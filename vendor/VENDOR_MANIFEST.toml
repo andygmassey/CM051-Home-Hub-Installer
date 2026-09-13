@@ -275,6 +275,7 @@ note             = "2026-07-15: re-synced to CM041 main 11ad1246 (v1.0.9: calend
 
 [[tree]]
 name             = "cm041/assistant_api"
+db_key_warning    = "🔴 DO NOT OVERRIDE A sync_vendor.sh REFUSAL ON THIS TREE. ical-server.py here carries the DB-KEY CONSUMER (CM051 #1956): it resolves the database key through ostler_security.resolve_db_key instead of a bare env var that nothing ever set. That delta IS described in cm041_assistant_api.patch, regenerated 2026-09-13, and the tree reconstructs (gate: OK, vendor == source@9be482d3 +patch). If a future sync REFUSES, that refusal is EXPECTED and correct. SYNC_ACCEPT_DIVERGENCE_LOSS=1 would delete this and the customer's databases go back to being readable with NOTHING FAILING and no test going red, which is exactly the launch blocker #1956 closed. Regenerate the patch instead; the CM041 source is required to do it."
 vendor_path      = "vendor/cm041/assistant_api"
 source_repo      = "$CM041"
 source_path      = "assistant_api"
@@ -339,6 +340,7 @@ note             = "NEW 2026-07-15. SINGLE-FILE tree: canonical fail-closed L3 p
 
 [[tree]]
 name             = "cm048_pipeline"
+db_key_warning    = "🔴 UNDESCRIBED DELTA LIVES HERE, AND IT IS THE DB-KEY CONSUMER. src/ingest.py carries CM051 #1956's change to resolve the database key through ostler_security.resolve_db_key. It is NOT in cm048_pipeline.patch, because the CM048 source checkout on the machine that merged #1956 did not contain this row's pinned sha, so --regen-patch could not run. This row is verify = 'skip', so NOTHING WILL GO RED about it. If a future sync REFUSES on this tree the refusal is EXPECTED: SYNC_ACCEPT_DIVERGENCE_LOSS=1 would delete the db-key consumer and the pipeline would write plaintext again, silently, with no test failing. FIX: fetch a CM048 checkout containing the pinned sha, run scripts/sync_vendor.sh cm048_pipeline --regen-patch, and delete this field."
 expires = "2026-09-30"
 owner = "archie"
 vendor_path      = "vendor/cm048_pipeline"
