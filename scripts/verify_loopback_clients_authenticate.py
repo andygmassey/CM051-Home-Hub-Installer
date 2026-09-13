@@ -108,8 +108,14 @@ BUILDS_REQUEST = re.compile(
 # only ever shrink.
 KNOWN_OPEN = {
     "vendor/cm052_ai_conversations/src/cm052/wire.py":
-        "2026-09-13: posts to :8089 with no credential. MEASURED: :8089 answers "
-        "401 'client bearer is not a paired token'; the route actually lives on "
+        "2026-09-13: posts to :8089 with no credential. MEASURED, and the "
+        "wording matters because the first version of this row misled two "
+        "readers: :8089 has MIXED AUTH. The Doctor's own routes there answer "
+        "200 with NO credential at all (/api/v1/sources proves it). The 401 "
+        "below comes from a DIFFERENT scheme, a paired-device bearer, which "
+        "the service token does not satisfy either. So :8089 answers "
+        "401 'client bearer is not a paired token' FOR THIS ROUTE ONLY; the "
+        "route wire.py actually wants lives on "
         ":8090, which answers 400 'Missing transcript field' with the service "
         "token, so this is a wrong PORT as well as a missing credential. "
         "CM052_CM048_ENDPOINT is never set anywhere, so the wrong default always "
