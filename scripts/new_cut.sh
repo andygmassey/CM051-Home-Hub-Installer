@@ -224,9 +224,31 @@ run_gate "installer version IS the cut version" \
 
 echo
 if [ "$RED" = "0" ]; then
-  echo "ALL GREEN. Safe to tag ${VERSION}. This script does not tag: the tag is the ship."
+  echo "ALL PREFLIGHT GATES GREEN for ${VERSION}."
+  echo
+  echo "THIS IS NOT \"SAFE TO TAG\", AND IT USED TO SAY THAT. This script runs the"
+  echo "gates cut.yml checks in its PREFLIGHT job. It does NOT run the gates the CUT"
+  echo "job runs: \`make ship\` has twelve prerequisites of its own, among them"
+  echo "check-pr-age, check-orphans, check-freshness, check-manifest and"
+  echo "check-provenance. Those are a SECOND ROUND and this script cannot see them."
+  echo
+  echo "NEXT, AND IT COSTS NO TAG:"
+  echo "    gh workflow run cut.yml --repo <owner>/CM051-Home-Hub-Installer --ref main"
+  echo
+  echo "A workflow_dispatch runs preflight AND the dry-run job; the cut job is gated"
+  echo "on push, so nothing is built, signed or published and NO VERSION NUMBER IS"
+  echo "SPENT. Tag only after that run is green."
+  echo
+  echo "MEASURED, 2026-09-13: v1.0.96 was tagged on a preflight nobody had run and"
+  echo "died there. v1.0.97 was tagged after THIS script reported every gate green,"
+  echo "and died in the cut job on check-pr-age, which this script does not run. Two"
+  echo "numbers, one sentence: THE PREPARATION GATES ARE NOT THE SHIP GATES."
   exit 0
 fi
-echo "${RED} gate(s) RED. Every one of them is above -- there is no second round of"
-echo "discovery. Fix them, re-run this, then tag."
+echo "${RED} preflight gate(s) RED. Every PREFLIGHT red is above: there is no second"
+echo "round of discovery AT THIS STAGE. Fix them and re-run this."
+echo
+echo "Then run a workflow_dispatch dry run before tagging. The ship gates inside"
+echo "\`make ship\` are a separate round this script does not reach, and they have"
+echo "spent a version number twice."
 exit 1
