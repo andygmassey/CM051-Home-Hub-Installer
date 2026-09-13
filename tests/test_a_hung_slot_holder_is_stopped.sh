@@ -52,6 +52,15 @@ run_case "a payload burning zero cpu is stopped, with no waiter present" \
 run_case "NEGATIVE CONTROL: a payload actually burning cpu is left alone" \
          'while :; do :; done' ALIVE
 
+# 🔴 THE CONTROL THAT BLOCKED THE FIRST VERSION OF THIS FIX, and the reason it
+# measures a TREE. ostler_slot_run backgrounds the pipeline, which does its real
+# work by shelling out (subprocess.run with capture_output). The PARENT then
+# blocks on a pipe read and burns no cpu while the CHILD works. Reading the
+# parent alone, that is indistinguishable from a hang, so the first version
+# would have killed healthy ingest on a customer box on every tick.
+run_case "NEGATIVE CONTROL: a parent idle on a pipe while its CHILD works is left alone" \
+         'bash -c "(while :; do :; done) | cat >/dev/null"' ALIVE
+
 echo
 [ "$fails" = "0" ] && { echo "All cases passed."; exit 0; }
 echo "$fails case(s) failed."; exit 1
