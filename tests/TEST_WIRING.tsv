@@ -252,6 +252,7 @@ test_hydrate_apple_notes_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok
 test_hydrate_counters_survive_a_failed_producer.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_hydrate_email_preferences_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_hydrate_people_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
+test_hydrate_reminders_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_hydrate_sentinel_change_fields.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_hydrate_sentinel_not_on_error.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_ical_server_vendor_wired.sh	WIRED	.github/workflows/vendor-integrity.yml

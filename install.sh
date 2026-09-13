@@ -2958,7 +2958,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :7652   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :7697   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :7706 and :13532, both of which run
+    # Its two top-level arming calls are :7706 and :13557, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :2949 above has just deleted
     # that tree and :2953 has just rebound OSTLER_DIR to the final one, so
@@ -2976,13 +2976,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :14282, where the note reads
+    # WhatsApp Web session path did it again at :14307, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :14299 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :14324 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -2995,9 +2995,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:7706, :13532) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:7706, :13557) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :16096 / :16274 / :16431 / :16772 path. There the
+    # :16121 / :16299 / :16456 / :16797 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -10159,6 +10159,24 @@ case "$PRESET" in
             _ask_source "chrome_history"   "Chrome history            " N
         fi
         _ask_source "photos_metadata"  "Photos events (no faces)  " N
+        # vendor/ostler_fda/apple_music.py has a complete extractor but is
+        # DELIBERATELY not offered here, in RECOMMENDED, or in EVERYTHING.
+        # Every other source above reads a live, TCC-gated database the FDA
+        # consent grant unlocks directly. apple_music is structurally
+        # different: the modern Music app's live store is an undocumented
+        # opaque CoreData bundle the extractor will not touch, so it reads
+        # only ~/Music/iTunes/iTunes Music Library.xml, a file that exists
+        # ONLY if the customer has separately run a manual export from the
+        # Music app's file menu (the "export library" action). A checkbox
+        # here would grant no new access and would silently produce zero
+        # rows for the near-totality of customers who have never run that
+        # export -- the same "ticked the box, got nothing" trap
+        # tests/test_status_ok_with_zero_payload_is_not_ok.sh exists to
+        # catch on the CONSUMPTION side. Offering it needs a real UI
+        # affordance (a file picker + instructions for the manual export),
+        # not a same-shaped toggle, so it stays unreachable-by-design here
+        # rather than reachable-but-broken. Revisit if a customer-visible
+        # "point me at your exported library" flow is ever built.
         echo ""
         echo "  Special-category data (default off -- explicit consent required):"
         _ask_source "photos_faces" "Photos face recognition (Art. 9)" N
@@ -11289,6 +11307,13 @@ if ! [[ "$TOTAL_STEPS" =~ ^[0-9]+$ ]] || [[ "$TOTAL_STEPS" -le 0 ]]; then
     #     grep -cE '^[[:space:]]*progress "' install.sh   ->  41
     # so the base is 40 non-GDPR + 1 EXPORTS_DIR-gated, not 38 + 1.
     #
+    # UPDATED 2026-09-13: two new unconditional progress() call sites landed
+    # (hydrate_reminders's else-arm and memory_hygiene_setup), moving the
+    # non-GDPR base from 40 to 42. tests/test_total_steps_dynamic.sh caught
+    # the drift immediately -- this constant WILL drift again the next time
+    # a progress() call is added, which is the whole reason the clamp below
+    # exists as the thing that holds when nobody updates this by hand.
+    #
     # ⚠️ AND CORRECTING IT DOES NOT MAKE THIS BRANCH RIGHT. The six mid-run
     # decrements at :20703-:21229 and :26238 subtract from whatever this sets,
     # so a fallback seed still ends up below the number of steps that actually
@@ -11297,7 +11322,7 @@ if ! [[ "$TOTAL_STEPS" =~ ^[0-9]+$ ]] || [[ "$TOTAL_STEPS" -le 0 ]]; then
     #
     # tests/test_total_steps_dynamic.sh exercises this path (BASH_SOURCE is
     # unresolvable under `bash -c`) and fails if this constant drifts.
-    TOTAL_STEPS=40
+    TOTAL_STEPS=42
     [[ -n "$EXPORTS_DIR" ]] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 fi
 CURRENT_STEP=0
@@ -21887,6 +21912,7 @@ OSTLER_LAUNCHAGENT_LABELS=(
     com.ostler.ollama
     com.ostler.doctor
     com.ostler.ical-server
+    com.ostler.memory-hygiene
     com.ostler.export-scan
     com.ostler.fda-rerun
     com.ostler.contact-resync
@@ -22662,6 +22688,108 @@ ICALPLISTEOF
 else
     info "$MSG_INFO_ICAL_SERVER_SOURCE_NOT_BUNDLED"
 fi
+
+# ── 3.13a Memory-hygiene pass (CM041 ostler_hygiene, MEMORY_HYGIENE_SPEC.md §4) ──
+#
+# vendor/cm041/ostler_hygiene/run.py produces supersession + decay verdicts
+# and a contradiction-flags artefact, staged above as a sibling of
+# ical-server at ${OSTLER_DIR}/services/ostler_hygiene (the ical-server
+# section's own comment: "ical-server's _hygiene_reader() resolves it from
+# the same parent dir; the import is fail-open, but without it the hygiene
+# overlay silently degrades to raw source facts"). That READ side is wired
+# and calls it live. Nothing wrote the WRITE side: no LaunchAgent plist, no
+# cron entry, no install.sh line, only its own tests import it. So the
+# <urn:ostler:hygiene> named graph the reader looks in was always empty,
+# the read side's fail-open swallowed that silently, and stale/superseded
+# facts about people were never down-weighted -- with no error to show for
+# it. This block is that missing write side, following the periodic
+# LaunchAgent pattern used elsewhere in this file (StartInterval, not
+# StartCalendarInterval, per the #714 rationale above: a one-shot calendar
+# entry does not repeat, only an interval job does).
+#
+# PYTHONPATH needs TWO entries, not one, because ostler_hygiene.model hard-
+# imports contact_syncer.privacy_model: ostler_hygiene itself lives under
+# services/ (set via WorkingDirectory, which `python -m` adds to sys.path
+# the same way ical-server.py's own file lives there), and contact_syncer
+# lives under the SEPARATE import-pipeline/ tree (see the ical-server
+# plist's own PYTHONPATH comment above -- identity_resolver and
+# contact_syncer are staged as siblings there, not under services/). Same
+# reasoning, same fix, same directory this repo already uses for exactly
+# this cross-package import.
+
+progress "Scheduling memory hygiene" "memory_hygiene_setup"
+
+_HYGIENE_SERVICES_ROOT="${OSTLER_DIR}/services"
+_HYGIENE_IMPORT_PIPELINE_DIR="${OSTLER_DIR}/import-pipeline"
+
+if [[ -d "${_HYGIENE_SERVICES_ROOT}/ostler_hygiene" ]] \
+   && [[ -d "${_HYGIENE_IMPORT_PIPELINE_DIR}/contact_syncer" ]] \
+   && [[ -x "$OSTLER_PYTHON" ]]; then
+    mkdir -p "${HOME}/Library/LaunchAgents" "${OSTLER_DIR}/hygiene" 2>/dev/null || true
+    HYGIENE_PLIST="${HOME}/Library/LaunchAgents/com.ostler.memory-hygiene.plist"
+    cat > "$HYGIENE_PLIST" <<HYGIENEPLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ostler.memory-hygiene</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${OSTLER_PYTHON}</string>
+        <string>-m</string>
+        <string>ostler_hygiene.run</string>
+        <string>--apply</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>${_HYGIENE_SERVICES_ROOT}</string>
+    <key>StartInterval</key>
+    <integer>86400</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/memory-hygiene.log</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/memory-hygiene.err</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key>
+        <string>${_HYGIENE_IMPORT_PIPELINE_DIR}</string>
+        <!-- Same rationale as the ical-server plist above: this runs the
+             venv python whose base_prefix is the interpreter bundled
+             inside OstlerInstaller.app, so an unredirected bytecode cache
+             writes into the signed bundle and breaks its code seal. -->
+        <key>PYTHONPYCACHEPREFIX</key>
+        <string>${OSTLER_DIR}/cache/pycache</string>
+        <key>HOME</key>
+        <string>${HOME}</string>
+        <key>OXIGRAPH_URL</key>
+        <string>${OXIGRAPH_URL:-http://localhost:7878}</string>
+        <key>OSTLER_HYGIENE_DIR</key>
+        <string>${OSTLER_DIR}/hygiene</string>
+        <!-- Opt-in per mechanism (run.py's own safety posture): the apply
+             flag alone writes nothing without both of these. -->
+        <key>OSTLER_HYGIENE_SUPERSEDE</key>
+        <string>1</string>
+        <key>OSTLER_HYGIENE_DECAY</key>
+        <string>1</string>
+    </dict>
+</dict>
+</plist>
+HYGIENEPLISTEOF
+    if _ostler_launchagent_load_verified "$HYGIENE_PLIST"; then
+        ok "$MSG_OK_MEMORY_HYGIENE_INSTALLED"
+    else
+        # Non-fatal: fail-open on the read side already means an absent
+        # pass degrades to today's (pre-this-fix) behaviour, not a crash.
+        warn "$MSG_WARN_MEMORY_HYGIENE_NOT_LOADED"
+    fi
+else
+    info "$MSG_INFO_MEMORY_HYGIENE_SKIPPED_NOT_STAGED"
+fi
+unset _HYGIENE_SERVICES_ROOT _HYGIENE_IMPORT_PIPELINE_DIR
 
 # ── 3.13b Knowledge service (CM024 Evernote ingest) ─────────────
 #
@@ -26883,7 +27011,7 @@ _hydrate_payload_is_all_zero() {
 #
 # A reader (CM044) should cover THIS list rather than one somebody transcribed.
 OSTLER_SENTINEL_STATUSES="ok error timeout no_data cannot_run"
-OSTLER_SENTINEL_SOURCES="ai_conversations apple_notes browsing calendar contacts dedupe email email_preferences imessage people places privacy_backfill whatsapp"
+OSTLER_SENTINEL_SOURCES="ai_conversations apple_notes browsing calendar contacts dedupe email email_preferences imessage people places privacy_backfill reminders whatsapp"
 
 _hydrate_sentinel_record() {
     local source="$1"
@@ -29747,6 +29875,183 @@ unset _HYDRATE_APPLENOTES_STAGING _HYDRATE_APPLENOTES_DBPATH
 unset _HYDRATE_APPLENOTES_COLLECTION _HYDRATE_APPLENOTES_EMBED_MODEL
 unset _HYDRATE_APPLENOTES_MAXLEVEL _HYDRATE_APPLENOTES_QDRANT
 unset _HYDRATE_APPLENOTES_OLLAMA
+
+# Reminders knowledge hydration (CM024 reminders adapter) -----------
+#
+# reminders.json is extracted under both the Recommended and Everything
+# onboarding presets (OSTLER_FDA_SOURCES default), so most real installs
+# capture it, but until this block nothing read it back: no ingest
+# dispatch entry, and the wiki compiler never consumed it. This follows
+# the Apple Notes block above EXACTLY -- same two-phase convert+embed
+# path, same sentinel shape, same timeout/heartbeat/err-trap handling --
+# with one addition earned by actually running the pipeline rather than
+# assuming it worked: the shared `ostler-knowledge` importance scorer
+# crashed on ANY timestamp with a UTC offset (TypeError: can't compare
+# offset-naive and offset-aware datetimes), which is what apple_notes.py
+# and reminders.py both emit. That crashed the Apple Notes block above
+# too, silently, on real data -- see vendor/cm024_knowledge/
+# ostler_knowledge/ingestion/importance_scorer.py's _score_recency fix
+# landed alongside this block. Measured directly: convert --source
+# apple_notes and convert --source reminders both raised before that fix
+# and both produce real markdown after it, verified against synthetic
+# fixtures (no real data touched the test).
+#
+# See ALSO the module docstring in vendor/cm024_knowledge/ostler_knowledge/
+# ingestion/adapters/reminders.py for what this adapter does NOT solve:
+# reminders.json carries no stable per-record id (unlike apple_notes.json's
+# evernote_guid), so the adapter derives a synthetic one from
+# (title, creation_date, due_date) -- stable across an unedited reminder's
+# re-scans, but an edit mints a new knowledge-base entry rather than
+# updating the old one. The correct fix is surfacing the reminder's
+# database primary key in ostler_fda/reminders.py (HR015); that is not
+# done here.
+_HYDRATE_REMINDERS_FDA_DIR="${OSTLER_DIR}/imports/fda"
+_HYDRATE_REMINDERS_JSON_FILE="${_HYDRATE_REMINDERS_FDA_DIR}/reminders.json"
+
+# Same announce-behind-the-data-gate discipline as Apple Notes above (#571
+# class): the claim moves behind the condition that makes it true, and the
+# step counter stays honest when the step does not run.
+if [[ ! -s "$_HYDRATE_REMINDERS_JSON_FILE" ]]; then
+    TOTAL_STEPS=$((TOTAL_STEPS - 1))
+else
+    progress "Reading your Reminders" "hydrate_reminders"
+fi
+_HYDRATE_REMINDERS_BIN="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
+_HYDRATE_REMINDERS_STAGING="${OSTLER_DIR}/data/knowledge-staging-reminders"
+_HYDRATE_REMINDERS_DBPATH="${OSTLER_DIR}/data/knowledge-metadata.db"
+_HYDRATE_REMINDERS_COLLECTION="reminders_knowledge"
+_HYDRATE_REMINDERS_EMBED_MODEL="${OSTLER_KNOWLEDGE_EMBED_MODEL:-nomic-embed-text}"
+_HYDRATE_REMINDERS_MAXLEVEL="${OSTLER_KNOWLEDGE_MAX_COMPARTMENT_LEVEL:-2}"
+_HYDRATE_REMINDERS_QDRANT="${QDRANT_URL:-http://localhost:6333}"
+_HYDRATE_REMINDERS_OLLAMA="${EMBED_OLLAMA_URL:-http://localhost:11434}"
+
+# Resolve the ostler-knowledge binary (absolute symlink or PATH name).
+_HYDRATE_REMINDERS_BIN_OK=false
+if [[ -x "$_HYDRATE_REMINDERS_BIN" ]] || command -v "$_HYDRATE_REMINDERS_BIN" >/dev/null 2>&1; then
+    _HYDRATE_REMINDERS_BIN_OK=true
+fi
+
+if _hydrate_sentinel_fresh "reminders"; then
+    info "$MSG_HYDRATE_REMINDERS_SKIPPED_NO_DATA"
+elif [[ "${OSTLER_REMINDERS_KNOWLEDGE:-1}" == "0" ]]; then
+    # Deferred explicit-flag hook, mirroring OSTLER_APPLE_NOTES_KNOWLEDGE:
+    # operator opted this leg out.
+    info "$MSG_HYDRATE_REMINDERS_SKIPPED_NO_DATA"
+elif [[ "$_HYDRATE_REMINDERS_BIN_OK" == "true" ]] && [[ -s "$_HYDRATE_REMINDERS_JSON_FILE" ]]; then
+    info "$MSG_HYDRATE_REMINDERS_STARTED"
+
+    _HYDRATE_REMINDERS_CAP="${OSTLER_HYDRATE_REMINDERS_TIMEOUT:-1800}"
+    _HYDRATE_REMINDERS_TIMEOUT_WRAP=""
+    if command -v gtimeout >/dev/null 2>&1; then
+        _HYDRATE_REMINDERS_TIMEOUT_WRAP="gtimeout $_HYDRATE_REMINDERS_CAP"
+    elif command -v timeout >/dev/null 2>&1; then
+        _HYDRATE_REMINDERS_TIMEOUT_WRAP="timeout $_HYDRATE_REMINDERS_CAP"
+    fi
+
+    _HYDRATE_REMINDERS_LOG="${OSTLER_DIAG_DIR}/hydrate-reminders.log"
+    _HYDRATE_REMINDERS_TIMED_OUT=false
+    mkdir -p "$_HYDRATE_REMINDERS_STAGING" "$(dirname "$_HYDRATE_REMINDERS_DBPATH")"
+
+    # Best-effort hydrate (#640-class guard, mirror of hydrate_apple_notes):
+    # suppress the errtrace ERR trap + errexit around the convert+embed run
+    # so an in-subprocess failure degrades to "skipped" instead of aborting
+    # the whole install. Preserve rc for the timeout check.
+    _saved_err_trap=$(trap -p ERR); trap - ERR; set +e
+    _hydrate_heartbeat_start "$MSG_HYDRATE_REMINDERS_HEARTBEAT"
+
+    # Phase 1: convert the reminder-list JSON to privacy-tagged markdown.
+    OSTLER_QDRANT_URL="$_HYDRATE_REMINDERS_QDRANT" \
+    OSTLER_OLLAMA_URL="$_HYDRATE_REMINDERS_OLLAMA" \
+    $_HYDRATE_REMINDERS_TIMEOUT_WRAP \
+        "$_HYDRATE_REMINDERS_BIN" convert \
+            --source reminders \
+            "$_HYDRATE_REMINDERS_JSON_FILE" \
+            --output "$_HYDRATE_REMINDERS_STAGING" \
+        >>"$_HYDRATE_REMINDERS_LOG" 2>&1
+    _HYDRATE_REMINDERS_CONVERT_RC=$?
+
+    # Phase 2: embed the staged markdown into its own searchable collection
+    # -- ONLY if convert exited 0. L3 ("private") reminders are kept out of
+    # search by the max-compartment-level cap, same as Apple Notes.
+    if [[ "$_HYDRATE_REMINDERS_CONVERT_RC" -eq 0 ]]; then
+        OSTLER_QDRANT_URL="$_HYDRATE_REMINDERS_QDRANT" \
+        OSTLER_OLLAMA_URL="$_HYDRATE_REMINDERS_OLLAMA" \
+        $_HYDRATE_REMINDERS_TIMEOUT_WRAP \
+            "$_HYDRATE_REMINDERS_BIN" embed \
+                "$_HYDRATE_REMINDERS_STAGING" \
+                --collection "$_HYDRATE_REMINDERS_COLLECTION" \
+                --embedding-model "$_HYDRATE_REMINDERS_EMBED_MODEL" \
+                --max-compartment-level "$_HYDRATE_REMINDERS_MAXLEVEL" \
+                --db-path "$_HYDRATE_REMINDERS_DBPATH" \
+            >>"$_HYDRATE_REMINDERS_LOG" 2>&1
+        _HYDRATE_REMINDERS_EMBED_RC=$?
+    else
+        _HYDRATE_REMINDERS_EMBED_RC=1
+    fi
+
+    rc=$_HYDRATE_REMINDERS_CONVERT_RC
+    _hydrate_heartbeat_stop
+    set -e; eval "${_saved_err_trap:-}"
+    if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
+        _HYDRATE_REMINDERS_TIMED_OUT=true
+    fi
+
+    if [[ "$_HYDRATE_REMINDERS_TIMED_OUT" == "true" ]]; then
+        info "$MSG_HYDRATE_REMINDERS_BACKGROUND_CONTINUES"
+    elif [[ "$_HYDRATE_REMINDERS_CONVERT_RC" -eq 0 ]]; then
+        # convert prints "Files written: <n>" to stderr (now in the log).
+        # grep exits 1 on no match (a NORMAL case when 0 reminders
+        # converted), which under pipefail would abort this late step --
+        # `|| printf '0'` keeps the substitution exit 0 so ${VAR:-0} applies.
+        _HYDRATE_REMINDERS_COUNT="$(
+            grep -aE 'Files written:' "$_HYDRATE_REMINDERS_LOG" 2>/dev/null \
+            | tail -n 1 \
+            | tr -dc '0-9' \
+            || printf '0'
+        )"
+        _HYDRATE_REMINDERS_COUNT="${_HYDRATE_REMINDERS_COUNT:-0}"
+        if [[ "$_HYDRATE_REMINDERS_COUNT" -gt 0 ]]; then
+            ok "$(printf "$MSG_HYDRATE_REMINDERS_DONE" "$_HYDRATE_REMINDERS_COUNT")"
+        else
+            info "$MSG_HYDRATE_REMINDERS_SKIPPED_NO_DATA"
+        fi
+    else
+        # convert failed -- honest skip, no crash. See the block comment
+        # above for the one failure mode this repo has actually measured
+        # (the importance-scorer timezone crash, now fixed alongside this).
+        info "$MSG_HYDRATE_REMINDERS_SKIPPED_PIPELINE_PENDING"
+    fi
+
+    # Sentinel dedupes a re-run within the 7-day window. Two stages, same
+    # as Apple Notes: report whichever stage actually failed.
+    if [[ "${_HYDRATE_REMINDERS_CONVERT_RC:-0}" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "reminders" "$_HYDRATE_REMINDERS_CONVERT_RC" \
+            "stage=convert,reminders=${_HYDRATE_REMINDERS_COUNT:-unknown}"
+    elif [[ "${_HYDRATE_REMINDERS_EMBED_RC:-0}" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "reminders" "$_HYDRATE_REMINDERS_EMBED_RC" \
+            "stage=embed,reminders=${_HYDRATE_REMINDERS_COUNT:-unknown}"
+    else
+        _hydrate_sentinel_record "reminders" "reminders=${_HYDRATE_REMINDERS_COUNT:-0}" \
+            "ran_ok_no_reminders"
+    fi
+
+    unset _HYDRATE_REMINDERS_CAP _HYDRATE_REMINDERS_TIMEOUT_WRAP
+    unset _HYDRATE_REMINDERS_LOG _HYDRATE_REMINDERS_TIMED_OUT
+    unset _HYDRATE_REMINDERS_COUNT _HYDRATE_REMINDERS_CONVERT_RC
+    unset _HYDRATE_REMINDERS_EMBED_RC
+elif [[ "$_HYDRATE_REMINDERS_BIN_OK" != "true" ]]; then
+    info "$MSG_HYDRATE_REMINDERS_SKIPPED_PIPELINE_PENDING"
+else
+    info "$MSG_HYDRATE_REMINDERS_SKIPPED_NO_DATA"
+    _hydrate_sentinel_record_no_data "reminders" "no_export_json"
+fi
+
+unset _HYDRATE_REMINDERS_FDA_DIR _HYDRATE_REMINDERS_JSON_FILE
+unset _HYDRATE_REMINDERS_BIN _HYDRATE_REMINDERS_BIN_OK
+unset _HYDRATE_REMINDERS_STAGING _HYDRATE_REMINDERS_DBPATH
+unset _HYDRATE_REMINDERS_COLLECTION _HYDRATE_REMINDERS_EMBED_MODEL
+unset _HYDRATE_REMINDERS_MAXLEVEL _HYDRATE_REMINDERS_QDRANT
+unset _HYDRATE_REMINDERS_OLLAMA
 
 # People search index (#600) ---------------------------------------
 #
