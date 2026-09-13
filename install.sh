@@ -11307,6 +11307,13 @@ if ! [[ "$TOTAL_STEPS" =~ ^[0-9]+$ ]] || [[ "$TOTAL_STEPS" -le 0 ]]; then
     #     grep -cE '^[[:space:]]*progress "' install.sh   ->  41
     # so the base is 40 non-GDPR + 1 EXPORTS_DIR-gated, not 38 + 1.
     #
+    # UPDATED 2026-09-13: two new unconditional progress() call sites landed
+    # (hydrate_reminders's else-arm and memory_hygiene_setup), moving the
+    # non-GDPR base from 40 to 42. tests/test_total_steps_dynamic.sh caught
+    # the drift immediately -- this constant WILL drift again the next time
+    # a progress() call is added, which is the whole reason the clamp below
+    # exists as the thing that holds when nobody updates this by hand.
+    #
     # ⚠️ AND CORRECTING IT DOES NOT MAKE THIS BRANCH RIGHT. The six mid-run
     # decrements at :20703-:21229 and :26238 subtract from whatever this sets,
     # so a fallback seed still ends up below the number of steps that actually
@@ -11315,7 +11322,7 @@ if ! [[ "$TOTAL_STEPS" =~ ^[0-9]+$ ]] || [[ "$TOTAL_STEPS" -le 0 ]]; then
     #
     # tests/test_total_steps_dynamic.sh exercises this path (BASH_SOURCE is
     # unresolvable under `bash -c`) and fails if this constant drifts.
-    TOTAL_STEPS=40
+    TOTAL_STEPS=42
     [[ -n "$EXPORTS_DIR" ]] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 fi
 CURRENT_STEP=0
@@ -21905,6 +21912,7 @@ OSTLER_LAUNCHAGENT_LABELS=(
     com.ostler.ollama
     com.ostler.doctor
     com.ostler.ical-server
+    com.ostler.memory-hygiene
     com.ostler.export-scan
     com.ostler.fda-rerun
     com.ostler.contact-resync
@@ -22761,8 +22769,8 @@ if [[ -d "${_HYGIENE_SERVICES_ROOT}/ostler_hygiene" ]] \
         <string>${OXIGRAPH_URL:-http://localhost:7878}</string>
         <key>OSTLER_HYGIENE_DIR</key>
         <string>${OSTLER_DIR}/hygiene</string>
-        <!-- Opt-in per mechanism (run.py's own safety posture): --apply
-             alone writes nothing without both of these. -->
+        <!-- Opt-in per mechanism (run.py's own safety posture): the apply
+             flag alone writes nothing without both of these. -->
         <key>OSTLER_HYGIENE_SUPERSEDE</key>
         <string>1</string>
         <key>OSTLER_HYGIENE_DECAY</key>
