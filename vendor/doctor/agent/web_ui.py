@@ -306,6 +306,174 @@ app.add_middleware(
 
 SUPPORT_EMAIL = os.getenv("DOCTOR_SUPPORT_EMAIL", "support@creativemachines.ai")
 
+
+# ── Cross-site refusal on the credential routes ──────────────────────
+#
+# WHAT THIS CLOSES, AND, JUST AS IMPORTANTLY, WHAT IT DOES NOT.
+#
+# MEASURED on origin/main 2026-09-13, in this file: 34 ``@app.<verb>`` route
+# decorators, ``Depends(`` appears ZERO times in all 5235 lines (positive
+# control, same search shape: ``CORSMiddleware`` appears twice, so the zero is
+# a real absence and not a broken predicate), and the only ``add_middleware``
+# in the whole ``vendor/doctor`` tree is CORS with ``allow_origins=["*"]``.
+# Every Doctor-native route therefore answers with no credential at all.
+#
+# Four of those routes hand out or rotate a CREDENTIAL:
+#
+#   POST /api/v1/auth/chat-token   mints a ZeroClaw device bearer
+#   GET  /api/v1/extension/token   returns the browser-extension ingest key
+#   GET  /api/v1/pair/status       returns the section 3.3 pairing envelope
+#                                  (the QR encodes the pairing token itself)
+#   POST /api/v1/pair/regenerate   rotates that pairing credential
+#
+# With ``allow_origins=["*"]`` and ``allow_credentials=False`` a POST with no
+# body and no custom header is a CORS "simple request", so ANY page the
+# customer happens to open can issue these calls AND READ THE ANSWER BACK. A
+# drive-by site was one fetch away from a device bearer and from the pairing
+# envelope. That is the hole this closes.
+#
+# 🔴 THIS IS NOT AUTHENTICATION AND MUST NEVER BE DESCRIBED AS ANY. It refuses
+# a request that a BROWSER is making on behalf of a page the Hub did not
+# serve, which is the only attacker this predicate can see. It does NOTHING
+# against:
+#
+#   * a local process running as the customer, which sets whatever Origin and
+#     Sec-Fetch-Site it likes. That attacker is also not meaningfully held
+#     back by gating this route: the ZeroClaw admin token sits in
+#     ~/.ostler/secrets at mode 0600 under that same uid, so it can mint
+#     directly from the gateway without asking the Doctor at all.
+#   * a non-browser peer on the tailnet. install.sh raw-TCP serves :8089 to
+#     the tailnet (see the "v1.0.10 security lockdown" block), and its comment
+#     there claims 8089 "has its own device-pairing bearer auth" -- which is
+#     true of the PROXIED paths only, never of these Doctor-native ones.
+#
+# Both of those remain open on purpose and are recorded as such. The shipped
+# CM031 Companion presents NO credential on the chat-token mint (verified on
+# CM031 origin/main, ``ChatTokenService.mint`` sets only ``Accept``), so any
+# credential requirement here breaks pairing-to-chat for every customer. A
+# broken pairing flow at launch is worse than a documented hole.
+#
+# THE PREDICATE, and why both halves are needed:
+#
+#   * ``Sec-Fetch-Site`` is stamped by the browser and cannot be set by page
+#     script. ``same-origin`` is the Doctor's own pages; ``none`` is a typed
+#     URL or a bookmark. Anything else is another site driving the call.
+#     Browsers before the header existed simply do not send it.
+#   * ``Origin`` catches those older browsers on the requests that carry it.
+#     A GET normally carries no Origin at all, which is why the header alone
+#     is not enough and why absence must stay permitted.
+#
+# Absence of BOTH is the non-browser caller: curl, the installer's own probes,
+# and the iOS Companion. Those are allowed through, unchanged.
+
+_SAME_SITE_FETCH_VALUES = ("same-origin", "none")
+
+CROSS_SITE_REFUSAL_DETAIL = (
+    "refused: this Hub credential route is not available to another site"
+)
+
+
+# ── Hub-screen-only routes ───────────────────────────────────────────
+#
+# GET /api/v1/pair/status RETURNS THE PAIRING CREDENTIAL. pair_status
+# re-serialises the gateway's section 3.3 envelope, pairing_token and all, and
+# the QR is just that string drawn as pixels. A caller who fetches it can pair
+# ITSELF with the Hub, which makes every other gate on this port beside the
+# point.
+#
+# It exists to draw the QR on the Hub's OWN screen. MEASURED on CM031
+# origin/main: the Companion NEVER fetches it, nor /api/v1/pair/regenerate --
+# zero hits across CM031/ for api/v1/pair, against api/v1/auth/chat-token as
+# the positive control, which does hit. The phone gets the envelope by
+# SCANNING the QR, not by asking for it. So closing this to the Hub itself
+# costs iOS nothing.
+#
+# THE HOST HEADER IS THE DISCRIMINATOR, and this reuses the one the estate
+# already has rather than inventing a second: ical-server.py:220
+# _ALLOWED_HOST_NAMES is the same allowlist for the same reason (it calls out
+# DNS-rebind explicitly).
+#
+# 🔴 WHY NOT THE PEER IP, WHICH WOULD BE STRONGER. It cannot work here.
+# install.sh runs tailscaled in USERSPACE mode and bridges the port with
+# `tailscale serve --bg --tcp=8089 tcp://localhost:8089` (install.sh:26200).
+# A userspace forwarder terminates the tailnet connection and opens a FRESH
+# one to localhost, so request.client.host is 127.0.0.1 for a tailnet peer
+# exactly as it is for the Hub's own browser. A loopback peer check would
+# admit every tailnet caller while looking like it excluded them, which is
+# worse than no check.
+#
+# WHAT THIS DOES AND DOES NOT COVER, stated so it is not overclaimed later.
+# A tailnet peer dials http://100.x.y.z:8089 and its Host header says so, so
+# the real-world shape is refused, and a browser cannot override Host at all.
+# A deliberate non-browser attacker can still send `Host: 127.0.0.1` by hand.
+# Closing THAT means not raw-TCP serving this port wholesale: serve only the
+# paths the Companion needs, or move the pairing panel off the served port.
+# Filed, not done here.
+_HUB_LOCAL_HOST_NAMES = (
+    "127.0.0.1", "localhost", "[::1]", "::1",
+    "[::ffff:127.0.0.1]", "::ffff:127.0.0.1",
+)
+
+HUB_SCREEN_ONLY_DETAIL = (
+    "refused: the pairing panel is served to the Hub's own screen only"
+)
+
+
+def _not_hub_local(request: Request) -> "JSONResponse | None":
+    """Refuse a request that did not dial the Hub as loopback.
+
+    Fails CLOSED: a missing or unparseable Host is refused, because a request
+    that cannot say which address it dialled has not proved it dialled this
+    one.
+    """
+    host = (request.headers.get("host") or "").strip().lower()
+    if not host:
+        return JSONResponse(
+            {"error": HUB_SCREEN_ONLY_DETAIL, "refused_on": "host-absent"},
+            status_code=403,
+        )
+    # Strip the port. Bracketed IPv6 keeps its brackets, matching the
+    # allowlist above and ical-server's.
+    if host.startswith("["):
+        name = host.split("]")[0] + "]" if "]" in host else host
+    else:
+        name = host.rsplit(":", 1)[0] if ":" in host else host
+    if name not in _HUB_LOCAL_HOST_NAMES:
+        return JSONResponse(
+            {"error": HUB_SCREEN_ONLY_DETAIL, "refused_on": "host"},
+            status_code=403,
+        )
+    return None
+
+
+def _cross_site_refusal(request: Request) -> "JSONResponse | None":
+    """Return the 403 to send, or ``None`` when the caller may proceed.
+
+    Fails CLOSED: if the shared origin predicate cannot be imported at all the
+    request is refused rather than waved through, because a guard that cannot
+    run has not passed.
+    """
+    site = (request.headers.get("sec-fetch-site") or "").strip().lower()
+    if site and site not in _SAME_SITE_FETCH_VALUES:
+        return JSONResponse(
+            {"error": CROSS_SITE_REFUSAL_DETAIL, "refused_on": "sec-fetch-site"},
+            status_code=403,
+        )
+    try:
+        from editor_feedback import origin_is_local as _origin_is_local
+    except Exception:  # noqa: BLE001 - a guard that cannot run has not passed
+        return JSONResponse(
+            {"error": CROSS_SITE_REFUSAL_DETAIL, "refused_on": "guard-unavailable"},
+            status_code=403,
+        )
+    if not _origin_is_local(request.headers.get("origin")):
+        return JSONResponse(
+            {"error": CROSS_SITE_REFUSAL_DETAIL, "refused_on": "origin"},
+            status_code=403,
+        )
+    return None
+
+
 # ── Snapshot history (in-memory, last 10) ─────────────────────────
 
 _history: deque[dict] = deque(maxlen=10)
@@ -2888,7 +3056,18 @@ async def api_chat_token(request: Request):
     See ``chat_token.py`` for the end-to-end logic, the admin-token
     seed convention, and the public-URL resolution rules. This
     handler only owns the HTTP plumbing.
+
+    This route VENDS A CREDENTIAL and until 2026-09-13 any page the
+    customer opened could fetch it and read the bearer straight out of
+    the response (wildcard CORS, no preflight needed for a bodyless
+    POST). ``_cross_site_refusal`` closes that. It closes NOTHING ELSE:
+    read its block above for what stays open and why the shipped
+    Companion forbids requiring a credential here.
     """
+    refusal = _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
+
     from chat_token import (
         TokenIssueError as _ChatTokenError,
         issue_chat_token as _issue,
@@ -4630,13 +4809,22 @@ async def extension_setup_page():
 
 
 @app.get("/api/v1/extension/token", response_class=JSONResponse)
-async def api_extension_token():
+async def api_extension_token(request: Request):
     """Return the browser-extension key and the state it is in.
 
     Read fresh on every call rather than cached. Two of the five states are
     cleared by restarting Ostler, and a cached answer would keep telling the
     customer to do the thing they have already done.
+
+    Its only caller in this repo is the Doctor's own ``/extension-setup``
+    panel, a same-origin ``fetch("/api/v1/extension/token")`` (see
+    ``_render_extension_setup_page``), so the cross-site refusal costs the
+    real consumer nothing and stops a drive-by page reading the ingest key.
     """
+    refusal = _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
+
     from extension_token import fetch_token_status
     return JSONResponse(fetch_token_status().to_dict(), status_code=200)
 
@@ -4648,8 +4836,20 @@ async def pair_ios_page():
 
 
 @app.get("/api/v1/pair/status", response_class=JSONResponse)
-async def api_pair_status():
-    """Return the current pair code, QR SVG, and any error state."""
+async def api_pair_status(request: Request):
+    """Return the current pair code, QR SVG, and any error state.
+
+    THE QR CARRIES THE PAIRING TOKEN. ``pair_status`` re-serialises the
+    gateway's section 3.3 envelope (``{v, hub_addr, rp_id, pairing_token,
+    expires_at}``) into the string the QR encodes, so this response IS the
+    pairing credential in visual form. Wildcard CORS made it readable by any
+    page the customer opened; the refusal below is what stops that. Its only
+    caller here is the Doctor's own ``/pair-ios`` panel, same-origin.
+    """
+    refusal = _not_hub_local(request) or _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
+
     from pair_status import fetch_pair_status
     return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
 
@@ -4661,18 +4861,17 @@ async def api_pair_regenerate(request: Request):
     Cross-origin POSTs from a malicious local browser tab can DOS the
     pair code (rotate it under the customer's feet) even though the
     same-origin policy blocks the attacker from reading the new code.
-    Modern browsers set ``Sec-Fetch-Site`` automatically; reject
-    anything that is not ``same-origin`` or ``none`` (the latter
-    covers direct navigation and bookmarks). Older browsers do not
-    send the header; in that case the request is allowed through and
-    the same-origin policy remains the defence-in-depth.
+
+    This used to check ``Sec-Fetch-Site`` alone, inline. It now calls the
+    shared ``_cross_site_refusal``, which adds the ``Origin`` half: a browser
+    old enough not to stamp ``Sec-Fetch-Site`` still sends ``Origin`` on a
+    POST, and that case was the gap. One predicate, so the four credential
+    routes cannot drift apart the way this one and the chat-token mint had.
     """
-    sec_fetch_site = request.headers.get("sec-fetch-site")
-    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
-        return JSONResponse(
-            {"error": "Cross-site request refused"},
-            status_code=403,
-        )
+    refusal = _not_hub_local(request) or _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
+
     from pair_status import fetch_pair_status
     return JSONResponse(
         fetch_pair_status(fresh=True).to_dict(), status_code=200,
@@ -5175,12 +5374,22 @@ async def config_page():
 
 
 @app.get("/api/v1/config", response_class=JSONResponse)
-async def api_config_get():
+async def api_config_get(request: Request):
     """Return the current config view model.
 
     Secrets are never included as values: secret-looking keys are
     reported presence-only (set / not set). See ``config_panel.py``.
+
+    Not a credential route, so it is not in the list above -- but it is the
+    customer's settings (channels, schedule, model, privacy default) and
+    wildcard CORS made it readable by any page they opened. The POST beside it
+    already refused a cross-site write; the READ refused nothing. Its only
+    caller is the Doctor's own ``/config`` panel, same-origin.
     """
+    refusal = _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
+
     from config_panel import ConfigError as _ConfigError, read_config_view
 
     try:
@@ -5193,18 +5402,16 @@ async def api_config_get():
 async def api_config_post(request: Request):
     """Validate + persist a whitelist of safe config edits.
 
-    Same cross-site guard as the pair-regenerate route: reject any POST
-    whose ``Sec-Fetch-Site`` is present and not same-origin, so a
-    malicious local tab cannot mutate the customer's config under them.
+    Same cross-site guard as the pair-regenerate route, and now literally the
+    same function, so a malicious local tab cannot mutate the customer's
+    config under them. The inline copy this replaces checked
+    ``Sec-Fetch-Site`` only; ``_cross_site_refusal`` adds the ``Origin`` half.
     Only whitelisted, non-secret fields are writable; everything else is
     rejected by ``config_panel.write_config``.
     """
-    sec_fetch_site = request.headers.get("sec-fetch-site")
-    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
-        return JSONResponse(
-            {"error": "Cross-site request refused"},
-            status_code=403,
-        )
+    refusal = _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
 
     from config_panel import ConfigError as _ConfigError, write_config
 
