@@ -49,6 +49,13 @@
 #       ssh <host> scutil --get ComputerName
 #   If it still refuses, the die now prints both strings BYTE BY BYTE.
 #
+#   --expect-user <login> asserts WHICH ACCOUNT the walk runs as. The identity
+#   round trip has always read `id -un`; until 2026-09-13 it only printed it,
+#   so a walk pointed at the wrong account ran to completion. The probes read
+#   the Hub user's 0600 files under ~/.ostler/secrets, and as another account
+#   they degrade to CANNOT-RUN rather than FAIL, which is the quietest way for
+#   a blocking probe to stop asserting anything.
+#
 #   scripts/ttywalk.sh --host ... --expect-name ... --reset      # uninstall first
 #   scripts/ttywalk.sh --host ... --reset --wipe-stores          # AND wipe the stores
 #
@@ -75,6 +82,10 @@ PASS=0; FAIL=1; CANNOT_RUN=2
 HOST=""
 EXPECT_NAME=""
 EXPECT_MODEL=""
+# The third fact the identity round trip already collects. It was read and
+# PRINTED and never asserted, so `--host someoneelse@box` ran happily. See
+# identity_check() for why that matters more than it looks.
+EXPECT_USER=""
 DO_RESET=0
 WIPE_STORES=0
 REPORT_ONLY=0
@@ -89,12 +100,13 @@ while [[ $# -gt 0 ]]; do
         --host)         HOST="${2:-}"; shift 2 ;;
         --expect-name)  EXPECT_NAME="${2:-}"; shift 2 ;;
         --expect-model) EXPECT_MODEL="${2:-}"; shift 2 ;;
+        --expect-user)  EXPECT_USER="${2:-}"; shift 2 ;;
         --reset)        DO_RESET=1; shift ;;
         --wipe-stores)  WIPE_STORES=1; shift ;;
         --report-only)  REPORT_ONLY=1; shift ;;
         --stage-only)   STAGE_ONLY=1; shift ;;
         --from-dmg)     FROM_DMG="${2:-}"; shift 2 ;;
-        -h|--help)      sed -n '2,45p' "${BASH_SOURCE[0]}"; exit 0 ;;
+        -h|--help)      sed -n '2,71p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *)              die "unknown argument: $1" ;;
     esac
 done
@@ -118,12 +130,13 @@ SSH=(ssh -o ConnectTimeout=10 -o BatchMode=yes "$HOST")
 # Read all three facts in ONE round trip so they cannot describe different
 # machines, which is the failure a second ssh call would invite.
 identity_check() {
-    local when="$1" ident name model
+    local when="$1" ident name model user
     ident="$("${SSH[@]}" 'printf "%s\n%s\n%s\n" "$(scutil --get ComputerName)" "$(sysctl -n hw.model)" "$(id -un)"' 2>&1)" \
         || die "cannot reach ${HOST} (${when}): ${ident}"
 
     name="$(printf '%s' "$ident"  | sed -n 1p)"
     model="$(printf '%s' "$ident" | sed -n 2p)"
+    user="$(printf '%s' "$ident"  | sed -n 3p)"
 
     [[ -n "$name" ]] || die "the host answered with an EMPTY ComputerName (${when}).
        An empty string matches nothing and must never be read as a match."
@@ -139,7 +152,36 @@ $(identity_mismatch_hint "$EXPECT_NAME" "$name")"
        got '${model}'.
 $(identity_mismatch_hint "$EXPECT_MODEL" "$model")"
     fi
-    say "identity ${when}: ${name} / ${model} (as $(printf '%s' "$ident" | sed -n 3p))"
+    # THE THIRD FACT WAS COLLECTED, PRINTED, AND ASSERTED ON BY NOBODY.
+    #
+    # The round trip has always read `id -un`, and the say() below has always
+    # printed it, but nothing compared it to anything. So
+    # `--host someoneelse@box` ran the whole walk as the wrong account and the
+    # only trace was one line in a log.
+    #
+    # That is not a hypothetical on this harness. people_count_agreement
+    # already reads ~/.ostler/secrets/store-curl.conf on every walk and passes,
+    # which is the behavioural proof that the walk runs as an account that can
+    # read the Hub user's 0600 secrets. Run it as a DIFFERENT account and that
+    # path does not resolve: the probe degrades to CANNOT-RUN rather than
+    # failing, and a blocking probe that cannot run is invisible in exactly the
+    # way a passing one is quiet.
+    #
+    # Same shape as the two arms above, including the empty-answer guard: an
+    # empty string matches nothing and must never be read as a match.
+    if [[ -n "$EXPECT_USER" ]]; then
+        [[ -n "$user" ]] || die "the host answered with an EMPTY login name (${when}).
+       An empty string matches nothing and must never be read as a match."
+        if [[ "$user" != "$EXPECT_USER" ]]; then
+            die "IDENTITY MISMATCH (${when}). Expected to be running as '${EXPECT_USER}',
+       the host at ${HOST} answers '${user}'. The probes read the Hub user's
+       0600 files under ~/.ostler/secrets; as another account they degrade to
+       CANNOT-RUN, which is not a FAIL and is not a PASS.
+$(identity_mismatch_hint "$EXPECT_USER" "$user")"
+        fi
+    fi
+
+    say "identity ${when}: ${name} / ${model} (as ${user})"
 }
 
 # ── The report. Read the LOG, adjudicate on the MARKER ───────────────

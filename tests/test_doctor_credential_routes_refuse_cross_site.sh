@@ -274,6 +274,38 @@ case "$hyd_body" in
 esac
 
 echo
+echo "-- the box walk is a consumer: the four probes that curl :8089 --"
+#
+# freshness_panel_has_dates, people_count_agreement and pair_state_agreement
+# are BLOCKING in scripts/walk_promote_scope.tsv; source_status_artefact_is_served
+# is too. All four curl the Doctor with no Origin and no Sec-Fetch-Site, which
+# is the non-browser shape the predicate lets through by construction. None of
+# the four touches a guarded route, which is measured here rather than claimed:
+#
+#   pair_state_agreement            /doctor/api/health
+#   people_count_agreement          /api/v1/hydration/status   (public path)
+#   source_status_artefact_is_served /api/v1/sources
+#   freshness_panel_has_dates       /openapi.json
+#
+# A probe that degrades to CANNOT-RUN is not a probe that passes, so this
+# asserts each path answers as it did before, not merely that it is not a 403.
+probe_walk_path() {
+    local name="$1" path="$2"
+    local out status
+    out="$(curl -sS --noproxy '*' -m 10 -w '\n%{http_code}' "${BASE}${path}")"
+    status="${out##*$'\n'}"
+    if [ "$status" = "403" ]; then
+        bad "${name}: the guard reached a walk probe path (${path} -> 403)"
+    else
+        ok "${name}: ${path} -> HTTP ${status}, unguarded"
+    fi
+}
+probe_walk_path "pair_state_agreement (BLOCKING)"             /doctor/api/health
+probe_walk_path "people_count_agreement (BLOCKING)"           /api/v1/hydration/status
+probe_walk_path "source_status_artefact_is_served (BLOCKING)" /api/v1/sources
+probe_walk_path "freshness_panel_has_dates (BLOCKING)"        /openapi.json
+
+echo
 printf 'RESULT: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
 echo "GREEN"
