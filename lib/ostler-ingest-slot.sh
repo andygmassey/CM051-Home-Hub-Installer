@@ -627,10 +627,23 @@ _ostler_slot_watchdog() {
         # acquire time: it does not exist until a waiter enrols, and the whole
         # correction in #783 is that enrolment is the event that starts it.
         # --- STALL CHECK, and it runs BEFORE the waiter gate on purpose ---
-        # A hung payload is not a long job, so it does not get the idle-box
-        # exemption. This is the only path that can stop a holder nobody is
-        # waiting on, and it fires on evidence of doing nothing rather than on
-        # a clock.
+        #
+        # WHY IT DOES NOT GET THE IDLE-BOX EXEMPTION, and "a hang is not a long
+        # job" is NOT the reason -- that is a definition, not an argument
+        # (Archie, 2026-09-13). The real one:
+        #
+        # Max-hold already evicts ANY holder 180s after a waiter enrols, busy
+        # or hung alike. So where a waiter exists this check adds almost
+        # nothing, and its UNIQUE contribution is exactly the no-waiter case.
+        # The harm it prevents there is not about the slot at all: a wedged
+        # payload means THAT FEED NEVER PROGRESSES, on a box where nobody is
+        # competing for anything. Stopping it lets the next tick retry.
+        #
+        # That is a real harm, with a real beneficiary, and no waiter in sight
+        # -- which is precisely the case the idle-box exemption assumes cannot
+        # exist. Hence the precedence.
+        #
+        # It fires on evidence of doing nothing, never on a clock.
         if [ "$_OSTLER_SLOT_STALL_SECS" = "0" ]; then
             :   # disarmed: the dispatch ceiling is unbounded by operator choice
         elif _cpu_now="$(_ostler_slot_tree_cpu "$work_pid")"; then
@@ -652,9 +665,12 @@ _ostler_slot_watchdog() {
         deadline="$(_ostler_slot_holder_deadline)"
         case "$deadline" in ''|*[!0-9]*) continue ;; esac
         [ "$now" -ge "$deadline" ] || continue
-        # Nobody waiting: a long backfill on an idle box is not a
-        # problem, so let it run. This is why the wiki summary pass is
-        # still allowed to take hours.
+        # THIS EXEMPTION GOVERNS THE MAX-HOLD PATH ONLY, and the scoping
+        # matters because it reads as governing the whole function. Nobody
+        # waiting: a long backfill on an idle box is not a problem, so let it
+        # run. This is why the wiki summary pass is still allowed to take
+        # hours. The stall check above deliberately does NOT consult it, and
+        # the reason is written there.
         _ostler_slot_waiters_present || continue
         : > "$_OSTLER_SLOT_DIR/preempted" 2>/dev/null || true
         _ostler_slot_log "reached the ${_OSTLER_SLOT_MAX_HOLD}s maximum hold with another feed waiting; stopping cleanly so the waiting feed gets a turn. Progress is watermarked; the next tick resumes."
