@@ -137,6 +137,20 @@ _OSTLER_SLOT_MAX_HOLD="${OSTLER_SLOT_MAX_HOLD_SECS:-180}"
 _OSTLER_SLOT_WAIT="${OSTLER_SLOT_WAIT_SECS:-75}"
 _OSTLER_SLOT_GRACE="${OSTLER_SLOT_GRACE_SECS:-60}"
 _OSTLER_SLOT_POLL="${OSTLER_SLOT_POLL_SECS:-5}"
+# How long a holder's payload may burn ZERO cpu before it is called hung
+# rather than busy. The max-hold watchdog below only arms when another feed is
+# ENROLLED AND WAITING, which is deliberate -- a multi-hour backfill on an idle
+# box must not be disturbed. But that makes the bound unreachable in exactly
+# the case that hurt: MEASURED 2026-09-13, email-bundle/tick.sh held the slot
+# 8h49m with a ZERO-BYTE log while its would-be waiters enrolled, died, and
+# were reaped, so "waiters present" was false almost every poll and the
+# watchdog never armed. A holder whose victims keep dying is protected BY
+# starving them.
+#
+# CUMULATIVE CPU, NEVER ELAPSED TIME. Elapsed says only that a process still
+# exists; cpu says whether it is doing anything. A payload genuinely working
+# for hours accrues cpu every poll and is never touched by this.
+_OSTLER_SLOT_STALL_SECS="${OSTLER_SLOT_STALL_SECS:-900}"
 _OSTLER_SLOT_STARVE_AFTER="${OSTLER_SLOT_STARVE_AFTER_SECS:-1800}"
 _OSTLER_SLOT_LEGACY_HOLD="${OSTLER_SLOT_LEGACY_MAX_HOLD_SECS:-3600}"
 # How long a payload gets to honour SIGTERM before the watchdog escalates to
@@ -540,8 +554,25 @@ _ostler_slot_kill_tree() {
     return 1
 }
 
+# Cumulative CPU seconds for a pid. macOS ps prints [dd-]hh:mm:ss or mm:ss.
+# Returns the empty string when the pid is gone, which the caller treats as
+# "no reading" rather than as zero -- an absent measurement must never look
+# like a stalled one.
+_ostler_slot_cpu_secs() {
+    local raw
+    raw="$(ps -p "$1" -o time= 2>/dev/null | tr -d ' ')"
+    [ -n "$raw" ] || return 1
+    printf '%s' "$raw" | awk -F'[:-]' '{
+        if (NF==4) { print (($1*24+$2)*3600)+($3*60)+$4 }
+        else if (NF==3) { print ($1*3600)+($2*60)+$3 }
+        else if (NF==2) { print ($1*60)+$2 }
+        else { print 0 }
+    }'
+}
+
 _ostler_slot_watchdog() {
     local work_pid="$1" now deadline
+    local _cpu_last="" _cpu_since=0 _cpu_now
     while :; do
         sleep "$_OSTLER_SLOT_POLL"
         kill -0 "$work_pid" 2>/dev/null || return 0
@@ -550,6 +581,27 @@ _ostler_slot_watchdog() {
         # Read the deadline EVERY poll rather than using the value fixed at
         # acquire time: it does not exist until a waiter enrols, and the whole
         # correction in #783 is that enrolment is the event that starts it.
+        # --- STALL CHECK, and it runs BEFORE the waiter gate on purpose ---
+        # A hung payload is not a long job, so it does not get the idle-box
+        # exemption. This is the only path that can stop a holder nobody is
+        # waiting on, and it fires on evidence of doing nothing rather than on
+        # a clock.
+        if _cpu_now="$(_ostler_slot_cpu_secs "$work_pid")"; then
+            if [ "$_cpu_now" = "$_cpu_last" ]; then
+                _cpu_since=$(( _cpu_since + _OSTLER_SLOT_POLL ))
+            else
+                _cpu_since=0
+                _cpu_last="$_cpu_now"
+            fi
+            if [ "$_cpu_since" -ge "$_OSTLER_SLOT_STALL_SECS" ]; then
+                _ostler_slot_log "HUNG: pid ${work_pid} has burned NO cpu for ${_cpu_since}s (cpu stuck at ${_cpu_now}s) while holding the shared Ollama slot. That is a hang, not a long job, so the waiter gate does not apply. Stopping it."
+                if _ostler_slot_kill_tree "$work_pid"; then
+                    return 0
+                fi
+                _ostler_slot_log "stop attempt on the hung holder failed; STAYING UP and retrying each poll."
+                continue
+            fi
+        fi
         deadline="$(_ostler_slot_holder_deadline)"
         case "$deadline" in ''|*[!0-9]*) continue ;; esac
         [ "$now" -ge "$deadline" ] || continue
