@@ -373,6 +373,79 @@ CROSS_SITE_REFUSAL_DETAIL = (
 )
 
 
+# ── Hub-screen-only routes ───────────────────────────────────────────
+#
+# GET /api/v1/pair/status RETURNS THE PAIRING CREDENTIAL. pair_status
+# re-serialises the gateway's section 3.3 envelope, pairing_token and all, and
+# the QR is just that string drawn as pixels. A caller who fetches it can pair
+# ITSELF with the Hub, which makes every other gate on this port beside the
+# point.
+#
+# It exists to draw the QR on the Hub's OWN screen. MEASURED on CM031
+# origin/main: the Companion NEVER fetches it, nor /api/v1/pair/regenerate --
+# zero hits across CM031/ for api/v1/pair, against api/v1/auth/chat-token as
+# the positive control, which does hit. The phone gets the envelope by
+# SCANNING the QR, not by asking for it. So closing this to the Hub itself
+# costs iOS nothing.
+#
+# THE HOST HEADER IS THE DISCRIMINATOR, and this reuses the one the estate
+# already has rather than inventing a second: ical-server.py:220
+# _ALLOWED_HOST_NAMES is the same allowlist for the same reason (it calls out
+# DNS-rebind explicitly).
+#
+# 🔴 WHY NOT THE PEER IP, WHICH WOULD BE STRONGER. It cannot work here.
+# install.sh runs tailscaled in USERSPACE mode and bridges the port with
+# `tailscale serve --bg --tcp=8089 tcp://localhost:8089` (install.sh:26200).
+# A userspace forwarder terminates the tailnet connection and opens a FRESH
+# one to localhost, so request.client.host is 127.0.0.1 for a tailnet peer
+# exactly as it is for the Hub's own browser. A loopback peer check would
+# admit every tailnet caller while looking like it excluded them, which is
+# worse than no check.
+#
+# WHAT THIS DOES AND DOES NOT COVER, stated so it is not overclaimed later.
+# A tailnet peer dials http://100.x.y.z:8089 and its Host header says so, so
+# the real-world shape is refused, and a browser cannot override Host at all.
+# A deliberate non-browser attacker can still send `Host: 127.0.0.1` by hand.
+# Closing THAT means not raw-TCP serving this port wholesale: serve only the
+# paths the Companion needs, or move the pairing panel off the served port.
+# Filed, not done here.
+_HUB_LOCAL_HOST_NAMES = (
+    "127.0.0.1", "localhost", "[::1]", "::1",
+    "[::ffff:127.0.0.1]", "::ffff:127.0.0.1",
+)
+
+HUB_SCREEN_ONLY_DETAIL = (
+    "refused: the pairing panel is served to the Hub's own screen only"
+)
+
+
+def _not_hub_local(request: Request) -> "JSONResponse | None":
+    """Refuse a request that did not dial the Hub as loopback.
+
+    Fails CLOSED: a missing or unparseable Host is refused, because a request
+    that cannot say which address it dialled has not proved it dialled this
+    one.
+    """
+    host = (request.headers.get("host") or "").strip().lower()
+    if not host:
+        return JSONResponse(
+            {"error": HUB_SCREEN_ONLY_DETAIL, "refused_on": "host-absent"},
+            status_code=403,
+        )
+    # Strip the port. Bracketed IPv6 keeps its brackets, matching the
+    # allowlist above and ical-server's.
+    if host.startswith("["):
+        name = host.split("]")[0] + "]" if "]" in host else host
+    else:
+        name = host.rsplit(":", 1)[0] if ":" in host else host
+    if name not in _HUB_LOCAL_HOST_NAMES:
+        return JSONResponse(
+            {"error": HUB_SCREEN_ONLY_DETAIL, "refused_on": "host"},
+            status_code=403,
+        )
+    return None
+
+
 def _cross_site_refusal(request: Request) -> "JSONResponse | None":
     """Return the 403 to send, or ``None`` when the caller may proceed.
 
@@ -4773,7 +4846,7 @@ async def api_pair_status(request: Request):
     page the customer opened; the refusal below is what stops that. Its only
     caller here is the Doctor's own ``/pair-ios`` panel, same-origin.
     """
-    refusal = _cross_site_refusal(request)
+    refusal = _not_hub_local(request) or _cross_site_refusal(request)
     if refusal is not None:
         return refusal
 
@@ -4795,7 +4868,7 @@ async def api_pair_regenerate(request: Request):
     POST, and that case was the gap. One predicate, so the four credential
     routes cannot drift apart the way this one and the chat-token mint had.
     """
-    refusal = _cross_site_refusal(request)
+    refusal = _not_hub_local(request) or _cross_site_refusal(request)
     if refusal is not None:
         return refusal
 

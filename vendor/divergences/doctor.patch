@@ -5143,7 +5143,7 @@
      REPORT_SECTION_CONTAINERS,
      REPORT_SECTION_DISK,
      REPORT_SECTION_FINDINGS,
-@@ -260,6 +305,101 @@
+@@ -260,7 +305,175 @@
  )
  
  SUPPORT_EMAIL = os.getenv("DOCTOR_SUPPORT_EMAIL", "support@creativemachines.ai")
@@ -5215,6 +5215,79 @@
 +)
 +
 +
++# ── Hub-screen-only routes ───────────────────────────────────────────
++#
++# GET /api/v1/pair/status RETURNS THE PAIRING CREDENTIAL. pair_status
++# re-serialises the gateway's section 3.3 envelope, pairing_token and all, and
++# the QR is just that string drawn as pixels. A caller who fetches it can pair
++# ITSELF with the Hub, which makes every other gate on this port beside the
++# point.
++#
++# It exists to draw the QR on the Hub's OWN screen. MEASURED on CM031
++# origin/main: the Companion NEVER fetches it, nor /api/v1/pair/regenerate --
++# zero hits across CM031/ for api/v1/pair, against api/v1/auth/chat-token as
++# the positive control, which does hit. The phone gets the envelope by
++# SCANNING the QR, not by asking for it. So closing this to the Hub itself
++# costs iOS nothing.
++#
++# THE HOST HEADER IS THE DISCRIMINATOR, and this reuses the one the estate
++# already has rather than inventing a second: ical-server.py:220
++# _ALLOWED_HOST_NAMES is the same allowlist for the same reason (it calls out
++# DNS-rebind explicitly).
++#
++# 🔴 WHY NOT THE PEER IP, WHICH WOULD BE STRONGER. It cannot work here.
++# install.sh runs tailscaled in USERSPACE mode and bridges the port with
++# `tailscale serve --bg --tcp=8089 tcp://localhost:8089` (install.sh:26200).
++# A userspace forwarder terminates the tailnet connection and opens a FRESH
++# one to localhost, so request.client.host is 127.0.0.1 for a tailnet peer
++# exactly as it is for the Hub's own browser. A loopback peer check would
++# admit every tailnet caller while looking like it excluded them, which is
++# worse than no check.
++#
++# WHAT THIS DOES AND DOES NOT COVER, stated so it is not overclaimed later.
++# A tailnet peer dials http://100.x.y.z:8089 and its Host header says so, so
++# the real-world shape is refused, and a browser cannot override Host at all.
++# A deliberate non-browser attacker can still send `Host: 127.0.0.1` by hand.
++# Closing THAT means not raw-TCP serving this port wholesale: serve only the
++# paths the Companion needs, or move the pairing panel off the served port.
++# Filed, not done here.
++_HUB_LOCAL_HOST_NAMES = (
++    "127.0.0.1", "localhost", "[::1]", "::1",
++    "[::ffff:127.0.0.1]", "::ffff:127.0.0.1",
++)
++
++HUB_SCREEN_ONLY_DETAIL = (
++    "refused: the pairing panel is served to the Hub's own screen only"
++)
++
++
++def _not_hub_local(request: Request) -> "JSONResponse | None":
++    """Refuse a request that did not dial the Hub as loopback.
++
++    Fails CLOSED: a missing or unparseable Host is refused, because a request
++    that cannot say which address it dialled has not proved it dialled this
++    one.
++    """
++    host = (request.headers.get("host") or "").strip().lower()
++    if not host:
++        return JSONResponse(
++            {"error": HUB_SCREEN_ONLY_DETAIL, "refused_on": "host-absent"},
++            status_code=403,
++        )
++    # Strip the port. Bracketed IPv6 keeps its brackets, matching the
++    # allowlist above and ical-server's.
++    if host.startswith("["):
++        name = host.split("]")[0] + "]" if "]" in host else host
++    else:
++        name = host.rsplit(":", 1)[0] if ":" in host else host
++    if name not in _HUB_LOCAL_HOST_NAMES:
++        return JSONResponse(
++            {"error": HUB_SCREEN_ONLY_DETAIL, "refused_on": "host"},
++            status_code=403,
++        )
++    return None
++
++
 +def _cross_site_refusal(request: Request) -> "JSONResponse | None":
 +    """Return the 403 to send, or ``None`` when the caller may proceed.
 +
@@ -5241,11 +5314,12 @@
 +            status_code=403,
 +        )
 +    return None
-+
  
++
  # ── Snapshot history (in-memory, last 10) ─────────────────────────
  
-@@ -386,6 +526,18 @@
+ _history: deque[dict] = deque(maxlen=10)
+@@ -386,6 +599,18 @@
  
      # Check services
      for svc in snapshot.services:
@@ -5264,7 +5338,7 @@
          if svc.status == "unreachable":
              findings.append({
                  "severity": "critical",
-@@ -547,17 +699,45 @@
+@@ -547,17 +772,45 @@
          # On macOS, check if we're on Apple Silicon
          pass  # RAM check is done in install.sh, not here
  
@@ -5291,7 +5365,7 @@
 +    # A whole-report verdict has to be decided where the whole report
 +    # exists. See _append_all_clear(), which every caller now uses.
 +    return findings
-+
+ 
 +
 +def _append_all_clear(
 +    findings: list[dict],
@@ -5302,7 +5376,7 @@
 +    The banner is a statement about the entire report, so it must be decided
 +    after every source of findings has been combined -- the rules engine, the
 +    local checks, and any per-stage ``errors`` recorded by the caller.
- 
++
 +    ``errors`` is consulted because a stage that blew up is not a stage that
 +    found nothing: if the caller could not run part of the report, the report
 +    is not clean and must not say it is.
@@ -5320,12 +5394,10 @@
      return findings
  
  
-@@ -667,6 +847,113 @@
- _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
- _IPV4_RE = re.compile(
+@@ -669,7 +922,114 @@
      r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
-+)
-+
+ )
+ 
 +# Credential-shaped values that must never leave the machine in a report the
 +# customer is about to paste into an email.
 +#
@@ -5403,7 +5475,7 @@
 +    r"|token|private[\s_-]?key|signing[\s_-]?key|credential))\b\s*[:=]\s*"
 +    r"(?:bearer\s+)?\S+"
 +)
-+
+ 
 +# 🔴 A LABEL-ANCHORED PATTERN CANNOT CATCH AN UNLABELLED SECRET, AND THE ONE
 +# THAT MATTERS MOST IS UNLABELLED. The vault recovery key appears in install.log
 +# both labelled and BARE, so every label added above is still blind to the bare
@@ -5431,16 +5503,19 @@
 +    r"(?i)\b[a-z0-9]+(?:[._-][a-z0-9]+)*"
 +    r"-(?:gmail|icloud|outlook|hotmail|yahoo|proton(?:mail)?|aol|live|msn|fastmail)"
 +    r"-(?:com|net|org|co[-.]uk)\b"
- )
++)
++
++
+ def _home_username() -> str | None:
+     """Best-effort current username for home-path redaction.
  
- 
-@@ -717,8 +1004,22 @@
+@@ -717,7 +1077,21 @@
      )
  
      redacted = _EMAIL_RE.sub(placeholder, redacted)
 +    redacted = _SLUG_EMAIL_RE.sub(placeholder, redacted)
      redacted = _IPV4_RE.sub(placeholder, redacted)
- 
++
 +    # Shape-matched secrets BEFORE the label pass, because the bare occurrence
 +    # has no label to anchor on and would otherwise survive untouched.
 +    redacted = _RECOVERY_KEY_RE.sub(placeholder, redacted)
@@ -5453,11 +5528,10 @@
 +    redacted = _SECRET_LABEL_RE.sub(
 +        lambda m: f"{m.group(1)}: {placeholder}", redacted
 +    )
-+
+ 
      return f"{REPORT_REDACTED_BANNER}\n\n{redacted}"
  
- 
-@@ -822,6 +1123,8 @@
+@@ -822,6 +1196,8 @@
              f for f in findings
              if f.get("title") not in seen and not seen.add(f.get("title"))
          ]
@@ -5466,7 +5540,7 @@
      except Exception as exc:
          errors["findings"] = f"{type(exc).__name__}: {exc}"
          findings = []
-@@ -845,15 +1148,27 @@
+@@ -845,15 +1221,27 @@
      except Exception as exc:
          errors["report"] = f"{type(exc).__name__}: {exc}"
          report = REPORT_HEADER
@@ -5496,12 +5570,10 @@
      except Exception as exc:
          errors["mailto"] = f"{type(exc).__name__}: {exc}"
          mailto = f"mailto:{SUPPORT_EMAIL}"
-@@ -896,6 +1211,74 @@
- 
- 
+@@ -898,6 +1286,74 @@
  # ── HTML template ────────────────────────────────────────────────────
-+
-+
+ 
+ 
 +def render_source_status() -> str:
 +    """The per-source ingest table: did each source read in, and when.
 +
@@ -5568,10 +5640,12 @@
 +        '<th align="left">Kind</th></tr></thead><tbody>'
 +        + "".join(body) + "</tbody></table></div>"
 +    )
- 
- 
++
++
  def render_dashboard(
-@@ -1019,6 +1402,7 @@
+     snapshot: SystemSnapshot,
+     findings: list[dict],
+@@ -1019,6 +1475,7 @@
      # when no commitments have been pushed yet. Catches the case the
      # install-time tile cannot: access granted at install, later revoked.
      reminders_runtime_section = render_reminders_runtime()
@@ -5579,7 +5653,7 @@
  
      # Build findings
      findings_html = ""
-@@ -1149,6 +1533,7 @@
+@@ -1149,6 +1606,7 @@
              display: inline-flex;
              align-items: center;
              gap: 6px;
@@ -5587,7 +5661,7 @@
          }}
          .refresh-btn:hover, .auto-refresh-btn:hover {{
              border-color: var(--ostler-accent);
-@@ -1543,6 +1928,7 @@
+@@ -1543,6 +2001,7 @@
              </div>
              <div>
                  <div class="header-controls">
@@ -5595,7 +5669,7 @@
                      <button class="refresh-btn" onclick="manualRefresh()">{DASHBOARD_BTN_REFRESH}</button>
                      <button class="auto-refresh-btn active" id="autoRefreshBtn" onclick="toggleAutoRefresh()">{DASHBOARD_BTN_AUTO_ON}</button>
                      <button class="refresh-btn" id="emailReportBtn" onclick="sendByEmail()" title="{DASHBOARD_BTN_EMAIL_TITLE}">{DASHBOARD_BTN_EMAIL}</button>
-@@ -1577,6 +1963,7 @@
+@@ -1577,6 +2036,7 @@
          {reminders_section}
  
          {reminders_runtime_section}
@@ -5603,7 +5677,7 @@
  
          <div class="section">
              <div class="section-title">{DASHBOARD_SECTION_MODELS}</div>
-@@ -1611,7 +1998,7 @@
+@@ -1611,7 +2071,7 @@
          </div>
  
          <div class="meta" id="metaInfo">
@@ -5612,16 +5686,16 @@
          </div>
      </div>
  
-@@ -2002,8 +2389,34 @@
+@@ -2002,8 +2462,34 @@
  
  
  # ── Endpoints ────────────────────────────────────────────────────────
 +
-+
+ 
 +@app.get("/")
 +async def front_door():
 +    """Send the bare root to the dashboard. v1018-D023.
-+
+ 
 +    Every route on this service lives under /doctor or /api/v1, and nothing
 +    served `/` at all, so the front door returned 404. A customer who opens the
 +    Doctor at its host and port -- the only address they have been given -- gets
@@ -5633,7 +5707,7 @@
 +        only 200/301/302 -- a 307 would leave the gate red.
 +      * 301 is permanent and browsers cache it hard. If the dashboard ever
 +        moves, every customer who visited once keeps the stale target.
- 
++
 +    GRAFTED into the vendor tree, not re-vendored: CM051's doctor pin is held
 +    deliberately. Reconstruction is source@upstream + vendor/divergences/
 +    doctor.patch. RedirectResponse was NOT imported in this copy -- grafting the
@@ -5641,13 +5715,13 @@
 +    so the import moved to the parenthesised form upstream already uses.
 +    """
 +    return RedirectResponse(url="/doctor", status_code=302)
- 
++
 +
 +
  @app.get("/doctor", response_class=HTMLResponse)
  async def dashboard():
      """Serve the diagnostic dashboard or first-run wizard."""
-@@ -2025,6 +2438,10 @@
+@@ -2025,6 +2511,10 @@
      # Deduplicate by title
      seen = set()
      findings = [f for f in findings if f["title"] not in seen and not seen.add(f["title"])]
@@ -5658,10 +5732,12 @@
      _record_snapshot(snapshot, findings)
      # CM024 Block 3.4: surface the Evernote import nav link only when
      # the feature flag is on. Read here (not inside the renderer) so
-@@ -2114,6 +2531,258 @@
+@@ -2112,8 +2602,260 @@
+             },
+         )
      return {"status": "healthy", "service": "ostler-doctor"}
- 
- 
++
++
 +# ---------------------------------------------------------------------------
 +# G1c / G3: the source-status artefact. ONE record the Doctor panel, the
 +# end-of-install probe and the box walk all read, so they cannot each infer
@@ -5769,8 +5845,8 @@
 +    "browsing": ("browser_history", "bookmarks"),
 +    "people": ("people_index",),
 +}
-+
-+
+ 
+ 
 +def _read_source_activity(name: str, activity_dir: Path | None = None) -> dict:
 +    """The ongoing-activity record for one source, or {} when absent.
 +
@@ -5917,7 +5993,7 @@
  @app.get("/api/v1/box-status", response_class=JSONResponse)
  async def api_box_status():
      """Aggregated live box status for the Hub header chip + Governor page.
-@@ -2248,6 +2917,59 @@
+@@ -2248,6 +2990,59 @@
      return result
  
  
@@ -5977,7 +6053,7 @@
  @app.post("/api/v1/auth/chat-token", response_class=JSONResponse)
  async def api_chat_token(request: Request):
      """Mint a fresh ZeroClaw bearer token for the iOS chat tab.
-@@ -2261,7 +2983,18 @@
+@@ -2261,7 +3056,18 @@
      See ``chat_token.py`` for the end-to-end logic, the admin-token
      seed convention, and the public-URL resolution rules. This
      handler only owns the HTTP plumbing.
@@ -5996,10 +6072,12 @@
      from chat_token import (
          TokenIssueError as _ChatTokenError,
          issue_chat_token as _issue,
-@@ -2294,6 +3027,220 @@
+@@ -2292,8 +3098,222 @@
+     breaking-change must roll a /api/v2 instead of mutating this.
+     """
      return all_observability_postures()
- 
- 
++
++
 +# ── Wiki hydration status: UNAUTHENTICATED passthrough (#178) ─────────
 +#
 +# The wiki homepage's first-run "still settling" panel (CM044
@@ -6159,11 +6237,11 @@
 +        return {"paused": False, "expiry": None, "indefinite": False,
 +                "expiry_human": "", "scope": None}
 +
-+
+ 
 +@app.post("/api/v1/pause", response_class=JSONResponse)
 +async def api_pause_post(request: Request):
 +    """Pause background work for a scope.
-+
+ 
 +    Body: ``{"scope": "hour" | "tonight" | "indefinite"}`` (a missing/blank
 +    body defaults to an indefinite pause). Same cross-site guard as
 +    ``/api/v1/config``: reject a POST whose ``Sec-Fetch-Site`` is present and
@@ -6217,10 +6295,14 @@
  # ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────
  #
  # Forwards iOS-initiated CM019 paths to the local gateway over
-@@ -3333,6 +4280,482 @@
- </html>"""
- 
- 
+@@ -3329,10 +4349,486 @@
+         setInterval(fetchStatus, STATUS_POLL_MS);
+     }})();
+     </script>
++</body>
++</html>"""
++
++
 +def _render_whatsapp_pair_page() -> str:
 +    """Render the WhatsApp pair-code panel.
 +
@@ -6403,10 +6485,10 @@
 +    setInterval(tick, POLL_MS);
 +  }})();
 +  </script>
-+</body>
-+</html>"""
-+
-+
+ </body>
+ </html>"""
+ 
+ 
 +@app.get("/whatsapp-pair", response_class=HTMLResponse)
 +async def whatsapp_pair_page():
 +    """Render the WhatsApp pairing panel."""
@@ -6700,7 +6782,7 @@
  @app.get("/pair-ios", response_class=HTMLResponse)
  async def pair_ios_page():
      """Render the Pair iOS device panel (DFA-002)."""
-@@ -3340,8 +4763,20 @@
+@@ -3340,8 +4836,20 @@
  
  
  @app.get("/api/v1/pair/status", response_class=JSONResponse)
@@ -6716,14 +6798,14 @@
 +    page the customer opened; the refusal below is what stops that. Its only
 +    caller here is the Doctor's own ``/pair-ios`` panel, same-origin.
 +    """
-+    refusal = _cross_site_refusal(request)
++    refusal = _not_hub_local(request) or _cross_site_refusal(request)
 +    if refusal is not None:
 +        return refusal
 +
      from pair_status import fetch_pair_status
      return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
  
-@@ -3353,18 +4788,17 @@
+@@ -3353,18 +4861,17 @@
      Cross-origin POSTs from a malicious local browser tab can DOS the
      pair code (rotate it under the customer's feet) even though the
      same-origin policy blocks the attacker from reading the new code.
@@ -6745,14 +6827,14 @@
 -            {"error": "Cross-site request refused"},
 -            status_code=403,
 -        )
-+    refusal = _cross_site_refusal(request)
++    refusal = _not_hub_local(request) or _cross_site_refusal(request)
 +    if refusal is not None:
 +        return refusal
 +
      from pair_status import fetch_pair_status
      return JSONResponse(
          fetch_pair_status(fresh=True).to_dict(), status_code=200,
-@@ -3867,12 +5301,22 @@
+@@ -3867,12 +5374,22 @@
  
  
  @app.get("/api/v1/config", response_class=JSONResponse)
@@ -6776,7 +6858,7 @@
      from config_panel import ConfigError as _ConfigError, read_config_view
  
      try:
-@@ -3885,18 +5329,16 @@
+@@ -3885,18 +5402,16 @@
  async def api_config_post(request: Request):
      """Validate + persist a whitelist of safe config edits.
  

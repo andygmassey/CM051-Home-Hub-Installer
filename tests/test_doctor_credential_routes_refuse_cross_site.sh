@@ -274,6 +274,38 @@ case "$hyd_body" in
 esac
 
 echo
+echo "-- GET /api/v1/pair/status is the Hub's OWN SCREEN only --"
+#
+# This route returns the pairing credential itself: the QR payload IS the
+# section 3.3 envelope, pairing_token included. A tailnet caller that can fetch
+# it can pair itself with the Hub, which makes every other gate on this port
+# beside the point. MEASURED on CM031 origin/main: the Companion never fetches
+# it (zero hits for api/v1/pair across CM031/, against api/v1/auth/chat-token
+# as the positive control, which does hit), so this costs iOS nothing.
+#
+# A tailnet peer dials http://100.x.y.z:8089 and its Host header says so. That
+# is the shape refused here. A browser cannot override Host at all.
+probe "a tailnet-shaped caller is REFUSED" 403 GET /api/v1/pair/status \
+    -H 'Host: 100.64.0.7:8089'
+case "$BODY" in
+    *qr_svg*|*pairing_token*|*hub_addr*)
+        bad "LEAK: the refusal body leaked part of the pairing envelope" ;;
+    *)  ok "the refusal hands back no pair code and no QR" ;;
+esac
+probe "a LAN-shaped caller is REFUSED" 403 GET /api/v1/pair/status \
+    -H 'Host: 192.168.1.72:8089'
+probe "a caller with no Host at all is REFUSED (fails closed)" 403 GET \
+    /api/v1/pair/status -H 'Host;'
+# The other half: the Hub's own panel must still render the QR.
+probe "the Hub's own pair-ios panel still SUCCEEDS" 200 GET /api/v1/pair/status \
+    -H 'Host: 127.0.0.1' -H 'Sec-Fetch-Site: same-origin'
+probe "the pairing credential can still be ROTATED from the Hub" 200 POST \
+    /api/v1/pair/regenerate -H 'Host: 127.0.0.1' -H "Origin: ${BASE}" \
+    -H 'Sec-Fetch-Site: same-origin'
+probe "a tailnet-shaped caller cannot rotate it" 403 POST \
+    /api/v1/pair/regenerate -H 'Host: 100.64.0.7:8089'
+
+echo
 echo "-- the box walk is a consumer: the four probes that curl :8089 --"
 #
 # freshness_panel_has_dates, people_count_agreement and pair_state_agreement
