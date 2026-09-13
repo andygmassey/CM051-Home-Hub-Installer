@@ -29,6 +29,22 @@ against a gated loopback Ostler service, at least one of:
 Anything else is a client that will be refused in production and will very
 likely say nothing about it.
 
+🔴 THE KNOWN-UNCOVERED SHAPE IS NOT HYPOTHETICAL. IT IS IN THIS TREE.
+A client split across two modules evades this gate, because the gated host and
+the request construction must appear in the SAME file. THE FRONT PAGE IS BUILT
+EXACTLY THAT WAY: emit_frontpage.py:112 holds the URL and makes no request;
+signals.py makes the request. This gate sees signals.py ONLY because of the
+default parameter at signals.py fetch_signals(base_url="http://127.0.0.1:8090"),
+and the real caller OVERRIDES that default by passing `base`. So coverage of the
+very client this gate was written for rests on a default argument that is dead
+on the live path (Archie, 2026-09-13).
+
+Closing it properly needs dataflow, not a regex. Until then the cheapest
+possible pin is a regression test asserting signals.py still carries a gated
+host literal, so deleting that default fails a test loudly instead of removing
+coverage silently. Do not read a PASS here as "every loopback client is
+covered"; read it as "every client this gate can see is covered".
+
 🔴 THIS IS A STATIC GATE AND IT RUNS IN CI, DELIBERATELY. The runtime version --
 call every endpoint on a walked box -- was tried first and was too noisy to
 trust: GET against guessed ports cannot tell a missing route from a wrong verb,

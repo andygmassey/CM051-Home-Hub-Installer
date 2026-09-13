@@ -95,6 +95,20 @@ requests.get("http://127.0.0.1:8090/api/v1/suggestions",
 if [ "$(rc)" = "0" ]; then echo "  ok   NEGATIVE CONTROL: a credentialled client is not flagged"
 else echo "  FAIL NEGATIVE CONTROL: false positive on a correct client"; fails=$((fails+1)); fi
 
+# THE PIN. The gate sees signals.py only because fetch_signals carries a default
+# base_url containing a gated host; the live caller overrides it. Delete that
+# default and the front-page client silently leaves the gate's coverage. This
+# fails loudly instead.
+if grep -qE "127\.0\.0\.1:(8089|8090)|localhost:(8089|8090)" \
+        vendor/cm059_editor/compiler/signals.py 2>/dev/null; then
+    echo "  ok   PIN: signals.py still carries a gated host literal, so it stays in scope"
+else
+    echo "  FAIL PIN: signals.py no longer names a gated host -- the front-page client has"
+    echo "       silently left this gate's coverage. See the known-uncovered shape in the"
+    echo "       gate's docstring; do not delete this pin, fix the coverage."
+    fails=$((fails+1))
+fi
+
 rm -f "$T/vendor/fake_component/c.py"
 if [ "$(rc)" = "3" ]; then echo "  ok   NEGATIVE CONTROL: an empty tree is CANNOT-RUN, not PASS"
 else echo "  FAIL NEGATIVE CONTROL: empty tree did not report CANNOT-RUN"; fails=$((fails+1)); fi
