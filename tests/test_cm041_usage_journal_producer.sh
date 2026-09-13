@@ -256,6 +256,21 @@ sys.modules.setdefault("ostler_security.database", _db)
 _po = types.ModuleType("ostler_security.posture")
 _po.record_posture = lambda *a, **k: None
 sys.modules.setdefault("ostler_security.posture", _po)
+# ical-server imports ostler_security.db_key inside the SAME hard-fail
+# bracket as the two above, so the stub carries it or the module refuses
+# to load and every behaviour arm below reports IMPORT_FAILED. The stub
+# returns the "no key configured" shape on purpose: this gate is about
+# the usage journal, not encryption, and handing back a key would send
+# the service at SQLCipher databases that do not exist here.
+import collections as _collections
+_DbKey = _collections.namedtuple("DbKey", "key source reason detail")
+_dk = types.ModuleType("ostler_security.db_key")
+_dk.SOURCE_ENV = "OSTLER_DB_KEY"
+_dk.SOURCE_KEY_FILE = "OSTLER_DB_KEY_FILE"
+_dk.REASON_NO_KEY = "no_key"
+_dk.DbKey = _DbKey
+_dk.resolve_db_key = lambda: _DbKey(None, None, "no_key", None)
+sys.modules.setdefault("ostler_security.db_key", _dk)
 
 try:
     spec = importlib.util.spec_from_file_location("ical_server_usage", str(HERE / "ical-server.py"))
