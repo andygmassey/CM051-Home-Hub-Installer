@@ -42,7 +42,14 @@ on the live path (Archie, 2026-09-13).
 Closing it properly needs dataflow, not a regex. Until then the cheapest
 possible pin is a regression test asserting signals.py still carries a gated
 host literal, so deleting that default fails a test loudly instead of removing
-coverage silently. Do not read a PASS here as "every loopback client is
+coverage silently.
+
+🔴 THE PIN DEFENDS WHAT WE HAVE AND EXTENDS NOTHING, and the next author needs
+to know that rather than infer it. It protects the CURRENT catch only. A NEW
+client written in the split shape -- base URL in one module, request in a
+helper that receives it -- is invisible on the day it is written, and NO TEST
+FAILS. The pin is not a substitute for closing the hole; it only stops the one
+client we do catch from slipping out unnoticed (Archie, 2026-09-13). Do not read a PASS here as "every loopback client is
 covered"; read it as "every client this gate can see is covered".
 
 🔴 THIS IS A STATIC GATE AND IT RUNS IN CI, DELIBERATELY. The runtime version --
