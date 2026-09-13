@@ -64,6 +64,11 @@ MIN_STEADY_INTERESTS = 6
 # How many interest cards to surface, and the cap per domain so one rich domain
 # (music, say) cannot crowd everything else off the page.
 MAX_INTEREST_CARDS = 12
+# How many of those slots are held back from the ranked top, so the feed is not
+# purely "the same best twelve". One was not enough to make a visit feel
+# different (Andy, 2026-09-13). Three of twelve keeps the majority earned by
+# rank while guaranteeing the page moves between visits.
+ROTATION_SLOTS = 3
 MAX_PER_DOMAIN = 4
 
 # Feed hygiene caps (E2, spec section 1.3): a burst of live signals must not
@@ -103,7 +108,22 @@ DECAY_HALF_LIFE_DAYS = 7.0
 # regenerated and dies when hydration ends; key-date and commitment cards let
 # proximity + TTL carry their urgency rather than sinking with age.
 HALF_LIFE_BY_CLASS = {
-    "interest": 540.0,           # a favourite fades slowly, never vanishes
+    # 🔴 540 DAYS MEANT THE SAME TWELVE CARDS FOR EVER, and that is what a
+    # customer actually sees. Andy, 2026-09-13: "it used to be really rich with
+    # options like this, whereas lately it's been just the For You style
+    # things", and separately "the user won't want to see the same content
+    # every time they visit". At a 540-day half-life a shown card loses 0.1% of
+    # its priority per DAY, so with thousands of interests competing for twelve
+    # slots the same twelve won every day for months. Only the single
+    # exploration slot ever changed.
+    #
+    # 30 days halves a card's priority in a month, so a long-shown interest
+    # sinks and a fresh one overtakes it. The intent behind 540 was "a
+    # favourite fades slowly, NEVER VANISHES", and that intent is preserved by
+    # the recycle below rather than by refusing to decay: age comes from the
+    # ledger's first emission and NEVER resets, so faster decay without a
+    # recycle would retire a genuine favourite permanently.
+    "interest": 30.0,
     "onboarding": DECAY_HALF_LIFE_DAYS,  # a confirm card sinks if ignored (7d)
     "reply_debt": 2.0,           # a fresh reply-debt is urgent, then sinks fast
     "gone_quiet": 7.0,           # a reconnect nudge fades over a week
@@ -113,6 +133,15 @@ HALF_LIFE_BY_CLASS = {
 # Gone-quiet lifecycle (spec section 1.3): a reconnect card shows for up to
 # GONE_QUIET_TTL_DAYS, then goes quiet for GONE_QUIET_COOLDOWN_DAYS before it is
 # eligible to re-emit as a fresh cycle. Anchored to the ledger first-emission.
+# Interest recycle (2026-09-13). A card that has been on the feed for
+# INTEREST_TTL_DAYS has had its run; it stands down for
+# INTEREST_COOLDOWN_DAYS and is then eligible again with a FRESH cycle, so its
+# decay clock restarts and a real favourite returns rather than sinking for
+# ever. Exactly the lifecycle gone-quiet already uses, applied to the family
+# that needed it most.
+INTEREST_TTL_DAYS = 45
+INTEREST_COOLDOWN_DAYS = 20
+
 GONE_QUIET_TTL_DAYS = 14
 GONE_QUIET_COOLDOWN_DAYS = 30
 
@@ -335,12 +364,69 @@ def interest_card(it: dict, now: datetime, rank: int, n: int) -> dict:
     )
 
 
-def exploration_pick(profile: dict, picked: list[dict]) -> dict | None:
+def _rotation_picks(profile: dict, picked: list, now: datetime, n: int,
+                    *, keeping: list | None = None,
+                    exclude_ids: set | None = None) -> list:
+    """`n` INTERESTS from below the ranked top, chosen stably per ISO week.
+
+    Deterministic on (iso week, subject) rather than random: a customer who
+    reloads twice in a day must see the same page, and a customer who comes
+    back next week must not. Falls back to keeping the ranked cards when there
+    is nothing below the cut, so a thin profile never loses real interests to
+    an empty bench.
+
+    ``keeping`` is the ranked remainder the swaps will JOIN, and it is what
+    makes MAX_PER_DOMAIN hold. Measured 2026-09-13 before this argument
+    existed: a profile with thirty music interests returned 7 Music cards
+    against a cap of 4 and pushed the Reading domain off the page entirely --
+    the exact harm the cap exists to prevent, reintroduced by the one selector
+    that did not consult it. ``_top_interests`` caps as it picks; a second
+    selector feeding the same page has to cap against the same budget or the
+    cap is advisory.
+
+    ``exclude_ids`` carries the interests already spoken for elsewhere on the
+    page -- the exploration hunch above all, which is chosen from this very
+    bench BEFORE rotation runs. Without it the same subject could be drawn
+    twice and render as two cards (measured: 2 of 40 ISO weeks).
+    """
+    chosen_ids = {it.get("id") for it in picked} | (exclude_ids or set())
+    bench = [it for block in (profile.get("domains") or [])
+             for it in (block.get("interests") or [])
+             if it.get("polarity") != "dislike"
+             and it.get("id") not in chosen_ids]
+    if not bench:
+        return picked[-n:] if n else []
+    iso = now.isocalendar()
+    seed = f"{iso[0]}-W{iso[1]:02d}"
+    bench.sort(key=lambda it: hashlib.sha256(
+        (seed + str(it.get("subject") or it.get("id") or "")).encode()).hexdigest())
+
+    # Spend the rotation slots against the SAME per-domain budget the ranked
+    # pick used, counting the cards we are keeping so the finished page obeys
+    # the cap rather than each half obeying it alone.
+    per_domain: dict = {}
+    for it in (keeping or []):
+        dom = it.get("domain", "Other")
+        per_domain[dom] = per_domain.get(dom, 0) + 1
+    out = []
+    for it in bench:
+        if len(out) >= n:
+            break
+        dom = it.get("domain", "Other")
+        if per_domain.get(dom, 0) >= MAX_PER_DOMAIN:
+            continue
+        out.append(it)
+        per_domain[dom] = per_domain.get(dom, 0) + 1
+    return out or (picked[-n:] if n else [])
+
+
+def exploration_pick(profile: dict, picked: list[dict],
+                     exclude_ids: set | None = None) -> dict | None:
     """The E4 anti-filter-bubble pick: the strongest liked interest that did
     NOT make the top set, preferring one from a domain the page is not already
     showing (adjacent beats merely-next). ``None`` when nothing is left - a
     thin profile has no sub-threshold pool to explore."""
-    picked_ids = {it.get("id") for it in picked}
+    picked_ids = {it.get("id") for it in picked} | (exclude_ids or set())
     picked_domains = {it.get("domain") for it in picked}
     pool = [it for block in profile.get("domains", [])
             for it in block.get("interests", [])
@@ -424,11 +510,45 @@ def apply_card_states(cards: list[dict], states: dict | None,
 # The feed builder (pure)
 # ---------------------------------------------------------------------------
 
-def _top_interests(profile: dict) -> list[dict]:
+def resting_interest_ids(profile: dict, ledger: dict | None,
+                         now: datetime) -> set:
+    """Interest ids standing down in their cooldown window RIGHT NOW.
+
+    Computed before anything is selected, and that ordering is the whole
+    point. The recycle originally marked a card as resting only after the
+    twelve had been chosen and then deleted it, with nothing pulled up to fill
+    the hole -- so a mature install shipped a SHORT page. Measured
+    2026-09-13 over 200 installs with ages spread across the cycle: a mean of
+    7.6 interest cards out of 12, as low as 4, and not one full page. The feed
+    got emptier, which is the opposite of what the recycle was for.
+
+    Deciding first means a resting interest is never a candidate, so the next
+    one down takes the slot and the page stays full.
+    """
+    if not ledger:
+        return set()
+    cycle = INTEREST_TTL_DAYS + INTEREST_COOLDOWN_DAYS
+    out = set()
+    for block in (profile.get("domains") or []):
+        for it in (block.get("interests") or []):
+            iid = it.get("id")
+            if not iid:
+                continue
+            age = _age_days(card_ledger.first_emitted(
+                ledger, card_id("interest", iid)), now)
+            if age is not None and age % cycle >= INTEREST_TTL_DAYS:
+                out.add(iid)
+    return out
+
+
+def _top_interests(profile: dict, exclude_ids: set | None = None) -> list[dict]:
     """Flatten the profile's domain blocks into a single ranked list, capped per
-    domain so no one domain dominates the feed."""
+    domain so no one domain dominates the feed. ``exclude_ids`` drops interests
+    resting in their recycle cooldown, so their slots go to the next candidates
+    down instead of being deleted from the finished page."""
     per_domain: dict[str, int] = {}
     picked: list[dict] = []
+    exclude_ids = exclude_ids or set()
     blocks = sorted(profile.get("domains", []),
                     key=lambda b: -sum(i.get("score", 0) for i in b.get("interests", [])))
     # interleave round-robin-ish by taking the domains' tops in score order
@@ -438,6 +558,8 @@ def _top_interests(profile: dict) -> list[dict]:
             pool.append(it)
     pool.sort(key=lambda it: it.get("score", 0.0), reverse=True)
     for it in pool:
+        if it.get("id") in exclude_ids:
+            continue
         dom = it.get("domain", "Other")
         if per_domain.get(dom, 0) >= MAX_PER_DOMAIN:
             continue
@@ -464,7 +586,7 @@ def card_class(card: dict) -> str:
     class is the signal type (reply_debt / gone_quiet / key-date via birthday /
     commitment); a scout-produced card (source ``ostler:scout_*``) is class
     ``scout`` whatever its kind (a digest is ``kind: interest`` but its novelty
-    is perishable - half-life 3 days, not 540); every other kind is its own
+    is perishable - half-life 3 days, not 30); every other kind is its own
     class. Drives both the age half-life (``HALF_LIFE_BY_CLASS``) and, for
     signals, which band the builder used."""
     if card.get("kind") == "signal":
@@ -475,6 +597,17 @@ def card_class(card: dict) -> str:
     if str(card.get("source") or "").startswith("ostler:scout_"):
         return "scout"
     return card.get("kind", "")
+
+
+def _age_days(created, now):
+    """Whole-and-fractional days since `created`, or None when unreadable."""
+    dt = _parse_dt(created) if not isinstance(created, datetime) else created
+    if dt is None:
+        return None
+    try:
+        return max(0.0, (now - dt).total_seconds() / 86400.0)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _apply_ledger_age(cards: list[dict], ledger: dict | None,
@@ -494,11 +627,39 @@ def _apply_ledger_age(cards: list[dict], ledger: dict | None,
             fe = card_ledger.first_emitted(ledger, c["id"])
             if fe:
                 c["created_utc"] = fe
+        # INTEREST RECYCLE. Age from first emission never resets, so without
+        # this a decaying interest sinks for ever and a real favourite is
+        # retired by the passage of time alone. An interest runs for
+        # INTEREST_TTL_DAYS, stands down for INTEREST_COOLDOWN_DAYS, then
+        # returns on a FRESH cycle with its decay clock restarted. The
+        # effective age is its position within the current cycle, not its
+        # absolute age, which is what makes "fades slowly, never vanishes"
+        # true by construction rather than by refusing to decay.
+        if card_class(c) == "interest":
+            age = _age_days(c.get("created_utc"), now)
+            if age is not None:
+                cycle = INTEREST_TTL_DAYS + INTEREST_COOLDOWN_DAYS
+                pos = age % cycle
+                if pos >= INTEREST_TTL_DAYS:
+                    c["_resting"] = True      # in cooldown: stand it down
+                else:
+                    c["created_utc"] = (
+                        now - timedelta(days=pos)).isoformat()
         half_life = HALF_LIFE_BY_CLASS.get(card_class(c))
         if half_life:
             c["priority"] = round(
                 decay_priority(c["priority"], c.get("created_utc"), now,
                                half_life_days=half_life), 4)
+
+
+def drop_resting(cards: list[dict]) -> list[dict]:
+    """Remove interests standing down in their cooldown window.
+
+    _apply_ledger_age marks them; without this they were marked and kept, so
+    the recycle changed nothing at all. Flagging a card and then shipping it is
+    the same shape as a check that records a failure and returns success.
+    """
+    return [c for c in cards if not c.get("_resting")]
 
 
 def privacy_gate(cards: list[dict]) -> list[dict]:
@@ -605,18 +766,48 @@ def build_frontpage(profile: dict, *, now: datetime | None = None,
     # Interest cards: always carry whatever real signal we have so the page is
     # never empty - they just rank below the settling/onboarding cards until the
     # profile is rich enough to lead (steady).
-    tops = _top_interests(profile)
+    # Decide the recycle BEFORE selecting, never after. See
+    # resting_interest_ids: marking a chosen card and then deleting it shipped
+    # a short page, because nothing filled the hole it left.
+    resting = resting_interest_ids(profile, ledger, now)
+    tops = _top_interests(profile, exclude_ids=resting)
 
     # E4 exploration slot: only when the profile actually saturates the cap
     # does one slot go to an honest hunch (an adjacent, sub-threshold pick).
     # Suppressed in demo mode like every other proactive family; ``exploration
     # = False`` is the emitter's kill switch.
     hunch = None
+    pick = None   # bound here: rotation below reads it even when no hunch ran
     if exploration and not demo and len(tops) >= MAX_INTEREST_CARDS:
-        pick = exploration_pick(profile, tops)
+        pick = exploration_pick(profile, tops, exclude_ids=resting)
         if pick is not None:
             tops = tops[:MAX_INTEREST_CARDS - 1]
             hunch = exploration_card(pick, now, ledger=ledger)
+
+    # ROTATION. One hunch was not enough to make a visit feel different, so
+    # ROTATION_SLOTS of the twelve are held back from the ranked top and given
+    # to the next candidates down, cycling on the ISO week so the choice is
+    # stable within a week and moves between weeks. The majority of the feed is
+    # still earned by rank; this stops the tail being unreachable for ever.
+    # NOTE the threshold is MAX_INTEREST_CARDS - 1: the exploration block above
+    # has already trimmed tops by one, so testing >= MAX_INTEREST_CARDS here
+    # was false whenever a hunch was picked, and rotation silently never ran.
+    # Rotation rides the SAME kill switch as the hunch: both exist to stop the
+    # feed being only "the best twelve", and `exploration=False` is the
+    # emitter's one way to turn that family off. It must also preserve the card
+    # COUNT exactly -- swapping which interests appear, never how many -- or it
+    # silently shrinks a full page.
+    if (exploration and not demo and ROTATION_SLOTS > 0
+            and len(tops) >= MAX_INTEREST_CARDS - 1):
+        want = len(tops)
+        keep = max(0, want - ROTATION_SLOTS)
+        spoken_for = set(resting)
+        if pick is not None:
+            spoken_for.add(pick.get("id"))   # the hunch is already on the page
+        swapped = _rotation_picks(profile, tops, now, want - keep,
+                                  keeping=tops[:keep], exclude_ids=spoken_for)
+        if len(swapped) == want - keep:
+            tops = tops[:keep] + swapped
 
     n = len(tops)
     for rank, it in enumerate(tops):
@@ -645,6 +836,7 @@ def build_frontpage(profile: dict, *, now: datetime | None = None,
     _apply_ledger_age(cards, ledger, now)
     cards = [c for c in cards if not is_expired(c, now)]
     cards = apply_card_states(cards, card_states, now)
+    cards = drop_resting(cards)
     cards = privacy_gate(cards)
     cards = entitlement_gate(cards, entitled, now)
     cards.sort(key=lambda c: c.get("priority", 0.0), reverse=True)
