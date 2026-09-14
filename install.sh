@@ -7746,6 +7746,24 @@ if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/py
             warn "$MSG_WARN_LEGAL_PACKAGE_NOT_BUNDLED_CONSENT_DEGRADED"
         fi
         ok "$MSG_OK_SECURITY_MODULE_INSTALLED_INTO_VENV"
+
+        # ostler-unlock is the v1.0 recovery-key redeemer a customer is
+        # shown an XXXX-XXXX-... key for at install and told to run later.
+        # pyproject.toml installs it as a console_script into the venv's
+        # own bin/ ONLY -- ${OSTLER_VENV}/bin/ostler-unlock -- which is
+        # never on a customer's PATH. Symlink it into ${OSTLER_DIR}/bin,
+        # the SAME directory the shell-rc block below (~line 21500) adds
+        # to PATH, so `ostler-unlock` resolves by bare name the way the
+        # customer actually types it. ostler-recovery is deliberately
+        # left off: the pyproject.toml comment above it says the passkey
+        # subsystem it fronts is disabled for v1.0 and always exits 2.
+        if [[ -x "${OSTLER_VENV}/bin/ostler-unlock" ]]; then
+            mkdir -p "${OSTLER_DIR}/bin"
+            ln -sfn "${OSTLER_VENV}/bin/ostler-unlock" "${OSTLER_DIR}/bin/ostler-unlock"
+            ok "ostler-unlock linked onto PATH (${OSTLER_DIR}/bin)"  # i18n-exempt
+        else
+            warn "ostler-unlock console script not found in venv; recovery-key redemption will not be reachable by name"  # i18n-exempt
+        fi
     else
         # Hard-fail: deployed services (CM041 ical-server, CM041
         # whatsapp-bridge, CM048 ingest) refuse to start at import

@@ -416,6 +416,22 @@ entries:
       probe: "the_recovery_key_reached_the_customer"
 
   # ==========================================================================
+  - id: box-walk-ostler-unlock-reachable-by-name
+    title: ostler-unlock must resolve by bare name in the shell a customer's Terminal actually opens
+    incident: >-
+      ostler-unlock is proven functional from its full path (--help works, a
+      wrong key is correctly rejected), but pyproject.toml only installs its
+      console_script into the owning venv's own bin/ --
+      $HOME/.ostler/.venv/bin/ostler-unlock -- which was never on a customer's
+      PATH. `ostler-unlock` at a real Terminal returned "command not found".
+      Every prior check asked whether the file was present and never asked
+      whether a person could run it. RECOMMENDED BLOCKING; the blocking scope
+      itself is a separate decision this entry does not make.
+    proof:
+      kind: box_walk_probe
+      probe: "ostler_unlock_reachable_by_name"
+
+  # ==========================================================================
   - id: box-walk-people-seed-and-retrieval
     title: a synthetic person must seed and be retrievable via people/context + people/search
     incident: >-
