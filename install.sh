@@ -25986,7 +25986,7 @@ fi
 # signature the way the nested Uninstaller app does), non-fatal when
 # absent so a dev run of raw install.sh (which does not bundle it) is a
 # silent no-op rather than a false warning.
-RECOVERY_APP_DEST="/Applications/Recover Ostler.app"
+RECOVERY_APP_DEST="/Applications/Ostler/Recover Ostler.app"
 RECOVERY_APP_SOURCE=""
 if [[ -d "${SCRIPT_DIR}/Recover Ostler.app" ]]; then
     RECOVERY_APP_SOURCE="${SCRIPT_DIR}/Recover Ostler.app"
@@ -25994,6 +25994,16 @@ elif [[ -d "${SCRIPT_DIR}/../Recover Ostler.app" ]]; then
     RECOVERY_APP_SOURCE="${SCRIPT_DIR}/../Recover Ostler.app"
 fi
 if [[ -n "$RECOVERY_APP_SOURCE" ]]; then
+    # THE PARENT FOLDER DOES NOT EXIST ON A FRESH MAC. Andy banned /Applications
+    # sprawl in writing, so this app is staged into an Ostler sub-folder rather
+    # than beside the main app -- and a destination whose parent is absent makes
+    # cp -R fail into the warn branch, which reports "could not stage" and
+    # installs nothing. Create it first, with the same unprivileged-then-sudo
+    # ladder the copy below uses.
+    if [[ ! -d "/Applications/Ostler" ]]; then
+        mkdir -p "/Applications/Ostler" 2>/dev/null \
+            || sudo mkdir -p "/Applications/Ostler" 2>/dev/null || true
+    fi
     if [[ -d "$RECOVERY_APP_DEST" ]]; then
         pkill -f "${RECOVERY_APP_DEST}/Contents/MacOS" 2>/dev/null || true
         sleep 0.5
