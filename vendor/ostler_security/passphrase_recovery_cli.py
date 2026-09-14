@@ -75,13 +75,28 @@ interactive prompt. Same discipline as ``migrate_recovery_key_aad.py``.
 Exit codes
 ----------
 
-    0   Unlocked. The key is on stdout.
+    0   Unlocked. The key file is installed by default; stdout carries a
+        plain confirmation, not the key itself. Pass --print-key to get
+        the raw 64-hex key on stdout instead (engineers/scripting only).
     1   Wrong recovery key / wrong passphrase, or attempts exhausted.
     2   Nothing to unlock: no config, or the config has no recovery key
         configured. Retrying will not help.
     3   Unexpected internal failure.
-    4   Unlocked, but --install-key-file could not write the key file.
-        The key IS on stdout and is not lost; only the handoff failed.
+    4   Unlocked, but the key file could not be written. The raw key IS
+        printed to stdout regardless of --print-key in this one case,
+        because that is the only remaining way to hand it over.
+
+CHANGED 2026-09-14 (CM051 recovery-app PR): installing the key file used
+to require --install-key-file and, either way, the raw key was ALWAYS
+printed to stdout. A customer running this by hand to recover their own
+box would see their raw database key in their terminal and could paste
+it into a note or a support ticket. Installing the key file is now the
+default (--install-key-file is kept, accepted, and is a no-op -- every
+existing caller in this tree already passed it explicitly, so nothing
+that used to install a key file stops installing one). The raw key is
+now shown only via the new --print-key flag, or on the write-failure
+escape hatch above, where hiding it would destroy the customer's only
+copy.
 """
 from __future__ import annotations
 
@@ -229,8 +244,9 @@ def run(
     recovery_reader: SecretReader = visible_reader,
     passphrase_reader: SecretReader = hidden_reader,
     max_attempts: int = 3,
-    write_key_file: bool = False,
+    write_key_file: bool = True,
     key_file: Optional[Path] = None,
+    print_key: bool = False,
     stdout: TextIO = sys.stdout,
     stderr: TextIO = sys.stderr,
 ) -> int:
@@ -353,6 +369,12 @@ def run(
     _err(stderr, "Unlocked.")
 
     rc = EXIT_OK
+    # Default is to reveal nothing raw: the file install below is the normal
+    # handoff. print_key is the explicit engineer opt-in. A caller that asks
+    # for neither (write_key_file=False, print_key=False) still gets the raw
+    # key -- there would otherwise be no way to hand it over at all, and that
+    # combination is not the customer-facing default path.
+    reveal_raw_key = print_key or not write_key_file
     if write_key_file:
         try:
             written = install_key_file(key_hex, key_file)
@@ -361,10 +383,12 @@ def run(
             _err(stderr, f"Could not write the key file: {exc}")
             _err(
                 stderr,
-                "The key itself is on stdout and is NOT lost. Capture it "
-                "before this window closes.",
+                "The key itself is needed to recover your data, so it is "
+                "printed below rather than lost. Capture it before this "
+                "window closes.",
             )
             rc = EXIT_KEY_FILE_WRITE_FAILED
+            reveal_raw_key = True
         else:
             _err(stderr, f"Database key written to {written} (mode 0600).")
             _err(stderr, "")
@@ -396,7 +420,10 @@ def run(
             )
 
     # stdout is the clean channel. Nothing else is ever written to it.
-    stdout.write(key_hex + "\n")
+    if reveal_raw_key:
+        stdout.write(key_hex + "\n")
+    else:
+        stdout.write("Database key installed. Ostler can open your data again.\n")
     stdout.flush()
     return rc
 
@@ -449,10 +476,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--install-key-file",
         action="store_true",
+        default=True,
         help=(
-            "Also write the unlocked key to the protected key file the Hub "
+            "Write the unlocked key to the protected key file the Hub "
             "services read (0600, inside the 0700 security directory), so "
-            "they stop opening databases in plaintext."
+            "they stop opening databases in plaintext. This is now the "
+            "default; the flag is kept so existing scripts that pass it "
+            "keep working, and passing it has no additional effect."
         ),
     )
     parser.add_argument(
@@ -460,7 +490,16 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         metavar="PATH",
-        help="Override where --install-key-file writes.",
+        help="Override where the key file is written.",
+    )
+    parser.add_argument(
+        "--print-key",
+        action="store_true",
+        help=(
+            "Print the raw 64-character database key to stdout. Off by "
+            "default so a customer cannot accidentally paste their key "
+            "into a note or a support ticket. For engineers/scripting."
+        ),
     )
     parser.add_argument(
         "--max-attempts",
@@ -481,6 +520,7 @@ def main(argv: Optional[list] = None) -> int:
         max_attempts=args.max_attempts,
         write_key_file=args.install_key_file,
         key_file=args.key_file,
+        print_key=args.print_key,
     )
 
 
