@@ -65,6 +65,7 @@ on:
       # never fires on a change to itself.
       - 'tests/test_doctor_credential_routes_refuse_cross_site.sh'
       - 'tests/test_editor_feedback_accepts_the_add_verb.sh'
+      - 'tests/test_the_doctor_dashboard_actually_renders.sh'
       # v1018-D024, customer-visible half. Listed here AND run below, for the
       # reason recorded above: a path entry only makes the workflow trigger.
       # The gate also reads lib/ostler-resource-tier.sh and install.sh, so both
@@ -500,6 +501,14 @@ jobs:
       # what makes that drop loud. Every assertion in it has a NEGATIVE
       # control beside it -- the same rule on a healthy snapshot must stay
       # silent -- so it cannot pass by firing on everything.
+      - name: The Doctor dashboard actually renders (not just answers)
+        if: always()
+        # WIRED HERE DELIBERATELY, beside the other two doctor tests, because
+        # this job pip-installs vendor/doctor/agent/requirements.txt above. The
+        # test reports CANNOT-RUN when fastapi is absent, and a CANNOT-RUN that
+        # nobody notices is a zero-denominator pass. Wired anywhere without the
+        # requirements it would prove nothing while reading green.
+        run: bash tests/test_the_doctor_dashboard_actually_renders.sh
       - name: A dead wiki announces itself
         if: always()
         run: python3 ./tests/test_a_dead_wiki_announces_itself.py
