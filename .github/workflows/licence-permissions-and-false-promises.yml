@@ -1,0 +1,155 @@
+name: licence-permissions-and-false-promises
+
+# Five defects, one theme: what the installer TELLS the customer and what it
+# DOES to their files had drifted apart, and in four of the five the comment
+# asserting the safe behaviour was the only place that behaviour existed.
+#
+#   1. The licence file is not 0600, and it carries the customer's email
+#      address and the id of their Stripe payment. LicensePersistence.swift's
+#      header promised "mode 0600 ... atomic rename"; FileManager.replaceItem
+#      carries the DESTINATION's mode onto the replacement, and install.sh
+#      told the customer to `cp` the file in at the default umask. Nothing
+#      chmodded it: 0 hits, against a control of 20 for `chmod 600` elsewhere
+#      in the same file.
+#   2. The customer was told IN THEIR OWN config.toml that their email
+#      password "is stored in plaintext until the assistant first runs and
+#      encrypts them in place". It never does. `encrypt-config` had exactly
+#      ONE match in the repo: the comment proposing it. Controls: `doctor` 93,
+#      `allow-plaintext` 17.
+#   3. "E.164 validation rejects them already" was written beside a field that
+#      had no validation. Four `E.164` matches, all comments; control
+#      `CHANNEL_WHATSAPP_RECIPIENT` 16. The prompt's own example carried
+#      spaces in the same sentence as "no spaces", and two of the three
+#      consumers of that number took it verbatim.
+#   4. Uninstalling destroyed the paid licence. `licen[cs]e` had ZERO matches
+#      in the uninstaller body; control, 202 across install.sh.
+#   5. The calendar scan stopped at depth 3 and three files, while the
+#      Facebook arm four lines above it in the same loop already went to 5.
+#
+# WHY EVERY TEST BELOW RUNS THE CODE RATHER THAN GREPPING IT. Board #636 was a
+# CM051 fix that shipped INERT because the line was present in install.sh and
+# sat inside a quoted heredoc. A source grep passes on exactly that defect. So
+# these extract the real limb, the real find predicate and the real config
+# emitter, run them, and read the result off the filesystem or out of the
+# rendered TOML. Each one carries a mutation arm that restores the defect and
+# requires the assertion to go RED.
+#
+# WHY ubuntu-latest IS ENOUGH HERE, unlike the downloads-watcher gate. None of
+# these five subjects is BSD-specific: they are bash parameter expansion, a
+# POSIX `find` expression, `chmod`, and text. Both toolchains were measured
+# before this file was written -- macOS 26 with BSD find
+# and bash 3.2, and ubuntu:24.04 with GNU findutils 4.9.0 and bash 5 -- and
+# all five suites returned identical results on both.
+#
+# The ONE thing that is genuinely BSD-specific is asserted on the Mac by the
+# Swift half (swift-tests, LicensePersistenceTests) and by install.sh's own
+# comment: BSD chmod has no `--`, it reads it as another FILE operand, so the
+# guarded-looking `chmod 600 -- f` sets the mode correctly AND exits 1. That
+# was measured on this Mac and it is why the repair limb has no `--`.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'scripts/ttywalk.sh'
+      - 'tests/test_the_licence_a_customer_paid_for_is_owner_only.sh'
+      - 'tests/test_an_uninstall_does_not_consume_the_purchase.sh'
+      - 'tests/test_the_number_a_customer_types_reaches_all_three_consumers.sh'
+      - 'tests/test_the_config_does_not_promise_encryption_that_never_happens.sh'
+      - 'tests/test_a_calendar_export_is_found_where_exports_actually_sit.sh'
+      - '.github/workflows/licence-permissions-and-false-promises.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  licence-permissions-and-false-promises:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # `if: always()` on every step after the first. Without it a red in one
+      # step SKIPS the rest, and a skipped check reads as "no objection" --
+      # which is the ci-maskless finding (#1695), and it would hide four of
+      # these five defects behind whichever one happened to fail first.
+
+      # 10 arms. Runs install.sh's real repair limb against a real file created
+      # at 0644 and reads the mode back with stat. Mutation: disable the chmod
+      # and the file must stay 644.
+      - name: The licence a customer paid for is owner-only on disk
+        run: bash tests/test_the_licence_a_customer_paid_for_is_owner_only.sh
+
+      # 9 arms. Extracts the uninstaller's REAL removal command and runs it
+      # against a seeded tree. Carries the anti-vacuity control that matters
+      # most here: a removal that removed NOTHING would satisfy "the licence
+      # survived" perfectly. Mutation: drop the exclusion, licence must die.
+      - name: An uninstall does not consume the purchase
+        if: always()
+        run: bash tests/test_an_uninstall_does_not_consume_the_purchase.sh
+
+      # 17 arms. Renders the config emitter and reads allowed_numbers,
+      # pair_phone and BOTH brief jobs' delivery.to out of the TOML a customer
+      # would receive. Also holds the GUI help string's own example to the
+      # validator, so the copy cannot contradict itself again.
+      - name: The number a customer types reaches all three consumers
+        if: always()
+        run: bash tests/test_the_number_a_customer_types_reaches_all_three_consumers.sh
+
+      # 9 arms. Renders the preamble beside a real (synthetic) password field
+      # and refuses on four phrasings of the encryption claim. Arm 0 is a hard
+      # CANNOT-RUN if either the preamble or the password is missing: a test
+      # about a sentence that sits next to a plaintext password must not pass
+      # on a config that has neither.
+      - name: The config does not promise encryption that never happens
+        if: always()
+        run: bash tests/test_the_config_does_not_promise_encryption_that_never_happens.sh
+
+      # 9 arms. Extracts the real find predicate and runs it against a tree
+      # built to the shapes real exports have. Asserts BOTH directions: the
+      # deeper files are found AND the scan is still bounded (a pruned bundle
+      # and a depth-8 file are both skipped).
+      - name: A calendar export is found where exports actually sit
+        if: always()
+        run: bash tests/test_a_calendar_export_is_found_where_exports_actually_sit.sh
+
+      # The neighbours. This change touches the config emitter and the walk's
+      # residue predicate, and both have suites of their own that would
+      # otherwise only discover a break on somebody else's PR.
+      - name: The WhatsApp channel block still emits a usable config
+        if: always()
+        run: bash tests/test_whatsapp_channel_block.sh
+
+      # The licence keep had to be added to ttywalk's residue count in the same
+      # change, or every wipe walk would abort at CANNOT-RUN on the surviving
+      # licence -- a check failing because the code it checks was fixed.
+      - name: The walk still tells a wiped box from a dirty one
+        if: always()
+        run: bash tests/test_a_volume_count_is_not_a_wiped_box.sh
+
+      - name: The wipe still preserves the licence across an older uninstaller
+        if: always()
+        run: bash tests/test_the_wipe_preserves_the_licence.sh
+
+      # The prompt-loop ratchet is a TWO-WAY gate: it fails if the count goes
+      # up AND if it goes down without the ceiling following. The E.164 fix
+      # edits the body of one of the three scored loops, so it is run here
+      # rather than left to be discovered at the cut.
+      - name: The re-prompt loop backlog is unchanged at its ceiling
+        if: always()
+        run: bash scripts/verify_prompt_loops_are_bounded.sh
+
+      # Two new MSG_ strings and one rewritten one. Under `set -u` a
+      # catalogue miss is not a blank line, it kills the install.
+      - name: Every MSG_ string the installer reads is defined
+        if: always()
+        run: python3 scripts/verify_install_strings_bound.py
