@@ -542,3 +542,47 @@ open_issues:
       quiet zero. VERIFIED ON THE BOX: credential resolves YES, a bare query returns
       rows where it previously 401ed. NOTE it is necessary and NOT SUFFICIENT: behind
       that lock there is nothing to read until 953 is fixed.'
+
+  - issue: 955
+    title: "PREFERENCE EXTRACTION RUNS OVER THREE SOURCES AND IGNORES THE DATA IT ALREADY HOLDS"
+    gate: 'GATE: NONE YET. THIS IS THE BOTTOM OF THE "0 interests" QUESTION and it is
+      NOT a threshold, NOT the RDF link, and NOT the credential. All three of those
+      were real and are fixed or tracked; this is underneath them.
+      MEASURED ON THE LIVE BOX 2026-09-16, Qdrant points_count per collection:
+        safari_history        8626
+        conversations         2071
+        people                3784
+        preferences           5733
+        evernote_knowledge       0   <- an importer ships and the collection is EMPTY
+      AND THE ENTIRE preferences COLLECTION COMES FROM THREE SOURCES:
+        safari_bookmarks   4730  (all Like)
+        meeting_locations   929  (all Neutral, correctly not an interest)
+        imessage             74
+      Nothing else. No Spotify, no Netflix, no purchases, no email, no WhatsApp, no
+      LinkedIn, despite three LinkedIn importers shipping and 16G of GDPR exports
+      sitting in the operator Downloads folder.
+      SO THE EXTRACTOR NEVER TOUCHES 8626 BROWSING RECORDS OR 2071 CONVERSATIONS THAT
+      ARE ALREADY INGESTED AND SITTING IN THE SAME STORE.
+      WHY THE FRONT PAGE IS HONEST TO SAY ZERO: confidence([], "bookmark",
+      "safari_bookmarks") = 0.18 measured, against roughly 0.47 needed to clear
+      min_confidence 0.28 once evidence_factor floors at 0.70 and recency at ~0.85.
+      A bookmark is deliberately weak evidence and that judgement is CORRECT: having
+      bookmarked an article is not being "into" its subject.
+      DO NOT LOWER min_confidence. Archie: lowering it to admit rows whose reliability
+      is genuinely unknown is how the front page fills with things the customer never
+      expressed. The fix is MORE EXTRACTION, not a lower bar.
+      ALSO NOTE THE ARITHMETIC THAT SETTLED IT BEFORE ANY CODE WAS READ: 4804 raw and
+      4711 suppressed leaves 93 survivors, and no cut on the strength histogram
+      (0.6x26, 0.7x4304, 0.8x457, 0.9x17) can ever produce 93. So the suppressor was
+      never comparing strength. confidence is reliability x evidence_factor x
+      recency_confidence and strength is not one of the three terms.'
+  - issue: 956
+    title: "evernote_knowledge collection is empty on a box that shipped the Evernote importer"
+    gate: 'GATE: NONE YET. points_count 0, measured. Every other collection on the same
+      box holds data (safari_history 8626, conversations 2071, people 3784,
+      preferences 5733), so this is not a store or credential problem: the control is
+      four populated collections read with the same credential in the same command.
+      Either the importer never ran, or it ran and wrote nowhere. Note CM051 also
+      ships Notion and Obsidian importers (PR #1960, unreviewed and deliberately not
+      in v1.0.98) and three LinkedIn importers wired into the install, so the question
+      generalises: which importers actually deposit anything.'
