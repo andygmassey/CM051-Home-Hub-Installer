@@ -1,0 +1,1321 @@
+# cut-manifests/v1.0.99.yaml
+# ============================================================================
+# THE ONE CHECKLIST FOR THE NEXT CUT.
+#
+# Andy, 2026-09-05: "You keep JUST ONE checklist -- the manifest -- and cross
+# things off until they're all done before you make the next cut. Otherwise we
+# will NEVER get through this." And: "they all must pass each and every time."
+#
+# So this file is the whole gate for v1.0.98. It inherits permanent.yaml; the
+# verifier walks both and a FAIL in either fails the cut.
+#
+# TWO SECTIONS, AND THE DIFFERENCE BETWEEN THEM IS THE HONEST PART:
+#
+#   entries:        MACHINE-GATED. Every row here is proved by a real primitive
+#                   against a real box or a real tree. These cannot be ticked
+#                   by hand and cannot be forgotten.
+#
+#   open_issues:    THE FULL REGISTER of every open issue at the time of
+#                   writing. The verifier does NOT read this key -- it walks
+#                   `entries` only. Rows here carry `gated_by:` naming the
+#                   entry that proves them, or `gate: NONE YET`, which means
+#                   the fix shape is not decided and NOBODY HAS WRITTEN THE
+#                   PROOF. A `NONE YET` row is work, not coverage. Do not read
+#                   this section as protection.
+#
+# Writing a plausible-looking proof for an issue I have not measured would make
+# this file lie in exactly the way SKIP-is-not-a-pass lied for fourteen cuts.
+# So the ungated rows say so in as many words.
+# ============================================================================
+
+version: v1.0.99
+description: |
+  v1.0.97 WAS TAGGED ONCE AT 258c7944192a3f305ae0c3a0248b751e9256068d AND NEVER
+  BUILT. Its PREFLIGHT PASSED, which is the difference from v1.0.96: the cut
+  paperwork was right. The cut JOB died in the build step on check-pr-age over
+  a single expired PR-age exemption (CM051 #1818), re-decided in #1966 on
+  CHANGED grounds rather than a rolled date, because the freeze it originally
+  rested on had lifted.
+
+  THE LESSON IS THE TOOL, NOT THE EXEMPTION. scripts/new_cut.sh printed "ALL
+  GREEN. Safe to tag" after running only the gates cut.yml checks in its
+  PREFLIGHT job. `make ship` has twelve prerequisites of its own and
+  check-pr-age is one of them: the preparation gates and the ship gates are
+  different populations, and the tool claimed a scope it did not have. Both
+  v1.0.96 and v1.0.97 are downstream of that sentence. CM051 #1967 removed it;
+  the script now states its own scope and prints the dispatch command instead.
+  Its own comments had already recorded this happening three times before.
+
+  THIS CUT WAS DRY-RUN FIRST, which is the change. A workflow_dispatch (run
+  34764181672) exercised preflight AND the ship gates against main, built
+  nothing, published nothing and SPENT NO TAG. It returned exactly one red,
+  check-ship-version, refusing because v1.0.97 was already tagged. Correct, and
+  the spent tag rather than a defect. check-pr-age read GREEN, PARTIAL
+  (DECLARED); check-freshness read stale/RED=0.
+
+  v1.0.98 CARRIES THE SAME PAYLOAD AS v1.0.96 AND v1.0.97, at the same tree
+  content: seven BOM rows, unchanged, for #1952, #1953, #1954, #1955, #1959,
+  #1956 and #1962. No product code differs between the three attempts. What
+  differs is that the paperwork exists and the ship gates have been exercised.
+
+  WHAT THE DRY RUN COULD NOT REACH, stated so green is not read as proof of a
+  build: signing, notarising, packaging, the three gates that must mount a DMG,
+  check-identity (no Developer ID in that job) and check-manifest (reads the
+  BUILT .app). Those are first exercised by the real cut.
+
+entries:
+
+  # ==========================================================================
+  # ANDY'S BAR: ALL 26 BOX-WALK PROBES MUST PASS, EVERY TIME.
+  #
+  # On the v1.0.71 walk this stood at 17 PASS / 7 FAIL / 1 CANNOT-RUN. Each row
+  # below is a runtime gate: with OSTLER_BOX_HOST set the probe MUST exit 0.
+  # CANNOT-RUN is not a pass and is not tolerated here either.
+  # ==========================================================================
+  - id: probe-app-signature-survives-first-run
+    title: "box-walk probe must PASS: app_signature_survives_first_run"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "app_signature_survives_first_run"
+
+  - id: probe-assistant-answers-grounded
+    title: "box-walk probe must PASS: assistant_answers_grounded"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "assistant_answers_grounded"
+
+  - id: probe-assistant-prompt-names-every-pwg-tool
+    title: "box-walk probe must PASS: assistant_prompt_names_every_pwg_tool"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "assistant_prompt_names_every_pwg_tool"
+
+  - id: probe-converge-kill-is-recorded
+    title: "box-walk probe must PASS: converge_kill_is_recorded"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "converge_kill_is_recorded"
+
+  - id: probe-daemon-is-listening
+    title: "box-walk probe must PASS: daemon_is_listening"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "daemon_is_listening"
+
+  - id: probe-fda-tick-can-import
+    title: "box-walk probe must PASS: fda_tick_can_import"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "fda_tick_can_import"
+
+  - id: probe-freshness-panel-has-dates
+    title: "box-walk probe must PASS: freshness_panel_has_dates"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "freshness_panel_has_dates"
+
+  - id: probe-identity-layer-is-importable
+    title: "box-walk probe must PASS: identity_layer_is_importable"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "identity_layer_is_importable"
+
+  - id: probe-ingest-coverage
+    title: "box-walk probe must PASS: ingest_coverage"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "ingest_coverage"
+
+  - id: probe-install-error-honesty
+    title: "box-walk probe must PASS: install_error_honesty"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "install_error_honesty"
+
+  - id: probe-install-manifest-complete
+    title: "box-walk probe must PASS: install_manifest_complete"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "install_manifest_complete"
+
+  - id: probe-installed-bundle-seal-intact
+    title: "box-walk probe must PASS: installed_bundle_seal_intact"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "installed_bundle_seal_intact"
+
+  - id: probe-launchagents-resolve-their-tools
+    title: "box-walk probe must PASS: launchagents_resolve_their_tools"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "launchagents_resolve_their_tools"
+
+  - id: probe-launchd-no-ephemeral-paths
+    title: "box-walk probe must PASS: launchd_no_ephemeral_paths"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "launchd_no_ephemeral_paths"
+
+  - id: probe-no-person-holds-two-contact-cards
+    title: "box-walk probe must PASS: no_person_holds_two_contact_cards"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "no_person_holds_two_contact_cards"
+
+  - id: probe-no-store-port-is-tcp-reachable
+    title: "box-walk probe must PASS: no_store_port_is_tcp_reachable"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "no_store_port_is_tcp_reachable"
+
+  - id: probe-no-unexpected-egress
+    title: "box-walk probe must PASS: no_unexpected_egress"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "no_unexpected_egress"
+
+  - id: probe-pair-state-agreement
+    title: "box-walk probe must PASS: pair_state_agreement"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "pair_state_agreement"
+
+  - id: probe-pairing-recovers-without-a-repair-storm
+    title: "box-walk probe must PASS: pairing_recovers_without_a_repair_storm"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "pairing_recovers_without_a_repair_storm"
+
+  - id: probe-people-count-agreement
+    title: "box-walk probe must PASS: people_count_agreement"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "people_count_agreement"
+
+  - id: probe-people-seed-and-retrieval
+    title: "box-walk probe must PASS: people_seed_and_retrieval"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "people_seed_and_retrieval"
+
+  - id: probe-people-stores-reconcile
+    title: "box-walk probe must PASS: people_stores_reconcile"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "people_stores_reconcile"
+
+  - id: probe-running-config-matches-disk
+    title: "box-walk probe must PASS: running_config_matches_disk"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "running_config_matches_disk"
+
+  - id: probe-source-status-artefact-is-served
+    title: "box-walk probe must PASS: source_status_artefact_is_served"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "source_status_artefact_is_served"
+
+  - id: probe-usage-journal-producers
+    title: "box-walk probe must PASS: usage_journal_producers"
+    incident: "Andy 2026-09-05: they all must pass each and every time. v1.0.71 stood at 17/25."
+    proof:
+      kind: box_walk_probe
+      probe: "usage_journal_producers"
+
+  - id: probe-the-recovery-key-reached-the-customer
+    title: "box-walk probe must PASS: the_recovery_key_reached_the_customer"
+    incident: "#1540 LAUNCH BLOCKER: the recovery key is minted, the DEK is encrypted under it, and the customer is never shown it. Probe landed in #1557 AFTER this manifest was generated, so the file declared 25 rows against 26 probes on disk."
+    proof:
+      kind: box_walk_probe
+      probe: "the_recovery_key_reached_the_customer"
+
+  # THE INSTRUMENTS ARE COUNTED TOO. Andy, 2026-09-05: "surely we need to make
+  # sure all the instruments work as well, so I'd actually rather we count them
+  # in the manifest." A broken instrument is how a customer defect survives, so
+  # an apparatus defect is not DEFER-able on the grounds of being apparatus.
+  - id: every-probe-on-disk-is-collected
+    title: every probe-shaped script must be collected by run_box_walk.sh or exempted with a written reason
+    incident: "acceptance_gate_v1013.sh sits one directory above the collector's glob. cut-manifests/README.md records the same shape as this project's worst measurement failure: people_seed_and_retrieval sat outside it and FOURTEEN CUTS reported a gate that measured nothing."
+    proof:
+      kind: grep_in_source_at_sha
+      target: this-repo
+      path: "tests/test_every_probe_on_disk_is_collected.py"
+      pattern: "probe-shaped script"
+      must_match: true
+
+  # ==========================================================================
+  # DEFECT-ABSENCE PROOFS for defects MEASURED on the v1.0.71 walk box today.
+  # Each pattern is the broken form. must_match:false means the cut fails while
+  # the defect is still in the tree.
+  # ==========================================================================
+
+  - id: downloads-watcher-defines-its-own-deadline
+    title: the generated Downloads scanner must define the names _notify uses
+    incident: "v1.0.71 box 2026-09-05: ostler-scan-exports line 18 OSTLER_OSASCRIPT_TIMEOUT_S unbound, rc=1, importer never called"
+    proof:
+      kind: grep_in_installer
+      # THE NEEDLE OMITTED THE QUOTES, SO IT MATCHED NOTHING AND THE ROW COULD
+      # NEVER PASS. The shipped assignment wraps its default-expansion in
+      # DOUBLE QUOTES; the pattern looked for the bare, unquoted form. The
+      # exact literal is deliberately NOT reproduced in this comment: a
+      # landing check for the quoted form counted this very line and read 1
+      # where it expected 0. Describe a flagged literal, never repeat it.
+      # Measured on
+      # cf5e3193 with the fix present: old needle 0 hits, quoted needle 2.
+      #
+      # AND THE COUNT IS THE PROOF, NOT THE PRESENCE. install.sh defines this
+      # name twice once the fix is in: once in its own scope, and once inside
+      # the SCANEOF heredoc that becomes ostler-scan-exports. Only the second
+      # is the subject of this row, and the two lines are textually identical,
+      # so no single-line pattern can tell them apart. Measured:
+      #
+      #     2fb58d1e (fix ABSENT)  1 hit   <- install.sh scope only
+      #     cf5e3193 (fix PRESENT) 2 hits  <- plus the generated scanner
+      #
+      # So must_match alone would PASS on the tree that still ships the defect.
+      # min_hits: 2 is what makes this row discriminate. It requires the
+      # grep_in_installer floor added in the same PR as this row.
+      pattern: 'OSTLER_OSASCRIPT_TIMEOUT_S="\$\{OSTLER_OSASCRIPT_TIMEOUT_S:-20\}"'
+      must_match: true
+      min_hits: 2
+
+  - id: killed-converge-still-gets-catchup
+    title: the catch-up guard must consider the KILLED marker, not only .done
+    incident: "v1.0.71 box: .done AND .killed both present; agent skipped; 84 people split across two stores; 3 QA probes failed"
+    proof:
+      kind: grep_in_installer
+      pattern: "_DEDUPE_DONE_MARKER\" \\|\\| -f \"\\$_DEDUPE_KILLED_MARKER"
+      must_match: true
+
+  # THIS PAIR IS ONE PROOF, AND THE SECOND HALF IS NOT OPTIONAL.
+  #
+  # The absence row below was GREEN ON MAIN FOR THE WRONG REASON. Measured:
+  # `ASSUME_YES` appears ZERO times in install.sh on origin/main (control:
+  # `OSTLER_` appears 1655 times, so the file is readable). #1567 has not
+  # landed, so the row could not tell "the bad form is absent because the fix
+  # is right" from "the feature does not exist at all".
+  #
+  # That is precisely the defect #1153 describes -- a needle satisfied by
+  # something other than the thing it exists to prove -- sitting inside the
+  # manifest that bans it. Found by a review of my own rows, not by the gate.
+  #
+  # So the absence proof is paired with a presence proof naming the construct
+  # the fix actually introduces. Until #1567 lands the presence row is RED,
+  # which is correct: the property is unproven, and the manifest should say so
+  # rather than report a pass it did not earn.
+  # A CALL-SITE PROOF, AND THE REASON IT IS NOT AN ABSENCE PROOF.
+  #
+  # This replaced a row grepping `[[ -n "$ASSUME_YES" ]]` with must_match:false,
+  # which was wrong TWICE. It was green on main only because ASSUME_YES did not
+  # exist there at all (0 occurrences against 1655 for OSTLER_), and it would
+  # have gone RED ON THE CORRECT FIX: #1567 still contains that exact string,
+  # in a safe role, warning that a value was set which does not mean consent.
+  # Measured hits=0 on main, hits=1 on the PR. A gate that fires on the fix is
+  # worse than no gate: the debugging it causes looks like the fix broke
+  # something.
+  #
+  # Anchored to the CALL, not the definition. `_assume_yes_granted` alone is
+  # satisfied by a function that exists and is never reached -- the exact
+  # mutant TNM's #1579 shows the converge row passing.
+  - id: uninstall-consent-is-an-allowlist-not-a-non-empty-test
+    title: the uninstaller's confirm bypass must be decided by a value allowlist, at its call site
+    incident: "#1560 + review 2026-09-05: -n tests non-empty, so =0, =no and =false all proceeded to destroy. The first replacement row banned a SUBSTRING the correct fix still contains in a safe role."
+    proof:
+      kind: grep_in_installer
+      pattern: "(?m)^if _assume_yes_granted; then"
+      must_match: true
+
+  # ==========================================================================
+  # CARRIED FROM v1.0.90, RE-VERIFIED AT THIS CUT'S OWN HEAD (see the
+  # description block's allow_private_hosts diff for the method): v1.0.89
+  # aborted on a freshly wiped Mac with ERR-04-HOMEBREW-INSTALL because
+  # Homebrew retired the master branch; v1.0.90 fixed it and this cut does
+  # not touch install.sh's logic at all, only the daemon/hub-app pin values.
+  # ==========================================================================
+  - id: brew-manual-tarball-targets-main
+    title: the manual, no-sudo Homebrew tarball install must fetch tarball/main
+    incident: "v1.0.89, freshly wiped Mac, no Homebrew present: install.sh fetched https://github.com/Homebrew/brew/tarball/master, curl and tar succeeded, and the very next command /opt/homebrew/bin/brew --version exited 1 with 'Error: Homebrew's master branch is no longer supported.' install.sh aborted at ERR-04-HOMEBREW-INSTALL. Fixed by CM051 #1920, ac0b5d518b557494e9450256bbfeb76780a2e563."
+    source_pr: andygmassey/CM051-Home-Hub-Installer#1920
+    source_sha: ac0b5d518b557494e9450256bbfeb76780a2e563
+    proof:
+      kind: grep_in_installer
+      pattern: "https://github\\.com/Homebrew/brew/tarball/main"
+      must_match: true
+
+  - id: brew-manual-tarball-master-absent
+    title: no code path in install.sh fetches the retired Homebrew tarball/master branch
+    incident: "Same incident as brew-manual-tarball-targets-main. An absence proof so a future edit cannot silently reintroduce the retired branch name."
+    source_pr: andygmassey/CM051-Home-Hub-Installer#1920
+    source_sha: ac0b5d518b557494e9450256bbfeb76780a2e563
+    proof:
+      kind: grep_in_installer
+      pattern: "https://github\\.com/Homebrew/brew/tarball/master"
+      must_match: false
+
+  # ==========================================================================
+  # THE FLOOR. Five surfaces Andy found broken BY HAND in the week of
+  # 2026-09-08, every one of them missed by every gate this project had.
+  #
+  # THE RULE: the subject of each assertion is a PERSON or the thing they see.
+  # If the subject is a file, it does not belong in this block. Every other
+  # gate we own asks whether an artefact exists; none asked whether a customer
+  # got what they wanted, which is how /doctor served 500 for three builds
+  # while /api/v1/sources answered 200 and everything stayed green.
+  # ==========================================================================
+  - id: probe-doctor-page-renders-for-a-customer
+    title: "box-walk probe must PASS: doctor_page_renders_for_a_customer"
+    why: |
+      GET /doctor must return 200 AND carry a rendered table. Not the endpoint
+      behind the page: the page. Self-test proven on three arms (500-with-body
+      FAILs, 200-without-a-table FAILs, 200-with-a-table PASSes).
+    proof:
+      kind: box_walk_probe
+      probe: doctor_page_renders_for_a_customer
+  - id: probe-ostler-unlock-reachable-by-name
+    title: "box-walk probe must PASS: ostler_unlock_reachable_by_name"
+    why: |
+      A customer typing `ostler-unlock` must reach the redeemer and have a
+      wrong key refused. It shipped inside the DMG at a venv path nobody types
+      and Andy got "command not found". MUST BE BLOCKING in
+      walk_promote_scope.tsv.
+    proof:
+      kind: box_walk_probe
+      probe: ostler_unlock_reachable_by_name
+
+
+open_issues:
+
+  - issue: 945
+    title: "Front page reads 0 interests: the editor SPARQL query is refused by Oxigraph"
+    gate: 'GATED by entry probe-front-page-reports-interests. ROOT CAUSE FOUND 2026-09-16 and it is not a compiler bug. Measured on the live box: Oxigraph 127.0.0.1:7878 answers 401 with no credential and 111289 triples with one. interest_profile._sparql_select sent only Accept and Content-Type, so every read returned zero rows and the compiler wrote raw_rows 0 AND EXITED 0. A refused query and an empty graph are the same branch in every caller above it, which is why three builds shipped with an empty front page and nothing went red. The blanket store-auth shim could never reach this call site: it is a .pth inside each SERVICE VENV and THE EDITOR HAS NO VENV. Fix on branch fix/editor-sparql-presents-store-credential, reading the same env var and same 0600 file the shim uses, and RAISING on 401 rather than returning an empty list.'
+
+  - issue: 946
+    title: "The sources table renders but the counts are empty"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. Two faults, the first hid the second. CM051 #1971 fixes the Doctor 500 that meant the table was never seen at all. With the page fixed, item_count is None for most sources. MAY SHARE A ROOT WITH 945: a count derived from a refused store read reports null and exits clean. Read the store-credential sweep before treating it as separate. Requirement: every row shows a count or says explicitly it has not run. A blank is a failure.'
+
+  - issue: 947
+    title: "iPhone pairing is broken: the QR scanner sheet is never presented"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate, and noted: and no probe can reach it: pairing needs a camera and a human. Diagnosed from Andy''s Xcode log. PRIMARY is a SwiftUI sheet conflict, ''only presenting a single sheet is supported'' eight times, so the scanner is queued behind an existing sheet and never appears. That explains both the pairing failure and the rotation mess. SECONDARY AVFoundation -11819 is likely a consequence. THIRD, thirteen refused connections to a link-local fe80:: address on 8443 with ''No valid Hub URL configured'' throughout. Fix the sheet first; until a scan completes you cannot tell whether the address fault is real. DONE = Andy scans and the phone pairs.'
+
+  - issue: 948
+    title: "The daily brief is sending fabricated iMessages"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: GATE: NONE YET and the existing probe CANNOT cover it. assistant_answers_grounded asserts a seeded fact IS retrieved; it does not assert the brief REFRAINS from asserting what it cannot retrieve. Different properties, only one measured. Six failures in four real messages: wrong first name in a sign-off, invented travel, a GitHub token expiry reported as a life event, two different dates for the same fact across two messages, a domain treated as a colleague, and confident filler. Items 1, 3 and 4 are DATA-PATH defects. DO NOT PROMPT-TUNE: a better prompt hides all three and fixes none.'
+
+  - issue: 949
+    title: "/Applications sprawl: only Ostler belongs at the top level"
+    gate: 'PARTIALLY GATED. Andy: ''only the main Ostler app should reside there, and then have an Ostler/Ostler-Apps sub-folder with the others in it''. CM051 #1970 already points RECOVERY_APP_DEST at the sub-folder so the new app adds no new sprawl. The other four still move. TWO TRAPS: the parent does not exist on a fresh Mac and cp -R into an absent parent fails into the warn branch and installs NOTHING silently; and app_signature_survives_first_run reads the installer path and must move in the SAME PR or it becomes a silent CANNOT-RUN, which reads as green.'
+
+  - issue: 940
+    title: "Recording consent: what is built, what is not"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. Consent notice shown to every region, spoken transcription OPT-IN and OFF by default, consent_basis carried end to end. Missing: minors (a child cannot consent and the operator checkbox is meaningless on their behalf) and privileged contexts (therapy, solicitor, doctor, confessional). Neither is helped by knowing which US state the user is in.'
+
+  - issue: 942
+    title: "Give the consent spine a head and hands"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. CM042 RemoteCapture ALREADY has JurisdictionManager, ConsentChecker and a state machine that blocks. THE DEFECT IS NARROW: ConsentView.swift:7 reads ''case noJurisdiction // Location unknown - record anyway with warning'' and the warning was never built, so declining one optional location permission silently bypasses the whole mechanism. Add a Locale.current.region fallback needing no permission, and prompt when even that cannot resolve. DO NOT build a second jurisdiction mechanism: CM042 is the single decider.'
+
+  - issue: 941
+    title: "Terms: Ostler is for personal use only"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. Andy''s instruction: deliver with this cut. Personal use only; the user is the recorder and Ostler is the tool; a confirmation that NAMES the cases rather than waving at ''all necessary consents''; a prohibited-uses list covering minors, privileged settings and employer-mandated use; no implied warranty that a given capture is lawful where the user is.'
+
+  - issue: 943
+    title: "The end of install hands over irreplaceable secrets too fast to catch"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. Andy missed BOTH the wiki credential and saw the recovery modal flash past. Root cause for the wiki: the entire credential banner is gated on WIKI_FIRST_COMPILE_OK, so a slow first compile means the customer is never shown the password AT ALL. THE APP MUST NEVER SHOW A LOGIN BOX. Andy: ''100% yes. It should just work.'' Recovery key flow itself is fine per Andy and must not be redesigned.'
+
+  - issue: 944
+    title: "The wiki must ALWAYS work at the end of install, even when it is sparse"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. Andy: ''I don''t like the idea that the customer doesn''t ALWAYS get a working wiki immediately (even if it''s not complete / full).'' Always serve something, ungate the credential from the compile, and say what is happening rather than reporting a failure. DO NOT fix by making the install wait for the compile.'
+
+  - issue: 928
+    title: "Every licence carries a tier, and the Hub reads it"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. The schema already understands tier, entitlements, expires_at and subscription_inactive. What must be true at launch is that every licence issued from day one CARRIES a tier and the Hub reads it, gated or not. Retrofitting a tier onto licences already in customers'' hands is the expensive version. SPLIT DECIDED: HUB KNOWS, PRO DOES.'
+
+  - issue: 929
+    title: "Time-limited beta licences for early testers"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. Tier ''beta'' plus expires_at. Expiry degrades to READ-ONLY, never destructive, and the tester is warned BEFORE it happens. NOT MEASURED: whether the Hub enforces expiry at all today. 57 references prove the field exists, not that anything acts on it.'
+
+  - issue: 1971
+    title: "CM051: the Doctor dashboard 500ed on every load"
+    gate: 'GATED by entry probe-doctor-page-renders-for-a-customer. One missing import html; render_source_status calls html.escape four times. Measured red first on the box: 500 and 21 bytes, then 200 and 59690 bytes with a rendered table after one line. /api/v1/sources answered 200 throughout, which is why every artefact-shaped check passed.'
+
+  - issue: 1970
+    title: "CM051: Recover Ostler.app, and the CLI stops printing the database key"
+    gate: 'GATE: NONE YET, AND THE STRIKE ON THIS ROW WAS WRONGLY APPLIED AND REVERTED. I struck 42 rows whose issue is closed, using gh issue list as the predicate. THAT COMMAND DOES NOT RETURN PULL REQUESTS, so every PR-numbered row looked closed to it, and this row names an OPEN PR. One of 42 was affected; the other 41 are genuine issues and were verified individually against the API, which reports state and whether the number is an issue or a PR. A predicate blind to a whole category reports that category as absent, which is the same shape as everything else on this board. GATE: NONE YET for the app itself. Recovery must not be a terminal command: Andy, ''the whole premise of Ostler is that it''s for normies to use''. Six substantive reds remain on the PR: version-consistency, test-wiring twice, the ${SCRIPT_DIR} bundling contract, the person-name scan, ledger-pr and dry-run-ledger.'
+
+  - issue: 1969
+    title: "CM051: ostler-unlock on PATH, MERGED"
+    gate: 'GATED by entry probe-ostler-unlock-reachable-by-name, WHICH MUST BE MADE BLOCKING. Merged but not yet in any artefact. The probe invokes the bare name through zsh -ilc because only an interactive login shell sources .zshrc; a probe using -lc passes while a customer still gets command not found.'
+
+  - issue: 1961
+    title: "vendor-freshness: CI cannot catch an undescribed divergence"
+    gate: 'NOT GATING THIS CUT, and in the checklist rather than closed. Closing an open issue to unblock a cut is gaming the gate. The gate is NOT broken: verify_vendor_fresh.sh is fail-closed by default and CI opts out explicitly at one call site with its reasoning written down.'
+
+  - issue: 950
+    title: "The store-auth shim has a SILENT OFF SWITCH: install.sh:7557 wires it only for one interpreter, and the warn is inside the same guard"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate, and noted: and the existing test CANNOT catch it. THE DEFECT: the sole
+      call that installs the ostler_store_auth .pth sits inside
+      `if [[ "${PYTHON3_BIN}" == "${OSTLER_FINAL_DIR}/python/"* ]]` and SO DOES ITS
+      WARN at 7559. Six values of PYTHON3_BIN do not match: four degrade branches in
+      _ostler_relocate_bundled_python (2792, 2827, 2833, 2837), `command -v python3`
+      (7428), and two Homebrew kegs (7445, 7447). In all six the shim is never written
+      AND NOTHING IS LOGGED, so the whole of the #550 store-auth work is inert and the
+      product is silent about it. WHY NOTHING WENT RED:
+      tests/test_store_auth_covers_every_interpreter.sh is STATIC. It asserts the
+      wiring call EXISTS (15 sites, floor 15) and never that the guard evaluates true.
+      No walk probe enumerates interpreters: ostler_store_auth\.pth across
+      scripts/box_walk_probes/ returns 0, control `oxigraph` returns 17 files. And
+      verify_loopback_clients_authenticate.py:73 matches only ports 8089 and 8090, so
+      the STORE ports are outside its population entirely. CUSTOMER SEES: front page
+      stuck on "still settling in", 0 interests. Measured live on v1.0.98.'
+  - issue: 951
+    title: "Four feed plists are rendered with a bare `python3`, so WhatsApp, email, spoken and iMessage never reach the graph"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. install.sh:23576 `local py_val="${venv_python:-python3}"`.
+      venv_python is emptied at 23533 (FDA source absent) and 23556 (pip failed), after
+      which the LITERAL string python3 is rendered into the whatsapp (23675), email
+      (23788), spoken (23810) and imessage (23867) plists and PATH-resolved by launchd,
+      never wired to the shim. THE COMMENT AT 23575 ASSERTS THE OPPOSITE: "so the agent
+      never falls through to a bare PATH python". CUSTOMER SEES: those four
+      conversation sources sit permanently empty, which is part of what the sources
+      table reports as blanks (see 946).'
+  - issue: 952
+    title: "context-refresh and ostler-fda resolve python3 off PATH, so their store reads are unauthenticated"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. context-refresh/bin/context-refresh-tick.sh:94-101 falls
+      through `command -v python3` then /usr/bin/python3, and
+      generate_pwg_context.py:355 makes a bare SPARQL POST; its comment at :349 still
+      asserts "Oxigraph is unauthenticated on the Hub", which is now FALSE. Customer
+      sees the assistant losing user-asserted facts. install.sh:20715 (bin/ostler-fda)
+      does the same via OSTLER_PYTHON="$(command -v python3 || true)"; customer sees
+      Photos and Reminders backfill silently empty. SWEEP DENOMINATOR: 65 Python store
+      callers, 25 non-Python, 21 LaunchAgents examined. Coverage is decided by the
+      INTERPRETER, not the file.'
+  - issue: 953
+    title: "NOTHING WRITES PREFERENCE NODES INTO THE GRAPH, so the interest profile can never be non-empty"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. THIS IS THE ROOT OF FIVE SEPARATE SYMPTOMS ANDY HAS
+      REPORTED. Measured on the live box 2026-09-16: Qdrant holds 5733 points in the
+      `preferences` collection. Oxigraph holds 111289 triples of PersonIdentifier
+      (7045), Meeting (4006), Person (3810), TopicMention (1227), ConversationTopic
+      (1031), RelationshipSignal (878), BusinessContact (152), OrgSummary (99) AND NO
+      PREFERENCE NODES AT ALL. The namespace is not the problem: PWG_NS matches the
+      graph exactly. A git grep for anything writing Preference RDF across the shipped
+      tree returns ZERO files, with a working control (5 files do write to Oxigraph).
+      So interest_profile._pref_query can never match anything. CONSEQUENCES, one cause
+      each: front page reads 0 interests (945); /api/v1/preferences serves count 0;
+      the assistant pwg_preferences tool finds nothing, which is why
+      assistant_answers_grounded has FAILED ON EVERY WALK RECORD WE HOLD with
+      tool_found_nothing:pwg_preferences; and a brief with no real facts to draw on
+      confabulates (948). A CONSUMER WITH NO PRODUCER, pointed at the most valuable
+      data in the product. DECISION REQUIRED: project Qdrant preferences into the
+      graph as RDF (likely the designed shape, given hybrid RDF plus vectors), or
+      point the editor at Qdrant directly. Do not guess; read the architecture.'
+  - issue: 954
+    title: "The editor SPARQL credential fix, PROVEN on the box"
+    gate: 'GATED by entry probe-front-page-reports-interests once that probe exists.
+      Branch fix/editor-sparql-presents-store-credential. _sparql_select sent only
+      Accept and Content-Type; Oxigraph answers 401 without a credential and 111289
+      triples with one. Fix reads the SAME env var and SAME 0600 file
+      lib/ostler_store_auth.py uses, and RAISES on 401/403 rather than returning an
+      empty list, because a store that refuses must be a loud failure and never a
+      quiet zero. VERIFIED ON THE BOX: credential resolves YES, a bare query returns
+      rows where it previously 401ed. NOTE it is necessary and NOT SUFFICIENT: behind
+      that lock there is nothing to read until 953 is fixed.'
+
+  - issue: 955
+    title: "PREFERENCE EXTRACTION RUNS OVER THREE SOURCES AND IGNORES THE DATA IT ALREADY HOLDS"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. THIS IS THE BOTTOM OF THE "0 interests" QUESTION and it is
+      NOT a threshold, NOT the RDF link, and NOT the credential. All three of those
+      were real and are fixed or tracked; this is underneath them.
+      MEASURED ON THE LIVE BOX 2026-09-16, Qdrant points_count per collection:
+        safari_history        8626
+        conversations         2071
+        people                3784
+        preferences           5733
+        evernote_knowledge       0   <- an importer ships and the collection is EMPTY
+      AND THE ENTIRE preferences COLLECTION COMES FROM THREE SOURCES:
+        safari_bookmarks   4730  (all Like)
+        meeting_locations   929  (all Neutral, correctly not an interest)
+        imessage             74
+      Nothing else. No Spotify, no Netflix, no purchases, no email, no WhatsApp, no
+      LinkedIn, despite three LinkedIn importers shipping and 16G of GDPR exports
+      sitting in the operator Downloads folder.
+      SO THE EXTRACTOR NEVER TOUCHES 8626 BROWSING RECORDS OR 2071 CONVERSATIONS THAT
+      ARE ALREADY INGESTED AND SITTING IN THE SAME STORE.
+      WHY THE FRONT PAGE IS HONEST TO SAY ZERO: confidence([], "bookmark",
+      "safari_bookmarks") = 0.18 measured, against roughly 0.47 needed to clear
+      min_confidence 0.28 once evidence_factor floors at 0.70 and recency at ~0.85.
+      A bookmark is deliberately weak evidence and that judgement is CORRECT: having
+      bookmarked an article is not being "into" its subject.
+      DO NOT LOWER min_confidence. Archie: lowering it to admit rows whose reliability
+      is genuinely unknown is how the front page fills with things the customer never
+      expressed. The fix is MORE EXTRACTION, not a lower bar.
+      ALSO NOTE THE ARITHMETIC THAT SETTLED IT BEFORE ANY CODE WAS READ: 4804 raw and
+      4711 suppressed leaves 93 survivors, and no cut on the strength histogram
+      (0.6x26, 0.7x4304, 0.8x457, 0.9x17) can ever produce 93. So the suppressor was
+      never comparing strength. confidence is reliability x evidence_factor x
+      recency_confidence and strength is not one of the three terms.'
+  - issue: 956
+    title: "evernote_knowledge collection is empty on a box that shipped the Evernote importer"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. points_count 0, measured. Every other collection on the same
+      box holds data (safari_history 8626, conversations 2071, people 3784,
+      preferences 5733), so this is not a store or credential problem: the control is
+      four populated collections read with the same credential in the same command.
+      Either the importer never ran, or it ran and wrote nowhere. Note CM051 also
+      ships Notion and Obsidian importers (PR #1960, unreviewed and deliberately not
+      in v1.0.98) and three LinkedIn importers wired into the install, so the question
+      generalises: which importers actually deposit anything.'
+
+  - issue: 957
+    title: "EXPORTS_DIR takes the grandparent of the FIRST detected export, so a second detected export is never imported"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate.
+
+      RETRACTION FIRST, BECAUSE AN EARLIER VERSION OF THIS ROW WAS WRONG AND I WROTE
+      IT. It claimed the detector "found 3 of 87 export folders" and that coverage for
+      14 platforms was missing in practice. That was built by COUNTING DIRECTORIES AND
+      NEVER MEASURING THEIR CONTENTS, which is the exact error this estate has been
+      correcting all week. Measured properly, per folder, on the operator archive box:
+        Facebook    8.3G  32339 files
+        Instagram   7.8G  13785 files
+        Amazon, Amazon.co.uk, Reddit, LinkedIn, Apple, eBay, Netflix, Twitter,
+        Pinterest, Discord, Uber, WhatsApp, Disney+, Whoop, Spotify, Google,
+        Apple Mail, Apple TV, Foursquare:  ALL 0 BYTES, ZERO FILES
+      Nineteen of twenty-one platform folders are EMPTY SKELETONS. Not iCloud-evicted:
+      find -flags +dataless returns 0. So only TWO exports exist on that box, and the
+      detector found BOTH. It behaved correctly and the coverage claim was unfounded.
+
+      THE DEFECT THAT SURVIVES, AND IT IS REAL. install.sh:9853 seeds
+      EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$(dirname "$f")")}" from the FIRST match
+      only, and _IMPORT_DIRS (install.sh:20344) is built from EXPORTS_DIR alone. The
+      install log recorded THREE detections across TWO platforms:
+        Facebook   .../01 - Facebook/facebook-<redacted>/connections/friends
+        Facebook   .../01 - Facebook/connections/friends
+        Instagram  .../02 - Instagram/connections/followers_and_following
+      EXPORTS_DIR therefore resolved inside the first Facebook export, and the
+      Instagram export -- 7.8G and 13785 files, DETECTED AND DISPLAYED TO THE CUSTOMER
+      -- was never handed to any parser. The customer is shown "Found 3 GDPR
+      export(s)" and then a fraction of one of them is imported.
+
+      THE FIX: _IMPORT_DIRS should carry EVERY detected export root, not the
+      grandparent of the first. DETECTED_EXPORTS already holds them all; it is used
+      for display and thrown away. Keep the CX-126 lesson (no unbounded Downloads
+      rglob) by passing the specific detected roots, which is bounded by construction.
+
+      COVERAGE REMAINS AN OPEN QUESTION, NOT A MEASURED DEFECT: the detector hunts
+      eight marker filenames and has no pattern for amazon, netflix, reddit, ebay,
+      pinterest, discord, spotify, tiktok, youtube, apple, uber, whoop, disney or
+      foursquare, while the install screen says Ostler imports from 20 platforms. That
+      COULD be a real gap, and it is UNTESTED here because no such export exists on
+      this box to test against. Do not treat it as confirmed. The cheap way to settle
+      it is to let the 23 shipped CM019 parsers recognise their own formats rather
+      than duplicating that knowledge as filename guesses in install.sh.
+
+      PROOF REQUIRED, CONSUMER-SIDE: with two export roots present, the count shown to
+      the customer equals the number imported, and the sources table reports non-zero
+      for both.
+
+      FROM ARCHIE, AND STILL LOAD-BEARING: services/ingest/src/loaders/ ships BOTH
+      qdrant_loader.py and oxigraph_loader.py, so one producer writing both stores is
+      the SHIPPED design and the projection bridge (954) retires when it runs.
+      WARNING: oxigraph_loader.py:55 writes INSERT DATA into a NAMED GRAPH when one is
+      configured, and the reader has no GRAPH clause. Wiring the ingest with a graph
+      configured reproduces the invisibility already hit on 954, on every source at
+      once. Check that config first.'
+
+  - issue: 958
+    title: "THE NAMED-GRAPH SPLIT: 36,928 triples are invisible to five customer-facing readers"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. THE BIGGEST SINGLE DEFECT FOUND IN THIS SWEEP, and it has an
+      open register row whose verification was never performed:
+      cuts/DEFECTS_ROLLFORWARD.md:249, v1018-D012b.
+
+      CM048 writes every conversation artefact into the NAMED GRAPH
+      urn:ostler:user/<id> (vendor/cm048_pipeline/src/ingest.py:571-576, and
+      linker.py:156,173,178). Five customer-facing readers query the DEFAULT graph
+      with no union-default-graph: ical-server.py:1033-1043 _sparql_select, used at
+      :4250, :3268, :3582, :3812, and meeting_syncer/brief.py:174-184.
+
+      MEASURED ON THE LIVE BOX: the named graph holds 36,928 triples the default
+      graph cannot see, including 1,092 Conversation, 981 Fact, 378
+      RelationshipSignal and 66 OutstandingTodo. CONTROLS PROVING THE PROBE WORKS:
+      pwg:Person 3810 and ConversationTopic 1036 ARE visible by the same probe shape.
+      CONSUMER PROOF: /api/v1/commitments returns 200 with count 0 while
+      /api/v1/topics returns 50, because topic_writer.py:277-281 deliberately writes
+      the DEFAULT graph. The wiki Commitments page is a 166-byte index against People
+      2146 and Meetings 4001 from the same compile.
+
+      WHY IT IS SYSTEMIC RATHER THAN A BUG: topic_writer.py and last_contact_updater.py
+      EACH independently discovered this trap, documented it in their own docstrings,
+      and fixed only their own surface. Five other readers were left.
+
+      IT IS ALSO THE EXACT TRAP I FELL INTO on 954 four hours earlier: 38,432 triples
+      landed in a named graph and the reader returned 0. The fix there was to write the
+      default graph with a provenance marker. The same question has now been answered
+      independently three times by three authors, each for one file.
+
+      ALSO UNRESOLVED, SOURCE-ONLY, NOT BOX-VERIFIED: candidates.py:323,420 pass
+      using-graph-uri on SPARQL UPDATEs, which scopes the WHERE clause only, so
+      promote and unpromote likely WRITE the default graph while _list_candidates:368-376
+      READS the named one. Verify on a box before acting.
+
+      AND A SECOND WRITER/READER SPLIT ON DISK: 1,101 conversation files are written
+      FLAT into ~/Documents/Ostler/Conversations/ as <date>_<slug>_<id>.md, while every
+      shipped reader references only the bundle layout <date>/<slug>-<short-id>/. Both
+      writers are live: 59 flat and 53 bundles in one two-hour window. Of 59 recent flat
+      files, ZERO have an id matching any of the 5,487 bundle ids; the control lookup of
+      5 real bundle ids hit 5 of 5 and the name parser was validated three ways before
+      that zero was trusted. The only shipped code touching the flat files is
+      cm048_pipeline/src/cli.py:488, which COUNTS them for a progress display and never
+      reads one.
+
+      DENOMINATOR: roughly 150 reader expectations examined across five surfaces,
+      read-only throughout.'
+  - issue: 959
+    title: "A BOOKMARK CAN NEVER BECOME AN INTEREST: ceiling 0.126 against a hard floor of 0.28"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate, and noted: and this SUPERSEDES the tuning framing in 955. It is not that
+      bookmarks score low. It is that they are MATHEMATICALLY INCAPABLE of clearing the
+      bar, on any box, with any amount of evidence or recency.
+
+      confidence = reliability x evidence_factor x recency_confidence.
+      reliability for a safari_bookmarks bookmark measures 0.18.
+      The product ceiling is 0.126 against min_confidence 0.28, hard-wired.
+      So no accumulation of observations, no number of distinct sources and no freshness
+      can ever lift a bookmark over the threshold.
+
+      ON THAT BOX 4,730 OF 4,804 PROJECTED PREFERENCE ROWS ARE SAFARI BOOKMARKS, so the
+      only preference source present is structurally incapable of producing a single
+      interest. The front page reads 0 and always would have.
+
+      DO NOT LOWER min_confidence. That would admit rows whose reliability is genuinely
+      unknown and fill the customer front page with things they never expressed. Either
+      the reliability table is wrong about bookmarks, which is a product judgement Andy
+      should make and not an agent, or the box simply lacks preference-bearing data,
+      which 957 and the empty export folders already explain. Decide which, do not tune.'
+
+  - issue: 960
+    title: "PRIVACY: Forget this person does not forget them. 223 triples about 9 people survive"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. HIGHEST SEVERITY IN THIS MANIFEST because it is a deletion request the product ACCEPTS AND DOES NOT HONOUR. ical-server.py:1596 issues a bare DELETE WHERE with no GRAPH clause, so it cannot reach urn:ostler:user/<id> where CM048 writes. MEASURED ON THE BOX: 223 triples about 9 persons survive a forget. CONTROL: all 9 are properly typed pwg:Person in the default graph, so the probe can see them. A customer who asks Ostler to forget someone is told it happened. It did not.'
+
+  - issue: 961
+    title: "TEN GRAPH-SCOPE AND VOCABULARY MISMATCHES, every one verified on the box"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. One sweep: 150 SPARQL read sites across 40 files, 165 write statements across 47 files. ONLY TWO runtime reads carry graph scoping at all. Ranked by what the customer loses, each with live proof. 1 FORGET UNDER-DELETES, see 960. 2 STALE AND RECONNECT PERMANENTLY EMPTY: pwg_ingest.py:2600 writes last_contact, ical-server.py:4675 filters last_contact_ts. is_empty last_contact_ts = 3784 of 3784, IDENTICAL TO A DELIBERATELY FAKE KEY, while is_empty last_contact = 0 so the predicate discriminates. The same response returns birthdays 5, recent_meetings 5, follow_up 5. 3 COMMITMENTS AND BRIEF TODOS ALWAYS EMPTY: OutstandingTodo 67 named, 0 default. /api/v1/commitments 0 against /api/v1/topics 50. 4 PERSON PAGES SHOW NO WARMTH OR TRUST: warmth 381 named / 0 default, fromConversation 1052 / 0. Control displayName 4620. 5 WHAT DO YOU KNOW ABOUT ME IS EMPTY: writer emits urn:ostler:Fact (985 exist), _memory_query_facts:2332 reads pwg:PersonFact which is 0 IN EVERY GRAPH. Control pwg:Person 3810. 6 ZERO INTERESTS FROM 4804 PREFERENCES, AND THE CAUSE IS VOCABULARY NOT JUDGEMENT: none of the four live category and source values is a KEY in either trust table (interest_profile.py:45,89), so every row takes a penalised default. THIS SUPERSEDES 959. It is not that a bookmark is deliberately weak evidence, it is that the data does not speak the table language. ANDY HAS RULED: DO NOT CHANGE THE SCORING. Fix the vocabulary. 7 NOTION, OBSIDIAN AND APPLE NOTES IMPORTS VANISH: import_notion.py:110 writes <source>_knowledge, readers hardcode evernote_knowledge. Live collections are exactly 5 and no such variant exists. Explains 956. 8 FACT PROMOTION IS A PERMANENT NO-OP: candidates.py:319,416 pass using-graph-uri which scopes the WHERE clause ONLY, so the INSERT lands in the default graph while the reader is pinned to the named one. candidate 981 named / 0 default, all true, zero false. 9 COMPARTMENT-SCOPED SEARCH DEAD: writes the STRING L2, qdrant_loader.py:176 queries a NUMERIC range. 4804 match the string, 0 match range gte 0. 10 user_id FILTERS MATCH NOTHING: never written, filtered by five readers. is_empty user_id = 5733 of 5733, control is_empty category = 0. ALSO: urn:ostler:Conversation (1111) and RelationshipSignal (380) appear EXACTLY ONCE in the tree, at their writer, with zero readers. cli.py:488 uses a non-recursive glob and undercounts conversations 16x (1113 of 17574). decision_extractor.py is invoked by nothing shipped.'
+
+  - issue: 962
+    title: "THE WALK HARNESS CANNOT SEE THE DATA IT VERIFIES: it dumps the default graph only"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate, and noted: AND THIS IS WHY NONE OF 960 OR 961 EVER WENT RED. ttywalk.sh:645 dumps /store?default before wiping and captures 154,920 of 230,864 quads. IT SILENTLY MISSES 75,944 QUADS, 13.6 MB, which is EVERY CM048 triple. So every walk record we hold was written by an instrument that could not read the majority of the customer data. install.sh:17504 runs Oxigraph WITHOUT --union-default-graph and compartment.py:32 REQUIRES it stay off, so this cannot be fixed globally: each query must carry its own scope. Exactly ONE production reader uses the is_empty defence (enricher.py:333) and that fix was never carried to its five siblings, the same one-file-at-a-time pattern as 958. SOURCE-ONLY, NOT TESTED BECAUSE TESTING MEANS WRITING TO THE BOX: per the repo own round-trip in repair_role_address_people.py:246, a POST to /store with no parameter MINTS A NEW NAMED GRAPH. Affects enricher.py:1295, latent because never invoked.'
+
+  - issue: 963
+    title: "Swallowed exception silently destroys richer contact data, last write wins"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. contact_syncer/facebook_friends.py:333-336, linkedin_connections.py:569-570, instagram_social.py:403-404. A BARE DICT INDEX on last_contact inside a try, an except Exception / pass on the NEXT line, then an UNCONDITIONAL qdrant.upsert. Existing points carry last_contact_ts and not last_contact (961.2), so the index raises KeyError, the swallow eats it, and a POORER new source overwrites a RICHER one with no error anywhere. PROBE LESSON WORTH MORE THAN THE BUG: an earlier fork reported this category CLEAN on a single-line regex. The real code uses the standard TWO-LINE idiom, so the zero was a probe-shape false negative caught only by cross-checking another fork.'
+
+  - issue: 964
+    title: "The Doctor daemon is killed by launchd about once a minute and silently respawns"
+    gate: 'FIXED, PR #1979, with a fork-counting test, two controls and a mutation. MEASURED BEFORE AND AFTER: 60 polls, one minute at the observed rate, 300 forks before and 9 after. MUTATION: disabling the cache gives 240 forks against a budget of 12, and that run exceeds a two-minute timeout, which is the defect made visible. The fix is a fork budget in box_status.py rather than a slower poll, because the interval is set by the native WebView: a fix in the caller protects one caller, a budget here holds however often and from however many tabs it is called. Freshness per probe by how fast each number can really move, so nothing shown to the customer misleads. TWO CONTROLS, because a fork budget is trivially satisfied by doing nothing: one forces two real subprocesses and requires the counter to see them, so a broken counter cannot report a clean zero; the other requires the FIRST poll to fork, so the budget cannot be met by a daemon that stopped reading the machine. ORIGINAL FINDING: box_status.py:82,103,264,322,450 spawns FIVE subprocess.run calls per status poll and web_ui.py:2864 polls at about 1 Hz. launchctl reports immediate reason = inefficient, last terminating signal = Terminated: 15, and 58,914 FORKS IN ABOUT 40 HOURS. CONTROL: every comparable daemon on the same box shows 0 to 44. macOS SIGTERMs it, KeepAlive restarts it, every open Doctor tab is dropped, and the exit code stays 0 so no health check we own can see it.'
+
+  - issue: 965
+    title: "whatsapp-keepalive diagnoses a broken channel twice a day and never remediates"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. Runs 08:50 and 17:50 via ostler-assistant channel doctor. launchctl shows runs=3, last exit code=0, which reads healthy. Its own log shows WhatsApp unhealthy on 3 of 3 runs. CORROBORATING CONTROL: whatsapp-bundle.log shows real messages ingested the same day, 13 chats scanned, 12 dispatched, so this is a LIVE DEGRADED channel and not an unpaired one. A job named keepalive that only writes the failure into a file nobody reads.'
+
+  - issue: 966
+    title: "Customer-facing status API returns a year-2318 sentinel unformatted"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. doctor/agent/box_status.py:162 pipes the Ollama expires_at value straight through. Live: GET /api/v1/box-status returns keep_alive 2318-12-27T... today, on the wire.'
+
+  - issue: 967
+    title: "Latent over-count: rc=1 matched as a raw substring"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate, and noted: dormant today. doctor/agent/diagnostic_rules.py:1517-1541 matches rc=1 as a raw substring, so it will also match rc=10 to rc=19, rc=100 to rc=199 and rc=124 once any appear in the log tail, inflating the customer-facing count of conversations that could not be processed.'
+
+  - issue: 968
+    title: "Eight unreferenced debug scripts in the tip commit"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate, and noted: low severity, hygiene only. tools/egress/ holds 8 debug scripts added in e3fccdf with zero references and no staging into the DMG payload. Listed so their presence is a decision rather than drift.'
+
+  - issue: 969
+    title: "Personal-use-only terms"
+    gate: 'FIX BUILT, PUSHED, NOT MERGED, branch fix/personal-use-terms. Added as a versioned ConsentString in vendor/legal/consent_strings.py following the existing pattern rather than a terms page nobody reads: tickbox personal_use_only, version v1.0-2026-09-17, 1652 chars, parses and hashes, zero em-dashes. Covers the three things no warning can fix: BUSINESS DEPLOYMENT, which makes an employer the controller for every colleague and client captured and removes the household-activity position; MINORS, who cannot consent and for whom the operator assurance is meaningless; and PRIVILEGED SETTINGS. States that the user is the recorder and Ostler is the tool, and gives NO warranty that a capture is lawful where they are. STILL TO DO, and it is this week''s defect class if left: the string is not yet RENDERED anywhere. It must be wired into the Phase-2 consent batch in install.sh, and vendor/legal/check_wording.py checked for a registration step.'
+
+  - issue: 970
+    title: "Customer copy sweep: two orphaned strings, three guarantees genuinely earned"
+    gate: 'LOW SEVERITY, MOSTLY GOOD NEWS, recorded so the denominator is visible. A full read of the 1,644-line install.sh.strings.en-GB.sh found only TWO orphaned strings with zero references repo-wide (:434 and :364), positive control passing. THREE checkable guarantee claims were verified as genuinely earned: signature verification, the 768-dimension count, and the port-preflight abort. Doctor page copy is CANNOT-RUN at that depth and is already heavily test-guarded. So the copy surface is in far better shape than the data surface.'
+
+  - issue: 971
+    title: "NOTHING IN THE PRODUCT CAN EVER PRODUCE pro_active, so the first Pro subscriber gets nothing"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. LAUNCH BLOCKER FOR A PRODUCT ABOUT TO BE SOLD.
+
+      NARROWED AND CORRECTED FROM MY OWN FIRST VERSION OF THIS ROW, which said a
+      paying Pro subscriber on this box was being denied a vault. MEASURED SINCE:
+      there is NO subscription state anywhere on the box. daemon_state.json holds
+      health and uptime only; 738 lines of assistant config.toml contain no
+      subscription, tier, pro_ or entitle key at all; the iOS log reads
+      refreshStatus -> notSubscribed; and the licence file is the ONE-OFF HUB
+      PURCHASE with no tier field (keys: issued_to_email, license_id,
+      max_hardware_fingerprints, purchased_at, signature, signature_algorithm,
+      stripe_payment_id, update_window_expires_at, version). So on the operator box
+      pro_none is the CORRECT answer and nobody is being denied anything. Same
+      lesson as the 3-of-87 retraction: measure before calling it a loss.
+
+      THE DEFECT THAT SURVIVES IS STILL SEVERE. compiler/vault_licence.py reads
+      ~/.ostler/licence/state.json expecting {pro_state: pro_active|pro_trial|pro_none,
+      updated_at}. NOTHING WRITES THAT FILE, ANYWHERE. So no customer can ever reach
+      pro_active, and the first person who pays for Pro receives nothing, permanently,
+      while the compile logs 16 ok, 19 skipped, 0 errors.
+
+      THE CODE DOCUMENTS ITS OWN FAILURE, verbatim from that docstring: "this exact
+      file path + schema does not exist anywhere in the codebase yet", the write side
+      "is oa-repo scope, built separately", and "Whoever lands that observer must
+      either match this schema or this module needs a follow-up PR -- confirm before
+      v1.0.13 merges." NOBODY CONFIRMED. It merged and shipped.
+
+      AND THE VOCABULARY DOES NOT EXIST EITHER: the daemon state machine
+      (zeroclaw-gateway/src/api_subscription.rs) tracks active / grace / expired /
+      inactive, with no notion of pro_trial versus pro_active versus pro_none. The
+      tri-state vocabulary was introduced by the BRIEF for the Doctor rule and Hub UI
+      and only the READ side was ever built.
+
+      FIX SHAPE: an observer that reads the daemon subscription state and writes
+      state.json in the expected schema.
+
+      THE MAPPING IS DECIDED. ANDY, 2026-09-17, VERBATIM: "keep it as long as they''ve
+      paid (fully) for Pro at least once. ie. not the 30 days free plus a failed card
+      try." Implement EXACTLY this and do not substitute a reading of it:
+
+        daemon active                                   -> pro_active
+        daemon grace AND has paid in full at least once -> pro_active
+        daemon grace AND has NEVER completed a payment  -> pro_none
+        daemon expired                                  -> pro_none
+        daemon inactive                                 -> pro_none
+        inside the 30-day free period, no payment yet   -> pro_trial
+
+      THE DISCRIMINATOR IS "HAS A COMPLETED PAYMENT EVER", not "is currently in
+      grace". A trial that lapses on a failed first card is NOT grace-protected: that
+      customer has never paid, so they drop to pro_none. A subscriber who has paid at
+      least once and whose card is retrying KEEPS THEIR VAULT.
+
+      WHOEVER BUILDS THIS: find where a completed payment is recorded before writing a
+      line of the mapping. If no such record exists anywhere, that is a SECOND defect
+      of the same family and it must be reported, not worked around with a proxy
+      signal like "was ever active", which would let a lapsed trial keep the vault.
+
+      HISTORY WORTH KEEPING: the MOUNT half of this was found and fixed TWICE, as
+      #849 and #482, both times after a test on CM044 dev compose stayed green while
+      the shipped compose was broken. tests/test_shipped_compose_licence_mount.sh now
+      guards the mount and the env var, and asserts NOTHING about the file being
+      written. Three fixes, none of which asked whether anything fills it.'
+
+  - issue: 972
+    title: "INDEPENDENT CORROBORATION of 964 and 965 by a second sweep"
+    gate: 'NOT A NEW DEFECT, recorded because independent confirmation changes confidence. A second agent, working from a different brief, reproduced both: com.ostler.doctor shows immediate reason inefficient, last terminating signal Terminated: 15, runs 2, FORKS 58914 over about 40 hours, caused by box_status.py:82,103,264,322,450 forking subprocess.run per call against a poll documented as about 1 Hz (pause_control.py:54,246 and web_ui.py:2864); and whatsapp-keepalive shows runs 3, last exit code 0, with its own log reporting WhatsApp unhealthy on 3 of 3 runs, against a control proving the channel is LIVE and degraded (whatsapp-bundle.log, chats_scanned 13, chats_dispatched 12). Two sweeps, two briefs, same numbers.'
+
+  - issue: 973
+    title: "Error-swallow and dead-code categories came back CLEAN, with controls"
+    gate: 'GOOD NEWS, recorded so the denominator is visible and nobody re-runs it. ERROR SWALLOW: 403 shipped .py files across 19 product directories, except.*:\s*pass returns 0, CONTROL the same regex returns 40 hits in vendored CPython and setuptools, so the probe works. NOTE this does NOT contradict 963: that one is the TWO-LINE idiom which this single-line pattern cannot match, which is why 963 was found by a different fork and why a clean result here is not a clean result for the class. DEAD CODE: 20 bin/ scripts, two zeros, both innocent on inspection: ostler-tailscale is a customer CLI and ~/.ostler/bin IS on PATH (.zshrc:3), and ostler-wiki-recompile-catchup ran and correctly self-retired after 24 ticks. Control ostler-migrate-dbs returns 23 refs. CANNOT-RUN, not completed: the full customer-facing number audit, and the feature-flag review, where config.toml enabled=false entries turned out to be a per-tool registry with no contradicted UI claim found. Neither is a clean pass.'
+
+  - issue: 974
+    title: "FIVE VOCABULARY MISMATCHES FIXED AND MEASURED, CM051 #1972"
+    gate: 'FIX BUILT, CI GREEN (74 checks), NOT MERGED. Six mutants, six kills, each watched fail. Consumer-side numbers, before to after: Stale/Reconnect 0 to 698; facts 0 to 990; compartment-scoped search 0 to 4804; user_id filter 0 to 5733, with a wrong owner still matching 0. TWO CORRECTIONS TO MY OWN BRIEF, both from measuring rather than obeying. (1) I proposed renaming the READER for last_contact. The agent measured first: last_contact held THE EMPTY STRING on all 3784 people, so a reader rename would have swapped one empty answer for another AND LOOKED LIKE A FIX. The real signal was in Oxigraph, 1501 lastContact triples across 1481 people, and last_contact_ts is the documented contract in API.md, four contact_syncer writers, identity_resolver and shipped tests. Writer fixed instead. (2) The facts defect was TWO mismatches stacked, a wrong node name AND a named graph a GRAPH-less query cannot see; fixing either alone still returns 0. The query now serves both arms because pwg:PersonFact is still written by three live modules, and L3 is withheld, because turning a dead arm on is exactly when a privacy stamp starts to matter. ITEM 3 IS CANNOT-RUN, not proven: the knowledge-collection reader is a compiled Rust tool outside this repo, evernote_knowledge holds 0 points and there is no Notion export on the box, so it is argued from install.sh''s parsed collection set rather than measured. DELIBERATELY NOT DONE, with reasons: delete_by_user was NOT widened, because that would turn an owner-scoped erase into a full wipe, and a test now refuses it.'
+
+  - issue: 975
+    title: "MIGRATION OWED: the last_contact fix only lands on re-ingest"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. The 974 writer fix corrects what is written from now on. The 3784 people already carrying an empty last_contact are NOT repaired by it, so Stale and Reconnect stay wrong for existing installs until a re-ingest happens or a migration is written. Neither exists. Decide which, and say so in the release note rather than letting a customer discover that the feature works only for people met after the upgrade.'
+
+  - issue: 976
+    title: "import_notion and import_obsidian are called by NOTHING, and the reachable path never embeds"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. Found while fixing 974. Nothing in the shipped tree invokes import_notion or import_obsidian. The path that IS reachable, universal_import._dispatch_knowledge, runs convert and NEVER runs embed, so even content that arrives is never searchable. Compounds 13/#961.7: the collection name was one defect, this is a second one underneath it. A customer who imports Notion gets nothing, twice over.'
+
+  - issue: 977
+    title: "THREE VENDOR DIVERGENCE PATCHES COULD NOT BE REGENERATED, for three different reasons"
+    gate: 'DECISION NEEDED BEFORE 974 MERGES, and this is the wound that has bitten this estate twice already. The 974 work edits vendored trees and all three patch regenerations REFUSED: one failed its round-trip, one had its pin absent locally, one had source ahead of the pin. The agent recorded them BY HAND in WRITER_READER_MISMATCHES.UNRECORDED.md with manifest pointers and a CM019 registry row, which is honest and is NOT the same as being reconstructible. sync_vendor.sh will refuse on these trees, and the next person who wants the refusal to go away reaches for SYNC_ACCEPT_DIVERGENCE_LOSS=1 and deletes the fixes. RESOLVE BEFORE MERGE: either land the changes in source and regenerate, or register them in VENDOR_ONLY.tsv with the reason, per the shape used for #1958.'
+
+  - issue: 978
+    title: "NEAR MISS: test fixtures carried the operator real first name into a PUBLIC repo"
+    gate: 'CAUGHT AND FIXED BY THE AGENT ITSELF before the PR, replaced with synthetic values. Recorded because it is a near miss in a PUBLIC repository and the pre-commit PII guard did not stop it, the author did. Worth knowing the guard did not catch this shape.'
+
+  - issue: 979
+    title: "THIRD INSTANCE: the shipped compose has no AI Conversations mount, so the wiki page is empty forever"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. Same shape as #849 and #482, third occurrence, and nobody on EITHER side tests it. DEV: CM044/docker/docker-compose.yml wiki-compiler mounts ${OSTLER_AI_CONVERSATIONS_DIR:-...}:/ai-conversations:ro and sets the env var, 4 hits. SHIPPED: the CM051 install.sh compose heredoc at 17435-17891 has ZERO hits for ai-conversations or AI_CONVERSATIONS. CONTROL: wiki-compiler appears 5 times in the SAME heredoc, so the zero is real and not a false read. CONSEQUENCE: compiler/pages/ai_conversation_pages.py falls back to os.path.expanduser of ~/Documents/Ostler/AI Conversations, which inside a container with no HOME resolves to /root/... and never exists, so it takes its graceful episodic-store-not-present branch and writes an EMPTY-STATE PAGE. Meanwhile install.sh has its own test_ai_conversations_leg_wired.sh proving the WRITER leg is wired and default-ON since v1.0.10, running hourly and writing real transcripts to the host. A customer sees AI Chats say no captures yet, forever, indistinguishable from never having used the feature, while the producer works perfectly. CM044 compiler/tests/test_compose_yaml_paths.py covers Obsidian, hydration and env mounts and has NO ai-conversations class; CM051 three compose tests do not cover it either.'
+
+  - issue: 980
+    title: "GOOD NEWS with controls: instances 1 and 2 verified FIXED, four config pairs identical"
+    gate: 'VERIFIED, recorded so the denominator is visible and nobody re-audits it. The licence mount (#849) and the usage-journal mount (#482) are BOTH present in the current shipped compose, AND both guarding tests now correctly read install.sh rather than CM044''s dev file. Four config pairs compared three ways and identical: contact_syncer/.env.example, cm048_pipeline/.env.example, doctor/agent/.env.example, and the hub-power launchd plist. CANNOT-RUN, NOT CLEAN, and the reporter said so: email-ingest and imessage-bridge plists diverge between HR015 HEAD and the CM051 vendored copy, but that comparison used the WRONG BASELINE (HEAD instead of pinned_sha) and those trees sit under the VENDOR_MANIFEST.toml gate. Run scripts/verify_vendor_fresh.sh rather than trusting that diff. The daemon config.toml pair was not completed at all. DENOMINATOR: 9 config pairs examined, 7 tests read. Two checkouts (CM044 and ostler-assistant) have truncated or corrupt pack files and were not touched.'
+
+  - issue: 981
+    title: "PRIVACY FIXED AND PROVEN: forget now deletes from every graph, CM051 #1973"
+    gate: 'FIX BUILT, CI 77 pass 0 fail, NOT MERGED. Ledger HR015 #950. ROUND TRIP ON A SYNTHETIC PERSON, seeded 4 triples in the default graph and 4 in urn:ostler:user/Andy, run through the REAL endpoint: PRE-FIX default 4 to 0 but named 4 to 4 SURVIVING, while the API returned forgotten: true, stores_purged oxigraph and qdrant. FIXED: named 4 to 0. CONTROL PERSON 4 of 4 UNCHANGED in both runs, proving the delete is precise and not broad. Box restored byte-identical, zero synthetic residue. ONE FIX SERVED ALL FIVE READERS, not five copies, which is what made this systemic: cm048_user_graph_uris and graph_scoped_select in identity_resolver/compartment.py, imported by _sparql_select (34 CALL SITES) and brief.py _sparql_query. TWO JUDGEMENT CALLS BETTER THAN MY BRIEF. (1) It never emits a bare GRAPH ?g, because that would put EVERY OTHER USER''''S COMPARTMENT on the primary read path and undo assert_default_graph_isolated. (2) It carries the RAW-CASED id: urn:ostler:user/Andy holds 37,625 triples and urn:ostler:user/andy holds ZERO, so a normalise-only reader would have matched nothing AND LOOKED EXACTLY LIKE A FIX. Same trap as the empty-string last_contact. default-graph-uri was tried first and cannot work: it excludes the store default graph. CONSUMER NUMBERS: commitments 0 to 50, warmth pages 0 of 15 to 15 of 15, topics steady at 50 as the control. MUTATION: reverting on the box put all three back.'
+
+  - issue: 982
+    title: "candidates.py CONFIRMED, and the live data was a zero denominator"
+    gate: 'FIXED in #1973. I had flagged this as a source-only lead to confirm or refute. It is CONFIRMED, and the way it was confirmed is the lesson: the live data could not answer it, because all 990 candidate rows were true with no false at all, meaning THE PATH HAD NEVER RUN. A zero denominator reads as agreement. So it was probed directly instead: using-graph-uri left true in the named graph and wrote false into the DEFAULT graph, exactly as suspected. Fixed with WITH <graph>.'
+
+  - issue: 983
+    title: "OS003 owns the v1018-D012b rollforward row, and cut-gate-wrappers caught the wrong edit"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate, and noted: small. The register row for the named-graph defect belongs in OS003; CM051 only VENDORS a copy. The first attempt edited the vendored copy and cut-gate-wrappers CORRECTLY FAILED the push. Proposed row text is in #1973 body and needs landing in OS003 itself. Recorded so it is a task rather than a comment in a PR nobody re-reads.'
+
+  - issue: 984
+    title: "Regenerating the divergence patches surfaced THREE files of pre-existing unrecorded drift"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. #1973 regenerated divergence patches for all four trees it touched, and in doing so captured three files of drift that PREDATE this work and had never been recorded by anyone. Flagged explicitly in the PR rather than buried in a diffstat, which is the right call. Someone should say what those three are and whether they were deliberate, because unrecorded drift is precisely what makes a tree unreconstructible.'
+
+  - issue: 985
+    title: "LAUNCH BLOCKER: an install that fails NEVER SHOWS THE RECOVERY KEY, and the key is never stored"
+    gate: 'FIX IN #1982, raised and auto-merge armed, NOT YET MERGED and in no artefact. CONSUMER-SIDE: A customer whose install FAILS can now read their recovery key. The sheet moved off HintPanelView, which leaves the view tree on the failure branch, onto the root of ContentView, which is in the tree on every branch. The re-run trap is closed too: the keychain entry is on disk, so their obvious next act took install.sh''s already-configured skip and emitted no marker at all. ORIGINAL FINDING, which carried no gate until now: HintPanelView.swift:56 claims a key is presentable whatever the install''s outcome. RecoveryKeyView() is reachable ONLY from HintPanelView:72, and ContentView:177 swaps in InstallFailedBodyView() on .fail, taking the sheet out of the tree. install.sh:32676 states the key is deliberately never stored, so a missed disclosure is PERMANENT. CONTROL: the same -F search shape resolves SidebarView() and InstallFailedBodyView() to single real sites. COST: a customer whose install mints the key then fails loses the only way back into their encrypted graph, forever. This is the same class as the two named launch blockers.'
+
+  - issue: 986
+    title: "Nothing writes calendars.json, so EVERY imported calendar event is stamped L3 and disappears"
+    gate: 'FIX IN #1981, raised and auto-merge armed, NOT YET MERGED and in no artefact. CONSUMER-SIDE: A customer''s imported calendar events are no longer buried at L3. Both limbs fixed, because either alone is a no-op: the ingest writes calendars.json, and the default splits on whether onboarding has ever confirmed anything. Probed directly: 2 of 2 real Takeout shapes were buried before. ORIGINAL FINDING, which carried no gate until now: vendor/cm041/contact_syncer/google_calendar.py:240 describes a JSON map the onboarding step writes and this ingest reads. There are 3 matches and ALL THREE are inside the reader. CONTROL: whatsapp_pair.json resolves to 5 files. An empty map sends every event to _DEFAULT_PRIVACY = L3, the level withheld from wiki, search and briefs. Runs on real installs via install.sh:20213. Ingested, then invisible.'
+
+  - issue: 987
+    title: "install.sh points the customer at POST_INSTALL_SETUP.md, which does not exist"
+    gate: 'FIX IN #1987, raised and auto-merge armed, NOT YET MERGED and in no artefact. CONSUMER-SIDE: The last thing a customer reads no longer points at a document that has never existed (0 files, control 82 other .md), and no longer tells them to mint an iCloud app-specific password for a path CX-101 abandoned. ORIGINAL FINDING, which carried no gate until now: install.sh:32753 says connect your accounts, see POST_INSTALL_SETUP.md. The file is absent (rc=1; CONTROL: 81 other .md paths resolve). iCloud and Gmail credentials are never captured, which install.sh:28053 admits outright, and ical-query.sh takes its empty exit 0. iOS calendar is empty on every install and the document named as the remedy is not there.'
+
+  - issue: 988
+    title: "Calendar ingest mints a URI then checks itself, writing ZERO identifier triples, so people never merge"
+    gate: 'FIX IN #1981, raised and auto-merge armed, NOT YET MERGED and in no artefact. CONSUMER-SIDE: Duplicate people can merge: identifier triples are written by ingest_calendar and ingest_mail_contacts, with resolve-before-create, and an unreachable store returns a CANNOT-RUN sentinel rather than None. ORIGINAL FINDING, which carried no gate until now: vendor/ostler_fda/pwg_ingest.py:1140 confesses the shape. ingest_calendar writes no identifier triples at all; CONTROL: 13 elsewhere in the same file, and iMessage, WhatsApp and email all write them. Dedupe INNER-JOINS hasIdentifier at :2429, so these rows can never match. The guard test is UNWIRED and marked FIX-NEEDED. MEASURED: 900 duplicate people, one human appearing many times in People and the wiki, permanently unmergeable. Andy asked why the People count looked wrong.'
+
+  - issue: 989
+    title: "The licence file is NOT 0600, and it carries the customer''s email and Stripe payment id"
+    gate: 'FIX IN #1983, raised and auto-merge armed, NOT YET MERGED and in no artefact. CONSUMER-SIDE: A customer''s licence file, carrying their email and payment identity, is really 0600. rename(2) instead of replaceItem, a mode read-back that THROWS, and a repair limb for an older GUI''s 0644 file. ORIGINAL FINDING, which carried no gate until now: LicensePersistence.swift:4 promises mode 0600 and an atomic rename. FileManager.replaceItem PRESERVES THE DESTINATION MODE, and install.sh:2025 tells the customer to cp the file in at default umask. Nothing ever chmods it: 0 hits. CONTROL: chmod 600 appears 20 times elsewhere. World-readable payment identity on every install.'
+
+  - issue: 990
+    title: "The customer is told their email password self-encrypts. It never does."
+    gate: 'FIX IN #1983, raised and auto-merge armed, NOT YET MERGED and in no artefact. CONSUMER-SIDE: A customer is no longer told in their own config file that their password self-encrypts. The encryption cannot be done from this repo at all, so the text was made true and the work filed as #1976 with file and line. ORIGINAL FINDING, which carried no gate until now: install.sh:13936 says credentials are stored in plaintext until the assistant first runs and encrypts them, and that sentence is written VERBATIM INTO THE CUSTOMER''S config.toml beside their plaintext email password at :14227. install.sh:15383 says the store does not bootstrap from plaintext. encrypt-config has exactly ONE match: the comment proposing it. CONTROLS: doctor 93, allow-plaintext 44.'
+
+  - issue: 991
+    title: "The store-port probe is still advisory, nine days after the LAUNCH DIRECTIVE made it BLOCKING"
+    gate: 'FIX IN #1980, raised and auto-merge armed, NOT YET MERGED and in no artefact. CONSUMER-SIDE: The store-port probe is BLOCKING in walk_promote_scope.tsv, verified on that branch. ORIGINAL FINDING, which carried no gate until now: Directive item 5 names no_store_port_is_tcp_reachable BLOCKING. walk_promote_scope.tsv:59 still says advisory and its own comment calls itself an advisory DESIGN, decided and never done. CONTROL: the directive''s other four probes all match their required scope; only this row diverges. The one probe asking whether anything can read the whole graph uncredentialled cannot veto a cut. FOUND TWICE, by the comment sweep and the decisions sweep independently.'
+
+  - issue: 992
+    title: "Quit the installer mid-run and the Mac NEVER SLEEPS AGAIN until reboot"
+    gate: 'FIX IN #1982, raised and auto-merge armed, NOT YET MERGED and in no artefact. CONSUMER-SIDE: Quitting the installer mid-run no longer leaves a Mac that cannot sleep until reboot. caffeinate is bound with -w to our pid so the kernel releases it, plus applicationWillTerminate for a prompt release. ORIGINAL FINDING, which carried no gate until now: CaffeinateManager.swift:36 claims stop() runs on every install end path. It has ONE call site, inside the subprocess handler, and there are ZERO app-termination hooks. CONTROL: onAppear resolves normally. MEASURED DIRECTLY: an orphaned caffeinate -dimsu reparents to PID 1 with the sleep assertion still live.'
+
+  - issue: 993
+    title: "The offline-grace proof is written to disk and never read, so the fourth offline run blocks the install"
+    gate: 'FIX IN #1982, raised and auto-merge armed, NOT YET MERGED and in no artefact. CONSUMER-SIDE: An already-registered Mac no longer burns an offline grace slot per re-run while the file proving the Worker had it sits unread. ORIGINAL FINDING, which carried no gate until now: FingerprintState.swift:11 says the cache is read on subsequent launches. Nothing reads it. CONTROL: the sibling writer resolves to a production site. Every offline re-run burns one of three grace slots and the fourth blocks the customer out of their own install, while the evidence that would have spared them sits unread on their own disk.'
+
+  - issue: 994
+    title: "The app quits itself five minutes after showing a key that exists ONLY in memory"
+    gate: 'FIX IN #1982, raised and auto-merge armed, NOT YET MERGED and in no artefact. CONSUMER-SIDE: The countdown is SUSPENDED while a recovery key is unacknowledged, so a customer who walks away to fetch a password manager still has the full window when they return. ORIGINAL FINDING, which carried no gate until now: InstallerCoordinator.swift:2144 claims auto-quit honours the acknowledgement flag. armAutoQuit never reads it. The customer has five minutes to transcribe a recovery key that is never stored, and then the window closes. Compounds 985.'
+
+  - issue: 995
+    title: "There is no E.164 validator anywhere, and the string file contradicts itself"
+    gate: 'FIX IN #1983, raised and auto-merge armed, NOT YET MERGED and in no artefact. CONSUMER-SIDE: A real E.164 validator and normalisation at all three consumers, handling the UK and German bracketed trunk zero while preserving a bracketed area code, which a plain bracket strip gets backwards. The self-contradicting example is fixed on both surfaces. ORIGINAL FINDING, which carried no gate until now: install.sh:14352 says E.164 validation rejects them already. No validator exists: 4 matches, all comments. CONTROL: CHANNEL_WHATSAPP_RECIPIENT resolves 14 times. strings.en-GB.sh:1023 shows the customer an example WITH SPACES while telling them no spaces. pair_phone is normalised; allowed_numbers and delivery.to are not, so briefs go to a malformed address and the customer''s own replies are denied by their own allowlist.'
+
+  - issue: 996
+    title: "The support log you ask a failing customer for is blind in six separate ways"
+    gate: 'FIX IN #1982, raised and auto-merge armed, NOT YET MERGED and in no artefact. CONSUMER-SIDE: The support log a failing customer sends now carries its timestamps and its raw lines. The IPv6 pattern claimed MAC addresses and timestamps did not match; both carry more than one colon, so the anchor never applied to either. ORIGINAL FINDING, which carried no gate until now, and noted: group row. (1) ContentView.swift:511 claims its timestamp shapes do not match; BOTH named shapes DO match, verified in two regex engines, so every line of the support log loses its timing. (2) ProgressProtocol.swift:161 promises raw lines are re-emitted so the drawer never silently drops them, gated on devModeRawLog = false, so brew, docker and Python tracebacks are absent from both drawer and log. (3) InstallerCoordinator.swift:187 watchdog overlay is gated on a property nothing clears during install, so a wedge looks identical to a slow step. (4) SidebarView.swift:225 failure glyph is unreachable by construction. (5) reminders_posture.py:27 marker is never written, CONTROL: sibling imessage-posture has 8 write sites, so the tile stays blank. (6) verify_test_wiring.sh:117 cannot see contact_syncer/tests, assistant-agent/tests or wiki-recompile/tests: 7 files, 122 tests, verified 0/0/0 in the register, CONTROL 1. Privacy-level mapping regressions are caught by NOTHING while the gate reports the suite wired.'
+
+  - issue: 997
+    title: "Four smaller confessions: frozen sidebar, an attempt recorded as a result, a migration that never runs, a horizon nobody can change"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate, and noted: group row. StepCatalog.swift:88 sidebar frozen during the permissions briefing. didTrashInstaller records the ATTEMPT, not the result. install.sh:26826 namespace migration never runs, wrong base variable, already issue 1765. install.sh:28113 OSTLER_CALENDAR_FUTURE_DAYS is exported 0 times, CONTROL siblings 5, 3 and 4, so the 30-day horizon is permanent.'
+
+  - issue: 998
+    title: "THE 30-DAY TRIAL NEVER ENDS. Every Hub buyer has Pro free for life."
+    gate: 'FIX IN #1978, raised and auto-merge armed, NOT YET MERGED and in no artefact. CONSUMER-SIDE: A never-paid trialist STOPS at day 31. expire_check is walked in-process on every call, so the answer is right even if no scheduler ever loads. ORIGINAL FINDING, which carried no gate until now: Install writes status=active, expires_at=+30d (subscription_gate.py:209-231). expire_check() is the ONLY thing that can walk that state forward and has ZERO production callers: 20 hits are module, docstrings, tests and a patch. CONTROL: refresh_from_companion in the SAME FILE has a real caller at ical-server.py:5936. No launchd or tick wiring for subscription at all; CONTROL: wiki = 20. FOUND TWICE, independently, by the comment sweep and the decisions sweep. The $9.99 is unenforceable as shipped.'
+
+  - issue: 999
+    title: "Andy''s has_ever_paid rule is implemented in the daemon and ABSENT from the gate that actually ships"
+    gate: 'FIX IN #1978, raised and auto-merge armed, NOT YET MERGED and in no artefact. CONSUMER-SIDE: Andy''s rule ships: the paid bit is set only by a receipt, so a failed card produces no transaction, no receipt, no bit. The Rust backfill was deliberately NOT copied, because it would have set the bit for every trialist on day zero. ORIGINAL FINDING, which carried no gate until now: DECIDED 2026-07-31 in BACKLOG.yaml:142-170 as a priority blocker for v1.0.14, and RE-DECIDED BY ANDY TODAY: keep it as long as they have paid fully for Pro at least once, not the 30 days free plus a failed card try. The daemon implements his mapping exactly (observer.rs:84-99, schema.rs:3185). The shipped Python gate has ZERO has_ever_paid (subscription_gate.py:140-181) and grants grace plus a 30-day fail-open to a never-paid trialist. CONTROL: grace_period_end = 34 hits in the same vendor path. The Rust cron mirror is also zero, CONTROL 28 grace hits in that file. Decided twice, implemented zero times, because the state machine it belongs to (998) never runs.'
+
+  - issue: 1000
+    title: "Rule 0.8 says every ingestion pipeline checks the subscription gate. ONE of eleven does."
+    gate: 'FIX IN #1978, raised and auto-merge armed, NOT YET MERGED and in no artefact. CONSUMER-SIDE: Rule 0.8 enforced on 6 of 11 surfaces via ONE canonical module, not five copies. The remaining five are a ratchet inside the test, re-checked every CI run. ORIGINAL FINDING, which carried no gate until now: PRODUCTISATION_CHECKLIST.md:183-193, locked 2026-05-09, non-negotiable for launch, 11 named surfaces. Only cm052/wire.py:480 calls is_active_or_grace(). cron subscription_gated defaults false (types.rs:230) and the only =true lines are past #[cfg(test)]; store.rs:531 says it is not persisted. iMessage, WhatsApp, email, calendar, Safari, voice, photos and briefs all run unpaid.'
+
+  - issue: 1001
+    title: "Consent jurisdiction is resolved by GPS, the opposite of what was decided, and consent_basis has no producer AND no consumer"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. DECIDED: derive jurisdiction from Locale.current.region, NOT GPS, and refuse capture in all-party regions. CM042 Consent/JurisdictionManager.swift:1,5,13 resolves via CoreLocation. CM051 Locale.current = 0; CONTROL: Locale = 10 files. consent_basis has 0 producers and 0 consumers. RecordingStateService has 0 callers; CONTROL: APIClient = 17. RemoteCapture ships and records carrying a legal-looking field that proves nothing.'
+
+  - issue: 1002
+    title: "ANDY''S OWN FLOOR FAILURE F2: the wiki was decided ABSENT for v1.0 and instead ships demanding a password nobody has"
+    gate: 'FIX IN #1980, raised and auto-merge armed, NOT YET MERGED and in no artefact. CONSUMER-SIDE: A customer pointing a browser at the wiki port meets no password box: the challenge is answered in nginx''s rewrite phase, 401 to 403. The port STAYS, because the in-app wiki reads it through the daemon''s proxy and deleting it would have deleted the wiki inside the app. ORIGINAL FINDING, which carried no gate until now: launch/DECISION_550_what_shut_means_2026-08-28.md:106 locked 8044 as ABSENT for v1.0, direct publish removed. It is still published (install.sh:17360, :17257). A Basic-auth lock was added instead at :17268 and the credential was handed to no one. This is exactly Andy''s reported defect: the wiki via a browser is requesting authentication details I do not have. NOTE THE CONFLICT with 991: the rewritten store-port probe now grades a 401 as PASS, so two of Andy''s own decisions currently fight each other. That conflict needs HIS ruling, not mine.'
+
+  - issue: 1003
+    title: "The published privacy page promises a setting that does not exist"
+    gate: 'FIX IN HR015 #955, raised and auto-merge armed, NOT YET MERGED and in no artefact. CONSUMER-SIDE: The published privacy page no longer promises a setting that does not exist, and points at the remedy that does work. ORIGINAL FINDING, which carried no gate until now: website/v2/legal-privacy.html tells the public they can disable enrichment in settings. SettingsModal.tsx is 314 lines with ZERO enrich. CONTROLS: const 12, settings 16. Every enrich in web/src is a status label. Open as HR015 #794. A live public privacy promise with no control behind it.'
+
+  - issue: 1004
+    title: "AI conversations were locked private-by-default and ship at L2, and the read-side gate is not in the DMG"
+    gate: 'FIX IN #1981, raised and auto-merge armed, NOT YET MERGED and in no artefact. CONSUMER-SIDE: AI conversations default to L3, fixed in BOTH pinning places. The plist wins at runtime, so fixing only the Python would have merged, passed, and done nothing on a customer''s Mac. ORIGINAL FINDING, which carried no gate until now: CLAUDE.md locks privacy_level L3 for AI conversations. cm052/wire.py:163-164 sets transcript AND gist to L2. The read-side L3 withholding on get_conversation exists only in CM019 services/mcp/src/server.py:478, and the MCP server is NOT in the DMG: 0 mcp paths in vendor/, CONTROL cm019_preferences = 84 files. Two of the three limbs of the locked directive never reach a customer.'
+
+  - issue: 1005
+    title: "retention_tier is written on every record and read by nothing"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. cm048_pipeline/src/ingest.py:390,1086,1158-1166 writes it. Zero readers, no sweeper anywhere. CONTROL: qdrant in CM019 = 133 files. Nothing ever expires, so there is no Article 17 story behind the retention tiers we describe.'
+
+  - issue: 1006
+    title: "Uninstalling DESTROYS the paid licence file, which Andy decided it must keep"
+    gate: 'FIX IN #1983, raised and auto-merge armed, NOT YET MERGED and in no artefact. CONSUMER-SIDE: A customer who uninstalls keeps the licence they paid for, and the walk harness''s residue predicate moved in the SAME change, or every wipe walk would have stopped at CANNOT-RUN. ORIGINAL FINDING, which carried no gate until now: Andy, 2026-09-10: uninstalling should keep the licence file. install.sh:22317 spares only power.conf. Zero licen[cs]e matches in the uninstaller body; CONTROL: 202 in install.sh overall. 0 of 1168 branches fix it. A customer who uninstalls loses what they paid for.'
+
+  - issue: 1007
+    title: "Calendar export search is still capped at depth 3 and three files, which Andy told us to change in the installer"
+    gate: 'FIX IN #1983, raised and auto-merge armed, NOT YET MERGED and in no artefact. CONSUMER-SIDE: Calendar exports are found at depth 6 with no file cap, still bounded by -xdev and prunes. Measured on a fixture: 1 of 6 calendars found before, 6 of 6 after. ORIGINAL FINDING, which carried no gate until now: Andy, 2026-09-12: change the installer, not the box. install.sh:9878 is still -maxdepth 3 and also head -3. 0 of 1168 branches deepen it; CONTROL: 1168 at depth 3. Google and Facebook calendar exports are silently unread.'
+
+  - issue: 1008
+    title: "Four locked brand rules are broken, two of them on screens Andy sends people to"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate, and noted: group row. (1) The Doctor page is UNCONDITIONALLY DARK across six templates (apple_style.css:42; web_ui.py:1531,1559,2370,3382,3987,4386,4589) against light-not-dark. (2) Accents are #C84545 and salmon #D9837A (render_frontpage.py:99) against oxblood #7A1F1F. (3) The banned word companion appears in the GDPR CONSENT SCREEN (ViewCopy.json:262), 9 strings in install.sh.strings.en-GB.sh, 5 in install.sh and 7 in web_ui_copy.py. (4) Roadmap leak AND self-contradiction: strings:926 promises Intel support in v1.0.1 while :208 says it is not on the roadmap, and :955 promises Linux coming soon.'
+
+  - issue: 1009
+    title: "The four-artefact rule is written unconditionally and enforced by nothing"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. CLAUDE.md locked 2026-05-09. conversation_writer.py:254-287 writes all four. Nothing checks: todos.md in tests, scripts and CI = 0; CONTROL: summary.md = 2. No walk probe reads conversations. A pipeline can drop three of the four silently and no gate notices.'
+
+  - issue: 1010
+    title: "PRODUCTISATION_CHECKLIST, the file every agent must read before committing, carries the WRONG PRICES"
+    gate: 'FIX IN HR015 #954, raised and auto-merge armed, NOT YET MERGED and in no artefact. CONSUMER-SIDE: The file every agent must read before committing carries the real prices. ORIGINAL FINDING, which carried no gate until now, and noted: small and quick. :185-186 still says Hub $50 and Companion $24.99. The website and installer are consistently correct at $99 one-off and $9.99 per month (355 CTAs at 9900, JSON-LD 99.00 and 9.99). Agents are being sent to work from the wrong numbers by the very file that gates their commits.'
+
+  - issue: 1011
+    title: "I put a probe in the machine-gated section that DOES NOT EXIST, and the schema gate caught me"
+    gate: 'FIX IN #1975, raised and auto-merge armed, NOT YET MERGED and in no artefact. CONSUMER-SIDE: Demoted out of the machine-gated section, which is where a row with no proof belongs. ORIGINAL FINDING, which carried no gate until now, and noted: correctly. probe-front-page-reports-interests was written into entries:, the section that can only be ticked by a machine, while no probe file of that name exists anywhere (CONTROL: 27 probe files on main, 0 matching). manifest-parse failed it for a missing proof block and was RIGHT to. Demoted to an open issue, which is what a row with no proof is. THE PROBE STILL NEEDS WRITING, and it is harder than it looks: a zero interest count on the walk box is currently CORRECT, because the only preference-bearing source there is Safari bookmarks whose confidence ceiling is 0.126 against a floor of 0.28. So the probe must assert that a REFUSED query is distinguishable from an empty graph, which is the actual defect, and must NOT assert a non-zero count, which would fail on honest data. The scoring stays untouched: Andy spent a long time on it.'
+
+  - issue: 1012
+    title: "The doctor probe was PROVEN and then stranded on a branch with no PR, so it was never on main"
+    gate: 'FIXED HERE. I reported doctor_page_renders_for_a_customer as written, self-tested on three arms and registered blocking. All of that was true, and it was sitting on origin/floor/customer-surfaces with NO PULL REQUEST, so none of it was on main and none of it could ever gate a cut. MEASURED: 0 doctor probe files on origin/main, CONTROL 27 probe files present. Found only because the manifest schema gate demanded a proof block and the file it named was not there. This is the ninth instance of the same shape in a week: work that exists and cannot reach a customer. The probe and its blocking scope row are now on this PR.'
+
+  # ── CARRIED FORWARD 2026-09-16 ───────────────────────────────────────────
+  # test_the_cut_checklist_is_complete went RED naming 50 open issues absent
+  # from this register, with the words "the register has stopped being the
+  # register". It was right. They are registered below with a triage, not a
+  # uniform line, because a uniform status reads exactly like a uniform zero:
+  # it hides which of them can stop a customer. NONE of these rows claims a
+  # fix. Each says GATE: NONE YET, which means the row is work, not coverage.
+
+  - issue: 1922
+    title: "swift-tests: LicenseVerifierTests.testTamperedSignatureFailsVerification fails, unrelated to v1."
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-12 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1815
+    title: "7 of the 74 pipefail short-circuit landmines are in scripts the cut itself runs"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-07 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1810
+    title: "bom_add.sh accepts a SHA that resolves to nothing"
+    gate: 'BOTH OS003 PRs NOW MERGED (#295 write side, #297 read side), AND THE PROOF IS ON THE CUT ACTUALLY IN PROGRESS RATHER THAN A FIXTURE. The v1.0.99 BOM, unchanged, read EXAMINED 0 full sha(s) before and reads EXAMINED 5 sha(s): 0 unresolvable, 0 uncheckable after, naming each of the five merged commits as resolving. SEVEN-MODE CHECK: this was mode 7, present but dead, a gate in the tree that examined nothing; it is now live and measured against real rows. FIXED ON BOTH SIDES. WRITE SIDE, OS003 PR #295: bom_add.sh checked the capability column carefully and wrote the REF column unexamined, so a sha resolving to nothing looked exactly like a real pin. It now warns at the write site, where it reaches the person who chose the ref, rather than only mid-cut. Three outcomes, not two, because a repo with no local checkout must not print the same verdict as a bad sha. Hermetic, so it runs on a CI runner instead of reporting CANNOT-RUN forever. READ SIDE, OS003 PR #297, AND THIS IS THE LARGER HALF: gates/bom_shas_resolve.sh selected rows with a length test of EXACTLY 40, and every BOM in the repo is written with abbreviations. MEASURED against v1.0.98, THE BOM OF A CUT THAT ACTUALLY SHIPPED: EXAMINED 0 full sha(s), with a clean total printed underneath. Across every cut BOM the original examined 66 refs and the widened one examines 222, so ONE HUNDRED AND FIFTY-SIX ROWS HAD NEVER BEEN CHECKED. The sweep found 222 examined and 0 unresolvable, so nothing was fabricated, and that is worth saying plainly: the finding is not that the BOMs were wrong, it is that WE DID NOT KNOW. Non-sha cells, the longest 263 characters of prose, are now counted rather than silently dropped, because skipping them without saying so is how a denominator of zero passes for a clean sheet. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-07 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1774
+    title: "usage_journal_producers adjudicates against a leftover staging tree, and reds on producers the c"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-07 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1772
+    title: "there are three registers and two are called manifest, and a walk failure can be gated non-block"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-07 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1765
+    title: "the namespace migrator is looked for in ~/.ostler/scripts, which never exists, so it has never r"
+    gate: 'CAUSE FULLY ESTABLISHED 2026-09-16, FOUR MEASUREMENTS, AND IT IS WORSE THAN A WRONG PATH. (1) The call site reads ${OSTLER_DIR:-$PWD}/scripts/migrate_graph_namespace.py at install.sh:26826. (2) ${OSTLER_DIR}/scripts is referenced 0 times anywhere else in install.sh, CONTROL ${OSTLER_DIR}/bin 56 times, so that directory is never created and the guard is always false. (3) THE SCRIPT IS NOT IN THE PAYLOAD AT ALL: migrate_graph_namespace appears 0 times in scripts/install_manifest.tsv, CONTROL deferred-register-device appears once, of 48 rows. So repointing at ${SCRIPT_DIR}/scripts, which IS a real payload directory (install.sh:21518 copies deferred-register-device.sh out of it), would be A SECOND PATH THAT ALSO DOES NOT EXIST. (4) The guard is [[ -r ]], so the miss is SILENT: no log line, no warning, nothing in the diagnostics. THE MIGRATION HAS NEVER RUN ON ANY CUSTOMER BOX AND NOTHING HAS EVER SAID SO. The comment above the call site records that this script ''existed and NOTHING CALLED IT'', so the previous fix added a caller and pointed it at a path that never exists, which is the same defect one layer along. THE FIX IS TWO PARTS AND NEITHER IS DONE HERE: stage the script into the payload by adding it to install_manifest.tsv, and make a miss LOUD rather than a silent skip, because a data migration that quietly does not happen is invisible by construction. NOT ATTEMPTED NOW DELIBERATELY: install.sh is contended by #1983 and #1987, both nearly green, and a payload change would conflict with both for no gain in a cut that has not been tagged. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-07 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1760
+    title: "flaky: testTamperedSignatureFailsVerification passes or fails on identical input"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-07 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1754
+    title: "a pre-existing Ollama on 11434 aborts the install as ERR-99 with no actionable cause"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CAN STOP A WALK. This is in the bucket that prevents a customer completing an install or reaching their own data, so it is read before the cut is tagged and not after. Opened 2026-09-07 and carried forward unadjudicated through v1.0.98. Registered here so it is visible rather than merely open.'
+
+  - issue: 1733
+    title: "wiki-compiler and wiki-site are the last two check-freshness REDs, and CM044 a60bc3d is a real c"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-06 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1690
+    title: "The shipped owner node still accumulates display names; fixed upstream in CM041 fdedb71, pinned "
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-06 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1679
+    title: "post-launch: revisit serving the wiki natively instead of from wiki-site (deferred 2026-09-06, c"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-06 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1660
+    title: "vane 3000 and the 8144 tailnet gate are the two surfaces #1609 did not cover, and the gate trust"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-06 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1656
+    title: "Both kinship fixes are merged upstream and absent from the artefact, and the shipped contact_syn"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-06 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1634
+    title: "usage-journal gate: a producer nobody asked reads as a producer that broke"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-06 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1619
+    title: "v1018-D011 is live at v1.0.71: person pages carry a display_name derived from a kinship term or "
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1618
+    title: "no_store_port_is_tcp_reachable measures reachability, which is the wrong predicate for a credent"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1601
+    title: "a probe that exceeds the manifest timeout is reported as FAIL, which hid a real diagnosis behind"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1598
+    title: "pwg_knowledge_search reads a Qdrant collection that Apple Notes hydration does not write"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1597
+    title: "assistant_answers_grounded cannot tell a failed turn from a recovered one, and a deliberate retr"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1596
+    title: "assistant_answers_grounded: one null date in the preferences artefact fails the whole parse, and"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1595
+    title: "the store-port probe's header is stale in the reassuring direction, and the scope row undercount"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1589
+    title: "end-of-install panel: show what Ostler set up, from surfaces the box can evidence (not the opera"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1587
+    title: "the Doctor source table covers hydrate sources only, so the whole FDA family (incl. working Remi"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1586
+    title: "the cut manifest is selected by text sort, so v1.0.9 outranks v1.0.72 and v1.0.100"
+    gate: 'MEASURED AND GUARDED, PR #1989. BOTH LIVE SELECTORS ARE ALREADY CORRECT and I verified that at the boundary rather than assuming it: with a fixture containing v1.0.9, v1.0.72, v1.0.98, v1.0.99, v1.0.100 and v1.0.101, sort -V picks v1.0.101 and the Python integer-tuple selector picks v1.0.101. CONTROL, on the SAME fixture, a plain text sort picks v1.0.99, so the failure this row describes is real and these two avoid it. WHAT WAS ACTUALLY MISSING WAS THE GUARD. Nothing asserted the ordering, and the CURRENT manifest is v1.0.99, so THE VERY NEXT CUT is the first version in this project''s history where a text sort and a version sort disagree. A selector on the wrong side would pick v1.0.99 forever: the cut would gate itself against the PREVIOUS cut''s checklist, every row already satisfied, and read as clean. Now a wired test, with a mutation that downgrades a live selector and is caught by name. ITS OWN FIRST VERSION WAS WRONG: the arm grepped the whole FILE for a version-aware sort and a real downgrade still passed, because that file contains another one elsewhere. It reads the selector line now. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1583
+    title: "a shipped privacy filter uses gte where its docstring says max, so it returns MORE private data "
+    gate: 'NEEDS A DECISION, AND WHAT I FOUND UNDER IT IS WORSE THAN THE OPERATOR. The gte is still there on origin/main and its retention is DELIBERATE and well argued: the vocabulary fix that rewrote this function says in as many words that the comparison direction is preserved because that commit was about a type mismatch, and that answering the direction question by accident while fixing the type would be a silent privacy change. That was the right call. THE REASON THE DIRECTION IS UNANSWERABLE IS THAT THE SCALE ITSELF RUNS BOTH WAYS IN SHIPPED CODE, AND TWO OF THE READINGS ARE IN THE SAME PACKAGE. MEASURED on origin/main: cm019 parsers/base.py:158-168 maps 0 L0Personal, 1 L1Family, 2 L2Trusted, 3 L3Community, 4 L4Public, 5 L5Commercial, 6 L6Broadcast, so LOW IS PRIVATE. cm019 parsers/apple.py writes compartment_level=5 twelve times with the inline comment HIGHEST PRIVACY, for Apple NOTES (line 3774, ''notes contain personal info'') and for HEALTH DATA (4199, 4294, 4344), so HIGH IS PRIVATE. Those are the same field, the same package, and apple.py constructs the very class base.py defines, 84 times. cm048_pipeline/prompts/05_fact_extraction.md:259 gives a third reading, L0 public and L2 private. cm041 privacy_model.py:61-64 gives a fourth that is not even monotonic: L0 owner-private, L2 trusted and publishable, L3 body-private. THE CUSTOMER-FACING CONSEQUENCE, TRACED END TO END: base.py to_turtle() at line 115 calls _compartment_uri() at 118, so every preference emitted as RDF carries the mapped URI. A customer''s APPLE HEALTH AND APPLE NOTES, written at level 5 by code whose own comment says HIGHEST PRIVACY, are emitted into the graph as pwg:L5Commercial. The most sensitive material on the box gets the second most public compartment label. WHY I HAVE NOT FIXED IT: every available fix relabels real data. Flipping base.py''s map relabels everything already written; changing apple.py''s levels relabels everything written next; and which scale is canonical is a product and privacy decision with legal weight, not a tidy-up. ANDY OR ARCHIE: name the canonical scale, and then the gte/lte question answers itself and can be gated. Until then nothing here should be changed by an agent acting alone. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1574
+    title: "com.ostler.ollama crash-loops 368 times behind a guard that reports OK: \"a port answers\" is not "
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1573
+    title: "RULE 2 still violated on a fresh v1.0.71 graph: 54 person nodes hold 117 Contacts cards, with th"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1571
+    title: "the export watcher says \"now part of your world\" on an import that matched nothing, and records "
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1566
+    title: "ERR-14 on a cold box: the store was running and nothing could connect to it for 300s, and the in"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CAN STOP A WALK. This is in the bucket that prevents a customer completing an install or reaching their own data, so it is read before the cut is tagged and not after. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98. Registered here so it is visible rather than merely open.'
+
+  - issue: 1550
+    title: "A cut gate reads a checkout on the wrong branch and calls it a RED: the worktree guard tests the"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1541
+    title: "The RULE 2 veto is wired and still lets 53 over-merges through on a FRESH graph, and 'absence is"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1540
+    title: "LAUNCH BLOCKER: a BIP39 recovery phrase is generated, the DEK is encrypted under it, and the cus"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CAN STOP A WALK. This is in the bucket that prevents a customer completing an install or reaching their own data, so it is read before the cut is tagged and not after. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98. Registered here so it is visible rather than merely open.'
+
+  - issue: 1539
+    title: "reuse_settings does not cover tailscale_confirm: the ONLY question a re-install re-asks"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1538
+    title: "FDA: the assistant cannot be granted Full Disk Access by a human, and the app it asks you to dra"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CAN STOP A WALK. This is in the bucket that prevents a customer completing an install or reaching their own data, so it is read before the cut is tagged and not after. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98. Registered here so it is visible rather than merely open.'
+
+  - issue: 1519
+    title: "cut.yml: the dry-run job can never run, because it needs a preflight that can only pass on a tag"
+    gate: 'EVIDENCE SAYS THIS IS STALE, AND THE DECISIVE TEST IS A STEP WE OWE ANYWAY. MEASURED on origin/main: cut.yml declares dry-run at line 1470 with needs: preflight and if: github.event_name == workflow_dispatch, exactly as cut does with if: push. Preflight carries no tag guard and its own header documents the dispatch case in as many words: on a tag push the answer is the tag, on a dispatch there is no tag, so the run asks the TREE what version it would stamp if it were tagged now. So the dry-run job is reachable. I am NOT closing this on a reading: the decisive proof is to fire a workflow_dispatch dry run and watch it reach the job, WHICH IS ITSELF A REQUIRED STEP before the tag. Deliberately not fired now: the payload is not final with ten PRs unmerged, and it would add about 140 checks to a queue my own pushes already congested. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1508
+    title: "Revisit the scoped promote gate once a launchable DMG exists"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1167
+    title: "two self-declared cut-blocking gates did not run at v1.0.48's commit — 'reachable from the cut' "
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-27 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1164
+    title: "verify_doctor_governor_revendor.sh has 0 automated callers — its only wiring is a comment, and i"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-27 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1163
+    title: "usage_journal: six chat turns against a shipped daemon that contains the recorder produced no jo"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-27 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1162
+    title: "assistant_answers_grounded: it is not \"one in three fails\" — one exact string fails every time w"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-27 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1160
+    title: "preferences: compartment_level is stored as string \"L2\", integer 2, and absent in one collection"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-08-27 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1156
+    title: "verify_test_wiring enumerates only tests/, so all 28 files under scripts/tests/ are uncovered — "
+    gate: 'ALREADY FIXED ON origin/main, MEASURED NOT ASSUMED, so this row is struck rather than worked. Running scripts/verify_test_wiring.sh against a clean export of origin/main enumerates scripts/tests/ explicitly and reports 46 files there, naming individual ones such as test_resolve_cut_daemon_pin.sh. The row says 28 files under scripts/tests/ are uncovered; they are covered. Someone fixed it and did not close the row, which is the register overstating work, the same thing 41 struck rows were about. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-27 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1154
+    title: "verify_test_wiring counts a paths: trigger as an invocation, so a test that is only triggered-on"
+    gate: 'FIX IN #1985, NOT YET MERGED. MEASURED BOTH SIDES: strip_trigger_block appears 0 times in scripts/verify_test_wiring.sh on origin/main and 2 times on that branch, and the control confirms the grep resolves. The fix drops the on: block before matching, so a filename appearing only in a paths: trigger no longer scores as started-by. CONSUMER-SIDE, such as it is for a register: someone asking what runs this test now gets the workflow with the invocation rather than one that merely watches it. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-27 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1152
+    title: "acceptance_gate_v1013 is a registered probe that the box_walk_probes README never lists"
+    gate: 'CANNOT MEASURE WITH THE OBVIOUS PREDICATE, AND SAYING SO RATHER THAN REPORTING A ZERO. acceptance_gate_v1013 appears 0 times in scripts/box_walk_probes/README.md on origin/main. THAT ZERO IS WORTHLESS: three controls, app_signature_survives_first_run, people_stores_reconcile and usage_journal_producers, all probes that certainly exist, ALSO return 0 from the same search. So the README does not name probes in the form I searched for, and my predicate cannot tell an unlisted probe from a README that lists nothing this way. The 327-line file does carry 117 probe-name-shaped lines in some other format. Whoever takes this row needs to read the README''s actual shape first. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-27 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1143
+    title: "egress probe FAILs on declared hosts: a rotating DNS pool defeats contemporaneous resolution"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-27 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1141
+    title: "usage journal has never been written on a box that has compiled and ingested for days"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-27 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1125
+    title: "assistant_answers_grounded scores any pwg_* call as grounded, so it is blind to the wrong-tool c"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-27 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1123
+    title: "pair_state_agreement can never read 2 of its 3 signals: /doctor/api/health has no pairing field"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-26 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1113
+    title: "assistant_answers_grounded: tools= is empty because [mcp] servers = [], and every ungrounded tur"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-26 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 775
+    title: "the hydrate-sentinel control (7) has a false pass on a nested block, and types its own denominat"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-16 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1013
+    title: "THE GATE THAT BLOCKS A CUT ON UNPROVEN ROWS HAS NEVER ONCE FIRED"
+    gate: 'FIXED HERE. A NOTE ON THIS ROW''S OWN WORDING: it first QUOTED the ungated marker verbatim while explaining it, which made the very detector it fixes count this FIXED row as ungated. A note about a gate must not carry the token the gate matches, and this is the third instance of that today after the person-name guard twice. FIXED HERE, with a control and a mutation test. test_the_cut_checklist_is_complete.py PROPERTY 2 is the check that stops a cut while rows carry no proof. It selected rows with str(gate).startswith("NONE"). EVERY row ever written in EVERY manifest spells the ungated marker with a `GATE: ` prefix in front of it, so it does not START with the word the predicate matched on. MEASURED on v1.0.99: 112 rows carried that marker, the gate saw 0, and it printed a PASS saying none remained and every registered issue was either gated or carried a written decision. So a cut could have been tagged with every single row unproven and this gate would have called it clean. It is the precise shape it exists to catch: a gate that cannot fail is indistinguishable from a clean sheet. FIX: normalised containment, so a prefix, a lowercase spelling or padding cannot hide a row. The predicate was also NESTED INSIDE main() where no test could reach it, which is part of why it survived; it is now module level. CONTROL ARM added to test_a_ci_alarm_is_not_a_register_gap.py: 3 spellings that must be caught including the real-world GATE: prefix, 2 genuinely gated rows that must NOT be flagged. MUTATION: restoring startswith takes the suite to 5 pass 1 fail naming both missed spellings; restoring the fix returns 6 pass 0 fail. CONSEQUENCE, AND IT IS THE POINT: with the detector honest, THIS CUT IS NOW BLOCKED until those 112 rows are each proven or carry a written DEFER. That is the correct state and it was being hidden.'
+
+  - issue: 1014
+    title: "78 registered rows name issues that are already CLOSED, so the register overstates the work"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate, and noted: small. With every open issue now registered, the gate reports the other direction: 78 registered rows point at issues that are closed, including 928, 929, 940 to 949. Several of those are board items I have been carrying as open. A register that lists closed work as outstanding is the same failure as one that omits open work: it stops being a description of reality. Strike them, or mark each struck with the evidence that closed it, before the cut.'
+
+  - issue: 1015
+    title: "The personal-use terms were stranded on a branch with NO PR, the SECOND one found today"
+    gate: 'FIXED, PR #1977. Andy asked for personal-use-only terms protecting against illegal use, delivered with this cut. The consent string, twelve strings and the Phase-2 screen were all written and all TRUE, and none of it was on main because the branch had no pull request. MEASURED: 0 references to MSG_TERMS_PERSONAL_USE in install.sh on the working branch, CONTROL 77 gui_read references in the same file; exactly one branch carries it. Same shape as 1012, the doctor probe, found an hour earlier. Reachability was then checked rather than assumed: the screen is top level (nearest enclosing function closes at 9756), inside PHASE 2, among the Article 9, EU voice and third-party prompts. bash -n clean with a control proving bash -n can fail.'
+
+  - issue: 1016
+    title: "A LICENCE TERM was acknowledged by the customer and recorded NOWHERE, the third instance of this shape in one file"
+    gate: 'FIXED WITH A CLASS GUARD, PR #1977. OSTLER_CONSENT_PERSONAL_USE_DECISION had EXACTLY ONE USE in the whole of install.sh: its own assignment. Its four siblings each record to ~/.ostler/posture/consent.json at 15267 to 15319. So the customer accepted a licence term, the answer died with the installer process, nothing proved they had agreed, and the Doctor could not flag drift between what was agreed and what the Hub bundles, which the screen''s own comment claims it enables. THIRD INSTANCE IN THIS ONE FILE: the enrichment block a few lines below narrates the second (#794), an export under a comment saying the answer was recorded so the Doctor and a support bundle could state what the customer chose, recording nothing. So the fix is a guard for the CLASS: test_every_consent_decision_is_recorded.sh asks, for every decision variable given a real answer, whether it ever reaches _consent_cli_record; hoisted empty defaults are declarations and do not trigger it; it exits CANNOT-RUN rather than passing if the pattern stops matching, because a zero there is the predicate failing and not a clean sheet. DENOMINATOR 5 of 5 recorded. POSITIVE CONTROL: a set-but-never-recorded variable is caught. MUTATION: removing the record block gives 5 pass 1 fail naming PERSONAL_USE, restoring gives 6 pass 0 fail. WIRED into consent-registry.yml and TEST_WIRING.tsv in the same PR, so it is not a test nothing runs.'
+
+  - issue: 1976
+    title: "CM051: the customer''s email password is written in plain text and nothing ever encrypts it"
+    gate: 'GATE: NONE YET for the encryption itself; the LIE is being fixed now. Split out of the licence and permissions work, which made the customer-facing text TRUE rather than implementing encryption. install.sh:14085 writes the collected password straight into ~/.ostler/assistant-config/config.toml and it stays plain text for the life of the install, with mode 0600 the only protection, while install.sh:13936 told the customer IN THAT SAME FILE that it would be encrypted when the assistant first ran. encrypt-config had exactly one match in the tree: the comment proposing it (CONTROLS: doctor 93, allow-plaintext 44). Telling the customer the truth is shipping in this cut; the implementation is this issue. REGISTERED BECAUSE THE GATE CAUGHT IT: cut-checklist-complete went red naming #1976 as an open issue absent from the register, which is exactly the job it exists to do, on an issue opened after the other 50 were registered.'
+
+  - issue: 1017
+    title: "NEEDS ANDY. The freeze was lifted in the COPY and never in the canonical file, so by its own rule the freeze is still ON"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate, and noted: and it is not mine to close: LAUNCH DIRECTIVE item 10 says only Andy edits that block. MEASURED: the canonical HR015 CLAUDE.md on origin/main contains ZERO occurrences of FREEZE LIFTED; the mirror at ~/.claude/CLAUDE.md contains 1 (same grep shape, so the zero is real). Item 2 of the canonical file still reads the ORIGINAL freeze: CM051 main accepts only PRs that move a named walk probe from FAIL to PASS, fix an install step abort, or fix a cut build failure, and NO NEW WORKFLOWS, NO NEW GATES, NO DOCS-ONLY PRs. The mirror''s own header says the HR015 copy is canonical and wins if the two differ, so on the documentsّ own terms the freeze is ON. CORRECTED 2026-09-16, I HAD THE MECHANISM WRONG. The lift is not missing from the canonical file: it is commit d61ee9e1, dated 2026-09-14, titled ''directive: lift the freeze, on Andy''s explicit instruction'', and it edits the canonical CLAUDE.md properly. IT WAS NEVER PUSHED. It has sat on LOCAL main only for two days, so origin/main, which every agent reads, still says FREEZE. Found by accident: I branched from a local main that was one commit ahead of origin, my own commit was blocked by the PII hook, and the push sent that commit instead of mine. Raised as HR015 #952, RETITLED to the truth and set to DRAFT so no sweep can merge it, because item 10 says only Andy edits that block. THIS IS THIS WEEK''S DEFECT CLASS APPLIED TO THE RULES THEMSELVES, and the rule it breaks is one we already wrote down: A BRANCH WITH NO REMOTE IS INVISIBLE WORK. Third instance today, after the doctor probe and the personal-use terms. All three were written, all three were true, none could reach anybody. Exactly like has_ever_paid living in the daemon and not the shipped gate. CONSEQUENCE FOR TODAY: the fixes in flight are defect fixes and mostly fall inside the freeze''s own clauses, but several carry a new test or a gate correction, which the text forbids outright. Andy''s live instruction this session is to fix everything before the cut, which is a human instruction postdating the file. I am continuing to BUILD and RAISE, and flagging this rather than quietly picking which of the two to obey. ANDY: say lift or say hold, and if lift, it needs to go into the canonical file this time.'
+
+  - issue: 1018
+    title: "ANOTHER SESSION IS MUTATING THE SHARED CHECKOUTS, and it has now cost work twice in one day"
+    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate, and noted: and it is a working-practice defect rather than a product one. TWICE TODAY: (1) my manifest commit swept 9 files belonging to PR #1974 into a pushed branch, reverted after checking all nine were touched by exactly one commit; (2) my PRODUCTISATION_CHECKLIST commit was pushed to a branch that another session then OVERWROTE with an unrelated ledger commit, so the work existed only in my working tree and PR #951 no longer contained the file its title described. MEASURED: PR #951 head carried SHIPPING_LEDGER.yaml, not PRODUCTISATION_CHECKLIST.md, and the price fix was 0 on that branch against 2 in my tree. FIX ADOPTED: every change now goes through its own git worktree with a session-prefixed branch name, which is what the five parallel agents were already instructed to do and what I was not doing myself.'
+
+  - issue: 1019
+    title: "PRODUCTISATION_CHECKLIST.md was UNEDITABLE BY ANYONE, and its own placeholder advice fails our own scanner"
+    gate: 'FIXED, HR015 #954. The PII hook refused every commit touching the file, on content ALREADY ON MAIN: my added lines matched 0 of the three patterns, 5 pre-existing lines matched. Since .pii-patterns is ADDITIVE ONLY by contract and cannot allowlist, the file was frozen: the pre-existing matches could never be fixed either, because fixing them required a commit the hook would block. THREE REAL FINDINGS UNDERNEATH. (1) The no-hardcoded-paths checklist item illustrated itself with REAL-LOOKING HOME DIRECTORIES. (2) The checklist RECOMMENDED A PLACEHOLDER PHONE NUMBER THAT OUR OWN SCANNER REJECTS, so it was telling every agent to write a value the gate would then block; now standards-reserved with the reason written down. (3) A literal support address is what made the file uneditable; replaced with the role rather than the literal, which is the hook''s own first recommendation. NET: 0 non-reserved email literals, 0 non-placeholder home paths, 0 non-reserved phone literals. CONTROL: the 2 documentation-reserved addresses are still present, so the replacement was selective and not a blanket strip. NOTE FOR LATER: the hook scans the WHOLE FILE rather than the diff, which is what makes a file with pre-existing matches permanently unmaintainable. That is worth fixing and is not fixed here.'
+
+  - issue: 1020
+    title: "Three CI gates each caught something real in my own work within minutes, and all three were right"
+    gate: 'FIXED, across #1977 #1979 #1980. (1) ci-maskless: both new test steps ran only on success, so an earlier red in the same job would have SKIPPED them silently. A guard against answers that are never recorded must not itself quietly stop being recorded. Both are if: always() now. (2) store-credential-survives-the-promote: the re-arm comment in install.sh cites fifteen lines of itself BY NUMBER, and my two insertions moved TWELVE of them. Its own header says why that matters: a comment citing a line that has moved is worse than one citing nothing, because a reader checks it once, finds something plausible, and stops. The twelve were NOT GUESSED: each was resolved by taking the line content at the old number from origin/main and locating that same content in the current file nearest its old position, in a SINGLE-PASS rewrite so no replacement could be applied twice. Twelve resolved, zero unresolved, gate now 16 pass 0 fail including its own control that a non-matching line is rejected. (3) pii-name-guard blocked the wiki branch on a two-word capitalised button label in customer copy (the label is not repeated here ON PURPOSE: writing it down reproduces the finding, which is how this row itself first went red): no person is named, but two capitalised words in a row is exactly the shape a real name has and the guard cannot tell without being told. Its instruction is not to widen the cast, so the COPY changed, to ''Open it from the sidebar'', which reads better anyway. origin/main was measured CLEAN first (0 PAIR findings, guard printed its own CONTROL line confirming every arm fired), so it was introduced there and not inherited. The JSON was re-parsed after the edit, because editing one string in a data file is a code change.'
+
+  - issue: 1021
+    title: "Half of the Hub API fix was ALREADY ON MAIN, and the two halves disagreed about the measurement"
+    gate: 'RESOLVED, #1974 rebased and no longer conflicting. The PR would not merge; the single conflict was in ical-server.py and turned out to be a COMMENT, because the structural half of the fix (ThreadingHTTPServer, so one slow handler cannot take the whole API down) HAD ALREADY LANDED ON MAIN. CONTROL: 3 occurrences of ThreadingHTTPServer on origin/main against 0 twenty commits earlier. The two versions of the same comment cite DIFFERENT NUMBERS for the same measurement on the same box, 126s on main and 121s on the branch, both stated as measured. Resolved to main''s already-landed wording rather than silently picking the newer number, and the discrepancy is recorded here rather than buried in a merge. What #1974 still carries is the half that is NOT on main and is the actual performance fix: batch_resolver.py no longer computes a full pure-Python edit distance for all 6.5 million pairs. Its test could not run locally, ModuleNotFoundError rapidfuzz, which is CANNOT-RUN in my environment and not a failure of the code; CI installs it.'
+
+  - issue: 1022
+    title: "The subscription spine is fixed, and the agent REFUSED the backfill that would have faked it"
+    gate: 'FIX BUILT, PR #1978, 84 pass 0 fail, auto-merge armed. THE JUDGEMENT CALL IS THE IMPORTANT PART. The Rust daemon backfills has_ever_paid from status == Active, which is sound THERE because a fresh Rust install defaults to Grace. install.sh writes status=active for the FREE month, so copying that logic would have set the paid bit for EVERY TRIALIST ON DAY ZERO: every row the same value, the rule reading as implemented while changing nothing, and no data able to disprove it. That is the zero-denominator trap, and it was refused rather than copied, with a test asserting it and a mutation proving the test catches it. THE FIX: is_active_or_grace() walks the state forward IN-PROCESS on every call, so the answer is right even if no scheduler ever loads, plus an hourly ticker inside the already-KeepAlive ical-server for the Doctor banner. NO NEW PLIST, so no new install-path failure mode. has_ever_paid is set only by a receipt from the iOS app, so a failed card produces no transaction, no receipt, no bit, which is Andy''s rule exactly. RULE 0.8 went 1 of 11 surfaces to 6, via ONE canonical module resolved from the directory install.sh stages it to, not five copies of a 300-line state machine. THE THREE CUSTOMERS: never-paid trialist at day 31 STOPS with no grace, and at day 29 keeps it; paid-once-then-lapsed keeps 14 days of grace, backfilled from their receipt so upgrading cannot cost them grace and re-running the installer cannot demote them; currently-paying with the network down keeps everything. In every case data ALREADY INGESTED stays fully readable and only new capture pauses. SEVEN MUTATIONS each watched going red and restored. CANNOT-RUN declared honestly: ical-server.py will not import on that host, so the ticker wiring is asserted from the AST rather than exercised, and the agent says plainly that nothing here is PROVEN, MERGED is the ceiling.'
+
+  - issue: 1023
+    title: "A cancelled customer kept Pro forever simply by OPENING THE APP, and a lapsed payer had unbounded grace"
+    gate: 'FIXED in #1978, and neither was on the board: both were found by tracing the round trip rather than by looking for them. (1) The 30-day offline fail-open fired on ANY recent validation, and the iOS app re-pushes on every foreground, so last_validated_at kept advancing forever. A customer who had cancelled kept Pro indefinitely by opening the app. It now requires SILENCE rather than an answer: if we heard from Apple AFTER the expiry and were told it had expired, that is a fact and not a network problem. (2) refresh_from_companion writes grace_period_end=None, so at the moment grace was needed there was no grace date on file at all; it is now derived from expires_at.'
+
+  - issue: 1024
+    title: "TWO EXISTING TESTS WERE ASSERTING THE DEFECT, and one of them will pass forever"
+    gate: 'CORRECTED in #1978, not deleted, with the reason written in. One test hard-coded a 2026-05-27 install and asserted that customer still had Pro. By today that trial was 112 DAYS DEAD and the test still passed, because the code it guards never expires anything. A test that encodes the bug is worse than no test: it converts the defect into a requirement, and the next person to fix the product breaks the suite and assumes they are wrong. FIVE SURFACES REMAIN UNGATED and are recorded as a RATCHET INSIDE THE TEST rather than a comment, so CI re-checks them every run and gating one turns the suite red until its line is deleted: cm048_pipeline/src/processor.py:64, cm048_pipeline/src/reminders_push.py:478, ostler_fda/extract_all.py:106, imessage_bridge/bin/bridge.py:258, cm041/meeting_syncer/brief.py:411. Two more, daily briefs and local AI chat, CANNOT be gated from this repo at all: 0 Cargo.toml and 0 .rs files here against a control of 515 .py, because they live in the prebuilt daemon.'
+
+  - issue: 1025
+    title: "tests/test_vendor_only_survives_sync.sh fails identically on origin/main, bash 3.2 parse error at its own line 135"
+    gate: 'FIXED, PR #1985, with three controls and a mutation. CORRECTED DIAGNOSIS: it is NOT a parse error at parse time. bash -n PASSES the file under both 3.2 and 5.x, because a command substitution body is parsed LAZILY when evaluated. It dies at RUNTIME at its own line 130 under /bin/bash 3.2.57, the shell on every macOS box we ship to and the shell the cut host uses. MEASURED IN PLACE, same directory and shell: 81 assertions reached and rc=1 before, 93 and rc=0 after. TWELVE ASSERTIONS HAD NEVER RUN, and every assertion above the failure printed PASS, so the output read like a suite doing its job. IT IS WIRED TO cut.yml AND NOTHING ELSE, so the only moment it runs is during a cut, which is the moment two version numbers have already been burned. CAUSE: bash 3.2 takes the closing paren of a case PATTERN as the one closing the enclosing substitution; the POSIX leading-paren form removes the ambiguity. MY FIRST ATTEMPT AT THE GUARD WAS A GREP AND IT ACCUSED TWO INNOCENT FILES, because tracking substitution nesting across quotes, comments and case patterns is the same problem the shell gets wrong here. Both accusations were caught only because the accused files RAN CLEANLY, which is the check that actually answers the question, so that became the check. A gate that cries wolf is worse than no gate. The new guard runs on PRs rather than only at cut time.'
+
+  - issue: 1026
+    title: "EVERY IMPORTED CALENDAR EVENT WAS BURIED AT L3 ON EVERY INSTALL EVER"
+    gate: 'FIX BUILT, PR #1981, 152 checks pass 0 fail, auto-merge armed, ledger row written at HR015 #953. Nothing wrote calendars.json: 3 references and ALL THREE inside the reader (CONTROL: whatsapp_pair.json resolves to 5 files). So the provenance loader returned empty on every install and L3 was PERMANENT rather than provisional. PROBED DIRECTLY rather than inferred: 2 of 2 real Takeout calendar shapes stamped L3 and withheld from wiki, search and brief. Ingested, then invisible. BOTH LIMBS fixed because either alone is a no-op: the ingest writes the map from the real install path, and the default now splits on whether onboarding has EVER confirmed anything, so nothing-confirmed gives L1 and confirmed-but-unmatched stays L3. THE TRAP IT NEARLY HIT, now a pinned control: gating on the owner-denotes-operator test would have fired ZERO times, because X-WR-CALNAME on a primary calendar is an email address while the token set holds names.'
+
+  - issue: 1027
+    title: "AI conversations were pinned at L2 in TWO places, and fixing only the Python would have been merged-not-delivered"
+    gate: 'FIXED in #1981. The locked directive says AI conversations default to L3. wire.py set L2, and so did the LaunchAgent plist install.sh renders. THE PLIST WINS AT RUNTIME, so fixing only the Python would have produced a change that merges, passes, and does nothing on a customer''s Mac. A mutant proving exactly that goes RED. Same PR also fixed calendar ingest writing no identifier triples, so people could never merge: resolve-before-create added, with an unreachable store returning a CANNOT-RUN SENTINEL rather than None, a distinction found only by mutation-testing the fix itself. retention_tier confirmed decorative, 11 hits and 0 readers, and NO SWEEPER WAS WIRED ON PURPOSE because a sweeper deletes customer data; the gap is stated at the definition site instead.'
+
+  - issue: 1028
+    title: "THREE PREMISES IN MY OWN BRIEF WERE WRONG, and the agent measured instead of obeying"
+    gate: 'NO FIX NEEDED, RECORDED SO I DO NOT REPEAT IT. I briefed the privacy agent to use cm048_user_graph_uris and graph_scoped_select. THOSE DO NOT EXIST IN THAT TREE: 0 hits, CONTROL resolve_compartment = 7 in 3 files. I had carried them over from the forget-deletion work, where they are real, into a different vendored tree. pwg_ingest uses no GRAPH clause at all, so writes and reads share a graph by construction and my warning was noise. I also said hasIdentifier appears 13 times in pwg_ingest.py: it is 6. And I named a dedupe query at :2429 that is A COMMENT; the real dedupe is contact_syncer/dedup.py:85-97 and is OPTIONAL rather than an inner join, though it indexes only non-empty values so the net effect and the fix are the same. A brief written from memory of a NEIGHBOURING tree is exactly as wrong as a stale comment, and it is worse, because an agent has no reason to doubt it. The agent checked anyway and said so, which is the behaviour to keep.'
+
+  - issue: 1029
+    title: "A new test was SILENTLY GITIGNORED and would have vanished from its own PR"
+    gate: 'FIXED in #1981, and worth its own row because nothing would have reported it. A test named to describe defaulting to private matched .gitignore:22 *_private*, so git add accepted it and it was never staged. The PR would have merged with the fix and WITHOUT the test that proves it, and every CI run would have been green. Also in the same PR: pii-name-guard blocked invented synthetic names, and the correct fix is to rename to the approved cast rather than widen the permit-list, because widening the cast to admit whatever happens to be in the tree is how the cast stops being a cast.'
+
+  - issue: 1030
+    title: "The whatsapp-keepalive probe COULD NEVER PASS: it measured an object it had just built itself"
+    gate: 'COMPLETED AND MEASURED ON BOTH HOSTS, each stating what it did NOT measure. macOS, the LaunchAgent half, all steps pass: an unhealthy channel repaired with exit 2, verdict recovered and EXACTLY ONE restart; a lost session exit 4, verdict needs_customer and ZERO restarts; launchctl refusing the restart exit 5 rather than claiming a repair; an unreachable daemon exit 3 saying CANNOT-RUN; and two arms asserting the NEGATIVE, that no bootout, unload or remove is ever issued and the script contains no deletion of WhatsApp session state, which is the promise that matters to a customer whose phone holds the session. Linux, the tile half: all five verdicts render and an unrecognised verdict renders nothing. EACH RUN NAMES ITS OWN GAP: the macOS run says CANNOT-RUN, could not import the Doctor renderer, and the Linux run says CANNOT-RUN, plutil is absent. Neither wiring is redundant and neither pretends to cover the other. FIX BUILT, PR #1984, 92 pass 0 fail. Broken three independent ways at once. (1) channel doctor runs in its OWN PROCESS, builds a fresh WhatsApp channel object, and asks it health_check(), which delegates to is_ready(), whose entire body reads whether a client is attached to an object THAT HAS NEVER CONNECTED. Upstream''s own test is named is_ready_is_false_before_client_connects. So it reported unhealthy on 100% of runs on every box, and the ''unhealthy 3 of 3'' beside a bundle log showing that day''s messages ingested was never a flaky channel, it was a probe measuring its own freshly-made object. (2) The plist claimed health_check triggers an automatic reconnect as a side effect we want; it is a PURE FIELD READ and reconnects nothing. (3) doctor_channels() returns Ok(()) unconditionally, so the exit code is 0 whatever it finds. THE FIX reads the RUNNING daemon''s health registry over loopback, restarts the LaunchAgent when that says error, re-checks, and exits distinctly for healthy / recovered / CANNOT-RUN / needs-customer / still-unhealthy. RECOVERED IS 2, NOT 0, because a box repairing itself daily is not the same fact as one that never needed it. NOTHING TOUCHES THE CUSTOMER''S SESSION: where the session is genuinely gone it STOPS, says only they can fix it, and says Ostler has stopped retrying. Repairs capped at one per rolling 24h. Nine mutations, each reddening only its matching assertion.'
+
+  - issue: 1031
+    title: "Two more found under the keepalive: an upgrade silently reverted the new env keys, and the plist was not well-formed XML"
+    gate: 'FIXED in #1984. (1) _upg_preserve_plist_env would have carried forward the OLD plist environment over the new keys, silently reverting them on every upgrade; it already excludes PATH for exactly this reason and the four new keys sit in the same position. One of them pins a gateway port THAT HAS ALREADY MOVED ONCE. (2) The plist was NOT WELL-FORMED XML, a double hyphen inside a comment. plutil -lint said OK and strict parsers refused, so the local instrument was the wrong one and CI caught what it could not. UPSTREAM DEFECTS REMAIN AND ARE NOT OURS TO FIX HERE: channel doctor still exits 0, and handle_api_channels looks up WhatsApp while the registry writes channel:WhatsApp, so the Channels tab of the Doctor page can never show that channel healthy (phrased to keep two capitalised words apart, because the person-name guard reads that shape as a name and this write-up has now tripped it twice). Both need PRs in the assistant repo.'
+
+  - issue: 1032
+    title: "THE LICENCE-PERMISSIONS TEST PASSED ON THE DEFECT, because its destination file did not exist"
+    gate: 'FIXED, PR #1983, 141 pass 0 fail, auto-merge armed. FileManager.replaceItem carries the DESTINATION''S mode onto the replacement. Measured with a standalone Swift program mirroring the real write: destination ABSENT plus temp 0600 gives 600; destination 0644 plus temp 0600 gives 644; rename(2) with the same inputs gives 600. THE FIRST ROW IS WHY testWriteSetsFileMode0600 PASSED FOR THE LIFE OF THE FILE: its fixture had no destination, which is the one case where the bug cannot show. So a customer''s licence file, carrying their email and payment identity, stayed world-readable while a green test vouched for 0600. Fixed with rename(2) plus a mode read-back that THROWS, a repair limb so an older GUI''s 0644 file is corrected on the next install, and the chmod added to the copy instructions. ABSENCE CONTROL: chmod against the licence path 0 hits, chmod 600 elsewhere 20. THE CLEAREST RESULT IS THE MUTATION: with replaceItem restored, the new test FAILED while the old one PASSED. Third instance today of a test that encodes the bug, after the two in #1978.'
+
+  - issue: 1033
+    title: "Preserving the licence on uninstall would have aborted EVERY WIPE WALK, and the agent moved the predicate in the same change"
+    gate: 'FIXED in #1983. Andy ruled on 2026-09-10 that uninstalling must keep the licence file. Doing that alone would have left a file behind that ttywalk''s residue predicate treats as a failed wipe, so every wipe walk would have stopped at CANNOT-RUN, and the next person would have read it as the uninstaller being broken. The predicate was moved in the SAME change rather than left for whoever hit it. This is the shape I keep asking for and rarely get: the fix carried its own blast radius. The printed uninstall contract now names the licence in the will-NOT-remove half, with the command to remove it if the customer wants to.'
+
+  - issue: 1034
+    title: "The encryption could not be implemented from this repo at all, so the agent made the text TRUE and filed the work"
+    gate: 'CORRECT CALL, recorded because the reasoning is the valuable part. The enc2 key is derived INSIDE THE DAEMON (crates/zeroclaw-config/src/secrets.rs, a different repo) with no subcommand exposing it, so NO install.sh change could encrypt anything. Implementing was not an option that existed. The preamble the customer reads now states that the password stays plain text, names the real protection (0600), and names the one mitigation they can act on (an app-specific password). The implementation is issue #1976 with file and line, cited from BOTH install.sh sites so the next reader lands on it. Also in the same PR: a real E.164 validator and normalisation at all three consumers, handling the UK and German bracketed trunk zero while preserving a bracketed area code, which a plain bracket strip gets backwards; and the calendar scan at depth 6 with no file cap, still bounded by -xdev and prunes, measured 1 of 6 calendars found before and 6 of 6 after.'
+
+  - issue: 1035
+    title: "BSD chmod has no -- , so the agent''s own first fix would have warned EVERY customer on EVERY successful install"
+    gate: 'CAUGHT BY ITS OWN TEST, recorded as a near miss. chmod 600 -- file sets the mode AND EXITS 1 on BSD. The repair limb read that non-zero as failure and would have printed a security warning to every customer on every successful install, on a box where nothing was wrong. It was found because the test ran the real limb rather than grepping install.sh for it. Three other gates went red on that PR''s first push and all three were fixed at the correct end: a person-name guard reading a two-word capitalised phrase as a name, fourteen stale line-number citations shifted by the new lines, and a test that grepped for the OLD IMPLEMENTATION of a check and so failed when the property got STRONGER, which is a test asserting a mechanism rather than a behaviour. FOUR further sweep failures were proven NOT MINE by running the same 46-test list in the same container against the merge base: identical four fail there.'
+
+  - issue: 1036
+    title: "`if ! cmd; then rc=$?` captures the status of the NEGATION, so a truthful CANNOT-RUN rendered as a failure"
+    gate: 'FIXED in #1984, found by CI, and the defect was in the TEST and of the exact class the PR is about. The macOS runner has no httpx, so the Doctor renderer could not be imported there. The test DETECTED that correctly and printed CANNOT-RUN, then failed anyway: by the time rc=$? runs after `if ! cmd; then`, $? is the status of the SUCCESSFUL NEGATION, which is 0. The CANNOT-RUN code was never seen, the else branch always fired, and an honest could-not-measure was rendered as a failed assertion. Twenty arms passed and the job went red on the one arm that had told the truth. Reproduced locally in BOTH directions rather than only the convenient one: with httpx made to raise, the file exits 0 with CANNOT-RUN, and a genuinely broken renderer still exits 1. SAME FAMILY as the rule already written down that the last command in a chain owns the exit code.'
+
+  - issue: 1037
+    title: "An arm that reports CANNOT-RUN on EVERY run is an arm that never runs, which is a zero-denominator pass"
+    gate: 'FIXED in #1984. Having made the CANNOT-RUN honest, the agent then refused to leave it permanent, which is the right instinct: a check that can only ever say could-not-measure is indistinguishable from a check that was deleted, and it accumulates green runs while measuring nothing. The tile half needs the Doctor''s runtime dependencies; the macOS runner does not have them and SHOULD NOT need them, because its subject is a LaunchAgent. So the file is now ALSO wired into vendor-integrity.yml immediately after the step that installs the Doctor requirements, which is exactly where the repo already puts the Doctor render test, and that test''s comment says why. NEITHER WIRING IS REDUNDANT: the macOS one cannot test the tile, and this one cannot test the LaunchAgent surface. Verified against a venv carrying those requirements: all five verdicts render.'
+
+  - issue: 1038
+    title: "CLAUDE.md sends every agent to an OS003 checkout that is 35 COMMITS BEHIND, as canonical release truth"
+    gate: 'NEEDS A DECISION, not mine to take alone. HR015 CLAUDE.md:568 says, in bold, to read ~/Documents/Projects/OS003 - Ostler Release before answering ANY question about what ships, and calls it the canonical cut mechanism, cut register and release truth. MEASURED: that checkout is 35 commits behind origin/main and holds 53 cut directories against 69 in the current one, confirmed by merge-base, so its HEAD is a strict ancestor and not a divergence. EVERY CUT FROM v1.0.82 ONWARD IS INVISIBLE to an agent that obeys the instruction, including all four this month. An agent asked whether a fix is in the cut would read a register missing the last sixteen. THIS IS THE FILE-READ-FIRST RULE BROKEN BY THE FILE THAT STATES IT: CLAUDE.md says a file that is read first must not carry facts that move, and then points at a working copy that moves. WHY I DID NOT JUST FIX IT: the obvious repair is to refresh that checkout rather than repoint the rule, which is non-destructive and makes the instruction true without editing something Andy set on 2026-08-08. But that directory is iCloud-backed and git status does not complete on it within two minutes, and CLAUDE.md''s own warning is that an evicted repo reads as corruption. I am not mutating a repo I cannot measure. ANDY OR ARCHIE: either refresh that checkout, or repoint the rule at ~/Developer/OS003-Ostler-Release, which is at origin/main with 0 commits behind and is the one the working instructions already name. MEASURED SINCE, AND IT IS WORSE THAN STALENESS: that checkout holds 1,608 DATALESS (iCloud-evicted) FILES. CLAUDE.md''s own warning is that grep reads nothing from an evicted file and returns a FALSE ZERO that looks exactly like absence, so an agent obeying line 568 would not merely read a 35-commit-old register, it would read one where 1,608 files answer every question with silence. It has 0 local commits not on the remote, so nothing would be lost by repointing, and 2 untracked docs that exist ONLY there (docs/AGENT_INSTRUCTION_LAYERS.md and a defib note) which must be preserved or deliberately discarded rather than swept away. RECOMMENDATION: repoint the rule at ~/Developer/OS003-Ostler-Release, which is at origin/main, 0 behind, 69 cuts and not evicted, rather than rehydrating 1,608 files to keep a second copy alive. That is a one-line edit to a rule Andy set, so it is his call. NOTE FOR THE CUT: cuts/v1.0.99 does not exist in EITHER checkout yet, so the BOM for this cut is still to be created.'
+
+  - issue: 1039
+    title: "AN EXISTING GATE WAS GREEN ON THE SHIPPED RECOVERY-KEY DEFECT, and a behaviour test would have been too"
+    gate: 'FIXED in #1982, and this row is the lesson rather than the fix. The cold-box-truth probe asked whether the recovery-key sheet sat inside the finished == .ok branch. IT WAS OUTSIDE, so the probe passed, AND IT WAS STILL UNREACHABLE, because the HOST VIEW was conditional rather than just the branch. Run against the pre-fix tree the old probe returns outside and PASSES. It is a gate that was green on the very defect it was written for. SECOND HALF, and it is worse: the predicate guarding the sheet, key-non-empty AND not-acknowledged, WAS CORRECT BEFORE AND AFTER. Only the ATTACHMENT POINT was wrong. A behaviour test would have passed on the shipped tree, WHICH IS HOW THIS SHIPPED. So the attachment is now pinned STRUCTURALLY, because that is the thing that can go wrong, and the rewritten probe ships with a control that must return hint. THE GENERAL FORM: when the logic is right and the wiring is wrong, a test of the logic is green forever.'
+
+  - issue: 1040
+    title: "The log redactor ate every timestamp AND leaked the loopback address"
+    gate: 'FIXED in #1982. The IPv6 pattern claimed MAC addresses and timestamps did not match it; both carry more than one colon, so the anchor never applied to either and every support-log line lost its timing. The same regex ALSO FAILED TO MASK ::1, because it required a leading hex group, so it removed the data we need and left the one value it was meant to hide. Masking is now verified against five IPv6 forms. One defect, both directions at once.'
+
+  - issue: 1041
+    title: "A workflow that WATCHES a test was credited with running it, so the register could name a workflow that starts nothing"
+    gate: 'FIXED, PR #1985. verify_test_wiring built its starter text from the WHOLE workflow file, so a filename in on.pull_request.paths scored as started-by. I hit it by adding a test to a paths filter so a change to it could not go unrun; the register then credited the WATCHER, and the workflow with the actual invocation lost on nothing but dict order. This register has exactly one job, to answer what runs this test, and a wrong answer is worse than none: delete the named workflow and the test still reads WIRED while running nowhere. Fix drops only the on: block, so a reference in env, jobs or steps still counts, because the question is which workflow can START it and a trigger cannot. MEASURED: the row moves to the workflow whose invocation is at cut.yml:627, exactly 2 register lines change, and the CONTROLS hold, WIRED stays 653 and UNWIRED stays 2, so nothing became newly unwired and nothing was quietly promoted.'
+
+  - issue: 1042
+    title: "The v1.0.99 BOM did not exist, so nothing could be recorded against this cut at all"
+    gate: 'FIXED, OS003 PR #296. bin/bom_add.sh exits 2 with ''no BOM for cut'' when cuts/<version>/MUST_CONTAIN.tsv is absent, and that file existed for v1.0.99 in NEITHER OS003 checkout. Four rows, and only four: the work actually merged to CM051 main, each carrying the SHA of the squash commit on main rather than a branch tip, because a branch tip is not what ships. The ten open PRs are DELIBERATELY NOT LISTED, because a row for unmerged work asserts a pin that does not exist, which is what the sha gate refuses. landed=no on every row is correct and not an oversight: no artefact for v1.0.99 exists. Verified against the gate, with a control row carrying a fabricated sha caught and named.'
+
+  - issue: 1043
+    title: "THE MERGE LANE SELF-BLOCKS UNDER ITS OWN LOAD: the required-gate aggregate times out waiting for checks the backlog never starts"
+    gate: 'GATE: NONE YET, and it is an operational decision rather than a code defect. MEASURED on #1983: the CI Required Gate polled 122 times over 2,703 seconds, saw 130 of 132 checks complete, and REFUSED with CANNOT-RUN because 2 never started. Its own message is right and is the doctrine this repo runs on: ''Nothing was safely established, so this is NOT a pass. A vacuous green is the exact defect this check exists to refuse.'' SIX OF THE SEVEN CURRENT FAILURES ACROSS ALL OPEN PRs ARE THIS, not a defect in any of them. CORRECTED WITHIN THE HOUR, AND THE CAUSE IS MINE. I first wrote that thirteen PRs were starving each other. MEASURED INSTEAD OF ASSUMED: of 35 runs queued or in progress across the whole repo, ALL 27 attributable by branch belong to ONE branch, and it is mine, the manifest branch. I have pushed that branch about fifteen times today, once per finding, and each push triggers a full run of roughly 140 checks. GitHub cancels superseded runs, so nothing is stale now (16 remaining, all on the current tip, 0 superseded), but the churn consumed shared macOS runner time all day, and that is why OTHER PRs'' aggregates timed out waiting for two checks that never started. THE LANE WAS NOT STARVING ITSELF STRUCTURALLY. I WAS THE LOAD. BEHAVIOUR CHANGED: manifest findings are batched into one push rather than one push per finding, and branches are not updated speculatively, because each update is another full run. The structural point survives in weaker form and is still worth someone''s decision: about 140 checks per PR on shared runners leaves very little headroom, so the aggregate''s timeout is the first thing to break under any load at all. It is not wrong for the gate to refuse; it is wrong that the only way out is to reduce concurrency by hand. REMEDY IS A JUDGEMENT CALL, NOT MINE ALONE: raise the aggregate timeout, or serialise the lane, or reduce the check count per PR. Recorded so the next person does not read six identical reds as six defects. The seventh, #1989 on cut-checklist-complete, is a genuine dependency: issue 1976 is registered only on #1975''s manifest, so every branch cut from main fails that gate until #1975 lands. #1975 IS THE KEYSTONE.'
