@@ -1665,6 +1665,13 @@ final class InstallerCoordinator: ObservableObject {
         case .recoveryKey: key = "recoveryKey"
         case .rawLine:     key = "rawLine"
         case .unknown:     key = "unknown"
+        // GAP1/GAP2: uninstaller-only events. The installer never receives
+        // these (it never runs the uninstaller); they live on the shared
+        // InstallerEvent so Uninstaller.app can decode them. Counted under one
+        // key rather than special-cased, and this switch stays exhaustive so a
+        // future event is a compile error, not a silent miss.
+        case .uninstallConsent, .uninstallPhase, .uninstallColima, .uninstallDone:
+            key = "uninstall"
         }
         eventCounts[key, default: 0] += 1
 
@@ -1898,6 +1905,11 @@ final class InstallerCoordinator: ObservableObject {
         case .unknown(let raw):
             appendLog(level: "warn", msg: "Unrecognised marker: \(raw)")
             OstlerLog.subprocess.warning("event UNKNOWN raw=\(raw, privacy: .public)")
+        case .uninstallConsent, .uninstallPhase, .uninstallColima, .uninstallDone:
+            // Uninstaller-only events. The installer never runs the
+            // uninstaller, so these never arrive here; handled to keep the
+            // switch exhaustive. Uninstaller.app decodes and renders them.
+            break
         }
     }
 

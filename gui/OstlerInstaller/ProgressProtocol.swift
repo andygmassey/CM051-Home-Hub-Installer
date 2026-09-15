@@ -100,6 +100,30 @@ enum InstallerEvent: Equatable {
     /// shown, which drowned the LOG markers in tool chatter.
     case rawLine(msg: String)
     case unknown(raw: String)
+
+    // ── Uninstaller vocabulary (#1568 + GAP1/GAP2) ─────────────────────────
+    // The generated ~/.ostler/bin/ostler-uninstall speaks the SAME #OSTLER
+    // wire format under OSTLER_GUI=1, with its own event names. Uninstaller.app
+    // runs it and drives its screens off these. Kept as distinct cases (not
+    // folded into `phase`/`done`) so the installer's own step switches are
+    // untouched and the uninstaller's fields decode with their real meaning.
+    //
+    // UNINSTALL_CONSENT value=<granted|declined|unavailable> source=<flag|prompt|eof>
+    case uninstallConsent(value: String, source: String)
+    /// UNINSTALL_PHASE name=<launchagents|remotecapture|hub_app|safari_extension|
+    /// colima|knowledge_staging|user_content> [outcome=… for knowledge_staging].
+    /// Extra k=v pairs ride in `metadata` so a new phase field never needs a
+    /// parser change.
+    case uninstallPhase(name: String, metadata: [String: String])
+    /// UNINSTALL_COLIMA result=<absent|kept|removed|delete_failed|skipped_no_binary>.
+    /// The shared colima `default` VM is never deleted without explicit consent;
+    /// this reports what actually happened to it.
+    case uninstallColima(result: String)
+    /// UNINSTALL_DONE — the terminal summary. `storesRemoved` false means the
+    /// customer's data volumes are STILL on disk (a privacy-relevant fact the
+    /// done screen must not gloss). `knowledgeStaging` is
+    /// preserved|purged|absent|preserve_failed; `colima` mirrors uninstallColima.
+    case uninstallDone(storesRemoved: Bool, content: String, knowledgeStaging: String, colima: String)
 }
 
 enum PromptKind: String, Equatable {
@@ -328,6 +352,30 @@ struct ProgressDecoder {
             // the GUI as a sheet with Copy / Save PDF / Print
             // controls.
             return .recoveryKey(value: kv["value"] ?? "")
+        case "UNINSTALL_CONSENT":
+            return .uninstallConsent(
+                value: kv["value"] ?? "",
+                source: kv["source"] ?? ""
+            )
+        case "UNINSTALL_PHASE":
+            // `name=` is the phase id; any remaining pairs (e.g.
+            // `outcome=preserved` on the knowledge_staging phase) ride in
+            // metadata so a new field never needs a parser change.
+            var metadata = kv
+            let name = metadata.removeValue(forKey: "name") ?? "?"
+            return .uninstallPhase(name: name, metadata: metadata)
+        case "UNINSTALL_COLIMA":
+            return .uninstallColima(result: kv["result"] ?? "")
+        case "UNINSTALL_DONE":
+            // `stores_removed` is 1/0 from the shell; anything but "1" is
+            // treated as NOT removed, which is the safe reading for a
+            // privacy claim (do not assert removal we did not measure).
+            return .uninstallDone(
+                storesRemoved: kv["stores_removed"] == "1",
+                content: kv["content"] ?? "",
+                knowledgeStaging: kv["knowledge_staging"] ?? "",
+                colima: kv["colima"] ?? ""
+            )
         default:
             return .unknown(raw: raw)
         }
