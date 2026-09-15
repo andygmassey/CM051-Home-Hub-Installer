@@ -610,6 +610,30 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
             # edited it, and if they had, silently keeping their value is how the
             # fix got lost in the first place.
             [[ "$_k" == "PATH" ]] && continue
+            # ── THE SAME DEFECT, ONE VARIABLE ALONG ───────────────────────
+            #
+            # PATH was not special. It was the first product-owned key anyone
+            # noticed being reverted. Every key the TEMPLATE states outright,
+            # rather than holds as a placeholder for something captured from
+            # the customer, is in the same position: the template is the only
+            # thing that knows what this version needs, and carrying the old
+            # value forward silently un-ships the fix.
+            #
+            # These four arrived with the whatsapp-keepalive runner and are all
+            # product-owned. OSTLER_GATEWAY_URL is the sharpest: it is pinned
+            # to the daemon's [gateway] port (CX-59), so if that pin ever moves
+            # again, every upgrading customer would keep probing the old port
+            # and the keepalive would report the channel unmeasurable forever.
+            # That is precisely the shape recorded above for PATH, and the only
+            # reason it is being pre-empted rather than discovered is that the
+            # PATH comment was read before the keys were added.
+            #
+            # Guarded by tests/test_upgrade_does_not_revert_the_launchagent_path.sh,
+            # which mutation-tests this block separately from the PATH line.
+            case "$_k" in
+                OSTLER_DIR|OSTLER_GATEWAY_URL|OSTLER_ASSISTANT_LABEL|PYTHONDONTWRITEBYTECODE)
+                    continue ;;
+            esac
             _v="$("$_UPG_PB" -c "Print :EnvironmentVariables:${_k}" "$_old" 2>/dev/null)" || continue
             if "$_UPG_PB" -c "Print :EnvironmentVariables:${_k}" "$_new" >/dev/null 2>&1; then
                 "$_UPG_PB" -c "Set :EnvironmentVariables:${_k} ${_v}" "$_new" >/dev/null 2>&1

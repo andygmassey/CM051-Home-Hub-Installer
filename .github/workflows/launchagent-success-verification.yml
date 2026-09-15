@@ -221,7 +221,23 @@ jobs:
       # by the merge having stopped working altogether.
       - name: An upgrade must not revert the LaunchAgent PATH fix
         if: always()
-        run: /bin/bash tests/test_upgrade_does_not_revert_the_launchagent_path.sh
+        run: |
+          # `|| rc=$?`, NOT a bare call, for the reason recorded on the refusal
+          # step above: the step shell is `/bin/bash -e {0}`, so a test exiting
+          # 2 kills the step at that line and the branch below never runs.
+          #
+          # rc=2 here is CANNOT-RUN, and it means one of this file's MUTATIONS
+          # removed the wrong number of lines -- the exclusion it was about to
+          # test has moved or gone. That is a different finding from a failed
+          # assertion and must not read as one: a mutation that cannot be
+          # applied looks exactly like one that was not caught.
+          set -uo pipefail
+          rc=0
+          /bin/bash tests/test_upgrade_does_not_revert_the_launchagent_path.sh || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::A mutation in the upgrade env-merge test could not be applied, so the exclusion it guards was NOT measured. This is not a pass and not an assertion failure."
+          fi
+          exit "$rc"
 
       # `if: always()` because the step ABOVE this one is new (#1466) and a
       # failure there would otherwise skip this, which is exactly what
