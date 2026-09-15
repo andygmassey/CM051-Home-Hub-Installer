@@ -132,6 +132,17 @@ DMG_PATH      := $(DIST_DIR)/$(DMG_NAME)
 APP_PATH      := $(DIST_DIR)/$(APP_NAME).app
 DEBUG_APP     := $(DERIVED_DATA)/Build/Products/Debug/$(APP_NAME).app
 
+# The standalone Recover Ostler.app. Built by `build-recovery` and nested into
+# OstlerInstaller.app/Contents/Resources by the installer's bundle phase
+# (gui/project.yml), which reads RECOVERY_APP_PATH as a build setting exactly
+# as it reads OSTLER_APP_PATH / UNINSTALLER_APP_PATH. It then rides the
+# existing sign / notarise-app / staple-apps chain -- no separate notarise
+# step. Exported here so a plain `make build-recovery` also resolves it.
+RECOVERY_SCHEME   := Recover Ostler
+RECOVERY_APP_PATH ?= $(DIST_DIR)/Recover Ostler.app
+RECOVERY_ARCHIVE  := $(BUILD_DIR)/Recover Ostler.xcarchive
+export RECOVERY_APP_PATH
+
 # ---------------------------------------------------------------------------
 # CX-19 (launch blocker, 2026-05-23): python-build-standalone bundling.
 #
@@ -1388,6 +1399,7 @@ release: guard-local-cut check-tools check-identity check-version check-pbxproj-
 	    CODE_SIGN_STYLE=Manual \
 	    CODE_SIGN_IDENTITY="$(CODESIGN_ID)" \
 	    OSTLER_APP_PATH="$(OSTLER_APP_PATH)" \
+	    RECOVERY_APP_PATH="$(RECOVERY_APP_PATH)" \
 	    archive
 	$(STEP) "Exporting Developer ID archive → $(DIST_DIR)/"
 	xcodebuild \
@@ -1402,6 +1414,48 @@ release: guard-local-cut check-tools check-identity check-version check-pbxproj-
 	@echo ""
 	@echo "Release .app: $(APP_PATH)"
 	@echo "Version:      $(VERSION)"
+
+# ---------------------------------------------------------------------------
+# Build the standalone Recover Ostler.app (Developer ID signed)
+#
+# Mirrors `release` but for the Recover Ostler scheme. Runs BEFORE `release`
+# in the ship chain so RECOVERY_APP_PATH exists when the installer's bundle
+# phase copies it into Contents/Resources. From there it is sealed by
+# sign-python-bundle's outer reseal, its CDHash is registered by
+# notarise-app's whole-installer submission, and staple-apps' nested-.app
+# walk staples it -- so it needs no separate notarise/staple step of its own.
+#
+# Exports into $(DIST_DIR) alongside the installer; the app names differ so
+# they do not collide, and `release` only removes its OWN archive + app,
+# leaving this one in place.
+# ---------------------------------------------------------------------------
+build-recovery: guard-local-cut check-tools check-identity check-pbxproj-sync
+	$(STEP) "Recover Ostler archive → $(RECOVERY_ARCHIVE)"
+	rm -rf "$(RECOVERY_ARCHIVE)" "$(RECOVERY_APP_PATH)"
+	mkdir -p "$(DIST_DIR)"
+	/usr/bin/xattr -cr "Recovery" "OstlerInstaller.xcodeproj" || true
+	xcodebuild \
+	    -project $(PROJECT) \
+	    -scheme "$(RECOVERY_SCHEME)" \
+	    -configuration Release \
+	    -archivePath "$(RECOVERY_ARCHIVE)" \
+	    -derivedDataPath $(DERIVED_DATA) \
+	    DEVELOPMENT_TEAM=$(TEAM_ID) \
+	    CODE_SIGN_STYLE=Manual \
+	    CODE_SIGN_IDENTITY="$(CODESIGN_ID)" \
+	    archive
+	$(STEP) "Exporting Developer ID Recover Ostler archive → $(DIST_DIR)/"
+	xcodebuild \
+	    -exportArchive \
+	    -archivePath "$(RECOVERY_ARCHIVE)" \
+	    -exportPath "$(DIST_DIR)" \
+	    -exportOptionsPlist "$(EXPORT_OPTS)"
+	$(STEP) "Stripping xattrs from exported Recover Ostler.app (post-export hygiene)"
+	/usr/bin/xattr -cr "$(RECOVERY_APP_PATH)" || true
+	$(STEP) "Verifying the Recover Ostler.app signature"
+	codesign --verify --deep --strict --verbose=2 "$(RECOVERY_APP_PATH)"
+	@echo ""
+	@echo "Recovery .app: $(RECOVERY_APP_PATH)"
 
 # ---------------------------------------------------------------------------
 # Sparkle embed (Ostler.app only)
@@ -3238,7 +3292,7 @@ verify-appcast:
 # failure at the end destroyed the finished DMG (v1.0.34). It now runs from
 # cut.yml after the artefact is uploaded. See the publish-appcast block above.
 # ---------------------------------------------------------------------------
-ship: guard-local-cut check-ship-version check-orphans check-pr-age download-hub-app check-ostler-app download-safari-extension download-python stage-daemon stage-payload sparkle-embed notarise-hub release seed-installer-app-pyc sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
+ship: guard-local-cut check-ship-version check-orphans check-pr-age download-hub-app check-ostler-app download-safari-extension download-python stage-daemon stage-payload sparkle-embed notarise-hub build-recovery release seed-installer-app-pyc sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"

@@ -301,6 +301,21 @@ targets:
           else
             echo "WARNING: OSTLER_APP_PATH not set or missing; OstlerInstaller will ship without bundled Ostler.app." >&2
           fi
+          # Recover Ostler.app nested inside OstlerInstaller.app/Contents/
+          # Resources so install.sh's SCRIPT_DIR copy finds it at install
+          # time and places it in /Applications, alongside Ostler Uninstaller.app.
+          # Same dynamic-path + `${VAR:-}` capture pattern as OSTLER_APP_PATH
+          # above. gui/Makefile's build-recovery target produces it. Non-fatal
+          # when absent so a Debug build (which does not build it) still
+          # succeeds.
+          RECOVERY_APP_SRC="${RECOVERY_APP_PATH:-}"
+          if [ -n "$RECOVERY_APP_SRC" ] && [ -d "$RECOVERY_APP_SRC" ]; then
+            echo "Bundling Recover Ostler.app from $RECOVERY_APP_SRC into Resources/"
+            cp -R "$RECOVERY_APP_SRC" "${DEST}/Recover Ostler.app"
+            /usr/bin/xattr -cr "${DEST}/Recover Ostler.app" || true
+          else
+            echo "note: RECOVERY_APP_PATH not set or missing; OstlerInstaller will ship without bundled Recover Ostler.app." >&2
+          fi
         # Every file this phase copies MUST appear in BOTH lists. Xcode uses
         # them for incremental-build dependency tracking: a file absent from
         # inputFiles does not dirty the phase when it changes, and one absent
@@ -1263,6 +1278,61 @@ targets:
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/OstlerInstaller.app/Contents/MacOS/OstlerInstaller"
         GENERATE_INFOPLIST_FILE: "YES"
 
+  # ── The standalone Recover Ostler.app ────────────────────────────────
+  # A frightened, non-technical customer's doorway back into their own data
+  # (Andy: "why the fuck are we resorting to command line for a user to do
+  # this?"). Same shape as the "Ostler Uninstaller" target: a SEPARATE
+  # minimal app, not a button inside OstlerInstaller.app, so it works even
+  # when the Ostler services are down. It runs the installed
+  # ~/.ostler/.venv/bin/ostler-unlock with the recovery key on stdin
+  # (never argv, never logged) and never renders the key.
+  #
+  # It reuses the installer's brand theme (OstlerTheme.swift) verbatim so
+  # there is exactly one definition of the Ostler palette and type scale.
+  #
+  # No postBuildScripts: it bundles nothing. It is itself nested into
+  # OstlerInstaller.app/Contents/Resources by that target's bundle phase
+  # (see the Recover Ostler.app cp, gated on RECOVERY_APP_PATH), so it rides
+  # the existing sign / notarise-app / staple-apps machinery.
+  Recover Ostler:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Recovery
+      - path: OstlerInstaller/Theme/OstlerTheme.swift
+    info:
+      path: Recovery/Info.plist
+      properties:
+        CFBundleName: Recover Ostler
+        CFBundleDisplayName: Recover Ostler
+        CFBundleIdentifier: ai.ostler.recovery
+        CFBundleShortVersionString: "1.0.98"
+        CFBundleVersion: "9800"
+        CFBundlePackageType: APPL
+        CFBundleExecutable: $(EXECUTABLE_NAME)
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        NSHighResolutionCapable: true
+        NSPrincipalClass: NSApplication
+        LSApplicationCategoryType: public.app-category.utilities
+    entitlements:
+      path: Recovery/Recovery.entitlements
+      properties:
+        # Not sandboxed: it must spawn ~/.ostler/.venv/bin/ostler-unlock,
+        # a tool outside the app bundle, and this must work even when the
+        # rest of Ostler is down.
+        com.apple.security.app-sandbox: false
+        com.apple.security.cs.allow-unsigned-executable-memory: false
+        com.apple.security.cs.disable-library-validation: true
+        com.apple.security.cs.allow-jit: false
+        com.apple.security.cs.allow-dyld-environment-variables: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.ostler.recovery
+        PRODUCT_NAME: Recover Ostler
+        SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+        ARCHS: "$(ARCHS_STANDARD)"
+
 schemes:
   OstlerInstaller:
     build:
@@ -1275,6 +1345,18 @@ schemes:
       config: Debug
       targets:
         - OstlerInstallerTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+  Recover Ostler:
+    build:
+      targets:
+        Recover Ostler: all
+    run:
+      config: Debug
     profile:
       config: Release
     analyze:
