@@ -8215,6 +8215,29 @@ if [[ "$SKIP_PHASE2" == false ]]; then
 
 EXPORTS_DIR=""
 DETECTED_EXPORTS=()
+# EVERY detected export root, not merely the first. DETECTED_EXPORTS is display
+# text ("Facebook: /path"); this is the machine-readable twin the importer
+# consumes.
+#
+# THE DEFECT THIS EXISTS FOR, measured on an operator archive box 2026-09-16.
+# Seven detector arms each ran EXPORTS_DIR="${EXPORTS_DIR:-...}", and `:-` means
+# FIRST MATCH WINS: once one arm set it, the other six were silent no-ops. So
+# DETECTION ORDER decided the import root for the whole install. That box had
+# three detections across two platforms; the Facebook arm fired first, so a 7.8G
+# Instagram export with 13,785 files was DETECTED, DISPLAYED TO THE CUSTOMER BY
+# NAME, and then never handed to any parser. Not a coverage gap and not a parser
+# gap: data the customer gave us, that we told them we had found, and silently
+# did not read.
+EXPORT_ROOTS=()
+# Denominator bookkeeping. "Found 3 GDPR export(s)" is exactly the shape that hid
+# the above: a count with no denominator reads as success. These let the summary
+# distinguish the two reasons a candidate folder did not match, which are
+# OPPOSITE findings: an empty folder means the customer has no such export, while
+# an unrecognised non-empty folder means our detection may be missing a platform.
+# A bare "2 of 21" cannot tell them apart and the next reader would guess.
+EXPORT_CANDIDATES=0
+EXPORT_SKIPPED_EMPTY=0
+EXPORT_SKIPPED_UNRECOGNISED=0
 # #619 (2026-06-06): folders the scan could not read (TCC or POSIX
 # permission denied). Recorded so a denied folder is surfaced as an
 # actionable message rather than masquerading as an empty one.
@@ -9851,6 +9874,7 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("LinkedIn: $(dirname "$f")")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$(dirname "$f")")}"
+        EXPORT_ROOTS+=("$(dirname "$(dirname "$f")")")
     done < <(find "$search_dir" -maxdepth 3 -name "Connections.csv" 2>/dev/null || true)
 
     # Facebook: folder containing your_friends.json (2026 export name) or
@@ -9863,18 +9887,21 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("Facebook: $(dirname "$f")")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$(dirname "$f")")}"
+        EXPORT_ROOTS+=("$(dirname "$(dirname "$f")")")
     done < <(find "$search_dir" -maxdepth 5 \( -name "your_friends.json" -o -name "friends.json" \) 2>/dev/null || true)
 
     # Instagram: followers_and_following directory
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("Instagram: $f")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$f")}"
+        EXPORT_ROOTS+=("$(dirname "$f")")
     done < <(find "$search_dir" -maxdepth 3 -type d -name "followers_and_following" 2>/dev/null || true)
 
     # Google Calendar: .ics files
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("Google Calendar: $f")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$f")}"
+        EXPORT_ROOTS+=("$(dirname "$f")")
     done < <(find "$search_dir" -maxdepth 3 -name "*.ics" -size +1k 2>/dev/null | head -3 || true)
 
     # Twitter/X: tweets.js (2026 export name) or legacy tweet.js, in a
@@ -9885,6 +9912,7 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("Twitter/X: $(dirname "$f")")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$(dirname "$f")")}"
+        EXPORT_ROOTS+=("$(dirname "$(dirname "$f")")")
     done < <(find "$search_dir" -maxdepth 4 \( -name "tweets.js" -o -name "tweet.js" \) -path "*/data/*" 2>/dev/null || true)
 
     # Google Takeout zip: takeout-YYYYMMDDTHHMMSSZ-N-NNN.zip
@@ -9892,6 +9920,35 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
         DETECTED_EXPORTS+=("Google Takeout (zip): $f")
         TAKEOUT_ZIP_PATH="${TAKEOUT_ZIP_PATH:-$f}"
     done < <(find "$search_dir" -maxdepth 2 -name "takeout-*.zip" 2>/dev/null || true)
+
+    # ── DENOMINATOR, so a count cannot read as success ────────────────
+    #
+    # "Found 3 GDPR export(s)" is the shape that hid a 7.8G export being
+    # detected and never imported: a number with nothing to compare it to
+    # looks like a result. Classify every top-level candidate folder, and
+    # keep EMPTY separate from UNRECOGNISED, because they are OPPOSITE
+    # findings. An empty folder means the customer simply has no such
+    # export. A non-empty folder we did not recognise means our detection
+    # may be missing a platform and is costing them data. A bare "2 of 21"
+    # cannot tell those apart and the next reader would guess.
+    #
+    # Emptiness is tested with -print -quit, which stops at the first file
+    # rather than counting them, so this stays cheap on a large Downloads
+    # folder. That is the CX-126 lesson: never make the install stall on an
+    # unbounded walk.
+    while IFS= read -r _cand; do
+        [[ -n "$_cand" ]] || continue
+        EXPORT_CANDIDATES=$(( EXPORT_CANDIDATES + 1 ))
+        if ! find "$_cand" -type f -print -quit 2>/dev/null | grep -q .; then
+            EXPORT_SKIPPED_EMPTY=$(( EXPORT_SKIPPED_EMPTY + 1 ))
+            continue
+        fi
+        _matched=false
+        for _r in "${EXPORT_ROOTS[@]}"; do
+            [[ "$_r" == "$_cand"* ]] && { _matched=true; break; }
+        done
+        [[ "$_matched" == true ]] || EXPORT_SKIPPED_UNRECOGNISED=$(( EXPORT_SKIPPED_UNRECOGNISED + 1 ))
+    done < <(find "$search_dir" -maxdepth 1 -mindepth 1 -type d 2>/dev/null || true)
 
     # Loose Gmail mbox files (already extracted from Takeout)
     while IFS= read -r f; do
@@ -9916,6 +9973,13 @@ fi
 if [[ ${#DETECTED_EXPORTS[@]} -gt 0 ]]; then
     echo ""
     ok "$(printf "$MSG_OK_FOUND_GDPR_EXPORT_S" "${#DETECTED_EXPORTS[@]}")"
+    # The denominator, in words rather than a bare ratio.
+    if [[ "$EXPORT_CANDIDATES" -gt 0 ]]; then
+        info "  Looked in ${EXPORT_CANDIDATES} folder(s): ${#EXPORT_ROOTS[@]} held an export we recognised, ${EXPORT_SKIPPED_EMPTY} were empty, ${EXPORT_SKIPPED_UNRECOGNISED} had files we did not recognise."
+        if [[ "$EXPORT_SKIPPED_UNRECOGNISED" -gt 0 ]]; then
+            info "  If one of those ${EXPORT_SKIPPED_UNRECOGNISED} is a data export, tell us which platform: we ship parsers for more than we can auto-detect."
+        fi
+    fi
     for exp in "${DETECTED_EXPORTS[@]}"; do
         echo "     - ${exp}"
     done
@@ -20343,9 +20407,26 @@ chmod +x "$IMPORT_SCRIPT"
 _PREFS_DROPZONE="${OSTLER_DIR}/imports/preferences"
 _IMPORT_DIRS=()
 [[ -n "${EXPORTS_DIR:-}" && -d "${EXPORTS_DIR}" ]] && _IMPORT_DIRS+=("$EXPORTS_DIR")
+# EVERY detected root, not only the one that happened to be detected first.
+# EXPORTS_DIR is assigned with `${EXPORTS_DIR:-...}` once per detector arm, so
+# FIRST MATCH WINS and the remaining arms are silent no-ops. Measured on an
+# operator archive box: three detections across two platforms, and a 7.8G
+# Instagram export with 13,785 files was detected, displayed to the customer by
+# name, and never handed to a parser because the Facebook arm fired first.
+# Bounded by construction: these are specific detected roots, never an
+# unbounded Downloads walk (the CX-126 lesson).
+for _root in "${EXPORT_ROOTS[@]:-}"; do
+    [[ -n "$_root" && -d "$_root" ]] || continue
+    _dupe=false
+    for _seen in "${_IMPORT_DIRS[@]:-}"; do
+        [[ "$_seen" == "$_root" ]] && { _dupe=true; break; }
+    done
+    [[ "$_dupe" == true ]] || _IMPORT_DIRS+=("$_root")
+done
 # CX-126: the install-time detector (line ~3554) now matches the current
 # 2026 export filenames (your_friends.json, tweets.js), so it seeds
-# EXPORTS_DIR to the actual export directory for every platform -- which
+# EXPORTS_DIR for the platforms it knows -- NOT every platform, measured
+# 2026-09-16 -- which
 # the importer then rglobs (bounded to that export dir). An earlier draft
 # of this fix also appended ~/Downloads + ~/Desktop here as a backstop,
 # but that made the importer rglob the ENTIRE Downloads/Desktop trees
