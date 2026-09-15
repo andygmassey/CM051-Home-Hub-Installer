@@ -583,6 +583,7 @@ test_wiki_recompile_after_late_hydration.sh	WIRED	.github/workflows/tests-unwire
 test_wiki_tailnet_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_wiring_ceiling_only_ever_decreases.sh	WIRED	.github/workflows/test-wiring.yml
 test_write_pipeline_signals.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_writer_reader_vocabulary_contracts.py	WIRED	.github/workflows/writer-reader-vocabulary.yml
 test_youtube_parser_does_not_claim_facebook.py	WIRED	.github/workflows/parser-claim-separation.yml
 gui/OstlerInstallerTests/AdminAuthorizationGateTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/AdminPromptFinderPreAnnounceTests.swift	WIRED	.github/workflows/swift-tests.yml
