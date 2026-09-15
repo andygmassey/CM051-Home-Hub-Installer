@@ -665,10 +665,13 @@ def box_status() -> dict[str, Any]:
     }
 
 
-if __name__ == "__main__":  # function-verification entrypoint
-    print(json.dumps(box_status(), indent=2))
-
-
+# ── THE FORK-BUDGETED WRAPPERS ─────────────────────────────────────────────
+# ABOVE the __main__ guard ON PURPOSE. They were appended to the end of the
+# file, which put them AFTER it, so `python3 box_status.py` raised NameError
+# while every test that IMPORTS the module passed. A vendor gate caught it and
+# said the thing worth keeping: tests that import the module cannot catch this.
+# It is the same shape as everything else found this week, a fix that exists
+# and cannot be reached, so it is written down here rather than just moved.
 def _total_ram_bytes() -> Optional[int]:
     """Fork-budgeted wrapper. See FORK BUDGET above."""
     return _cached('ram', None, _uncached__total_ram_bytes)
@@ -692,3 +695,7 @@ def probe_attribution() -> Optional[dict[str, Any]]:
 def _governor() -> dict[str, Any]:
     """Fork-budgeted wrapper. See FORK BUDGET above."""
     return _cached('governor', 60.0, _uncached__governor)
+
+
+if __name__ == "__main__":  # function-verification entrypoint
+    print(json.dumps(box_status(), indent=2))
