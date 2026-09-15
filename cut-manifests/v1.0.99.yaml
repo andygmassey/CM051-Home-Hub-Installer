@@ -791,10 +791,28 @@ open_issues:
       and only the READ side was ever built.
 
       FIX SHAPE: an observer that reads the daemon subscription state and writes
-      state.json in the expected schema. MAPPING IS A PRODUCT DECISION, not an agent
-      one: grace almost certainly maps to pro_active, because the customer has paid
-      and a card retry should not revoke their vault, but say so out loud rather than
-      choosing silently.
+      state.json in the expected schema.
+
+      THE MAPPING IS DECIDED. ANDY, 2026-09-17, VERBATIM: "keep it as long as they''ve
+      paid (fully) for Pro at least once. ie. not the 30 days free plus a failed card
+      try." Implement EXACTLY this and do not substitute a reading of it:
+
+        daemon active                                   -> pro_active
+        daemon grace AND has paid in full at least once -> pro_active
+        daemon grace AND has NEVER completed a payment  -> pro_none
+        daemon expired                                  -> pro_none
+        daemon inactive                                 -> pro_none
+        inside the 30-day free period, no payment yet   -> pro_trial
+
+      THE DISCRIMINATOR IS "HAS A COMPLETED PAYMENT EVER", not "is currently in
+      grace". A trial that lapses on a failed first card is NOT grace-protected: that
+      customer has never paid, so they drop to pro_none. A subscriber who has paid at
+      least once and whose card is retrying KEEPS THEIR VAULT.
+
+      WHOEVER BUILDS THIS: find where a completed payment is recorded before writing a
+      line of the mapping. If no such record exists anywhere, that is a SECOND defect
+      of the same family and it must be reported, not worked around with a proxy
+      signal like "was ever active", which would let a lapsed trial keep the vault.
 
       HISTORY WORTH KEEPING: the MOUNT half of this was found and fixed TWICE, as
       #849 and #482, both times after a test on CM044 dev compose stayed green while
