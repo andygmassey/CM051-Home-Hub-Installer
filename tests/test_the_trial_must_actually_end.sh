@@ -354,6 +354,47 @@ for pair in "api_ingest_ios:ios_ingest" \
     fi
 done
 
+# The ticker must have a CALLER. Defect 1 was a function nobody called;
+# adding a second uncalled function and reporting it as a wire would be
+# the same mistake with a fresh name. Asserted statically because
+# ical-server.py cannot be imported here at all -- it raises
+# "ostler_security is required but not installed" and refuses to start
+# rather than run against a possibly-unencrypted database. That is a
+# CANNOT-RUN for an in-process test, not a pass, so the AST is the
+# strongest instrument available on this host.
+"$PY" - "$ICAL" <<'PYEOF'
+import ast, sys
+tree = ast.parse(open(sys.argv[1]).read())
+called = set()
+main_blocks = [n for n in tree.body if isinstance(n, ast.If)]
+for blk in main_blocks:
+    for node in ast.walk(blk):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            called.add(node.func.id)
+defined = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+if "_start_subscription_expiry_ticker" not in defined:
+    print("MISSING: _start_subscription_expiry_ticker is not defined")
+    sys.exit(1)
+if "_start_subscription_expiry_ticker" not in called:
+    print("UNCALLED: _start_subscription_expiry_ticker is defined and never called "
+          "from the module entry block. That is defect 1 again, with a new name.")
+    sys.exit(1)
+# Control: a function we KNOW is called from the same block must also be
+# found, or this predicate proves nothing about either.
+if "_run_privacy_backfill_on_startup" not in called:
+    print("CONTROL FAILED: the known-called _run_privacy_backfill_on_startup was "
+          "not detected, so the 'is it called' predicate is broken and its "
+          "verdict on the ticker is worthless.")
+    sys.exit(1)
+print("OK: the expiry ticker is called from the entry block "
+      "(control: _run_privacy_backfill_on_startup found by the same predicate)")
+PYEOF
+if [ $? -eq 0 ]; then
+    pass "D:ticker" "expire_check has a production caller"
+else
+    fail "D:ticker" "expire_check still has no production caller"
+fi
+
 # ---------------------------------------------------------------------
 # Limb E -- the derived path is the staged path
 # ---------------------------------------------------------------------
