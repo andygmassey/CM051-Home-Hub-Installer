@@ -137,6 +137,13 @@ jobs:
       - name: An empty owner email must not reach a shipped LaunchAgent
         run: bash tests/test_aiconv_agent_not_registered_without_owner_email.sh
 
+      - name: shell tests run to completion under the cut host's bash 3.2
+        # always(), because a step that only runs on success can be masked
+        # by an earlier red, and this one exists to catch a suite that
+        # stops partway while still printing PASS above the failure.
+        if: always()
+        run: /bin/bash tests/test_case_in_command_substitution_parses_under_bash_32.sh
+
       # Runtime, not structural: the defect is an ORDERING between a guard and
       # a fold, and both were present in the tree that shipped it. Needs
       # fetch-depth 0 above -- it executes the block from two pinned control
