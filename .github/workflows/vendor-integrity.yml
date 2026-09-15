@@ -296,6 +296,10 @@ jobs:
         run: python3 tests/test_vendor_entrypoint_resolution.py
 
       - name: the Doctor status poll has a fork budget
+        # `always()` because a test step that only runs on success can be
+        # MASKED by an earlier red, and a fork budget that silently stops
+        # being measured is the same defect it exists to catch.
+        if: always()
         run: python3 tests/test_the_doctor_status_poll_has_a_fork_budget.py
 
       # Symbol-level guard: web_ui.py imports a batch of CONFIG_* string
