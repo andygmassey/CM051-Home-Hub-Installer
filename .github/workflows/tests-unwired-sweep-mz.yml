@@ -244,3 +244,27 @@ jobs:
       - name: ship refuses to build an already-tagged version
         if: always()
         run: bash tests/test_ship_refuses_an_already_tagged_version.sh --self-test
+
+      # Consumer-half gap (2026-09-13): import_notion.py / import_obsidian.py
+      # were complete Doctor-side backends (job locking, stale-PID recovery,
+      # feature-flag gating, three routes each documented) with NOTHING
+      # registering any of the six routes in web_ui.py -- a customer who
+      # flipped the feature flag got a plain 404 from FastAPI's own router.
+      # A second, independent gap made the obvious fix dangerous alone: the
+      # CM024 ADAPTERS registry only knew "evernote" / "apple_notes", so
+      # routing "notion"/"obsidian" into the CLI without fixing the registry
+      # would have shipped routes that KeyError on every real attempt. This
+      # test proves both halves are fixed together by running a REAL import
+      # end to end (forking the actual vendored ostler-knowledge CLI) against
+      # real Notion/Obsidian fixtures and reading back the staged markdown --
+      # not just that the routes exist or the registry has the keys. click +
+      # httpx + qdrant-client are cm024_knowledge's own declared runtime deps
+      # (vendor/cm024_knowledge/requirements.txt), installed here rather than
+      # in the shared step above because this is the only test in this job
+      # that imports the cm024 vendored package end to end.
+      - name: notion and obsidian imports run end to end, not just their routes
+        if: always()
+        run: |
+          set -e
+          python -m pip install --quiet -r vendor/cm024_knowledge/requirements.txt
+          python3 tests/test_notion_obsidian_import_runs_end_to_end.py
