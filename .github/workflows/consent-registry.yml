@@ -19,6 +19,7 @@ on:
       - 'vendor/legal/consent_strings.py'
       - 'vendor/ostler_security/consent_cli.py'
       - 'tests/test_consent_tickbox_registry.sh'
+      - 'tests/test_every_consent_decision_is_recorded.sh'
       - '.github/workflows/consent-registry.yml'
   push:
     branches: [main]
@@ -43,3 +44,6 @@ jobs:
 
       - name: Consent tickbox registry cross-check
         run: bash tests/test_consent_tickbox_registry.sh
+
+      - name: every consent decision the customer gives is actually recorded
+        run: bash tests/test_every_consent_decision_is_recorded.sh

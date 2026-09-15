@@ -5305,6 +5305,10 @@ WA_CONSENT=""
 OSTLER_CONSENT_ARTICLE_9_DECISION=""
 OSTLER_CONSENT_VOICE_EU_DECISION=""
 OSTLER_CONSENT_THIRD_PARTY_DECISION=""
+# Personal-use-only licence term. Empty default on a reuse run, so a resumed
+# install that skipped the screen records nothing rather than asserting an
+# acknowledgement the customer never gave on this run.
+OSTLER_CONSENT_PERSONAL_USE_DECISION=""
 # Spoken-capture recording-consent acknowledgement (every region). Empty
 # default = spoken transcription off on a reuse run until re-acknowledged.
 OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION=""
@@ -15639,6 +15643,34 @@ PY
             third_party_data_personal_records \
             "$OSTLER_CONSENT_THIRD_PARTY_DECISION" \
             "Could not persist third-party-data acknowledgement (continuing)"
+    fi
+
+    # Personal-use-only licence term.
+    #
+    # THIS BLOCK IS THE WHOLE POINT OF THE SCREEN. Until it existed the
+    # acknowledgement was assigned to OSTLER_CONSENT_PERSONAL_USE_DECISION and
+    # read by NOTHING: one use in the entire file, the assignment itself,
+    # against four siblings that each record here. The customer accepted a
+    # LICENCE TERM and no trace of it survived the installer process, so there
+    # was no evidence they had agreed and the Doctor could not flag drift
+    # between what was agreed and what the Hub bundles, which the screen's own
+    # comment claims it enables.
+    #
+    # It is the third time this exact shape has happened in this one file. The
+    # enrichment-decision block a few lines below narrates the second (#794),
+    # where an `export` sat under a comment saying the answer was "recorded so
+    # the Doctor and a support bundle can state what the customer chose", and
+    # nothing recorded it.
+    #
+    # Decline aborts in Phase 2 (a licence term is not optional), so the value
+    # here is "accepted" or empty. Empty means a resumed install skipped the
+    # screen, and we omit the record rather than invent one, which leaves
+    # Doctor showing "missing" instead of a consent nobody gave.
+    if [[ -n "$OSTLER_CONSENT_PERSONAL_USE_DECISION" ]]; then
+        _consent_cli_record blocking \
+            personal_use_only \
+            "$OSTLER_CONSENT_PERSONAL_USE_DECISION" \
+            "Could not persist the personal-use-only licence acknowledgement (continuing)"
     fi
 
     # Spoken-capture recording-consent acknowledgement (every region).
