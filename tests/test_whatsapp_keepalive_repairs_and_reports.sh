@@ -457,7 +457,8 @@ fi
 # each verdict the script can write, and require the customer-facing words to
 # come out. A verdict that renders to nothing is a log entry with extra steps.
 echo "── the Doctor tile, rendered for real ──"
-if ! "$PYTHON_BIN" - "$AGENT_DIR" "$OSTLER_ROOT" <<'PY'
+tile_rc=0
+"$PYTHON_BIN" - "$AGENT_DIR" "$OSTLER_ROOT" <<'PY'
 import json, os, pathlib, sys, time
 agent_dir, ostler_root = sys.argv[1], sys.argv[2]
 sys.path.insert(0, agent_dir)
@@ -535,15 +536,27 @@ else:
 
 raise SystemExit(1 if failures else 0)
 PY
-then
-    rc=$?
-    if [ "$rc" = "64" ]; then
-        echo "CANNOT-RUN: the Doctor renderer could not be imported here. Install" >&2
-        echo "            vendor/doctor/agent/requirements.txt and re-run. The tile" >&2
-        echo "            half of this test has NOT been measured." >&2
-    else
-        fail "doctor-tile" "the Doctor tile did not render the keepalive verdict"
-    fi
+tile_rc=$?
+# 🔴 `rc=$?` INSIDE `if ! cmd; then` READS THE NEGATION, NOT THE COMMAND.
+# The first version of this block was `if ! "$PYTHON_BIN" ...; then rc=$?`, and
+# by the time that assignment ran `$?` was the status of the SUCCESSFUL
+# negation, which is 0. So the CANNOT-RUN code 64 was never seen, the else
+# branch always fired, and a correctly-reported "could not import the Doctor
+# renderer, httpx is absent" was rendered as an assertion failure.
+#
+# MEASURED on the macOS CI runner, which has no httpx: every other arm of this
+# file passed and this one turned a CANNOT-RUN into a FAIL. That is the exact
+# class this whole PR is about -- a status read from the wrong place -- and it
+# was committed inside the test written to catch it. The status now comes from
+# the command itself, with no negation in front of it.
+if [ "$tile_rc" -eq 64 ]; then
+    echo "CANNOT-RUN: the Doctor renderer could not be imported here, so the" >&2
+    echo "            tile half of this test was NOT measured. It IS measured in" >&2
+    echo "            vendor-integrity.yml, which pip-installs" >&2
+    echo "            vendor/doctor/agent/requirements.txt before running this" >&2
+    echo "            file. To measure it here, install those requirements." >&2
+elif [ "$tile_rc" -ne 0 ]; then
+    fail "doctor-tile" "the Doctor tile did not render the keepalive verdict (exit ${tile_rc})"
 fi
 
 # ── 9. THE TILE IS ACTUALLY WIRED INTO THE PAGE ───────────────────────
