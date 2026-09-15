@@ -686,6 +686,15 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         #
         # The copy goes to mktemp OUTSIDE ~/.ostler on purpose: anywhere inside
         # it is deleted by the very find this is protecting against.
+        #
+        # 🗿 THIS STAYS EVEN THOUGH THE UNINSTALLER NOW SPARES THE LICENCE.
+        # The uninstaller that runs here is the one ALREADY ON THE BOX, staged
+        # by whichever DMG was installed last. A box carrying a pre-fix build
+        # still deletes the licence, and that is precisely the box a walk is
+        # most likely to be resetting. The restore below is a `cp` over a file
+        # that may now already be there, which is idempotent, so keeping this
+        # costs nothing and removing it would strand exactly the case it was
+        # written for.
         _LIC="$HOME/.ostler/license/license.json"
         _LIC_BAK=""
         if [ -s "$_LIC" ]; then
@@ -845,9 +854,26 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         # too, at any depth, and the declared keep is excluded BY ITS EXACT PATH
         # rather than by name, so that a file called power.conf buried somewhere
         # deeper is still residue.
+        #
+        # 🔴 THE LICENCE IS NOW A SECOND DECLARED KEEP, AND THIS HAD TO MOVE
+        # WITH THE UNINSTALLER OR EVERY WIPE WALK WOULD ABORT.
+        #
+        # Andy decided on 2026-09-10 that an uninstall must not destroy the
+        # thing the customer paid for, so the uninstaller install.sh generates
+        # now spares ~/.ostler/license/ alongside power.conf, and its own
+        # printed contract names it in the "will NOT remove" half. This
+        # predicate reads the same tree the uninstaller just finished with. Had
+        # it stayed keyed to power.conf alone it would have counted the
+        # surviving licence as one undeclared file and exited 2, CANNOT-RUN, on
+        # every single walk -- a check failing because the code it checks was
+        # fixed.
+        #
+        # Excluded by EXACT PATH, exactly like power.conf above and for exactly
+        # the same reason: a file called license.json buried somewhere deeper
+        # is residue like any other. `! -name` would open that hole.
         _fs_left=0
         if [ -d "$HOME/.ostler" ]; then
-            _fs_left=$(find "$HOME/.ostler" -mindepth 1 -type f ! -path "$HOME/.ostler/power.conf" 2>/dev/null | grep -c . || true)
+            _fs_left=$(find "$HOME/.ostler" -mindepth 1 -type f ! -path "$HOME/.ostler/power.conf" ! -path "$HOME/.ostler/license/license.json" 2>/dev/null | grep -c . || true)
         fi
         _content_left=0
         if [ -e "$_CONTENT_ROOT" ]; then
@@ -856,7 +882,7 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         if [ "${_fs_left:-0}" -gt 0 ] || [ "${_content_left:-0}" -gt 0 ]; then
             echo "WIPE INCOMPLETE ON DISK: ${_fs_left} undeclared entr(ies) under ~/.ostler,"
             echo "  ${_content_left} file(s) under ${_CONTENT_ROOT}."
-            find "$HOME/.ostler" -mindepth 1 -type f ! -path "$HOME/.ostler/power.conf" 2>/dev/null \
+            find "$HOME/.ostler" -mindepth 1 -type f ! -path "$HOME/.ostler/power.conf" ! -path "$HOME/.ostler/license/license.json" 2>/dev/null \
                 | head -10 | sed "s|^|    |"
             echo "  The next walk would be grading carried-over content, so this is"
             echo "  CANNOT-RUN, not a wipe."

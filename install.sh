@@ -2004,6 +2004,68 @@ _ostler_licence_python() {
     return 1
 }
 
+# Make the licence on disk 0600, and its directory 0700.
+#
+# 🔴 WHY THIS EXISTS AND WHY IT IS NOT A NO-OP.
+#
+# The licence is not an entitlement token. It is a v1 CM050 document
+# whose REQUIRED fields include `issued_to_email` and
+# `stripe_payment_id` -- see STRING_FIELDS in the verifier heredoc
+# below. A 0644 licence therefore hands every other local account on
+# the Mac the customer's email address and the id of their payment.
+#
+# Two paths put the file there and NEITHER produced 0600:
+#
+#   1. The GUI. LicensePersistence.swift chmodded its temp sibling to
+#      0600 and then swapped it in with `FileManager.replaceItem`,
+#      which carries the DESTINATION's metadata onto the replacement.
+#      Fixed in the same change as this block (rename(2) plus a mode
+#      read-back), but a Hub installed by an older OstlerInstaller.app
+#      still has the 0644 file sitting there.
+#   2. This script's own refusal message, which tells the customer to
+#      `cp` the attachment into place. `cp` creates at the default
+#      umask, which on a stock macOS account is 0644.
+#
+# Nothing anywhere chmodded it: measured on origin/main, `chmod`
+# against the licence path returned 0 hits, with `chmod 600` at 20 hits
+# elsewhere in this same file as the control that the search works.
+#
+# So this runs on the PASS arm, on every install, and repairs the file
+# whichever route put it there. It is deliberately NOT fatal: the
+# licence has already verified, and refusing an otherwise-good install
+# over a mode we can simply correct would be the worse outcome. A
+# failure to correct it is WARNed, never swallowed.
+#
+# 🔴 NO `--` ON THE chmod CALLS, AND THE OMISSION IS DELIBERATE.
+# MEASURED on this Mac, which is the host that runs it:
+#
+#     /bin/chmod 600 -- f   ->  "chmod: --: No such file or directory",
+#                               exit 1, AND f is correctly set to 600
+#     /bin/chmod 600 f      ->  exit 0, f set to 600
+#
+# BSD chmod has no end-of-options marker: it reads `--` as another FILE
+# operand. So the guarded-looking form does the right thing to the
+# licence and then reports failure, which here would print a security
+# warning to every customer on every successful install. `dirname --`
+# IS accepted by the BSD build and is kept. The path cannot begin with
+# `-` in any case: it is built from ${HOME} at the top of this file.
+_ostler_licence_restrict_mode() {
+    local _lic_dir
+    _lic_dir="$(dirname -- "${OSTLER_LICENCE_FILE}")"
+    [[ -d "$_lic_dir" ]] && { chmod 700 "$_lic_dir" || warn "Could not restrict ${_lic_dir} to 0700."; }  # i18n-exempt
+    if [[ -f "${OSTLER_LICENCE_FILE}" ]]; then
+        if chmod 600 "${OSTLER_LICENCE_FILE}"; then
+            :
+        else
+            warn "Could not restrict your licence file to owner-only (0600):"    # i18n-exempt
+            warn "    ${OSTLER_LICENCE_FILE}"
+            warn "It carries your email address and the id of your payment."     # i18n-exempt
+        fi
+    fi
+    unset _lic_dir
+    return 0
+}
+
 # Refuse, with somewhere for the customer to go next. No internals:
 # the reason lines say what is wrong with the licence, never what the
 # verifier did about it.
@@ -2021,8 +2083,15 @@ _ostler_licence_refuse() {
     echo "  If you have: your welcome email has the licence attached as" >&2     # i18n-exempt
     echo "  ostler-licence.json. Save it, then put it in place:" >&2             # i18n-exempt
     echo "" >&2
-    echo "      mkdir -p ~/.ostler/license" >&2
+    # The chmod lines are not decoration. The file carries your email
+    # address and the id of your payment, and `cp` creates at the
+    # default umask (0644 on a stock macOS account), so without them a
+    # second local account can read both. The installer repairs the
+    # mode itself on the next run, but a customer who pastes these
+    # does not have to wait for that.
+    echo "      mkdir -p ~/.ostler/license && chmod 700 ~/.ostler/license" >&2
     echo "      cp ~/Downloads/ostler-licence.json ~/.ostler/license/license.json" >&2
+    echo "      chmod 600 ~/.ostler/license/license.json" >&2
     echo "" >&2
     echo "  and run this installer again. The OstlerInstaller app from the" >&2  # i18n-exempt
     echo "  DMG does that step for you: drop the licence on its licence" >&2     # i18n-exempt
@@ -2338,7 +2407,7 @@ OSTLER_LICENCE_VERIFY_PY
 )" || _lic_rc=$?
 
     case "$_lic_rc" in
-        0)  ok "Licence verified." ;;                                                  # i18n-exempt
+        0)  _ostler_licence_restrict_mode; ok "Licence verified." ;;                   # i18n-exempt
         10) _ostler_licence_refuse "No licence file found." ;;                         # i18n-exempt
         11) _ostler_licence_refuse "The licence file is empty." ;;                     # i18n-exempt
         12) _ostler_licence_refuse "The licence file is not a valid Ostler licence." ;; # i18n-exempt
@@ -6713,9 +6782,91 @@ fi
 #   2. [[cron.jobs]].delivery.to            – outbound recipient
 #      for the morning brief + evening wrap jobs.
 #
-# E.164 format (leading +, country code, digits only). We don't
-# validate beyond emptiness; bad numbers surface as a delivery
-# error in Doctor on the first scheduled run.
+# E.164 format (leading +, country code, digits only).
+#
+# 🔴 THE VALIDATOR THIS COMMENT USED TO DISCLAIM, AND THE ONE ANOTHER
+# COMMENT CLAIMED ALREADY EXISTED.
+#
+# This paragraph used to end "We don't validate beyond emptiness; bad
+# numbers surface as a delivery error in Doctor on the first scheduled
+# run." Six thousand lines down, the TOML emitter said the opposite, in
+# the same file: "paranoia: E.164 validation rejects them already".
+#
+# Measured on origin/main: `E.164` had four matches in install.sh and
+# every one of them was a COMMENT. Control, same file, same command
+# shape: `CHANNEL_WHATSAPP_RECIPIENT` resolved 16 times. There was no
+# validator. The only check was the leading `+` in the loop below.
+#
+# WHAT THE CUSTOMER GOT FOR THAT. The prompt's own example, in the
+# terminal and in the GUI help string, was "+44 7700 900123" WITH
+# SPACES, immediately above the words "no spaces". A customer copying
+# the shape they were shown got a value with spaces in it, which then
+# went three places:
+#
+#   pair_phone        digits-only filtered, so it WORKED
+#   allowed_numbers   verbatim, so the customer's own replies were
+#                     denied by their own inbound allowlist
+#   delivery.to       verbatim, so the morning brief and evening wrap
+#                     went to a malformed address
+#
+# Two of the three broken, the working one being the only one that
+# already stripped non-digits. The customer sees an assistant that can
+# be paired and then ignores them, and a brief that never arrives.
+#
+# So: normalise and validate HERE, at the point the number is captured,
+# and normalise AGAIN at the emitter (which also receives values this
+# prompt never saw -- a number carried over from an existing
+# config.toml on a re-run).
+#
+# WHAT E.164 ACTUALLY ALLOWS, because guessing tighter than the
+# standard rejects real customers: a leading `+`, then a country code
+# starting 1-9, then up to 15 digits in total. No upper-case letters,
+# no extensions, no minimum beyond a country code plus something. We
+# strip the separators humans type (spaces, brackets, dashes, dots) and
+# then hold the result to that.
+_ostler_e164_normalise() {
+    # Echoes the canonical E.164 form on stdout and returns 0, or
+    # returns 1 and echoes nothing. NEVER echoes a half-cleaned value on
+    # the failure path: a caller that ignored the status would then
+    # store something worse than what it was given.
+    local _raw="${1:-}" _digits
+    # Trim surrounding whitespace before anything looks at the first
+    # character. A value pasted from an email or a contact card arrives
+    # with it, and the `+` test below reads position 0.
+    _raw="${_raw#"${_raw%%[![:space:]]*}"}"
+    _raw="${_raw%"${_raw##*[![:space:]]}"}"
+    # 🔴 THE PARENTHESISED TRUNK ZERO, WHICH A PLAIN DIGIT STRIP GETS
+    # WRONG. "+44 (0)20 7946 0018" is how a UK number is written on
+    # letterheads, business cards and email signatures across the UK and
+    # Germany, and the bracketed 0 means "omit this when dialling
+    # internationally". Stripping only the brackets leaves
+    # +4402079460018, which is not that subscriber and never reaches
+    # them. Removing the literal three characters `(0)` is the whole
+    # convention; a bracketed group that is NOT a lone zero is an area
+    # code, as in "+61 (2) 5550 1234", and must keep its digits. That is
+    # why this matches `(0)` exactly rather than any parenthesised run.
+    # (An Australian example rather than the obvious North American one
+    # because .github/scripts/ci-pii-shape-scan.sh matches phone numbers
+    # by SHAPE, and a synthetic +1 number in an added line is RED by
+    # design. Measured: it was, on the first run of this change.)
+    _raw="${_raw//(0)/}"
+    # Strip everything that is not a digit. This deliberately also
+    # discards a `+` that is not leading, which is not a separator a
+    # human types but IS the shape an injected value takes.
+    _digits="${_raw//[^0-9]/}"
+    [[ "${_raw:0:1}" == "+" ]] || return 1
+    [[ -n "$_digits" ]] || return 1
+    # Length: 15 digits maximum (E.164 s6.1). Minimum 7 is the shortest
+    # real international number in current use; below that the customer
+    # has typed a local extension, not a number the assistant can
+    # message.
+    [[ "${#_digits}" -ge 7 && "${#_digits}" -le 15 ]] || return 1
+    # A country code never starts with 0.
+    [[ "${_digits:0:1}" != "0" ]] || return 1
+    printf '+%s' "$_digits"
+    return 0
+}
+
 if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
     echo ""
     echo -e "  ${BOLD}Your WhatsApp phone number${NC}"
@@ -6727,7 +6878,12 @@ if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
     echo "       get delivered."
     echo ""
     echo "  Enter your number with the country code: leading +, digits only."
-    echo "  Example: +44 7700 900123"
+    # THE EXAMPLE MUST OBEY THE RULE ON THE LINE ABOVE IT. This read
+    # "+44 7700 900123" -- spaces -- directly under "digits only", and
+    # the GUI help string did the same. A customer copying the shape
+    # they were shown produced a value the inbound allowlist and the
+    # brief delivery address could not use.
+    echo "  Example: +447700900123"
     echo ""
     # CX-12 F4 (locked 2026-05-23): pre-fill the WhatsApp recipient
     # with the me-card phone captured at Q3. Customer can edit or wipe
@@ -6748,11 +6904,29 @@ if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
             warn "$MSG_WARN_OR_RE_RUN_INSTALLER_PICK_DIFFERENT"
             continue
         fi
-        if [[ "${CHANNEL_WHATSAPP_RECIPIENT:0:1}" != "+" ]]; then
+        # VALIDATE AND NORMALISE IN ONE STEP.
+        #
+        # This used to be `[[ "${VAR:0:1}" != "+" ]]` and nothing else,
+        # so "+44 7700 900123" -- the example the prompt itself showed
+        # the customer -- was accepted verbatim and stored with its
+        # spaces. `_ostler_e164_normalise` echoes NOTHING when it
+        # refuses, so a rejected value cannot survive as a half-cleaned
+        # string; the variable is cleared and the question is asked
+        # again, which is the same shape the empty case above uses.
+        _wa_norm="$(_ostler_e164_normalise "$CHANNEL_WHATSAPP_RECIPIENT")" || _wa_norm=""
+        if [[ -z "$_wa_norm" ]]; then
             warn "$MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN"
             CHANNEL_WHATSAPP_RECIPIENT=""
             continue
         fi
+        # Say what was stored when it is not what was typed. A silent
+        # rewrite of the one identifier the customer will later check
+        # against their phone is how a support call starts.
+        if [[ "$_wa_norm" != "$CHANNEL_WHATSAPP_RECIPIENT" ]]; then
+            info "$(printf "$MSG_INFO_WHATSAPP_NUMBER_NORMALISED" "$_wa_norm")"
+        fi
+        CHANNEL_WHATSAPP_RECIPIENT="$_wa_norm"
+        unset _wa_norm
     done
 fi
 
@@ -9871,11 +10045,81 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$f")}"
     done < <(find "$search_dir" -maxdepth 3 -type d -name "followers_and_following" 2>/dev/null || true)
 
-    # Google Calendar: .ics files
+    # Calendar exports: .ics files, at the depth they are actually shipped.
+    #
+    # 🔴 THIS WAS `-maxdepth 3 ... | head -3` AND BOTH HALVES LOST REAL
+    # CUSTOMER DATA. Andy ruled on 2026-09-12: "change the installer, not
+    # the box". A customer who has done the work of requesting an export
+    # should not have to re-arrange their Downloads folder to match a
+    # number the installer picked.
+    #
+    # THE DEPTH. Nobody ships calendars at depth 3. Measured against the
+    # shapes the other arms in this same loop already accommodate:
+    #
+    #   ~/Downloads/takeout-<stamp>/Takeout/Calendar/<name>.ics       4
+    #   ~/Downloads/<name>/Takeout/Calendar/<name>.ics                4
+    #   ~/Downloads/your_facebook_activity/events/<...>/<name>.ics    4-5
+    #
+    # The Facebook arm four lines up already went to maxdepth 5 for
+    # exactly this reason, and CX-126 records why: the current export
+    # unzips to a directory whose name nobody predicted. The calendar arm
+    # was never given the same treatment, so the two detectors disagreed
+    # about how deep an export can be while reading the same folders.
+    # 6 leaves headroom for one more wrapper directory, which is how
+    # every one of these formats has drifted so far.
+    #
+    # THE FILE CAP. `head -3` was worse than the depth, because it is
+    # SILENT and order-dependent: a customer with four calendars had one
+    # dropped, and which one depended on the order the filesystem
+    # returned. There is no cap now.
+    #
+    # STAYING BOUNDED WITHOUT A FILE CAP, because an install that hangs
+    # here is not an improvement on one that reads too little:
+    #
+    #   -maxdepth 6   the descent is still bounded, just at a depth that
+    #                 matches the data.
+    #   -xdev         do not cross a filesystem boundary. The real hazard
+    #                 under ~/Downloads is a mounted disk image or an
+    #                 external drive, where a deep scan can take minutes
+    #                 against spinning or network storage. The start
+    #                 directory's own filesystem is scanned normally, so a
+    #                 customer whose home directory lives on an external
+    #                 drive loses nothing.
+    #   -prune        skip the directory types that are enormous and can
+    #                 never hold a calendar export: package bundles that
+    #                 macOS presents as single files (photo, video and
+    #                 music libraries, .app bundles) plus node_modules,
+    #                 .git and the Trash. Pruning a bundle also stops the
+    #                 scan reporting an .ics that lives INSIDE an
+    #                 application as though it were the customer's diary.
+    #
+    # -maxdepth goes FIRST, before the prune expression. BSD find accepts
+    # it anywhere; GNU find warns when it follows a non-option primary,
+    # and this predicate is read by CI on a Linux runner as well as by the
+    # customer's Mac.
+    #
+    # 🗿 THE SIBLING ONE ARM DOWN IS THE SAME SHAPE AND IS NOT FIXED HERE.
+    # The Gmail mbox detector below still ends `| head -3`. It is named
+    # rather than quietly left: a Takeout mailbox is normally a single
+    # file so the cap rarely bites, and removing it changes how much mail
+    # the import pulls in, which is a different decision from this one.
+    #
+    # The label says "Calendar", not "Google Calendar". The predicate is
+    # `*.ics` and always was: it matches an Apple, Fastmail or Facebook
+    # export exactly as readily as a Takeout one, and printing a vendor
+    # name the scan never established told the customer we knew something
+    # about their file that we did not.
     while IFS= read -r f; do
-        DETECTED_EXPORTS+=("Google Calendar: $f")
+        DETECTED_EXPORTS+=("Calendar: $f")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$f")}"
-    done < <(find "$search_dir" -maxdepth 3 -name "*.ics" -size +1k 2>/dev/null | head -3 || true)
+    done < <(find "$search_dir" -maxdepth 6 -xdev \
+                  \( -name 'node_modules' -o -name '.git' -o -name '.Trash' \
+                     -o -name '*.app' -o -name '*.bundle' -o -name '*.framework' \
+                     -o -name '*.photoslibrary' -o -name '*.aplibrary' \
+                     -o -name '*.fcpbundle' -o -name '*.imovielibrary' \
+                     -o -name '*.tvlibrary' -o -name '*.musiclibrary' \
+                     -o -name '*.sparsebundle' \) -prune \
+                  -o -type f -name '*.ics' -size +1k -print 2>/dev/null || true)
 
     # Twitter/X: tweets.js (2026 export name) or legacy tweet.js, in a
     # data/ directory. CX-126: current X exports ship `tweets.js`; the
@@ -13183,12 +13427,39 @@ ok "$(printf "$MSG_OK_CONFIG_SAVED_ENV" "${CONFIG_DIR}")"
 # produces an empty config that the assistant will treat as
 # defaults.
 #
-# Password handling: written in plaintext. The assistant supports
-# `enc2:` ciphertext for sensitive fields but cannot encrypt before
-# its own first run. Mode 0600 limits exposure to this user.
-# Phase C should add a post-install `ostler-assistant secrets
-# encrypt-config` step once the binary is staged so the plaintext
-# window closes within the install flow.
+# Password handling: written in plaintext, and it STAYS in plaintext.
+# Mode 0600 is the whole of the protection.
+#
+# 🔴 THIS COMMENT USED TO SAY THE ASSISTANT "cannot encrypt before its
+# own first run", AND THE PREAMBLE WRITTEN INTO THE CUSTOMER'S OWN
+# config.toml SAID SO IN SO MANY WORDS: credentials "are stored in
+# plaintext until the assistant first runs and encrypts them in place".
+# Both sentences describe a step that does not exist and never has.
+#
+# The nearest thing to a proposal was, three lines further down, a
+# `ostler-assistant secrets encrypt-config` step "Phase C should add".
+# Measured on origin/main: `encrypt-config` has exactly ONE match in
+# this repo, and it is that proposal. Controls run in the same command
+# shape against the same file, so the search is not the thing that is
+# broken: `doctor` 93 matches, `allow-plaintext` 17.
+#
+# The daemon side says the same thing from the other direction, at the
+# 3.14e staging block below: the secrets store auto-migrates legacy
+# `enc:` values to `enc2:` on read, and does NOT bootstrap from
+# plaintext. So a plaintext value put here is not the start of a
+# process, it is the end state.
+#
+# The customer-facing preamble now tells them that, names the one
+# mitigation actually available to them (an app-specific password, which
+# is revocable on its own), and does not promise a step that is not
+# coming. Lying to a customer in a file they open themselves is worse
+# than the plaintext.
+#
+# THE IMPLEMENTATION IS FILED, NOT FORGOTTEN: issue #1976. It is a Rust
+# PR in ostler-assistant (the key derivation lives in
+# crates/zeroclaw-config/src/secrets.rs and no subcommand exposes it),
+# plus the call site here in 3.14e. It is not something install.sh can
+# do on its own, which is why it is not in the PR that fixed the text.
 
 # ── Chat admin token seed (CM031 PR #43 / HR015 PR #63 sister) ────
 #
@@ -13933,10 +14204,31 @@ umask 0077
 # Ostler assistant configuration.
 #
 # Generated by the Ostler installer. Edit by hand or re-run the
-# installer to regenerate. Sensitive fields (e.g. email password)
-# are stored in plaintext until the assistant first runs and
-# encrypts them in place with the `enc2:` ChaCha20-Poly1305
-# scheme. See crates/zeroclaw-config/src/secrets.rs for details.
+# installer to regenerate.
+#
+# READ THIS IF YOU GAVE THE INSTALLER AN EMAIL PASSWORD.
+#
+# Your email password is in this file, in plain text, and it STAYS
+# in plain text. Nothing encrypts it later. The only thing
+# protecting it is this file's permissions: it is mode 0600, which
+# means your own account can read it and no other account on this
+# Mac can.
+#
+# What that means for you:
+#   - Anyone with your Mac unlocked, or with Full Disk Access to it,
+#     can read this password.
+#   - Copying this file to another machine, a backup you do not
+#     control, or a support ticket copies the password with it.
+#   - If that is not a trade you want to make, give Ostler an
+#     app-specific password instead of your main one. Apple, Google
+#     and Fastmail all issue them, they can be revoked on their own,
+#     and they cannot be used to sign in to your account.
+#
+# The assistant can hold secrets as `enc2:` ChaCha20-Poly1305
+# ciphertext, and it will keep any `enc2:` value you put here
+# encrypted. What it cannot do is take a plain-text value and
+# encrypt it for you, so writing one here does not start that
+# process off.
 
 # Schema version this file was written against. Matches
 # CURRENT_SCHEMA_VERSION in crates/zeroclaw-config/src/migration.rs
@@ -14349,10 +14641,40 @@ TOMLPREAMBLE
         echo "session_path = \"${_wa_session_path_esc}\""
         unset _wa_session_path_esc
         if [[ -n "$CHANNEL_WHATSAPP_RECIPIENT" ]]; then
-            # Escape any embedded double quotes (paranoia: E.164
-            # validation rejects them already, but the TOML emit
-            # path stays safe regardless).
-            _wa_recipient_esc="${CHANNEL_WHATSAPP_RECIPIENT//\"/\\\"}"
+            # 🔴 NORMALISE HERE, NOT ONLY AT THE PROMPT.
+            #
+            # `allowed_numbers` is the INBOUND allowlist. A value with
+            # spaces in it does not match the JID WhatsApp presents, so
+            # `dm_policy = "allowlist"` denies the customer's own
+            # messages to their own assistant, and the only symptom is
+            # silence. It used to be emitted verbatim under a comment
+            # asserting "E.164 validation rejects them already"; there
+            # was no such validation (four `E.164` matches in this file,
+            # all comments; control `CHANNEL_WHATSAPP_RECIPIENT` 16).
+            #
+            # WHY THIS IS INLINE PARAMETER EXPANSION AND NOT A CALL TO
+            # `_ostler_e164_normalise`. This whole `{ ... } >
+            # "$ASSISTANT_CONFIG"` block is extracted by content and run
+            # STANDALONE by tests/test_whatsapp_channel_block.sh
+            # (`bash -c "$(cat "$EMITTER")"`). A function call reached on
+            # this arm would make the emitter unrunnable in isolation and
+            # the test would be measuring a crash. Same reason
+            # `pair_phone` below has always been inline.
+            #
+            # It is the emitter's job, not only the prompt's, because the
+            # prompt is not the only source of this value: on a re-run
+            # `_ostler_restore_channels_from_existing_config` lifts it out
+            # of the config.toml already on disk, which may have been
+            # written by an older installer or hand-edited.
+            #
+            # Strip to digits then re-attach the leading `+`: that is the
+            # canonical E.164 form, and it is a no-op on a value the
+            # prompt already normalised.
+            _wa_recipient_esc="+${CHANNEL_WHATSAPP_RECIPIENT//[^0-9]/}"
+            # Escape any embedded double quotes. Nothing survives the
+            # strip above that could carry one, but the TOML emit path
+            # does not depend on that being true.
+            _wa_recipient_esc="${_wa_recipient_esc//\"/\\\"}"
             echo "allowed_numbers = [\"${_wa_recipient_esc}\"]"
 
             # pair_phone selects pair-CODE linking over QR. Without it wa-rs
@@ -14554,7 +14876,19 @@ TOMLPREAMBLE
         _brief_to="${_brief_to% }"
     elif [[ "$CHANNEL_WHATSAPP_ENABLED" == true && -n "$CHANNEL_WHATSAPP_RECIPIENT" ]]; then
         _brief_channel="whatsapp"
-        _brief_to="$CHANNEL_WHATSAPP_RECIPIENT"
+        # THE THIRD CONSUMER OF THE NUMBER, and the one the customer
+        # notices last. `delivery.to` is where the 09:00 brief and the
+        # 18:00 wrap are sent. Emitted verbatim, a number carrying the
+        # spaces the prompt's own example showed produces a daily
+        # delivery failure against a malformed address, and
+        # `best_effort = false` two lines down means it surfaces as a
+        # hard error in cron history rather than as a message.
+        #
+        # Same inline expansion as `allowed_numbers` above, and for the
+        # same reason: this block is extracted and run standalone by
+        # tests/test_whatsapp_channel_block.sh, so it cannot call a
+        # function defined outside itself.
+        _brief_to="+${CHANNEL_WHATSAPP_RECIPIENT//[^0-9]/}"
     fi
 
     # No channel resolved = genuinely nowhere to deliver, so writing the jobs
@@ -15379,12 +15713,16 @@ fi
 # fallback below retries against ASSISTANT_FALLBACK_VERSION so the
 # install completes on the proven-good binary.
 #
-# Open question: there is no zeroclaw subcommand for "encrypt the
-# plaintext password the wizard just wrote" -- the secrets store
-# auto-migrates legacy enc: values to enc2: on read but does not
-# bootstrap from plaintext. The TOML stays mode 0600 in the
-# meantime. A `config encrypt-secrets` subcommand would close the
-# window; flagged as a follow-up Rust PR (or roll into Phase E).
+# Open question, and it is the canonical statement of it: there is no
+# zeroclaw subcommand for "encrypt the plaintext password the wizard
+# just wrote". The secrets store auto-migrates legacy enc: values to
+# enc2: on read but does NOT bootstrap from plaintext, so the password
+# the wizard wrote stays plaintext for the life of the install. Mode
+# 0600 is the whole of the protection, and the customer is told exactly
+# that in the config.toml preamble at section 3.5b rather than being
+# promised an encryption step that does not exist. The subcommand is a
+# Rust PR in ostler-assistant, filed as issue #1976; its call site would
+# be here, after the binary is staged and before the LaunchAgent starts.
 
 OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.80}"
 
@@ -21772,7 +22110,7 @@ echo "  This will remove:"
 echo "    - Docker containers (ostler-qdrant, ostler-oxigraph, ostler-redis,"
 echo "      ostler-wiki-site, ostler-wiki-compiler, ostler-vane)"
 echo "    - Docker volumes (your knowledge graph data + web-search history)"
-echo "    - Ostler directory (~/.ostler, except power.conf)"
+echo "    - Ostler directory (~/.ostler, except power.conf and your licence)"
 echo "    - Doctor, export watcher, hub power, email-ingest, conversation feeds"
 echo "      (whatsapp-bundle, email-bundle, spoken-bundle, imessage-bundle),"
 echo "      wiki-recompile, assistant, and RemoteCapture launchd services"
@@ -21787,6 +22125,10 @@ echo "    - Homebrew"
 echo "    - Ollama or downloaded models (may be 7.2-23 GB)"
 echo "      To remove: ollama rm <model-name>"
 echo "    - Your original GDPR export files"
+echo "    - Your Ostler licence (~/.ostler/license/)"
+echo "      This is what you paid for. It is kept so that reinstalling"
+echo "      works without you having to find your welcome email again."
+echo "      To remove it as well: rm -rf ~/.ostler/license"
 echo "    - Your hub power policy (~/.ostler/power.conf)"
 echo "      kept so a reinstall reuses your existing policy"
 echo "    - /Applications/OstlerInstaller.app"
@@ -22298,12 +22640,38 @@ sudo rm -f /usr/local/bin/ostler-knowledge 2>/dev/null || true
 echo "  Removing /usr/local/bin/pwg-convo symlink..."
 sudo rm -f /usr/local/bin/pwg-convo 2>/dev/null || true
 
-echo "  Removing Ostler directory (hub power + knowledge staging preserved)..."
+echo "  Removing Ostler directory (licence + hub power + knowledge staging preserved)..."
 # Preserve ~/.ostler/power.conf so a reinstall reuses the user's hub power
 # policy. Also preserve ~/.ostler/data/knowledge-staging/ so a reinstall does
 # not throw away the imported Evernote markdown + image trees (operator data
 # that can take 20+ minutes to regenerate). Everything else under ~/.ostler
 # goes.
+#
+# 🔴 AND PRESERVE ~/.ostler/license/, WHICH THIS USED TO DESTROY.
+#
+# Andy's decision, 2026-09-10: the licence is kept. It is the thing the
+# customer PAID for, and it is the one file in the tree they cannot
+# regenerate. Before this, `! -name 'power.conf'` spared exactly one
+# entry and the licence directory went with everything else: an
+# uninstall silently consumed the purchase, and the reinstall that
+# followed refused at ERR-02-LICENCE-REQUIRED with nothing left on the
+# box to retry with. The customer's only route back was to find the
+# welcome email again.
+#
+# Measured before the fix: `licen[cs]e` had ZERO matches anywhere in the
+# generated uninstaller's body. Control, same pattern, same file:
+# 202 matches across install.sh as a whole. The uninstaller simply had
+# no concept of the licence existing.
+#
+# The name is `license` (US spelling), matching OSTLER_LICENCE_FILE at
+# the top of install.sh and the engine-zone path LicensePersistence.swift
+# writes. Do not "correct" it to `licence`: the customer-facing FILE is
+# ostler-licence.json, the on-disk DIRECTORY is license/, and that split
+# is deliberate and documented in LicensePersistence.swift's header.
+#
+# THIS DOES NOT MAKE THE UNINSTALL A LIE. The contract printed at the
+# top of this script now names the licence in its "will NOT remove"
+# half, so a customer who wants it gone is told where it is and how.
 KNOWLEDGE_STAGING_DIR="${HOME}/.ostler/data/knowledge-staging"
 KNOWLEDGE_STAGING_BAK=""
 if [[ -d "$KNOWLEDGE_STAGING_DIR" ]]; then
@@ -22314,7 +22682,7 @@ if [[ -d "$KNOWLEDGE_STAGING_DIR" ]]; then
 fi
 
 if [[ -d "${HOME}/.ostler" ]]; then
-    find "${HOME}/.ostler" -mindepth 1 -maxdepth 1 ! -name 'power.conf' -exec rm -rf {} + 2>/dev/null || true
+    find "${HOME}/.ostler" -mindepth 1 -maxdepth 1 ! -name 'power.conf' ! -name 'license' -exec rm -rf {} + 2>/dev/null || true
     # If power.conf wasn't there, the directory is now empty - drop it too.
     rmdir "${HOME}/.ostler" 2>/dev/null || true
 fi
