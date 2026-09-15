@@ -723,3 +723,35 @@ open_issues:
   - issue: 962
     title: "THE WALK HARNESS CANNOT SEE THE DATA IT VERIFIES: it dumps the default graph only"
     gate: 'GATE: NONE YET, AND THIS IS WHY NONE OF 960 OR 961 EVER WENT RED. ttywalk.sh:645 dumps /store?default before wiping and captures 154,920 of 230,864 quads. IT SILENTLY MISSES 75,944 QUADS, 13.6 MB, which is EVERY CM048 triple. So every walk record we hold was written by an instrument that could not read the majority of the customer data. install.sh:17504 runs Oxigraph WITHOUT --union-default-graph and compartment.py:32 REQUIRES it stay off, so this cannot be fixed globally: each query must carry its own scope. Exactly ONE production reader uses the is_empty defence (enricher.py:333) and that fix was never carried to its five siblings, the same one-file-at-a-time pattern as 958. SOURCE-ONLY, NOT TESTED BECAUSE TESTING MEANS WRITING TO THE BOX: per the repo own round-trip in repair_role_address_people.py:246, a POST to /store with no parameter MINTS A NEW NAMED GRAPH. Affects enricher.py:1295, latent because never invoked.'
+
+  - issue: 963
+    title: "Swallowed exception silently destroys richer contact data, last write wins"
+    gate: 'GATE: NONE YET. contact_syncer/facebook_friends.py:333-336, linkedin_connections.py:569-570, instagram_social.py:403-404. A BARE DICT INDEX on last_contact inside a try, an except Exception / pass on the NEXT line, then an UNCONDITIONAL qdrant.upsert. Existing points carry last_contact_ts and not last_contact (961.2), so the index raises KeyError, the swallow eats it, and a POORER new source overwrites a RICHER one with no error anywhere. PROBE LESSON WORTH MORE THAN THE BUG: an earlier fork reported this category CLEAN on a single-line regex. The real code uses the standard TWO-LINE idiom, so the zero was a probe-shape false negative caught only by cross-checking another fork.'
+
+  - issue: 964
+    title: "The Doctor daemon is killed by launchd about once a minute and silently respawns"
+    gate: 'GATE: NONE YET. box_status.py:82,103,264,322,450 spawns FIVE subprocess.run calls per status poll and web_ui.py:2864 polls at about 1 Hz. launchctl reports immediate reason = inefficient, last terminating signal = Terminated: 15, and 58,914 FORKS IN ABOUT 40 HOURS. CONTROL: every comparable daemon on the same box shows 0 to 44. macOS SIGTERMs it, KeepAlive restarts it, every open Doctor tab is dropped, and the exit code stays 0 so no health check we own can see it.'
+
+  - issue: 965
+    title: "whatsapp-keepalive diagnoses a broken channel twice a day and never remediates"
+    gate: 'GATE: NONE YET. Runs 08:50 and 17:50 via ostler-assistant channel doctor. launchctl shows runs=3, last exit code=0, which reads healthy. Its own log shows WhatsApp unhealthy on 3 of 3 runs. CORROBORATING CONTROL: whatsapp-bundle.log shows real messages ingested the same day, 13 chats scanned, 12 dispatched, so this is a LIVE DEGRADED channel and not an unpaired one. A job named keepalive that only writes the failure into a file nobody reads.'
+
+  - issue: 966
+    title: "Customer-facing status API returns a year-2318 sentinel unformatted"
+    gate: 'GATE: NONE YET. doctor/agent/box_status.py:162 pipes the Ollama expires_at value straight through. Live: GET /api/v1/box-status returns keep_alive 2318-12-27T... today, on the wire.'
+
+  - issue: 967
+    title: "Latent over-count: rc=1 matched as a raw substring"
+    gate: 'GATE: NONE YET, dormant today. doctor/agent/diagnostic_rules.py:1517-1541 matches rc=1 as a raw substring, so it will also match rc=10 to rc=19, rc=100 to rc=199 and rc=124 once any appear in the log tail, inflating the customer-facing count of conversations that could not be processed.'
+
+  - issue: 968
+    title: "Eight unreferenced debug scripts in the tip commit"
+    gate: 'GATE: NONE YET, low severity, hygiene only. tools/egress/ holds 8 debug scripts added in e3fccdf with zero references and no staging into the DMG payload. Listed so their presence is a decision rather than drift.'
+
+  - issue: 969
+    title: "Personal-use-only terms"
+    gate: 'FIX BUILT, PUSHED, NOT MERGED, branch fix/personal-use-terms. Added as a versioned ConsentString in vendor/legal/consent_strings.py following the existing pattern rather than a terms page nobody reads: tickbox personal_use_only, version v1.0-2026-09-17, 1652 chars, parses and hashes, zero em-dashes. Covers the three things no warning can fix: BUSINESS DEPLOYMENT, which makes an employer the controller for every colleague and client captured and removes the household-activity position; MINORS, who cannot consent and for whom the operator assurance is meaningless; and PRIVILEGED SETTINGS. States that the user is the recorder and Ostler is the tool, and gives NO warranty that a capture is lawful where they are. STILL TO DO, and it is this week''s defect class if left: the string is not yet RENDERED anywhere. It must be wired into the Phase-2 consent batch in install.sh, and vendor/legal/check_wording.py checked for a registration step.'
+
+  - issue: 970
+    title: "Customer copy sweep: two orphaned strings, three guarantees genuinely earned"
+    gate: 'LOW SEVERITY, MOSTLY GOOD NEWS, recorded so the denominator is visible. A full read of the 1,644-line install.sh.strings.en-GB.sh found only TWO orphaned strings with zero references repo-wide (:434 and :364), positive control passing. THREE checkable guarantee claims were verified as genuinely earned: signature verification, the 768-dimension count, and the port-preflight abort. Doctor page copy is CANNOT-RUN at that depth and is already heavily test-guarded. So the copy surface is in far better shape than the data surface.'
