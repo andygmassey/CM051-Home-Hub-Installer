@@ -13,7 +13,7 @@
         races against an unready channel and gets silently dropped.
 
         WHAT THIS PLIST USED TO DO, AND WHY IT WAS CHANGED
-        --------------------------------------------------
+        ..................................................
         ProgramArguments here used to be
 
             OSTLER_BIN/ostler-assistant  channel  doctor
@@ -45,16 +45,16 @@
 
         On the box this was caught on, launchctl showed runs=3 and
         `last exit code = 0` while the job's own log said WhatsApp was
-        unhealthy on all three runs -- and whatsapp-bundle.log showed
+        unhealthy on all three runs, and whatsapp-bundle.log showed
         that same day's messages being ingested, 13 chats scanned and 12
         dispatched. The channel was fine. The probe was measuring an
         object it had just built itself.
 
         WHAT IT DOES NOW
-        ----------------
+        ................
         It runs the keepalive script, which asks the RUNNING daemon's
         own health registry (GET /health, public on loopback, key
-        `channel:WhatsApp`) -- the only surface in the product that can
+        `channel:WhatsApp`). It is the only surface in the product that can
         tell a live socket from a dead one. When that surface says the
         channel is in error, the script restarts the assistant
         LaunchAgent, which is the fix a person would otherwise do by
@@ -106,6 +106,17 @@
         <string>OSTLER_GATEWAY_URL_VALUE</string>
         <key>OSTLER_ASSISTANT_LABEL</key>
         <string>OSTLER_ASSISTANT_LABEL_VALUE</string>
+        <!--
+            The runner shells out to python3 to parse the daemon's JSON.
+            It passes the program on stdin and imports only stdlib, so it
+            cannot write bytecode into the installed tree today. Set anyway,
+            because scripts/verify_launchagent_pycache_guard.py does NOT
+            follow the bash-to-python hop, so this agent's python is outside
+            what that gate can see. An unguarded interpreter that happens to
+            be harmless is one refactor away from littering a signed tree.
+        -->
+        <key>PYTHONDONTWRITEBYTECODE</key>
+        <string>1</string>
     </dict>
 
     <!--
@@ -172,7 +183,7 @@
         opens is how three consecutive unhealthy runs went unnoticed. The
         script also writes ~/.ostler/state/whatsapp_keepalive.json, which
         the Doctor dashboard renders as a tile, and it exits non-zero on
-        any outcome that is not "the channel is up" -- so `launchctl
+        any outcome that is not "the channel is up", so `launchctl
         print` stops reading as healthy when it is not.
     -->
     <key>StandardOutPath</key>
