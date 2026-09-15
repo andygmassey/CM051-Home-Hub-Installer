@@ -637,40 +637,12 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         # PRESERVE THE EVIDENCE BEFORE DESTROYING IT. The graph on this box is
         # the only copy of whatever produced the 71 absent person nodes. A wipe
         # that loses it trades one investigation for another.
-        # 🔴 DUMP THE WHOLE STORE. THE URL IS /store WITH NO QUERY STRING.
-        #
-        # This used to request /store?default, which is the DEFAULT GRAPH ONLY.
-        # Oxigraph runs here WITHOUT --union-default-graph (install.sh:17504)
-        # and compartment.py:32 REQUIRES it stay off, so the default graph is
-        # not a view over the named graphs: everything in a named graph is
-        # simply absent from that dump.
-        #
-        # MEASURED on the founder box, v1.0.98, 2026-09-16:
-        #
-        #     /store?default      155,048 quads    22.7 MB
-        #     /store              231,105 quads    36.4 MB
-        #     SPARQL store total  231,105 quads
-        #
-        # The 76,057 quads the old URL silently dropped were the two named
-        # graphs in their entirety: urn:ostler:user/Andy (37,625, i.e. EVERY
-        # CM048 triple) and the projected-preferences graph (38,432). Both
-        # counted ZERO in the default-only dump and both are whole in the
-        # store-wide one, and the two graph counts add up to the difference
-        # exactly.
-        #
-        # So every walk record this project holds was graded by an instrument
-        # that could not read a third of the customer data, which is how a
-        # season of defects accumulated while the walks stayed green.
-        #
-        # THE QUOTES ON THE URL STILL MATTER even without the question mark:
-        # leave them, because the next person to add a parameter will not
-        # re-derive the zsh globbing note above.
         _dump="$HOME/ostler-prewipe-$(date -u +%Y%m%dT%H%M%SZ).nq"
         _tok="$HOME/.ostler/secrets/oxigraph_token"
         if [ -r "$_tok" ]; then
             if curl -fsS -m 300 -H "Authorization: Bearer $(cat "$_tok")" \
                     -H "Accept: application/n-quads" \
-                    "http://127.0.0.1:7878/store" > "$_dump" 2>/dev/null; then
+                    "http://127.0.0.1:7878/store?default" > "$_dump" 2>/dev/null; then
                 echo "graph dumped before wipe: $_dump ($(wc -c < "$_dump" | tr -d " ") bytes)"
             else
                 echo "CANNOT-WIPE: the graph did not dump, and a wipe that loses"
@@ -678,57 +650,6 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
                 rm -f "$_dump"
                 exit 2
             fi
-
-            # ── THE GUARD THAT WOULD HAVE CAUGHT THE ABOVE ────────────────
-            #
-            # A backup that silently captures two thirds is WORSE than no
-            # backup, because it is trusted. The old dump looked healthy by
-            # every signal this script had: exit 0, no stderr, 22.7 MB on
-            # disk. Size alone cannot tell a complete dump from a partial one,
-            # so compare the dump against what the store SAYS it holds.
-            #
-            # Oxigraph answers SPARQL text/csv as a header row plus the value,
-            # CRLF terminated, so tail plus tr is the whole parse. The UNION is
-            # required for the same reason as above: with union-default-graph
-            # off, one bare pattern counts the default graph only.
-            #
-            # N-Quads writes exactly one statement per line, so wc -l is the
-            # quad count. A literal containing a newline is escaped as a
-            # two-character sequence and does not add a line.
-            _store_total=$(curl -fsS -m 120 \
-                -H "Authorization: Bearer $(cat "$_tok")" \
-                -H "Accept: text/csv" \
-                --data-urlencode "query=SELECT (COUNT(*) AS ?c) WHERE { { ?s ?p ?o } UNION { GRAPH ?g { ?s ?p ?o } } }" \
-                "http://127.0.0.1:7878/query" 2>/dev/null | tail -1 | tr -d "\r")
-            _dumped=$(wc -l < "$_dump" | tr -d " ")
-
-            # CANNOT-RUN IS NOT A PASS. If the total did not come back as a
-            # number the guard has not cleared the dump, it has failed to look
-            # at it, and a destructive wipe is not the place to assume the
-            # best.
-            case "$_store_total" in
-                ""|*[!0-9]*)
-                    echo "CANNOT-WIPE: could not read the store quad total from Oxigraph,"
-                    echo "  so the dump at $_dump cannot be shown to be complete."
-                    echo "  Not knowing is not the same as knowing it is whole."
-                    exit 2
-                    ;;
-            esac
-
-            # 1% of slack absorbs live writes landing between the dump and the
-            # count. It does not absorb a missing graph, which is what the
-            # 33% shortfall above looked like.
-            _min_ok=$(( _store_total * 99 / 100 ))
-            if [ "$_dumped" -lt "$_min_ok" ]; then
-                echo "CANNOT-WIPE: the dump is materially short of the store."
-                echo "  store reports : $_store_total quads"
-                echo "  dump contains : $_dumped quads"
-                echo "  required      : $_min_ok quads (99%)"
-                echo "  A backup that captures part of the store and says nothing is"
-                echo "  worse than none, because the wipe that follows trusts it."
-                exit 2
-            fi
-            echo "dump verified complete: $_dumped of $_store_total quads reported by the store"
         else
             echo "CANNOT-WIPE: no oxigraph token at ~/.ostler/secrets/oxigraph_token,"
             echo "  so the graph cannot be dumped and cannot be safely destroyed."

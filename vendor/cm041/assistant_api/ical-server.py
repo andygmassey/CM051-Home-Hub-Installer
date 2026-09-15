@@ -152,7 +152,7 @@ def _warn_plaintext_once(db_path: str) -> None:
 import threading
 import urllib.request
 import uuid
-from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime, timedelta, timezone
@@ -8098,33 +8098,4 @@ if __name__ == "__main__":
             file=sys.stderr,
             flush=True,
         )
-    # ONE SLOW HANDLER MUST NEVER TAKE THE WHOLE API DOWN.
-    #
-    # This was a plain HTTPServer, which serves exactly one request at a time.
-    # Measured on the v1.0.98 founder box: GET /api/v1/contacts/diff spent 121s
-    # inside the duplicate scan, and for that entire window /health and
-    # /calendar/today both returned 000 (curl rc=28, no response) -- so the iOS
-    # app showed "Hub offline" and the assistant answered nothing until the
-    # process was restarted. A single report route could deny service to the
-    # customer's whole Hub.
-    #
-    # The diff route's own cost is fixed separately (identity_resolver/
-    # batch_resolver.py: the edit distance is no longer computed for all 6.5M
-    # pairs). This is the structural half: no future slow handler gets to do
-    # the same thing again.
-    #
-    # SAFE TO THREAD, checked rather than assumed. Handler state is per-request
-    # (BaseHTTPRequestHandler instantiates one per connection). The module-level
-    # tables the handlers read -- _ALLOWED_HOST_NAMES, _PUBLIC_GET_PATHS,
-    # _SLUG_TRANSLIT, WIKI_HYDRATION_ALLOWED_ORIGINS, GWS_ENV,
-    # _ASSERT_FIELD_ALIASES, _MEMORY_SOURCE_LABELS, _DEGRADED_FEATURE_MAP -- are
-    # read-only after import (zero mutation sites). The only two mutable globals
-    # are idempotent: _PLAINTEXT_WARNED is a warn-once flag whose worst race
-    # prints the warning twice, and _reply_debt_service memoises an
-    # importlib.import_module whose worst race re-enters an import that
-    # sys.modules already makes idempotent.
-    #
-    # daemon_threads: a hung handler must not keep the process alive at
-    # shutdown, or launchd's stop turns into a kill.
-    ThreadingHTTPServer.daemon_threads = True
-    ThreadingHTTPServer((BIND_HOST, PORT), Handler).serve_forever()
+    HTTPServer((BIND_HOST, PORT), Handler).serve_forever()

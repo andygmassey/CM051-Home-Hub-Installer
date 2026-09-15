@@ -22,7 +22,6 @@ import os
 import sys
 import uuid
 from collections import defaultdict
-import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -94,12 +93,6 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # Fuzzy thresholds
     "fuzzy_jaro_winkler_threshold": 0.85,
     "fuzzy_levenshtein_max_distance": 2,
-    # Wall-clock backstop for the quadratic duplicate scan. Measured on the
-    # founder graph after the eager-edit-distance fix: 3,604 contacts /
-    # 6,492,606 pairs in 11.8s, so 60s is roughly a 5x headroom on today's
-    # shape rather than a limit anybody normally meets. Exceeding it yields a
-    # PARTIAL report that says so. Set to 0 to disable the bound.
-    "fuzzy_match_max_seconds": 60.0,
     # Phone normalisation
     "default_country_code": 852,
     # Common free email domains — too generic to count as a signal for fuzzy matching
@@ -200,47 +193,6 @@ def _levenshtein(s1: str, s2: str) -> int:
         for j, c2 in enumerate(s2):
             # Insertion, deletion, substitution
             curr.append(min(curr[j] + 1, prev[j + 1] + 1, prev[j] + (c1 != c2)))
-        prev = curr
-    return prev[-1]
-
-
-def _levenshtein_within(s1: str, s2: str, max_dist: int) -> int:
-    """Levenshtein distance, ABANDONED as soon as it provably exceeds max_dist.
-
-    🔴 THE RETURN VALUE IS ONLY VALID FOR A ``> max_dist`` TEST. When the true
-    distance is <= max_dist this returns it exactly; when it is greater this
-    returns SOME value greater than max_dist, not necessarily the true one.
-    Never print this number or put it in evidence -- call :func:`_levenshtein`
-    for that, and only for the few pairs that actually survive the gate.
-
-    Why this exists: :func:`detect_fuzzy_name_matches` is O(n^2) over the whole
-    address book, and it used to run a FULL edit-distance DP on every pair. On
-    the founder graph that is 3,604 contacts = 6,492,606 pairs, and the endpoint
-    that calls it (GET /api/v1/contacts/diff) did not return inside 90 seconds.
-    Two cut-offs make the same answer cheap:
-
-      * a length delta above max_dist already PROVES the distance exceeds it,
-        so the DP never starts (max_dist is 2, so most pairs die here);
-      * within the DP, once an entire row's minimum exceeds max_dist, every
-        later row's minimum is >= it, so no completion can come back under the
-        bound.
-    """
-    if len(s1) < len(s2):
-        s1, s2 = s2, s1
-    # A length difference alone forces at least that many edits.
-    if len(s1) - len(s2) > max_dist:
-        return max_dist + 1
-    if len(s2) == 0:
-        return len(s1)
-    prev = list(range(len(s2) + 1))
-    for i, c1 in enumerate(s1):
-        curr = [i + 1]
-        for j, c2 in enumerate(s2):
-            curr.append(min(curr[j] + 1, prev[j + 1] + 1, prev[j] + (c1 != c2)))
-        # Rows are non-decreasing in their minimum, so this is a real proof,
-        # not a heuristic.
-        if min(curr) > max_dist:
-            return max_dist + 1
         prev = curr
     return prev[-1]
 
@@ -586,9 +538,7 @@ def detect_linkedin_url_matches(
 
 
 def detect_fuzzy_name_matches(
-    persons: Dict[str, PersonRecord],
-    config: Dict[str, Any],
-    stats: Optional[Dict[str, Any]] = None,
+    persons: Dict[str, PersonRecord], config: Dict[str, Any]
 ) -> List[DuplicateMatch]:
     """Strategy 4: Fuzzy name match via Jaro-Winkler + Levenshtein (confidence 0.6-0.8).
 
@@ -598,12 +548,6 @@ def detect_fuzzy_name_matches(
     = 0.852 due to 4-char prefix bonus), we require either:
     - Very high similarity (JW >= 0.93) for standalone matches, OR
     - Corroboration (same org or shared corporate email domain) for JW 0.85-0.93
-
-    ``stats`` is an optional caller-owned dict. When the scan stops early on the
-    ``fuzzy_match_max_seconds`` budget it is populated with ``truncated=True``
-    plus how far it got, so the caller can tell the customer the report is
-    partial instead of quietly serving a short one. The dict is caller-owned so
-    this stays safe to call from more than one request thread at a time.
     """
     uris = list(persons.keys())
     matches = []
@@ -623,36 +567,14 @@ def detect_fuzzy_name_matches(
     rare_max_holders = config.get("rare_surname_max_holders", 2)
     rare_min_len = config.get("rare_surname_min_length", 3)
 
-    # HOISTED OUT OF THE INNER LOOP. _normalise_name(b.display_name) used to be
-    # recomputed once per PAIR, i.e. 6,492,606 times on the founder graph for
-    # 3,604 distinct values. Normalise once per person instead.
-    norms = [_normalise_name(persons[u].display_name) for u in uris]
-
-    # Wall-clock backstop. The cause of the v1.0.98 wedge is fixed below, but
-    # this loop is still quadratic, so an address book an order of magnitude
-    # larger would walk back into the same shape. Budget exhausted = a PARTIAL
-    # report that says so, never an unbounded scan.
-    budget = config.get("fuzzy_match_max_seconds", 60.0)
-    deadline = (time.monotonic() + budget) if budget and budget > 0 else None
-
     for i in range(len(uris)):
-        norm_a = norms[i]
+        a = persons[uris[i]]
+        norm_a = _normalise_name(a.display_name)
         if not norm_a:
             continue
-        if deadline is not None and time.monotonic() > deadline:
-            if stats is not None:
-                stats["truncated"] = True
-                stats["truncated_reason"] = (
-                    f"duplicate scan stopped after {budget:.0f}s "
-                    f"({i} of {len(uris)} contacts compared)"
-                )
-                stats["compared"] = i
-                stats["total"] = len(uris)
-            break
-        a = persons[uris[i]]
-        len_a = len(norm_a)
         for j in range(i + 1, len(uris)):
-            norm_b = norms[j]
+            b = persons[uris[j]]
+            norm_b = _normalise_name(b.display_name)
             if not norm_b:
                 continue
 
@@ -661,21 +583,10 @@ def detect_fuzzy_name_matches(
                 continue
 
             jw_score = _jaro_winkler(norm_a, norm_b)
+            lev_dist = _levenshtein(norm_a, norm_b)
 
-            # 🔴 DO NOT HOIST THE EDIT DISTANCE BACK OUT OF THIS BRANCH.
-            # The gate below is "jw bad AND lev bad -> skip", so the edit
-            # distance only DECIDES anything when jw has already failed its
-            # threshold. It used to be computed eagerly for all 6.49M pairs,
-            # which is why GET /api/v1/contacts/diff did not return inside 90
-            # seconds, and -- the server being single-threaded -- took every
-            # other route down with it while it ran.
-            if jw_score < jw_threshold:
-                if abs(len_a - len(norm_b)) > lev_max:
-                    continue
-                if _levenshtein_within(norm_a, norm_b, lev_max) > lev_max:
-                    continue
-
-            b = persons[uris[j]]
+            if jw_score < jw_threshold and lev_dist > lev_max:
+                continue
 
             # Hard-conflict veto (spec §3b): different LinkedIn / phone /
             # corporate email = different people, never merge.
@@ -753,14 +664,6 @@ def detect_fuzzy_name_matches(
                     f"(surname '{surname_a}' held by "
                     f"{surname_holder_counts.get(surname_a, 0)})"
                 )
-
-            # THE EXACT DISTANCE, AND THIS IS THE ONLY PLACE IT IS NEEDED.
-            # Deliberately computed AFTER the last `continue` above, so the
-            # full DP is paid for only by pairs that actually become matches
-            # (91 of 6,492,606 on the founder graph). The bounded
-            # _levenshtein_within used by the gate cannot be reused here: its
-            # answer is only valid for a "> lev_max" test, never to print.
-            lev_dist = _levenshtein(norm_a, norm_b)
 
             detail_parts = [
                 f"Jaro-Winkler={jw_score:.3f}",

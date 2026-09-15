@@ -265,11 +265,6 @@ class TidyReport:
 
     items: List[TidyItem] = field(default_factory=list)
     total_persons: int = 0
-    # Set when the duplicate scan hit its wall-clock budget. A short report
-    # that does not say it is short is indistinguishable from a clean one, and
-    # the user would read "no duplicates left" off a scan that never finished.
-    truncated: bool = False
-    truncated_reason: str = ""
 
     def counts(self) -> Dict[str, int]:
         out: Dict[str, int] = {
@@ -282,24 +277,18 @@ class TidyReport:
         return out
 
     def to_dict(self) -> Dict[str, Any]:
-        out: Dict[str, Any] = {
+        return {
             "schema_version": 1,
             "total_persons": self.total_persons,
             "counts": self.counts(),
             "items": [it.to_dict() for it in self.items],
         }
-        if self.truncated:
-            out["truncated"] = True
-            out["truncated_reason"] = self.truncated_reason
-        return out
 
 
 # ── Duplicate-cluster -> proposed-merge items ────────────────────────────────
 
 def _duplicate_items(
-    persons: Dict[str, PersonRecord],
-    config: Dict[str, Any],
-    stats: Optional[Dict[str, Any]] = None,
+    persons: Dict[str, PersonRecord], config: Dict[str, Any]
 ) -> List[TidyItem]:
     """Run the resolver's duplicate detection and turn every candidate pair into
     a PROPOSED merge item.
@@ -314,7 +303,7 @@ def _duplicate_items(
     all_matches.extend(detect_exact_name_matches(persons, config))
     all_matches.extend(detect_email_matches(persons, config))
     all_matches.extend(detect_phone_matches(persons, config))
-    all_matches.extend(detect_fuzzy_name_matches(persons, config, stats=stats))
+    all_matches.extend(detect_fuzzy_name_matches(persons, config))
     all_matches.extend(detect_name_subset_matches(persons, config))
 
     auto, review = consolidate_matches(all_matches, config)
@@ -393,21 +382,12 @@ class TidyEngine:
                 self.resolver.oxigraph_url, self.resolver._client, self.config
             )
 
-        # Caller-owned, so two request threads building a report at the same
-        # time never share it.
-        stats: Dict[str, Any] = {}
-
         items: List[TidyItem] = []
-        items.extend(_duplicate_items(persons, self.config, stats=stats))
+        items.extend(_duplicate_items(persons, self.config))
         items.extend(detect_low_quality(persons, self.config))
         items.extend(detect_incomplete(persons, self.config))
 
-        return TidyReport(
-            items=items,
-            total_persons=len(persons),
-            truncated=bool(stats.get("truncated")),
-            truncated_reason=str(stats.get("truncated_reason", "")),
-        )
+        return TidyReport(items=items, total_persons=len(persons))
 
     # -- apply ---------------------------------------------------------------
 
