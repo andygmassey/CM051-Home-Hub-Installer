@@ -317,6 +317,27 @@ check_eq "capped-exit" "5" "$rc" "the capped run must still exit 5" || ok=1
 check_eq "capped-restart" "0" "$(kickstart_count)" "the repair cap must stop a second restart" || ok=1
 [ "$ok" = "0" ] && pass "bounded: second fire with the cap reached does 0 restarts (denominator: 1 run)"
 
+# ── 5b. THE RESTART ITSELF FAILING ────────────────────────────────────
+#
+# A distinct customer-facing outcome with its own copy, and an untested branch
+# until this case existed. It also guards a specific trap: restart_assistant
+# pipes launchctl into sed, and in a pipeline `$?` belongs to the LAST command.
+# Only `set -o pipefail` makes launchctl's non-zero survive that pipe. Drop
+# pipefail and this case goes green while the script reports a repair that
+# never happened.
+reset_box
+write_health "error" "channel reports not-ready (health_check returned false)"
+rc="$(LAUNCHCTL_RC=1 RESTART_HEALS=0 run_keepalive)"
+ok=0
+check_eq "restart-failed-exit" "5" "$rc" "a failed restart must exit 5" || ok=1
+check_eq "restart-failed-verdict" "still_unhealthy" "$(verdict_is)" "state file verdict" || ok=1
+check_eq "restart-failed-attempt" "1" "$(kickstart_count)" "the restart was attempted once" || ok=1
+if ! /usr/bin/grep -q 'did not succeed' "${WORK}/run.log"; then
+    fail "restart-failed-says-so" "the log does not say the restart failed: $(tail -3 "${WORK}/run.log")"
+    ok=1
+fi
+[ "$ok" = "0" ] && pass "launchctl refuses the restart: exit 5, verdict still_unhealthy, and it says the restart failed rather than claiming a repair"
+
 # ── 6. CANNOT-RUN. No verdict is not a failure verdict. ───────────────
 reset_box
 DEAD_GATEWAY="http://127.0.0.1:1"
