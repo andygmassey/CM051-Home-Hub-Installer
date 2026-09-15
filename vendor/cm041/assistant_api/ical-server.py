@@ -1452,7 +1452,16 @@ def api_conversation_process(payload):
 
     Accepts {transcript, metadata}. Saves raw inputs, spawns background
     processing, returns job_id immediately.
+
+    Rule 0.8: call and meeting transcription is one of the eleven named
+    surfaces. Gate BEFORE the pwg-convo probe and before the thread is
+    spawned, so an unpaid Hub does not start work it will not finish.
+    The recording itself is never touched -- CM042 keeps its own file.
     """
+    paused = _subscription_paused("conversation_transcription")
+    if paused is not None:
+        return paused
+
     transcript = payload.get("transcript", "")
     metadata = payload.get("metadata", {})
 
@@ -5607,7 +5616,15 @@ def api_ingest_ios(payload):
     (meetings, calendar) already keyed by date. The graph write is
     best-effort: a graph failure never fails the ingest (the JSONL spool
     is the durable record).
+
+    Rule 0.8 (PRODUCTISATION_CHECKLIST.md): this is NEW data arriving
+    from the phone, so it pauses without Ostler Pro. Reads are untouched
+    -- everything already spooled stays queryable on every endpoint.
     """
+    paused = _subscription_paused("ios_ingest")
+    if paused is not None:
+        return paused
+
     import time
     import uuid
 
@@ -5851,7 +5868,15 @@ def api_safari_ingest(payload):
     ``ostler_fda/pwg_ingest.ingest_browser_history`` but for one page
     at a time: sensitive-domain filter, Ollama embed of
     (title + host + url), Qdrant upsert into ``safari_history``.
+
+    Rule 0.8: browser capture is one of the eleven named surfaces. It
+    pauses without Ostler Pro. The extension keeps its own retry, so a
+    402 here is not a lost page, it is a deferred one.
     """
+    paused = _subscription_paused("safari_capture")
+    if paused is not None:
+        return paused
+
     import uuid as _uuid
     import time as _time
 
@@ -5958,6 +5983,126 @@ def api_safari_ingest(payload):
 # can fan out work and collect named results. Every helper is wrapped in
 # a blanket try/except – a misbehaving dependency must NEVER propagate
 # up to the endpoint handler.
+
+
+def _subscription_paused(surface):
+    """Rule 0.8: should this ingestion surface pause for an unpaid Hub?
+
+    Returns a ``(body, status)`` 402 tuple when ongoing intelligence is
+    paused, or ``None`` when the surface should carry on.
+
+    Named surfaces, so a Doctor reading the log can say WHICH pipeline
+    paused rather than "something is off". Pass the stable channel id.
+
+    🔴 FAILS OPEN, ON PURPOSE, AND ONLY ON A FAILURE TO ASK. If the gate
+    module cannot be imported or raises, the customer keeps their
+    intelligence. A packaging mistake must never masquerade as a lapsed
+    subscription -- that is a support call from someone who has paid. It
+    must also never be invisible, so the reason is printed every time.
+    The thing that makes this safe is that the gate module SHIPS BESIDE
+    this file: install.sh L22685 does `cp -R assistant_api/. ` into
+    ${OSTLER_DIR}/services/ical-server/, and this process already runs
+    with that directory on sys.path (api_subscription_receipt has
+    imported it the same way since PR #190).
+
+    Apple-restraint language: "paused", never "locked". Data already
+    ingested stays fully readable on every endpoint; only NEW data stops.
+    """
+    try:
+        import subscription_gate  # type: ignore[import-not-found]
+        if subscription_gate.is_active_or_grace():
+            return None
+        snapshot = subscription_gate.state_dict()
+    except Exception as exc:
+        print(
+            f"WARNING: subscription gate unavailable for {surface} "
+            f"({exc}); continuing to ingest. A customer is never paused "
+            "because we could not ask.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return None
+    print(
+        f"[subscription] {surface}: paused -- Ostler Pro is not active "
+        f"(status={snapshot.get('status')}, source={snapshot.get('source')}). "
+        "Existing data stays available; new capture resumes on the next "
+        "receipt push.",
+        flush=True,
+    )
+    return (
+        {
+            "status": "paused",
+            "reason": "subscription_inactive",
+            "surface": surface,
+            "detail": (
+                "Ostler Pro is not active, so new data is not being "
+                "processed. Everything already in your Hub stays "
+                "available. Subscribe in the Ostler app to resume."
+            ),
+        },
+        402,
+    )
+
+
+def _start_subscription_expiry_ticker():
+    """Walk the subscription state forward on a schedule. THE MISSING WIRE.
+
+    ``subscription_gate.expire_check()`` shipped with ZERO production
+    callers. Nothing anywhere in the installed Hub ever called it, so the
+    state file install.sh wrote on day zero (``status=active``,
+    ``expires_at=+30d``) still said ``active`` on day 300, and every Hub
+    buyer had Ostler Pro free for life. Two independent sweeps found it
+    on 2026-09-16.
+
+    This runs it hourly inside the ical-server, which is the right host
+    for three reasons: it is already a KeepAlive LaunchAgent
+    (``com.ostler.ical-server``, install.sh L22729), so there is no new
+    plist to bootstrap and no new EX_CONFIG failure mode on the install
+    path; it is the process that already owns the gate module; and it is
+    the process that serves the receipt push that writes the state.
+
+    A daemon thread, so it can never hold up interpreter shutdown, and
+    every tick is wrapped: a failure to walk the state must not take the
+    Assistant API down with it.
+
+    NOTE FOR ANYONE TEMPTED TO REMOVE THIS: deleting it will not restore
+    the defect on its own, because ``is_active_or_grace`` now walks the
+    state in-process on every read. That is deliberate belt and braces.
+    What you WILL break is the Doctor banner and every support
+    conversation, which read the persisted status.
+    """
+    interval = 3600
+
+    def _tick():
+        # Local import, matching this file's convention (there is no
+        # module-level `import time`; every handler imports it locally).
+        import time as _time
+
+        while True:
+            try:
+                import subscription_gate  # type: ignore[import-not-found]
+                subscription_gate.expire_check()
+            except Exception as exc:
+                print(
+                    f"WARNING: subscription expiry tick failed ({exc}); "
+                    "the in-process walk in is_active_or_grace still "
+                    "gates ingestion correctly.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            _time.sleep(interval)
+
+    thread = threading.Thread(
+        target=_tick,
+        name="subscription-expiry-ticker",
+        daemon=True,
+    )
+    thread.start()
+    print(
+        f"subscription expiry ticker: started (every {interval}s)",
+        flush=True,
+    )
+    return thread
 
 
 def api_subscription_receipt(payload):
@@ -8070,6 +8215,10 @@ if __name__ == "__main__":
     BIND_HOST = os.environ.get("OSTLER_API_BIND", "127.0.0.1")
     # Tag the historical privacy coverage gap before answering /people/*.
     _run_privacy_backfill_on_startup()
+    # Walk the subscription state forward from here on. Before this line
+    # existed, expire_check() had no production caller at all and no
+    # trial ever ended. See _start_subscription_expiry_ticker.
+    _start_subscription_expiry_ticker()
     # Service-token auth posture (v1.0.10 lockdown). Loud so a missing token
     # is never silent: without it, every non-public endpoint fails closed
     # (401). There is no environment escape hatch.
