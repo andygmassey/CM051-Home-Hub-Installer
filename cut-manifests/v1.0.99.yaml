@@ -757,8 +757,50 @@ open_issues:
     gate: 'LOW SEVERITY, MOSTLY GOOD NEWS, recorded so the denominator is visible. A full read of the 1,644-line install.sh.strings.en-GB.sh found only TWO orphaned strings with zero references repo-wide (:434 and :364), positive control passing. THREE checkable guarantee claims were verified as genuinely earned: signature verification, the 768-dimension count, and the port-preflight abort. Doctor page copy is CANNOT-RUN at that depth and is already heavily test-guarded. So the copy surface is in far better shape than the data surface.'
 
   - issue: 971
-    title: "A PAYING PRO SUBSCRIBER NEVER GETS A VAULT, and every log says fine"
-    gate: 'GATE: NONE YET. MOST COMMERCIALLY SERIOUS ITEM ON THE BOARD: the customer has paid and receives nothing, permanently, with green logs. install.sh:17757 sets OSTLER_LICENCE_STATE_FILE=/licence/state.json, mounted from ${HOME}/.ostler/licence (install.sh:17686). ON THE BOX THAT DIRECTORY IS EMPTY, while the real artefact sits under THE OTHER SPELLING: ~/.ostler/license/license.json, 447 bytes, a genuine Stripe purchase dated 2026-05-15 with an update window to 2027-05-15. MEASURED CONSEQUENCE, wiki-recompile-catchup.log 2026-09-14 16:57:14: vault_licence ... /licence/state.json ... does not exist ... Fail-closed to pro_none, the Pro vault writer will not run. Then vault_writer: pro_state=pro_none, ongoing vault write skipped. THE SAME PASS REPORTS Compilation complete: 16 ok, 19 skipped, 0 errors. NOTE THE HALF-FIX: the MOUNT half was found and fixed as #482 and the comment at install.sh:17662-17690 explains it. The surviving half is that NOTHING PRODUCES state.json, and that comment SAYS SO ITSELF (nothing in CM044 writes it). Somebody verified the mount and nobody checked anything fills it. CAVEAT CARRIED FROM THE REPORTER: their source-side grep control returned 0 and therefore did NOT validate, so this rests on the installer own comment, the empty directory, and the pro_none compile line, which are direct evidence.'
+    title: "NOTHING IN THE PRODUCT CAN EVER PRODUCE pro_active, so the first Pro subscriber gets nothing"
+    gate: 'GATE: NONE YET. LAUNCH BLOCKER FOR A PRODUCT ABOUT TO BE SOLD.
+
+      NARROWED AND CORRECTED FROM MY OWN FIRST VERSION OF THIS ROW, which said a
+      paying Pro subscriber on this box was being denied a vault. MEASURED SINCE:
+      there is NO subscription state anywhere on the box. daemon_state.json holds
+      health and uptime only; 738 lines of assistant config.toml contain no
+      subscription, tier, pro_ or entitle key at all; the iOS log reads
+      refreshStatus -> notSubscribed; and the licence file is the ONE-OFF HUB
+      PURCHASE with no tier field (keys: issued_to_email, license_id,
+      max_hardware_fingerprints, purchased_at, signature, signature_algorithm,
+      stripe_payment_id, update_window_expires_at, version). So on the operator box
+      pro_none is the CORRECT answer and nobody is being denied anything. Same
+      lesson as the 3-of-87 retraction: measure before calling it a loss.
+
+      THE DEFECT THAT SURVIVES IS STILL SEVERE. compiler/vault_licence.py reads
+      ~/.ostler/licence/state.json expecting {pro_state: pro_active|pro_trial|pro_none,
+      updated_at}. NOTHING WRITES THAT FILE, ANYWHERE. So no customer can ever reach
+      pro_active, and the first person who pays for Pro receives nothing, permanently,
+      while the compile logs 16 ok, 19 skipped, 0 errors.
+
+      THE CODE DOCUMENTS ITS OWN FAILURE, verbatim from that docstring: "this exact
+      file path + schema does not exist anywhere in the codebase yet", the write side
+      "is oa-repo scope, built separately", and "Whoever lands that observer must
+      either match this schema or this module needs a follow-up PR -- confirm before
+      v1.0.13 merges." NOBODY CONFIRMED. It merged and shipped.
+
+      AND THE VOCABULARY DOES NOT EXIST EITHER: the daemon state machine
+      (zeroclaw-gateway/src/api_subscription.rs) tracks active / grace / expired /
+      inactive, with no notion of pro_trial versus pro_active versus pro_none. The
+      tri-state vocabulary was introduced by the BRIEF for the Doctor rule and Hub UI
+      and only the READ side was ever built.
+
+      FIX SHAPE: an observer that reads the daemon subscription state and writes
+      state.json in the expected schema. MAPPING IS A PRODUCT DECISION, not an agent
+      one: grace almost certainly maps to pro_active, because the customer has paid
+      and a card retry should not revoke their vault, but say so out loud rather than
+      choosing silently.
+
+      HISTORY WORTH KEEPING: the MOUNT half of this was found and fixed TWICE, as
+      #849 and #482, both times after a test on CM044 dev compose stayed green while
+      the shipped compose was broken. tests/test_shipped_compose_licence_mount.sh now
+      guards the mount and the env var, and asserts NOTHING about the file being
+      written. Three fixes, none of which asked whether anything fills it.'
 
   - issue: 972
     title: "INDEPENDENT CORROBORATION of 964 and 965 by a second sweep"
