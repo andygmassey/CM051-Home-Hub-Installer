@@ -370,6 +370,72 @@ check_eq "absent-exit" "3" "$rc" "an unregistered channel must exit 3" || ok=1
 check_eq "absent-restart" "0" "$(kickstart_count)" "an unregistered channel must not be restarted" || ok=1
 [ "$ok" = "0" ] && pass "WhatsApp not enabled on this install: exit 3, 0 restarts"
 
+# ── 6b. AN INTERPRETER THAT DOES NOT RUN IS NOT AN INTERPRETER ────────
+#
+# On a Mac with no Command Line Tools, /usr/bin/python3 EXISTS, is executable,
+# and does not run: it is an Apple stub that prompts instead. install.sh records
+# that trap. A `[ -x ]` test accepts it, every later parse then fails, and the
+# script would report CANNOT-RUN against a daemon that answered perfectly.
+#
+# resolve_python defends by RUNNING each candidate. That is asserted against
+# the REAL function, extracted from the shipped script by its own delimiters --
+# never a copy, because a copy drifts and then tests itself.
+echo "── the interpreter probe, driven against the real function ──"
+FN="${WORK}/resolve_python.inc"
+awk '/^resolve_python\(\) \{$/,/^\}$/' "$SCRIPT" > "$FN"
+_fl="$(wc -l < "$FN" | tr -d ' ')"
+if [ "$_fl" -lt 10 ]; then
+    echo "CANNOT-RUN: could not extract resolve_python (${_fl} lines); its delimiters moved." >&2
+    echo "            The interpreter probe was NOT measured." >&2
+else
+    STUB_DIR="${WORK}/stubpy"
+    mkdir -p "$STUB_DIR"
+    # Same shape as the Apple stub: present, executable, does not run.
+    printf '#!/bin/bash\necho "xcode-select: note: no developer tools were found" >&2\nexit 1\n' > "${STUB_DIR}/stub"
+    chmod +x "${STUB_DIR}/stub"
+
+    probe() {   # $1..$n = candidates, in order. Prints the one chosen, or nothing.
+        bash -c '
+            OSTLER_KEEPALIVE_PYTHON="$1"
+            OSTLER_DIR="$2"
+            '"$(cat "$FN")"'
+            resolve_python || true
+        ' _ "$1" "$2" 2>/dev/null
+    }
+
+    ok=0
+    # A stub offered first must NOT be chosen, even though it is executable.
+    chosen="$(probe "${STUB_DIR}/stub" "${WORK}/no-such-ostler-dir")"
+    if [ "$chosen" = "${STUB_DIR}/stub" ]; then
+        fail "stub-python-chosen" "resolve_python selected a stub that does not run. A [ -x ] test would do this; running the candidate is the whole point."
+        ok=1
+    fi
+    # POSITIVE CONTROL: a REAL interpreter offered first MUST be chosen, or the
+    # arm above passes because the function returns nothing for everything.
+    chosen_ok="$(probe "$PYTHON_BIN" "${WORK}/no-such-ostler-dir")"
+    if [ "$chosen_ok" != "$PYTHON_BIN" ]; then
+        fail "stub-python-control" "resolve_python did not select a REAL interpreter (${PYTHON_BIN}), it returned '${chosen_ok}'. It rejects everything, so the stub arm above proves nothing."
+        ok=1
+    fi
+    [ "$ok" = "0" ] && pass "resolve_python rejects a present-but-non-running python3 and selects a real one (control: the real interpreter IS selected)"
+
+    # And the CANNOT-RUN branch itself: no candidate resolves at all.
+    # /usr/bin/python3 is hard-coded as the last resort, so this arm is only
+    # reachable on a box where that one does not run either. Say which, rather
+    # than skipping silently.
+    if /usr/bin/python3 -c 'import json,sys' >/dev/null 2>&1; then
+        echo "CANNOT-RUN: the no-interpreter-anywhere branch cannot be reached here," >&2
+        echo "            because /usr/bin/python3 on this host runs. What resolve_python" >&2
+        echo "            does when EVERY candidate fails was NOT measured. To measure it," >&2
+        echo "            run on a Mac with no Command Line Tools installed." >&2
+    else
+        chosen_none="$(probe "${STUB_DIR}/stub" "${WORK}/no-such-ostler-dir")"
+        [ -z "$chosen_none" ] \
+            && pass "with no working candidate anywhere, resolve_python selects nothing" \
+            || fail "no-python-branch" "resolve_python returned '${chosen_none}' with no working candidate"
+    fi
+fi
+
 # ── 7. THE SESSION STORE IS NEVER TOUCHED ─────────────────────────────
 #
 # Asserted over EVERY launchctl call this test provoked, and over the script
