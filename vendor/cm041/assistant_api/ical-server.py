@@ -152,7 +152,7 @@ def _warn_plaintext_once(db_path: str) -> None:
 import threading
 import urllib.request
 import uuid
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime, timedelta, timezone
@@ -564,6 +564,10 @@ PWG_CONVO_BIN = os.environ.get("PWG_CONVO_BIN", "/usr/local/bin/pwg-convo")
 # the existing degraded-when-USER_ID-unset path is preserved (normalise folds
 # "" -> the "primary" label, which is wrong for a graph IRI here).
 from identity_resolver.compartment import normalise_user_id as _normalise_user_id
+from identity_resolver.compartment import (
+    cm048_user_graph_uris as _cm048_user_graph_uris,
+    graph_scoped_select as _graph_scoped_select,
+)
 
 _raw_user_id = os.environ.get("USER_ID", "").strip()
 USER_ID = _normalise_user_id(_raw_user_id) if _raw_user_id else ""
@@ -1030,11 +1034,72 @@ def _embed_text(text):
     return payload["embeddings"][0]
 
 
+# ----------------------------------------------------------------------
+# Graph scope (v1018-D012b). ONE implementation, shared -- see
+# identity_resolver/compartment.py for the full rationale.
+#
+# CM041 writes into the DEFAULT graph; CM048 writes this user's
+# conversation-derived data into the NAMED graph ``urn:ostler:user/<id>``.
+# Oxigraph runs WITHOUT ``--union-default-graph`` and compartment.py
+# REQUIRES it stay off, so an unqualified query reaches the default graph
+# only and every CM048-backed surface reads as empty. The scope has to
+# travel inside the query, and it names this user's graphs explicitly
+# rather than using a bare ``GRAPH ?g`` (which would put every other
+# user's compartment on this read path).
+#
+# The helper lives in compartment.py, NOT here, because this trap has
+# already been found and locally patched twice in the estate
+# (cm048_pipeline topic_writer.py and last_contact_updater.py each
+# documented it in their own docstring and fixed only their own surface).
+# A sixth private copy is how it stayed systemic.
+_USER_GRAPH_URIS = _cm048_user_graph_uris(_raw_user_id)
+
+
+def _graph_scoped(sparql):
+    """Scope a SELECT to the default graph plus this user's CM048 graphs."""
+    return _graph_scoped_select(sparql, _USER_GRAPH_URIS)
+
+
+def _forget_person_update(person_uri, graph_uris):
+    """SPARQL UPDATE erasing one person from the default AND named graphs.
+
+    The bare ``DELETE ... WHERE`` pair reaches the DEFAULT graph only. With
+    ``--union-default-graph`` off (it is, and compartment.py requires it
+    stays off) that pair CANNOT see a named graph, so CM048's facts,
+    relationship signals, outstanding todos and conversation links for
+    this person survived an erasure the endpoint reported as successful.
+    Every graph in scope therefore gets its own explicitly-scoped pair.
+
+    Kept as a named function so the erasure can be tested directly rather
+    than inferred from the handler around it.
+    """
+    esc_uri = person_uri.replace("\\", "\\\\").replace(">", "%3E")
+    clauses = [
+        "DELETE {{ <{uri}> ?p ?o }} WHERE {{ <{uri}> ?p ?o }};",
+        "DELETE {{ ?s ?p <{uri}> }} WHERE {{ ?s ?p <{uri}> }};",
+    ]
+    for graph in graph_uris:
+        clauses.append(
+            "DELETE {{ GRAPH <" + graph + "> {{ <{uri}> ?p ?o }} }} "
+            "WHERE {{ GRAPH <" + graph + "> {{ <{uri}> ?p ?o }} }};"
+        )
+        clauses.append(
+            "DELETE {{ GRAPH <" + graph + "> {{ ?s ?p <{uri}> }} }} "
+            "WHERE {{ GRAPH <" + graph + "> {{ ?s ?p <{uri}> }} }};"
+        )
+    return "\n".join(clauses).format(uri=esc_uri)
+
+
 def _sparql_select(sparql):
-    """Run a SPARQL SELECT on Oxigraph, return list of binding dicts."""
+    """Run a SPARQL SELECT on Oxigraph, return list of binding dicts.
+
+    The query is graph-scoped first (see ``_graph_scoped``) so CM048's
+    named-graph triples are on the read path alongside CM041's
+    default-graph ones.
+    """
     req = urllib.request.Request(
         OXIGRAPH_URL.rstrip("/") + "/query",
-        data=sparql.encode("utf-8"),
+        data=_graph_scoped(sparql).encode("utf-8"),
         headers={
             "Content-Type": "application/sparql-query",
             "Accept": "application/sparql-results+json",
@@ -1591,12 +1656,21 @@ def api_people_forget(slug):
 
     # Oxigraph: delete every triple where this URI is subject, then
     # every triple where it's object (incoming relationships, mentions).
-    # Both in one UPDATE so partial-failure is less likely.
-    esc_uri = person_uri.replace("\\", "\\\\").replace(">", "%3E")
-    sparql_update = (
-        "DELETE {{ <{uri}> ?p ?o }} WHERE {{ <{uri}> ?p ?o }};\n"
-        "DELETE {{ ?s ?p <{uri}> }} WHERE {{ ?s ?p <{uri}> }};"
-    ).format(uri=esc_uri)
+    # All in one UPDATE so partial-failure is less likely.
+    #
+    # v1018-D012b: the bare `DELETE ... WHERE` forms below reach the
+    # DEFAULT graph ONLY. CM048 writes this person's facts, relationship
+    # signals and conversation links into the NAMED graph
+    # `urn:ostler:user/<id>`, and with `--union-default-graph` off (it is,
+    # and compartment.py requires it stays off) an unqualified DELETE
+    # cannot see them. The erasure therefore silently under-deleted and
+    # left the person's records behind. Each named graph in this user's
+    # scope needs its own explicitly-scoped pair.
+    #
+    # Scope matches `_USER_GRAPH_URIS` -- the same graphs the readers
+    # span -- so a forget removes everything any Ostler surface could
+    # still show, without deleting out of another user's compartment.
+    sparql_update = _forget_person_update(person_uri, _USER_GRAPH_URIS)
     try:
         _sparql_update(sparql_update)
         stores_purged.append("oxigraph")
@@ -8098,4 +8172,33 @@ if __name__ == "__main__":
             file=sys.stderr,
             flush=True,
         )
-    HTTPServer((BIND_HOST, PORT), Handler).serve_forever()
+    # ONE SLOW HANDLER MUST NEVER TAKE THE WHOLE API DOWN.
+    #
+    # This was a plain HTTPServer, which serves exactly one request at a time.
+    # Measured on the v1.0.98 founder box: GET /api/v1/contacts/diff spent 126s
+    # inside the duplicate scan, and for that entire window /health and
+    # /calendar/today both returned 000 (curl rc=28, connect never answered) --
+    # so the iOS app showed "Hub offline" and the assistant answered nothing
+    # until the process was restarted. A single report route could deny service
+    # to the customer's whole Hub.
+    #
+    # The diff route's own cost is fixed separately (identity_resolver/
+    # batch_resolver.py: the edit distance is no longer computed for all 6.5M
+    # pairs). This is the structural half: no future slow handler gets to do
+    # the same thing again.
+    #
+    # SAFE TO THREAD, checked rather than assumed. Handler state is per-request
+    # (BaseHTTPRequestHandler instantiates one per connection). The module-level
+    # tables the handlers read -- _ALLOWED_HOST_NAMES, _PUBLIC_GET_PATHS,
+    # _SLUG_TRANSLIT, WIKI_HYDRATION_ALLOWED_ORIGINS, GWS_ENV,
+    # _ASSERT_FIELD_ALIASES, _MEMORY_SOURCE_LABELS, _DEGRADED_FEATURE_MAP -- are
+    # read-only after import (zero mutation sites). The only two mutable globals
+    # are idempotent: _PLAINTEXT_WARNED is a warn-once flag whose worst race
+    # prints the warning twice, and _reply_debt_service memoises an
+    # importlib.import_module whose worst race re-enters an import that
+    # sys.modules already makes idempotent.
+    #
+    # daemon_threads: a hung handler must not keep the process alive at
+    # shutdown, or launchd's stop turns into a kill.
+    ThreadingHTTPServer.daemon_threads = True
+    ThreadingHTTPServer((BIND_HOST, PORT), Handler).serve_forever()

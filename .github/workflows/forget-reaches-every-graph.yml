@@ -1,0 +1,67 @@
+name: forget-reaches-every-graph
+
+# "Forget this person" must actually forget them, and the readers must be
+# able to see the graph CM048 writes into.
+#
+# CM048 writes a person's facts, relationship signals, outstanding todos
+# and conversation links into the NAMED graph `urn:ostler:user/<id>`.
+# Oxigraph runs WITHOUT `--union-default-graph` (install.sh) and
+# identity_resolver/compartment.py REQUIRES it stay off, so an unqualified
+# SPARQL query or DELETE reaches the DEFAULT graph ONLY.
+#
+# Two consequences, both measured on a live Hub:
+#
+#   1. GDPR Art. 17 erasure under-deleted. A synthetic person seeded with
+#      4 triples in each graph was "forgotten": the endpoint returned
+#      forgotten:true, stores_purged:['oxigraph','qdrant'], and all 4
+#      named-graph triples survived. The product accepted a deletion
+#      request and did not honour it.
+#   2. Five readers were blind to the named graph.
+#      /api/v1/commitments returned count 0 while the store held 67
+#      OutstandingTodo triples.
+#
+# This trap has now been found FOUR times in the estate. topic_writer.py
+# and last_contact_updater.py each hit it, documented it in their own
+# docstring, and fixed only their own surface -- which is exactly how it
+# stayed systemic. The fix is therefore ONE shared helper in
+# compartment.py, and this gate asserts there is no second private copy.
+#
+# The gate is mutation-tested in-file AND was driven red three ways before
+# being wired: pre-fix code exits 2 CANNOT-RUN (the helper is absent), a
+# partial fix exits 2, and a realistic regression -- the builder reverted
+# to the bare default-graph form -- exits 1 with 5 named failures. The
+# real tree exits 0. Three states, all demonstrated, not assumed.
+
+on:
+  pull_request:
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/identity_resolver/compartment.py'
+      - 'vendor/cm041/meeting_syncer/brief.py'
+      - 'vendor/cm048_pipeline/src/candidates.py'
+      - 'tests/test_a_forget_must_reach_every_named_graph.py'
+      - '.github/workflows/forget-reaches-every-graph.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  forget-reaches-every-graph:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # Exits 2 (CANNOT-RUN), never 0, if the shipped helper or the
+      # erasure builder cannot be found. A check that could not run has
+      # not passed.
+      - name: A forget reaches every named graph, and readers span them
+        run: python3 tests/test_a_forget_must_reach_every_named_graph.py
