@@ -159,6 +159,37 @@ def main():
     else:
         bad(f"alarm + real gap did not fail correctly: rc={rc}\n{out[-700:]}")
 
+    # ARM 6. THE PREFIX THAT MADE PROPERTY 2 BLIND FOR ITS ENTIRE LIFE.
+    # Every real row writes its status as `gate: 'GATE: NONE YET. ...'`. The
+    # detector in the gate was startswith("NONE"), which matches none of them.
+    # Measured on v1.0.99 the day it was found: 112 rows said NONE YET and the
+    # gate counted 0, while printing a PASS saying every issue was gated.
+    # PROPERTY 2 is the check that BLOCKS A CUT, so a cut could be tagged with
+    # every row unproven. This arm asserts the detector sees the spelling the
+    # manifests ACTUALLY USE, and still lets a genuinely gated row through.
+    import importlib.util as _ilu
+    _f = pathlib.Path(__file__).with_name("test_the_cut_checklist_is_complete.py")
+    _spec = _ilu.spec_from_file_location("_cutchk", _f)
+    _m = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_m)
+    _seen = getattr(_m, "_is_ungated", None)
+    if _seen is None:
+        bad("the cut checklist gate exposes no _is_ungated predicate to test; "
+            "PROPERTY 2 cannot be verified from here")
+    else:
+        _catch = ["GATE: NONE YET. Triage pending.", "NONE YET",
+                  "  gate: none yet, lowercase and padded"]
+        _pass  = ["GATED by entry probe-doctor-page-renders-for-a-customer.",
+                  "DEFERRED to v1.0.1 by Andy 2026-09-10, reason written in full here."]
+        _missed = [g[:44] for g in _catch if not _seen({"gate": g})]
+        _false  = [g[:44] for g in _pass  if _seen({"gate": g})]
+        if not _missed and not _false:
+            ok(f"the ungated detector sees the spelling manifests actually use "
+               f"({len(_catch)} caught, including the `GATE: ` prefix that hid 112 "
+               f"rows) and does not flag a gated row ({len(_pass)} controls)")
+        else:
+            bad(f"ungated detector is wrong. MISSED, so they read as gated: "
+                f"{_missed}. FALSE POSITIVES, a gated row flagged: {_false}")
+
     print(f"\n== {PASS} pass / {FAIL} fail / {PASS+FAIL} total ==")
     return 1 if FAIL else 0
 
