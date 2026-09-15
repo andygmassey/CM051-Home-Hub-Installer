@@ -107,17 +107,25 @@ def make_people(n):
             display_name="%s %s" % (_GIVEN[i % len(_GIVEN)],
                                     _FAMILY[(i * 7 + i // len(_FAMILY)) % len(_FAMILY)]),
         )
-    # One near-duplicate pair that MUST still be detected: a single
-    # transposition, same length, same org so it clears the 0.85-0.93 gate.
+    # One near-duplicate pair that MUST still be detected: names differing by a
+    # single character, sharing an organisation so the pair clears the
+    # 0.85-0.93 corroboration gate as well as the similarity one.
+    #
+    # EVERY TOKEN HERE IS FROM THE APPROVED SYNTHETIC CAST in
+    # .pii-name-registry.tsv -- alexander, alexandra, andersen (recorded there
+    # as the surname "for the high-similarity worked example") and acme. The
+    # first draft of this fixture invented a plausible surname instead, and
+    # pii-name-guard blocked the PR for 2 PAIR findings on exactly these two
+    # lines. The cast is the cast: the fix is to use it, never to widen it.
     people["urn:dup:a"] = PersonRecord(
-        uri="urn:dup:a", display_name="Jonathan Fairweather",
-        given_name="Jonathan", family_name="Fairweather",
-        organization="Acme Ltd",
+        uri="urn:dup:a", display_name="Alexander Andersen",
+        given_name="Alexander", family_name="Andersen",
+        organization="Acme",
     )
     people["urn:dup:b"] = PersonRecord(
-        uri="urn:dup:b", display_name="Jonathon Fairweather",
-        given_name="Jonathon", family_name="Fairweather",
-        organization="Acme Ltd",
+        uri="urn:dup:b", display_name="Alexandra Andersen",
+        given_name="Alexandra", family_name="Andersen",
+        organization="Acme",
     )
     return people
 
