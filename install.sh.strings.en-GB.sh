@@ -778,7 +778,7 @@ MSG_WARN_RECOVERY_PASSPHRASE_SETUP_FAILED="Passphrase setup failed. Output:"
 MSG_WARN_RECOVERY_PASSPHRASE_SKIPPED="Empty input. Passphrase skipped."
 MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="Passphrase must be at least 12 characters. Try again."
 MSG_WARN_RECOVERY_PASSPHRASE_REQUIRED="A passphrase is required to encrypt your data."
-MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN="Number must start with +. Try again."
+MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN="That is not an international number. Use a leading + then the country code and the rest of the number, e.g. +447700900123. Try again."
 MSG_WARN_OLLAMA_NOT_RESPONDING="Ollama not responding"
 MSG_WARN_OLLAMA_PULL_FAILED_ATTEMPT_3_RETRYING="ollama pull %s failed (attempt %s/3). Retrying in %ss..."
 MSG_WARN_ONLY_GB_FREE_WE_RECOMMEND_LEAST="Only %s GB free. We recommend at least 35 GB (Docker images + AI model + data)."
@@ -1020,7 +1020,13 @@ MSG_PROMPT_WHATSAPP_CONSENT_TITLE="Enable WhatsApp messaging for your assistant?
 MSG_PROMPT_WHATSAPP_CONSENT_HELP="WhatsApp Web is a third-party service. By enabling, you accept that your messages route through WhatsApp's own infrastructure before reaching your local Ostler instance, and that WhatsApp (Meta Platforms Ireland Ltd) may suspend, restrict, or terminate your WhatsApp account because of automated use. You can disable this later from Settings."
 
 MSG_PROMPT_WHATSAPP_RECIPIENT_TITLE="Your WhatsApp phone number"
-MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="International number with the country code, e.g. +44 7700 900123. Digits and a leading + only – no spaces, brackets or dashes."
+# The example used to read "+44 7700 900123" – spaces – in the same sentence as
+# "no spaces". A customer copying the shape they were shown got a number the
+# inbound allowlist and the brief delivery address could not use, while pairing
+# still worked because that one field strips non-digits. Example and rule now
+# agree, and install.sh normalises whatever is typed either way.
+MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="International number with the country code, e.g. +447700900123. Digits and a leading + only – no spaces, brackets or dashes."
+MSG_INFO_WHATSAPP_NUMBER_NORMALISED="Stored as %s. WhatsApp needs the number without spaces or brackets."
 
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE="Allow Ostler to read your Messages"
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1="System Settings is open at Full Disk Access."
