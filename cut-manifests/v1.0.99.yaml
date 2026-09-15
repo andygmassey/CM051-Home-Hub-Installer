@@ -642,3 +642,72 @@ open_issues:
       configured, and the reader has no GRAPH clause. Wiring the ingest with a graph
       configured reproduces the invisibility already hit on 954, on every source at
       once. Check that config first.'
+
+  - issue: 958
+    title: "THE NAMED-GRAPH SPLIT: 36,928 triples are invisible to five customer-facing readers"
+    gate: 'GATE: NONE YET. THE BIGGEST SINGLE DEFECT FOUND IN THIS SWEEP, and it has an
+      open register row whose verification was never performed:
+      cuts/DEFECTS_ROLLFORWARD.md:249, v1018-D012b.
+
+      CM048 writes every conversation artefact into the NAMED GRAPH
+      urn:ostler:user/<id> (vendor/cm048_pipeline/src/ingest.py:571-576, and
+      linker.py:156,173,178). Five customer-facing readers query the DEFAULT graph
+      with no union-default-graph: ical-server.py:1033-1043 _sparql_select, used at
+      :4250, :3268, :3582, :3812, and meeting_syncer/brief.py:174-184.
+
+      MEASURED ON THE LIVE BOX: the named graph holds 36,928 triples the default
+      graph cannot see, including 1,092 Conversation, 981 Fact, 378
+      RelationshipSignal and 66 OutstandingTodo. CONTROLS PROVING THE PROBE WORKS:
+      pwg:Person 3810 and ConversationTopic 1036 ARE visible by the same probe shape.
+      CONSUMER PROOF: /api/v1/commitments returns 200 with count 0 while
+      /api/v1/topics returns 50, because topic_writer.py:277-281 deliberately writes
+      the DEFAULT graph. The wiki Commitments page is a 166-byte index against People
+      2146 and Meetings 4001 from the same compile.
+
+      WHY IT IS SYSTEMIC RATHER THAN A BUG: topic_writer.py and last_contact_updater.py
+      EACH independently discovered this trap, documented it in their own docstrings,
+      and fixed only their own surface. Five other readers were left.
+
+      IT IS ALSO THE EXACT TRAP I FELL INTO on 954 four hours earlier: 38,432 triples
+      landed in a named graph and the reader returned 0. The fix there was to write the
+      default graph with a provenance marker. The same question has now been answered
+      independently three times by three authors, each for one file.
+
+      ALSO UNRESOLVED, SOURCE-ONLY, NOT BOX-VERIFIED: candidates.py:323,420 pass
+      using-graph-uri on SPARQL UPDATEs, which scopes the WHERE clause only, so
+      promote and unpromote likely WRITE the default graph while _list_candidates:368-376
+      READS the named one. Verify on a box before acting.
+
+      AND A SECOND WRITER/READER SPLIT ON DISK: 1,101 conversation files are written
+      FLAT into ~/Documents/Ostler/Conversations/ as <date>_<slug>_<id>.md, while every
+      shipped reader references only the bundle layout <date>/<slug>-<short-id>/. Both
+      writers are live: 59 flat and 53 bundles in one two-hour window. Of 59 recent flat
+      files, ZERO have an id matching any of the 5,487 bundle ids; the control lookup of
+      5 real bundle ids hit 5 of 5 and the name parser was validated three ways before
+      that zero was trusted. The only shipped code touching the flat files is
+      cm048_pipeline/src/cli.py:488, which COUNTS them for a progress display and never
+      reads one.
+
+      DENOMINATOR: roughly 150 reader expectations examined across five surfaces,
+      read-only throughout.'
+  - issue: 959
+    title: "A BOOKMARK CAN NEVER BECOME AN INTEREST: ceiling 0.126 against a hard floor of 0.28"
+    gate: 'GATE: NONE YET, and this SUPERSEDES the tuning framing in 955. It is not that
+      bookmarks score low. It is that they are MATHEMATICALLY INCAPABLE of clearing the
+      bar, on any box, with any amount of evidence or recency.
+
+      confidence = reliability x evidence_factor x recency_confidence.
+      reliability for a safari_bookmarks bookmark measures 0.18.
+      The product ceiling is 0.126 against min_confidence 0.28, hard-wired.
+      So no accumulation of observations, no number of distinct sources and no freshness
+      can ever lift a bookmark over the threshold.
+
+      ON THAT BOX 4,730 OF 4,804 PROJECTED PREFERENCE ROWS ARE SAFARI BOOKMARKS, so the
+      only preference source present is structurally incapable of producing a single
+      interest. The front page reads 0 and always would have.
+
+      DO NOT LOWER min_confidence. That would admit rows whose reliability is genuinely
+      unknown and fill the customer front page with things they never expressed. Either
+      the reliability table is wrong about bookmarks, which is a product judgement Andy
+      should make and not an agent, or the box simply lacks preference-bearing data,
+      which 957 and the empty export folders already explain. Decide which, do not tune.'
