@@ -104,6 +104,25 @@ def _state_file() -> Path:
 
     ``OSTLER_SUBSCRIPTION_STATE`` overrides the default. Otherwise the
     canonical location is ``~/.ostler/state/subscription_state.json``.
+
+    🔴 DO NOT "FIX" THIS TO DERIVE FROM OSTLER_DIR. It looks wrong next
+    to the ical-server plist, which derives PYTHONPATH from OSTLER_DIR
+    precisely so it tracks a non-default install home, and the obvious
+    tidy-up is to make the shell tick wrappers pass
+    OSTLER_SUBSCRIPTION_STATE="$OSTLER_DIR/state/...". That change would
+    PAUSE A PAYING CUSTOMER on any relocated install: the WRITERS
+    (install.sh activation, the receipt endpoint) both land here, on
+    Path.home(), and a reader pointed somewhere else finds no file, reads
+    default-inactive, and stops a Hub that has been paid for.
+
+    Writer and reader must resolve the same path or the gate is a coin
+    toss. If this should follow OSTLER_DIR, move BOTH, in one change,
+    with a migration for state files already written.
+
+    HOME under launchd: every LaunchAgent that reads this runs in the
+    customer's own session, and only the ical-server plist sets HOME at
+    all (to ${HOME}). So Path.home() is the same directory for the
+    writers and for all five tick wrappers.
     """
     override = os.environ.get("OSTLER_SUBSCRIPTION_STATE")
     if override:
