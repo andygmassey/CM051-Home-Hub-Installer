@@ -586,3 +586,59 @@ open_issues:
       ships Notion and Obsidian importers (PR #1960, unreviewed and deliberately not
       in v1.0.98) and three LinkedIn importers wired into the install, so the question
       generalises: which importers actually deposit anything.'
+
+  - issue: 957
+    title: "EXPORTS_DIR takes the grandparent of the FIRST detected export, so a second detected export is never imported"
+    gate: 'GATE: NONE YET.
+
+      RETRACTION FIRST, BECAUSE AN EARLIER VERSION OF THIS ROW WAS WRONG AND I WROTE
+      IT. It claimed the detector "found 3 of 87 export folders" and that coverage for
+      14 platforms was missing in practice. That was built by COUNTING DIRECTORIES AND
+      NEVER MEASURING THEIR CONTENTS, which is the exact error this estate has been
+      correcting all week. Measured properly, per folder, on the operator archive box:
+        Facebook    8.3G  32339 files
+        Instagram   7.8G  13785 files
+        Amazon, Amazon.co.uk, Reddit, LinkedIn, Apple, eBay, Netflix, Twitter,
+        Pinterest, Discord, Uber, WhatsApp, Disney+, Whoop, Spotify, Google,
+        Apple Mail, Apple TV, Foursquare:  ALL 0 BYTES, ZERO FILES
+      Nineteen of twenty-one platform folders are EMPTY SKELETONS. Not iCloud-evicted:
+      find -flags +dataless returns 0. So only TWO exports exist on that box, and the
+      detector found BOTH. It behaved correctly and the coverage claim was unfounded.
+
+      THE DEFECT THAT SURVIVES, AND IT IS REAL. install.sh:9853 seeds
+      EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$(dirname "$f")")}" from the FIRST match
+      only, and _IMPORT_DIRS (install.sh:20344) is built from EXPORTS_DIR alone. The
+      install log recorded THREE detections across TWO platforms:
+        Facebook   .../01 - Facebook/facebook-<redacted>/connections/friends
+        Facebook   .../01 - Facebook/connections/friends
+        Instagram  .../02 - Instagram/connections/followers_and_following
+      EXPORTS_DIR therefore resolved inside the first Facebook export, and the
+      Instagram export -- 7.8G and 13785 files, DETECTED AND DISPLAYED TO THE CUSTOMER
+      -- was never handed to any parser. The customer is shown "Found 3 GDPR
+      export(s)" and then a fraction of one of them is imported.
+
+      THE FIX: _IMPORT_DIRS should carry EVERY detected export root, not the
+      grandparent of the first. DETECTED_EXPORTS already holds them all; it is used
+      for display and thrown away. Keep the CX-126 lesson (no unbounded Downloads
+      rglob) by passing the specific detected roots, which is bounded by construction.
+
+      COVERAGE REMAINS AN OPEN QUESTION, NOT A MEASURED DEFECT: the detector hunts
+      eight marker filenames and has no pattern for amazon, netflix, reddit, ebay,
+      pinterest, discord, spotify, tiktok, youtube, apple, uber, whoop, disney or
+      foursquare, while the install screen says Ostler imports from 20 platforms. That
+      COULD be a real gap, and it is UNTESTED here because no such export exists on
+      this box to test against. Do not treat it as confirmed. The cheap way to settle
+      it is to let the 23 shipped CM019 parsers recognise their own formats rather
+      than duplicating that knowledge as filename guesses in install.sh.
+
+      PROOF REQUIRED, CONSUMER-SIDE: with two export roots present, the count shown to
+      the customer equals the number imported, and the sources table reports non-zero
+      for both.
+
+      FROM ARCHIE, AND STILL LOAD-BEARING: services/ingest/src/loaders/ ships BOTH
+      qdrant_loader.py and oxigraph_loader.py, so one producer writing both stores is
+      the SHIPPED design and the projection bridge (954) retires when it runs.
+      WARNING: oxigraph_loader.py:55 writes INSERT DATA into a NAMED GRAPH when one is
+      configured, and the reader has no GRAPH clause. Wiring the ingest with a graph
+      configured reproduces the invisibility already hit on 954, on every source at
+      once. Check that config first.'
