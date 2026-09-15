@@ -1008,6 +1008,20 @@ entries:
       kind: box_walk_probe
       probe: "assistant_prompt_names_every_pwg_tool"
 
+  - id: box-walk-doctor-page-renders-for-a-customer
+    title: the Doctor page returns 200 AND carries a rendered table, not merely a
+      200 from the endpoint behind it
+    incident: 'The Doctor returned 500 on EVERY load for three builds while
+      /api/v1/sources answered 200 throughout, so every artefact-shaped check
+      passed and nothing went red. Measured on the box: 500 and 21 bytes, then
+      200 and 59,690 bytes with a rendered table after one missing import was
+      added. The probe judges THE PAGE A CUSTOMER OPENS, not the endpoint behind
+      it, and takes a positive control on /api/v1/sources first so a dead box
+      cannot read as a passing page. Self-test proven on three arms: 500 with a
+      body FAILS, 200 without a table FAILS, 200 with a table PASSES.'
+    proof:
+      kind: box_walk_probe
+      probe: doctor_page_renders_for_a_customer
   - id: box-walk-no-store-port-is-tcp-reachable
     title: no Ostler store or UI port accepts a TCP connection, so no second account can read the graph
     incident: >-
