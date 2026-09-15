@@ -22,6 +22,7 @@ test_a_bom_row_can_claim_landed_and_not_be_in_the_pin.sh	WIRED	.github/workflows
 test_a_box_precondition_is_not_a_build_verdict.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_broken_ci_query_is_not_a_green_main.sh	WIRED	.github/workflows/red-main-opens-an-issue.yml
 test_a_broken_probe_blocks_the_promote.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_a_calendar_export_is_found_where_exports_actually_sit.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_a_ci_alarm_is_not_a_register_gap.py	WIRED	.github/workflows/cut-checklist-complete.yml
 test_a_condition_function_must_not_short_circuit_its_own_pipeline.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_a_dead_wiki_announces_itself.py	WIRED	.github/workflows/vendor-integrity.yml
@@ -65,7 +66,7 @@ test_a_timed_out_turn_is_not_a_broken_assistant.sh	WIRED	.github/workflows/walk-
 test_a_timeout_is_not_a_hit_count_of_zero.py	WIRED	.github/workflows/cut-manifest.yml
 test_a_timeout_is_not_a_stale_pin.sh	WIRED	.github/workflows/cut-manifest.yml
 test_a_truncated_category_is_not_reported_complete.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
-test_a_volume_count_is_not_a_wiped_box.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
+test_a_volume_count_is_not_a_wiped_box.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_a_walk_can_ask_for_a_fresh_graph.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
 test_a_walk_failure_is_classified.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_a_walk_record_is_found_under_either_spelling.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -81,6 +82,7 @@ test_an_abort_inside_a_step_is_counted.sh	WIRED	.github/workflows/step-end-statu
 test_an_abort_speaks_on_a_terminal_install.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_an_absent_launchd_domain_is_not_a_service_that_is_down.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_an_old_format_sentinel_does_not_abort_the_install.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_an_uninstall_does_not_consume_the_purchase.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_an_uninstall_that_cannot_ask_removes_nothing.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_an_unmeasured_count_is_not_a_measured_zero.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_an_unmeasured_flag_must_be_read.sh	WIRED	.github/workflows/cold-box-source-truth.yml
@@ -460,6 +462,7 @@ test_tailscale_daemon_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_tailscale_prompt_is_conditional_on_tailnet_state.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_tailscale_recovery_wrapper.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_takeout_split_zip_no_abort.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_the_config_does_not_promise_encryption_that_never_happens.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_the_converge_veto_actually_runs.py	WIRED	.github/workflows/rule-2-holds-on-the-write.yml
 test_the_converge_wait_resolves_the_credential_path.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_cron_reader_sees_both_toml_spellings.sh	WIRED	.github/workflows/install-manifest-gate.yml
@@ -475,9 +478,11 @@ test_the_emergency_cut_row_tells_the_truth.sh	WIRED	.github/workflows/cut-manife
 test_the_failed_to_look_message_can_actually_print.sh	WIRED	.github/workflows/dmg-delivery-gate.yml
 test_the_generated_uninstaller_parses.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_the_installer_downloads_from_the_repo_we_publish_to.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_the_licence_a_customer_paid_for_is_owner_only.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_the_loopback_auth_gate_cannot_be_bypassed.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_the_merge_budget_scales_with_the_address_book.sh	WIRED	.github/workflows/killed-converge-gets-its-catchup.yml
 test_the_migrator_authenticates_and_a_refusal_is_loud.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_the_number_a_customer_types_reaches_all_three_consumers.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_the_operator_rollforward_refuses_a_blind_environment.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_the_permanent_manifest_is_not_optional.sh	WIRED	.github/workflows/cut-manifest.yml
 test_the_pii_hook_asks_cis_question.sh	WIRED	.github/workflows/operator-pii-scan.yml
@@ -503,7 +508,7 @@ test_the_walk_waits_for_converge.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_walk_waits_for_wiki_summaries.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_wiki_health_check_survives_the_credential.sh	WIRED	.github/workflows/colima-autostart.yml
 test_the_wiki_port_demands_a_credential.sh	WIRED	.github/workflows/colima-autostart.yml
-test_the_wipe_preserves_the_licence.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
+test_the_wipe_preserves_the_licence.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_the_workspace_marker_survives_the_promote.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_third_party_data_consent.sh	WIRED	.github/workflows/consent-contract.yml
 test_timeout_is_not_a_successful_hydrate.sh	WIRED	.github/workflows/hydrate-timeout-honesty.yml
@@ -573,7 +578,7 @@ test_walk_record_gates_customer_download.sh	WIRED	.github/workflows/walk-record-
 test_walk_record_names_the_failing_probes.sh	WIRED	.github/workflows/cut-manifest.yml
 test_walk_record_states_measured_count.sh	WIRED	.github/workflows/cut-manifest.yml
 test_walkaway_no_phase2_input_leak.sh	WIRED	.github/workflows/cold-box-source-truth.yml
-test_whatsapp_channel_block.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_whatsapp_channel_block.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_whatsapp_parser_does_not_claim_meta_messages.py	WIRED	.github/workflows/parser-claim-separation.yml
 test_wiki_baseline_background.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_wiki_compile_has_a_page_count_oracle.sh	WIRED	.github/workflows/wiki-compile-oracle.yml
