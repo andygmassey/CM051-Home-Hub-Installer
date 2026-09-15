@@ -59,6 +59,22 @@ from meeting_syncer.calendar_client import fetch_events
 # with it.
 import pwg_privacy
 
+# Graph scope (v1018-D012b). The SAME shared helper the Hub server uses;
+# `identity_resolver` is a sibling package under _PARENT_DIR both in this
+# repo and in the installed layout (~/.ostler/import-pipeline/).
+# This module reads CM048's `OutstandingTodo` triples (see the docstring
+# above), and CM048 writes those into the NAMED graph
+# `urn:ostler:user/<id>`. With `--union-default-graph` off -- it is, and
+# compartment.py requires it stays off -- the unqualified query below
+# reached the default graph only, so every attendee's outstanding TODOs
+# and relationship signals were silently absent from the brief.
+# VENDORING: if this file is vendored downstream, identity_resolver must
+# go with it, as pwg_privacy.py already must.
+from identity_resolver.compartment import (
+    cm048_user_graph_uris as _cm048_user_graph_uris,
+    graph_scoped_select as _graph_scoped_select,
+)
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -173,6 +189,12 @@ def _days_overdue(deadline: str, *, today: Optional[Any] = None) -> Optional[int
 
 
 def _sparql_query(oxigraph_url, sparql):
+    # Scoped to the default graph PLUS this user's CM048 named graph(s);
+    # see the import block above. An unset USER_ID yields no graphs and
+    # the query is returned unchanged, i.e. today's behaviour.
+    sparql = _graph_scoped_select(
+        sparql, _cm048_user_graph_uris(os.environ.get("USER_ID", "").strip())
+    )
     resp = httpx.post(
         oxigraph_url.rstrip("/") + "/query",
         content=sparql,
