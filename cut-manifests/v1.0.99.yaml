@@ -393,6 +393,9 @@ entries:
       GET /doctor must return 200 AND carry a rendered table. Not the endpoint
       behind the page: the page. Self-test proven on three arms (500-with-body
       FAILs, 200-without-a-table FAILs, 200-with-a-table PASSes).
+    proof:
+      kind: box_walk_probe
+      probe: doctor_page_renders_for_a_customer
   - id: probe-ostler-unlock-reachable-by-name
     title: "box-walk probe must PASS: ostler_unlock_reachable_by_name"
     why: |
@@ -400,12 +403,9 @@ entries:
       wrong key refused. It shipped inside the DMG at a venv path nobody types
       and Andy got "command not found". MUST BE BLOCKING in
       walk_promote_scope.tsv.
-  - id: probe-front-page-reports-interests
-    title: "the front page must report a NON-ZERO interest count"
-    why: |
-      NOT YET WRITTEN. A zero here has meant a refused Oxigraph query, not an
-      empty graph, for at least three builds. The probe must distinguish the
-      two, because they are the same branch today.
+    proof:
+      kind: box_walk_probe
+      probe: ostler_unlock_reachable_by_name
 
 
 open_issues:
@@ -975,3 +975,227 @@ open_issues:
   - issue: 1010
     title: "PRODUCTISATION_CHECKLIST, the file every agent must read before committing, carries the WRONG PRICES"
     gate: 'GATE: NONE YET, small and quick. :185-186 still says Hub $50 and Companion $24.99. The website and installer are consistently correct at $99 one-off and $9.99 per month (355 CTAs at 9900, JSON-LD 99.00 and 9.99). Agents are being sent to work from the wrong numbers by the very file that gates their commits.'
+
+  - issue: 1011
+    title: "I put a probe in the machine-gated section that DOES NOT EXIST, and the schema gate caught me"
+    gate: 'GATE: NONE YET, correctly. probe-front-page-reports-interests was written into entries:, the section that can only be ticked by a machine, while no probe file of that name exists anywhere (CONTROL: 27 probe files on main, 0 matching). manifest-parse failed it for a missing proof block and was RIGHT to. Demoted to an open issue, which is what a row with no proof is. THE PROBE STILL NEEDS WRITING, and it is harder than it looks: a zero interest count on the walk box is currently CORRECT, because the only preference-bearing source there is Safari bookmarks whose confidence ceiling is 0.126 against a floor of 0.28. So the probe must assert that a REFUSED query is distinguishable from an empty graph, which is the actual defect, and must NOT assert a non-zero count, which would fail on honest data. The scoring stays untouched: Andy spent a long time on it.'
+
+  - issue: 1012
+    title: "The doctor probe was PROVEN and then stranded on a branch with no PR, so it was never on main"
+    gate: 'FIXED HERE. I reported doctor_page_renders_for_a_customer as written, self-tested on three arms and registered blocking. All of that was true, and it was sitting on origin/floor/customer-surfaces with NO PULL REQUEST, so none of it was on main and none of it could ever gate a cut. MEASURED: 0 doctor probe files on origin/main, CONTROL 27 probe files present. Found only because the manifest schema gate demanded a proof block and the file it named was not there. This is the ninth instance of the same shape in a week: work that exists and cannot reach a customer. The probe and its blocking scope row are now on this PR.'
+
+  # ── CARRIED FORWARD 2026-09-16 ───────────────────────────────────────────
+  # test_the_cut_checklist_is_complete went RED naming 50 open issues absent
+  # from this register, with the words "the register has stopped being the
+  # register". It was right. They are registered below with a triage, not a
+  # uniform line, because a uniform status reads exactly like a uniform zero:
+  # it hides which of them can stop a customer. NONE of these rows claims a
+  # fix. Each says GATE: NONE YET, which means the row is work, not coverage.
+
+  - issue: 1922
+    title: "swift-tests: LicenseVerifierTests.testTamperedSignatureFailsVerification fails, unrelated to v1."
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-12 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1815
+    title: "7 of the 74 pipefail short-circuit landmines are in scripts the cut itself runs"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-07 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1810
+    title: "bom_add.sh accepts a SHA that resolves to nothing"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-07 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1774
+    title: "usage_journal_producers adjudicates against a leftover staging tree, and reds on producers the c"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-07 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1772
+    title: "there are three registers and two are called manifest, and a walk failure can be gated non-block"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-07 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1765
+    title: "the namespace migrator is looked for in ~/.ostler/scripts, which never exists, so it has never r"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-07 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1760
+    title: "flaky: testTamperedSignatureFailsVerification passes or fails on identical input"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-07 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1754
+    title: "a pre-existing Ollama on 11434 aborts the install as ERR-99 with no actionable cause"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CAN STOP A WALK. This is in the bucket that prevents a customer completing an install or reaching their own data, so it is read before the cut is tagged and not after. Opened 2026-09-07 and carried forward unadjudicated through v1.0.98. Registered here so it is visible rather than merely open.'
+
+  - issue: 1733
+    title: "wiki-compiler and wiki-site are the last two check-freshness REDs, and CM044 a60bc3d is a real c"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-06 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1690
+    title: "The shipped owner node still accumulates display names; fixed upstream in CM041 fdedb71, pinned "
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-06 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1679
+    title: "post-launch: revisit serving the wiki natively instead of from wiki-site (deferred 2026-09-06, c"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-06 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1660
+    title: "vane 3000 and the 8144 tailnet gate are the two surfaces #1609 did not cover, and the gate trust"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-06 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1656
+    title: "Both kinship fixes are merged upstream and absent from the artefact, and the shipped contact_syn"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-06 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1634
+    title: "usage-journal gate: a producer nobody asked reads as a producer that broke"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-06 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1619
+    title: "v1018-D011 is live at v1.0.71: person pages carry a display_name derived from a kinship term or "
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1618
+    title: "no_store_port_is_tcp_reachable measures reachability, which is the wrong predicate for a credent"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1601
+    title: "a probe that exceeds the manifest timeout is reported as FAIL, which hid a real diagnosis behind"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1598
+    title: "pwg_knowledge_search reads a Qdrant collection that Apple Notes hydration does not write"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1597
+    title: "assistant_answers_grounded cannot tell a failed turn from a recovered one, and a deliberate retr"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1596
+    title: "assistant_answers_grounded: one null date in the preferences artefact fails the whole parse, and"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1595
+    title: "the store-port probe's header is stale in the reassuring direction, and the scope row undercount"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1589
+    title: "end-of-install panel: show what Ostler set up, from surfaces the box can evidence (not the opera"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1587
+    title: "the Doctor source table covers hydrate sources only, so the whole FDA family (incl. working Remi"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1586
+    title: "the cut manifest is selected by text sort, so v1.0.9 outranks v1.0.72 and v1.0.100"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1583
+    title: "a shipped privacy filter uses gte where its docstring says max, so it returns MORE private data "
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1574
+    title: "com.ostler.ollama crash-loops 368 times behind a guard that reports OK: \"a port answers\" is not "
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1573
+    title: "RULE 2 still violated on a fresh v1.0.71 graph: 54 person nodes hold 117 Contacts cards, with th"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1571
+    title: "the export watcher says \"now part of your world\" on an import that matched nothing, and records "
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1566
+    title: "ERR-14 on a cold box: the store was running and nothing could connect to it for 300s, and the in"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CAN STOP A WALK. This is in the bucket that prevents a customer completing an install or reaching their own data, so it is read before the cut is tagged and not after. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98. Registered here so it is visible rather than merely open.'
+
+  - issue: 1550
+    title: "A cut gate reads a checkout on the wrong branch and calls it a RED: the worktree guard tests the"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1541
+    title: "The RULE 2 veto is wired and still lets 53 over-merges through on a FRESH graph, and 'absence is"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1540
+    title: "LAUNCH BLOCKER: a BIP39 recovery phrase is generated, the DEK is encrypted under it, and the cus"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CAN STOP A WALK. This is in the bucket that prevents a customer completing an install or reaching their own data, so it is read before the cut is tagged and not after. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98. Registered here so it is visible rather than merely open.'
+
+  - issue: 1539
+    title: "reuse_settings does not cover tailscale_confirm: the ONLY question a re-install re-asks"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1538
+    title: "FDA: the assistant cannot be granted Full Disk Access by a human, and the app it asks you to dra"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CAN STOP A WALK. This is in the bucket that prevents a customer completing an install or reaching their own data, so it is read before the cut is tagged and not after. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98. Registered here so it is visible rather than merely open.'
+
+  - issue: 1519
+    title: "cut.yml: the dry-run job can never run, because it needs a preflight that can only pass on a tag"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1508
+    title: "Revisit the scoped promote gate once a launchable DMG exists"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-09-05 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1167
+    title: "two self-declared cut-blocking gates did not run at v1.0.48's commit — 'reachable from the cut' "
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-27 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1164
+    title: "verify_doctor_governor_revendor.sh has 0 automated callers — its only wiring is a comment, and i"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-27 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1163
+    title: "usage_journal: six chat turns against a shipped daemon that contains the recorder produced no jo"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-27 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1162
+    title: "assistant_answers_grounded: it is not \"one in three fails\" — one exact string fails every time w"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-27 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1160
+    title: "preferences: compartment_level is stored as string \"L2\", integer 2, and absent in one collection"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: CUSTOMER-VISIBLE WRONGNESS. The install completes and the customer is shown something incorrect, or is shown less than they own. Opened 2026-08-27 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1156
+    title: "verify_test_wiring enumerates only tests/, so all 28 files under scripts/tests/ are uncovered — "
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-27 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1154
+    title: "verify_test_wiring counts a paths: trigger as an invocation, so a test that is only triggered-on"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-27 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1152
+    title: "acceptance_gate_v1013 is a registered probe that the box_walk_probes README never lists"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-27 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1143
+    title: "egress probe FAILs on declared hosts: a rotating DNS pool defeats contemporaneous resolution"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-27 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1141
+    title: "usage journal has never been written on a box that has compiled and ingested for days"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-27 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1125
+    title: "assistant_answers_grounded scores any pwg_* call as grounded, so it is blind to the wrong-tool c"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-27 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1123
+    title: "pair_state_agreement can never read 2 of its 3 signals: /doctor/api/health has no pairing field"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-26 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1113
+    title: "assistant_answers_grounded: tools= is empty because [mcp] servers = [], and every ungrounded tur"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-26 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 775
+    title: "the hydrate-sentinel control (7) has a false pass on a nested block, and types its own denominat"
+    gate: 'GATE: NONE YET. TRIAGE 2026-09-16: HARNESS AND GATE INTEGRITY. This is the bucket that let the other two buckets through: a probe measuring the wrong predicate, a test nothing invokes, a gate that cannot fail, a register that is not the register. Opened 2026-08-16 and carried forward unadjudicated through v1.0.98.'
+
+  - issue: 1013
+    title: "THE GATE THAT BLOCKS A CUT ON UNPROVEN ROWS HAS NEVER ONCE FIRED"
+    gate: 'FIXED HERE, with a control and a mutation test. test_the_cut_checklist_is_complete.py PROPERTY 2 is the check that stops a cut while rows carry no proof. It selected rows with str(gate).startswith("NONE"). EVERY row ever written in EVERY manifest spells it `gate: ''GATE: NONE YET. ...''`, which does not start with NONE. MEASURED on v1.0.99: 112 rows say NONE YET, the gate saw 0, and it printed [PASS] no NONE YET rows remain, every registered issue is either gated or carries a written decision. So a cut could have been tagged with every single row unproven and this gate would have called it clean. It is the precise shape it exists to catch: a gate that cannot fail is indistinguishable from a clean sheet. FIX: normalised containment, so a prefix, a lowercase spelling or padding cannot hide a row. The predicate was also NESTED INSIDE main() where no test could reach it, which is part of why it survived; it is now module level. CONTROL ARM added to test_a_ci_alarm_is_not_a_register_gap.py: 3 spellings that must be caught including the real-world GATE: prefix, 2 genuinely gated rows that must NOT be flagged. MUTATION: restoring startswith takes the suite to 5 pass 1 fail naming both missed spellings; restoring the fix returns 6 pass 0 fail. CONSEQUENCE, AND IT IS THE POINT: with the detector honest, THIS CUT IS NOW BLOCKED until those 112 rows are each proven or carry a written DEFER. That is the correct state and it was being hidden.'
+
+  - issue: 1014
+    title: "78 registered rows name issues that are already CLOSED, so the register overstates the work"
+    gate: 'GATE: NONE YET, small. With every open issue now registered, the gate reports the other direction: 78 registered rows point at issues that are closed, including 928, 929, 940 to 949. Several of those are board items I have been carrying as open. A register that lists closed work as outstanding is the same failure as one that omits open work: it stops being a description of reality. Strike them, or mark each struck with the evidence that closed it, before the cut.'
