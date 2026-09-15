@@ -305,7 +305,43 @@ def strip_comment_lines(text):
         l for l in text.splitlines() if not l.lstrip().startswith("#")
     )
 
-starters = {k: strip_comment_lines(v) for k, v in starters.items()}
+def strip_trigger_block(rel, text):
+    """For a workflow, drop the `on:` trigger block before matching.
+
+    A WORKFLOW THAT WATCHES A FILE IS NOT A WORKFLOW THAT RUNS IT, and until
+    2026-09-16 this file could not tell the difference: `starters` held the
+    WHOLE workflow, so a filename appearing in `on.pull_request.paths` scored
+    as "started by" that workflow. Caught when a test named in one workflow's
+    paths, and RUN by a different workflow, was attributed to the watcher --
+    the runner lost on nothing more than dict order.
+
+    That matters because this register's one job is to answer "what runs this
+    test". A wrong answer here is worse than no answer: delete the named
+    workflow and the test still reads WIRED while running nowhere. It is the
+    same failure the note above describes, arriving through the trigger block
+    rather than through prose.
+
+    Conservative on purpose: only the `on:` block is removed, from the `on:`
+    key to the next top-level key, so a reference anywhere in env, jobs or
+    steps still counts.
+    """
+    if not rel.startswith(".github/workflows/"):
+        return text
+    out, dropping = [], False
+    for line in text.splitlines():
+        if not dropping and (line.startswith("on:") or line.rstrip() == "on:"):
+            dropping = True
+            continue
+        if dropping:
+            # a new top-level key ends the trigger block
+            if line and not line[0].isspace() and not line.startswith("#"):
+                dropping = False
+            else:
+                continue
+        out.append(line)
+    return "\n".join(out)
+
+starters = {k: strip_trigger_block(k, strip_comment_lines(v)) for k, v in starters.items()}
 bodies = {k: strip_comment_lines(v) for k, v in bodies.items()}
 
 runner = {}
