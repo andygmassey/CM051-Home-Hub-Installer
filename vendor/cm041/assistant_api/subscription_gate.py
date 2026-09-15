@@ -150,10 +150,25 @@ def _load() -> dict:
 
 
 def _write(state: dict) -> None:
-    """Persist state to disk. Creates parent dir if needed."""
+    """Persist state to disk atomically. Creates parent dir if needed.
+
+    Atomic because there are now TWO writers on a live Hub: the hourly
+    expiry ticker, and the receipt endpoint when the phone pushes. A
+    plain write truncates first, so a reader landing in that window gets
+    a half-file. ``_load`` degrades a corrupt read to default-inactive,
+    which for a PAYING customer means no receipt, no source, no
+    has_ever_paid -- and the gate would pause someone who has paid. Rare
+    is not the same as acceptable when the failure mode is a support
+    call from a customer we took money from.
+
+    os.replace is atomic within a filesystem, and the temp file is made
+    in the SAME directory so it never crosses one.
+    """
     path = _state_file()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, indent=2))
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(state, indent=2))
+    os.replace(str(tmp), str(path))
 
 
 def _iso_now() -> str:
