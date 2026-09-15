@@ -21,7 +21,14 @@ Each line below is the actual outcome of
 |---|---|---|
 | `ostler_fda` | **REFUSED**, exit 1 | "the written patch does not reconstruct the vendored tree", then "RESTORED the previous patch -- nothing was left broken". Its self-verification step caught its own output and rolled back. |
 | `cm041/assistant_api` | **CANNOT-RUN**, exit 2 | `pinned_sha 9be482d3 not present in` the local CM041 checkout. The pin cannot be materialised, so there is nothing to diff against. |
-| `doctor` | see PR notes | run in the same sweep; outcome recorded in the PR. |
+| `doctor` | **REFUSED**, exit 1 | "this is a RE-PIN, not a graft to record. Regenerating here would fold those upstream commits into the divergence patch and record them as local edits to this repo." The source has ADVANCED past the pin, so the tool refuses on its advance limb. |
+
+All three refusals are DIFFERENT, and that matters: this is not one broken
+environment producing one symptom three times. One tool failed its own
+round-trip check, one could not find the pin, one found the source ahead of the
+pin. Each is the tool working correctly and declining to write a patch that
+would be a lie. None of them is a reason to skip recording the divergence,
+which is what this file is for.
 
 Two further facts about the environment, because a reader deciding whether to
 retry needs them:
