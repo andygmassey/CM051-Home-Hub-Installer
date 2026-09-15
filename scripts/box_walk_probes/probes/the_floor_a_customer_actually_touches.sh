@@ -52,15 +52,34 @@ else
     ok "F1 doctor page: 200, ${F1_BYTES} bytes, renders a table."
 fi
 
-# F2  THE WIKI, AS A BROWSER WOULD ASK FOR IT.
-#     A 401 means the customer is asked for a password that was never issued.
-F2_CODE="$(code "http://${HOST}:${WIKI_PORT}/")"
-case "${F2_CODE}" in
-  401|403) bad "F2 wiki: HTTP ${F2_CODE}. The customer is asked for a credential nobody gave them." ;;
-  200)     ok  "F2 wiki: 200, opens without a credential." ;;
-  000)     cant "F2 wiki: no answer on ${WIKI_PORT}. Not serving is not the same as refusing; this is unmeasured." ;;
-  *)       bad "F2 wiki: HTTP ${F2_CODE}." ;;
-esac
+# F2  THE WIKI, WITH THE CREDENTIAL THE CUSTOMER WAS GIVEN.
+#     A 401 here is CORRECT: the wiki is a loopback listener holding the
+#     customer's whole life and it should refuse an uncredentialled caller.
+#     The real question is whether the credential they were handed WORKS.
+#     An earlier version of this probe treated the 401 as the defect. It was
+#     wrong, and it would have sent someone to "fix" a working security control.
+F2_UNAUTH="$(code "http://${HOST}:${WIKI_PORT}/")"
+F2_SECRET="${OSTLER_WIKI_PASSWORD_FILE:-${HOME}/.ostler/secrets/wiki_password}"
+if [ "${F2_UNAUTH}" = "000" ]; then
+    cant "F2 wiki: no answer on ${WIKI_PORT}. Not serving is not the same as refusing; unmeasured."
+elif [ "${F2_UNAUTH}" != "401" ]; then
+    bad "F2 wiki: answered ${F2_UNAUTH} with NO credential. It should refuse one."
+elif [ ! -r "${F2_SECRET}" ]; then
+    bad "F2 wiki: refuses correctly, but the customer's credential file is missing or unreadable. They can never get in."
+else
+    F2_PW="$(cat "${F2_SECRET}")"
+    F2_CODE="$(curl -s -o /tmp/ostler_floor_wiki.$$ -w '%{http_code}' --noproxy '*' --max-time 12 -u "ostler:${F2_PW}" "http://${HOST}:${WIKI_PORT}/")"
+    F2_BYTES="$(wc -c < /tmp/ostler_floor_wiki.$$ 2>/dev/null | tr -d ' ')"
+    F2_CSS="$(/usr/bin/grep -c -i '<link' /tmp/ostler_floor_wiki.$$ 2>/dev/null || echo 0)"
+    rm -f /tmp/ostler_floor_wiki.$$
+    if [ "${F2_CODE}" != "200" ]; then
+        bad "F2 wiki: the credential the customer was given is REFUSED (HTTP ${F2_CODE})."
+    elif [ "${F2_CSS}" -lt 1 ]; then
+        bad "F2 wiki: 200 and ${F2_BYTES} bytes but no stylesheet link. The customer sees unstyled markup."
+    else
+        ok "F2 wiki: refuses without a credential, opens with the customer's own, ${F2_BYTES} bytes, ${F2_CSS} stylesheet link(s)."
+    fi
+fi
 
 # F3  THE FRONT PAGE. ZERO INTERESTS IS A FAILURE, not an empty state.
 #     "0 interests inferred so far" survived three builds and two claimed fixes.
