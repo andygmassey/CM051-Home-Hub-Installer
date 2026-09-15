@@ -45,7 +45,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "vendor" / "cm041"))
 
 os.environ.setdefault("USER_ID", "operator")
-os.environ.setdefault("USER_DISPLAY_NAME", "Alex Rivera")
+os.environ.setdefault("USER_DISPLAY_NAME", "Alex Smith")
 os.environ.setdefault("DEFAULT_COUNTRY_CODE", "44")
 
 _TMP = Path(tempfile.mkdtemp())
@@ -83,7 +83,7 @@ def operator_can_see(privacy_level: str) -> bool:
 # primary is named by the account ADDRESS (which is why a display-name
 # token match can never recognise it as the operator's own), and a shared
 # calendar is named by a human label. Synthetic throughout.
-PRIMARY_LABEL = "alex.rivera@example.com"
+PRIMARY_LABEL = "alex.smith@example.com"
 SHARED_LABEL = "Family"
 
 ICS_PRIMARY = f"""BEGIN:VCALENDAR
@@ -93,7 +93,7 @@ BEGIN:VEVENT
 UID:evt-primary-1
 SUMMARY:Dentist
 DTSTART:20260401T090000Z
-ORGANIZER;CN=Alex Rivera:mailto:{PRIMARY_LABEL}
+ORGANIZER;CN=Alex Smith:mailto:{PRIMARY_LABEL}
 END:VEVENT
 END:VCALENDAR
 """
@@ -105,7 +105,7 @@ BEGIN:VEVENT
 UID:evt-shared-1
 SUMMARY:School run
 DTSTART:20260402T080000Z
-ORGANIZER;CN=Robin Carter:mailto:robin.carter@example.com
+ORGANIZER;CN=Sam Jones:mailto:sam.jones@example.com
 END:VEVENT
 END:VCALENDAR
 """
@@ -123,7 +123,7 @@ def resolve_all() -> list[tuple[str, str, str]]:
     out = []
     for p in ICS_PATHS:
         label = gc.calendar_label_for_ics(p)
-        for ev in gc.parse_ics(p, user_name="Alex Rivera"):
+        for ev in gc.parse_ics(p, user_name="Alex Smith"):
             owner, _type, privacy = gc.resolve_calendar_provenance(ev, prov)
             out.append((label, owner, privacy))
     return out
