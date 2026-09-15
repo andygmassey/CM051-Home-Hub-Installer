@@ -596,6 +596,7 @@ gui/OstlerInstallerTests/AdminAuthorizationGateTests.swift	WIRED	.github/workflo
 gui/OstlerInstallerTests/AdminPromptFinderPreAnnounceTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/AutoQuitAndKeepInstallerTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/BiometricProbeTests.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/CaffeinateTerminationTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/DeviceLimitReachedViewSnapshotTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/DeviceRegistrationClientTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/EmailSupportMailtoTest.swift	WIRED	.github/workflows/swift-tests.yml
@@ -612,6 +613,7 @@ gui/OstlerInstallerTests/LinkifyHelpTextTests.swift	WIRED	.github/workflows/swif
 gui/OstlerInstallerTests/LogDrawerFormatTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/LogRedactorTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/OfflineGraceBoundTests.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/OfflineGraceCacheReadTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/OnboardingButtonFooterProofTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/OnboardingQuestionViewSnapshotTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/OnboardingQuestionXOfYTests.swift	WIRED	.github/workflows/swift-tests.yml
@@ -622,6 +624,7 @@ gui/OstlerInstallerTests/PermissionsPrewarmCodeShapeTest.swift	WIRED	.github/wor
 gui/OstlerInstallerTests/PermissionsPrewarmInfoPlistTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/PermissionsPrewarmSequencingTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/ProgressDecoderTests.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/RecoveryKeySurvivesFailedInstallTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/ReuseSettingsExplanationTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/SelfRelocatorTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/SidebarPhaseAdvanceTests.swift	WIRED	.github/workflows/swift-tests.yml
@@ -629,6 +632,7 @@ gui/OstlerInstallerTests/SidebarStatusGlyphTests.swift	WIRED	.github/workflows/s
 gui/OstlerInstallerTests/StatementHeaderTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/StringsCatalogueEmDashTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/StringsCatalogueYNSuffixTest.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/SupportLogVisibilityTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TerminationExitCodeReconcileTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TypedInstallGateTest.swift	WIRED	.github/workflows/swift-tests.yml
 context-refresh/tests/test_context_digest_auth.py	WIRED	.github/workflows/context-digest-auth.yml
