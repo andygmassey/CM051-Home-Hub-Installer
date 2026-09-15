@@ -2447,22 +2447,98 @@ def _memory_query_facts() -> list:
     #
     # ?about is returned so a caller can name the subject: answering "who is
     # my wife" needs jane's name, not just the sentence.
+    # THE SECOND BUG, SAME SHAPE, FOUND 2026-09-16
+    # ------------------------------------------------------------------
+    # The query above was still asking a question no writer answers. On a
+    # live box:
+    #
+    #     ?s a pwg:PersonFact          0    in EVERY graph
+    #     ?s a <urn:ostler:Fact>     990    in the per-user named graph
+    #     CONTROL ?s a pwg:Person   3810    so the probe discriminates
+    #
+    # CM048 -- the conversation-mining pipeline that produces essentially
+    # all of a customer's remembered facts -- writes its OWN vocabulary in
+    # its OWN named graph (cm048_pipeline/src/ingest.py ~L1008):
+    #
+    #     GRAPH <urn:ostler:user/<id>> {
+    #       <fact> a <urn:ostler:Fact> ;
+    #              <urn:ostler:text>   "..." ;   # NOT pwg:factText
+    #              <urn:ostler:about>  <...>  ;  # NOT pwg:aboutPerson
+    #              <urn:ostler:domain> "..." ;   # NOT pwg:factDomain
+    #              <urn:ostler:userId> "..." ;   # NOT pwg:belongsToUser
+    #     }
+    #
+    # So there were TWO mismatches stacked, and fixing either alone still
+    # returns nothing: the TYPE and predicate names differ, AND the data
+    # sits in a NAMED GRAPH while a SPARQL query with no GRAPH clause reads
+    # only the default graph. That second half is easy to miss -- it is the
+    # reason the first probe written for this returned 0 for the control too.
+    #
+    # WHY THE READER MOVES AND NOT THE WRITER. 990 facts are already on this
+    # customer's disk in the CM048 vocabulary; rewriting the writer to emit
+    # pwg: terms would orphan every one of them and leave the surface empty
+    # until a full re-mine. And pwg:PersonFact is NOT dead vocabulary -- it
+    # is still written by contact_syncer/facebook_events.py,
+    # linkedin_career.py and google_calendar.py -- so the reader has to serve
+    # BOTH. Hence a UNION rather than a replacement.
+    #
+    # The shape is lifted from ostler_hygiene/graph_io.py build_facts_query,
+    # which is the canonical dual-vocabulary reader in this repo and has been
+    # reading both arms correctly all along. This function simply never used it.
+    #
+    # USER SCOPING IS CASE-INSENSITIVE ON PURPOSE. USER_ID here has been
+    # through identity_resolver.compartment.normalise_user_id, which
+    # LOWER-CASES; CM048 writes settings.user_id verbatim, so a box whose
+    # operator typed "Jane" has graph <urn:ostler:user/Jane> and userId
+    # "Jane" while this module holds "jane". Comparing those raw is the very
+    # defect class this commit is closing, so compare folded. USER_ID is
+    # already slug-normalised ([a-z0-9_-] only), so it cannot break the IRI
+    # or the literal it is interpolated into.
+    #
+    # L3 IS WITHHELD ON THE CM048 ARM, and that is a requirement of this
+    # change rather than an extra. These rows were unreachable before, so
+    # turning them on is the moment a privacy stamp starts to matter; CM048
+    # forbids L3 on facts (see ostler_hygiene/model.py), and an L3 row
+    # appearing here would be a new leak introduced by a fix. Withheld
+    # explicitly rather than trusted not to exist.
     sparql = (
         'PREFIX pwg: <{ns}>\n'
         'SELECT DISTINCT ?fact ?text ?source ?domain ?conf ?validFrom ?about ?aboutName '
         'WHERE {{\n'
-        '  ?fact a pwg:PersonFact ; pwg:factText ?text .\n'
-        '  {{ ?fact pwg:aboutPerson <{user}> }}\n'
-        '  UNION\n'
-        '  {{ ?fact pwg:belongsToUser <{user}> }}\n'
-        '  OPTIONAL {{ ?fact pwg:aboutPerson ?about .\n'
-        '             OPTIONAL {{ ?about pwg:displayName ?aboutName }} }}\n'
-        '  OPTIONAL {{ ?fact pwg:factSource ?source }}\n'
-        '  OPTIONAL {{ ?fact pwg:factDomain ?domain }}\n'
-        '  OPTIONAL {{ ?fact pwg:confidence ?conf }}\n'
-        '  OPTIONAL {{ ?fact pwg:validFrom ?validFrom }}\n'
-        '  FILTER NOT EXISTS {{ ?fact pwg:validTo ?end }}\n'
-        '}}'.format(ns=PWG_NS, user=USER_URI)
+        '  {{\n'
+        '    ?fact a pwg:PersonFact ; pwg:factText ?text .\n'
+        '    {{ ?fact pwg:aboutPerson <{user}> }}\n'
+        '    UNION\n'
+        '    {{ ?fact pwg:belongsToUser <{user}> }}\n'
+        '    OPTIONAL {{ ?fact pwg:aboutPerson ?about .\n'
+        '               OPTIONAL {{ ?about pwg:displayName ?aboutName }} }}\n'
+        '    OPTIONAL {{ ?fact pwg:factSource ?source }}\n'
+        '    OPTIONAL {{ ?fact pwg:factDomain ?domain }}\n'
+        '    OPTIONAL {{ ?fact pwg:confidence ?conf }}\n'
+        '    OPTIONAL {{ ?fact pwg:validFrom ?validFrom }}\n'
+        '    FILTER NOT EXISTS {{ ?fact pwg:validTo ?end }}\n'
+        '  }} UNION {{\n'
+        '    GRAPH ?g {{\n'
+        '      ?fact a <urn:ostler:Fact> ;\n'
+        '            <urn:ostler:text> ?text ;\n'
+        '            <urn:ostler:userId> ?uid .\n'
+        '      OPTIONAL {{ ?fact <urn:ostler:about> ?about }}\n'
+        '      OPTIONAL {{ ?fact <urn:ostler:domain> ?domain }}\n'
+        '      OPTIONAL {{ ?fact <urn:ostler:observedAt> ?validFrom }}\n'
+        '      OPTIONAL {{ ?fact <urn:ostler:privacyLevel> ?privacy }}\n'
+        '      OPTIONAL {{ ?fact <urn:ostler:signalStrength> ?signal }}\n'
+        '    }}\n'
+        '    FILTER (LCASE(STR(?uid)) = "{user_id}")\n'
+        '    FILTER (!BOUND(?privacy) || UCASE(STR(?privacy)) != "L3")\n'
+        # CM048 grades a fact qualitatively; the consumer wants a float and
+        # falls back to 0.5 on anything unparseable. Mapping here keeps the
+        # ordering CM048 intended instead of flattening all 990 to the
+        # default. Unrecognised grades stay unbound and take that default.
+        '    BIND(IF(STR(?signal) = "strong", 0.9,\n'
+        '         IF(STR(?signal) = "medium", 0.6,\n'
+        '         IF(STR(?signal) = "weak", 0.3, ?unmapped))) AS ?conf)\n'
+        '  }}\n'
+        '}}'.format(ns=PWG_NS, user=USER_URI, user_id=USER_ID)
     )
     return _sparql_select(sparql)
 

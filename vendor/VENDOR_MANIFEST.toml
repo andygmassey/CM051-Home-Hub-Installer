@@ -275,6 +275,7 @@ note             = "2026-07-15: re-synced to CM041 main 11ad1246 (v1.0.9: calend
 
 [[tree]]
 name             = "cm041/assistant_api"
+  unrecorded_divergence = "vendor/divergences/WRITER_READER_MISMATCHES.UNRECORDED.md"  # CM051 #1974: this tree carries writer/reader vocabulary fixes that the divergence patch does NOT record, because regeneration was run and could not produce one here. A grep of the patch for them returns nothing and that means NOT RECORDED, not NOT DIVERGED. A sync refusal on this tree is EXPECTED; SYNC_ACCEPT_DIVERGENCE_LOSS=1 would silently restore the defects. See that file for the per-tree outcome and the location+shape of every edit.
 db_key_warning    = "🔴 DO NOT OVERRIDE A sync_vendor.sh REFUSAL ON THIS TREE. ical-server.py here carries the DB-KEY CONSUMER (CM051 #1956): it resolves the database key through ostler_security.resolve_db_key instead of a bare env var that nothing ever set. That delta IS described in cm041_assistant_api.patch, regenerated 2026-09-13, and the tree reconstructs (gate: OK, vendor == source@9be482d3 +patch). If a future sync REFUSES, that refusal is EXPECTED and correct. SYNC_ACCEPT_DIVERGENCE_LOSS=1 would delete this and the customer's databases go back to being readable with NOTHING FAILING and no test going red, which is exactly the launch blocker #1956 closed. Regenerate the patch instead; the CM041 source is required to do it."
 vendor_path      = "vendor/cm041/assistant_api"
 source_repo      = "$CM041"
@@ -380,6 +381,7 @@ note             = "Vendored as a DELIBERATE MINIMAL SUBSET (cli.py + filters.py
 
 [[tree]]
 name             = "ostler_fda"
+  unrecorded_divergence = "vendor/divergences/WRITER_READER_MISMATCHES.UNRECORDED.md"  # CM051 #1974: this tree carries writer/reader vocabulary fixes that the divergence patch does NOT record, because regeneration was run and could not produce one here. A grep of the patch for them returns nothing and that means NOT RECORDED, not NOT DIVERGED. A sync refusal on this tree is EXPECTED; SYNC_ACCEPT_DIVERGENCE_LOSS=1 would silently restore the defects. See that file for the per-tree outcome and the location+shape of every edit.
 expires = "2026-09-30"
 owner = "archie"
 vendor_path      = "vendor/ostler_fda"
@@ -506,6 +508,7 @@ note             = "2026-07-25 v1.0.10 recut re-pin to 8acf2b4c (HR015 #256 BW3-
 # Guard (run AFTER the re-pin): scripts/verify_doctor_governor_revendor.sh
 [[tree]]
 name             = "doctor"
+  unrecorded_divergence = "vendor/divergences/WRITER_READER_MISMATCHES.UNRECORDED.md"  # CM051 #1974: this tree carries writer/reader vocabulary fixes that the divergence patch does NOT record, because regeneration was run and could not produce one here. A grep of the patch for them returns nothing and that means NOT RECORDED, not NOT DIVERGED. A sync refusal on this tree is EXPECTED; SYNC_ACCEPT_DIVERGENCE_LOSS=1 would silently restore the defects. See that file for the per-tree outcome and the location+shape of every edit.
 expires = "2026-09-30"
 owner = "archie"
 vendor_path      = "vendor/doctor"

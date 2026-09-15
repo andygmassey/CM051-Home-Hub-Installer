@@ -174,23 +174,95 @@ class QdrantLoader:
         must_conditions = []
 
         if compartment_level is not None:
-            must_conditions.append({
-                "key": "compartment_level",
-                "range": {"gte": compartment_level}
-            })
+            # BOTH SHAPES, because the store holds both and a range alone
+            # matches NEITHER of the records actually on disk.
+            #
+            # Measured on a live box 2026-09-16, preferences collection:
+            #   compartment_level match "L2"      4804
+            #   compartment_level range {gte: 0}     0
+            #   CONTROL strength   range {gte: 0}  5733   <- the range
+            #                                              operator works
+            #
+            # The control is the point: `range` is not broken and the field
+            # is not missing. 4804 points carry compartment_level as the
+            # STRING "L2", and Qdrant's range operator simply does not match
+            # a string, so it returned zero for every query and the whole
+            # compartment-scoped search path was dead.
+            #
+            # THE READER MOVES, NOT THE WRITER. The type the reader wants is
+            # the documented one -- ParsedPreference.compartment_level is
+            # `int` (parsers/base.py), ensure_indexes declares this key as
+            # "integer", and all 23 parsers pass ints. But 4804 points on
+            # this customer's disk already say "L2", written by
+            # ostler_fda/pwg_ingest.py, and a writer-only fix leaves every
+            # one of them unsearchable until a full re-ingest. Accepting the
+            # stored vocabulary costs nothing and orphans nothing.
+            #
+            # THE COMPARISON DIRECTION IS PRESERVED EXACTLY. `gte` is kept
+            # because this commit is about a type mismatch, not about what
+            # the cap means. (Levels run L0 Personal ... L6 Broadcast, so
+            # whether a "max compartment level" should be gte or lte is a
+            # real question -- it is NOT this commit's question, and
+            # answering it by accident while fixing the type would be a
+            # silent privacy change.) The string arm enumerates exactly the
+            # tokens that satisfy the same gte, so both arms agree.
+            level_tokens = [
+                f"L{n}" for n in range(compartment_level, 7)
+            ]
+            # One nested one-of clause: numeric payload OR string payload.
+            must_conditions.append({"should": [
+                {"key": "compartment_level",
+                 "range": {"gte": compartment_level}},
+                {"key": "compartment_level",
+                 "match": {"any": level_tokens}},
+            ]})
 
         if user_id:
-            must_conditions.append({
-                "key": "user_id",
-                "match": {"value": user_id}
-            })
+            # `should`, NOT `must`. The field is never written.
+            #
+            # Measured on a live box 2026-09-16, preferences collection:
+            #   is_empty user_id   5733 of 5733
+            #   CONTROL is_empty category   0 of 5733
+            #
+            # so this is a real absence and not a broken probe. The producer
+            # for this collection is ostler_fda/pwg_ingest.py, whose payload
+            # carries no user_id at all; CM019's own
+            # ParsedPreference.to_payload does write one, but it is not what
+            # populated this store. A `must` on an absent key excludes
+            # everything, so every user-scoped read returned nothing.
+            #
+            # THE READER MOVES, NOT THE WRITER, and the reasoning is already
+            # written down in this codebase -- enrich/src/enricher.py makes
+            # exactly this call for exactly this reason: Ostler is
+            # single-machine by architectural directive, the Hub Mac is THE
+            # machine and there is exactly one person, so an untagged
+            # preference is THIS user's rather than somebody else's. A
+            # writer-side fix would mean back-filling 5733 points with an
+            # identity the single-machine product does not otherwise have.
+            #
+            # Deliberately NOT applied to delete_by_user() below: widening a
+            # DELETE to include untagged points would turn "erase this
+            # user's data" into "erase the entire collection". A read that
+            # is too narrow shows nothing; a delete that is too wide cannot
+            # be undone.
+            #
+            # NESTED under must for the same reason as the clause above: two
+            # independent one-of groups must BOTH hold. A flat top-level
+            # `should` would make them alternatives, so a point matching only
+            # the compartment arm would pass the user arm too.
+            must_conditions.append({"should": [
+                {"key": "user_id", "match": {"value": user_id}},
+                {"is_empty": {"key": "user_id"}},
+            ]})
 
         query_filter = None
         if must_conditions:
             query_filter = {"must": must_conditions}
         if filters:
             if query_filter:
-                query_filter["must"].extend(filters.get("must", []))
+                query_filter.setdefault("must", []).extend(
+                    filters.get("must", [])
+                )
             else:
                 query_filter = filters
 
@@ -221,7 +293,24 @@ class QdrantLoader:
             return []
 
     async def delete_by_user(self, user_id: str) -> bool:
-        """Delete all vectors for a user."""
+        """Delete all vectors for a user.
+
+        DELIBERATELY NOT WIDENED. The read paths in this class now also
+        accept points with no ``user_id`` (see ``search``), because the
+        field is absent on every point the live writer produces and a
+        strict match therefore returned nothing. That same widening applied
+        HERE would turn "delete this user's vectors" into "delete every
+        vector in the collection", including the 5733 untagged points a
+        live box was measured to hold on 2026-09-16.
+
+        A read that is too narrow shows the customer nothing and is fixed
+        by the next query. A delete that is too wide is not recoverable.
+        So this stays strict, and the consequence is stated rather than
+        hidden: on a store whose points carry no ``user_id``, this method
+        deletes nothing. Making erasure actually work needs the writer to
+        stamp an owner, which is tracked separately -- it must not be
+        smuggled in by loosening a delete filter.
+        """
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.post(
@@ -251,10 +340,15 @@ class QdrantLoader:
                         f"{self.base_url}/collections/{self.collection}/points/count",
                         json={
                             "filter": {
-                                "must": [{
-                                    "key": "user_id",
-                                    "match": {"value": user_id}
-                                }]
+                                # Same one-of clause as search(): the owner
+                                # tag is absent on every point the live
+                                # writer produces, so a strict match counted
+                                # 0 and reported an empty store as fact.
+                                "must": [{"should": [
+                                    {"key": "user_id",
+                                     "match": {"value": user_id}},
+                                    {"is_empty": {"key": "user_id"}},
+                                ]}]
                             }
                         }
                     )
@@ -309,10 +403,15 @@ class QdrantLoader:
                 while True:
                     body = {
                         "filter": {
-                            "must": [{
-                                "key": "user_id",
-                                "match": {"value": user_id}
-                            }]
+                            # Same one-of clause as search(). This method
+                            # warms the cross-source reinforcement cache, so
+                            # a strict match here left the cache empty and
+                            # silently disabled reinforcement entirely.
+                            "must": [{"should": [
+                                {"key": "user_id",
+                                 "match": {"value": user_id}},
+                                {"is_empty": {"key": "user_id"}},
+                            ]}]
                         },
                         "limit": batch_size,
                         "with_payload": True,
