@@ -23,6 +23,7 @@ fix issues).
 from __future__ import annotations
 
 import getpass
+import html
 import json
 import os
 import re
