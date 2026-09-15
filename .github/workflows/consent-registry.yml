@@ -46,4 +46,8 @@ jobs:
         run: bash tests/test_consent_tickbox_registry.sh
 
       - name: every consent decision the customer gives is actually recorded
+        # `always()` because a test step that only runs on success can be
+        # MASKED by an earlier red in the same job. A guard against answers
+        # that are never recorded must not itself stop being recorded.
+        if: always()
         run: bash tests/test_every_consent_decision_is_recorded.sh
