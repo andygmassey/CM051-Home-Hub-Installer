@@ -10904,6 +10904,64 @@ while true; do
     esac
 done
 
+# ── 10b-pu. PERSONAL-USE-ONLY TERMS ───────────────────────────────
+#
+# A LICENCE TERM, NOT AN OPTIONAL CONSENT, which is why this acknowledges
+# rather than offering a decline that would leave a half-licensed install.
+# Wording verbatim from vendor/legal/consent_strings.py (PERSONAL_USE_ONLY,
+# tickbox personal_use_only) so the Doctor can flag drift between what the
+# customer agreed to and what the Hub currently bundles.
+#
+# WHY IT IS SHOWN AT ALL, rather than buried in a terms page nobody reads.
+# Three obligations cannot be met by a warning, because the person who would
+# act on the warning is not the person at risk:
+#
+#   BUSINESS USE removes the household-activity position the rest of the
+#   product rests on. If an employer deploys Ostler to staff, the EMPLOYER
+#   becomes data controller for every colleague, client and patient captured,
+#   which brings impact assessments, works-council duties in parts of the EU,
+#   and vicarious liability in the US. All of it disappears if the product is
+#   personal-use only, and none of it is survivable otherwise.
+#
+#   MINORS cannot consent. An operator ticking "I have consent" is legally
+#   meaningless on a child's behalf, so it is named rather than folded into a
+#   general assurance.
+#
+#   PRIVILEGED SETTINGS are a different order of wrong even where recording is
+#   otherwise lawful. No terms page outsources that, so we ask directly.
+#
+# Cancel exits cleanly with nothing installed, mirroring the passphrase
+# briefing: someone who does not accept the licence should not end up with a
+# half-configured Mac.
+echo ""
+echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo -e "  ${BOLD}${MSG_TERMS_PERSONAL_USE_HEADING}${NC}"
+echo ""
+echo "  ${MSG_TERMS_PERSONAL_USE_INTRO}"
+echo ""
+echo "  ${MSG_TERMS_PERSONAL_USE_BUSINESS}"
+echo ""
+echo "  ${MSG_TERMS_PERSONAL_USE_RECORDER}"
+echo ""
+echo -e "  ${BOLD}${MSG_TERMS_PERSONAL_USE_ASK_HEADING}${NC}"
+echo ""
+echo "    - ${MSG_TERMS_PERSONAL_USE_ASK_1}"
+echo "    - ${MSG_TERMS_PERSONAL_USE_ASK_2}"
+echo "    - ${MSG_TERMS_PERSONAL_USE_ASK_3}"
+echo ""
+echo -e "  ${DIM}${MSG_TERMS_PERSONAL_USE_LEGAL}${NC}"
+echo ""
+TERMS_PERSONAL_USE="$(gui_read "$MSG_PROMPT_TERMS_PERSONAL_USE_TITLE" acknowledge "OK" "$MSG_PROMPT_TERMS_PERSONAL_USE_HELP" "OK,CANCEL" "terms_personal_use")"
+if [[ "$TERMS_PERSONAL_USE" == "CANCEL" || "$TERMS_PERSONAL_USE" == "cancel" ]]; then
+    echo ""
+    echo "  ${MSG_INFO_TERMS_PERSONAL_USE_DECLINED}"
+    gui_cancelled
+    exit 0
+fi
+OSTLER_CONSENT_PERSONAL_USE_DECISION="accepted"
+ok "$MSG_PROMPT_TERMS_PERSONAL_USE_TITLE"
+
 # ── 10b-ts. Tailscale DECISION -- hoisted upfront (WALK-1 / Wave 2.1) ──
 #
 # WALK-1 (2026-06-19, Andy's live walk): the Tailscale setup/skip CHOICE
