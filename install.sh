@@ -610,6 +610,30 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
             # edited it, and if they had, silently keeping their value is how the
             # fix got lost in the first place.
             [[ "$_k" == "PATH" ]] && continue
+            # ── THE SAME DEFECT, ONE VARIABLE ALONG ───────────────────────
+            #
+            # PATH was not special. It was the first product-owned key anyone
+            # noticed being reverted. Every key the TEMPLATE states outright,
+            # rather than holds as a placeholder for something captured from
+            # the customer, is in the same position: the template is the only
+            # thing that knows what this version needs, and carrying the old
+            # value forward silently un-ships the fix.
+            #
+            # These four arrived with the whatsapp-keepalive runner and are all
+            # product-owned. OSTLER_GATEWAY_URL is the sharpest: it is pinned
+            # to the daemon's [gateway] port (CX-59), so if that pin ever moves
+            # again, every upgrading customer would keep probing the old port
+            # and the keepalive would report the channel unmeasurable forever.
+            # That is precisely the shape recorded above for PATH, and the only
+            # reason it is being pre-empted rather than discovered is that the
+            # PATH comment was read before the keys were added.
+            #
+            # Guarded by tests/test_upgrade_does_not_revert_the_launchagent_path.sh,
+            # which mutation-tests this block separately from the PATH line.
+            case "$_k" in
+                OSTLER_DIR|OSTLER_GATEWAY_URL|OSTLER_ASSISTANT_LABEL|PYTHONDONTWRITEBYTECODE)
+                    continue ;;
+            esac
             _v="$("$_UPG_PB" -c "Print :EnvironmentVariables:${_k}" "$_old" 2>/dev/null)" || continue
             if "$_UPG_PB" -c "Print :EnvironmentVariables:${_k}" "$_new" >/dev/null 2>&1; then
                 "$_UPG_PB" -c "Set :EnvironmentVariables:${_k} ${_v}" "$_new" >/dev/null 2>&1
@@ -3023,14 +3047,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :7825) captures the path BY
+    # _ostler_write_store_curl_config (defined :7849) captures the path BY
     # VALUE and never re-reads it:
-    #     :7826   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :7871   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :7880 and :13842, both of which run
+    #     :7850   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :7895   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :7904 and :13866, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :3018 above has just deleted
-    # that tree and :3022 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :3042 above has just deleted
+    # that tree and :3046 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -3045,13 +3069,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :14613, where the note reads
+    # WhatsApp Web session path did it again at :14637, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :14630 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :14654 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3060,13 +3084,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5475 against a definition at :7825. Top-level
+    # writer's own definition: :5499 against a definition at :7849. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:7880, :13842) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:7904, :13866) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :16657 / :16835 / :16992 / :17333 path. There the
+    # :16681 / :16859 / :17016 / :17357 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then

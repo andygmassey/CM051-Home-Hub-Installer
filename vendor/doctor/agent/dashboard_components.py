@@ -58,6 +58,12 @@ from reminders_runtime import (
     STATE_PERMISSION_DENIED,
     read_reminders_runtime,
 )
+# The WhatsApp keepalive verdict. Same in-package, always-importable shape as
+# the readers above, so no soft fall-through is needed. It lives in
+# whatsapp_pair rather than a module of its own because a brand-new vendored
+# file with no upstream counterpart would need a VENDOR_ONLY.tsv row, and that
+# file's header calls a new row a last resort.
+from whatsapp_pair import read_whatsapp_keepalive
 
 # A7+A8: consent registry. Same soft-fall-through rule as posture –
 # Doctor must keep rendering even when ostler_security is missing.
@@ -1229,5 +1235,188 @@ def render_reminders_runtime(now_dt=None) -> str:
     return f"""
     <div class="section" id="remindersRuntimeSection">
         <div class="section-title">{_html_escape(REMINDERS_RUNTIME_SECTION_TITLE)}</div>
+        <div class="status-grid">{tile}</div>
+    </div>"""
+
+
+# ── WhatsApp keepalive tile ──────────────────────────────────────────
+#
+# GRAFTED (CM051, board item 965). Colour by verdict, on the palette the
+# sibling tiles already use. healthy = green; recovered = green, because the
+# channel IS up and a customer should not be alarmed, with the repair count
+# carried as a detail line so a box repairing itself daily is still visible;
+# needs_customer = amber, the one verdict that asks something of them;
+# still_unhealthy = red, because messages are being missed right now;
+# cannot_run = grey, because "we could not tell" is not evidence of failure
+# and must not be painted as one.
+_WHATSAPP_KEEPALIVE_COLOURS = {
+    "healthy": "#5cb579",
+    "recovered": "#5cb579",
+    "needs_customer": "#d4a052",
+    "still_unhealthy": "#d96666",
+    "cannot_run": "rgba(236,232,221,0.40)",
+}
+_WHATSAPP_KEEPALIVE_ICONS = {
+    "healthy": "&#10003;",
+    "recovered": "&#10003;",
+    "needs_customer": "&#9888;",
+    "still_unhealthy": "&#10007;",
+    "cannot_run": "&#8211;",
+}
+
+
+def render_whatsapp_keepalive(now_dt=None) -> str:
+    """Render the WhatsApp keepalive verdict tile.
+
+    Reads ``~/.ostler/state/whatsapp_keepalive.json``, written by the
+    com.creativemachines.ostler.whatsapp-keepalive LaunchAgent at 08:50 and
+    17:50. Returns:
+
+    - Empty string when there is no verdict. That covers an install where
+      WhatsApp was never enabled and one where the keepalive has not fired
+      yet, neither of which is a finding. A permanent empty header asking an
+      unanswered question is worse than no tile.
+    - A single status card otherwise.
+
+    WHY THIS TILE EXISTS. The keepalive used to write "WhatsApp unhealthy"
+    into a log file and exit 0. Three consecutive unhealthy runs read as
+    ``last exit code = 0`` in launchctl and nobody knew the channel was
+    degraded. The job can now repair the channel, which means it can also fail
+    to repair it -- and a remediation nobody can observe failing is the same
+    defect one layer along. So the verdict gets a surface on the page the
+    customer already opens.
+
+    THE TILE NEVER OFFERS TO RE-LINK ON THEIR BEHALF. Where the session is
+    gone it says, in as many words, that only they can do it and that Ostler
+    has stopped retrying. Quietly re-pairing a customer's WhatsApp account
+    would be a much worse defect than the one being reported.
+
+    Server-side static HTML; the expand-collapse is the native ``<details>``
+    element, so no JS. Mirrors ``render_reminders_runtime`` -- same shape,
+    same failure class: a daemon-side outcome the customer would otherwise
+    only discover by noticing messages had stopped.
+    """
+    from web_ui_copy import (
+        WHATSAPP_KEEPALIVE_CHECKED_AT_PREFIX_FMT,
+        WHATSAPP_KEEPALIVE_DETAIL_CANNOT_RUN,
+        WHATSAPP_KEEPALIVE_DETAIL_HEALTHY,
+        WHATSAPP_KEEPALIVE_DETAIL_NEEDS_CUSTOMER,
+        WHATSAPP_KEEPALIVE_DETAIL_RECOVERED,
+        WHATSAPP_KEEPALIVE_DETAIL_STILL_UNHEALTHY,
+        WHATSAPP_KEEPALIVE_HOW_TO_FIX_LABEL,
+        WHATSAPP_KEEPALIVE_LINK_LABEL,
+        WHATSAPP_KEEPALIVE_REMEDIATION_CANNOT_RUN,
+        WHATSAPP_KEEPALIVE_REMEDIATION_NEEDS_CUSTOMER,
+        WHATSAPP_KEEPALIVE_REMEDIATION_STILL_UNHEALTHY,
+        WHATSAPP_KEEPALIVE_REPAIRS_FMT,
+        WHATSAPP_KEEPALIVE_SECTION_TITLE,
+        WHATSAPP_KEEPALIVE_STATUS_CANNOT_RUN,
+        WHATSAPP_KEEPALIVE_STATUS_HEALTHY,
+        WHATSAPP_KEEPALIVE_STATUS_NEEDS_CUSTOMER,
+        WHATSAPP_KEEPALIVE_STATUS_RECOVERED,
+        WHATSAPP_KEEPALIVE_STATUS_STILL_UNHEALTHY,
+    )
+
+    status = read_whatsapp_keepalive()
+    if status is None:
+        return ""
+
+    verdict = status.verdict
+    if verdict not in _WHATSAPP_KEEPALIVE_COLOURS:
+        # The reader already rejects an unrecognised verdict, so this cannot
+        # normally fire. Kept because a KeyError here blanks the whole
+        # dashboard, and the reader and this map are two lists that a future
+        # edit can move apart.
+        return ""
+    colour = _WHATSAPP_KEEPALIVE_COLOURS[verdict]
+    icon = _WHATSAPP_KEEPALIVE_ICONS[verdict]
+
+    status_label = {
+        "healthy": WHATSAPP_KEEPALIVE_STATUS_HEALTHY,
+        "recovered": WHATSAPP_KEEPALIVE_STATUS_RECOVERED,
+        "needs_customer": WHATSAPP_KEEPALIVE_STATUS_NEEDS_CUSTOMER,
+        "still_unhealthy": WHATSAPP_KEEPALIVE_STATUS_STILL_UNHEALTHY,
+        "cannot_run": WHATSAPP_KEEPALIVE_STATUS_CANNOT_RUN,
+    }[verdict]
+
+    detail = {
+        "healthy": WHATSAPP_KEEPALIVE_DETAIL_HEALTHY,
+        "recovered": WHATSAPP_KEEPALIVE_DETAIL_RECOVERED,
+        "needs_customer": WHATSAPP_KEEPALIVE_DETAIL_NEEDS_CUSTOMER,
+        "still_unhealthy": WHATSAPP_KEEPALIVE_DETAIL_STILL_UNHEALTHY,
+        "cannot_run": WHATSAPP_KEEPALIVE_DETAIL_CANNOT_RUN,
+    }[verdict]
+
+    remediation = {
+        "needs_customer": WHATSAPP_KEEPALIVE_REMEDIATION_NEEDS_CUSTOMER,
+        "still_unhealthy": WHATSAPP_KEEPALIVE_REMEDIATION_STILL_UNHEALTHY,
+        "cannot_run": WHATSAPP_KEEPALIVE_REMEDIATION_CANNOT_RUN,
+    }.get(verdict)
+
+    extra_lines = ""
+
+    # A box that repairs itself every day is a fault report, not a success
+    # story, so the count is shown on the two verdicts where a repair happened
+    # or was attempted. Silence on a healthy box keeps the tile quiet.
+    if status.repairs_last_24h > 0 and verdict in ("recovered", "still_unhealthy"):
+        extra_lines += (
+            f'<div class="status-detail">'
+            f'{_html_escape(WHATSAPP_KEEPALIVE_REPAIRS_FMT.format(count=status.repairs_last_24h))}'
+            f'</div>'
+        )
+
+    if status.checked_at:
+        # The writer records unix seconds; _format_relative_time speaks
+        # ISO-8601. Convert here rather than teaching the shared helper a
+        # second input format.
+        try:
+            from datetime import datetime, timezone
+            checked_iso = datetime.fromtimestamp(
+                status.checked_at, tz=timezone.utc,
+            ).isoformat()
+        except (OverflowError, OSError, ValueError):
+            checked_iso = None
+        if checked_iso:
+            relative = _format_relative_time(checked_iso, now_dt=now_dt)
+            extra_lines += (
+                f'<div class="status-detail">'
+                f'{_html_escape(WHATSAPP_KEEPALIVE_CHECKED_AT_PREFIX_FMT.format(relative=relative))}'
+                f'</div>'
+            )
+
+    how_to_fix = ""
+    if remediation:
+        link = ""
+        if verdict in ("needs_customer", "still_unhealthy"):
+            # The page that already exists for this, rather than a second
+            # pairing surface invented here.
+            link = (
+                f'<div class="status-detail">'
+                f'<a href="/whatsapp-pair">{_html_escape(WHATSAPP_KEEPALIVE_LINK_LABEL)}</a>'
+                f'</div>'
+            )
+        how_to_fix = f"""
+                <details style="margin-top:8px">
+                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
+                        {_html_escape(WHATSAPP_KEEPALIVE_HOW_TO_FIX_LABEL)}
+                    </summary>
+                    <div class="status-detail">{_html_escape(remediation)}</div>
+                    {link}
+                </details>"""
+
+    tile = f"""
+        <div class="status-card">
+            <div class="status-indicator" style="background:{colour}">{icon}</div>
+            <div class="status-info">
+                <div class="status-name">{_html_escape(status_label)}</div>
+                <div class="status-detail">{_html_escape(detail)}</div>
+                {extra_lines}
+                {how_to_fix}
+            </div>
+        </div>"""
+
+    return f"""
+    <div class="section" id="whatsappKeepaliveSection">
+        <div class="section-title">{_html_escape(WHATSAPP_KEEPALIVE_SECTION_TITLE)}</div>
         <div class="status-grid">{tile}</div>
     </div>"""
