@@ -190,7 +190,7 @@ def _has_ever_paid(state: dict) -> bool:
     (``SubscriptionConfig::backfill_has_ever_paid``) does accept Active,
     because on that side a fresh install defaults to ``Grace``. On THIS
     side install.sh calls ``activate_first_month_free``, which writes
-    ``status=active`` for the free month. Accepting Active here would set
+    ``status=active`` for the free month. Accepting that as proof would set
     the bit for every single trialist on day zero, the denominator would
     be "everybody", and the rule would read as implemented while changing
     nothing. If you are about to add it, this paragraph is why you should
