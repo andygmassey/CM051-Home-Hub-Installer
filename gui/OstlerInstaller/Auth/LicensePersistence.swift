@@ -51,7 +51,7 @@
 // away and restored whatever mode the destination already had.
 //
 // MEASURED, three cases, one standalone program mirroring this
-// function (Apple Swift 6.3.3, macOS 26):
+// function, on the Swift 6.3.3 toolchain shipped with macOS 26:
 //
 //     destination ABSENT, temp 0600, replaceItem  -> final 600
 //     destination 0644,   temp 0600, replaceItem  -> final 644   <- the defect
