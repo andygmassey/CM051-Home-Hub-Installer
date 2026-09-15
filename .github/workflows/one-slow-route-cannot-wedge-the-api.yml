@@ -1,0 +1,82 @@
+name: one-slow-route-cannot-wedge-the-api
+
+# A single slow route must not deny service to the customer's whole Hub.
+#
+# MEASURED on the founder box, v1.0.98, 2026-09-16, 3,604 merge-candidate
+# contacts (6,492,606 pairs):
+#
+#     /health alone                             200 in 0.0036s
+#     /health WHILE contacts/diff is in flight   000, curl rc=28 at 30s
+#     /calendar/today WHILE it is in flight      000, curl rc=28 at 30s
+#     GET /api/v1/contacts/diff                  200 in 121.4s
+#
+# For two minutes the iOS app reads "Hub offline" and the assistant answers
+# nothing, because one report route was requested. Reverting either half of
+# the fix reproduces it, which is what the guard's mutants assert.
+#
+# TWO CAUSES, deliberately covered by ONE guard, because fixing either alone
+# still leaves a Hub that one request can take down:
+#
+#   1. assistant_api/ical-server.py served on a plain HTTPServer -- one
+#      request at a time, so any slow handler is a whole-API outage.
+#   2. identity_resolver/batch_resolver.py computed a full Levenshtein DP for
+#      EVERY pair, eagerly, though the edit distance only decides the gate
+#      once Jaro-Winkler has already failed its threshold.
+#
+# WHY THE GUARD IS MOSTLY BEHAVIOURAL: a grep for ThreadingHTTPServer proves a
+# spelling. It cannot prove the edit distance stopped being computed per pair.
+# So the quadratic arm COUNTS CALLS against a ceiling, and a separate arm
+# re-implements the ORIGINAL gate and demands the same surviving pair set --
+# because "fast" must not be bought with "wrong".
+#
+# ubuntu-latest is correct: the test stubs nothing it needs and touches no
+# Oxigraph, no network and no box. Synthetic address book throughout.
+
+on:
+  pull_request:
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/identity_resolver/batch_resolver.py'
+      - 'vendor/cm041/identity_resolver/tidy.py'
+      - 'tests/test_one_slow_route_cannot_wedge_the_hub_api.py'
+      - '.github/workflows/one-slow-route-cannot-wedge-the-api.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  one-slow-route-cannot-wedge-the-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # identity_resolver.normalise imports rapidfuzz at module scope and
+      # batch_resolver imports httpx; phonenumbers and nameparser come in
+      # transitively through the same package. Without these the test dies at
+      # import with ModuleNotFoundError, which is CANNOT-RUN, not a pass.
+      - name: install the vendored resolver's import-time dependencies
+        run: python3 -m pip install --quiet rapidfuzz httpx phonenumbers nameparser
+
+      # Fail loudly if a dependency is missing, rather than letting the guard
+      # below report an import error as a test failure and send the reader to
+      # the wrong file.
+      - name: the dependencies really are importable
+        run: python3 -c "import rapidfuzz, httpx, phonenumbers, nameparser"
+
+      # 14 arms. The load-bearing pair is CALLS-PER-PAIR (the cost must be
+      # gone) and GATE EQUIVALENCE (the answer must not have changed).
+      - name: one slow route must not wedge the Hub API
+        run: python3 tests/test_one_slow_route_cannot_wedge_the_hub_api.py
