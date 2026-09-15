@@ -195,7 +195,6 @@ test_doctor_silent_failure_grafts.py	WIRED	.github/workflows/vendor-integrity.ym
 test_doctor_web_ui_strings_complete.py	WIRED	.github/workflows/vendor-integrity.yml
 test_e1_source_readout_emits.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_editor_feedback_accepts_the_add_verb.sh	WIRED	.github/workflows/vendor-integrity.yml
-test_the_doctor_dashboard_actually_renders.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_egress_verdict_claims_only_what_it_checked.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_email_folder_prompt.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_email_ingest_bootstrap_guard.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -464,6 +463,7 @@ test_the_cron_reader_sees_both_toml_spellings.sh	WIRED	.github/workflows/install
 test_the_cut_checklist_is_complete.py	WIRED	.github/workflows/cut-checklist-complete.yml
 test_the_daemon_freshness_row_decides_on_the_scoped_count.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_db_key_reaches_the_services_and_the_disk.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
+test_the_doctor_dashboard_actually_renders.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_the_downloads_watcher_survives_a_real_export.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
 test_the_dry_run_can_still_go_green.sh	WIRED	.github/workflows/version-gate-not-tautological.yml
 test_the_egress_inventory_still_describes_the_software.py	WIRED	.github/workflows/install-abort-and-egress.yml
