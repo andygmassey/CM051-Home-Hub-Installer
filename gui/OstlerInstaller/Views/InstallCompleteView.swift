@@ -539,7 +539,7 @@ struct InstallCompleteView: View {
                 ? try await gatewayClient.mintPairCodeEnvelope()
                 : try await gatewayClient.fetchPairCodeEnvelope()
             if envelope.isEmpty {
-                pairFetchError = ViewCopy.shared.string(for: "pair_iphone.fetch_failed")
+                pairFetchError = ViewCopy.shared.string(for: "pair_iphone.fetch_empty")
                 pairEnvelope = nil
                 return false
             }
@@ -547,9 +547,57 @@ struct InstallCompleteView: View {
             pairFetchError = nil
             return true
         } catch {
-            pairFetchError = ViewCopy.shared.string(for: "pair_iphone.fetch_failed")
+            pairFetchError = Self.pairFailureMessage(for: error)
             pairEnvelope = nil
             return false
+        }
+    }
+
+    /// Map a pairing failure to copy that tells the customer what
+    /// actually happened.
+    ///
+    /// #2011: every one of these cases used to render
+    /// `pair_iphone.fetch_failed`, which says the gateway "might
+    /// still be starting up" and to click Refresh. For a REFUSED
+    /// request that is false in the worst direction: Refresh can
+    /// never succeed, and the customer is told to keep waiting on
+    /// the last screen of the install. `GatewayClient` already
+    /// throws five distinct typed cases; the information existed
+    /// and was discarded one line from where it was needed.
+    ///
+    /// THE STATUS CODE IS SURFACED AND THE RESPONSE BODY IS NOT.
+    /// `nonSuccessStatus` carries both. The code is a small integer
+    /// that tells a customer (and support) whether retrying can
+    /// possibly help; the body is attacker- or daemon-controlled
+    /// text of unknown length and unknown content, and rendering it
+    /// into the UI would be a disclosure channel for whatever the
+    /// gateway happened to return. Codes only, deliberately.
+    static func pairFailureMessage(for error: Error) -> String {
+        guard let gatewayError = error as? GatewayClientError else {
+            return ViewCopy.shared.string(for: "pair_iphone.fetch_failed")
+        }
+        switch gatewayError {
+        case .transport:
+            // The only case where "it might still be starting up" is
+            // true: nothing answered at all.
+            return ViewCopy.shared.string(for: "pair_iphone.fetch_failed")
+        case .nonSuccessStatus(let code, _):
+            let key = (code == 401 || code == 403)
+                ? "pair_iphone.fetch_refused"
+                : "pair_iphone.fetch_unexpected"
+            return ViewCopy.shared.string(for: key, fills: ["code": String(code)])
+        case .emptyBody:
+            return ViewCopy.shared.string(for: "pair_iphone.fetch_empty")
+        case .invalidUTF8:
+            return ViewCopy.shared.string(
+                for: "pair_iphone.fetch_unreadable",
+                fills: ["reason": "the reply was not valid text"]
+            )
+        case .malformedEnvelope(let reason):
+            return ViewCopy.shared.string(
+                for: "pair_iphone.fetch_unreadable",
+                fills: ["reason": reason]
+            )
         }
     }
 
