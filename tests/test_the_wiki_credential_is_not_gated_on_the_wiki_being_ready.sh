@@ -328,24 +328,69 @@ if [ "${SELF_TEST}" -eq 1 ]; then
     echo "== self-test: mutants =="
     SELF_PASS=0; SELF_FAIL=0; SELF_CANT=0
 
+    # ── MUTANT A IS SYNTHESISED, NOT FETCHED ──────────────────────────────
+    #
+    # This used to materialise "the pre-fix install.sh" as
+    # `git show origin/main:install.sh`. That worked for exactly as long as the
+    # fix was unmerged. The moment it landed on main, the "before" state became
+    # the "after" state, the mutant stopped failing, and this self-test went
+    # red on every branch that took main. One moving reference, four PRs
+    # blocked, and the guard reporting that it could not detect the defect it
+    # was written for.
+    #
+    # A mutation must MUTATE THE CURRENT FILE. Re-introduce the defect instead:
+    # the original shape put the whole credential handover inside
+    # `if [[ "$WIKI_FIRST_COMPILE_OK" == true ]]`, so a box where that flag was
+    # false got no address, no username and no password. Rebuilding that shape
+    # from the file in front of us cannot rot, because it does not depend on
+    # what any branch or remote currently holds.
     PREFIX_SH="${WORK}/install.prefix.sh"
-    if git -C "${REPO}" show "${OSTLER_PREFIX_REF:-origin/main}:install.sh" > "${PREFIX_SH}" 2>/dev/null \
-       && [ -s "${PREFIX_SH}" ]; then
+    if [ -n "${OSTLER_PREFIX_REF:-}" ]; then
+        # An explicit ref still works, for anyone bisecting a real commit.
+        git -C "${REPO}" show "${OSTLER_PREFIX_REF}:install.sh" > "${PREFIX_SH}" 2>/dev/null || :
+    else
+        # Wrap the banner region in the flag it used to sit inside. awk, so the
+        # sentinels are matched exactly and nothing outside them is touched.
+        awk '
+            /^# >>> wiki-handover-banner/ {
+                print; print "if [[ \"$WIKI_FIRST_COMPILE_OK\" == true ]]; then"; next
+            }
+            /^# <<< wiki-handover-banner/ {
+                print "fi"; print; next
+            }
+            { print }
+        ' "${SRC}" > "${PREFIX_SH}"
+    fi
+    if [ -s "${PREFIX_SH}" ] \
+       && ! cmp -s "${PREFIX_SH}" "${SRC}"; then
         set +e
         OSTLER_INSTALL_SH="${PREFIX_SH}" bash "${BASH_SOURCE[0]}" > "${WORK}/mutantA.out" 2>&1
         mrc=$?
         set -e
-        if [ "${mrc}" -eq 1 ]; then
+        # ── THE PROPERTY IS "THE MUTANT MUST NOT PASS", NOT "IT MUST EXIT 1" ──
+        #
+        # Re-introducing the defect makes the three not-ready states render
+        # NOTHING, and this suite classifies an empty render as CANNOT-RUN
+        # (exit 2) rather than FAIL (exit 1), because an empty render can also
+        # mean the extractor broke. That classification is right for the real
+        # product and wrong as a mutation expectation: exit 1 and exit 2 both
+        # mean the guard REFUSED the defective input, and exit 0 is the only
+        # answer that would prove it blind.
+        #
+        # Insisting on exit 1 here would fail the self-test for a mutant the
+        # guard actually caught, which is a false alarm in the direction that
+        # gets guards switched off.
+        if [ "${mrc}" -ne 0 ]; then
             SELF_PASS=$((SELF_PASS+1))
-            echo "  [PASS] MUTANT A: install.sh at ${OSTLER_PREFIX_REF:-origin/main} makes this suite FAIL (exit 1)"
-            grep -E '^\s+\[FAIL\]' "${WORK}/mutantA.out" | sed 's/^/         /'
+            echo "  [PASS] MUTANT A: the defect re-introduced into THIS install.sh makes the suite refuse it (exit ${mrc}, and 0 is the only answer that would prove it blind)"
+            grep -E '^\s+\[(FAIL|CANNOT-RUN)\]' "${WORK}/mutantA.out" | sed 's/^/         /'
         else
             SELF_FAIL=$((SELF_FAIL+1))
-            echo "  [FAIL] MUTANT A: the pre-fix install.sh exited ${mrc}, expected 1. This guard does not detect the defect it was written for."
+            echo "  [FAIL] MUTANT A: the mutated install.sh PASSED (exit 0). This guard does not detect the defect it was written for."
             tail -25 "${WORK}/mutantA.out" | sed 's/^/         /'
         fi
     else
-        echo "  [CANNOT-RUN] MUTANT A: could not materialise ${OSTLER_PREFIX_REF:-origin/main}:install.sh -- the guard was NOT proved"
+        echo "  [CANNOT-RUN] MUTANT A: could not build a mutated install.sh, or it came out identical to the original -- the guard was NOT proved"
         SELF_CANT=$((SELF_CANT+1))
     fi
 
