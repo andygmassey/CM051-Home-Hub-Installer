@@ -27,31 +27,6 @@
  
      removed = await remove_duplicates(
          qdrant_client,
---- a/ostler_knowledge/ingestion/adapters/__init__.py
-+++ b/ostler_knowledge/ingestion/adapters/__init__.py
-@@ -20,13 +20,9 @@
- from .apple_notes import AppleNotesAdapter
- from .base import KnowledgeSourceAdapter, ParsedNote, RawNote
- from .evernote import EvernoteAdapter
--from .notion import NotionAdapter
--from .obsidian import ObsidianAdapter
- 
- ADAPTERS: dict[str, type[KnowledgeSourceAdapter]] = {
-     "evernote": EvernoteAdapter,
--    "notion": NotionAdapter,
--    "obsidian": ObsidianAdapter,
-     "apple_notes": AppleNotesAdapter,
- }
- 
-@@ -34,8 +30,6 @@
-     "ADAPTERS",
-     "AppleNotesAdapter",
-     "EvernoteAdapter",
--    "NotionAdapter",
--    "ObsidianAdapter",
-     "KnowledgeSourceAdapter",
-     "ParsedNote",
-     "RawNote",
 --- a/ostler_knowledge/ingestion/classifier.py
 +++ b/ostler_knowledge/ingestion/classifier.py
 @@ -292,11 +292,31 @@

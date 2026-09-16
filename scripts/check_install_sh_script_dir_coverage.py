@@ -209,6 +209,25 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "THIRD_PARTY_NOTICES.md": ["vendor/THIRD_PARTY_NOTICES.md"],
     "LICENSES": ["vendor/LICENSES"],
     "Ostler.app": ["OSTLER_APP_PATH"],
+    # Recover Ostler.app (#1970): the standalone GUI doorway to the installed
+    # ostler-unlock redeemer. install.sh probes ${SCRIPT_DIR}/Recover Ostler.app
+    # and stages it into /Applications/Ostler; the copy into Resources is the
+    # RECOVERY_APP_PATH block in the "Bundle install.sh + lib/..." phase.
+    #
+    # ⚠️ THE NEEDLE IS THE cp ITSELF, and that is load-bearing. The three
+    # obvious candidates are all WEAK, each for the reason the store-auth entry
+    # above records: "RECOVERY_APP_PATH" survives in the ${VAR:-} capture and in
+    # the else-branch message, and "${DEST}/Recover Ostler.app" survives on the
+    # xattr line beside the copy. Any of them would leave the gate reporting
+    # covered with the cp deleted -- a positive control carrying the very thing
+    # it hunts. This fragment appears on the cp line and nowhere else in
+    # gui/project.yml. MUTATION-PROVED: with the cp line deleted the gate exits
+    # 1 and names this asset; restored, it exits 0.
+    #
+    # Not source-shaped, so tests/test_bundled_package_comes_from_its_declared_
+    # source.py lists it as out-of-scope rather than failing on it -- the same
+    # branch that already carries the bare-variable "OSTLER_APP_PATH" above.
+    "Recover Ostler.app": ['cp -R "$RECOVERY_APP_SRC"'],
     # W8 / F6: the Safari extension is now staged by the "Bundle Safari
     # extension into Resources" postBuildScript (and by release.sh for the
     # tarball path). Enforce the postBuildScript's presence so a future

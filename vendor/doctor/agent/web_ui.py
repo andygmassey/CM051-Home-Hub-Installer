@@ -3880,6 +3880,1032 @@ def _render_import_evernote_page(active_job_id=None) -> str:
 </html>"""
 
 
+def _render_import_notion_page(active_job_id=None) -> str:
+    """Render the Notion import page (CM024 Notion/Obsidian consumer-half fix, 2026-09-13).
+
+    ``active_job_id`` is the output of
+    ``import_notion.current_running_job_id()``. When non-None the
+    page boots straight into the polling-status panel so the operator
+    who closed and reopened the tab mid-import reattaches without
+    having to re-enter the path.
+
+    Vanilla HTML + JS, no framework. Matches Doctor's chassis tokens
+    (Outfit / Plex Sans / Plex Mono, ostler-ink palette) so it sits
+    visually next to ``/doctor`` rather than feeling bolted on.
+
+    Polling cadence per the launch-scope brief:
+        - ``GET /status`` every 5 seconds
+        - ``GET /tail``  every 10 seconds
+    On a terminal status (succeeded / failed) both timers stop.
+    """
+    initial_job_id_js = json.dumps(active_job_id)
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{NOTION_TITLE_TAG}</title>
+    <style>
+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
+        :root {{
+            --ostler-ink: #0d0b08;
+            --ostler-ink-deep: #07060a;
+            --ostler-panel: #1a1612;
+            --ostler-panel-elev: #221c16;
+            --ostler-chassis: #ECE8DD;
+            --ostler-accent: #C84545;
+            --ostler-accent-hover: #D76060;
+            --ostler-accent-warm: #E26A6A;
+            --ostler-accent-glow: rgba(200, 69, 69, 0.18);
+            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
+            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
+            --text: var(--ostler-chassis);
+            --text-secondary: rgba(236, 232, 221, 0.74);
+            --text-muted: rgba(236, 232, 221, 0.50);
+            --text-faint: rgba(236, 232, 221, 0.32);
+            --green: #5cb579;
+            --yellow: #d4a052;
+            --red: #d96666;
+            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+            --shadow-card: 0 1px 2px rgba(0,0,0,0.45), 0 8px 24px rgba(0,0,0,0.35);
+            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+        }}
+        * {{ margin:0; padding:0; box-sizing:border-box; }}
+        body {{
+            font-family: var(--font-body);
+            font-size: 15px;
+            line-height: 1.5;
+            background: var(--ostler-ink);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 2.5rem 1.75rem;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }}
+        a {{ color: var(--ostler-accent); text-decoration: none; }}
+        a:hover {{ color: var(--ostler-accent-hover); }}
+        .container {{ max-width: 760px; margin: 0 auto; }}
+        h1 {{
+            font-family: var(--font-display);
+            font-size: 1.7rem;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.3rem;
+        }}
+        .subtitle {{
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            letter-spacing: 0.04em;
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+        }}
+        .subtitle a {{ color: var(--text-muted); }}
+        .subtitle a:hover {{ color: var(--ostler-accent-warm); text-decoration: underline; }}
+        .section-title {{
+            font-family: var(--font-display);
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            color: var(--text-muted);
+            margin-bottom: 0.85rem;
+            font-weight: 500;
+        }}
+        .panel {{
+            background: var(--ostler-panel);
+            border: 1px solid var(--ostler-hairline-faint);
+            border-radius: 12px;
+            padding: 1.4rem 1.5rem;
+            box-shadow: var(--shadow-soft);
+            margin-bottom: 1.4rem;
+        }}
+        .panel p {{ color: var(--text-secondary); margin-bottom: 0.85rem; }}
+        .help {{
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            margin-top: 0.55rem;
+            line-height: 1.55;
+        }}
+        .help code {{
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            background: var(--ostler-ink-deep);
+            border: 1px solid var(--ostler-hairline-faint);
+            border-radius: 4px;
+            padding: 0.1rem 0.35rem;
+            color: var(--ostler-accent-warm);
+        }}
+        label {{
+            display: block;
+            font-family: var(--font-display);
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.16em;
+            color: var(--text-muted);
+            margin-bottom: 0.45rem;
+            font-weight: 500;
+        }}
+        input[type="text"] {{
+            display: block;
+            width: 100%;
+            background: var(--ostler-ink-deep);
+            color: var(--text);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 8px;
+            padding: 0.75rem 0.95rem;
+            font-family: var(--font-mono);
+            font-size: 0.86rem;
+            letter-spacing: 0.01em;
+            outline: none;
+            transition: border-color 0.18s, box-shadow 0.18s;
+        }}
+        input[type="text"]:focus {{
+            border-color: var(--ostler-accent);
+            box-shadow: 0 0 0 3px var(--ostler-accent-glow);
+        }}
+        input[type="text"]::placeholder {{ color: var(--text-faint); }}
+        .button-row {{
+            display: flex;
+            gap: 0.6rem;
+            align-items: center;
+            margin-top: 1rem;
+            flex-wrap: wrap;
+        }}
+        button.primary, button.secondary {{
+            font-family: var(--font-display);
+            font-weight: 500;
+            font-size: 0.85rem;
+            padding: 0.65rem 1.4rem;
+            border-radius: 999px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: background 0.18s, transform 0.18s, box-shadow 0.18s, border-color 0.18s, color 0.18s;
+        }}
+        button.primary {{
+            background: var(--ostler-accent);
+            color: white;
+        }}
+        button.primary:hover {{
+            background: var(--ostler-accent-hover);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-soft);
+        }}
+        button.primary:disabled {{
+            background: var(--ostler-panel-elev);
+            color: var(--text-muted);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }}
+        button.secondary {{
+            background: var(--ostler-panel);
+            color: var(--text-secondary);
+            border-color: var(--ostler-hairline-soft);
+        }}
+        button.secondary:hover {{
+            border-color: var(--ostler-accent);
+            color: var(--text);
+            background: var(--ostler-panel-elev);
+            transform: translateY(-1px);
+        }}
+        .banner {{
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            font-size: 0.86rem;
+            margin-bottom: 1.2rem;
+            border-left: 3px solid var(--red);
+            background: rgba(217, 102, 102, 0.10);
+            color: var(--text);
+            display: none;
+        }}
+        .banner.visible {{ display: block; }}
+        .status-row {{
+            display: flex;
+            align-items: center;
+            gap: 0.85rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }}
+        .status-pill {{
+            font-family: var(--font-display);
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            padding: 0.3rem 0.85rem;
+            border-radius: 999px;
+            font-weight: 600;
+            color: white;
+            background: var(--text-faint);
+        }}
+        .status-pill.running {{ background: var(--yellow); }}
+        .status-pill.succeeded {{ background: var(--green); }}
+        .status-pill.partial {{ background: #d4a052; }}
+        .status-pill.failed {{ background: var(--red); }}
+        .status-meta {{
+            font-family: var(--font-mono);
+            font-size: 0.76rem;
+            letter-spacing: 0.02em;
+            color: var(--text-muted);
+        }}
+        .log-pane {{
+            background: var(--ostler-ink-deep);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 8px;
+            padding: 0.85rem 1rem;
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            line-height: 1.5;
+            color: var(--text-secondary);
+            max-height: 360px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }}
+        .log-pane.empty {{
+            color: var(--text-faint);
+            font-style: italic;
+        }}
+        .meta-bottom {{
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            letter-spacing: 0.04em;
+            color: var(--text-faint);
+            margin-top: 2rem;
+            padding-top: 1.1rem;
+            border-top: 1px solid var(--ostler-hairline-faint);
+        }}
+        button:focus-visible {{
+            outline: 2px solid var(--ostler-accent);
+            outline-offset: 2px;
+        }}
+        @media (max-width: 720px) {{
+            body {{ padding: 1.4rem 1rem; }}
+            h1 {{ font-size: 1.4rem; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{NOTION_HEADING}</h1>
+        <div class="subtitle">
+            {NOTION_SUBTITLE}
+        </div>
+
+        <div id="errorBanner" class="banner"></div>
+
+        <div id="formPanel" class="panel" style="display:none">
+            <div class="section-title">{NOTION_SECTION_SOURCE}</div>
+            <p>
+                {NOTION_INTRO_HTML}
+            </p>
+            <form id="importForm" autocomplete="off">
+                <label for="sourcePath">{NOTION_LABEL_PATH}</label>
+                <input type="text" id="sourcePath" name="path"
+                    placeholder="{NOTION_PLACEHOLDER_PATH}"
+                    spellcheck="false" autocapitalize="off">
+                <div class="help">
+                    {NOTION_HELP_TIP_HTML}
+                </div>
+                <div class="button-row">
+                    <button type="submit" class="primary" id="submitBtn">{NOTION_BTN_START}</button>
+                </div>
+            </form>
+        </div>
+
+        <div id="jobPanel" class="panel" style="display:none">
+            <div class="section-title">{NOTION_SECTION_STATUS}</div>
+            <div class="status-row">
+                <span class="status-pill" id="statusPill">{NOTION_PILL_STARTING}</span>
+                <span class="status-meta" id="statusMeta"></span>
+            </div>
+            <div class="section-title" style="margin-top:1.2rem">{NOTION_SECTION_LOG_TAIL}</div>
+            <div class="log-pane empty" id="logPane">{NOTION_WAITING_FIRST_LOG}</div>
+            <div class="button-row" id="resetRow" style="display:none">
+                <button type="button" class="secondary" id="resetBtn">{NOTION_BTN_IMPORT_ANOTHER}</button>
+            </div>
+        </div>
+
+        <div class="meta-bottom">
+            {NOTION_META_FOOTER_HTML}
+        </div>
+    </div>
+
+    <script>
+    (function() {{
+        const STATUS_POLL_MS = 5000;
+        const TAIL_POLL_MS = 10000;
+        const INITIAL_JOB_ID = {initial_job_id_js};
+
+        const formPanel = document.getElementById('formPanel');
+        const jobPanel = document.getElementById('jobPanel');
+        const importForm = document.getElementById('importForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const sourceInput = document.getElementById('sourcePath');
+        const statusPill = document.getElementById('statusPill');
+        const statusMeta = document.getElementById('statusMeta');
+        const logPane = document.getElementById('logPane');
+        const resetRow = document.getElementById('resetRow');
+        const resetBtn = document.getElementById('resetBtn');
+        const errorBanner = document.getElementById('errorBanner');
+
+        let currentJobId = null;
+        let statusTimer = null;
+        let tailTimer = null;
+
+        function showError(msg) {{
+            errorBanner.textContent = msg;
+            errorBanner.classList.add('visible');
+        }}
+
+        function clearError() {{
+            errorBanner.classList.remove('visible');
+            errorBanner.textContent = '';
+        }}
+
+        function showForm() {{
+            formPanel.style.display = '';
+            jobPanel.style.display = 'none';
+            sourceInput.value = '';
+            sourceInput.focus();
+        }}
+
+        function showJobPanel() {{
+            formPanel.style.display = 'none';
+            jobPanel.style.display = '';
+        }}
+
+        function renderStatus(state) {{
+            const status = state.status || 'unknown';
+            statusPill.textContent = status;
+            statusPill.className = 'status-pill ' + status;
+
+            const bits = [];
+            if (state.job_id) bits.push('job ' + state.job_id);
+            if (state.started_at) bits.push('started ' + state.started_at.substring(0, 19) + 'Z');
+            if (state.completed_at) bits.push('finished ' + state.completed_at.substring(0, 19) + 'Z');
+            if (state.exit_code !== null && state.exit_code !== undefined) {{
+                bits.push('exit ' + state.exit_code);
+            }}
+            // A degraded ('partial') import carries a human-facing note
+            // explaining what landed and what is pending; surface it.
+            if (state.note) bits.push(state.note);
+            statusMeta.textContent = bits.join(' \\u00b7 ');
+
+            if (status === 'succeeded' || status === 'failed' || status === 'partial') {{
+                resetRow.style.display = '';
+                stopPolling();
+                // One last tail fetch to make sure the final output is shown.
+                fetchTail();
+            }} else {{
+                resetRow.style.display = 'none';
+            }}
+        }}
+
+        function fetchStatus() {{
+            if (!currentJobId) return;
+            fetch('/api/v1/import/notion/' + encodeURIComponent(currentJobId) + '/status')
+                .then(function(r) {{
+                    if (r.status === 404) {{
+                        // Either feature flipped off mid-session, or the
+                        // job_id has been reaped. Either way the page is
+                        // out of sync; force a reload.
+                        stopPolling();
+                        showError('{NOTION_ERROR_JOB_NOT_FOUND}');
+                        return null;
+                    }}
+                    return r.json();
+                }})
+                .then(function(state) {{
+                    if (state) renderStatus(state);
+                }})
+                .catch(function(err) {{
+                    showError('{NOTION_ERROR_STATUS_FAIL_PREFIX}' + err);
+                }});
+        }}
+
+        function fetchTail() {{
+            if (!currentJobId) return;
+            fetch('/api/v1/import/notion/' + encodeURIComponent(currentJobId) + '/tail')
+                .then(function(r) {{
+                    if (!r.ok) return null;
+                    return r.text();
+                }})
+                .then(function(text) {{
+                    if (text === null) return;
+                    if (!text || text.trim() === '') {{
+                        logPane.classList.add('empty');
+                        logPane.textContent = 'Waiting for first log output\\u2026';
+                    }} else {{
+                        logPane.classList.remove('empty');
+                        logPane.textContent = text;
+                        // Auto-scroll to the bottom so the latest line is
+                        // always visible without manual scrolling.
+                        logPane.scrollTop = logPane.scrollHeight;
+                    }}
+                }})
+                .catch(function(err) {{
+                    // Don't surface tail failures as errors - the status
+                    // pane is the source of truth.
+                }});
+        }}
+
+        function startPolling() {{
+            stopPolling();
+            fetchStatus();
+            fetchTail();
+            statusTimer = setInterval(fetchStatus, STATUS_POLL_MS);
+            tailTimer = setInterval(fetchTail, TAIL_POLL_MS);
+        }}
+
+        function stopPolling() {{
+            if (statusTimer) {{ clearInterval(statusTimer); statusTimer = null; }}
+            if (tailTimer) {{ clearInterval(tailTimer); tailTimer = null; }}
+        }}
+
+        function handleSubmit(event) {{
+            event.preventDefault();
+            clearError();
+            const path = sourceInput.value.trim();
+            if (!path) {{
+                showError('{NOTION_ERROR_NO_PATH}');
+                return;
+            }}
+            submitBtn.disabled = true;
+            submitBtn.textContent = '{NOTION_BTN_STARTING}';
+            fetch('/api/v1/import/notion', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{path: path}}),
+            }})
+                .then(function(r) {{
+                    return r.json().then(function(body) {{ return [r.status, body]; }});
+                }})
+                .then(function(pair) {{
+                    const status = pair[0], body = pair[1];
+                    if (status === 200 && body.job_id) {{
+                        currentJobId = body.job_id;
+                        showJobPanel();
+                        startPolling();
+                    }} else {{
+                        showError(body.error || ('Import failed to start (HTTP ' + status + ')'));
+                    }}
+                }})
+                .catch(function(err) {{
+                    showError('{NOTION_ERROR_NETWORK_PREFIX}' + err);
+                }})
+                .finally(function() {{
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '{NOTION_BTN_START}';
+                }});
+        }}
+
+        function handleReset() {{
+            stopPolling();
+            currentJobId = null;
+            clearError();
+            resetRow.style.display = 'none';
+            logPane.classList.add('empty');
+            logPane.textContent = 'Waiting for first log output\\u2026';
+            statusPill.textContent = '{NOTION_PILL_STARTING}';
+            statusPill.className = 'status-pill';
+            statusMeta.textContent = '';
+            showForm();
+        }}
+
+        importForm.addEventListener('submit', handleSubmit);
+        resetBtn.addEventListener('click', handleReset);
+
+        if (INITIAL_JOB_ID) {{
+            // Reattach to an in-flight job whose POST was issued from
+            // an earlier tab. The server discovered the live lockfile
+            // and rendered the job_id into the page; we go straight to
+            // the polling state without showing the form.
+            currentJobId = INITIAL_JOB_ID;
+            showJobPanel();
+            startPolling();
+        }} else {{
+            showForm();
+        }}
+    }})();
+    </script>
+</body>
+</html>"""
+
+
+def _render_import_obsidian_page(active_job_id=None) -> str:
+    """Render the Obsidian import page (CM024 Notion/Obsidian consumer-half fix, 2026-09-13).
+
+    ``active_job_id`` is the output of
+    ``import_obsidian.current_running_job_id()``. When non-None the
+    page boots straight into the polling-status panel so the operator
+    who closed and reopened the tab mid-import reattaches without
+    having to re-enter the path.
+
+    Vanilla HTML + JS, no framework. Matches Doctor's chassis tokens
+    (Outfit / Plex Sans / Plex Mono, ostler-ink palette) so it sits
+    visually next to ``/doctor`` rather than feeling bolted on.
+
+    Polling cadence per the launch-scope brief:
+        - ``GET /status`` every 5 seconds
+        - ``GET /tail``  every 10 seconds
+    On a terminal status (succeeded / failed) both timers stop.
+    """
+    initial_job_id_js = json.dumps(active_job_id)
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{OBSIDIAN_TITLE_TAG}</title>
+    <style>
+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
+        :root {{
+            --ostler-ink: #0d0b08;
+            --ostler-ink-deep: #07060a;
+            --ostler-panel: #1a1612;
+            --ostler-panel-elev: #221c16;
+            --ostler-chassis: #ECE8DD;
+            --ostler-accent: #C84545;
+            --ostler-accent-hover: #D76060;
+            --ostler-accent-warm: #E26A6A;
+            --ostler-accent-glow: rgba(200, 69, 69, 0.18);
+            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
+            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
+            --text: var(--ostler-chassis);
+            --text-secondary: rgba(236, 232, 221, 0.74);
+            --text-muted: rgba(236, 232, 221, 0.50);
+            --text-faint: rgba(236, 232, 221, 0.32);
+            --green: #5cb579;
+            --yellow: #d4a052;
+            --red: #d96666;
+            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+            --shadow-card: 0 1px 2px rgba(0,0,0,0.45), 0 8px 24px rgba(0,0,0,0.35);
+            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+        }}
+        * {{ margin:0; padding:0; box-sizing:border-box; }}
+        body {{
+            font-family: var(--font-body);
+            font-size: 15px;
+            line-height: 1.5;
+            background: var(--ostler-ink);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 2.5rem 1.75rem;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }}
+        a {{ color: var(--ostler-accent); text-decoration: none; }}
+        a:hover {{ color: var(--ostler-accent-hover); }}
+        .container {{ max-width: 760px; margin: 0 auto; }}
+        h1 {{
+            font-family: var(--font-display);
+            font-size: 1.7rem;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.3rem;
+        }}
+        .subtitle {{
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            letter-spacing: 0.04em;
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+        }}
+        .subtitle a {{ color: var(--text-muted); }}
+        .subtitle a:hover {{ color: var(--ostler-accent-warm); text-decoration: underline; }}
+        .section-title {{
+            font-family: var(--font-display);
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            color: var(--text-muted);
+            margin-bottom: 0.85rem;
+            font-weight: 500;
+        }}
+        .panel {{
+            background: var(--ostler-panel);
+            border: 1px solid var(--ostler-hairline-faint);
+            border-radius: 12px;
+            padding: 1.4rem 1.5rem;
+            box-shadow: var(--shadow-soft);
+            margin-bottom: 1.4rem;
+        }}
+        .panel p {{ color: var(--text-secondary); margin-bottom: 0.85rem; }}
+        .help {{
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            margin-top: 0.55rem;
+            line-height: 1.55;
+        }}
+        .help code {{
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            background: var(--ostler-ink-deep);
+            border: 1px solid var(--ostler-hairline-faint);
+            border-radius: 4px;
+            padding: 0.1rem 0.35rem;
+            color: var(--ostler-accent-warm);
+        }}
+        label {{
+            display: block;
+            font-family: var(--font-display);
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.16em;
+            color: var(--text-muted);
+            margin-bottom: 0.45rem;
+            font-weight: 500;
+        }}
+        input[type="text"] {{
+            display: block;
+            width: 100%;
+            background: var(--ostler-ink-deep);
+            color: var(--text);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 8px;
+            padding: 0.75rem 0.95rem;
+            font-family: var(--font-mono);
+            font-size: 0.86rem;
+            letter-spacing: 0.01em;
+            outline: none;
+            transition: border-color 0.18s, box-shadow 0.18s;
+        }}
+        input[type="text"]:focus {{
+            border-color: var(--ostler-accent);
+            box-shadow: 0 0 0 3px var(--ostler-accent-glow);
+        }}
+        input[type="text"]::placeholder {{ color: var(--text-faint); }}
+        .button-row {{
+            display: flex;
+            gap: 0.6rem;
+            align-items: center;
+            margin-top: 1rem;
+            flex-wrap: wrap;
+        }}
+        button.primary, button.secondary {{
+            font-family: var(--font-display);
+            font-weight: 500;
+            font-size: 0.85rem;
+            padding: 0.65rem 1.4rem;
+            border-radius: 999px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: background 0.18s, transform 0.18s, box-shadow 0.18s, border-color 0.18s, color 0.18s;
+        }}
+        button.primary {{
+            background: var(--ostler-accent);
+            color: white;
+        }}
+        button.primary:hover {{
+            background: var(--ostler-accent-hover);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-soft);
+        }}
+        button.primary:disabled {{
+            background: var(--ostler-panel-elev);
+            color: var(--text-muted);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }}
+        button.secondary {{
+            background: var(--ostler-panel);
+            color: var(--text-secondary);
+            border-color: var(--ostler-hairline-soft);
+        }}
+        button.secondary:hover {{
+            border-color: var(--ostler-accent);
+            color: var(--text);
+            background: var(--ostler-panel-elev);
+            transform: translateY(-1px);
+        }}
+        .banner {{
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            font-size: 0.86rem;
+            margin-bottom: 1.2rem;
+            border-left: 3px solid var(--red);
+            background: rgba(217, 102, 102, 0.10);
+            color: var(--text);
+            display: none;
+        }}
+        .banner.visible {{ display: block; }}
+        .status-row {{
+            display: flex;
+            align-items: center;
+            gap: 0.85rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }}
+        .status-pill {{
+            font-family: var(--font-display);
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            padding: 0.3rem 0.85rem;
+            border-radius: 999px;
+            font-weight: 600;
+            color: white;
+            background: var(--text-faint);
+        }}
+        .status-pill.running {{ background: var(--yellow); }}
+        .status-pill.succeeded {{ background: var(--green); }}
+        .status-pill.partial {{ background: #d4a052; }}
+        .status-pill.failed {{ background: var(--red); }}
+        .status-meta {{
+            font-family: var(--font-mono);
+            font-size: 0.76rem;
+            letter-spacing: 0.02em;
+            color: var(--text-muted);
+        }}
+        .log-pane {{
+            background: var(--ostler-ink-deep);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 8px;
+            padding: 0.85rem 1rem;
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            line-height: 1.5;
+            color: var(--text-secondary);
+            max-height: 360px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }}
+        .log-pane.empty {{
+            color: var(--text-faint);
+            font-style: italic;
+        }}
+        .meta-bottom {{
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            letter-spacing: 0.04em;
+            color: var(--text-faint);
+            margin-top: 2rem;
+            padding-top: 1.1rem;
+            border-top: 1px solid var(--ostler-hairline-faint);
+        }}
+        button:focus-visible {{
+            outline: 2px solid var(--ostler-accent);
+            outline-offset: 2px;
+        }}
+        @media (max-width: 720px) {{
+            body {{ padding: 1.4rem 1rem; }}
+            h1 {{ font-size: 1.4rem; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{OBSIDIAN_HEADING}</h1>
+        <div class="subtitle">
+            {OBSIDIAN_SUBTITLE}
+        </div>
+
+        <div id="errorBanner" class="banner"></div>
+
+        <div id="formPanel" class="panel" style="display:none">
+            <div class="section-title">{OBSIDIAN_SECTION_SOURCE}</div>
+            <p>
+                {OBSIDIAN_INTRO_HTML}
+            </p>
+            <form id="importForm" autocomplete="off">
+                <label for="sourcePath">{OBSIDIAN_LABEL_PATH}</label>
+                <input type="text" id="sourcePath" name="path"
+                    placeholder="{OBSIDIAN_PLACEHOLDER_PATH}"
+                    spellcheck="false" autocapitalize="off">
+                <div class="help">
+                    {OBSIDIAN_HELP_TIP_HTML}
+                </div>
+                <div class="button-row">
+                    <button type="submit" class="primary" id="submitBtn">{OBSIDIAN_BTN_START}</button>
+                </div>
+            </form>
+        </div>
+
+        <div id="jobPanel" class="panel" style="display:none">
+            <div class="section-title">{OBSIDIAN_SECTION_STATUS}</div>
+            <div class="status-row">
+                <span class="status-pill" id="statusPill">{OBSIDIAN_PILL_STARTING}</span>
+                <span class="status-meta" id="statusMeta"></span>
+            </div>
+            <div class="section-title" style="margin-top:1.2rem">{OBSIDIAN_SECTION_LOG_TAIL}</div>
+            <div class="log-pane empty" id="logPane">{OBSIDIAN_WAITING_FIRST_LOG}</div>
+            <div class="button-row" id="resetRow" style="display:none">
+                <button type="button" class="secondary" id="resetBtn">{OBSIDIAN_BTN_IMPORT_ANOTHER}</button>
+            </div>
+        </div>
+
+        <div class="meta-bottom">
+            {OBSIDIAN_META_FOOTER_HTML}
+        </div>
+    </div>
+
+    <script>
+    (function() {{
+        const STATUS_POLL_MS = 5000;
+        const TAIL_POLL_MS = 10000;
+        const INITIAL_JOB_ID = {initial_job_id_js};
+
+        const formPanel = document.getElementById('formPanel');
+        const jobPanel = document.getElementById('jobPanel');
+        const importForm = document.getElementById('importForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const sourceInput = document.getElementById('sourcePath');
+        const statusPill = document.getElementById('statusPill');
+        const statusMeta = document.getElementById('statusMeta');
+        const logPane = document.getElementById('logPane');
+        const resetRow = document.getElementById('resetRow');
+        const resetBtn = document.getElementById('resetBtn');
+        const errorBanner = document.getElementById('errorBanner');
+
+        let currentJobId = null;
+        let statusTimer = null;
+        let tailTimer = null;
+
+        function showError(msg) {{
+            errorBanner.textContent = msg;
+            errorBanner.classList.add('visible');
+        }}
+
+        function clearError() {{
+            errorBanner.classList.remove('visible');
+            errorBanner.textContent = '';
+        }}
+
+        function showForm() {{
+            formPanel.style.display = '';
+            jobPanel.style.display = 'none';
+            sourceInput.value = '';
+            sourceInput.focus();
+        }}
+
+        function showJobPanel() {{
+            formPanel.style.display = 'none';
+            jobPanel.style.display = '';
+        }}
+
+        function renderStatus(state) {{
+            const status = state.status || 'unknown';
+            statusPill.textContent = status;
+            statusPill.className = 'status-pill ' + status;
+
+            const bits = [];
+            if (state.job_id) bits.push('job ' + state.job_id);
+            if (state.started_at) bits.push('started ' + state.started_at.substring(0, 19) + 'Z');
+            if (state.completed_at) bits.push('finished ' + state.completed_at.substring(0, 19) + 'Z');
+            if (state.exit_code !== null && state.exit_code !== undefined) {{
+                bits.push('exit ' + state.exit_code);
+            }}
+            // A degraded ('partial') import carries a human-facing note
+            // explaining what landed and what is pending; surface it.
+            if (state.note) bits.push(state.note);
+            statusMeta.textContent = bits.join(' \\u00b7 ');
+
+            if (status === 'succeeded' || status === 'failed' || status === 'partial') {{
+                resetRow.style.display = '';
+                stopPolling();
+                // One last tail fetch to make sure the final output is shown.
+                fetchTail();
+            }} else {{
+                resetRow.style.display = 'none';
+            }}
+        }}
+
+        function fetchStatus() {{
+            if (!currentJobId) return;
+            fetch('/api/v1/import/obsidian/' + encodeURIComponent(currentJobId) + '/status')
+                .then(function(r) {{
+                    if (r.status === 404) {{
+                        // Either feature flipped off mid-session, or the
+                        // job_id has been reaped. Either way the page is
+                        // out of sync; force a reload.
+                        stopPolling();
+                        showError('{OBSIDIAN_ERROR_JOB_NOT_FOUND}');
+                        return null;
+                    }}
+                    return r.json();
+                }})
+                .then(function(state) {{
+                    if (state) renderStatus(state);
+                }})
+                .catch(function(err) {{
+                    showError('{OBSIDIAN_ERROR_STATUS_FAIL_PREFIX}' + err);
+                }});
+        }}
+
+        function fetchTail() {{
+            if (!currentJobId) return;
+            fetch('/api/v1/import/obsidian/' + encodeURIComponent(currentJobId) + '/tail')
+                .then(function(r) {{
+                    if (!r.ok) return null;
+                    return r.text();
+                }})
+                .then(function(text) {{
+                    if (text === null) return;
+                    if (!text || text.trim() === '') {{
+                        logPane.classList.add('empty');
+                        logPane.textContent = 'Waiting for first log output\\u2026';
+                    }} else {{
+                        logPane.classList.remove('empty');
+                        logPane.textContent = text;
+                        // Auto-scroll to the bottom so the latest line is
+                        // always visible without manual scrolling.
+                        logPane.scrollTop = logPane.scrollHeight;
+                    }}
+                }})
+                .catch(function(err) {{
+                    // Don't surface tail failures as errors - the status
+                    // pane is the source of truth.
+                }});
+        }}
+
+        function startPolling() {{
+            stopPolling();
+            fetchStatus();
+            fetchTail();
+            statusTimer = setInterval(fetchStatus, STATUS_POLL_MS);
+            tailTimer = setInterval(fetchTail, TAIL_POLL_MS);
+        }}
+
+        function stopPolling() {{
+            if (statusTimer) {{ clearInterval(statusTimer); statusTimer = null; }}
+            if (tailTimer) {{ clearInterval(tailTimer); tailTimer = null; }}
+        }}
+
+        function handleSubmit(event) {{
+            event.preventDefault();
+            clearError();
+            const path = sourceInput.value.trim();
+            if (!path) {{
+                showError('{OBSIDIAN_ERROR_NO_PATH}');
+                return;
+            }}
+            submitBtn.disabled = true;
+            submitBtn.textContent = '{OBSIDIAN_BTN_STARTING}';
+            fetch('/api/v1/import/obsidian', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{path: path}}),
+            }})
+                .then(function(r) {{
+                    return r.json().then(function(body) {{ return [r.status, body]; }});
+                }})
+                .then(function(pair) {{
+                    const status = pair[0], body = pair[1];
+                    if (status === 200 && body.job_id) {{
+                        currentJobId = body.job_id;
+                        showJobPanel();
+                        startPolling();
+                    }} else {{
+                        showError(body.error || ('Import failed to start (HTTP ' + status + ')'));
+                    }}
+                }})
+                .catch(function(err) {{
+                    showError('{OBSIDIAN_ERROR_NETWORK_PREFIX}' + err);
+                }})
+                .finally(function() {{
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '{OBSIDIAN_BTN_START}';
+                }});
+        }}
+
+        function handleReset() {{
+            stopPolling();
+            currentJobId = null;
+            clearError();
+            resetRow.style.display = 'none';
+            logPane.classList.add('empty');
+            logPane.textContent = 'Waiting for first log output\\u2026';
+            statusPill.textContent = '{OBSIDIAN_PILL_STARTING}';
+            statusPill.className = 'status-pill';
+            statusMeta.textContent = '';
+            showForm();
+        }}
+
+        importForm.addEventListener('submit', handleSubmit);
+        resetBtn.addEventListener('click', handleReset);
+
+        if (INITIAL_JOB_ID) {{
+            // Reattach to an in-flight job whose POST was issued from
+            // an earlier tab. The server discovered the live lockfile
+            // and rendered the job_id into the page; we go straight to
+            // the polling state without showing the form.
+            currentJobId = INITIAL_JOB_ID;
+            showJobPanel();
+            startPolling();
+        }} else {{
+            showForm();
+        }}
+    }})();
+    </script>
+</body>
+</html>"""
+
+
 @app.get("/import-evernote", response_class=HTMLResponse)
 async def import_evernote_page():
     """Render the Evernote import page. 404 when the feature flag is off."""
@@ -3962,6 +4988,200 @@ async def api_import_evernote_tail(job_id: str):
     """Return the last 100 lines of the job's import log as text/plain."""
     from import_evernote import (
         EvernoteImportError as _Err,
+        is_feature_enabled as _flag,
+        read_tail as _tail,
+    )
+
+    if not _flag():
+        return JSONResponse(
+            {"error": "feature_disabled"}, status_code=404,
+        )
+
+    try:
+        return PlainTextResponse(_tail(job_id), status_code=200)
+    except _Err as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+
+@app.get("/import-notion", response_class=HTMLResponse)
+async def import_notion_page():
+    """Render the Notion import page. 404 when the feature flag is off."""
+    from import_notion import current_running_job_id, is_feature_enabled
+
+    if not is_feature_enabled():
+        return JSONResponse(
+            {"error": "feature_disabled"}, status_code=404,
+        )
+    return HTMLResponse(_render_import_notion_page(
+        active_job_id=current_running_job_id(),
+    ))
+
+
+@app.post("/api/v1/import/notion", response_class=JSONResponse)
+async def api_import_notion_start(request: Request):
+    """Start a new Notion import job.
+
+    Body: ``{"path": "/Users/you/Downloads/Notion-Export.zip"}``. On success returns
+    ``{"job_id": "...", "status": "started"}`` with 200. Validation
+    failures surface as 400 / 404 / 409 / 500 per
+    ``import_notion.NotionImportError``. Returns 404
+    ``{"error": "feature_disabled"}`` when the flag is off.
+    """
+    from import_notion import (
+        NotionImportError as _Err,
+        is_feature_enabled as _flag,
+        start_import as _start,
+        validate_notion_path as _validate,
+    )
+
+    if not _flag():
+        return JSONResponse(
+            {"error": "feature_disabled"}, status_code=404,
+        )
+
+    try:
+        body = await request.json()
+    except Exception as exc:
+        return JSONResponse(
+            {"error": f"invalid JSON: {exc}"}, status_code=400,
+        )
+
+    if not isinstance(body, dict):
+        return JSONResponse(
+            {"error": "body must be a JSON object"}, status_code=400,
+        )
+
+    try:
+        source_path = _validate(body.get("path"))
+        result = _start(source_path)
+    except _Err as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+    return JSONResponse(result, status_code=200)
+
+
+@app.get("/api/v1/import/notion/{job_id}/status", response_class=JSONResponse)
+async def api_import_notion_status(job_id: str):
+    """Return the state of a Notion import job."""
+    from import_notion import (
+        NotionImportError as _Err,
+        is_feature_enabled as _flag,
+        read_status as _status,
+    )
+
+    if not _flag():
+        return JSONResponse(
+            {"error": "feature_disabled"}, status_code=404,
+        )
+
+    try:
+        return JSONResponse(_status(job_id), status_code=200)
+    except _Err as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+
+@app.get("/api/v1/import/notion/{job_id}/tail", response_class=PlainTextResponse)
+async def api_import_notion_tail(job_id: str):
+    """Return the last 100 lines of the job's import log as text/plain."""
+    from import_notion import (
+        NotionImportError as _Err,
+        is_feature_enabled as _flag,
+        read_tail as _tail,
+    )
+
+    if not _flag():
+        return JSONResponse(
+            {"error": "feature_disabled"}, status_code=404,
+        )
+
+    try:
+        return PlainTextResponse(_tail(job_id), status_code=200)
+    except _Err as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+
+@app.get("/import-obsidian", response_class=HTMLResponse)
+async def import_obsidian_page():
+    """Render the Obsidian import page. 404 when the feature flag is off."""
+    from import_obsidian import current_running_job_id, is_feature_enabled
+
+    if not is_feature_enabled():
+        return JSONResponse(
+            {"error": "feature_disabled"}, status_code=404,
+        )
+    return HTMLResponse(_render_import_obsidian_page(
+        active_job_id=current_running_job_id(),
+    ))
+
+
+@app.post("/api/v1/import/obsidian", response_class=JSONResponse)
+async def api_import_obsidian_start(request: Request):
+    """Start a new Obsidian import job.
+
+    Body: ``{"path": "/Users/you/Documents/MyVault"}``. On success returns
+    ``{"job_id": "...", "status": "started"}`` with 200. Validation
+    failures surface as 400 / 404 / 409 / 500 per
+    ``import_obsidian.ObsidianImportError``. Returns 404
+    ``{"error": "feature_disabled"}`` when the flag is off.
+    """
+    from import_obsidian import (
+        ObsidianImportError as _Err,
+        is_feature_enabled as _flag,
+        start_import as _start,
+        validate_obsidian_path as _validate,
+    )
+
+    if not _flag():
+        return JSONResponse(
+            {"error": "feature_disabled"}, status_code=404,
+        )
+
+    try:
+        body = await request.json()
+    except Exception as exc:
+        return JSONResponse(
+            {"error": f"invalid JSON: {exc}"}, status_code=400,
+        )
+
+    if not isinstance(body, dict):
+        return JSONResponse(
+            {"error": "body must be a JSON object"}, status_code=400,
+        )
+
+    try:
+        source_path = _validate(body.get("path"))
+        result = _start(source_path)
+    except _Err as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+    return JSONResponse(result, status_code=200)
+
+
+@app.get("/api/v1/import/obsidian/{job_id}/status", response_class=JSONResponse)
+async def api_import_obsidian_status(job_id: str):
+    """Return the state of an Obsidian import job."""
+    from import_obsidian import (
+        ObsidianImportError as _Err,
+        is_feature_enabled as _flag,
+        read_status as _status,
+    )
+
+    if not _flag():
+        return JSONResponse(
+            {"error": "feature_disabled"}, status_code=404,
+        )
+
+    try:
+        return JSONResponse(_status(job_id), status_code=200)
+    except _Err as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+
+@app.get("/api/v1/import/obsidian/{job_id}/tail", response_class=PlainTextResponse)
+async def api_import_obsidian_tail(job_id: str):
+    """Return the last 100 lines of the job's import log as text/plain."""
+    from import_obsidian import (
+        ObsidianImportError as _Err,
         is_feature_enabled as _flag,
         read_tail as _tail,
     )
