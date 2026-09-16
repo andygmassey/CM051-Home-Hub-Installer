@@ -134,6 +134,17 @@ on:
       # is how you would make new drift look accounted for.
       - 'contact_syncer/**'
       - 'tests/VENDOR_TWIN_DRIFT.tsv'
+      # The Interests-page trio. Watched here because the three steps below RUN
+      # them: a run: with no path entry is a gate that never fires on a change to
+      # itself. Their SUBJECTS -- vendor/cm059_editor/compiler/{interest_profile,
+      # frontpage,render_html,emit_artefact}.py -- are already inside the
+      # 'vendor/**' glob at the top of this list and are deliberately NOT
+      # repeated: a second entry would read as coverage this change added, and it
+      # is not. `on.push` below carries no paths filter at all, so on main these
+      # run unconditionally; this list is what makes them fire on a PR.
+      - 'tests/test_the_interests_domain_is_reachable.py'
+      - 'tests/test_an_empty_interests_page_says_which_empty.py'
+      - 'tests/test_the_interests_gates_actually_fire.sh'
   push:
     branches: [main]
 
@@ -387,6 +398,39 @@ jobs:
       - name: the Front Page tick emits the interest-profile artefact
         if: always()
         run: bash tests/test_frontpage_tick_emits_interest_profile.sh
+
+      # THE INTERESTS PAGE, three steps. A walk box holding 830 preference
+      # points and 1629 people served an EMPTY Interests page, and nothing told
+      # the customer why. Two separate defects sat behind that one blank:
+      #
+      #   (a) the two categories that feed the Interests domain could not clear
+      #       the confidence floor from any source a real box carries, so the
+      #       domain was dead BY CONSTRUCTION; and
+      #   (b) "nothing was read" and "plenty was read and all of it screened"
+      #       rendered as the SAME blank page, which is the Doctor consent-tile
+      #       shape from task #429 all over again.
+      #
+      # `env -u PYTHONPATH` on purpose: each test inserts its own sys.path, so a
+      # pass here is a pass in the shipped layout rather than one bought with an
+      # environment variable. `if: always()` on all three, ci-maskless (#1695):
+      # without it a red earlier in this job SKIPS them, and a skipped test
+      # reports nothing at all.
+      - name: the Interests domain is reachable from a real box's sources
+        if: always()
+        run: env -u PYTHONPATH python3 tests/test_the_interests_domain_is_reachable.py
+
+      - name: an empty Interests page says WHICH empty it is
+        if: always()
+        run: env -u PYTHONPATH python3 tests/test_an_empty_interests_page_says_which_empty.py
+
+      # The two gates above are only worth their runtime if they can go red. This
+      # carries 8 mutants against them in a sandbox copy, proves each mutant was
+      # APPLIED before running (a mutant that did not apply looks exactly like one
+      # that was not caught), and requires all 8 to be caught plus both unmutated
+      # controls to be green.
+      - name: both Interests gates actually fire (8 mutants, 2 controls)
+        if: always()
+        run: bash tests/test_the_interests_gates_actually_fire.sh
 
       # Imported SYMBOLS resolve, not just modules (D024, second mechanism).
       #

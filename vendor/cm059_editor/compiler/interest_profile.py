@@ -38,8 +38,28 @@ PWG_NS = "https://schema.ostler.ai/ontology#"
 
 # ---------------------------------------------------------------------------
 # Taxonomy: how far to trust each source category, and which coarse domain it
-# routes to. Trust is the Phase-0 noise lever - low-trust categories still
-# appear in the profile but sink, and are flagged for the correction surface.
+# routes to. Trust is the Phase-0 noise lever, and it feeds TWO different
+# mechanisms - ranking (via ``score``) and MEMBERSHIP (via the confidence floor
+# in compile_profile).
+#
+# THIS COMMENT USED TO SAY, VERBATIM: "low-trust categories still appear in the
+# profile but sink, and are flagged for the correction surface." THEY DO NOT.
+# compile_profile drops every uncorrected row whose confidence is below
+# ``min_confidence`` and counts the drops in ``stats.suppressed_low_confidence``;
+# render_html renders that count as "N low-confidence signals held back". Three
+# code sites treat the floor as a SCREEN, so the screen is the design and the
+# sentence above was prose that predated it. Corrected 2026-09-17 after a box
+# holding 830 preference points served an empty Interests page.
+#
+# A reader changing these numbers must therefore ask BOTH questions:
+#   - does this rank the row where it belongs?          (score)
+#   - can this row reach the floor at all?              (membership)
+# The second one is the trap. A category whose trust, multiplied by the trust of
+# every source that can realistically carry it, lands under the floor is not
+# "sunk", it is DELETED, and the domain it routes to is dead by construction.
+# That is what happened to the Interests domain: see the CATEGORY_DOMAIN note
+# below and the derivation above ``min_confidence`` in compile_profile.
+#
 # Values tuned against the real category distribution on Andy's graph.
 # ---------------------------------------------------------------------------
 
@@ -80,6 +100,20 @@ CATEGORY_DOMAIN = {
     "facebook_content": "Social signals",
 }
 DEFAULT_DOMAIN = "Other"
+
+# 🔴 THE INTERESTS DOMAIN HAS EXACTLY TWO FEEDER CATEGORIES, `interest` and
+# `inferred_interest`, and NO OTHER CATEGORY ROUTES TO IT (2 of the 15 rows
+# above). So whether a customer ever sees an "Interests" section is decided
+# entirely by whether those two can clear the confidence floor. Measured on
+# 2026-09-17 against the pre-fix code, over all 15 categories x 8 sources (the
+# 7 in SOURCE_TRUST plus the unknown-source default) = 120 pairs: 4 of the 16
+# Interests pairs survived, and all four needed `you` or `linkedin`. A Facebook
+# interests export, which is the commonest real origin of an `interest` row,
+# scored 0.2484 against a floor of 0.28 and was deleted. Anything the source
+# table does not name scored 0.1720.
+#
+# If you lower a CATEGORY_TRUST value here, or add a category that routes to a
+# domain with few feeders, re-run that sweep. A domain can die silently.
 
 # How far to trust each DATA SOURCE - distinct from category trust, and just as
 # important. Learned from real data: `csv` is imported email/recruiter subject
@@ -525,11 +559,39 @@ def confidence(flags: list[str], category: str, source: str = "") -> float:
 # sharply once richer sources (email/conversation mining) give repeated, multi-
 # source observations of the same interest. That dependency is the point.
 
+EVIDENCE_BASE = 1.00   # a single observation is NEUTRAL, not penalised
+EVIDENCE_SPAN = 0.30   # unchanged span, so the de-clustering spread is identical
+
+
 def evidence_factor(observations: int, n_sources: int) -> float:
-    """Saturating boost for corroboration. 1 observation from 1 source -> 0.70;
-    more observations and (weighted 2x) more distinct sources push toward 1.0."""
+    """Saturating boost for corroboration. 1 observation from 1 source -> 1.00
+    (neutral); more observations and (weighted 2x) more distinct sources push
+    toward 1.30.
+
+    🔴 THIS USED TO RETURN 0.70 FOR THE SINGLE-OBSERVATION CASE, spanning
+    [0.70, 1.0]. The docstring called it a "boost" and it was arithmetically a
+    DISCOUNT: because ``finalise_confidence`` multiplies reliability by this and
+    by ``recency_confidence`` (itself <= 1.0), the displayed confidence could
+    never EXCEED the reliability, and for the overwhelmingly common single-
+    observation row it was pinned 30% BELOW it. Two consequences, both measured:
+
+      1. corroboration could not lift a row past the floor, ever. CM051 #1872
+         measured 1, 3, 10, 20 and 50 identical `interest` rows and got zero
+         interests every time. With the ceiling at reliability (0.2475) and the
+         floor at 0.28, no amount of evidence could close the gap. A saturating
+         corroboration term that cannot change an outcome is dead code.
+      2. ``min_confidence`` was derived against RELIABILITY - that is the number
+         ``confidence()`` returns and the number every comment in this file
+         reasons about - but it is APPLIED to the finalised value. This factor
+         silently moved the real screen from 0.28 to 0.28/0.70 = 0.40 in
+         reliability terms, which is what killed the Interests domain.
+
+    The span is unchanged at 0.30, so the stated purpose ("de-clusters the flat
+    60/62/64% band") is preserved bit for bit; only the base point moves, from
+    "penalise every uncorroborated row" to "neutral, and reward corroboration".
+    ``finalise_confidence`` still clamps the product into [0, 1]."""
     extra = max(0, observations - 1) + 2 * max(0, n_sources - 1)
-    return round(0.70 + 0.30 * (1.0 - 2.71828 ** (-extra / 4.0)), 4)
+    return round(EVIDENCE_BASE + EVIDENCE_SPAN * (1.0 - 2.71828 ** (-extra / 4.0)), 4)
 
 
 def recency_confidence(last_seen, now, half_life_days: float = 720.0) -> float:
@@ -719,13 +781,42 @@ def apply_corrections(interests: list[dict], corrections: dict | None,
     return out
 
 
+MIN_CONFIDENCE = 0.28
+"""The membership floor. An uncorrected row whose FINALISED confidence is below
+this is not ranked low, it is DELETED from the profile and counted in
+``stats.suppressed_low_confidence``.
+
+WHAT IT IS COMPARED AGAINST, because that is the part that went wrong once:
+the finalised confidence, ``reliability x evidence_factor x recency_confidence``.
+Since ``evidence_factor`` is now neutral at one observation and
+``recency_confidence`` spans [0.75, 1.0], a single fresh row is screened at
+essentially its own reliability, which is ``category_trust x source_trust`` -
+the quantity this 0.28 was chosen against. Before the evidence_factor fix the
+comparison ran against reliability x 0.70, i.e. an effective reliability floor
+of 0.40, which no realistic Interests row could reach.
+
+EVERY DOMAIN MUST BE REACHABLE FROM A REALISTIC SOURCE. Interests has only two
+feeder categories (see the note under CATEGORY_DOMAIN); at 0.40 effective, only
+``you`` and ``linkedin`` cleared it and the domain was dead for everyone else.
+Change this number only with the 15 x 8 category-by-source sweep in
+tests/test_the_interests_domain_is_reachable.py in front of you; it prints the
+full matrix and fails if any domain loses every realistic source."""
+
+
 def compile_profile(raws: list[dict], now: datetime | None = None,
                     corrections: dict | None = None,
-                    min_confidence: float = 0.28,
+                    min_confidence: float = MIN_CONFIDENCE,
                     contact_lexicon: frozenset = frozenset()) -> dict:
     """Full pipeline: raw rows -> grouped, ranked, corrected profile dict.
     ``contact_lexicon`` (see build_contact_lexicon) screens every subject
-    against known contact names; empty = heuristics-only, the safe default."""
+    against known contact names; empty = heuristics-only, the safe default.
+
+    ``stats`` carries BOTH facts the caller needs to tell an empty page apart:
+    ``raw_rows`` (how much was read) and ``suppressed_low_confidence`` (how much
+    was read and then screened). ``interests == 0`` alone cannot distinguish
+    "nothing to read" from "read plenty, believed none of it", and a renderer
+    that shows the same blank for both is the defect this pair exists to close.
+    """
     now = now or datetime.now(timezone.utc)
     interests = [build_interest(r, now, contact_lexicon=contact_lexicon)
                  for r in raws]
