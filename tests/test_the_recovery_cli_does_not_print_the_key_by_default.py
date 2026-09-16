@@ -29,6 +29,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR = ROOT / "vendor"
+
+# THE TEST MUST CARRY ITS OWN IMPORT PATH. This was missing, and the suite
+# still passed locally because I had supplied PYTHONPATH on the command line
+# myself. In CI, which does not, it reported CANNOT-RUN: ostler_security is not
+# importable. CANNOT-RUN is correctly not a pass, so nothing shipped on a false
+# green -- but the suite measured NOTHING while looking like it ran, which is
+# the zero-denominator shape this file exists to guard against.
+#
+# It worked locally for a reason I provided rather than a reason the test
+# carries. A test that depends on its invoker's environment is not wired.
+if str(VENDOR) not in sys.path:
+    sys.path.insert(0, str(VENDOR))
 PASSPHRASE = "correct-horse-battery-staple-1970"
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
