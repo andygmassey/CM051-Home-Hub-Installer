@@ -48,6 +48,7 @@ on:
     paths:
       - 'tests/test_no_program_dodges_the_promote.sh'
       - 'tests/test_a_taken_port_is_named_not_abstracted.sh'
+      - 'tests/test_a_keepalive_agent_that_cannot_bind_is_not_reported_green.sh'
       - 'install.sh'
       # Both halves of the bash 3.2 guard: the test itself, so a change to it
       # cannot go unrun, and its subject, so a regression in the subject fires
@@ -159,6 +160,14 @@ jobs:
       - name: a taken port is named, not abstracted into a catch-all
         if: always()
         run: bash tests/test_a_taken_port_is_named_not_abstracted.sh
+      - name: a KeepAlive agent that can never bind is not reported as a green install
+        # always(), because this is the ending the SIBLING gate above does not
+        # cover: there the readiness loop times out and the install aborts;
+        # here it never times out, the install reports green, and the agent
+        # restarts itself every 7 seconds for ever. A step that only runs on
+        # success would be masked by the very red it is meant to follow.
+        if: always()
+        run: bash tests/test_a_keepalive_agent_that_cannot_bind_is_not_reported_green.sh
       - name: shell tests run to completion under the cut host's bash 3.2
         # always(), because a step that only runs on success can be masked
         # by an earlier red, and this one exists to catch a suite that
