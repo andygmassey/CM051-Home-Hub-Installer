@@ -310,6 +310,7 @@ test_launchagent_refusal_reason_is_recorded.sh	WIRED	.github/workflows/launchage
 test_launchagent_success_requires_verification.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_launchd_plist_no_tmp.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_licence_gate.sh	WIRED	.github/workflows/licence-gate.yml
+test_licence_tier_reaches_the_hub.sh	WIRED	.github/workflows/licence-gate.yml
 test_linkedin_export_detect.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_local_stores_do_not_route_through_a_proxy.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_loopback_property_fires.sh	WIRED	.github/workflows/store-host-exposure.yml
