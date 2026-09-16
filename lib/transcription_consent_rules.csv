@@ -64,18 +64,56 @@
 iso,country,all_party,needs_finer,source,decided_on,decided_by
 US,United States (Federal Baseline),unclear,yes,"18 U.S.C. § 2511 || COUNTRY-LEVEL SET TO unclear: this country has sub-national variation and the Hub resolves only a country, so a country-level answer here would be applied to states it is wrong for.",2026-09,gemini+kimi-2026-09
 US-CA,United States (California),yes,no,Cal. Penal Code § 632,2026-09,gemini+kimi-2026-09
-US-DE,United States (Delaware),yes,no,"Del. Code Ann. tit. 11, § 1335",2026-09,gemini+kimi-2026-09
+US-DE,United States (Delaware),yes,no,Del. Code tit. 11 § 1335,2026-09,gemini+kimi-2026-09
 US-FL,United States (Florida),yes,no,Fla. Stat. § 934.03,2026-09,gemini+kimi-2026-09
 US-IL,United States (Illinois),yes,no,720 ILCS 5/14-2,2026-09,gemini+kimi-2026-09
-US-MD,United States (Maryland),yes,no,"Md. Code Ann., Cts. & Jud. Proc. § 10-402",2026-09,gemini+kimi-2026-09
-US-MA,United States (Massachusetts),yes,no,"Mass. Gen. Laws ch. 272, § 99",2026-09,gemini+kimi-2026-09
-US-MT,United States (Montana),yes,no,Mont. Code Ann. § 45-8-213,2026-09,gemini+kimi-2026-09
-US-NV,United States (Nevada),yes,no,NRS § 200.650 / Lane v. Allstate,2026-09,gemini+kimi-2026-09
-US-NH,United States (New Hampshire),yes,no,N.H. Rev. Stat. Ann. § 570-A:2,2026-09,gemini+kimi-2026-09
+US-MD,United States (Maryland),yes,no,Md. Code Cts. & Jud. Proc. § 10-402,2026-09,gemini+kimi-2026-09
+US-MA,United States (Massachusetts),yes,no,Mass. Gen. Laws ch. 272 § 99,2026-09,gemini+kimi-2026-09
+US-MT,United States (Montana),yes,no,Mont. Code § 45-8-213,2026-09,gemini+kimi-2026-09
+US-NV,United States (Nevada),yes,no,Nev. Rev. Stat. § 200.620 (Supreme Court interpreted as all-party),2026-09,gemini+kimi-2026-09
+US-NH,United States (New Hampshire),yes,no,N.H. Rev. Stat. § 570-A:2,2026-09,gemini+kimi-2026-09
 US-PA,United States (Pennsylvania),yes,no,18 Pa. Cons. Stat. § 5703,2026-09,gemini+kimi-2026-09
 US-WA,United States (Washington),yes,no,Wash. Rev. Code § 9.73.030,2026-09,gemini+kimi-2026-09
-US-CT,United States (Connecticut),unclear,no,Conn. Gen. Stat. § 52-570d (Civil all-party / Criminal one-party),2026-09,gemini+kimi-2026-09
-US-OR,United States (Oregon),unclear,no,Or. Rev. Stat. § 165.540 (Phone one-party / In-person all-party),2026-09,gemini+kimi-2026-09
+US-CT,United States (Connecticut),yes,no,Conn. Gen. Stat. § 52-570d (Civil all-party requirement),2026-09,gemini+kimi-2026-09
+US-OR,United States (Oregon),yes,no,Or. Rev. Stat. § 165.540 (All-party required for in-person),2026-09,gemini+kimi-2026-09
+US-AL,United States (Alabama),no,no,Ala. Code § 13A-11-30,2026-09,gemini+kimi-2026-09
+US-AK,United States (Alaska),no,no,Alaska Stat. § 42.20.310,2026-09,gemini+kimi-2026-09
+US-AZ,United States (Arizona),no,no,Ariz. Rev. Stat. § 13-3005,2026-09,gemini+kimi-2026-09
+US-AR,United States (Arkansas),no,no,Ark. Code § 5-60-120,2026-09,gemini+kimi-2026-09
+US-CO,United States (Colorado),no,no,Colo. Rev. Stat. § 18-9-303,2026-09,gemini+kimi-2026-09
+US-DC,United States (District of Columbia),no,no,D.C. Code § 23-542,2026-09,gemini+kimi-2026-09
+US-GA,United States (Georgia),no,no,Ga. Code § 16-11-62,2026-09,gemini+kimi-2026-09
+US-HI,United States (Hawaii),no,no,Haw. Rev. Stat. § 803-42 (All-party if installed in private place),2026-09,gemini+kimi-2026-09
+US-ID,United States (Idaho),no,no,Idaho Code § 18-6702,2026-09,gemini+kimi-2026-09
+US-IN,United States (Indiana),no,no,Ind. Code § 35-33.5-5-5,2026-09,gemini+kimi-2026-09
+US-IA,United States (Iowa),no,no,Iowa Code § 808B.2,2026-09,gemini+kimi-2026-09
+US-KS,United States (Kansas),no,no,Kan. Stat. § 21-6101,2026-09,gemini+kimi-2026-09
+US-KY,United States (Kentucky),no,no,Ky. Rev. Stat. § 526.010,2026-09,gemini+kimi-2026-09
+US-LA,United States (Louisiana),no,no,La. Rev. Stat. § 15:1303,2026-09,gemini+kimi-2026-09
+US-ME,United States (Maine),no,no,Me. Rev. Stat. tit. 15 § 710,2026-09,gemini+kimi-2026-09
+US-MI,United States (Michigan),yes,no,Mich. Comp. Laws § 750.539c (Statute wording makes all-party safest default),2026-09,gemini+kimi-2026-09
+US-MN,United States (Minnesota),no,no,Minn. Stat. § 626A.02,2026-09,gemini+kimi-2026-09
+US-MS,United States (Mississippi),no,no,Miss. Code § 41-29-529,2026-09,gemini+kimi-2026-09
+US-MO,United States (Missouri),no,no,Mo. Rev. Stat. § 542.402,2026-09,gemini+kimi-2026-09
+US-NE,United States (Nebraska),no,no,Neb. Rev. Stat. § 86-290,2026-09,gemini+kimi-2026-09
+US-NJ,United States (New Jersey),no,no,N.J. Stat. § 2A:156A-3,2026-09,gemini+kimi-2026-09
+US-NM,United States (New Mexico),no,no,N.M. Stat. § 30-12-1,2026-09,gemini+kimi-2026-09
+US-NY,United States (New York),no,no,N.Y. Penal Law § 250.00,2026-09,gemini+kimi-2026-09
+US-NC,United States (North Carolina),no,no,N.C. Gen. Stat. § 15A-287,2026-09,gemini+kimi-2026-09
+US-ND,United States (North Dakota),no,no,N.D. Cent. Code § 12.1-15-02,2026-09,gemini+kimi-2026-09
+US-OH,United States (Ohio),no,no,Ohio Rev. Stat. § 2933.52,2026-09,gemini+kimi-2026-09
+US-OK,United States (Oklahoma),no,no,Okla. Stat. tit. 13 § 176.3,2026-09,gemini+kimi-2026-09
+US-RI,United States (Rhode Island),no,no,R.I. Gen. Laws § 11-35-21,2026-09,gemini+kimi-2026-09
+US-SC,United States (South Carolina),no,no,S.C. Code § 17-30-20,2026-09,gemini+kimi-2026-09
+US-SD,United States (South Dakota),no,no,S.D. Codified Laws § 23A-35A-20,2026-09,gemini+kimi-2026-09
+US-TN,United States (Tennessee),no,no,Tenn. Code § 39-13-601,2026-09,gemini+kimi-2026-09
+US-TX,United States (Texas),no,no,Tex. Penal Code § 16.02,2026-09,gemini+kimi-2026-09
+US-UT,United States (Utah),no,no,Utah Code § 77-23a-4,2026-09,gemini+kimi-2026-09
+US-VT,United States (Vermont),yes,no,State v. Geraw (VT Supreme Court case law sets all-party precedent),2026-09,gemini+kimi-2026-09
+US-VA,United States (Virginia),no,no,Va. Code § 19.2-62,2026-09,gemini+kimi-2026-09
+US-WV,United States (West Virginia),no,no,W. Va. Code § 62-1D-3,2026-09,gemini+kimi-2026-09
+US-WI,United States (Wisconsin),no,no,Wis. Stat. § 968.31,2026-09,gemini+kimi-2026-09
+US-WY,United States (Wyoming),no,no,Wyo. Stat. § 7-3-702,2026-09,gemini+kimi-2026-09
 AU,Australia (National Baseline),unclear,yes,Telecommunications (Interception and Access) Act 1979,2026-09,gemini+kimi-2026-09
 AU-NSW,Australia (New South Wales),yes,no,Surveillance Devices Act 2007 (NSW) s 7,2026-09,gemini+kimi-2026-09
 AU-SA,Australia (South Australia),yes,no,Surveillance Devices Act 2016 (SA) s 4,2026-09,gemini+kimi-2026-09
