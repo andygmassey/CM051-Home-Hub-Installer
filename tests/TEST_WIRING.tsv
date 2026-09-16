@@ -507,6 +507,7 @@ test_the_recovery_cli_does_not_print_the_key_by_default.py	WIRED	.github/workflo
 test_the_recovery_key_can_be_redeemed_end_to_end.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_the_recovery_key_is_disclosed_where_it_is_minted.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_replay_reads_the_box_the_probes_read.sh	WIRED	.github/workflows/cut-manifest.yml
+test_the_reuse_path_still_asks_the_licence_terms.sh	WIRED	.github/workflows/consent-registry.yml
 test_the_run_at_commit_gate_is_wired_into_the_cut.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_the_sentinel_vocabulary_is_declared_and_complete.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_shipped_vendor_manifest_names_no_operator.py	WIRED	.github/workflows/vendor-integrity.yml
