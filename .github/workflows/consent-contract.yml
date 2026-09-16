@@ -24,6 +24,8 @@ on:
       - 'tests/test_autologin_consent_opt_in.sh'
       - 'lib/progress_emitter.sh'
       - '.github/workflows/consent-contract.yml'
+      - 'tests/test_the_consent_rules_table_is_safe.py'
+      - 'lib/transcription_consent_rules.csv'
   pull_request:
     paths:
       - 'install.sh'
@@ -33,6 +35,8 @@ on:
       - 'tests/test_autologin_consent_opt_in.sh'
       - 'lib/progress_emitter.sh'
       - '.github/workflows/consent-contract.yml'
+      - 'tests/test_the_consent_rules_table_is_safe.py'
+      - 'lib/transcription_consent_rules.csv'
 
 concurrency:
   # Supersede in-flight runs for the same workflow on the same branch/PR.
