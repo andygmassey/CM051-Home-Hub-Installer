@@ -10961,34 +10961,43 @@ done
 # Cancel exits cleanly with nothing installed, mirroring the passphrase
 # briefing: someone who does not accept the licence should not end up with a
 # half-configured Mac.
-echo ""
-echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo ""
-echo -e "  ${BOLD}${MSG_TERMS_PERSONAL_USE_HEADING}${NC}"
-echo ""
-echo "  ${MSG_TERMS_PERSONAL_USE_INTRO}"
-echo ""
-echo "  ${MSG_TERMS_PERSONAL_USE_BUSINESS}"
-echo ""
-echo "  ${MSG_TERMS_PERSONAL_USE_RECORDER}"
-echo ""
-echo -e "  ${BOLD}${MSG_TERMS_PERSONAL_USE_ASK_HEADING}${NC}"
-echo ""
-echo "    - ${MSG_TERMS_PERSONAL_USE_ASK_1}"
-echo "    - ${MSG_TERMS_PERSONAL_USE_ASK_2}"
-echo "    - ${MSG_TERMS_PERSONAL_USE_ASK_3}"
-echo ""
-echo -e "  ${DIM}${MSG_TERMS_PERSONAL_USE_LEGAL}${NC}"
-echo ""
-TERMS_PERSONAL_USE="$(gui_read "$MSG_PROMPT_TERMS_PERSONAL_USE_TITLE" acknowledge "OK" "$MSG_PROMPT_TERMS_PERSONAL_USE_HELP" "OK,CANCEL" "terms_personal_use")"
-if [[ "$TERMS_PERSONAL_USE" == "CANCEL" || "$TERMS_PERSONAL_USE" == "cancel" ]]; then
+# LIFTED INTO A FUNCTION so the reuse path can render the SAME screen.
+# It used to be inline here, which meant it existed only inside the
+# `SKIP_PHASE2 == false` guard: a customer choosing "use previous answers"
+# was never shown the licence terms and no acknowledgement was recorded.
+# One definition, two call sites, so the two screens cannot drift apart.
+_ostler_ask_personal_use_terms() {
     echo ""
-    echo "  ${MSG_INFO_TERMS_PERSONAL_USE_DECLINED}"
-    gui_cancelled
-    exit 0
-fi
-OSTLER_CONSENT_PERSONAL_USE_DECISION="accepted"
-ok "$MSG_PROMPT_TERMS_PERSONAL_USE_TITLE"
+    echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "  ${BOLD}${MSG_TERMS_PERSONAL_USE_HEADING}${NC}"
+    echo ""
+    echo "  ${MSG_TERMS_PERSONAL_USE_INTRO}"
+    echo ""
+    echo "  ${MSG_TERMS_PERSONAL_USE_BUSINESS}"
+    echo ""
+    echo "  ${MSG_TERMS_PERSONAL_USE_RECORDER}"
+    echo ""
+    echo -e "  ${BOLD}${MSG_TERMS_PERSONAL_USE_ASK_HEADING}${NC}"
+    echo ""
+    echo "    - ${MSG_TERMS_PERSONAL_USE_ASK_1}"
+    echo "    - ${MSG_TERMS_PERSONAL_USE_ASK_2}"
+    echo "    - ${MSG_TERMS_PERSONAL_USE_ASK_3}"
+    echo ""
+    echo -e "  ${DIM}${MSG_TERMS_PERSONAL_USE_LEGAL}${NC}"
+    echo ""
+    TERMS_PERSONAL_USE="$(gui_read "$MSG_PROMPT_TERMS_PERSONAL_USE_TITLE" acknowledge "OK" "$MSG_PROMPT_TERMS_PERSONAL_USE_HELP" "OK,CANCEL" "terms_personal_use")"
+    if [[ "$TERMS_PERSONAL_USE" == "CANCEL" || "$TERMS_PERSONAL_USE" == "cancel" ]]; then
+        echo ""
+        echo "  ${MSG_INFO_TERMS_PERSONAL_USE_DECLINED}"
+        gui_cancelled
+        exit 0
+    fi
+    OSTLER_CONSENT_PERSONAL_USE_DECISION="accepted"
+    ok "$MSG_PROMPT_TERMS_PERSONAL_USE_TITLE"
+}
+
+_ostler_ask_personal_use_terms
 
 # ── 10b-ts. Tailscale DECISION -- hoisted upfront (WALK-1 / Wave 2.1) ──
 #
@@ -11196,6 +11205,60 @@ else
 fi
 
 fi  # end of SKIP_PHASE2 check (GDPR scan + consent)
+
+# ── 10b-pu-reuse. THE LICENCE TERMS ON A RE-INSTALL ───────────────────
+#
+# THE BLOCK ABOVE IS THE ONLY PLACE THE TERMS WERE EVER SHOWN, and it sits
+# inside `if [[ "$SKIP_PHASE2" == false ]]`. So a customer who chose "use
+# previous answers" was never shown the personal-use terms, never accepted
+# them, and -- because the recorder is guarded on the decision being
+# non-empty -- had NOTHING written to the durable registry. The install
+# completed with no record of the one acknowledgement that is a licence
+# term rather than an optional consent. Nothing downstream complains,
+# because nothing downstream reads it, which is why it survived.
+#
+# THIS IS NOT "ASSUME CONSENT THEREAFTER". The registry lookup is
+# version-locked: `consent_cli check` passes only when a stored ACCEPTED
+# record matches the SHA-256 of the wording THIS build bundles
+# (`consent.is_current(tickbox, cs.sha256())`). A record for superseded
+# wording returns `stale_hash`, not `ok`, so changed terms re-ask. Only an
+# acceptance of these exact words carries forward.
+#
+# IT FAILS CLOSED. Registry unreadable, python not yet available, record
+# absent, decision declined, wording drifted -- every one of those ASKS.
+# The only path that skips the screen is a positive, current, accepted
+# record. Asking a second time costs one prompt; assuming an
+# acknowledgement nobody gave is the failure that cannot be undone.
+if [[ -z "${OSTLER_CONSENT_PERSONAL_USE_DECISION:-}" ]]; then
+    # Find a python WITHOUT depending on OSTLER_PYTHON, which is only
+    # unconditionally assigned in Phase 3 -- far below this line, and Phase 3
+    # is the unattended half where a prompt must never appear. On a reuse
+    # install the previous install's venv is normally still there, which is
+    # what makes carry-forward work in practice rather than in theory.
+    _pu_py=""
+    for _c in "${OSTLER_PYTHON:-}" "${OSTLER_DIR:-$HOME/.ostler}/.venv/bin/python3" "$(command -v python3 2>/dev/null || true)"; do
+        if [[ -n "$_c" ]] && [[ -x "$_c" ]]; then _pu_py="$_c"; break; fi
+    done
+
+    _pu_state="unknown"
+    if [[ -n "$_pu_py" ]]; then
+        if "$_pu_py" -m ostler_security.consent_cli check \
+               --tickbox personal_use_only >/dev/null 2>&1; then
+            _pu_state="accepted"
+        fi
+    fi
+
+    if [[ "$_pu_state" == "accepted" ]]; then
+        # A current, accepted record for THIS build's wording already exists.
+        # Re-assert it in memory so the recorder below writes this run too,
+        # rather than leaving the variable empty and the run unrecorded.
+        OSTLER_CONSENT_PERSONAL_USE_DECISION="accepted"
+        ok "$MSG_PROMPT_TERMS_PERSONAL_USE_TITLE"
+    else
+        _ostler_ask_personal_use_terms
+    fi
+    unset _pu_py _pu_state _c
+fi
 
 # ══════════════════════════════════════════════════════════════════════
 #  PHASE 3: INSTALL EVERYTHING (unattended -- user can walk away)
