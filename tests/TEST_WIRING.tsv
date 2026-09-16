@@ -416,6 +416,7 @@ test_qdrant_readiness_tests_the_authenticated_surface.sh	WIRED	.github/workflows
 test_readme_states_the_floors_the_installer_enforces.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_readonly_flags_need_no_tty.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_reconcile_splits_our_fixtures_from_the_products.py	WIRED	.github/workflows/walk-record-gate.yml
+test_recording_consent_gates_the_capture_companion.sh	WIRED	.github/workflows/consent-contract.yml
 test_redis_health_probe_authenticates.sh	WIRED	.github/workflows/redis-health-probe.yml
 test_region_persist_does_not_leak_a_traceback.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_repair_overmerged_contact_cards.py	WIRED	.github/workflows/contact-card-repair.yml
@@ -497,14 +498,17 @@ test_the_merge_budget_scales_with_the_address_book.sh	WIRED	.github/workflows/ki
 test_the_migrator_authenticates_and_a_refusal_is_loud.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_number_a_customer_types_reaches_all_three_consumers.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_the_operator_rollforward_refuses_a_blind_environment.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_the_pairing_qr_refuses_an_address_the_phone_cannot_open.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_permanent_manifest_is_not_optional.sh	WIRED	.github/workflows/cut-manifest.yml
 test_the_pii_hook_asks_cis_question.sh	WIRED	.github/workflows/operator-pii-scan.yml
 test_the_pii_scan_reads_every_file_in_the_tree.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_port_preflight_aborts_carry_distinct_support_codes.sh	WIRED	.github/workflows/colima-autostart.yml
 test_the_promote_instructions_name_what_makes_it_fail.sh	WIRED	.github/workflows/customer-download-path.yml
+test_the_recovery_cli_does_not_print_the_key_by_default.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_the_recovery_key_can_be_redeemed_end_to_end.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_the_recovery_key_is_disclosed_where_it_is_minted.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_replay_reads_the_box_the_probes_read.sh	WIRED	.github/workflows/cut-manifest.yml
+test_the_reuse_path_still_asks_the_licence_terms.sh	WIRED	.github/workflows/consent-registry.yml
 test_the_run_at_commit_gate_is_wired_into_the_cut.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_the_sentinel_vocabulary_is_declared_and_complete.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_shipped_vendor_manifest_names_no_operator.py	WIRED	.github/workflows/vendor-integrity.yml
