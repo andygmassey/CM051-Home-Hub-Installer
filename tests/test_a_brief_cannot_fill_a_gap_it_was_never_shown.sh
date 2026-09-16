@@ -399,9 +399,24 @@ echo "PASS=${PASS} FAIL=${FAIL} CANNOT-RUN=${CANT}"
 #
 # Two mutants, and they fail in OPPOSITE directions on purpose.
 #
-#   MUTANT A reinstates the defect by running every limb against the pre-fix
-#   module materialised from origin/main with `git show`. The suite must go
-#   RED. A guard that cannot be made to fail is not a guard.
+#   MUTANT A reinstates the defect by a DETERMINISTIC EDIT of the module under
+#   test, and proves the edit landed before believing the result. The suite
+#   must go RED. A guard that cannot be made to fail is not a guard.
+#
+#   IT USED TO TAKE ITS BASELINE FROM `git show origin/main:<module>`, AND
+#   THAT WORKED FOR EXACTLY AS LONG AS THE FIX WAS UNMERGED. The moment #2013
+#   landed, origin/main's copy WAS the fixed module: the "pre-fix" baseline
+#   became identical to the module under test, the suite passed against it,
+#   and MUTANT A reported that this guard does not detect the defect it was
+#   written for. Measured 2026-09-16: red on six branches at once, every one
+#   of them innocent, and red on any branch that merges main.
+#
+#   A MUTANT WHOSE BASELINE IS A MOVING REF STOPS BEING A MUTANT. Worse, it
+#   fails in the direction that looks like a real regression, so the cost
+#   lands on whoever merged main next rather than on the change that caused
+#   it. The baseline is now derived from the module itself, so there is no ref
+#   to rot, and the edit is asserted to have applied -- a mutant that did not
+#   apply looks exactly like one that was not caught.
 #
 #   MUTANT B blinds the suite's own scanner by pointing it at a module that
 #   cannot be imported. The suite must REFUSE (exit 2), not pass. A scanner
@@ -415,10 +430,51 @@ if [ "${SELF_TEST}" -eq 1 ]; then
 
     PREFIX_DIR="${WORK}/prefix"
     mkdir -p "${PREFIX_DIR}"
-    if git -C "${REPO}" show \
-        "${OSTLER_PREFIX_REF:-origin/main}:context-refresh/bin/generate_pwg_context.py" \
-        > "${PREFIX_DIR}/generate_pwg_context.py" 2>/dev/null \
-       && [ -s "${PREFIX_DIR}/generate_pwg_context.py" ]; then
+    # The edit reinstates the pre-fix DATA PATH rather than an old file: the
+    # fix put the gap fact into the document through one function, so emptying
+    # that function's return is the defect, exactly as it was. The mutation
+    # REFUSES rather than guessing if its anchor is not present exactly once.
+    set +e
+    OSTLER_MUTANT_SRC="${GEN}" \
+    OSTLER_MUTANT_DST="${PREFIX_DIR}/generate_pwg_context.py" \
+        python3 - > "${WORK}/mutantA.apply" 2>&1 <<'PY_MUTANT_A'
+import os
+import sys
+
+src_path = os.environ["OSTLER_MUTANT_SRC"]
+dst_path = os.environ["OSTLER_MUTANT_DST"]
+try:
+    src = open(src_path, encoding="utf-8").read()
+except OSError as exc:
+    sys.exit(f"cannot read the module under test ({exc})")
+
+# _unreadable_and_empty_block is the whole fix: it is what puts "nothing
+# stored" and "COULD NOT BE READ" into the document the brief writer reads.
+# Returning early from it restores the state the customer's brief was written
+# in -- the difference measured, carried to _FAILURES and the exit code, and
+# never shown to the consumer that could act on it.
+ANCHOR = "    gaps: list[str] = []\n"
+n = src.count(ANCHOR)
+if n != 1:
+    sys.exit(
+        f"MUTANT A DID NOT APPLY: its anchor occurs {n} time(s) in "
+        f"{src_path}, expected exactly 1. The module has been refactored "
+        "under this mutation. Re-anchor it rather than deleting it: a "
+        "mutation that cannot be applied proves nothing about the guard."
+    )
+mutated = src.replace(ANCHOR, "    return []\n" + ANCHOR, 1)
+if mutated == src:
+    sys.exit("MUTANT A DID NOT APPLY: the substitution changed nothing")
+try:
+    open(dst_path, "w", encoding="utf-8").write(mutated)
+except OSError as exc:
+    sys.exit(f"cannot write the mutant ({exc})")
+print(f"mutant applied: 1 substitution, {len(src)} -> {len(mutated)} bytes")
+PY_MUTANT_A
+    apply_rc=$?
+    set -e
+    if [ "${apply_rc}" -eq 0 ] && [ -s "${PREFIX_DIR}/generate_pwg_context.py" ]; then
+        sed 's/^/         /' "${WORK}/mutantA.apply"
         set +e
         OSTLER_DIGEST_MODULE="${PREFIX_DIR}/generate_pwg_context.py" \
             bash "${BASH_SOURCE[0]}" > "${WORK}/mutantA.out" 2>&1
@@ -426,19 +482,20 @@ if [ "${SELF_TEST}" -eq 1 ]; then
         set -e
         if [ "${mrc}" -eq 1 ]; then
             SELF_PASS=$((SELF_PASS+1))
-            echo "  [PASS] MUTANT A: the pre-fix digest module makes this suite FAIL (exit 1)"
+            echo "  [PASS] MUTANT A: the reinstated defect makes this suite FAIL (exit 1)"
             grep -E '^\s+\[FAIL\]' "${WORK}/mutantA.out" | sed 's/^/         /'
         else
             SELF_FAIL=$((SELF_FAIL+1))
-            echo "  [FAIL] MUTANT A: the pre-fix module exited ${mrc}, expected 1. This guard does not detect the defect it was written for."
+            echo "  [FAIL] MUTANT A: the mutated module exited ${mrc}, expected 1. This guard does not detect the defect it was written for."
             tail -20 "${WORK}/mutantA.out" | sed 's/^/         /'
         fi
     else
-        # The pre-fix copy is unavailable (shallow clone, no origin/main). That
-        # is CANNOT-RUN for the mutant, not a mutant that passed, and it gets
-        # its own exit code below so nobody can read "the mutant was not run"
-        # as "the guard was proved".
-        echo "  [CANNOT-RUN] MUTANT A: could not materialise ${OSTLER_PREFIX_REF:-origin/main} copy of the digest module -- the guard was NOT proved"
+        # The mutation could not be applied -- no python3, unreadable module,
+        # or the anchor has moved. That is CANNOT-RUN for the mutant, not a
+        # mutant that passed, and it gets its own exit code below so nobody
+        # can read "the mutant was not run" as "the guard was proved".
+        echo "  [CANNOT-RUN] MUTANT A: could not reinstate the defect -- the guard was NOT proved"
+        sed 's/^/         /' "${WORK}/mutantA.apply" 2>/dev/null || true
         SELF_CANT=$((SELF_CANT+1))
     fi
 
