@@ -133,8 +133,18 @@ command -v comm >/dev/null 2>&1 || cannot "comm is unavailable, so the two sets 
 # tests/test_pipefail_shortcircuit_inversion.sh and went unnoticed for weeks
 # because its failure path had never executed. Limb 4 drives the comparison
 # against a known answer so it cannot happen here unobserved.
+#
+# 🔴 NO `2>/dev/null` ON ANY PROBE HERE, DELIBERATELY. grep exits 2 with a
+# message and NO output on a usage error, and an unsupported `--exclude-dir` on
+# some other grep would do exactly that. Swallowing stderr turns that into an
+# empty list, which is indistinguishable from a clean tree: the gate would
+# report "no crossing points" about a scan that never happened. Measured on
+# this host: both greps and the find below emit ZERO stderr lines on a clean
+# run, so there is no noise being traded away. The denominator guard below is
+# the second half of it, and it is what converts the resulting zero into
+# CANNOT-RUN rather than a pass.
 _files_matching() {
-    ( cd "$1" && "$GREP" -rlI --exclude-dir=.git -- "$2" . 2>/dev/null ) \
+    ( cd "$1" && "$GREP" -rlI --exclude-dir=.git -- "$2" . ) \
         | sed 's#^\./##' | sort
 }
 
@@ -163,9 +173,9 @@ crossings_in() {
 # 1. DENOMINATORS. A count with no denominator is a statement about the
 #    reader, not about the tree.
 # ---------------------------------------------------------------------------
-N_ALL="$(( $( "$GREP" -rlI --exclude-dir=.git -- "$SCALE_A" . 2>/dev/null | wc -l ) ))"
-N_B="$(( $( "$GREP" -rlI --exclude-dir=.git -- "$SCALE_B" . 2>/dev/null | wc -l ) ))"
-N_TREE="$(( $( /usr/bin/find . -name '.git' -prune -o -type f -print 2>/dev/null | wc -l ) ))"
+N_ALL="$(( $( "$GREP" -rlI --exclude-dir=.git -- "$SCALE_A" . | wc -l ) ))"
+N_B="$(( $( "$GREP" -rlI --exclude-dir=.git -- "$SCALE_B" . | wc -l ) ))"
+N_TREE="$(( $( /usr/bin/find . -name '.git' -prune -o -type f -print | wc -l ) ))"
 
 if [ "$N_TREE" -lt 100 ]; then
     cannot "the tree walk found only ${N_TREE} files. An empty or near-empty scan is not a clean result, it is a missing instrument."
