@@ -338,19 +338,99 @@ DECLARED_TOTAL_N=0        # ledger rows read
 DECLARED_EXCLUDED_N=0     # rows set aside as not-a-resolvable-hostname
 
 # ---------------------------------------------------------------------------
-# HOW MANY TIMES EACH DECLARED HOST IS RESOLVED, IN THE SAME REMOTE CALL.
+# THE DECLARED-HOST RESOLVER (#1143). Defined ONCE and used by two callers:
+# the joint remote call below, and the --resolve-declared subcommand that
+# exists so a test can drive THIS code rather than a copy of it. A control
+# that re-implements the thing it guards goes green while the real code is
+# broken; #1123 made that point about a parser and it applies here.
 #
-# One lookup returns one slice of a rotating pool. Measured 2026-08-27 (#1143):
-# consecutive lookups of the same declared host returned .101 .102 .103 .104,
-# then .111, then .114 -- so a single slice is not the pool, and an address the
-# box is connected to can be absent from the slice taken at the same instant.
+# TWO DEFECTS THIS REPLACES, both in the direction of a FALSE ACCUSATION on a
+# BLOCKING security probe:
 #
-# Repeating the lookup widens the observed pool and shrinks the window in which
-# a declared destination looks undeclared. It does NOT close it, which is why
-# the pool arm below exists as well: this reduces how often the comparison
-# fails, the pool arm decides what a failed comparison is allowed to say.
+#   1. ONE LOOKUP. The old form called getaddrinfo once per host and
+#      de-duplicated only WITHIN that single response. A rotating DNS pool
+#      hands back a different member next time, so a destination the box
+#      really did reach can fail to match the address we happened to resolve,
+#      and a host WE DECLARED is reported as unexpected egress.
+#
+#   2. A SWALLOWED FAILURE. The old form wrapped the lookup in a bare
+#      except-Exception-pass. A host that FAILED TO RESOLVE contributed no
+#      addresses and vanished from the declared set, indistinguishable from a
+#      host that resolved to nothing. On a cold box with DNS still settling,
+#      mid-install, that is the expected weather rather than an edge case, and
+#      it silently converts a declared host into an undeclared one.
+#      Manufacturing a clean input by swallowing the error is the practice
+#      this probe exists to catch, committed one level up.
+#
+# So: resolve each host up to ATTEMPTS times and take the UNION, and emit an
+# explicit HOSTFAIL row for any host that produced no address at all. A host
+# we could not look up is CANNOT-RUN for that host: not a pass, and certainly
+# not evidence of a leak.
+#
+# BOUNDED ON PURPOSE. A probe that becomes a timeout reports nothing, which is
+# the same outcome as the bug by a slower route. Every attempt is gated on a
+# wall-clock deadline, so total cost is bounded however many hosts hang.
+# Successful lookups come from the resolver cache after the first pass, so the
+# repeats are cheap in the normal case and the deadline binds only in the case
+# this is written to survive.
+#
+# NO SINGLE QUOTE MAY APPEAR IN THIS PYTHON. It is single-quoted into the
+# remote command string, which is how it survives box_run without any
+# backslash escaping at all. Double quotes only.
 # ---------------------------------------------------------------------------
-DNS_ROUNDS="${OSTLER_EGRESS_DNS_ROUNDS:-3}"
+EGRESS_RESOLVE_ATTEMPTS="${OSTLER_EGRESS_RESOLVE_ATTEMPTS:-${OSTLER_EGRESS_DNS_ROUNDS:-3}}"
+EGRESS_RESOLVE_DEADLINE_S="${OSTLER_EGRESS_RESOLVE_DEADLINE_S:-12}"
+
+egress_resolver_py() {
+    cat <<"PYSRC"
+import base64, socket, sys, time
+hosts = base64.b64decode(sys.argv[1]).decode("utf-8").split()
+attempts = int(sys.argv[2])
+deadline = time.monotonic() + float(sys.argv[3])
+found = dict((h, set()) for h in hosts)
+tried = dict((h, 0) for h in hosts)
+for _ in range(attempts):
+    if time.monotonic() >= deadline:
+        break
+    for h in hosts:
+        if time.monotonic() >= deadline:
+            break
+        tried[h] += 1
+        try:
+            for info in socket.getaddrinfo(h, None, socket.AF_INET):
+                found[h].add(info[4][0])
+        except Exception:
+            pass
+for h in hosts:
+    if found[h]:
+        for ip in sorted(found[h]):
+            print("HOST\t%s\t%s" % (h, ip))
+    else:
+        print("HOSTFAIL\t%s\tno IPv4 address after %d attempt(s)" % (h, tried[h]))
+PYSRC
+}
+
+# egress_verdict_kind <undeclared_n> <unresolved_n> -- the #1143 routing
+# decision, as a pure function of two counts, so a test drives THE SAME CODE
+# the verdict uses instead of asserting against a restatement of it.
+#
+# The order is the whole point. An UNDECLARED finding normally outranks an
+# unreadable instrument, because if both are present the finding is still
+# true. That stops being true when the instrument failure is OUR OWN FAILED
+# LOOKUP of a host in OUR OWN ledger: then the finding and the failure are the
+# same bytes and cannot be separated. So unresolved wins, but ONLY when there
+# is an undeclared finding to outrank. With none, the failed lookup changed
+# nothing and must not turn a clean run into CANNOT-RUN.
+egress_verdict_kind() {
+    local undeclared="${1:-0}" unresolved="${2:-0}"
+    if [ "$undeclared" -gt 0 ] && [ "$unresolved" -gt 0 ]; then
+        printf 'cannot_run_unresolved\n'; return 0
+    fi
+    if [ "$undeclared" -gt 0 ]; then
+        printf 'fail_undeclared\n'; return 0
+    fi
+    printf 'no_undeclared\n'; return 0
+}
 
 load_declared_map() {
     local all_rows resolvable excluded n_all n_res n_exc hosts_b64 joint
@@ -417,23 +497,15 @@ for rid,r in (d.get('Regions') or {}).items():
         ip=n.get('IPv4')
         if ip: print('DERP\\t%s\\t%s' % (n.get('HostName') or 'derp', ip))
 \" 2>/dev/null
-        python3 -c \"
-import base64, socket
-for h in base64.b64decode('${hosts_b64}').decode('utf-8').split():
-    seen=set()
-    for _round in range(${DNS_ROUNDS}):
-        try:
-            for info in socket.getaddrinfo(h, None, socket.AF_INET):
-                ip=info[4][0]
-                if ip not in seen:
-                    seen.add(ip)
-                    print('HOST\\t%s\\t%s' % (h, ip))
-        except Exception:
-            break
-\" 2>/dev/null
+        python3 -c '$(egress_resolver_py)' '${hosts_b64}' '${EGRESS_RESOLVE_ATTEMPTS}' '${EGRESS_RESOLVE_DEADLINE_S}' 2>/dev/null
     ")"
 
     DECLARED_RESOLVED="$(printf '%s\n' "$joint" | grep '^HOST	' || true)"
+    # #1143: hosts that produced NO address, named rather than swallowed. A
+    # declared host we could not look up cannot attribute anything, so any
+    # connection to it would be counted UNDECLARED -- a false accusation
+    # manufactured by our own resolver.
+    DECLARED_UNRESOLVED="$(printf '%s\n' "$joint" | grep '^HOSTFAIL	' || true)"
     DECLARED_DERPS="$(printf '%s\n' "$joint" | grep '^DERP	' || true)"
     # An if-block, not `[ -n ... ] && VAR=1`: as the last statement before a
     # return the && form yields the test's exit status, so an empty DERP map
@@ -602,7 +674,7 @@ run_probe() {
     load_declared_map || true
     if [ "$DECLARED_STATUS" = ok ]; then
         probe_note "ledger          : ${HOSTS_FILE} -- ${DECLARED_TOTAL_N} row(s), ${DECLARED_EXCLUDED_N} set aside as not-a-resolvable-hostname (globs and the unbounded-destination placeholder, which must never attribute anything)"
-        probe_note "                  $(printf '%s\n' "$DECLARED_RESOLVED" | grep -c .) addresses resolved over ${DNS_ROUNDS} lookup round(s) per host; DERP map $( [ "$DECLARED_DERP_OK" = 1 ] && printf '%s node(s), fetched live' "$(printf '%s\n' "$DECLARED_DERPS" | grep -c .)" || printf 'UNAVAILABLE (relays cannot be attributed this run)' )"
+        probe_note "                  $(printf '%s\n' "$DECLARED_RESOLVED" | grep -c .) addresses resolved over ${EGRESS_RESOLVE_ATTEMPTS} lookup round(s) per host; DERP map $( [ "$DECLARED_DERP_OK" = 1 ] && printf '%s node(s), fetched live' "$(printf '%s\n' "$DECLARED_DERPS" | grep -c .)" || printf 'UNAVAILABLE (relays cannot be attributed this run)' )"
         probe_note "                  A DECLARED host may be a ROTATING POOL larger than any one"
         probe_note "                  lookup returns. An address consistent with such a pool is"
         probe_note "                  reported as CANNOT-RUN, never as a violation (#1143)."
@@ -770,13 +842,34 @@ run_probe() {
         printf '%s' "$undeclared_lines"
     fi
 
+    # #1143: AN UNRESOLVED DECLARED HOST OUTRANKS AN UNDECLARED FINDING, and
+    # only when there IS such a finding to outrank.
+    #
+    # If a host in our own ledger produced no address, we cannot tell a
+    # connection to THAT host from a connection to somewhere undeclared. The
+    # two are the same bytes. Reporting FAIL there accuses the product of
+    # phoning somewhere it should not, on the strength of a lookup WE failed to
+    # make, and the honest response to that report is to stop a cut and
+    # investigate. So it is CANNOT-RUN, naming the hosts.
+    #
+    # GUARDED SO IT CANNOT SWALLOW A REAL VERDICT: this only diverts when
+    # undeclared_n is already greater than zero. With no undeclared destination
+    # the unresolved host changed nothing, the run is still interpretable, and
+    # the pass below stands on its own evidence. A resolver hiccup must not
+    # turn every walk on a slow-DNS box into CANNOT-RUN either.
+    unresolved_n="$(printf '%s\n' "${DECLARED_UNRESOLVED:-}" | grep -c . || true)"
+    if [ "$(egress_verdict_kind "${undeclared_n:-0}" "${unresolved_n:-0}")" = "cannot_run_unresolved" ]; then
+        unresolved_names="$(printf '%s\n' "$DECLARED_UNRESOLVED" | cut -f2 | paste -sd, - )"
+        probe_cannot_run "${unresolved_n} declared host(s) in ${HOSTS_FILE} produced NO address on this box (${unresolved_names}), and ${undeclared_n} outside-boundary connection(s) did not match anything we did resolve. Those two facts cannot be separated: a connection to a host we failed to look up is byte-identical to a connection to somewhere undeclared. Calling this a leak would be accusing the product of a lookup WE did not manage. Re-run when DNS is settled. ${declared_n} other outside-boundary connection(s) attributed cleanly."
+    fi
+
     # UNDECLARED first: a real finding outranks an unreadable instrument, and
     # if both are present the finding is still true.
     if [ "${undeclared_n:-0}" -gt 0 ]; then
         probe_fail "${undeclared_n} connection(s) attributable to Ostler reached a destination outside the LOCAL-NETWORK boundary that the declared ledger (${ledger_rows} row(s)) does NOT name, that the live DERP map does not explain, and that shares no /24 with any address a declared host resolved into. ${declared_n} further outside-boundary connection(s) WERE declared and are not counted here; ${pool_n} were pool-consistent and are reported as CANNOT-RUN, not as findings. Each undeclared one is either a ledger that needs a row or a defect that needs fixing."
     fi
     if [ "${unchecked_n:-0}" -gt 0 ] || [ "${pool_n:-0}" -gt 0 ]; then
-        probe_cannot_run "the comparison against the declared ledger (${ledger_rows} row(s)) could not be completed for $(( unchecked_n + pool_n )) outside-boundary connection(s): ${unchecked_n} because the apparatus could not answer (${DECLARED_STATUS}), and ${pool_n} because the address is consistent with a DECLARED host's rotating address pool that this run's lookup did not fully enumerate (#1143). A rotating pool is a network condition, not a policy violation, and this probe will not report it as one. ${declared_n} other outside-boundary connection(s) did attribute cleanly. Raise OSTLER_EGRESS_DNS_ROUNDS (currently ${DNS_ROUNDS}) to widen the observed pool, or add the address's host to the ledger and re-run."
+        probe_cannot_run "the comparison against the declared ledger (${ledger_rows} row(s)) could not be completed for $(( unchecked_n + pool_n )) outside-boundary connection(s): ${unchecked_n} because the apparatus could not answer (${DECLARED_STATUS}), and ${pool_n} because the address is consistent with a DECLARED host's rotating address pool that this run's lookup did not fully enumerate (#1143). A rotating pool is a network condition, not a policy violation, and this probe will not report it as one. ${declared_n} other outside-boundary connection(s) did attribute cleanly. Raise OSTLER_EGRESS_RESOLVE_ATTEMPTS (currently ${EGRESS_RESOLVE_ATTEMPTS}) to widen the observed pool, or add the address's host to the ledger and re-run."
     fi
 
     # The PASS line CARRIES the blind-spot count. A verdict that states its own
@@ -1039,6 +1132,31 @@ for rid,r in (d.get('Regions') or {}).items():
     echo "  UNATTRIBUTED connections are not a pass. Either the ledger is incomplete" >&2
     echo "  or something is talking to a destination nobody declared." >&2
     exit 1
+fi
+
+# --resolve-declared <host> [host...]
+#
+# #1143 TEST SEAM. Runs the REAL resolver, the same source the remote call
+# uses, against hosts given on the command line and prints its HOST and
+# HOSTFAIL rows. It exists so scripts/tests/test_egress_declared_host_resolution.sh
+# can mutate and drive this code rather than assert against a second copy of
+# it, which would go green while the shipped path stayed broken.
+# --verdict-kind <undeclared_n> <unresolved_n>
+#
+# #1143 TEST SEAM for the routing decision, printing what the real verdict
+# path would choose for those two counts.
+if [ "${1:-}" = "--verdict-kind" ]; then
+    egress_verdict_kind "${2:-0}" "${3:-0}"
+    exit 0
+fi
+
+if [ "${1:-}" = "--resolve-declared" ]; then
+    shift
+    [ "$#" -gt 0 ] || { echo "usage: $0 --resolve-declared <host> [host...]" >&2; exit 2; }
+    _rd_b64="$(printf '%s\n' "$@" | base64 | tr -d '\n')"
+    python3 -c "$(egress_resolver_py)" "$_rd_b64" \
+        "${EGRESS_RESOLVE_ATTEMPTS:-3}" "${EGRESS_RESOLVE_DEADLINE_S:-12}"
+    exit $?
 fi
 
 if [ "${1:-}" = "--classify-fixture" ]; then
