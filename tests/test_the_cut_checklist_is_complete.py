@@ -221,11 +221,65 @@ def main() -> int:
                 "The register has stopped being the register.")
         else:
             ok(f"every one of the {len(live)} open issues is registered in {manifest.name}")
-        # Registered-but-closed is drift, not a defect: report it, do not fail.
+        # ── "NOT AN OPEN ISSUE HERE" IS NOT "CLOSED" ────────────────────────
+        #
+        # This note used to read: "N registered issue(s) are now closed and can
+        # be struck". It was computed as `registered - live`, where `live` is
+        # the OPEN issues of THIS repo. A set difference cannot tell these four
+        # apart, and only the first is "closed":
+        #
+        #   closed CM051 issue        genuinely done
+        #   a CM051 PULL REQUEST      `gh issue list` never returns PRs, so
+        #                             every row naming a PR lands here
+        #   an issue in ANOTHER repo  HR015 issue numbers overlap CM051's
+        #   an internal task id       collides with GitHub numbers entirely
+        #
+        # MEASURED 2026-09-16, and this is not hypothetical: 41 rows of the
+        # v1.0.99 checklist had been struck with the reason "the issue this row
+        # names is CLOSED on GitHub". TEN of them name HR015 issues that are
+        # OPEN and tagged [LAUNCH], and the other 31 name CM051 PULL REQUESTS.
+        # Not one named a closed issue. This note is where that advice came
+        # from: it said "can be struck" about numbers it had only established
+        # were not open issues HERE.
+        #
+        # So the set is now CLASSIFIED before anything is advised, and the
+        # unclassifiable remainder is explicitly NOT a strike candidate. The
+        # extra lookup is ONE call, not one per row.
         stale = sorted(registered - live)
         if stale:
-            print(f"  [note] {len(stale)} registered issue(s) are now closed and can be "
-                  f"struck: {stale[:12]}{' ...' if len(stale) > 12 else ''}")
+            closed_here = None
+            try:
+                cout = subprocess.run(
+                    ["gh", "issue", "list", "--repo", SLUG, "--state", "closed",
+                     "--limit", "1000", "--json", "number"],
+                    capture_output=True, text=True, timeout=90,
+                )
+                if cout.returncode == 0 and cout.stdout.strip():
+                    closed_here = {int(o["number"]) for o in json.loads(cout.stdout)}
+            except Exception:
+                closed_here = None
+
+            if closed_here is None:
+                # A list we could not read is not an empty list. Say so and
+                # advise nothing, rather than repeating the old claim.
+                print(f"  [note] {len(stale)} registered row(s) are not OPEN issues in "
+                      f"{SLUG}. The CLOSED list could not be read, so NONE of them is "
+                      f"confirmed closed and none should be struck on this signal: "
+                      f"{stale[:12]}{' ...' if len(stale) > 12 else ''}")
+            else:
+                really_closed = [n for n in stale if n in closed_here]
+                not_an_issue = [n for n in stale if n not in closed_here]
+                if really_closed:
+                    print(f"  [note] {len(really_closed)} registered issue(s) are CLOSED in "
+                          f"{SLUG} and can be struck: "
+                          f"{really_closed[:12]}{' ...' if len(really_closed) > 12 else ''}")
+                if not_an_issue:
+                    print(f"  [note] {len(not_an_issue)} registered row(s) are NOT AN ISSUE IN "
+                          f"{SLUG} AT ALL -- neither open nor closed. A number here is a PULL "
+                          f"REQUEST, an issue in another repo (HR015 numbers overlap these), or "
+                          f"an internal task id. DO NOT STRIKE on this signal; resolve the "
+                          f"number against the register that issued it: "
+                          f"{not_an_issue[:12]}{' ...' if len(not_an_issue) > 12 else ''}")
 
     # ── PROPERTY 2: no ungated rows may survive to a cut ────────────────────
     # This is the one that blocks. It is deliberately advisory OUTSIDE a cut
