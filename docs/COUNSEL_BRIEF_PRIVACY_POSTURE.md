@@ -73,14 +73,41 @@ Crossing into a jurisdiction that requires everyone's agreement **warns** the
 operator and lets them proceed. It does not pause capture and demand
 reconfirmation.
 
-**Decided by Andy, 2026-09-16**, against the alternative, and the alternative
-was seriously considered: stopping converts "we told them" into "it stopped by
-default", which is a materially stronger position. It was declined because the
-operator is the responsible party and a tool that halts mid-conversation is one
-people stop using. HR015 #937 records both the decision and the reasoning.
+**FIRST, A CORRECTION TO AN EARLIER VERSION OF THIS SECTION**, which said
+warn-not-stop was the biggest exposure here. It overstated the weakness by
+implying nothing ever stops. **Recording does not START in a jurisdiction known
+to require everyone's agreement.** A blocking dialog appears, two separate
+confirmations are required, and declining returns `denied` with nothing
+captured. That is the strong case and it is already built.
 
-**A lawyer may well disagree with this one.** It is the most consequential
-choice in this document and it is flagged as such rather than buried.
+**So warn-not-stop applies to ONE residual scenario:** a recording that began
+lawfully where one-party consent applied, and the operator then physically
+crosses into an all-party jurisdiction mid-conversation.
+
+**Decided by Andy, 2026-09-16**, and re-confirmed after the correction above
+was put to him. The alternative was seriously considered: stopping converts "we
+told them" into "it stopped by default", which is a materially stronger
+position.
+
+**Three reasons it was declined, in order of weight:**
+
+1. **The check runs once, at the start.** Nothing re-evaluates jurisdiction
+   during a recording. Stopping on a crossing is therefore not a change to a
+   warning, it is building CONTINUOUS LOCATION MONITORING for the duration of
+   every capture. For a product whose central claim is that nothing leaves the
+   customer's Mac, adding live location tracking in order to enforce a privacy
+   rule trades one privacy property for another, and the trade reads badly.
+2. **The recording already began lawfully.** Halting mid-sentence does not
+   un-record the preceding conversation, so it does not remove the exposure it
+   is aimed at. It loses the remainder and leaves the first part exactly as it
+   was.
+3. **The operator is the responsible party and has already attested.** They
+   were asked at the start of this recording and again at install.
+
+**This remains the choice most likely to be questioned**, and it is flagged
+rather than buried. But the question to put is narrower than "why do you not
+stop": it is "is a warning sufficient for a mid-session crossing, given
+recording is blocked outright when the jurisdiction is known at the start".
 
 ### Unknown jurisdictions are treated as the strictest
 
@@ -152,9 +179,11 @@ switch.
 
 ## What we would ask counsel, in priority order
 
-1. **Is warn-not-stop defensible** for an all-party jurisdiction, given the
-   operator is the recording party and has attested? This is the biggest single
-   exposure and the one decision most likely to be overturned.
+1. **Is a warning sufficient for a MID-SESSION crossing** into an all-party
+   jurisdiction, given that recording is blocked outright when the jurisdiction
+   is known at the start, and that detecting a crossing would require
+   continuous location monitoring during capture? This is the narrowest and
+   most consequential open question.
 2. **Is the operator-attestation model sound**, and is the wording of the
    attestation adequate, particularly on minors?
 3. **Does personal-use-only hold**, and is the licence wording enough to
