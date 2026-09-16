@@ -60,12 +60,43 @@ def main():
         print("            this guard measured nothing.")
         return 2
 
-    files = sorted(FDA.glob("*.py"))
-    if len(files) < 5:
-        print(f"CANNOT-RUN: only {len(files)} python file(s) under vendor/ostler_fda.")
+    all_files = sorted(FDA.glob("*.py"))
+    if len(all_files) < 5:
+        print(f"CANNOT-RUN: only {len(all_files)} python file(s) under vendor/ostler_fda.")
         print("            The tree has more than that, so this is a broken read")
         print("            rather than a small tree.")
         return 2
+
+    # ── SCOPE: ONLY FILES THAT WRITE QDRANT POINTS ────────────────────────
+    #
+    # This guard first demanded the field of EVERY payload in the tree, and
+    # that was wrong. Four of the writers here produce intermediate JSON on
+    # disk and never touch Qdrant: measured, they contain ZERO mentions of
+    # qdrant against pwg_ingest's 55. The compartment filter never reads those
+    # files, so a compartment level in them is at best inert and at worst a
+    # schema change for whatever parses the JSON.
+    #
+    # Andy caught this: "this almost seems too pervasive to be unconsidered".
+    # The uniformity WAS the signal, and it pointed at my predicate rather than
+    # at five writers all making the same mistake.
+    #
+    # The scope is now behavioural: a file that talks to Qdrant is one whose
+    # payloads a compartment filter can read.
+    files = []
+    for f in all_files:
+        try:
+            txt = f.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if "qdrant" in txt.lower():
+            files.append(f)
+    if not files:
+        print(f"CANNOT-RUN: none of the {len(all_files)} file(s) mentions qdrant, so this")
+        print("            guard has nothing in scope. That is a broken predicate, not a")
+        print("            clean tree: this ingest tree demonstrably writes Qdrant points.")
+        return 2
+    print(f"in scope: {len(files)} of {len(all_files)} file(s) write Qdrant points "
+          f"(the rest emit JSON a compartment filter never reads).")
 
     examined = 0
     offenders = []
