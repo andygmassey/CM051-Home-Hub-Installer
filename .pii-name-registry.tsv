@@ -16,10 +16,35 @@
 #             would itself be a file full of everybody's names.
 #   selfcheck a guard's own source: PAIR arm only, no baseline.
 #   skip      a path glob that is not examined at all -- counted and printed
+#   nonperson <path-glob>::sha256[:16] of a pair that is a NAMED THING rather
+#             than a person, cleared by the PAIR arm ONLY in the files the glob
+#             matches. Reason must be '<CLASS>: why', CLASS one of
+#             JURISDICTION / STATUTE / PRODUCT, and the why at least 24
+#             characters. HASHED for the same reason the baseline is: the
+#             registry must never become a readable list of the pairs the guard
+#             found, whatever kind they were filed under.
 #
 # THE CAST IS THE CAST. Do NOT add a row here to make a red go green when the
 # value is somebody's actual name. That is the exact move that turns a
 # permit-list back into a denylist with extra steps.
+#
+# WHEN IS `nonperson` RIGHT, AND WHEN IS IT THE LAZY ANSWER
+#
+# The guard tells you to rename to the synthetic cast, and for a fixture, a
+# filename, a variable or a test double that is correct: the value is
+# arbitrary, so renaming costs nothing and leaves nothing permitted. Reach for
+# `nonperson` ONLY where the value IS the fact and a synthetic substitute would
+# make the artefact LIE -- the jurisdiction that is the primary key of a table
+# of law, the statute a row cites, the third-party product a customer-facing
+# import page says it imports from. If the value could be changed without
+# making anything false, it is not a nonperson case; rename it.
+#
+# To generate the rows without ever printing a value:
+#     python3 bin/pii_name_guard.py --root . --print-permits '<path glob>'
+# It emits the digest, the path and the LINE NUMBERS, with a CLASSIFY-ME class
+# the loader REFUSES -- so the output cannot be committed unread. Running it
+# again is also how a reviewer CHECKS a committed row: regenerate, diff the
+# digests, then read the named lines and judge the claim for yourself.
 
 
 # ---------------------------------------------------------------------------
