@@ -48,6 +48,12 @@ on:
     paths:
       - 'tests/test_no_program_dodges_the_promote.sh'
       - 'tests/test_a_taken_port_is_named_not_abstracted.sh'
+      # #1574, the other half of the same root cause as #1754. Both are a
+      # foreign process on 11434: 1754 is the abort, this is the install that
+      # PASSES and leaves a KeepAlive agent restarting every seven seconds.
+      # Both the instrument and its subject (install.sh, listed below) are
+      # triggers, so neither can be edited without re-running the gate.
+      - 'tests/test_a_crash_looping_agent_is_not_a_green_install.sh'
       - 'install.sh'
       # Both halves of the bash 3.2 guard: the test itself, so a change to it
       # cannot go unrun, and its subject, so a regression in the subject fires
@@ -153,6 +159,12 @@ jobs:
       - name: a taken port is named, not abstracted into a catch-all
         if: always()
         run: bash tests/test_a_taken_port_is_named_not_abstracted.sh
+      - name: an agent that cannot bind is not a green install
+        # The success-path twin of the step above. That one proves the ABORT
+        # names the port; this one proves the install does not report Ollama
+        # running while our own KeepAlive agent fails to bind on a loop.
+        if: always()
+        run: /bin/bash tests/test_a_crash_looping_agent_is_not_a_green_install.sh
       - name: shell tests run to completion under the cut host's bash 3.2
         # always(), because a step that only runs on success can be masked
         # by an earlier red, and this one exists to catch a suite that

@@ -13182,6 +13182,72 @@ OLLAMAPLIST
     # Keep the fallback and keep going -- the direct-start path below still
     # works and a customer in an Aqua session never reaches this. What changes
     # is that the failure is STATED, once, where it happens.
+    # ── A KeepAlive AGENT THAT CANNOT BIND IS A CRASH LOOP, NOT AN INSTALL (#1574) ──
+    #
+    # SAME ROOT CAUSE AS #1754, DIFFERENT ENDING. Both are a foreign process
+    # holding 11434. In 1754 the readiness loop times out and the install
+    # aborts, which the block below now names. HERE THE INSTALL PASSES and the
+    # agent crash-loops: measured 368 restarts in 40 minutes, about one every
+    # seven seconds, for ever, because the plist above sets KeepAlive and the
+    # process can never bind.
+    #
+    # WHY IT PASSES, which is the part that was missing. The loop demands the
+    # port answers AND our own agent runs, but it can be satisfied while our
+    # agent is doomed, by two different routes:
+    #
+    #   1. _ollama_domain_absent. On a box with no Aqua session there is no
+    #      gui/ domain, the agent cannot be inspected, and the loop degrades to
+    #      THE CURL ALONE. The warn above already says this is weaker and that
+    #      a reply on 11434 does not prove it came from this install. A foreign
+    #      Ollama satisfies exactly that weaker test.
+    #   2. The domain IS present, and `state = running` is caught in the brief
+    #      window between a KeepAlive restart and the failed bind. The poll
+    #      runs every 2 s against a process that reappears every few seconds,
+    #      so it does not have to be lucky for long.
+    #
+    # Either way the install prints "Ollama running" and registers an agent
+    # that will never serve. The ownership predicate is NOT the gap: this file
+    # already knows reachability is not ownership, and _ollama_agent_is_running
+    # already parses the state rather than the exit code. The gap is that
+    # NOTHING LOOKS AT THE EVIDENCE ON THE SUCCESS PATH. The bind failure is
+    # already written to ollama.err, by our own agent, while the loop is
+    # running; the timeout path below reads exactly that file and the success
+    # path never did.
+    #
+    # WHY A BYTE OFFSET AND NOT A GREP OF THE WHOLE FILE. ollama.err survives
+    # across installs. A bind error from a PREVIOUS install would abort a
+    # perfectly good one, which is a worse defect than the one being fixed.
+    # Recording the size here means the check below reads only what our agent
+    # wrote during THIS run. If the file is rotated under us the offset simply
+    # reads short, which yields no evidence and no abort: the safe direction.
+    _ollama_err_bytes_before=0
+    if [[ -r "${OLLAMA_LOG_DIR}/ollama.err" ]]; then
+        _ollama_err_bytes_before="$(wc -c < "${OLLAMA_LOG_DIR}/ollama.err" 2>/dev/null | tr -d ' ')"
+        [[ "$_ollama_err_bytes_before" =~ ^[0-9]+$ ]] || _ollama_err_bytes_before=0
+    fi
+
+    # Bind failures our own agent wrote AFTER byte $1 of ollama.err. Empty when
+    # there are none, when the file is unreadable, or when it has been rotated
+    # shorter than the mark. Every one of those is "no evidence of a crash
+    # loop", which is the arm that must not abort an install.
+    _ollama_bind_failures_since() {
+        [[ -r "${OLLAMA_LOG_DIR}/ollama.err" ]] || return 0
+        tail -c "+$(( ${1:-0} + 1 ))" "${OLLAMA_LOG_DIR}/ollama.err" 2>/dev/null \
+            | grep -c -F 'address already in use' 2>/dev/null | tr -d ' ' || true
+    }
+
+    # Take the doomed agent back out. An install that stops MUST NOT leave a
+    # KeepAlive agent behind: that is the crash loop this whole block exists to
+    # prevent, and it would restart at every login for ever. Best effort and
+    # never fatal -- failing to clean up must not replace the diagnosis the
+    # customer is about to be shown. The plist is ours and was written by this
+    # run moments ago, so removing it takes nothing of the customer's.
+    _ollama_stop_doomed_agent() {
+        launchctl bootout "gui/$(id -u)/com.ostler.ollama" 2>/dev/null || true
+        launchctl unload "$OLLAMA_PLIST" 2>/dev/null || true
+        rm -f "$OLLAMA_PLIST" 2>/dev/null || true
+    }
+
     _ollama_reg_rc=0
     if ! launchctl bootstrap "gui/$(id -u)" "$OLLAMA_PLIST" 2>/dev/null; then
         if ! launchctl load "$OLLAMA_PLIST" 2>/dev/null; then
@@ -13338,9 +13404,14 @@ OLLAMAPLIST
                 | sed -n 's/^c//p' | sort -u | tr '\n' ' ' || true)"
 
             if [[ -n "$_ollama_bind_evidence" || -n "$_ollama_port_holder" ]]; then
+                # #1574: this exit leaves a registered KeepAlive agent behind
+                # unless it is taken out here. Same crash loop, reached down
+                # the abort path instead of the success path.
+                _ollama_stop_doomed_agent
                 fail_with_code "ERR-08-OLLAMA-PORT-11434-IN-USE" \
                     "$(printf "$MSG_FAIL_OLLAMA_PORT_IN_USE" "${_ollama_port_holder:-unknown}" "${OLLAMA_LOG_DIR}/ollama.err")"
             fi
+            _ollama_stop_doomed_agent
             warn "$MSG_WARN_COULD_NOT_START_OLLAMA_AUTOMATICALLY"
             info "$(printf "$MSG_INFO_OLLAMA_MANUAL_START_HINT" "$OLLAMA_PLIST")"
             exit 1
@@ -13348,6 +13419,49 @@ OLLAMAPLIST
         sleep 2
         OLLAMA_WAIT=$((OLLAMA_WAIT + 2))
     done
+
+    # ── THE LOOP SAID READY. PROVE OUR OWN AGENT ACTUALLY BOUND (#1574) ──────
+    #
+    # Everything above can be satisfied by a foreign server on 11434 while our
+    # KeepAlive agent fails to bind on a seven-second cycle for ever. The
+    # evidence is already on disk; this is the first thing that reads it on the
+    # path where the install is about to report success.
+    #
+    # ONE BIND ERROR IS NOT A CRASH LOOP, AND THAT DISTINCTION IS THE WHOLE
+    # DESIGN. A single "address already in use" can be a genuine race: a
+    # previous Ollama shutting down as ours starts, where launchd restarts ours
+    # and the second attempt binds cleanly. Aborting on one line would fail
+    # installs that are about to be fine.
+    #
+    # So the discriminator is a SECOND failure, written after we started
+    # watching. A race produces one error and then silence; a crash loop
+    # produces a new one every restart, for ever. The wait is bounded and only
+    # ever paid on a box that has already shown one failure, so a healthy
+    # install spends nothing here.
+    _ollama_binds_failed="$(_ollama_bind_failures_since "$_ollama_err_bytes_before")"
+    [[ "$_ollama_binds_failed" =~ ^[0-9]+$ ]] || _ollama_binds_failed=0
+    if [[ "$_ollama_binds_failed" -gt 0 ]]; then
+        warn "$(printf 'Ollama answered on 11434, but this install has already logged %s failure(s) to bind that port. Checking whether that was a one-off or a restart loop before calling this done.' "$_ollama_binds_failed")"  # i18n-exempt
+        _ollama_err_bytes_mark="$(wc -c < "${OLLAMA_LOG_DIR}/ollama.err" 2>/dev/null | tr -d ' ')"
+        [[ "$_ollama_err_bytes_mark" =~ ^[0-9]+$ ]] || _ollama_err_bytes_mark=0
+        # Longer than launchd's restart throttle, so a looping agent is
+        # guaranteed at least one more attempt inside the window.
+        sleep "${OSTLER_OLLAMA_BIND_RECHECK_S:-12}"
+        _ollama_binds_after="$(_ollama_bind_failures_since "$_ollama_err_bytes_mark")"
+        [[ "$_ollama_binds_after" =~ ^[0-9]+$ ]] || _ollama_binds_after=0
+        if [[ "$_ollama_binds_after" -gt 0 ]]; then
+            # Confirmed: it is still failing to bind, so it will keep failing.
+            # Name the holder, take the agent out, and stop. A customer told
+            # what holds the port can act; a green install with a dead local AI
+            # is a support ticket they do not know they have yet.
+            _ollama_port_holder="$(lsof -nP -iTCP:11434 -sTCP:LISTEN -Fc 2>/dev/null \
+                | sed -n 's/^c//p' | sort -u | tr '\n' ' ' || true)"
+            _ollama_stop_doomed_agent
+            fail_with_code "ERR-08-OLLAMA-PORT-11434-IN-USE" \
+                "$(printf "$MSG_FAIL_OLLAMA_PORT_IN_USE" "${_ollama_port_holder:-unknown}" "${OLLAMA_LOG_DIR}/ollama.err")"
+        fi
+        info "No further bind failures in the recheck window, so that was a one-off during startup rather than a restart loop. Continuing."  # i18n-exempt
+    fi
     ok "$MSG_OK_OLLAMA_RUNNING"
 fi
 
