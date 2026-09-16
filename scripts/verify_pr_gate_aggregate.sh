@@ -379,10 +379,33 @@ pending = [r for r in runs if r.get("status") != "completed"]
 completed = [r for r in runs if r.get("status") == "completed"]
 
 if pending:
+    # TWO DIFFERENT PROBLEMS USED TO PRINT IDENTICALLY, and the refusal this
+    # produces is read by a person deciding whether their PR is broken.
+    #
+    #   queued      the check has NO RUNNER YET. Nothing has executed. This is
+    #               lane starvation and it is not a fact about this PR at all.
+    #               On 2026-09-16 six of seven reds across all open PRs were
+    #               this, and were read as six defects.
+    #   in_progress the check STARTED and has not finished. That one can be a
+    #               slow or hung job, and it IS a fact about this PR.
+    #
+    # Same word ("pending") for both meant the only way to tell them apart was
+    # to go and look at the runner queue by hand. Counting them separately
+    # costs nothing and answers the question the reader actually has.
+    queued = [r for r in pending if (r.get("status") or "") == "queued"]
+    started = [r for r in pending if (r.get("status") or "") != "queued"]
     names = ", ".join(sorted(r.get("name") or "?" for r in pending)[:8])
     more = "" if len(pending) <= 8 else f" (+{len(pending) - 8} more)"
+    if queued and not started:
+        shape = (f"ALL {len(queued)} ARE STILL QUEUED WITH NO RUNNER -- this is "
+                 f"lane starvation, not a defect in this PR")
+    elif started and not queued:
+        shape = f"all {len(started)} have STARTED and not finished"
+    else:
+        shape = (f"{len(queued)} queued with no runner, "
+                 f"{len(started)} started and unfinished")
     print(f"PENDING\t-\t{total}\t{len(completed)}\t{excluded}\t"
-          f"{len(pending)} of {total} not yet completed: {names}{more}")
+          f"{len(pending)} of {total} not yet completed [{shape}]: {names}{more}")
     raise SystemExit(0)
 
 # Every non-self check-run has status == completed from here on.
@@ -523,6 +546,23 @@ if [ "${1:-}" = "--self-test" ]; then
 
     mk garbage 'not json at all'
 
+    # 1043: queued (no runner yet) vs in_progress (started, unfinished).
+    mk allqueued3 '{"check_runs":[
+        {"name":"a","status":"completed","conclusion":"success"},
+        {"name":"b","status":"completed","conclusion":"success"},
+        {"name":"slow-one","status":"queued"}]}'
+
+    mk allstarted3 '{"check_runs":[
+        {"name":"a","status":"completed","conclusion":"success"},
+        {"name":"b","status":"completed","conclusion":"success"},
+        {"name":"slow-one","status":"in_progress"}]}'
+
+    mk mixedpending4 '{"check_runs":[
+        {"name":"a","status":"completed","conclusion":"success"},
+        {"name":"b","status":"completed","conclusion":"success"},
+        {"name":"queued-one","status":"queued"},
+        {"name":"running-one","status":"in_progress"}]}'
+
     mk ownfail3 '{"check_runs":[
         {"name":"CI Required Gate","status":"completed","conclusion":"cancelled"},
         {"name":"a","status":"completed","conclusion":"success"},
@@ -569,6 +609,39 @@ if [ "${1:-}" = "--self-test" ]; then
     echo "=== self-exclusion, by name only ==="
     run_case2 0 "the gate's OWN cancelled check-run does not refuse the commit" ownfail3
     run_case2 1 "CONTROL: a merely SIMILAR name ('ci required gate' lowercase) still refuses" lookalike3
+
+    # 1043: the refusal is read by a PERSON deciding whether their PR is
+    # broken. Runner starvation and a stuck job both used to print "pending".
+    # These arms assert the two produce DIFFERENT text, and each carries the
+    # negative half -- the other shape must be ABSENT -- because a message
+    # that contains both phrases distinguishes nothing.
+    run_msg() {
+        local want="$1" mustnot="$2" label="$3" file="$4" floor="${5:-3}"
+        local out
+        out=$(
+            OSTLER_CHECKRUNS_JSON="$TMP/$file.json" \
+            OSTLER_GATE_FLOOR="$floor" \
+            OSTLER_GATE_MAX_WAIT_SECONDS=1 \
+            OSTLER_GATE_POLL_INTERVAL_SECONDS=1 \
+            poll_and_decide deadbeefdeadbeef owner/repo 2>&1
+        )
+        if printf '%s' "$out" | /usr/bin/grep -q "$want" \
+           && ! printf '%s' "$out" | /usr/bin/grep -q "$mustnot"; then
+            note "PASS  $label"
+        else
+            note "FAIL  $label"
+            note "      wanted /$want/ present AND /$mustnot/ absent"
+            fail=1
+        fi
+    }
+
+    echo "=== 1043: starvation and a stuck check must not print identically ==="
+    run_msg "lane starvation" "started and unfinished" \
+        "all-queued says LANE STARVATION and does not claim anything started" allqueued3
+    run_msg "have STARTED and not finished" "lane starvation" \
+        "CONTROL: all-in_progress says STARTED and does NOT blame the lane" allstarted3
+    run_msg "1 queued with no runner, 1 started and unfinished" "lane starvation" \
+        "a mixed queue reports both counts and claims neither shape" mixedpending4 4
 
     echo "=== it waits; it does not sample once ==="
     run_case2 2 "one run still in_progress at the wait window closes -> CANNOT-RUN, not GREEN" onepending3
