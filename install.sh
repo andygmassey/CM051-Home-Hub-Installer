@@ -3023,11 +3023,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :7825) captures the path BY
+    # _ostler_write_store_curl_config (defined :7829) captures the path BY
     # VALUE and never re-reads it:
-    #     :7826   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :7871   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :7880 and :13883, both of which run
+    #     :7830   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :7875   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :7884 and :13946, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3018 above has just deleted
     # that tree and :3022 has just rebound OSTLER_DIR to the final one, so
@@ -3045,13 +3045,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :14654, where the note reads
+    # WhatsApp Web session path did it again at :14723, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :14671 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :14733 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3060,13 +3060,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5475 against a definition at :7825. Top-level
+    # writer's own definition: :5479 against a definition at :7829. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:7880, :13883) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:7884, :13946) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :16698 / :16876 / :17033 / :17374 path. There the
+    # :16789 / :16967 / :17124 / :17465 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -5305,6 +5305,10 @@ WA_CONSENT=""
 OSTLER_CONSENT_ARTICLE_9_DECISION=""
 OSTLER_CONSENT_VOICE_EU_DECISION=""
 OSTLER_CONSENT_THIRD_PARTY_DECISION=""
+# Personal-use-only licence term. Empty default on a reuse run, so a resumed
+# install that skipped the screen records nothing rather than asserting an
+# acknowledgement the customer never gave on this run.
+OSTLER_CONSENT_PERSONAL_USE_DECISION=""
 # Spoken-capture recording-consent acknowledgement (every region). Empty
 # default = spoken transcription off on a reuse run until re-acknowledged.
 OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION=""
@@ -10904,6 +10908,64 @@ while true; do
     esac
 done
 
+# ── 10b-pu. PERSONAL-USE-ONLY TERMS ───────────────────────────────
+#
+# A LICENCE TERM, NOT AN OPTIONAL CONSENT, which is why this acknowledges
+# rather than offering a decline that would leave a half-licensed install.
+# Wording verbatim from vendor/legal/consent_strings.py (PERSONAL_USE_ONLY,
+# tickbox personal_use_only) so the Doctor can flag drift between what the
+# customer agreed to and what the Hub currently bundles.
+#
+# WHY IT IS SHOWN AT ALL, rather than buried in a terms page nobody reads.
+# Three obligations cannot be met by a warning, because the person who would
+# act on the warning is not the person at risk:
+#
+#   BUSINESS USE removes the household-activity position the rest of the
+#   product rests on. If an employer deploys Ostler to staff, the EMPLOYER
+#   becomes data controller for every colleague, client and patient captured,
+#   which brings impact assessments, works-council duties in parts of the EU,
+#   and vicarious liability in the US. All of it disappears if the product is
+#   personal-use only, and none of it is survivable otherwise.
+#
+#   MINORS cannot consent. An operator ticking "I have consent" is legally
+#   meaningless on a child's behalf, so it is named rather than folded into a
+#   general assurance.
+#
+#   PRIVILEGED SETTINGS are a different order of wrong even where recording is
+#   otherwise lawful. No terms page outsources that, so we ask directly.
+#
+# Cancel exits cleanly with nothing installed, mirroring the passphrase
+# briefing: someone who does not accept the licence should not end up with a
+# half-configured Mac.
+echo ""
+echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo -e "  ${BOLD}${MSG_TERMS_PERSONAL_USE_HEADING}${NC}"
+echo ""
+echo "  ${MSG_TERMS_PERSONAL_USE_INTRO}"
+echo ""
+echo "  ${MSG_TERMS_PERSONAL_USE_BUSINESS}"
+echo ""
+echo "  ${MSG_TERMS_PERSONAL_USE_RECORDER}"
+echo ""
+echo -e "  ${BOLD}${MSG_TERMS_PERSONAL_USE_ASK_HEADING}${NC}"
+echo ""
+echo "    - ${MSG_TERMS_PERSONAL_USE_ASK_1}"
+echo "    - ${MSG_TERMS_PERSONAL_USE_ASK_2}"
+echo "    - ${MSG_TERMS_PERSONAL_USE_ASK_3}"
+echo ""
+echo -e "  ${DIM}${MSG_TERMS_PERSONAL_USE_LEGAL}${NC}"
+echo ""
+TERMS_PERSONAL_USE="$(gui_read "$MSG_PROMPT_TERMS_PERSONAL_USE_TITLE" acknowledge "OK" "$MSG_PROMPT_TERMS_PERSONAL_USE_HELP" "OK,CANCEL" "terms_personal_use")"
+if [[ "$TERMS_PERSONAL_USE" == "CANCEL" || "$TERMS_PERSONAL_USE" == "cancel" ]]; then
+    echo ""
+    echo "  ${MSG_INFO_TERMS_PERSONAL_USE_DECLINED}"
+    gui_cancelled
+    exit 0
+fi
+OSTLER_CONSENT_PERSONAL_USE_DECISION="accepted"
+ok "$MSG_PROMPT_TERMS_PERSONAL_USE_TITLE"
+
 # ── 10b-ts. Tailscale DECISION -- hoisted upfront (WALK-1 / Wave 2.1) ──
 #
 # WALK-1 (2026-06-19, Andy's live walk): the Tailscale setup/skip CHOICE
@@ -13435,6 +13497,7 @@ OSTLER_CONSENT_VOICE_EU_DECISION="${OSTLER_CONSENT_VOICE_EU_DECISION:-}"
 OSTLER_CONSENT_THIRD_PARTY_DECISION="${OSTLER_CONSENT_THIRD_PARTY_DECISION:-}"
 OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION="${OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION:-}"
 OSTLER_CONSENT_ENRICHMENT_DECISION="${OSTLER_CONSENT_ENRICHMENT_DECISION:-}"
+OSTLER_CONSENT_PERSONAL_USE_DECISION="${OSTLER_CONSENT_PERSONAL_USE_DECISION:-}"
 
 # The WhatsApp tickbox is recorded from TWO variables rather than one decision
 # string, so both have to survive or the recorder reads a decline as a
@@ -15622,6 +15685,34 @@ PY
             third_party_data_personal_records \
             "$OSTLER_CONSENT_THIRD_PARTY_DECISION" \
             "Could not persist third-party-data acknowledgement (continuing)"
+    fi
+
+    # Personal-use-only licence term.
+    #
+    # THIS BLOCK IS THE WHOLE POINT OF THE SCREEN. Until it existed the
+    # acknowledgement was assigned to OSTLER_CONSENT_PERSONAL_USE_DECISION and
+    # read by NOTHING: one use in the entire file, the assignment itself,
+    # against four siblings that each record here. The customer accepted a
+    # LICENCE TERM and no trace of it survived the installer process, so there
+    # was no evidence they had agreed and the Doctor could not flag drift
+    # between what was agreed and what the Hub bundles, which the screen's own
+    # comment claims it enables.
+    #
+    # It is the third time this exact shape has happened in this one file. The
+    # enrichment-decision block a few lines below narrates the second (#794),
+    # where an `export` sat under a comment saying the answer was "recorded so
+    # the Doctor and a support bundle can state what the customer chose", and
+    # nothing recorded it.
+    #
+    # Decline aborts in Phase 2 (a licence term is not optional), so the value
+    # here is "accepted" or empty. Empty means a resumed install skipped the
+    # screen, and we omit the record rather than invent one, which leaves
+    # Doctor showing "missing" instead of a consent nobody gave.
+    if [[ -n "$OSTLER_CONSENT_PERSONAL_USE_DECISION" ]]; then
+        _consent_cli_record blocking \
+            personal_use_only \
+            "$OSTLER_CONSENT_PERSONAL_USE_DECISION" \
+            "Could not persist the personal-use-only licence acknowledgement (continuing)"
     fi
 
     # Spoken-capture recording-consent acknowledgement (every region).
