@@ -2336,3 +2336,23 @@ nonperson	lib/transcription_consent_rules.csv::7295c6e24b777f8e	JURISDICTION: th
 nonperson	lib/transcription_consent_rules.csv::9df4cc59d021b1fd	JURISDICTION: the country column of row UM, line 358: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
 nonperson	lib/transcription_consent_rules.csv::c2738e47400a8416	JURISDICTION: the country column of row VG, line 363: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
 nonperson	lib/transcription_consent_rules.csv::f32131a932eb4d67	JURISDICTION: the country column of row EH, line 366: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+
+# NONPERSON, vendor/doctor/agent/web_ui_copy.py -- 2 rows, both bound to that
+# one path, both PRODUCT.
+#
+# Each is the title tag and heading of the Doctor's import page for one
+# third-party knowledge-base app: an imperative verb followed by that app's
+# name. The page has to spell the product correctly or it points the customer
+# at something they do not have, so this is the case the kind exists for --
+# the value IS the fact -- and not the case where renaming costs nothing.
+#
+# The third finding in this PR was the other kind, and was RENAMED rather than
+# permitted: a synthetic Notion-export note in
+# tests/test_notion_obsidian_import_runs_end_to_end.py had a two-word title
+# that nothing asserted on. Arbitrary value, so no permit was warranted.
+#
+# Regenerate to check these:
+#   python3 bin/pii_name_guard.py --root . \
+#       --print-permits 'vendor/doctor/agent/web_ui_copy.py'
+nonperson	vendor/doctor/agent/web_ui_copy.py::200fd3a3e9e1c8c1	PRODUCT: lines 433-434, the title tag and heading of the customer-facing import page for one third-party knowledge-base app. The pair is an imperative verb plus that app's name, which the page has to spell correctly or it points the customer at something they do not have.
+nonperson	vendor/doctor/agent/web_ui_copy.py::3cd82b59cd3c9a35	PRODUCT: lines 501-502, the same two strings for the second third-party knowledge-base app the Doctor imports from. Same shape, same reason: the product name is the fact the page states, not an arbitrary label.
