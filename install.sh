@@ -2126,6 +2126,34 @@ _ostler_licence_refuse() {
     fail_with_code "ERR-02-LICENCE-REQUIRED" "Licence check failed: ${_reason}"  # i18n-exempt
 }
 
+# ── The tier the licence was issued at (HR015 #928) ────────────────
+#
+# Set BEFORE the branch below, so every path out of the gate leaves
+# both defined. Under `set -u` an unset var here would abort the
+# install thousands of lines later, on the escape-hatch path, which is
+# the path nobody runs before a cut.
+#
+# FOUR STATES, AND THEY ARE NOT THE SAME STATE. Collapsing them is how
+# "the Hub reads the tier" becomes a sentence nobody can audit:
+#
+#   unverified  the gate did not run. OSTLER_DEV=1, --allow-unlicensed,
+#               or --check. NOT "no tier", and emphatically NOT "hub":
+#               nothing was verified, so nothing is known. Anything that
+#               later grants on the tier must treat this as a refusal to
+#               answer, never as an answer.
+#   absent      a verified licence with no tier field. Legacy, issued
+#               before tiers existed -> hub, which is what it bought.
+#   known       a verified, recognised tier.
+#   unknown     a verified tier this build does not recognise. Recorded
+#               verbatim. Grants nothing beyond hub, refuses nothing.
+#
+# The value is exported because the first-month-free activation (G2,
+# ~30k lines below) runs in a child python3 and reads it from the
+# environment.
+OSTLER_LICENCE_TIER=""
+OSTLER_LICENCE_TIER_STATE="unverified"
+export OSTLER_LICENCE_TIER OSTLER_LICENCE_TIER_STATE
+
 if [[ "${OSTLER_DEV:-0}" == "1" || "$ALLOW_UNLICENSED" == "1" ]]; then
     # Loud on purpose, three times, matching the --allow-plaintext
     # precedent above. This is the line support needs to see in a
@@ -2364,6 +2392,59 @@ STRING_FIELDS = ("license_id", "issued_to_email", "purchased_at",
                  "update_window_expires_at", "stripe_payment_id",
                  "signature_algorithm", "signature")
 
+# The tiers this build recognises. Twin of LicenseTier in
+# gui/OstlerInstaller/Auth/LicenseVerifier.swift.
+KNOWN_TIERS = ("hub", "pro", "beta")
+
+# What an ABSENT tier means: a licence issued before tiers existed.
+# Every licence sold so far bought the Hub, so that is what it maps to.
+LEGACY_TIER = "hub"
+
+TIER_CHARS = ("abcdefghijklmnopqrstuvwxyz"
+              "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+              "0123456789_.-")
+
+
+def tier_is_well_formed(raw):
+    """1..32 characters of [A-Za-z0-9_.-]. Twin of
+    LicenseVerifier.isWellFormedTier on the Swift side.
+
+    AN UNRECOGNISED TIER IS NOT A MALFORMED ONE. A tier CM050 starts
+    issuing after this installer shipped must install, not refuse --
+    otherwise every future tier becomes a support incident on every Mac
+    already in the field. What this rejects is a value that is not a
+    machine token at all, which matters because the tier leaves this
+    script on ONE LINE of stdout and a newline inside it would split
+    that line. Constrain the schema; do not parse defensively around a
+    contract the other side does not hold.
+    """
+    if not isinstance(raw, str):
+        return False
+    if not raw or len(raw) > 32:
+        return False
+    for ch in raw:
+        if ch not in TIER_CHARS:
+            return False
+    return True
+
+
+def resolve_tier(doc):
+    """Return (tier, state). FOUR states exist and this returns three of
+    them; the fourth, "unverified", belongs to install.sh and means this
+    verifier never ran (escape hatch, or --check).
+
+      absent   no tier field. Legacy licence -> LEGACY_TIER.
+      known    a tier in KNOWN_TIERS, lowercased.
+      unknown  a tier this build does not recognise. Returned VERBATIM.
+               Grants nothing beyond hub; refuses nothing.
+    """
+    raw = doc.get("tier")
+    if raw is None:
+        return LEGACY_TIER, "absent"
+    if raw.lower() in KNOWN_TIERS:
+        return raw.lower(), "known"
+    return raw, "unknown"
+
 
 def main():
     path, pubkey_hex = sys.argv[1], sys.argv[2]
@@ -2398,6 +2479,25 @@ def main():
         return RC_MALFORMED
     if doc["signature_algorithm"] != "Ed25519":
         return RC_MALFORMED
+    # `tier` is OPTIONAL and stays optional: absent means a licence
+    # issued before tiers existed, and refusing those would brick every
+    # licence already sold. Present-but-not-a-machine-token IS malformed
+    # -- see tier_is_well_formed for why that is a schema rule and not
+    # defensive parsing.
+    #
+    # 🔴 AN EXPLICIT null IS "ABSENT", NOT "MALFORMED", AND THAT LINE IS
+    # LOAD-BEARING. Swift decodes `tier` as `String?`, and its synthesised
+    # decoder cannot tell a missing key from a null one -- both arrive as
+    # nil. Measured on the first version of this check, which rejected
+    # null: a licence carrying `"tier": null` was ACCEPTED by the GUI and
+    # REFUSED by this script, so the customer would have been told their
+    # licence was fine and then watched the install abort on it. A
+    # generator emitting null for an untiered licence is an ordinary
+    # thing for a generator to do. Two verifiers of one schema must
+    # agree, and the safe direction to agree in is the permissive one:
+    # null grants nothing that absent does not.
+    if doc.get("tier") is not None and not tier_is_well_formed(doc["tier"]):
+        return RC_MALFORMED
     body = dict(doc)
     body.pop("signature", None)
     canonical = canonical_body(body)
@@ -2413,10 +2513,25 @@ def main():
     if expires is not None:
         now = datetime.datetime.now(datetime.timezone.utc)
         if expires < now:
-            # The only value this script prints. The customer already
-            # knows the date; support needs it to renew them.
+            # The customer already knows the date; support needs it to
+            # renew them.
             sys.stdout.write(doc["update_window_expires_at"])
             return RC_EXPIRED
+    # THE PASS PATH NOW CARRIES THE TIER OUT, and that is the whole
+    # point of HR015 #928: before this, a licence could carry a tier,
+    # the signature covered it, both verifiers accepted it, and the
+    # value went nowhere. Measured on origin/main against the shipped
+    # verifier extracted from this very heredoc: a synthetic licence
+    # carrying tier=beta returned rc 0 and printed NOTHING, identical
+    # to one carrying no tier at all. Verified is not the same as read.
+    #
+    # ONE LINE, "<state> <tier>", state first. The tier goes LAST so a
+    # shell caller can take it with ${detail#* } without a parser, and
+    # the schema constraint above guarantees it holds no whitespace.
+    # The expiry date on the RC_EXPIRED path above is unchanged, and
+    # the two are never emitted together.
+    tier, tier_state = resolve_tier(doc)
+    sys.stdout.write("%s %s" % (tier_state, tier))
     return RC_OK
 
 
@@ -2431,7 +2546,37 @@ OSTLER_LICENCE_VERIFY_PY
 )" || _lic_rc=$?
 
     case "$_lic_rc" in
-        0)  _ostler_licence_restrict_mode; ok "Licence verified." ;;                   # i18n-exempt
+        0)  _ostler_licence_restrict_mode
+            # "<state> <tier>", written by the PASS path of the heredoc.
+            # State first and tier LAST so the tier can be taken whole;
+            # the schema check above guarantees it holds no whitespace.
+            #
+            # A verifier that somehow printed nothing leaves the state
+            # at "unverified" rather than inventing "absent". Those are
+            # different claims and only one of them is true.
+            if [[ -n "$_lic_detail" ]]; then
+                OSTLER_LICENCE_TIER_STATE="${_lic_detail%% *}"
+                OSTLER_LICENCE_TIER="${_lic_detail#* }"
+            fi
+            ok "Licence verified."                                                     # i18n-exempt
+            case "$OSTLER_LICENCE_TIER_STATE" in
+                known)   info "Licence tier: ${OSTLER_LICENCE_TIER}." ;;               # i18n-exempt
+                absent)  info "Licence tier: not stated, treating this as a Hub licence." ;;  # i18n-exempt
+                # NOTE FOR THE NEXT EDITOR: bin/pii_name_guard.py flags two
+                # capitalised words in a row as a person-name PAIR, and it is
+                # a hard gate on every PR. The first draft of the second line
+                # opened with an imperative verb immediately followed by the
+                # product name, and the scan read that pair as a person. It is
+                # reworded rather than exempted, because the guard says,
+                # correctly, do NOT widen it. Keep the product name preceded by
+                # a lowercase word. (This comment deliberately does not quote
+                # the offending phrase: doing so trips the same gate, which is
+                # how the first attempt at this note failed.)
+                unknown) warn "Licence tier '${OSTLER_LICENCE_TIER}' is not one this installer knows." # i18n-exempt
+                         warn "Installing with Hub features for now. A later version of Ostler will pick up the rest." ;;  # i18n-exempt
+                *)       warn "Licence tier could not be determined." ;;               # i18n-exempt
+            esac
+            ;;
         10) _ostler_licence_refuse "No licence file found." ;;                         # i18n-exempt
         11) _ostler_licence_refuse "The licence file is empty." ;;                     # i18n-exempt
         12) _ostler_licence_refuse "The licence file is not a valid Ostler licence." ;; # i18n-exempt
@@ -3047,14 +3192,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :7853) captures the path BY
+    # _ostler_write_store_curl_config (defined :7998) captures the path BY
     # VALUE and never re-reads it:
-    #     :7854   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :7899   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :7908 and :13994, both of which run
+    #     :7999   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8044   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8053 and :14139, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :3042 above has just deleted
-    # that tree and :3046 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :3187 above has just deleted
+    # that tree and :3191 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -3069,13 +3214,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :14765, where the note reads
+    # WhatsApp Web session path did it again at :14910, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :14782 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :14927 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3084,13 +3229,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5503 against a definition at :7853. Top-level
+    # writer's own definition: :5648 against a definition at :7998. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:7908, :13994) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8053, :14139) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :16837 / :17015 / :17172 / :17513 path. There the
+    # :16982 / :17160 / :17317 / :17658 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -32708,7 +32853,26 @@ for _p in (_bundled, _dev):
         break
 from subscription_gate import activate_first_month_free
 from datetime import datetime, timezone
-activate_first_month_free(datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'))
+# HR015 #928. The tier comes from the ENVIRONMENT, not from string
+# interpolation: it is customer-supplied data (it arrives inside their
+# licence file) and interpolating it into a python source string is a
+# code-injection seam, even though the schema check in the licence gate
+# already confines it to [A-Za-z0-9_.-]. Two guards, because the day
+# someone relaxes the schema is not the day they will remember this
+# line.
+#
+# 'unverified' is passed through as None, never as a tier. The gate
+# records the STATE alongside it so 'we did not check' can never be
+# read back as 'they are on hub'.
+_tier = os.environ.get('OSTLER_LICENCE_TIER') or None
+_tier_state = os.environ.get('OSTLER_LICENCE_TIER_STATE') or 'unverified'
+if _tier_state == 'unverified':
+    _tier = None
+activate_first_month_free(
+    datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+    licence_tier=_tier,
+    licence_tier_state=_tier_state,
+)
 " 2>&1; then
     ok "$MSG_OK_FIRST_MONTH_FREE_ACTIVATED"
 else
