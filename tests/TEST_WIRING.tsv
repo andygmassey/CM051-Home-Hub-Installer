@@ -417,6 +417,7 @@ test_qdrant_readiness_tests_the_authenticated_surface.sh	WIRED	.github/workflows
 test_readme_states_the_floors_the_installer_enforces.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_readonly_flags_need_no_tty.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_reconcile_splits_our_fixtures_from_the_products.py	WIRED	.github/workflows/walk-record-gate.yml
+test_recording_consent_gates_the_capture_companion.sh	WIRED	.github/workflows/consent-contract.yml
 test_redis_health_probe_authenticates.sh	WIRED	.github/workflows/redis-health-probe.yml
 test_region_persist_does_not_leak_a_traceback.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_repair_overmerged_contact_cards.py	WIRED	.github/workflows/contact-card-repair.yml
@@ -526,6 +527,7 @@ test_the_walk_seeds_the_preference_pair.sh	WIRED	.github/workflows/walk-record-g
 test_the_walk_seeds_the_usage_producer.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_walk_waits_for_converge.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_walk_waits_for_wiki_summaries.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_the_wiki_button_is_not_offered_before_the_wiki_serves.py	WIRED	.github/workflows/swift-tests.yml
 test_the_wiki_credential_is_not_gated_on_the_wiki_being_ready.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_the_wiki_health_check_survives_the_credential.sh	WIRED	.github/workflows/colima-autostart.yml
 test_the_wiki_port_demands_a_credential.sh	WIRED	.github/workflows/colima-autostart.yml
