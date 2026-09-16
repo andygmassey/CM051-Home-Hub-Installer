@@ -123,7 +123,7 @@ fi
 # ── 8. Sentinel not present in release build (optional, gated by env var) ────
 if [[ "${OSTLER_CHECK_RELEASE_SHA:-0}" == "1" ]]; then
     SENTINEL_LINE="$(grep '^DEFAULT_INSTALLER_TARBALL_SHA256=' "$INSTALL_SCRIPT" || true)"
-    if echo "$SENTINEL_LINE" | grep -q 'REPLACE_AT_RELEASE_TIME'; then
+    if grep -q 'REPLACE_AT_RELEASE_TIME' <<<"$SENTINEL_LINE"; then
         fail "DEFAULT_INSTALLER_TARBALL_SHA256 is still the sentinel REPLACE_AT_RELEASE_TIME -- release.sh has not run or its install.sh patch step was missed"
     else
         PINNED_SHA="$(echo "$SENTINEL_LINE" | sed -E 's/.*"([0-9a-f]{64})".*/\1/')"
@@ -152,7 +152,7 @@ if [[ -f "$DIST_TARBALL" ]]; then
         INNER_INSTALL_SH="$(find "$EXTRACT_DIR" -maxdepth 3 -name install.sh -type f -print -quit)"
         if [[ -n "$INNER_INSTALL_SH" ]]; then
             INNER_LINE="$(grep '^DEFAULT_INSTALLER_TARBALL_SHA256=' "$INNER_INSTALL_SH" || true)"
-            if echo "$INNER_LINE" | grep -q 'REPLACE_AT_RELEASE_TIME'; then
+            if grep -q 'REPLACE_AT_RELEASE_TIME' <<<"$INNER_LINE"; then
                 pass "tarball-inner install.sh carries the sentinel (Finding 2 invariant holds)"
             else
                 fail "tarball-inner install.sh does NOT carry the sentinel: ${INNER_LINE}"
