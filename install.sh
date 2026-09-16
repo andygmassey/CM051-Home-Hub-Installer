@@ -33999,7 +33999,7 @@ if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
             else
             CM052_USER_EMAIL="${USER_EMAIL:-}" \
             OSTLER_AI_CONVERSATIONS_DIR="${HOME}/Documents/Ostler/AI Conversations" \
-            OSTLER_AI_CONV_TRANSCRIPT_PRIVACY="${OSTLER_AI_CONV_TRANSCRIPT_PRIVACY:-L2}" \
+            OSTLER_AI_CONV_TRANSCRIPT_PRIVACY="${OSTLER_AI_CONV_TRANSCRIPT_PRIVACY:-L3}" \
             OSTLER_AI_CONV_GIST_PRIVACY="${OSTLER_AI_CONV_GIST_PRIVACY:-L2}" \
             $_AICONV_TIMEOUT_WRAP "$_AICONV_BIN" \
                 --source all --since-days 365 --json \
@@ -34128,7 +34128,7 @@ except Exception:
         <key>OSTLER_AI_CONVERSATIONS_DIR</key>
         <string>${HOME}/Documents/Ostler/AI Conversations</string>
         <key>OSTLER_AI_CONV_TRANSCRIPT_PRIVACY</key>
-        <string>${OSTLER_AI_CONV_TRANSCRIPT_PRIVACY:-L2}</string>
+        <string>${OSTLER_AI_CONV_TRANSCRIPT_PRIVACY:-L3}</string>
         <key>OSTLER_AI_CONV_GIST_PRIVACY</key>
         <string>${OSTLER_AI_CONV_GIST_PRIVACY:-L2}</string>
     </dict>
