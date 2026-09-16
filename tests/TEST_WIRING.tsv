@@ -690,3 +690,4 @@ scripts/tests/test_verify_cut_manifest.py	WIRED	.github/workflows/cut-manifest.y
 scripts/tests/test_verify_stapling_gate.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 scripts/tests/test_verify_test_wiring_gate.sh	WIRED	.github/workflows/new-tests-must-be-wired.yml
 scripts/tests/test_wiki_digest_pin_assertion.sh	WIRED	.github/workflows/cut-manifest.yml
+test_a_matched_grep_cannot_epipe_its_own_producer.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
