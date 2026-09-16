@@ -33263,6 +33263,136 @@ _ostler_report_assistant_fda
 # seconds is cheap insurance. Best-effort; returns early on bind, never aborts.
 _probe_http_live "http://127.0.0.1:8000/" 30 || true
 
+# ── End-of-install confirmation: whose calendars + who you are ─────
+#
+# A one-time propose-and-confirm that seeds the disambiguation the daily
+# brief relies on (CM061 designs: SAMANTHA_TRAVEL_CONFLATION_FINDINGS.md +
+# EMPLOYER_IDENTITY_MERGE_PLAN.md). Runs AFTER hydration (people, dedupe,
+# calendar, wiki all done -> Oxigraph is up + populated and
+# calendar_events.json exists) and BEFORE the "all set" summary.
+#
+#   1. Calendar owner/type -> ${OSTLER_DIR}/calendars.json in the exact shape
+#      the CM041 reader consumes (contact_syncer.google_calendar
+#      .load_calendar_provenance). Keeps a partner's flight from being read
+#      as the operator's trip.
+#   2. Identity collapse/split -> ${WIKI_CORRECTIONS_DIR}/duplicates.yaml in
+#      the exact schema the CM041 resolver consumes (identity_resolver/
+#      decisions.py). merge = COLLAPSE the operator's own fragments;
+#      distinct = SPLIT OUT a namesake (a permanent, non-destructive
+#      never-merge veto). Enacted on the next resolver sweep (install-time
+#      dedupe catch-up + daily recompile). This step NEVER mutates the graph
+#      itself and NEVER auto-merges.
+#
+# Skippable + re-runnable: OSTLER_SKIP_CONFIRMATION=1 skips it; the assistant
+# / Front Page re-surfaces it later when a new signal appears
+# (EMPLOYER_IDENTITY_MERGE_PLAN.md §6). Fail-safe throughout: a helper /
+# graph error leaves calendars.json unwritten and the graph untouched -- the
+# install is never blocked on this step. Defaults are pre-filled so an
+# operator who just hits enter still gets a sensible answer.
+if [[ "${OSTLER_SKIP_CONFIRMATION:-0}" != "1" ]]; then
+    _confirm_cal_py="${SCRIPT_DIR}/lib/ostler-confirm-calendars.py"
+    _confirm_id_py="${SCRIPT_DIR}/lib/ostler-confirm-identity.py"
+    _confirm_events="${OSTLER_DIR}/imports/fda/calendar_events.json"
+    _confirm_corrections="${WIKI_CORRECTIONS_DIR:-${OSTLER_DIR}/corrections}"
+    _confirm_owner_name="${USER_NAME:-You}"
+    # Prefer the calendar/email-ingest venv python (has PyYAML); fall back to
+    # the import-pipeline venv (also carries PyYAML + identity_resolver), then
+    # to a bare python3. Any of them can run the stdlib helpers.
+    _confirm_py="${_HYDRATE_CALENDAR_PY:-}"
+    [[ -x "$_confirm_py" ]] || _confirm_py="${PIPELINE_PY:-}"
+    [[ -x "$_confirm_py" ]] || _confirm_py="$(command -v python3 2>/dev/null || true)"
+
+    # ---- 1. Calendar owner/type confirmation ----
+    if [[ -n "$_confirm_py" && -f "$_confirm_cal_py" && -f "$_confirm_events" ]]; then
+        _confirm_cal_rows="$("$_confirm_py" "$_confirm_cal_py" enumerate \
+            --events "$_confirm_events" --owner-name "$_confirm_owner_name" \
+            2>>"${OSTLER_DIAG_DIR}/confirm.log" || true)"
+        if [[ -n "$_confirm_cal_rows" ]]; then
+            info "$MSG_CONFIRM_CALENDARS_INTRO"
+            _confirm_answers="$(mktemp -t ostler-cal-answers.XXXXXX)"
+            : > "$_confirm_answers"
+            while IFS=$'\t' read -r _cmatch _cowner _ctype _ccount _csamples; do
+                [[ -z "${_cmatch:-}" ]] && continue
+                _chelp="$(printf "$MSG_CONFIRM_CALENDAR_HELP" "${_ccount:-0}" "${_csamples:-}")"
+                _ans_owner="$(gui_read \
+                    "$(printf "$MSG_CONFIRM_CALENDAR_OWNER_TITLE" "$_cmatch")" \
+                    text "${_cowner:-You}" "$_chelp" "" "calendar_owner" "")"
+                _ans_owner="${_ans_owner:-${_cowner:-You}}"
+                _ans_type="$(gui_read \
+                    "$(printf "$MSG_CONFIRM_CALENDAR_TYPE_TITLE" "$_cmatch")" \
+                    choice "${_ctype:-personal}" "$MSG_CONFIRM_CALENDAR_TYPE_HELP" \
+                    "personal,work,family,shared,other" "calendar_type" "")"
+                _ans_type="${_ans_type:-${_ctype:-personal}}"
+                printf '%s\t%s\t%s\n' "$_cmatch" "$_ans_owner" "$_ans_type" \
+                    >> "$_confirm_answers"
+            done <<< "$_confirm_cal_rows"
+            if "$_confirm_py" "$_confirm_cal_py" write \
+                    --answers "$_confirm_answers" \
+                    --out "${OSTLER_DIR}/calendars.json" \
+                    >>"${OSTLER_DIAG_DIR}/confirm.log" 2>&1; then
+                ok "$MSG_CONFIRM_CALENDARS_SAVED"
+            else
+                warn "$MSG_CONFIRM_CALENDARS_FAILED"
+            fi
+            rm -f "$_confirm_answers"
+        fi
+    fi
+
+    # ---- 2. Identity collapse / namesake-split confirmation ----
+    if [[ -n "$_confirm_py" && -f "$_confirm_id_py" ]]; then
+        _confirm_id_props="$("$_confirm_py" "$_confirm_id_py" propose \
+            --oxigraph-url "${OXIGRAPH_URL:-http://localhost:7878}" \
+            --user-id "${USER_ID:-}" 2>>"${OSTLER_DIAG_DIR}/confirm.log" || true)"
+        if [[ -n "$_confirm_id_props" ]]; then
+            _confirm_merge_args=()
+            _confirm_distinct_args=()
+            while IFS=$'\t' read -r _ikind _iids _ievidence; do
+                [[ -z "${_ikind:-}" ]] && continue
+                case "$_ikind" in
+                    COLLAPSE)
+                        _iyn="$(gui_read \
+                            "$(printf "$MSG_CONFIRM_IDENTITY_COLLAPSE_TITLE" "${_ievidence:-}")" \
+                            yesno "yes" "$MSG_CONFIRM_IDENTITY_COLLAPSE_HELP" "" \
+                            "identity_collapse" "")"
+                        case "$_iyn" in
+                            yes|true|y|Y) _confirm_merge_args+=("--merge" "$_iids") ;;
+                        esac
+                        ;;
+                    NAMESAKE)
+                        # Framed "Is this you, or someone else?" default "someone
+                        # else" -> a "different person" answer writes the distinct
+                        # veto (never merge). Fail-safe default = do nothing to a
+                        # self node, only ever veto a merge.
+                        _iyn="$(gui_read \
+                            "$(printf "$MSG_CONFIRM_IDENTITY_NAMESAKE_TITLE" "${_ievidence:-}")" \
+                            choice "different" "$MSG_CONFIRM_IDENTITY_NAMESAKE_HELP" \
+                            "different,me" "identity_namesake" "")"
+                        case "$_iyn" in
+                            different|no|n|N|"") _confirm_distinct_args+=("--distinct" "$_iids") ;;
+                        esac
+                        ;;
+                esac
+            done <<< "$_confirm_id_props"
+            if [[ ${#_confirm_merge_args[@]} -gt 0 || ${#_confirm_distinct_args[@]} -gt 0 ]]; then
+                if "$_confirm_py" "$_confirm_id_py" record \
+                        --corrections-dir "$_confirm_corrections" \
+                        ${_confirm_merge_args[@]+"${_confirm_merge_args[@]}"} \
+                        ${_confirm_distinct_args[@]+"${_confirm_distinct_args[@]}"} \
+                        >>"${OSTLER_DIAG_DIR}/confirm.log" 2>&1; then
+                    ok "$MSG_CONFIRM_IDENTITY_SAVED"
+                else
+                    warn "$MSG_CONFIRM_IDENTITY_FAILED"
+                fi
+            fi
+            unset _confirm_merge_args _confirm_distinct_args
+        fi
+    fi
+    unset _confirm_cal_py _confirm_id_py _confirm_events _confirm_corrections \
+          _confirm_owner_name _confirm_py _confirm_cal_rows _confirm_answers \
+          _confirm_id_props _cmatch _cowner _ctype _ccount _csamples _chelp \
+          _ans_owner _ans_type _ikind _iids _ievidence _iyn 2>/dev/null || true
+fi
+
 # ── Summary ────────────────────────────────────────────────────────
 
 # CX-123 (#643): everything from here to `gui_done ok` below is the
@@ -33433,36 +33563,97 @@ echo ""
 # dashboards below are available but de-emphasised so the next-
 # steps banner reads as "go look at your wiki" rather than "here
 # are five raw API surfaces". Resolves install UX BLOCKING #1.
-if [[ "$WIKI_FIRST_COMPILE_OK" == true ]]; then
-    echo -e "  ${BOLD}Your wiki:${NC} http://localhost:8044"
-    # #1594: the wiki now sits behind a credential, so the password has
-    # to appear HERE. The browser opens automatically a few lines below
-    # and will prompt immediately; a customer who was never shown the
-    # password experiences that as a broken install, not as security.
-    echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_SIGN_IN" "ostler" "${WIKI_PASSWORD}")"
-    # #1660: MAKE THE PROMPT A PASTE, NOT A MEMORY TEST. Andy's call: the
-    # credential is right, the friction is not. Basic auth prompts ONCE per
-    # browser and both Safari and Chrome then offer Keychain, so the whole cost
-    # of this decision is a single dialog -- provided the customer does not have
-    # to retype a 23-character string into it.
-    #
-    # pbcopy is macOS-only and this installer is macOS-only, but it is still
-    # guarded: a clipboard we could not write is a WORSE experience if we then
-    # claim we did. No 2>/dev/null on the probe -- if pbcopy is missing we say
-    # nothing about the clipboard rather than lying about it.
-    if command -v pbcopy >/dev/null 2>&1 && printf '%s' "${WIKI_PASSWORD}" | pbcopy; then
-        echo -e "  ${BOLD}         ${NC} Copied to your clipboard, so you can paste it. Your browser will offer to remember it."
-    fi
-    # Second line only when the owner-gated tailnet route actually
-    # landed. Deliberately says "your own devices" -- it is reachable
-    # from your phone and iPad over Tailscale, and from nothing else:
-    # not the LAN, not the internet, not other people on your tailnet.
-    if [[ -n "${OSTLER_WIKI_TAILNET_URL:-}" ]]; then
-        echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_TAILNET_BANNER" "$OSTLER_WIKI_TAILNET_URL")"
-    fi
-else
-    echo "  Your wiki:  not yet available (first compile failed -- see warnings above)"
+# >>> wiki-handover-banner (HR015 #943) ---------------------------------------
+# Extracted by its sentinels and EXECUTED, state by state, by
+# tests/test_the_wiki_credential_is_not_gated_on_the_wiki_being_ready.sh.
+# Keep both sentinels; the guard reports CANNOT-RUN without them.
+#
+# "IS THE WIKI READY YET" AND "DOES THE CUSTOMER GET THEIR SIGN-IN" ARE TWO
+# QUESTIONS, AND THIS BLOCK USED TO ANSWER BOTH WITH ONE FLAG.
+#
+# Everything about the credential sat inside `if WIKI_FIRST_COMPILE_OK`, so
+# when that flag was false the customer was told this and nothing else:
+#
+#     Your wiki:  not yet available (first compile failed -- see warnings above)
+#
+# No address. No username. No password. Not later, not anywhere. The wiki then
+# finished compiling in the background, started serving, and the customer met a
+# browser password box for a credential they had never been shown.
+#
+# Measured on a v1.0.98 install: the compiler was STILL RUNNING about an hour
+# after install.sh exited, and the wiki then worked perfectly with the
+# credential from ${SECRETS_DIR}/wiki_password. Nothing had failed.
+#
+# AND THE MESSAGE NAMED A CAUSE IT HAD NOT MEASURED. WIKI_FIRST_COMPILE_OK goes
+# false for at least three distinct reasons and only one of them is a failed
+# compile: `docker compose up -d wiki-site` returning non-zero; :8044 not
+# answering 200 inside the 60-second poll; and the baseline compile actually
+# failing. "first compile failed" was asserted on all three. The installer
+# already HOLDS the discriminators -- WIKI_PAGE_COUNT, WIKI_BASELINE_RC and the
+# last HTTP status off the port -- so the line now says what was measured.
+#
+# The password is seeded near the top of the install, hundreds of steps before
+# any of this, and it is never rotated (the reuse rule: rotating a credential a
+# browser has saved gives the customer a prompt they cannot answer). So there
+# is no state of this box in which we hold the credential and cannot hand it
+# over. It is handed over unconditionally, and only the READINESS line varies.
+
+echo -e "  ${BOLD}Your wiki:${NC} http://localhost:8044"
+
+# #1594: the wiki sits behind a credential, so the password has to appear
+# HERE. The browser opens automatically a few lines below and will prompt
+# immediately; a customer who was never shown the password experiences that
+# as a broken install, not as security.
+echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_SIGN_IN" "ostler" "${WIKI_PASSWORD}")"
+
+# #1660: MAKE THE PROMPT A PASTE, NOT A MEMORY TEST. Andy's call: the
+# credential is right, the friction is not. Basic auth prompts ONCE per
+# browser and both Safari and Chrome then offer Keychain, so the whole cost
+# of this decision is a single dialog -- provided the customer does not have
+# to retype a 23-character string into it.
+#
+# pbcopy is macOS-only and this installer is macOS-only, but it is still
+# guarded: a clipboard we could not write is a WORSE experience if we then
+# claim we did. No 2>/dev/null on the probe -- if pbcopy is missing we say
+# nothing about the clipboard rather than lying about it.
+if command -v pbcopy >/dev/null 2>&1 && printf '%s' "${WIKI_PASSWORD}" | pbcopy; then
+    echo -e "  ${BOLD}         ${NC} Copied to your clipboard, so you can paste it. Your browser will offer to remember it."
 fi
+
+# THE ROUTE BACK. The clipboard is the only copy otherwise, and it survives
+# about as long as the next thing the customer copies. This is the same fact
+# the GUI already puts on its completion screen
+# (gui/OstlerInstaller/Views/InstallCompleteView.swift, wiki_signin_hint); the
+# terminal path never carried it. Saying WHERE it is costs nothing and is not
+# a disclosure: the file is the customer's own, 0600, on their own disk.
+echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_PASSWORD_ON_DISK" "${SECRETS_DIR}/wiki_password")"
+
+# Second line only when the owner-gated tailnet route actually landed.
+# Deliberately says "your own devices" -- it is reachable from your phone and
+# iPad over Tailscale, and from nothing else: not the LAN, not the internet,
+# not other people on your tailnet.
+if [[ -n "${OSTLER_WIKI_TAILNET_URL:-}" ]]; then
+    echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_TAILNET_BANNER" "$OSTLER_WIKI_TAILNET_URL")"
+fi
+
+# READINESS, and only readiness. Four states, four sentences, none of them
+# naming a cause this run did not measure.
+if [[ "$WIKI_FIRST_COMPILE_OK" != true ]]; then
+    if [[ -z "${WIKI_PAGE_COUNT:-}" || ! "${WIKI_PAGE_COUNT:-}" =~ ^[0-9]+$ ]]; then
+        # The compile step did not reach its own page count, so this run has no
+        # evidence either way. "We could not look" is not "it failed", and the
+        # customer is not told it was.
+        echo -e "  ${BOLD}         ${NC} $MSG_INFO_WIKI_READINESS_NOT_MEASURED"
+    elif [[ "${WIKI_PAGE_COUNT}" -gt 0 ]]; then
+        # Pages exist on disk. This is the v1.0.98 case: building, not broken.
+        echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_STILL_BUILDING" "${WIKI_PAGE_COUNT}" "${_wiki_last_code:-000}")"
+    else
+        # Zero pages under the docs dir is the one state that IS a failure, and
+        # it is the only one allowed to say so.
+        echo -e "  ${BOLD}         ${NC} $MSG_WARN_WIKI_FIRST_COMPILE_PRODUCED_NO_PAGES"
+    fi
+fi
+# <<< wiki-handover-banner (HR015 #943) ---------------------------------------
 
 # Channel summary: tell the customer how to actually talk to the
 # assistant they just named. Lines only appear when the section 4a
