@@ -29,49 +29,25 @@ struct HintPanelView: View {
                 mainBody
             }
         }
-        // CX-53 (DMG ship, 2026-05-24): when install.sh has emitted a
-        // RECOVERY_KEY marker AND the customer has not yet acknowledged
-        // it, stack the RecoveryKeyView sheet on top of whatever is on
-        // screen. The sheet is modal so the customer must click Continue
-        // (after ticking the saved-it confirm box) to dismiss it. We
-        // drive isPresented from a derived binding so a late-arriving
-        // RECOVERY_KEY marker re-opens the sheet automatically.
+        // THE RECOVERY-KEY SHEET USED TO HANG OFF THIS VIEW, and the
+        // comment here claimed the key was "presentable whatever the
+        // install's outcome". It was not, and the claim is why nobody
+        // re-checked it.
         //
-        // #1540: THIS MODIFIER USED TO HANG OFF InstallCompleteView, so
-        // the reveal was reachable ONLY when `finished == .ok`.
+        // `HintPanelView()` is instantiated at exactly ONE place --
+        // ContentView's `installLayout` -- inside the `else` arm of
+        // `if coordinator.finished == .fail`. On a failed install
+        // SwiftUI renders `InstallFailedBodyView()` in that slot, this
+        // view leaves the tree, and any `.sheet` attached to it leaves
+        // with it. The reveal was unreachable on the exact path where
+        // losing the key is permanent.
         //
-        // MEASURED on archie2, Mini 16, 2026-09-05. `recoveryKey` is an
-        // in-memory @Published property and the key is deliberately
-        // never written to disk, so an install that minted the key and
-        // then failed held it behind a branch that never rendered and
-        // dropped it when the app quit. There is no second chance: the
-        // keychain IS on disk, so every later run takes install.sh's
-        // "already configured" skip and emits no marker at all. That is
-        // both halves of one walk -- a run at 10:43:53Z that minted and
-        // failed, and a run at 11:04:08Z that finished clean with
-        // nothing left to show.
-        //
-        // A customer whose install failed needs this MORE, not less:
-        // their next act is to re-run, and the re-run is what makes the
-        // key unreachable for ever. So the sheet now hangs off the whole
-        // view. A key that exists and is unacknowledged is presentable
-        // whatever the install's outcome.
-        .sheet(isPresented: Binding(
-            get: {
-                (coordinator.recoveryKey?.isEmpty == false)
-                    && !coordinator.recoveryKeyAcknowledged
-            },
-            set: { _ in
-                // Dismissal is driven by the Continue button inside the
-                // sheet (which sets recoveryKeyAcknowledged = true). We
-                // ignore attempts to set isPresented externally (e.g.
-                // macOS escape-key dismissal) so the customer cannot
-                // accidentally skip past the reveal without confirming.
-            }
-        )) {
-            RecoveryKeyView()
-                .environmentObject(coordinator)
-        }
+        // The sheet now hangs off the ROOT of ContentView, which is in
+        // the tree for every branch (install, ok, fail, cancelled, the
+        // registration terminals). See
+        // `InstallerCoordinator.shouldPresentRecoveryKey` for the
+        // predicate and the reason it is a testable value rather than
+        // an inline binding.
     }
 
     @ViewBuilder
