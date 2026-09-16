@@ -110,6 +110,23 @@ EXEMPT: dict[str, str] = {
         "pinned by tests/test_the_walk_seeds_the_usage_producer.sh, which "
         "fails if the runner stops sourcing it, stops calling usage_seed_apply, "
         "or moves the call below the phase-2 loop.",
+    "lib/assistant_asked.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it beside "
+        "converge_wait and calls assistant_asked_from_output on "
+        "assistant_answers_grounded's own output, to capture how many questions "
+        "this walk actually put to the daemon over /ws/chat. That count is the "
+        "OPPORTUNITY signal for usage_journal_producers' oa_daemon_chat row "
+        "(#1634): the daemon writes `purpose=answering` only when somebody "
+        "sends it a message, so a box nobody talked to reads exactly like a "
+        "broken daemon, and the gate used to report the second for both. It "
+        "asserts nothing about the box, has no PROBE_NAME and no "
+        "probe_pass/probe_fail verdict, so the collector could not report it; "
+        "collecting it would run a text extractor as if it were a measurement. "
+        "It IS invoked, and that invocation is pinned by arm 20 of "
+        "tests/test_usage_journal_producer_gate.sh, which drives the function "
+        "over a real-shaped line and a reworded one it must refuse, and fails "
+        "if run_box_walk.sh stops sourcing it, stops calling it, or stops "
+        "exporting OSTLER_ASSISTANT_ASKED to the probe.",
     "acceptance_gate_v1013.sh":
         "BY DESIGN, and verified rather than assumed. verify_cut_manifest.py's "
         "registry searches probes/ FIRST and then the flat directory (see its "

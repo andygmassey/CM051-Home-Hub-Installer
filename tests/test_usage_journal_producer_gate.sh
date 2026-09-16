@@ -446,6 +446,220 @@ if [ -f "$PROBE" ]; then
     fi
 fi
 
+# ===========================================================================
+# #1634 -- "A PRODUCER NOBODY ASKED" AND "A PRODUCER THAT BROKE" ARE DIFFERENT
+# ===========================================================================
+#
+# The gate had TWO states for a zero, not three. Its only opportunity test was
+# GLOBAL (`if parsed == 0`), so ONE producer having written was taken as proof
+# that EVERY producer had an opportunity. The reading that gets wrong is the
+# one that matters: oa_daemon_chat is matched on `purpose=answering`, which the
+# daemon writes when somebody sends it a message, so a box that has ingested
+# and compiled but that NOBODY TALKED TO reads identically to a broken daemon.
+#
+# Every arm below drives the REAL gate over the REAL roster. The controls are
+# the point: a flag that can only ever soften a verdict is a silencer, so each
+# narrowing arm is paired with one proving the red still fires.
+# ---------------------------------------------------------------------------
+
+# run_gate_opts <journal> <extra args...>  -> sets RC and OUT
+run_gate_opts() {
+    local journal="$1"; shift
+    OUT="$(python3 "$GATE" --journal "$journal" --roster "$ROSTER" --floor "$FLOOR" "$@" 2>&1)"
+    RC=$?
+}
+
+/usr/bin/grep -v '"purpose": "answering"' "$FIXTURE" > "${W}/no_oa.jsonl"
+if [ "$(/usr/bin/grep -c . "${W}/no_oa.jsonl")" -ge "$FIXTURE_LINES" ]; then
+    cannot_run "the oa_daemon_chat mutation removed nothing from the fixture; arms 14-18 would each measure an unmutated journal"
+fi
+
+# ARM 14: the producer had NO OPPORTUNITY -> CANNOT-RUN naming it, NEVER PASS.
+run_gate_opts "${W}/no_oa.jsonl" --no-opportunity oa_daemon_chat
+if [ "$RC" -eq 2 ] \
+   && printf '%s\n' "$OUT" | /usr/bin/grep -q 'oa_daemon_chat' \
+   && printf '%s\n' "$OUT" | /usr/bin/grep -q 'NO OPPORTUNITY' \
+   && ! printf '%s\n' "$OUT" | /usr/bin/grep -q 'VERDICT: PASS'; then
+    pass "(14) a required producer the caller measured had NO OPPORTUNITY is CANNOT-RUN naming it, not FAIL and never PASS"
+else
+    failure "(14) an excused producer returned rc=${RC}, expected 2 naming it with no PASS verdict"
+    printf '%s\n' "$OUT" | sed 's/^/         /'
+fi
+
+# ARM 15 (CONTROL): the SAME journal with NOTHING excused is still a FAIL.
+# Without this, arm 14 is satisfied by a gate that refuses whenever
+# oa_daemon_chat is absent -- which is the silencer #1634 says it is not.
+run_gate "${W}/no_oa.jsonl"
+if [ "$RC" -eq 1 ] && printf '%s\n' "$OUT" | /usr/bin/grep -q 'oa_daemon_chat'; then
+    pass "(15) CONTROL: the identical journal with no excuse declared is still FAIL naming oa_daemon_chat, so arm 14 measures the declaration"
+else
+    failure "(15) the unexcused journal returned rc=${RC}, expected 1 naming oa_daemon_chat"
+    printf '%s\n' "$OUT" | sed 's/^/         /'
+fi
+
+# ARM 16: A FAIL BEATS A CANNOT-RUN. Two producers missing, one excused: the
+# verdict must be the FAIL, naming the UNEXCUSED one, with the excused one
+# reported separately. Otherwise a genuinely dead producer hides inside
+# somebody else's excuse -- the mirror of the defect this closes.
+/usr/bin/grep -v '"purpose": "answering"' "$FIXTURE" \
+    | /usr/bin/grep -v 'ostler-fda-ingest-' > "${W}/no_oa_no_fda.jsonl"
+run_gate_opts "${W}/no_oa_no_fda.jsonl" --no-opportunity oa_daemon_chat
+if [ "$RC" -eq 1 ] \
+   && printf '%s\n' "$OUT" | /usr/bin/grep -q 'VERDICT: FAIL' \
+   && printf '%s\n' "$OUT" | /usr/bin/grep -q 'cm051_ostler_fda_ingest' \
+   && printf '%s\n' "$OUT" | /usr/bin/grep -q 'ALSO UNMEASURED'; then
+    pass "(16) with a second producer also missing, the excuse does NOT swallow the verdict: FAIL naming cm051_ostler_fda_ingest, oa_daemon_chat reported separately as unmeasured"
+else
+    failure "(16) one excused plus one dead producer returned rc=${RC}, expected 1 naming the dead one and listing the excused one apart"
+    printf '%s\n' "$OUT" | sed 's/^/         /'
+fi
+
+# ARM 17: an excuse aimed at nothing is CANNOT-RUN, both ways. A mistyped id
+# excuses nothing, which is the safe direction -- but it LOOKS like it excused
+# something, and the caller would read the resulting FAIL as a real break.
+run_gate_opts "$FIXTURE" --no-opportunity oa_daemon_chatt
+_RC_TYPO="$RC"
+run_gate_opts "$FIXTURE" --no-opportunity oa_proactive_cycle
+_RC_DORMANT="$RC"
+if [ "$_RC_TYPO" -eq 2 ] && [ "$_RC_DORMANT" -eq 2 ]; then
+    pass "(17) --no-opportunity naming an id the roster does not declare (rc ${_RC_TYPO}) or one it carries as dormant (rc ${_RC_DORMANT}) is CANNOT-RUN, not a silent no-op"
+else
+    failure "(17) a mistyped id returned rc=${_RC_TYPO} and a dormant id rc=${_RC_DORMANT}; both must be 2"
+    printf '%s\n' "$OUT" | sed 's/^/         /'
+fi
+
+# ===========================================================================
+# #1163 -- "WROTE NOTHING" AND "WROTE WITHOUT ATTRIBUTING" ARE DIFFERENT
+# ===========================================================================
+#
+# oa_daemon_chat is matched on `purpose=answering`. A writer that records the
+# call but does not declare what it was for lands in the journal's
+# `unattributed` bucket: the panel's total is right, its breakdown is short,
+# and this gate says the producer "wrote nothing". Two findings, two owners.
+#
+# THE FIXTURE IS CHECKED AGAINST WHAT THE PRODUCER ACTUALLY WRITES, because a
+# fixture carrying a field the real box never emits proves nothing. Measured in
+# ostler-assistant crates/zeroclaw-config/src/cost/types.rs: TokenUsage.purpose
+# carries `#[serde(default)]` and NO `skip_serializing_if` (0 hits on that
+# struct against 15 in the same crate's schema.rs, so the predicate works), so
+# the key is ALWAYS serialised; `Purpose::Unattributed` is the `#[default]`,
+# and agent/loop_.rs:2544-2547 sets it for every non-interactive run. So an
+# `unattributed` record is a shape the shipped daemon really does write.
+# ---------------------------------------------------------------------------
+UNATTRIBUTED_FIXTURE="${REPO_ROOT}/tests/fixtures/usage_journal/costs_unattributed_chat.jsonl"
+if [ ! -f "$UNATTRIBUTED_FIXTURE" ]; then
+    failure "(18) missing fixture ${UNATTRIBUTED_FIXTURE}; the attribution arm measured nothing"
+else
+    # APPARATUS CONTROL: the two fixtures must differ in exactly the purpose of
+    # one record, or this arm is comparing a journal with itself.
+    _U_ANSWERING="$(/usr/bin/grep -c '"purpose": "answering"' "$UNATTRIBUTED_FIXTURE")"
+    _U_UNATTRIB="$(/usr/bin/grep -c '"purpose": "unattributed"' "$UNATTRIBUTED_FIXTURE")"
+    _U_LINES="$(/usr/bin/grep -c . "$UNATTRIBUTED_FIXTURE")"
+    if [ "$_U_ANSWERING" -ne 0 ] || [ "$_U_UNATTRIB" -lt 1 ] || [ "$_U_LINES" -ne "$FIXTURE_LINES" ]; then
+        failure "(18) apparatus: the unattributed fixture holds ${_U_LINES} lines (full has ${FIXTURE_LINES}), ${_U_ANSWERING} answering and ${_U_UNATTRIB} unattributed. It must be the complete journal with the chat record's purpose changed, and nothing else."
+    else
+        run_gate "$UNATTRIBUTED_FIXTURE"
+        if [ "$RC" -eq 1 ] \
+           && printf '%s\n' "$OUT" | /usr/bin/grep -q 'oa_daemon_chat' \
+           && printf '%s\n' "$OUT" | /usr/bin/grep -q 'unattributed` RECORD'; then
+            pass "(18) a chat record written WITHOUT a purpose is still a FAIL naming oa_daemon_chat, and the verdict names the attribution gap rather than asserting the daemon wrote nothing"
+        else
+            failure "(18) the unattributed journal returned rc=${RC} without naming the attribution gap, expected 1 with both"
+            printf '%s\n' "$OUT" | sed 's/^/         /'
+        fi
+
+        # ARM 19 (CONTROL): the diagnosis must be MEASURED, not decorative. The
+        # same producer missing from a journal with ZERO unattributed records
+        # must NOT carry it -- otherwise it prints on every FAIL and tells the
+        # reader nothing.
+        run_gate "${W}/no_oa.jsonl"
+        if [ "$RC" -eq 1 ] && ! printf '%s\n' "$OUT" | /usr/bin/grep -q 'unattributed` RECORD'; then
+            pass "(19) CONTROL: the same producer missing from a journal with no unattributed records FAILs WITHOUT the attribution note, so arm 18 measures the bucket and does not decorate every red"
+        else
+            failure "(19) the attribution note appeared (or rc=${RC} was not 1) on a journal holding no unattributed records; the diagnosis is decorative"
+            printf '%s\n' "$OUT" | sed 's/^/         /'
+        fi
+    fi
+fi
+
+# ===========================================================================
+# ARM 20: THE OPPORTUNITY SIGNAL'S CROSS-FILE CONTRACT
+# ===========================================================================
+#
+# The walk hands oa_daemon_chat's opportunity to the probe as a count parsed
+# out of assistant_answers_grounded's own EXAMINED line. That phrase is an
+# INTERFACE between two files, and this repo has already lost a refusal to
+# exactly this shape (the probe used to glob the gate's FAIL sentence).
+#
+# So: the extractor is a shared function, driven here over a line it must read
+# and a reworded one it must refuse; and the phrase it keys on is asserted to
+# still be in the probe that emits it. A reword now goes red in the PR that
+# does it, instead of silently ending the narrowing on some later walk.
+# ---------------------------------------------------------------------------
+ASKED_LIB="${REPO_ROOT}/scripts/box_walk_probes/lib/assistant_asked.sh"
+GROUNDED_PROBE="${REPO_ROOT}/scripts/box_walk_probes/probes/assistant_answers_grounded.sh"
+if [ ! -f "$ASKED_LIB" ] || [ ! -f "$GROUNDED_PROBE" ]; then
+    failure "(20) missing ${ASKED_LIB} or ${GROUNDED_PROBE}; the opportunity signal's contract measured nothing"
+else
+    # shellcheck source=/dev/null
+    . "$ASKED_LIB"
+    _A3="$(printf 'EXAMINED: 3 questions asked over /ws/chat (battery declares 3; 0 answered without reaching the graph, 0 never completed)\n' | assistant_asked_from_output)"
+    _A0="$(printf 'EXAMINED: 0 questions asked over /ws/chat (battery declares 3; the battery is empty)\n' | assistant_asked_from_output)"
+    # MUST REFUSE. An extractor that answers on any line would hand the probe a
+    # fabricated 0 and excuse a genuinely dead producer.
+    _AX="$(printf 'EXAMINED: 3 queries put to the assistant over the socket\n' | assistant_asked_from_output)"
+    # The phrase must still be emitted by the probe that owns it. Paired with a
+    # POSITIVE CONTROL on the same file: a string that IS there, so a grep that
+    # silently cannot read the file returns 0 for both and is caught.
+    _PHRASE="$(/usr/bin/grep -c 'questions asked over /ws/chat' "$GROUNDED_PROBE")"
+    _CONTROL="$(/usr/bin/grep -c 'PROBE_QUESTION=' "$GROUNDED_PROBE")"
+    if [ "$_A3" = "3" ] && [ "$_A0" = "0" ] && [ -z "$_AX" ] \
+       && [ "${_PHRASE:-0}" -ge 1 ] && [ "${_CONTROL:-0}" -ge 1 ]; then
+        pass "(20) the opportunity extractor reads 3 and 0 from the real EXAMINED shape, returns NOTHING on a reworded line, and the phrase it keys on is still emitted by assistant_answers_grounded (${_PHRASE} hit(s), control ${_CONTROL})"
+    else
+        failure "(20) opportunity-signal contract broken: parsed '${_A3}' / '${_A0}', refused-line gave '${_AX}' (must be empty), phrase hits ${_PHRASE}, control hits ${_CONTROL}"
+    fi
+fi
+
+# ===========================================================================
+# ARM 21: THE SIGNAL IS ACTUALLY WIRED, NOT MERELY WRITTEN
+# ===========================================================================
+#
+# A lib nothing sources is a lib nothing runs, and this repo's worst measurement
+# failure was exactly that shape: people_seed_and_retrieval sat one level
+# outside the walk's collector and FOURTEEN CUTS reported a gate that measured
+# nothing. Arm 20 proves the extractor WORKS. This one proves the walk USES it,
+# and that the probe READS what the walk exports -- three links, all three
+# asserted, because any one of them missing makes the other two decorative.
+#
+# Every count is paired with a POSITIVE CONTROL on the same file, so a grep
+# that silently cannot read the file returns 0 for both and is caught rather
+# than read as "the wiring is gone".
+# ---------------------------------------------------------------------------
+RUNNER="${REPO_ROOT}/scripts/box_walk_probes/run_box_walk.sh"
+if [ ! -f "$RUNNER" ] || [ ! -f "$PROBE" ]; then
+    failure "(21) missing ${RUNNER} or ${PROBE}; the wiring assertion measured nothing"
+else
+    _W_SOURCE="$(/usr/bin/grep -c 'lib/assistant_asked.sh' "$RUNNER")"
+    _W_CALL="$(/usr/bin/grep -c 'assistant_asked_from_output' "$RUNNER")"
+    _W_EXPORT="$(/usr/bin/grep -c 'export OSTLER_ASSISTANT_ASKED' "$RUNNER")"
+    _W_READ="$(/usr/bin/grep -c 'OSTLER_ASSISTANT_ASKED' "$PROBE")"
+    _W_FLAG="$(/usr/bin/grep -c 'no-opportunity' "$PROBE")"
+    # CONTROLS THAT MUST BE NON-ZERO: a wiring that was never there and a file
+    # a grep could not read print the same zero.
+    _W_CTL_RUNNER="$(/usr/bin/grep -c 'lib/converge_wait.sh' "$RUNNER")"
+    _W_CTL_PROBE="$(/usr/bin/grep -c 'PROBE_NAME=' "$PROBE")"
+    if [ "${_W_CTL_RUNNER:-0}" -lt 1 ] || [ "${_W_CTL_PROBE:-0}" -lt 1 ]; then
+        failure "(21) apparatus: the controls returned ${_W_CTL_RUNNER} and ${_W_CTL_PROBE}; a zero here means the grep could not read the file, so every count below is unmeasured rather than absent"
+    elif [ "${_W_SOURCE:-0}" -ge 1 ] && [ "${_W_CALL:-0}" -ge 1 ] \
+         && [ "${_W_EXPORT:-0}" -ge 1 ] && [ "${_W_READ:-0}" -ge 1 ] \
+         && [ "${_W_FLAG:-0}" -ge 1 ]; then
+        pass "(21) the opportunity signal is WIRED end to end: run_box_walk sources the lib (${_W_SOURCE}), calls it (${_W_CALL}) and exports OSTLER_ASSISTANT_ASKED (${_W_EXPORT}); the probe reads it (${_W_READ}) and turns it into --no-opportunity (${_W_FLAG})"
+    else
+        failure "(21) the opportunity signal is NOT wired: runner source=${_W_SOURCE} call=${_W_CALL} export=${_W_EXPORT}; probe read=${_W_READ} flag=${_W_FLAG}. A signal nothing carries excuses nothing and measures nothing."
+    fi
+fi
+
 echo
 echo "=== ${PASS} passed / ${FAIL} failed ==="
 [ "$FAIL" -eq 0 ]
