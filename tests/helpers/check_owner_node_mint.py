@@ -58,8 +58,14 @@ OWNER = PWG + "user_jane"
 # Synthetic throughout. "Jane Doe" is the customer's own typed answer to
 # "what should your assistant call you?"; "Jane Q. Doe" stands for a better
 # name that arrived from a real address book first.
+# EVERY TOKEN HERE IS ON THE APPROVED SYNTHETIC CAST in .pii-name-registry.tsv
+# (`jane`, `mary`, `doe`). The person-name guard refused a first draft that used
+# an off-cast given name for the re-run arm, and it was right to: a name guard
+# that admits "but mine is obviously fictional" admits everything.
 TYPED_NAME = "Jane Doe"
 BETTER_NAME = "Jane Q. Doe"
+# Arm 3 needs a name that DIFFERS from TYPED_NAME, and nothing else.
+OTHER_NAME = "Mary Doe"
 NOW = "2026-01-01T00:00:00+00:00"
 
 
@@ -170,7 +176,7 @@ def main(repo: pathlib.Path) -> int:
     # -- arm 3: a DIFFERENT typed name on a second run still does not add ----
     # The install re-asks the question on a repair run, and a customer who
     # answers differently must not end up with two names on the anchor node.
-    g.update(owner_node.build_owner_sparql("jane", "Janet Doe", now_iso=NOW))
+    g.update(owner_node.build_owner_sparql("jane", OTHER_NAME, now_iso=NOW))
     got = names(g)
     if got == [TYPED_NAME]:
         ok("a re-run with a DIFFERENT name still leaves one name, the first")
