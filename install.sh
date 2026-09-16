@@ -13182,6 +13182,21 @@ OLLAMAPLIST
     # Keep the fallback and keep going -- the direct-start path below still
     # works and a customer in an Aqua session never reaches this. What changes
     # is that the failure is STATED, once, where it happens.
+    # ── THE BASELINE FOR "DID *OUR* AGENT FAIL TO BIND DURING THIS INSTALL" ──
+    #
+    # #1574. Taken BEFORE the agent is registered, so everything compared
+    # against it was written by the agent this install just created. A bind
+    # error left in ollama.err by a PREVIOUS install would otherwise abort a
+    # healthy one, which is the opposite mistake and just as expensive.
+    #
+    # Absent file reads 0, which is the right baseline: every byte that appears
+    # later is new.
+    _ollama_err_bytes_before=0
+    if [[ -r "${OLLAMA_LOG_DIR}/ollama.err" ]]; then
+        _ollama_err_bytes_before="$(wc -c < "${OLLAMA_LOG_DIR}/ollama.err" 2>/dev/null | tr -d ' ' || true)"
+        [[ "$_ollama_err_bytes_before" =~ ^[0-9]+$ ]] || _ollama_err_bytes_before=0
+    fi
+
     _ollama_reg_rc=0
     if ! launchctl bootstrap "gui/$(id -u)" "$OLLAMA_PLIST" 2>/dev/null; then
         if ! launchctl load "$OLLAMA_PLIST" 2>/dev/null; then
@@ -13199,6 +13214,60 @@ OLLAMAPLIST
             warn "The Ollama LaunchAgent could not be registered: this user has no GUI (Aqua) session, so launchd has no gui/ domain to load it into. That is expected for an ssh or managed install and is NOT an Ollama fault. Ollama will be started directly for this run, but it will not restart after a reboot."  # i18n-exempt
         fi
     fi
+    # ── #1574. TWO HELPERS THE GREEN PATH NEEDED AND DID NOT HAVE ───────────
+    #
+    # THE DEFECT, MEASURED. The readiness loop below demands the port answers
+    # AND our own agent runs, EXCEPT on the _ollama_domain_absent path, where
+    # it falls back to the curl alone (this file already says that is weaker
+    # and that a reply on 11434 does not prove it came from this install). A
+    # foreign Ollama satisfies exactly that weaker test, so the loop ends, the
+    # step prints OK, and the install completes green while the KeepAlive agent
+    # it just registered can never bind and restarts about every 7 seconds for
+    # ever. Measured: 368 restarts in 40 minutes.
+    #
+    # The agent is registered where the health check never looks. The
+    # bootstrap targets gui/<uid>; when that fails the fallback is
+    # `launchctl load`, which loads into the CALLER's domain, and over ssh that
+    # is user/<uid>. _ollama_agent_is_running only ever asks gui/<uid> (1 call
+    # site, 0 for user/), so an agent loaded by the fallback is invisible to
+    # the one predicate that could have noticed it.
+    #
+    # SAME ROOT CAUSE AS #1754, DIFFERENT ENDING. There the loop times out and
+    # the install aborts, which #1995 made name itself. Here it PASSES. Both
+    # are a foreign process holding 11434; what was missing was anything that
+    # refuses to leave a KeepAlive agent that cannot bind.
+
+    # How many bind failures OUR agent has written since it was registered.
+    # Offset-based, never timestamp-based: ollama.err carries no reliable
+    # timestamps, and a stale line from a previous install must not condemn
+    # this one.
+    _ollama_fresh_bind_failures() {
+        local _c=0
+        if [[ -r "${OLLAMA_LOG_DIR}/ollama.err" ]]; then
+            _c="$(tail -c "+$((_ollama_err_bytes_before + 1))" "${OLLAMA_LOG_DIR}/ollama.err" 2>/dev/null \
+                  | grep -c -F 'address already in use' || true)"
+        fi
+        [[ "$_c" =~ ^[0-9]+$ ]] || _c=0
+        printf '%s' "$_c"
+    }
+
+    # Leave no crash loop behind. An install that stops here has already
+    # registered a plist with RunAtLoad AND KeepAlive true; walking away from
+    # it means the customer keeps a process respawning every few seconds for
+    # ever, on a machine where the install FAILED. BOTH domains, because the
+    # fallback above can register it in either, and the plist goes too so a
+    # reboot cannot revive it.
+    #
+    # Every arm is best effort and silenced: this runs on the way to an abort,
+    # and a cleanup that itself aborts would replace a named failure with a
+    # bare one. It never removes Ollama, only OUR agent for it.
+    _ollama_stop_doomed_agent() {
+        launchctl bootout "gui/$(id -u)/com.ostler.ollama" 2>/dev/null || true
+        launchctl bootout "user/$(id -u)/com.ostler.ollama" 2>/dev/null || true
+        launchctl unload "$OLLAMA_PLIST" 2>/dev/null || true
+        rm -f "$OLLAMA_PLIST" 2>/dev/null || true
+    }
+
     # Wait for Ollama to be ready. The launchd bootstrap above can fail
     # transiently ("Bootstrap failed: 5: Input/output error") when launchd
     # state is messy -- e.g. after a mid-install reboot -- leaving the agent
@@ -13338,6 +13407,11 @@ OLLAMAPLIST
                 | sed -n 's/^c//p' | sort -u | tr '\n' ' ' || true)"
 
             if [[ -n "$_ollama_bind_evidence" || -n "$_ollama_port_holder" ]]; then
+                # #1574: #1995 named this failure and still walked away from a
+                # registered KeepAlive agent that cannot bind. The install is
+                # about to stop; leaving a process respawning every few seconds
+                # on the customer's Mac is not an acceptable way to stop.
+                _ollama_stop_doomed_agent
                 fail_with_code "ERR-08-OLLAMA-PORT-11434-IN-USE" \
                     "$(printf "$MSG_FAIL_OLLAMA_PORT_IN_USE" "${_ollama_port_holder:-unknown}" "${OLLAMA_LOG_DIR}/ollama.err")"
             fi
@@ -13348,6 +13422,43 @@ OLLAMAPLIST
         sleep 2
         OLLAMA_WAIT=$((OLLAMA_WAIT + 2))
     done
+
+    # ── #1574. THE LOOP ENDED. THAT IS NOT THE SAME AS OUR OLLAMA RUNNING. ──
+    #
+    # Everything above can be satisfied by a stranger on the port. This is the
+    # one question nobody asked before printing OK: did the agent WE just
+    # registered manage to bind, or is it respawning every few seconds behind
+    # a green tick?
+    #
+    # A HISTORICAL BIND ERROR IS NOT ENOUGH, AND ASSUMING IT WAS WOULD BREAK
+    # HEALTHY INSTALLS. A KeepAlive agent that loses one race and then wins is
+    # fine, and its first failure is in the log for ever. So the test is not
+    # "did it fail" but "IS IT STILL FAILING": count the fresh failures, wait a
+    # bounded moment, count again. A crash loop writes another one about every
+    # 7 seconds; a resolved transient writes none.
+    #
+    # COSTS NOTHING ON A HEALTHY INSTALL. With no fresh bind failure at all
+    # there is nothing to disambiguate, so the wait never happens. The only
+    # installs that pay the 8 seconds are the ones already in trouble.
+    _ollama_bind_fails_1="$(_ollama_fresh_bind_failures)"
+    if [[ "${_ollama_bind_fails_1:-0}" -gt 0 ]]; then
+        warn "$(printf 'Ollama answered on 11434, but this install\x27s own Ollama agent has failed to bind %s time(s). Checking whether it is still failing before calling this step done.' "$_ollama_bind_fails_1")"  # i18n-exempt
+        sleep 8
+        _ollama_bind_fails_2="$(_ollama_fresh_bind_failures)"
+        if [[ "${_ollama_bind_fails_2:-0}" -gt "${_ollama_bind_fails_1:-0}" ]]; then
+            # Still failing, right now. Whatever is answering on 11434 is not
+            # ours, and the agent we registered is a KeepAlive crash loop. Take
+            # it out before failing, so an install that stopped does not leave a
+            # process respawning for ever, then fail with the SAME curated code
+            # #1995 gave the abort path: one cause, one error code, whichever
+            # end it comes out of.
+            _ollama_port_holder="$(lsof -nP -iTCP:11434 -sTCP:LISTEN -Fc 2>/dev/null \
+                | sed -n 's/^c//p' | sort -u | tr '\n' ' ' || true)"
+            _ollama_stop_doomed_agent
+            fail_with_code "ERR-08-OLLAMA-PORT-11434-IN-USE" \
+                "$(printf "$MSG_FAIL_OLLAMA_PORT_IN_USE" "${_ollama_port_holder:-unknown}" "${OLLAMA_LOG_DIR}/ollama.err")"
+        fi
+    fi
     ok "$MSG_OK_OLLAMA_RUNNING"
 fi
 
