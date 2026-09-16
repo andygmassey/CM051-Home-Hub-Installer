@@ -92,6 +92,12 @@ jobs:
         # execution verb and the literal filename on different lines.
         run: /bin/bash tests/test_hydrate_reminders_wired.sh
       - name: The existing hydrate guards must still hold
+        # always(), because a step that only runs when everything before it
+        # was green stops being measured exactly when something is wrong.
+        # verify_ci_steps_are_maskless.py caught this one: measured, main
+        # has 643 test steps and 0 maskable, this branch added the 644th
+        # and it was the one flagged.
+        if: always()
         run: |
           set +e
           set -uo pipefail
