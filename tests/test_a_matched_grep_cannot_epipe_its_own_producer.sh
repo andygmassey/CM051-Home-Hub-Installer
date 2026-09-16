@@ -43,6 +43,24 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT" || { echo "CANNOT RUN: repo root unreadable"; exit 1; }
 
+# WHAT THIS GUARD DOES NOT COVER, SAID HERE SO ITS PASS IS NOT READ AS MORE
+# THAN IT IS. It matches `echo "$VAR" | grep -q`, one shape. The broader class
+# -- any producer piped into any short-circuiting consumer, `some_cmd | grep -q`
+# and `... | head` included -- is held by the sibling ratchet,
+# tests/test_pipefail_shortcircuit_inversion.sh, against
+# tests/pipefail_shortcircuit_baseline.txt. That ratchet found 69 instances
+# still standing at the moment this file was written. So a PASS here means "the
+# variable-into-grep shape is clean", NOT "this repo is free of the class".
+#
+# AND THE TWO GUARDS DISAGREE ON THE REMEDY, DELIBERATELY. This one rewrites to
+# a herestring. The sibling recommends `[ "$(... | grep -c PAT)" -gt 0 ]` and is
+# right to, because a herestring is a BASHISM: text that runs through box_run(),
+# ssh, or any `sh -c` you did not choose will die on it. The herestring is used
+# here only because all twelve rewritten files carry `#!/usr/bin/env bash` and
+# are invoked as bash by their workflow (measured, with the invocation list at
+# .github/workflows/tests-unwired-sweep-al.yml). Anything that might run under a
+# shell you do not pick must use the `grep -c` form instead.
+#
 # ONLY short-circuiting consumers. `grep -c` and `grep -o` must read every
 # byte to count or extract, so they never close the pipe early and the
 # producer never takes EPIPE; flagging those would demand rewrites of code
@@ -131,6 +149,8 @@ if [ "$offending" -gt 0 ]; then
 fi
 
 if [ "$rc" -eq 0 ]; then
-    echo "PASS: no pipefail-enabled script lets a short-circuiting grep EPIPE its own producer."
+    echo "PASS: no pipefail-enabled script under tests/ or scripts/ pipes a SHELL"
+    echo "      VARIABLE into a short-circuiting grep. That is the shape this guard"
+      echo "      measures and the ONLY thing this line claims."
 fi
 exit "$rc"
