@@ -97,8 +97,18 @@ SECRET="RECOVERY_PASSPHRASE CHANNEL_EMAIL_PASSWORD _DISNEY_XLSX_PASSWORD"
 # are still real decisions with no durable home; they are not consent tickboxes
 # and none of them gates a data feed, which is why they were not in the same
 # change. Do not raise this ceiling to accommodate them.
+# TERMS_PERSONAL_USE joins the PERSISTED six on the same measurement they were
+# admitted on, not on the strength of its name. Its decision variable is now in
+# the ENVEOF block, so a reuse run sources config/.env and restores exactly the
+# variable the recorder reads. Checked before claiming it: the raw answer is
+# read only by its own CANCEL test, and the durable artefact is
+# OSTLER_CONSENT_PERSONAL_USE_DECISION, which is what the recorder is guarded
+# on. Without that .env line this would have been a GAP, and a GAP for a
+# LICENCE TERM means a reuse run silently records nothing while the customer
+# sees an accept.
 PERSISTED="${PERSISTED}
-           THIRD_PARTY ART9 WA_CONSENT SPOKEN_CAPTURE VOICE ENRICH_CHOICE"
+           THIRD_PARTY ART9 WA_CONSENT SPOKEN_CAPTURE VOICE ENRICH_CHOICE
+           TERMS_PERSONAL_USE"
 GAP="PRESET SAVE_KEYCHAIN TAILSCALE_CONFIRM"
 
 _declared() {
