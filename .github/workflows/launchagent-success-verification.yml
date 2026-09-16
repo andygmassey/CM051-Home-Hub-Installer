@@ -67,6 +67,23 @@ on:
       # Watched because the step below runs it, and it reads install.sh's
       # real _upg_preserve_plist_env, which is already watched above.
       - 'tests/test_upgrade_does_not_revert_the_launchagent_path.sh'
+      # The whatsapp-keepalive, which is the same class one layer along: a
+      # LaunchAgent whose success line was `last exit code = 0` while the thing
+      # it was named for was not true. Watched AND run below -- a path entry
+      # alone only makes the workflow trigger, and a run with no path entry is
+      # a gate that never fires on a change to itself. Its subjects are the
+      # runner, the plist, the installer snippet, the payload staging that
+      # carries the runner into the DMG, and the Doctor files that surface the
+      # verdict, so all of them are watched.
+      - 'tests/test_whatsapp_keepalive_repairs_and_reports.sh'
+      - 'assistant-agent/ostler-whatsapp-keepalive.sh'
+      - 'assistant-agent/launchd/com.creativemachines.ostler.whatsapp-keepalive.plist'
+      - 'assistant-agent/INSTALL_SNIPPET.sh'
+      - 'gui/Makefile'
+      - 'vendor/doctor/agent/whatsapp_pair.py'
+      - 'vendor/doctor/agent/dashboard_components.py'
+      - 'vendor/doctor/agent/web_ui.py'
+      - 'vendor/doctor/agent/web_ui_copy.py'
   push:
     branches: [main]
 
@@ -204,7 +221,23 @@ jobs:
       # by the merge having stopped working altogether.
       - name: An upgrade must not revert the LaunchAgent PATH fix
         if: always()
-        run: /bin/bash tests/test_upgrade_does_not_revert_the_launchagent_path.sh
+        run: |
+          # `|| rc=$?`, NOT a bare call, for the reason recorded on the refusal
+          # step above: the step shell is `/bin/bash -e {0}`, so a test exiting
+          # 2 kills the step at that line and the branch below never runs.
+          #
+          # rc=2 here is CANNOT-RUN, and it means one of this file's MUTATIONS
+          # removed the wrong number of lines -- the exclusion it was about to
+          # test has moved or gone. That is a different finding from a failed
+          # assertion and must not read as one: a mutation that cannot be
+          # applied looks exactly like one that was not caught.
+          set -uo pipefail
+          rc=0
+          /bin/bash tests/test_upgrade_does_not_revert_the_launchagent_path.sh || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::A mutation in the upgrade env-merge test could not be applied, so the exclusion it guards was NOT measured. This is not a pass and not an assertion failure."
+          fi
+          exit "$rc"
 
       # `if: always()` because the step ABOVE this one is new (#1466) and a
       # failure there would otherwise skip this, which is exactly what
@@ -237,3 +270,30 @@ jobs:
               fi
           done
           exit "$rc_total"
+
+      # ── THE KEEPALIVE THAT DID NOT KEEP ANYTHING ALIVE ──────────────────
+      #
+      # Same class as the defect this whole workflow exists for, one layer
+      # along: a job that reports success while the thing it was named to
+      # guarantee is untrue. com.creativemachines.ostler.whatsapp-keepalive
+      # ran `ostler-assistant channel doctor`, which builds its OWN
+      # never-connected WhatsApp channel object -- so it reported unhealthy on
+      # every run on every box -- and doctor_channels() returned Ok(())
+      # regardless, so launchctl showed `last exit code = 0`. Three
+      # consecutive unhealthy runs were invisible.
+      #
+      # This runs the SHIPPED runner against a stub daemon over real loopback
+      # HTTP, with a launchctl PATH shim that counts restarts. It proves the
+      # three claims that matter to a customer: an unhealthy channel is
+      # actually repaired; a lost WhatsApp session is NEVER silently re-paired
+      # or retried; and no outcome except a working channel exits 0.
+      #
+      # macOS, deliberately, because that is where the product runs. The test
+      # shims launchctl, so it would pass on Linux too -- and a gate that only
+      # runs on Linux cannot notice a BSD/GNU split in its own tooling.
+      #
+      # `if: always()` for the reason recorded above: a red in an earlier step
+      # would otherwise SKIP this one, and a skipped test reports nothing.
+      - name: The WhatsApp keepalive must repair, refuse, and never exit 0 on a failure
+        if: always()
+        run: /bin/bash tests/test_whatsapp_keepalive_repairs_and_reports.sh
