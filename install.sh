@@ -3243,7 +3243,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8046   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8091   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8100 and :14274, both of which run
+    # Its two top-level arming calls are :8100 and :14419, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3234 above has just deleted
     # that tree and :3238 has just rebound OSTLER_DIR to the final one, so
@@ -3261,13 +3261,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15045, where the note reads
+    # WhatsApp Web session path did it again at :15190, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15062 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15207 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3280,9 +3280,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8100, :14274) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8100, :14419) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17117 / :17295 / :17452 / :17793 path. There the
+    # :17262 / :17440 / :17597 / :17938 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -13374,6 +13374,90 @@ else
 </dict>
 </plist>
 OLLAMAPLIST
+    # ── THE PLIST ABOVE CARRIES KeepAlive, WHICH IS A PROMISE AND A TRAP (#1574).
+    #
+    # KeepAlive means launchd restarts this agent every time it dies. When it
+    # CAN bind that is the property the Hub needs. When it cannot, it is a
+    # process that restarts itself for ever and tells nobody: MEASURED on a box
+    # where something else already held 11434, 368 restarts in 40 minutes,
+    # roughly one every 7 seconds, on an install that had already reported
+    # green.
+    #
+    # THE INSTALL PASSED, WHICH IS THE HALF THAT MAKES IT INVISIBLE. The
+    # readiness loop below wants the port to answer AND our own agent to be
+    # running. A foreign Ollama answers the first for ever, and the second is
+    # momentarily TRUE on every respawn, because `state = running` is what a
+    # crash-looping job looks like in the instant between exec and exit. On the
+    # _ollama_domain_absent path there is no second condition at all: the loop
+    # falls back to the curl alone, which a stranger satisfies outright.
+    #
+    # Same root cause as #1754, opposite ending. There the loop times out and
+    # the install aborts with ERR-08 naming the holder. Here it never times
+    # out, so the curated abort is never reached and the customer is told the
+    # thing is running.
+    #
+    # THE EVIDENCE IS ALREADY ON DISK AND WAS BEING THROWN AWAY, exactly as it
+    # was for #1754. The plist above sends this agent's stderr to ollama.err,
+    # launchd opens that path with O_APPEND, and every failed bind writes
+    # "listen tcp 127.0.0.1:11434: bind: address already in use" to it. So the
+    # question "could OUR agent bind during THIS install?" is answerable from a
+    # file we already own, with no extra process and no guess.
+    #
+    # SCOPED BY BYTE OFFSET, NOT BY CONTENT. A bind failure from a PREVIOUS
+    # install is still in that file and is not this install's finding. Reading
+    # the whole file would abort a healthy install on a stale line. So the size
+    # is taken HERE, before anything of ours is started, and only what is
+    # written after it is ever read.
+    _ollama_err_path="${OLLAMA_LOG_DIR}/ollama.err"
+    _ollama_err_bytes_before=0
+    if [[ -r "$_ollama_err_path" ]]; then
+        _ollama_err_bytes_before="$(wc -c < "$_ollama_err_path" 2>/dev/null | tr -d ' ' || true)"
+    fi
+    case "${_ollama_err_bytes_before:-}" in
+        ''|*[!0-9]*) _ollama_err_bytes_before=0 ;;
+    esac
+
+    # How many times has OUR side failed to bind since that offset?
+    #
+    # Prints a number, always, including when the file is absent or unreadable.
+    # "could not look" is reported as 0 here ON PURPOSE and it is the safe
+    # direction for this one predicate: its only consumer promotes a POSITIVE
+    # count into an abort, so an unreadable log must not manufacture one. The
+    # consumer states that in as many words rather than leaving it implied.
+    #
+    # grep -c, never `grep -q`: this file runs under pipefail, and a quiet grep
+    # exits at its first match, SIGPIPEs the producer, and inverts the verdict
+    # precisely when the needle IS present. grep -c reads to EOF.
+    _ollama_bind_failures_since() {
+        local _f="$1" _off="$2" _n
+        [[ -r "$_f" ]] || { printf '0\n'; return 0; }
+        _n="$(tail -c "+$((_off + 1))" "$_f" 2>/dev/null \
+              | grep -c 'address already in use' || true)"
+        case "${_n:-}" in
+            ''|*[!0-9]*) printf '0\n' ;;
+            *) printf '%s\n' "$_n" ;;
+        esac
+    }
+
+    # Take the agent out of the world, so a failed install does not leave a
+    # process restarting itself every 7 seconds for ever.
+    #
+    # BOTH DOMAINS AND THE LEGACY VERB, because the registration above tries
+    # bootstrap into gui/<uid> and then falls back to `launchctl load`, which
+    # lands in whichever domain the caller is in. Booting out only the one we
+    # think we used leaves the other running.
+    #
+    # AND THE PLIST IS REMOVED, which is the half that actually ends it. A
+    # bootout lasts until the next login; the file is what brings the agent
+    # back. Removing it is safe because it is ours, it is rewritten by the next
+    # run of this installer, and the only reason we are here is that it names a
+    # port this agent has been measured to be unable to take.
+    _ostler_stop_doomed_ollama_agent() {
+        launchctl bootout "gui/$(id -u)/com.ostler.ollama" >/dev/null 2>&1 || true
+        launchctl bootout "user/$(id -u)/com.ostler.ollama" >/dev/null 2>&1 || true
+        launchctl unload "$OLLAMA_PLIST" >/dev/null 2>&1 || true
+        rm -f "$OLLAMA_PLIST" 2>/dev/null || true
+    }
     # 🔴 THIS WAS ALLOWED TO FAIL COMPLETELY AND SAY NOTHING (#1559).
     #
     # `bootstrap` then `load` then `|| true`, with stderr discarded on both. So
@@ -13555,6 +13639,12 @@ OLLAMAPLIST
                 | sed -n 's/^c//p' | sort -u | tr '\n' ' ' || true)"
 
             if [[ -n "$_ollama_bind_evidence" || -n "$_ollama_port_holder" ]]; then
+                # #1574: this arm knew the port was taken and still left the
+                # KeepAlive agent registered, so an install that ABORTED here
+                # walked away leaving a process restarting itself every 7
+                # seconds against a port it can never have. Both curated exits
+                # now go through the same helper; neither leaves a crash-looper.
+                _ostler_stop_doomed_ollama_agent
                 fail_with_code "ERR-08-OLLAMA-PORT-11434-IN-USE" \
                     "$(printf "$MSG_FAIL_OLLAMA_PORT_IN_USE" "${_ollama_port_holder:-unknown}" "${OLLAMA_LOG_DIR}/ollama.err")"
             fi
@@ -13565,6 +13655,61 @@ OLLAMAPLIST
         sleep 2
         OLLAMA_WAIT=$((OLLAMA_WAIT + 2))
     done
+    # ── THE LOOP ENDING IS NOT THE SAME FACT AS OUR AGENT WORKING (#1574) ──
+    #
+    # Everything above this line can be satisfied by a stranger. Before the
+    # customer is told Ollama is running, ask the one question the loop cannot:
+    # did OUR side fail to bind while this install was doing it?
+    #
+    # COSTS NOTHING ON A HEALTHY BOX. The first read is a tail of a file we
+    # already write; on every install where the agent bound, it is 0 and this
+    # block ends here.
+    _ollama_bind_fails="$(_ollama_bind_failures_since "$_ollama_err_path" "$_ollama_err_bytes_before")"
+    if [[ "${_ollama_bind_fails:-0}" -gt 0 ]]; then
+        # ONE FAILED BIND IS NOT YET A CRASH LOOP, and aborting on it would be
+        # the wrong error. A previous Ollama of OURS shutting down as this one
+        # starts can lose a single race and then take the port on the next
+        # KeepAlive respawn, and that install is healthy. The two states differ
+        # in one observable thing: whether it is STILL happening.
+        #
+        # So sample again. KeepAlive respawns this agent about every 7 seconds
+        # (368 restarts in 40 minutes, measured), so a window wider than that
+        # catches a live loop and a settled race writes nothing into it. This
+        # is the only place in this step that spends time, and it is spent ONLY
+        # on a box that has already shown a bind failure.
+        _ollama_resample_from=0
+        if [[ -r "$_ollama_err_path" ]]; then
+            _ollama_resample_from="$(wc -c < "$_ollama_err_path" 2>/dev/null | tr -d ' ' || true)"
+        fi
+        case "${_ollama_resample_from:-}" in
+            ''|*[!0-9]*) _ollama_resample_from=0 ;;
+        esac
+        info "$(printf '    checking whether the local AI agent can hold port 11434 (%ss)' "${OSTLER_OLLAMA_CRASHLOOP_WINDOW_S:-15}")"  # i18n-exempt
+        sleep "${OSTLER_OLLAMA_CRASHLOOP_WINDOW_S:-15}"
+        _ollama_bind_fails_now="$(_ollama_bind_failures_since "$_ollama_err_path" "$_ollama_resample_from")"
+
+        if [[ "${_ollama_bind_fails_now:-0}" -gt 0 ]]; then
+            # STILL failing, so this is not a race, it is a port we can never
+            # take, and the agent we just registered will restart itself
+            # against it for ever. Take it back out of the world before we
+            # stop, then fail with the SAME curated code the timeout path uses,
+            # because it is the same fact about the same box.
+            #
+            # A NOTE ON THE ONE PREDICATE THAT READS AN ABSENCE AS 0: an
+            # unreadable log cannot reach this branch, because 0 is not
+            # greater than 0. Nothing here is promoted from "could not look".
+            _ollama_port_holder="$(lsof -nP -iTCP:11434 -sTCP:LISTEN -Fc 2>/dev/null \
+                | sed -n 's/^c//p' | sort -u | tr '\n' ' ' || true)"
+            _ostler_stop_doomed_ollama_agent
+            fail_with_code "ERR-08-OLLAMA-PORT-11434-IN-USE" \
+                "$(printf "$MSG_FAIL_OLLAMA_PORT_IN_USE" "${_ollama_port_holder:-unknown}" "$_ollama_err_path")"
+        fi
+
+        # It settled. Say so rather than saying nothing: the log holds a bind
+        # failure that a support reader will find, and an unexplained one sends
+        # them hunting a defect that resolved itself.
+        warn "The local AI agent lost port 11434 once while starting and then took it. That is a normal handover from a previous copy, not a fault, and the bind error in ${_ollama_err_path} is that moment."  # i18n-exempt
+    fi
     ok "$MSG_OK_OLLAMA_RUNNING"
 fi
 
