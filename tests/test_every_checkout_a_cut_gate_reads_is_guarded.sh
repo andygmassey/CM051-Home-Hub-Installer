@@ -74,13 +74,24 @@ export GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
 # ---------------------------------------------------------------------------
 ORIGIN="$TMP/origin.git"
 git init -q --bare "$ORIGIN"
+# 🔴 SET THE BARE REPO'S HEAD EXPLICITLY. `git init` takes the default branch
+# name from init.defaultBranch, which is `master` on a stock runner and `main`
+# on this box. MEASURED on a macOS runner: without this line every clone below
+# printed "remote HEAD refers to nonexistent ref, unable to checkout" and
+# landed with HEAD on the literal string 'HEAD', which made two arms report a
+# finding about the guard when the fault was in the fixture.
+git -C "$ORIGIN" symbolic-ref HEAD refs/heads/main
 SEED="$TMP/seed"
 git init -q "$SEED"
 git -C "$SEED" symbolic-ref HEAD refs/heads/main
 echo one > "$SEED/f"; git -C "$SEED" add -A; git -C "$SEED" commit -qm one
 git -C "$SEED" remote add origin "$ORIGIN"; git -C "$SEED" push -q origin main
 
-clone() { git clone -q "$ORIGIN" "$1"; }
+# Clone and put the result on main by name, whatever the runner's default is.
+clone() {
+    git clone -q "$ORIGIN" "$1"
+    git -C "$1" checkout -q -B main origin/main
+}
 
 # AT THE TIP -- the healthy case, and the positive control for every refusal.
 clone "$TMP/atmain"
@@ -104,6 +115,25 @@ echo three >> "$SEED/f"; git -C "$SEED" commit -qam three; git -C "$SEED" push -
 # Bring the other two up to date so they stay at the tip after those pushes.
 git -C "$TMP/atmain" fetch -q origin main && git -C "$TMP/atmain" reset -q --hard origin/main
 git -C "$TMP/stale" fetch -q origin main
+
+# ---------------------------------------------------------------------------
+# THE FIXTURE MUST BE WELL-FORMED BEFORE ANY ARM IS BELIEVED. A clone that did
+# not check out, or a branch that is not named what this file thinks, produces
+# a "finding" about the guard that is really a fault in the setup. That is
+# CANNOT-RUN, not FAIL.
+# ---------------------------------------------------------------------------
+fixture_branch() { git -C "$1" rev-parse --abbrev-ref HEAD 2>/dev/null || printf '?'; }
+bad_fixture=""
+[ "$(fixture_branch "$TMP/atmain")" = main ]               || bad_fixture="${bad_fixture} atmain=$(fixture_branch "$TMP/atmain")"
+[ "$(fixture_branch "$TMP/stale")" = feature/left-here ]   || bad_fixture="${bad_fixture} stale=$(fixture_branch "$TMP/stale")"
+[ "$(fixture_branch "$TMP/ahead")" = main ]                || bad_fixture="${bad_fixture} ahead=$(fixture_branch "$TMP/ahead")"
+[ "$(fixture_branch "$TMP/cached")" = main ]               || bad_fixture="${bad_fixture} cached=$(fixture_branch "$TMP/cached")"
+if [ -n "$bad_fixture" ]; then
+    echo "CANNOT-RUN: the fixture repositories are not in the states this test builds them in:${bad_fixture}" >&2
+    echo "  Nothing below would be a statement about the guard. git $(git --version | awk '{print $3}')," >&2
+    echo "  init.defaultBranch=$(git config --get init.defaultBranch || printf '<unset>')" >&2
+    exit 2
+fi
 
 guard() {   # guard <outfile> [ENV=V ...] -- runs the real runner's guard mode
     local out="$1"; shift
