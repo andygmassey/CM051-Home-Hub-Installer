@@ -366,15 +366,15 @@ def confirm_interests_card(profile: dict, now: datetime) -> dict:
         action_label = "Tell Ostler what you're into"
         body = ("Nothing has reached Ostler yet that says what you are into, so there "
                 "is nothing here to confirm. Interests fill in as the background feeds "
-                "and any exports you add finish reading. Telling Ostler one thing you "
-                "are into works right now.")
+                "and any exports you add finish reading. You can tell Ostler one thing "
+                "you are into right now, and it counts straight away.")
         evidence = "0 signals read, 0 held back"
     else:  # unmeasured
         action_label = "Tell Ostler what you're into"
         body = ("Ostler has nothing to show here yet, and this profile does not record "
                 "how much it read, so it cannot honestly say whether nothing has "
                 "reached it or nothing it read was clear enough. The next compile will "
-                "say which. Telling Ostler one thing you are into works either way.")
+                "say which. You can tell Ostler one thing you are into either way.")
         evidence = "0 interests; signals read not recorded by this profile"
 
     return _make_card(
