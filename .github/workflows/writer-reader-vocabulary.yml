@@ -44,6 +44,9 @@ on:
       - '.github/workflows/writer-reader-vocabulary.yml'
   pull_request:
     paths:
+      - 'vendor/cm019_preferences/services/ingest/src/parsers/apple.py'
+      - 'vendor/cm041/contact_syncer/privacy_model.py'
+      - 'tests/test_no_parser_labels_sensitive_data_publishable.py'
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'vendor/cm019_preferences/services/ingest/src/loaders/qdrant_loader.py'
