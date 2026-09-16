@@ -733,6 +733,13 @@ if [[ -n "$CUT_VERSION" ]]; then
             grab { exit }
         ' "$PROBE_LOG"
     }
+    # A DISTINCT PREFIX RATHER THAN A SECTION. run_box_walk.sh prints one
+    # `DELEGATED-PROBE <name>` line per registered probe its glob cannot
+    # collect. section_names() cannot be used here: it publishes only bare
+    # names under three specific headers, and these must never be mistaken for
+    # a failure or for lost coverage.
+    DELEGATED_NAMES="$(awk '$1 == "DELEGATED-PROBE" && NF == 2 && $2 ~ /^[A-Za-z0-9._-]+$/ { print $2 }' "$PROBE_LOG" | sort -u)"
+
     FAILED_NAMES_P1="$(section_names 'FAILED:')"
     NOTMEAS_NAMES_P1="$(section_names 'NOT MEASURED')"
     BROKEN_NAMES="$(section_names 'BROKEN (')"
@@ -980,6 +987,25 @@ if [[ -n "$CUT_VERSION" ]]; then
         fi
         printf '%s\n' "$NOTMEAS_NAMES" | while IFS= read -r _n; do [ -n "$_n" ] && printf 'not_measured_probe\t%s\n' "$_n"; done
         printf '%s\n' "$BROKEN_NAMES"  | while IFS= read -r _n; do [ -n "$_n" ] && printf 'broken_probe\t%s\n' "$_n"; done
+
+        # ── WHAT THE FOUR NUMBERS DO NOT COVER, SAID IN THE RECORD ITSELF ──
+        #
+        # `measured N of N` above is over the probes run_box_walk.sh COLLECTS,
+        # and cut-manifests/permanent.yaml registers a wider set. Until #1152
+        # the difference appeared nowhere: acceptance_gate_v1013 is registered,
+        # sits one directory above the collector's glob, and is absent from all
+        # 20 committed walk records and their 1282 rows, while probes either
+        # side of it in the same register each appear.
+        #
+        # IT IS NOT A not_measured_probe ROW. verify_cut_manifest.py resolves
+        # the flat directory in phase 2 and DOES grade it, so calling it
+        # not-measured would be a false absence about a probe measured minutes
+        # later in the same suite. It gets its own row: graded, but not by the
+        # four numbers directly above it.
+        #
+        # An empty list writes NOTHING, so a reader never sees a category that
+        # does not apply to this walk.
+        printf '%s\n' "$DELEGATED_NAMES" | while IFS= read -r _n; do [ -n "$_n" ] && printf 'registered_not_collected\t%s\n' "$_n"; done
     } > "$RECORD"
 
     # ── CLASSIFY THE FAILURES AGAINST HISTORY, WHILE THE RECORD IS BEING BORN ──

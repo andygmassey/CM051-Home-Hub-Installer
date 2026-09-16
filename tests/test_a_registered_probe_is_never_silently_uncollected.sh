@@ -265,6 +265,39 @@ else
     ok "arm 7: no delegated probe leaks into the FAILED / NOT MEASURED / BROKEN sections post_walk_qa.sh publishes"
 fi
 
+# ===== ARM 8: and it reaches the RECORD, not just the console ==============
+# The console scrolls. walks/<version>.tsv is committed and read months later,
+# and it is what Andy reads before deciding to ship. This arm lifts the two
+# lines post_walk_qa.sh uses OUT OF post_walk_qa.sh at run time, rather than
+# copying them, and drives them over the runner output captured in arm 4. A
+# rename or a deletion on either line makes this REFUSE, not pass.
+EXTRACT="$(grep -n 'DELEGATED_NAMES="\$(awk' "$QA" | head -1 | cut -d: -f1)"
+WRITER="$(grep -n "printf 'registered_not_collected" "$QA" | head -1 | cut -d: -f1)"
+if [ -z "$EXTRACT" ] || [ -z "$WRITER" ]; then
+    cant "could not lift the extractor (line '${EXTRACT:-none}') or the writer (line '${WRITER:-none}') out of $QA, so nothing about the record was measured"
+fi
+printf '%s\n' "$base" > "$TMP/probe.log"
+PROBE_LOG="$TMP/probe.log"
+eval "$(sed -n "${EXTRACT}p" "$QA")"
+record="$(eval "$(sed -n "${WRITER}p" "$QA")")"
+printf '  record fragment: [%s]\n' "$(printf '%s' "$record" | tr '\t' ' ' | tr '\n' ';')"
+miss=""
+for r in $UNCOLLECTED_EXPECTED; do
+    case "$record" in *"registered_not_collected	$r"*) ;; *) miss="$miss $r" ;; esac
+done
+if [ -n "$UNCOLLECTED_EXPECTED" ] && [ -n "$miss" ]; then
+    bad "arm 8: the record would carry no registered_not_collected row for:$miss" \
+        "the console named it and the committed record did not, and the record is the half that survives"
+else
+    ok "arm 8: every uncollected registered probe gets a registered_not_collected row in the walk record"
+fi
+# CONTROL: it must NOT be published as lost coverage. A false not-measured about
+# a probe phase 2 grades is the mirror of the defect this gate exists to fix.
+case "$record" in
+    *"not_measured_probe"*) bad "arm 8 control: a delegated probe was written as not_measured_probe" ;;
+    *) ok "arm 8 control: it is not written as not_measured_probe, so the record does not claim lost coverage" ;;
+esac
+
 printf '\n================================================\n'
 printf 'RESULT: %s pass / %s fail (of %s assertions)\n' "$pass" "$fail" "$((pass + fail))"
 [ "$fail" -eq 0 ] || exit 1

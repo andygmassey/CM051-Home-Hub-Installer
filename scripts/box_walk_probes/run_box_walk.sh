@@ -788,6 +788,19 @@ if [ -n "$DELEGATED" ]; then
     for b in $DELEGATED; do
         printf '  %s: no probes/%s.sh, so this glob cannot take it; %s.sh sits beside this runner and scripts/verify_cut_manifest.py resolves it there, so its permanent.yaml row runs it after this suite exits\n' "$b" "$b" "$b"
     done
+    # MACHINE-READABLE, for scripts/post_walk_qa.sh, which turns each of these
+    # into a registered_not_collected row in walks/<version>.tsv. The prose
+    # above is for the operator at the console; the record is what survives, and
+    # a console line nobody keeps is how this probe stayed invisible across 20
+    # walk records.
+    #
+    # A DISTINCT PREFIX, not a bare name. section_names() publishes only lines
+    # matching ^  [A-Za-z0-9._-]+$ under three specific headers, so this form
+    # can never be mistaken for a failed_probe or a not_measured_probe, and
+    # count_of() skips it because its second field is not a number.
+    for b in $DELEGATED; do
+        printf 'DELEGATED-PROBE %s\n' "$b"
+    done
 fi
 
 if [ -n "$BROKEN_LIST" ]; then
