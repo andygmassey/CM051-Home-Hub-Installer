@@ -80,18 +80,30 @@ fi
 # actually works, and eleven probes reported over the top of it every time.
 shopt -s nullglob
 PROBES=""
-# EVERY basename the glob sees, BEFORE --only filters it. The register
-# cross-check below asks "is this registered probe on disk where the runner
-# looks?", which is a question about the directory and not about this run's
-# selection, so it must not be answered through a filtered list.
-COLLECTED_ALL=""
 for f in "$PROBE_DIR"/*.sh; do
     b="$(basename "$f" .sh)"
-    COLLECTED_ALL="$COLLECTED_ALL $b"
     if [ -n "$ONLY" ]; then
         case "$b" in *"$ONLY"*) ;; *) continue ;; esac
     fi
     PROBES="$PROBES $f"
+done
+
+# EVERY basename the glob sees, INDEPENDENT of --only. The register cross-check
+# further down asks "is this registered probe on disk where the runner looks?",
+# which is a question about the directory rather than about this run's
+# selection, so it must not be answered through a filtered list.
+#
+# A SECOND PASS RATHER THAN ONE LINE INSIDE THE LOOP ABOVE, and that is not a
+# style preference. tests/test_the_walk_seeds_the_usage_producer.sh and three
+# sibling suites pin lines 42, 44 and 83 of this file BY EXACT TEXT, because
+# comments elsewhere cite them by number. Adding a line above the glob moves
+# :83 off `for f in "$PROBE_DIR"/*.sh; do` and all four go red. They did, on
+# the first push of this change, which is the citation gate working exactly as
+# designed. Everything this needs is available after the loop, so it goes
+# after the loop.
+COLLECTED_ALL=""
+for f in "$PROBE_DIR"/*.sh; do
+    COLLECTED_ALL="$COLLECTED_ALL $(basename "$f" .sh)"
 done
 shopt -u nullglob
 
