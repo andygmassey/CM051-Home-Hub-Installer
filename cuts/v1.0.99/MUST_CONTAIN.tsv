@@ -1,0 +1,44 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.99.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.99/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN.
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS
+# ===========================================================================
+# v1.0.98 was built and delivered and NEVER PROVEN: no clean walk record
+# exists for it. Andy then walked it himself and reported five defects, and
+# the sweeps he ordered off the back of that found substantially more. This
+# cut carries the fixes.
+#
+# THE FOUR ROWS BELOW ARE THE ONES THAT HAVE ACTUALLY MERGED TO CM051 main.
+# They are listed with the SHA of the squash commit on main, not the SHA of
+# any branch, because a branch tip is not what ships.
+#
+# MORE IS IN FLIGHT AND IS DELIBERATELY NOT LISTED YET. At the time of
+# writing, ten further CM051 PRs are open with zero failures between them,
+# covering the recovery key on a failed install, the subscription spine, the
+# wiki password prompt, the licence file mode, the Doctor fork storm, the
+# personal-use terms, the privacy spine and the four-artefact rule. A row
+# here for work that has not merged would assert a pin that does not exist,
+# which is precisely what gates/bom_shas_resolve.sh refuses. Each is added by
+# bin/bom_add.sh AS IT LANDS, which is the rule: nothing ships by being
+# remembered.
+#
+# THIS FILE EXISTING IS ITSELF A PREREQUISITE. bin/bom_add.sh exits 2 with
+# "no BOM for cut" when cuts/<version>/MUST_CONTAIN.tsv is absent, so until
+# this file existed nobody could record anything against v1.0.99 at all.
+#
+# landed=no on every row is correct and is not an oversight: it means "not
+# yet confirmed present in an artefact". No artefact for v1.0.99 exists. The
+# cut blocks until each row is landed=in-artefact and its capability is
+# proven present.
+what	repo	ref	landed	capability_id	verify	ticket
+THE DOCTOR PAGE RENDERS AT ALL. It returned 500 on every load for three builds while /api/v1/sources answered 200 throughout, so every artefact-shaped check passed and nothing went red. One missing import; measured 500 and 21 bytes before, 200 and 59,690 bytes with a rendered table after.	CM051	e3fccdff637c	no	none	TBD	CM051 #1971
+FIVE WRITERS STORED ONE NAME AND FIVE READERS ASKED FOR ANOTHER, so five customer-visible surfaces read empty on a box full of data. Six mutants, six kills.	CM051	bc17a0bbb583	no	none	TBD	CM051 #1972
+FORGET THIS PERSON NOW ACTUALLY DELETES THEM. Pre-fix the API returned forgotten true and stores_purged while 4 of 4 triples survived in the named graph. One fix served all five readers rather than five copies; a control person's records were untouched, so the delete is precise and not broad.	CM051	bf5f376d25cb	no	none	TBD	CM051 #1973 / HR015 #950
+ONE SLOW ROUTE NO LONGER WEDGES THE WHOLE HUB API, and the walk can see the data it was blind to. contacts/diff 121s to 11.6s with an identical 91 matches; the walk dump went from 155,270 quads to 231,841, the exact store total.	CM051	fb5c7bcff509	no	none	TBD	CM051 #1974
+THE LICENCE FILE IS REALLY 0600 AND SURVIVES AN UNINSTALL. FileManager.replaceItem carries the destination's mode onto the replacement, so a customer's email and payment identity sat in a world-readable file while a green test vouched for 0600; the test's fixture had no destination, the one case where the bug cannot show. Also: the config stops telling the customer their password self-encrypts when nothing does, a real E.164 validator at all three consumers, and the calendar scan finds 6 of 6 calendars where it found 1.	CM051	764e5c2d53c3	no	none	TBD	CM051 #1983 / issue #1976
