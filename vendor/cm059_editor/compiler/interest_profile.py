@@ -29,6 +29,7 @@ import os
 import re
 import sys
 import unicodedata
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -778,15 +779,76 @@ def compile_profile(raws: list[dict], now: datetime | None = None,
 # I/O layer (read-only Oxigraph)
 # ---------------------------------------------------------------------------
 
+def _oxigraph_credential() -> tuple[str, str] | None:
+    """The Oxigraph loopback credential, or None when none is configured.
+
+    NOT A SECOND MECHANISM. lib/ostler_store_auth.py is the estate's single
+    decider for which credential belongs to which store port, and this reads
+    the SAME env var and the SAME 0600 file it does:
+
+        7878 -> ("Authorization", "Bearer ", "OXIGRAPH_TOKEN", "oxigraph_token")
+
+    WHY THIS FUNCTION EXISTS AT ALL, rather than importing that shim. The shim
+    is delivered as a .pth inside each SERVICE'S VENV, so it patches urllib
+    automatically for anything running in one. THE EDITOR HAS NO VENV: its
+    LaunchAgent runs `PYTHONPATH=<src> python3 -m compiler.emit_frontpage`
+    against the system interpreter. So the blanket fix cannot reach this call
+    site, and this is the one consumer it was never able to cover.
+    """
+    val = (os.environ.get("OXIGRAPH_TOKEN") or "").strip()
+    if not val:
+        secrets_dir = os.environ.get(
+            "OSTLER_SECRETS_DIR", os.path.expanduser("~/.ostler/secrets"))
+        try:
+            with open(os.path.join(secrets_dir, "oxigraph_token"),
+                      encoding="utf-8") as fh:
+                val = fh.read().strip()
+        except OSError:
+            val = ""
+    return ("Authorization", "Bearer " + val) if val else None
+
+
 def _sparql_select(oxigraph_url: str, query: str, timeout: float = 30.0) -> list[dict]:
+    """Read-only SPARQL SELECT against Oxigraph.
+
+    THE DEFECT THIS FIXES, measured on a v1.0.98 box 2026-09-16:
+        curl 127.0.0.1:7878/query with no credential  -> HTTP 401
+        curl 127.0.0.1:7878/query with the credential -> 111,289 triples
+    This function sent Accept and Content-Type and nothing else, so every
+    query 401ed, every read returned zero rows, and the compiler wrote
+    {"stats": {"raw_rows": 0, "interests": 0}} AND EXITED 0. The customer's
+    front page read "0 interests inferred so far" for at least three builds
+    and no gate went red, because an empty graph and a refused query are the
+    same branch in every caller above this one.
+
+    A 401 is now RAISED rather than swallowed. An unreadable store must be a
+    loud failure, not a quiet zero: a zero that could not be measured is the
+    exact shape that hid this for three builds.
+    """
     url = oxigraph_url.rstrip("/") + "/query"
     data = urllib.parse.urlencode({"query": query}).encode("utf-8")
-    req = urllib.request.Request(url, data=data, method="POST", headers={
+    headers = {
         "Accept": "text/csv",
         "Content-Type": "application/x-www-form-urlencoded",
-    })
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        body = resp.read().decode("utf-8")
+    }
+    cred = _oxigraph_credential()
+    if cred is not None:
+        headers[cred[0]] = cred[1]
+    req = urllib.request.Request(url, data=data, method="POST", headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            raise RuntimeError(
+                f"Oxigraph refused the query with HTTP {exc.code}. The store "
+                "requires a credential and none was presented or it was "
+                "rejected. Expected OXIGRAPH_TOKEN in the environment or a "
+                "readable ~/.ostler/secrets/oxigraph_token. Refusing to report "
+                "an empty profile, which is indistinguishable from an empty "
+                "graph."
+            ) from exc
+        raise
     rows = list(csv.DictReader(io.StringIO(body)))
     return rows
 
