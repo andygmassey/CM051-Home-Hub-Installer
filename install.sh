@@ -5387,6 +5387,18 @@ if [[ -f "${OSTLER_FINAL_DIR}/config/.env" ]] \
     ok "$MSG_OK_PREVIOUS_INSTALLATION_DETECTED_LOADING_CONFIG"
     # Source existing config from the canonical location.
     set -a; source "${OSTLER_FINAL_DIR}/config/.env"; set +a
+    # #1539: THE REMOTE-ACCESS ANSWER, CAPTURED UNDER ITS OWN NAME.
+    #
+    # The source above may have restored TAILSCALE_CONFIRM, but the restored
+    # value must NOT be allowed to act as this run's answer on its own: the
+    # customer has not yet been asked whether to reuse anything, and if they
+    # say no the question phase runs and asks again, which is correct. So the
+    # restored value is copied here, read only by the late fallback, and only
+    # when the customer actually chose "use previous answers".
+    #
+    # Empty when this box predates the .env line, which is a real state and
+    # not an error: the fallback then asks exactly as it does today.
+    TAILSCALE_CONFIRM_PREVIOUS="${TAILSCALE_CONFIRM:-}"
     USER_NAME="${USER_NAME:-}"
     USER_ID="${USER_ID:-}"
     ASSISTANT_NAME="${ASSISTANT_NAME:-}"
@@ -13617,6 +13629,27 @@ OSTLER_CONSENT_PERSONAL_USE_DECISION="${OSTLER_CONSENT_PERSONAL_USE_DECISION:-}"
 # rather than "missing".
 CHANNEL_WHATSAPP_CONSENT_ACCEPTED="${CHANNEL_WHATSAPP_CONSENT_ACCEPTED:-}"
 WA_CONSENT="${WA_CONSENT:-}"
+
+# ── THE REMOTE-ACCESS ANSWER (#1539) ──────────────────────────────────────
+#
+# THE ONLY SETTINGS QUESTION A RE-INSTALL RE-ASKED. Measured by executing the
+# late prompt block against a reuse run: with the customer's previous answer
+# of "skip" restored and TAILSCALE_CONFIRM_SHOWN_EARLY unset (Phase 2 is
+# skipped on a reuse, so the early prompt never runs), the fallback asked
+# again and the prompt's own default overwrote the remembered "skip" with
+# "setup". A person who said no to remote access was asked every time and
+# their answer was silently replaced.
+#
+# The detector added by #875 only ever covered the YES half: it asks the disk
+# whether a tailnet exists, so a customer who ACCEPTED setup is not re-asked.
+# A customer who DECLINED leaves nothing on disk by definition, so there was
+# never anything for it to find.
+#
+# EMPTY IS PRESERVED, same rule as the consent block above. An unanswered
+# question must stay unanswered so the fallback asks; defaulting it to
+# "setup" would enrol somebody in remote access they never agreed to, and
+# defaulting it to "skip" would switch off something they never refused.
+TAILSCALE_CONFIRM="${TAILSCALE_CONFIRM:-}"
 ENVEOF
 
 # This .env carries USER_ID + config the whole install reads; it is
@@ -26791,16 +26824,79 @@ elif _ts_already_configured; then
     TAILSCALE_CONFIRM_SHOWN_EARLY=1
     export TAILSCALE_CONFIRM TAILSCALE_CONFIRM_SHOWN_EARLY
     info "$MSG_INFO_TAILSCALE_ALREADY_CONFIGURED"
+elif [[ "${SKIP_PHASE2:-false}" == true ]] \
+     && { [[ "${TAILSCALE_CONFIRM_PREVIOUS:-}" == "setup" ]] \
+          || [[ "${TAILSCALE_CONFIRM_PREVIOUS:-}" == "skip" ]]; }; then
+    # ── #1539: "USE PREVIOUS ANSWERS" NOW COVERS THIS ONE TOO ─────────────
+    #
+    # The customer chose to reuse their settings, so Phase 2 (and with it the
+    # early prompt above) was skipped, SHOWN_EARLY is unset, and this fallback
+    # is what runs. The detector above answers only the YES half: it asks the
+    # disk whether a tailnet exists, so somebody who ACCEPTED remote access is
+    # already covered. Somebody who DECLINED leaves nothing on disk by
+    # definition, so before this arm they were asked again on every single
+    # re-install and the prompt default replaced their "skip" with "setup".
+    #
+    # ORDER MATTERS AND THIS ARM IS DELIBERATELY SECOND. If the tailnet IS
+    # configured the arm above wins and re-applies `serve`, which is what
+    # keeps the iOS app reachable. A remembered "skip" must not stop that:
+    # the box is demonstrably on the tailnet, and the state on disk outranks
+    # a remembered answer that contradicts it.
+    #
+    # ONLY TWO VALUES ARE HONOURED, and anything else falls through to the
+    # question. A truncated or hand-edited .env must not be able to enrol
+    # somebody in remote access, or switch it off, by carrying a word this
+    # installer does not recognise.
+    TAILSCALE_CONFIRM="$TAILSCALE_CONFIRM_PREVIOUS"
+    TAILSCALE_CONFIRM_SHOWN_EARLY=1
+    export TAILSCALE_CONFIRM TAILSCALE_CONFIRM_SHOWN_EARLY
+    if [[ "$TAILSCALE_CONFIRM" == "skip" ]]; then
+        info "$MSG_INFO_TAILSCALE_REUSED_ANSWER_SKIP"
+    else
+        info "$MSG_INFO_TAILSCALE_REUSED_ANSWER_SETUP"
+    fi
 else
     if [[ "${_TS_CONFIGURED_VERDICT:-}" == "cannot_run" ]]; then
         warn "$MSG_WARN_TAILSCALE_STATE_UNREADABLE"
     fi
     # Reached only when TAILSCALE_CONFIRM_SHOWN_EARLY is unset AND no tailnet
-    # state was found: nothing is set up and nobody has been asked yet. The
-    # walk-away middle never lands here.
+    # state was found AND no previous answer was restored: nothing is set up
+    # and nobody has been asked yet. The walk-away middle never lands here.
     TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setup" "$MSG_PROMPT_TAILSCALE_CONFIRM_HELP" "setup,skip" "tailscale_confirm")"
     TAILSCALE_CONFIRM_SHOWN_EARLY=1
     export TAILSCALE_CONFIRM TAILSCALE_CONFIRM_SHOWN_EARLY
+fi
+
+# ── PERSIST THE ANSWER HERE, NOT ONLY IN THE .env WRITER (#1539) ──────────
+#
+# The .env is written far above this line, so an answer given HERE, on the
+# reuse path, was never in it. Without this block the fix would work for boxes
+# installed after it lands and never for the boxes that have the problem: a
+# box whose .env predates the TAILSCALE_CONFIRM line would ask on every reuse
+# run, record nothing, and ask again on the next one. That is the same
+# self-perpetuating loop the consent block above documents.
+#
+# Replace-or-append, then READ THE VALUE BACK, matching the shape the Tailscale
+# IP persist uses a little further down. A silent persist failure would put the
+# customer straight back into being asked forever.
+if [[ -n "${TAILSCALE_CONFIRM:-}" && -f "${CONFIG_DIR}/.env" ]]; then
+    _ts_env_file="${CONFIG_DIR}/.env"
+    if grep -q '^TAILSCALE_CONFIRM=' "$_ts_env_file"; then
+        _ts_tmp_env="$(mktemp)"
+        if sed "s|^TAILSCALE_CONFIRM=.*|TAILSCALE_CONFIRM=\"${TAILSCALE_CONFIRM}\"|" \
+               "$_ts_env_file" > "$_ts_tmp_env"; then
+            mv "$_ts_tmp_env" "$_ts_env_file"
+        else
+            rm -f "$_ts_tmp_env"
+        fi
+        _ts_tmp_env=""
+    else
+        printf 'TAILSCALE_CONFIRM="%s"\n' "$TAILSCALE_CONFIRM" >> "$_ts_env_file"
+    fi
+    if ! grep -q "^TAILSCALE_CONFIRM=\"${TAILSCALE_CONFIRM}\"$" "$_ts_env_file"; then
+        warn "$MSG_WARN_TAILSCALE_ANSWER_NOT_REMEMBERED"
+    fi
+    unset _ts_env_file _ts_tmp_env
 fi
 
 if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then
