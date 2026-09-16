@@ -27460,14 +27460,91 @@ _HYDRATE_SENTINEL_DIR="${OSTLER_DIR}/state/hydrate"
 mkdir -p "$_HYDRATE_SENTINEL_DIR"
 
 # G1b: extract a typed integer count from a free-form payload. The payload is a
-# `key=value` string whose value is a count, e.g. "people=5" / "sent=0"; take the
-# value after the LAST '=' and keep it only if it is a bare integer, else 0. A
-# panel renders `item_count` without parsing prose (today `payload` is a free
-# string and `sent=0` is indistinguishable from a real 0 without splitting text).
+# `key=value` string whose value is a count, e.g. "people=5" / "sent=0". A panel
+# renders `item_count` without parsing prose (today `payload` is a free string
+# and `sent=0` is indistinguishable from a real 0 without splitting text).
+#
+# ── THE DEFECT, AND THIS FILE ALREADY FORBIDS IT IN PROSE (#946) ────────
+#
+# This helper used to take the value after the LAST '=' and fall back to a
+# literal 0. Both halves of that are wrong, and both reach the customer: the
+# value it returns is what the Doctor's "Where your data came from" table
+# prints in its `Items` column, under copy that reads "how much it found".
+#
+# MEASURED on origin/main by driving these recorders and rendering the real
+# vendored panel, one row per real call site in this file:
+#
+#   places / dedupe / privacy_backfill   ran=1,rc=0
+#       -> LAST key is `rc`, so the panel printed "read in ... 0 items" for
+#          three sources that had just run successfully. `rc=0` is a RETURN
+#          CODE MEANING SUCCESS. The Doctor says so in its own vocabulary --
+#          vendor/doctor/agent/diagnostic_rules.py:1782 declares
+#          `_NON_COUNT_KEYS = {"rc","exit","status","code"}` with the comment
+#          "rc=0 is a RETURN CODE meaning success, not a count of zero items".
+#          The reader knew. The writer did not.
+#
+#   browsing   sent=1500,skipped=20
+#       -> LAST key is `skipped`, so the panel printed 20 items for a run that
+#          delivered 1,500. `skipped` counts rows deliberately NOT ingested; it
+#          is the wrong population for a column headed "Items".
+#
+#   people (timeout arm)   sent=unknown,collection_points=7154
+#       -> LAST key is `collection_points`, so a step that delivered nothing
+#          measurable printed the size of the WHOLE collection as this run's
+#          output. _hydrate_qdrant_points, 500 lines below, exists precisely to
+#          keep those apart and says so: "collection_points is deliberately NOT
+#          called sent ... equating it with this run's output would put two
+#          populations in one number". Selecting it here did the equating.
+#
+# ── WHAT IT DOES NOW ────────────────────────────────────────────────────
+#
+# Split the payload on ',' into key=value fields, drop every key that is not
+# THIS RUN'S ITEM COUNT, and take the LAST survivor. Last, not first, is
+# deliberate and is the minimum change: every payload whose final key is
+# already a real count keeps the number it prints today. `email` in particular
+# writes "people=N,messages=M" and keeps reporting MESSAGES, which is the unit
+# tests/test_email_settling_numerator_is_messages.sh settled after a people
+# count in an email-unit fraction shipped as a defect.
+#
+# WHEN NOTHING SURVIVES, PRINT NOTHING. The caller writes `item_count=` with an
+# empty value, the Doctor's _parse_source_sentinel takes the int() ValueError
+# branch and stores None, and the panel prints an unknown marker instead of a
+# number. Its renderer already carries the rule -- "None and 0 are different
+# answers and must not print the same" -- and a fabricated 0 is the exact shape
+# tests/test_an_unmeasured_count_is_not_a_measured_zero.sh exists to stop.
+#
+# ⚠️ THIS SET IS NOT SHARED WITH _hydrate_payload_is_all_zero AND MUST NOT BE.
+# That predicate asks a different question and has its own settled answer:
+# `sent=0,skipped=500` must read as ok, because the browsing history was
+# examined and 500 rows were already there. Excluding `skipped` there would
+# turn a successful no-op into no_data. Two questions, two key sets, on purpose.
+#
+# THE KEY LIST IS A LOCAL, NOT A GLOBAL, AND THAT IS LOAD-BEARING. Seven wired
+# tests drive these recorders by EXTRACTING the function bodies out of this file
+# one at a time (`sed -n "/^_hydrate_payload_count() {/,/^}/p"`). A global
+# declared on the line above is not carried by that extraction, so under the
+# `set -u` those harnesses run with, the helper would abort and return an empty
+# count for EVERY source. Measured while writing this change: a first draft put
+# the list at file scope and all thirteen rows went blank.
 _hydrate_payload_count() {
-    local payload="${1:-}" v
-    v="${payload##*=}"
-    if [[ "$v" =~ ^[0-9]+$ ]]; then printf '%s' "$v"; else printf '0'; fi
+    local payload="${1:-}" field key value found=""
+    # Keys that are not THIS RUN'S ITEM COUNT, each with its reason:
+    #   rc exit code status   return codes and status words (the Doctor's own
+    #                         _NON_COUNT_KEYS, mirrored so the two agree)
+    #   ran                   evidence the sweep executed, not a quantity
+    #   skipped               rows deliberately NOT ingested; wrong population
+    #   collection_points     the whole store, including earlier runs
+    local non_item=" rc exit code status ran skipped collection_points "
+    local IFS=','
+    for field in $payload; do
+        [[ "$field" == *=* ]] || continue
+        key="${field%%=*}"
+        value="${field#*=}"
+        case "$non_item" in *" ${key} "*) continue ;; esac
+        [[ "$value" =~ ^[0-9]+$ ]] || continue
+        found="$value"
+    done
+    printf '%s' "$found"
 }
 
 # G1a: last_update_at is DISTINCT from recorded_at. recorded_at is when this

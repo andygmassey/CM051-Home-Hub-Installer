@@ -86,6 +86,35 @@ jobs:
       - name: Parses under bash 3.2-compatible syntax
         run: bash -n scripts/verify_declared_gates_reachable.sh
 
+      # #1167. THE RUNTIME SIBLING OF AXIS THREE, and it belongs in this
+      # workflow rather than a new one because it shares the population, the
+      # DECLARE_RE pattern and the baseline file with the gate above.
+      #
+      # Axis three asks which declarers CANNOT fire on a tag push, against a
+      # recorded baseline. This one asks, of the actual commit being cut,
+      # whether each declarer HAD a run. Two gates were in that gap at
+      # v1.0.48's commit and both were invisible to every other instrument.
+      #
+      # THE SELF-TEST IS WHAT CI PROTECTS, same argument as the step above: the
+      # real verdict changes with the tree and is reported at cut time by
+      # cut.yml. What must not rot is the gate's ability to discriminate, so
+      # the seven arms include a positive control (a declarer that DID run must
+      # not be named), a zero-denominator refusal, a skipped-run arm, a
+      # pagination arm, and a broken-pattern refusal.
+      #
+      # NO `paths:` LIST TO JOIN on either trigger, and that is deliberate and
+      # already argued at the top of this file: the paths filter was DELETED
+      # because a whole-tree analysis scoped to four files is cheap and blind
+      # at the same time. Re-adding one for this step would recreate exactly
+      # the #1167 shape in the gate that exists to find it.
+      - name: A self-declared cut-blocker that did not run is caught (#1167)
+        if: always()
+        run: /bin/bash scripts/verify_declared_gates_ran_at_commit.sh --self-test
+
+      - name: The run-at-commit gate parses under bash 3.2 too
+        if: always()
+        run: /bin/bash -n scripts/verify_declared_gates_ran_at_commit.sh
+
       # REPORT, DO NOT BLOCK, ON THE REAL TREE -- for now, and deliberately.
       #
       # There are THREE known orphans on main (cut_hygiene_gate.sh,
