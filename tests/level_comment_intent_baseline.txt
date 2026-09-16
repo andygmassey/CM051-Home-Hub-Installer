@@ -41,15 +41,25 @@
 # only route to green is to stop warning.
 #
 # ---------------------------------------------------------------------------
-# MEASURED 2026-09-16 on origin/main f8462ef1
+# MEASURED 2026-09-16 on the committed tree, and these are the numbers the gate
+# itself prints on every run
 # ---------------------------------------------------------------------------
-#   1183 text files examined
+#   1184 text files examined
 #     18 binary files skipped (icons and fonts; a NUL in the first block)
 #      0 TEXT files that would not decode
-#     34 numeric *_level assignments
+#     37 numeric *_level assignments
 #      3 further assignments skipped because they sit inside a comment
-#     10 of the 34 carry a comment at all
+#     10 of the 37 carry a comment at all
 #      6 violations, in 2 files
+#
+# THREE OF THOSE 37 ARE THIS GATE'S OWN MUTATION PAYLOADS, sitting in
+# .github/workflows/privacy-scale-gates.yml, which is deliberately NOT excluded.
+# They are not violations because the '#' in each sits inside a quoted shell
+# string, and comment_start() masks string literals before it looks for a
+# comment marker. That is designed behaviour carrying its own unit control
+# ("a # inside a string literal is not a comment"), not an accident of this
+# tree, and it was measured rather than assumed before this landed. With the
+# workflow taken out, the same scan reads 1183 text files and 34 assignments.
 #
 # WHY NEITHER IS FIXED HERE. Both are vendored CM019 parser code on the install
 # path, and both of the remaining apple.py sites are about what a customer's

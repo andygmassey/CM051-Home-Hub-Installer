@@ -58,18 +58,27 @@
 # run and recorded below.
 #
 # ---------------------------------------------------------------------------
-# MEASURED 2026-09-16 on origin/main f8462ef1, BEFORE this commit:
-#   1992 files in the tree
-#     82 name compartment_level
-#     65 name privacy_level
+# MEASURED 2026-09-16 on origin/main f8462ef1, BEFORE this commit
+# (/usr/bin/grep -rlI --exclude-dir=.git):
+#     82 files name compartment_level
+#     65 files name privacy_level
 #      5 name both; 2 of those 5 are excluded
 #        (tests/test_writer_reader_vocabulary_contracts.py, cut-manifests/v1.0.99.yaml)
 #
-# The same run WITH this commit reports 1993 / 84 / 67, because the gate and
-# this baseline both name the two scales in order to hunt for them. Both live
-# under tests/, so they raise the denominators and cannot raise the crossing
-# count. The numbers are given both ways so the next reader is not left
-# wondering which two files moved them.
+# ON THE COMMITTED TREE the gate prints, and this is the run a reader can
+# reproduce:
+#   1996 files in the tree
+#     87 name compartment_level
+#     68 name privacy_level
+#      3 CROSSING POINTS after exclusions
+#
+# The difference is five files added by this commit, every one of which names a
+# scale in order to hunt for it: this gate, this baseline, the sibling comment
+# gate, its baseline, and the workflow that runs them. Four live under tests/
+# and are excluded. The fifth, .github/workflows/privacy-scale-gates.yml, is
+# NOT excluded, and it names ONE scale only: its mutation payload assembles the
+# other field name from two fragments precisely so that the workflow cannot
+# become a crossing point itself. None of the five can raise the count below.
 #
 # TOTAL CROSSING POINTS AT THIS BASELINE: 3
 # ---------------------------------------------------------------------------
