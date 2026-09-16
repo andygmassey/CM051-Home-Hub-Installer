@@ -26433,7 +26433,79 @@ REMOTECAPTURE_APP_SUPPORT_DIR="${HOME}/Library/Application Support/Ostler Remote
 # detection clearly rather than letting curl 404 on a non-existent
 # Intel asset.
 REMOTECAPTURE_ARCH_DETECTED="$(uname -m 2>/dev/null || echo unknown)"
-if [[ "$REMOTECAPTURE_ARCH_DETECTED" != "arm64" && "$REMOTECAPTURE_ARCH_DETECTED" != "aarch64" ]]; then
+
+# ── RECORDING-CONSENT GATE (HR015 #940) ───────────────────────────
+#
+# THE CONSENT HAD NO HANDS. Measured on CM051 origin/main e0fb21bf,
+# 2026-09-16, with /usr/bin/grep over the whole tree:
+#
+#   spoken_capture_recording_consent
+#     built     legal wording          vendor/legal/consent_strings.py:226
+#     shown     Phase-2 screen         install.sh 10893-10932
+#     recorded  consent_cli record     install.sh 15746-15755
+#     REFUSED   nothing, anywhere      0 sites
+#
+#   The only reader of a durable consent record in this file is
+#   _ostler_consent_state, and its two call sites both name
+#   third_party_data_personal_records. CONTROL, same shape and same
+#   predicate: `_ostler_consent_state third_party` is 2 -- so the search
+#   can find a call site, and the zero above is a real absence. (The
+#   call sites pass the tickbox UNQUOTED, so a pattern with a quote
+#   after the function name finds nothing; that is a wrong-shaped
+#   control, not an absence.)
+#
+# WHAT THE CUSTOMER WAS TOLD, AND WHAT THEN HAPPENED. The screen's
+# default is "n". Answering it -- or clicking straight through --
+# printed MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF, "Spoken transcription
+# will stay off." Roughly fifteen thousand lines later this phase then
+# ran unconditionally and, for that same customer:
+#
+#   - pre-prompted them to grant Screen Recording and Microphone,
+#   - downloaded and staged Ostler RemoteCapture into /Applications,
+#   - cleared its quarantine xattr,
+#   - bootstrapped a LaunchAgent with RunAtLoad and KeepAlive both
+#     true, so the call/meeting transcription companion starts at
+#     login and is restarted if it exits.
+#
+# HR015 #940 sets its own priority on the premise that "transcription
+# is OFF BY DEFAULT and opt-in ... a user who clicks straight through
+# records nobody". On this tree that premise was not true, and the
+# issue's WARN VERSUS ENFORCE section is the answer: stopping by
+# default is a materially better position than having said so.
+#
+# THREE STATES, NOT TWO. accepted installs. declined does not, and says
+# the customer's own answer back to them. unknown -- nobody was ever
+# asked, or the answer was lost -- also does not install, and SAYS SO
+# OUT LOUD via _ostler_warn_consent_unknown rather than silently
+# treating a missing answer as a refusal. The opt-in default for a
+# recording-consent question is off; what may not happen is that being
+# invisible.
+#
+# THE APP IS NOT DELETED. A customer may have installed RemoteCapture
+# themselves. What this refuses is Ostler staging it and starting it
+# for them, so a prior run's LaunchAgent is booted out and removed and
+# the bundle is left where it is.
+#
+# NO NEW LATE TOTAL_STEPS DECREMENT, deliberately: the ratchet is
+# pinned at six and this step already keeps its slot on its existing
+# Apple-Silicon skip path. The denominator is unchanged either way.
+_OSTLER_CONSENT_SPOKEN_CAPTURE="$(_ostler_consent_state spoken_capture_recording_consent "${OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION:-}")"
+if [[ "$_OSTLER_CONSENT_SPOKEN_CAPTURE" != "accepted" ]]; then
+    REMOTECAPTURE_INSTALLED=false
+    if [[ "$_OSTLER_CONSENT_SPOKEN_CAPTURE" == "declined" ]]; then
+        info "$MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF"
+    else
+        _ostler_warn_consent_unknown "Ostler RemoteCapture (call and meeting transcripts)" spoken_capture_recording_consent
+    fi
+    # Stand down a previous run's agent. Without this, a customer who
+    # answered yes once and no later would keep the companion starting
+    # at every login, which is the same defect one level down.
+    if [[ -f "$REMOTECAPTURE_LAUNCHAGENT_PLIST" ]]; then
+        launchctl bootout "gui/$(id -u)/${REMOTECAPTURE_LAUNCHAGENT_LABEL}" >/dev/null 2>&1 || true
+        rm -f "$REMOTECAPTURE_LAUNCHAGENT_PLIST" 2>/dev/null || true
+        info "$MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED"
+    fi
+elif [[ "$REMOTECAPTURE_ARCH_DETECTED" != "arm64" && "$REMOTECAPTURE_ARCH_DETECTED" != "aarch64" ]]; then
     warn "$(printf "$MSG_WARN_CM042_APPLE_SILICON_ONLY" "${OSTLER_REMOTECAPTURE_VERSION}" "${REMOTECAPTURE_ARCH_DETECTED}")"
     info "$MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING"
     REMOTECAPTURE_INSTALLED=false
