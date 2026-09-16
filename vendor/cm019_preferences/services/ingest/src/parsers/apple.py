@@ -173,7 +173,7 @@ class AppleParser(BaseParser):
       * Heart: HR, HRV (aggregated patterns only)
       * Body: weight trends
       * Sleep: analysis patterns
-      * All health data: compartment_level=5 (highest privacy)
+      * All health data: compartment_level=0 (L0Personal, the most private)
     - iCloud Calendars and Reminders.zip (calendar patterns with privacy controls)
       * Calendar categories used (Work, Home, Family, etc.)
       * Subscribed calendars as interests (AI Tinkerers, Sports teams)
@@ -3668,7 +3668,7 @@ class AppleParser(BaseParser):
         Parse iCloud Notes export with strict privacy filtering.
 
         PRIVACY CONTROLS:
-        - compartment_level=5 (highest privacy) for ALL notes
+        - compartment_level=0 (L0Personal, the most private) for ALL notes
         - Skips notes with sensitive keywords in title OR content
         - Does NOT store content preview - only word count
         - Skips "Recently Deleted" folder
@@ -3771,7 +3771,12 @@ class AppleParser(BaseParser):
                     strength=strength,
                     observed_at=None,  # iCloud Notes export doesn't include timestamps in file structure
                     source=self.source_name,
-                    compartment_level=5,  # HIGHEST PRIVACY - notes contain personal info
+                    # 0 is L0Personal, the MOST private. This read 5 with the
+                    # comment HIGHEST PRIVACY, and 5 is L5Commercial, which
+                    # privacy_model.py maps to LEVEL_L2 and labels publishable.
+                    # The comment stated the intent correctly and the number
+                    # said the opposite. Notes contain personal info, so 0.
+                    compartment_level=0,  # L0Personal, the most private level
                     size=size,
                     extra={
                         "folder_path": folder_path,
@@ -3803,7 +3808,7 @@ class AppleParser(BaseParser):
         Parse Apple Health export.xml with STRICT privacy controls.
 
         PRIVACY REQUIREMENTS:
-        - compartment_level=5 for ALL health data (highest privacy)
+        - compartment_level=0 for ALL health data (L0Personal, the most private)
         - Only aggregate patterns, NOT individual readings
         - BLOCKED: blood pressure, medications, lab results, reproductive health
         - ALLOWED: activity, heart rate patterns, weight, sleep, workouts
@@ -4196,7 +4201,9 @@ class AppleParser(BaseParser):
                 strength=strength,
                 observed_at=None,  # Aggregate pattern, no single date
                 source=self.source_name,
-                compartment_level=5,  # HIGHEST PRIVACY for health data
+                # 0 is L0Personal. See the note on the Notes parser above:
+                # 5 is L5Commercial and resolves to publishable.
+                compartment_level=0,  # L0Personal, the most private level
                 size="Medium",
                 extra={
                     "health_metric": record_type,
@@ -4291,7 +4298,7 @@ class AppleParser(BaseParser):
                 strength=strength,
                 observed_at=None,
                 source=self.source_name,
-                compartment_level=5,  # HIGHEST PRIVACY
+                compartment_level=0,  # L0Personal, the most private level
                 size="Medium",
                 extra={
                     "workout_type": workout_type,
@@ -4341,7 +4348,7 @@ class AppleParser(BaseParser):
                 strength=strength,
                 observed_at=None,
                 source=self.source_name,
-                compartment_level=5,  # HIGHEST PRIVACY
+                compartment_level=0,  # L0Personal, the most private level
                 size="Medium",
                 extra={
                     "avg_sleep_hours": round(avg_asleep_hours, 2),
