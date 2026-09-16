@@ -193,8 +193,15 @@ run_reuse_install() {
         "$src_install" > "$out/recorder_call.sh"
 
     if [ "$prior" = "prior-accepted" ]; then
-        OSTLER_HOME="$home" PYTHONPATH="$REPO/vendor" env -u PYTHONPATH \
-            OSTLER_HOME="$home" PYTHONPATH="$REPO/vendor" "$PY" \
+        # PYTHONPATH is SET here, not unset: this is the one place the test
+        # wants the vendored packages on the path, the same way install.sh runs
+        # the CLI from the Hub venv with the vendor root on PYTHONPATH. An
+        # explicit assignment overrides whatever the caller inherited, so it
+        # does the isolating job `env -u` does elsewhere. It is written as a
+        # plain assignment rather than `env -u PYTHONPATH PYTHONPATH=...`
+        # because the order in which env applies an unset and an assignment to
+        # the SAME name is not something to bet a gate on across BSD and GNU.
+        env PYTHONPATH="$REPO/vendor" OSTLER_HOME="$home" "$PY" \
             -m ostler_security.consent_cli record \
             --tickbox personal_use_only --decision accepted \
             --region row --user-id synthetic-prior-user \
