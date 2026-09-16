@@ -470,6 +470,23 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "converge_kill_is_recorded"
+    # REGISTER DISAGREEMENT, RECORDED RATHER THAN RESOLVED (CM051 #1772).
+    # scripts/walk_promote_scope.tsv grades this probe `advisory`, and this row
+    # says it must PASS. Enforced by scripts/verify_register_agreement.py, which
+    # refuses an unacknowledged or expired pair. `until_cut` is not decoration:
+    # this acknowledgement DIES at that cut and has to be re-argued rather than
+    # inherited.
+    promote_scope_disagreement:
+      promote_scope: advisory
+      until_cut: "v1.0.100"
+      decided_by: >-
+        Andy, 2026-09-05, the decision recorded in the header of scripts/walk_promote_scope.tsv.
+      reason: >-
+        The promote register grades it advisory with a written reason: a killed
+        install-time converge is a fact about THIS BOX and its data, not a defect
+        in the DMG being walked. The cut register was written before that decision
+        and never heard about it. Whether a box-and-data fact should stop a cut as
+        well as a promote is a policy question about what a cut asserts.
 
   # ==========================================================================
   # #778. The seven probes below have existed since the BW2 bundle and NO
@@ -625,6 +642,23 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "ingest_coverage"
+    # REGISTER DISAGREEMENT, RECORDED RATHER THAN RESOLVED (CM051 #1772).
+    # scripts/walk_promote_scope.tsv grades this probe `advisory`, and this row
+    # says it must PASS. Enforced by scripts/verify_register_agreement.py, which
+    # refuses an unacknowledged or expired pair. `until_cut` is not decoration:
+    # this acknowledgement DIES at that cut and has to be re-argued rather than
+    # inherited.
+    promote_scope_disagreement:
+      promote_scope: advisory
+      until_cut: "v1.0.100"
+      decided_by: >-
+        Andy, 2026-09-05, the decision recorded in the header of scripts/walk_promote_scope.tsv.
+      reason: >-
+        The promote register grades it advisory with a written reason: its
+        denominator is WHICH SOURCES EXIST ON THE BOX, and a walk box is not a
+        customer, so a red can mean "this box has less data" rather than a defect
+        in the DMG. The cut register was written before that decision. Same policy
+        question as converge_kill_is_recorded.
 
   - id: hydrate-no-data-recorder-present
     title: the shipped install.sh must carry the honest no-data recorder
@@ -822,6 +856,25 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "usage_journal_producers"
+    # REGISTER DISAGREEMENT, RECORDED RATHER THAN RESOLVED (CM051 #1772).
+    # scripts/walk_promote_scope.tsv grades this probe `advisory`, and this row
+    # says it must PASS. Enforced by scripts/verify_register_agreement.py, which
+    # refuses an unacknowledged or expired pair. `until_cut` is not decoration:
+    # this acknowledgement DIES at that cut and has to be re-argued rather than
+    # inherited.
+    promote_scope_disagreement:
+      promote_scope: advisory
+      until_cut: "v1.0.100"
+      decided_by: >-
+        Andy, LAUNCH DIRECTIVE item 5 (CLAUDE.md, 2026-09-07): "usage_journal_producers: NOT blocking for v1.0."
+      reason: >-
+        The directive and the promote register AGREE that this probe does not stop
+        a release. The cut register is the outlier, and removing its row is a
+        policy act nobody has written down, so the contradiction is recorded here
+        instead of resolved by an agent. Three of the five required producers live
+        in OTHER repositories. The ostler-assistant chat path is measured to
+        record nothing at all on the streaming route, which is an upstream defect
+        with an upstream owner (CM051 #1163).
 
   # ==========================================================================
   # #1112. launchd serves the job definition it LOADED, not the one on disk.
@@ -1032,3 +1085,23 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "no_store_port_is_tcp_reachable"
+    # REGISTER DISAGREEMENT, RECORDED RATHER THAN RESOLVED (CM051 #1772).
+    # scripts/walk_promote_scope.tsv grades this probe `advisory`, and this row
+    # says it must PASS. Enforced by scripts/verify_register_agreement.py, which
+    # refuses an unacknowledged or expired pair. `until_cut` is not decoration:
+    # this acknowledgement DIES at that cut and has to be re-argued rather than
+    # inherited.
+    promote_scope_disagreement:
+      promote_scope: advisory
+      until_cut: "v1.0.100"
+      decided_by: >-
+        Andy, LAUNCH DIRECTIVE item 5 (CLAUDE.md, 2026-09-07), which names this probe BLOCKING after a rewrite to assert REFUSED WITHOUT CREDENTIAL.
+      reason: >-
+        THE OUTLIER HERE IS THE PROMOTE REGISTER, NOT THE CUT REGISTER, and that
+        is the opposite direction to the other three rows. walk_promote_scope.tsv
+        grades it advisory while the directive names it blocking, so the cut
+        register is the one obeying Andy. Its stated fix is CM051 #1980, measured
+        OPEN and DIRTY on 2026-09-17 (control: #2012 reads MERGED with a
+        timestamp), and that PR owns the scope flip. Flipping it here as well
+        would collide with it. This acknowledgement exists so the contradiction is
+        visible and dated while #1980 is landed.
