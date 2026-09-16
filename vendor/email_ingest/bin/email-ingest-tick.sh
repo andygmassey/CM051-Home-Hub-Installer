@@ -63,6 +63,38 @@ log() {
     printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
 }
 
+# --- Rule 0.8: the Ostler Pro subscription gate ----------------------
+# PRODUCTISATION_CHECKLIST.md Rule 0.8, locked 2026-05-09: every
+# ingestion pipeline checks the subscription gate before processing NEW
+# data. This is email triage (CM046), one of the eleven named surfaces.
+#
+# Placed BEFORE step 1 on purpose. Harvesting the mbox and then refusing
+# to ingest it would leave a half-done pass and move the Apple Mail
+# checkpoint past messages nothing read. Gate before the first read, or
+# a paused customer silently loses the mail they receive while paused.
+#
+# FAIL OPEN on anything that is not an unambiguous "paused" (exit 3).
+# A customer who has paid must never be stopped because we could not
+# ask. Paused exits 0, because an unsubscribed Hub is a steady state,
+# not a fault to light up Doctor with every hour.
+_ostler_gate="$OSTLER_DIR/services/ical-server/subscription_gate.py"
+if [ -f "$_ostler_gate" ]; then
+    set +e
+    "$OSTLER_PYTHON" "$_ostler_gate" --check
+    _ostler_gate_rc=$?
+    set -e
+    if [ "$_ostler_gate_rc" -eq 3 ]; then
+        log "Ostler Pro is not active, so new email ingestion is paused. Mail already in your Hub stays available. Subscribe in the Ostler app and this resumes on the next tick."
+        exit 0
+    fi
+    if [ "$_ostler_gate_rc" -ne 0 ]; then
+        log "WARNING: subscription gate check exited ${_ostler_gate_rc} (expected 0 or 3); continuing to ingest. A customer is never paused because we could not ask."
+    fi
+else
+    log "WARNING: subscription gate not found at ${_ostler_gate}; continuing to ingest. Rule 0.8 is NOT being enforced on this surface -- this line is the only evidence of that, so do not remove it."
+fi
+# --- end Rule 0.8 gate -----------------------------------------------
+
 # ---------------------------------------------------------------------------
 # 1. Emit fresh messages from Apple Mail
 # ---------------------------------------------------------------------------

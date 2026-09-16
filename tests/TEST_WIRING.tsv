@@ -496,6 +496,7 @@ test_the_sentinel_vocabulary_is_declared_and_complete.sh	WIRED	.github/workflows
 test_the_shipped_vendor_manifest_names_no_operator.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_success_screen_names_the_wiki_credential.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_summary_never_claims_a_recovery_path_that_was_not_handed_over.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_the_trial_must_actually_end.sh	WIRED	.github/workflows/the-trial-must-actually-end.yml
 test_the_uninstaller_resolves_docker_absolutely.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
 test_the_uninstaller_speaks_the_gui_marker_protocol.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_the_vane_port_demands_a_credential.sh	WIRED	.github/workflows/colima-autostart.yml
@@ -597,6 +598,7 @@ gui/OstlerInstallerTests/AdminAuthorizationGateTests.swift	WIRED	.github/workflo
 gui/OstlerInstallerTests/AdminPromptFinderPreAnnounceTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/AutoQuitAndKeepInstallerTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/BiometricProbeTests.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/CaffeinateTerminationTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/DeviceLimitReachedViewSnapshotTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/DeviceRegistrationClientTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/EmailSupportMailtoTest.swift	WIRED	.github/workflows/swift-tests.yml
@@ -613,6 +615,7 @@ gui/OstlerInstallerTests/LinkifyHelpTextTests.swift	WIRED	.github/workflows/swif
 gui/OstlerInstallerTests/LogDrawerFormatTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/LogRedactorTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/OfflineGraceBoundTests.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/OfflineGraceCacheReadTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/OnboardingButtonFooterProofTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/OnboardingQuestionViewSnapshotTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/OnboardingQuestionXOfYTests.swift	WIRED	.github/workflows/swift-tests.yml
@@ -623,6 +626,7 @@ gui/OstlerInstallerTests/PermissionsPrewarmCodeShapeTest.swift	WIRED	.github/wor
 gui/OstlerInstallerTests/PermissionsPrewarmInfoPlistTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/PermissionsPrewarmSequencingTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/ProgressDecoderTests.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/RecoveryKeySurvivesFailedInstallTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/ReuseSettingsExplanationTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/SelfRelocatorTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/SidebarPhaseAdvanceTests.swift	WIRED	.github/workflows/swift-tests.yml
@@ -630,6 +634,7 @@ gui/OstlerInstallerTests/SidebarStatusGlyphTests.swift	WIRED	.github/workflows/s
 gui/OstlerInstallerTests/StatementHeaderTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/StringsCatalogueEmDashTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/StringsCatalogueYNSuffixTest.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/SupportLogVisibilityTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TerminationExitCodeReconcileTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TypedInstallGateTest.swift	WIRED	.github/workflows/swift-tests.yml
 context-refresh/tests/test_context_digest_auth.py	WIRED	.github/workflows/context-digest-auth.yml
