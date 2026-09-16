@@ -121,6 +121,28 @@ jobs:
         if: always()
         run: /bin/bash tests/test_the_egress_proof_can_go_red.sh
 
+      # #1143. A DECLARED host can be a rotating DNS pool, and the pool is
+      # larger than any one lookup returns. The probe read a socket held to a
+      # pool member its own contemporaneous lookup had not returned and called
+      # it a boundary violation -- a FAIL on infrastructure the ledger names,
+      # in rows it had resolved. That is a comparison that could not be made,
+      # which is CANNOT-RUN, and reporting it as a violation teaches the reader
+      # of a walk to discount every FAIL this probe makes.
+      #
+      # The test drives the four-bucket classifier against a recorded map and
+      # carries its own mutants in BOTH directions: the pool arm removed must
+      # go red (the defect is back), and a pool arm that clears everything must
+      # also go red (the probe can no longer accuse).
+      #
+      # NO `paths:` LIST TO JOIN, and that is deliberate rather than an
+      # omission: this workflow triggers on every pull_request and every push
+      # to main with no path filter at all, so a narrowing filter added for one
+      # step would make the other twelve stop firing on unrelated commits. A
+      # path-filtered gate is the #1167 shape and must not be created here.
+      - name: A rotating DNS pool is CANNOT-RUN, not a policy violation (#1143)
+        if: always()
+        run: /bin/bash tests/test_egress_pool_member_is_not_a_policy_violation.sh
+
       # The tripwire on Andy's one ratified cut of deferral. v1.0.36 ships the
       # enrichment agent gated OFF; the cut after it must carry the question
       # that lets the customer decide. This step is green today and turns red
