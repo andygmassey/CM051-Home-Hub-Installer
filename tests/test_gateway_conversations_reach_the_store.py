@@ -44,9 +44,24 @@ always complete and tested; only the wiring to reach it was missing. So this
 walks the FULL consumer path a real install-time backfill or hourly tick
 actually takes:
 
+  0. the customer is put into the subscription state a real Hub is in on
+     the day it is installed, by calling ``activate_first_month_free`` --
+     the very writer install.sh calls -- rather than hand-writing JSON.
+     This step is a PRECONDITION and reports as one. It replaced a literal
+     ``{"status": "active"}`` fixture that failed in CI (run 35086634861):
+     ``status`` is a cache, not an authority, and an "active" state with no
+     ``expires_at`` and no evidence of payment is deliberately read as
+     INACTIVE by ``subscription_gate._walk`` (deleting ``expires_at`` is,
+     in that module's own words, "the cheapest way to try to farm a
+     permanent free trial"). The literal encoded the FLAG the code sets
+     instead of the PROPERTY the customer has, and so asserted a state
+     shape the product never writes;
   1. the gateway adapter is present in ``_ai_adapters("all")`` (the value
      every production caller passes) -- and channel_jsonl is confirmed STILL
-     absent, so this fix did not overcorrect into double-ingestion;
+     absent, paired with a positive control of the same shape (the same
+     membership predicate over the same list, for zeroclaw_sessions, which
+     MUST be found), so the absence can never be a predicate that cannot
+     see anything; the denominator is printed;
   2. ``unifier.unify()`` -- fed a REAL sqlite ``sessions.db`` fixture, not a
      mock -- actually YIELDS a ``Conversation`` for it, carrying the real
      message content;
@@ -74,6 +89,7 @@ import shutil
 import sqlite3
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -86,13 +102,13 @@ def _load_cm052():
         return None
     sys.path.insert(0, str(VENDOR_ROOT))
     try:
-        from src.cm052 import cli, unifier, wire
+        from src.cm052 import cli, subscription_gate, unifier, wire
         from src.cm052.adapters import channel_jsonl, zeroclaw_sessions
     except Exception as exc:  # noqa: BLE001 - report, do not crash the runner
         print(f"CANNOT-RUN: vendored cm052 package would not import: "
               f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return None
-    return cli, unifier, wire, zeroclaw_sessions, channel_jsonl
+    return cli, unifier, wire, zeroclaw_sessions, channel_jsonl, subscription_gate
 
 
 def _make_gateway_db(path: Path) -> None:
@@ -172,7 +188,7 @@ def main() -> int:
     loaded = _load_cm052()
     if loaded is None:
         return 2
-    cli, unifier, wire, zeroclaw_sessions, channel_jsonl = loaded
+    cli, unifier, wire, zeroclaw_sessions, channel_jsonl, subscription_gate = loaded
 
     failures: list[str] = []
     tmp = Path(tempfile.mkdtemp(prefix="cm052-gateway-test-"))
@@ -182,16 +198,60 @@ def main() -> int:
         _make_gateway_db(hub_dir / "sessions.db")
 
         sub_state_path = tmp / "sub_state.json"
-        sub_state_path.write_text(json.dumps({"status": "active"}), encoding="utf-8")
 
         os.environ["CM052_USER_HUB_DIR"] = str(hub_dir)
         os.environ["CM052_USER_EMAIL"] = "test-user@example.invalid"
         os.environ["OSTLER_SUBSCRIPTION_STATE"] = str(sub_state_path)
 
+        # --- 0. Put the customer in the subscription state a REAL Hub is in
+        # on the day it is installed, by calling the very writer install.sh
+        # calls -- not by hand-writing JSON. -----------------------------
+        #
+        # This fixture used to be `{"status": "active"}`, written literally,
+        # and it FAILED (CI run 35086634861): wire.post() paused with
+        # subscription_inactive. The gate was right and the fixture was
+        # wrong. `status` is a CACHE, not an authority -- is_active_or_grace
+        # walks the state forward to now, and an "active" state with no
+        # `expires_at` and no evidence of payment is deliberately read as
+        # INACTIVE, because deleting expires_at is (subscription_gate.py's
+        # own words) "the cheapest way to try to farm a permanent free
+        # trial". A hand-written literal encoded the FLAG the code sets
+        # rather than the PROPERTY the customer has, so it asserted a state
+        # shape the product never actually writes.
+        #
+        # activate_first_month_free is what install.sh invokes after licence
+        # verification, so this is a customer who bought a Hub today and is
+        # inside their free month: the state cannot drift from what ships,
+        # because it IS what ships that produced it.
+        now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        subscription_gate.activate_first_month_free(now_iso)
+        if not subscription_gate.is_active_or_grace():
+            # A precondition, reported as itself. Without this the next
+            # reader debugs wire.post() for a defect that is in the fixture.
+            failures.append(
+                f"fixture precondition: a Hub freshly activated via "
+                f"activate_first_month_free does not read as active or in "
+                f"grace, so step 4 cannot test what it claims to. state="
+                f"{subscription_gate.state_dict()!r}")
+            print("\n".join(f"FAIL: {f}" for f in failures), file=sys.stderr)
+            return 1
+
         # --- 1. the adapter reaches the ONLY entrypoint production calls,
         # and its excluded sibling stays excluded (no overcorrection). -------
+        #
+        # The channel_jsonl claim below is an ABSENCE claim, so it is paired
+        # with a positive control of exactly the same shape: the SAME
+        # membership predicate, over the SAME list, for zeroclaw_sessions,
+        # which MUST be found. If the predicate were broken (an empty list,
+        # a changed pair layout, an adapter module that stopped exporting
+        # `read`), the control goes red too, so "channel_jsonl is absent"
+        # can never be a false absence produced by a predicate that cannot
+        # see anything. The denominator is printed with it.
         pairs_all = cli._ai_adapters("all")
         funcs_all = [p[0] for p in pairs_all]
+        print(f"_ai_adapters('all') returned {len(funcs_all)} adapter(s); "
+              f"asserting zeroclaw_sessions.read present (positive control) "
+              f"and channel_jsonl.read absent over that same list")
         if zeroclaw_sessions.read not in funcs_all:
             failures.append(
                 "_ai_adapters('all') does not include zeroclaw_sessions.read "
