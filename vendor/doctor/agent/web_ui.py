@@ -1320,18 +1320,46 @@ def render_source_status() -> str:
             "<p class=\"muted\">No ingest record yet. On a fresh install this "
             "fills in as each source reads in.</p></div>"
         )
+    # ── EVERY STATUS THE WRITER CAN EMIT HAS A WORD HERE (CM051 #1587) ──
+    #
+    # install.sh declares its vocabulary in OSTLER_SENTINEL_STATUSES:
+    # ok / error / timeout / no_data / cannot_run. Two of those five had no
+    # entry in this table, so the cell fell through to the raw identifier and
+    # a customer with Full Disk Access ungranted read the word "cannot_run"
+    # in their own panel, in amber, with no explanation. It is not a rare
+    # branch: the contacts arm records cannot_run on exactly that box, and
+    # the Photos and Reminders arms added by #1587 record it too.
+    #
+    # "could not look" rather than "failed" is the substantive half. A
+    # CANNOT-RUN is not a failure and it is not a zero -- nothing looked, so
+    # nothing was found OR not found, and the Items cell beside it stays
+    # blank rather than saying 0.
     _LABEL = {"ok": "read in", "no_data": "nothing to read",
               "not_run": "not run yet", "unreadable": "record unreadable",
-              "error": "failed"}
+              "error": "failed", "cannot_run": "could not look",
+              "timeout": "ran out of time"}
     _COLOUR = {"ok": "#5cb579", "no_data": "rgba(236,232,225,0.55)",
                "not_run": "#d4a052", "unreadable": "#d96666",
-               "error": "#d96666"}
+               "error": "#d96666", "cannot_run": "#d4a052",
+               "timeout": "#d4a052"}
     body = []
     for r in rows:
         st = (r.get("status") or "not_run")
         when = r.get("last_update_at") or r.get("recorded_at")
         n = r.get("item_count")
         # None and 0 are different answers and must not print the same.
+        #
+        # AND A STATE THAT TOOK NO MEASUREMENT MUST NOT PRINT ONE (#1587).
+        # _hydrate_sentinel_record_cannot_run writes `item_count=0`, because
+        # the change-detection helper it shares with the other recorders
+        # needs a number to compare against the previous record. That 0 is
+        # bookkeeping, not a count: the whole meaning of cannot_run is that
+        # nothing looked. Printing it beside "could not look" would put a
+        # fabricated zero in the one column a customer reads as "how much of
+        # mine did you find", which is the same shape as the return code
+        # that used to print there (#946).
+        if st in ("cannot_run", "not_run", "unreadable"):
+            n = None
         count = "&mdash;" if n is None else f"{n:,}"
         body.append(
             '<tr>'
@@ -2652,6 +2680,29 @@ _SOURCE_KINDS = {
     "dedupe": "operation",
     "privacy_backfill": "operation",
 }
+
+# ── THE FDA EXTRACT FAMILY (CM051 #1587) ────────────────────────────────
+#
+# Every name in _SOURCE_KINDS above is a source the installer ALWAYS attempts,
+# so a missing sentinel there genuinely means "not run yet" and the row is
+# printed whether or not the file exists. These are different: the customer
+# chooses them in the picker, and Photos defaults to OFF. Printing an
+# unconditional "not run yet" row in amber for a source somebody declined
+# would invent a failure, which is the mirror of the defect this closes.
+#
+# So the row appears exactly when install.sh has written a record for it.
+# _hydrate_record_fda_extract writes one for every state the extractor can
+# report EXCEPT disabled_by_user -- ok, no_data, cannot_run and error all land
+# on disk -- so the only way to have no sentinel is to have declined the
+# source or to be on a build older than that writer.
+#
+# A DECLARED SET, NOT A DIRECTORY GLOB. The row register stays a fixed list;
+# this widens it by two known names when their file is present. An arbitrary
+# file dropped into the hydrate directory still cannot invent a row.
+_FDA_EXTRACT_KINDS = {
+    "photos": "source",
+    "reminders": "source",
+}
 _SOURCE_STATUS_INT_FIELDS = {"item_count", "rc"}
 
 
@@ -2787,9 +2838,24 @@ def read_source_status(hydrate_dir: Path | None = None,
     to ``"unreadable"``; it is never silently treated as absent.
     """
     base = hydrate_dir if hydrate_dir is not None else _source_hydrate_dir()
+
+    # The FDA extract family joins the register only when its record exists.
+    # See _FDA_EXTRACT_KINDS for why these two are conditional and the rest
+    # are not.
+    kinds = dict(_SOURCE_KINDS)
+    for _fda_name, _fda_kind in _FDA_EXTRACT_KINDS.items():
+        if _fda_name in kinds:
+            continue
+        try:
+            present = (base / (_fda_name + ".done")).is_file()
+        except OSError:
+            present = False
+        if present:
+            kinds[_fda_name] = _fda_kind
+
     rows = []
-    for name in sorted(_SOURCE_KINDS):
-        kind = _SOURCE_KINDS[name]
+    for name in sorted(kinds):
+        kind = kinds[name]
         sentinel = base / (name + ".done")
         if not sentinel.is_file():
             rows.append({"source": name, "kind": kind, "status": "not_run",
