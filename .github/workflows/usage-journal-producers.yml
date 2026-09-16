@@ -60,6 +60,7 @@ on:
       # is not matched by a paths: entry is a check that is blind to a change
       # to the very thing it checks.
       - 'scripts/verify_usage_journal_producers.py'
+      - 'tests/test_the_adjudicator_refuses_a_staging_journal.sh'
       - 'scripts/usage_journal_producers.tsv'
       - 'scripts/usage_journal_producer_floor.tsv'
       - 'scripts/box_walk_probes/probes/usage_journal_producers.sh'
@@ -369,6 +370,17 @@ jobs:
   # 3.2.57 with BSD userland. A gate that is only ever executed on ubuntu can
   # be inert on the machine it ships to and nothing would say so.
   # ==========================================================================
+      # Row #1774, the half the probe wrapper does not cover. The wrapper
+      # refuses a staging journal path; the ADJUDICATOR did not, and this
+      # workflow calls the adjudicator DIRECTLY. A guard living in one of
+      # several callers guards one of several callers.
+      #
+      # always(), because a guard that runs only when everything else is green
+      # stops being measured exactly when something is wrong.
+      - name: The adjudicator refuses a staging journal, not just the probe
+        if: always()
+        run: /bin/bash tests/test_the_adjudicator_refuses_a_staging_journal.sh
+
   producer-gate-macos:
     runs-on: macos-14
     timeout-minutes: 30

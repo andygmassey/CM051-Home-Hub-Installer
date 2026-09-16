@@ -351,6 +351,48 @@ def matches(producer, record, purpose):
     return session_id.startswith(producer.match_value) and purpose == producer.purpose
 
 
+# ---------------------------------------------------------------------------
+# A LEFTOVER STAGING TREE IS NOT THE BOX (#1774), AND THE READER MUST SAY SO.
+#
+# The probe wrapper already refuses a staging path. This is the SAME refusal in
+# the ADJUDICATOR, because the wrapper is not the only caller: the workflow
+# invokes this file directly as `python3 scripts/verify_usage_journal_producers.py
+# --journal "$F"`, and so could OS003 or a person at a terminal. A guard that
+# lives only in one of several callers guards only that caller.
+#
+# Measured on this branch before the change, with a control of the same shape in
+# the same file: `prelaunch|staging` matched 0 lines here, against 55 for
+# `journal`, so the reader worked and the absence was real.
+#
+# REFUSED, NEVER FAILED. A staging path means the live journal was not found,
+# which is coverage lost. Calling it a FAIL accuses the producers of a silence
+# nobody looked for. That is exit 2, the third state, not exit 1.
+#
+# TWO SCOPES, deliberately, because the two ways in mean different things:
+#
+#   resolved from the environment  the full set the probe refuses. Nobody chose
+#                                  this path, so any temp-looking prefix means
+#                                  the resolver landed on residue.
+#   named with --journal           ONLY the unambiguous staging signature,
+#                                  `ostler-prelaunch-`. A caller who names a
+#                                  path means it, and test fixtures legitimately
+#                                  live under /tmp and /var/folders. Refusing
+#                                  those would make every fixture CANNOT-RUN,
+#                                  which is how a guard gets removed.
+_STAGING_SIGNATURE = "ostler-prelaunch-"
+_TEMP_PREFIXES = ("/tmp/", "/private/tmp/", "/var/folders/")
+
+
+def journal_path_is_staging(path, explicitly_named):
+    """True when this path is a staging tree rather than the customer's box."""
+    text = str(path)
+    if _STAGING_SIGNATURE in text:
+        return True
+    if explicitly_named:
+        return False
+    return text.startswith(_TEMP_PREFIXES)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(add_help=True, description=__doc__.splitlines()[0])
     ap.add_argument("--journal", default=None,
@@ -381,6 +423,16 @@ def main(argv=None):
                 "writer: %s. Nothing was read; a reader and a writer pointed at "
                 "two different files measure nothing." % drift
             )
+
+    if journal_path_is_staging(journal, explicitly_named=bool(args.journal)):
+        return cannot_run(
+            "the journal path names a STAGING tree, not the customer's box: %s. "
+            "A leftover prelaunch tree holds whatever the installer wrote while "
+            "OSTLER_DIR still pointed at staging, so adjudicating it measures "
+            "the install and not the box. Refused rather than failed: the "
+            "producers were never given a chance to be silent here. (#1774)"
+            % (journal,)
+        )
 
     if args.print_journal_path:
         print(journal)
