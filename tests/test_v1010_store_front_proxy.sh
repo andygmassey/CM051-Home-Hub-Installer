@@ -47,8 +47,8 @@ grep -qF '"127.0.0.1:7878:7878"' "$COMPOSE" || fail "store-proxy does not publis
 # belong to the store-proxy block.
 qdrant_block="$(awk '/^  qdrant:/{c=1} c&&/^  [a-z]/&&!/^  qdrant:/{c=0} c' "$COMPOSE")"
 oxi_block="$(awk '/^  oxigraph:/{c=1} c&&/^  [a-z]/&&!/^  oxigraph:/{c=0} c' "$COMPOSE")"
-echo "$qdrant_block" | grep -qF '6333:6333' && fail "qdrant still publishes 6333 to host (bypasses the proxy)"
-echo "$oxi_block" | grep -qF '7878:7878' && fail "oxigraph still publishes 7878 to host (bypasses the proxy)"
+grep -qF '6333:6333' <<<"$qdrant_block" && fail "qdrant still publishes 6333 to host (bypasses the proxy)"
+grep -qF '7878:7878' <<<"$oxi_block" && fail "oxigraph still publishes 7878 to host (bypasses the proxy)"
 # 2026-08-28 (#550): THIS ASSERTION USED TO RUN THE OTHER WAY ROUND.
 #
 # It required qdrant to KEEP publishing gRPC 6334, and called removing it
@@ -62,7 +62,7 @@ echo "$oxi_block" | grep -qF '7878:7878' && fail "oxigraph still publishes 7878 
 # TEST, where it would have defended the defect against its own fix.
 #
 # It is now inverted. 6334 must NOT be published.
-echo "$qdrant_block" | grep -qF '6334:6334' && fail "qdrant publishes gRPC 6334 to the host (#550: reachable by any local account, and the store is keyless)"
+grep -qF '6334:6334' <<<"$qdrant_block" && fail "qdrant publishes gRPC 6334 to the host (#550: reachable by any local account, and the store is keyless)"
 
 # store-proxy depends on both upstreams (so nginx can resolve them).
 awk '/store-proxy:/{c=1} c&&/depends_on:/{d=1} c&&/- qdrant/{q=1} c&&/- oxigraph/{o=1} END{exit (d&&q&&o)?0:1}' "$COMPOSE" \
