@@ -640,11 +640,22 @@ RUNNER="${REPO_ROOT}/scripts/box_walk_probes/run_box_walk.sh"
 if [ ! -f "$RUNNER" ] || [ ! -f "$PROBE" ]; then
     failure "(21) missing ${RUNNER} or ${PROBE}; the wiring assertion measured nothing"
 else
-    _W_SOURCE="$(/usr/bin/grep -c 'lib/assistant_asked.sh' "$RUNNER")"
-    _W_CALL="$(/usr/bin/grep -c 'assistant_asked_from_output' "$RUNNER")"
-    _W_EXPORT="$(/usr/bin/grep -c 'export OSTLER_ASSISTANT_ASKED' "$RUNNER")"
-    _W_READ="$(/usr/bin/grep -c 'OSTLER_ASSISTANT_ASKED' "$PROBE")"
-    _W_FLAG="$(/usr/bin/grep -c 'no-opportunity' "$PROBE")"
+    # `-w`, NOT a bare substring count, on all five. MEASURED against this
+    # very arm on 2026-09-17: renaming the runner's export to
+    # OSTLER_ASSISTANT_ASKED_UNUSED breaks the wiring completely, and a bare
+    # `grep -c 'export OSTLER_ASSISTANT_ASKED'` still returns 1 because the
+    # old name is a PREFIX of the new one. The arm passed over a signal
+    # nothing carried. That is this repo's own "one number matched inside
+    # another" shape, applied to a name instead of a count.
+    #
+    # `-w` is BSD-safe and was checked on the grep that ran it: over a file
+    # holding both names, `-cw` returns 1 and a bare `-c` returns 2.
+    # Underscore is a word character, so the longer name cannot satisfy it.
+    _W_SOURCE="$(/usr/bin/grep -cw 'lib/assistant_asked.sh' "$RUNNER")"
+    _W_CALL="$(/usr/bin/grep -cw 'assistant_asked_from_output' "$RUNNER")"
+    _W_EXPORT="$(/usr/bin/grep -cw 'export OSTLER_ASSISTANT_ASKED' "$RUNNER")"
+    _W_READ="$(/usr/bin/grep -cw 'OSTLER_ASSISTANT_ASKED' "$PROBE")"
+    _W_FLAG="$(/usr/bin/grep -cw 'no-opportunity' "$PROBE")"
     # CONTROLS THAT MUST BE NON-ZERO: a wiring that was never there and a file
     # a grep could not read print the same zero.
     _W_CTL_RUNNER="$(/usr/bin/grep -c 'lib/converge_wait.sh' "$RUNNER")"
