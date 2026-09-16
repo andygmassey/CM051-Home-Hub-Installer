@@ -47,6 +47,12 @@ on:
   pull_request:
     paths:
       - 'install.sh'
+      # Both halves of the bash 3.2 guard: the test itself, so a change to it
+      # cannot go unrun, and its subject, so a regression in the subject fires
+      # the gate that watches it. A run: step with no matching path entry is a
+      # gate you have read, not a gate you have run.
+      - 'tests/test_case_in_command_substitution_parses_under_bash_32.sh'
+      - 'tests/test_vendor_only_survives_sync.sh'
       - 'vendor/doctor/agent/web_ui.py'
       - 'vendor/cm041/identity_resolver/batch_resolver.py'
       - 'vendor/cm041/identity_resolver/resolver.py'
@@ -136,6 +142,13 @@ jobs:
 
       - name: An empty owner email must not reach a shipped LaunchAgent
         run: bash tests/test_aiconv_agent_not_registered_without_owner_email.sh
+
+      - name: shell tests run to completion under the cut host's bash 3.2
+        # always(), because a step that only runs on success can be masked
+        # by an earlier red, and this one exists to catch a suite that
+        # stops partway while still printing PASS above the failure.
+        if: always()
+        run: /bin/bash tests/test_case_in_command_substitution_parses_under_bash_32.sh
 
       # Runtime, not structural: the defect is an ORDERING between a guard and
       # a fold, and both were present in the tree that shipped it. Needs
