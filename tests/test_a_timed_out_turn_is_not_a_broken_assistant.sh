@@ -51,14 +51,54 @@ frames() {
     esac
 }
 
+# THE BATTERY IS READ, NEVER ASSUMED (#1162).
+#
+# This harness feeds one canned turn per argument, and the probe REFUSES when
+# `asked` is not `declared`. So a harness that hard-codes three turns reports
+# CANNOT-RUN the moment the battery grows, and the refusal is a fact about THIS
+# FILE rather than about the probe, which is exactly what happened when #1162
+# added the rephrasing half of the declared pair as battery member four.
+#
+# Hand-patching a fourth argument onto twenty call sites would encode the
+# battery size in twenty places and break again at five. The size is read from
+# the probe instead, and the remaining turns are answered `grounded`: a neutral
+# turn that can neither create a defect nor lose coverage in any arm below, so
+# every arm still measures the shape its call site names.
+_battery_size() {
+    local h="${WORK}/battery.sh"
+    {
+        printf 'set -uo pipefail\n'
+        printf 'probe_examined() { :; }\nprobe_note() { :; }\n'
+        printf 'probe_pass() { exit 0; }\nprobe_fail() { exit 1; }\nprobe_cannot_run() { exit 2; }\n'
+        printf 'box_reachable() { return 0; }\nbox_run() { return 0; }\n'
+        grep -v -e '^\. "' -e '^source ' -e '^probe_main ' "$SUBJECT"
+        printf '_questions | grep -c .\n'
+    } > "$h"
+    bash "$h" 2>/dev/null | tail -1
+}
+BATTERY="$(_battery_size)"
+case "$BATTERY" in
+    ''|*[!0-9]*)
+        printf 'CANNOT-RUN: could not read the battery size from %s (got %s).\n' "$SUBJECT" "${BATTERY:-<empty>}" >&2
+        printf '            Every arm below feeds one turn per question; without the\n' >&2
+        printf '            denominator the harness would be guessing at it.\n' >&2
+        exit 2 ;;
+esac
+if [ "$BATTERY" -lt 3 ]; then
+    printf 'CANNOT-RUN: the battery declares %s question(s); the arms below assume at least three.\n' "$BATTERY" >&2
+    exit 2
+fi
+printf '  battery declares %s question(s); turns beyond the named ones are padded grounded\n' "$BATTERY"
+
 # TAKE THE WHOLE FILE, minus the two lines that would fight the harness: the
 # `. lib/probe.sh` source (which would replace the stubs) and the trailing
 # probe_main (which would run it). A unit is not its file -- extracting run_probe
 # alone would leave classify_verdict undefined and every arm would measure that.
-verdict() {  # verdict <turn1> <turn2> <turn3>  -> PASS | FAIL | CANNOT-RUN
+verdict() {  # verdict <turn1> <turn2> <turn3> [...]  -> PASS | FAIL | CANNOT-RUN
     local h="${WORK}/h.sh" i=1
     : > "${WORK}/answers"
     for t in "$@"; do frames "$t" >> "${WORK}/answers.$i"; i=$((i+1)); done
+    while [ "$i" -le "$BATTERY" ]; do frames grounded >> "${WORK}/answers.$i"; i=$((i+1)); done
     cat > "$h" <<HDR
 set -uo pipefail
 PROBE_EX_PASS=0; PROBE_EX_FAIL=1; PROBE_EX_CANNOT_RUN=2

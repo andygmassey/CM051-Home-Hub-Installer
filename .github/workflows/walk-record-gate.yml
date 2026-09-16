@@ -134,6 +134,12 @@ on:
       - 'scripts/payload_delta.sh'
       - 'gui/Makefile'
       - 'tests/test_a_walk_failure_is_classified.sh'
+      # #1162: the rephrasing pair that lets the grounded probe tell "this exact
+      # string fails every time" from "one question in N fails". The probe file
+      # is already watched above; this line is the other half. A suite this
+      # workflow RUNS but does not WATCH is dark on self-edit and could be
+      # gutted in a PR that never runs it.
+      - 'tests/test_the_grounded_probe_can_see_a_phrasing_asymmetry.sh'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in the very PR that narrows it.
       - '.github/workflows/walk-record-gate.yml'
@@ -784,3 +790,63 @@ jobs:
       - name: no NEW cut puts its own pin in the BOM ref column
         if: always()
         run: bash tests/test_bom_ref_is_not_the_cut_pin.sh
+
+      # #1162. "One in three questions fails" is a RATE: not reproducible, not
+      # actionable. "This exact string fails every time while a semantically
+      # identical rephrasing grounds" is a bug with a repro case. The battery
+      # was three DISTINCT questions, so no rephrasing pair existed and the
+      # probe was structurally incapable of telling those two findings apart.
+      #
+      # Thirteen arms: five mutations of the REAL probe file, each of which
+      # must prove it applied before its assertion is scored; a walk-shaped run
+      # over a box stub that reproduces the 2026-08-27 measurement, requiring
+      # the record to NAME both strings; and the must-miss that a uniform
+      # failure is still a FAIL and still not an asymmetry.
+      #
+      # `if: always()`, ci-maskless (#1695): without it a red earlier in this
+      # job SKIPS this step, and a skipped test reports nothing at all.
+      - name: The grounded probe can SEE a phrasing asymmetry, not just a rate
+        if: always()
+        run: /bin/bash tests/test_the_grounded_probe_can_see_a_phrasing_asymmetry.sh
+
+  # ==========================================================================
+  # THE SAME SUITE ON macOS, ON bash 3.2.
+  #
+  # This probe runs on a box walk, and a box walk targets a Mac, where
+  # /bin/bash is 3.2.57 and the userland is BSD. The suite drives the probe
+  # through heredocs, `IFS=$'\t' read`, `grep -Fxq` and `awk -F'\t'`, every one
+  # of which has bitten this repo differently on GNU and on BSD. Verifying only
+  # on ubuntu would be testing a shell the probe never runs under.
+  #
+  # The PATH shim is not optional: on macos-14 the `bash` on PATH is 5.x while
+  # `/bin/bash` is 3.2, so a bare `bash` would measure the wrong shell and pass
+  # for the wrong reason. The job refuses to continue if the shim did not take.
+  # ==========================================================================
+  phrasing-asymmetry-bash32:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Record the shell this job actually has
+        run: |
+          set -u
+          echo "/bin/bash  -> $(/bin/bash --version | head -1)"
+          maj="$(/bin/bash -c 'echo ${BASH_VERSINFO[0]}')"
+          echo "major version: ${maj}"
+          if [ "${maj}" != "3" ]; then
+            echo "CANNOT-RUN: /bin/bash on this runner is not 3.x, so this job"
+            echo "            would measure the same shell the ubuntu job does"
+            echo "            and report a second green for the first reason."
+            exit 1
+          fi
+
+      - name: The phrasing-asymmetry suite, on bash 3.2 + BSD userland
+        run: /bin/bash tests/test_the_grounded_probe_can_see_a_phrasing_asymmetry.sh
+
+      - name: The probe and the suite both PARSE under /bin/bash 3.2
+        if: always()
+        run: |
+          /bin/bash -n scripts/box_walk_probes/probes/assistant_answers_grounded.sh
+          /bin/bash -n tests/test_the_grounded_probe_can_see_a_phrasing_asymmetry.sh
+          echo "both parse under $(/bin/bash --version | head -1)"

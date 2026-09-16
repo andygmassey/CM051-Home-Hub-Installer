@@ -546,12 +546,101 @@ classify_verdict() {
 # The battery. Each SHOULD reach the graph on a populated box. Deliberately
 # phrased the way a new customer phrases them, not the way the tools are shaped
 # -- that mismatch IS #854, and a probe written to suit the tools would hide it.
+#
+# THE FOURTH LINE IS NOT A FOURTH QUESTION. It is the REPHRASING HALF of a
+# declared pair, and #1162 is the whole reason it is here.
+#
+# Until it landed, the battery was three DISTINCT questions, so the only thing
+# a walk record could ever say was "1 of 3 failed". That reads as a RATE (one
+# in three questions does not reach the customer's data), and a rate is not
+# reproducible and not actionable. What was actually measured on the walk box
+# (ostler-hub, hub-v0.4.64, gemma4:e2b, 2026-08-27, three separate runs, and
+# surviving an interposed unrelated turn) was something else entirely:
+#
+#   "What subjects am I most drawn to?"  -> tool_call pwg_preferences, OK
+#   "What are my interests?"             -> no tool_call at all
+#
+# ONE EXACT STRING fails, every time, while a semantically identical rephrasing
+# grounds. That is a bug with a repro case. The probe could not see it because
+# seeing it requires TWO questions that mean the same thing, and there were
+# none: `_rephrasing_pairs` below declares the pair, `_phrasing_asymmetry`
+# reports it by name, and `run_probe` refuses (CANNOT-RUN) if a declared pair
+# member is not actually in the battery, because a pair nobody asks is a claim
+# nobody measures, which is #1039's attachment-point lesson applied here.
+#
+# THE FIRST THREE LINES ARE PINNED IN ORDER by self_test, and adding a line can
+# only make this probe stricter: every battery member is adjudicated and scored
+# exactly as before, so the rephrasing is a new way to FAIL, never a new way to
+# pass. The seeded question is still appended after the battery, so it moves
+# from position 4 to position 5 while positions 1-3 are unchanged in every
+# prior walk record.
 _questions() {
     cat <<'QEOF'
 What do you know about me?
 What are my interests?
 Who have I been in contact with recently?
+What subjects am I most drawn to?
 QEOF
+}
+
+# DECLARED REPHRASING PAIRS: two battery members that a customer would expect
+# to be answered from the same data. TAB separated, one pair per line.
+#
+# The left-hand member is the phrasing MEASURED to fail; the right-hand member
+# is the rephrasing MEASURED to ground. The order is documentation only: the
+# asymmetry is reported in whichever direction it is observed, because a future
+# regression that inverts it is the same finding and must not read as clean.
+_rephrasing_pairs() {
+    printf '%s\t%s\n' 'What are my interests?' 'What subjects am I most drawn to?'
+}
+
+# Per-question verdicts are recorded as three TAB-separated fields:
+#     <question>	<verdict token>	<class from classify_verdict>
+# No battery question contains a tab, which is what makes field 1 a safe key.
+_verdict_of() {  # _verdict_of <records-file> <question> -> verdict token or ''
+    awk -F'\t' -v q="$2" '$1 == q { print $2; exit }' "$1"
+}
+_class_of() {    # _class_of   <records-file> <question> -> ok|defect|unmeasured or ''
+    awk -F'\t' -v q="$2" '$1 == q { print $3; exit }' "$1"
+}
+
+# THE ASYMMETRY READER. A named function over a RECORDS FILE so the self-test
+# drives the same code the walk runs, not a re-implementation of it.
+#
+# Prints one line per pair where ONE member completed without reaching the
+# graph and the OTHER completed and did reach it. Prints NOTHING otherwise, and
+# the nothing cases are the ones worth stating out loud because each is a
+# different finding that must not be dressed up as this one:
+#
+#   both grounded            no asymmetry. The pair agrees; there is no story.
+#   both defect              a uniform failure, NOT an asymmetry. Calling it one
+#                            would manufacture a repro case out of a capability
+#                            gap, which is exactly the misreading #1162 exists
+#                            to stop, just pointed the other way.
+#   either one unmeasured    a clock or a client, never a claim about phrasing.
+#                            classify_verdict already keeps that separate and
+#                            this must not quietly undo it.
+#   either one never asked   nothing to compare. run_probe refuses before this
+#                            can happen; if it ever does, silence here is
+#                            correct and the refusal is the report.
+_phrasing_asymmetry() {  # _phrasing_asymmetry <records-file>
+    _pa_file="$1"
+    while IFS="$(printf '\t')" read -r _pa_left _pa_right; do
+        [ -n "$_pa_left" ] || continue
+        [ -n "$_pa_right" ] || continue
+        _pa_lc="$(_class_of "$_pa_file" "$_pa_left")"
+        _pa_rc="$(_class_of "$_pa_file" "$_pa_right")"
+        [ -n "$_pa_lc" ] && [ -n "$_pa_rc" ] || continue
+        if [ "$_pa_lc" = "defect" ] && [ "$_pa_rc" = "ok" ]; then
+            printf 'PHRASING ASYMMETRY: "%s" COMPLETED without reaching the graph (%s) while its rephrasing "%s" grounded in the same walk. One exact string, not one question in N.\n' \
+                "$_pa_left" "$(_verdict_of "$_pa_file" "$_pa_left")" "$_pa_right"
+        elif [ "$_pa_rc" = "defect" ] && [ "$_pa_lc" = "ok" ]; then
+            printf 'PHRASING ASYMMETRY: "%s" COMPLETED without reaching the graph (%s) while its rephrasing "%s" grounded in the same walk. One exact string, not one question in N.\n' \
+                "$_pa_right" "$(_verdict_of "$_pa_file" "$_pa_right")" "$_pa_left"
+        fi
+    done <<EOF
+$(_rephrasing_pairs)
+EOF
 }
 
 run_probe() {
@@ -581,8 +670,33 @@ run_probe() {
     [ -n "$EXPECT_FACT" ] && printf '%s\n' "$SEEDED_QUESTION" >> "$_qfile"
     _declared="$(grep -c . "$_qfile")"
 
+    # ── A DECLARED PAIR THAT IS NEVER ASKED IS AN UNMEASURABLE CLAIM ────────
+    # #1039's lesson, applied before the walk rather than after it: the logic
+    # below can be perfectly right about an asymmetry while the questions it
+    # compares were never put to the assistant, and a test of the logic would
+    # be green forever. So the ATTACHMENT is pinned structurally, here, at the
+    # point where the battery actually exists on disk. Refusing is CANNOT-RUN
+    # and not FAIL: a pair declared against a battery that does not carry it is
+    # a defect in this file, not evidence about the product.
+    _pairs=0
+    while IFS="$(printf '\t')" read -r _p_left _p_right; do
+        [ -n "$_p_left" ] || continue
+        _pairs=$(( _pairs + 1 ))
+        grep -Fxq -- "$_p_left" "$_qfile" || probe_cannot_run \
+            "declared rephrasing pair member is not in the battery: '${_p_left}'. The pair would never be asked, so its asymmetry could never be observed and a green here would prove nothing"
+        grep -Fxq -- "$_p_right" "$_qfile" || probe_cannot_run \
+            "declared rephrasing pair member is not in the battery: '${_p_right}'. The pair would never be asked, so its asymmetry could never be observed and a green here would prove nothing"
+    done <<EOF
+$(_rephrasing_pairs)
+EOF
+    [ "$_pairs" -eq 0 ] && probe_cannot_run \
+        "no rephrasing pair is declared, so this probe cannot tell 'one exact string fails every time' from 'one question in N fails'. #1162 is exactly that distinction and a battery with no pair in it cannot make it"
+
     _asked=0; _failed=0; _unmeasured=0; _detail=""; _unmeasured_detail=""
     _tmp="$(mktemp)"
+    # <question>TAB<verdict>TAB<class>, one row per turn. Read only by the
+    # asymmetry limb; the pass/fail arithmetic below is untouched by it.
+    _vrec="$(mktemp)"
     exec 3< "$_qfile"
     while IFS= read -r _q <&3; do
         [ -n "$_q" ] || continue
@@ -594,7 +708,9 @@ run_probe() {
         [ -n "$EXPECT_FACT" ] && [ "$_q" = "$SEEDED_QUESTION" ] && _fact="$EXPECT_FACT"
         box_run "python3 ${_remote_py} ${_port} '${TOKEN_PATH}' \"\$(printf %s '${_q}')\" ${CHAT_TIMEOUT} \"\$(printf %s '${_fact}')\"" > "$_tmp" 2>&1
         _v="$(adjudicate_turn "$_tmp")"
-        case "$(classify_verdict "$_v")" in
+        _cls="$(classify_verdict "$_v")"
+        printf '%s\t%s\t%s\n' "$_q" "$_v" "$_cls" >> "$_vrec"
+        case "$_cls" in
             ok) : ;;
             defect)
                 _failed=$(( _failed + 1 ))
@@ -627,8 +743,22 @@ run_probe() {
     rm -f "$_tmp" "$_qfile"
     box_run "rm -f ${_remote_py}" >/dev/null 2>&1
 
+    # ── THE ASYMMETRY, READ OFF THIS WALK'S OWN VERDICTS (#1162) ────────────
+    # Computed BEFORE the verdict lines below so it can be carried in the FAIL
+    # detail. It changes no count and can move no verdict: a pair member that
+    # failed is already in _failed, and this only says which way the pair fell.
+    # That is the whole point: the ship decision was never in question, the
+    # DIAGNOSIS was.
+    _asym="$(_phrasing_asymmetry "$_vrec")"
+    _asym_n="$(printf '%s\n' "$_asym" | grep -c . || true)"
+    rm -f "$_vrec"
+    if [ "${_asym_n:-0}" -gt 0 ]; then
+        probe_note "phrasing asymmetry observed on ${_asym_n} of ${_pairs} declared pair(s)"
+        _detail="${_detail} [$(printf '%s' "$_asym" | tr '\n' ';')]"
+    fi
+
     # The denominator, always. "0 of 0 grounded" must never read as success.
-    probe_examined "$_asked" "questions asked over /ws/chat (battery declares ${_declared}; ${_failed} answered without reaching the graph, ${_unmeasured} never completed)"
+    probe_examined "$_asked" "questions asked over /ws/chat (battery declares ${_declared}, of which ${_pairs} declared rephrasing pair(s) were asked and ${_asym_n:-0} showed an asymmetry; ${_failed} answered without reaching the graph, ${_unmeasured} never completed)"
 
     [ "$_asked" -eq 0 ] && probe_cannot_run "no questions were asked; the battery is empty"
 
@@ -788,11 +918,90 @@ self_test() {
     _rt fatal               unmeasured
     _rt some_future_verdict unmeasured
 
-    probe_examined 23 "planted transcript fixtures, predicate checks and verdict-routing cases"
+    # ── THE REPHRASING PAIR, AND THE ASYMMETRY IT MAKES VISIBLE (#1162) ─────
+    #
+    # Two things are asserted here and they fail in opposite directions, which
+    # is why both are needed:
+    #
+    #   STRUCTURE  the declared pair is actually IN the battery. #1039: when the
+    #              logic is right and the wiring is wrong, a test of the logic
+    #              is green forever. The reader below can be flawless about a
+    #              pair the walk never asks.
+    #   BEHAVIOUR  the reader calls an asymmetry an asymmetry, and calls the
+    #              four look-alikes something else.
+    _a="$(mktemp -d)"
+    _asym_ok=1
+
+    # STRUCTURE. The first three battery lines are pinned IN ORDER: this change
+    # is only allowed to make the probe stricter, so the existing questions must
+    # still be asked, in the positions every prior walk record used.
+    _qs="$(_questions)"
+    [ "$(printf '%s\n' "$_qs" | sed -n '1p')" = 'What do you know about me?' ]                 || _asym_ok=0
+    [ "$(printf '%s\n' "$_qs" | sed -n '2p')" = 'What are my interests?' ]                     || _asym_ok=0
+    [ "$(printf '%s\n' "$_qs" | sed -n '3p')" = 'Who have I been in contact with recently?' ]  || _asym_ok=0
+
+    # ANTI-VACUITY: a pair list with nothing in it satisfies every loop below
+    # and measures nothing.
+    [ "$(_rephrasing_pairs | grep -c .)" -ge 1 ] || _asym_ok=0
+
+    # Every declared member is a battery member.
+    while IFS="$(printf '\t')" read -r _sa _sb; do
+        [ -n "$_sa" ] || continue
+        printf '%s\n' "$_qs" | grep -Fxq -- "$_sa" || _asym_ok=0
+        printf '%s\n' "$_qs" | grep -Fxq -- "$_sb" || _asym_ok=0
+    done <<EOF
+$(_rephrasing_pairs)
+EOF
+    # CONTROL for that predicate. A grep that matches everything would report
+    # every member present, including on a battery that carries none of them.
+    if printf '%s\n' "$_qs" | grep -Fxq -- 'a string that is deliberately not in the battery'; then
+        _asym_ok=0
+    fi
+
+    # BEHAVIOUR. Records are <question>TAB<verdict>TAB<class>, the same rows
+    # run_probe writes. MEASURED ON THE WALK BOX (ostler-hub, hub-v0.4.64,
+    # gemma4:e2b, 2026-08-27): the plain phrasing made no tool call while the
+    # rephrasing called pwg_preferences and returned OK.
+    printf 'What are my interests?\tno_tool_call\tdefect\n'                > "$_a/asym"
+    printf 'What subjects am I most drawn to?\tgrounded\tok\n'            >> "$_a/asym"
+    # The SAME defect observed the other way round. A reader hard-coded to one
+    # direction would read a future inversion as clean.
+    printf 'What are my interests?\tgrounded\tok\n'                        > "$_a/asym_rev"
+    printf 'What subjects am I most drawn to?\tno_tool_call\tdefect\n'    >> "$_a/asym_rev"
+    # MUST-MISS 1: the pair agrees and grounds. No story.
+    printf 'What are my interests?\tgrounded\tok\n'                        > "$_a/both_ok"
+    printf 'What subjects am I most drawn to?\tgrounded\tok\n'            >> "$_a/both_ok"
+    # MUST-MISS 2: the pair agrees and FAILS. That is a capability gap, not a
+    # repro case, and reporting it as an asymmetry would manufacture #1162 out
+    # of the very reading #1162 exists to refuse.
+    printf 'What are my interests?\tno_tool_call\tdefect\n'                > "$_a/both_bad"
+    printf 'What subjects am I most drawn to?\tmemory_only\tdefect\n'     >> "$_a/both_bad"
+    # MUST-MISS 3: one turn never completed. A clock is never a claim about
+    # phrasing, and classify_verdict already keeps those apart.
+    printf 'What are my interests?\tno_tool_call\tdefect\n'                > "$_a/one_unmeas"
+    printf 'What subjects am I most drawn to?\tincomplete\tunmeasured\n'  >> "$_a/one_unmeas"
+    # MUST-MISS 4: the rephrasing was never asked at all. Silence here is
+    # correct; the CANNOT-RUN in run_probe is the report.
+    printf 'What are my interests?\tno_tool_call\tdefect\n'                > "$_a/half"
+
+    _hit="$(_phrasing_asymmetry "$_a/asym")"
+    [ "$(printf '%s\n' "$_hit" | grep -c 'PHRASING ASYMMETRY')" -eq 1 ]                   || _asym_ok=0
+    # It must name BOTH strings, or the operator gets a label and no repro.
+    [ "$(printf '%s\n' "$_hit" | grep -c 'What are my interests?')" -eq 1 ]               || _asym_ok=0
+    [ "$(printf '%s\n' "$_hit" | grep -c 'What subjects am I most drawn to?')" -eq 1 ]    || _asym_ok=0
+    [ "$(_phrasing_asymmetry "$_a/asym_rev"   | grep -c 'PHRASING ASYMMETRY')" -eq 1 ]    || _asym_ok=0
+    [ "$(_phrasing_asymmetry "$_a/both_ok"    | grep -c .)" -eq 0 ]                       || _asym_ok=0
+    [ "$(_phrasing_asymmetry "$_a/both_bad"   | grep -c .)" -eq 0 ]                       || _asym_ok=0
+    [ "$(_phrasing_asymmetry "$_a/one_unmeas" | grep -c .)" -eq 0 ]                       || _asym_ok=0
+    [ "$(_phrasing_asymmetry "$_a/half"       | grep -c .)" -eq 0 ]                       || _asym_ok=0
+    rm -rf "$_a"
+    [ "$_asym_ok" -eq 1 ] || _ok=0
+
+    probe_examined 36 "planted transcript fixtures, predicate checks, verdict-routing cases and rephrasing-pair structure + asymmetry cases"
     if [ "$_ok" -eq 1 ]; then
         # The control FIRED: six known-bad shapes each produced their own
         # non-grounded verdict, and the healthy ones did not.
-        probe_fail "control fired: tool_error, no_tool_call, incomplete, memory_only, tool_found_nothing and fact_missing (the seeded turn whose reply did not carry the fact, measured on a v1.0.74 box, ostler-assistant b4118b45) are each detected, the healthy fixtures are not misread as broken, and 8 of 8 verdicts route correctly -- a completed turn that missed the graph is a DEFECT, a turn that never completed is UNMEASURED, and an unrecognised verdict is unmeasured rather than announced as a product failure"
+        probe_fail "control fired: tool_error, no_tool_call, incomplete, memory_only, tool_found_nothing and fact_missing (the seeded turn whose reply did not carry the fact, measured on a v1.0.74 box, ostler-assistant b4118b45) are each detected, the healthy fixtures are not misread as broken, and 8 of 8 verdicts route correctly, so a completed turn that missed the graph is a DEFECT, a turn that never completed is UNMEASURED, and an unrecognised verdict is unmeasured rather than announced as a product failure; and the declared rephrasing pair is present in the battery, its two members are named in the asymmetry line in both directions, and the four look-alikes (both grounded, both failing, one unmeasured, one never asked) each produce silence rather than a manufactured repro case"
     fi
     # Reaching here means the adjudicator could NOT tell a broken turn from a
     # healthy one. Passing is how this suite spells BROKEN.
