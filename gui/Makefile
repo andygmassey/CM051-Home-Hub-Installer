@@ -1259,6 +1259,7 @@ stage-payload: download-python
 	fi; \
 	INSTALL_SH="$$SRC_ROOT/install.sh"; \
 	SNIPPET="$$AGENT_SRC/INSTALL_SNIPPET.sh"; \
+	KEEPALIVE_SH="$$AGENT_SRC/ostler-whatsapp-keepalive.sh"; \
 	LAUNCHD_DIR="$$AGENT_SRC/launchd"; \
 	DOCTOR_SRC="$$SRC_ROOT/vendor/doctor/agent"; \
 	KNOWLEDGE_SRC="$$SRC_ROOT/vendor/cm024_knowledge"; \
@@ -1280,6 +1281,13 @@ stage-payload: download-python
 	[ -f "$$SNIPPET" ] || MISSING="$$MISSING assistant-agent/INSTALL_SNIPPET.sh"; \
 	[ -d "$$LAUNCHD_DIR" ] || MISSING="$$MISSING assistant-agent/launchd/"; \
 	[ -n "$$PLISTS" ] || MISSING="$$MISSING assistant-agent/launchd/*.plist"; \
+	: ; \
+	: "The whatsapp-keepalive LaunchAgent execs this script. Shipping the" ; \
+	: "plist without it produces a job that fires twice a day, cannot exec," ; \
+	: "and guarantees nothing -- so its absence is a refused cut, not a" ; \
+	: "warning. It is asserted here AND in the post-copy req loop below:" ; \
+	: "one proves the source exists, the other proves the copy landed." ; \
+	[ -f "$$KEEPALIVE_SH" ] || MISSING="$$MISSING assistant-agent/ostler-whatsapp-keepalive.sh"; \
 	[ -d "$$DOCTOR_SRC" ] || MISSING="$$MISSING vendor/doctor/agent"; \
 	[ -d "$$KNOWLEDGE_SRC" ] || MISSING="$$MISSING vendor/cm024_knowledge"; \
 	[ -d "$$CM048_SRC" ] || MISSING="$$MISSING vendor/cm048_pipeline"; \
@@ -1300,6 +1308,7 @@ stage-payload: download-python
 	printf 'hub-v%s\n' "$(DAEMON_VERSION)" > "$$PAYLOAD/VERSION"; \
 	cp "$$INSTALL_SH" "$$PAYLOAD/install.sh"; \
 	cp "$$SNIPPET" "$$PAYLOAD/assistant-agent/INSTALL_SNIPPET.sh"; \
+	cp "$$KEEPALIVE_SH" "$$PAYLOAD/assistant-agent/ostler-whatsapp-keepalive.sh"; \
 	cp "$$LAUNCHD_DIR"/*.plist "$$PAYLOAD/assistant-agent/launchd/"; \
 	ditto "$$DAEMON_APP" "$$PAYLOAD/assistant-agent/OstlerAssistant.app"; \
 	chmod +x "$$PAYLOAD/assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant"; \
@@ -1309,7 +1318,7 @@ stage-payload: download-python
 	cp "$$CUT_BOM_SRC" "$$PAYLOAD/cut-bom.tsv"; \
 	cp "$$VENDOR_MANIFEST_SRC" "$$PAYLOAD/vendor-manifest.toml"; \
 	/usr/bin/xattr -cr "$$PAYLOAD" 2>/dev/null || true; \
-	for req in VERSION install.sh cut-bom.tsv vendor-manifest.toml assistant-agent/INSTALL_SNIPPET.sh assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant services/doctor services/knowledge services/cm048; do \
+	for req in VERSION install.sh cut-bom.tsv vendor-manifest.toml assistant-agent/INSTALL_SNIPPET.sh assistant-agent/ostler-whatsapp-keepalive.sh assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant services/doctor services/knowledge services/cm048; do \
 	    if [ ! -e "$$PAYLOAD/$$req" ]; then \
 	        echo "ERROR: payload assembly incomplete -- missing $$req after copy." >&2; \
 	        exit 1; \

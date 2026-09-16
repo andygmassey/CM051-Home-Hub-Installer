@@ -41,6 +41,7 @@
 #   owner   who can actually close it -- the repo or the decision
 #   why     what a red here means, and why that does or does not describe the DMG
 #
+doctor_page_renders_for_a_customer	blocking	CM051	the Doctor returned 500 on every load for three builds while /api/v1/sources answered 200, so every artefact-shaped check passed. A customer who cannot open the page cannot see anything, including whether their data landed. A red here is the product.
 probe	scope	owner	why
 app_signature_survives_first_run	blocking	CM051	the signature on the .app we shipped. A red is the artefact.
 assistant_answers_grounded	blocking	CM051	the shipped assistant reaching the customer's own data is the product's core promise. Currently red on 1 of 3 questions (tool_error) and it SHOULD hold the promote.

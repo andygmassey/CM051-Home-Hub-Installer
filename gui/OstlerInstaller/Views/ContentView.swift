@@ -12,6 +12,39 @@ struct ContentView: View {
     @State private var showLogDrawer: Bool = false
 
     var body: some View {
+        // The recovery-key reveal is attached HERE, at the root, and
+        // deliberately on a separate view from the FDA sheet below so the
+        // two presentations never contend for one host.
+        //
+        // It must outlive every branch in `rootContent`. It previously
+        // hung off HintPanelView, which ContentView swaps out for
+        // `InstallFailedBodyView()` the moment `finished == .fail` -- so a
+        // customer whose install FAILED never saw the key, and install.sh
+        // stores it nowhere. Their re-run then takes the "already
+        // configured" skip and emits no marker, so the only copy of the
+        // key to their own encrypted graph was gone for good.
+        //
+        // `shouldPresentRecoveryKey` is a plain property on the
+        // coordinator so the reachability is unit-assertable across every
+        // terminal state rather than trapped inside a view hierarchy.
+        rootContent
+            .sheet(isPresented: Binding(
+                get: { coordinator.shouldPresentRecoveryKey },
+                set: { _ in
+                    // Dismissal is driven by the Continue button inside
+                    // the sheet (which sets recoveryKeyAcknowledged =
+                    // true). We ignore attempts to set isPresented
+                    // externally (e.g. macOS escape-key dismissal) so the
+                    // customer cannot accidentally skip past the reveal
+                    // without confirming they have saved it.
+                }
+            )) {
+                RecoveryKeyView()
+                    .environmentObject(coordinator)
+            }
+    }
+
+    private var rootContent: some View {
         Group {
             // CX-126: a deliberate user-cancel / consent-decline takes
             // over the whole window with a calm neutral terminal. Checked
@@ -403,7 +436,7 @@ private struct InstallFailedBodyView: View {
         // suffix via SupportMailtoBuilder so triage can sort the
         // inbox by code without opening every email.
         let code = coordinator.lastErrorCode
-        let buffer = LogDrawerView.formatBuffer(coordinator.logLines, errorCode: code)
+        let buffer = LogDrawerView.formatBuffer(coordinator.supportLogLines, errorCode: code)
         let redacted = LogRedactor.redact(buffer)
 
         // 1. Copy the redacted log to the system pasteboard FIRST so
@@ -432,7 +465,7 @@ private struct InstallFailedBodyView: View {
 
     private func copyRedacted() {
         let buffer = LogDrawerView.formatBuffer(
-            coordinator.logLines,
+            coordinator.supportLogLines,
             errorCode: coordinator.lastErrorCode
         )
         let redacted = LogRedactor.redact(buffer)
@@ -447,7 +480,7 @@ private struct InstallFailedBodyView: View {
 
     private func copyRaw() {
         let buffer = LogDrawerView.formatBuffer(
-            coordinator.logLines,
+            coordinator.supportLogLines,
             errorCode: coordinator.lastErrorCode
         )
         let pb = NSPasteboard.general
@@ -505,13 +538,41 @@ enum LogRedactor {
             (try? NSRegularExpression(pattern: #"\+\d{7,15}\b"#),
              "⟨phone⟩"),
             // IPv6 (run before IPv4 so the longer pattern wins).
-            // Permits compressed `::` forms by allowing empty hex
-            // groups: e.g. `2001:db8::1` parses as
-            //   2001 + :db8 + : (empty) + :1
-            // Anchored on at least one leading hex group + 2-7
-            // following `:hex?` groups so single-colon shapes (MAC
-            // addresses, time stamps) do not match.
-            (try? NSRegularExpression(pattern: #"\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{0,4}){2,7}\b"#),
+            //
+            // THE PREVIOUS PATTERN ATE EVERY TIMESTAMP IN THE SUPPORT
+            // LOG. It was `\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{0,4}){2,7}\b`
+            // and its comment claimed it was "anchored ... so
+            // single-colon shapes (MAC addresses, time stamps) do not
+            // match". Both named shapes have MORE than one colon, so the
+            // anchor never applied to either, and `{2,7}` matched them
+            // squarely. Measured in NSRegularExpression itself:
+            //
+            //     03:41:27           -> ⟨ip⟩
+            //     aa:bb:cc:dd:ee:ff  -> ⟨ip⟩
+            //
+            // Every line of `LogDrawerView.formatBuffer` is emitted as
+            // `HH:mm:ss  [LEVEL] message`, and the redactor runs over the
+            // assembled buffer, so support received logs in which every
+            // line began `⟨ip⟩  [INFO ]`. The one thing support needs
+            // from an install log after "what broke" is WHEN, and the
+            // timing was gone from every single line.
+            //
+            // A time is not an address, and the discriminator is
+            // structural rather than numeric: a valid IPv6 either carries
+            // a `::` compression or is the full eight-group form. Neither
+            // `HH:mm:ss` (three groups, no `::`) nor a MAC (six groups,
+            // no `::`) can satisfy that, while every real IPv6 still
+            // does. Split into two explicit patterns rather than one
+            // clever one, because the clever one is what failed.
+            //
+            // Full eight-group form: exactly seven colons.
+            (try? NSRegularExpression(pattern: #"(?<![0-9a-zA-Z:])(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}(?![0-9a-zA-Z:])"#),
+             "⟨ip⟩"),
+            // Compressed form: must contain a literal `::`. The
+            // surrounding guards are alphanumeric-wide, not hex-wide, so
+            // an identifier like `Foo::bar` cannot be partially consumed
+            // (`ba` is hex; `r` is not, and the wide guard rejects it).
+            (try? NSRegularExpression(pattern: #"(?<![0-9a-zA-Z:])(?:[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4})*)?::(?:[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4})*)?(?![0-9a-zA-Z:])"#),
              "⟨ip⟩"),
             // IPv4
             (try? NSRegularExpression(pattern: #"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"#),

@@ -97,6 +97,43 @@ if 'spoken_capture_recording_consent' not in registered_ids:
     print("FAIL: spoken_capture_recording_consent is not registered (the exact F1 regression)", file=sys.stderr); sys.exit(1)
 
 print(f"PASS: all {len(install_ids)} install.sh consent tickboxes are defined + registered")
+
+# ── THE ARM THAT READS THE RUNTIME, NOT THE SOURCE ─────────────────────────
+# Everything above parses TEXT. On 2026-09-16 that let a real break through:
+# personal_use_only was added to consent_strings.py and to TICKBOX_REGISTRY,
+# every check above went green, and `from legal import PERSONAL_USE_ONLY`
+# STILL RAISED ImportError, because legal/__init__.py re-exports an explicit
+# list and nobody had added it there. consent_cli.py wraps that import in a
+# try/except that prints and continues, so the failure would not have been
+# loud: it would have taken out EVERY consent, not just the new one.
+#
+# So import them for real. A name that parses and cannot be imported is not
+# registered, it only looks registered.
+import importlib, pathlib, sys as _sys
+_sys.path.insert(0, str(pathlib.Path(consent_strings_py).resolve().parent.parent))
+try:
+    _legal = importlib.import_module("legal")
+except Exception as exc:
+    print(f"FAIL: the legal package itself will not import: {exc}", file=sys.stderr)
+    sys.exit(1)
+
+_unimportable = [n for n in sorted(registered_names) if not hasattr(_legal, n)]
+if _unimportable:
+    print(f"FAIL: registered but NOT IMPORTABLE from `legal`: {_unimportable}", file=sys.stderr)
+    print("      These parse in consent_strings.py and are named in TICKBOX_REGISTRY,", file=sys.stderr)
+    print("      but legal/__init__.py does not re-export them, so consent_cli's import", file=sys.stderr)
+    print("      raises and EVERY consent stops persisting, not only these.", file=sys.stderr)
+    sys.exit(1)
+
+# POSITIVE CONTROL: the check must be able to fail. A name that genuinely is
+# not exported has to be reported as unimportable, or the pass above is empty.
+if hasattr(_legal, "OSTLER_CONTROL_NAME_THAT_MUST_NOT_EXIST"):
+    print("FAIL: CONTROL -- a name that should not exist resolved, so the "
+          "importability check proves nothing", file=sys.stderr)
+    sys.exit(1)
+
+print(f"PASS: all {len(registered_names)} registered consent constants import "
+      f"from `legal` at runtime (control: a non-existent name does not)")
 PY
 rc=$?
 [[ $rc -eq 0 ]] || fail "consent tickbox registry cross-check failed (see above)"
