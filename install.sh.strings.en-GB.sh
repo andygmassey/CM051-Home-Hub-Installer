@@ -587,10 +587,16 @@ MSG_WARN_TAILSCALE_SERVE_PORT_FAILED="Could not expose Hub port %s on your tailn
 # ── Wiki on the tailnet, owner-gated (v1.0.17) ──
 MSG_OK_WIKI_TAILNET_SERVED="Your wiki is now readable from your own devices at %s – signed in as you, and only you."
 MSG_INFO_WIKI_TAILNET_OWNER="Wiki access is restricted to your Tailscale account (%s). Other people on your tailnet get a 403."
-MSG_INFO_WIKI_TAILNET_LOCAL_ONLY="Your wiki stays on this Mac only – browse it at http://localhost:8044"
-MSG_INFO_WIKI_TAILNET_BANNER="%s  (from your own devices, over Tailscale)"
-MSG_INFO_WIKI_SIGN_IN="Sign in as %s with the password %s – your browser will offer to remember it, so you only type it once."
-MSG_INFO_WIKI_PORT_LAST_STATUS="Last HTTP status from the wiki port: %s (000 means nothing answered; 401 means it answered and refused the credential)."
+MSG_INFO_WIKI_TAILNET_LOCAL_ONLY="Your wiki stays on this Mac only. Open Ostler and choose Wiki in the sidebar to read it."
+MSG_INFO_WIKI_TAILNET_BANNER="%s  (from your own devices, over Tailscale. This is the one route that asks you for the sign-in above.)"
+# CM051 #1980. Where the wiki actually opens. :8044 answers an
+# uncredentialled browser with a signpost and no challenge (see the
+# `listen 8044` server block in install.sh), so the address is named for
+# what it is rather than offered as a destination.
+MSG_INFO_WIKI_IN_THE_APP="in the Ostler app. Open Ostler and choose Wiki in the sidebar; your pages are there, already signed in."
+MSG_INFO_WIKI_INTERNAL_ADDRESS="Ostler fetches those pages from http://localhost:8044 on this Mac. That address is internal and has nothing on it for you to sign in to."
+MSG_INFO_WIKI_SIGN_IN="Your wiki sign-in is %s with the password %s. Ostler presents it for you, so there is nothing to type on this Mac; you need it in your own hands only when you open the wiki from another of your devices over Tailscale."
+MSG_INFO_WIKI_PORT_LAST_STATUS="Last HTTP status from the wiki port: %s (000 means nothing answered; 403 means it answered and refused the credential)."
 # HR015 #943. The four lines below are the readiness half of the wiki handover.
 # They exist because the credential half is no longer gated on them: a customer
 # whose first build is merely slow still gets their address and sign-in, and
@@ -598,11 +604,11 @@ MSG_INFO_WIKI_PORT_LAST_STATUS="Last HTTP status from the wiki port: %s (000 mea
 # measure, which is what "first compile failed" did on every one of the three
 # non-failure paths into that branch.
 MSG_INFO_WIKI_PASSWORD_ON_DISK="Your password is also kept at %s, so the clipboard is not the only copy."
-MSG_INFO_WIKI_STILL_BUILDING="Still building. %s pages are on disk already, and the last reply from the wiki address was HTTP %s. It will appear at the address above with the same sign-in. Nothing for you to do."
-MSG_WARN_WIKI_FIRST_COMPILE_PRODUCED_NO_PAGES="The first build has produced no pages yet (see the warnings above). The address and sign-in above are still yours and will work once it has built."
-MSG_INFO_WIKI_READINESS_NOT_MEASURED="This run did not measure whether the wiki is serving yet, so it is not claiming either way. The address and sign-in above are yours regardless."
-MSG_WARN_WIKI_TAILNET_OWNER_UNRESOLVED="Could not confirm which Tailscale account owns this Mac, so the wiki has NOT been exposed on your tailnet. It is still available on this Mac at http://localhost:8044"
-MSG_WARN_WIKI_TAILNET_SERVE_FAILED="Could not publish the wiki on your tailnet; it is still available on this Mac at http://localhost:8044"
+MSG_INFO_WIKI_STILL_BUILDING="Still building. %s pages are on disk already, and the last reply from the wiki address was HTTP %s. It will appear in the Ostler app on its own. Nothing for you to do."
+MSG_WARN_WIKI_FIRST_COMPILE_PRODUCED_NO_PAGES="The first build has produced no pages yet (see the warnings above). Your wiki still opens in the Ostler app once it has built, and the sign-in above stays yours."
+MSG_INFO_WIKI_READINESS_NOT_MEASURED="This run did not measure whether the wiki is serving yet, so it is not claiming either way. Your wiki opens in the Ostler app regardless, and the sign-in above stays yours."
+MSG_WARN_WIKI_TAILNET_OWNER_UNRESOLVED="Could not confirm which Tailscale account owns this Mac, so the wiki has NOT been exposed on your tailnet. It is still available on this Mac, in the Ostler app under Wiki."
+MSG_WARN_WIKI_TAILNET_SERVE_FAILED="Could not publish the wiki on your tailnet; it is still available on this Mac, in the Ostler app under Wiki."
 MSG_WARN_WIKI_TAILNET_GATE_RELOAD_FAILED="Could not reload the wiki access gate, so the wiki has NOT been exposed on your tailnet."
 MSG_WARN_WIKI_TAILNET_FUNNEL_ON="Tailscale Funnel is switched on for %s. Funnel publishes to the open internet. Ostler never switches Funnel on and your wiki refuses Funnel traffic, so nothing of Ostler's is public – but if you did not mean to enable it, turn it off in the Tailscale admin console for this machine."
 MSG_OK_THIRD_PARTY_ATTRIBUTIONS_INSTALLED_SOURCE="Third-party attributions installed (source: %s)"

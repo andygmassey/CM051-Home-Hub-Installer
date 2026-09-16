@@ -21,9 +21,13 @@ from .apple_notes import AppleNotesAdapter
 from .base import KnowledgeSourceAdapter, ParsedNote, RawNote
 from .evernote import EvernoteAdapter
 from .reminders import RemindersAdapter
+from .notion import NotionAdapter
+from .obsidian import ObsidianAdapter
 
 ADAPTERS: dict[str, type[KnowledgeSourceAdapter]] = {
     "evernote": EvernoteAdapter,
+    "notion": NotionAdapter,
+    "obsidian": ObsidianAdapter,
     "apple_notes": AppleNotesAdapter,
     "reminders": RemindersAdapter,
 }
@@ -32,6 +36,8 @@ __all__ = [
     "ADAPTERS",
     "AppleNotesAdapter",
     "EvernoteAdapter",
+    "NotionAdapter",
+    "ObsidianAdapter",
     "KnowledgeSourceAdapter",
     "ParsedNote",
     "RawNote",
