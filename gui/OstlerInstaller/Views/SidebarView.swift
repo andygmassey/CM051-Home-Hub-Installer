@@ -197,6 +197,13 @@ private struct SidebarRow: View {
         coordinator.finished == nil && coordinator.currentStepId == meta.id
     }
 
+    /// The row the install died on: this step was the active one when the
+    /// terminal `.fail` arrived. Deliberately the exact complement of
+    /// `isActive` on the `finished` test, so a row is never both.
+    private var isFailedStep: Bool {
+        coordinator.finished == .fail && coordinator.currentStepId == meta.id
+    }
+
     private var textColor: Color {
         if isActive { return Color.ostlerInk }
         if status != nil { return Color.ostlerInkMuted }
@@ -221,17 +228,37 @@ private struct SidebarRow: View {
                 .accessibilityLabel(
                     Text(ViewCopy.shared.string(for: glyph.accessibilityCopyKey))
                 )
+        } else if isFailedStep {
+            // The step that was running when the install died. It never
+            // received a completedSteps entry, so `status` above is nil.
+            //
+            // THIS BRANCH USED TO BE NESTED INSIDE `else if isActive` AND
+            // WAS UNREACHABLE BY CONSTRUCTION. `isActive` is defined as
+            // `coordinator.finished == nil && currentStepId == meta.id`,
+            // so `finished == .fail` makes it false and the inner
+            // `if coordinator.finished == .fail` could never be evaluated.
+            // The failing row fell through to the final `else` and drew
+            // the grey "not started yet" circle: on a failed install the
+            // sidebar pointed at nothing, and the one row the customer
+            // (and support) most needed to identify was the one row that
+            // looked untouched.
+            //
+            // Hoisted to its own branch, tested BEFORE `isActive`, so the
+            // two conditions no longer contradict each other.
+            // Routed through StepStatusGlyph like the `status != nil`
+            // branch above, so the failed row and a recorded .fail row
+            // cannot drift to different symbols or different VoiceOver
+            // copy.
+            let glyph = StepStatusGlyph.forStatus(.fail)
+            Image(systemName: glyph.symbolName)
+                .foregroundStyle(glyph.tint)
+                .accessibilityLabel(
+                    Text(ViewCopy.shared.string(for: glyph.accessibilityCopyKey))
+                )
         } else if isActive {
-            // When the install has failed, the active step never
-            // received a completedSteps entry, so it would otherwise
-            // keep spinning forever. Show the failure glyph instead.
-            if coordinator.finished == .fail {
-                Image(systemName: "xmark.circle.fill").foregroundStyle(Color.ostlerOxblood)
-            } else {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.ostlerOxblood)
-            }
+            ProgressView()
+                .controlSize(.small)
+                .tint(.ostlerOxblood)
         } else {
             Image(systemName: "circle").foregroundStyle(Color.ostlerHairlineSoft)
         }

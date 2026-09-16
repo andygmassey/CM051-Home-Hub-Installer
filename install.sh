@@ -610,6 +610,30 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
             # edited it, and if they had, silently keeping their value is how the
             # fix got lost in the first place.
             [[ "$_k" == "PATH" ]] && continue
+            # ── THE SAME DEFECT, ONE VARIABLE ALONG ───────────────────────
+            #
+            # PATH was not special. It was the first product-owned key anyone
+            # noticed being reverted. Every key the TEMPLATE states outright,
+            # rather than holds as a placeholder for something captured from
+            # the customer, is in the same position: the template is the only
+            # thing that knows what this version needs, and carrying the old
+            # value forward silently un-ships the fix.
+            #
+            # These four arrived with the whatsapp-keepalive runner and are all
+            # product-owned. OSTLER_GATEWAY_URL is the sharpest: it is pinned
+            # to the daemon's [gateway] port (CX-59), so if that pin ever moves
+            # again, every upgrading customer would keep probing the old port
+            # and the keepalive would report the channel unmeasurable forever.
+            # That is precisely the shape recorded above for PATH, and the only
+            # reason it is being pre-empted rather than discovered is that the
+            # PATH comment was read before the keys were added.
+            #
+            # Guarded by tests/test_upgrade_does_not_revert_the_launchagent_path.sh,
+            # which mutation-tests this block separately from the PATH line.
+            case "$_k" in
+                OSTLER_DIR|OSTLER_GATEWAY_URL|OSTLER_ASSISTANT_LABEL|PYTHONDONTWRITEBYTECODE)
+                    continue ;;
+            esac
             _v="$("$_UPG_PB" -c "Print :EnvironmentVariables:${_k}" "$_old" 2>/dev/null)" || continue
             if "$_UPG_PB" -c "Print :EnvironmentVariables:${_k}" "$_new" >/dev/null 2>&1; then
                 "$_UPG_PB" -c "Set :EnvironmentVariables:${_k} ${_v}" "$_new" >/dev/null 2>&1
@@ -3023,14 +3047,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :7825) captures the path BY
+    # _ostler_write_store_curl_config (defined :7853) captures the path BY
     # VALUE and never re-reads it:
-    #     :7826   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :7871   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :7880 and :13842, both of which run
+    #     :7854   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :7899   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :7908 and :13994, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :3018 above has just deleted
-    # that tree and :3022 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :3042 above has just deleted
+    # that tree and :3046 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -3045,13 +3069,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :14613, where the note reads
+    # WhatsApp Web session path did it again at :14765, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :14630 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :14782 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3060,13 +3084,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5475 against a definition at :7825. Top-level
+    # writer's own definition: :5503 against a definition at :7853. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:7880, :13842) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:7908, :13994) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :16657 / :16835 / :16992 / :17333 path. There the
+    # :16837 / :17015 / :17172 / :17513 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -5305,6 +5329,10 @@ WA_CONSENT=""
 OSTLER_CONSENT_ARTICLE_9_DECISION=""
 OSTLER_CONSENT_VOICE_EU_DECISION=""
 OSTLER_CONSENT_THIRD_PARTY_DECISION=""
+# Personal-use-only licence term. Empty default on a reuse run, so a resumed
+# install that skipped the screen records nothing rather than asserting an
+# acknowledgement the customer never gave on this run.
+OSTLER_CONSENT_PERSONAL_USE_DECISION=""
 # Spoken-capture recording-consent acknowledgement (every region). Empty
 # default = spoken transcription off on a reuse run until re-acknowledged.
 OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION=""
@@ -10904,6 +10932,64 @@ while true; do
     esac
 done
 
+# ── 10b-pu. PERSONAL-USE-ONLY TERMS ───────────────────────────────
+#
+# A LICENCE TERM, NOT AN OPTIONAL CONSENT, which is why this acknowledges
+# rather than offering a decline that would leave a half-licensed install.
+# Wording verbatim from vendor/legal/consent_strings.py (PERSONAL_USE_ONLY,
+# tickbox personal_use_only) so the Doctor can flag drift between what the
+# customer agreed to and what the Hub currently bundles.
+#
+# WHY IT IS SHOWN AT ALL, rather than buried in a terms page nobody reads.
+# Three obligations cannot be met by a warning, because the person who would
+# act on the warning is not the person at risk:
+#
+#   BUSINESS USE removes the household-activity position the rest of the
+#   product rests on. If an employer deploys Ostler to staff, the EMPLOYER
+#   becomes data controller for every colleague, client and patient captured,
+#   which brings impact assessments, works-council duties in parts of the EU,
+#   and vicarious liability in the US. All of it disappears if the product is
+#   personal-use only, and none of it is survivable otherwise.
+#
+#   MINORS cannot consent. An operator ticking "I have consent" is legally
+#   meaningless on a child's behalf, so it is named rather than folded into a
+#   general assurance.
+#
+#   PRIVILEGED SETTINGS are a different order of wrong even where recording is
+#   otherwise lawful. No terms page outsources that, so we ask directly.
+#
+# Cancel exits cleanly with nothing installed, mirroring the passphrase
+# briefing: someone who does not accept the licence should not end up with a
+# half-configured Mac.
+echo ""
+echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo -e "  ${BOLD}${MSG_TERMS_PERSONAL_USE_HEADING}${NC}"
+echo ""
+echo "  ${MSG_TERMS_PERSONAL_USE_INTRO}"
+echo ""
+echo "  ${MSG_TERMS_PERSONAL_USE_BUSINESS}"
+echo ""
+echo "  ${MSG_TERMS_PERSONAL_USE_RECORDER}"
+echo ""
+echo -e "  ${BOLD}${MSG_TERMS_PERSONAL_USE_ASK_HEADING}${NC}"
+echo ""
+echo "    - ${MSG_TERMS_PERSONAL_USE_ASK_1}"
+echo "    - ${MSG_TERMS_PERSONAL_USE_ASK_2}"
+echo "    - ${MSG_TERMS_PERSONAL_USE_ASK_3}"
+echo ""
+echo -e "  ${DIM}${MSG_TERMS_PERSONAL_USE_LEGAL}${NC}"
+echo ""
+TERMS_PERSONAL_USE="$(gui_read "$MSG_PROMPT_TERMS_PERSONAL_USE_TITLE" acknowledge "OK" "$MSG_PROMPT_TERMS_PERSONAL_USE_HELP" "OK,CANCEL" "terms_personal_use")"
+if [[ "$TERMS_PERSONAL_USE" == "CANCEL" || "$TERMS_PERSONAL_USE" == "cancel" ]]; then
+    echo ""
+    echo "  ${MSG_INFO_TERMS_PERSONAL_USE_DECLINED}"
+    gui_cancelled
+    exit 0
+fi
+OSTLER_CONSENT_PERSONAL_USE_DECISION="accepted"
+ok "$MSG_PROMPT_TERMS_PERSONAL_USE_TITLE"
+
 # ── 10b-ts. Tailscale DECISION -- hoisted upfront (WALK-1 / Wave 2.1) ──
 #
 # WALK-1 (2026-06-19, Andy's live walk): the Tailscale setup/skip CHOICE
@@ -13151,6 +13237,47 @@ OLLAMAPLIST
             _ollama_direct_started=1
         fi
         if [[ $OLLAMA_WAIT -ge 90 ]]; then
+            # ── THE EVIDENCE IS ALREADY ON DISK AND WAS BEING THROWN AWAY ──
+            #
+            # This used to `exit 1`, which the ERR trap turns into a bare
+            # ERR-99-INSTALL-ABORT-L<line>: a catch-all with no cause, at step
+            # 5 of 41. MEASURED on a console walk of v1.0.73, and the customer
+            # saw exactly that and nothing else.
+            #
+            # The cause was sitting in ~/.ostler/logs/ollama.err the whole
+            # time, six times over: "listen tcp 127.0.0.1:11434: bind: address
+            # already in use". Something else already serves that port, so our
+            # agent can never bind, so the loop's TWO conditions are mutually
+            # unsatisfiable by construction: the curl succeeds BECAUSE the
+            # foreign server answers, and _ollama_agent_is_running can never
+            # become true while it holds the port. Waiting longer cannot help.
+            #
+            # THE POPULATION IS NOT "PEOPLE WHO RUN OLLAMA". It includes EVERY
+            # REPEAT INSTALLER: a leftover com.ostler.ollama LaunchAgent from a
+            # previous install keeps serving, because nothing in the reset path
+            # stops it. That is how this was found.
+            #
+            # So read the file, name the holder if we can, and fail with a
+            # curated code. A customer who is told "another program is already
+            # using port 11434" can act; ERR-99 at a line number is a support
+            # ticket.
+            _ollama_port_holder=""
+            _ollama_bind_evidence=""
+            if [[ -r "${OLLAMA_LOG_DIR}/ollama.err" ]]; then
+                # tail only: the file is verbose slot chatter and the bind
+                # error is what we are after. Capped deliberately.
+                _ollama_bind_evidence="$(tail -n 40 "${OLLAMA_LOG_DIR}/ollama.err" 2>/dev/null \
+                    | grep -F 'address already in use' | tail -n 1 || true)"
+            fi
+            # Who holds it, by name, if launchd or lsof will say. Best effort:
+            # a missing answer must not turn a known cause into an unknown one.
+            _ollama_port_holder="$(lsof -nP -iTCP:11434 -sTCP:LISTEN -Fc 2>/dev/null \
+                | sed -n 's/^c//p' | sort -u | tr '\n' ' ' || true)"
+
+            if [[ -n "$_ollama_bind_evidence" || -n "$_ollama_port_holder" ]]; then
+                fail_with_code "ERR-08-OLLAMA-PORT-11434-IN-USE" \
+                    "$(printf "$MSG_FAIL_OLLAMA_PORT_IN_USE" "${_ollama_port_holder:-unknown}" "${OLLAMA_LOG_DIR}/ollama.err")"
+            fi
             warn "$MSG_WARN_COULD_NOT_START_OLLAMA_AUTOMATICALLY"
             info "$(printf "$MSG_INFO_OLLAMA_MANUAL_START_HINT" "$OLLAMA_PLIST")"
             exit 1
@@ -13185,13 +13312,37 @@ fi
 # Interpolating either into the plist below (StandardOut/Err via
 # _ollama_rot_logs, ProgramArguments via the script path) baked dead
 # /tmp paths that broke the logrotate agent after reboot. The rotate
-# SCRIPT is written straight to the final bin dir so the plist's
-# ProgramArguments reference is always valid, independent of the later
-# staging-tree promotion (nothing else writes ${OSTLER_DIR}/bin pre-FDA,
-# so this direct write cannot be clobbered by the promotion rm+mv).
+# 🔴 THAT COMMENT WAS FALSE AND THE AGENT IT DESCRIBES HAS NEVER STARTED.
+#
+# It used to read: "SCRIPT is written straight to the final bin dir so the
+# plist's ProgramArguments reference is always valid, independent of the later
+# staging-tree promotion (nothing else writes ${OSTLER_DIR}/bin pre-FDA, so
+# this direct write cannot be clobbered by the promotion rm+mv)."
+#
+# The parenthesis is the whole safety argument and it is measurably wrong.
+# TWO things write into ${OSTLER_DIR}/bin before this point: the ostler-unlock
+# symlink and the engine-supervisor copy. So the STAGING tree does contain a
+# bin/, and _ostler_promote_prelaunch_tree merges PER TOP-LEVEL ENTRY: for each
+# staging entry it does `rm -rf "${OSTLER_FINAL_DIR}/${name}"` and then `mv`.
+# With `bin` among those entries, the promotion deletes the whole final bin/,
+# including this file, and replaces it with staging's.
+#
+# MEASURED ON A LIVE BOX: ~/.ostler/bin/ostler-ollama-logrotate does not exist
+# (ls rc=1), while ostler-fda in the same directory does (rc=0, 7,925 bytes) as
+# the control that the check works. launchd reports the consequence exactly:
+# EX_CONFIG (78), because it cannot exec a program that is not there. Both of
+# the agent's log files are 0 bytes: it has never emitted a line.
+#
+# WHY THE FIX IS TO STOP BEING SPECIAL. Every other program in this installer
+# is written to ${OSTLER_DIR}/bin and reaches the customer through the promote.
+# This one file used ${HOME}/.ostler/bin to dodge the promote, and the promote
+# ate it. Writing it where its siblings live means the same machinery that
+# delivers all of them delivers this one. The PLIST keeps naming the final
+# path, because that is where the promote puts it and that is what launchd
+# execs at runtime.
 _ollama_rot_logs="${HOME}/.ostler/logs"
-mkdir -p "${HOME}/.ostler/bin" "$_ollama_rot_logs" "${HOME}/Library/LaunchAgents"
-cat > "${HOME}/.ostler/bin/ostler-ollama-logrotate" <<'OLLAMAROTEOF'
+mkdir -p "${OSTLER_DIR}/bin" "$_ollama_rot_logs" "${HOME}/Library/LaunchAgents"
+cat > "${OSTLER_DIR}/bin/ostler-ollama-logrotate" <<'OLLAMAROTEOF'
 #!/usr/bin/env bash
 # Truncate the Ollama serve logs in place when they exceed the cap.
 # In-place overwrite (`cat tmp > file`) preserves the inode so ollama's
@@ -13215,7 +13366,7 @@ for _f in "${LOG_DIR}/ollama.err" "${LOG_DIR}/ollama.log"; do
     fi
 done
 OLLAMAROTEOF
-chmod +x "${HOME}/.ostler/bin/ostler-ollama-logrotate"
+chmod +x "${OSTLER_DIR}/bin/ostler-ollama-logrotate"
 
 OLLAMA_ROT_PLIST="${HOME}/Library/LaunchAgents/com.ostler.ollama-logrotate.plist"
 cat > "$OLLAMA_ROT_PLIST" <<OLLAMAROTPLIST
@@ -13394,6 +13545,7 @@ OSTLER_CONSENT_VOICE_EU_DECISION="${OSTLER_CONSENT_VOICE_EU_DECISION:-}"
 OSTLER_CONSENT_THIRD_PARTY_DECISION="${OSTLER_CONSENT_THIRD_PARTY_DECISION:-}"
 OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION="${OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION:-}"
 OSTLER_CONSENT_ENRICHMENT_DECISION="${OSTLER_CONSENT_ENRICHMENT_DECISION:-}"
+OSTLER_CONSENT_PERSONAL_USE_DECISION="${OSTLER_CONSENT_PERSONAL_USE_DECISION:-}"
 
 # The WhatsApp tickbox is recorded from TWO variables rather than one decision
 # string, so both have to survive or the recorder reads a decline as a
@@ -15581,6 +15733,34 @@ PY
             third_party_data_personal_records \
             "$OSTLER_CONSENT_THIRD_PARTY_DECISION" \
             "Could not persist third-party-data acknowledgement (continuing)"
+    fi
+
+    # Personal-use-only licence term.
+    #
+    # THIS BLOCK IS THE WHOLE POINT OF THE SCREEN. Until it existed the
+    # acknowledgement was assigned to OSTLER_CONSENT_PERSONAL_USE_DECISION and
+    # read by NOTHING: one use in the entire file, the assignment itself,
+    # against four siblings that each record here. The customer accepted a
+    # LICENCE TERM and no trace of it survived the installer process, so there
+    # was no evidence they had agreed and the Doctor could not flag drift
+    # between what was agreed and what the Hub bundles, which the screen's own
+    # comment claims it enables.
+    #
+    # It is the third time this exact shape has happened in this one file. The
+    # enrichment-decision block a few lines below narrates the second (#794),
+    # where an `export` sat under a comment saying the answer was "recorded so
+    # the Doctor and a support bundle can state what the customer chose", and
+    # nothing recorded it.
+    #
+    # Decline aborts in Phase 2 (a licence term is not optional), so the value
+    # here is "accepted" or empty. Empty means a resumed install skipped the
+    # screen, and we omit the record rather than invent one, which leaves
+    # Doctor showing "missing" instead of a consent nobody gave.
+    if [[ -n "$OSTLER_CONSENT_PERSONAL_USE_DECISION" ]]; then
+        _consent_cli_record blocking \
+            personal_use_only \
+            "$OSTLER_CONSENT_PERSONAL_USE_DECISION" \
+            "Could not persist the personal-use-only licence acknowledgement (continuing)"
     fi
 
     # Spoken-capture recording-consent acknowledgement (every region).
@@ -21516,13 +21696,21 @@ fi
 
 if "$IMPORT_SCRIPT" "$DOWNLOADS" >/dev/null 2>&1; then
     _notify "Your latest export is now part of your world." "Done"
+    # Record ONLY on success. The comment here used to say exactly that
+    # while the write sat outside the branch, so a failed import was
+    # marked done and never retried: the hash is the dedupe key, and once
+    # it is in scan_state this export set is skipped for ever. #1571.
+    echo "$FOUND_HASH" >> "$SCAN_STATE"
 else
-    _notify "Imported your latest export. Some parts will finish in the background." "Done"
+    # The old message on this branch was "Imported your latest export.
+    # Some parts will finish in the background." The importer had just
+    # returned NON-ZERO, so nothing was imported and nothing is finishing
+    # in the background. Both branches claimed an import, which is why the
+    # failure was invisible to the person it happened to.
+    _notify "Ostler could not finish importing your ${_first} export. It will try again." "Import unfinished"
+    # No hash written, so the next tick retries this export set rather
+    # than skipping it for ever.
 fi
-
-# Record only after a real import attempt, so a failed/partial run is
-# retried next tick rather than silently marked done.
-echo "$FOUND_HASH" >> "$SCAN_STATE"
 
 if [[ -t 1 ]]; then
     echo "Imported ${#FOUND[@]} export(s):"
@@ -32998,6 +33186,136 @@ _ostler_report_assistant_fda
 # seconds is cheap insurance. Best-effort; returns early on bind, never aborts.
 _probe_http_live "http://127.0.0.1:8000/" 30 || true
 
+# ── End-of-install confirmation: whose calendars + who you are ─────
+#
+# A one-time propose-and-confirm that seeds the disambiguation the daily
+# brief relies on (CM061 designs: SAMANTHA_TRAVEL_CONFLATION_FINDINGS.md +
+# EMPLOYER_IDENTITY_MERGE_PLAN.md). Runs AFTER hydration (people, dedupe,
+# calendar, wiki all done -> Oxigraph is up + populated and
+# calendar_events.json exists) and BEFORE the "all set" summary.
+#
+#   1. Calendar owner/type -> ${OSTLER_DIR}/calendars.json in the exact shape
+#      the CM041 reader consumes (contact_syncer.google_calendar
+#      .load_calendar_provenance). Keeps a partner's flight from being read
+#      as the operator's trip.
+#   2. Identity collapse/split -> ${WIKI_CORRECTIONS_DIR}/duplicates.yaml in
+#      the exact schema the CM041 resolver consumes (identity_resolver/
+#      decisions.py). merge = COLLAPSE the operator's own fragments;
+#      distinct = SPLIT OUT a namesake (a permanent, non-destructive
+#      never-merge veto). Enacted on the next resolver sweep (install-time
+#      dedupe catch-up + daily recompile). This step NEVER mutates the graph
+#      itself and NEVER auto-merges.
+#
+# Skippable + re-runnable: OSTLER_SKIP_CONFIRMATION=1 skips it; the assistant
+# / Front Page re-surfaces it later when a new signal appears
+# (EMPLOYER_IDENTITY_MERGE_PLAN.md §6). Fail-safe throughout: a helper /
+# graph error leaves calendars.json unwritten and the graph untouched -- the
+# install is never blocked on this step. Defaults are pre-filled so an
+# operator who just hits enter still gets a sensible answer.
+if [[ "${OSTLER_SKIP_CONFIRMATION:-0}" != "1" ]]; then
+    _confirm_cal_py="${SCRIPT_DIR}/lib/ostler-confirm-calendars.py"
+    _confirm_id_py="${SCRIPT_DIR}/lib/ostler-confirm-identity.py"
+    _confirm_events="${OSTLER_DIR}/imports/fda/calendar_events.json"
+    _confirm_corrections="${WIKI_CORRECTIONS_DIR:-${OSTLER_DIR}/corrections}"
+    _confirm_owner_name="${USER_NAME:-You}"
+    # Prefer the calendar/email-ingest venv python (has PyYAML); fall back to
+    # the import-pipeline venv (also carries PyYAML + identity_resolver), then
+    # to a bare python3. Any of them can run the stdlib helpers.
+    _confirm_py="${_HYDRATE_CALENDAR_PY:-}"
+    [[ -x "$_confirm_py" ]] || _confirm_py="${PIPELINE_PY:-}"
+    [[ -x "$_confirm_py" ]] || _confirm_py="$(command -v python3 2>/dev/null || true)"
+
+    # ---- 1. Calendar owner/type confirmation ----
+    if [[ -n "$_confirm_py" && -f "$_confirm_cal_py" && -f "$_confirm_events" ]]; then
+        _confirm_cal_rows="$("$_confirm_py" "$_confirm_cal_py" enumerate \
+            --events "$_confirm_events" --owner-name "$_confirm_owner_name" \
+            2>>"${OSTLER_DIAG_DIR}/confirm.log" || true)"
+        if [[ -n "$_confirm_cal_rows" ]]; then
+            info "$MSG_CONFIRM_CALENDARS_INTRO"
+            _confirm_answers="$(mktemp -t ostler-cal-answers.XXXXXX)"
+            : > "$_confirm_answers"
+            while IFS=$'\t' read -r _cmatch _cowner _ctype _ccount _csamples; do
+                [[ -z "${_cmatch:-}" ]] && continue
+                _chelp="$(printf "$MSG_CONFIRM_CALENDAR_HELP" "${_ccount:-0}" "${_csamples:-}")"
+                _ans_owner="$(gui_read \
+                    "$(printf "$MSG_CONFIRM_CALENDAR_OWNER_TITLE" "$_cmatch")" \
+                    text "${_cowner:-You}" "$_chelp" "" "calendar_owner" "")"
+                _ans_owner="${_ans_owner:-${_cowner:-You}}"
+                _ans_type="$(gui_read \
+                    "$(printf "$MSG_CONFIRM_CALENDAR_TYPE_TITLE" "$_cmatch")" \
+                    choice "${_ctype:-personal}" "$MSG_CONFIRM_CALENDAR_TYPE_HELP" \
+                    "personal,work,family,shared,other" "calendar_type" "")"
+                _ans_type="${_ans_type:-${_ctype:-personal}}"
+                printf '%s\t%s\t%s\n' "$_cmatch" "$_ans_owner" "$_ans_type" \
+                    >> "$_confirm_answers"
+            done <<< "$_confirm_cal_rows"
+            if "$_confirm_py" "$_confirm_cal_py" write \
+                    --answers "$_confirm_answers" \
+                    --out "${OSTLER_DIR}/calendars.json" \
+                    >>"${OSTLER_DIAG_DIR}/confirm.log" 2>&1; then
+                ok "$MSG_CONFIRM_CALENDARS_SAVED"
+            else
+                warn "$MSG_CONFIRM_CALENDARS_FAILED"
+            fi
+            rm -f "$_confirm_answers"
+        fi
+    fi
+
+    # ---- 2. Identity collapse / namesake-split confirmation ----
+    if [[ -n "$_confirm_py" && -f "$_confirm_id_py" ]]; then
+        _confirm_id_props="$("$_confirm_py" "$_confirm_id_py" propose \
+            --oxigraph-url "${OXIGRAPH_URL:-http://localhost:7878}" \
+            --user-id "${USER_ID:-}" 2>>"${OSTLER_DIAG_DIR}/confirm.log" || true)"
+        if [[ -n "$_confirm_id_props" ]]; then
+            _confirm_merge_args=()
+            _confirm_distinct_args=()
+            while IFS=$'\t' read -r _ikind _iids _ievidence; do
+                [[ -z "${_ikind:-}" ]] && continue
+                case "$_ikind" in
+                    COLLAPSE)
+                        _iyn="$(gui_read \
+                            "$(printf "$MSG_CONFIRM_IDENTITY_COLLAPSE_TITLE" "${_ievidence:-}")" \
+                            yesno "yes" "$MSG_CONFIRM_IDENTITY_COLLAPSE_HELP" "" \
+                            "identity_collapse" "")"
+                        case "$_iyn" in
+                            yes|true|y|Y) _confirm_merge_args+=("--merge" "$_iids") ;;
+                        esac
+                        ;;
+                    NAMESAKE)
+                        # Framed "Is this you, or someone else?" default "someone
+                        # else" -> a "different person" answer writes the distinct
+                        # veto (never merge). Fail-safe default = do nothing to a
+                        # self node, only ever veto a merge.
+                        _iyn="$(gui_read \
+                            "$(printf "$MSG_CONFIRM_IDENTITY_NAMESAKE_TITLE" "${_ievidence:-}")" \
+                            choice "different" "$MSG_CONFIRM_IDENTITY_NAMESAKE_HELP" \
+                            "different,me" "identity_namesake" "")"
+                        case "$_iyn" in
+                            different|no|n|N|"") _confirm_distinct_args+=("--distinct" "$_iids") ;;
+                        esac
+                        ;;
+                esac
+            done <<< "$_confirm_id_props"
+            if [[ ${#_confirm_merge_args[@]} -gt 0 || ${#_confirm_distinct_args[@]} -gt 0 ]]; then
+                if "$_confirm_py" "$_confirm_id_py" record \
+                        --corrections-dir "$_confirm_corrections" \
+                        ${_confirm_merge_args[@]+"${_confirm_merge_args[@]}"} \
+                        ${_confirm_distinct_args[@]+"${_confirm_distinct_args[@]}"} \
+                        >>"${OSTLER_DIAG_DIR}/confirm.log" 2>&1; then
+                    ok "$MSG_CONFIRM_IDENTITY_SAVED"
+                else
+                    warn "$MSG_CONFIRM_IDENTITY_FAILED"
+                fi
+            fi
+            unset _confirm_merge_args _confirm_distinct_args
+        fi
+    fi
+    unset _confirm_cal_py _confirm_id_py _confirm_events _confirm_corrections \
+          _confirm_owner_name _confirm_py _confirm_cal_rows _confirm_answers \
+          _confirm_id_props _cmatch _cowner _ctype _ccount _csamples _chelp \
+          _ans_owner _ans_type _ikind _iids _ievidence _iyn 2>/dev/null || true
+fi
+
 # ── Summary ────────────────────────────────────────────────────────
 
 # CX-123 (#643): everything from here to `gui_done ok` below is the
@@ -33118,50 +33436,147 @@ echo "  2. Once exports arrive, import them:"
 echo -e "     ${BOLD}ostler-import ~/Downloads/gdpr-exports/ \\${NC}"
 echo -e "     ${BOLD}    --user-name \"${USER_NAME}\" --verbose${NC}"
 echo ""
-echo -e "  3. ${BOLD}Connect your accounts${NC} (see POST_INSTALL_SETUP.md):"
+echo -e "  3. ${BOLD}Connect your accounts${NC}:"
 else
-echo -e "  1. ${BOLD}Connect your accounts${NC} (see POST_INSTALL_SETUP.md):"
+echo -e "  1. ${BOLD}Connect your accounts${NC}:"
 fi
-echo "     - iCloud sign-in (for iMessage)"
-echo "     - iCloud Calendar (app-specific password)"
-echo "     - Gmail (OAuth via gws CLI)"
-echo "     - WhatsApp (pair code linking)"
+# THE POINTER AND THE PASSWORD WERE BOTH WRONG, fixed 2026-09-16.
+#
+# This block said "(see POST_INSTALL_SETUP.md)". THAT FILE HAS NEVER EXISTED:
+# 0 files matching it in the tree, against 82 other .md files as the control.
+# So the last thing a customer read at the end of a successful install was a
+# reference to a document they could not open.
+#
+# It also told them to obtain an ICLOUD APP-SPECIFIC PASSWORD for Calendar.
+# That instruction is for the CalDAV path, which CX-101 ABANDONED (see the
+# note at the calendar-hydration block). Measured: OSTLER_ICLOUD_APP_PASSWORD
+# is never assigned and never exported anywhere in this file, only read, and
+# the calendar-hydration comment says in as many words that these are "env
+# vars install.sh NEVER captures". Control: OSTLER_DIR resolves 17 times on
+# the same assignment pattern, so the zero is a measurement.
+#
+# Sending a customer to Apple to mint a credential for machinery we abandoned
+# is worse than saying nothing: they do the work, it changes nothing, and when
+# the calendar fills up anyway they learn that our instructions are decorative.
+#
+# What is actually true is shorter, so it is said inline rather than deferred
+# to a document. Calendar needs no credential at all: the FDA extractor reads
+# Calendar.app's local cache, which already covers every account in System
+# Settings, and that is the path extract_all runs.
+#
+# NO gws SUBCOMMAND IS NAMED HERE ON PURPOSE. My first draft of this block told
+# the customer to run a specific one. It appeared NOWHERE ELSE in the tree: the
+# only occurrence of that string was the line I had just written. Naming a
+# command I had not verified would have been the same defect as the document
+# that does not exist, one line further down the same list. The tool's own
+# no-argument output is the source of truth for its interface, so that is what
+# the customer is sent to.
+echo "     - iMessage: nothing to do if you already use Messages on this Mac."
+echo "                 Ostler reads the messages already stored here."
+echo "     - Calendar: nothing to do. Ostler reads the calendars already in"
+echo "                 System Settings > Internet Accounts. No password needed."
+echo "     - Gmail:    needs a one-off Google sign-in through the gws tool"
+echo "                 installed at /usr/local/bin/gws. Until you do that,"
+echo "                 Gmail surfaces stay empty. Run gws with no arguments"
+echo "                 to see its sign-in command."
+echo "     - WhatsApp: link with the pair code Ostler shows you"
 echo ""
 # Primary user-facing URL: the wiki. This is the everything-Ostler
 # dashboard the customer opens in a browser. The dev / debug
 # dashboards below are available but de-emphasised so the next-
 # steps banner reads as "go look at your wiki" rather than "here
 # are five raw API surfaces". Resolves install UX BLOCKING #1.
-if [[ "$WIKI_FIRST_COMPILE_OK" == true ]]; then
-    echo -e "  ${BOLD}Your wiki:${NC} http://localhost:8044"
-    # #1594: the wiki now sits behind a credential, so the password has
-    # to appear HERE. The browser opens automatically a few lines below
-    # and will prompt immediately; a customer who was never shown the
-    # password experiences that as a broken install, not as security.
-    echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_SIGN_IN" "ostler" "${WIKI_PASSWORD}")"
-    # #1660: MAKE THE PROMPT A PASTE, NOT A MEMORY TEST. Andy's call: the
-    # credential is right, the friction is not. Basic auth prompts ONCE per
-    # browser and both Safari and Chrome then offer Keychain, so the whole cost
-    # of this decision is a single dialog -- provided the customer does not have
-    # to retype a 23-character string into it.
-    #
-    # pbcopy is macOS-only and this installer is macOS-only, but it is still
-    # guarded: a clipboard we could not write is a WORSE experience if we then
-    # claim we did. No 2>/dev/null on the probe -- if pbcopy is missing we say
-    # nothing about the clipboard rather than lying about it.
-    if command -v pbcopy >/dev/null 2>&1 && printf '%s' "${WIKI_PASSWORD}" | pbcopy; then
-        echo -e "  ${BOLD}         ${NC} Copied to your clipboard, so you can paste it. Your browser will offer to remember it."
-    fi
-    # Second line only when the owner-gated tailnet route actually
-    # landed. Deliberately says "your own devices" -- it is reachable
-    # from your phone and iPad over Tailscale, and from nothing else:
-    # not the LAN, not the internet, not other people on your tailnet.
-    if [[ -n "${OSTLER_WIKI_TAILNET_URL:-}" ]]; then
-        echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_TAILNET_BANNER" "$OSTLER_WIKI_TAILNET_URL")"
-    fi
-else
-    echo "  Your wiki:  not yet available (first compile failed -- see warnings above)"
+# >>> wiki-handover-banner (HR015 #943) ---------------------------------------
+# Extracted by its sentinels and EXECUTED, state by state, by
+# tests/test_the_wiki_credential_is_not_gated_on_the_wiki_being_ready.sh.
+# Keep both sentinels; the guard reports CANNOT-RUN without them.
+#
+# "IS THE WIKI READY YET" AND "DOES THE CUSTOMER GET THEIR SIGN-IN" ARE TWO
+# QUESTIONS, AND THIS BLOCK USED TO ANSWER BOTH WITH ONE FLAG.
+#
+# Everything about the credential sat inside `if WIKI_FIRST_COMPILE_OK`, so
+# when that flag was false the customer was told this and nothing else:
+#
+#     Your wiki:  not yet available (first compile failed -- see warnings above)
+#
+# No address. No username. No password. Not later, not anywhere. The wiki then
+# finished compiling in the background, started serving, and the customer met a
+# browser password box for a credential they had never been shown.
+#
+# Measured on a v1.0.98 install: the compiler was STILL RUNNING about an hour
+# after install.sh exited, and the wiki then worked perfectly with the
+# credential from ${SECRETS_DIR}/wiki_password. Nothing had failed.
+#
+# AND THE MESSAGE NAMED A CAUSE IT HAD NOT MEASURED. WIKI_FIRST_COMPILE_OK goes
+# false for at least three distinct reasons and only one of them is a failed
+# compile: `docker compose up -d wiki-site` returning non-zero; :8044 not
+# answering 200 inside the 60-second poll; and the baseline compile actually
+# failing. "first compile failed" was asserted on all three. The installer
+# already HOLDS the discriminators -- WIKI_PAGE_COUNT, WIKI_BASELINE_RC and the
+# last HTTP status off the port -- so the line now says what was measured.
+#
+# The password is seeded near the top of the install, hundreds of steps before
+# any of this, and it is never rotated (the reuse rule: rotating a credential a
+# browser has saved gives the customer a prompt they cannot answer). So there
+# is no state of this box in which we hold the credential and cannot hand it
+# over. It is handed over unconditionally, and only the READINESS line varies.
+
+echo -e "  ${BOLD}Your wiki:${NC} http://localhost:8044"
+
+# #1594: the wiki sits behind a credential, so the password has to appear
+# HERE. The browser opens automatically a few lines below and will prompt
+# immediately; a customer who was never shown the password experiences that
+# as a broken install, not as security.
+echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_SIGN_IN" "ostler" "${WIKI_PASSWORD}")"
+
+# #1660: MAKE THE PROMPT A PASTE, NOT A MEMORY TEST. Andy's call: the
+# credential is right, the friction is not. Basic auth prompts ONCE per
+# browser and both Safari and Chrome then offer Keychain, so the whole cost
+# of this decision is a single dialog -- provided the customer does not have
+# to retype a 23-character string into it.
+#
+# pbcopy is macOS-only and this installer is macOS-only, but it is still
+# guarded: a clipboard we could not write is a WORSE experience if we then
+# claim we did. No 2>/dev/null on the probe -- if pbcopy is missing we say
+# nothing about the clipboard rather than lying about it.
+if command -v pbcopy >/dev/null 2>&1 && printf '%s' "${WIKI_PASSWORD}" | pbcopy; then
+    echo -e "  ${BOLD}         ${NC} Copied to your clipboard, so you can paste it. Your browser will offer to remember it."
 fi
+
+# THE ROUTE BACK. The clipboard is the only copy otherwise, and it survives
+# about as long as the next thing the customer copies. This is the same fact
+# the GUI already puts on its completion screen
+# (gui/OstlerInstaller/Views/InstallCompleteView.swift, wiki_signin_hint); the
+# terminal path never carried it. Saying WHERE it is costs nothing and is not
+# a disclosure: the file is the customer's own, 0600, on their own disk.
+echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_PASSWORD_ON_DISK" "${SECRETS_DIR}/wiki_password")"
+
+# Second line only when the owner-gated tailnet route actually landed.
+# Deliberately says "your own devices" -- it is reachable from your phone and
+# iPad over Tailscale, and from nothing else: not the LAN, not the internet,
+# not other people on your tailnet.
+if [[ -n "${OSTLER_WIKI_TAILNET_URL:-}" ]]; then
+    echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_TAILNET_BANNER" "$OSTLER_WIKI_TAILNET_URL")"
+fi
+
+# READINESS, and only readiness. Four states, four sentences, none of them
+# naming a cause this run did not measure.
+if [[ "$WIKI_FIRST_COMPILE_OK" != true ]]; then
+    if [[ -z "${WIKI_PAGE_COUNT:-}" || ! "${WIKI_PAGE_COUNT:-}" =~ ^[0-9]+$ ]]; then
+        # The compile step did not reach its own page count, so this run has no
+        # evidence either way. "We could not look" is not "it failed", and the
+        # customer is not told it was.
+        echo -e "  ${BOLD}         ${NC} $MSG_INFO_WIKI_READINESS_NOT_MEASURED"
+    elif [[ "${WIKI_PAGE_COUNT}" -gt 0 ]]; then
+        # Pages exist on disk. This is the v1.0.98 case: building, not broken.
+        echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_STILL_BUILDING" "${WIKI_PAGE_COUNT}" "${_wiki_last_code:-000}")"
+    else
+        # Zero pages under the docs dir is the one state that IS a failure, and
+        # it is the only one allowed to say so.
+        echo -e "  ${BOLD}         ${NC} $MSG_WARN_WIKI_FIRST_COMPILE_PRODUCED_NO_PAGES"
+    fi
+fi
+# <<< wiki-handover-banner (HR015 #943) ---------------------------------------
 
 # Channel summary: tell the customer how to actually talk to the
 # assistant they just named. Lines only appear when the section 4a

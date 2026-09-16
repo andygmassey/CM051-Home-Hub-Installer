@@ -62,14 +62,30 @@ set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SUBJECT="${REPO}/install.sh"
 STRINGS="${REPO}/install.sh.strings.en-GB.sh"
-SWIFT="${REPO}/gui/OstlerInstaller/Views/HintPanelView.swift"
+# THE GUI HALF NOW SPANS TWO FILES, because the fix moved the reveal OUT of
+# HintPanelView entirely rather than merely out of its `finished == .ok` arm.
+#
+# #1540 attached the sheet to HintPanelView, outside `.ok`, and this file
+# asserted exactly that. It was still wrong, and the assertion could not see
+# it: `HintPanelView()` is instantiated at ONE place, ContentView's
+# `installLayout`, inside the `else` arm of `if coordinator.finished == .fail`.
+# On a failure SwiftUI renders `InstallFailedBodyView()` in that slot,
+# HintPanelView leaves the view tree, and the sheet leaves with it. The reveal
+# was outside `.ok` and still unreachable on the path where losing the key is
+# permanent -- the host was conditional, not just the branch.
+#
+# So the property to assert is about the HOST: the reveal must hang off a view
+# that is in the tree on every branch. That is ContentView's root.
+SWIFT_HINT="${REPO}/gui/OstlerInstaller/Views/HintPanelView.swift"
+SWIFT_ROOT="${REPO}/gui/OstlerInstaller/Views/ContentView.swift"
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  [PASS] %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  [FAIL] %s\n' "$1"; }
 
 [ -f "$SUBJECT" ] || { echo "CANNOT-RUN: no install.sh at ${SUBJECT}" >&2; exit 2; }
 [ -f "$STRINGS" ] || { echo "CANNOT-RUN: no install.sh.strings.en-GB.sh at ${STRINGS}" >&2; exit 2; }
-[ -f "$SWIFT" ]   || { echo "CANNOT-RUN: no HintPanelView.swift at ${SWIFT}" >&2; exit 2; }
+[ -f "$SWIFT_HINT" ] || { echo "CANNOT-RUN: no HintPanelView.swift at ${SWIFT_HINT}" >&2; exit 2; }
+[ -f "$SWIFT_ROOT" ] || { echo "CANNOT-RUN: no ContentView.swift at ${SWIFT_ROOT}" >&2; exit 2; }
 
 # How far apart the reveal and its OWN bookkeeping (the delivered flag, then
 # the persisted marker write) may sit. The point is "nothing that can fail
@@ -92,9 +108,73 @@ _guarded() {
     /usr/bin/sed -n "${from},${rl}p" "$f" | /usr/bin/grep -qF 'if [[ -n "$RECOVERY_KEY" ]]; then'
 }
 
+# Does a Swift file present RecoveryKeyView at all? Prints the 1-based line
+# number of the first real occurrence, or nothing.
+#
+# Comments and string literals are blanked FIRST, in the same order and for
+# the same reason as _sheet_placement below: this file's own history records a
+# probe that counted braces in comments, scored 7 pass / 0 fail, and printed a
+# sentence claiming the opposite of the truth. A prose mention of
+# `RecoveryKeyView()` in a comment must not read as a presentation site.
+_reveal_site() {
+    /usr/bin/awk '
+        {
+            line = $0
+            gsub(/\\"/, "", line)
+            gsub(/"[^"]*"/, "\"\"", line)
+            sub(/\/\/.*/, "", line)
+        }
+        line ~ /RecoveryKeyView\(\)/ { print NR; exit }
+    ' "$1"
+}
+
+# The line where ContentView stops being the root and starts being the
+# branching body. The reveal must be attached ABOVE this, in `body`, so it
+# wraps every branch `rootContent` switches between.
+_rootcontent_decl() {
+    /usr/bin/awk '
+        {
+            line = $0
+            gsub(/\\"/, "", line)
+            gsub(/"[^"]*"/, "\"\"", line)
+            sub(/\/\/.*/, "", line)
+        }
+        line ~ /private var rootContent/ { print NR; exit }
+    ' "$1"
+}
+
+# Where does the GUI host the reveal? Prints one of:
+#   hint    HintPanelView presents it. That view is itself behind a branch, so
+#           this is the shipped defect however the inner condition reads.
+#   root    ContentView presents it above `rootContent`, i.e. in `body`, so it
+#           survives every terminal the customer can land in.
+#   nested  ContentView presents it, but below the point where the branching
+#           starts -- back under a condition.
+#   nofind  nowhere.
+#
+# Takes both paths as ARGUMENTS rather than reading the globals, so the
+# control below can point it at synthetic files. A variable assignment
+# prefixed onto a shell FUNCTION call persists past the call in some shells,
+# which would silently corrupt the real verdict.
+_gui_reveal_host() {
+    local _hint="$1" _root="$2"
+    local _hint_site _root_site _root_decl
+    _hint_site="$(_reveal_site "$_hint")"
+    _root_site="$(_reveal_site "$_root")"
+    _root_decl="$(_rootcontent_decl "$_root")"
+
+    if [ -n "$_hint_site" ]; then echo "hint"; return; fi
+    if [ -z "$_root_site" ] || [ -z "$_root_decl" ]; then echo "nofind"; return; fi
+    if [ "$_root_site" -lt "$_root_decl" ]; then echo "root"; else echo "nested"; fi
+}
+
 # Swift: is the `.sheet(` that presents the key INSIDE the `finished == .ok`
 # branch? Brace-count from the `if` to its matching close, then compare.
 # Prints "inside" or "outside", or "nofind".
+#
+# RETAINED even though the reveal has moved off this view: if a future change
+# puts a sheet back on HintPanelView, `_gui_reveal_host` reports "hint" and
+# this tells us which flavour of the old bug it is.
 _sheet_placement() {
     # 🔴 THIS COUNTED BRACES IN COMMENTS AND STRING LITERALS, AND TNM BROKE IT.
     #
@@ -189,12 +269,38 @@ _guarded "$SUBJECT" "$_rl" \
     && ok "CONTROL: the reveal is still behind [[ -n \$RECOVERY_KEY ]], so a run that minted nothing prints nothing" \
     || bad "the reveal is no longer guarded on emptiness -- a skip-path run would render a blank key as if it were one"
 
-_p="$(_sheet_placement "$SWIFT")"
-case "$_p" in
-    outside) ok "GUI: the reveal sheet hangs off the whole view, so a FAILED install can still surface the key" ;;
-    inside)  bad "GUI: the reveal sheet is inside \`finished == .ok\`. An install that minted the key and then failed holds it in an in-memory property behind a branch that never renders, and drops it on quit. That customer's next act is the re-run that seals it." ;;
-    *)       echo "CANNOT-RUN: could not locate the finished==.ok branch in ${SWIFT}." >&2; exit 2 ;;
+_h="$(_gui_reveal_host "$SWIFT_HINT" "$SWIFT_ROOT")"
+case "$_h" in
+    root)
+        ok "GUI: the reveal hangs off ContentView's root, so a FAILED install can still surface the key"
+        ;;
+    hint)
+        _p="$(_sheet_placement "$SWIFT_HINT")"
+        bad "GUI: the reveal is presented from HintPanelView (sheet placement: ${_p}). That view is instantiated at ONE place, inside the \`else\` arm of \`if coordinator.finished == .fail\`, so on a failed install it leaves the view tree and takes the sheet with it. Moving the sheet outside \`finished == .ok\` was not enough -- the HOST is conditional. Attach it to ContentView's root."
+        ;;
+    nested)
+        bad "GUI: ContentView presents the reveal, but BELOW \`private var rootContent\`, so it is attached inside the branching body rather than wrapping it. A terminal that swaps the body out drops the sheet, which is the same defect in a new place."
+        ;;
+    *)
+        echo "CANNOT-RUN: could not locate a RecoveryKeyView() presentation in either ${SWIFT_HINT} or ${SWIFT_ROOT}." >&2
+        exit 2
+        ;;
 esac
+
+# CONTROL for the arm above. An absence check passes when the apparatus dies,
+# so prove the probe can still SEE a presentation site before believing it
+# found one in the right place. The control is a synthetic file carrying the
+# defect: a reveal on the conditional host. It must come back "hint", never
+# "root", or the `root` verdict just printed was measuring nothing.
+_ctl_hint="$(mktemp -d)/HintPanelView.swift"
+_ctl_root="$(mktemp -d)/ContentView.swift"
+printf 'struct HintPanelView: View {\n  var body: some View {\n    Group { }.sheet(isPresented: $x) { RecoveryKeyView() }\n  }\n}\n' > "$_ctl_hint"
+printf 'struct ContentView: View {\n  var body: some View { rootContent }\n  private var rootContent: some View { Group { } }\n}\n' > "$_ctl_root"
+_ctl_verdict="$(_gui_reveal_host "$_ctl_hint" "$_ctl_root")"
+rm -rf "$(dirname "$_ctl_hint")" "$(dirname "$_ctl_root")"
+[ "$_ctl_verdict" = "hint" ] \
+    && ok "CONTROL: the probe still detects a reveal on the conditional host (returned '${_ctl_verdict}'), so the verdict above is a measurement" \
+    || bad "the GUI probe returned '${_ctl_verdict}' for a file that plainly presents RecoveryKeyView from HintPanelView. The probe is broken, so its verdict on the real tree proves nothing."
 
 echo "── subject: the re-run check (lifted and executed) ──"
 

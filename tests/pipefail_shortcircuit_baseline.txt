@@ -40,7 +40,6 @@ scripts/classify_pr_pin_shape.sh	1
 scripts/dry_run_cut_checks.sh	1
 scripts/provenance_gate.sh	3
 scripts/regenerate_divergence_patch.sh	1
-scripts/stage_and_verify_dmg.sh	1
 scripts/sync_vendor.sh	2
 scripts/tests/test_daemon_fda_case6_controls.sh	2
 scripts/tests/test_regenerate_divergence_patch.sh	16
