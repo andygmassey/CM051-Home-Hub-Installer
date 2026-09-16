@@ -47,6 +47,7 @@ on:
   pull_request:
     paths:
       - 'tests/test_no_program_dodges_the_promote.sh'
+      - 'tests/test_a_taken_port_is_named_not_abstracted.sh'
       - 'install.sh'
       # Both halves of the bash 3.2 guard: the test itself, so a change to it
       # cannot go unrun, and its subject, so a regression in the subject fires
@@ -149,6 +150,9 @@ jobs:
         # program the installer itself removes.
         if: always()
         run: bash tests/test_no_program_dodges_the_promote.sh
+      - name: a taken port is named, not abstracted into a catch-all
+        if: always()
+        run: bash tests/test_a_taken_port_is_named_not_abstracted.sh
       - name: shell tests run to completion under the cut host's bash 3.2
         # always(), because a step that only runs on success can be masked
         # by an earlier red, and this one exists to catch a suite that

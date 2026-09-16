@@ -688,6 +688,12 @@ MSG_WARN_COULD_NOT_PERSIST_REGION_JSON_CONTINUING="Could not persist region.json
 MSG_WARN_COULD_NOT_RECORD_RECOVERY_KEY_DELIVERY="Could not record that the recovery key was delivered. This run's summary is still correct, but a later run may not be able to tell and could warn again – that is the safe direction for this to fail in."
 MSG_WARN_COULD_NOT_SAVE_KEYCHAIN_PLEASE_WRITE="Could not save to Keychain. Please write it down."
 MSG_WARN_COULD_NOT_START_OLLAMA_AUTOMATICALLY="Could not start Ollama automatically."
+MSG_FAIL_OLLAMA_PORT_IN_USE="Another program is already using port 11434, which Ostler needs for its local AI. Ostler could not start its own copy, so the install stopped here rather than half-finishing.
+
+  What is holding the port: %s
+  The exact error is in: %s
+
+This is usually a copy of Ollama you already had, or one left running by a previous Ostler install. Quit it (or restart this Mac) and run the installer again."
 MSG_WARN_COULD_NOT_UPDATE_PIPELINE_OFFLINE="Could not update pipeline (offline?)"
 MSG_WARN_COULD_NOT_WRITE_PIPELINE_SIGNALS_JSON="Could not write pipeline_signals.json. The Doctor empty-Mail diagnostic will fall back to safe defaults until the next install or tick."
 MSG_WARN_CURL_SAID="Curl said:"
@@ -1132,7 +1138,7 @@ MSG_PROMPT_SMTP_PORT_TITLE="SMTP port"
 MSG_PROMPT_EMAIL_USERNAME_TITLE="Email address (also used as IMAP/SMTP username)"
 
 MSG_PROMPT_EMAIL_PASSWORD_TITLE="Password (hidden)"
-MSG_PROMPT_EMAIL_PASSWORD_HELP="Password for your self-hosted IMAP/SMTP server. Stored locally under ~/.ostler/ – never sent to Creative Machines."
+MSG_PROMPT_EMAIL_PASSWORD_HELP="Password for your self-hosted IMAP/SMTP server. Stored locally under ~/.ostler/, never sent to Creative Machines. It is saved in plain text: the only thing protecting it is the file's permissions, which allow your macOS account and nobody else. Nothing encrypts it later. Use an app password rather than your main account password."
 MSG_PROMPT_EMAIL_PASSWORD_CONFIRM_TITLE="Confirm Password"
 
 MSG_PROMPT_EMAIL_IMAP_FOLDER_TITLE="Which folder should the assistant watch?"
