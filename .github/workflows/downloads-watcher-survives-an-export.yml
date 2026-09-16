@@ -49,6 +49,10 @@ on:
     paths:
       - 'install.sh'
       - 'tests/test_the_downloads_watcher_survives_a_real_export.sh'
+      # #1571's guard, watched as well as run: it extracts the scanner from
+      # install.sh's heredoc, so an install.sh edit is exactly the change that
+      # can break it, and a step with no path entry never fires on it.
+      - 'tests/test_a_failed_import_is_not_announced_as_done.sh'
       - '.github/workflows/downloads-watcher-survives-an-export.yml'
   push:
     branches: [main]
@@ -85,3 +89,21 @@ jobs:
       # Event once wedged this same export-scan -> import chain for 23h56m.
       - name: An export in Downloads must reach the importer
         run: bash tests/test_the_downloads_watcher_survives_a_real_export.sh
+
+      # #1571. Both branches of the watcher claimed an import: the else-branch
+      # said "Imported your latest export. Some parts will finish in the
+      # background." on the path where the importer had just returned NON-ZERO.
+      # The dedupe hash was then written outside the if/else, so a failed
+      # import was also recorded as done and the export set was skipped for
+      # ever -- by a line whose own comment claimed it recorded "only after a
+      # real import attempt ... rather than silently marked done".
+      #
+      # The guard runs the SHIPPED scanner with osascript shimmed, so it
+      # asserts on the text a CUSTOMER IS SHOWN, not on the source. It carries
+      # its own success control (the working path must still announce and still
+      # dedupe), a behavioural arm (a recovered importer must retry the failed
+      # export), and a MUST-MISS arm (an already-imported set is still skipped,
+      # so the retry arm cannot pass by dedupe being broken outright).
+      - name: a failed import is not announced as done (#1571)
+        if: always()
+        run: bash tests/test_a_failed_import_is_not_announced_as_done.sh

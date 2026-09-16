@@ -29,6 +29,7 @@ test_a_dead_wiki_announces_itself.py	WIRED	.github/workflows/vendor-integrity.ym
 test_a_denied_read_is_not_an_absence.sh	WIRED	.github/workflows/unreachable-not-absence.yml
 test_a_dev_wipe_verdict_is_not_inverted.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
 test_a_failed_hydrate_may_not_fabricate_a_count.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_a_failed_import_is_not_announced_as_done.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
 test_a_failed_walk_must_not_exit_zero.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_failing_probes_early_output_is_not_discarded.py	WIRED	.github/workflows/cut-manifest.yml
 test_a_file_we_could_not_read_is_not_a_clean_file.py	WIRED	.github/workflows/cut-manifest.yml
@@ -480,6 +481,7 @@ test_the_egress_proof_can_go_red.sh	WIRED	.github/workflows/install-abort-and-eg
 test_the_emergency_cut_row_tells_the_truth.sh	WIRED	.github/workflows/cut-manifest.yml
 test_the_failed_to_look_message_can_actually_print.sh	WIRED	.github/workflows/dmg-delivery-gate.yml
 test_the_generated_uninstaller_parses.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
+test_the_governor_revendor_guard_is_actually_run.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_the_installer_downloads_from_the_repo_we_publish_to.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_licence_a_customer_paid_for_is_owner_only.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_the_loopback_auth_gate_cannot_be_bypassed.sh	WIRED	.github/workflows/vendor-integrity.yml
