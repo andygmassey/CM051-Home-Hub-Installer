@@ -203,7 +203,7 @@ fi
 # ARM 9. The stop must REMOVE THE PLIST, not merely bootout. A bootout lasts
 # until the next login; the file is what brings the agent back, so without this
 # the loop returns the next time the customer logs in and nothing says so.
-if printf '%s\n' "$STOP_FN" | grep -q 'rm -f "\$OLLAMA_PLIST"'; then
+if [ "$(printf '%s\n' "$STOP_FN" | grep -c 'rm -f "\$OLLAMA_PLIST"')" -gt 0 ]; then
     ok "the stop helper removes the plist, so the agent does not return at the next login"
 else
     bad "the stop helper does not remove the plist, so launchd loads it again at the next login and the 7-second restarts resume"

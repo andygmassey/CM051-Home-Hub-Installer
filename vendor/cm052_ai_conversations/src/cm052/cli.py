@@ -3,8 +3,10 @@
 This is the runnable entrypoint declared in ``pyproject.toml`` as
 ``pwg-ai-convo = "src.cm052.cli:main"``. It wraps the already-built
 engine library: it runs the unifier across the external-LLM adapters
-(Claude Code session watcher + ChatGPT export), then hands every
-unified conversation to ``wire.post()``.
+(Claude Code session watcher + ChatGPT export) plus the Hub's own
+gateway sessions (2026-09-13: previously excluded with nothing else to
+read them; see ``_ai_adapters`` for the investigation), then hands
+every unified conversation to ``wire.post()``.
 
 It does NOT reimplement any of the engine's privacy or storage logic.
 In particular the L3 short-circuit and the dual-storage episodic write
@@ -68,9 +70,10 @@ from .schemas import Conversation
 from .unifier import (
     _chatgpt_export_dir,
     _claude_code_projects_dir,
+    _hub_dir,
     unify,
 )
-from .adapters import chatgpt_export, claude_code_watcher
+from .adapters import chatgpt_export, claude_code_watcher, zeroclaw_sessions
 
 
 log = logging.getLogger("cm052.cli")
@@ -89,30 +92,61 @@ def _state_path() -> Path:
     return _state_dir() / _STATE_FILENAME
 
 
-_SOURCE_CHOICES = ("claude_code", "chatgpt", "all")
+_SOURCE_CHOICES = ("claude_code", "chatgpt", "gateway", "all")
 
 
 def _ai_adapters(source: str = "all") -> list[tuple]:
-    """The external-LLM adapter set this CLI drives, scoped by ``source``.
+    """The adapter set this CLI drives, scoped by ``source``.
 
-    Deliberately narrower than the unifier's full ``_registry()``: the
-    hub-channel adapters (zeroclaw_sessions + channel_jsonl) belong to
-    the human-conversation pipelines, not to the AI Conversations
-    ingest engine. We pass these explicitly to ``unify()`` so the
-    dedup/merge/sort behaviour is identical to the default path, just
-    scoped to the sources this command owns.
+    2026-09-13 investigation (task: "the customer's own assistant conversations
+    never reach memory"). This function used to exclude BOTH hub-channel
+    adapters from unifier._registry() under one docstring claim -- "belong to
+    the human conversation pipelines, are not double-ingested here" -- with no
+    distinction between the two. That claim is TRUE for one and FALSE for the
+    other, verified rather than assumed:
 
-    ``source`` selects which AI adapters run. The Claude Code watcher
-    LaunchAgent ticks with ``claude_code`` (frequent, cheap re-scan of
-    the live session tree); the one-shot ChatGPT importer runs
-    ``chatgpt`` over the drop folder; ``all`` (default, e.g. the
-    install-time backfill) runs both.
+    * ``channel_jsonl`` (iMessage/WhatsApp/email channel-BRIDGE transcripts,
+      i.e. the customer talking to Ostler over those channels) genuinely IS
+      already owned by another pipeline: the ``conversation-memory`` repo's
+      ``publisher/publisher.py`` tails the exact same
+      ``~/.zeroclaw/workspace/sessions/*.jsonl`` files (same filename grammar:
+      ``imessage__``, ``whatsapp_..._g_us__``, ``email__``) and publishes them
+      to a message bus for fact extraction into the PWG context file. Running
+      them through THIS wire too would fact-extract the same conversations a
+      second time through a second route -- wire.py's own docstring says as
+      much: "Human-channel conversations ... keep the existing CM048-tier-1
+      markdown under ~/.pwg/conversations/ and do not pass through this
+      episodic path." Left excluded. Still correct.
+
+    * ``zeroclaw_sessions`` (the gateway's OWN ``sessions.db`` -- the
+      customer's direct chat with Ostler through the Hub's own chat UI, not
+      via any external channel) has NO such owner anywhere. Verified by
+      GitHub code search across every plausible human-conversation pipeline
+      repo (conversation-memory, CM046-PWG-Email-Intelligence,
+      CM047-PWG-WhatsApp-Mining, CM042-PWG-Remote-Conversations,
+      CM048-PWG-Conversation-Processing): zero references to
+      ``sessions.db`` / ``session_metadata`` / ``zeroclaw_sessions`` outside
+      CM052 itself, versus a positive-control hit for a term (``parse_filename``)
+      known to exist in conversation-memory. The stated reason does not hold
+      for this adapter: nothing else reads gateway sessions, so the customer's
+      own direct conversations with their assistant had nowhere to land at
+      all despite a complete, tested adapter for them. Included below.
+
+    ``source`` selects which adapters run. The Claude Code watcher LaunchAgent
+    ticks with ``claude_code`` (frequent, cheap re-scan of the live session
+    tree); the one-shot ChatGPT importer runs ``chatgpt`` over the drop
+    folder; ``gateway`` reads the Hub's own chat sessions; ``all`` (default,
+    e.g. the install-time backfill and the only value either production
+    invocation site actually passes -- see install.sh's aiconv-resume plist
+    and OstlerAssistant.app's ingest/aiconv/tick.sh) runs all three.
     """
     pairs: list[tuple] = []
     if source in ("claude_code", "all"):
         pairs.append((claude_code_watcher.read, _claude_code_projects_dir()))
     if source in ("chatgpt", "all"):
         pairs.append((chatgpt_export.read, _chatgpt_export_dir()))
+    if source in ("gateway", "all"):
+        pairs.append((zeroclaw_sessions.read, _hub_dir() / "sessions.db"))
     return pairs
 
 
@@ -250,10 +284,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         choices=_SOURCE_CHOICES,
         default="all",
         help=(
-            "Which AI-conversation source(s) to ingest (default: "
-            "%(default)s). The Claude Code watcher LaunchAgent runs "
-            "'claude_code'; the one-shot ChatGPT importer runs "
-            "'chatgpt'; 'all' runs both."
+            "Which source(s) to ingest (default: %(default)s). The Claude "
+            "Code watcher LaunchAgent runs 'claude_code'; the one-shot "
+            "ChatGPT importer runs 'chatgpt'; 'gateway' reads the Hub's own "
+            "chat sessions (sessions.db); 'all' runs every source."
         ),
     )
     parser.add_argument(
