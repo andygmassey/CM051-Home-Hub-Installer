@@ -40,6 +40,13 @@ on:
       - '.github/workflows/register-agreement.yml'
   push:
     branches: [main]
+    # AND ON A CUT TAG. An acknowledgement carries an `until_cut`, and the
+    # cut is the moment it is supposed to die. A gate that expires a row and
+    # never runs when that row expires has written a reminder, not an
+    # enforcer. scripts/verify_declared_gates_reachable.sh caught this
+    # workflow as an orphan on axis three and was right to.
+    tags:
+      - 'v1.*'
 
 permissions:
   contents: read
