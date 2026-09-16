@@ -44,6 +44,10 @@ on:
       - 'tests/test_store_port_first_install_stale_store.sh'
       - 'install.sh'
       - '.github/workflows/cut.yml'
+      # Both halves: the subject above, so a change to the cut workflow
+      # re-fires the reachability gate, and the guard itself, so editing
+      # the guard cannot go unrun.
+      - 'tests/test_the_dry_run_is_reachable_on_a_dispatch.py'
       - 'scripts/verify_cut_provenance.sh'
       - 'scripts/verify_no_orphaned_fixes.sh'
       - 'scripts/verify_pr_age.sh'
@@ -758,3 +762,13 @@ jobs:
       - name: no staging copy is guarded on its destination
         if: always()
         run: python3 tests/test_a_staging_copy_is_guarded_on_its_source.py
+
+      # #1519. The dry run is the only gate between a bad payload and a
+      # published DMG, because the tag IS the ship. This asserts it stays
+      # REACHABLE on a dispatch, and that the cut job stays UNreachable on one,
+      # which is what makes firing a dispatch a cheap pre-tag step rather than
+      # a risk. A dry run that cannot run renders as a grey tick, which is
+      # indistinguishable from one that ran and passed.
+      - name: the cut's dry run is reachable on a dispatch, and the cut is not
+        if: always()
+        run: python3 tests/test_the_dry_run_is_reachable_on_a_dispatch.py
