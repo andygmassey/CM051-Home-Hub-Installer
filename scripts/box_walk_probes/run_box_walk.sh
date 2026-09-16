@@ -188,7 +188,6 @@ fi
 # scripts/post_walk_qa.sh keeps. A gate whose corpus can be swapped without the
 # swap appearing in its own report is not a gate.
 REGISTRY="${OSTLER_BOX_WALK_REGISTRY:-$HERE/../../cut-manifests/permanent.yaml}"
-REGISTRY_STATE="CANNOT-RUN"
 REGISTRY_DETAIL=""
 REGISTERED_COUNT=0
 DELEGATED=""
@@ -208,7 +207,6 @@ else
     if [ "$REGISTERED_COUNT" -eq 0 ]; then
         REGISTRY_DETAIL="CANNOT-RUN, read ${REGISTRY} and extracted ZERO probe names from it. A register with no rows and an extraction that matches nothing are the same string here, so this is refused rather than reported as nothing missing."
     else
-        REGISTRY_STATE="read"
         for _r in $_registered; do
             case " $COLLECTED_ALL " in *" $_r "*) continue ;; esac
             if [ -f "$HERE/$_r.sh" ]; then
