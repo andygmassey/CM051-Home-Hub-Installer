@@ -1132,7 +1132,7 @@ MSG_PROMPT_SMTP_PORT_TITLE="SMTP port"
 MSG_PROMPT_EMAIL_USERNAME_TITLE="Email address (also used as IMAP/SMTP username)"
 
 MSG_PROMPT_EMAIL_PASSWORD_TITLE="Password (hidden)"
-MSG_PROMPT_EMAIL_PASSWORD_HELP="Password for your self-hosted IMAP/SMTP server. Stored locally under ~/.ostler/ – never sent to Creative Machines."
+MSG_PROMPT_EMAIL_PASSWORD_HELP="Password for your self-hosted IMAP/SMTP server. Stored locally under ~/.ostler/, never sent to Creative Machines. It is saved in plain text: the only thing protecting it is the file's permissions, which allow your macOS account and nobody else. Nothing encrypts it later. Use an app password rather than your main account password."
 MSG_PROMPT_EMAIL_PASSWORD_CONFIRM_TITLE="Confirm Password"
 
 MSG_PROMPT_EMAIL_IMAP_FOLDER_TITLE="Which folder should the assistant watch?"

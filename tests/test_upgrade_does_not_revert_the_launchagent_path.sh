@@ -37,6 +37,15 @@
 #      token) is STILL preserved. The fix must not buy its correctness by
 #      breaking what this function is for.
 #   4  CONTROL: a key present only in the OLD plist is still ADDED.
+#   5  THE SAME DEFECT, ONE VARIABLE ALONG. PATH was not special; it was the
+#      first product-owned key anyone noticed. The whatsapp-keepalive runner
+#      added four more (OSTLER_DIR, OSTLER_GATEWAY_URL, OSTLER_ASSISTANT_LABEL,
+#      PYTHONDONTWRITEBYTECODE), all stated outright by the template rather
+#      than captured from the customer. OSTLER_GATEWAY_URL is the sharp one: it
+#      is pinned to the daemon's [gateway] port, so a customer carrying a stale
+#      one would probe a dead port twice a day and the keepalive would report
+#      the channel unmeasurable forever. Mutation-tested separately from PATH,
+#      because one exclusion passing says nothing about the other.
 #
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -67,8 +76,27 @@ if [ "$(wc -l < "${W}/fn.pre" | tr -d ' ')" -ge "$_fl" ]; then
     cannot "the mutation removed nothing -- the PATH exclusion line was not found, so arm 1 would compare the function with itself"
 fi
 
+# The PRE-FIX form for arm 5: the same function with the product-owned-key
+# case block deleted, from `case "$_k" in` through its `esac`.
+#
+# The line COUNT is asserted, not just "something was removed". A grep-based
+# first attempt removed a different set of lines, the >= guard was satisfied,
+# and arm 5 then ran against a function that still had the exclusion -- it
+# reported the defect as not reproducing, which is the mutation failing open.
+awk '/^ *case "\$_k" in$/{skip=1} skip{if(/^ *esac$/){skip=0}; next} {print}' \
+    "${W}/fn.inc" > "${W}/fn.prekeys"
+_removed=$(( _fl - $(wc -l < "${W}/fn.prekeys" | tr -d ' ') ))
+if [ "$_removed" -ne 4 ]; then
+    cannot "the product-owned-key mutation removed ${_removed} line(s), expected exactly 4 (case, labels, continue, esac). The block moved, so arm 5 would compare the function with itself or with the wrong mutant."
+fi
+
 TEMPLATE_PATH='/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin'
 LAUNCHD_PATH='/usr/bin:/bin:/usr/sbin:/sbin'
+
+# Product-owned keys the TEMPLATE states. Stale customer value vs the one this
+# version ships.
+STALE_GATEWAY='http://127.0.0.1:42617'
+TEMPLATE_GATEWAY='http://127.0.0.1:8000'
 
 build() {   # $1 = dir prefix
     rm -f "${W}/${1}_old.plist" "${W}/${1}_new.plist"
@@ -76,9 +104,13 @@ build() {   # $1 = dir prefix
     "$PB" -c "Add :EnvironmentVariables:PATH string ${LAUNCHD_PATH}" "${W}/${1}_old.plist" >/dev/null
     "$PB" -c "Add :EnvironmentVariables:PWG_SERVICE_TOKEN string customer-token-abc" "${W}/${1}_old.plist" >/dev/null
     "$PB" -c "Add :EnvironmentVariables:OSTLER_LEGACY_ONLY string kept" "${W}/${1}_old.plist" >/dev/null
+    "$PB" -c "Add :EnvironmentVariables:OSTLER_GATEWAY_URL string ${STALE_GATEWAY}" "${W}/${1}_old.plist" >/dev/null
+    "$PB" -c "Add :EnvironmentVariables:PYTHONDONTWRITEBYTECODE string 0" "${W}/${1}_old.plist" >/dev/null
     "$PB" -c "Add :EnvironmentVariables dict" "${W}/${1}_new.plist" >/dev/null 2>&1
     "$PB" -c "Add :EnvironmentVariables:PATH string ${TEMPLATE_PATH}" "${W}/${1}_new.plist" >/dev/null
     "$PB" -c "Add :EnvironmentVariables:PWG_SERVICE_TOKEN string PWG_SERVICE_TOKEN_VALUE" "${W}/${1}_new.plist" >/dev/null
+    "$PB" -c "Add :EnvironmentVariables:OSTLER_GATEWAY_URL string ${TEMPLATE_GATEWAY}" "${W}/${1}_new.plist" >/dev/null
+    "$PB" -c "Add :EnvironmentVariables:PYTHONDONTWRITEBYTECODE string 1" "${W}/${1}_new.plist" >/dev/null
 }
 
 run_with() {   # $1 = function file, $2 = prefix
@@ -122,6 +154,29 @@ _leg="$(val fix OSTLER_LEGACY_ONLY)"
 [ "$_leg" = "kept" ] \
     && ok "CONTROL: a key present only in the OLD plist is still added" \
     || bad "CONTROL BROKEN: OSTLER_LEGACY_ONLY is '${_leg}', expected 'kept'"
+
+_gw="$(val fix OSTLER_GATEWAY_URL)"
+[ "$_gw" = "$TEMPLATE_GATEWAY" ] \
+    && ok "the template's OSTLER_GATEWAY_URL survives the upgrade merge" \
+    || bad "OSTLER_GATEWAY_URL after merge is '${_gw}', expected the template's '${TEMPLATE_GATEWAY}'.
+        An upgrading customer would keep probing the old gateway port and the
+        WhatsApp keepalive would report the channel unmeasurable forever."
+
+_pyc="$(val fix PYTHONDONTWRITEBYTECODE)"
+[ "$_pyc" = "1" ] \
+    && ok "the template's PYTHONDONTWRITEBYTECODE survives the upgrade merge" \
+    || bad "PYTHONDONTWRITEBYTECODE after merge is '${_pyc}', expected the template's '1'"
+
+# ── 5. MUTATION: without the case block the stale values must win ─────────
+build prekeys
+run_with "${W}/fn.prekeys" prekeys
+_pre_gw="$(val prekeys OSTLER_GATEWAY_URL)"
+if [ "$_pre_gw" = "$STALE_GATEWAY" ]; then
+    ok "MUTATION: without the product-owned-key exclusion the stale gateway still wins (defect reproduces)"
+else
+    bad "MUTATION: expected the pre-fix function to revert OSTLER_GATEWAY_URL to '${STALE_GATEWAY}', got '${_pre_gw}'.
+        The harness no longer reproduces the defect, so the two arms above prove nothing."
+fi
 
 printf '\nCONCLUSION HISTOGRAM\n  PASS : %d\n  FAIL : %d\n  TOTAL: %d\n' "$PASS" "$FAIL" "$((PASS+FAIL))"
 [ "$FAIL" -eq 0 ] || exit 1

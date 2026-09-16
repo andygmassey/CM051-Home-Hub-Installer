@@ -892,3 +892,78 @@ EXTENSION_SETUP_BACK_LINK = "Back to Doctor"
 # page has to notice one without the customer reloading. Slower than the
 # WhatsApp panel because nothing here is short-lived.
 EXTENSION_SETUP_POLL_MS = 8000
+
+
+# ── WhatsApp keepalive tile ──────────────────────────────────────────
+#
+# GRAFTED (CM051, board item 965). The keepalive LaunchAgent used to run
+# `ostler-assistant channel doctor`, which builds its own never-connected
+# WhatsApp channel object, so it reported unhealthy on every run on every
+# box and then exited 0 anyway. Nobody knew, because the only trace was a
+# log file and a zero exit code. The keepalive now asks the running daemon,
+# repairs what it can, and its verdict lands here so a person sees it.
+#
+# Apple Restraint voice: say what is true and what to do, in one breath,
+# without alarming a customer whose channel is working.
+
+WHATSAPP_KEEPALIVE_SECTION_TITLE = "WhatsApp connection"
+
+WHATSAPP_KEEPALIVE_STATUS_HEALTHY = "WhatsApp is connected"
+WHATSAPP_KEEPALIVE_STATUS_RECOVERED = "WhatsApp was reconnected"
+WHATSAPP_KEEPALIVE_STATUS_NEEDS_CUSTOMER = "WhatsApp needs linking again"
+WHATSAPP_KEEPALIVE_STATUS_STILL_UNHEALTHY = "WhatsApp is not connected"
+WHATSAPP_KEEPALIVE_STATUS_CANNOT_RUN = "WhatsApp connection not checked"
+
+WHATSAPP_KEEPALIVE_DETAIL_HEALTHY = (
+    "Ostler checks the WhatsApp connection twice a day, before your morning "
+    "brief and your evening wrap. It was connected at the last check."
+)
+WHATSAPP_KEEPALIVE_DETAIL_RECOVERED = (
+    "The WhatsApp connection had dropped and Ostler reconnected it for you. "
+    "Nothing is needed from you. If this keeps happening it is worth a look, "
+    "so the count of recent repairs is shown below."
+)
+# The only verdict that asks the customer for anything, so it is the only one
+# that says what to do and where. It never says "re-scan" without saying that
+# Ostler will not do it for them: silently re-pairing a customer's WhatsApp
+# account would be a far worse defect than the one this tile reports.
+WHATSAPP_KEEPALIVE_DETAIL_NEEDS_CUSTOMER = (
+    "WhatsApp is no longer linked to Ostler, so messages are not arriving. "
+    "Only you can link it again, from your phone. Ostler will not do this on "
+    "your behalf and has stopped retrying, because retrying cannot fix it."
+)
+WHATSAPP_KEEPALIVE_DETAIL_STILL_UNHEALTHY = (
+    "The WhatsApp connection is down. Ostler restarted itself to try to bring "
+    "it back and that did not work, so messages are not arriving and your "
+    "briefs will not be delivered over WhatsApp."
+)
+# Deliberately NOT phrased as a failure. A check that could not run has not
+# passed, and it has not failed either. Telling a customer their WhatsApp is
+# broken because the daemon was asleep would be a false alarm.
+WHATSAPP_KEEPALIVE_DETAIL_CANNOT_RUN = (
+    "Ostler could not check the WhatsApp connection at the last attempt, "
+    "usually because the assistant was not running at the time. This is not a "
+    "report that WhatsApp is down. The next check is at 08:50 or 17:50."
+)
+
+WHATSAPP_KEEPALIVE_HOW_TO_FIX_LABEL = "What to do"
+WHATSAPP_KEEPALIVE_REMEDIATION_NEEDS_CUSTOMER = (
+    "Open the Link WhatsApp page from the link below, then on your phone open "
+    "WhatsApp, go to Settings, then Linked Devices, then Link a Device, and "
+    "enter the code shown. Your messages and chats are not affected by "
+    "linking again."
+)
+WHATSAPP_KEEPALIVE_REMEDIATION_STILL_UNHEALTHY = (
+    "Quit and reopen Ostler. If WhatsApp is still not connected after the "
+    "next check, use the Link WhatsApp page below to link it again."
+)
+WHATSAPP_KEEPALIVE_REMEDIATION_CANNOT_RUN = (
+    "Make sure Ostler is running. The connection is checked again at 08:50 "
+    "and 17:50."
+)
+
+WHATSAPP_KEEPALIVE_LINK_LABEL = "Link WhatsApp"
+WHATSAPP_KEEPALIVE_CHECKED_AT_PREFIX_FMT = "Last checked {relative}."
+WHATSAPP_KEEPALIVE_REPAIRS_FMT = (
+    "Ostler has reconnected WhatsApp {count} time(s) in the last 24 hours."
+)
