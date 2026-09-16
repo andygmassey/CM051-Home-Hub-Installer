@@ -64,13 +64,31 @@ on:
       # makes the workflow trigger, and a run with no path entry is a gate that
       # never fires on a change to itself.
       - 'tests/test_doctor_credential_routes_refuse_cross_site.sh'
+      - 'tests/test_the_doctor_status_poll_has_a_fork_budget.py'
+      - 'vendor/doctor/agent/box_status.py'
+      - 'vendor/doctor/agent/pair_status.py'
+      - 'tests/test_the_pairing_qr_refuses_an_address_the_phone_cannot_open.py'
       - 'tests/test_editor_feedback_accepts_the_add_verb.sh'
+      - 'tests/test_the_doctor_dashboard_actually_renders.sh'
+      # Watched because the step below RUNS it. Its tile half is the only place
+      # the keepalive's five customer-facing verdicts are actually rendered
+      # with the Doctor's real deps present.
+      - 'tests/test_whatsapp_keepalive_repairs_and_reports.sh'
+      - 'assistant-agent/ostler-whatsapp-keepalive.sh'
+      - 'assistant-agent/launchd/com.creativemachines.ostler.whatsapp-keepalive.plist'
       # v1018-D024, customer-visible half. Listed here AND run below, for the
       # reason recorded above: a path entry only makes the workflow trigger.
       # The gate also reads lib/ostler-resource-tier.sh and install.sh, so both
       # are watched -- a change to the shell pause reader can break the
       # Python/shell contract without touching vendor/ at all.
       - 'tests/test_doctor_governor_routes_vendored.sh'
+      # #1164: the #282 re-vendor guard had 0 automated callers for 28 cuts.
+      # Both it AND the ratchet over it are watched here, for the reason given
+      # above: a run with no path entry is a gate that never fires on a change
+      # to itself, and the thing most likely to change is the residue the
+      # ratchet pins.
+      - 'tests/test_the_governor_revendor_guard_is_actually_run.sh'
+      - 'scripts/verify_doctor_governor_revendor.sh'
       - 'lib/ostler-resource-tier.sh'
       - 'tests/vendor_import_resolution_baseline.txt'
       # The __main__-guard reachability gate. It scans vendor/, scripts/ and
@@ -292,6 +310,13 @@ jobs:
         if: always()
         run: python3 tests/test_vendor_entrypoint_resolution.py
 
+      - name: the Doctor status poll has a fork budget
+        # `always()` because a test step that only runs on success can be
+        # MASKED by an earlier red, and a fork budget that silently stops
+        # being measured is the same defect it exists to catch.
+        if: always()
+        run: python3 tests/test_the_doctor_status_poll_has_a_fork_budget.py
+
       # Symbol-level guard: web_ui.py imports a batch of CONFIG_* string
       # constants `from web_ui_copy` -- the import-resolution guard above
       # checks the MODULE resolves but NOT the NAMES, so a stale string
@@ -480,6 +505,15 @@ jobs:
         if: always()
         run: bash tests/test_doctor_credential_routes_refuse_cross_site.sh
 
+      # #947. The pairing envelope validated hub_addr as a non-empty string and
+      # encoded it verbatim into the QR the customer scans. A link-local address
+      # with a zone index scans perfectly and can never connect, because the zone
+      # names an interface on the HUB. `if: always()` so an earlier red cannot
+      # delete this measurement.
+      - name: The pairing QR must refuse an address the phone cannot open
+        if: always()
+        run: python3 tests/test_the_pairing_qr_refuses_an_address_the_phone_cannot_open.py
+
       # CM059 #24's masthead control POSTs {action:'add', subject}; the Doctor's
       # allowlist excluded "add" and demanded a card_id, so the customer got a
       # 400. The last assertion is the one that matters: it runs the compile the
@@ -500,6 +534,35 @@ jobs:
       # what makes that drop loud. Every assertion in it has a NEGATIVE
       # control beside it -- the same rule on a healthy snapshot must stay
       # silent -- so it cannot pass by firing on everything.
+      - name: The Doctor dashboard actually renders (not just answers)
+        if: always()
+        # WIRED HERE DELIBERATELY, beside the other two doctor tests, because
+        # this job pip-installs vendor/doctor/agent/requirements.txt above. The
+        # test reports CANNOT-RUN when fastapi is absent, and a CANNOT-RUN that
+        # nobody notices is a zero-denominator pass. Wired anywhere without the
+        # requirements it would prove nothing while reading green.
+        run: bash tests/test_the_doctor_dashboard_actually_renders.sh
+
+      # THE WHATSAPP KEEPALIVE TILE, wired here for the reason the step above
+      # states about itself. This file's script half runs on macOS in
+      # launchagent-success-verification.yml, where it belongs -- the product
+      # is macOS and the subject is a LaunchAgent. But its TILE half imports
+      # the vendored Doctor renderer, which pulls status_collector, which
+      # imports httpx. That is absent on the macOS runner, so the tile arms
+      # there report CANNOT-RUN and are NOT measured.
+      #
+      # A CANNOT-RUN that is CANNOT-RUN on every run is an arm that never runs.
+      # This job pip-installs the Doctor's requirements above, so the same file
+      # run here DOES measure them: each of the five keepalive verdicts must
+      # reach the page with its own words, an unrecognised verdict must render
+      # nothing, and needs_customer must say only the customer can fix it.
+      #
+      # Both wirings are deliberate and neither is redundant: this one cannot
+      # test the LaunchAgent surface and that one cannot test the tile.
+      - name: The WhatsApp keepalive verdict reaches the Doctor page
+        if: always()
+        run: /bin/bash tests/test_whatsapp_keepalive_repairs_and_reports.sh
+
       - name: A dead wiki announces itself
         if: always()
         run: python3 ./tests/test_a_dead_wiki_announces_itself.py
@@ -593,3 +656,22 @@ jobs:
       # vendor/doctor/ under a new name (the original had dev-machine
       # paths hard-coded, which is why it was pulled) and re-add the
       # step here.
+
+      # #1164. scripts/verify_doctor_governor_revendor.sh has been in the tree
+      # since the #282 graft with NO automated caller: its only wiring was a
+      # sentence in a comment, and the same cut-manifest row reported that fact
+      # unchanged through 28 manifests, v1.0.72 to v1.0.99.
+      #
+      # It was never simply wired because it EXITS 1 ON A HEALTHY TREE by
+      # design: the re-vendor has not happened, the config_panel half was
+      # deliberately not adopted, and exactly ONE of its nine checks fails as
+      # the honest state of the pin. `run: bash scripts/verify_...` would paint
+      # CI permanently red and the next person would delete it.
+      #
+      # So it is graded as a RATCHET over its OUTPUT rather than its exit code.
+      # More than one failure is a regression; ZERO failures means the
+      # re-vendor landed and the guard's scope note needs updating, which is
+      # good news and still a stop rather than a silent pass.
+      - name: the governor re-vendor guard is actually run (#1164)
+        if: always()
+        run: bash tests/test_the_governor_revendor_guard_is_actually_run.sh

@@ -81,9 +81,17 @@ final class RecoveryCoordinator: ObservableObject {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: unlockBinaryPath)
         // --recovery-key is the default mode, named explicitly for clarity.
-        // --install-key-file: back-compat-safe even though the redeemer's
-        // own default now also installs the file; naming it keeps this call
-        // correct regardless of that CLI's default.
+        //
+        // --install-key-file IS REQUIRED HERE, not belt-and-braces. The
+        // redeemer defaults BOTH destinations off and exits 5 (nothing was
+        // written anywhere) when neither --install-key-file nor --print-key
+        // is given, precisely so a key never reaches stdout unasked. Dropping
+        // this flag would not fall back to installing the file; it would make
+        // every recovery attempt fail with the key written nowhere, and the
+        // customer would see this app's generic failure screen.
+        //
+        // --print-key is deliberately NEVER passed: this app must not receive
+        // the raw key at all, and stdout is discarded below.
         process.arguments = [
             "--recovery-key",
             "--secret-file", "-",

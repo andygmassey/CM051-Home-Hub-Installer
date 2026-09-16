@@ -172,6 +172,16 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     # above. The needle asserts the bundling reference, so removing the cp line
     # goes red instead of shipping a silent no-op.
     "lib/settling_progress.sh": ['${SRCROOT}/../lib/settling_progress.sh'],
+    # #399: the end-of-install confirmation helpers. install.sh's
+    # confirmation block probes ${SCRIPT_DIR}/lib/ostler-confirm-calendars.py
+    # and ${SCRIPT_DIR}/lib/ostler-confirm-identity.py and SILENTLY skips the
+    # whole propose-and-confirm step when either is absent, so a dropped cp
+    # line degrades the .app to no-confirmation without any error. The needle
+    # asserts the bundling reference in gui/project.yml, matching the
+    # ${SRCROOT}/../ form that cp line actually uses -- a bare path would name
+    # a string that no longer appears there and could never go red.
+    "lib/ostler-confirm-calendars.py": ['${SRCROOT}/../lib/ostler-confirm-calendars.py'],
+    "lib/ostler-confirm-identity.py": ['${SRCROOT}/../lib/ostler-confirm-identity.py'],
     # #550 (2026-08-28): the store-auth shim. install.sh:6523 seeds it from
     # ${SCRIPT_DIR}/lib/ostler_store_auth.py into ${OSTLER_DIR}/lib, and a .pth
     # in every venv imports it so the pinned Python clients authenticate to
@@ -199,6 +209,25 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "THIRD_PARTY_NOTICES.md": ["vendor/THIRD_PARTY_NOTICES.md"],
     "LICENSES": ["vendor/LICENSES"],
     "Ostler.app": ["OSTLER_APP_PATH"],
+    # Recover Ostler.app (#1970): the standalone GUI doorway to the installed
+    # ostler-unlock redeemer. install.sh probes ${SCRIPT_DIR}/Recover Ostler.app
+    # and stages it into /Applications/Ostler; the copy into Resources is the
+    # RECOVERY_APP_PATH block in the "Bundle install.sh + lib/..." phase.
+    #
+    # ⚠️ THE NEEDLE IS THE cp ITSELF, and that is load-bearing. The three
+    # obvious candidates are all WEAK, each for the reason the store-auth entry
+    # above records: "RECOVERY_APP_PATH" survives in the ${VAR:-} capture and in
+    # the else-branch message, and "${DEST}/Recover Ostler.app" survives on the
+    # xattr line beside the copy. Any of them would leave the gate reporting
+    # covered with the cp deleted -- a positive control carrying the very thing
+    # it hunts. This fragment appears on the cp line and nowhere else in
+    # gui/project.yml. MUTATION-PROVED: with the cp line deleted the gate exits
+    # 1 and names this asset; restored, it exits 0.
+    #
+    # Not source-shaped, so tests/test_bundled_package_comes_from_its_declared_
+    # source.py lists it as out-of-scope rather than failing on it -- the same
+    # branch that already carries the bare-variable "OSTLER_APP_PATH" above.
+    "Recover Ostler.app": ['cp -R "$RECOVERY_APP_SRC"'],
     # W8 / F6: the Safari extension is now staged by the "Bundle Safari
     # extension into Resources" postBuildScript (and by release.sh for the
     # tarball path). Enforce the postBuildScript's presence so a future

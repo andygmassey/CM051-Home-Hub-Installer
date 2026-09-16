@@ -23,6 +23,7 @@ fix issues).
 from __future__ import annotations
 
 import getpass
+import html
 import json
 import os
 import re
@@ -60,6 +61,7 @@ from dashboard_components import (
     render_reminders_posture,
     render_reminders_runtime,
     render_security_posture,
+    render_whatsapp_keepalive,
 )
 from web_ui_copy import (
     ALL_HEALTHY_DETAIL,
@@ -1475,6 +1477,19 @@ def render_dashboard(
     # when no commitments have been pushed yet. Catches the case the
     # install-time tile cannot: access granted at install, later revoked.
     reminders_runtime_section = render_reminders_runtime()
+
+    # WhatsApp keepalive verdict (CM051 board item 965). The twice-daily
+    # keepalive LaunchAgent used to run `channel doctor`, which builds its own
+    # never-connected WhatsApp channel object: it reported unhealthy on every
+    # run on every box and exited 0 anyway, so three consecutive unhealthy
+    # runs read as `last exit code = 0` and nobody knew. The job now asks the
+    # running daemon, repairs what it can, and writes its verdict where a
+    # person will see it. Empty string when WhatsApp was never enabled or the
+    # keepalive has not fired yet. A remediation nobody can observe failing is
+    # the same defect one layer along, which is why this tile is part of the
+    # fix and not a decoration on it.
+    whatsapp_keepalive_section = render_whatsapp_keepalive()
+
     source_status_section = render_source_status()
 
     # Build findings
@@ -2036,6 +2051,8 @@ def render_dashboard(
         {reminders_section}
 
         {reminders_runtime_section}
+
+        {whatsapp_keepalive_section}
         {source_status_section}
 
         <div class="section">

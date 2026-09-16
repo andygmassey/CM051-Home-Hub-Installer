@@ -54,13 +54,15 @@ the product consumes: 64 hex characters, identical to what
     ostler-unlock --recovery-key --install-key-file
 
     # know the passphrase, just want a one-off key on stdout
-    ostler-unlock --passphrase > /dev/null
+    ostler-unlock --passphrase --print-key > /dev/null
 
 Invocation::
 
     python -m ostler_security.passphrase_recovery_cli [options]
 
-stdout carries the key and NOTHING else, so a caller can capture it.
+stdout carries the key and NOTHING else, so a caller can capture it -- but
+ONLY when --print-key is passed, or when the --install-key-file handoff
+failed and the key would otherwise be lost. It is not printed by default.
 Every other line goes to stderr.
 
 SECRETS NEVER TOUCH ARGV
@@ -75,28 +77,16 @@ interactive prompt. Same discipline as ``migrate_recovery_key_aad.py``.
 Exit codes
 ----------
 
-    0   Unlocked. The key file is installed by default; stdout carries a
-        plain confirmation, not the key itself. Pass --print-key to get
-        the raw 64-hex key on stdout instead (engineers/scripting only).
+    0   Unlocked. The key went where you asked: the key file, or stdout
+        under --print-key.
     1   Wrong recovery key / wrong passphrase, or attempts exhausted.
     2   Nothing to unlock: no config, or the config has no recovery key
         configured. Retrying will not help.
     3   Unexpected internal failure.
-    4   Unlocked, but the key file could not be written. The raw key IS
-        printed to stdout regardless of --print-key in this one case,
-        because that is the only remaining way to hand it over.
-
-CHANGED 2026-09-14 (CM051 recovery-app PR): installing the key file used
-to require --install-key-file and, either way, the raw key was ALWAYS
-printed to stdout. A customer running this by hand to recover their own
-box would see their raw database key in their terminal and could paste
-it into a note or a support ticket. Installing the key file is now the
-default (--install-key-file is kept, accepted, and is a no-op -- every
-existing caller in this tree already passed it explicitly, so nothing
-that used to install a key file stops installing one). The raw key is
-now shown only via the new --print-key flag, or on the write-failure
-escape hatch above, where hiding it would destroy the customer's only
-copy.
+    4   Unlocked, but --install-key-file could not write the key file.
+        The key IS on stdout and is not lost; only the handoff failed.
+    5   Unlocked, but neither --install-key-file nor --print-key was given,
+        so there was nowhere to put the key. Nothing was printed.
 """
 from __future__ import annotations
 
@@ -120,6 +110,10 @@ EXIT_AUTH_FAILED = 1
 EXIT_NOTHING_TO_UNLOCK = 2
 EXIT_INTERNAL = 3
 EXIT_KEY_FILE_WRITE_FAILED = 4
+# 5, not a reuse of argparse's 2: this is a successful unlock that was given
+# nowhere to put the key, which is a different outcome from a usage error and
+# from "nothing to unlock".
+EXIT_NO_DESTINATION = 5
 
 SecretReader = Callable[[str], str]
 
@@ -244,9 +238,9 @@ def run(
     recovery_reader: SecretReader = visible_reader,
     passphrase_reader: SecretReader = hidden_reader,
     max_attempts: int = 3,
-    write_key_file: bool = True,
-    key_file: Optional[Path] = None,
+    write_key_file: bool = False,
     print_key: bool = False,
+    key_file: Optional[Path] = None,
     stdout: TextIO = sys.stdout,
     stderr: TextIO = sys.stderr,
 ) -> int:
@@ -369,12 +363,6 @@ def run(
     _err(stderr, "Unlocked.")
 
     rc = EXIT_OK
-    # Default is to reveal nothing raw: the file install below is the normal
-    # handoff. print_key is the explicit engineer opt-in. A caller that asks
-    # for neither (write_key_file=False, print_key=False) still gets the raw
-    # key -- there would otherwise be no way to hand it over at all, and that
-    # combination is not the customer-facing default path.
-    reveal_raw_key = print_key or not write_key_file
     if write_key_file:
         try:
             written = install_key_file(key_hex, key_file)
@@ -383,12 +371,10 @@ def run(
             _err(stderr, f"Could not write the key file: {exc}")
             _err(
                 stderr,
-                "The key itself is needed to recover your data, so it is "
-                "printed below rather than lost. Capture it before this "
-                "window closes.",
+                "The key itself is on stdout and is NOT lost. Capture it "
+                "before this window closes.",
             )
             rc = EXIT_KEY_FILE_WRITE_FAILED
-            reveal_raw_key = True
         else:
             _err(stderr, f"Database key written to {written} (mode 0600).")
             _err(stderr, "")
@@ -419,12 +405,51 @@ def run(
                 "gui/$(id -u)/com.ostler.ical-server",
             )
 
-    # stdout is the clean channel. Nothing else is ever written to it.
-    if reveal_raw_key:
+    # THE KEY REACHES stdout ONLY WHEN SOMEONE ASKED FOR IT THERE.
+    #
+    # This used to be unconditional, with a comment calling stdout the clean
+    # channel. Clean is not the property that matters for a database
+    # encryption key. A default that prints it puts it in shell history, in
+    # terminal scrollback, in any screen share running at the time, and in
+    # whatever log captures the session -- none of which the customer chose
+    # and none of which they can un-choose afterwards.
+    #
+    # NO SHIPPED CALLER WANTED IT THERE. Checked before changing the default
+    # rather than after: every customer-facing invocation in the tree passes
+    # --install-key-file (install.sh.strings.en-GB.sh:408 and install.sh:32479),
+    # and install.sh:15316 imports install_key_file as a FUNCTION rather than
+    # capturing stdout. So the printing default served no consumer and only
+    # ever leaked.
+    if print_key:
         stdout.write(key_hex + "\n")
-    else:
-        stdout.write("Database key installed. Ostler can open your data again.\n")
-    stdout.flush()
+        stdout.flush()
+    elif rc == EXIT_KEY_FILE_WRITE_FAILED:
+        # THE ONE CASE WHERE PRINTING IS STILL RIGHT, and it is why this is a
+        # branch rather than a deletion. The handoff failed, so the key exists
+        # nowhere else. Losing it costs the customer their databases; printing
+        # it costs them an exposed key they at least know about. Say which is
+        # happening, so it is not mistaken for the old default.
+        _err(stderr, "")
+        _err(
+            stderr,
+            "Printing the key here because the key file could not be written "
+            "and it would otherwise be lost. This is NOT the normal path. "
+            "Capture it, then clear your scrollback.",
+        )
+        stdout.write(key_hex + "\n")
+        stdout.flush()
+    elif not write_key_file:
+        # Neither flag: refuse rather than guess. The old behaviour was to
+        # print, which is the thing being fixed; silently doing nothing would
+        # be worse still, because the customer would think it had worked.
+        _err(stderr, "")
+        _err(
+            stderr,
+            "Unlocked, and the key has NOT been written anywhere. Choose one:",
+        )
+        _err(stderr, "  --install-key-file   hand it to the Hub services (what you almost certainly want)")
+        _err(stderr, "  --print-key          print it to stdout (it will land in your shell history)")
+        rc = EXIT_NO_DESTINATION
     return rc
 
 
@@ -476,13 +501,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--install-key-file",
         action="store_true",
-        default=True,
         help=(
-            "Write the unlocked key to the protected key file the Hub "
+            "Also write the unlocked key to the protected key file the Hub "
             "services read (0600, inside the 0700 security directory), so "
-            "they stop opening databases in plaintext. This is now the "
-            "default; the flag is kept so existing scripts that pass it "
-            "keep working, and passing it has no additional effect."
+            "they stop opening databases in plaintext."
+        ),
+    )
+    parser.add_argument(
+        "--print-key",
+        action="store_true",
+        help=(
+            "Print the unlocked key to stdout. NOT the default: a printed key "
+            "lands in shell history, scrollback and any screen share. Use "
+            "--install-key-file unless you are scripting."
         ),
     )
     parser.add_argument(
@@ -490,16 +521,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         metavar="PATH",
-        help="Override where the key file is written.",
-    )
-    parser.add_argument(
-        "--print-key",
-        action="store_true",
-        help=(
-            "Print the raw 64-character database key to stdout. Off by "
-            "default so a customer cannot accidentally paste their key "
-            "into a note or a support ticket. For engineers/scripting."
-        ),
+        help="Override where --install-key-file writes.",
     )
     parser.add_argument(
         "--max-attempts",
@@ -519,8 +541,8 @@ def main(argv: Optional[list] = None) -> int:
         secret_file=args.secret_file,
         max_attempts=args.max_attempts,
         write_key_file=args.install_key_file,
-        key_file=args.key_file,
         print_key=args.print_key,
+        key_file=args.key_file,
     )
 
 

@@ -211,22 +211,17 @@ def main() -> int:
         )
 
         # ── ARM 3: redeem, as a subprocess, key on stdin ──────────────
-        #
-        # --print-key is required here because the default (CM051 recovery-
-        # app PR, 2026-09-14) is to hide the raw key on stdout behind a
-        # plain confirmation instead -- see
-        # test_ostler_unlock_hides_the_raw_key_by_default.py for that
-        # contract. This arm's job is the round trip, which needs the raw
-        # key value, so it opts in explicitly. --key-file points at a temp
-        # path so this subprocess (key-file install is now ALSO the
-        # default) never touches this test-runner's real ~/.ostler.
-        arm3_key_file = work / "arm3-home" / "security" / "db_key"
         proc = run_redeemer(
             pkg_root,
             recovery_key + "\n",
+            # --print-key is REQUIRED now and was not before (#1970). These
+            # two arms observe the key by reading stdout, which is exactly
+            # what the flag is for. The default no longer prints, because a
+            # printed database key lands in shell history, scrollback and any
+            # screen share. Arm 7 below is untouched: it asserts on the key
+            # FILE, not on stdout.
             ["--recovery-key", "--secret-file", "-", "--print-key",
-             "--config-dir", str(config_dir),
-             "--key-file", str(arm3_key_file)],
+             "--config-dir", str(config_dir)],
         )
         redeemed = proc.stdout.strip()
         check(
@@ -235,8 +230,7 @@ def main() -> int:
         )
         check(
             re.fullmatch(r"[0-9a-f]{64}", redeemed or "") is not None,
-            "arm 3: with --print-key it emitted a 64-hex key on stdout and "
-            "nothing else",
+            "arm 3: it emitted a 64-hex key on stdout and nothing else",
         )
         check(
             redeemed == passphrase_key,
@@ -268,9 +262,14 @@ def main() -> int:
         wrong = run_redeemer(
             pkg_root,
             "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF-GG\n",
+            # --print-key is REQUIRED now and was not before (#1970). These
+            # two arms observe the key by reading stdout, which is exactly
+            # what the flag is for. The default no longer prints, because a
+            # printed database key lands in shell history, scrollback and any
+            # screen share. Arm 7 below is untouched: it asserts on the key
+            # FILE, not on stdout.
             ["--recovery-key", "--secret-file", "-", "--print-key",
-             "--config-dir", str(config_dir),
-             "--key-file", str(work / "arm5-home" / "security" / "db_key")],
+             "--config-dir", str(config_dir)],
         )
         check(
             wrong.returncode != 0,

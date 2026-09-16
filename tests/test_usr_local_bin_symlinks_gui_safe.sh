@@ -112,7 +112,7 @@ audit_symlink_var() {
         local WIN_END=$((CALL_LINE + 5))
         local WINDOW
         WINDOW=$(sed -n "${WIN_START},${WIN_END}p" "$INSTALL_SCRIPT")
-        if echo "$WINDOW" | grep -qE 'if\s*\[\[\s*"\$\{OSTLER_GUI'; then
+        if grep -qE 'if\s*\[\[\s*"\$\{OSTLER_GUI' <<<"$WINDOW"; then
             SAW_GATED_BLOCK=1
         fi
     done <<< "$CALLSITES"
@@ -163,7 +163,7 @@ while IFS= read -r ENTRY; do
     [[ $WIN_START -lt 1 ]] && WIN_START=1
     WIN_END=$((LINE_NO + 5))
     WINDOW=$(sed -n "${WIN_START},${WIN_END}p" "$INSTALL_SCRIPT")
-    if echo "$WINDOW" | grep -qE 'if\s*\[\[\s*"\$\{OSTLER_GUI'; then
+    if grep -qE 'if\s*\[\[\s*"\$\{OSTLER_GUI' <<<"$WINDOW"; then
         : # gated -- safe
     else
         UNGATED_BARE+="$LINE_NO "

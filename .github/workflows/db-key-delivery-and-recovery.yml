@@ -72,8 +72,9 @@ on:
       - 'install.sh'
       - 'install.sh.strings.en-GB.sh'
       - 'tests/test_the_recovery_key_can_be_redeemed_end_to_end.py'
+      - 'tests/test_the_recovery_cli_does_not_print_the_key_by_default.py'
+      - 'vendor/ostler_security/passphrase_recovery_cli.py'
       - 'tests/test_the_db_key_reaches_the_services_and_the_disk.py'
-      - 'tests/test_ostler_unlock_hides_the_raw_key_by_default.py'
       # A suite this workflow RUNS but does not WATCH is dark on self-edit:
       # it could be narrowed, or gutted, in the very PR that narrows it.
       - 'scripts/box_walk_probes/probes/the_recovery_key_reached_the_customer.sh'
@@ -156,19 +157,18 @@ jobs:
           fi
           exit "$rc"
 
-      # THE RAW KEY MUST NOT LEAK BY DEFAULT. Installing the key file is now
-      # the default and the raw key is hidden unless --print-key is passed.
-      # No SQLCipher needed here -- this only exercises argument parsing and
-      # stdout/stderr shape, so it runs even if the SQLCipher step above
-      # already refused.
-      - name: ostler-unlock hides the raw key unless --print-key is passed
+      # #1970. The recovery CLI used to print the database key to stdout
+      # UNCONDITIONALLY. `if: always()` for the same reason as every other
+      # step here: an earlier limb going red must not delete a measurement
+      # about a key reaching a customer's scrollback.
+      - name: The recovery CLI must not print the database key by default
         if: always()
         run: |
           set -uo pipefail
           rc=0
-          python tests/test_ostler_unlock_hides_the_raw_key_by_default.py || rc=$?
-          if [ "$rc" -eq 2 ]; then
-            echo "::error title=CANNOT-RUN (harness, not product)::Could not obtain a verdict on the raw-key default. NOTHING was measured."
+          python tests/test_the_recovery_cli_does_not_print_the_key_by_default.py || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo "::error title=A database key may be reaching stdout::The recovery CLI printed the unlocked database key without being asked, or the failed-handoff safety net stopped printing it. One is a disclosure and the other is data loss."
           fi
           exit "$rc"
 
