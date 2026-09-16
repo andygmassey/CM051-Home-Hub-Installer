@@ -20,9 +20,13 @@ Register new adapters by adding ``"<name>": <Cls>`` to ``ADAPTERS``.
 from .apple_notes import AppleNotesAdapter
 from .base import KnowledgeSourceAdapter, ParsedNote, RawNote
 from .evernote import EvernoteAdapter
+from .notion import NotionAdapter
+from .obsidian import ObsidianAdapter
 
 ADAPTERS: dict[str, type[KnowledgeSourceAdapter]] = {
     "evernote": EvernoteAdapter,
+    "notion": NotionAdapter,
+    "obsidian": ObsidianAdapter,
     "apple_notes": AppleNotesAdapter,
 }
 
@@ -30,6 +34,8 @@ __all__ = [
     "ADAPTERS",
     "AppleNotesAdapter",
     "EvernoteAdapter",
+    "NotionAdapter",
+    "ObsidianAdapter",
     "KnowledgeSourceAdapter",
     "ParsedNote",
     "RawNote",

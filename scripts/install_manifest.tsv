@@ -135,3 +135,15 @@ qdrant_collection	evernote_knowledge	required	evernote_knowledge	#615	install.sh
 # surprise, which is how the class gate first surfaced it) without reding a Hub
 # that legitimately has no Safari history.
 qdrant_collection	safari_history	conditional	safari_history	baseline	ingest-created (Safari extension), present when browsing history was ingested
+# apple_notes_knowledge is the SECOND knowledge collection this install writes,
+# and until #1598 it was in NO register on this side: not in the creation loop
+# (the embedder self-creates it at 768 dims, deliberately, so nothing exists
+# until there are notes), not in _OSTLER_REQUIRED_QDRANT_COLLECTIONS, and not
+# here. So no walk ever asked whether the collection a customer's Apple Notes
+# went into exists. It could be absent on every box and the only symptom would
+# be a knowledge search that quietly returns nothing -- Qdrant 404s an unknown
+# collection and the reader maps 404 to an empty result.
+# CONDITIONAL, not required, for the same reason safari_history is: a customer
+# with no Apple Notes legitimately has no such collection, and reding that Hub
+# would be inventing a failure. Declared so its absence is a DECIDED fact.
+qdrant_collection	apple_notes_knowledge	conditional	apple_notes_knowledge	#1598	embed-created by the Apple Notes hydrate leg; present when Apple Notes were ingested
