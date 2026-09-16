@@ -120,6 +120,17 @@ jobs:
       - name: No script the cut runs is on the pipefail landmine baseline
         if: always()
         run: bash tests/test_no_cut_path_script_is_a_pipefail_landmine.sh
+      # The sibling that actually went red on main, at 9e27307c, blaming a
+      # Swift-only commit for a missing launchd credential that was present.
+      # `grep -q` exits on the first match and closes the pipe; the `echo`
+      # feeding it takes EPIPE; pipefail takes the worst status; the assertion
+      # reports ITS OWN failure message. So the better the match, the likelier
+      # the false red. The above test freezes the TEXT of that class; this one
+      # freezes the SHAPE, scoped to short-circuiting greps only, because
+      # `grep -c` and `grep -o` read to the end and cannot exhibit it.
+      - name: A matched grep cannot EPIPE its own producer
+        if: always()
+        run: bash tests/test_a_matched_grep_cannot_epipe_its_own_producer.sh
 
       # The sibling ratchet, for the class that actually aborted two box
       # walks. A standalone read of `$?` means someone is treating a non-zero

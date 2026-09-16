@@ -34,14 +34,14 @@ DOC="$(extract_heredoc "DOCEOF")"
 [[ -n "$ICAL" ]] || fail "ical-server plist heredoc (ICALPLISTEOF) not found"
 [[ -n "$DOC"  ]] || fail "Doctor plist heredoc (DOCEOF) not found"
 
-echo "$ICAL" | grep -q '<key>PWG_SERVICE_TOKEN</key>' \
+grep -q '<key>PWG_SERVICE_TOKEN</key>' <<<"$ICAL" \
     || fail "ical-server plist does not carry PWG_SERVICE_TOKEN"
-echo "$ICAL" | grep -q '<string>${PWG_SERVICE_TOKEN}</string>' \
+grep -q '<string>${PWG_SERVICE_TOKEN}</string>' <<<"$ICAL" \
     || fail "ical-server plist PWG_SERVICE_TOKEN value not wired to the generated token"
 
-echo "$DOC" | grep -q '<key>PWG_SERVICE_TOKEN</key>' \
+grep -q '<key>PWG_SERVICE_TOKEN</key>' <<<"$DOC" \
     || fail "Doctor plist does not carry PWG_SERVICE_TOKEN (proxy cannot attach the bearer to :8090)"
-echo "$DOC" | grep -q '<string>${PWG_SERVICE_TOKEN}</string>' \
+grep -q '<string>${PWG_SERVICE_TOKEN}</string>' <<<"$DOC" \
     || fail "Doctor plist PWG_SERVICE_TOKEN value not wired to the generated token"
 
 # Both plists now carry the token, so they must be chmod 0600 (default

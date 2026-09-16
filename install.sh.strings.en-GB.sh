@@ -74,6 +74,8 @@ MSG_INFO_CD="  cd %s"
 MSG_INFO_CLONED="  Cloned to %s."
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCapture is Apple Silicon only. Skipping install on this machine."
 MSG_INFO_CM042_LOGS_AT="RemoteCapture logs: %s/ostler-remotecapture.log (and .err)"
+MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="An earlier install had Ostler RemoteCapture starting at login. It has been stopped and will not start again."
+MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="Ostler RemoteCapture was not installed: you chose to keep spoken transcription off. Turn it on in Settings and run the installer again if you change your mind."
 MSG_INFO_CM042_TCC_PRE_PROMPT="On first launch, Ostler RemoteCapture will ask macOS for Screen Recording and Microphone permission. Grant both so calls and meetings can be transcribed locally. No purple recording indicator appears in your menu bar – audio capture is silent by design."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  Conversation memory engine installed in venv."
 MSG_INFO_HUB_APP_VERIFYING="Verifying Ostler.app at %s"
@@ -586,6 +588,16 @@ MSG_INFO_WIKI_TAILNET_LOCAL_ONLY="Your wiki stays on this Mac only – browse it
 MSG_INFO_WIKI_TAILNET_BANNER="%s  (from your own devices, over Tailscale)"
 MSG_INFO_WIKI_SIGN_IN="Sign in as %s with the password %s – your browser will offer to remember it, so you only type it once."
 MSG_INFO_WIKI_PORT_LAST_STATUS="Last HTTP status from the wiki port: %s (000 means nothing answered; 401 means it answered and refused the credential)."
+# HR015 #943. The four lines below are the readiness half of the wiki handover.
+# They exist because the credential half is no longer gated on them: a customer
+# whose first build is merely slow still gets their address and sign-in, and
+# only this line changes. None of them may name a cause the run did not
+# measure, which is what "first compile failed" did on every one of the three
+# non-failure paths into that branch.
+MSG_INFO_WIKI_PASSWORD_ON_DISK="Your password is also kept at %s, so the clipboard is not the only copy."
+MSG_INFO_WIKI_STILL_BUILDING="Still building. %s pages are on disk already, and the last reply from the wiki address was HTTP %s. It will appear at the address above with the same sign-in. Nothing for you to do."
+MSG_WARN_WIKI_FIRST_COMPILE_PRODUCED_NO_PAGES="The first build has produced no pages yet (see the warnings above). The address and sign-in above are still yours and will work once it has built."
+MSG_INFO_WIKI_READINESS_NOT_MEASURED="This run did not measure whether the wiki is serving yet, so it is not claiming either way. The address and sign-in above are yours regardless."
 MSG_WARN_WIKI_TAILNET_OWNER_UNRESOLVED="Could not confirm which Tailscale account owns this Mac, so the wiki has NOT been exposed on your tailnet. It is still available on this Mac at http://localhost:8044"
 MSG_WARN_WIKI_TAILNET_SERVE_FAILED="Could not publish the wiki on your tailnet; it is still available on this Mac at http://localhost:8044"
 MSG_WARN_WIKI_TAILNET_GATE_RELOAD_FAILED="Could not reload the wiki access gate, so the wiki has NOT been exposed on your tailnet."
@@ -1001,6 +1013,30 @@ MSG_PROMPT_USER_NAME_FALLBACK_TITLE="Full name (e.g. Tom Harrison)"
 
 MSG_PROMPT_USER_ID_TITLE="What should your assistant call you?"
 MSG_PROMPT_USER_ID_HELP="A short name your assistant will use to address you (e.g. 'Andy', 'Andrew', 'Mrs Smith'). This is what appears in your morning briefs and chat replies. Different from your full name above."
+
+# ── End-of-install confirmation (calendars + identity) ──
+#
+# One-time propose-and-confirm at the end of setup that seeds the
+# disambiguation the daily brief relies on. Calendar prompts confirm whose
+# diary each calendar is (so a partner's flight is not read as yours);
+# identity prompts confirm which look-alike profiles are you (collapse) and
+# which are a different person who happens to share your name (split). All
+# skippable -- hitting enter accepts the pre-filled guess. %s placeholders
+# carry runtime values (calendar name, event count/samples, the evidence
+# that links or separates a profile).
+MSG_CONFIRM_CALENDARS_INTRO="Let's confirm whose calendar is whose, so your brief never mixes up whose trip is whose."
+MSG_CONFIRM_CALENDAR_HELP="%s events, e.g. %s"
+MSG_CONFIRM_CALENDAR_OWNER_TITLE="Whose calendar is \"%s\"?"
+MSG_CONFIRM_CALENDAR_TYPE_TITLE="What kind of calendar is \"%s\"?"
+MSG_CONFIRM_CALENDAR_TYPE_HELP="One of: personal, work, family, shared, other. This sets how sensitive its events are treated."
+MSG_CONFIRM_CALENDARS_SAVED="Saved your calendar owners"
+MSG_CONFIRM_CALENDARS_FAILED="Could not save calendar owners (non-fatal; you can set these later)"
+MSG_CONFIRM_IDENTITY_COLLAPSE_TITLE="We think these profiles are all you (%s). Combine them into one?"
+MSG_CONFIRM_IDENTITY_COLLAPSE_HELP="These profiles share a hard identity signal with you (an email domain, LinkedIn profile or employer). Combining them keeps your assistant from treating your own history as several different people. You can undo this later."
+MSG_CONFIRM_IDENTITY_NAMESAKE_TITLE="Someone shares your name but looks like a different person (%s). Is this you, or someone else?"
+MSG_CONFIRM_IDENTITY_NAMESAKE_HELP="Pick 'different' to keep them as a separate person (your assistant will never merge them into you). Pick 'me' only if this really is you."
+MSG_CONFIRM_IDENTITY_SAVED="Saved who's you"
+MSG_CONFIRM_IDENTITY_FAILED="Could not save identity choices (non-fatal; you can confirm later)"
 
 MSG_STEP_INSTALLING_THIS_TAKES_A_WHILE="Installing in the background (about 45 minutes to a few hours)"
 
