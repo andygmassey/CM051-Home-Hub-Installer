@@ -62,6 +62,7 @@ test_a_staging_copy_is_guarded_on_its_source.py	WIRED	.github/workflows/cut-gate
 test_a_status_read_is_guarded.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_a_stored_secret_says_so_where_it_is_typed.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_a_subshell_cannot_emit_a_terminal_done.sh	WIRED	.github/workflows/step-end-status-honesty.yml
+test_a_taken_port_is_named_not_abstracted.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_tally_that_contradicts_the_log_is_not_a_pass.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_timed_out_probe_is_not_a_failing_probe.py	WIRED	.github/workflows/cut-manifest.yml
 test_a_timed_out_turn_is_not_a_broken_assistant.sh	WIRED	.github/workflows/walk-record-gate.yml
@@ -343,6 +344,7 @@ test_no_local_cuts.sh	WIRED	.github/workflows/cut.yml
 test_no_main_body_call_to_a_heredoc_only_symbol.sh	WIRED	.github/workflows/sensitive-artefact-exposure.yml
 test_no_orphaned_fixes_gate.sh	WIRED	.github/workflows/cut.yml
 test_no_probe_lives_outside_the_walk_glob.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_no_program_dodges_the_promote.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_no_test_uses_a_bash4_builtin.sh	WIRED	.github/workflows/bash32-compat.yml
 test_no_unbounded_enrich_invocation.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_no_undefined_msg_refs_in_install_sh.sh	WIRED	.github/workflows/container-runtime-precondition.yml
