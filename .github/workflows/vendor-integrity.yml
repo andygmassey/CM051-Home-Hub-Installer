@@ -64,6 +64,8 @@ on:
       # makes the workflow trigger, and a run with no path entry is a gate that
       # never fires on a change to itself.
       - 'tests/test_doctor_credential_routes_refuse_cross_site.sh'
+      - 'tests/test_the_doctor_status_poll_has_a_fork_budget.py'
+      - 'vendor/doctor/agent/box_status.py'
       - 'tests/test_editor_feedback_accepts_the_add_verb.sh'
       - 'tests/test_the_doctor_dashboard_actually_renders.sh'
       # v1018-D024, customer-visible half. Listed here AND run below, for the
@@ -292,6 +294,13 @@ jobs:
       - name: Vendor entrypoint-resolution guard
         if: always()
         run: python3 tests/test_vendor_entrypoint_resolution.py
+
+      - name: the Doctor status poll has a fork budget
+        # `always()` because a test step that only runs on success can be
+        # MASKED by an earlier red, and a fork budget that silently stops
+        # being measured is the same defect it exists to catch.
+        if: always()
+        run: python3 tests/test_the_doctor_status_poll_has_a_fork_budget.py
 
       # Symbol-level guard: web_ui.py imports a batch of CONFIG_* string
       # constants `from web_ui_copy` -- the import-resolution guard above
