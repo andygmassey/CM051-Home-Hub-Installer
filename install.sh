@@ -3051,7 +3051,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :7854   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :7899   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :7908 and :13929, both of which run
+    # Its two top-level arming calls are :7908 and :13970, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3042 above has just deleted
     # that tree and :3046 has just rebound OSTLER_DIR to the final one, so
@@ -3069,13 +3069,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :14700, where the note reads
+    # WhatsApp Web session path did it again at :14741, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :14717 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :14758 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3088,9 +3088,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:7908, :13929) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:7908, :13970) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :16772 / :16950 / :17107 / :17448 path. There the
+    # :16813 / :16991 / :17148 / :17489 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -13237,6 +13237,47 @@ OLLAMAPLIST
             _ollama_direct_started=1
         fi
         if [[ $OLLAMA_WAIT -ge 90 ]]; then
+            # ── THE EVIDENCE IS ALREADY ON DISK AND WAS BEING THROWN AWAY ──
+            #
+            # This used to `exit 1`, which the ERR trap turns into a bare
+            # ERR-99-INSTALL-ABORT-L<line>: a catch-all with no cause, at step
+            # 5 of 41. MEASURED on a console walk of v1.0.73, and the customer
+            # saw exactly that and nothing else.
+            #
+            # The cause was sitting in ~/.ostler/logs/ollama.err the whole
+            # time, six times over: "listen tcp 127.0.0.1:11434: bind: address
+            # already in use". Something else already serves that port, so our
+            # agent can never bind, so the loop's TWO conditions are mutually
+            # unsatisfiable by construction: the curl succeeds BECAUSE the
+            # foreign server answers, and _ollama_agent_is_running can never
+            # become true while it holds the port. Waiting longer cannot help.
+            #
+            # THE POPULATION IS NOT "PEOPLE WHO RUN OLLAMA". It includes EVERY
+            # REPEAT INSTALLER: a leftover com.ostler.ollama LaunchAgent from a
+            # previous install keeps serving, because nothing in the reset path
+            # stops it. That is how this was found.
+            #
+            # So read the file, name the holder if we can, and fail with a
+            # curated code. A customer who is told "another program is already
+            # using port 11434" can act; ERR-99 at a line number is a support
+            # ticket.
+            _ollama_port_holder=""
+            _ollama_bind_evidence=""
+            if [[ -r "${OLLAMA_LOG_DIR}/ollama.err" ]]; then
+                # tail only: the file is verbose slot chatter and the bind
+                # error is what we are after. Capped deliberately.
+                _ollama_bind_evidence="$(tail -n 40 "${OLLAMA_LOG_DIR}/ollama.err" 2>/dev/null \
+                    | grep -F 'address already in use' | tail -n 1 || true)"
+            fi
+            # Who holds it, by name, if launchd or lsof will say. Best effort:
+            # a missing answer must not turn a known cause into an unknown one.
+            _ollama_port_holder="$(lsof -nP -iTCP:11434 -sTCP:LISTEN -Fc 2>/dev/null \
+                | sed -n 's/^c//p' | sort -u | tr '\n' ' ' || true)"
+
+            if [[ -n "$_ollama_bind_evidence" || -n "$_ollama_port_holder" ]]; then
+                fail_with_code "ERR-08-OLLAMA-PORT-11434-IN-USE" \
+                    "$(printf "$MSG_FAIL_OLLAMA_PORT_IN_USE" "${_ollama_port_holder:-unknown}" "${OLLAMA_LOG_DIR}/ollama.err")"
+            fi
             warn "$MSG_WARN_COULD_NOT_START_OLLAMA_AUTOMATICALLY"
             info "$(printf "$MSG_INFO_OLLAMA_MANUAL_START_HINT" "$OLLAMA_PLIST")"
             exit 1
