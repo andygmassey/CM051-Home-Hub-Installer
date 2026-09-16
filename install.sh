@@ -20028,7 +20028,25 @@ _OSTLER_REQUIRED_QDRANT_COLLECTIONS=(people conversations preferences evernote_k
 #   excluded  a named decision that it deliberately does not
 # There is no third state. "Nobody checked" is not a verdict; it is a missing
 # row, and a missing row reds the gate.
-OSTLER_KNOWLEDGE_COLLECTIONS="evernote_knowledge:searched apple_notes_knowledge:searched"
+# reminders_knowledge is EXCLUDED, and that is a measurement rather than a
+# preference. The reader that ships is the assistant at the pinned version
+# below, and at tag hub-v0.4.80 it searches exactly two collections:
+#
+#     pub const KNOWLEDGE_COLLECTIONS: &[&str] =
+#         &["evernote_knowledge", "apple_notes_knowledge"];
+#
+# reminders_knowledge occurs 0 times in that tree, against a control of 1
+# file for apple_notes_knowledge, so the zero is a real absence and not a
+# dead search. Recording it as `searched` would assert something false about
+# the binary the customer runs, which is the one thing this register exists
+# to prevent -- and the gate's own last arm checks the verdicts were read at
+# the pinned version for exactly that reason.
+#
+# The install still embeds reminders, so the data is present the day a
+# reader learns the name. What is NOT true today is that a customer can
+# find a reminder through knowledge search. Tracked as its own row; it needs
+# a daemon change and a pin move, neither of which belongs beside a cut.
+OSTLER_KNOWLEDGE_COLLECTIONS="evernote_knowledge:searched apple_notes_knowledge:searched reminders_knowledge:excluded"
 # The assistant tag the verdicts above were read at. MUST equal the default of
 # OSTLER_ASSISTANT_VERSION; see the note above for why that coupling is the
 # whole anti-rot mechanism.
