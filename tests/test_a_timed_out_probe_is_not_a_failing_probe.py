@@ -295,7 +295,7 @@ vcm._people_count_for_timeout = _orig_people_count_for_timeout
 
 if captured.get("timeout") == vcm.BOX_WALK_PROBE_TIMEOUT_SECONDS:
     ok("CONTROL: an unrelated probe still takes the flat BOX_WALK_PROBE_TIMEOUT_SECONDS, so "
-       "the scaling is scoped to people_count_agreement only")
+       "the per-probe budgets are scoped to the probes that declare one and do not leak")
 else:
     bad(f"CONTROL: an unrelated probe took timeout={captured.get('timeout')!r}, expected the "
         f"flat {vcm.BOX_WALK_PROBE_TIMEOUT_SECONDS}s -- the scaling leaked to a probe it "
@@ -346,6 +346,163 @@ if r_fixed.status == "PASS":
        f"population-scaled budget (status={r_fixed.status})")
 else:
     bad(f"FIXED arm did not pass (status={r_fixed.status}, detail={r_fixed.detail!r})")
+
+# ---------------------------------------------------------------------------
+# #1601's OWN PROBE: assistant_answers_grounded inherited the FLAT cap.
+#
+# The timeout arm above fixed the misreporting (FAIL -> CANNOT-RUN). It did
+# not fix the cause. This probe's own file declares a 420s per-turn ceiling
+# and a 3-question battery, and its own runtime note draws the conclusion:
+# "The default battery of 3 is therefore up to ~15 minutes". 15 minutes is
+# 900s against a flat cap of 600s, so the probe's DOCUMENTED worst case did
+# not fit its cap and a slow-but-normal walk was guaranteed to lose it.
+#
+# These arms check the derived budget, and every input is read from the probe
+# file rather than asserted here, so the test cannot drift from the probe.
+# ---------------------------------------------------------------------------
+print()
+print("--- #1601: the grounded probe's cap is derived from its own file ---")
+
+_turns, _per_turn = vcm._assistant_grounded_declarations(REPO)
+
+if isinstance(_turns, int) and _turns > 0:
+    ok(f"the battery was READ from the probe file ({_turns} questions), not assumed")
+else:
+    bad(f"could not read the battery from the probe file (got {_turns!r}); "
+        f"every arm below would be running on the floor instead of a measurement")
+
+if _per_turn == 420:
+    ok(f"the per-turn ceiling was READ from the probe file ({_per_turn}s)")
+else:
+    bad(f"per-turn ceiling read as {_per_turn!r}, expected the probe's declared 420")
+
+_derived = vcm._assistant_answers_grounded_timeout_seconds(_turns, _per_turn)
+
+# THE DEFECT, stated as an inequality rather than a number: the probe's own
+# documented worst case must fit inside its cap.
+_probe_worst_case = 900   # the probe file's own "up to ~15 minutes"
+if vcm.BOX_WALK_PROBE_TIMEOUT_SECONDS < _probe_worst_case:
+    ok(f"PRE-FIX SHAPE CONFIRMED: the flat cap ({vcm.BOX_WALK_PROBE_TIMEOUT_SECONDS}s) is "
+       f"SMALLER than the probe's own documented worst case ({_probe_worst_case}s), which "
+       f"is why it could not fit")
+else:
+    bad(f"the flat cap is {vcm.BOX_WALK_PROBE_TIMEOUT_SECONDS}s, no longer smaller than the "
+        f"probe's documented {_probe_worst_case}s -- this arm no longer describes the tree")
+
+if _derived >= _probe_worst_case:
+    ok(f"the derived cap ({_derived}s) fits the probe's own documented worst case")
+else:
+    bad(f"the derived cap ({_derived}s) is still below the probe's documented "
+        f"{_probe_worst_case}s")
+
+if _derived > vcm.BOX_WALK_PROBE_TIMEOUT_SECONDS:
+    ok(f"and it is larger than the flat cap it replaces "
+       f"({_derived}s > {vcm.BOX_WALK_PROBE_TIMEOUT_SECONDS}s)")
+else:
+    bad(f"the derived cap did not raise anything ({_derived}s vs flat "
+        f"{vcm.BOX_WALK_PROBE_TIMEOUT_SECONDS}s)")
+
+# The formula, driven directly with no filesystem behind it.
+if vcm._assistant_answers_grounded_timeout_seconds(3, 420) == 3 * 420 + 420 + 120:
+    ok("the formula is (battery + 1 seeded) * per-turn + overhead, driven directly")
+else:
+    bad(f"formula mismatch: got {vcm._assistant_answers_grounded_timeout_seconds(3, 420)}")
+
+# AN UNREADABLE PROBE TAKES THE FLOOR, never a generous guess.
+if vcm._assistant_answers_grounded_timeout_seconds(None, None) == \
+        vcm.ASSISTANT_GROUNDED_TIMEOUT_FLOOR_SECONDS:
+    ok("CONTROL: an unreadable probe takes the FLOOR, not a guess in the generous direction")
+else:
+    bad("an unreadable probe did not take the floor")
+
+# THE ENV THE PROBE ITSELF READS MUST MOVE THE CAP, or a walk that lengthens
+# every turn re-creates the defect at the new value.
+os.environ["OSTLER_PROBE_CHAT_TIMEOUT"] = "900"
+try:
+    _raised = vcm._assistant_answers_grounded_timeout_seconds(3, 420)
+finally:
+    os.environ.pop("OSTLER_PROBE_CHAT_TIMEOUT", None)
+if _raised == 4 * 900 + 120:
+    ok(f"CONTROL: raising OSTLER_PROBE_CHAT_TIMEOUT moves the cap with it ({_raised}s), "
+       f"so the defect cannot reappear at a longer per-turn ceiling")
+else:
+    bad(f"the cap ignored OSTLER_PROBE_CHAT_TIMEOUT (got {_raised}s)")
+
+# MUST-MISS: the ceiling clamps, so an absurd declaration cannot buy an
+# unbounded budget.
+if vcm._assistant_answers_grounded_timeout_seconds(10_000, 420) == \
+        vcm.ASSISTANT_GROUNDED_TIMEOUT_CEILING_SECONDS:
+    ok("MUST-MISS: an absurd battery is clamped at the ceiling, not granted a boundless cap")
+else:
+    bad("the ceiling did not clamp an absurd battery")
+
+# And the other probes must be UNAFFECTED: this is a per-probe cap, not a
+# global raise. A change that quietly lengthened every probe would be a
+# different and worse defect.
+if vcm.BOX_WALK_PROBE_TIMEOUT_SECONDS == 600:
+    ok("CONTROL: the flat cap every other probe uses is untouched at 600s")
+else:
+    bad(f"the flat cap changed to {vcm.BOX_WALK_PROBE_TIMEOUT_SECONDS}s; this was meant to "
+        f"be per-probe, not a global raise")
+
+# END TO END, because a correct formula that nothing calls is the defect this
+# whole board is about. Drive check_box_walk_probe itself and read the timeout
+# it actually handed to subprocess.run.
+#
+# The fixture probe carries the SAME two declarations the real one does, so the
+# reader is exercised against a realistic file rather than being handed numbers
+# directly. check_box_walk_probe resolves the probe from ctx["cm051_dir"], which
+# is this test's tmp tree, so the declarations must live there.
+write_probe("assistant_answers_grounded", """#!/bin/bash
+CHAT_TIMEOUT="${OSTLER_PROBE_CHAT_TIMEOUT:-420}"
+_questions() {
+    cat <<'QEOF'
+What do you know about me?
+What are my interests?
+Who have I been in contact with recently?
+QEOF
+}
+echo 'VERDICT: PASS'
+exit 0
+""")
+
+_fx_turns, _fx_per_turn = vcm._assistant_grounded_declarations(work)
+if _fx_turns == 3 and _fx_per_turn == 420:
+    ok("the reader recovers both declarations from a probe file on disk (3 turns, 420s)")
+else:
+    bad(f"the reader got turns={_fx_turns!r} per_turn={_fx_per_turn!r} from the fixture")
+
+_fx_expected = vcm._assistant_answers_grounded_timeout_seconds(_fx_turns, _fx_per_turn)
+captured.clear()
+vcm.subprocess.run = _fake_run
+try:
+    run("assistant_answers_grounded")
+finally:
+    vcm.subprocess.run = _orig_subprocess_run
+
+if captured.get("timeout") == _fx_expected:
+    ok(f"check_box_walk_probe invoked assistant_answers_grounded with the DERIVED timeout "
+       f"({captured.get('timeout')}s), not the flat {vcm.BOX_WALK_PROBE_TIMEOUT_SECONDS}s")
+else:
+    bad(f"check_box_walk_probe invoked it with timeout={captured.get('timeout')!r}, expected "
+        f"the derived {_fx_expected}s -- the budget is computed and not used")
+
+# MUST-FAIL on that very arm: a probe file with NO declarations must fall to
+# the floor, so the arm above cannot pass just because any number was plumbed.
+write_probe("assistant_answers_grounded", "#!/bin/bash\necho 'VERDICT: PASS'\nexit 0\n")
+captured.clear()
+vcm.subprocess.run = _fake_run
+try:
+    run("assistant_answers_grounded")
+finally:
+    vcm.subprocess.run = _orig_subprocess_run
+if captured.get("timeout") == vcm.ASSISTANT_GROUNDED_TIMEOUT_FLOOR_SECONDS:
+    ok(f"MUST-FAIL: a probe declaring nothing falls to the floor "
+       f"({vcm.ASSISTANT_GROUNDED_TIMEOUT_FLOOR_SECONDS}s), so the arm above reads real "
+       f"declarations rather than any plumbed constant")
+else:
+    bad(f"an undeclared probe took timeout={captured.get('timeout')!r}, expected the floor "
+        f"{vcm.ASSISTANT_GROUNDED_TIMEOUT_FLOOR_SECONDS}s")
 
 print()
 print(f"== {PASS} pass / {FAIL} fail / {PASS + FAIL} total ==")

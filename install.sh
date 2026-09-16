@@ -21631,13 +21631,21 @@ fi
 
 if "$IMPORT_SCRIPT" "$DOWNLOADS" >/dev/null 2>&1; then
     _notify "Your latest export is now part of your world." "Done"
+    # Record ONLY on success. The comment here used to say exactly that
+    # while the write sat outside the branch, so a failed import was
+    # marked done and never retried: the hash is the dedupe key, and once
+    # it is in scan_state this export set is skipped for ever. #1571.
+    echo "$FOUND_HASH" >> "$SCAN_STATE"
 else
-    _notify "Imported your latest export. Some parts will finish in the background." "Done"
+    # The old message on this branch was "Imported your latest export.
+    # Some parts will finish in the background." The importer had just
+    # returned NON-ZERO, so nothing was imported and nothing is finishing
+    # in the background. Both branches claimed an import, which is why the
+    # failure was invisible to the person it happened to.
+    _notify "Ostler could not finish importing your ${_first} export. It will try again." "Import unfinished"
+    # No hash written, so the next tick retries this export set rather
+    # than skipping it for ever.
 fi
-
-# Record only after a real import attempt, so a failed/partial run is
-# retried next tick rather than silently marked done.
-echo "$FOUND_HASH" >> "$SCAN_STATE"
 
 if [[ -t 1 ]]; then
     echo "Imported ${#FOUND[@]} export(s):"
@@ -33233,14 +33241,50 @@ echo "  2. Once exports arrive, import them:"
 echo -e "     ${BOLD}ostler-import ~/Downloads/gdpr-exports/ \\${NC}"
 echo -e "     ${BOLD}    --user-name \"${USER_NAME}\" --verbose${NC}"
 echo ""
-echo -e "  3. ${BOLD}Connect your accounts${NC} (see POST_INSTALL_SETUP.md):"
+echo -e "  3. ${BOLD}Connect your accounts${NC}:"
 else
-echo -e "  1. ${BOLD}Connect your accounts${NC} (see POST_INSTALL_SETUP.md):"
+echo -e "  1. ${BOLD}Connect your accounts${NC}:"
 fi
-echo "     - iCloud sign-in (for iMessage)"
-echo "     - iCloud Calendar (app-specific password)"
-echo "     - Gmail (OAuth via gws CLI)"
-echo "     - WhatsApp (pair code linking)"
+# THE POINTER AND THE PASSWORD WERE BOTH WRONG, fixed 2026-09-16.
+#
+# This block said "(see POST_INSTALL_SETUP.md)". THAT FILE HAS NEVER EXISTED:
+# 0 files matching it in the tree, against 82 other .md files as the control.
+# So the last thing a customer read at the end of a successful install was a
+# reference to a document they could not open.
+#
+# It also told them to obtain an ICLOUD APP-SPECIFIC PASSWORD for Calendar.
+# That instruction is for the CalDAV path, which CX-101 ABANDONED (see the
+# note at the calendar-hydration block). Measured: OSTLER_ICLOUD_APP_PASSWORD
+# is never assigned and never exported anywhere in this file, only read, and
+# the calendar-hydration comment says in as many words that these are "env
+# vars install.sh NEVER captures". Control: OSTLER_DIR resolves 17 times on
+# the same assignment pattern, so the zero is a measurement.
+#
+# Sending a customer to Apple to mint a credential for machinery we abandoned
+# is worse than saying nothing: they do the work, it changes nothing, and when
+# the calendar fills up anyway they learn that our instructions are decorative.
+#
+# What is actually true is shorter, so it is said inline rather than deferred
+# to a document. Calendar needs no credential at all: the FDA extractor reads
+# Calendar.app's local cache, which already covers every account in System
+# Settings, and that is the path extract_all runs.
+#
+# NO gws SUBCOMMAND IS NAMED HERE ON PURPOSE. My first draft of this block told
+# the customer to run a specific one. It appeared NOWHERE ELSE in the tree: the
+# only occurrence of that string was the line I had just written. Naming a
+# command I had not verified would have been the same defect as the document
+# that does not exist, one line further down the same list. The tool's own
+# no-argument output is the source of truth for its interface, so that is what
+# the customer is sent to.
+echo "     - iMessage: nothing to do if you already use Messages on this Mac."
+echo "                 Ostler reads the messages already stored here."
+echo "     - Calendar: nothing to do. Ostler reads the calendars already in"
+echo "                 System Settings > Internet Accounts. No password needed."
+echo "     - Gmail:    needs a one-off Google sign-in through the gws tool"
+echo "                 installed at /usr/local/bin/gws. Until you do that,"
+echo "                 Gmail surfaces stay empty. Run gws with no arguments"
+echo "                 to see its sign-in command."
+echo "     - WhatsApp: link with the pair code Ostler shows you"
 echo ""
 # Primary user-facing URL: the wiki. This is the everything-Ostler
 # dashboard the customer opens in a browser. The dev / debug
