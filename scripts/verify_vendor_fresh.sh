@@ -116,6 +116,7 @@ warn=0
 ok=0
 held=0
 ackd=0
+unrec=0
 checked=0
 
 echo "vendor-freshness gate -- manifest: $VLIB_MANIFEST"
@@ -193,6 +194,102 @@ ack_state() {
     return 0
 }
 
+# ---------------------------------------------------------------------------
+# UNRECORDED DIVERGENCE: A HAND RECORD NOTHING READ.  CM051 #977.
+#
+# THE MEASUREMENT THAT MADE THIS NECESSARY. Three vendored trees carry edits
+# that no divergence patch expresses, because regeneration was RUN on each and
+# REFUSED for three DIFFERENT reasons: one patch failed its own round-trip, one
+# pin is absent from the local source checkout, one source has advanced past the
+# pin. All three refusals are the tool working correctly and declining to write
+# a patch that would be a lie. An agent then recorded them BY HAND, which is
+# honest and is not the same as being reconstructible.
+#
+# And then, measured on origin/main c4d4b5af:
+#
+#     unrecorded_divergence, readers outside the manifest itself   0
+#     POSITIVE CONTROL, same predicate, same corpus:
+#     unverifiable_ack,      readers outside the manifest itself   verify_vendor_fresh.sh
+#
+# So the predicate can find a manifest field that IS read, and the zero is real
+# absence. Three trees declared a debt in a field no instrument had ever opened.
+# A record nobody reads is not a record; it is a comment.
+#
+# WHAT THIS FUNCTION MAKES TRUE. A declared unrecorded_divergence must be
+# COMPLETE, and complete has four parts, each of which closes a different way
+# the declaration could be decoration:
+#
+#   1. the named file EXISTS                  a pointer is not a record
+#   2. that file NAMES this tree              a record about somebody else's
+#                                             divergence is not this one's
+#   3. unrecorded_divergence_reason is set    the MEASURED refusal, so the next
+#                                             person can retry it rather than
+#                                             rediscover it
+#   4. unrecorded_divergence_owner is set     an exemption with nobody's name on
+#                                             it is how a temporary gap becomes
+#                                             permanent
+#
+# Incomplete is RED, naming the tree. Complete is a DEBT, counted in the
+# denominator and named in the verdict, which never reads as a plain GREEN while
+# one is live. Identical doctrine to unverifiable_ack above, and deliberately so.
+#
+# THE HARD RED IS NOT HERE, IT IS AT THE DESTRUCTIVE MOMENT. A permanent RED on
+# this gate would be red on the day it landed, which is a gate people route
+# around, and this repo has the scar. The place a declared unrecorded divergence
+# must be fatal is scripts/sync_vendor.sh, where SYNC_ACCEPT_DIVERGENCE_LOSS=1
+# would otherwise delete these edits silently. That override is now REFUSED for
+# any tree carrying one of these declarations, with no escape hatch, because for
+# these trees the loss is by definition unreconstructible.
+#
+#   0 = complete    (file exists, names the tree, reason and owner both set)
+#   1 = not declared
+#   2 = declared but incomplete -> RED
+unrecorded_state() {
+    local tree="$1" path reason owner
+    path="$(vlib_field "$tree" unrecorded_divergence)"
+    [ -n "$path" ] || return 1
+    reason="$(vlib_field "$tree" unrecorded_divergence_reason)"
+    owner="$(vlib_field "$tree" unrecorded_divergence_owner)"
+    [ -n "$reason" ] && [ -n "$owner" ] || return 2
+    [ -f "$VLIB_REPO_ROOT/$path" ] || return 2
+    grep -Fq -- "$tree" "$VLIB_REPO_ROOT/$path" || return 2
+    return 0
+}
+
+# Report a tree's unrecorded-divergence declaration. Increments unrec or fail.
+# Called for EVERY tree, whatever its content verdict, because an unrecorded
+# divergence is orthogonal to whether the reconstructible part reconstructs.
+report_unrecorded() {
+    local tree="$1" st=0 path
+    unrecorded_state "$tree" || st=$?
+    case "$st" in
+        0)
+            path="$(vlib_field "$tree" unrecorded_divergence)"
+            echo "UNREC $tree -- carries divergence NO PATCH EXPRESSES (owner: $(vlib_field "$tree" unrecorded_divergence_owner))"
+            echo "        Recorded by hand in $path, because regeneration was run and refused:"
+            echo "        $(vlib_field "$tree" unrecorded_divergence_reason)"
+            echo "        A grep of this tree's patch for those edits returns NOTHING, and that"
+            echo "        means NOT RECORDED, not NOT DIVERGED. sync_vendor.sh REFUSES"
+            echo "        SYNC_ACCEPT_DIVERGENCE_LOSS=1 on this tree."
+            unrec=$((unrec + 1))
+            ;;
+        2)
+            path="$(vlib_field "$tree" unrecorded_divergence)"
+            echo "FAIL  $tree -- unrecorded_divergence is declared but INCOMPLETE." >&2
+            echo "        declared file : ${path:-<empty>}" >&2
+            echo "        exists        : $([ -n "$path" ] && [ -f "$VLIB_REPO_ROOT/$path" ] && echo yes || echo NO)" >&2
+            echo "        names the tree: $([ -n "$path" ] && [ -f "$VLIB_REPO_ROOT/$path" ] && grep -Fq -- "$tree" "$VLIB_REPO_ROOT/$path" && echo yes || echo NO)" >&2
+            echo "        reason set    : $([ -n "$(vlib_field "$tree" unrecorded_divergence_reason)" ] && echo yes || echo NO)" >&2
+            echo "        owner set     : $([ -n "$(vlib_field "$tree" unrecorded_divergence_owner)" ] && echo yes || echo NO)" >&2
+            echo "        All four are required. A pointer with no file, a file that never names" >&2
+            echo "        this tree, a debt with no measured reason, or one with nobody's name on" >&2
+            echo "        it are four different ways for this declaration to be decoration, and" >&2
+            echo "        the whole defect it exists to fix is a record nothing reads." >&2
+            fail=$((fail + 1))
+            ;;
+    esac
+}
+
 # The ONE place an unverifiable tree is reported, so the ack rules cannot be
 # applied at one call site and forgotten at the other. Increments exactly one
 # of ackd / fail / warn.
@@ -255,6 +352,13 @@ print_commits() {
 while IFS= read -r tree; do
     [ -z "$tree" ] && continue
     checked=$((checked + 1))
+    # BEFORE the content verdict and OUTSIDE every `continue` below. An
+    # unrecorded divergence is orthogonal to whether the reconstructible part
+    # reconstructs, and a tree that is skipped, unverifiable or missing can
+    # carry one just as easily as a tree that is diffed. Putting this after any
+    # of those branches would make the declaration unreadable for exactly the
+    # trees most likely to hold one.
+    report_unrecorded "$tree"
     vendor_path="$(vlib_field "$tree" vendor_path)"
     abs_vendor="$VLIB_REPO_ROOT/$vendor_path"
 
@@ -442,7 +546,18 @@ fi
 # acknowledged number, so a rising UNKNOWN count could hide behind a steady ack
 # count. Hyphenating it leaves no ", N unverifiable" to the right, so the old
 # parse keeps reading the UNKNOWN bucket, which is the one it exists to watch.
-echo "vendor-freshness: $checked tree(s) -- $ok fresh, $fail stale/divergent, $warn unverifiable (UNKNOWN), $ackd acknowledged-unverifiable$held_note"
+# THE UNRECORDED COUNT IS APPENDED, NOT SPLICED. The legacy assertions in
+# tests/test_vendor_src_placeholder_unset.sh parse "N tree(s)" and a GREEDY
+# ", N unverifiable" out of this line, and the greedy match binds to the
+# RIGHTMOST occurrence. Any new ", N unverifiable ..." phrasing to the right
+# would silently re-point that assertion at a different bucket, which is the
+# exact trap the acknowledged-unverifiable wording already documents two
+# paragraphs above. "unrecorded-divergence" contains no such substring.
+unrec_note=""
+if [ "$unrec" -gt 0 ]; then
+    unrec_note=" [$unrec tree(s) carry unrecorded-divergence: edits no patch expresses]"
+fi
+echo "vendor-freshness: $checked tree(s) -- $ok fresh, $fail stale/divergent, $warn unverifiable (UNKNOWN), $ackd acknowledged-unverifiable$held_note$unrec_note"
 
 # ---------------------------------------------------------------------------
 # ANTI-VACUITY FLOOR. Read this before touching the verdicts below.
@@ -543,6 +658,9 @@ if [ "$warn" -gt 0 ]; then
     if [ "$ackd" -gt 0 ]; then
         echo "      A further $ackd tree(s) are acknowledged-unverifiable in the manifest."
     fi
+    if [ "$unrec" -gt 0 ]; then
+        echo "      A further $unrec tree(s) carry unrecorded divergence: edits no patch expresses."
+    fi
 elif [ "$ackd" -gt 0 ]; then
     # Deliberately NOT the word GREEN on its own. Every ack is a tree nobody
     # checked; the only thing that changed is that we now know which trees, why,
@@ -553,6 +671,19 @@ elif [ "$ackd" -gt 0 ]; then
     echo "      vendor/VENDOR_MANIFEST.toml with a measured reason and a named owner, which"
     echo "      makes the gap auditable. It does not make it verified, and it is not a pass"
     echo "      for those trees. Retire them; do not inherit them."
+elif [ "$unrec" -gt 0 ]; then
+    # Deliberately NOT the word GREEN on its own, for the same reason the ack
+    # branch above is not. These trees reconstruct from source plus their patch,
+    # so the CONTENT limb is genuinely clean. What is not clean is that each
+    # also carries edits the patch does not express, and the next re-vendor
+    # deletes those unless somebody reads the record. Saying GREEN here would be
+    # true about the limb that ran and false about the tree.
+    echo "GATE: GREEN WITH $unrec UNRECORDED-DIVERGENCE TREE(S) -- $ok tree(s) verified fresh."
+    echo "      Those $unrec reconstruct from source + patch AND carry further edits the"
+    echo "      patch does NOT express, each with a measured reason regeneration refused"
+    echo "      and a named owner. sync_vendor.sh refuses SYNC_ACCEPT_DIVERGENCE_LOSS=1"
+    echo "      on them, because for these trees the loss is unreconstructible. Retire"
+    echo "      them by regenerating once the recorded blocker clears; do not inherit them."
 else
     echo "GATE: GREEN -- every vendored tree matches its pinned source."
 fi

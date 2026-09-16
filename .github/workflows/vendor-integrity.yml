@@ -31,6 +31,13 @@ on:
       - 'tests/test_no_divergent_vendor_twin.sh'
       - 'tests/test_context_refresh_vendor_sha.sh'
       - 'tests/test_vendor_fresh_gate.sh'
+      # CM051 #977. The three trees whose divergence patch could NOT be
+      # regenerated, each for a different measured reason. The manifest is
+      # already covered by the vendor/** glob at the top of this list, so it
+      # is deliberately not repeated; the suite and the two scripts it
+      # asserts on are what needed adding. sync_vendor.sh is already watched
+      # above. A run: step with no matching paths entry is dark on self-edit.
+      - 'tests/test_an_unregenerable_divergence_is_a_hard_red.sh'
       - 'tests/test_conversation_process_metadata_conversation_id.sh'
       - 'tests/test_vendor_import_resolution.py'
       - 'tests/test_vendor_entrypoint_resolution.py'
@@ -271,6 +278,34 @@ jobs:
       - name: Vendor-freshness gate self-test
         if: always()
         run: bash tests/test_vendor_fresh_gate.sh
+
+      # CM051 #977. Three vendored trees carry edits that NO divergence patch
+      # expresses, because regeneration was RUN on each and REFUSED for three
+      # different measured reasons. They were recorded by hand in a manifest
+      # field that, measured on origin/main c4d4b5af, had ZERO readers anywhere
+      # outside the manifest itself. Positive control on the same corpus:
+      # unverifiable_ack had readers, so that zero was real absence.
+      #
+      # A record nobody reads is a comment, and the consequence is named in the
+      # row: every refusal in sync_vendor.sh lives inside
+      # `if SYNC_ACCEPT_DIVERGENCE_LOSS != 1`, so that variable does not soften
+      # the check, it skips it, and an override would delete those edits
+      # silently. The file's own prose says not to reach for it. Prose is not a
+      # guard.
+      #
+      # Twenty arms: the field now has a reader and all three declarations are
+      # complete; four different ways of being incomplete are each RED naming
+      # the tree; a complete record can never silence a CONTENT verdict that was
+      # actually reached; the override is REFUSED on a declared tree with no
+      # escape hatch and before the source repo is even resolved; an undeclared
+      # tree is untouched; and two mutations of the REAL scripts, each stating a
+      # witness first.
+      #
+      # `if: always()`, ci-maskless (#1695): without it a red earlier in this
+      # job SKIPS this step, and a skipped test reports nothing at all.
+      - name: An unregenerable divergence is recorded, read, and cannot be overridden away
+        if: always()
+        run: /bin/bash tests/test_an_unregenerable_divergence_is_a_hard_red.sh
 
       # VENDOR_FRESH_STRICT=0 IS SET HERE ON PURPOSE, AND IT IS THE ONLY PLACE.
       #
