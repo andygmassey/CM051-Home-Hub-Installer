@@ -58,6 +58,23 @@ jobs:
       - name: A customer 31 days in, who never subscribed, loses Ostler Pro
         run: /bin/bash tests/test_the_trial_must_actually_end.sh
 
+      # HR015 #929. The same spine, from the other end: a tester whose
+      # window is a BETA window rather than a calendar month, and who has
+      # to be told before it closes rather than after.
+      #
+      # Measured on origin/main: a beta tester got 30 days of Ostler Pro
+      # whatever their licence said, because nothing on a running Hub ever
+      # re-opened the licence file. A 90-day tester lost the product on day
+      # 31 with their beta still running.
+      #
+      # `if: always()` because the two are INDEPENDENT contracts. Without
+      # it, a red on the trial half reports NOTHING about the beta half,
+      # which is how a second defect hides behind a first. Caught by
+      # scripts/verify_ci_steps_are_maskless.py.
+      - name: A beta tester is warned before their window closes, and loses no data when it does
+        if: always()
+        run: /bin/bash tests/test_beta_licence_expiry_warns_before_and_is_read_only.sh
+
       - name: The gate unit suite also runs under the Linux python matrix
         run: |
           set -euo pipefail

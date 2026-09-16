@@ -2150,9 +2150,17 @@ _ostler_licence_refuse() {
 # The value is exported because the first-month-free activation (G2,
 # ~30k lines below) runs in a child python3 and reads it from the
 # environment.
+#
+# OSTLER_LICENCE_EXPIRES_AT is the licence's own
+# update_window_expires_at, carried out of the gate on the PASS path
+# (HR015 #929). Empty means the gate did not run; the literal token
+# "unparseable" means it ran and could not read the stamp. Those are
+# not the same, and a beta window that ends on a date nobody can read
+# must not silently become a window that never ends.
 OSTLER_LICENCE_TIER=""
 OSTLER_LICENCE_TIER_STATE="unverified"
-export OSTLER_LICENCE_TIER OSTLER_LICENCE_TIER_STATE
+OSTLER_LICENCE_EXPIRES_AT=""
+export OSTLER_LICENCE_TIER OSTLER_LICENCE_TIER_STATE OSTLER_LICENCE_EXPIRES_AT
 
 if [[ "${OSTLER_DEV:-0}" == "1" || "$ALLOW_UNLICENSED" == "1" ]]; then
     # Loud on purpose, three times, matching the --allow-plaintext
@@ -2525,13 +2533,29 @@ def main():
     # carrying tier=beta returned rc 0 and printed NOTHING, identical
     # to one carrying no tier at all. Verified is not the same as read.
     #
-    # ONE LINE, "<state> <tier>", state first. The tier goes LAST so a
-    # shell caller can take it with ${detail#* } without a parser, and
-    # the schema constraint above guarantees it holds no whitespace.
-    # The expiry date on the RC_EXPIRED path above is unchanged, and
-    # the two are never emitted together.
+    # ONE LINE, "<state> <expiry> <tier>". The tier goes LAST so a shell
+    # caller can take it with ${rest#* } without a parser, and the schema
+    # constraint above guarantees it holds no whitespace. The expiry is
+    # an ISO-8601 stamp and holds none either.
+    #
+    # THE EXPIRY IS ON THE PASS PATH, not only the RC_EXPIRED path, and
+    # that is HR015 #929. Before this, the date left this script ONLY
+    # when the licence had already lapsed, which is the one moment it is
+    # too late to warn anybody. A beta tester whose window ends on
+    # Friday needs to be told on Monday, and nothing downstream could
+    # know the date until Saturday.
+    #
+    # 🔴 THE RAW STRING IS EMITTED ONLY IF IT PARSED. `expires` is None
+    # here exactly when parse_iso8601_utc could not read the stamp, and
+    # an unparseable stamp is an arbitrary string that could carry
+    # spaces, which would shift the tier one field along in the shell
+    # parse. "unparseable" is a THIRD state and is emitted as itself:
+    # a licence whose expiry we cannot read is not one that expires
+    # today and not one that never expires, and a downstream warning
+    # must be able to tell the difference.
     tier, tier_state = resolve_tier(doc)
-    sys.stdout.write("%s %s" % (tier_state, tier))
+    stamp = doc["update_window_expires_at"] if expires is not None else "unparseable"
+    sys.stdout.write("%s %s %s" % (tier_state, stamp, tier))
     return RC_OK
 
 
@@ -2547,20 +2571,43 @@ OSTLER_LICENCE_VERIFY_PY
 
     case "$_lic_rc" in
         0)  _ostler_licence_restrict_mode
-            # "<state> <tier>", written by the PASS path of the heredoc.
-            # State first and tier LAST so the tier can be taken whole;
-            # the schema check above guarantees it holds no whitespace.
+            # "<state> <expiry> <tier>", written by the PASS path of the
+            # heredoc. State first and tier LAST so the tier can be taken
+            # whole; the schema check above guarantees the tier holds no
+            # whitespace, and the heredoc emits the literal token
+            # "unparseable" rather than a stamp it could not read.
             #
             # A verifier that somehow printed nothing leaves the state
             # at "unverified" rather than inventing "absent". Those are
             # different claims and only one of them is true.
             if [[ -n "$_lic_detail" ]]; then
                 OSTLER_LICENCE_TIER_STATE="${_lic_detail%% *}"
-                OSTLER_LICENCE_TIER="${_lic_detail#* }"
+                _lic_rest="${_lic_detail#* }"
+                OSTLER_LICENCE_EXPIRES_AT="${_lic_rest%% *}"
+                OSTLER_LICENCE_TIER="${_lic_rest#* }"
+                unset _lic_rest
             fi
             ok "Licence verified."                                                     # i18n-exempt
             case "$OSTLER_LICENCE_TIER_STATE" in
-                known)   info "Licence tier: ${OSTLER_LICENCE_TIER}." ;;               # i18n-exempt
+                known)   info "Licence tier: ${OSTLER_LICENCE_TIER}."                  # i18n-exempt
+                         # HR015 #929's second rule starts HERE, at the
+                         # first moment we can honour it. A beta tester
+                         # whose window is time-limited should be told
+                         # the date by the product on the day they
+                         # install it, not discover it later by noticing
+                         # that nothing has updated for three days.
+                         #
+                         # Only for beta, and only when the stamp was
+                         # readable. A hub or pro licence's update window
+                         # is about UPDATES, and printing it here would
+                         # read as an expiry date on a one-off purchase,
+                         # which it is not.
+                         if [[ "$OSTLER_LICENCE_TIER" == "beta" \
+                               && -n "$OSTLER_LICENCE_EXPIRES_AT" \
+                               && "$OSTLER_LICENCE_EXPIRES_AT" != "unparseable" ]]; then
+                             info "Your beta runs until ${OSTLER_LICENCE_EXPIRES_AT}."  # i18n-exempt
+                             info "Ostler keeps everything you give it after that; only new work pauses."  # i18n-exempt
+                         fi ;;
                 absent)  info "Licence tier: not stated, treating this as a Hub licence." ;;  # i18n-exempt
                 # NOTE FOR THE NEXT EDITOR: bin/pii_name_guard.py flags two
                 # capitalised words in a row as a person-name PAIR, and it is
@@ -3192,14 +3239,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :7998) captures the path BY
+    # _ostler_write_store_curl_config (defined :8045) captures the path BY
     # VALUE and never re-reads it:
-    #     :7999   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8044   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8053 and :14139, both of which run
+    #     :8046   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8091   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8100 and :14186, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :3187 above has just deleted
-    # that tree and :3191 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :3234 above has just deleted
+    # that tree and :3238 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -3214,13 +3261,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :14910, where the note reads
+    # WhatsApp Web session path did it again at :14957, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :14927 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :14974 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3229,13 +3276,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5648 against a definition at :7998. Top-level
+    # writer's own definition: :5695 against a definition at :8045. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8053, :14139) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8100, :14186) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :16982 / :17160 / :17317 / :17658 path. There the
+    # :17029 / :17207 / :17364 / :17705 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -32868,10 +32915,17 @@ _tier = os.environ.get('OSTLER_LICENCE_TIER') or None
 _tier_state = os.environ.get('OSTLER_LICENCE_TIER_STATE') or 'unverified'
 if _tier_state == 'unverified':
     _tier = None
+# HR015 #929. The licence's own expiry. 'unparseable' is passed through
+# as None: the gate is the place that decides what an unreadable date
+# means, and it must not be handed a string that looks like one.
+_lic_expiry = os.environ.get('OSTLER_LICENCE_EXPIRES_AT') or None
+if _lic_expiry == 'unparseable':
+    _lic_expiry = None
 activate_first_month_free(
     datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
     licence_tier=_tier,
     licence_tier_state=_tier_state,
+    licence_expires_at=_lic_expiry,
 )
 " 2>&1; then
     ok "$MSG_OK_FIRST_MONTH_FREE_ACTIVATED"

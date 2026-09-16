@@ -307,16 +307,20 @@ else
         ok "${label}"
     }
 
-    a_case "A1 no tier field -> ABSENT, treated as hub"        OMIT       0 "absent hub"
-    a_case "A2 tier null -> ABSENT, same as omitted"           NULL       0 "absent hub"
-    a_case "A3 tier hub -> KNOWN"                              hub        0 "known hub"
-    a_case "A4 tier pro -> KNOWN"                              pro        0 "known pro"
-    a_case "A5 tier beta -> KNOWN"                             beta       0 "known beta"
-    a_case "A6 tier HUB -> KNOWN, case folded"                 HUB        0 "known hub"
+    # The pass line is "<state> <expiry> <tier>". The expiry joined it for
+    # HR015 #929: before that the date left this verifier only on the rc-14
+    # path, which is to say only once the licence had already lapsed. FAR_FUTURE
+    # is the stamp every licence below is minted with.
+    a_case "A1 no tier field -> ABSENT, treated as hub"        OMIT       0 "absent ${FAR_FUTURE} hub"
+    a_case "A2 tier null -> ABSENT, same as omitted"           NULL       0 "absent ${FAR_FUTURE} hub"
+    a_case "A3 tier hub -> KNOWN"                              hub        0 "known ${FAR_FUTURE} hub"
+    a_case "A4 tier pro -> KNOWN"                              pro        0 "known ${FAR_FUTURE} pro"
+    a_case "A5 tier beta -> KNOWN"                             beta       0 "known ${FAR_FUTURE} beta"
+    a_case "A6 tier HUB -> KNOWN, case folded"                 HUB        0 "known ${FAR_FUTURE} hub"
     # The future-tier case. An installer that refused this would turn every
     # tier CM050 invents after this build into a support incident on every Mac
     # already in the field.
-    a_case "A7 unrecognised tier -> UNKNOWN, verbatim, NOT refused" enterprise 0 "unknown enterprise"
+    a_case "A7 unrecognised tier -> UNKNOWN, verbatim, NOT refused" enterprise 0 "unknown ${FAR_FUTURE} enterprise"
     # Not a tier at all. A separate state from "unrecognised", and the reason
     # the tier can be handed to the shell on one line at all.
     a_case "A8 tier with a space -> MALFORMED, not unknown"     "beta x"  12 ""
