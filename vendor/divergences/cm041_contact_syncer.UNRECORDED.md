@@ -100,3 +100,55 @@ row protects any file under this tree. The true count is zero.
   method above is written down so that is cheap.
 - `verify = "full"` on this row is therefore a claim the tree does not meet.
   Retiring that properly needs the CM041 owner, not a cut-time edit.
+
+---
+
+## Re-measured 2026-09-16 (CM051 #1690): `owner_node.py` has moved 2 -> 46
+
+The table above records `owner_node.py` at `+1 -1 = 2`, the namespace line. It
+is out of date, and the thing that moved it is a SHIPPING FIX.
+
+CM041 `fdedb71` (#154) moved the owner node's `displayName` out of the additive
+`INSERT DATA` block and behind an `INSERT ... WHERE FILTER NOT EXISTS`, so the
+writer can DECLINE and can never CLOBBER. That matters because `owner_uri()` is
+a fixed, deterministic IRI: the old shape, run a second time against a node that
+had since acquired a name, left the OWNER node carrying TWO names, and the owner
+node is what owner-versus-other privacy branching reads. The graft landed in
+this vendored tree as CM051 `39cf2df8` (#1724).
+
+Re-measured by the method this file already prescribes -- vendored tree at CM051
+`origin/main` `d0c207fd` against source at the pin `f83d5aee`, `diff -U0`, so
+counts are changed lines and not context:
+
+```
+owner_node.py    +38  -8   sum 46     (was +1 -1, sum 2, on 2026-08-28)
+
+CONTROL, privacy_model.py at the same pin: byte-identical, so the differ can
+         still return "equal" and the 46 is a real reading rather than a
+         predicate that flags everything.
+```
+
+And it is still NOT RECORDED, which is the whole point of this file:
+
+```
+occurrences of `owner_node` in cm041_contact_syncer.patch        0
+occurrences of `FILTER NOT EXISTS` in the same patch             0
+CONTROL, `_read_abcddb_as_vcards` in the same patch              2
+files the patch records (`+++ b/` lines)                         6
+  facebook_friends.py instagram_social.py linkedin_connections.py
+  linkedin_messages.py syncer.py vcard_parser.py
+```
+
+So a full re-sync of this tree drops the fix silently, and the grep that would
+have caught it returns the same zero for "not recorded" as for "not diverged" --
+the inversion this file opens with, now with a named casualty.
+
+**What protects it in the meantime, since the patch cannot:**
+`scripts/verify_dmg_delivers_fixes.sh` gains a PAYLOAD row
+(`#1690-the-owner-name-write-can-decline`, path `contact_syncer/owner_node.py`,
+invariant `FILTER NOT EXISTS`) that reads the MOUNTED DMG. A re-vendor that
+drops the graft now produces an artefact the delivery gate refuses. That is a
+backstop on the OUTPUT, not a record of the divergence, and it does not retire
+the debt above: whoever moves this pin still has to reconstruct the file by
+diffing rather than by reading the patch.
+

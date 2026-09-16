@@ -31127,6 +31127,83 @@ else
     fi
 fi
 
+# OWNER NODE (#1690, 2026-09-16). NOTHING MINTED IT, SO NOTHING COULD READ IT.
+#
+# `pwg:user_<id>` is the "this is me" anchor: it is the OBJECT of every
+# `pwg:belongsToUser` triple the graph writes, and the identity the privacy
+# layer branches on (identity_resolver/compartment.py `owner_node_iri`). It was
+# never minted as a SUBJECT, so on a customer box
+# `ASK { <...user_<id>> a pwg:Person }` answered false and the owner had no
+# node of their own at all.
+#
+# MEASURED on origin/main before this block existed, with a positive control of
+# the same shape so a broken predicate could not read as an absence:
+#
+#   --mint-owner / contact_syncer.owner_node in install.sh   0
+#   CONTROL, --vcf, a flag install.sh really passes          6
+#   contact_syncer.owner_node repo-wide                      3, all of them
+#                                                            inside owner_node.py
+#                                                            and syncer.py
+#
+# So the writer, its CLI flag, its idempotency and CM041's #154 fix to it were
+# all real and all inert: a producer with no caller. That is the class this
+# repo keeps shipping, and it is why the fix upstream never reached anyone.
+#
+# ORDERING, and it is load-bearing in both directions. This runs AFTER every
+# person-creating writer above (hydrate_graph contacts/calendar, the per-source
+# FDA ingest, contact_syncer, initial_hydrate) and BEFORE wiki_compile, for the
+# same reason dedupe_merge and places_ingest do: the first wiki compile must
+# already see the node. Running it BEFORE the contact hydrate would mint the
+# node into a graph the syncer then rewrites around it; running it after
+# wiki_compile would leave the customer's first wiki without it.
+#
+# WHY IT CANNOT OVERWRITE A BETTER NAME. `build_owner_sparql` emits TWO
+# statements: the structural triples as INSERT DATA (additive, so a re-run is a
+# no-op because Oxigraph stores each triple once), and `displayName` as
+# `INSERT ... WHERE FILTER NOT EXISTS`. It can DECLINE, never clobber. That
+# matters here because the name we pass is the customer's own typed answer to
+# "what should your assistant call you?" -- the top tier of the locked
+# display-name tier rule (phone < email < human, overwrites go UPWARD only).
+# A writer that can only decline can never move a name DOWN a tier.
+# tests/test_the_owner_node_is_minted_and_named_once.sh asserts all of that by
+# executing the SHIPPED SPARQL against a real SPARQL engine, including the
+# mutation where the old INSERT DATA shape leaves the owner carrying TWO names.
+#
+# USER_ID IS PASSED THROUGH THE ENVIRONMENT, NOT AS --user-id, AND THAT IS
+# DELIBERATE. config.py normalises `USER_ID` through
+# identity_resolver.compartment.normalise_user_id at import, which is the SAME
+# helper `owner_node_iri` uses; a raw `--user-id "$USER_ID"` would skip it and
+# a real answer like "Mrs Smith" or "jane@home" would mint a malformed IRI that
+# disagrees with the one the read side derives. config.py says so in its own
+# comment at :85-100. So we hand it the raw value and let the shipped
+# normaliser own the derivation.
+#
+# NON-FATAL AND LOG-ONLY. owner_node.main exits 2 when USER_ID or the display
+# name is empty -- a legitimate state on a resume install that never asked the
+# question -- and this is internal plumbing with no customer-facing string, the
+# same shape as the dedupe_merge sweep below. The rc is WRITTEN DOWN rather
+# than swallowed: `|| _owner_rc=$?` keeps `set -e` from aborting the install
+# without discarding the number, and the number is printed into the
+# diagnostics log so a failed mint leaves a trace instead of nothing.
+if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
+    _owner_rc=0
+    (
+        cd "$PIPELINE_DIR" \
+        && USER_ID="${USER_ID:-}" \
+           USER_DISPLAY_NAME="${USER_NAME:-}" \
+           OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
+           .venv/bin/python -m contact_syncer.owner_node \
+               --graph-endpoint "${OXIGRAPH_URL:-http://localhost:7878}"
+    ) >>"${OSTLER_DIAG_DIR}/owner-node.log" 2>&1 || _owner_rc=$?
+    printf 'owner_node mint rc=%s\n' "$_owner_rc" \
+        >>"${OSTLER_DIAG_DIR}/owner-node.log" 2>/dev/null || true
+    unset _owner_rc
+else
+    printf 'owner_node mint SKIPPED: no import-pipeline venv at %s\n' \
+        "${PIPELINE_DIR:-}/.venv/bin/python" \
+        >>"${OSTLER_DIAG_DIR}/owner-node.log" 2>/dev/null || true
+fi
+
 # DEDUPE_MERGE (#661, RULE 1, 2026-06-09): after every person-creating
 # writer above (hydrate_graph contacts/calendar, the per-source FDA
 # ingest, contact_syncer, and initial_hydrate) and BEFORE wiki_compile

@@ -1,0 +1,87 @@
+# CM051 #1690. The owner / me-card node `pwg:user_<id>` is the "this is me"
+# anchor: the OBJECT of every pwg:belongsToUser triple and the identity the
+# privacy layer branches on. CM041 ships a writer for it, and CM041 #154 fixed
+# that writer so the one node whose job is to answer "who is the owner" can no
+# longer accumulate a second display name.
+#
+# NOTHING CALLED IT. Measured on origin/main, with positive controls of the
+# same shape so a broken predicate could not read as an absence:
+#
+#   --mint-owner / contact_syncer.owner_node in install.sh   0
+#   CONTROL, --vcf, a flag install.sh really passes          6
+#   test files naming owner_node                             0
+#   CONTROL, test files naming contact_syncer               26
+#   workflows naming owner_node                              0
+#   CONTROL, workflows naming contact_syncer                 6
+#
+# A correct writer with no caller is this repo's signature failure, and the
+# reason a fix merged upstream never reached anyone. This workflow is the
+# third of those zeros closed.
+name: owner-node-minted
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'install.sh'
+      - 'vendor/cm041/contact_syncer/owner_node.py'
+      - 'tests/helpers/check_owner_node_mint.py'
+      - 'tests/test_the_owner_node_is_minted_and_named_once.sh'
+      - '.github/workflows/owner-node-minted.yml'
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'vendor/cm041/contact_syncer/owner_node.py'
+      - 'tests/helpers/check_owner_node_mint.py'
+      - 'tests/test_the_owner_node_is_minted_and_named_once.sh'
+      - '.github/workflows/owner-node-minted.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+jobs:
+  owner-node-minted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # rdflib is a TEST dependency and it is LOAD-BEARING, not housekeeping.
+      # The behaviour half EXECUTES the SPARQL the shipped module emits; with
+      # no engine the helper refuses (CANNOT-RUN), which is honest and useless.
+      # httpx is a genuine RUNTIME dependency of contact_syncer.owner_node --
+      # the module is imported for real here rather than having its functions
+      # lifted out, so the import must be able to succeed.
+      - name: Install the SPARQL engine and the module's own runtime dep
+        run: python -m pip install --quiet rdflib httpx
+
+      # `if: always()` on every step after the first test step. A GitHub job
+      # stops at its first red and reports the rest as grey, so a failure in
+      # the wiring half would hide whether the behaviour half also moved --
+      # which is exactly the run where both answers are wanted (#683).
+      - name: The owner node is minted by the install, and carries one name
+        run: bash tests/test_the_owner_node_is_minted_and_named_once.sh
+
+      # The gate's own shape, checked on every run rather than trusted. A
+      # syntax error in either file makes the step above fail for a reason
+      # that has nothing to do with the owner node.
+      - name: SELF-CHECK -- the test and its helper still parse
+        if: always()
+        run: |
+          bash -n tests/test_the_owner_node_is_minted_and_named_once.sh
+          python -m py_compile tests/helpers/check_owner_node_mint.py
+          echo "both parse"
