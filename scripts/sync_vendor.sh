@@ -181,6 +181,18 @@ if [ "${SYNC_ACCEPT_DIVERGENCE_LOSS:-0}" != "1" ]; then
         echo "  Without that tree there is no way to know what the swap would delete." >&2
         echo "  Fix the pin or the patch first, or re-run with SYNC_ACCEPT_DIVERGENCE_LOSS=1" >&2
         echo "  if you have checked by hand that nothing is lost." >&2
+        # NAME THE HAND-WRITTEN RECORDS HERE, at the exact moment somebody is
+        # deciding whether to override. A record nobody reads is not a record,
+        # and this refusal is the ONLY place the reader is guaranteed to be.
+        # Three vendored trees currently carry edits that no divergence patch
+        # can express, each for a DIFFERENT reason the regeneration tool proved
+        # rather than assumed: one patch failed its own round-trip, and two have
+        # a source that has advanced past the pin, so regenerating would record
+        # upstream commits as local edits. They are described by hand in:
+        for _un in "$VLIB_REPO_ROOT"/vendor/divergences/*.UNRECORDED.md; do
+            [ -e "$_un" ] || continue
+            echo "  READ FIRST, it lists what an override would delete: ${_un#"$VLIB_REPO_ROOT"/}" >&2
+        done
         rm -rf "$_pf_tmp"
         exit 1
     fi

@@ -99,10 +99,21 @@ __all__ = [
     "normalise_user_id",
     "multiuser_enabled",
     "assert_default_graph_isolated",
+    "CM048_USER_GRAPH_BASE",
+    "cm048_user_graph_uris",
+    "sparql_where_span",
+    "graph_scoped_select",
 ]
 
 PWG_NS = "https://schema.ostler.ai/ontology#"
 USER_GRAPH_BASE = "https://schema.ostler.ai/graph/user/"
+
+#: Base of the named graph CM048's conversation pipeline writes into
+#: (``cm048_pipeline/src/ingest.py``). Distinct from
+#: :data:`USER_GRAPH_BASE`, which is this module's own SECONDARY-user
+#: namespace: CM048 has always written ``urn:ostler:user/<id>`` for the
+#: PRIMARY operator, and that is the graph the Hub's readers must span.
+CM048_USER_GRAPH_BASE = "urn:ostler:user/"
 
 #: Env var that gates the DEFERRED multiuser paths. The groundwork ships
 #: OFF: unless this is exactly ``"1"``, resolving any SECONDARY (named)
@@ -536,3 +547,134 @@ def assert_default_graph_isolated(
             "without --union-default-graph. "
             "See CM061 PRO_ENGINES_AUDIT_4_multiuser.md HIGH-1."
         )
+
+
+# ----------------------------------------------------------------------
+# Reader-side graph scope (v1018-D012b)
+# ----------------------------------------------------------------------
+# The wall above keeps a SECONDARY user's named graph off the primary
+# operator's read path. This section solves the mirror-image problem for
+# the PRIMARY operator's OWN data.
+#
+# CM041 writes into the DEFAULT graph. CM048's conversation pipeline
+# writes the same operator's facts, relationship signals, outstanding
+# todos and conversation links into the NAMED graph
+# ``urn:ostler:user/<id>``. Because ``--union-default-graph`` is OFF (and
+# must stay off, for the reason documented above), an unqualified SPARQL
+# query reaches the default graph ONLY, so every CM048-backed reader
+# silently returns empty while the triples sit in the store. The fix
+# cannot be applied at the store without destroying the isolation wall,
+# so the scope travels inside the query instead.
+#
+# :func:`graph_scoped_select` rewrites a SELECT to span the default graph
+# PLUS an EXPLICIT list of named graphs. It never emits a bare
+# ``GRAPH ?g``: that would put every other user's compartment on the
+# primary's read path and re-create precisely the leak
+# :func:`assert_default_graph_isolated` exists to prevent.
+
+#: Query variable used by the rewriter. Deliberately unlikely to collide
+#: with a caller's own variable names.
+_GRAPH_SCOPE_VAR = "?__ostler_g"
+
+
+def cm048_user_graph_uris(raw_user_id):
+    """Named graphs holding THIS user's CM048 data, most specific first.
+
+    Returns both the raw and the normalised spelling of the id. CM048
+    mints its graph IRI from the RAW ``settings.user_id``, so a Hub whose
+    ``USER_ID`` is ``"Andy"`` writes ``urn:ostler:user/Andy``. Folding to
+    ``"andy"`` here would silently match nothing -- the same class of
+    failure this whole section exists to fix -- so both are carried and
+    whichever the writer actually used resolves.
+
+    Returns ``[]`` for an empty id, so a Hub with no ``USER_ID`` keeps
+    today's default-graph-only behaviour rather than guessing a graph.
+    """
+    uris = []
+    for candidate in (str(raw_user_id or "").strip(),
+                      normalise_user_id(raw_user_id) if raw_user_id else ""):
+        if not candidate:
+            continue
+        uri = CM048_USER_GRAPH_BASE + candidate
+        # An id can never legitimately carry IRI delimiters; refuse rather
+        # than emit a query that would not parse.
+        if "<" in uri or ">" in uri or '"' in uri or "\\" in uri:
+            continue
+        if uri not in uris:
+            uris.append(uri)
+    return uris
+
+
+def sparql_where_span(sparql):
+    """Byte span ``(open, close)`` of the outermost ``{...}``, or None.
+
+    Scans past string literals (including triple-quoted), IRIs and ``#``
+    comments so a brace inside any of them cannot desynchronise the
+    match. A SPARQL prologue and projection contain no top-level brace,
+    so the first one reached opens the WHERE group.
+    """
+    i, n = 0, len(sparql)
+    start = depth = None
+    while i < n:
+        c = sparql[i]
+        if c == "#" and depth is None:
+            j = sparql.find("\n", i)
+            i = n if j < 0 else j + 1
+            continue
+        if c in "'\"":
+            quote_tok = sparql[i:i + 3] if sparql[i:i + 3] in ("'''", '"""') else c
+            i += len(quote_tok)
+            while i < n:
+                if sparql[i] == "\\":
+                    i += 2
+                    continue
+                if sparql.startswith(quote_tok, i):
+                    i += len(quote_tok)
+                    break
+                i += 1
+            continue
+        if c == "<":
+            j = sparql.find(">", i)
+            if j > i and "\n" not in sparql[i:j]:
+                i = j + 1
+                continue
+        if c == "{":
+            if depth is None:
+                start, depth = i, 0
+            depth += 1
+        elif c == "}" and depth is not None:
+            depth -= 1
+            if depth == 0:
+                return start, i
+        i += 1
+    return None
+
+
+def graph_scoped_select(sparql, graph_uris):
+    """Rewrite a SELECT to span the default graph AND ``graph_uris``.
+
+    ``ORDER BY`` / ``GROUP BY`` / ``LIMIT`` stay outside the rewritten
+    group, so result ordering and truncation keep their original
+    whole-query meaning.
+
+    Returns ``sparql`` unchanged when there are no graphs to add or the
+    WHERE group cannot be located unambiguously. That is deliberate: the
+    caller then gets today's default-graph-only behaviour instead of an
+    exception on a read path.
+    """
+    if not graph_uris:
+        return sparql
+    span = sparql_where_span(sparql)
+    if span is None:
+        return sparql
+    start, end = span
+    head, body, tail = sparql[:start], sparql[start + 1:end], sparql[end + 1:]
+    in_list = ", ".join("<{}>".format(g) for g in graph_uris)
+    return (
+        "{head}{{ {{{body}}}\n"
+        "  UNION\n"
+        "  {{ GRAPH {var} {{{body}}}\n"
+        "    FILTER ({var} IN ({in_list})) }}\n"
+        "}}{tail}"
+    ).format(head=head, body=body, tail=tail,
+             var=_GRAPH_SCOPE_VAR, in_list=in_list)

@@ -18,14 +18,14 @@ turn.
 | Upstream path | `scripts/generate_pwg_context.py` |
 | Original vendor commit | `f441f09f` (feat(assistant): inject personal-graph CONTEXT.md digest + lookup guidance) |
 | Original SHA-256 | `58d0c5e31d899ad994fb9413bd8d6d511d27433c84acaf01cff7119b2254a613` (pre-graft, historical) |
-| Current SHA-256 | `27cc4d6e9a744a929e02e772185f406f9b8832b5acc64e887c4ed3ec2e89550b` (post-graft, this repo) |
+| Current SHA-256 | `15a1c4dd142d8f0e710c7203fbfeb04992a3681a4f54df9036fcd1ed9b84b4e7` (post-graft, this repo) |
 | Vendored | 2026-06-02 (v1.0.1 launch-blocker #608) |
 | Diverged | 2026-06-28 (calendar-owner attribution, BATCH1 #3) |
-| Last divergence | 2026-09-09 (one route to the graph: the lookup paragraph names the pwg_ tools, not http_request). Matched upstream at `a9af0595` (ostler-assistant#394), so this one is a MIRROR, not a graft. |
+| Last divergence | 2026-09-16 (a gap the digest could not read must not look like a gap that is empty, HR015 #948). NOT upstream: a graft, like items 1 to 5. |
 
 ## Local divergence (grafted on top of `f441f09f`)
 
-These fixes MUST be preserved across any re-vendor. Five of the six are NOT
+These fixes MUST be preserved across any re-vendor. Six of the seven are NOT
 upstream; item 6 IS, and is listed anyway because a re-vendor still has to
 carry it deliberately rather than assume a clean `cp` reproduces it. Read each
 item's own last lines for its upstream status rather than this header, which is
@@ -81,7 +81,7 @@ the kind of blanket claim that goes stale one item at a time:
    `.github/workflows/context-digest-auth.yml`.
 
    **Re-vendor guidance.** A re-vendor from current upstream main takes
-   divergence 4 natively and DROPS 1, 2, 3, 5 and 6. Carry them across, or
+   divergence 4 natively and DROPS 1, 2, 3, 5, 6 and 7. Carry them across, or
    land them upstream first. Divergence 6 IS filed upstream
    (ostler-assistant#394) and will stop needing to be carried the moment
    that merges and the vendor pin moves past it; until then it is carried
@@ -104,6 +104,33 @@ the kind of blanket claim that goes stale one item at a time:
      still listed because this copy is the one that SHIPS: the release
      tarball carries the daemon and its `.app` and never `scripts/`, so
      an upstream fix reaches a customer only by being here too.
+
+7. **A gap the digest could not read must not look like a gap that is
+   empty** (2026-09-16, HR015 #948). **NOT upstream.** A section renders
+   only when it has content, so one whose source returned 401 or 400 was,
+   in the document the model reads, byte for byte identical to one whose
+   source answered and held nothing. The difference was measured all
+   along, into `_FAILURES`, a stderr report and the exit code, and none of
+   those three reach the model composing the customer's daily brief. Four
+   briefs reached a phone; one announced "trips to places like New York in
+   September 2026 and Singapore later that year" for a customer with no
+   such trips.
+
+   This copy now renders three states rather than two, in the digest
+   itself: items, "nothing stored", and "COULD NOT BE READ" with the
+   status actually observed (`_run_section`,
+   `_unreadable_and_empty_block`). The block is emitted BEFORE the content
+   sections because the `MAX_CHARS` clip cuts from the end. And when no
+   section produced content, the prior `CONTEXT.md` is still kept, because
+   a stale digest beats no digest, but is stamped `NOT REFRESHED`
+   idempotently so an hour-old refusal is not recited as today's news.
+
+   Regression suite:
+   `tests/test_a_brief_cannot_fill_a_gap_it_was_never_shown.sh`, wired in
+   `.github/workflows/context-digest-auth.yml`. Item 5 is its nearest
+   relative and the pair is the point: item 5 made the failure loud to
+   LAUNCHD, item 7 makes it visible to the MODEL. Carrying one without the
+   other leaves the brief writer blind again.
 
 ## Why vendored rather than shipped in the assistant release
 
