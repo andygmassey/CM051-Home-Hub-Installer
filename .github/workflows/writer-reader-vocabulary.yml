@@ -41,6 +41,7 @@ on:
       - '.github/workflows/writer-reader-vocabulary.yml'
   pull_request:
     paths:
+      - 'tests/test_an_unlabelled_preference_is_not_silently_dropped.py'
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'vendor/cm019_preferences/services/ingest/src/loaders/qdrant_loader.py'
@@ -127,3 +128,11 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_writer_reader_vocabulary_contracts.py -v
+
+
+      # Row 1160 part three. A preference with NO compartment_level matched
+      # neither filter arm and was silently dropped: 934 of 9,948 points on a
+      # live box. `if: always()` so an earlier red cannot delete it.
+      - name: An unlabelled preference is not silently dropped
+        if: always()
+        run: python3 tests/test_an_unlabelled_preference_is_not_silently_dropped.py
