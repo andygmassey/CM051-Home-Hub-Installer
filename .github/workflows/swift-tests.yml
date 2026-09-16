@@ -65,6 +65,7 @@ on:
       # next PR that happened to touch gui/, as somebody else's red.
       - 'install.sh.strings.*.sh'
       - 'scripts/verify_swift_tests_ran.sh'
+      - 'tests/test_the_consent_button_is_not_below_the_fold.py'
       - '.github/workflows/swift-tests.yml'
   push:
     branches: [main]
@@ -81,6 +82,7 @@ on:
       # next PR that happened to touch gui/, as somebody else's red.
       - 'install.sh.strings.*.sh'
       - 'scripts/verify_swift_tests_ran.sh'
+      - 'tests/test_the_consent_button_is_not_below_the_fold.py'
       - '.github/workflows/swift-tests.yml'
   schedule:
     # Daily, so a break cannot hide behind a quiet week in gui/.
@@ -112,6 +114,11 @@ jobs:
       - name: Parses under bash 3.2-compatible syntax
         run: bash -n scripts/verify_swift_tests_ran.sh
 
+      - name: the consent button stays outside the scroll region (#632, BW3-9, #503)
+        # always(), so an earlier red cannot mask a layout regression whose
+        # only previous detector was a human on a box walk.
+        if: always()
+        run: python3 tests/test_the_consent_button_is_not_below_the_fold.py
   swift-tests:
     runs-on: macos-26
     timeout-minutes: 30
