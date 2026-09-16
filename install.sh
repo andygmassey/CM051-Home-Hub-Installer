@@ -28289,8 +28289,15 @@ fi
 # WHERE IT ACTUALLY IS. gui/project.yml's "Bundle scripts/... into
 # Resources/scripts" phase copies migrate_graph_namespace.py into the .app's
 # Resources/scripts alongside deferred-register-device.sh, which install.sh
-# reads as ${SCRIPT_DIR}/scripts/deferred-register-device.sh. So the payload
+# reads as ${SCRIPT_DIR}/scripts/deferred-register-device.sh, so the payload
 # directory is ${SCRIPT_DIR}/scripts and always has been for the sibling.
+#
+# THE FULL STOP AFTER THAT PATH MATTERED, and it is worth knowing:
+# tests/test_every_script_install_sh_reads_is_bundled.py matches
+# [A-Za-z0-9._-]+ after the scripts/ prefix, and it reads comments as if they
+# were code, so a sentence ending immediately after a path made it hunt for a
+# bundler for "deferred-register-device.sh." with the stop attached. Its
+# over-reading is the SAFE direction and is left alone; the prose gives way.
 # Repointing there is the whole fix; the file was already in the DMG.
 #
 # BOTH PATHS ARE TRIED, IN THIS ORDER, and the old one is kept deliberately:
