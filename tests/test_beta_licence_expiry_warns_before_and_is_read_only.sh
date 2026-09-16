@@ -99,8 +99,16 @@ trap 'chmod -R u+rwX "$WORK" 2>/dev/null; rm -rf "$WORK"' EXIT
 # cannot leave a stale duplicate here.
 TIER_TEST="${REPO_ROOT}/tests/test_licence_tier_reaches_the_hub.sh"
 [[ -f "$TIER_TEST" ]] || cannot_run "tests/test_licence_tier_reaches_the_hub.sh not found; its mint side is this test's signer"
+# TWO STEPS, NOT A PIPE. The pipefail ratchet counts a pipe into sed as a
+# short-circuit risk, and it is right to count shapes rather than reason about
+# each one: a consumer that can stop early SIGPIPEs its producer, and under
+# `set -o pipefail` that turns a correct extraction into a failed one. This
+# particular pair would not short-circuit, because `$d` forces the second sed
+# to read to EOF, but arguing the exception in a ratchet is how exceptions
+# accumulate. A temporary file costs nothing here and the output is identical.
 sed -n "/^cat > \"\${WORK}\/mint.py\" <<'MINT_PY'\$/,/^MINT_PY\$/p" "$TIER_TEST" \
-    | sed '1d;$d' > "${WORK}/mint.py"
+    > "${WORK}/mint.raw"
+sed '1d;$d' "${WORK}/mint.raw" > "${WORK}/mint.py"
 [[ -s "${WORK}/mint.py" ]] || cannot_run "could not extract the minting side from ${TIER_TEST}"
 
 if python3 "${WORK}/mint.py" selftest >"${WORK}/selftest.out" 2>&1; then
@@ -441,7 +449,15 @@ d1_rc=0
 OSTLER_SUBSCRIPTION_STATE="$STATE" python3 "$GATE" --check >"${WORK}/warn.out" 2>&1 || d1_rc=$?
 if [[ "$d1_rc" != "0" ]]; then
     bad "D1 a tester with 3 days left was paused (exit ${d1_rc}) -- the warning must not cost them the product early"
-elif grep -qF "ends in" "${WORK}/warn.out" || grep -qF "ends tomorrow" "${WORK}/warn.out" || grep -qF "ends today" "${WORK}/warn.out"; then
+# ONE grep WITH ALTERNATION, NOT THREE JOINED BY ||.
+# The pipefail ratchet's pattern looks for a pipe followed by a
+# short-circuiting consumer, and it cannot tell `||` from `|`: the second
+# bar of a logical OR, followed by ` grep -q`, matches it exactly. There is
+# no pipe on this line and never was, so it was a false positive, and the
+# remedy the ratchet prints would have had someone rewrite correct code.
+# Filed separately. This form sidesteps it and reads better anyway: the
+# three needles are plain text with no regex metacharacters.
+elif grep -qE "ends in|ends tomorrow|ends today" "${WORK}/warn.out"; then
     ok "D1 a still-running tester is TOLD their window is closing, and keeps running (exit 0)"
 else
     bad "D1 the tick check said nothing about the window closing"
