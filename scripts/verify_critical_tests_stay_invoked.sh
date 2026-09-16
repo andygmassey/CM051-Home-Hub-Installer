@@ -74,6 +74,7 @@ scripts/tests/test_invocation_predicate_rejects_non_execution.sh  bash -n scorin
 tests/test_usage_journal_producer_gate.sh         a usage-journal producer going dark while the cost panel merely shows a smaller number, and the box-walk half returning SKIP for its whole life (#713/#719)
 tests/test_people_sweep_partial_landing_is_not_success.py  a partial people sweep (some, not all, points landed) reporting ok and pruning on an unreliable delivery
 tests/test_people_hydrate_partial_landing_sentinel.sh      a partial people sweep writing a success sentinel and suppressing its own retry, measured on a real customer install (sent=8643, total=8679)
+tests/test_no_cut_path_script_is_a_pipefail_landmine.sh   a pipefail short-circuit landmine sitting in a script the cut itself runs, which is how row 1 of that baseline killed the v1.0.75 cut (#1814, #1815)
 "
 
 cannot_run() { echo "CANNOT-RUN: $*" >&2; exit 2; }

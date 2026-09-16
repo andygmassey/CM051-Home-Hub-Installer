@@ -376,7 +376,11 @@ if command -v security >/dev/null 2>&1; then
     _idlines="$(printf '%s\n' "$_ids" | wc -l | tr -d ' ')"
     if [ -z "$_ids" ]; then
         artefact_bad "security produced no listing at all, so this check did not look"
-    elif printf '%s' "$_ids" | grep -q 'Developer ID Application: Creative Machines Limited'; then
+    # `grep -c`, NOT `| grep -q`: under this file's `set -o pipefail` a
+    # short-circuiting consumer SIGPIPEs printf and the pipeline reports the
+    # failure of the WRITER, not the verdict of the reader. Here that inverts
+    # "the shipping identity IS on this runner" into the reassuring branch.
+    elif [ "$(printf '%s' "$_ids" | grep -c 'Developer ID Application: Creative Machines Limited')" -gt 0 ]; then
         artefact_bad "the SHIPPING IDENTITY is in a keychain on this runner"
     else
         artefact_ok "the shipping identity is in no keychain here (listing had $_idlines line(s))"

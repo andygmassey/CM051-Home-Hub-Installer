@@ -106,6 +106,21 @@ jobs:
         if: always()
         run: bash tests/test_pipefail_shortcircuit_inversion.sh
 
+      # The ratchet above stops the class SPREADING. It has never asked anyone
+      # to defuse what is already on the list, and on 2026-09-07 row 1 of that
+      # list went off and killed the v1.0.75 cut in the cut job itself
+      # (scripts/orphan_gate_selftest.sh:122, CM051 #1814).
+      #
+      # A baseline is not a backlog. This step holds the one intersection that
+      # can stop a cut: files cut.yml actually names AND that carry a baselined
+      # landmine. #1815 emptied it; emptying a set is not a gate on the set, so
+      # this recomputes it every PR and reds if it ever refills. It carries
+      # three positive controls of its own, because the assertion is an absence
+      # and a broken reader would report a clean intersection forever.
+      - name: No script the cut runs is on the pipefail landmine baseline
+        if: always()
+        run: bash tests/test_no_cut_path_script_is_a_pipefail_landmine.sh
+
       # The sibling ratchet, for the class that actually aborted two box
       # walks. A standalone read of `$?` means someone is treating a non-zero
       # exit as DATA; under `set -e` that is a defect unless the region has

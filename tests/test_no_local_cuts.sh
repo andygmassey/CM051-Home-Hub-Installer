@@ -40,10 +40,16 @@ if [ "$rc" -ne 0 ]; then pass "make ship exits non-zero outside CI (rc=$rc)"
 else fail "make ship SUCCEEDED outside CI -- local cutting is still possible"; fi
 
 # 2. It must say why, not just die. A refusal nobody understands gets patched out.
-if printf '%s' "$out" | grep -q 'v1018-D027'; then
+# `grep -c`, NOT `| grep -q`. This file sets `set -o pipefail`, and `make -C`
+# output is the whole of a Makefile run -- easily past the 64KB pipe buffer.
+# A short-circuiting consumer SIGPIPEs printf, the pipeline takes printf's
+# status, and a refusal that DOES cite the ID is reported as one that does not.
+# That is a false red on the gate that makes local cutting impossible, and it
+# is the same construct that took the v1.0.75 cut. `grep -c` reads to EOF.
+if [ "$(printf '%s' "$out" | grep -c 'v1018-D027')" -gt 0 ]; then
 	pass "refusal cites the ledger ID"
 else fail "refusal does not cite v1018-D027 -- operator cannot trace it"; text_missing=1; fi
-if printf '%s' "$out" | grep -qi 'git tag'; then
+if [ "$(printf '%s' "$out" | grep -ci 'git tag')" -gt 0 ]; then
 	pass "refusal tells the operator how to cut properly"
 else fail "refusal gives no route forward -- invites working around it"; text_missing=1; fi
 

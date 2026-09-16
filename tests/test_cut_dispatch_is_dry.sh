@@ -58,7 +58,12 @@ expect() {
         printf '%s\n' "$_out" | sed 's/^/        /'
         return
     fi
-    if [ -n "$_needle" ] && ! printf '%s' "$_out" | grep -q "$_needle"; then
+    # `grep -c`, NOT `| grep -q`. This file sets `set -o pipefail`, so a
+    # short-circuiting consumer SIGPIPEs printf and the pipeline reports the
+    # writer's death rather than the match. Here that turns a gate whose reason
+    # IS correct into a reported failure -- a false red on the cut-dispatch
+    # gate, which is exactly the shape that killed v1.0.75.
+    if [ -n "$_needle" ] && [ "$(printf '%s' "$_out" | grep -c -- "$_needle")" -eq 0 ]; then
         bad "$_label -- exit $_rc was right but the reason never mentioned '$_needle'"
         printf '%s\n' "$_out" | sed 's/^/        /'
         return
