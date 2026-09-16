@@ -22,8 +22,11 @@ on:
       - 'tests/test_consent_a7_a8.sh'
       - 'tests/test_third_party_data_consent.sh'
       - 'tests/test_autologin_consent_opt_in.sh'
+      - 'tests/test_recording_consent_gates_the_capture_companion.sh'
       - 'lib/progress_emitter.sh'
       - '.github/workflows/consent-contract.yml'
+      - 'tests/test_the_consent_rules_table_is_safe.py'
+      - 'lib/transcription_consent_rules.csv'
   pull_request:
     paths:
       - 'install.sh'
@@ -31,8 +34,11 @@ on:
       - 'tests/test_consent_a7_a8.sh'
       - 'tests/test_third_party_data_consent.sh'
       - 'tests/test_autologin_consent_opt_in.sh'
+      - 'tests/test_recording_consent_gates_the_capture_companion.sh'
       - 'lib/progress_emitter.sh'
       - '.github/workflows/consent-contract.yml'
+      - 'tests/test_the_consent_rules_table_is_safe.py'
+      - 'lib/transcription_consent_rules.csv'
 
 concurrency:
   # Supersede in-flight runs for the same workflow on the same branch/PR.
@@ -53,6 +59,15 @@ jobs:
       - name: consent A7 + A8 assertions
         if: always()
         run: bash tests/test_consent_a7_a8.sh
+
+      # The country table is DATA, deliberately, so a legal edit is not a code
+      # edit. This guard holds the one property that matters: it must never
+      # answer permissively for a place it does not actually know about. A
+      # country with sub-national variation carrying a permissive country-level
+      # answer means the strict path never fires for its strict states.
+      - name: The consent rules table cannot answer permissively for a place it does not know
+        if: always()
+        run: python3 tests/test_the_consent_rules_table_is_safe.py
 
       - name: third-party data consent
         if: always()
@@ -78,3 +93,23 @@ jobs:
       - name: auto-login consent is opt-in and its copy does not overclaim
         if: always()
         run: /bin/bash tests/test_autologin_consent_opt_in.sh
+
+      # SAME JOB, SAME REASON. This one extracts the RemoteCapture phase out of
+      # install.sh and EXECUTES it under three consent answers, so it has to run
+      # under the shell the artefact ships under.
+      #
+      # `|| rc=$?`, not a bare call: the step shell is `/bin/bash -e {0}`, so a
+      # bare fallible call exits before rc is captured and the CANNOT-RUN branch
+      # becomes unreachable code -- the class cannot-run-branch-reachable exists
+      # to catch. A harness that could not read the phase has measured NOTHING
+      # about it, and that is not a pass.
+      - name: a declined recording consent stops the capture companion being installed
+        if: always()
+        run: |
+          set -uo pipefail
+          rc=0
+          /bin/bash tests/test_recording_consent_gates_the_capture_companion.sh || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The RemoteCapture phase could not be extracted from install.sh, so NOTHING was measured about whether a declined recording consent stops it. This is not a pass."
+          fi
+          exit "$rc"
