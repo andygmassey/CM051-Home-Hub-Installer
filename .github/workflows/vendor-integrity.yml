@@ -80,6 +80,13 @@ on:
       # are watched -- a change to the shell pause reader can break the
       # Python/shell contract without touching vendor/ at all.
       - 'tests/test_doctor_governor_routes_vendored.sh'
+      # #1164: the #282 re-vendor guard had 0 automated callers for 28 cuts.
+      # Both it AND the ratchet over it are watched here, for the reason given
+      # above: a run with no path entry is a gate that never fires on a change
+      # to itself, and the thing most likely to change is the residue the
+      # ratchet pins.
+      - 'tests/test_the_governor_revendor_guard_is_actually_run.sh'
+      - 'scripts/verify_doctor_governor_revendor.sh'
       - 'lib/ostler-resource-tier.sh'
       - 'tests/vendor_import_resolution_baseline.txt'
       # The __main__-guard reachability gate. It scans vendor/, scripts/ and
@@ -638,3 +645,22 @@ jobs:
       # vendor/doctor/ under a new name (the original had dev-machine
       # paths hard-coded, which is why it was pulled) and re-add the
       # step here.
+
+      # #1164. scripts/verify_doctor_governor_revendor.sh has been in the tree
+      # since the #282 graft with NO automated caller: its only wiring was a
+      # sentence in a comment, and the same cut-manifest row reported that fact
+      # unchanged through 28 manifests, v1.0.72 to v1.0.99.
+      #
+      # It was never simply wired because it EXITS 1 ON A HEALTHY TREE by
+      # design: the re-vendor has not happened, the config_panel half was
+      # deliberately not adopted, and exactly ONE of its nine checks fails as
+      # the honest state of the pin. `run: bash scripts/verify_...` would paint
+      # CI permanently red and the next person would delete it.
+      #
+      # So it is graded as a RATCHET over its OUTPUT rather than its exit code.
+      # More than one failure is a regression; ZERO failures means the
+      # re-vendor landed and the guard's scope note needs updating, which is
+      # good news and still a stop rather than a silent pass.
+      - name: the governor re-vendor guard is actually run (#1164)
+        if: always()
+        run: bash tests/test_the_governor_revendor_guard_is_actually_run.sh
