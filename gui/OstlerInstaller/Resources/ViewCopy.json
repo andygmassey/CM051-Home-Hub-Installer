@@ -300,7 +300,7 @@
     "help": "Already have the Ostler app on your iPhone? Scan this code to pair it with this Mac. You can also pair later from inside the app.",
     "fetching": "Generating pairing code...",
     "refresh_button": "Refresh code",
-    "fetch_failed": "Couldn't reach the Ostler gateway yet. It might still be starting up. Click Refresh to try again.",
+    "fetch_failed": "Couldn't reach the Ostler gateway yet. It might still be starting up – click Refresh to try again.",
     "fetch_refused": "The Ostler gateway refused the pairing request, so Refresh will not help. Ostler is still installed: open it and pair from inside the app instead. (Gateway returned {code}.)",
     "fetch_unexpected": "The Ostler gateway answered, but not with a pairing code. Click Refresh to try again, or pair later from inside the app. (Gateway returned {code}.)",
     "fetch_empty": "The Ostler gateway returned an empty pairing code. Click Refresh to try again, or pair later from inside the app.",
