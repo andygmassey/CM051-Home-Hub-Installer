@@ -163,7 +163,32 @@ GUARDED=0
 # dedupe are hydrate steps that ran with NO sentinel at all, so they could not
 # break this rule -- there was no record to be wrong. They are inside the
 # machinery now, which means they are inside this ratchet too.
-ALL_SOURCES="imessage places whatsapp browsing email_preferences apple_notes people privacy_backfill ai_conversations contacts calendar email dedupe"
+# THE POPULATION IS DERIVED FROM install.sh, NOT TYPED HERE (#775).
+#
+# This used to be a hand-written list of 13 names, checked against a
+# hand-written floor of 13. Both halves were typed by the same person at the
+# same time, so the gate was comparing a number against itself: a FOURTEENTH
+# hydrate source with an unguarded error arm would not appear in the list, and
+# the control would report a confident "13 of 13 guarded" about a population it
+# had never established. Sound for the artefact as written, unsound for the
+# artefact as it might be written.
+#
+# A source with no sentinel call at all is outside the sentinel system by
+# definition, so deriving from the sentinel calls has no blind spot for what
+# this control is about.
+#
+# THE HAND LIST IS KEPT AND UNIONED IN, never replaced: if the derivation ever
+# returns less than it should, the union means a source cannot silently LEAVE
+# the population. The arms below then require the derived set to be at least
+# the floor, so the derivation going quiet is itself a red.
+SENTINEL_SOURCES_KNOWN="imessage places whatsapp browsing email_preferences apple_notes people privacy_backfill ai_conversations contacts calendar email dedupe"
+SENTINEL_SOURCES_DERIVED="$(grep -oE '_hydrate_sentinel_[a-z_]+ "[a-z_]+"' "$INSTALL" \
+    | grep -oE '"[a-z_]+"' | tr -d '"' | sort -u | tr '\n' ' ')"
+ALL_SOURCES="$(printf '%s %s\n' "$SENTINEL_SOURCES_KNOWN" "$SENTINEL_SOURCES_DERIVED" \
+    | tr ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ' ')"
+SENTINEL_DERIVED_COUNT="$(printf '%s' "$SENTINEL_SOURCES_DERIVED" | wc -w | tr -d ' ')"
+SENTINEL_POPULATION="$(printf '%s' "$ALL_SOURCES" | wc -w | tr -d ' ')"
+echo "     population: ${SENTINEL_POPULATION} source(s) (${SENTINEL_DERIVED_COUNT} derived from install.sh)"
 for src in $ALL_SOURCES; do
     if grep -q "_hydrate_sentinel_record_error \"$src\"" "$INSTALL"; then
         echo "     guarded    $src   (records the error variant)"
@@ -171,10 +196,33 @@ for src in $ALL_SOURCES; do
         continue
     fi
     # Shape (b): the rc arm must exist AND must not write a success sentinel.
+    # THE TERMINATOR TRACKS NESTING DEPTH. It used to be
+    #
+    #     grab && /^ *(elif|else|fi)/ && ++seen > 1   { exit }
+    #
+    # which counts terminator-shaped lines and stops at the second one. That
+    # cannot tell a NESTED block's `fi` from the end of the arm, so a success
+    # record placed after any `if ... fi` inside the error arm was never
+    # scanned and the control reported "guarded" on an arm that writes .done.
+    # Measured (#775): the same record without a nested block is caught
+    # (8 passed / 1 failed); behind a nested if/fi it was a FALSE PASS
+    # (9 passed / 0 failed) -- the control could not fail on the one shape it
+    # most needed to catch.
+    #
+    # Now: the arm ends at the first elif/else/fi at DEPTH 0. A nested `if`
+    # opens a level and its `fi` closes it, so neither can end the arm early.
+    # An inline `if ...; then ...; fi` opens and closes on one line and must
+    # not increment, hence the trailing-fi exclusion.
     ARM="$(awk -v s="$src" '
-        /elif \[\[ "\$_aiconv_rc" -ne 0 \]\]; then/ { if (s == "ai_conversations") grab = 1 }
-        grab && /^ *(elif|else|fi)/ && ++seen > 1                             { exit }
-        grab                                                                  { print }
+        /elif \[\[ "\$_aiconv_rc" -ne 0 \]\]; then/ {
+            if (s == "ai_conversations") { grab = 1; depth = 0; next }
+        }
+        grab {
+            if (depth == 0 && $0 ~ /^[[:space:]]*(elif|else|fi)([[:space:]]|$)/) exit
+            print
+            if ($0 ~ /^[[:space:]]*if[[:space:]]/ && $0 !~ /[[:space:];][[:space:]]*fi[[:space:]]*$/) depth++
+            else if ($0 ~ /^[[:space:]]*fi([[:space:]]|$)/) depth--
+        }
     ' "$INSTALL")"
     if [[ -n "$ARM" ]] && ! printf '%s\n' "$ARM" | grep -q '_hydrate_sentinel_record '; then
         echo "     guarded    $src   (error arm records NO sentinel, so the retry stands)"
@@ -195,10 +243,21 @@ echo
 # go up.
 SENTINEL_GUARD_FLOOR=13
 CHECKS=$((CHECKS + 1))
-if [[ "$GUARDED" -ge "$SENTINEL_GUARD_FLOOR" ]]; then
-    pass "(7) every hydrate source is guarded (guarded=$GUARDED, floor=$SENTINEL_GUARD_FLOOR of 13)"
+# THE DERIVATION MUST HAVE WORKED. A grep that silently returns nothing would
+# give a population of 13 from the known list alone and this control would go
+# on reporting a typed number. A derived set smaller than the floor means the
+# derivation broke, NOT that the artefact shrank.
+if [[ "$SENTINEL_DERIVED_COUNT" -lt "$SENTINEL_GUARD_FLOOR" ]]; then
+    fail "(7) the population derivation returned ${SENTINEL_DERIVED_COUNT} source(s) from install.sh, fewer than the floor ${SENTINEL_GUARD_FLOOR}: the derivation is broken, so any verdict here would be about a population this control did not establish"
+# EVERY source in the DERIVED population must be guarded, not merely as many
+# as the floor. This is what makes a fourteenth unguarded source red without
+# anyone editing this file.
+elif [[ "$GUARDED" -lt "$SENTINEL_POPULATION" ]]; then
+    fail "(7) $((SENTINEL_POPULATION - GUARDED)) of ${SENTINEL_POPULATION} hydrate source(s) are UNGUARDED (guarded=$GUARDED). The population was derived from install.sh, so this includes any source added since this test was last edited."
+elif [[ "$SENTINEL_POPULATION" -lt "$SENTINEL_GUARD_FLOOR" ]]; then
+    fail "(7) coverage went BACKWARDS: population=$SENTINEL_POPULATION, floor is $SENTINEL_GUARD_FLOOR"
 else
-    fail "(7) coverage went BACKWARDS: guarded=$GUARDED, floor is $SENTINEL_GUARD_FLOOR"
+    pass "(7) every hydrate source is guarded (guarded=$GUARDED of $SENTINEL_POPULATION derived, floor=$SENTINEL_GUARD_FLOOR)"
 fi
 
 echo
