@@ -64,6 +64,17 @@ def cannot_run(m: str) -> int:
     return 2
 
 
+def _is_ungated(r) -> bool:
+    """True when a row carries no proof.
+
+    Module level ON PURPOSE, so the control suite in
+    tests/test_a_ci_alarm_is_not_a_register_gap.py can import and test it.
+    While it was nested inside main() nothing could reach it, which is part of
+    why it went eight months without anyone noticing it matched nothing.
+    """
+    return "NONE YET" in " ".join(str(r.get("gate", "")).upper().split())
+
+
 def newest_manifest() -> pathlib.Path | None:
     """The highest-versioned per-cut manifest. `permanent.yaml` is excluded:
     it is the never-regress backstop, not the working checklist."""
@@ -108,7 +119,18 @@ def main() -> int:
         )
 
     registered = {int(r["issue"]) for r in rows if "issue" in r}
-    ungated = [r for r in rows if str(r.get("gate", "")).startswith("NONE")]
+    # ── WHY THIS IS A SUBSTRING TEST AND NOT startswith ────────────────────
+    # It was `startswith("NONE")` until 2026-09-16. Every row in every manifest
+    # writes its status as `gate: 'GATE: NONE YET. ...'`, which does not start
+    # with NONE, so this check matched NOTHING. Measured on v1.0.99 the day it
+    # was found: 112 rows said NONE YET and this list held 0 of them. PROPERTY 2
+    # is the one that BLOCKS A CUT, so for as long as that was true the cut
+    # could be tagged with every row unproven and this gate would print a PASS
+    # saying every registered issue was gated. It is the exact shape it exists
+    # to catch: a gate that cannot fail reads identically to a clean sheet.
+    # Normalised containment, so a prefix, a lowercase spelling or leading
+    # whitespace cannot hide a row again.
+    ungated = [r for r in rows if _is_ungated(r)]
     print(f"== checklist: {manifest.name} ==")
     print(f"  registered issues : {len(registered)}")
     print(f"  rows with a gate  : {len(rows) - len(ungated)}")

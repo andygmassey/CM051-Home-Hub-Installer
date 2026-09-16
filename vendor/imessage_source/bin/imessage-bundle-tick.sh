@@ -325,6 +325,49 @@ else
 fi
 # --------------------------------------------------------------------
 
+# --- Rule 0.8: the Ostler Pro subscription gate ----------------------
+# PRODUCTISATION_CHECKLIST.md Rule 0.8, locked 2026-05-09 and called
+# "non-negotiable for launch": every ingestion pipeline checks the
+# subscription gate before processing NEW data. Measured 2026-09-16,
+# exactly one of the eleven named surfaces did. This is iMessage capture.
+#
+# WHY THE PATH IS DERIVED AND NOT RE-VENDORED. The gate module ships
+# beside ical-server.py, and install.sh (`cp -R assistant_api/.`) puts
+# the whole of it in $OSTLER_DIR/services/ical-server/ -- a SIBLING of
+# this service's own staged directory. Deriving it from SOURCE_DIR keeps
+# ONE canonical gate. A fourth and fifth copy of a 300-line state
+# machine is how the daemon and the installer came to disagree about
+# has_ever_paid in the first place.
+#
+# FAIL OPEN on anything that is not an unambiguous "paused": module
+# missing, interpreter will not start, any exit code other than 3. A
+# customer who has paid must never be stopped because we could not ask,
+# and a packaging mistake must never wear the costume of a lapsed
+# subscription. Exit 3 is the ONLY code that pauses -- that is why the
+# gate does not use 1, which is indistinguishable from a crash.
+#
+# Paused exits 0, not non-zero: this is the expected steady state of an
+# unsubscribed Hub, not a fault. A non-zero exit would light up Doctor
+# and the .err log every 15 minutes for a customer who is simply not
+# paying.
+_ostler_gate="$(dirname "$SOURCE_DIR")/ical-server/subscription_gate.py"
+if [ -f "$_ostler_gate" ]; then
+    set +e
+    "$PYTHON_BIN" "$_ostler_gate" --check
+    _ostler_gate_rc=$?
+    set -e
+    if [ "$_ostler_gate_rc" -eq 3 ]; then
+        echo "imessage-bundle tick: Ostler Pro is not active, so new iMessage capture is paused. Everything already in your Hub stays available. Subscribe in the Ostler app and this resumes on the next tick."
+        exit 0
+    fi
+    if [ "$_ostler_gate_rc" -ne 0 ]; then
+        echo "imessage-bundle tick: subscription gate check exited ${_ostler_gate_rc} (expected 0 or 3); continuing to ingest. A customer is never paused because we could not ask." >&2
+    fi
+else
+    echo "imessage-bundle tick: subscription gate not found at ${_ostler_gate}; continuing to ingest. Rule 0.8 is NOT being enforced on this surface -- this line is the only evidence of that, so do not remove it." >&2
+fi
+# --- end Rule 0.8 gate -----------------------------------------------
+
 cd "$SOURCE_DIR"
 # Run as a module so the package-relative imports resolve. SOURCE_DIR
 # is the parent of the `services/` tree on the Hub install layout.
