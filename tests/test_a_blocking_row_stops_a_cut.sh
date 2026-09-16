@@ -57,9 +57,11 @@ description: fixture
 entries: []
 open_issues:
   - issue: 4001
+    repo: CM051
     title: a genuine blocker
     gate: "FIX (BLOCKING): the customer sees the wrong thing"
   - issue: 4002
+    repo: CM051
     title: an ordinary fix
     gate: "FIX: tidy this up"
 '
@@ -102,6 +104,7 @@ description: fixture
 entries: []
 open_issues:
   - issue: 4003
+    repo: CM051
     title: explicitly not a blocker
     gate: "NOT BLOCKING (reporting accuracy, not a shipped defect)"
 '
@@ -125,6 +128,7 @@ description: fixture
 entries: []
 open_issues:
   - issue: 4004
+    repo: CM051
     title: a deferral whose reasoning discusses blocking
     gate: "DEFER: not gated BLOCKING on purpose -- the capability exists and
       the customer is not stuck, so calling this BLOCKING would stop a cut
@@ -145,6 +149,7 @@ description: fixture
 entries: []
 open_issues:
   - issue: 4005
+    repo: CM051
     title: a real blocker whose reasoning mentions nothing special
     gate: "FIX (BLOCKING apparatus): the customer sees the wrong thing"
 '
@@ -164,6 +169,60 @@ if [[ $RC -eq 2 ]] && grep -q 'CANNOT-RUN' <<< "$OUT"; then
     ok "CONTROL: an unreadable open-issue list refuses (rc=2), it does not pass"
 else
     bad "expected rc=2 CANNOT-RUN when gh fails; got rc=$RC"
+fi
+
+# ── arm 6: a row with NO `repo:` field is CANNOT-RUN, not a guess ────────────
+# Rows used to carry only issue/title/gate. GitHub numbers issues and PULL
+# REQUESTS from one counter per repo, and CM051 and HR015 both reach four
+# digits, so a bare number resolved against a guessed repo answers confidently
+# and wrongly. That is how 41 rows were struck on "the issue is closed" when
+# ten named OPEN HR015 launch issues and the other 31 named CM051 pull
+# requests. Defaulting would rebuild that silently for every row added after
+# the fix, so the absence of the field must REFUSE.
+MANIFEST_NO_REPO='version: 9.9.9
+description: fixture
+entries: []
+open_issues:
+  - issue: 4006
+    title: a row that forgot to say where its number came from
+    gate: "FIX: done"
+'
+mk_repo "$WORK/g" "$MANIFEST_NO_REPO" "4006"
+run_subject "$WORK/g" 1
+if [[ $RC -eq 2 ]] && grep -q 'no `repo:` field' <<< "$OUT" && grep -q '4006' <<< "$OUT"; then
+    ok "a row with no repo: field REFUSES (rc=2) and names the row"
+else
+    bad "expected rc=2 naming #4006 for a missing repo: field; got rc=$RC. Output: $OUT"
+fi
+
+# ── arm 7: CONTROL -- the refusal keys on the FIELD, not on the row ──────────
+# Arm 6 would also pass if the gate had simply started refusing every manifest.
+# Same fixture, same row number, same everything, with only the field restored.
+MANIFEST_WITH_REPO='version: 9.9.9
+description: fixture
+entries: []
+open_issues:
+  - issue: 4006
+    repo: CM051
+    title: a row that says where its number came from
+    gate: "FIX: done"
+'
+mk_repo "$WORK/h" "$MANIFEST_WITH_REPO" "4006"
+run_subject "$WORK/h" 1
+if [[ $RC -ne 2 ]] || ! grep -q 'no `repo:` field' <<< "$OUT"; then
+    ok "CONTROL: restoring ONLY the repo: field clears that refusal"
+else
+    bad "the gate refuses even WITH a repo: field -- it is not keying on the field (rc=$RC)"
+fi
+
+# ── arm 8: a repo no row claims is reported, not measured and not skipped ────
+# The fixture above declares CM051 rows only. HR015 must therefore be announced
+# as un-cross-checked rather than silently passed over, because a repo quietly
+# dropped from a completeness check is a shrunken denominator.
+if grep -q 'no row in .* declares this repo' <<< "$OUT"; then
+    ok "a repo no row claims is REPORTED as not measured, not silently skipped"
+else
+    bad "HR015 was neither measured nor announced; a dropped repo is a shrunken denominator"
 fi
 
 echo

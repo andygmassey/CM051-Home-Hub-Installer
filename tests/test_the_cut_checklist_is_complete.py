@@ -240,6 +240,17 @@ def main() -> int:
     # has nothing open".
     global CANNOT_RUN
     for key, slug in sorted(KNOWN_REPOS.items()):
+        # ── A REPO NO ROW CLAIMS IS NOT A REPO TO CROSS-CHECK ───────────────
+        # The completeness question is "does the register cover this repo's
+        # open work". A repo that no row in this manifest names has nothing to
+        # compare against, and querying it would turn every one of its open
+        # issues into a missing registration. Say so out loud and move on,
+        # rather than either failing or silently skipping.
+        if not by_repo[key]:
+            print(f"  [note] {key}: no row in {manifest.name} declares this repo, so there is "
+                  f"nothing here to cross-check against it. Not measured, and not claimed as "
+                  f"clean.")
+            continue
         live = None
         alarms: set[int] = set()
         try:
@@ -267,20 +278,54 @@ def main() -> int:
                           if any(l.get("name") == ALARM_LABEL for l in o.get("labels", []))}
                 live = {int(o["number"]) for o in raw} - alarms
                 if key in SCOPED_BY_TITLE:
+                    # ── A MISSING FIELD IS NOT A MISSING MATCH ─────────────
+                    # Scoping by title needs titles. If NOT ONE returned issue
+                    # carries a `title` at all, the scope has no data to work
+                    # on, and reporting that as "the prefix stopped matching"
+                    # would blame the wording for what is actually an absent
+                    # field. Two different causes, two different sentences,
+                    # and only one of them means someone renamed an issue.
+                    titled = [o for o in raw if str(o.get("title", "")).strip()]
+                    if not titled:
+                        CANNOT_RUN += 1
+                        print(f"  [CANNOT-RUN] {key}: {len(raw)} open issue(s) came back and NOT "
+                              f"ONE carries a title,")
+                        print(f"               so this repo cannot be scoped by "
+                              f"`{LAUNCH_PREFIX}` at all. That is an")
+                        print("               absent FIELD, not an absent match. Registration "
+                              "completeness here")
+                        print("               is UNMEASURED, which is not a pass.")
+                        raise _ScopeRefused()
                     launch = {int(o["number"]) for o in raw
                               if str(o.get("title", "")).lstrip().upper()
                                  .startswith(LAUNCH_PREFIX)} - alarms
                     if not launch:
-                        # The prefix found nothing. Ten rows of this very
-                        # manifest are HR015 [LAUNCH] issues, so zero means the
-                        # scan broke, not that the launch list is empty.
+                        # ── WHEN ZERO IS A REFUSAL AND WHEN IT IS AN ANSWER ──
+                        # My first version refused on any zero here. That is
+                        # wrong in one direction that matters: once the launch
+                        # work is genuinely finished, zero [LAUNCH] issues is
+                        # the CORRECT answer, and a gate that refuses forever
+                        # at the finish line is a gate someone switches off.
+                        #
+                        # The refusal exists to catch a prefix that STOPPED
+                        # MATCHING. The evidence for that is not "zero found",
+                        # it is "zero found WHILE rows of this manifest still
+                        # claim issues in this repo". That combination cannot
+                        # both be true: the rows name issues the scope says do
+                        # not exist.
+                        #
+                        # So refuse only on the contradiction, and let a clean
+                        # zero through when no row contradicts it. We only
+                        # reach here when by_repo[key] is non-empty, which is
+                        # exactly the contradiction.
                         CANNOT_RUN += 1
-                        print(f"  [CANNOT-RUN] {key}: {len(live)} open issue(s) but NOT ONE "
-                              f"title begins `{LAUNCH_PREFIX}`.")
-                        print("               This gate scopes this repo by that prefix, so a "
-                              "zero here means the")
-                        print("               scan is broken, not that there is no launch work. "
-                              "Refusing to pass.")
+                        print(f"  [CANNOT-RUN] {key}: {len(live)} open issue(s) and NOT ONE "
+                              f"title begins `{LAUNCH_PREFIX}`,")
+                        print(f"               yet {len(by_repo[key])} row(s) of {manifest.name} "
+                              f"declare `repo: {key}`.")
+                        print("               Those cannot both be true, so the prefix has "
+                              "stopped matching rather")
+                        print("               than the launch list being empty. Refusing to pass.")
                         live = None
                         raise _ScopeRefused()
                     deferred = len(live) - len(launch)
