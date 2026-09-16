@@ -27,6 +27,7 @@ name: cut-checklist-complete
 on:
   pull_request:
     paths:
+      - 'tests/test_the_manifest_selector_survives_v1_0_100.sh'
       - 'cut-manifests/**'
       - 'tests/test_the_cut_checklist_is_complete.py'
       - 'tests/test_a_blocking_row_stops_a_cut.sh'
@@ -97,3 +98,10 @@ jobs:
         # not a gate you have run.
         if: always()
         run: bash tests/test_a_blocking_row_stops_a_cut.sh
+
+      - name: the manifest selector survives the v1.0.100 boundary
+        # always(), because the next cut after v1.0.99 is the first version in
+        # this project where a text sort and a version sort disagree, and a
+        # step masked by an earlier red would not say so.
+        if: always()
+        run: bash tests/test_the_manifest_selector_survives_v1_0_100.sh

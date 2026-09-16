@@ -66,6 +66,8 @@ on:
       - 'tests/test_doctor_credential_routes_refuse_cross_site.sh'
       - 'tests/test_the_doctor_status_poll_has_a_fork_budget.py'
       - 'vendor/doctor/agent/box_status.py'
+      - 'vendor/doctor/agent/pair_status.py'
+      - 'tests/test_the_pairing_qr_refuses_an_address_the_phone_cannot_open.py'
       - 'tests/test_editor_feedback_accepts_the_add_verb.sh'
       - 'tests/test_the_doctor_dashboard_actually_renders.sh'
       # Watched because the step below RUNS it. Its tile half is the only place
@@ -502,6 +504,15 @@ jobs:
       - name: Credential routes refuse cross-site, and still serve the real callers
         if: always()
         run: bash tests/test_doctor_credential_routes_refuse_cross_site.sh
+
+      # #947. The pairing envelope validated hub_addr as a non-empty string and
+      # encoded it verbatim into the QR the customer scans. A link-local address
+      # with a zone index scans perfectly and can never connect, because the zone
+      # names an interface on the HUB. `if: always()` so an earlier red cannot
+      # delete this measurement.
+      - name: The pairing QR must refuse an address the phone cannot open
+        if: always()
+        run: python3 tests/test_the_pairing_qr_refuses_an_address_the_phone_cannot_open.py
 
       # CM059 #24's masthead control POSTs {action:'add', subject}; the Doctor's
       # allowlist excluded "add" and demanded a card_id, so the customer got a
