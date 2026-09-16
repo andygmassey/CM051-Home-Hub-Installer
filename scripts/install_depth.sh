@@ -100,10 +100,33 @@ case "${1:-}" in
     ""|-h|--help) printf 'usage: %s [--self-test|--bisect <floor>] <install-log>\n' "$0"; exit 0 ;;
     *)
         read -r d t id src < <(depth_of "$1")
-        printf 'install_depth\t%s\n' "$d"
-        printf 'install_total\t%s\n' "$t"
-        printf 'install_last_step\t%s\n' "$id"
-        printf 'install_depth_source\t%s\n' "$src"
         pct=0; [[ "$t" -gt 0 ]] && pct=$(( d * 100 / t ))
-        printf 'install_depth_pct\t%s\n' "$pct" ;;
+        # ── ONE WRITE, NOT FIVE ────────────────────────────────────────────
+        # This was five separate printf calls and the THIRD one died on a
+        # macOS runner, 2026-09-16:
+        #
+        #   scripts/install_depth.sh: line 104: printf: write error: Interrupted system call
+        #   FAIL gui marker step -- got  want config_save
+        #
+        # EINTR, not EPIPE, but the same ending: the producer's write failed,
+        # the consumer saw no `install_last_step` line, and the assertion
+        # reported a missing STEP NAME rather than a failed write. A reader is
+        # told the installer does not know where it got to, when what actually
+        # happened is that one syscall was interrupted.
+        #
+        # The signal is this function's own: `read < <(depth_of ...)` forks,
+        # and SIGCHLD lands when that child reaps. bash's printf builtin does
+        # not restart an interrupted write on every build, and `set -e` then
+        # takes the non-zero status.
+        #
+        # Five writes are five chances to be interrupted. One buffer handed to
+        # one printf is one, and the five lines can no longer be torn apart
+        # from each other: a reader now gets all of them or none, never four.
+        printf '%s' \
+"install_depth	$d
+install_total	$t
+install_last_step	$id
+install_depth_source	$src
+install_depth_pct	$pct
+" ;;
 esac
