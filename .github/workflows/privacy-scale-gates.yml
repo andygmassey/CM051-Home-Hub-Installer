@@ -1,0 +1,361 @@
+name: privacy-scale-gates
+
+# TWO RATCHETS OVER THE SAME DEFECT, FROM OPPOSITE SIDES.
+#
+# The product carries two numeric level scales that run in OPPOSITE directions
+# and are both spelled L<n>, with a conversion between them. One shipped defect
+# has already come out of that pair: four sites in the vendored Apple parser
+# wrote a level of 5 under a comment claiming the strongest protection, when on
+# that scale 5 is the second most public value and the conversion resolves it
+# to publishable. A customer's health records and private notes were labelled
+# one step from Broadcast. The comment is why it survived review: the prose was
+# right, the number was wrong, and nothing on the line could be checked against
+# anything else on the line. docs/PRIVACY_LEVELS.md carries the full account.
+#
+# Unifying the two scales is deliberately deferred to HR015 issue #960,
+# post-launch, because choosing a direction silently re-scopes every
+# privacy-filtered read in the product and both directions look like a working
+# filter from the outside. So these gates hold the line rather than moving it:
+#
+#   tests/test_privacy_scale_crossings_are_ratcheted.sh
+#       the number of files that know about BOTH scales may only go down.
+#       Those are the only places a number can be copied from a scale where it
+#       is nearly private onto one where it is publishable.
+#
+#   tests/test_level_comments_state_direction_not_intent.py
+#       a comment on a numeric *_level assignment must name the number it is
+#       labelling, as a level name or as a restated value. A comment that
+#       states only the INTENT is the shape that shipped.
+#
+# ---------------------------------------------------------------------------
+# WHY THE PATH FILTER ENDS IN '**'
+# ---------------------------------------------------------------------------
+# Both gates are WHOLE-TREE analyses: either one can change its answer because
+# of a file in a directory nobody thought to list. A narrower filter means the
+# gate skips on exactly the pull request that adds the thing it hunts, and a
+# skipped job renders as a grey tick that reads like a pass. The gate's own
+# four files are named individually above it so a reader can see them and so
+# the self-watch is explicit; '**' is what makes the trigger match the analysis.
+#
+# ---------------------------------------------------------------------------
+# EVERY STEP CARRIES `if: always()`
+# ---------------------------------------------------------------------------
+# GitHub stops a job at its first failing step, and a skipped proof is
+# indistinguishable from a proof that passed. That matters most here, where the
+# mutation steps are the only evidence the gates above them can fail at all.
+#
+# ---------------------------------------------------------------------------
+# THE MUTATIONS RUN ON EVERY RUN, AND THEY MUTATE THE REAL TREE
+# ---------------------------------------------------------------------------
+# Both gates were watched going red by hand before this landed, but a red seen
+# once in a terminal is not a property CI holds. Each mutation edits the real
+# tracked file the gate reads, in the runner's disposable checkout, and each one
+# PROVES IT APPLIED before its assertion is scored: a mutant that silently
+# failed to apply produces a green run that proves nothing and looks exactly
+# like a working proof. Every mutation is reverted with `git checkout --`, and
+# the last step refuses to pass on a dirty tree.
+#
+# British English throughout. En dashes, never em dashes.
+
+on:
+  pull_request:
+    paths:
+      - 'tests/test_privacy_scale_crossings_are_ratcheted.sh'
+      - 'tests/privacy_scale_crossings_baseline.txt'
+      - 'tests/test_level_comments_state_direction_not_intent.py'
+      - 'tests/level_comment_intent_baseline.txt'
+      - '.github/workflows/privacy-scale-gates.yml'
+      - '**'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch or pull
+  # request. NEVER cancels main or a tag: a cancelled main run is a gate that
+  # did not report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  privacy-scale-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Crossing points between the two scales may only DECREASE
+        if: always()
+        run: bash tests/test_privacy_scale_crossings_are_ratcheted.sh
+
+      - name: A comment on a privacy number must name the number
+        if: always()
+        run: python3 tests/test_level_comments_state_direction_not_intent.py
+
+      # --- MUTATION 1: a new file learns about both scales ------------------
+      # The subject is base.py, which defines the compartment scale and today
+      # names only that one. One appended line naming the other makes it a
+      # crossing point, which is exactly the change this gate exists to catch.
+      - name: Gate 1 goes RED when a NEW file crosses the two scales
+        if: always()
+        run: |
+          set -uo pipefail
+          SUBJ=vendor/cm019_preferences/services/ingest/src/parsers/base.py
+          # THE FIELD NAME IS ASSEMBLED FROM TWO FRAGMENTS ON PURPOSE. Writing
+          # the second scale's field name out in full anywhere in this file
+          # would make THIS WORKFLOW a file that names both scales, and gate 1
+          # would then report its own runner as a new crossing point. Measured,
+          # not assumed: gate 1 was run against this workflow before it landed.
+          P1=priv; P2=acy_level
+          printf '\n# mutation probe: %s%s\n' "$P1" "$P2" >> "$SUBJ"
+          if [ "$(grep -c "${P1}${P2}" "$SUBJ")" -eq 0 ]; then
+            echo "MUTATION DID NOT APPLY – the probe line is not in ${SUBJ}." >&2
+            exit 1
+          fi
+          rc=0
+          out="$(bash tests/test_privacy_scale_crossings_are_ratcheted.sh 2>&1)" || rc=$?
+          git checkout -- "$SUBJ"
+          echo "$out"
+          if [ "$rc" -ne 1 ]; then
+            echo "EXPECTED exit 1 from the mutant, got ${rc}." >&2
+            exit 1
+          fi
+          if [ "$(printf '%s\n' "$out" | grep -c 'parsers/base.py')" -eq 0 ]; then
+            echo "The failure did not NAME the new crossing point." >&2
+            echo "'the count grew' sends a reader to diff the tree; the name sends them to the file." >&2
+            exit 1
+          fi
+          echo "OK: gate 1 fails, exit 1, naming the file that crossed."
+
+      # --- MUTATION 2: the ratchet must turn the OTHER way too --------------
+      # A crossing that is removed and not delisted leaves slack, and the count
+      # then grows back into it with nobody seeing it move. This is the failure
+      # the sibling wiring ratchet learned to assert the hard way.
+      - name: Gate 1 goes RED when a crossing is removed and NOT delisted
+        if: always()
+        run: |
+          set -uo pipefail
+          SUBJ=vendor/cm059_editor/compiler/project_preferences.py
+          # Assembled from fragments, same reason as the step above.
+          P1=priv; P2=acy_level
+          sed -i "s/${P1}${P2}/REDACTED_level/g" "$SUBJ"
+          if [ "$(grep -c "${P1}${P2}" "$SUBJ")" -ne 0 ]; then
+            echo "MUTATION DID NOT APPLY – ${SUBJ} still names the other scale." >&2
+            git checkout -- "$SUBJ"
+            exit 1
+          fi
+          rc=0
+          out="$(bash tests/test_privacy_scale_crossings_are_ratcheted.sh 2>&1)" || rc=$?
+          git checkout -- "$SUBJ"
+          echo "$out"
+          if [ "$rc" -ne 1 ]; then
+            echo "EXPECTED exit 1 from the mutant, got ${rc}." >&2
+            exit 1
+          fi
+          if [ "$(printf '%s\n' "$out" | grep -c 'project_preferences.py')" -eq 0 ]; then
+            echo "The failure did not name the row that must be delisted." >&2
+            exit 1
+          fi
+          echo "OK: gate 1 fails, exit 1, on baseline rot."
+
+      # --- MUTATION 3: CANNOT-RUN is a third state, and it exits 2 ----------
+      # A deleted baseline must never read as "no limit". Without this the two
+      # shapes "no new crossings" and "I could not look" print identically, and
+      # the second one is how a ratchet gets quietly removed.
+      - name: Gate 1 reports CANNOT-RUN (exit 2) with no baseline
+        if: always()
+        run: |
+          set -uo pipefail
+          mv tests/privacy_scale_crossings_baseline.txt /tmp/g1.bak
+          rc=0
+          out="$(bash tests/test_privacy_scale_crossings_are_ratcheted.sh 2>&1)" || rc=$?
+          mv /tmp/g1.bak tests/privacy_scale_crossings_baseline.txt
+          echo "$out"
+          if [ "$rc" -ne 2 ]; then
+            echo "EXPECTED exit 2 (CANNOT-RUN) with no baseline, got ${rc}." >&2
+            echo "CANNOT-RUN collapsed into PASS or FAIL is the defect, not a detail." >&2
+            exit 1
+          fi
+          if [ "$(printf '%s\n' "$out" | grep -c 'CANNOT-RUN')" -eq 0 ]; then
+            echo "Exit 2 was returned but nothing said CANNOT-RUN. An anonymous non-zero reads as a product defect." >&2
+            exit 1
+          fi
+          echo "OK: gate 1 exits 2 and says so."
+
+      # --- MUTATION 4: a NEW file takes on an intent comment ----------------
+      - name: Gate 2 goes RED when a new file labels a privacy number by intent
+        if: always()
+        run: |
+          set -uo pipefail
+          SUBJ=vendor/cm019_preferences/services/ingest/src/parsers/base.py
+          printf '\nMUT = dict(compartment_level=5)  # HIGHEST PRIVACY\n' >> "$SUBJ"
+          if [ "$(grep -c 'HIGHEST PRIVACY' "$SUBJ")" -eq 0 ]; then
+            echo "MUTATION DID NOT APPLY – the banned comment is not in ${SUBJ}." >&2
+            exit 1
+          fi
+          rc=0
+          out="$(python3 tests/test_level_comments_state_direction_not_intent.py 2>&1)" || rc=$?
+          git checkout -- "$SUBJ"
+          echo "$out"
+          if [ "$rc" -ne 1 ]; then
+            echo "EXPECTED exit 1 from the mutant, got ${rc}." >&2
+            exit 1
+          fi
+          if [ "$(printf '%s\n' "$out" | grep -c 'parsers/base.py')" -eq 0 ]; then
+            echo "The failure did not name the new file." >&2
+            exit 1
+          fi
+          echo "OK: gate 2 fails, exit 1, naming the new file."
+
+      # --- MUTATION 5: THE ONE A NAME-ONLY ROW CANNOT SEE -------------------
+      # google_takeout.py is ALREADY on the baseline at 1. A row carrying only
+      # the path would stay true while the file took on a second violation, and
+      # the gate would report "no new violations" for ever. The count in the row
+      # is what turns 1 into 2 and catches it.
+      - name: "Gate 2 goes RED when a baselined file takes on ONE MORE (1 -> 2)"
+        if: always()
+        run: |
+          set -uo pipefail
+          SUBJ=vendor/cm019_preferences/services/ingest/src/parsers/google_takeout.py
+          before="$(grep -c 'HIGHEST PRIVACY' "$SUBJ" || true)"
+          printf '\nMUT = dict(compartment_level=5)  # HIGHEST PRIVACY\n' >> "$SUBJ"
+          after="$(grep -c 'HIGHEST PRIVACY' "$SUBJ" || true)"
+          if [ "$after" -le "$before" ]; then
+            echo "MUTATION DID NOT APPLY – marker count ${before} -> ${after} in ${SUBJ}." >&2
+            git checkout -- "$SUBJ"
+            exit 1
+          fi
+          rc=0
+          out="$(python3 tests/test_level_comments_state_direction_not_intent.py 2>&1)" || rc=$?
+          git checkout -- "$SUBJ"
+          echo "$out"
+          if [ "$rc" -ne 1 ]; then
+            echo "EXPECTED exit 1 from the mutant, got ${rc}." >&2
+            exit 1
+          fi
+          if [ "$(printf '%s\n' "$out" | grep -c '1 -> 2')" -eq 0 ]; then
+            echo "The failure did not report the count moving from 1 to 2, which is the whole reason rows carry a count." >&2
+            exit 1
+          fi
+          echo "OK: gate 2 fails, exit 1, on a listed file that grew."
+
+      # --- MUTATION 6: a partial fix must lower the ceiling -----------------
+      # Rewriting ONE of the five apple.py sites into the required form takes
+      # the file to 4 while the baseline still says 5. Good news, unfinished:
+      # the leftover slack is room the count grows back into. This mutation
+      # doubles as proof that the predicate ACCEPTS the repaired form, since
+      # the count falls by exactly one rather than staying put.
+      - name: "Gate 2 goes RED when a fix leaves the baseline high (5 -> 4)"
+        if: always()
+        run: |
+          set -uo pipefail
+          SUBJ=vendor/cm019_preferences/services/ingest/src/parsers/apple.py
+          before="$(grep -c 'HIGHEST PRIVACY$' "$SUBJ" || true)"
+          # FIND THE LINE, DO NOT PIN IT. A hard-coded line number stops
+          # applying the moment anything above it moves, and a mutation that
+          # does not apply produces a red that names the harness instead of the
+          # defect, which is how a control gets deleted rather than repaired.
+          # `sed -n 1s...p` rather than `| head -1`: head exits on its first
+          # line and SIGPIPEs grep, and under pipefail that is the pipeline's
+          # status, so a successful find would read as a failure.
+          LN="$(grep -n 'HIGHEST PRIVACY$' "$SUBJ" | sed -n '1s/:.*//p')"
+          if [ -z "$LN" ]; then
+            echo "MUTATION CANNOT APPLY – ${SUBJ} no longer carries that line." >&2
+            echo "That is CANNOT-RUN for this control, not evidence the gate works." >&2
+            exit 1
+          fi
+          sed -i "${LN}"'s/^\( *\)compartment_level=5,.*/\1compartment_level=0,  # L0Personal, the most private level/' "$SUBJ"
+          after="$(grep -c 'HIGHEST PRIVACY$' "$SUBJ" || true)"
+          if [ "$after" -ge "$before" ]; then
+            echo "MUTATION DID NOT APPLY – marker count ${before} -> ${after} in ${SUBJ}." >&2
+            git checkout -- "$SUBJ"
+            exit 1
+          fi
+          rc=0
+          out="$(python3 tests/test_level_comments_state_direction_not_intent.py 2>&1)" || rc=$?
+          git checkout -- "$SUBJ"
+          echo "$out"
+          if [ "$rc" -ne 1 ]; then
+            echo "EXPECTED exit 1 from the mutant, got ${rc}." >&2
+            exit 1
+          fi
+          if [ "$(printf '%s\n' "$out" | grep -c 'baseline 5, found 4')" -eq 0 ]; then
+            echo "The failure did not say the baseline is now higher than the tree." >&2
+            exit 1
+          fi
+          echo "OK: gate 2 fails, exit 1, and the repaired form is accepted."
+
+      - name: Gate 2 reports CANNOT-RUN (exit 2) with no baseline
+        if: always()
+        run: |
+          set -uo pipefail
+          mv tests/level_comment_intent_baseline.txt /tmp/g2.bak
+          rc=0
+          out="$(python3 tests/test_level_comments_state_direction_not_intent.py 2>&1)" || rc=$?
+          mv /tmp/g2.bak tests/level_comment_intent_baseline.txt
+          echo "$out"
+          if [ "$rc" -ne 2 ]; then
+            echo "EXPECTED exit 2 (CANNOT-RUN) with no baseline, got ${rc}." >&2
+            exit 1
+          fi
+          if [ "$(printf '%s\n' "$out" | grep -c 'CANNOT-RUN')" -eq 0 ]; then
+            echo "Exit 2 was returned but nothing said CANNOT-RUN." >&2
+            exit 1
+          fi
+          echo "OK: gate 2 exits 2 and says so."
+
+      # EVERY MUTATION ABOVE EDITED A TRACKED FILE. If one of them failed to
+      # revert, every later step ran against a tree nobody intended, and the
+      # green they reported is about a different tree. This step is the only
+      # thing that can see that, and it runs last on purpose.
+      - name: No mutation was left behind
+        if: always()
+        run: |
+          set -uo pipefail
+          if [ "$(git status --porcelain | grep -c .)" -ne 0 ]; then
+            echo "The working tree is DIRTY after the mutation steps:" >&2
+            git status --porcelain >&2
+            echo "A mutation that did not revert makes every step after it a measurement of the wrong tree." >&2
+            exit 1
+          fi
+          echo "OK: the tree is exactly as checked out."
+
+  # macOS runs /bin/bash 3.2.57, which is what install.sh runs under on every
+  # customer machine and what the cut host uses. A shell gate that only parses
+  # under bash 5 reads CANNOT-RUN for ever on the machine that cuts, so gate 1
+  # is EXECUTED here rather than merely parsed.
+  bash32-and-macos:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Print the shells and interpreter actually used
+        if: always()
+        run: |
+          /bin/bash --version | head -1
+          python3 --version
+
+      - name: Gate 1 RUNS under /bin/bash 3.2, not merely parses
+        if: always()
+        run: /bin/bash tests/test_privacy_scale_crossings_are_ratcheted.sh
+
+      # `bash -n` does NOT descend into command substitutions, so it is a weak
+      # check and is here only to catch a top-level syntax error early. The step
+      # above is the one that proves the file runs.
+      - name: Gate 1 parses under /bin/bash 3.2
+        if: always()
+        run: /bin/bash -n tests/test_privacy_scale_crossings_are_ratcheted.sh
+
+      - name: Gate 2 runs under the macOS python3
+        if: always()
+        run: python3 tests/test_level_comments_state_direction_not_intent.py
+
+      # THE TEST MUST NOT DEPEND ON ITS INVOKER'S ENVIRONMENT. A python test
+      # that only imports because PYTHONPATH happened to be set is borrowing,
+      # not wired, and it breaks the first time it runs anywhere else.
+      - name: Gate 2 runs with PYTHONPATH unset
+        if: always()
+        run: env -u PYTHONPATH python3 tests/test_level_comments_state_direction_not_intent.py

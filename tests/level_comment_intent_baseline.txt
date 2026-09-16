@@ -1,0 +1,74 @@
+# FILES CARRYING AN INTENT COMMENT ON A NUMERIC *_level ASSIGNMENT.
+#
+# Rows are 'path<TAB>count'. Checked by
+# tests/test_level_comments_state_direction_not_intent.py, which carries the
+# predicate in full. In short: a comment on a privacy number must name the
+# number, either as its level (L0Personal, L2Trusted) or by restating the value
+# alongside a direction word. A comment that states the INTENT and no value
+# cannot be checked against anything on its own line, and that is exactly how
+#
+#     compartment_level=5,  # HIGHEST PRIVACY
+#
+# shipped for Apple Notes and Apple Health. 5 is L5Commercial, which
+# vendor/cm041/contact_syncer/privacy_model.py maps to publishable. The prose
+# was right, the number was wrong, and review read the prose. The required form
+# is
+#
+#     compartment_level=0,  # L0Personal, the most private level
+#
+# See docs/PRIVACY_LEVELS.md.
+#
+# ---------------------------------------------------------------------------
+# THIS IS A RATCHET, AND THE COUNT IS LOAD-BEARING
+# ---------------------------------------------------------------------------
+# The ceiling may only DECREASE. A new path is a failure, and so is a higher
+# count on a path already listed: violations ACCUMULATE inside a file, so a
+# name-only row would let a listed file take on new ones for ever under a green
+# verdict. That hole was proved by mutation in the sibling ratchet
+# tests/pipefail_shortcircuit_baseline.txt and it is not repeated here.
+#
+# A count that DROPS is also a failure, with a different remedy: lower it, in
+# the same commit as the fix. Slack left behind is room the count grows back
+# into without anyone seeing it move.
+#
+# ---------------------------------------------------------------------------
+# THE POPULATION
+# ---------------------------------------------------------------------------
+# Every file in the tree except .git, tests/ and */tests/, docs/ and */docs/,
+# and cut-manifests/. Each exclusion has a seeded discriminator in the test, so
+# it is proved rather than merely written down. Tests, docs and cut manifests
+# QUOTE the banned line in order to warn about it; counting them would mean the
+# only route to green is to stop warning.
+#
+# ---------------------------------------------------------------------------
+# MEASURED 2026-09-16 on origin/main f8462ef1
+# ---------------------------------------------------------------------------
+#   1183 text files examined
+#     18 binary files skipped (icons and fonts; a NUL in the first block)
+#      0 TEXT files that would not decode
+#     34 numeric *_level assignments
+#      3 further assignments skipped because they sit inside a comment
+#     10 of the 34 carry a comment at all
+#      6 violations, in 2 files
+#
+# WHY NEITHER IS FIXED HERE. Both are vendored CM019 parser code on the install
+# path, and both of the remaining apple.py sites are about what a customer's
+# data is LABELLED as, not about comment style.
+#
+#   apple.py 5   FOUR of these (lines 3774, 4199, 4294, 4344) are the shipped
+#                defect itself and are already fixed by the open pull request
+#                #2045, which rewrites them to compartment_level=0 with the
+#                required form. WHEN #2045 MERGES THIS ROW MUST DROP 5 -> 1 IN
+#                THE SAME COMMIT, or this gate will go red on the slack. The
+#                surviving one is line 4534, 'compartment_level=3,  # Calendar
+#                data privacy', which #2045 does not touch.
+#
+#   google_takeout.py 1
+#                line 1409, 'compartment_level=3,  # Medium privacy (contains
+#                location data)'. "Medium privacy" on a scale where 3 is
+#                L3Community is probably what was meant, but "probably" is the
+#                whole problem: nothing on the line says so. Left for the
+#                owner of that parser to state, not for a gate author to guess.
+#
+vendor/cm019_preferences/services/ingest/src/parsers/apple.py	5
+vendor/cm019_preferences/services/ingest/src/parsers/google_takeout.py	1
