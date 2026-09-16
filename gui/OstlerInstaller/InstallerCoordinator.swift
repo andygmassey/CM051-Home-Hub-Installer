@@ -32,6 +32,56 @@ final class InstallerCoordinator: ObservableObject {
     @Published var currentStepIdx: Int = 0
     @Published var completedSteps: [CompletedStep] = []
     @Published var logLines: [LogLine] = []
+
+    /// Raw, non-marker stdout/stderr from install.sh's sub-tools (brew,
+    /// docker, pip, Python tracebacks), kept in a SEPARATE bounded buffer.
+    ///
+    /// These used to reach nothing but `os_log`. `ProgressDecoder`'s own
+    /// header promised raw lines were re-emitted "so the log drawer never
+    /// silently drops install.sh's TTY chatter", but the handler gated the
+    /// append on `devModeRawLog`, which is declared `false` and which #348
+    /// removed the toggle for. So the customer-facing drawer was curated
+    /// (correct, and deliberate) and THE SUPPORT LOG WAS BLIND (not
+    /// deliberate): the brew failure, the docker error and the Python
+    /// traceback that actually explain a failed install were in neither.
+    /// Support got the curated narration of an install and none of its
+    /// errors.
+    ///
+    /// A SEPARATE buffer rather than one merged list, because the two have
+    /// different eviction risk. Raw output is a firehose; folding it into
+    /// `logLines` would let a chatty install evict every curated marker
+    /// through the 5,000-line cap and make the support log WORSE than the
+    /// blindness being fixed. Bounding them independently means neither
+    /// can starve the other, and `supportLogLines` interleaves them by
+    /// time only when something actually asks for the support view.
+    @Published var rawLogLines: [LogLine] = []
+
+    /// Everything support should see: curated markers and raw sub-tool
+    /// output, interleaved in the order they actually happened.
+    ///
+    /// A stable two-way merge of two already-append-ordered buffers, NOT
+    /// `sorted(by:)` -- Swift's sort is not guaranteed stable, and lines
+    /// that share a timestamp (common: a marker and the tool output that
+    /// triggered it land in the same instant) would be free to reorder
+    /// between calls, so the same install could produce two different
+    /// support logs.
+    var supportLogLines: [LogLine] {
+        var merged: [LogLine] = []
+        merged.reserveCapacity(logLines.count + rawLogLines.count)
+        var i = 0, j = 0
+        while i < logLines.count && j < rawLogLines.count {
+            // `<=` keeps a curated marker ahead of raw output that shares
+            // its timestamp, so the narration still reads in order.
+            if logLines[i].timestamp <= rawLogLines[j].timestamp {
+                merged.append(logLines[i]); i += 1
+            } else {
+                merged.append(rawLogLines[j]); j += 1
+            }
+        }
+        merged.append(contentsOf: logLines[i...])
+        merged.append(contentsOf: rawLogLines[j...])
+        return merged
+    }
     @Published var pendingPrompt: PendingPrompt? = nil
     @Published var needsFDA: NeedsFDA? = nil
     // CX-87: front-loaded FDA gate. True when the very first launch has
@@ -143,6 +193,36 @@ final class InstallerCoordinator: ObservableObject {
     /// the sheet's isPresented binding so the sheet dismisses + the
     /// underlying InstallCompleteView remains usable.
     @Published var recoveryKeyAcknowledged: Bool = false
+
+    /// THE single predicate behind the recovery-key reveal.
+    ///
+    /// #1540 moved the sheet off InstallCompleteView so it was no longer
+    /// reachable only when `finished == .ok`. It was then attached to
+    /// `HintPanelView`, whose own comment claimed the key "is presentable
+    /// whatever the install's outcome". IT WAS NOT. `HintPanelView()` is
+    /// instantiated at exactly one place -- ContentView's `installLayout`
+    /// -- inside the `else` arm of `if coordinator.finished == .fail`. On
+    /// a failed install SwiftUI renders `InstallFailedBodyView()` instead,
+    /// HintPanelView leaves the view tree, and the `.sheet` modifier
+    /// hanging off it leaves with it. The sheet could not present.
+    ///
+    /// WHY THAT IS PERMANENT, not merely annoying. install.sh does not
+    /// store this value anywhere: it is minted, emitted once on the
+    /// RECOVERY_KEY marker, and dropped. The GUI holds it in an in-memory
+    /// @Published property. The keychain entry it protects IS on disk, so
+    /// the customer's next run takes install.sh's "already configured"
+    /// skip and emits NO marker at all. A failed install that minted a key
+    /// therefore destroyed the only copy the moment the app quit, and the
+    /// re-run -- the customer's obvious next act -- is exactly what makes
+    /// it unrecoverable. A customer whose install fails needs this reveal
+    /// MORE than one whose install succeeds, not less.
+    ///
+    /// Exposed as a property rather than left inline in a view so the
+    /// reachability is a value a unit test can assert directly, across
+    /// every terminal state, without standing up a SwiftUI host.
+    var shouldPresentRecoveryKey: Bool {
+        (recoveryKey?.isEmpty == false) && !recoveryKeyAcknowledged
+    }
     /// True when the very first `bootstrap()` attempt asked the user
     /// for admin access via the native macOS AppleScript dialog and
     /// the user clicked Cancel (or the osascript call otherwise
@@ -1037,25 +1117,66 @@ final class InstallerCoordinator: ObservableObject {
             // refuse. The cross-Mac case is only fully closable
             // Hub-side (the deferred re-check must DEACTIVATE, not
             // just warn, on a 409) -- see the PR body tradeoff note.
-            switch FingerprintState.evaluateOfflineGrace(licenseId: claims.licenseId) {
+            // THE CACHE IS READ HERE, AND ONLY HERE.
+            //
+            // `FingerprintState.fingerprintCachePath` is written on every
+            // successful registration (see persistFingerprintCache) and
+            // its own header says it is "Read on subsequent installer
+            // launches so we do not re-POST a registration we already know
+            // is in the Worker's set". Nothing read it. Measured with a
+            // control: `writeCachedFingerprint(` and `evaluateOfflineGrace(`
+            // each resolve to a production call site in this file;
+            // `cachedFingerprint(` resolved only to its own declaration and
+            // two unit tests.
+            //
+            // The consumer cost of that was precise. A Mac that HAS
+            // registered successfully, re-running the installer while
+            // offline (repair re-run, travelling laptop, appcast outage),
+            // burned one of three grace slots every time -- and on the
+            // fourth, `.offlineGraceExhausted` locked the customer out of
+            // their own install, while the file proving this Mac was
+            // already in the Worker's set sat unread on their disk.
+            //
+            // WHY THIS DOES NOT REOPEN THE v1.0.10 UNBOUNDED FAIL-OPEN.
+            // The bound exists to stop one licence installing on unlimited
+            // Macs behind a blocked appcast.ostler.ai. The cache is written
+            // ONLY after a Worker `.ok`, so a fresh Mac has no cache and
+            // still goes through the full bounded grace. Skipping the
+            // decrement requires a prior SUCCESSFUL online registration of
+            // this exact machine -- i.e. the Worker has already counted it
+            // and it already holds its seat. Re-installing on a Mac that is
+            // already registered is not a new seat, so there is nothing
+            // left for the bound to protect.
+            //
+            // Deliberately NOT a pre-POST short-circuit. The cache records
+            // a fingerprint, not a licence, so skipping the POST outright
+            // would let a SECOND licence install on this Mac without the
+            // Worker ever learning of it. The online path is untouched; we
+            // consult the cache only once the network has already failed,
+            // and still queue the pending registration below so the
+            // Hub-side deferred script reconciles the licence binding.
+            switch FingerprintState.decideOffline(
+                licenseId: claims.licenseId,
+                computedFingerprint: fingerprint
+            ) {
+            case .alreadyRegistered:
+                appendLog(
+                    level: "warn",
+                    msg: "Device registration could not reach our server (network: \(message)). "
+                        + "This Mac is already registered from an earlier install, so the install "
+                        + "continues and no offline allowance is used."
+                )
+                OstlerLog.fingerprint.warning("result=networkFailure message=\(message, privacy: .public) -- cached fingerprint matches, proceeding WITHOUT consuming offline grace")
+                queuePendingRegistration(licenseId: claims.licenseId, fingerprint: fingerprint)
+                registrationGate = .ready
+                bootstrap()
             case .proceed(let attempt):
                 appendLog(
                     level: "warn",
                     msg: "Device registration deferred (network: \(message)). Proceeding offline (grace \(attempt)/\(FingerprintState.maxOfflineProceeds)) -- Hub will hard re-check."
                 )
                 OstlerLog.fingerprint.warning("result=networkFailure message=\(message, privacy: .public) -- offline grace attempt=\(attempt, privacy: .public) queuing for deferred retry")
-                do {
-                    try FingerprintState.writePending(
-                        licenseId: claims.licenseId,
-                        fingerprint: fingerprint
-                    )
-                } catch {
-                    appendLog(
-                        level: "warn",
-                        msg: "Could not write pending-registration queue: \(error.localizedDescription)"
-                    )
-                    OstlerLog.fingerprint.error("writePending failed: \(error.localizedDescription, privacy: .public)")
-                }
+                queuePendingRegistration(licenseId: claims.licenseId, fingerprint: fingerprint)
                 registrationGate = .ready
                 bootstrap()
             case .exhausted(let attempts):
@@ -1124,6 +1245,25 @@ final class InstallerCoordinator: ObservableObject {
             status: status,
             elapsed: 0
         ))
+    }
+
+    /// Queue a registration for the Hub-side deferred script. Shared by
+    /// both offline proceed paths so the cache-hit route cannot drift
+    /// into forgetting the queue write that reconciles the licence
+    /// binding later.
+    private func queuePendingRegistration(licenseId: String, fingerprint: String) {
+        do {
+            try FingerprintState.writePending(
+                licenseId: licenseId,
+                fingerprint: fingerprint
+            )
+        } catch {
+            appendLog(
+                level: "warn",
+                msg: "Could not write pending-registration queue: \(error.localizedDescription)"
+            )
+            OstlerLog.fingerprint.error("writePending failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func persistFingerprintCache(fingerprint: String) {
@@ -1487,6 +1627,27 @@ final class InstallerCoordinator: ObservableObject {
             && finished == nil
         if shouldSurface != watchdogSilent {
             watchdogSilent = shouldSurface
+            // RETIRE THE STALE STATUS BANNER WHEN SILENCE IS DECLARED.
+            //
+            // HintPanelView gates the "Still going, please wait" overlay
+            // on `watchdogSilent && preInstallStatus == nil`, to show one
+            // progress signal rather than two. But `preInstallStatus` is
+            // assigned on EVERY info-level LOG marker and cleared in only
+            // one place: `case .prompt`. No prompts arrive after the
+            // question phase, so from the first info line of the install
+            // onward it is permanently non-nil -- and the overlay could
+            // never render during the install, which is the only time it
+            // is for. A wedged install looked exactly like a slow one,
+            // the precise failure CX-14 D5 was written to remove.
+            //
+            // Clearing it here is the honest fix rather than deleting the
+            // gate: after 15 seconds of total silence the banner is
+            // showing a message from 15+ seconds ago, so it IS stale. The
+            // overlay replaces it, and `handleIncoming` re-populates the
+            // banner from the next marker the moment output resumes.
+            if shouldSurface {
+                preInstallStatus = nil
+            }
         }
 
         // First-output milestone is logged separately in
@@ -1884,13 +2045,21 @@ final class InstallerCoordinator: ObservableObject {
                 OstlerLog.lifecycle.warning("event RECOVERY_KEY received with empty value")
             }
         case .rawLine(let msg):
-            // Raw subprocess stdout/stderr that did NOT carry an
-            // #OSTLER marker. Only surface in the drawer when the
-            // Verbose toggle is on -- pre-#348 these always showed
-            // and drowned the curated LOG markers in tool chatter.
-            // The os_log telemetry from #345 still receives every
-            // line via the subprocess category, so `log show` keeps
-            // the full stream regardless of toggle.
+            // Raw subprocess stdout/stderr that did NOT carry an #OSTLER
+            // marker. The CUSTOMER-FACING DRAWER stays curated -- #348
+            // filtered these because ollama / docker / pip chatter drowned
+            // the LOG markers, and that decision stands.
+            //
+            // What changes is that "not in the drawer" no longer means
+            // "nowhere". These lines now always land in `rawLogLines`, so
+            // `supportLogLines` -- and therefore every Copy-log / Email-
+            // support path -- carries the brew failure, the docker error
+            // and the Python traceback that explain WHY an install died.
+            // Previously the only copy was `os_log`, which is on the
+            // customer's Mac and reachable solely by an engineer who can
+            // run `log show` on it: useless for the support email the
+            // failure screen is asking the customer to send.
+            appendRawLog(msg: msg)
             if devModeRawLog {
                 appendLog(level: "info", msg: msg)
             }
@@ -2114,6 +2283,56 @@ final class InstallerCoordinator: ObservableObject {
         return String(format: "%d:%02d", s / 60, s % 60)
     }
 
+    /// What one second of the auto-quit countdown did. Returned so a test
+    /// can drive the countdown deterministically instead of waiting out
+    /// real seconds against a live `Task`.
+    enum AutoQuitTick: Equatable {
+        /// The countdown is held because an unacknowledged recovery key is
+        /// on screen. No time was consumed.
+        case heldByUnacknowledgedRecoveryKey
+        /// The countdown is not armed (or was cancelled).
+        case notArmed
+        /// A second elapsed; `remaining` is what is left.
+        case counted(remaining: Int)
+        /// The window expired and `finishAndQuit()` was called.
+        case quit
+    }
+
+    /// True while a recovery key exists that the customer has not yet
+    /// confirmed they have saved. Identical condition to the one that
+    /// presents the reveal sheet, deliberately: "the sheet is up" and
+    /// "the clock must not run" are the same fact.
+    var hasUnacknowledgedRecoveryKey: Bool { shouldPresentRecoveryKey }
+
+    /// ONE second of the auto-quit countdown, as a pure-ish step.
+    ///
+    /// The auto-quit window is 300s and the recovery key lives ONLY in
+    /// memory. Before this, `armAutoQuit`'s timer ran regardless of the
+    /// reveal sheet: a customer who read the key, went to fetch their
+    /// password manager, and came back five minutes later found the app
+    /// had terminated itself and taken the key with it. The install had
+    /// SUCCEEDED, so there was no second marker coming -- the next run
+    /// takes install.sh's "already configured" skip. Same permanent loss
+    /// as the failure path, reached by walking away for five minutes.
+    ///
+    /// So the countdown is SUSPENDED, not cancelled, while the key is
+    /// unacknowledged: the customer gets the full window back once they
+    /// tick the box, rather than the app dying the instant they do.
+    @discardableResult
+    func autoQuitTick() -> AutoQuitTick {
+        if hasUnacknowledgedRecoveryKey {
+            return .heldByUnacknowledgedRecoveryKey
+        }
+        guard let left = autoQuitRemaining else { return .notArmed }
+        if left <= 1 {
+            autoQuitRemaining = 0
+            finishAndQuit()
+            return .quit
+        }
+        autoQuitRemaining = left - 1
+        return .counted(remaining: left - 1)
+    }
+
     /// Start the visible countdown to termination. Idempotent: a second
     /// DONE marker (or a re-entrant terminationHandler) must not stack two
     /// timers and halve the customer's window.
@@ -2130,13 +2349,14 @@ final class InstallerCoordinator: ObservableObject {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 guard let self else { return }
-                guard let left = self.autoQuitRemaining else { return }
-                if left <= 1 {
-                    self.autoQuitRemaining = 0
-                    self.finishAndQuit()
+                // Every branch of the decision lives in autoQuitTick() so
+                // the timer body cannot drift from the tested behaviour.
+                switch self.autoQuitTick() {
+                case .quit, .notArmed:
                     return
+                case .heldByUnacknowledgedRecoveryKey, .counted:
+                    continue
                 }
-                self.autoQuitRemaining = left - 1
             }
         }
     }
@@ -2180,6 +2400,21 @@ final class InstallerCoordinator: ObservableObject {
         // lines to disk for the crash reporter.
         if logLines.count > 5_000 {
             logLines.removeFirst(logLines.count - 5_000)
+        }
+    }
+
+    /// Cap on retained raw sub-tool lines. Smaller than the curated cap
+    /// on purpose: this is a firehose, and what support needs from it is
+    /// the tail around the failure, not the whole install.
+    static let rawLogLineCap = 2_000
+
+    /// Append raw sub-tool output to its own bounded buffer. Level is
+    /// "raw" rather than "info" so a reader can tell narration from tool
+    /// output without reparsing the text.
+    private func appendRawLog(msg: String) {
+        rawLogLines.append(LogLine(level: "raw", text: msg, timestamp: Date()))
+        if rawLogLines.count > Self.rawLogLineCap {
+            rawLogLines.removeFirst(rawLogLines.count - Self.rawLogLineCap)
         }
     }
 }

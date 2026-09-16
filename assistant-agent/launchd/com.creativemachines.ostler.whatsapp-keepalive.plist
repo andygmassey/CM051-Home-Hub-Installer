@@ -6,43 +6,73 @@
     <!--
         Ostler WhatsApp keepalive LaunchAgent.
 
-        WhatsApp Web (wa-rs) sockets drift to disconnected when
-        idle. Without periodic exercise, the socket can die between
-        the last incoming message and the next scheduled brief
-        (09:00 morning, 18:00 evening), so the brief's
-        deliver_announcement races against an unready channel and
-        gets silently dropped.
+        WhatsApp Web (wa-rs) sockets can drift to disconnected. Without
+        something that notices and acts, the socket can die between the
+        last incoming message and the next scheduled brief (09:00
+        morning, 18:00 evening), so the brief's deliver_announcement
+        races against an unready channel and gets silently dropped.
 
-        Strategy: kick a `channel doctor` run 10 minutes before
-        each scheduled brief so the WhatsApp socket is forced
-        through a health check (and reconnect if needed) before
-        the cron scheduler asks for delivery. 10 minutes is
-        comfortably more than the wa-rs reconnect ceiling
-        (observed at ~60s on Andy's machine) and well under the
-        cron tick interval, so there is plenty of slack for the
-        channel to be ready when the brief fires.
+        WHAT THIS PLIST USED TO DO, AND WHY IT WAS CHANGED
+        ..................................................
+        ProgramArguments here used to be
 
-        See defib /tmp/tnm_brief_zeroclaw_cron_diagnosis_2026-05-02.md
-        for the original silent-drop diagnosis. The TNM cron-delivery
-        fix on the assistant side is the matching upstream half;
-        this plist is the customer-machine half so OoTB customers
-        do not hit the same silent drops.
+            OSTLER_BIN/ostler-assistant  channel  doctor
+
+        and the comment in this file used to claim that the WhatsApp arm
+        of `channel doctor` "exercises the socket and triggers an
+        automatic reconnect on a stale connection. Side effect we want".
+
+        THERE IS NO SUCH SIDE EFFECT, and the probe could not pass even
+        when the channel was perfectly healthy. Measured in the
+        ostler-assistant source rather than inferred:
+
+          * `channel doctor` runs in its OWN short-lived process and
+            calls collect_configured_channels(), which CONSTRUCTS a
+            fresh WhatsAppWebChannel. Its health_check() delegates to
+            is_ready(), whose entire body is
+            `self.client.lock().is_some()`. A freshly constructed
+            channel has never connected, so that field is None. Upstream
+            has a test called `is_ready_is_false_before_client_connects`
+            asserting exactly this. The WhatsApp arm therefore reported
+            UNHEALTHY on 100% of runs, on every box.
+
+          * is_ready() is a pure read of a struct field. Nothing is
+            exercised, nothing reconnects.
+
+          * doctor_channels() counts the unhealthy channels, prints a
+            summary and returns Ok(()) unconditionally, so the job
+            exited 0 every time.
+
+        On the box this was caught on, launchctl showed runs=3 and
+        `last exit code = 0` while the job's own log said WhatsApp was
+        unhealthy on all three runs, and whatsapp-bundle.log showed
+        that same day's messages being ingested, 13 chats scanned and 12
+        dispatched. The channel was fine. The probe was measuring an
+        object it had just built itself.
+
+        WHAT IT DOES NOW
+        ................
+        It runs the keepalive script, which asks the RUNNING daemon's
+        own health registry (GET /health, public on loopback, key
+        `channel:WhatsApp`). It is the only surface in the product that can
+        tell a live socket from a dead one. When that surface says the
+        channel is in error, the script restarts the assistant
+        LaunchAgent, which is the fix a person would otherwise do by
+        hand, then re-checks and reports the outcome to the Doctor page.
+
+        It NEVER re-pairs, logs the customer out, or touches the
+        WhatsApp session store. When the session is genuinely gone it
+        says so once and stops, rather than retrying something only the
+        customer's phone can finish. See the script header for the full
+        reasoning and the exit-code contract.
 
         The installer renders the placeholders below at install time:
-          OSTLER_BIN              -> $OSTLER_DIR/OstlerAssistant.app/Contents/MacOS
-          OSTLER_HOME             -> $HOME (used as working directory)
-          OSTLER_LOGS             -> $LOGS_DIR
-          OSTLER_ASSISTANT_CONFIG -> $OSTLER_DIR/assistant-config
-
-        OSTLER_BIN points at the .app bundle's inner MacOS dir
-        (v0.4.3+ shape). Same binary as the legacy
-        ~/.ostler/bin/ostler-assistant path; the .app wrapper
-        gives TCC + Activity Monitor the bundle metadata they
-        need to render the Ostler v4 icon.
-
-        ZEROCLAW_WORKSPACE points the binary at the same config
-        the daemon uses, so `channel doctor` exercises exactly the
-        WhatsApp credentials the brief will use later in the day.
+          OSTLER_KEEPALIVE_SCRIPT_VALUE -> $OSTLER_DIR/bin/ostler-whatsapp-keepalive.sh
+          OSTLER_ARTEFACT_ROOT_VALUE    -> $OSTLER_DIR
+          OSTLER_GATEWAY_URL_VALUE      -> the daemon gateway base URL
+          OSTLER_ASSISTANT_LABEL_VALUE  -> the assistant LaunchAgent label
+          OSTLER_HOME                   -> $HOME (working directory)
+          OSTLER_LOGS                   -> $LOGS_DIR
 
         British English throughout.
     -->
@@ -50,28 +80,43 @@
     <string>com.creativemachines.ostler.whatsapp-keepalive</string>
 
     <!--
-        `channel doctor` runs a health-check loop across every
-        configured channel and prints a healthy/unhealthy/timed-out
-        line per channel. The WhatsApp arm calls into wa-rs's
-        health_check, which exercises the socket and triggers an
-        automatic reconnect on a stale connection. Side effect we
-        want; reporting is just the log artefact.
+        /bin/bash explicitly rather than relying on the script's execute
+        bit: a plist that execs a file whose mode did not survive the
+        install would thrash and log "no such file" forever, which is
+        the failure mode this repo already refuses for the daemon
+        binary.
     -->
     <key>ProgramArguments</key>
     <array>
-        <string>OSTLER_BIN/ostler-assistant</string>
-        <string>channel</string>
-        <string>doctor</string>
+        <string>/bin/bash</string>
+        <string>OSTLER_KEEPALIVE_SCRIPT_VALUE</string>
     </array>
 
     <!--
-        Use the same workspace dir as the assistant daemon so the
-        keepalive sees the live channel config, not a stale stub.
+        The script resolves everything from these. They are rendered,
+        not defaulted, so the job cannot quietly probe a different
+        gateway or a different artefact root than the one this install
+        actually uses.
     -->
     <key>EnvironmentVariables</key>
     <dict>
-        <key>ZEROCLAW_WORKSPACE</key>
-        <string>OSTLER_ASSISTANT_CONFIG</string>
+        <key>OSTLER_DIR</key>
+        <string>OSTLER_ARTEFACT_ROOT_VALUE</string>
+        <key>OSTLER_GATEWAY_URL</key>
+        <string>OSTLER_GATEWAY_URL_VALUE</string>
+        <key>OSTLER_ASSISTANT_LABEL</key>
+        <string>OSTLER_ASSISTANT_LABEL_VALUE</string>
+        <!--
+            The runner shells out to python3 to parse the daemon's JSON.
+            It passes the program on stdin and imports only stdlib, so it
+            cannot write bytecode into the installed tree today. Set anyway,
+            because scripts/verify_launchagent_pycache_guard.py does NOT
+            follow the bash-to-python hop, so this agent's python is outside
+            what that gate can see. An unguarded interpreter that happens to
+            be harmless is one refactor away from littering a signed tree.
+        -->
+        <key>PYTHONDONTWRITEBYTECODE</key>
+        <string>1</string>
     </dict>
 
     <!--
@@ -91,6 +136,10 @@
         wildcards: a single dict with hour=8,minute=50 fires once,
         a dict with both hours combined would fire on every match
         of every field.
+
+        Ten minutes is comfortably more than the observed wa-rs
+        reconnect time (about 60s), so a repair attempted at 08:50 has
+        finished well before the 09:00 brief asks to deliver.
     -->
     <key>StartCalendarInterval</key>
     <array>
@@ -110,25 +159,32 @@
 
     <!--
         RunAtLoad: false. We do NOT want the keepalive firing on
-        every login or post-install reload; that would spam
-        WhatsApp Web with reconnects. Trigger only at the two
-        scheduled times.
+        every login or post-install reload. It can now restart the
+        assistant daemon, so a RunAtLoad fire during install would race
+        the installer's own deferred daemon start. Trigger only at the
+        two scheduled times.
     -->
     <key>RunAtLoad</key>
     <false/>
 
     <!--
-        Working directory: HOME so any relative paths in the
-        binary resolve against the user's home rather than /.
+        Working directory: HOME so any relative paths resolve against
+        the user's home rather than /.
     -->
     <key>WorkingDirectory</key>
     <string>OSTLER_HOME</string>
 
     <!--
-        Stdout and stderr go to $LOGS_DIR. Keepalive output is one
-        line per channel ("✅ WhatsApp  healthy" etc.), so the log
-        accretes about 30 lines per week. Doctor surfaces the file
-        when troubleshooting brief delivery.
+        Stdout and stderr go to $LOGS_DIR. A few lines per run: what was
+        asked, what the daemon's registry said, what was done about it.
+
+        THE LOG IS NO LONGER THE ONLY PLACE THE ANSWER GOES, and that is
+        the point of the change. A verdict written only to a file nobody
+        opens is how three consecutive unhealthy runs went unnoticed. The
+        script also writes ~/.ostler/state/whatsapp_keepalive.json, which
+        the Doctor dashboard renders as a tile, and it exits non-zero on
+        any outcome that is not "the channel is up", so `launchctl
+        print` stops reading as healthy when it is not.
     -->
     <key>StandardOutPath</key>
     <string>OSTLER_LOGS/whatsapp-keepalive.log</string>

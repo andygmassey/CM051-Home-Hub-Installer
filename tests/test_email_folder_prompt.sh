@@ -158,7 +158,7 @@ OUTPUT="$(
     bash -c "$(cat "$EMITTER")" 2>&1
 )"
 
-if ! echo "$OUTPUT" | grep -q '^imap_folder = "Ostler"$'; then
+if ! grep -q '^imap_folder = "Ostler"$' <<<"$OUTPUT"; then
     echo "FAIL [end-to-end-custom]: emitter did not write 'imap_folder = \"Ostler\"'" >&2
     echo "Output was:" >&2
     echo "$OUTPUT" >&2
@@ -185,7 +185,7 @@ OUTPUT_INBOX="$(
     bash -c "$(cat "$EMITTER")" 2>&1
 )"
 
-if ! echo "$OUTPUT_INBOX" | grep -q '^imap_folder = "INBOX"$'; then
+if ! grep -q '^imap_folder = "INBOX"$' <<<"$OUTPUT_INBOX"; then
     echo "FAIL [end-to-end-inbox]: emitter did not honour explicit INBOX choice" >&2
     echo "Output was:" >&2
     echo "$OUTPUT_INBOX" >&2
