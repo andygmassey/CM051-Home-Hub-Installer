@@ -116,6 +116,14 @@ on:
       # which is how a test rots while reporting green on every unrelated push.
       - 'tests/test_pinned_wiki_images_are_arm64_only.sh'
       - 'tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh'
+      # #1167. The run-at-commit gate, its wiring test, and the baseline both
+      # of them read. All three are triggers: the gate is the defect surface,
+      # the test is the instrument, and a `run:` with no matching paths entry
+      # is dark on self-edit. cut.yml is already listed above, which is the
+      # fourth surface this test reads.
+      - 'scripts/verify_declared_gates_ran_at_commit.sh'
+      - 'tests/test_the_run_at_commit_gate_is_wired_into_the_cut.sh'
+      - 'scripts/cut_trigger_reachability_baseline.tsv'
       - 'scripts/cut_hygiene_gate.sh'
       - 'tests/test_mergeable_unknown_is_not_clean.sh'
       # Without this line the step that runs it below is DARK ON SELF-EDIT:
@@ -262,6 +270,21 @@ jobs:
       - name: run() cannot report a gate that died as a pass
         if: always()
         run: /bin/bash tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh
+
+      # #1167. The gate's own --self-test proves it can discriminate and runs in
+      # declared-gates-reachable.yml. This proves it is ASKED, on the cut, and
+      # can answer when it is: invoked by cut.yml, if: always(), GH_TOKEN
+      # passed, and the job granted `actions: read`.
+      #
+      # That last one is the reason this exists as a separate file. The first
+      # v1.0.43 tag was refused by verify_tagged_commit_is_green.sh because an
+      # explicit `permissions:` block sets every UNLISTED scope to none and it
+      # had no `checks: read`. The new gate reads the ACTIONS namespace, which
+      # `checks: read` does not cover -- the identical defect, one scope over,
+      # and it would have failed closed on every cut forever.
+      - name: The run-at-commit gate is wired into the cut and can answer
+        if: always()
+        run: /bin/bash tests/test_the_run_at_commit_gate_is_wired_into_the_cut.sh
 
       - name: Test parses under /bin/bash 3.2 (the cut host's shell)
         if: always()
