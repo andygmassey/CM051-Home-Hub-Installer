@@ -51,6 +51,14 @@ struct InstallCompleteView: View {
     private enum WikiReachability { case checking, serving, notServing }
     @State private var wikiReachability: WikiReachability = .checking
 
+    /// Starts at `.checking`, NOT at `.notResponding`.
+    ///
+    /// The initial value is the answer shown for the fraction of a second
+    /// before the probe returns, so it has to be the honest one: we have not
+    /// asked yet. Defaulting to `.notResponding` would put "Hub not
+    /// responding" on the screen of every healthy install on first paint.
+    @State private var hubReachability: HubReachability = .checking
+
     private let gatewayClient = GatewayClient()
 
     // The health probes install.sh runs at the tail of Phase 4. We
@@ -65,6 +73,39 @@ struct InstallCompleteView: View {
         let status: StepStatus
     }
 
+    // ── WHAT THIS PANEL CAN AND CANNOT HONESTLY SAY (#1589) ───────────────
+    //
+    // Every row below is derived by GREPPING THE INSTALLER'S OWN TRANSCRIPT.
+    // That is what the installer BELIEVES it did, not what is running. The
+    // issue asks for the panel to be built from surfaces the box can evidence,
+    // and that is right.
+    //
+    // WHY IT IS NOT SIMPLY REPOINTED AT A HEALTH ENDPOINT, measured rather
+    // than assumed: the gateway DOES expose a real per-service check at
+    // `/health?detailed`, which genuinely connects to Qdrant, Oxigraph and
+    // Ollama. But `ical-server.py:7198` requires the service token for the
+    // detailed form and returns 401 without it. The installer would have to
+    // read that token off disk first. That is the right fix and it is more
+    // than a repoint.
+    //
+    // AND THE STORE PORTS MUST NOT BE PROBED DIRECTLY. Ports plus auth is the
+    // shipped design, and a separate blocking probe exists precisely to assert
+    // those ports are NOT reachable without a credential. A panel that
+    // connected to 6333 to prove health would be asserting the opposite of the
+    // security property.
+    //
+    // WHAT CHANGES HERE, and it is the half that can be done honestly today:
+    //
+    // 1. THREE STATES, NOT TWO. `ok` and `warn` meant "the log line matched"
+    //    and "it did not". A service that is fine but logged differently, and
+    //    a service that is genuinely down, rendered IDENTICALLY. They are now
+    //    separable, and a row nobody could check says so.
+    // 2. ONE REAL CHECK. The gateway's UNAUTHENTICATED `/health` needs no
+    //    token and answers whether the Hub is actually serving. That is one
+    //    genuine observation of the box rather than of the transcript.
+    // 3. THE LOG-DERIVED ROWS SAY SO. They are labelled as the installer's own
+    //    report. A customer reading "as reported during install" knows what
+    //    they are being told; a green tick implies a check that did not happen.
     private var serviceChecks: [ServiceCheck] {
         let lines = coordinator.logLines.map { $0.text }
         func ok(_ probe: String) -> Bool {
@@ -83,7 +124,71 @@ struct InstallCompleteView: View {
                          status: ok("Vane healthy") ? .ok : .warn),
             ServiceCheck(id: "imessage", label: "iMessage automation",
                          status: ok("iMessage Automation permission: granted") ? .ok : .warn),
+            // THE ONLY ROW HERE THAT ASKED THE BOX. Everything above it is the
+            // installer quoting itself; this one connected.
+            ServiceCheck(id: "hub", label: "Hub responding",
+                         status: hubReachability.asStatus),
         ]
+    }
+
+    /// Did the Hub answer, could it not, or have we not asked yet?
+    ///
+    /// Three states because two cannot carry the difference. "Not asked yet"
+    /// rendering as a warning would put a red mark on every healthy install
+    /// for the first second of the screen, and "could not ask" rendering as
+    /// "not running" tells a customer their Hub is broken when what actually
+    /// happened is that we did not find out.
+    enum HubReachability {
+        case checking, responding, notResponding
+
+        /// Mapped onto the vocabulary the panel already has, rather than a
+        /// new one. `StepStatus` carries `timeout`, whose own definition says
+        /// it means "we gave up waiting, NOT it failed" and that the record
+        /// must no longer claim the step succeeded. That is exactly what an
+        /// unanswered health check is, so it is used rather than `fail`:
+        /// telling a customer their Hub FAILED when what happened is that we
+        /// stopped waiting is the same overstatement this row is about.
+        var asStatus: StepStatus {
+            switch self {
+            case .responding:    return .ok
+            case .checking:      return .warn
+            case .notResponding: return .timeout
+            }
+        }
+    }
+
+    /// Ask the gateway's UNAUTHENTICATED health route.
+    ///
+    /// `/health` without `detailed` needs no service token (the detailed form
+    /// does, and returns 401 without it). It answers one question honestly:
+    /// is the Hub serving. Any HTTP answer counts, including an error status,
+    /// because something replying is the thing being asked about.
+    private func probeHubReachability() async {
+        guard let url = URL(string: "http://localhost:8089/health") else {
+            hubReachability = .notResponding
+            return
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 4
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        for attempt in 1...20 {
+            if Task.isCancelled { return }
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                if response is HTTPURLResponse {
+                    hubReachability = .responding
+                    return
+                }
+            } catch {
+                if attempt == 20 {
+                    NSLog("install_complete: the Hub did not answer :8089/health in 20 attempts: %@",
+                          error.localizedDescription)
+                }
+            }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        hubReachability = .notResponding
     }
 
     var body: some View {
@@ -282,6 +387,16 @@ struct InstallCompleteView: View {
             // a short backoff so the QR appears on its own.
             await autoShowPairCode()
             await probeWikiReachability()
+        }
+        // A SECOND .task, deliberately, rather than a line inside the one
+        // above. autoShowPairCode retries the gateway with a backoff and can
+        // run for many seconds; sequencing the health probe behind it would
+        // leave the "Hub responding" row sitting on `.checking` for that whole
+        // time and report a warning about the Hub that is really a statement
+        // about the pair-code fetch. Separate .task modifiers run
+        // concurrently and are each cancelled on disappear.
+        .task {
+            await probeHubReachability()
         }
     }
 
