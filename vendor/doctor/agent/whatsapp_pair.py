@@ -190,3 +190,168 @@ def fetch_pair_status(
         error=None,
         error_kind=None,
     )
+
+
+# ---------------------------------------------------------------------------
+# The keepalive verdict
+# ---------------------------------------------------------------------------
+#
+# GRAFTED INTO THE VENDORED TREE (CM051, board item 965). vendor/doctor is held
+# at pin b0b3831 for the life of v1.0, so everything this tree gains arrives as
+# a hand-spliced graft. It lives in THIS module rather than a new one because a
+# brand-new vendored file with no upstream counterpart needs a VENDOR_ONLY.tsv
+# row, and that file's own header calls a new row a last resort. The reader
+# belongs here on merit anyway: same state directory, same product surface,
+# same explicit error taxonomy.
+#
+# WHAT IT READS, AND WHY IT EXISTS AT ALL
+#
+# com.creativemachines.ostler.whatsapp-keepalive runs twice a day. It used to
+# run `ostler-assistant channel doctor`, which constructs a fresh, never
+# connected WhatsApp channel object and therefore reported UNHEALTHY on every
+# run on every box, then exited 0 regardless. Three consecutive unhealthy runs
+# showed up in launchctl as `last exit code = 0` and the verdict went into a
+# log file nobody opens.
+#
+# The keepalive now asks the running daemon's own health registry, repairs what
+# it can, and writes its verdict here:
+#
+#     ${OSTLER_HOME}/state/whatsapp_keepalive.json     file 0600, dir 0700
+#     {
+#       "verdict":           one of the five below,
+#       "detail":            one sentence of customer-facing English,
+#       "checked_at":        unix seconds,
+#       "repairs_last_24h":  integer
+#     }
+#
+# Written temp-then-rename, so a half-written file cannot be read.
+#
+# THE POINT OF THE TILE. A remediation nobody can observe failing is the same
+# defect one layer along. The keepalive can now repair the channel, and it can
+# also fail to repair it; if the only trace of either is a log file and an exit
+# code, the next person to be surprised by a dead WhatsApp channel finds out
+# the same way as the last one. So the verdict gets a surface a customer sees
+# without being told where to look.
+#
+# THE FIVE VERDICTS ARE NOT COLLAPSIBLE. They carry different next actions:
+#
+#     healthy          the channel is connected. Nothing to do.
+#     recovered        it dropped out and Ostler put it back. Nothing to do,
+#                      but say so, because self-repair that happens every day
+#                      is a fault report, not a success story.
+#     needs_customer   the link to their phone is gone. ONLY the customer can
+#                      fix this, from their phone. Ostler deliberately does not
+#                      retry, because retrying cannot work.
+#     still_unhealthy  down, Ostler tried to fix it, it is still down.
+#     cannot_run       no verdict could be reached (the daemon was not
+#                      answering, most often because it is not running). NOT a
+#                      report that WhatsApp is down, and must never be shown as
+#                      one.
+
+_KEEPALIVE_STATE_FILENAME = "whatsapp_keepalive.json"
+
+# The verdicts the writer may emit. Anything else is treated as unreadable
+# rather than rendered verbatim: a tile that prints whatever string it finds in
+# a file is a tile that can be made to say anything.
+KEEPALIVE_VERDICTS = (
+    "healthy",
+    "recovered",
+    "needs_customer",
+    "still_unhealthy",
+    "cannot_run",
+)
+
+
+@dataclass
+class WhatsAppKeepaliveStatus:
+    """Structured keepalive verdict a Doctor renderer can use directly."""
+
+    verdict: str
+    detail: Optional[str]
+    checked_at: Optional[int]
+    repairs_last_24h: int
+
+    def to_dict(self) -> dict:
+        return {
+            "verdict": self.verdict,
+            "detail": self.detail,
+            "checked_at": self.checked_at,
+            "repairs_last_24h": self.repairs_last_24h,
+        }
+
+
+def keepalive_state_path() -> Path:
+    """Resolve the keepalive verdict file.
+
+    Same root resolution as ``state_path`` so the pair panel and the keepalive
+    tile cannot end up reading two different engine zones.
+    """
+    base = os.environ.get("OSTLER_HOME") or os.environ.get("OSTLER_DIR")
+    root = Path(base) if base else Path.home() / ".ostler"
+    return root / "state" / _KEEPALIVE_STATE_FILENAME
+
+
+def read_whatsapp_keepalive(
+    path: Optional[Path] = None,
+) -> Optional[WhatsAppKeepaliveStatus]:
+    """Read the last keepalive verdict, or ``None`` when there is not one.
+
+    ``None`` means "no tile", and it covers the two cases that are not a
+    finding: an install where WhatsApp was never enabled, and one where the
+    keepalive has not fired yet. Rendering an empty header for either would put
+    a permanent unanswered question on the dashboard.
+
+    Never raises. This runs on the dashboard render path, where an exception
+    blanks the whole page -- the exact failure class
+    tests/test_the_doctor_dashboard_actually_renders.sh exists to catch.
+    """
+    target = path if path is not None else keepalive_state_path()
+
+    try:
+        if not target.is_file():
+            return None
+        raw = target.read_text(encoding="utf-8")
+    except OSError as exc:
+        log.warning("whatsapp keepalive state unreadable at %s: %s", target, exc)
+        return None
+
+    try:
+        payload = json.loads(raw)
+    except (ValueError, TypeError) as exc:
+        log.warning(
+            "whatsapp keepalive state is not valid JSON at %s: %s", target, exc,
+        )
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    verdict = payload.get("verdict")
+    if not isinstance(verdict, str) or verdict not in KEEPALIVE_VERDICTS:
+        # An unrecognised verdict is a writer/reader mismatch, which is the
+        # failure this tree has been bitten by before. Say so in the log and
+        # show nothing, rather than inventing a state.
+        log.warning(
+            "whatsapp keepalive state at %s carries an unrecognised verdict",
+            target,
+        )
+        return None
+
+    detail = payload.get("detail")
+    if not isinstance(detail, str) or not detail.strip():
+        detail = None
+
+    checked_at = payload.get("checked_at")
+    if isinstance(checked_at, bool) or not isinstance(checked_at, int):
+        checked_at = None
+
+    repairs = payload.get("repairs_last_24h")
+    if isinstance(repairs, bool) or not isinstance(repairs, int) or repairs < 0:
+        repairs = 0
+
+    return WhatsAppKeepaliveStatus(
+        verdict=verdict,
+        detail=detail.strip() if detail else None,
+        checked_at=checked_at,
+        repairs_last_24h=repairs,
+    )
