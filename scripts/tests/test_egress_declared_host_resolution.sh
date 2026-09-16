@@ -58,8 +58,8 @@ echo
 #    silently produced nothing.
 # ---------------------------------------------------------------------------
 out="$(bash "$PROBE" --resolve-declared localhost 2>"$TMP/err")"
-h="$(printf '%s\n' "$out" | grep -c '^HOST	localhost	' || true)"
-f="$(printf '%s\n' "$out" | grep -c '^HOSTFAIL' || true)"
+h="$(grep -c "^HOST	localhost	" <<< "$out" || true)"
+f="$(grep -c "^HOSTFAIL" <<< "$out" || true)"
 if [ "$h" -lt 1 ]; then no "localhost produced no HOST row" "$out$(cat "$TMP/err")"
 elif [ "$f" -ne 0 ]; then no "localhost produced a HOSTFAIL row" "$out"
 else ok "positive control: localhost resolves and is reported (HOST rows: $h)"; fi
@@ -70,7 +70,7 @@ else ok "positive control: localhost resolves and is reported (HOST rows: $h)"; 
 #    turned a declared host into an undeclared one.
 # ---------------------------------------------------------------------------
 out="$(bash "$PROBE" --resolve-declared "$UNRESOLVABLE" 2>"$TMP/err")"
-if ! printf '%s\n' "$out" | grep -q "^HOSTFAIL	${UNRESOLVABLE}	"; then
+if ! grep -q "^HOSTFAIL	${UNRESOLVABLE}	" <<< "$out"; then
     no "an unresolvable declared host was not reported as HOSTFAIL" "$out$(cat "$TMP/err")"
 else ok "an unresolvable declared host is named in a HOSTFAIL row"; fi
 
@@ -80,8 +80,8 @@ else ok "an unresolvable declared host is named in a HOSTFAIL row"; fi
 #    probe's existing all-empty guard and mask this defect behind that.
 # ---------------------------------------------------------------------------
 out="$(bash "$PROBE" --resolve-declared localhost "$UNRESOLVABLE" 2>"$TMP/err")"
-g="$(printf '%s\n' "$out" | grep -c '^HOST	localhost	' || true)"
-b="$(printf '%s\n' "$out" | grep -c "^HOSTFAIL	${UNRESOLVABLE}	" || true)"
+g="$(grep -c "^HOST	localhost	" <<< "$out" || true)"
+b="$(grep -c "^HOSTFAIL	${UNRESOLVABLE}	" <<< "$out" || true)"
 if [ "$g" -lt 1 ] || [ "$b" -ne 1 ]; then
     no "mixed list: expected localhost resolved and the invalid host named (got HOST=$g HOSTFAIL=$b)" "$out"
 else ok "a failed lookup is isolated: the resolvable host still resolves"; fi
@@ -95,7 +95,7 @@ else ok "a failed lookup is isolated: the resolvable host still resolves"; fi
 start="$(date +%s)"
 out="$(OSTLER_EGRESS_RESOLVE_DEADLINE_S=0 bash "$PROBE" --resolve-declared "$UNRESOLVABLE" 2>"$TMP/err")"
 elapsed=$(( $(date +%s) - start ))
-if ! printf '%s\n' "$out" | grep -q "^HOSTFAIL	${UNRESOLVABLE}	"; then
+if ! grep -q "^HOSTFAIL	${UNRESOLVABLE}	" <<< "$out"; then
     no "a spent deadline produced silence instead of a HOSTFAIL row" "$out"
 elif [ "$elapsed" -gt 5 ]; then
     no "a spent deadline still took ${elapsed}s; the bound is not doing anything"
@@ -133,9 +133,9 @@ else
     # THE MUTANT MUST STILL RUN. Without this the arm scores a pass whenever
     # the mutant merely fails to start, which is the trap this file already
     # fell into once.
-    if ! printf '%s\n' "$out" | grep -q '^HOST	localhost	'; then
+    if ! grep -q "^HOST	localhost	" <<< "$out"; then
         no "MUTATION A did not execute (no HOST row at all), so it proves nothing" "$out"
-    elif printf '%s\n' "$out" | grep -q '^HOSTFAIL'; then
+    elif grep -q "^HOSTFAIL" <<< "$out"; then
         no "MUTATION A applied and ran, but a HOSTFAIL row still appeared" "$out"
     else ok "MUTATION A: mutant ran, HOSTFAIL emission removed, arm 2 goes red as it must"; fi
 fi
