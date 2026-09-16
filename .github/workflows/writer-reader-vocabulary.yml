@@ -1,0 +1,129 @@
+# Five places where a writer stored one name and a reader asked for another.
+#
+# Every one of them failed the same way: both sides returned success, nothing
+# went red anywhere, and the customer got a blank screen. Measured on a live
+# box on 2026-09-16, before any fix:
+#
+#   people.last_contact_ts   absent on 3784 of 3784   -> stale + reconnect
+#                                                        lists permanently empty
+#   pwg:PersonFact           0 in every graph         -> "what do you know
+#                            (990 urn:ostler:Fact)       about me" empty
+#   notion_knowledge         a collection nothing     -> Notion + Obsidian
+#                            reads                       imports vanish
+#   compartment_level        4804 hold "L2", the      -> compartment-scoped
+#                            reader sends a numeric      search dead
+#                            range that matches 0
+#   user_id                  absent on 5733 of 5733   -> every user-scoped
+#                                                        read returns nothing
+#
+# THE POINT OF RUNNING THIS IN CI. None of the five could be caught by a test
+# of either side alone -- each half was internally consistent and passed its
+# own tests for months. The suite below joins the two sides: it runs the real
+# writer and checks the key the real reader filters on, executes the reader's
+# actual SPARQL against fixtures in the writer's actual vocabulary, and
+# evaluates the reader's actual filter body against the payload shape the live
+# store really holds. A regression on EITHER side breaks a test.
+
+name: writer-reader-vocabulary
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm019_preferences/services/ingest/src/loaders/qdrant_loader.py'
+      - 'vendor/doctor/agent/import_notion.py'
+      - 'vendor/doctor/agent/import_obsidian.py'
+      - 'vendor/doctor/agent/import_evernote.py'
+      - 'install.sh'
+      - 'tests/test_writer_reader_vocabulary_contracts.py'
+      - '.github/workflows/writer-reader-vocabulary.yml'
+  pull_request:
+    paths:
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm019_preferences/services/ingest/src/loaders/qdrant_loader.py'
+      - 'vendor/doctor/agent/import_notion.py'
+      - 'vendor/doctor/agent/import_obsidian.py'
+      - 'vendor/doctor/agent/import_evernote.py'
+      - 'install.sh'
+      - 'tests/test_writer_reader_vocabulary_contracts.py'
+      - '.github/workflows/writer-reader-vocabulary.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  writer-reader-vocabulary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # EVERY ONE OF THESE IS LOAD-BEARING, not housekeeping. The suite opens
+      # with pytest.importorskip on three of them, so a missing wheel does not
+      # fail the run -- it SKIPS the module and reports success, which is the
+      # exact "found nothing / could not look" confusion these tests exist to
+      # catch. The collected-count floor below is what turns that back into a
+      # failure, but installing them is what makes the floor unnecessary.
+      #
+      #   rdflib             executes the reader's real SPARQL over a real
+      #                      named-graph dataset. Without it the whole of
+      #                      item 2 is untested.
+      #   pydantic-settings  imported transitively by CM019's config module.
+      #   nameparser, httpx  runtime deps of ostler_fda.pwg_ingest.
+      #   pyyaml             the doctor import modules parse frontmatter.
+      #   ./vendor/ostler_security
+      #                      ical-server.py REFUSES to import without it,
+      #                      by design: it will not start against
+      #                      potentially unencrypted databases.
+      - name: Install the dependencies the suite refuses to run without
+        run: |
+          python -m pip install --quiet --upgrade pip
+          python -m pip install --quiet pytest rdflib pydantic-settings \
+            nameparser httpx pyyaml
+          python -m pip install --quiet ./vendor/ostler_security
+
+      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE.
+      #
+      # As two steps, a failing floor would SKIP the run below and hide the
+      # real result behind an earlier red -- and ci-maskless is right to
+      # refuse that shape. Folded into one, there is no second step to mask,
+      # the floor provably runs first, and one step cannot hide another that
+      # does not exist.
+      #
+      # pytest exits 5 on "no tests collected" and `bash -e` honours it, so a
+      # fully-skipped module is already caught. The floor is here so that
+      # property is STATED rather than inherited from another tool's exit
+      # convention, and so a PARTIAL skip (rdflib missing, ical-server
+      # unimportable) is caught too -- that one exits 0 today.
+      - name: A writer's name and its reader's name still meet
+        run: |
+          # `|| n=0` on the ASSIGNMENT, not inside the pipe. grep -c prints
+          # its count AND exits 1 when that count is zero, so under `bash -e`
+          # the step would die here and the message below would never print.
+          # No `2>/dev/null`: a pytest usage error must not be laundered into
+          # a clean zero.
+          n="$(python -m pytest tests/test_writer_reader_vocabulary_contracts.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 28 ]; then
+            echo "REFUSING: expected at least 28 collected tests, got ${n:-0}." >&2
+            echo "A skipped module reports success in any runner that reads" >&2
+            echo "'no failures' as 'passed'. Check rdflib, pydantic-settings," >&2
+            echo "nameparser, pyyaml and ostler_security all installed." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_writer_reader_vocabulary_contracts.py -v

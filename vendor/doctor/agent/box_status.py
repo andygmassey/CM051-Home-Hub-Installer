@@ -33,6 +33,8 @@ import logging
 import os
 import re
 import subprocess
+import time
+import threading
 import urllib.request
 from typing import Any, Optional
 
@@ -45,6 +47,74 @@ logger = logging.getLogger(__name__)
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
 
 # ── Load (primary - drives the chip colour) ─────────────────────────────────
+
+
+# ── FORK BUDGET ────────────────────────────────────────────────────────────
+#
+# THE DEFECT THIS EXISTS TO FIX. Every status poll ran FIVE subprocesses, and
+# the Hub WebView polls this route about once a second. Measured on a live box:
+# 58,914 forks in about 40 hours, against a control of 0 to 44 for every
+# comparable daemon on the same machine. macOS classifies that as inefficient
+# and SIGTERMs the process (launchctl: "immediate reason = inefficient",
+# "last terminating signal = Terminated: 15"), KeepAlive respawns it, and every
+# open Doctor tab is dropped mid-session.
+#
+# It was invisible for two reasons worth remembering. The exit code stays 0, so
+# no health check we own could see it. And a respawn is indistinguishable from
+# a daemon that was simply always running, unless you count forks.
+#
+# The heaviest offender is `top -l 2`, which BLOCKS FOR ABOUT A SECOND taking
+# its second sample. At a one-second poll interval that guarantees overlapping
+# invocations, which is the state macOS is actually objecting to.
+#
+# WHY A CACHE AND NOT A SLOWER POLL. The poll interval is set by the native
+# WebView, not by this file. A fix that lives in the caller protects one caller;
+# a fork budget here holds no matter who calls, how often, or how many tabs are
+# open. Freshness is chosen per probe by how fast the underlying number can
+# actually move, so nothing shown to the customer becomes misleading:
+#
+#   hw.memsize      never, for the life of the machine -> cached permanently
+#   vm_stat         moves continuously, but not usefully inside 10s
+#   ps              process list, 10s
+#   top -l 2        the expensive one, and CPU attribution is a trend, 30s
+#   resource tier   derived from hardware, effectively static, 60s
+#
+# A cached value is returned on a miss ONLY if the refresh raises, so a
+# transient failure shows the last known reading rather than a hole, which is
+# the same fail-soft contract the callers already have.
+_CACHE: dict[str, tuple[float, Any]] = {}
+_CACHE_LOCK = threading.Lock()
+
+
+def _cached(key: str, ttl: float, produce):
+    """Return ``produce()``, at most once per ``ttl`` seconds.
+
+    ``ttl`` of ``None`` means cache for the life of the process.
+    """
+    now = time.monotonic()
+    with _CACHE_LOCK:
+        hit = _CACHE.get(key)
+        if hit is not None:
+            stamp, value = hit
+            if ttl is None or (now - stamp) < ttl:
+                return value
+    try:
+        value = produce()
+    except Exception:
+        with _CACHE_LOCK:
+            hit = _CACHE.get(key)
+        if hit is not None:
+            return hit[1]
+        raise
+    with _CACHE_LOCK:
+        _CACHE[key] = (time.monotonic(), value)
+    return value
+
+
+def _cache_clear() -> None:
+    """Drop every cached probe. For tests, and for a forced refresh."""
+    with _CACHE_LOCK:
+        _CACHE.clear()
 
 
 def probe_load() -> Optional[dict[str, Any]]:
@@ -77,7 +147,7 @@ def probe_load() -> Optional[dict[str, Any]]:
 # ── Memory ──────────────────────────────────────────────────────────────────
 
 
-def _total_ram_bytes() -> Optional[int]:
+def _uncached__total_ram_bytes() -> Optional[int]:
     try:
         out = subprocess.run(
             ["sysctl", "-n", "hw.memsize"],
@@ -88,7 +158,7 @@ def _total_ram_bytes() -> Optional[int]:
         return None
 
 
-def probe_memory() -> Optional[dict[str, Any]]:
+def _uncached_probe_memory() -> Optional[dict[str, Any]]:
     """Used / total RAM via ``hw.memsize`` + ``vm_stat`` (macOS, stdlib only).
 
     "Used" excludes the purgeable/free pages; we treat (active + wired +
@@ -250,7 +320,7 @@ def _categorise(name: str, argv: str, user: str) -> str:
 _TOP_ROW = re.compile(r"^\s*(\d+)\s+([\d.]+)\s+(.+?)\s*$")
 
 
-def _ps_user_map() -> dict[int, tuple[str, str]]:
+def _uncached__ps_user_map() -> dict[int, tuple[str, str]]:
     """pid → (user, argv) via a single `ps` call.
 
     The authoritative process name is the basename of argv's first token -
@@ -316,7 +386,7 @@ def _parse_top_second_sample(out: str) -> list[tuple[int, float, str]]:
     return rows
 
 
-def probe_attribution() -> Optional[dict[str, Any]]:
+def _uncached_probe_attribution() -> Optional[dict[str, Any]]:
     """Top CPU contributors bucketed by owner. ``None`` if the probe fails."""
     try:
         out = subprocess.run(
@@ -418,7 +488,7 @@ def probe_settling() -> Optional[dict[str, Any]]:
 # ── Top-level aggregator ────────────────────────────────────────────────────
 
 
-def _governor() -> dict[str, Any]:
+def _uncached__governor() -> dict[str, Any]:
     """Re-read the live governor tier the same way the governor-status route
     does, fail-soft to a minimal unknown payload."""
     enabled = True
@@ -593,6 +663,38 @@ def box_status() -> dict[str, Any]:
         "running": _running(governor, settling),
         "attribution": attribution,
     }
+
+
+# ── THE FORK-BUDGETED WRAPPERS ─────────────────────────────────────────────
+# ABOVE the __main__ guard ON PURPOSE. They were appended to the end of the
+# file, which put them AFTER it, so `python3 box_status.py` raised NameError
+# while every test that IMPORTS the module passed. A vendor gate caught it and
+# said the thing worth keeping: tests that import the module cannot catch this.
+# It is the same shape as everything else found this week, a fix that exists
+# and cannot be reached, so it is written down here rather than just moved.
+def _total_ram_bytes() -> Optional[int]:
+    """Fork-budgeted wrapper. See FORK BUDGET above."""
+    return _cached('ram', None, _uncached__total_ram_bytes)
+
+
+def probe_memory() -> Optional[dict[str, Any]]:
+    """Fork-budgeted wrapper. See FORK BUDGET above."""
+    return _cached('memory', 10.0, _uncached_probe_memory)
+
+
+def _ps_user_map() -> dict[int, tuple[str, str]]:
+    """Fork-budgeted wrapper. See FORK BUDGET above."""
+    return _cached('ps', 10.0, _uncached__ps_user_map)
+
+
+def probe_attribution() -> Optional[dict[str, Any]]:
+    """Fork-budgeted wrapper. See FORK BUDGET above."""
+    return _cached('attribution', 30.0, _uncached_probe_attribution)
+
+
+def _governor() -> dict[str, Any]:
+    """Fork-budgeted wrapper. See FORK BUDGET above."""
+    return _cached('governor', 60.0, _uncached__governor)
 
 
 if __name__ == "__main__":  # function-verification entrypoint

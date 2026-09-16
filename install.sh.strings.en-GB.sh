@@ -396,7 +396,21 @@ MSG_OK_STALE_COLIMA_LAUNCHAGENT_REMOVED="Removed a stale Colima start-up item le
 MSG_OK_CONFIG_SAVED_ENV="Config saved to %s/.env"
 MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE="Consent records and region persisted to ~/.ostler/posture/"
 MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="Could not save your background-enrichment choice to ~/.ostler/posture/. Your choice is still being applied to this install; it simply will not appear in a support report."
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Databases encrypted. Passphrase required at each startup."
+# The old text read "Databases encrypted. Passphrase required at each
+# startup." Both halves were false. Nothing delivered the key to the
+# services, so the databases were plaintext; and no service, agent or UI
+# has ever asked for the passphrase at startup, so nothing was required
+# at any startup. The key ID is left alone: renaming it would churn every
+# translation catalogue for a copy fix.
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Databases encrypted. The Hub services read the key from a protected file in your home folder, so they start without prompting you."
+MSG_OK_DB_KEY_DELIVERED="Database key delivered to the Hub services (%s, readable only by you)."
+MSG_WARN_DB_KEY_NOT_DELIVERED="Could not hand the database key to the Hub services. They will open databases unencrypted until this is fixed."
+MSG_INFO_DB_KEY_RECOVER_HINT="Run this to recover it and hand it over: %s/.venv/bin/ostler-unlock --install-key-file"
+MSG_INFO_DB_MIGRATION_RUNNING="Encrypting any databases left over from an earlier install"
+MSG_WARN_DB_MIGRATION_FAILED="Some existing databases could not be encrypted. They remain readable on disk."
+MSG_WARN_DB_KEY_MISSING_ON_RERUN="This install has no database key file, so the Hub services are opening databases unencrypted."
+MSG_WARN_DB_PLAINTEXT_COUNT="%s database(s) on this Mac are readable on disk right now."
+MSG_INFO_DB_MIGRATE_HINT="Then encrypt what is already there: %s/.venv/bin/ostler-migrate-dbs"
 MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS="Deferred device-registration retry installed (runs hourly until queue clears)"
 MSG_OK_DOCKER_RUNNING="Docker running"
 MSG_OK_DOCKER_RUNNING_TOOK_S="Docker running (took %ss)"
@@ -572,6 +586,16 @@ MSG_INFO_WIKI_TAILNET_LOCAL_ONLY="Your wiki stays on this Mac only – browse it
 MSG_INFO_WIKI_TAILNET_BANNER="%s  (from your own devices, over Tailscale)"
 MSG_INFO_WIKI_SIGN_IN="Sign in as %s with the password %s – your browser will offer to remember it, so you only type it once."
 MSG_INFO_WIKI_PORT_LAST_STATUS="Last HTTP status from the wiki port: %s (000 means nothing answered; 401 means it answered and refused the credential)."
+# HR015 #943. The four lines below are the readiness half of the wiki handover.
+# They exist because the credential half is no longer gated on them: a customer
+# whose first build is merely slow still gets their address and sign-in, and
+# only this line changes. None of them may name a cause the run did not
+# measure, which is what "first compile failed" did on every one of the three
+# non-failure paths into that branch.
+MSG_INFO_WIKI_PASSWORD_ON_DISK="Your password is also kept at %s, so the clipboard is not the only copy."
+MSG_INFO_WIKI_STILL_BUILDING="Still building. %s pages are on disk already, and the last reply from the wiki address was HTTP %s. It will appear at the address above with the same sign-in. Nothing for you to do."
+MSG_WARN_WIKI_FIRST_COMPILE_PRODUCED_NO_PAGES="The first build has produced no pages yet (see the warnings above). The address and sign-in above are still yours and will work once it has built."
+MSG_INFO_WIKI_READINESS_NOT_MEASURED="This run did not measure whether the wiki is serving yet, so it is not claiming either way. The address and sign-in above are yours regardless."
 MSG_WARN_WIKI_TAILNET_OWNER_UNRESOLVED="Could not confirm which Tailscale account owns this Mac, so the wiki has NOT been exposed on your tailnet. It is still available on this Mac at http://localhost:8044"
 MSG_WARN_WIKI_TAILNET_SERVE_FAILED="Could not publish the wiki on your tailnet; it is still available on this Mac at http://localhost:8044"
 MSG_WARN_WIKI_TAILNET_GATE_RELOAD_FAILED="Could not reload the wiki access gate, so the wiki has NOT been exposed on your tailnet."
@@ -674,6 +698,12 @@ MSG_WARN_COULD_NOT_PERSIST_REGION_JSON_CONTINUING="Could not persist region.json
 MSG_WARN_COULD_NOT_RECORD_RECOVERY_KEY_DELIVERY="Could not record that the recovery key was delivered. This run's summary is still correct, but a later run may not be able to tell and could warn again – that is the safe direction for this to fail in."
 MSG_WARN_COULD_NOT_SAVE_KEYCHAIN_PLEASE_WRITE="Could not save to Keychain. Please write it down."
 MSG_WARN_COULD_NOT_START_OLLAMA_AUTOMATICALLY="Could not start Ollama automatically."
+MSG_FAIL_OLLAMA_PORT_IN_USE="Another program is already using port 11434, which Ostler needs for its local AI. Ostler could not start its own copy, so the install stopped here rather than half-finishing.
+
+  What is holding the port: %s
+  The exact error is in: %s
+
+This is usually a copy of Ollama you already had, or one left running by a previous Ostler install. Quit it (or restart this Mac) and run the installer again."
 MSG_WARN_COULD_NOT_UPDATE_PIPELINE_OFFLINE="Could not update pipeline (offline?)"
 MSG_WARN_COULD_NOT_WRITE_PIPELINE_SIGNALS_JSON="Could not write pipeline_signals.json. The Doctor empty-Mail diagnostic will fall back to safe defaults until the next install or tick."
 MSG_WARN_CURL_SAID="Curl said:"
@@ -764,7 +794,7 @@ MSG_WARN_RECOVERY_PASSPHRASE_SETUP_FAILED="Passphrase setup failed. Output:"
 MSG_WARN_RECOVERY_PASSPHRASE_SKIPPED="Empty input. Passphrase skipped."
 MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="Passphrase must be at least 12 characters. Try again."
 MSG_WARN_RECOVERY_PASSPHRASE_REQUIRED="A passphrase is required to encrypt your data."
-MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN="Number must start with +. Try again."
+MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN="That is not an international number. Use a leading + then the country code and the rest of the number, e.g. +447700900123. Try again."
 MSG_WARN_OLLAMA_NOT_RESPONDING="Ollama not responding"
 MSG_WARN_OLLAMA_PULL_FAILED_ATTEMPT_3_RETRYING="ollama pull %s failed (attempt %s/3). Retrying in %ss..."
 MSG_WARN_ONLY_GB_FREE_WE_RECOMMEND_LEAST="Only %s GB free. We recommend at least 35 GB (Docker images + AI model + data)."
@@ -982,6 +1012,30 @@ MSG_PROMPT_USER_NAME_FALLBACK_TITLE="Full name (e.g. Tom Harrison)"
 MSG_PROMPT_USER_ID_TITLE="What should your assistant call you?"
 MSG_PROMPT_USER_ID_HELP="A short name your assistant will use to address you (e.g. 'Andy', 'Andrew', 'Mrs Smith'). This is what appears in your morning briefs and chat replies. Different from your full name above."
 
+# ── End-of-install confirmation (calendars + identity) ──
+#
+# One-time propose-and-confirm at the end of setup that seeds the
+# disambiguation the daily brief relies on. Calendar prompts confirm whose
+# diary each calendar is (so a partner's flight is not read as yours);
+# identity prompts confirm which look-alike profiles are you (collapse) and
+# which are a different person who happens to share your name (split). All
+# skippable -- hitting enter accepts the pre-filled guess. %s placeholders
+# carry runtime values (calendar name, event count/samples, the evidence
+# that links or separates a profile).
+MSG_CONFIRM_CALENDARS_INTRO="Let's confirm whose calendar is whose, so your brief never mixes up whose trip is whose."
+MSG_CONFIRM_CALENDAR_HELP="%s events, e.g. %s"
+MSG_CONFIRM_CALENDAR_OWNER_TITLE="Whose calendar is \"%s\"?"
+MSG_CONFIRM_CALENDAR_TYPE_TITLE="What kind of calendar is \"%s\"?"
+MSG_CONFIRM_CALENDAR_TYPE_HELP="One of: personal, work, family, shared, other. This sets how sensitive its events are treated."
+MSG_CONFIRM_CALENDARS_SAVED="Saved your calendar owners"
+MSG_CONFIRM_CALENDARS_FAILED="Could not save calendar owners (non-fatal; you can set these later)"
+MSG_CONFIRM_IDENTITY_COLLAPSE_TITLE="We think these profiles are all you (%s). Combine them into one?"
+MSG_CONFIRM_IDENTITY_COLLAPSE_HELP="These profiles share a hard identity signal with you (an email domain, LinkedIn profile or employer). Combining them keeps your assistant from treating your own history as several different people. You can undo this later."
+MSG_CONFIRM_IDENTITY_NAMESAKE_TITLE="Someone shares your name but looks like a different person (%s). Is this you, or someone else?"
+MSG_CONFIRM_IDENTITY_NAMESAKE_HELP="Pick 'different' to keep them as a separate person (your assistant will never merge them into you). Pick 'me' only if this really is you."
+MSG_CONFIRM_IDENTITY_SAVED="Saved who's you"
+MSG_CONFIRM_IDENTITY_FAILED="Could not save identity choices (non-fatal; you can confirm later)"
+
 MSG_STEP_INSTALLING_THIS_TAKES_A_WHILE="Installing in the background (about 45 minutes to a few hours)"
 
 MSG_PROMPT_COUNTRY_CODE_CONFIRM_TITLE="Use +%s?"
@@ -1006,7 +1060,13 @@ MSG_PROMPT_WHATSAPP_CONSENT_TITLE="Enable WhatsApp messaging for your assistant?
 MSG_PROMPT_WHATSAPP_CONSENT_HELP="WhatsApp Web is a third-party service. By enabling, you accept that your messages route through WhatsApp's own infrastructure before reaching your local Ostler instance, and that WhatsApp (Meta Platforms Ireland Ltd) may suspend, restrict, or terminate your WhatsApp account because of automated use. You can disable this later from Settings."
 
 MSG_PROMPT_WHATSAPP_RECIPIENT_TITLE="Your WhatsApp phone number"
-MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="International number with the country code, e.g. +44 7700 900123. Digits and a leading + only – no spaces, brackets or dashes."
+# The example used to read "+44 7700 900123" – spaces – in the same sentence as
+# "no spaces". A customer copying the shape they were shown got a number the
+# inbound allowlist and the brief delivery address could not use, while pairing
+# still worked because that one field strips non-digits. Example and rule now
+# agree, and install.sh normalises whatever is typed either way.
+MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="International number with the country code, e.g. +447700900123. Digits and a leading + only – no spaces, brackets or dashes."
+MSG_INFO_WHATSAPP_NUMBER_NORMALISED="Stored as %s. WhatsApp needs the number without spaces or brackets."
 
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE="Allow Ostler to read your Messages"
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1="System Settings is open at Full Disk Access."
@@ -1112,7 +1172,7 @@ MSG_PROMPT_SMTP_PORT_TITLE="SMTP port"
 MSG_PROMPT_EMAIL_USERNAME_TITLE="Email address (also used as IMAP/SMTP username)"
 
 MSG_PROMPT_EMAIL_PASSWORD_TITLE="Password (hidden)"
-MSG_PROMPT_EMAIL_PASSWORD_HELP="Password for your self-hosted IMAP/SMTP server. Stored locally under ~/.ostler/ – never sent to Creative Machines."
+MSG_PROMPT_EMAIL_PASSWORD_HELP="Password for your self-hosted IMAP/SMTP server. Stored locally under ~/.ostler/, never sent to Creative Machines. It is saved in plain text: the only thing protecting it is the file's permissions, which allow your macOS account and nobody else. Nothing encrypts it later. Use an app password rather than your main account password."
 MSG_PROMPT_EMAIL_PASSWORD_CONFIRM_TITLE="Confirm Password"
 
 MSG_PROMPT_EMAIL_IMAP_FOLDER_TITLE="Which folder should the assistant watch?"
@@ -1212,6 +1272,23 @@ Read more at docs.ostler.ai/privacy/third-party-data."
 # Spoken-capture recording-consent acknowledgement (every region). Shown
 # in the Phase-2 consent batch. The HELP string is the substantive text
 # GUI installer users read on the decision sheet, so it is self-contained.
+# ── Personal-use-only terms (vendor/legal/consent_strings.py PERSONAL_USE_ONLY) ──
+# A LICENCE TERM, not an optional consent, which is why it acknowledges rather
+# than offering a decline that leaves a half-licensed install. Wording verbatim
+# from the versioned ConsentString so the Doctor can flag drift.
+MSG_TERMS_PERSONAL_USE_HEADING="What Ostler is for"
+MSG_TERMS_PERSONAL_USE_INTRO="Ostler is built for one person, on their own Mac, to understand their own life. That is the whole design, and it is why your data never leaves this machine."
+MSG_TERMS_PERSONAL_USE_BUSINESS="It is not built for business use. Please do not deploy Ostler to staff, or use it in the course of your job to capture colleagues, clients, patients or customers. If an organisation does that, the organisation becomes responsible for everyone whose information it collects, and Ostler is not designed to carry that."
+MSG_TERMS_PERSONAL_USE_RECORDER="You are the one recording. Ostler is the tool. Where your local law requires consent before a conversation is recorded, obtaining it is yours to do, and we cannot know from here whether any particular recording is lawful where you are."
+MSG_TERMS_PERSONAL_USE_ASK_HEADING="Three things we ask you not to do:"
+MSG_TERMS_PERSONAL_USE_ASK_1="Do not record children without a parent or guardian agreeing. A child cannot give that agreement themselves, and your own assurance does not stand in for theirs."
+MSG_TERMS_PERSONAL_USE_ASK_2="Do not record in places where people expect real privacy: a doctor's appointment, a solicitor's meeting, a therapy session, a religious confession, a bathroom or changing room."
+MSG_TERMS_PERSONAL_USE_ASK_3="Do not use Ostler to record anyone covertly where the law where you are does not allow it."
+MSG_TERMS_PERSONAL_USE_LEGAL="Ostler is licensed for personal, non-commercial use by a natural person. Creative Machines is not a data controller or processor of the information you keep on your Mac, receives none of it, and gives no warranty that any particular recording or capture is lawful in your jurisdiction."
+MSG_PROMPT_TERMS_PERSONAL_USE_TITLE="Ostler is for personal use"
+MSG_PROMPT_TERMS_PERSONAL_USE_HELP="Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms."
+MSG_INFO_TERMS_PERSONAL_USE_DECLINED="No problem. Nothing has been installed."
+
 MSG_CONSENT_SPOKEN_CAPTURE_HEADING="Turning spoken conversations into text"
 MSG_CONSENT_SPOKEN_CAPTURE_INTRO="In short: when you capture spoken audio to transcribe it, getting any consent the law requires is your responsibility, not ours. Typing and messaging are not affected."
 MSG_CONSENT_SPOKEN_CAPTURE_LAW="Ostler can turn spoken conversations you capture – calls and meetings – into searchable text; this is only about audio you choose to transcribe. Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first."
