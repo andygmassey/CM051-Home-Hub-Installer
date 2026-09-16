@@ -25,20 +25,35 @@ WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 
 # ── a fake repo: manifest dir + a gh stub that returns a FIXED open set ──────
 # `gh issue list --state open` is the only call the subject makes.
-mk_repo() {   # $1 = dir, $2 = manifest yaml body, $3 = space-separated OPEN issue numbers
-    local d="$1" body="$2" openlist="$3"
+mk_repo() {   # $1 = dir, $2 = manifest body, $3 = OPEN CM051 numbers, $4 = OPEN HR015 numbers
+    local d="$1" body="$2" openlist="$3" hrlist="${4:-}"
     mkdir -p "$d/cut-manifests" "$d/tests" "$d/bin"
     printf '%s\n' "$body" > "$d/cut-manifests/v9.9.9.yaml"
     cp "$SUBJECT" "$d/tests/"
     {
         echo '#!/usr/bin/env bash'
-        echo '# gh stub: only `issue list --state open --json number` is used.'
-        echo 'printf "["'
-        echo 'first=1'
-        for n in $openlist; do
-            echo "if [ \$first -eq 1 ]; then first=0; else printf ','; fi; printf '{\"number\":$n}'"
+        echo '# gh stub. The subject asks EACH REPO SEPARATELY since rows gained a'
+        echo '# `repo:` field, so answering every repo with one list would report'
+        echo '# each repo the rows as unregistered issues of the other. HR015 is'
+        echo '# scoped by a [LAUNCH] title prefix, so its answers carry titles; a'
+        echo '# stub returning bare numbers would make the subject correctly say it'
+        echo '# cannot scope at all.'
+        echo 'case "$*" in'
+        echo '  *HR015*)'
+        echo '    printf "["'
+        echo '    first=1'
+        for n in ${hrlist:-}; do
+            echo "    if [ \$first -eq 1 ]; then first=0; else printf ','; fi; printf '{\"number\":$n,\"title\":\"[LAUNCH] fixture $n\"}'"
         done
-        echo 'printf "]\n"'
+        echo '    printf "]\n" ;;'
+        echo '  *)'
+        echo '    printf "["'
+        echo '    first=1'
+        for n in $openlist; do
+            echo "    if [ \$first -eq 1 ]; then first=0; else printf ','; fi; printf '{\"number\":$n,\"title\":\"fixture $n\"}'"
+        done
+        echo '    printf "]\n" ;;'
+        echo 'esac'
     } > "$d/bin/gh"
     chmod +x "$d/bin/gh"
 }
@@ -223,6 +238,35 @@ if grep -q 'no row in .* declares this repo' <<< "$OUT"; then
     ok "a repo no row claims is REPORTED as not measured, not silently skipped"
 else
     bad "HR015 was neither measured nor announced; a dropped repo is a shrunken denominator"
+fi
+
+# ── arm 9: a BLOCKING row is checked against ITS OWN repo, not the last one ──
+# An earlier version of the subject kept ONE `live` set holding whatever the
+# last repo iteration produced, then looked every BLOCKING row up in it. A
+# CM051 row checked against HR015's open list is absent by construction, so
+# every blocker read as closed and the property printed a confident PASS while
+# measuring the wrong repo entirely. This arm puts an OPEN blocker in each
+# repo, with numbers that exist in ONLY one of them, so a cross-repo lookup
+# cannot find either.
+MANIFEST_TWO_REPOS='version: 9.9.9
+description: fixture
+entries: []
+open_issues:
+  - issue: 4101
+    repo: CM051
+    title: a CM051 blocker
+    gate: "FIX (BLOCKING): the customer sees the wrong thing"
+  - issue: 4202
+    repo: HR015
+    title: an HR015 blocker
+    gate: "FIX (BLOCKING): the customer sees the wrong thing"
+'
+mk_repo "$WORK/i" "$MANIFEST_TWO_REPOS" "4101" "4202"
+run_subject "$WORK/i" 1
+if [[ $RC -eq 1 ]] && grep -q '4101' <<< "$OUT" && grep -q '4202' <<< "$OUT"; then
+    ok "BLOCKING rows in BOTH repos are found, each against its own open list"
+else
+    bad "a BLOCKING row was looked up in the wrong repo's list (rc=$RC). Output: $OUT"
 fi
 
 echo

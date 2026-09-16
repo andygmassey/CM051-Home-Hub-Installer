@@ -238,6 +238,15 @@ def main() -> int:
     # repo is measured separately and a failure in one does not stand in for
     # the other, because "we could not read HR015" must never read as "HR015
     # has nothing open".
+    # Each repo's live open set, kept SEPARATELY. An earlier version of this
+    # loop left a single `live` variable holding whatever the LAST iteration
+    # produced, and PROPERTY 3 below then looked CM051 issue numbers up in
+    # HR015's open list. Every one would be absent, so every BLOCKING row would
+    # have read as closed and the property would have printed a confident PASS
+    # while measuring the wrong repo entirely. Found by noticing a CANNOT-RUN
+    # line printed above a "0 cannot-run" summary.
+    LIVE_BY_REPO: dict[str, set[int]] = {}
+
     global CANNOT_RUN
     for key, slug in sorted(KNOWN_REPOS.items()):
         # ── A REPO NO ROW CLAIMS IS NOT A REPO TO CROSS-CHECK ───────────────
@@ -349,10 +358,52 @@ def main() -> int:
             live = None
 
         if live is None:
+            # ── NO ACCESS IS NOT THE SAME AS BROKEN AUTH ───────────────────
+            # CM051 is PUBLIC and HR015 is PRIVATE, and this gate runs in
+            # CM051's CI. Its token cannot see HR015 at all, and never will:
+            # measured on this very gate, the HR015 branch printed
+            # "the open-issue list could not be read" on every run, so the
+            # gate was permanently red for a reason no amount of correct work
+            # could clear. A gate red for something nobody can act on is a
+            # gate that gets bypassed, and that is worse than the gap.
+            #
+            # But "I cannot see that repo" and "my auth just broke" must not
+            # print the same, because the second one is a real emergency and
+            # the first is a known boundary. Ask the repo endpoint to tell
+            # them apart: a token that can reach the repo at all, and then
+            # fails on the issue list, has a transient problem and MUST
+            # refuse. A token that cannot reach the repo is outside its own
+            # permissions, which is structural.
+            reachable = None
+            try:
+                probe = subprocess.run(["gh", "api", f"repos/{slug}", "-q", ".full_name"],
+                                       capture_output=True, text=True, timeout=45)
+                reachable = (probe.returncode == 0 and bool(probe.stdout.strip()))
+            except Exception:
+                reachable = None
+
+            if reachable is False:
+                # Structural. Report it loudly, name where it IS measurable,
+                # and do NOT count it as a refusal, because this runner can
+                # never satisfy it.
+                print(f"  [NOT MEASURABLE HERE] {key}: this runner's token cannot reach {slug}")
+                print(f"               at all, so its {len(by_repo[key])} registered row(s) "
+                      f"cannot be")
+                print("               cross-checked from CM051 CI. That is a permissions "
+                      "boundary, not a")
+                print("               failure, and not a pass either: NOTHING here measured it.")
+                print(f"               It IS measurable from a runner that can read {slug}:")
+                print(f"                 gh issue list --repo {slug} --state open --json number,title")
+                continue
+
             CANNOT_RUN += 1
-            print(f"  [CANNOT-RUN] {key}: the open-issue list could not be read (no gh,")
-            print("               no auth, or the call failed). Registration completeness")
-            print("               is UNMEASURED for this repo. This is not a pass.")
+            if reachable is None:
+                print(f"  [CANNOT-RUN] {key}: could not even establish whether this runner can")
+                print(f"               reach {slug}, so the absence above is unexplained.")
+            else:
+                print(f"  [CANNOT-RUN] {key}: the repo IS reachable and the open-issue list still")
+                print("               could not be read. That is a transient failure or expired")
+                print("               auth, NOT a permissions boundary, and it is not a pass.")
             print(f"                 gh issue list --repo {slug} --state open --json number")
             continue
         if not live:
@@ -367,6 +418,7 @@ def main() -> int:
                 print("               print identically, so this refuses rather than passing.")
             continue
 
+        LIVE_BY_REPO[key] = live
         mine = by_repo[key]
         missing = sorted(live - mine)
         if missing:
@@ -482,15 +534,37 @@ def main() -> int:
         return "BLOCKING" in head and "NOT BLOCKING" not in head
 
     blocking_rows = [r for r in rows if _says_blocking(str(r.get("gate", "")))]
-    if live is None or not live:
-        # Already counted as CANNOT-RUN above. Say explicitly that THIS property
-        # was not evaluated, rather than letting silence read as a pass.
-        print(f"  [CANNOT-RUN] {len(blocking_rows)} row(s) say BLOCKING, but the open-issue")
-        print("               list could not be read, so whether they are still open is")
-        print("               UNMEASURED. Not a pass.")
+    # A row is checked against ITS OWN repo's open list, and a row whose repo
+    # was not measured is not silently treated as closed.
+    unmeasured = [r for r in blocking_rows
+                  if str(r.get("repo", "")).strip() in KNOWN_REPOS
+                  and str(r.get("repo", "")).strip() not in LIVE_BY_REPO]
+    checkable = [r for r in blocking_rows
+                 if str(r.get("repo", "")).strip() in LIVE_BY_REPO]
+    none_repo = [r for r in blocking_rows if str(r.get("repo", "")).strip() == "none"]
+    if unmeasured:
+        CANNOT_RUN += 1
+        print(f"  [CANNOT-RUN] {len(unmeasured)} BLOCKING row(s) name a repo whose open-issue")
+        print("               list was not read, so whether they are still open is")
+        print("               UNMEASURED. Not a pass, and NOT treated as closed.")
+    if none_repo:
+        print(f"  [note] {len(none_repo)} BLOCKING row(s) declare `repo: none`, so there is no")
+        print("         issue to be open or closed. They are judged on their gate text alone.")
+    if blocking_rows and not checkable and not unmeasured and not none_repo:
+        # Only a refusal when there IS something to check and no way to check
+        # it. ZERO blocking rows is not an unmeasured state, it is the answer:
+        # nothing claims to block. Refusing there would have turned every
+        # manifest with no blockers into a CANNOT-RUN, which is the opposite of
+        # what this property is for.
+        print(f"  [CANNOT-RUN] {len(blocking_rows)} row(s) say BLOCKING and none could be")
+        print("               checked against any open-issue list. UNMEASURED. Not a pass.")
+        CANNOT_RUN += 1
+    elif not blocking_rows:
+        ok("no row is gated BLOCKING, so no blocker can be sitting on an open issue")
     else:
-        live_blocking = [r for r in blocking_rows if int(r["issue"]) in live]
-        stale_blocking = len(blocking_rows) - len(live_blocking)
+        live_blocking = [r for r in checkable
+                         if int(r["issue"]) in LIVE_BY_REPO[str(r.get("repo", "")).strip()]]
+        stale_blocking = len(checkable) - len(live_blocking)
         if live_blocking:
             listing = "; ".join(
                 f'#{r["issue"]} {str(r.get("title", ""))[:60]}' for r in live_blocking)
