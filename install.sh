@@ -27532,14 +27532,91 @@ _HYDRATE_SENTINEL_DIR="${OSTLER_DIR}/state/hydrate"
 mkdir -p "$_HYDRATE_SENTINEL_DIR"
 
 # G1b: extract a typed integer count from a free-form payload. The payload is a
-# `key=value` string whose value is a count, e.g. "people=5" / "sent=0"; take the
-# value after the LAST '=' and keep it only if it is a bare integer, else 0. A
-# panel renders `item_count` without parsing prose (today `payload` is a free
-# string and `sent=0` is indistinguishable from a real 0 without splitting text).
+# `key=value` string whose value is a count, e.g. "people=5" / "sent=0". A panel
+# renders `item_count` without parsing prose (today `payload` is a free string
+# and `sent=0` is indistinguishable from a real 0 without splitting text).
+#
+# ── THE DEFECT, AND THIS FILE ALREADY FORBIDS IT IN PROSE (#946) ────────
+#
+# This helper used to take the value after the LAST '=' and fall back to a
+# literal 0. Both halves of that are wrong, and both reach the customer: the
+# value it returns is what the Doctor's "Where your data came from" table
+# prints in its `Items` column, under copy that reads "how much it found".
+#
+# MEASURED on origin/main by driving these recorders and rendering the real
+# vendored panel, one row per real call site in this file:
+#
+#   places / dedupe / privacy_backfill   ran=1,rc=0
+#       -> LAST key is `rc`, so the panel printed "read in ... 0 items" for
+#          three sources that had just run successfully. `rc=0` is a RETURN
+#          CODE MEANING SUCCESS. The Doctor says so in its own vocabulary --
+#          vendor/doctor/agent/diagnostic_rules.py:1782 declares
+#          `_NON_COUNT_KEYS = {"rc","exit","status","code"}` with the comment
+#          "rc=0 is a RETURN CODE meaning success, not a count of zero items".
+#          The reader knew. The writer did not.
+#
+#   browsing   sent=1500,skipped=20
+#       -> LAST key is `skipped`, so the panel printed 20 items for a run that
+#          delivered 1,500. `skipped` counts rows deliberately NOT ingested; it
+#          is the wrong population for a column headed "Items".
+#
+#   people (timeout arm)   sent=unknown,collection_points=7154
+#       -> LAST key is `collection_points`, so a step that delivered nothing
+#          measurable printed the size of the WHOLE collection as this run's
+#          output. _hydrate_qdrant_points, 500 lines below, exists precisely to
+#          keep those apart and says so: "collection_points is deliberately NOT
+#          called sent ... equating it with this run's output would put two
+#          populations in one number". Selecting it here did the equating.
+#
+# ── WHAT IT DOES NOW ────────────────────────────────────────────────────
+#
+# Split the payload on ',' into key=value fields, drop every key that is not
+# THIS RUN'S ITEM COUNT, and take the LAST survivor. Last, not first, is
+# deliberate and is the minimum change: every payload whose final key is
+# already a real count keeps the number it prints today. `email` in particular
+# writes "people=N,messages=M" and keeps reporting MESSAGES, which is the unit
+# tests/test_email_settling_numerator_is_messages.sh settled after a people
+# count in an email-unit fraction shipped as a defect.
+#
+# WHEN NOTHING SURVIVES, PRINT NOTHING. The caller writes `item_count=` with an
+# empty value, the Doctor's _parse_source_sentinel takes the int() ValueError
+# branch and stores None, and the panel prints an unknown marker instead of a
+# number. Its renderer already carries the rule -- "None and 0 are different
+# answers and must not print the same" -- and a fabricated 0 is the exact shape
+# tests/test_an_unmeasured_count_is_not_a_measured_zero.sh exists to stop.
+#
+# ⚠️ THIS SET IS NOT SHARED WITH _hydrate_payload_is_all_zero AND MUST NOT BE.
+# That predicate asks a different question and has its own settled answer:
+# `sent=0,skipped=500` must read as ok, because the browsing history was
+# examined and 500 rows were already there. Excluding `skipped` there would
+# turn a successful no-op into no_data. Two questions, two key sets, on purpose.
+#
+# THE KEY LIST IS A LOCAL, NOT A GLOBAL, AND THAT IS LOAD-BEARING. Seven wired
+# tests drive these recorders by EXTRACTING the function bodies out of this file
+# one at a time (`sed -n "/^_hydrate_payload_count() {/,/^}/p"`). A global
+# declared on the line above is not carried by that extraction, so under the
+# `set -u` those harnesses run with, the helper would abort and return an empty
+# count for EVERY source. Measured while writing this change: a first draft put
+# the list at file scope and all thirteen rows went blank.
 _hydrate_payload_count() {
-    local payload="${1:-}" v
-    v="${payload##*=}"
-    if [[ "$v" =~ ^[0-9]+$ ]]; then printf '%s' "$v"; else printf '0'; fi
+    local payload="${1:-}" field key value found=""
+    # Keys that are not THIS RUN'S ITEM COUNT, each with its reason:
+    #   rc exit code status   return codes and status words (the Doctor's own
+    #                         _NON_COUNT_KEYS, mirrored so the two agree)
+    #   ran                   evidence the sweep executed, not a quantity
+    #   skipped               rows deliberately NOT ingested; wrong population
+    #   collection_points     the whole store, including earlier runs
+    local non_item=" rc exit code status ran skipped collection_points "
+    local IFS=','
+    for field in $payload; do
+        [[ "$field" == *=* ]] || continue
+        key="${field%%=*}"
+        value="${field#*=}"
+        case "$non_item" in *" ${key} "*) continue ;; esac
+        [[ "$value" =~ ^[0-9]+$ ]] || continue
+        found="$value"
+    done
+    printf '%s' "$found"
 }
 
 # G1a: last_update_at is DISTINCT from recorded_at. recorded_at is when this
@@ -33257,6 +33334,136 @@ _ostler_report_assistant_fda
 # install completes can race the rebind. After a long install a few extra
 # seconds is cheap insurance. Best-effort; returns early on bind, never aborts.
 _probe_http_live "http://127.0.0.1:8000/" 30 || true
+
+# ── End-of-install confirmation: whose calendars + who you are ─────
+#
+# A one-time propose-and-confirm that seeds the disambiguation the daily
+# brief relies on (CM061 designs: SAMANTHA_TRAVEL_CONFLATION_FINDINGS.md +
+# EMPLOYER_IDENTITY_MERGE_PLAN.md). Runs AFTER hydration (people, dedupe,
+# calendar, wiki all done -> Oxigraph is up + populated and
+# calendar_events.json exists) and BEFORE the "all set" summary.
+#
+#   1. Calendar owner/type -> ${OSTLER_DIR}/calendars.json in the exact shape
+#      the CM041 reader consumes (contact_syncer.google_calendar
+#      .load_calendar_provenance). Keeps a partner's flight from being read
+#      as the operator's trip.
+#   2. Identity collapse/split -> ${WIKI_CORRECTIONS_DIR}/duplicates.yaml in
+#      the exact schema the CM041 resolver consumes (identity_resolver/
+#      decisions.py). merge = COLLAPSE the operator's own fragments;
+#      distinct = SPLIT OUT a namesake (a permanent, non-destructive
+#      never-merge veto). Enacted on the next resolver sweep (install-time
+#      dedupe catch-up + daily recompile). This step NEVER mutates the graph
+#      itself and NEVER auto-merges.
+#
+# Skippable + re-runnable: OSTLER_SKIP_CONFIRMATION=1 skips it; the assistant
+# / Front Page re-surfaces it later when a new signal appears
+# (EMPLOYER_IDENTITY_MERGE_PLAN.md §6). Fail-safe throughout: a helper /
+# graph error leaves calendars.json unwritten and the graph untouched -- the
+# install is never blocked on this step. Defaults are pre-filled so an
+# operator who just hits enter still gets a sensible answer.
+if [[ "${OSTLER_SKIP_CONFIRMATION:-0}" != "1" ]]; then
+    _confirm_cal_py="${SCRIPT_DIR}/lib/ostler-confirm-calendars.py"
+    _confirm_id_py="${SCRIPT_DIR}/lib/ostler-confirm-identity.py"
+    _confirm_events="${OSTLER_DIR}/imports/fda/calendar_events.json"
+    _confirm_corrections="${WIKI_CORRECTIONS_DIR:-${OSTLER_DIR}/corrections}"
+    _confirm_owner_name="${USER_NAME:-You}"
+    # Prefer the calendar/email-ingest venv python (has PyYAML); fall back to
+    # the import-pipeline venv (also carries PyYAML + identity_resolver), then
+    # to a bare python3. Any of them can run the stdlib helpers.
+    _confirm_py="${_HYDRATE_CALENDAR_PY:-}"
+    [[ -x "$_confirm_py" ]] || _confirm_py="${PIPELINE_PY:-}"
+    [[ -x "$_confirm_py" ]] || _confirm_py="$(command -v python3 2>/dev/null || true)"
+
+    # ---- 1. Calendar owner/type confirmation ----
+    if [[ -n "$_confirm_py" && -f "$_confirm_cal_py" && -f "$_confirm_events" ]]; then
+        _confirm_cal_rows="$("$_confirm_py" "$_confirm_cal_py" enumerate \
+            --events "$_confirm_events" --owner-name "$_confirm_owner_name" \
+            2>>"${OSTLER_DIAG_DIR}/confirm.log" || true)"
+        if [[ -n "$_confirm_cal_rows" ]]; then
+            info "$MSG_CONFIRM_CALENDARS_INTRO"
+            _confirm_answers="$(mktemp -t ostler-cal-answers.XXXXXX)"
+            : > "$_confirm_answers"
+            while IFS=$'\t' read -r _cmatch _cowner _ctype _ccount _csamples; do
+                [[ -z "${_cmatch:-}" ]] && continue
+                _chelp="$(printf "$MSG_CONFIRM_CALENDAR_HELP" "${_ccount:-0}" "${_csamples:-}")"
+                _ans_owner="$(gui_read \
+                    "$(printf "$MSG_CONFIRM_CALENDAR_OWNER_TITLE" "$_cmatch")" \
+                    text "${_cowner:-You}" "$_chelp" "" "calendar_owner" "")"
+                _ans_owner="${_ans_owner:-${_cowner:-You}}"
+                _ans_type="$(gui_read \
+                    "$(printf "$MSG_CONFIRM_CALENDAR_TYPE_TITLE" "$_cmatch")" \
+                    choice "${_ctype:-personal}" "$MSG_CONFIRM_CALENDAR_TYPE_HELP" \
+                    "personal,work,family,shared,other" "calendar_type" "")"
+                _ans_type="${_ans_type:-${_ctype:-personal}}"
+                printf '%s\t%s\t%s\n' "$_cmatch" "$_ans_owner" "$_ans_type" \
+                    >> "$_confirm_answers"
+            done <<< "$_confirm_cal_rows"
+            if "$_confirm_py" "$_confirm_cal_py" write \
+                    --answers "$_confirm_answers" \
+                    --out "${OSTLER_DIR}/calendars.json" \
+                    >>"${OSTLER_DIAG_DIR}/confirm.log" 2>&1; then
+                ok "$MSG_CONFIRM_CALENDARS_SAVED"
+            else
+                warn "$MSG_CONFIRM_CALENDARS_FAILED"
+            fi
+            rm -f "$_confirm_answers"
+        fi
+    fi
+
+    # ---- 2. Identity collapse / namesake-split confirmation ----
+    if [[ -n "$_confirm_py" && -f "$_confirm_id_py" ]]; then
+        _confirm_id_props="$("$_confirm_py" "$_confirm_id_py" propose \
+            --oxigraph-url "${OXIGRAPH_URL:-http://localhost:7878}" \
+            --user-id "${USER_ID:-}" 2>>"${OSTLER_DIAG_DIR}/confirm.log" || true)"
+        if [[ -n "$_confirm_id_props" ]]; then
+            _confirm_merge_args=()
+            _confirm_distinct_args=()
+            while IFS=$'\t' read -r _ikind _iids _ievidence; do
+                [[ -z "${_ikind:-}" ]] && continue
+                case "$_ikind" in
+                    COLLAPSE)
+                        _iyn="$(gui_read \
+                            "$(printf "$MSG_CONFIRM_IDENTITY_COLLAPSE_TITLE" "${_ievidence:-}")" \
+                            yesno "yes" "$MSG_CONFIRM_IDENTITY_COLLAPSE_HELP" "" \
+                            "identity_collapse" "")"
+                        case "$_iyn" in
+                            yes|true|y|Y) _confirm_merge_args+=("--merge" "$_iids") ;;
+                        esac
+                        ;;
+                    NAMESAKE)
+                        # Framed "Is this you, or someone else?" default "someone
+                        # else" -> a "different person" answer writes the distinct
+                        # veto (never merge). Fail-safe default = do nothing to a
+                        # self node, only ever veto a merge.
+                        _iyn="$(gui_read \
+                            "$(printf "$MSG_CONFIRM_IDENTITY_NAMESAKE_TITLE" "${_ievidence:-}")" \
+                            choice "different" "$MSG_CONFIRM_IDENTITY_NAMESAKE_HELP" \
+                            "different,me" "identity_namesake" "")"
+                        case "$_iyn" in
+                            different|no|n|N|"") _confirm_distinct_args+=("--distinct" "$_iids") ;;
+                        esac
+                        ;;
+                esac
+            done <<< "$_confirm_id_props"
+            if [[ ${#_confirm_merge_args[@]} -gt 0 || ${#_confirm_distinct_args[@]} -gt 0 ]]; then
+                if "$_confirm_py" "$_confirm_id_py" record \
+                        --corrections-dir "$_confirm_corrections" \
+                        ${_confirm_merge_args[@]+"${_confirm_merge_args[@]}"} \
+                        ${_confirm_distinct_args[@]+"${_confirm_distinct_args[@]}"} \
+                        >>"${OSTLER_DIAG_DIR}/confirm.log" 2>&1; then
+                    ok "$MSG_CONFIRM_IDENTITY_SAVED"
+                else
+                    warn "$MSG_CONFIRM_IDENTITY_FAILED"
+                fi
+            fi
+            unset _confirm_merge_args _confirm_distinct_args
+        fi
+    fi
+    unset _confirm_cal_py _confirm_id_py _confirm_events _confirm_corrections \
+          _confirm_owner_name _confirm_py _confirm_cal_rows _confirm_answers \
+          _confirm_id_props _cmatch _cowner _ctype _ccount _csamples _chelp \
+          _ans_owner _ans_type _ikind _iids _ievidence _iyn 2>/dev/null || true
+fi
 
 # ── Summary ────────────────────────────────────────────────────────
 
