@@ -98,22 +98,22 @@ knobs() {
 }
 
 out="$(knobs gentle)"
-echo "$out" | grep -q '^OSTLER_LOADAVG_CEILING=1.0$'   || failure "gentle should set ceiling 1.0, got: $out"
-echo "$out" | grep -q '^OSTLER_DEFER_NONESSENTIAL=1$'  || failure "gentle should defer"
-echo "$out" | grep -q '^OSTLER_INGEST_OFFPEAK_ONLY=1$' || failure "gentle should keep off-peak on"
-echo "$out" | grep -q '^OSTLER_THROTTLE_LEVEL=gentle$' || failure "gentle level should round-trip"
+grep -q '^OSTLER_LOADAVG_CEILING=1.0$' <<<"$out"   || failure "gentle should set ceiling 1.0, got: $out"
+grep -q '^OSTLER_DEFER_NONESSENTIAL=1$' <<<"$out"  || failure "gentle should defer"
+grep -q '^OSTLER_INGEST_OFFPEAK_ONLY=1$' <<<"$out" || failure "gentle should keep off-peak on"
+grep -q '^OSTLER_THROTTLE_LEVEL=gentle$' <<<"$out" || failure "gentle level should round-trip"
 [ "$FAILED" -eq 0 ] && pass "gentle throttle -> low ceiling + off-peak + defer"
 
 out="$(knobs full)"
-echo "$out" | grep -q '^OSTLER_LOADAVG_CEILING=8.0$'   || failure "full should set ceiling 8.0, got: $out"
-echo "$out" | grep -q '^OSTLER_DEFER_NONESSENTIAL=0$'  || failure "full should not defer"
-echo "$out" | grep -q '^OSTLER_INGEST_OFFPEAK_ONLY=0$' || failure "full should drop the off-peak clamp"
+grep -q '^OSTLER_LOADAVG_CEILING=8.0$' <<<"$out"   || failure "full should set ceiling 8.0, got: $out"
+grep -q '^OSTLER_DEFER_NONESSENTIAL=0$' <<<"$out"  || failure "full should not defer"
+grep -q '^OSTLER_INGEST_OFFPEAK_ONLY=0$' <<<"$out" || failure "full should drop the off-peak clamp"
 [ "$FAILED" -eq 0 ] && pass "full throttle -> high ceiling + no off-peak + no defer"
 
 # balanced leaves the hardware-tier default untouched (pin HIGH -> 3.0).
 out="$(knobs balanced high)"
-echo "$out" | grep -q '^OSTLER_LOADAVG_CEILING=3.0$'   || failure "balanced+HIGH should keep the tier ceiling 3.0, got: $out"
-echo "$out" | grep -q '^OSTLER_THROTTLE_LEVEL=balanced$' || failure "balanced level should round-trip"
+grep -q '^OSTLER_LOADAVG_CEILING=3.0$' <<<"$out"   || failure "balanced+HIGH should keep the tier ceiling 3.0, got: $out"
+grep -q '^OSTLER_THROTTLE_LEVEL=balanced$' <<<"$out" || failure "balanced level should round-trip"
 [ "$FAILED" -eq 0 ] && pass "balanced throttle leaves the hardware-tier default in place"
 
 # --------------------------------------------------------------------
