@@ -71,6 +71,17 @@ jobs:
       # it, a red on the trial half reports NOTHING about the beta half,
       # which is how a second defect hides behind a first. Caught by
       # scripts/verify_ci_steps_are_maskless.py.
+      # The Doctor arm of the test below imports diagnostic_rules, which pulls
+      # in httpx transitively. Without it that arm cannot LOAD the rule, and
+      # the test now correctly reports CANNOT-RUN rather than calling the rule
+      # wrong. Correct, but an arm that can never run is an arm that measures
+      # nothing, so install the dependency and let it actually be graded.
+      #
+      # Pinned, because an unpinned install is a third party choosing when this
+      # gate changes behaviour.
+      - name: Install the Doctor rule's transitive dependency
+        run: python3 -m pip install --quiet 'httpx==0.28.1'
+
       - name: A beta tester is warned before their window closes, and loses no data when it does
         if: always()
         run: /bin/bash tests/test_beta_licence_expiry_warns_before_and_is_read_only.sh

@@ -85,6 +85,14 @@ cannot_run() {
     exit 99
 }
 
+# A SINGLE ARM that could not run, as distinct from the whole suite. It is
+# counted, printed, and it makes the suite exit non-zero, because an arm that
+# was not evaluated is not an arm that passed. It is NOT counted as a FAIL,
+# because "the thing is broken" and "I could not look at the thing" send a
+# reader to two different places.
+CANNOT=0
+cannot_run_arm() { printf '  CANNOT-RUN  %s\n' "$1" >&2; CANNOT=$((CANNOT + 1)); }
+
 [[ -f "$INSTALL_SH" ]]    || cannot_run "install.sh not found at ${INSTALL_SH}"
 [[ -f "$GATE_SRC" ]]      || cannot_run "subscription_gate.py not vendored at ${GATE_SRC}"
 [[ -f "$DOCTOR_RULES" ]]  || cannot_run "diagnostic_rules.py not vendored at ${DOCTOR_RULES}"
@@ -482,7 +490,7 @@ fi
 # D3. The Doctor panel. Doctor already runs every rule in ALL_RULES on
 # every status poll, so this needs no new scheduler -- and a scheduler is
 # a thing that can fail to be loaded.
-if python3 - "$REPO_ROOT" "$HUB" >"${WORK}/doctor.out" 2>&1 <<'DOCTOR_PY'
+python3 - "$REPO_ROOT" "$HUB" >"${WORK}/doctor.out" 2>&1 <<'DOCTOR_PY'
 import json
 import os
 import sys
@@ -492,7 +500,27 @@ home = os.path.join(hub, "doctor-home")
 os.makedirs(os.path.join(home, ".ostler", "state"), exist_ok=True)
 os.environ["HOME"] = home
 sys.path.insert(0, os.path.join(repo, "vendor", "doctor", "agent"))
-import diagnostic_rules as dr
+# ── AN ABSENT LIBRARY HAS NOT FAILED ──────────────────────────────────
+# diagnostic_rules imports httpx transitively. On a runner without it the
+# import raises ModuleNotFoundError, and this arm used to report "D3 the
+# Doctor rule is wrong". The rule had not been evaluated at all. That is a
+# harness failure wearing a content verdict, which is the exact defect
+# this whole test exists to remove from the product.
+#
+# Exit 78 (EX_CONFIG) so the shell can tell the two apart. The arm is
+# still NOT a pass: it prints CANNOT-RUN and counts as unmeasured.
+try:
+    import diagnostic_rules as dr
+except ImportError as e:
+    # ImportError, not just ModuleNotFoundError. A transitive dependency can
+    # fail to load for reasons other than being absent, and both mean the same
+    # thing here: the rule was not evaluated. The exception text is PRINTED so
+    # a genuinely broken module cannot hide behind this branch looking like a
+    # missing one.
+    print("CANNOT-RUN: diagnostic_rules could not be imported: %r" % (e,))
+    print("            The Doctor rule was NOT evaluated. This is not a pass")
+    print("            and it is not evidence that the rule is wrong.")
+    raise SystemExit(78)
 
 if dr.check_licence_expiry not in dr.ALL_RULES:
     raise SystemExit("check_licence_expiry is not in ALL_RULES -- Doctor never runs it")
@@ -581,8 +609,14 @@ if problems:
     raise SystemExit(1)
 print("Doctor rule: 9 states correct, and it is in ALL_RULES")
 DOCTOR_PY
-then
+_d3_rc=$?
+if [ "$_d3_rc" -eq 0 ]; then
     ok "D3 the Doctor panel warns before, explains after, and stays quiet on everything it cannot read"
+elif [ "$_d3_rc" -eq 78 ]; then
+    # Three outcomes, three branches. The rule could not be loaded, so it was
+    # neither right nor wrong here.
+    cannot_run_arm "D3 the Doctor rule could not be LOADED, so it was not graded"
+    sed 's/^/        /' "${WORK}/doctor.out"
 else
     bad "D3 the Doctor rule is wrong"
     sed 's/^/        /' "${WORK}/doctor.out"
@@ -620,8 +654,13 @@ fi
 
 # ───────────────────────────────────────────────────────────────────
 printf '\n%s\n' "----------------------------------------------------------"
-printf 'beta licence expiry warns before and is read-only: %d passed, %d failed\n' "$PASS" "$FAIL"
+printf 'beta licence expiry warns before and is read-only: %d passed, %d failed, %d could not run\n' \
+    "$PASS" "$FAIL" "$CANNOT"
 if [[ "$FAIL" -gt 0 ]]; then
+    exit 1
+fi
+if [[ "$CANNOT" -gt 0 ]]; then
+    printf '  REFUSING: %d arm(s) were not evaluated. That is not a pass.\n' "$CANNOT" >&2
     exit 1
 fi
 exit 0
