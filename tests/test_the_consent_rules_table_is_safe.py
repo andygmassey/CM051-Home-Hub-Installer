@@ -123,7 +123,46 @@ def main():
     else:
         bad("the header does not say this is not legal advice")
 
-    print(f"\n{6 - len(fails)} passed, {len(fails)} failed, denominator 6")
+    # ---- the escalation column cannot rot into a lie --------------------
+    derived = {r["iso"].split("-")[0] for r in rows if "-" in r["iso"]}
+    declared = {r["iso"] for r in rows if r.get("needs_finer") == "yes"}
+    if declared == derived:
+        ok(f"needs_finer matches the iso codes exactly ({len(declared)} country/countries)")
+    else:
+        bad(f"needs_finer disagrees with the iso codes. declared-only={sorted(declared - derived)} "
+            f"derived-only={sorted(derived - declared)}. A country whose law varies below the "
+            f"country but is not flagged gets a country-level answer applied to states it is "
+            f"wrong for.")
+
+    # ---- the reader must never be permissive about what it does not know --
+    sys.path.insert(0, str(REPO / "lib"))
+    try:
+        import ostler_consent_jurisdiction as juris
+    except ImportError as e:
+        print(f"  CANNOT-RUN  the reader could not be imported: {e!r}")
+        print(f"\n{8 - len(fails)} passed, {len(fails)} failed, 1 could not run, denominator 9")
+        return 1
+
+    table = juris.load(CSV_PATH)
+    unknown = [juris.resolve(x, table) for x in ("ZZ", "", None, "US-ZZ", "not-an-iso")]
+    if all(v == "unclear" for v, _ in unknown):
+        ok("the reader answers `unclear` for every unknown code, never `no`")
+    else:
+        bad(f"the reader gave a non-unclear answer for an unknown code: {unknown}")
+
+    # A predicate that always says "ask" is safe and useless, and reads
+    # identically to a correct one. It must be able to say no.
+    one_party = [r["iso"] for r in rows if r["all_party"] == "no"]
+    says_no = [i for i in one_party if not juris.must_ask_everyone(i, table)]
+    if one_party and len(says_no) == len(one_party):
+        ok(f"CONTROL: must_ask_everyone returns False for all {len(one_party)} recorded "
+           f"one-party places, so it is not a stuck predicate")
+    else:
+        bad(f"must_ask_everyone returned True for {len(one_party) - len(says_no)} of "
+            f"{len(one_party)} one-party places. A predicate that cannot say no is "
+            f"indistinguishable from one that is broken.")
+
+    print(f"\n{9 - len(fails)} passed, {len(fails)} failed, denominator 9")
     return 1 if fails else 0
 
 
