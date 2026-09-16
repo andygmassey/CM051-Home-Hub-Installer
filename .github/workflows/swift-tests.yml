@@ -65,6 +65,12 @@ on:
       # next PR that happened to touch gui/, as somebody else's red.
       - 'install.sh.strings.*.sh'
       - 'scripts/verify_swift_tests_ran.sh'
+      # #944's guard reads InstallCompleteView.swift, which IS under gui/, so
+      # the view itself is covered. This line covers the OTHER direction: a PR
+      # that edits only the guard. Without it the guard could be weakened or
+      # deleted with every check green, which is precisely the em-dash hole
+      # recorded above, in the opposite direction.
+      - 'tests/test_the_wiki_button_is_not_offered_before_the_wiki_serves.py'
       - '.github/workflows/swift-tests.yml'
   push:
     branches: [main]
@@ -81,6 +87,12 @@ on:
       # next PR that happened to touch gui/, as somebody else's red.
       - 'install.sh.strings.*.sh'
       - 'scripts/verify_swift_tests_ran.sh'
+      # #944's guard reads InstallCompleteView.swift, which IS under gui/, so
+      # the view itself is covered. This line covers the OTHER direction: a PR
+      # that edits only the guard. Without it the guard could be weakened or
+      # deleted with every check green, which is precisely the em-dash hole
+      # recorded above, in the opposite direction.
+      - 'tests/test_the_wiki_button_is_not_offered_before_the_wiki_serves.py'
       - '.github/workflows/swift-tests.yml'
   schedule:
     # Daily, so a break cannot hide behind a quiet week in gui/.
@@ -111,6 +123,18 @@ jobs:
         run: bash scripts/verify_swift_tests_ran.sh --self-test
       - name: Parses under bash 3.2-compatible syntax
         run: bash -n scripts/verify_swift_tests_ran.sh
+
+      # #944. The GUI rendered "Open your Wiki" unconditionally, so on a box
+      # where the wiki's first compile had not finished the installer sent the
+      # customer to a page that would not load, with a sign-in hint for a
+      # server that was not listening. The TTY path already guarded this and
+      # went quiet; the richer surface was the more misleading one.
+      #
+      # Runs on ubuntu next to the other structural guards, not on the macOS
+      # runner, because it reads the view's source rather than building it. A
+      # 30-minute macOS job is the wrong place for a check that takes a second.
+      - name: The end-of-install screen cannot offer a wiki that is not serving
+        run: python3 tests/test_the_wiki_button_is_not_offered_before_the_wiki_serves.py
 
   swift-tests:
     runs-on: macos-26

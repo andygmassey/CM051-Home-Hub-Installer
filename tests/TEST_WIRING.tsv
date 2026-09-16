@@ -690,3 +690,4 @@ scripts/tests/test_verify_cut_manifest.py	WIRED	.github/workflows/cut-manifest.y
 scripts/tests/test_verify_stapling_gate.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 scripts/tests/test_verify_test_wiring_gate.sh	WIRED	.github/workflows/new-tests-must-be-wired.yml
 scripts/tests/test_wiki_digest_pin_assertion.sh	WIRED	.github/workflows/cut-manifest.yml
+test_the_wiki_button_is_not_offered_before_the_wiki_serves.py	WIRED	.github/workflows/swift-tests.yml
