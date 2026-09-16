@@ -1,0 +1,69 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.76.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.76/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN.
+#
+# ===========================================================================
+# EVERY ROW SAYS ONE OF THREE THINGS AND NEVER A FOURTH
+# ===========================================================================
+#   gate:<workflow>#<what>  a CI gate that FAILS on the real pre-fix tree
+#   artefact:<sha8>#<what>  measured on the published artefact itself
+#   needs-walk:<ver>#<what> UNPROVEN, and here is exactly what to look at
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS, IN ONE LINE
+# ===========================================================================
+# v1.0.76 IS THE CUT THAT CAN INSTALL. v1.0.73 aborted at step 5 of 41 on
+# every fresh install; this one completed all 41 steps with no errors raised.
+#
+# ===========================================================================
+# HOW THE ROWS WERE SELECTED, AND WHAT WAS LEFT OUT
+# ===========================================================================
+# 8 commits landed on CM051 main between the v1.0.73 artefact (c0401242) and
+# this cut. The predicate is the same one v1.0.73 used: the commit touches a
+# path that reaches the customer -- install.sh, gui/, vendor/ or
+# assistant-agent/. THREE did. Two carry rows; both are install.sh.
+#
+# TWO OF THE THREE ARE DELIBERATELY ABSENT, with the measurement rather than
+# the assertion:
+#
+#   ab286995 (#1751) touches vendor/VENDOR_MANIFEST.toml and NOTHING ELSE in
+#   the vendored file-set. It is a hold_ack, not a re-pin:
+#       git show ab286995 -- vendor/VENDOR_MANIFEST.toml \
+#         | grep -cE '^[+-][[:space:]]*pinned_sha[[:space:]]*='     -> 0
+#   with a positive control proving that pattern matches a real pin line. No
+#   pinned_sha moved, so no vendored byte changed, so the artefact is
+#   unaffected and a row asserting otherwise would be false.
+#
+#   e799a34a (#1748) touches gui/Makefile only. The Makefile builds the DMG
+#   and is not IN the DMG, so no capability pattern could ever find it in the
+#   artefact.
+#
+# ===========================================================================
+# EVERY PATTERN BEHIND A capability_id WAS RUN AGAINST BOTH REFS
+# ===========================================================================
+# A capability whose pattern also matches at v1.0.73 measures nothing: it
+# would go green on the PREVIOUS artefact, so it cannot notice this cut's
+# payload going missing. Each was checked at c0401242 (must be 0) and at the
+# v1.0.76 tree (must be non-zero), with two controls:
+#
+#     id                                        @v1.0.73  @v1.0.76
+#     ollama_agent_check_is_guarded                    0      1
+#     credential_generation_has_no_sigpipe             0      1
+#     port_preflight_status_is_read_not_fatal          0      1
+#     runtime_ready_status_is_read_not_fatal           0      1
+#     CONTROL present in both refs                     5      6   <- must NOT discriminate
+#     CONTROL present in neither                       0      0   <- must be broken
+#
+# MY FIRST TWO PATTERNS FOR TNM'S SITES WERE GUESSED AND BOTH FAILED THIS
+# TABLE -- one scored 0/0 and one scored 1/5, i.e. it already matched the
+# artefact it was meant to discriminate against. They were re-derived from the
+# added lines of 27236c3d. That is why the table is here rather than a claim.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+THE ASSISTANT RECITED A STALE COUNT INSTEAD OF READING THE GRAPH. Asked the most natural question a customer can ask about their own assistant, it made ZERO tool calls and answered from a memorised count of 1859 contacts while the live graph held 1882. The control is what makes this a diagnosis and not a theory: same box, same instant, wording the only variable -- novel wording called pwg_overview and returned the correct 1882, the memorised wording returned the stale 1859. So the tool ships, the instruction ships, routing is fine, and the fault is memory-vs-retrieval arbitration. consolidation now refuses to write a durable memory for a quantity just read from the live graph. It self-poisoned across runs: same box and build, Q1 scored grounded at 03:45:48Z and no_tool_call at 04:31:45Z, after its own answers had been memorised.	ostler-assistant	e3ddf5dec437761fa607bf5a4138e88c348a8837	yes	assistant_does_not_memorise_a_live_count	needs-walk:v1.0.76#the on-box A/B on the walk box: ask the memorised wording (What do you know about me?) and a novel rewording of the same question in the same session. BOTH must emit a pwg_ tool_call frame and BOTH must report the CURRENT contact count. The v1.0.75 failure was the memorised wording emitting ZERO tool calls and reciting 1859 while the graph held 1882, so a pass requires the stale recitation to be gone, not merely one grounded answer. Control: the novel wording already passed before the fix, so novel-only is not evidence.	ostler-assistant#388
+THE COLLECTION PRE-CREATION WAS UNREACHABLE FOR A CUSTOMER WITH NO EXPORTS. _ostler_ensure_qdrant_collections had exactly ONE call site and it sat INSIDE the GDPR-import branch, so a customer who declines the import on day one never reached #606's pre-creation and finished the install with conversations and evernote_knowledge absent. IMPORT-DECLINED-specific, not cold-box-specific: warm boxes pass because an earlier import already made the collections. The fix hoists a TOP-LEVEL, NON-FATAL call above the branch and leaves the in-branch fatal ERR-14 refusal byte-untouched, so a real import still aborts rather than importing into absent collections. Box-demonstrated 404 to 200 on both missing collections, with an explicit non-zero denominator check because an earlier version of that demo returned rc=0 on an empty required-list.	CM051	3e5587ef92f9c6aa7661105788724b188c968416	yes	collections_prepared_without_an_import	gate:install-manifest-gate.yml#test_collections_are_prepared_without_an_import.sh	CM051#1821
+DAEMON PIN. install.sh and gui/Makefile move to the signed, notarised, stapled hub-v0.4.75 (sha b2e58127), in SIX places -- OSTLER_ASSISTANT_VERSION, DEFAULT_ASSISTANT_TARBALL_SHA256, DAEMON_VERSION, DAEMON_SHA256, the published ostler-releases asset, and HUB_APP_SHA256 for the paired adhoc-signed Ostler.app at the same tag. All six in ONE commit, because CM051 #983 moved three of them, left HUB_APP_SHA256 two versions stale, PASSED EVERY PR CHECK, and was caught only when the cut refused. Both artefacts were built this session from one clean detached worktree and verified on the DOWNLOADED bytes rather than the upload; the wrapper additionally by parity read from INSIDE its binary, with the previous wrapper as a control that must not carry the new commit, and does not.	CM051	3e5587ef92f9c6aa7661105788724b188c968416	yes	daemon_pinned_at_hub_v0475	gate:supply-chain-pins.yml#test_daemon_pins_agree.sh	CM051#1823

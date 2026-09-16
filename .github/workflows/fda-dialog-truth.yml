@@ -25,12 +25,14 @@ on:
       - 'install.sh'
       - 'install.sh.strings.en-GB.sh'
       - 'tests/test_fda_dialog_tells_the_truth.sh'
+      - 'tests/test_fda_modal_names_a_path_a_human_can_reach.sh'
       - '.github/workflows/fda-dialog-truth.yml'
   pull_request:
     paths:
       - 'install.sh'
       - 'install.sh.strings.en-GB.sh'
       - 'tests/test_fda_dialog_tells_the_truth.sh'
+      - 'tests/test_fda_modal_names_a_path_a_human_can_reach.sh'
       - '.github/workflows/fda-dialog-truth.yml'
 
 concurrency:
@@ -48,3 +50,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: A dialog may not claim a state it did not establish
         run: bash tests/test_fda_dialog_tells_the_truth.sh
+      - name: The drag-in modal names a path a human can reach (#1538)
+        if: always()
+        # The bundle to drag lives in ~/.ostler, which the Finder picker hides.
+        # The modal now names the path with ~, puts it on the clipboard when
+        # pbcopy succeeds and says so only then, and points at a Finder window
+        # only when `open -R` actually opened one. The path is derived from
+        # the same variable the installer ditto's the bundle to.
+        run: bash tests/test_fda_modal_names_a_path_a_human_can_reach.sh

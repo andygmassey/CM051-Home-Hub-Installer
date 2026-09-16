@@ -48,6 +48,68 @@ RUNNER = BASE / "run_box_walk.sh"
 EXEMPT: dict[str, str] = {
     "lib/probe.sh":
         "a sourced library, not a probe: it defines probe_pass/probe_fail",
+    "lib/converge_wait.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it beside the "
+        "grounding seed and calls converge_wait, which waits for the two people "
+        "stores to STOP CHANGING before the two probes that read counts. It "
+        "asserts nothing and has no verdict of its own; collecting it would run "
+        "a wait as if it were a measurement. Its invocation is pinned by "
+        "tests/test_the_walk_waits_for_converge.sh, which fails if the runner "
+        "stops sourcing it, calling it, or gating on it.",
+    "lib/grounding_seed.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it between "
+        "phase 1 and phase 2 and calls grounding_seed_apply, which seeds the "
+        "known person the BLOCKING assistant_answers_grounded probe asks "
+        "about. It asserts nothing and has no verdict, so the collector could "
+        "not report it; collecting it would run a seed as if it were a "
+        "measurement. It IS invoked, and that invocation is pinned by "
+        "tests/test_the_walk_seeds_the_grounded_probe.sh, which fails if the "
+        "runner stops sourcing or calling it.",
+    "lib/preference_seed.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it between "
+        "phase 1 and phase 2, beside the grounding seed, and calls "
+        "preference_seed_apply, which seeds the PREFERENCE pair the interest "
+        "profile is read against and then asserts both sides of the 0.28 "
+        "confidence floor. It asserts about the box, but it has no PROBE_NAME "
+        "and no probe_pass/probe_fail verdict, so the collector could not "
+        "report it; collecting it would run a seed as if it were a "
+        "measurement, and would run it AFTER phase 2 rather than before, which "
+        "is the one ordering that seeds nothing. It IS invoked, and that "
+        "invocation is pinned by "
+        "tests/test_the_walk_seeds_the_preference_pair.sh, which fails if the "
+        "runner stops sourcing it, stops calling preference_seed_apply, or "
+        "moves the call below the phase-2 loop.",
+    "lib/conversation_seed.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it between "
+        "phase 1 and phase 2, after the other two seeds, and calls "
+        "conversation_seed_apply, which puts ONE fictional voice note through "
+        "the shipped conversation pipeline with a real model call so that "
+        "ingest_coverage reads a conversations collection the installer "
+        "pre-creates EMPTY, and assistant_answers_grounded asks a box that has "
+        "at least one pwg:ConversationTopic in it. It asserts about the box, "
+        "but it has no PROBE_NAME and no probe_pass/probe_fail verdict, so the "
+        "collector could not report it; collecting it would run a seed as if "
+        "it were a measurement, and would run it AFTER phase 2 rather than "
+        "before, which is the one ordering that seeds nothing. It IS invoked, "
+        "and that invocation is pinned by "
+        "tests/test_the_walk_seeds_the_conversation.sh, which fails if the "
+        "runner stops sourcing it, stops calling conversation_seed_apply, or "
+        "moves the call below the phase-2 loop.",
+    "lib/usage_seed.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it between "
+        "phase 1 and phase 2, last of the four seeds and after the "
+        "conversation seed in particular, and calls "
+        "usage_seed_apply, which runs the installer's own people sweep "
+        "(install.sh:29420-29424) so the cm051_ostler_fda_ingest producer has "
+        "made a measured embedding call before usage_journal_producers reads "
+        "the journal. It asserts about the box, but it has no PROBE_NAME and "
+        "no probe_pass/probe_fail verdict, so the collector could not report "
+        "it; collecting it would run a sweep as if it were a measurement, and "
+        "would run it AFTER phase 2 rather than before, which is the one "
+        "ordering that seeds nothing. It IS invoked, and that invocation is "
+        "pinned by tests/test_the_walk_seeds_the_usage_producer.sh, which "
+        "fails if the runner stops sourcing it, stops calling usage_seed_apply, "
+        "or moves the call below the phase-2 loop.",
     "acceptance_gate_v1013.sh":
         "BY DESIGN, and verified rather than assumed. verify_cut_manifest.py's "
         "registry searches probes/ FIRST and then the flat directory (see its "
@@ -58,6 +120,30 @@ EXEMPT: dict[str, str] = {
         "it anyway. It IS invoked, through its permanent.yaml row, and "
         "post_walk_qa.sh runs the manifest verifier alongside the walk, so its "
         "result does reach the QA output under the manifest section.",
+    "lib/wiki_summaries_wait.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it between "
+        "phase 1 and phase 2, below the usage seed and above the phase-2 loop, "
+        "and calls wiki_summaries_wait, which kickstarts the wiki-recompile "
+        "LaunchAgent so the compile includes what the seeds wrote and then "
+        "waits, bounded, for every sign of life in the detached summary "
+        "backfill (wiki-recompile-tick.sh:394-451) to end: the wrapper pid, "
+        "the summaries log growing, the slot lock's holder, the processes of "
+        "this account naming the compiler, the compile container; never the "
+        "pid alone, because on the v1.0.82 box at 19:08Z the wrapper was gone "
+        "with a 0-byte log and every signal green. That is how "
+        "cm044_wiki_compiler gets its one chance to write a cm044-compile- "
+        "row before usage_journal_producers reads the journal. It "
+        "asserts about the box (the row delta either side of the backfill), "
+        "but it has no PROBE_NAME and no probe_pass/probe_fail verdict, so the "
+        "collector could not report it; collecting it would run a wait as if "
+        "it were a measurement, and would run it AFTER phase 2 rather than "
+        "before, which is the one ordering that waits for nothing. It IS "
+        "invoked, and that invocation is pinned by "
+        "tests/test_the_walk_waits_for_wiki_summaries.sh, which fails if the "
+        "runner stops sourcing it, stops calling wiki_summaries_wait, moves "
+        "the call above the usage seed or below the phase-2 loop, or if the "
+        "lib treats an empty summaries log, or a dead pid alone, as a "
+        "finished compile.",
 }
 
 PASS = 0

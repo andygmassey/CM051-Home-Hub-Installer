@@ -174,8 +174,27 @@ def canonical_keys_of(persons: Set[str]) -> Dict[str, Set[str]]:
 
 
 def _merge_pair(canonical: str, dupe: str) -> None:
-    """Move every triple referencing ``dupe`` onto ``canonical``. After
-    both rewrites, no triple references ``dupe`` and it ceases to exist."""
+    """Move every triple referencing ``dupe`` onto ``canonical``, then leave
+    a ``mergedInto`` tombstone on ``dupe`` so it does not cease to exist.
+
+    THE TOMBSTONE IS NOT DECORATION (2026-09-07). This writer used to erase
+    ``dupe`` completely. ``identity_resolver.merge_persons`` and
+    ``batch_resolver._merge_oxigraph`` both leave ``<dupe> pwg:mergedInto
+    <canonical>``, and every consumer that meets a merged URI keys on it:
+    the assistant API reports ``merged_into`` instead of "unknown person",
+    and the box-walk probe ``people_stores_reconcile`` counts a Qdrant
+    vector as an ORPHAN only when its URI has no presence in the graph in
+    any position. This module writes no Qdrant lines, and the install
+    indexes people (step ``hydrate_people``) BEFORE this sweep runs, so
+    every duplicate it folded left a people vector pointing at a URI that
+    no longer existed: residual B on the reconcile probe (14 on the
+    v1.0.74 walk, 25 on the Studio, every one of them an exact-key merge).
+    The tombstone gives that vector something to resolve to, the same
+    thing the other two writers give it.
+
+    Written LAST, after both rewrites, because the outbound rewrite deletes
+    every ``<dupe> ?p ?o`` -- including a tombstone written before it.
+    """
     # Outbound: <dupe> ?p ?o  ->  <canonical> ?p ?o
     _sparql_update(
         f"DELETE {{ <{dupe}> ?p ?o }} "
@@ -187,6 +206,10 @@ def _merge_pair(canonical: str, dupe: str) -> None:
         f"DELETE {{ ?s ?p <{dupe}> }} "
         f"INSERT {{ ?s ?p <{canonical}> }} "
         f"WHERE  {{ ?s ?p <{dupe}> }}"
+    )
+    # Tombstone: <dupe> pwg:mergedInto <canonical>
+    _sparql_update(
+        f"INSERT DATA {{ <{dupe}> <{PWG}mergedInto> <{canonical}> }}"
     )
 
 

@@ -84,6 +84,17 @@ def _run(cm051: Path, app: Path, *extra, env: dict | None = None) -> subprocess.
     # resolution is driven only by what a test explicitly provides (env kwarg
     # or a gui/Makefile pin), never by the developer's/CI's shell environment.
     run_env = {k: v for k, v in os.environ.items() if k != "DAEMON_VERSION"}
+    # A non-PASS box_walk_probe row writes its full stdout/stderr to an
+    # evidence file (_write_box_walk_evidence). Every box_walk_probe test in
+    # this file goes through THIS helper, so defaulting the override here --
+    # not per test -- keeps all of them hermetic: without it, the many FAIL
+    # and CANNOT-RUN arms below (test_box_walk_probe_fail_on_nonzero,
+    # test_box_walk_probe_exit_78_is_cannot_run_not_fail, and others) would
+    # each leave a real file behind in whoever's actual ~/.ostler/walks/
+    # evidence runs this suite. cm051.parent is tmp_path, unique per test.
+    # setdefault, not assignment: a test that passes its own value via `env`
+    # keeps it.
+    run_env.setdefault("OSTLER_BOX_WALK_EVIDENCE_DIR", str(cm051.parent / "box_walk_evidence"))
     if env:
         run_env.update(env)
     return subprocess.run(
@@ -357,6 +368,111 @@ def test_grep_in_dmg_tree_strings_pass_on_binary(fake_cm051, fake_app):
     }])
     r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
     assert r.returncode == 1, r.stdout
+
+
+def test_grep_in_dmg_tree_catches_pii_in_compiled_pyc(fake_cm051, fake_app):
+    """A verbatim literal baked into a vendored .pyc must be caught.
+
+    Before _COMPILED_EXTS existed, `.pyc` was in neither _TEXT_EXTS nor the
+    extensionless branch, so _iter_dmg_tree_scan_files never yielded it at
+    all: not read as text, not run through strings(1), not counted as
+    unscanned. hits stayed 0 and must_match=False turned that into a PASS --
+    a leak compiled into a vendored .pyc reading as a clean cut.
+    """
+    vendored = fake_app / "Contents" / "Resources" / "identity_resolver" / "__pycache__"
+    vendored.mkdir(parents=True)
+    # Not valid bytecode -- doesn't need to be. strings(1) reads whatever
+    # printable bytes are in the file, exactly as it would a real compiled
+    # marshal stream carrying a string constant.
+    (vendored / "compartment.cpython-311.pyc").write_bytes(
+        b"\xf3\r\r\n\x00\x00\x00\x00fake marshal header connect to gamingrig for sync\x00"
+    )
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [_PII_ABSENCE_ENTRY])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "compartment.cpython-311.pyc" in r.stdout
+
+
+def test_grep_in_dmg_tree_unrecognised_extension_is_scanned_not_skipped(fake_cm051, fake_app):
+    """A file whose extension is on neither list is READ, so a leak inside it
+    is FOUND rather than quietly unexamined.
+
+    THIS TEST USED TO ASSERT CANNOT-RUN, and that was right for the code it
+    was written against: the enumerator skipped an unknown suffix, so hits=0
+    was a statement about what the scan opened rather than about the artefact,
+    and manufacturing a PASS from it was the failure CouldNotMeasure exists to
+    prevent. The scan no longer skips it. An unfamiliar extension is evidence
+    about our enumeration, not about the file, so it is scanned with strings(1)
+    and the stronger assertion is now available: the leak is caught.
+
+    Measured consequence of the old behaviour, which is why this changed: the
+    v1.0.92 cut produced no DMG at all. 660 files in the real built app carry
+    such a suffix, so both operator-PII rows returned CANNOT-RUN for ever and
+    check-manifest, a prerequisite of ship, could never pass.
+
+    The refusal itself is NOT gone. It moved to where it is real, and the test
+    below this one proves a file that genuinely cannot be read still produces
+    CANNOT-RUN rather than a pass.
+    """
+    mystery = fake_app / "Contents" / "Resources" / "weird.xyz123"
+    mystery.write_bytes(b"\x00\x01 connect to gamingrig now\x00")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [_PII_ABSENCE_ENTRY])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "weird.xyz123" in r.stdout, r.stdout
+    assert "CANNOT-RUN" not in r.stdout, r.stdout
+
+
+def test_grep_in_dmg_tree_clean_unrecognised_extension_reaches_a_verdict(fake_cm051, fake_app):
+    """The same file WITHOUT the pattern must PASS, not stall at CANNOT-RUN.
+
+    The negative control for the test above. Without it, "the leak is found"
+    could be satisfied by a scan that flags everything, and the v1.0.92
+    deadlock would still be in place.
+    """
+    mystery = fake_app / "Contents" / "Resources" / "weird.xyz123"
+    mystery.write_bytes(b"\x00\x01 nothing interesting here \x00")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [_PII_ABSENCE_ENTRY])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+    assert "CANNOT-RUN" not in r.stdout, r.stdout
+
+
+def test_grep_in_dmg_tree_unreadable_archive_is_still_cannot_run(fake_cm051, fake_app):
+    """A container whose bytes cannot be reached still refuses.
+
+    strings(1) cannot see through deflate, so an archive is expanded rather
+    than scanned in place. One that will NOT expand is genuinely unread, and
+    must not look like a clean one. This is the half of the old guard that
+    survives, and it is the half that was always load-bearing.
+    """
+    broken = fake_app / "Contents" / "Resources" / "busted.zip"
+    broken.write_bytes(b"PK\x03\x04THISISNOTAVALIDARCHIVE")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [_PII_ABSENCE_ENTRY])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "CANNOT-RUN" in r.stdout, r.stdout
+    assert "busted.zip" in r.stdout, r.stdout
+
+
+def test_grep_in_dmg_tree_unrecognised_extension_does_not_mask_a_real_hit(fake_cm051, fake_app):
+    """An unscanned file must not swallow a genuine hit found elsewhere: the
+    CANNOT-RUN path is scoped to hits==0 only, so a real leak still FAILs
+    loudly rather than being softened to CANNOT-RUN."""
+    mystery = fake_app / "Contents" / "Resources" / "weird.xyz123"
+    mystery.write_bytes(b"nothing interesting here")
+    leaking = fake_app / "Contents" / "Resources" / "leak.py"
+    leaking.write_text("# talks to gamingrig directly\n")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [_PII_ABSENCE_ENTRY])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "leak.py" in r.stdout
+    assert "CANNOT-RUN" not in r.stdout
 
 
 def test_grep_in_dmg_tree_scans_source_install_sh_without_build(fake_cm051, tmp_path):
@@ -2710,3 +2826,164 @@ def test_a_response_with_no_state_field_is_still_measured(tmp_path, monkeypatch)
     assert result.status == "PASS", result.detail
     assert "up to date" in result.detail
 
+
+
+# ---------------------------------------------------------------------------
+# box_walk_probe rows take the phase 1 verdict (OSTLER_PHASE1_VERDICTS)
+#
+# v1.0.89, 2026-09-10: the replay re-ran assistant_answers_grounded AFTER
+# run_box_walk.sh had forgotten the seeds and read tool_found_nothing on stores
+# it had emptied, minutes after phase 1 read 4 of 4 grounded against the seed
+# fixture. The probe stub below leaves a marker file when it runs, so every arm
+# can assert whether the script was invoked, not just what the row said.
+# ---------------------------------------------------------------------------
+
+def _phase1_setup(cm051, tmp_path, monkeypatch, probe, verdict_rows, body="exit 0"):
+    marker = tmp_path / f"{probe}.ran"
+    monkeypatch.setenv("OSTLER_BOX_HOST", "1.2.3.4")
+    monkeypatch.setenv("PROBE_MARKER", str(marker))
+    _write_probe(cm051, probe, 'touch "$PROBE_MARKER"\n' + body)
+    vf = tmp_path / "phase1.tsv"
+    vf.write_text("".join(r + "\n" for r in verdict_rows))
+    monkeypatch.setenv("OSTLER_PHASE1_VERDICTS", str(vf))
+    _write_manifest(cm051, "permanent.yaml", [])
+    _write_manifest(cm051, "v1.0.0.yaml", [{
+        "id": f"box-walk-{probe}",
+        "title": f"box-walk probe must PASS: {probe}",
+        "proof": {"kind": "box_walk_probe", "probe": probe},
+    }])
+    return marker
+
+
+def test_box_walk_probe_takes_phase1_pass_and_does_not_rerun(fake_cm051, fake_app, tmp_path, monkeypatch):
+    """A PASS phase 1 row is the row's verdict, and the script is NOT invoked."""
+    marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "green",
+                           ["green\tPASS\t2026-09-10T15:36:00Z\t\tseed-fixture"], body="exit 0")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+    assert "took the phase 1 verdict" in r.stdout, r.stdout
+    assert not marker.exists(), "the probe script ran; the row must take phase 1's verdict, not re-measure"
+
+
+def test_box_walk_probe_takes_phase1_fail_even_when_a_rerun_would_pass(fake_cm051, fake_app, tmp_path, monkeypatch):
+    """The strongest arm: phase 1 said FAIL, the script would exit 0 now. The row
+    is FAIL with phase 1's reason, and the script is not run to launder it."""
+    marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "red",
+                           ["red\tFAIL\t2026-09-10T15:40:00Z\tfact missing on the seeded question\tseed-fixture"],
+                           body="exit 0")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "fact missing on the seeded question" in r.stdout, r.stdout
+    assert not marker.exists()
+
+
+def test_box_walk_probe_takes_phase1_cannot_run(fake_cm051, fake_app, tmp_path, monkeypatch):
+    marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "cr",
+                           ["cr\tCANNOT-RUN\t2026-09-10T15:41:00Z\tno seed directory\tseed-fixture"],
+                           body="exit 0")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert "CANNOT-RUN" in r.stdout, r.stdout
+    assert "no seed directory" in r.stdout, r.stdout
+    assert not marker.exists()
+
+
+def test_box_walk_probe_phase1_broken_reads_fail_not_pass(fake_cm051, fake_app, tmp_path, monkeypatch):
+    """A probe whose negative control did not fire is a defect; the old replay
+    re-ran the script and let it exit 0."""
+    marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "brk",
+                           ["brk\tBROKEN\t2026-09-10T15:30:00Z\tself-test returned 0, expected 1\tseed-fixture"],
+                           body="exit 0")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "BROKEN" in r.stdout, r.stdout
+    assert not marker.exists()
+
+
+def test_box_walk_probe_reruns_when_phase1_has_no_row_for_it(fake_cm051, fake_app, tmp_path, monkeypatch):
+    """Mutant control for the arms above: a file that names OTHER probes only
+    must leave this row measured by running the script (marker present)."""
+    marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "fresh",
+                           ["someone_else\tPASS\t2026-09-10T15:36:00Z\t\tseed-fixture"], body="exit 0")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+    row = json.loads(r.stdout)["results"][0]
+    assert "took the phase 1 verdict" not in row["detail"], row
+    assert "exit=0" in row["detail"], row
+    assert marker.exists(), "no phase 1 row for this probe: the script must run"
+
+
+def test_box_walk_probe_last_phase1_row_wins_and_unknown_word_reruns(fake_cm051, fake_app, tmp_path, monkeypatch):
+    marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "twice",
+                           ["twice\tFAIL\t2026-09-10T15:36:00Z\tfirst\tseed-fixture",
+                            "twice\tPASS\t2026-09-10T15:39:00Z\t\tseed-fixture"], body="exit 0")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+    assert not marker.exists()
+    marker2 = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "odd",
+                            ["odd\tMAYBE\t2026-09-10T15:36:00Z\t\tseed-fixture"], body="exit 0")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+    assert marker2.exists(), "an unknown verdict word must fall back to measuring"
+
+
+def test_box_walk_probe_live_state_row_is_measured_again(fake_cm051, fake_app, tmp_path, monkeypatch):
+    """Scope control: a phase 1 row marked live (a probe that reads live state,
+    not the seed fixture) does NOT replace the second measurement. 26 of the 30
+    rows in cut-manifests/v1.0.89.yaml are box_walk_probe rows; only the three
+    seed-dependent probes are echoed, the rest are re-run. A four-column row
+    with no fixture word is measured again too."""
+    marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "people_x",
+                           ["people_x\tPASS\t2026-09-10T15:36:00Z\t\tlive"], body="exit 3")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    row = json.loads(r.stdout)["results"][0]
+    assert "exit=3" in row["detail"], row
+    assert "took the phase 1 verdict" not in row["detail"], row
+    assert marker.exists(), "a live-state row must not stop the probe from running"
+    marker2 = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "four_col",
+                            ["four_col\tPASS\t2026-09-10T15:36:00Z\t"], body="exit 0")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert marker2.exists(), "a row without the fixture column must be measured again"
+    assert "2 row(s), 0 marked seed-fixture" in r.stdout or "1 row(s), 0 marked seed-fixture" in r.stdout, r.stdout
+    assert "took the phase 1 verdict (fixture present then, forgotten since) and were not re-run: none" in r.stdout, r.stdout
+
+
+def test_box_walk_probe_phase1_env_unset_is_said_out_loud(fake_cm051, fake_app, tmp_path, monkeypatch):
+    """The disengaged path must not be silent (TNM, #1913): with the take scoped
+    to three probes, silence is normal for the other 23, so an env var that
+    stops being passed would restore the v1.0.89 re-run with the record
+    looking the same. Unset: the probe runs AND the summary says UNSET."""
+    marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "loud",
+                           ["loud\tFAIL\t2026-09-10T15:36:00Z\twould be taken\tseed-fixture"], body="exit 0")
+    monkeypatch.delenv("OSTLER_PHASE1_VERDICTS", raising=False)
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+    assert marker.exists(), "with the env unset the probe must run"
+    assert "OSTLER_PHASE1_VERDICTS is UNSET" in r.stdout, r.stdout
+
+
+def test_box_walk_probe_phase1_file_unreadable_is_said_with_the_path(fake_cm051, fake_app, tmp_path, monkeypatch):
+    marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "gone",
+                           ["gone\tFAIL\t2026-09-10T15:36:00Z\twould be taken\tseed-fixture"], body="exit 0")
+    missing = tmp_path / "not-there.tsv"
+    monkeypatch.setenv("OSTLER_PHASE1_VERDICTS", str(missing))
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+    assert marker.exists(), "with the file unreadable the probe must run"
+    assert "is UNREADABLE" in r.stdout and str(missing) in r.stdout, r.stdout
+
+
+def test_box_walk_probe_phase1_summary_silent_without_box_rows(fake_cm051, fake_app, monkeypatch):
+    """No box row reached a box (OSTLER_BOX_HOST unset, rows SKIP): the line is
+    not printed, so CI runs without a box stay quiet about a file they never use."""
+    monkeypatch.delenv("OSTLER_BOX_HOST", raising=False)
+    monkeypatch.delenv("OSTLER_PHASE1_VERDICTS", raising=False)
+    _write_probe(fake_cm051, "quiet", "exit 0")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-quiet", "title": "runtime probe smoke check",
+        "proof": {"kind": "box_walk_probe", "probe": "quiet"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+    assert "OSTLER_PHASE1_VERDICTS" not in r.stdout, r.stdout

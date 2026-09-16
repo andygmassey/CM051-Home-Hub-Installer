@@ -46,7 +46,15 @@ name: cold-box-source-truth
 on:
   pull_request:
     paths:
+      - 'tests/test_no_program_dodges_the_promote.sh'
+      - 'tests/test_a_taken_port_is_named_not_abstracted.sh'
       - 'install.sh'
+      # Both halves of the bash 3.2 guard: the test itself, so a change to it
+      # cannot go unrun, and its subject, so a regression in the subject fires
+      # the gate that watches it. A run: step with no matching path entry is a
+      # gate you have read, not a gate you have run.
+      - 'tests/test_case_in_command_substitution_parses_under_bash_32.sh'
+      - 'tests/test_vendor_only_survives_sync.sh'
       - 'vendor/doctor/agent/web_ui.py'
       - 'vendor/cm041/identity_resolver/batch_resolver.py'
       - 'vendor/cm041/identity_resolver/resolver.py'
@@ -69,6 +77,7 @@ on:
       - 'scripts/ttywalk.sh'
       - 'tests/test_a_slow_step_is_not_a_wedged_one.sh'
       - 'tests/test_walk_driver_cancel_is_not_a_build_verdict.sh'
+      - 'tests/test_a_box_precondition_is_not_a_build_verdict.sh'
       - 'tests/test_a_tally_that_contradicts_the_log_is_not_a_pass.sh'
       - 'tests/test_artefact_walk_stages_the_dmg_payload.sh'
       - 'tests/test_consent_state_is_defined_before_it_is_called.sh'
@@ -85,6 +94,10 @@ on:
       - 'install.sh.strings.en-GB.sh'
       - 'tests/test_an_unmeasured_flag_must_be_read.sh'
       - 'tests/test_ollama_agent_does_not_depend_on_a_foreign_port.sh'
+      - 'tests/test_ollama_agent_check_survives_a_not_yet_running_agent.sh'
+      - 'tests/test_credential_generation_does_not_sigpipe.sh'
+      - 'tests/test_install_depth_reports_a_trustworthy_number.sh'
+      - 'scripts/install_depth.sh'
       - 'tests/test_store_health_does_not_depend_on_a_foreign_port.sh'
       - 'tests/test_every_fail_call_has_error_code.sh'
       - 'tests/test_a_plistbuddy_read_takes_its_exit_code.sh'
@@ -131,6 +144,21 @@ jobs:
 
       - name: An empty owner email must not reach a shipped LaunchAgent
         run: bash tests/test_aiconv_agent_not_registered_without_owner_email.sh
+
+      - name: no program is created where the promote will delete it
+        # always(), because an earlier red must not hide a LaunchAgent whose
+        # program the installer itself removes.
+        if: always()
+        run: bash tests/test_no_program_dodges_the_promote.sh
+      - name: a taken port is named, not abstracted into a catch-all
+        if: always()
+        run: bash tests/test_a_taken_port_is_named_not_abstracted.sh
+      - name: shell tests run to completion under the cut host's bash 3.2
+        # always(), because a step that only runs on success can be masked
+        # by an earlier red, and this one exists to catch a suite that
+        # stops partway while still printing PASS above the failure.
+        if: always()
+        run: /bin/bash tests/test_case_in_command_substitution_parses_under_bash_32.sh
 
       # Runtime, not structural: the defect is an ORDERING between a guard and
       # a fold, and both were present in the tree that shipped it. Needs
@@ -236,6 +264,10 @@ jobs:
         if: always()
         run: bash tests/test_walk_driver_cancel_is_not_a_build_verdict.sh
 
+      - name: A box precondition is not a build verdict
+        if: always()
+        run: bash tests/test_a_box_precondition_is_not_a_build_verdict.sh
+
       # The subshell that emits a phantom terminal marker also increments
       # its own copy of __OSTLER_FAILED_STEPS and then dies with it, while
       # the STEP_END it wrote stays on the marker wire. So a run can carry
@@ -313,6 +345,27 @@ jobs:
       - name: The Ollama agent must not depend on a foreign port
         if: always()
         run: bash tests/test_ollama_agent_does_not_depend_on_a_foreign_port.sh
+      # #1754: the agent check itself aborted the install. It was called as a
+      # BARE command, and its return 1 -- registered but not yet
+      # `state = running` -- fired the ERR trap at :10793, so the 90s poll
+      # built to wait out that window never ran an iteration. NOT errexit:
+      # errexit is OFF at that line (:8140 set -uo pipefail) and an ERR trap
+      # fires either way, which is why `set +e` would not have helped.
+      - name: The Ollama agent check must survive an agent that is not yet running
+        if: always()
+        run: bash tests/test_ollama_agent_check_survives_a_not_yet_running_agent.sh
+      # #1754 second instance: `tr < /dev/urandom | head -c 20` SIGPIPEs, and
+      # pipefail made that fatal -- with the loud ERR-14 length check sitting
+      # unreachable directly below it. Same shape as the Ollama poll above.
+      - name: Credential generation must not abort the install on SIGPIPE
+        if: always()
+        run: bash tests/test_credential_generation_does_not_sigpipe.sh
+      # The depth number is what makes an install regression bisectable. A
+      # depth tool that cannot fail is worse than none: a silent 41/41 reads
+      # as 'it completed'. This asserts the must-fail control.
+      - name: install_depth reports a number that can be wrong
+        if: always()
+        run: bash tests/test_install_depth_reports_a_trustworthy_number.sh
       # D008: the SAME defect shape on the two colima stores. :6333 cannot be
       # closed the way :11434 was -- Qdrant and Oxigraph have no launchd
       # identity, so launchctl would answer a confident "absent" for a healthy

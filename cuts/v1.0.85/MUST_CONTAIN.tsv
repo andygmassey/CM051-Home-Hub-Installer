@@ -1,0 +1,68 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.85.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.85/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN.
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS, IN ONE LINE
+# ===========================================================================
+# v1.0.84 was tagged ONCE at ba3215d5 and built NOTHING: the artefact gate PASSED
+# (the v1.0.83 hostname reword is proven there) and the cut-freshness gate refused
+# because vendor cm041/contact_syncer lags upstream by a0f3ca19 (CM041 #161, the
+# scrub, merged after the v1.0.82 cut) with no hold_ack covering it. v1.0.85 carries
+# the same four rows as v1.0.84, whose refs have not moved, plus row 5: the hold_ack
+# naming a0f3ca19 with shipping_bugfixes_grafted = true (the vendored tree already
+# carries the scrubbed content by digest; the pin cannot advance by regeneration).
+# ROW 5 (the hold_ack) is below, keyed on its MERGE commit; this file is complete.
+#
+# THE DAEMON DOES NOT MOVE. 0.4.77 at a9af0595, the same as v1.0.82 to v1.0.84,
+# so no re-pin happens and the six pin sites are NOT touched.
+#
+# ===========================================================================
+# WHAT THIS BOM CANNOT PROMISE, SAID BEFORE THE ROWS RATHER THAN AFTER
+# ===========================================================================
+# PRESENCE IS NOT WRITING. Both rows below are proved by a capability pattern in
+# the shipped tree, which establishes that the producer CODE reaches the
+# customer. It does not establish that a journal row appears. The writer returns
+# without recording when the runtime reports no token counts, which is correct
+# and is required by the gate's own must-miss arm, so ABSENT on a walk means no
+# measured model call happened, NOT that the writer is missing. Two different
+# findings with two different owners, and this BOM only speaks to the first.
+#
+# One measurement decides whether the embed-based half can write at all, and it
+# came back the right way: an /api/embed POST on the walk box at
+# 2026-09-09T17:42:35Z returned prompt_eval_count present, int, with controls
+# firing. The /api/generate path, which is cm048's dominant one, was still
+# unmeasured when this file was written and is being measured on the box.
+#
+# ===========================================================================
+# THE ref COLUMN IS THE MERGE COMMIT, NEVER THE PR HEAD.
+# ===========================================================================
+# On v1.0.81 a row named a PR head. That object is not an ancestor of main and
+# is reachable only through refs/pull/<n>/head, which a fresh clone never
+# fetches, so the row resolved on the author's box and nowhere else.
+#
+# Both refs below were checked twice before being written: `git cat-file -t`
+# says commit, and `git merge-base --is-ancestor <ref> e54e5a3e` says yes.
+#
+# ===========================================================================
+# WHAT IS DELIBERATELY NOT A ROW
+# ===========================================================================
+# CM051 #1882 (the walk-time conversation seed) and #1880 (the people-sweep
+# seed) are NOT rows. They are walk APPARATUS: both live under
+# scripts/box_walk_probes/ and neither reaches the DMG. A BOM row says what the
+# artefact CONTAINS. Putting apparatus in one would make this file claim the
+# artefact holds things it does not, which is the single thing it exists to
+# prevent. They are recorded in cut-manifests/v1.0.85.yaml instead.
+#
+# This file is not the cut's readiness; gates/verify_must_contain.sh is.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+THE cm048 USAGE-JOURNAL PRODUCER, RE-VENDORED. The vendored CM048 pipeline now records every MEASURED model call through the vendored ostler_usage_journal writer, so the roster row cm048_conversation_extract stops being ABSENT because nothing writes it. Re-vendored at CM048 53fcdf0b, which also took the tree from 1142 undescribed divergence lines across 8 files to ZERO: it now reconstructs exactly from source plus vendor/divergences/cm048_pipeline.patch, and the 822 lines that remain were read hunk by hunk and are each a NAMED CM051-local graft. Four files from the previously HELD i18n commit are excluded BY NAME rather than by a sha list, so a re-pin cannot silently reverse a judgement made on the merits. Carries one fix that was invisible to every guard: prompts/__init__.py was ZERO BYTES, and a zero-byte vendor-only file emits nothing from diff -u /dev/null, so the divergence patch could not describe it and the next sync would have deleted it silently.	CM051	e54e5a3ec39e0aaecc1c47eb3b22a288f1f0064b	no	cm048_producer_is_vendored	TBD	CM051 #1881
+THE cm041 USAGE-JOURNAL PRODUCER, GRAFTED AS ADDED LINES ONLY. The vendored contact_syncer and assistant_api now carry the producer, so cm041_identity_resolution can write. ADDED LINES ONLY, not a regeneration, and that is the whole design: regenerate_forbidden stays TRUE for contact_syncer because the pin f83d5aee is THIRTEEN COMMITS BEFORE the upstream PII scrub at a0f3ca19, and a divergence patch is diff(source@pinned_sha, vendored), so regenerating would put a real person name on the MINUS side. Measured by digest: the pin reads pre-scrub, #161 and the vendored tree agree post-scrub, so THE PIN DISAGREES WITH BOTH. The graft ships the producer without moving the pin at all. The writer is byte-identical to the ostler_fda one, hashed rather than asserted, and the one line replaced is a return inside _embed_text whose hot path is covered by its own test arm.	CM051	dd4d32e073519c0ed7f0e636aac8d0b96ec681a7	no	cm041_producer_grafted_into_vendored_trees	TBD	CM051 #1884
+THE STORE-AUTH .pth IMPORT GUARD. The one measured install-log error class on the v1.0.82 walk. install.sh wrote a .pth whose import ran before ~/.ostler/lib/ostler_store_auth.py existed at its promoted path, so site.addpackage raised ModuleNotFoundError and printed three tracebacks into install.log (:175, :492, :500) WHILE EVERY STEP REPORTED status=ok. install_error_honesty FAILED on exactly those three lines and was right to: a summary is not a result. Guarded now with importlib.util.find_spec, one line, +1/-1, NET LINE DELTA ZERO so the fifteen absolute citations in the re-arm comment at :2979-3000 cannot shift. Verified with a real interpreter both directions after a first harness that proved nothing (PYTHONPATH does not process .pth files): with the module ABSENT the old form writes 441 bytes of ModuleNotFoundError and the new form writes 0; with it PRESENT the new form still imports. Its suite reads 13/0 at this commit and 11/2 with the previous install.sh swapped in, failing exactly the two arms that describe the defect.	CM051	2845cad3f1d7a1a10f75480e9b203af6cc47584a	no	store_auth_pth_import_is_guarded	TBD	CM051 #1886
+THE HOSTNAME CLAUSE REWORDED. v1.0.83 built nothing because vendor/VENDOR_MANIFEST.toml:356 named the operator's personal box hostname inside the CM048 row's unverifiable_ack_reason prose, and gui/Makefile:1249 ships that file inside the hub payload, where the cut gate no-operator-hostname refused it (1 hit; 0 at v1.0.82). This row is the one-line reword, plus a PR-time test that reads the same no-operator-* rules from cut-manifests/permanent.yaml so the next such string dies at review rather than at a tag.	CM051	4dc92c73f4e2e51c14aa064671608beb65a20a98	no	vendor_manifest_hostname_clause_reworded	TBD	CM051 #1894
+THE cm041/contact_syncer HOLD_ACK FOR THE UPSTREAM SCRUB. v1.0.84 built nothing because make check-freshness found vendor cm041/contact_syncer one delta commit behind live upstream HEAD, a0f3ca19 (CM041 #161, the PII scrub, merged after the v1.0.82 cut), with no hold_ack covering it. The vendored tree already carries the scrubbed content (locator digest matches #161, CM051 #1884) and cannot advance by regeneration (1 of 17 hunks fails at the pin, CM051 #1878), so this row is the gate's own remedy: hold_ack_shas gains a0f3ca19, shipping_bugfixes_grafted = true, and the reason is written in the manifest. The graft-forward re-pin stays the post-freeze exit.	CM051	2c5edcb10f21644083e8f91f9f9d6dc478d12076	no	contact_syncer_hold_ack_covers_the_upstream_scrub	TBD	CM051 #1896

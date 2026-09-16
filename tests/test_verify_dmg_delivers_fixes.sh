@@ -38,6 +38,11 @@ INV_142='is_kinship_given_name'
 # alone would add a function nobody calls and a definition-row would go
 # green over it.
 INV_145='prefer_real_given_name'
+# The two dedupe_merge rows (2026-09-07): the stats key the RULE 2 veto returns,
+# and the f-string of the mergedInto tombstone update. Both live only on the
+# vendored copy, which is exactly why the DMG must be read for them.
+INV_1573_VETO='refused_rule2'
+INV_1573_TOMB='mergedInto> <{canonical}>'
 
 # arm 0: the check still declares exactly these three invariants (a fixture that
 # drifts from the check would make every other arm meaningless).
@@ -61,13 +66,14 @@ ok "arm 0: the three fixture invariants match the check's declared set"
 # which is the direction that actually happened. So both, and a mismatch is
 # CANNOT-RUN rather than a fail: the arms below cannot mean anything until the
 # fixture describes a complete artefact again.
-PAYLOAD_INV_FIXTURE=( "$INV_1543" "$INV_755" "$INV_142" "$INV_145" )
+PAYLOAD_INV_FIXTURE=( "$INV_1543" "$INV_755" "$INV_142" "$INV_145" "$INV_1573_VETO" "$INV_1573_TOMB" )
 # The payload FILES this fixture writes into every "good DMG". Kept beside
 # the invariants so the two cannot drift apart unnoticed.
 PAYLOAD_PATH_FIXTURE=( "contact_syncer/syncer.py"
                        "identity_resolver/canonical_name.py"
                        "identity_resolver/resolver.py"
-                       "identity_resolver/batch_resolver.py" )
+                       "identity_resolver/batch_resolver.py"
+                       "ostler_fda/dedupe_merge.py" )
 # `sort -u`, not `sort`. TWO PAYLOAD ROWS MAY SHARE ONE INVARIANT: #145 names
 # `prefer_real_given_name` in BOTH resolver.py and batch_resolver.py, because
 # the fix must fire on two divergent twins. The invariant is a string to grep
@@ -112,7 +118,7 @@ ok "arm 0c: every PAYLOAD_PATH the check declares is a file this fixture creates
 # Defaults to "with", so the arms written before the payload limb existed keep
 # describing a well-formed artefact rather than accidentally testing absence.
 build_dmg() {
-    local name="$1" outer="$2" payload="$3" syncer="${4:-with}"
+    local name="$1" outer="$2" payload="$3" syncer="${4:-with}" dedupe="${5:-with}"
     local stage="${TMP}/${name}-stage"
     local outer_dir="${stage}/OstlerInstaller.app/Contents/Resources"
     local pay_dir="${outer_dir}/Ostler.app/Contents/Resources/ostler-payload"
@@ -145,6 +151,14 @@ build_dmg() {
             > "${outer_dir}/identity_resolver/batch_resolver.py"
         # A DECOY the path-suffix match must NOT accept. `-name syncer.py` alone
         # would find this and call the payload delivered.
+        # ostler_fda/dedupe_merge.py: fresh carries the veto's stats key and the
+        # tombstone f-string; stale is the pre-graft module, which has neither.
+        mkdir -p "${outer_dir}/ostler_fda"
+        printf '# synthetic dedupe_merge fixture\n' > "${outer_dir}/ostler_fda/dedupe_merge.py"
+        if [ "$dedupe" = "with" ]; then
+            printf 'stats = {"%s": 0}\n' "$INV_1573_VETO" >> "${outer_dir}/ostler_fda/dedupe_merge.py"
+            printf 'q = f"INSERT DATA {{ <{dupe}> <{PWG}%s }}"\n' "$INV_1573_TOMB" >> "${outer_dir}/ostler_fda/dedupe_merge.py"
+        fi
         mkdir -p "${outer_dir}/meeting_syncer"
         printf '# meeting_syncer, which does NOT carry the dedupe guard\n' \
             > "${outer_dir}/meeting_syncer/syncer.py"
@@ -226,6 +240,12 @@ rc="$(run "$(build_dmg pay_stale "$allthree" "$allthree" without)")"
 
 # arm 8: no contact_syncer at all -> CANNOT-RUN, never a pass. An absent file
 # and a present-but-stale one must not report the same.
+rc="$(run "$(build_dmg pay_dedupestale "$allthree" "$allthree" with without)")"
+if [ "$rc" = "1" ]; then
+    ok "arm 7b: a stale ostler_fda/dedupe_merge.py beside a fresh contact_syncer -> FAIL; the dedupe rows are load-bearing on their own"
+else
+    bad "arm 7b: a DMG shipping the pre-graft dedupe_merge.py returned rc=${rc}, expected 1 -- the veto and tombstone could ship dark"
+fi
 rc="$(run "$(build_dmg pay_absent "$allthree" "$allthree" absent)")"
 [ "$rc" = "2" ] && ok "arm 8: no contact_syncer/syncer.py in the DMG -> CANNOT-RUN (rc 2), not a pass" \
                  || bad "arm 8: a DMG with no payload file returned rc=${rc}, expected 2"

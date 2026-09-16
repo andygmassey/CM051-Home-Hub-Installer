@@ -71,6 +71,7 @@ on:
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'tests/test_usage_journal_producer_gate.sh'
       - 'tests/test_usage_journal_readers_resolve_like_the_daemon.sh'
+      - 'tests/test_the_workspace_marker_survives_the_promote.sh'
       - 'tests/fixtures/usage_journal/costs_full.jsonl'
       # The SHIPPING producer itself. The roster names cm051_ostler_fda_ingest
       # as its one MEASURED row -- measured on HR015 source, which is not what
@@ -79,6 +80,12 @@ on:
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'vendor/ostler_fda/usage_journal.py'
       - 'tests/test_vendored_fda_writes_the_usage_journal.sh'
+      # The cm041 producer, same doctrine as the ostler_fda one above: the
+      # roster's row is only true of what SHIPS, and what ships is the
+      # vendored tree, not CM041's own repo.
+      - 'vendor/cm041/contact_syncer/**'
+      - 'vendor/cm041/assistant_api/**'
+      - 'tests/test_cm041_usage_journal_producer.sh'
       - 'cut-manifests/permanent.yaml'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in the very PR that narrows it.
@@ -169,12 +176,37 @@ jobs:
         if: always()
         run: /bin/bash tests/test_vendored_fda_writes_the_usage_journal.sh
 
+      # THE SAME QUESTION, ASKED OF cm041_identity_resolution. Its producer is
+      # upstream (CM041 #137 at 82f45376) and this repo ships VENDORED copies
+      # pinned behind it, so "merged upstream" says nothing about what a
+      # customer runs. This step RUNS both vendored producers and requires a
+      # record, with the prefix and purpose read out of the roster. CM041's own
+      # commit message records py_compile passing on a version of this producer
+      # carrying two NameErrors, so a syntax check would not have caught it.
+      - name: The SHIPPING cm041 producers actually write a record
+        if: always()
+        run: /bin/bash tests/test_cm041_usage_journal_producer.sh
+
       # W006: explicit run step (#647). Drives the SHIPPED resolver, so it goes
       # red if install.sh ever stops publishing the workspace marker and the
       # non-daemon readers drift back to a path nothing writes.
       - name: Journal readers resolve to the daemon's path (W006)
         if: always()
         run: /bin/bash tests/test_usage_journal_readers_resolve_like_the_daemon.sh
+
+      # AND THE MARKER THOSE READERS RESOLVE THROUGH MUST NOT NAME /tmp.
+      # ${HOME}/.ostler/active_workspace.toml records ASSISTANT_CONFIG_DIR by
+      # VALUE and is written while OSTLER_DIR is still the staging tree. Every
+      # main-flow promote runs after it and nothing rewrote it, so on every
+      # installed box the marker held /tmp/ostler-prelaunch-<pid>. Measured in
+      # v1.0.79 walk record #2: usage_journal_producers read 346 journal lines
+      # from a costs.jsonl under that prefix, on a fully installed machine,
+      # from a directory macOS clears on boot. The gate above proves the
+      # readers agree with the daemon; this one proves the thing they agree on
+      # still exists after the install finishes.
+      - name: The workspace marker names the promoted tree, not the staging one
+        if: always()
+        run: /bin/bash tests/test_the_workspace_marker_survives_the_promote.sh
 
       # The three exit codes, asserted at the top level rather than only inside
       # the harness. CANNOT-RUN collapsing into PASS or FAIL is the exact
@@ -373,6 +405,16 @@ jobs:
       - name: The SHIPPING ostler_fda writes a record, on bash 3.2 + BSD
         if: always()
         run: /bin/bash tests/test_vendored_fda_writes_the_usage_journal.sh
+
+      # Same reason as the ostler_fda pair: contact_syncer and ical-server run
+      # on the CUSTOMER'S Mac, so the cm041 producer guard is exercised on
+      # bash 3.2 + BSD userland too. This one leans on `cut -f`, `shasum` and a
+      # tab-anchored grep against the roster, all of which differ between GNU
+      # and BSD, so an ubuntu-only green would say nothing about the machine
+      # this ships to.
+      - name: The SHIPPING cm041 producers write a record, on bash 3.2 + BSD
+        if: always()
+        run: /bin/bash tests/test_cm041_usage_journal_producer.sh
 
       # THE PROBE'S OWN NEGATIVE CONTROL, driven exactly as run_box_walk.sh
       # phase 1 drives it: rc must be 1 AND the output must not say BROKEN.

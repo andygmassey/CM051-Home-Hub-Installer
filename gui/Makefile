@@ -199,7 +199,7 @@ PYTHON_BUNDLE_TARBALL  := $(BUILD_DIR)/python-bundle.tar.gz
 # DAEMON_VERSION + DAEMON_SHA256 and run `make download-daemon` to
 # verify the fetch + checksum still pass.
 # ---------------------------------------------------------------------------
-DAEMON_VERSION       ?= 0.4.73
+DAEMON_VERSION       ?= 0.4.80
 # SHA-256 of the published hub-v$(DAEMON_VERSION) tarball
 # (ostler-assistant-aarch64-apple-darwin-v$(DAEMON_VERSION).tar.gz). Verified
 # fail-closed in download-daemon: a mismatch deletes the file + aborts the cut,
@@ -258,7 +258,42 @@ DAEMON_VERSION       ?= 0.4.73
 # Both re-downloaded FROM THE SERVER and re-hashed rather than trusted from the
 # upload. Daemon: spctl accepted, source=Notarized Developer ID, V95N2B8X7A,
 # with a de-signed copy returning rc=3 as the negative control.
-DAEMON_SHA256        ?= e7598fde427ea39ed99e46e4df79467c90e11ebbfee999058215acda7a408519
+#
+# v1.0.91 (2026-09-12 ORM): 0.4.79 -> 0.4.80, daemon commit 4fe9691b ->
+# b014faf5. Built LOCALLY on the signing build host (release/build-local.sh
+# 0.4.80), because the daemon's release workflow signs only on that host's
+# keychain identity + notarytool profile, not in CI. Carries three merged
+# ostler-assistant fixes: b5a3a24f (off-state toggle/slider track invisible
+# against its card), 6dbff407 (authenticate the daemon's hop to the wiki
+# instead of the browser's -- fixes the bare nginx 401 on the Personal wiki
+# tab), b014faf5 (fences the wiki_proxy doc-comment quotes as text, not Rust,
+# an unrelated doctest-CI fix carried along because it is the tip of main).
+# Verified on the DOWNLOADED bytes, not the build log or the release page:
+#   - independent `shasum -a 256` on the built tarball matches both the
+#     published .sha256 sidecar and GitHub's own asset digest, and again
+#     after a fresh re-download from ostler-ai/ostler-releases.
+#   - codesign: Authority=Developer ID Application: Creative Machines
+#     Limited (V95N2B8X7A); spctl: accepted, source=Notarized Developer ID;
+#     stapler: "The validate action worked!".
+#   - build-info.json commit_sha = b014faf593123676e00fa1197360f5142081705e
+#     (the exact target tip) and dirty_worktree = false.
+#   - the wiki_proxy fix is checkable directly: `strings` on the daemon
+#     Mach-O finds the new module's distinctive literals ("Ostler/0.1
+#     (wiki_proxy)", "wiki is still starting up") which are ABSENT (0
+#     occurrences) from the currently-shipped hub-v0.4.79 binary, downloaded
+#     and hash-verified as the control.
+#   - the toggle/slider fix is checkable in the bundled web assets: the new
+#     CSS tokens --pc-bg-track-off (#BDB4A3) and --pc-border-track-off
+#     (#7D776A) are present in OstlerAssistant.app/Contents/Resources/
+#     web/dist/assets/*.css and ABSENT from the same path in hub-v0.4.79.
+#   ostler-releases  hub-v0.4.80  ostler-assistant-...-v0.4.80.tar.gz  16fff1a5
+# HUB_APP_SHA256 is UNCHANGED and NOT re-pinned by this commit: the fixes
+# above ship inside the daemon tarball's own bundled web/dist copy (wrapped
+# by release/wrap-in-app-bundle.sh), and no ostler-hub-app-...-v0.4.80.tar.gz
+# has been published at ostler-ai/ostler-assistant. Cutting v1.0.91 before
+# that second artefact exists will fail exactly as v1.0.81 did (see the
+# v1.0.81 note above) -- out of scope for this pin, flagged for whoever cuts.
+DAEMON_SHA256        ?= 16fff1a542fa463d9f4c5bb31c720f2873938ea93e75dd22be933e05fe069828
 DAEMON_REPO          ?= ostler-ai/ostler-releases
 DAEMON_TARGET        ?= aarch64-apple-darwin
 DAEMON_TARBALL_NAME  := ostler-assistant-$(DAEMON_TARGET)-v$(DAEMON_VERSION).tar.gz
@@ -342,7 +377,44 @@ HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
 # The Hub app is ADHOC SIGNED BY DESIGN: Signature=adhoc, TeamIdentifier=not
 # set, `stapler validate` rc=65. That is the CORRECT reading, and the daemon's
 # rc=0 on the same command is the positive control that proves the probe works.
-HUB_APP_SHA256       ?= 61865f7afe89fe1530b6c4c6c94b0d0da9ae8a2fb9af8e991e17f0f67bb669ea
+# v1.0.81 (2026-09-09 ORM): 1bad546c -> 2e2e5ea9, hub-v0.4.76, built from
+# 42abcf8a -- the SAME commit as the v0.4.76 daemon above, so
+# verify-commit-parity keeps its meaning. THIS PIN COST v1.0.80. That tag
+# moved DAEMON_VERSION to 0.4.76 and left this digest on the 0.4.75 bundle,
+# so the cut fetched an Ostler.app it then refused fail-closed. The sweep
+# that missed it searched for the outgoing DAEMON sha and the outgoing
+# version -- and this block says three lines up to sweep for the outgoing
+# SHA-256 too, which is right and which I read only afterwards. There are
+# TWO digests here, each with its own outgoing value; a sweep keyed on one
+# of them cannot see the other, because a digest does not contain its
+# version. Bump BOTH or the bump lands half done, exactly as written.
+#
+# v1.0.91 (2026-09-12 ORM): 280e181b -> 29f0d6f6, hub-v0.4.80, built from
+# b014faf5 -- the SAME commit as the v0.4.80 daemon above, so
+# verify-commit-parity keeps its meaning. Closes the gap this file itself
+# flagged when DAEMON_VERSION first moved to 0.4.80: no ostler-hub-app
+# tarball existed for that tag, so this pin still named the 0.4.79 bundle.
+# Built via scripts/build-hub.sh (cargo tauri build, CWD=apps/tauri) from a
+# fresh clone of the same commit the daemon was built from; adhoc signed by
+# design (Signature=adhoc, TeamIdentifier=not set -- CORRECT reading, same
+# as every prior Hub-app pin here). The sidecar was EMITTED by
+# release/emit-hub-build-info.py, never hand-authored: it probes
+# WRAPPER_FRONTEND_COMMIT out of the packaged Mach-O and refuses (exit 2) if
+# it disagrees with git HEAD, and it agreed (b014faf593123676e00fa1197360f5142081705e
+# both sides). Re-downloaded from ostler-ai/ostler-assistant hub-v0.4.80 and
+# re-hashed rather than trusted from the upload.
+#
+# The toggle/slider fix (b5a3a24f) is NOT independently greppable inside
+# this Mach-O the way it is in the daemon's OstlerAssistant.app: Tauri
+# embeds the frontend compressed into the binary rather than as a plain
+# filesystem copy, so a raw `strings` scan finds the asset FILENAME
+# (index-DxN_3TyC.css) but not its decompressed byte content. Verified
+# instead on the intermediate build artefact Tauri actually embeds: the
+# `web/dist/assets/index-DxN_3TyC.css` this build's own beforeBuildCommand
+# produced is byte-identical (sha256 2b65537ee0...) to the copy already
+# grepped and differentially proven inside the hub-v0.4.80 daemon tarball,
+# and both binaries carry the same *_FRONTEND_COMMIT marker.
+HUB_APP_SHA256       ?= 29f0d6f63d87048d43b6bb43f334f8c0d2d9f7b367af435e178e510b11992238
 
 # ---------------------------------------------------------------------------
 # SAFARI EXTENSION (CM020) -- the third artefact the cut cannot build itself.
@@ -1187,6 +1259,7 @@ stage-payload: download-python
 	fi; \
 	INSTALL_SH="$$SRC_ROOT/install.sh"; \
 	SNIPPET="$$AGENT_SRC/INSTALL_SNIPPET.sh"; \
+	KEEPALIVE_SH="$$AGENT_SRC/ostler-whatsapp-keepalive.sh"; \
 	LAUNCHD_DIR="$$AGENT_SRC/launchd"; \
 	DOCTOR_SRC="$$SRC_ROOT/vendor/doctor/agent"; \
 	KNOWLEDGE_SRC="$$SRC_ROOT/vendor/cm024_knowledge"; \
@@ -1208,6 +1281,13 @@ stage-payload: download-python
 	[ -f "$$SNIPPET" ] || MISSING="$$MISSING assistant-agent/INSTALL_SNIPPET.sh"; \
 	[ -d "$$LAUNCHD_DIR" ] || MISSING="$$MISSING assistant-agent/launchd/"; \
 	[ -n "$$PLISTS" ] || MISSING="$$MISSING assistant-agent/launchd/*.plist"; \
+	: ; \
+	: "The whatsapp-keepalive LaunchAgent execs this script. Shipping the" ; \
+	: "plist without it produces a job that fires twice a day, cannot exec," ; \
+	: "and guarantees nothing -- so its absence is a refused cut, not a" ; \
+	: "warning. It is asserted here AND in the post-copy req loop below:" ; \
+	: "one proves the source exists, the other proves the copy landed." ; \
+	[ -f "$$KEEPALIVE_SH" ] || MISSING="$$MISSING assistant-agent/ostler-whatsapp-keepalive.sh"; \
 	[ -d "$$DOCTOR_SRC" ] || MISSING="$$MISSING vendor/doctor/agent"; \
 	[ -d "$$KNOWLEDGE_SRC" ] || MISSING="$$MISSING vendor/cm024_knowledge"; \
 	[ -d "$$CM048_SRC" ] || MISSING="$$MISSING vendor/cm048_pipeline"; \
@@ -1228,6 +1308,7 @@ stage-payload: download-python
 	printf 'hub-v%s\n' "$(DAEMON_VERSION)" > "$$PAYLOAD/VERSION"; \
 	cp "$$INSTALL_SH" "$$PAYLOAD/install.sh"; \
 	cp "$$SNIPPET" "$$PAYLOAD/assistant-agent/INSTALL_SNIPPET.sh"; \
+	cp "$$KEEPALIVE_SH" "$$PAYLOAD/assistant-agent/ostler-whatsapp-keepalive.sh"; \
 	cp "$$LAUNCHD_DIR"/*.plist "$$PAYLOAD/assistant-agent/launchd/"; \
 	ditto "$$DAEMON_APP" "$$PAYLOAD/assistant-agent/OstlerAssistant.app"; \
 	chmod +x "$$PAYLOAD/assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant"; \
@@ -1237,7 +1318,7 @@ stage-payload: download-python
 	cp "$$CUT_BOM_SRC" "$$PAYLOAD/cut-bom.tsv"; \
 	cp "$$VENDOR_MANIFEST_SRC" "$$PAYLOAD/vendor-manifest.toml"; \
 	/usr/bin/xattr -cr "$$PAYLOAD" 2>/dev/null || true; \
-	for req in VERSION install.sh cut-bom.tsv vendor-manifest.toml assistant-agent/INSTALL_SNIPPET.sh assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant services/doctor services/knowledge services/cm048; do \
+	for req in VERSION install.sh cut-bom.tsv vendor-manifest.toml assistant-agent/INSTALL_SNIPPET.sh assistant-agent/ostler-whatsapp-keepalive.sh assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant services/doctor services/knowledge services/cm048; do \
 	    if [ ! -e "$$PAYLOAD/$$req" ]; then \
 	        echo "ERROR: payload assembly incomplete -- missing $$req after copy." >&2; \
 	        exit 1; \

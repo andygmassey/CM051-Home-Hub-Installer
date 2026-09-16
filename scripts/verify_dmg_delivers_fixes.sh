@@ -86,21 +86,44 @@ FIX_INV=(  "sudo already available without a password"    "Install aborted at li
 # and keep their own `given = next(...)` line. A row asserting the definition
 # would have gone green on a fix that could never fire, which is the same shape
 # of blindness one layer down. So each row names the file that must CALL it.
+# 🔴 THE TWO DEDUPE-MERGE ROWS, ADDED 2026-09-07, AND WHY THEY EXIST AT ALL.
+#
+# ostler_fda/dedupe_merge.py is the RULE 1 exact-key sweep the install runs at
+# initial_hydrate. Its RULE 2 veto (bae15730, #1573) and its mergedInto
+# tombstone (the fix behind residual B on people_stores_reconcile) are BOTH
+# grafts on the VENDORED copy only. Measured 2026-09-07 by grep on five
+# surfaces: HR015 source ostler_fda/dedupe_merge.py at the pin f5875d40: veto 0,
+# tombstone 0; at HEAD a0ea428f: 0, 0; vendor/divergences/ostler_fda.patch:
+# 0, 0; vendor/ostler_fda/dedupe_merge.py on main before this change: veto 1,
+# tombstone 0; with this change: 1, 1. So the
+# next re-sync from source overwrites both unless they reach the source
+# first, and NOTHING in the cut could tell the artefact with them from the
+# artefact without them. That is this project's signature failure -- a fix on
+# a repo's main that never reaches the customer's Mac -- and these rows are
+# what make it visible on the mounted DMG. The invariants are the strings
+# each fix introduced into the CODE PATH: the stats key the veto returns, and
+# the f-string of the tombstone update. Not comments, not SHAs.
 PAYLOAD_IDS=(  "#1543-rule-2-on-the-write"
                "#755-only-the-users-own-address-book"
                "#142-a-kinship-word-is-never-welded"
                "#145-the-resolver-elects-the-real-given-name"
-               "#145-the-batch-path-elects-it-too" )
+               "#145-the-batch-path-elects-it-too"
+               "#1573-dedupe-merge-vetoes-two-cards"
+               "#1573-dedupe-merge-leaves-a-tombstone" )
 PAYLOAD_PATH=( "contact_syncer/syncer.py"
                "contact_syncer/syncer.py"
                "identity_resolver/canonical_name.py"
                "identity_resolver/resolver.py"
-               "identity_resolver/batch_resolver.py" )
+               "identity_resolver/batch_resolver.py"
+               "ostler_fda/dedupe_merge.py"
+               "ostler_fda/dedupe_merge.py" )
 PAYLOAD_INV=(  "_node_holds_a_different_canonical_key"
                "_source_is_the_users_own"
                "is_kinship_given_name"
                "prefer_real_given_name"
-               "prefer_real_given_name" )
+               "prefer_real_given_name"
+               "refused_rule2"
+               "mergedInto> <{canonical}>" )
 
 MP="$(mktemp -d)"
 DEV=""

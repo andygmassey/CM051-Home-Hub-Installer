@@ -190,6 +190,86 @@ else
     bad "WIPE CONFIRMED is printed without naming what was measured on disk"
 fi
 
+echo "-- THE EMPTY SKELETON THE SHIPPED UNINSTALLER LEAVES BEHIND --"
+# MEASURED 2026-09-09T17:16:52Z on the v1.0.82 walk box, where this ABORTED THE
+# WALK. install.sh:22341 creates ~/.ostler/data/knowledge-staging on every
+# install, unconditionally. The shipped uninstaller preserves it by design
+# (install.sh:21724-21741). The check then counted it as residue and refused,
+# saying "The next walk would be grading carried-over content" about a tree that
+# held zero files and zero bytes, on a box whose docker volume list was empty.
+# So the wipe had worked and the check said it had not.
+H="$(_mkhome skeleton)"
+mkdir -p "${H}/.ostler/data/knowledge-staging"
+: > "${H}/.ostler/power.conf"
+R="$(_run "$H")"
+# Exit 0 and NO refusal text. The extracted arm stops at the refusal branch, so
+# it cannot print the WIPE CONFIRMED line that lives below the cut; asserting on
+# that text here would be an assertion that can never pass. The source-side
+# check that CONFIRMED names its counts is the last arm in this file.
+case "$R" in
+    0\|*WIPE\ INCOMPLETE*) bad "exit 0 but the refusal text was printed anyway: ${R#*|}" ;;
+    0\|*)                  ok "an EMPTY data/knowledge-staging beside power.conf is not residue: exit 0, no refusal" ;;
+    *)                     bad "the empty skeleton still aborts the walk (exit ${R%%|*}): ${R#*|}" ;;
+esac
+
+echo "-- MUST-FAIL: one file anywhere under it is still residue --"
+# The arm above alone cannot tell a working check from an absent one. This is
+# the other side, and it is deliberately DEEP: the old check looked only at
+# maxdepth 1, so a file three levels down was invisible to it. The new one must
+# see it.
+H="$(_mkhome skeleton_dirty)"
+mkdir -p "${H}/.ostler/data/knowledge-staging"
+: > "${H}/.ostler/power.conf"
+: > "${H}/.ostler/data/knowledge-staging/carried-over.md"
+R="$(_run "$H")"
+case "$R" in
+    2\|*WIPE\ INCOMPLETE\ ON\ DISK*) ok "ONE file inside the skeleton is still residue: exit 2, WIPE INCOMPLETE" ;;
+    2\|*)                             bad "exited 2 without naming it: ${R#*|}" ;;
+    *)                                bad "a carried-over file exits ${R%%|*} and the next walk would grade it" ;;
+esac
+
+echo "-- and the refusal NAMES the file, or it is not actionable --"
+case "$R" in
+    *carried-over.md*) ok "the refusal names the surviving file, so a reader can act on it" ;;
+    *)                 bad "the refusal did not name what it found: ${R#*|}" ;;
+esac
+
+echo "-- A DEEP power.conf IS NOT THE DECLARED KEEP --"
+# The keep is excluded by its EXACT PATH, not by name. A file called power.conf
+# buried deeper is residue like any other, and excluding it by name would have
+# opened exactly that hole when the maxdepth went away.
+H="$(_mkhome deep_powerconf)"
+mkdir -p "${H}/.ostler/data"
+: > "${H}/.ostler/data/power.conf"
+R="$(_run "$H")"
+case "$R" in
+    2\|*WIPE\ INCOMPLETE\ ON\ DISK*) ok "a power.conf BELOW the top level is residue, not the declared keep" ;;
+    *)                                bad "a deep power.conf was treated as the declared keep (exit ${R%%|*}): ${R#*|}" ;;
+esac
+
+echo "-- MUTATION: with the old entry-counting predicate, the skeleton arm MUST fail --"
+# A test that passes against both the fix and the defect is not a test. This
+# rebuilds the arm with the ORIGINAL predicate and requires the empty skeleton
+# to abort, which is the behaviour that stopped the v1.0.82 walk.
+MUT="${WORK}/arm_mutant.sh"
+sed 's|-mindepth 1 -type f ! -path "\$HOME/\.ostler/power\.conf"|-mindepth 1 -maxdepth 1 ! -name power.conf|g' "$ARM" > "$MUT"
+if [ "$(/usr/bin/grep -c -- '-maxdepth 1 ! -name power.conf' "$MUT")" -lt 1 ]; then
+    bad "MUTATION DID NOT APPLY, so the arm below proves nothing"
+else
+    ok "the mutant really carries the old entry-counting predicate (the injection landed)"
+    H="$(_mkhome skeleton_mut)"
+    mkdir -p "${H}/.ostler/data/knowledge-staging"
+    : > "${H}/.ostler/power.conf"
+    _w="${WORK}/run_mut.sh"
+    { printf '_CTL_OSTLER_BEFORE=1\n_CTL_CONTENT_BEFORE=1\n'; cat "$MUT"; } > "$_w"
+    _out="$(HOME="$H" bash "$_w" 2>&1)"; _rc=$?
+    if [ "$_rc" -eq 2 ]; then
+        ok "MUST-FAIL: the old predicate aborts on the empty skeleton, so the fix is load-bearing"
+    else
+        bad "the old predicate ALSO passed the empty skeleton (exit ${_rc}); this test would not have caught the defect"
+    fi
+fi
+
 echo
 echo "== ${PASS} pass / ${FAIL} fail / $((PASS+FAIL)) total =="
 [ "$FAIL" -eq 0 ] || exit 1

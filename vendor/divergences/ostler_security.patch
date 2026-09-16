@@ -89,7 +89,7 @@
      db_path = Path(db_path)
 --- a/migrate_dbs_cli.py
 +++ b/migrate_dbs_cli.py
-@@ -119,8 +119,8 @@
+@@ -204,8 +204,8 @@
  
      if not HAS_SQLCIPHER:
          print(

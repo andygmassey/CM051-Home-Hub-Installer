@@ -77,11 +77,38 @@ echo "PASS: install.sh prompts for WhatsApp phone number when channel enabled"
 
 # Validation: must start with +. Without this guard a typo
 # (44... instead of +44...) silently flows through to TOML.
-if ! grep -q '"${CHANNEL_WHATSAPP_RECIPIENT:0:1}" != "+"' "$INSTALL_SCRIPT"; then
-    echo "FAIL [recipient-validation]: install.sh does not enforce leading + on the phone number" >&2
+#
+# 🔴 THIS ASKED FOR AN IMPLEMENTATION AND NOT FOR THE PROPERTY, and that is
+# why it is now written the other way round. It grepped for the literal
+# `"${CHANNEL_WHATSAPP_RECIPIENT:0:1}" != "+"`, which was the whole of the
+# validation at the time. That check was replaced by a real E.164 normaliser
+# (`_ostler_e164_normalise`), the property got STRONGER, and this assertion
+# went red anyway because the exact characters it wanted had gone. A test that
+# fails when a defect is fixed is a test pointed at the wrong thing.
+#
+# So: extract the validator and RUN it. `44...` without the plus must be
+# refused, `+44...` must be accepted, and the pair together is what proves the
+# predicate discriminates rather than answering the same way to everything.
+_wa_norm_limb="$(awk '
+    /^_ostler_e164_normalise\(\) \{$/ { f = 1 }
+    f { print; if ($0 ~ /^\}$/) exit }
+' "$INSTALL_SCRIPT")"
+if [[ -z "$_wa_norm_limb" ]]; then
+    echo "FAIL [recipient-validation]: no _ostler_e164_normalise in install.sh, so nothing enforces the leading +" >&2
     exit 1
 fi
-echo "PASS: install.sh enforces leading + on WhatsApp recipient"
+_wa_probe() { bash -c "$_wa_norm_limb"$'\n''_ostler_e164_normalise "$1"' _ "$1" 2>/dev/null; }
+if [[ -n "$(_wa_probe '447700900123')" ]]; then
+    echo "FAIL [recipient-validation]: a number with no leading + was accepted; the typo flows through to TOML" >&2
+    exit 1
+fi
+if [[ "$(_wa_probe '+447700900123')" != "+447700900123" ]]; then
+    echo "FAIL [recipient-validation-control]: a VALID number was refused, so the check above proves nothing" >&2
+    exit 1
+fi
+unset -f _wa_probe
+unset _wa_norm_limb
+echo "PASS: install.sh refuses a recipient with no leading + and accepts one with it"
 
 # ────────────────────────────────────────────────────────────────
 # Items 1 + 6 — TOML emitter (cron jobs + allowed_numbers seed)
@@ -225,18 +252,59 @@ if ! grep -q 'com.creativemachines.ostler.whatsapp-keepalive' "$KEEPALIVE_PLIST"
 fi
 echo "PASS: keepalive plist uses com.creativemachines.ostler.whatsapp-keepalive label"
 
-# ProgramArguments invokes `channel doctor`. Anything else (e.g.
-# a synthetic "ping" subcommand that doesn't exist on the binary)
-# would silently fail every fire.
-if ! grep -q '<string>channel</string>' "$KEEPALIVE_PLIST"; then
-    echo "FAIL [keepalive-program]: keepalive plist does not invoke channel subcommand" >&2
+# ProgramArguments invokes the keepalive RUNNER, not `channel doctor`.
+#
+# THIS ASSERTION USED TO REQUIRE THE OPPOSITE, and it was pinning the defect
+# in place. It demanded `<string>channel</string>` + `<string>doctor</string>`,
+# i.e. that the plist exec `ostler-assistant channel doctor` directly. That
+# command constructs its OWN WhatsAppWebChannel, whose is_ready() is
+# `self.client.lock().is_some()` on an object that never connected, so it
+# reported unhealthy on every run on every box; and doctor_channels() returns
+# Ok(()) regardless, so the job exited 0 every time. A test that requires a
+# probe which cannot pass and an exit code that cannot fail is not protecting
+# anything.
+#
+# The plist now runs assistant-agent/ostler-whatsapp-keepalive.sh, which asks
+# the running daemon's health registry, repairs once if needed, and exits
+# non-zero on any outcome that is not "the channel is up". Behaviour is proven
+# by tests/test_whatsapp_keepalive_repairs_and_reports.sh, which RUNS it
+# against a stub daemon; this file asserts the wiring only.
+if ! grep -q 'ostler-whatsapp-keepalive.sh' "$KEEPALIVE_PLIST"; then
+    echo "FAIL [keepalive-program]: keepalive plist does not invoke the keepalive runner" >&2
     exit 1
 fi
-if ! grep -q '<string>doctor</string>' "$KEEPALIVE_PLIST"; then
-    echo "FAIL [keepalive-program]: keepalive plist does not invoke channel doctor" >&2
+if grep -q '<string>doctor</string>' "$KEEPALIVE_PLIST"; then
+    echo "FAIL [keepalive-program]: keepalive plist still invokes 'channel doctor', which" >&2
+    echo "                          cannot measure the live channel and cannot repair it" >&2
     exit 1
 fi
-echo "PASS: keepalive plist invokes 'channel doctor'"
+echo "PASS: keepalive plist invokes the keepalive runner, not 'channel doctor'"
+
+# The runner has to exist and has to be installed, or the plist is inert.
+KEEPALIVE_RUNNER="${REPO_ROOT}/assistant-agent/ostler-whatsapp-keepalive.sh"
+if [[ ! -f "$KEEPALIVE_RUNNER" ]]; then
+    echo "FAIL [keepalive-runner-missing]: $KEEPALIVE_RUNNER does not exist" >&2
+    exit 1
+fi
+if ! bash -n "$KEEPALIVE_RUNNER"; then
+    echo "FAIL [keepalive-runner-syntax]: the keepalive runner does not parse" >&2
+    exit 1
+fi
+echo "PASS: keepalive runner exists and parses"
+
+if ! grep -q 'install -m 0755 "\$KEEPALIVE_SCRIPT_SRC" "\$KEEPALIVE_SCRIPT_DEST"' "$ASSISTANT_SNIPPET"; then
+    echo "FAIL [keepalive-runner-not-installed]: INSTALL_SNIPPET.sh does not install the runner" >&2
+    exit 1
+fi
+echo "PASS: INSTALL_SNIPPET installs the keepalive runner onto the customer's Mac"
+
+# And the cut has to carry it. A payload with the plist and no runner ships a
+# LaunchAgent that cannot exec.
+if ! grep -q 'assistant-agent/ostler-whatsapp-keepalive.sh' "${REPO_ROOT}/gui/Makefile"; then
+    echo "FAIL [keepalive-runner-not-staged]: gui/Makefile does not stage the runner into the payload" >&2
+    exit 1
+fi
+echo "PASS: gui/Makefile stages the keepalive runner into the DMG payload"
 
 # StartCalendarInterval has both 08:50 + 17:50 entries.
 if ! awk '

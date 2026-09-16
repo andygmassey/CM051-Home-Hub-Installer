@@ -81,6 +81,15 @@ OXIGRAPH_URL="${OSTLER_OXIGRAPH_URL:-http://127.0.0.1:7878/query}"
 # blank. A probe should fail where the customer fails.
 DOCTOR_PEOPLE_URL="${OSTLER_DOCTOR_PEOPLE_URL:-http://127.0.0.1:8089/api/v1/hydration/status}"
 TOLERANCE_PCT="${OSTLER_PEOPLE_TOLERANCE_PCT:-2}"
+# THE ABSOLUTE CAP (Aesop, 2026-09-07, from Track B's Studio run). A percentage
+# alone scales the blindness with the store: 2% of 2939 is 58, which hid 25
+# orphan vectors. So the allowance is min(pct of the larger count, CAP), and
+# both halves are printed so the arithmetic is visible at every n -- at n < 50
+# the percentage rounds to 0 and the verdict must say so rather than let an
+# integer division pass for a decision. The cap must stay above the mid-ingest
+# drift the self-test allows (4 on 6376) and below the smallest real orphan
+# set measured (14 on Archie's v1.0.74 walk, 25 on the Studio).
+TOLERANCE_CAP="${OSTLER_PEOPLE_TOLERANCE_CAP:-5}"
 
 # STORE CREDENTIAL for the OXIGRAPH surface only (the Doctor surface at :8089 is
 # a different auth and is left untouched). Oxigraph 401s to a keyless request on
@@ -264,15 +273,164 @@ adjudicate_counts() {
         return
     fi
 
-    local diff hi
+    local diff hi cap
+    cap="${4:-${TOLERANCE_CAP:-5}}"
     if [ "$a" -ge "$b" ]; then diff=$((a - b)); hi="$a"; else diff=$((b - a)); hi="$b"; fi
-    local allowed=$(( hi * tol / 100 ))
+    local pct_allowed=$(( hi * tol / 100 ))
+    local allowed="$pct_allowed"
+    [ "$allowed" -gt "$cap" ] && allowed="$cap"
+    # The arithmetic is PRINTED, both halves, so a 0 at small n reads as
+    # "2% of 1 = 0" and not as an unexplained refusal, and a 58 at large n
+    # reads as "capped to 5" and not as a tolerance that quietly grew.
+    local arith
+    arith="$(printf 'allowed = min(%s%% of %s = %s, cap %s) = %s' "$tol" "$hi" "$pct_allowed" "$cap" "$allowed")"
 
     if [ "$diff" -gt "$allowed" ]; then
-        printf 'DISAGREE oxigraph=%s doctor=%s differ by %s, above the %s%% tolerance of %s' "$a" "$b" "$diff" "$tol" "$allowed"
+        # A DISAGREE that the OLD arithmetic would have passed says so in the
+        # verdict itself, because that sentence travels with the walk record to
+        # whoever reads two adjacent records (Archie, 2026-09-07): v1.0.74
+        # recorded 2008 vs 2018 as PASS under 2% alone (allowance 40); under
+        # the cap it is FAIL on identical data. That is the cap working, not a
+        # product regression, and it must not be bisected as one.
+        if [ "$diff" -le "$pct_allowed" ]; then
+            printf 'DISAGREE oxigraph=%s doctor=%s differ by %s, above the allowance (%s). NOTE: this gap passed under the pre-2026-09-07 rule (%s%% alone, allowance %s); the cap of %s landed in CM051 #1799 and a walk before it would have read PASS on the same data. Not a v1.0.75 regression to bisect.' "$a" "$b" "$diff" "$arith" "$tol" "$pct_allowed" "$cap"
+            return
+        fi
+        printf 'DISAGREE oxigraph=%s doctor=%s differ by %s, above the allowance (%s)' "$a" "$b" "$diff" "$arith"
         return
     fi
-    printf 'AGREE oxigraph=%s doctor=%s differ by %s, within the %s%% tolerance of %s' "$a" "$b" "$diff" "$tol" "$allowed"
+    printf 'AGREE oxigraph=%s doctor=%s differ by %s, within the allowance (%s)' "$a" "$b" "$diff" "$arith"
+}
+
+# ── THE CONVERGE WINDOW, AND WHY THIS PROBE MUST NOT MEASURE INSIDE IT ──────
+#
+# MEASURED 2026-09-08 on the v1.0.75 walk box, and this probe's FAIL on that
+# walk was entirely an artefact of it:
+#
+#   03:25:09Z  dedupe-converge SIGKILLed at its budget      (.killed written)
+#   03:29-03:45  post_walk_qa runs -> oxigraph=1838 doctor=1859, FAIL by 21
+#   03:49:25Z  the catch-up agent finishes                  (.done written)
+#   05:27Z     6 paired samples, 20s apart: 1882 = 1882, ZERO drift
+#
+# The 300s install budget is DELIBERATE (install.sh, OSTLER_DEDUPE_INSTALL_BUDGET_S):
+# the critical path lands the obvious merges and hands COMPLETION to the
+# ostler-dedupe-catchup LaunchAgent so the customer does not wait ~25 minutes.
+# So a box in this window is behaving exactly as designed, and the two surfaces
+# are a moving target rather than a disagreement -- hydration writes reach the
+# Doctor's counter before the RDF is committed. Both counts ROSE to a common
+# value (oxigraph +44, doctor +23); un-merged duplicates converging would have
+# made them FALL, which is how we know this is lag and not lost merges.
+#
+# A probe that reports FAIL on a correctly-behaving box is not a defect
+# detector, it is noise that trains people to ignore it. So: wait for the
+# catch-up, bounded, then measure. If the wait expires the honest verdict is
+# CANNOT-RUN -- the counts were never comparable, which is not the same as
+# their disagreeing.
+#
+# WHY BOTH MARKERS ARE READ, not just .done. Absence of .done alone cannot
+# distinguish "the catch-up is still running" from "the converge never ran at
+# all" (no identity_resolver on this box) from "it completed in-band before
+# these markers existed". Only .killed present AND .done absent is the
+# in-flight window. Every other combination measures immediately, so this
+# cannot become a blanket delay that hides a real disagreement.
+CONVERGE_WAIT_S="${OSTLER_PEOPLE_CONVERGE_WAIT_S:-1800}"
+# How long to keep re-reading both surfaces waiting for a repeated pair, and
+# the gap between reads. Deliberately short by comparison with the converge
+# wait: this is settling, not catching up.
+STABILITY_WAIT_S="${OSTLER_PEOPLE_STABILITY_WAIT_S:-300}"
+STABILITY_STEP_S="${OSTLER_PEOPLE_STABILITY_STEP_S:-20}"
+# How many CONSECUTIVE identical pairs before adjudicating. 2 was measurably
+# not enough: a real plateau held for four reads 25s apart and then moved.
+STABILITY_RUNS="${OSTLER_PEOPLE_STABILITY_RUNS:-3}"
+CONVERGE_STATE_DIR="${OSTLER_PROBE_STATE_DIR:-\$HOME/.ostler/state}"
+
+# THE CLASSIFIER IS A PURE FUNCTION so the self-test can drive the REAL
+# decision instead of a fixture that just echoes the answer it wants. It takes
+# the two markers' MTIMES in epoch seconds, 0 meaning absent, and echoes
+# DONE | INFLIGHT | NOMARKER.
+#
+# WHY MTIME AND NOT MERE EXISTENCE. A box that was killed and then caught up
+# carries BOTH markers for ever, so "killed wins" would make every later walk on
+# that box wait out the whole budget and then refuse on perfectly settled counts.
+# The first draft therefore let .done win by existence alone -- and that is
+# correct ONLY while something guarantees a stale .done cannot sit beside a fresh
+# .killed. Today something does: install.sh clears BOTH markers with one rm -f at
+# the start of every converge (verified at install.sh:28723; .done is touched on
+# in-band success at 28768, .killed written on kill at 28825). But that is a
+# CROSS-FILE INVARIANT the probe would be silently relying on and never naming,
+# and if a future install.sh dropped or moved that rm, this probe would quietly
+# go back to measuring a moving target with nothing to catch it.
+#
+# Worse, the invariant is not even wholly install.sh's to keep: the catch-up
+# LaunchAgent writes .done from its OWN script (the DONE_MARKER at :26731), so a
+# catch-up still alive from a previous cycle can touch .done AFTER a new converge
+# has cleared it. Existence cannot tell that apart from a settled box.
+#
+# Comparing mtimes removes the dependency entirely: a .done OLDER than .killed is
+# stale by construction, whoever wrote it and whenever the markers were last
+# cleared. Aesop found the existence version's exposure on review; this closes it
+# rather than documenting it.
+_converge_classify() {
+    local _done="$1" _killed="$2"
+    # "COULD NOT LOOK" IS NOT "NOTHING THERE". An unreadable mtime pair used to
+    # classify NOMARKER, which measures immediately -- so a box that happened to
+    # be mid-catch-up at that instant would be sampled as a moving target on the
+    # strength of a failed read. Absent markers are 0 0, which IS numeric and
+    # still classifies NOMARKER; only a malformed read reaches UNREADABLE.
+    # (Aesop, on review of the mtime version.)
+    case "$_done$_killed" in ''|*[!0-9]*) printf 'UNREADABLE'; return ;; esac
+    # No .done at all: in flight if a kill is recorded, otherwise no converge here.
+    if [ "$_done" -eq 0 ]; then
+        [ "$_killed" -gt 0 ] && printf 'INFLIGHT' || printf 'NOMARKER'
+        return
+    fi
+    # .done exists. It only means "settled" if it is not older than the kill it
+    # is meant to have followed. Equal mtimes settle: a same-second catch-up is
+    # the ordinary case on a fast box, and refusing there would reintroduce the
+    # stall this function exists to avoid.
+    if [ "$_killed" -gt 0 ] && [ "$_done" -lt "$_killed" ]; then printf 'INFLIGHT'; return; fi
+    printf 'DONE'
+}
+
+# Sets _CONVERGE_RESULT to SETTLED | NOT_IN_WINDOW | EXPIRED <waited>.
+#
+# IT DOES NOT ECHO ITS RESULT, and that is not a style choice. probe_note writes
+# to STDOUT, so wrapping this in $( ) captured every note into the return value
+# and made the first word of the "token" the first word of a note -- the EXPIRED
+# branch then never matched and the probe measured a moving target anyway, which
+# is the very thing this function exists to prevent. Caught on the box, not in
+# review: the self-test could not see it because SELF_TEST never reaches here.
+_await_converge() {
+    _CONVERGE_RESULT=""
+    local _st _waited=0 _step=15 _bits
+    # ONE round trip reads both markers; the poll below only re-reads .done.
+    # ONE round trip reads both mtimes (0 = absent). stat -f %m is BSD, which is
+    # what the box runs; a missing file yields 0 rather than an empty field, so
+    # the classifier always gets two integers or the read is declared failed.
+    _bits="$(box_run "for f in dedupe-converge.done dedupe-converge.killed; do /usr/bin/stat -f %m \"${CONVERGE_STATE_DIR}/\$f\" 2>/dev/null || printf 0; printf ' '; done" | tr -d '\r\n' )"
+    # A round trip that answers nothing is not "no markers": say so and measure
+    # anyway, rather than inventing a settled box out of a failed read.
+    set -- $_bits
+    if [ "$#" -ne 2 ]; then
+        _CONVERGE_RESULT="UNREADABLE ${_bits:-<empty>}"; return
+    fi
+    _st="$(_converge_classify "$1" "$2")"
+    if [ "$_st" = "UNREADABLE" ]; then _CONVERGE_RESULT="UNREADABLE $1 $2"; return; fi
+    case "$_st" in
+        DONE|NOMARKER) _CONVERGE_RESULT='NOT_IN_WINDOW'; return ;;
+    esac
+    probe_note "dedupe-converge was killed at its budget and the catch-up has not finished; waiting up to ${CONVERGE_WAIT_S}s before measuring (counts inside this window are provisional by design)"
+    while [ "$_waited" -lt "$CONVERGE_WAIT_S" ]; do
+        sleep "$_step"
+        _waited=$((_waited + _step))
+        _bits="$(box_run "for f in dedupe-converge.done dedupe-converge.killed; do /usr/bin/stat -f %m \"${CONVERGE_STATE_DIR}/\$f\" 2>/dev/null || printf 0; printf ' '; done" | tr -d '\r\n' )"
+        set -- $_bits
+        if [ "$#" -eq 2 ] && [ "$(_converge_classify "$1" "$2")" = "DONE" ]; then
+            probe_note "catch-up finished after ${_waited}s of waiting; counts are now final"
+            _CONVERGE_RESULT='SETTLED'; return
+        fi
+    done
+    _CONVERGE_RESULT="EXPIRED ${_waited}"
 }
 
 run_probe() {
@@ -280,16 +438,102 @@ run_probe() {
         probe_cannot_run "cannot reach box ${OSTLER_BOX_HOST:-(local)} over ssh; no counts read"
     fi
 
+    # Do not adjudicate a moving target. See the block above.
+    local _cw _cw_token
+    _await_converge; _cw="$_CONVERGE_RESULT"; _cw_token="${_cw%% *}"
+    if [ "$_cw_token" = "UNREADABLE" ]; then
+        probe_examined 0 "people-count surfaces"
+        probe_cannot_run "could not read the dedupe-converge marker mtimes on the box (got '${_cw#* }'), so this run cannot tell a settled graph from one still being merged by the catch-up. Counts inside that window are provisional by design, and a failed look is not evidence there is nothing to wait for."
+    fi
+    if [ "$_cw_token" = "EXPIRED" ]; then
+        probe_examined 0 "people-count surfaces"
+        probe_cannot_run "the install-time dedupe-converge was killed at its budget and its catch-up had still not written dedupe-converge.done after ${_cw#* }s of waiting. People counts inside that window are PROVISIONAL BY DESIGN -- the Doctor's counter leads the RDF commit -- so the two surfaces were never comparable. That is a probe that could not measure, NOT two surfaces that disagree, and it must not be recorded as either a pass or a defect."
+    fi
+
     _OX_CODE_FILE="$(mktemp 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/pca_ox_code.$$")"
     _store_resolve
 
-    local oxi doc
-    oxi="$(count_oxigraph)"
+    # ── .done IS NOT "THE GRAPH HAS STOPPED CHANGING" ───────────────────────
+    #
+    # MEASURED ON THE v1.0.76 WALK, and it is a defect in the wait added above
+    # rather than in the box. The converge markers said settled -- .done at
+    # 09:24:22Z, newer than .killed at 08:59:56Z -- so the classifier correctly
+    # returned DONE and this probe measured immediately, exactly as designed.
+    # It read oxigraph=1870 doctor=1883 and called a 13 disagreement.
+    #
+    # Twenty minutes later the same box read oxigraph=1894, with the mergedInto
+    # tombstone count up from 13 to 24. THE GRAPH WAS STILL BEING WRITTEN. The
+    # 13 was never a settled quantity, and a verdict computed on it is a verdict
+    # about an instant, not about the box.
+    #
+    # dedupe-converge.done means THE DEDUPE CATCH-UP FINISHED. Hydration
+    # continues past it. So the marker is a proxy for the property we care
+    # about, and it is the wrong proxy.
+    #
+    # SO STOP USING A PROXY. The property is "the counts have stopped moving",
+    # and that is directly observable: read both surfaces twice, and only
+    # adjudicate when a full pair repeats. A moving graph produces a different
+    # pair and buys another round, bounded. On expiry this is CANNOT-RUN --
+    # counts that never settled were never comparable, which is not the same as
+    # counts that disagree.
+    #
+    # The .done wait above is KEPT rather than replaced. It is still the right
+    # thing to wait for before starting to sample: it avoids burning the
+    # stability budget during a catch-up that is guaranteed to be moving.
+    # TWO CONSECUTIVE READS WAS NOT ENOUGH, AND I HAVE THE COUNTEREXAMPLE.
+    # On 2026-09-08 this box sat at oxigraph=1894 doctor=1883 across FOUR reads
+    # 25s apart -- a plateau, not a settled graph. Minutes later the doctor
+    # caught up to 1894 and the surfaces agreed exactly. A 2-read check would
+    # have called that plateau stable and reported a disagreement that did not
+    # exist. I reported it as one, three times, before measuring again.
+    #
+    # SO THIS CANNOT BE PROVED, ONLY BOUNDED. Sampling cannot demonstrate that a
+    # graph has stopped changing; it can only say the counts did not move across
+    # a stated window. The verdict therefore CARRIES THAT WINDOW, so a reader
+    # judges the claim with its own limits attached rather than reading
+    # "disagree" as settled fact. Neither marker helps: dedupe-converge.done had
+    # fired, and hydration reported contacts state=done, while the count was
+    # still moving through both.
+    # ─── DO NOT GRADE THE STORES WHILE THE INGEST TICK IS MINTING ──────────
+    # The hourly com.ostler.fda-rerun moves the graph and the vector store apart
+    # by design between its legs. v1.0.89 read the difference and called it a
+    # disagreement. Hold, then read; a tick that will not stop is CANNOT-RUN,
+    # never a pass, and so is a state that could not be read at all.
+    box_wait_ingest_quiet
+    case $? in
+        0) : ;;
+        1) probe_cannot_run "$PROBE_TICK_DETAIL" ;;
+        2) probe_cannot_run "$PROBE_TICK_DETAIL" ;;
+    esac
+
+    local oxi doc _prev_pair="" _pair _runs=0 _stable=0 _swaited=0
+    while :; do
+        oxi="$(count_oxigraph)"
+        doc="$(count_doctor)"
+        _pair="${oxi}/${doc}"
+        if [ "$_pair" = "$_prev_pair" ]; then
+            _runs=$((_runs + 1))
+            [ "$_runs" -ge "$STABILITY_RUNS" ] && { _stable=1; break; }
+        else
+            [ -n "$_prev_pair" ] && probe_note "counts moved ${_prev_pair} -> ${_pair} after ${_swaited}s; the graph is still being written"
+            _runs=0
+        fi
+        [ "$_swaited" -ge "$STABILITY_WAIT_S" ] && break
+        _prev_pair="$_pair"
+        sleep "$STABILITY_STEP_S"
+        _swaited=$((_swaited + STABILITY_STEP_S))
+    done
+    _STABILITY_WINDOW="$(( _runs * STABILITY_STEP_S ))"
+    if [ "$_stable" -ne 1 ]; then
+        probe_examined 0 "people-count surfaces"
+        probe_cannot_run "the two counts never stopped moving within ${_swaited}s (last two readings ${_prev_pair} then ${_pair}). A verdict computed while the graph is still being written describes an instant, not the box -- dedupe-converge.done had already fired, which is why this probe waits for STABILITY and not for that marker."
+    fi
+    probe_note "counts held at ${_pair} across ${STABILITY_RUNS} consecutive reads spanning ${_STABILITY_WINDOW}s -- a bound, not a proof that writing stopped"
+
     # Name the oxigraph auth/transport reason BEFORE the count comparison, so a
     # keyless 401 reads as "enforced, no key, not measured" and not as a vague
     # "1 of 2 surfaces readable". Exits on 000/401.
     _ox_adjudicate "oxigraph people count"
-    doc="$(count_doctor)"
     probe_note "oxigraph SPARQL count : $oxi"
     probe_note "doctor api count      : $doc"
 
@@ -302,7 +546,7 @@ run_probe() {
     token="${r%% *}"; detail="${r#* }"
 
     case "$token" in
-        DISAGREE)     probe_fail "people counts disagree: $detail (task #273). A count is the simplest claim the product makes." ;;
+        DISAGREE)     probe_fail "people counts disagree: $detail (task #273). A count is the simplest claim the product makes. STABILITY: the pair held for ${_STABILITY_WINDOW}s across ${STABILITY_RUNS} reads -- that BOUNDS the motion, it does not prove writing stopped, and a plateau of exactly this shape once produced a disagreement that vanished minutes later." ;;
         INSUFFICIENT) probe_cannot_run "$detail" ;;
         *)            probe_pass "$detail" ;;
     esac
@@ -310,7 +554,7 @@ run_probe() {
 
 self_test() {
     SELF_TEST_LOCAL=1
-    probe_examined 4 "synthetic count pairs (negative control)"
+    probe_examined 18 "synthetic count pairs and converge-marker mtime combinations (negative control)"
     local r
 
     # 1. The #273 spread: 6376 vs 6755 is ~5.6%, must exceed a 2% tolerance.
@@ -337,7 +581,60 @@ self_test() {
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: a single readable surface adjudicated as '${r%% *}'."
     fi
 
-    probe_fail "negative control behaved correctly on all 4 pairs (real spread caught, drift allowed, double-zero and single-surface both refused)"
+    # THE CAP. The Studio, 2026-09-07: 2939 vs 2914 is 25 orphan vectors and
+    # 2% of 2939 is 58, so the percentage alone read it as AGREE.
+    r="$(adjudicate_counts 2939 2914 2)"
+    if [ "${r%% *}" != "DISAGREE" ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: 25 orphans on 2939 adjudicated as '${r%% *}'. The percentage hides them and the cap did not bind."
+    fi
+    # SMALL n, HONESTLY. On a one-person seed, 1 vs 0 is the doctor losing the
+    # only person there is; the allowance is 0 and the verdict must say why.
+    r="$(adjudicate_counts 1 0 2)"
+    if [ "${r%% *}" != "DISAGREE" ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: 1 vs 0 adjudicated as '${r%% *}'."
+    fi
+    case "$r" in *"2% of 1 = 0, cap 5) = 0"*) ;; *) probe_pass "the small-n verdict does not show its arithmetic: ${r}" ;; esac
+    # THE v1.0.74 PAIR, which passed under 2% alone and fails under the cap:
+    # the verdict must carry the provenance sentence so two adjacent walk
+    # records explain themselves. And a gap the OLD rule would ALSO have
+    # failed must NOT carry it, or the sentence becomes wallpaper.
+    r="$(adjudicate_counts 2008 2018 2)"
+    case "$r" in DISAGREE*"landed in CM051 #1799"*) ;; *) probe_pass "NEGATIVE CONTROL DID NOT FIRE: 2008 vs 2018 (v1.0.74, passed under 2% alone) did not carry the cap-provenance sentence: ${r}" ;; esac
+    r="$(adjudicate_counts 6376 6755 2)"
+    case "$r" in *"landed in CM051 #1799"*) probe_pass "the provenance sentence appeared on a gap the old rule also failed (379 on 6755): ${r}" ;; esac
+    # THE CONVERGE CLASSIFIER, all four marker combinations, driving the real
+    # function. The one that matters is done=1 killed=1: a box that was killed
+    # and later caught up must classify DONE, or every later walk on that box
+    # waits out the whole budget and then reports CANNOT-RUN on settled counts.
+    local c
+    c="$(_converge_classify 200 100)"; [ "$c" = "DONE" ]     || probe_pass "CONVERGE CONTROL: .done NEWER than .killed classified '${c}', not DONE. A caught-up box would stall every future walk."
+    c="$(_converge_classify 0 100)";   [ "$c" = "INFLIGHT" ] || probe_pass "CONVERGE CONTROL: .done absent with a kill recorded classified '${c}', not INFLIGHT. This is the exact v1.0.75 window and it must be waited out."
+    c="$(_converge_classify 200 0)";   [ "$c" = "DONE" ]     || probe_pass "CONVERGE CONTROL: .done alone classified '${c}', not DONE."
+    c="$(_converge_classify 0 0)";     [ "$c" = "NOMARKER" ] || probe_pass "CONVERGE CONTROL: no markers classified '${c}', not NOMARKER. A box with no converge at all must measure immediately, not wait."
+    # THE STALE .done, which an EXISTENCE test cannot see and which this probe
+    # would otherwise rely on install.sh:28723 to make impossible. A .done left
+    # by a previous cycle, or touched late by a catch-up agent from one, is
+    # OLDER than the current kill and must NOT read as settled.
+    c="$(_converge_classify 100 200)"; [ "$c" = "INFLIGHT" ] || probe_pass "CONVERGE CONTROL: a .done OLDER than .killed classified '${c}', not INFLIGHT. That is a stale marker read as a settled box, and it puts the probe back on a moving target."
+    # A same-second catch-up must settle, not stall.
+    c="$(_converge_classify 100 100)"; [ "$c" = "DONE" ]     || probe_pass "CONVERGE CONTROL: equal mtimes classified '${c}', not DONE. A fast box would be made to wait out the whole budget."
+    # A read that came back as junk must not be dressed up as an answer.
+    c="$(_converge_classify x y)";     [ "$c" = "UNREADABLE" ] || probe_pass "CONVERGE CONTROL: a non-numeric mtime pair classified '${c}', not UNREADABLE. A failed look would be measuring as though nothing needed waiting for."
+    c="$(_converge_classify '' '')";   [ "$c" = "UNREADABLE" ] || probe_pass "CONVERGE CONTROL: an empty mtime pair classified '${c}', not UNREADABLE."
+    # AND THE DISCRIMINATOR: absent markers really are 0 0, which must stay
+    # NOMARKER. If UNREADABLE swallowed that too, every box without a converge
+    # would refuse instead of measuring.
+    c="$(_converge_classify 0 0)";     [ "$c" = "NOMARKER" ]   || probe_pass "CONVERGE CONTROL: absent markers (0 0) classified '${c}', not NOMARKER. UNREADABLE must not swallow the legitimate no-converge box."
+    # MUST-BE-NON-ZERO CONTROL: exactly two of the seven are INFLIGHT. If the
+    # classifier ever returned a constant, most asserts above would still pass;
+    # this counts the population instead.
+    local _inflight=0
+    for pair in "200 100" "0 100" "200 0" "0 0" "100 200" "100 100" "x y" "z z"; do
+        [ "$(_converge_classify $pair)" = "INFLIGHT" ] && _inflight=$((_inflight + 1))
+    done
+    [ "$_inflight" -eq 2 ] || probe_pass "CONVERGE CONTROL: ${_inflight} of 8 mtime combinations classified INFLIGHT, want exactly 2. A classifier that answers the same thing everywhere proves nothing."
+
+    probe_fail "negative control behaved correctly on all 8 pairs and all 8 converge-marker mtime combinations (exactly 2 of 8 are the in-flight window, including a STALE .done that an existence test cannot see) (real spread caught, drift allowed, double-zero and single-surface both refused, the cap catches 25 orphans a percentage hides, 1 vs 0 says its allowance is 0 and why, the v1.0.74 pair carries the cap-provenance sentence, and a gap the old rule also failed does not)"
 }
 
 probe_main "$@"

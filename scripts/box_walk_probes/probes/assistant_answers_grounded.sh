@@ -103,6 +103,65 @@ GATEWAY="${OSTLER_PROBE_GATEWAY:-http://127.0.0.1:8000}"
 # every turn came back PROBE_FATAL no_token. Measured, not reasoned about.
 TOKEN_PATH="${OSTLER_PROBE_TOKEN_PATH:-~/.ostler/secrets/zeroclaw_admin_token}"
 
+# ── THE CONTENT ASSERTION (Aesop, 2026-09-07) ───────────────────────────────
+#
+# This probe adjudicated on FRAME SHAPES ONLY: a pwg_ tool fired, returned
+# OK, the turn completed -> grounded. The defect that shape passes was
+# measured AD HOC on a v1.0.74 box and is recorded in ostler-assistant
+# b4118b45's commit message (2026-09-07): a person seeded through
+# POST /api/v1/memory/assert with her employer in the fact text; both
+# /people/context and /people/{slug}/enrichment served that sentence; the
+# assistant called pwg_people, got OK, and answered that it "does not
+# explicitly state where she works". The shape this probe scored GREEN.
+#
+# PROVENANCE, corrected 2026-09-08. Until then this header called that "the
+# v1.0.74 seeded walk". No such walk exists: the v1.0.74 walk log ran the
+# three unseeded questions and FAILED [no_tool_call] [tool_found_nothing].
+# The measurement is the commit message's, not a walk record's, and that
+# commit capped its own claim: "Item 9 word: MERGED on merge. It is not
+# PROVEN until a walk seeds ..." So this header did not merely write "walk"
+# for "run"; it asserted a walk where its source had written MERGED, which
+# is the item 9 failure mode, not a typo. A blocking probe that passes a
+# wrong answer is worse than none, and a header that upgrades its source's
+# word is the same disease one layer up.
+#
+# THE FIRST SEEDED WALK TURN: v1.0.75, 2026-09-08, Archie on the cold box.
+# OS003 gates/seed/load_seed.py (memory/assert -> PersonFact ->
+# /people/context) printed SEED-LOAD OK with 5 facts asserted and 5 read
+# back, the fixture fact present. The seeded fourth question ran with
+# OSTLER_GATE_KNOWN_PERSON / OSTLER_GATE_EXPECT_FACT set for the first time;
+# its verdict: grounded, i.e. FRAME reply_fact YES. The reply CARRIED
+# "cable engineer at example.com", a fact that reached the model only by
+# memory/assert -> PersonFact -> /people/context facts[] -> pwg_people. Run
+# 04:31:45Z to 04:36:00Z uncapped, 4 of 4 questions asked (the battery
+# declares 4). That is b4118b45 PROVEN at the reply hop, on the published
+# v1.0.75 artefact, by the run its own author asked for.
+#
+# THE PROBE'S VERDICT ON THAT WALK WAS STILL FAIL, and the good half does not
+# bury it: unseeded question 1 [no_tool_call], unseeded question 2
+# [tool_found_nothing:pwg_preferences], "2 of 4 questions COMPLETED without
+# reaching the customer's own data". Neither is the facts projection. The fix
+# is proven; the probe is not green; assistant_answers_grounded stays FAIL on
+# walks/v1.0.75.tsv. The synthetic person was removed afterwards
+# (load_seed.py --forget, rc=0, bare, no pipe).
+#
+# So the SEEDED turn asserts CONTENT: the reply must CARRY the fixture fact.
+# The mechanism mirrors OS003 gates/verify_behavioural_acceptance.sh check 1
+# (OSTLER_GATE_EXPECT_FACT, case-insensitive fixed-string containment) rather
+# than inventing one. The frame-shape checks stay as the FIRST gate -- no tool
+# call is still a fail -- and the fact-carried assertion is the verdict.
+#
+# PRIVACY IS KEPT. The reply prose is still never printed: the containment
+# is computed ON THE BOX by the client and only the boolean crosses the wire
+# as `FRAME reply_fact YES|NO`. Unseeded questions emit no such frame and are
+# adjudicated exactly as before.
+#
+# Set OSTLER_GATE_EXPECT_FACT (and OSTLER_GATE_KNOWN_PERSON) to add the seeded
+# turn; the seed oracle in OS003 gates/seed/ is where those values come from.
+EXPECT_FACT="${OSTLER_GATE_EXPECT_FACT:-}"
+KNOWN_PERSON="${OSTLER_GATE_KNOWN_PERSON:-}"
+SEEDED_QUESTION="${OSTLER_GATE_QUESTION:-Who is ${KNOWN_PERSON} and where do they work?}"
+
 # ── The WebSocket client, embedded ──────────────────────────────────────────
 # Dependency-free: raw socket + the RFC 6455 handshake and framing. It is
 # embedded rather than shipped alongside so the probe cannot half-exist on a
@@ -110,60 +169,125 @@ TOKEN_PATH="${OSTLER_PROBE_TOKEN_PATH:-~/.ostler/secrets/zeroclaw_admin_token}"
 # either `sh -c` locally or ssh remotely.
 _ws_client_py() {
     cat <<'PYEOF'
-import base64, json, os, socket, struct, sys, time
+import base64, json, os, re, socket, struct, sys, time
+# THE CONTENT PREDICATE, TWO READINGS, BOTH PRINTED.
+#
+# Until 2026-09-10 the only reading was the fixture phrase as a fixed string,
+# case-insensitive, anywhere in the reply (the OS003 check 1 mirror). That is a
+# test of PHRASING, not of grounding: on the v1.0.89 walk the box answered
+# "<person> is a submarine cable engineer who works at example.com" and the
+# probe read NO, because four words sit between the halves of "cable engineer
+# at example.com". Five captured turns that night carried every component of
+# the fact and scored NO on all five; the record read FAILED on a correct
+# answer.
+#
+# carries() is now order-free over the fact's distinctive components: every
+# word of the fixture phrase that is not a function word must appear in the
+# reply. A reply that omits the employer still reads NO; a reply that
+# paraphrases reads YES. carries_phrase() keeps the exact-substring reading and
+# is printed beside it (FRAME reply_fact_phrase, FRAME tool_fact_phrase) as
+# evidence, so a record shows both and a reader can see which one moved.
+# --self-check drives the SAME predicate the walk does; --self-check-phrase
+# drives the old one.
+#
+# Each component must match as a whole token (alphanumeric boundaries), so
+# "cables engineered at example.common" does not satisfy cable, engineer,
+# example.com (TNM, #1916 review; measured). Boundaries rather than a length
+# floor, because a real component can be a three-letter role or an initialism.
+#
+# A PROPERTY TO KNOW, NOT FIXED HERE: order-freedom means a reply that DENIES
+# the fact while echoing its words ("I could not find a cable engineer at
+# example.com in your data") grades YES. The exact-phrase reading has the same
+# hole whenever the denial quotes the phrase. A negation check would be a
+# phrase list that fails OPEN on this surface (a missed phrasing grades a
+# wrong answer PASS), so it is not added; the trade taken is a measured false
+# FAIL on every correct paraphrase (five for five, 2026-09-10) against a
+# hypothetical false PASS on a denial no captured turn has produced.
+_FUNCTION_WORDS = {"a", "an", "and", "as", "at", "by", "for", "from", "in", "is",
+                   "of", "on", "or", "the", "to", "with"}
+def components(fact):
+    return [w for w in re.split(r"[^a-z0-9.@'-]+", fact.lower())
+            if w and w not in _FUNCTION_WORDS]
+def carries_phrase(text, fact):
+    return fact.lower() in text.lower()
+def carries(text, fact):
+    cs = components(fact)
+    t = text.lower()
+    return bool(cs) and all(
+        re.search(r"(?<![a-z0-9])" + re.escape(c) + r"(?![a-z0-9])", t) for c in cs)
+if len(sys.argv) > 1 and sys.argv[1] == "--self-check":
+    print("YES" if carries(sys.stdin.read(), sys.argv[2]) else "NO"); sys.exit(0)
+if len(sys.argv) > 1 and sys.argv[1] == "--self-check-phrase":
+    print("YES" if carries_phrase(sys.stdin.read(), sys.argv[2]) else "NO"); sys.exit(0)
 host, port = "127.0.0.1", int(sys.argv[1])
 token_path, question, deadline_s = sys.argv[2], sys.argv[3], float(sys.argv[4])
+expect_fact = sys.argv[5] if len(sys.argv) > 5 else ""
 try:
     token = open(os.path.expanduser(token_path)).read().strip()
 except Exception as e:
     print("PROBE_FATAL no_token %s" % e); sys.exit(3)
 deadline = time.time() + deadline_s
-try:
+# FIXTURE MODE, for the parser's own tests: OSTLER_GROUNDED_FRAMES names a file
+# of one JSON event per line, read in place of the websocket. Nothing else
+# changes, so the arms below grade a recorded stream exactly as a live one.
+_frames_file = os.environ.get("OSTLER_GROUNDED_FRAMES")
+if _frames_file:
+    _fx = open(_frames_file, "rb").read().split(b"\n")
+    _fx = [l for l in _fx if l.strip()]
+    def frame():
+        if not _fx: return 8, b""
+        return 1, _fx.pop(0)
+    def send(p): pass
+else:
+  try:
     s = socket.create_connection((host, port), timeout=20)
-except Exception as e:
+  except Exception as e:
     print("PROBE_FATAL no_connect %s" % e); sys.exit(3)
-key = base64.b64encode(os.urandom(16)).decode()
-s.sendall(("GET /ws/chat HTTP/1.1\r\nHost: %s:%d\r\nUpgrade: websocket\r\n"
-           "Connection: Upgrade\r\nSec-WebSocket-Key: %s\r\n"
-           "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: zeroclaw.v1\r\n"
-           "Authorization: Bearer %s\r\n\r\n" % (host, port, key, token)).encode())
-buf = b""
-while b"\r\n\r\n" not in buf:
-    c = s.recv(4096)
-    if not c:
-        print("PROBE_FATAL handshake_eof"); sys.exit(3)
-    buf += c
-head, rest = buf.split(b"\r\n\r\n", 1)
-status = head.split(b"\r\n")[0].decode(errors="replace")
-if "101" not in status:
-    print("PROBE_FATAL handshake %s" % status); sys.exit(3)
-def send(p):
-    d = p.encode(); m = os.urandom(4)
-    mk = bytes(b ^ m[i % 4] for i, b in enumerate(d)); n = len(d)
-    if n < 126:      h = struct.pack("!BB", 0x81, 0x80 | n)
-    elif n < 65536:  h = struct.pack("!BBH", 0x81, 0x80 | 126, n)
-    else:            h = struct.pack("!BBQ", 0x81, 0x80 | 127, n)
-    s.sendall(h + m + mk)
-def rd(n):
-    global rest
-    o = b""
-    while len(o) < n:
-        if rest:
-            t = rest[: n - len(o)]; o += t; rest = rest[len(t):]
-        else:
-            s.settimeout(max(1, deadline - time.time()))
-            c = s.recv(65536)
-            if not c: raise EOFError
-            rest = c
-    return o
-def frame():
-    b0, b1 = rd(2); op = b0 & 0x0F; n = b1 & 0x7F
-    if n == 126:   n = struct.unpack("!H", rd(2))[0]
-    elif n == 127: n = struct.unpack("!Q", rd(8))[0]
-    return op, rd(n)
+  key = base64.b64encode(os.urandom(16)).decode()
+  s.sendall(("GET /ws/chat HTTP/1.1\r\nHost: %s:%d\r\nUpgrade: websocket\r\n"
+             "Connection: Upgrade\r\nSec-WebSocket-Key: %s\r\n"
+             "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: zeroclaw.v1\r\n"
+             "Authorization: Bearer %s\r\n\r\n" % (host, port, key, token)).encode())
+  buf = b""
+  while b"\r\n\r\n" not in buf:
+      c = s.recv(4096)
+      if not c:
+          print("PROBE_FATAL handshake_eof"); sys.exit(3)
+      buf += c
+  head, rest = buf.split(b"\r\n\r\n", 1)
+  status = head.split(b"\r\n")[0].decode(errors="replace")
+  if "101" not in status:
+      print("PROBE_FATAL handshake %s" % status); sys.exit(3)
+  def send(p):
+      d = p.encode(); m = os.urandom(4)
+      mk = bytes(b ^ m[i % 4] for i, b in enumerate(d)); n = len(d)
+      if n < 126:      h = struct.pack("!BB", 0x81, 0x80 | n)
+      elif n < 65536:  h = struct.pack("!BBH", 0x81, 0x80 | 126, n)
+      else:            h = struct.pack("!BBQ", 0x81, 0x80 | 127, n)
+      s.sendall(h + m + mk)
+  def rd(n):
+      global rest
+      o = b""
+      while len(o) < n:
+          if rest:
+              t = rest[: n - len(o)]; o += t; rest = rest[len(t):]
+          else:
+              s.settimeout(max(1, deadline - time.time()))
+              c = s.recv(65536)
+              if not c: raise EOFError
+              rest = c
+      return o
+  def frame():
+      b0, b1 = rd(2); op = b0 & 0x0F; n = b1 & 0x7F
+      if n == 126:   n = struct.unpack("!H", rd(2))[0]
+      elif n == 127: n = struct.unpack("!Q", rd(8))[0]
+      return op, rd(n)
 send(json.dumps({"type": "message", "content": question}))
 # Emit ONLY frame types and tool outcomes. Never the answer prose: it is the
-# operator's personal data and this transcript lands in support bundles.
+# operator's personal data and this transcript lands in support bundles. The
+# prose is ACCUMULATED here only so the seeded turn can answer one yes/no
+# question about it on the box; it is never written out.
+text = ""
 while time.time() < deadline:
     try: op, pay = frame()
     except Exception: print("FRAME timeout"); break
@@ -174,6 +298,45 @@ while time.time() < deadline:
     t = ev.get("type", "?")
     if t == "tool_call":
         print("FRAME tool_call %s" % ev.get("name", "?"))
+        # WAS THE CALL FILTERED, AND BY HOW MUCH TEXT.
+        #
+        # The frame stream records tool NAMES and nothing else, so a tool that
+        # asked the wrong question and a tool whose origin had nothing produce
+        # identical records. Measured 2026-09-09: /api/v1/topics returns 35
+        # topics unfiltered, and pwg_topics reported finding nothing on the
+        # same box. The tool sends /api/v1/topics?q=<text> when the model
+        # supplies a query, and the origin applies q as a case-insensitive
+        # SUBSTRING of the label or slug, so a question passed as a filter
+        # matches nothing. Whether that happened is not recorded anywhere.
+        #
+        # KEYS AND LENGTHS, NEVER VALUES. These lines are probe STDOUT, not the
+        # committed record: measured, zero FRAME lines appear in any of the 15
+        # files under walks/, and neither run_box_walk.sh nor post_walk_qa.sh
+        # references FRAME at all. But stdout is routinely pasted into public
+        # PRs, issues and channel posts, so values never go in either. A tool
+        # argument can carry a person's name or a search term about them; the
+        # key names and a length answer "did it filter, and with roughly what"
+        # without carrying the content.
+        #
+        # THE REASON MATTERS AS MUCH AS THE RULE. An earlier draft of this
+        # comment justified the discipline with "this record is committed to a
+        # public repo", which is false of FRAME lines. A caution with a wrong
+        # justification is fragile in a specific way: the next reader checks
+        # whether FRAME lines reach the record, finds they do not, and concludes
+        # the caution is unnecessary. State the true reason or the rule dies of
+        # its own footnote.
+        _a = ev.get("arguments")
+        if isinstance(_a, str):
+            try: _a = json.loads(_a)
+            except Exception: _a = None
+        if isinstance(_a, dict):
+            _parts = []
+            for _k in sorted(_a.keys()):
+                _v = _a.get(_k)
+                _parts.append("%s=%s" % (_k, ("len%d" % len(_v)) if isinstance(_v, str) else "nonstr"))
+            print("FRAME tool_args %s %s" % (ev.get("name", "?"), ",".join(_parts) if _parts else "none"))
+        else:
+            print("FRAME tool_args %s unreadable" % ev.get("name", "?"))
     elif t == "tool_result":
         out = str(ev.get("output", "")); low = out.lstrip().lower()
         # THREE outcomes, not two. A tool that succeeds and announces an empty
@@ -188,13 +351,76 @@ while time.time() < deadline:
         else:
             mark = "OK"
         print("FRAME tool_result %s %s" % (ev.get("name", "?"), mark))
+        # DID THE TOOL RESULT ITSELF CARRY THE SEEDED FACT?
+        #
+        # Without this, a fact_missing verdict is un-diagnosable from the
+        # record. OK means "not an error and not success-shaped emptiness"; it
+        # does NOT mean the output contained what was asked for. So a tool that
+        # returned a person with no employer in it and a model that was handed
+        # the employer and ignored it produce the SAME verdict and the same
+        # frames, and they are different defects with different owners.
+        #
+        # Measured 2026-09-09 on the v1.0.81 walk: one fact_missing, and
+        # nothing in the record could say which of the two it was. The daemon
+        # plumbing was cleared separately and offline (ostler-assistant, a
+        # fixture driving the real turn loop and reading what the provider was
+        # handed), which left exactly these two, and neither is visible here.
+        if expect_fact:
+            print("FRAME tool_fact %s" % ("YES" if carries(out, expect_fact) else "NO"))
+            print("FRAME tool_fact_phrase %s" % ("YES" if carries_phrase(out, expect_fact) else "NO"))
+    elif t == "chunk":
+        text += ev.get("content") or ""
     elif t in ("done", "session_start", "error", "chunk_reset"):
+        # THE CLIENT DISCARDS THE DRAFT ON chunk_reset AND SHOWS full_response.
+        # The gateway sends chunk_reset then done{full_response} on every turn
+        # (ws.rs), and the 0.4.79 omission guard puts a corrected reply ONLY
+        # in full_response. Until 2026-09-10 this parser graded the chunk
+        # accumulator, so a turn the guard corrected scored fact_missing
+        # exactly like one it did not. Grade what the customer reads:
+        # full_response when the daemon sent the key (an EMPTY one is a real
+        # empty answer, graded NO, never a silent fall back to the draft);
+        # the chunks only when the key is absent, the pre-full_response shape.
+        if t == "chunk_reset":
+            text = ""
+        if t == "done" and expect_fact:
+            if "full_response" in ev:
+                graded = ev.get("full_response") or ""
+                print("FRAME reply_source full_response%s" % ("" if graded.strip() else " EMPTY"))
+            else:
+                graded = text
+                print("FRAME reply_source chunks")
+            print("FRAME reply_fact %s" % ("YES" if carries(graded, expect_fact) else "NO"))
+            print("FRAME reply_fact_phrase %s" % ("YES" if carries_phrase(graded, expect_fact) else "NO"))
         print("FRAME %s" % t)
         if t in ("done", "error"): break
 PYEOF
 }
 
 # ── THE ADJUDICATOR ─────────────────────────────────────────────────────────
+# WHICH SIDE LOST THE SEEDED FACT: the retrieval or the model.
+#
+# A fact_missing verdict names a wrong answer and says nothing about whose
+# fault it was, and the two have different owners. `FRAME tool_result X OK`
+# means "not an error and not success-shaped emptiness"; it does NOT mean the
+# output contained what was asked for. So a tool that returned a person with no
+# employer in it, and a model that was handed the employer and ignored it,
+# produce the same verdict and the same frames.
+#
+# Measured 2026-09-09 on the v1.0.81 walk: one fact_missing, and nothing in the
+# record could say which. The daemon plumbing was cleared separately and offline
+# (a fixture driving the real turn loop and reading what the provider was
+# handed), which leaves exactly these two and neither was visible here.
+#
+# A named function over a TRANSCRIPT FILE so the self-test drives the same code
+# the walk runs. grep -c, never `| grep -q`: this file runs under pipefail.
+_fact_missing_side() {   # _fact_missing_side <transcript>
+    if [ "$(grep -c '^FRAME tool_fact YES$' "$1")" -gt 0 ]; then
+        echo "ignored"
+    else
+        echo "not_retrieved"
+    fi
+}
+
 # A named function over a TRANSCRIPT FILE. The self-test drives this exact
 # function over planted fixtures, so the control exercises the real judgement
 # and not a re-implementation of it. Echoes one verdict word.
@@ -227,6 +453,13 @@ adjudicate_turn() {
     grep -q '^FRAME tool_call ' "$_t" || { echo "no_tool_call"; return; }
     # A tool ran, but was it one that reads the customer's own graph?
     grep -qE "$_GRAPH_TOOL_RE" "$_t" || { echo "memory_only"; return; }
+    # THE CONTENT ASSERTION, ahead of every frame-shape pass. A seeded turn
+    # whose reply did not carry the fixture fact is a wrong answer whatever
+    # its tool results said -- this is the exact shape that scored green on
+    # a v1.0.74 box (pwg_people OK, then "no explicit information"; recorded
+    # in ostler-assistant b4118b45's commit message, not a walk). It
+    # sits after the frame gates on purpose: no tool call is still no_tool_call.
+    grep -q '^FRAME reply_fact NO$' "$_t" && { echo "fact_missing"; return; }
     # ── A RECOVERED TURN IS NOT A FAILED ONE ────────────────────────────────
     #
     # This used to ask "did anything ever go wrong", by grepping the WHOLE
@@ -303,7 +536,7 @@ classify_verdict() {
     # classify_verdict <turn verdict> -> defect | unmeasured | ok
     case "$1" in
         grounded)                                     printf 'ok' ;;
-        no_tool_call|memory_only|tool_error|tool_found_nothing)
+        no_tool_call|memory_only|tool_error|tool_found_nothing|fact_missing)
                                                       printf 'defect' ;;
         incomplete|fatal)                             printf 'unmeasured' ;;
         *)                                            printf 'unmeasured' ;;
@@ -342,6 +575,10 @@ run_probe() {
     # recurrence into a FAIL instead of a quieter denominator.
     _qfile="$(mktemp)"
     _questions > "$_qfile"
+    # The seeded turn, only when the seed oracle named a fact to expect. It
+    # is asked LAST so the three unseeded questions keep their positions in
+    # every prior walk record.
+    [ -n "$EXPECT_FACT" ] && printf '%s\n' "$SEEDED_QUESTION" >> "$_qfile"
     _declared="$(grep -c . "$_qfile")"
 
     _asked=0; _failed=0; _unmeasured=0; _detail=""; _unmeasured_detail=""
@@ -350,14 +587,32 @@ run_probe() {
     while IFS= read -r _q <&3; do
         [ -n "$_q" ] || continue
         _asked=$(( _asked + 1 ))
-        box_run "python3 ${_remote_py} ${_port} '${TOKEN_PATH}' \"\$(printf %s '${_q}')\" ${CHAT_TIMEOUT}" > "$_tmp" 2>&1
+        # The fact travels to the client ONLY for the seeded question, as a
+        # fifth argument; every other turn gets an empty one and emits no
+        # reply_fact frame, so it is adjudicated exactly as before.
+        _fact=""
+        [ -n "$EXPECT_FACT" ] && [ "$_q" = "$SEEDED_QUESTION" ] && _fact="$EXPECT_FACT"
+        box_run "python3 ${_remote_py} ${_port} '${TOKEN_PATH}' \"\$(printf %s '${_q}')\" ${CHAT_TIMEOUT} \"\$(printf %s '${_fact}')\"" > "$_tmp" 2>&1
         _v="$(adjudicate_turn "$_tmp")"
         case "$(classify_verdict "$_v")" in
             ok) : ;;
             defect)
                 _failed=$(( _failed + 1 ))
                 _tname="$(_offending_tool "$_tmp" "$_v")"
-                _detail="${_detail} [${_v}${_tname:+:${_tname}}]" ;;
+                if [ "$_v" = "fact_missing" ]; then
+                    # WHICH SIDE LOST THE FACT. The verdict token is unchanged,
+                    # so every consumer of it keeps working; the reason gains
+                    # the discriminator, which is the thing a reader needs and
+                    # could not get. grep -c, never `| grep -q`: this file runs
+                    # under `set -o pipefail`.
+                    if [ "$(_fact_missing_side "$_tmp")" = "ignored" ]; then
+                        _detail="${_detail} [fact_missing: a pwg_ tool RETURNED '${EXPECT_FACT}' and the reply did not carry every component of it (order-free; exact-phrase reading $(grep -q '^FRAME reply_fact_phrase YES$' "$_tmp" && echo YES || echo NO)) -- the model had it and did not use it]"
+                    else
+                        _detail="${_detail} [fact_missing: a pwg_ tool answered, NO tool result carried '${EXPECT_FACT}', and neither did the reply -- retrieval did not deliver it]"
+                    fi
+                else
+                    _detail="${_detail} [${_v}${_tname:+:${_tname}}]"
+                fi ;;
             *)
                 _unmeasured=$(( _unmeasured + 1 ))
                 _unmeasured_detail="${_unmeasured_detail} [${_v}]"
@@ -387,12 +642,12 @@ run_probe() {
     # another timed out. Lost coverage outranks a pass, because a battery that
     # only half ran has not established the promise.
     [ "$_failed" -gt 0 ] && probe_fail \
-        "${_failed} of ${_asked} questions COMPLETED without reaching the customer's own data:${_detail} (verdicts are frame-stream states, not answer text)"
+        "${_failed} of ${_asked} questions COMPLETED without reaching the customer's own data:${_detail} (verdicts are frame-stream states, plus the seeded turn's fact-carried assertion computed on the box; answer text is never read here)"
 
     [ "$_unmeasured" -gt 0 ] && probe_cannot_run \
         "${_unmeasured} of ${_asked} turns never completed:${_unmeasured_detail}. That is a clock or a client, NOT evidence that the assistant cannot answer. The per-turn ceiling is ${CHAT_TIMEOUT}s and this file own runtime note records 2-5 MINUTES per turn on a Mac mini under first-run ingest load. Raise OSTLER_PROBE_CHAT_TIMEOUT and re-walk, or walk a box that has finished ingesting. Not a pass."
 
-    probe_pass "all ${_asked} questions produced a tool-backed answer over /ws/chat at ${GATEWAY}"
+    probe_pass "all ${_asked} questions produced a tool-backed answer over /ws/chat at ${GATEWAY}${EXPECT_FACT:+, and the seeded reply carried the expected fact}"
 }
 
 self_test() {
@@ -440,6 +695,56 @@ self_test() {
     printf 'FRAME session_start\nFRAME tool_call pwg_person_timeline\nFRAME tool_result pwg_person_timeline ERR\nFRAME tool_call pwg_topics\nFRAME tool_result pwg_topics ERR\nFRAME done\n' > "$_d/twoerrs"
     [ "$(adjudicate_turn "$_d/twoerrs")"    = "tool_error" ]         || _ok=0
 
+    # ── THE CONTENT ASSERTION (2026-09-07) ──────────────────────────────────
+    # (g) MEASURED ad hoc on a v1.0.74 box (ostler-assistant b4118b45's commit
+    #     message; NOT a walk, the v1.0.74 walk ran unseeded), the minimal
+    #     variant: one pwg_ tool, OK, and a reply that said the workplace was
+    #     not recorded while the graph served it. The pre-fix adjudicator
+    #     returned `grounded` on exactly this file. It is the must-FAIL.
+    printf 'FRAME session_start\nFRAME tool_call pwg_people\nFRAME tool_result pwg_people OK\nFRAME chunk_reset\nFRAME reply_fact NO\nFRAME done\n' > "$_d/factmissing"
+    # (h) CONSTRUCTED, not captured: no real passing transcript exists while
+    #     the daemon drops the facts (ostler-assistant #386 in flight). The
+    #     same frames with the fact carried. It is the must-PASS.
+    printf 'FRAME session_start\nFRAME tool_call pwg_people\nFRAME tool_result pwg_people OK\nFRAME chunk_reset\nFRAME reply_fact YES\nFRAME done\n' > "$_d/factcarried"
+    # (i) MEASURED, the full turn-1 stream: pwg_people OK, pwg_topics EMPTY,
+    #     memory_recall OK. The OK line used to win; the missing fact must.
+    printf 'FRAME session_start\nFRAME tool_call pwg_people\nFRAME tool_result pwg_people OK\nFRAME tool_call pwg_topics\nFRAME tool_result pwg_topics EMPTY\nFRAME tool_call memory_recall\nFRAME tool_result memory_recall OK\nFRAME chunk_reset\nFRAME reply_fact NO\nFRAME done\n' > "$_d/factmissing_full"
+    # (j) THE FRAME GATE STAYS FIRST: a reply that carries the fact without
+    #     any tool call is still no_tool_call -- the fact came from nowhere.
+    printf 'FRAME session_start\nFRAME chunk_reset\nFRAME reply_fact YES\nFRAME done\n' > "$_d/notool_fact"
+    [ "$(adjudicate_turn "$_d/factmissing")"      = "fact_missing" ]  || _ok=0
+    [ "$(adjudicate_turn "$_d/factcarried")"      = "grounded" ]      || _ok=0
+    [ "$(adjudicate_turn "$_d/factmissing_full")" = "fact_missing" ]  || _ok=0
+    [ "$(adjudicate_turn "$_d/notool_fact")"      = "no_tool_call" ]  || _ok=0
+
+    # (l) WHICH SIDE LOST IT. Same verdict, two different owners, and until
+    #     2026-09-09 the record could not tell them apart. The verdict token is
+    #     deliberately unchanged on both, so every consumer of it keeps working.
+    printf 'FRAME session_start\nFRAME tool_call pwg_people\nFRAME tool_result pwg_people OK\nFRAME tool_fact YES\nFRAME chunk_reset\nFRAME reply_fact NO\nFRAME done\n' > "$_d/fact_ignored"
+    printf 'FRAME session_start\nFRAME tool_call pwg_people\nFRAME tool_result pwg_people OK\nFRAME tool_fact NO\nFRAME chunk_reset\nFRAME reply_fact NO\nFRAME done\n' > "$_d/fact_not_retrieved"
+    [ "$(adjudicate_turn "$_d/fact_ignored")"       = "fact_missing" ]   || _ok=0
+    [ "$(adjudicate_turn "$_d/fact_not_retrieved")" = "fact_missing" ]   || _ok=0
+    [ "$(_fact_missing_side "$_d/fact_ignored")"       = "ignored" ]       || _ok=0
+    [ "$(_fact_missing_side "$_d/fact_not_retrieved")" = "not_retrieved" ] || _ok=0
+    # MUST-MISS: a transcript with NO tool_fact frame at all is the pre-change
+    # shape, and it must read not_retrieved rather than crash or claim ignored.
+    [ "$(_fact_missing_side "$_d/factmissing")"        = "not_retrieved" ] || _ok=0
+    # (k) UNSEEDED turns carry no reply_fact frame and are unchanged.
+    [ "$(adjudicate_turn "$_d/good")"             = "grounded" ]      || _ok=0
+
+    # THE PREDICATE ITSELF, driven through the client's --self-check so the
+    # self-test exercises the code the walk runs, not a re-implementation.
+    # Archie's verbatim reply must read NO; a constructed reply carrying the
+    # fact must read YES; case must not matter (OS003 check 1 lower-cases).
+    _ws_client_py > "$_d/client.py"
+    _fact='cable engineer at example.com'
+    _reply_no='I found some information about Jane Doe in the Personal World Graph, but it does not explicitly state where she works.'
+    _reply_yes='Jane Doe is a submarine cable engineer at example.com, the seed fixture employer.'
+    _reply_case='jane doe is a submarine CABLE ENGINEER AT EXAMPLE.COM.'
+    [ "$(printf '%s' "$_reply_no"   | python3 "$_d/client.py" --self-check "$_fact")" = "NO" ]  || _ok=0
+    [ "$(printf '%s' "$_reply_yes"  | python3 "$_d/client.py" --self-check "$_fact")" = "YES" ] || _ok=0
+    [ "$(printf '%s' "$_reply_case" | python3 "$_d/client.py" --self-check "$_fact")" = "YES" ] || _ok=0
+
     # THE NAME, over the SAME fixtures the verdicts were decided from. A
     # tool_error that names no tool sends the operator back to the raw
     # transcript for the only actionable fact in it.
@@ -478,15 +783,16 @@ self_test() {
     _rt memory_only         defect
     _rt tool_error          defect
     _rt tool_found_nothing  defect
+    _rt fact_missing        defect
     _rt incomplete          unmeasured
     _rt fatal               unmeasured
     _rt some_future_verdict unmeasured
 
-    probe_examined 14 "planted transcript fixtures and verdict-routing cases"
+    probe_examined 23 "planted transcript fixtures, predicate checks and verdict-routing cases"
     if [ "$_ok" -eq 1 ]; then
-        # The control FIRED: five known-bad shapes each produced their own
-        # non-grounded verdict, and the healthy one did not.
-        probe_fail "control fired: tool_error, no_tool_call, incomplete, memory_only and tool_found_nothing are each detected, the healthy fixture is not misread as broken, and 8 of 8 verdicts route correctly -- a completed turn that missed the graph is a DEFECT, a turn that never completed is UNMEASURED, and an unrecognised verdict is unmeasured rather than announced as a product failure"
+        # The control FIRED: six known-bad shapes each produced their own
+        # non-grounded verdict, and the healthy ones did not.
+        probe_fail "control fired: tool_error, no_tool_call, incomplete, memory_only, tool_found_nothing and fact_missing (the seeded turn whose reply did not carry the fact, measured on a v1.0.74 box, ostler-assistant b4118b45) are each detected, the healthy fixtures are not misread as broken, and 8 of 8 verdicts route correctly -- a completed turn that missed the graph is a DEFECT, a turn that never completed is UNMEASURED, and an unrecognised verdict is unmeasured rather than announced as a product failure"
     fi
     # Reaching here means the adjudicator could NOT tell a broken turn from a
     # healthy one. Passing is how this suite spells BROKEN.

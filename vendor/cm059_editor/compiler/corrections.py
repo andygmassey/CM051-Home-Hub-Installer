@@ -28,6 +28,8 @@ from __future__ import annotations
 import json
 import os
 import urllib.request
+
+from compiler.signals import _service_token
 from datetime import datetime, timezone
 
 DEFAULT_STORE = os.path.expanduser("~/.ostler/editor/interest_corrections.json")
@@ -117,9 +119,17 @@ class CorrectionStore:
         payload = self._assert_payload(action, key, factor)
         try:
             url = self.ical_server_url.rstrip("/") + "/api/v1/memory/assert"
+            # The server gates this route and fails CLOSED (ical-server.py:191).
+            # Without a credential the assert is refused, and this path already
+            # swallows failures, so the correction would vanish silently -- the
+            # same shape that left the front page without "Needs you now".
+            headers = {"Content-Type": "application/json"}
+            _tok = _service_token()
+            if _tok:
+                headers["Authorization"] = "Bearer " + _tok
             req = urllib.request.Request(
                 url, data=json.dumps(payload).encode("utf-8"),
-                method="POST", headers={"Content-Type": "application/json"})
+                method="POST", headers=headers)
             with urllib.request.urlopen(req, timeout=10) as resp:
                 return 200 <= resp.status < 300
         except Exception:

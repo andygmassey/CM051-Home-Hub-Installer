@@ -1,0 +1,58 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.80.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.80/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN.
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS, IN ONE LINE
+# ===========================================================================
+# v1.0.79 was walked twice and failed both times. This cut carries the two
+# install.sh fixes those walks grounded, and it is the first cut whose payload
+# changes since v1.0.79.
+#
+# THE PAYLOAD IS DIFFERENT AND IT IS MEASURED, NOT ASSERTED. install.sh at the
+# v1.0.79 tag against install.sh at the base of this cut (CM051 1ae0d869),
+# counted with /usr/bin/grep -Ec on both trees:
+#
+#     pattern                                       @v1.0.79  @1ae0d869
+#     declare -f _ostler_write_workspace_marker            0          1
+#     _DEDUPE_BUDGET_DERIVED                               0          5
+#     PIPELINE_DIR/\.venv/bin/python3" -c                  0          1
+#     CONTROL present in BOTH refs                         8          8   <- must NOT discriminate
+#
+# The control is _ostler_ensure_qdrant_collections, which exists in both trees.
+# It is here because two zeros and a broken reader look identical, and because
+# a reader that cannot open either tree would report every row as new.
+#
+# The third pattern is not a second feature. It is the guard on the second one:
+# the person-count reader shipped for one review cycle calling /usr/bin/python3,
+# which on a Mac with no Command Line Tools is an Apple stub that returns
+# non-zero, and under install.sh's `set -Eeuo pipefail` and ERR trap that
+# ABORTED THE INSTALL rather than falling back to the 300s floor it was designed
+# to take. It has its own capability row so it cannot silently regress into the
+# same abort.
+#
+# THE DAEMON ROW IS HERE AND CM051 #1858 IS NOT, DELIBERATELY. #1858 is the
+# reconcile probe reading three times before it calls a difference a
+# disagreement -- it is HARNESS, not payload. It changes scripts/box_walk_probes
+# and ships in no artefact, so a BOM row for it would claim the DMG carries
+# something it does not. It is merged (ed055bcd) and its effect is a probe that
+# grades differently on the walk, which the cut-manifest forecast records.
+#
+# The daemon row's capability keys on bare_tool_call_name, NOT on
+# Purpose::Answering. Measured at the old pin against the new: bare_tool_call_name
+# 0 -> 20 and accumulate_turn_usage 0 -> 10, but Purpose::Answering 14 -> 15,
+# because the enum and two live call sites already existed. Keying on it would
+# have reported the capability present on the OLD daemon and guarded nothing.
+# The control, process_chat_message, reads 3 at both refs, so the reader works
+# on both trees and those two zeros are real absences.
+#
+# This file is not the cut's readiness; gates/verify_must_contain.sh is.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+THE WORKSPACE MARKER NAMED A TREE THAT HAD BEEN DELETED. _ostler_write_workspace_marker ran while OSTLER_DIR still pointed at the /tmp/ostler-prelaunch-<pid> staging tree, so ~/.ostler/active_workspace.toml published a path the promote then rm -rf'd. SIXTH INSTANCE of the class install.sh names at :353 and :13963 and that #1850 fixed for the store credential: a value captured during staging and never rebound to the tree it will actually run from. The marker is now re-written after the promote, guarded on the writer existing because one call site precedes its definition in source order.	CM051	08b47ac4dcda34b86007c2a85c1fa99b236809d6	no	workspace_marker_names_the_promoted_tree	TBD	CM051 #1856
+THE CONTACT-MERGE BUDGET WAS A FLAT 300s AND KILLED ITS OWN CONVERGE AT THE CAP. On the v1.0.79 box state/dedupe-converge.killed recorded waited_s=300 budget_s=300, and converge_kill_is_recorded has failed on it since. The budget is now derived from the person count in the graph THIS install built, read through the installer's own store credential array rather than a recomputed secrets path, with K=0.7s per person measured from that box's own catch-up log (1822 persons in 919s) and the env override still winning. An unreadable count takes the floor and can never buy a longer install. Carries its own guard: the reader runs the bundled venv interpreter, because for one review cycle it ran /usr/bin/python3, which on a Mac with no Command Line Tools is an Apple stub that returns non-zero, and under set -Eeuo pipefail plus the ERR trap that ABORTED THE INSTALL instead of taking the floor.	CM051	1ae0d869d33597ede520b6b3621df06a0816d28f	no	merge_budget_scales_with_the_address_book	TBD	CM051 #1857
+A RAW TOOL CALL WAS SHIPPED TO THE CUSTOMER AS THE ANSWER. Measured on two installs and two builds: asked the memorised wording, the model emitted its call AS TEXT and the assistant sent it as the complete reply -- fourteen bytes, pwg_overview{}, with zero dispatches. Nothing between the model and the socket asserted that a reply is prose rather than an unexecuted call. The gateway now detects a reply that is, WHOLE AND TRIMMED, a call for a snake_case tool name with one balanced argument block, and dispatches ONE corrective turn through the agent loop with its events forwarded; if that also returns a bare call the raw text is still never sent, it falls to the existing retryable notice. The whole-reply rule and the balanced scan are what keep it off real prose: a reply explaining what pwg_people does is prose containing a name and must not be touched. Carries a second, inert half: usage is accumulated across the tool loop and recorded once at the answered-turn exit with Purpose::Answering, which cannot yet produce a record because the streaming path carries no token counts.	ostler-assistant	42abcf8a4d70b8576101b585e9b3b1050e1c797d	no	a_bare_tool_call_is_never_shipped_as_an_answer	TBD	ostler-assistant#390

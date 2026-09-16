@@ -398,7 +398,41 @@ _adjudicate_scoped() {
     # error the assistant probe made with a timeout, and the pairing probe made
     # with a non-answer. Both still refuse. They send the operator to different
     # places, and that is the whole value of saying which is which.
-    local blk_failed=() blk_notmeas=()
+    local blk_failed=() blk_notmeas=() blk_broken=()
+
+    # A PROBE THAT FAILED ITS OWN NEGATIVE CONTROL IS NEVER A CANDIDATE FOR
+    # ADVISORY SCOPE, AND UNTIL THIS BLOCK IT WAS INVISIBLE HERE.
+    #
+    # broken_probe rows (written by the BROKEN_NAMES loop in post_walk_qa.sh)
+    # name a probe whose own self-test did not behave as its control demands.
+    # Phase 2 skips it, so it
+    # measured NOTHING -- not a defect, not a clean bill of health, in either
+    # direction. The caller builds its non-pass list from failed_probe and
+    # not_measured_probe rows only (see the awk two lines above the call site),
+    # so a record could carry a broken probe ALONGSIDE a failed_probe that gets
+    # scoped advisory below, and the broken probe would never enter this
+    # function at all: blocking would end up empty, and the promote would read
+    # "every ARTEFACT-OWNED probe passed" about a probe nobody ever looked at.
+    #
+    # Read directly off $RECORD, bypassing _scope_of on purpose: the scope file
+    # answers "does this failure describe the artefact", which presupposes the
+    # measurement can be trusted. A broken probe fails that presupposition, so
+    # it is unconditionally blocking and cannot be declared advisory by any row
+    # in walk_promote_scope.tsv.
+    while IFS= read -r p; do
+        [[ -n "$p" ]] && blk_broken+=("$p")
+    done < <(awk -F'\t' '$1=="broken_probe" {print $2}' "$RECORD")
+
+    # SAME COMPLETENESS DISCIPLINE AS failed_probe BELOW. post_walk_qa.sh writes
+    # no "N of M" counter for broken probes, but the record's own `broken` count
+    # is the ground truth: fewer broken_probe rows than that count means at
+    # least one broken probe is unnamed, and an unnamed one cannot be checked.
+    if [[ "${N_BROKEN:-0}" -gt "${#blk_broken[@]}" ]]; then
+        echo "[walk-gate] REFUSED: ${RECORD} reports broken=${N_BROKEN} but only" >&2
+        echo "            ${#blk_broken[@]} broken_probe row(s) are named. An unnamed" >&2
+        echo "            broken probe cannot be checked. CANNOT-RUN, not a pass." >&2
+        exit 2
+    fi
 
     # THE LIST MUST BE COMPLETE. "6 of 8" means two failures are unnamed, and an
     # unnamed failure cannot be checked against the scope. That is CANNOT-RUN.
@@ -417,6 +451,8 @@ _adjudicate_scoped() {
         echo "            failed_probe_names_recorded field, so WHICH probes failed is unknown." >&2
         exit 2
     fi
+
+    blocking+=("${blk_broken[@]}")
 
     for p in "$@"; do
         sc="$(_scope_of "$p")"
@@ -459,6 +495,13 @@ _adjudicate_scoped() {
             echo "            The three store-reading probes return CANNOT-RUN on a box whose" >&2
             echo "            stores are still empty, by design. If this was a fresh install," >&2
             echo "            let it finish ingesting and walk again." >&2
+        fi
+        if [[ ${#blk_broken[@]} -gt 0 ]]; then
+            echo "            BROKEN -- these failed their OWN negative control. They measured" >&2
+            echo "            NOTHING, in either direction, and are never eligible for advisory" >&2
+            echo "            scope: a failure this gate cannot trust is not a failure it can wave" >&2
+            echo "            through either." >&2
+            for p in "${blk_broken[@]}"; do echo "              - ${p}" >&2; done
         fi
         # WHICH BOX STATE DID THEY DESCRIBE? A reset does NOT wipe: ttywalk.sh
         # runs the shipped uninstaller if it can find one and says so when it

@@ -806,12 +806,35 @@ def build_digest() -> str | None:
 
     out.append("## Looking something up")
     out.append("")
+    # ONE ROUTE TO THE GRAPH, AND IT IS THE pwg_ TOOLS.
+    #
+    # This paragraph used to name a SECOND route: `http_request` against
+    # http://127.0.0.1:8090/api/v1/people/*. It works, install.sh enables
+    # allow_private_hosts for exactly that reason and says so at the
+    # LaunchAgent that installs this script, and it reaches the customer's
+    # real graph. It is also invisible to everything downstream that asks
+    # WHICH tool answered a turn, and two of those matter:
+    #
+    #   assistant_answers_grounded grades a turn on whether a tool named pwg_*
+    #   ran, so a correct answer fetched this way scores memory_only. That is a
+    #   defect verdict for the product working as instructed, and it is one of
+    #   the two shapes behind that probe's FAIL on the v1.0.79 walk.
+    #
+    #   the daemon's consolidation gate keyed live-graph state on the same
+    #   prefix, so a count fetched this way was memorised as though it were a
+    #   durable fact and recited stale the next day.
+    #
+    # THIS FILE IS THE COPY THAT SHIPS. The upstream ostler-assistant script
+    # carries the same edit (ostler-assistant#394) and a test for it, but the
+    # release tarball carries the daemon and its .app and never scripts/, so
+    # the customer runs THIS one. Changing only upstream would leave the
+    # instruction live on every machine under a green upstream gate, which is
+    # the failure this file's own header records from 2026-08-18.
     out.append(
-        "For a specific person or detail not listed above, you can fetch it "
-        "live with the http_request tool against the local graph: "
-        "`GET http://127.0.0.1:8090/api/v1/people/search?q=NAME` for a person, "
-        "or `GET http://127.0.0.1:8090/api/v1/people/context?name=NAME` for "
-        "their full context. These are local, read-only lookups."
+        "For a specific person or detail not listed above, call the "
+        "`pwg_people` tool with the person's name, or `pwg_person_timeline` "
+        "for the user's full history with them. Do not fetch graph data over "
+        "`http_request`: the pwg_ tools are the route to the graph."
     )
     out.append("")
 

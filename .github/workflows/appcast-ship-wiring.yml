@@ -106,6 +106,18 @@ jobs:
         if: always()
         run: bash tests/test_pipefail_shortcircuit_inversion.sh
 
+      # The sibling ratchet, for the class that actually aborted two box
+      # walks. A standalone read of `$?` means someone is treating a non-zero
+      # exit as DATA; under `set -e` that is a defect unless the region has
+      # disabled errexit or the enclosing function is called via `$( )`.
+      # Neither of those is visible from the line, so this freezes the
+      # population rather than classifying it. shellcheck does NOT cover it:
+      # SC2181 fires on `if [ $? ]` but not on `case $?` nor on
+      # `x="$(cmd)"; rc=$?`, which are the two shapes that bit us.
+      - name: No new unguarded read of $?
+        if: always()
+        run: bash tests/test_a_status_read_is_guarded.sh
+
       # #1614: the ratchet above classifies each delisted row into two buckets
       # with two different remedies, and chose between them by testing the ROW
       # (path<TAB>count) as if it were a path. It never is, so every delisted

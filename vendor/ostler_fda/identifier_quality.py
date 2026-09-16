@@ -182,7 +182,7 @@ def distinct_people(names: Iterable[str]) -> Set[str]:
     # Drop MACHINE labels before counting people.
     #
     # A contact whose name has not been resolved yet is stored under the raw
-    # identifier, so the same person shows up as both "+85290000000" and
+    # identifier, so the same person shows up as both "+447700900123" and
     # "Alex Brown". Counting those as two humans would demote his real phone
     # number and split him in half -- the first live run of this rule flagged
     # exactly that, along with "353899000000 / Auntie Jane / emmaj icloud

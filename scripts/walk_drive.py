@@ -270,8 +270,23 @@ def build_table():
         ("Connect your iPhone and Watch",               "skip"),
         # Never store a login password on disk.
         ("Store your login password",                   "N"),
-        # Skip the passphrase branch: keeps the walk clear of credential entry.
+        # Skip the OPTIONAL passphrase branch: keeps the walk clear of
+        # credential entry where the installer offers a way past.
         ("Set a recovery passphrase too?",              "n"),
+        # 🔴 THE HUB PASSPHRASE IS MANDATORY AND HAS NO WAY PAST. The line
+        # above answers a DIFFERENT, optional question and used to be the only
+        # passphrase entry here. install.sh:8032-8051 loops `while true` on
+        # "Choose your passphrase", rejecting empty and anything under 12
+        # characters, so a walk that cannot answer it does not fail -- it
+        # re-prompts for ever. Measured 2026-09-13 on the v1.0.95 walk: the
+        # install sat at that prompt indefinitely and the run had to be killed.
+        #
+        # @passphrase resolves from ~/.walk-passphrase at answer time, so the
+        # value is never an argument, never in the process table and never in
+        # this file. If that file is absent the answer resolves empty and the
+        # loop resumes, which is why ttywalk.sh creates it during staging.
+        ("Choose your passphrase",                      "@passphrase"),
+        ("Confirm your passphrase",                     "@passphrase"),
         # Clean account: nothing to import.
         ("Import these during install?",                "n"),
         ("Import Gmail messages from this Takeout?",    "n"),
@@ -616,6 +631,31 @@ def done_patterns():
 
 
 DONE_LINE = re.compile(r"^.*#OSTLER\s+DONE\s+status=\w+.*$", re.M)
+
+# ── A BOX PRECONDITION IS NOT A BUILD VERDICT ───────────────────────────────
+#
+# install.sh refuses BEFORE it installs anything when the machine cannot host
+# the product. Measured, all three, and none of them is about the build:
+#
+#     install.sh:4865   ERR-02-PREREQ-RAM-LOW     RAM below the floor
+#     install.sh:4880   ERR-02-PREREQ-DISK-LOW    free disk below 15 GB
+#     install.sh:11182  ERR-02-PREREQ-XCODE-CLI   no command line tools
+#
+# fail_with_code sets OSTLER_LAST_ERROR_CODE and fail() prints it as a
+# `[CODE] ` prefix, so the code is in the pty log verbatim. Before this, the
+# adjudicator had ZERO references to any install error code -- measured -- so
+# it could not tell a refusal-to-start from a product defect, and returned
+# FAIL for both. A walk of a 14 GB box therefore wrote `verdict FAILED` into
+# walks/<v>.tsv and blamed the artefact for the disk.
+#
+# 🔴 DELIBERATELY NARROW, AND THE NARROWNESS IS THE POINT. Only PREREQ. Not
+# ERR-02-LICENCE-*, not ERR-04-SUDO-DENIED, though both are arguably operator
+# preparation too: this same estate has ALREADY filed one false CANNOT-RUN
+# against a licence that was present the whole time (SHIPPING_LEDGER, v1.0.73
+# row). Widening this set lets real product failures escape as "we could not
+# tell", which is the more expensive direction of the same error. Each further
+# code earns its place with its own measurement.
+PREREQ_ABORT = re.compile(r"\[(ERR-\d+-PREREQ-[A-Z0-9-]+)\]")
 FAILED_STEPS_FIELD = re.compile(r"\bfailed_steps=(\d+)")
 ERRORS_FIELD = re.compile(r"\berrors=(\d+)")
 
@@ -885,6 +925,16 @@ def adjudicate(log_path, rc, marker_channel_on):
                     "from the table (rc=%d)" % rc,
                     "No prompt was unmatched, so this cancellation is the product's "
                     "own decision and is a real finding.")
+        prereq = PREREQ_ABORT.search(body)
+        if prereq:
+            return (CANNOT_RUN,
+                    "install.sh refused on a BOX PRECONDITION: %s" % prereq.group(1),
+                    "It stopped BEFORE installing anything, because this machine "
+                    "did not meet a floor -- disk, RAM or command line tools. "
+                    "Nothing about the artefact was exercised, so there is no "
+                    "verdict to give on it. Fix the box and re-run. Calling this "
+                    "FAIL would record a build defect that was never measured, "
+                    "and a walk record is bound to an artefact.")
         return (FAIL,
                 "install.sh terminated with status=%s (rc=%d)" % (status, rc),
                 "This is a MEASURED failure: the installer said so itself.")

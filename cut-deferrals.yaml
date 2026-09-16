@@ -32,6 +32,41 @@
 # ============================================================================
 
 pr_exemptions:
+  # ── v1.0.90 cut, 2026-09-12 (ORM). Three DRAFT PRs over 48h, self-titled
+  #    HELD by their own authors under the launch-directive freeze (item 2:
+  #    "main accepts only PRs that move a walk probe, fix an install abort, or
+  #    fix a cut build failure -- if a change does not move a probe, it
+  #    waits"). check-pr-age caught this on a workflow_dispatch dry run
+  #    (34674986834), before any tag was spent -- exactly what the dispatch
+  #    exists for. None of the three touches install.sh, gui/, cuts/,
+  #    cut-manifests/ or vendor/, so exempting them changes nothing about what
+  #    v1.0.90 ships: this cut's tree is unaffected whether they stay open,
+  #    merge, or close. Not a judgement on any of the three changes.
+  - ref: "CM051-Home-Hub-Installer#1873"
+    reason: >-
+      DRAFT, "HELD: an absent HTTP library has not failed, and saying so
+      buried the ones that did". Opened 2026-09-09, 149 additions / 1
+      deletion across .github/workflows/venv-store-shim.yml,
+      lib/ostler_store_auth.py, tests/TEST_WIRING.tsv and one new test.
+      Self-declared HELD, not yet qualifying under the freeze criteria.
+      Held state and file list confirmed via `gh pr view 1873`.
+    review_by: "2026-09-19"
+  - ref: "CM051-Home-Hub-Installer#1872"
+    reason: >-
+      DRAFT, "HELD: why the interest profile was empty on a box with 830
+      preference points". Opened 2026-09-09, 190 additions across
+      .github/workflows/vendor-integrity.yml, tests/TEST_WIRING.tsv and one
+      new test. Self-declared HELD, not yet qualifying under the freeze
+      criteria. Held state and file list confirmed via `gh pr view 1872`.
+    review_by: "2026-09-19"
+  - ref: "CM051-Home-Hub-Installer#1868"
+    reason: >-
+      DRAFT, "HELD UNDER FREEZE: the pipefail ratchet could not see the form
+      that reddened #1865". Opened 2026-09-09, 221 additions / 30 deletions,
+      all three files under tests/ (a baseline fixture and two test scripts).
+      Held state and file list confirmed via `gh pr view 1868`.
+    review_by: "2026-09-19"
+
   # ── v1.0.61 cut, 2026-09-03 (Archie). Six PRs over 48h, none of which can
   #    reach this DMG, deferred so check-pr-age does not kill `make ship` at
   #    cut.yml:862. Every row here is deferred on ARITHMETIC or on DRAFT
@@ -139,6 +174,49 @@ pr_exemptions:
       after this cut. Do not read the two green journal rows in
       cut-manifests/v1.0.59.yaml as closing this. PIN-SAFE (0 install.sh hits).
     review_by: "2026-09-12"
+  - ref: "CM051-Home-Hub-Installer#1755"
+    reason: >-
+      'feat(uninstall): revert the auto-login WE enabled, and only that one'.
+      TNM's, on tnm/revert-autologin-we-enabled, 2026-09-07T04:39:21Z, MERGEABLE/CLEAN on its own checks. 🔴 NOT
+      PIN-SAFE: install.sh +44 -9. Same reasoning as #1752 and it is the same
+      uninstall path -- the provenance-gated auto-login revert is correct work
+      and it changes nothing a customer meets before the install completes.
+      CORRECTED 2026-09-07T10:05Z: this row said "Mine" and said the three
+      would land together in v1.0.75. Both are now wrong. It is TNM's, and he
+      MERGED #1752 and #1753 at 09:22:16Z and 09:22:22Z, while this cut was in
+      flight -- which unpinned cuts/v1.0.74/cut.env (install.sh blob 5acf1c44
+      -> cac0e345, +136 lines) and is why that pin is re-pointed in this same
+      change. Measured before accepting it: every hunk lands at line 20949 or
+      later, the uninstaller region begins around 20816, the single deleted
+      line's variable _OSTLER_DOCKER is used only at 21220-21234, and bash -n
+      passes. The INSTALL path is untouched, so the 41-of-41 depth measurement
+      still holds. This one row stays deferred because it is still open, not
+      because of any judgement about its merit.
+      RENEWED 2026-09-10T05:3xZ (Aesop): this review date expired at 2026-09-09
+      and cut run 34441097038 for v1.0.86 was refused by check-pr-age on it,
+      before the build, at 05:29:08Z. The PR is still open under the launch
+      freeze (directive item 2: it moves no walk probe), TNM was asked to
+      renew or close and renewal is the default. Re-decide on the new date.
+    review_by: "2026-09-12"
+  - ref: "CM051-Home-Hub-Installer#1818"
+    reason: >-
+      RE-DECIDED 2026-09-13, and the grounds have CHANGED rather than been
+      renewed. The previous row deferred this on the launch freeze and said
+      "retire this row when the freeze lifts or the PR merges". THE FREEZE HAS
+      LIFTED (Andy, 2026-09-13), so that ground is gone and this is not a
+      rollover of it. What still holds is narrower and is Andy's own
+      instruction, carried in the PR's title: '[LAUNCH ITEM, do not merge
+      until walk clears]'. No clean walk record exists yet, so the one
+      condition the PR sets for itself is unmet and merging it now would
+      break that instruction rather than honour the lifted freeze. It remains
+      a DRAFT. It touches no file in this cut's tree, so exempting it changes
+      nothing about what v1.0.97 ships: the tree is identical whether this
+      sits open, merges, or closes. Deferred on Andy's standing instruction
+      and on draft status, not on merit, and this is not a judgement about
+      the uninstaller change. RETIRE THIS ROW when a clean walk record exists
+      (then it can merge and be judged on merit) or when Andy withdraws the
+      walk-clears condition. Not on the next cut, not automatically.
+    review_by: "2026-09-20"
   - ref: "CM051-Home-Hub-Installer#495"
     reason: >-
       'feat(cut-infra): vendor drift check + .vendor-manifests'. DRAFT, and
@@ -507,6 +585,76 @@ pr_exemptions:
       the same invisibility the 176-PR backlog was made of.
     review_by: "2026-09-12"
 
+
+  # ── v1.0.89 cut, 2026-09-10 (Archie). SEVEN PRs over 48h, none of them in
+  #    CM051 and none of them ours to merge on someone else's behalf. The tag
+  #    would die in-build at cut.yml:862 exactly as v1.0.86 did, which is why
+  #    this is filed under freeze item 2(c), a cut build failure, and not as
+  #    tidy-up. NOTHING HERE IS CLOSED OR MERGED: the PRs stay open and stay
+  #    printed on every run. review_by is 2026-09-12 for all seven, which is
+  #    two days, not a parking space.
+  #
+  #    ⚠️ TWO OF THESE RECORD A REAL TENSION RATHER THAN HIDING IT. HR015 #846
+  #    and #847 are docs-only and register-only changes, so freeze item 2
+  #    forbids merging them, and that is precisely why they aged past 48h. The
+  #    freeze says do not merge; the pr-age gate refuses to ship while they are
+  #    open. An exemption is the only move that keeps both rules true and says
+  #    so out loud. When the freeze lifts they merge, they do not linger.
+  - ref: "CM044-PWG-Personal-Wiki#271"
+    reason: >-
+      'build(deps): bump python from b0aed0e to 8edbf9e in /docker', a
+      dependabot base-image bump owned by the wiki repo. Not merged during the
+      launch freeze: a dependency bump at T-minus buys this cut nothing and
+      costs it an unmeasured delta. The wiki images this artefact pins are
+      already built and pinned by digest, so CM044 main moving changes no byte
+      of this DMG. Deferred on that arithmetic, not on merit.
+    review_by: "2026-09-12"
+  - ref: "CM044-PWG-Personal-Wiki#272"
+    reason: >-
+      'build(deps): update lxml requirement', a dependabot bump owned by the
+      wiki repo, same arithmetic as #271: the pinned wiki images are pinned by
+      DIGEST, so CM044 main moving cannot reach this artefact. Not ours to
+      merge on the wiki repo's behalf during the freeze.
+    review_by: "2026-09-12"
+  - ref: "CM044-PWG-Personal-Wiki#273"
+    reason: >-
+      'build(deps): update pyoxigraph requirement', a dependabot bump owned by
+      the wiki repo, same arithmetic as #271 and #272. Deferred, not dismissed:
+      these three are cheap and should be swept the week after launch.
+    review_by: "2026-09-12"
+  - ref: "CM044-PWG-Personal-Wiki#269"
+    reason: >-
+      'docs(release-images): the header promised multi-arch that the workflow
+      stopped building'. A DRAFT, and docs-only, so the freeze holds it on two
+      counts. It describes a real documentation defect in the wiki repo and is
+      deferred on freeze status, not on merit.
+    review_by: "2026-09-12"
+  - ref: "CM031-PWG-Companion#189"
+    reason: >-
+      'test(#185): the fetch between the two tested ends of the wiki credential
+      chain', owned by the iOS repo. CM031 is not in the customer install path
+      for this cut and its source enters no part of this DMG, so merging it
+      changes nothing here and is not ours to decide at T-minus.
+    review_by: "2026-09-12"
+  - ref: "HR015-Gaming-PC#846"
+    reason: >-
+      'chore(docs): correct stale launch-state and the local-cut recipe that
+      points at the refused path'. DOCS-ONLY, which freeze item 2 forbids
+      merging, and that is exactly why it aged past 48h. It touches no
+      installer source, no pin and no vendored tree, so it cannot reach this
+      DMG. The exemption records the collision between the freeze and this gate
+      rather than resolving it by quietly merging a PR the freeze excludes.
+    review_by: "2026-09-12"
+  - ref: "HR015-Gaming-PC#847"
+    reason: >-
+      'chore(tokens): register the 5 Apple signing/notary secrets and flag the
+      unrecorded cert expiry'. A REGISTER change in HR015, no values, and
+      docs-only in the freeze's sense, so item 2 holds it. It reaches no
+      installer source and no pin. Worth landing the day the freeze lifts: an
+      unrecorded certificate expiry is a real future outage, and this row is
+      the reminder that it is written down nowhere else yet.
+    review_by: "2026-09-12"
+
 deferrals:
   - ref: "CM051:#1437"
     reason: >-
@@ -566,6 +714,46 @@ deferrals:
   # at all. A prohibition whose grounds nobody wrote down can only be obeyed, not
   # audited. Rather than infer intent from a close event, both were resolved by
   # measuring whether the content had landed. It had.
+  - ref: "CM051:archie/land-1744-either-spelling"
+    reason: >-
+      Mine. THREE commits, and until 2026-09-07T10:50Z they existed ONLY on
+      this operator Mac -- no remote ref, no PR, one `rm -rf` from gone. That
+      is the rule-3 violation, not the deferral: a branch with no remote is
+      invisible to every other agent and to every sweep, so it is not saved, it
+      is lost with extra steps. PUSHED FIRST, THEN DEFERRED, because a deferral
+      row records a decision and does nothing whatever to protect the commits
+      it defers. Verified after pushing: remote and local both at 04cd3c82.
+      WHY IT WAS INVISIBLE TO CI AND VISIBLE TO ME, which is worth knowing: the
+      orphan gate run on a hosted runner clones fresh and sees only what is on
+      the remote, so it reported 7 REDs while the same gate run on this Mac
+      reported 9. The two extra were this branch and its neighbour below. A
+      local-only branch is not merely unsafe, it is UNCOUNTABLE by the gate
+      built to count it.
+      CONTENT, and it is not v1.0.74 scope: a walk-gate key fix -- "a walk
+      record filed as 1.0.71 was invisible to a gate asking for v1.0.71" --
+      plus its TEST_WIRING regeneration and a pipefail fix in its own test.
+      PIN-SAFE, 0 install.sh hits, measured. It wants to land with the
+      walk_verdict work rather than be swept into a tag, and the walk-closure
+      gate for this cut already passes without it.
+    until_cut: "v1.0.75"
+  - ref: "CM051:tnm/end-of-install-confirmation-regraft"
+    reason: >-
+      TNM's. THREE commits, same rule-3 story as the row above: local-only until
+      2026-09-07T10:50Z, now pushed and verified at d1912f71 remote and local.
+      This is the #399 end-of-install confirmation work, re-derived against
+      current main rather than merged from the rotted original -- which is
+      exactly the right way to revive a stale branch and is why deleting it
+      would have been the expensive mistake.
+      🔴 NOT PIN-SAFE: it touches install.sh, measured, 1 hit. cuts/v1.0.74/
+      cut.env pins CM051 by install.sh BLOB (cac0e345), so landing this now
+      unpins the cut for a second time in one morning -- the first was #1752
+      and #1753 merging mid-flight at 09:22Z. It also adds a NEW question to
+      the end of the install, and the payload's one measured property is that
+      it completes 41 of 41 steps; a new prompt is precisely the thing that
+      measurement would no longer cover.
+      Held for v1.0.75 with #1755, where the install depth is re-measured after
+      the uninstaller contract lands whole.
+    until_cut: "v1.0.75"
   - ref: "CM051:fix/all-kickstart-sites-bounded-509"
     reason: >-
       SUPERSEDED BY CONTENT via #1102, which is MERGED (2026-08-27T03:29:19Z)
@@ -4778,3 +4966,59 @@ deferrals:
       #269 is part of getting that build working, it is the right thread -- it
       is simply not this cut's to merge.
     until_cut: "v1.0.74"
+  - ref: "daemon:#385"
+    reason: >-
+      MINE, and held for a measured mechanical reason rather than on merit. It
+      is test-only: one `#[test] fn` appended inside the existing `mod tests` in
+      crates/zeroclaw-gateway/src/api.rs, +57 -0, adding no shipped behaviour.
+      It pins the DEFAULT branch of `wiki_password_file_path()` -- the branch
+      every other test in that file steps around by setting
+      OSTLER_WIKI_PASSWORD_FILE first, so the path the shipped daemon actually
+      uses has never been asserted by anything. It is the daemon-side half of
+      CM051 #1771, which pins the same contract from the installer side.
+      WHY IT IS DEFERRED AND NOT MERGED, MEASURED RATHER THAN ASSUMED:
+      scripts/verify_cut_freshness.sh holds the daemon pin against LIVE HEAD of
+      ostler-assistant, and permits it to sit behind only when EVERY delta
+      commit appears in scripts/daemon_hold_ack.tsv. Merging #385 advances that
+      live HEAD by one commit, so it would immediately require a SECOND commit
+      here -- an ack row -- to keep this same cut green. A deferral is one row;
+      a merge is a merge plus a race against the cut that is already tagged.
+      The cheaper of the two is the one that does not touch the daemon.
+      Nothing is lost by holding: the test asserts a contract, and a contract
+      that is true is not made truer by the assertion landing this week. It is
+      MERGEABLE and stays open. Clears by merging into ostler-assistant main
+      the moment v1.0.74 is published, together with its daemon_hold_ack row,
+      so the two land as one decision rather than as a fix and an apology.
+    until_cut: "v1.0.75"
+  - ref: "CM051:#1755"
+    reason: >-
+      THE ORPHAN-GATE HALF OF A DEFERRAL THAT ALREADY EXISTS, and it exists
+      twice on purpose rather than by duplication. This file feeds TWO gates
+      from two different keys, and #1784 answered one of them:
+        pr_exemptions  -> check-pr-age (cut.yml:862), keyed
+                          "CM051-Home-Hub-Installer#1755", line 142. Present.
+        deferrals      -> verify_no_orphaned_fixes.sh, keyed "CM051:#1755".
+                          Absent, which is why check-orphans still printed
+                          [RED] CM051:#1755 after #1784 merged.
+      Measured on origin/main by running the gate locally: 7 RED, #1755 among
+      them, while rows keyed CM051:#1211, CM051:#1214 and CM051:#1654 printed
+      [warn] DEFERRED in the SAME run. Same file, same run, same mechanism --
+      the ones in this section were consumed and the one in the other section
+      was not. That is the control, and it is why this is a section problem and
+      not a judgement problem.
+      THE SUBSTANCE IS ARCHIE'S AND IS CARRIED UNCHANGED. 'feat(uninstall):
+      revert the auto-login WE enabled, and only that one'. It is mine, it is
+      MERGEABLE/CLEAN on its own checks, and it is NOT pin-safe: install.sh
+      +44 -9. Deferred because it is open and because it touches install.sh
+      during a cut whose payload is the first in nine walk records measured to
+      complete an install -- not on merit. His measurement, quoted rather than
+      re-derived: every hunk lands at line 20949 or later, the uninstaller
+      region begins around 20816, the single deleted line's variable
+      _OSTLER_DOCKER is used only at 21220-21234, and bash -n passes. The
+      INSTALL path is untouched, so the 41-of-41 depth measurement still holds.
+      Clears by merging off main once v1.0.74 publishes. It cannot simply be
+      rebased today: it is stacked on #1752, which merged at 09:22:16Z, so a
+      rebase now conflicts in install.sh AND
+      tests/test_uninstall_stops_what_it_deletes.sh, and resolving a multi-file
+      install.sh conflict mid-cut is the trade this file exists to refuse.
+    until_cut: "v1.0.75"

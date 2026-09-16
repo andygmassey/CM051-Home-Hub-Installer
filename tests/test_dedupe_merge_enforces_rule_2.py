@@ -108,6 +108,29 @@ def load(path: pathlib.Path, name: str):
     return mod
 
 
+LAST_UPDATES: list = []   # every SPARQL update the last drive() issued, in order
+
+
+def _merges_in(updates) -> int:
+    """Count merges by their OUTBOUND rewrite, not by dividing the update
+    count: a merge now issues THREE updates (outbound, inbound, tombstone),
+    and `len // 2` would have kept reading 1 for both 2 and 3 -- integer
+    division is how the first draft of the tombstone passed this file's
+    own control without the file noticing."""
+    return sum(1 for u in updates if u.startswith("DELETE { <") and "> ?p ?o }" in u)
+
+
+def _tombstones_in(updates):
+    """(dupe, canonical) for every mergedInto tombstone issued."""
+    import re
+    out = []
+    for u in updates:
+        m = re.match(r"INSERT DATA \{ <([^>]+)> <[^>]*#mergedInto> <([^>]+)> \}", u)
+        if m:
+            out.append((m.group(1), m.group(2)))
+    return out
+
+
 def drive(mod, people, raise_on_key_query=False):
     """people: {person_uri: {"email": [...], "phone": [...], "uid": [...]}}
     Returns (merges_performed, stats)."""
@@ -138,8 +161,8 @@ def drive(mod, people, raise_on_key_query=False):
     mod._sparql_query = fake_query      # type: ignore[attr-defined]
     mod._sparql_update = fake_update    # type: ignore[attr-defined]
     stats = mod.run(dry_run=False)
-    # _merge_pair issues two updates per merge
-    return len(merges) // 2, stats
+    LAST_UPDATES[:] = merges
+    return _merges_in(merges), stats
 
 
 def main() -> int:
@@ -230,6 +253,59 @@ def main() -> int:
         bad(f"an unreadable key set still performed {n} merge(s); it must refuse everything")
 
     # -- NEGATIVE CONTROL, pinned to the tree that shipped the defect --------
+    # ── THE TOMBSTONE (2026-09-07). people_stores_reconcile counts a vector as
+    #    an orphan only when its URI has no graph presence in ANY position, and
+    #    this writer used to erase the duplicate completely. Every exact-key
+    #    merge it made left an orphan vector (14 on the v1.0.74 walk). ──────
+    n, stats = drive(subject, ONE_CARD)
+    ts = _tombstones_in(LAST_UPDATES)
+    dupes = [u[len("DELETE { <"):].split(">", 1)[0] for u in LAST_UPDATES
+             if u.startswith("DELETE { <") and "> ?p ?o }" in u]
+    if n == 1 and len(ts) == 1 and ts[0][0] == dupes[0] and ts[0][1] != dupes[0] \
+            and ts[0][1] in ONE_CARD and ts[0][0] in ONE_CARD:
+        ok(f"TOMBSTONE: the permitted merge leaves <{ts[0][0]}> mergedInto <{ts[0][1]}> -- the dupe keeps a graph presence, so its people vector is not an orphan")
+    else:
+        bad(f"the permitted merge issued {len(ts)} tombstone(s) {ts} for dupe(s) {dupes}; expected exactly one from the erased dupe to the survivor")
+    # Ordering inside _merge_pair: the tombstone must be the LAST update, or the
+    # outbound rewrite that deletes every <dupe> ?p ?o erases it.
+    if LAST_UPDATES and LAST_UPDATES[-1].startswith("INSERT DATA {"):
+        ok("TOMBSTONE ORDER: written after both rewrites, so the outbound DELETE cannot erase it")
+    else:
+        bad("the tombstone is not the last update of the merge; the outbound rewrite deletes every <dupe> ?p ?o after it")
+    n, stats = drive(subject, TWO_CARDS)
+    if len(_tombstones_in(LAST_UPDATES)) == 0:
+        ok("MUST-MISS: a vetoed pair gets NO tombstone -- nothing was merged, so nothing is marked merged")
+    else:
+        bad(f"a vetoed pair received {len(_tombstones_in(LAST_UPDATES))} tombstone(s); a tombstone on an unmerged node would hide it from every consumer")
+    # MUTANT: the module with its tombstone update removed. The assertion above
+    # must fail against it, or it is decoration. Proved landed by line count.
+    src = subject_path.read_text(encoding="utf-8")
+    marker = "mergedInto> <{canonical}> }}\""
+    lines = src.splitlines(keepends=True)
+    hits = [i for i, ln in enumerate(lines) if marker in ln]
+    # The whole statement goes -- the `_sparql_update(` line, the f-string, and
+    # the closing paren -- not just the f-string, which would leave an empty
+    # call that raises rather than a writer that forgot (the first draft did
+    # exactly that and the mutant died of a TypeError, proving nothing).
+    if len(hits) == 1 and hits[0] >= 1 and hits[0] + 1 < len(lines) \
+            and lines[hits[0] - 1].strip() == "_sparql_update(" \
+            and lines[hits[0] + 1].strip() == ")":
+        i = hits[0]
+        keep = lines[: i - 1] + lines[i + 2 :]
+    else:
+        keep = lines
+    if len(lines) - len(keep) != 3:
+        cannot_run(f"tombstone mutant did not land: {len(lines) - len(keep)} line(s) removed, wanted 3 (the whole update statement)")
+    with tempfile.TemporaryDirectory() as td:
+        mpath = pathlib.Path(td) / "mutant_dedupe_merge.py"
+        mpath.write_text("".join(keep), encoding="utf-8")
+        mutant = load(mpath, "dedupe_merge_mutant")
+        n, _ = drive(mutant, ONE_CARD)
+        if n == 1 and len(_tombstones_in(LAST_UPDATES)) == 0:
+            ok("MUTANT KILLED: with the tombstone update removed the merge still happens and the tombstone assertion would fail")
+        else:
+            bad(f"mutant produced {n} merge(s) and {len(_tombstones_in(LAST_UPDATES))} tombstone(s); the mutant is not what it claims")
+
     print(f"== negative control: {CONTROL_SHA} (the tree with no RULE 2 veto) ==")
     try:
         blob = subprocess.run(
@@ -262,6 +338,10 @@ def main() -> int:
             ok("CONTROL ON THE CONTROL: the pre-fix tree merged the legitimate RULE 1 pair too, so the DIFFERENCE in canonical keys is the discriminator")
         else:
             bad(f"the pre-fix tree gave {n} merge(s) on the legitimate pair; the discriminator is not what this test claims")
+        if len(_tombstones_in(LAST_UPDATES)) == 0:
+            ok(f"control {CONTROL_SHA}: the pre-fix writer left NO tombstone on the dupe it erased -- the orphan-vector defect reproduces")
+        else:
+            bad(f"control {CONTROL_SHA}: found {len(_tombstones_in(LAST_UPDATES))} tombstone(s) in the pre-fix tree; this harness is not measuring the absence it claims")
 
     print()
     print(f"== {PASS} pass / {FAIL} fail / {PASS + FAIL} total ==")

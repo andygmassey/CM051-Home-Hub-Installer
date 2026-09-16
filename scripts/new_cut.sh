@@ -145,11 +145,110 @@ run_gate "vendored BOM fresh"   bash tests/test_cut_bom_is_fresh.sh "$VERSION"
 run_gate "walk closure"         bash bin/rollforward_gate.sh --require-walk-closure --cut "$VERSION"
 run_gate "rollforward pin"      bash tests/test_rollforward_registry_pin.sh
 
+# ── GATE 8: EVERY ARTEFACT THE BUILD WILL FETCH ALREADY EXISTS ─────────────
+#
+# ADDED AFTER v1.0.80, WHICH THIS SCRIPT CLEARED. The tag was pushed on seven
+# green gates, preflight passed, and the cut died eleven seconds later:
+#
+#     [STEP] Ostler.app absent -- fetching ostler-hub-app-...-v0.4.76.tar.gz
+#     ERROR: could not read ostler-ai/ostler-assistant hub-v0.4.76 ...
+#     make: *** [download-hub-app] Error 1
+#
+# Not one of the seven asked whether the things the build downloads are there.
+# The daemon tarball was published and pinned correctly; the HUB APP is a second
+# artefact from a different repo, and a third (the Safari extension) comes from a
+# separately pinned tag. The gate lives in OS003 because that is where the cut
+# mechanism lives, and it covers all three, keyed on gui/Makefile's own values.
+#
+# AN OS003 CHECKOUT IS REQUIRED, AND ITS ABSENCE IS RED, NOT A SKIP. A gate that
+# quietly passes when it cannot find its own script is the defect this whole
+# change closes: supply-chain-pins printed "NOT a pass" and exited 0, and the tag
+# went out. So if the checkout cannot be located this prints RED with the
+# variable to set, and the operator does not get "ALL GREEN. Safe to tag".
+OS003_DIR="${OSTLER_OS003_DIR:-}"
+if [ -z "$OS003_DIR" ]; then
+  for _c in "$REPO/../OS003-Ostler-Release" \
+            "$HOME/Developer/OS003-Ostler-Release" \
+            "$HOME/Documents/Projects/OS003 - Ostler Release"; do
+    [ -d "$_c/gates" ] && { OS003_DIR="$_c"; break; }
+  done
+fi
+if [ -n "$OS003_DIR" ] && [ -x "$OS003_DIR/gates/verify_daemon_artefact_downloadable.sh" ]; then
+  run_gate "artefacts the build fetches exist" \
+    bash "$OS003_DIR/gates/verify_daemon_artefact_downloadable.sh" --cm051 "$REPO"
+else
+  run_gate "artefacts the build fetches exist" \
+    bash -c 'echo "no OS003 checkout with gates/verify_daemon_artefact_downloadable.sh."; echo "Set OSTLER_OS003_DIR. This gate is what stops a tag being spent on an"; echo "artefact that is not published, so it is RED rather than skipped."; exit 1'
+fi
+
+# ── THE TWO GATES THIS SCRIPT USED TO BE BLIND TO ───────────────────────────
+#
+# ADDED 2026-09-08, AFTER THEY COST A TAG. v1.0.76 was tagged on this script's
+# own "ALL GREEN. Safe to tag" and cut run 34201583498 died at preflight in
+# about forty seconds, before the dry-run or the cut job ran at all. Two hard
+# preflight gates refused, and NEITHER was in the list above:
+#
+#   cut-manifests/<version>.yaml missing
+#       "A tag without a manifest is a cut nobody wrote down."
+#   the installer's own version still 1.0.75/7500 while the cut was 1.0.76
+#       the v1.0.39 defect: a DMG that cannot tell you which installer it is.
+#
+# MEASURED ON THE FILE AS IT WAS: 8 references to cuts/, exactly 1 to
+# cut-manifests, and ZERO to plist or CFBundle. So this script could not see
+# either condition, while printing "there is no second round of discovery".
+#
+# THAT SENTENCE IS THE DEFECT, not the missing steps. A checklist that omits a
+# hard gate and then declares itself complete is worse than no checklist,
+# because it converts "I forgot" into "the tool told me I was done". The
+# operator did nothing wrong: they ran every gate offered and tagged on green.
+#
+# Both gates below are the SAME commands cut.yml runs, deliberately, so this
+# script cannot be green where the preflight is red. If cut.yml changes what it
+# checks, this list is stale by construction -- which is why each line names
+# its counterpart in that file rather than reimplementing the check.
+#
+# CUT_VERSION_SOURCE=tag mirrors what cut.yml sets, and it is load-bearing:
+# without it the version test refuses rather than running, because a version of
+# unstated provenance may have been read out of its own subject (#171).
+# ADDED 2026-09-08 after it killed the v1.0.77 tag. cut.yml runs it at preflight
+# and this script did not, which is the THIRD time a gate present in cut.yml and
+# absent here has been discovered by spending a tag. The two before it were the
+# cut record and the version stamp, added in #1825 -- and the list drifted again
+# within the day, which is the argument for the drift TEST that now accompanies
+# this line rather than for more careful list-keeping.
+run_gate "BOM rows are in the pin" bash scripts/verify_bom_rows_are_in_the_pin.sh "$VERSION"
+run_gate "cut record exists"    test -f "cut-manifests/${VERSION}.yaml"
+CUT_VERSION_SOURCE=tag \
+run_gate "installer version IS the cut version" \
+    bash tests/test_installer_version_matches_the_cut.sh "$VERSION"
+
 echo
 if [ "$RED" = "0" ]; then
-  echo "ALL GREEN. Safe to tag ${VERSION}. This script does not tag: the tag is the ship."
+  echo "ALL PREFLIGHT GATES GREEN for ${VERSION}."
+  echo
+  echo "THIS IS NOT \"SAFE TO TAG\", AND IT USED TO SAY THAT. This script runs the"
+  echo "gates cut.yml checks in its PREFLIGHT job. It does NOT run the gates the CUT"
+  echo "job runs: \`make ship\` has twelve prerequisites of its own, among them"
+  echo "check-pr-age, check-orphans, check-freshness, check-manifest and"
+  echo "check-provenance. Those are a SECOND ROUND and this script cannot see them."
+  echo
+  echo "NEXT, AND IT COSTS NO TAG:"
+  echo "    gh workflow run cut.yml --repo <owner>/CM051-Home-Hub-Installer --ref main"
+  echo
+  echo "A workflow_dispatch runs preflight AND the dry-run job; the cut job is gated"
+  echo "on push, so nothing is built, signed or published and NO VERSION NUMBER IS"
+  echo "SPENT. Tag only after that run is green."
+  echo
+  echo "MEASURED, 2026-09-13: v1.0.96 was tagged on a preflight nobody had run and"
+  echo "died there. v1.0.97 was tagged after THIS script reported every gate green,"
+  echo "and died in the cut job on check-pr-age, which this script does not run. Two"
+  echo "numbers, one sentence: THE PREPARATION GATES ARE NOT THE SHIP GATES."
   exit 0
 fi
-echo "${RED} gate(s) RED. Every one of them is above -- there is no second round of"
-echo "discovery. Fix them, re-run this, then tag."
+echo "${RED} preflight gate(s) RED. Every PREFLIGHT red is above: there is no second"
+echo "round of discovery AT THIS STAGE. Fix them and re-run this."
+echo
+echo "Then run a workflow_dispatch dry run before tagging. The ship gates inside"
+echo "\`make ship\` are a separate round this script does not reach, and they have"
+echo "spent a version number twice."
 exit 1

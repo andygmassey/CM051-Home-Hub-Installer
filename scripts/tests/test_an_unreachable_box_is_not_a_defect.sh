@@ -73,11 +73,25 @@ cat > "${WORK}/stub.sh" <<'STUB'
 _fake_box() {
     local cmd="$1"
     local mode; mode="$(cat "${STUB_MODE}")"
+    # A4 reads the daemon's pairing signals and the device count, and an
+    # EMPTY read is could-not-run, never pass. This fixture used to answer
+    # both with nothing, which the old predicate scored as "agree". Every
+    # reachable box here is a healthy unpaired one; only "dead" says nothing.
+    if [ "${mode}" != dead ]; then
+        case "${cmd}" in
+            */health*)  echo '{"companion_paired":false,"paired":false,"token_paired":true}'; return 0 ;;
+            *sqlite3*)  echo 0; return 0 ;;
+            # A6's repair audit reads "FOUND DEGRADED FAILED"; a box with no
+            # logs refuses, every other mode here ran no repair pass.
+            *"Link audit"*) if [ "${mode}" = nologs ]; then echo NOLOGS; else echo "0 0 0 0"; fi; return 0 ;;
+        esac
+    fi
     case "${mode}" in
         dead)     return 0 ;;                        # ssh produces nothing at all
         nologs)   case "${cmd}" in
-                      *found=0*)     echo NOLOGS ;;  # the dirs are not there
+                      *found=0*|*wiki-*)     echo NOLOGS ;;  # the dirs are not there
                       *"echo ok"*)   echo ok ;;
+                      *BINLS_OK*)    printf 'BINLS_OK\nostler-assistant\n' ;;
                       *http_code*)   echo 200 ;;
                       *frontpage*)   echo '{"id":"welcome-1"}' ;;
                       *launchctl*)   echo __A8_OK__ ;;
@@ -85,8 +99,9 @@ _fake_box() {
                       *)             echo "" ;;
                   esac ;;
         clean)    case "${cmd}" in
-                      *found=0*)     echo 0 ;;
+                      *found=0*|*wiki-*)     echo 0 ;;
                       *"echo ok"*)   echo ok ;;
+                      *BINLS_OK*)    printf 'BINLS_OK\nostler-assistant\n' ;;
                       *http_code*)   echo 200 ;;
                       *frontpage*)   echo '{"id":"welcome-1"}' ;;
                       *launchctl*)   echo __A8_OK__ ;;
@@ -94,8 +109,9 @@ _fake_box() {
                       *)             echo "" ;;
                   esac ;;
         dirty)    case "${cmd}" in
-                      *found=0*)     echo 7 ;;       # real errors in the logs
+                      *found=0*|*wiki-*)     echo 7 ;;       # real errors in the logs
                       *"echo ok"*)   echo ok ;;
+                      *BINLS_OK*)    printf 'BINLS_OK\nostler-assistant\n' ;;
                       *http_code*)   echo 200 ;;
                       *frontpage*)   echo '{"id":"welcome-1"}' ;;
                       *launchctl*)   echo __A8_OK__ ;;
@@ -104,7 +120,8 @@ _fake_box() {
                   esac ;;
         a8trunc)  case "${cmd}" in
                       *"echo ok"*)   echo ok ;;
-                      *found=0*)     echo 0 ;;
+                      *BINLS_OK*)    printf 'BINLS_OK\nostler-assistant\n' ;;
+                      *found=0*|*wiki-*)     echo 0 ;;
                       *launchctl*)   echo "" ;;      # reply lost, no terminator
                       *http_code*)   echo 200 ;;
                       *frontpage*)   echo '{"id":"welcome-1"}' ;;

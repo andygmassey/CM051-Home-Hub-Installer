@@ -185,6 +185,171 @@ else
 fi
 
 # -------------------------------------------------------------------------
+# THE GROUNDING SEED, between the controls and the measurements.
+#
+# assistant_answers_grounded is BLOCKING and its content assertion exists only
+# when OSTLER_GATE_KNOWN_PERSON and OSTLER_GATE_EXPECT_FACT are set. Nothing
+# set them, so a bare walk ran that probe against an empty graph with no
+# fixture and no content assertion. That is the configuration recorded FAILED
+# in walks/v1.0.74.tsv; the probe has passed once, on v1.0.75, and only
+# because the seed was run by hand first.
+#
+# HERE, not in ttywalk.sh, because ttywalk does not invoke this runner at all
+# (measured: zero references), so a seed wired there would not reach these
+# probes. And AFTER phase 1, because the self-tests never touch the box: this
+# is the last moment before anything is measured.
+#
+# SOURCED AT THE POINT OF USE rather than beside PROBE_DIR at the top. Sibling
+# tests and workflows cite this file by line number (:42 PROBE_DIR, :44
+# EX_CANNOT_RUN, :83 the probe glob) and those three stay true only while
+# nothing is inserted above them. A fourth citation, ":201-204 the BROKEN skip"
+# in test_walk_record_states_measured_count.sh and cut-manifest.yml, was ALREADY
+# WRONG on origin/main before this branch existed: the skip is at :249 there. It
+# is prose in both places, nothing executes a line lookup into this file, so it
+# is left for its owners rather than fixed under a freeze.
+. "$HERE/lib/grounding_seed.sh"
+grounding_seed_apply || true
+
+# ── AND THE PREFERENCE SEED, the same discipline on the other write route ──
+#
+# The seed above puts a PERSON in the graph. Nothing put a PREFERENCE there,
+# so an empty preference wiki, an ingest that never ran and a broken write
+# route were three faults wearing one face. On v1.0.81 the root cause turned
+# out to be the first of those: cm019_setup logged "already set up" with
+# elapsed_s=0 and install.log holds no ingest-dir and no "Files processed".
+#
+# BELOW the grounding seed, not above it, so the line citations at the top of
+# this file (:42 PROBE_DIR, :44 EX_CANNOT_RUN, :83 the probe glob) keep their
+# line numbers. Nothing executes a line lookup into this file, but three
+# places quote those three, and an insertion above them would rot all three
+# for no gain.
+#
+# `|| true` for the same reason the seed above carries it: this step reports
+# its own outcome in words, and every path it can fail on is either a named
+# CANNOT-RUN or a named FINDING. Neither should abort a walk that has not
+# measured anything yet.
+. "$HERE/lib/preference_seed.sh"
+preference_seed_apply || true
+
+# ── AND THE CONVERSATION SEED, the third write route, and the only one that
+#    needs a model call ──
+#
+# The two seeds above write a PERSON and a PREFERENCE. Nothing had ever put a
+# CONVERSATION through the conversation pipeline, and the pipeline is the only
+# writer of two things three probes read: the conversations Qdrant collection,
+# which the installer pre-creates EMPTY (install.sh:18448) and which
+# ingest_coverage scores EMPTY at 0, and the pwg:ConversationTopic nodes that
+# /api/v1/topics serves to pwg_topics. Nothing is processed at install time
+# (install.sh:19178-19180 checks --help and an import, and that is all), so on
+# a cold box those probes measure an empty store and cannot tell that from a
+# broken one.
+#
+# BELOW the two seeds above, so the line citations at the top of this file
+# (:42 PROBE_DIR, :44 EX_CANNOT_RUN, :83 the probe glob) keep their line
+# numbers, for the reason the block above gives.
+#
+# IT IS THE SLOWEST STEP IN THE WALK, ON PURPOSE. It makes six sequential model
+# calls, measured around 100 s each on a shipped box, and it is bounded at
+# OSTLER_CONVO_SEED_BUDGET_S (default 900). That cost buys the only assertion
+# in this suite that the conversation pipeline runs at all.
+#
+# `|| true` for the same reason the two above carry it: it reports its own
+# outcome in words, and every path it can fail on is either a named CANNOT-RUN
+# or a named FINDING.
+. "$HERE/lib/conversation_seed.sh"
+conversation_seed_apply || true
+
+# ── AND THE USAGE SEED, on the producer that had nothing to write ──
+#
+# The two seeds above put CONTENT in front of a probe. This one puts WORK in
+# front of one: usage_journal_producers asks whether every declared producer
+# has written a record, and on v1.0.81 cm051_ostler_fda_ingest had not, into a
+# journal holding 557 parsed rows. Not because the writer is missing -- it is
+# vendored and proven by execution -- but because a row is written only on a
+# MEASURED embedding call (pwg_ingest.py:65-66), and the one ingest leg with
+# guaranteed input on a wiped box was SKIPPED by a surviving hydrate sentinel
+# (install.sh:26392-26413 gating :29374).
+#
+# So the step below runs install.sh:29420-29424 verbatim and counts the
+# producer's rows either side of it. It states in its own output, every time,
+# that the sweep was run BY HAND, because that converts the probe from "the
+# install exercises the ingest" to "the ingest can write when run by hand" and
+# the record has to be readable by someone who was not here.
+#
+# LAST OF THE FOUR, and below the conversation seed in particular: that seed
+# makes six sequential model calls under its own budget, and this step reads a
+# journal those calls also write into. Counting the before edge after it has
+# finished keeps this delta attributable to THIS sweep. The line citations at
+# the top of this file (:42 PROBE_DIR, :44 EX_CANNOT_RUN, :83 the probe glob)
+# also keep their line numbers only while nothing is inserted above them.
+#
+# `|| true` for the reason both seeds above carry it: every path this step can
+# return 1 on is a named CANNOT-RUN or a named FINDING, and neither should
+# abort a walk that has not measured anything yet.
+. "$HERE/lib/usage_seed.sh"
+usage_seed_apply || true
+
+# ── AND WAIT FOR THE WIKI SUMMARY BACKFILL, so cm044_wiki_compiler has written ──
+#
+# The four seeds above give the box a person, a preference, a conversation and
+# one measured embedding call. usage_journal_producers also needs
+# cm044_wiki_compiler to have written, and on the wiped v1.0.82 box it had not:
+# the compiler writes a cm044-compile- row only from its summary pass, which
+# wiki-recompile-tick.sh:394-451 runs as a DETACHED background backfill. Measured
+# at 18:53:06Z on that walk: the install-time tick had launched the backfill at
+# 18:48:11Z, wiki-recompile-summaries.log was still 0 bytes, and the probe had
+# read the journal at about 18:51Z. Asked too early, the same shape as the two
+# count-reading probes below.
+#
+# And at 19:08Z on the same box, twenty minutes after that launch, the log was
+# STILL 0 bytes, no process of ours was alive, both LaunchAgents read "not
+# running, runs 1, last exit code 0", and the journal held 290 rows with
+# cm044-compile- 0: the backfill was gone and had written nothing while every
+# liveness signal read green, because the tick exits 0 for having LAUNCHED it.
+#
+# So this kickstarts the recompile LaunchAgent (after the seeds, so the compile
+# sees what they wrote) and waits, bounded by OSTLER_WIKI_WAIT_BUDGET_S, for
+# every sign of life to end: the wrapper pid in
+# ~/.ostler/.wiki-recompile-summaries.pid, the summaries log GROWING, the slot
+# lock's holder, the processes of this account naming the compiler, and the
+# compile container once the wrapper is gone. Never the pid alone, and an empty
+# log is never "complete": 0 bytes for the whole wait is the FINDING "the
+# backfill wrote nothing", a growing log at the budget is CANNOT-RUN "not
+# converged in time", and a finished compile with no row names the producer.
+# Then it counts the cm044-compile- rows either side. BELOW the usage seed, so
+# the line citations at the top of this file (:42 PROBE_DIR, :44 EX_CANNOT_RUN,
+# :83 the probe glob) keep their line numbers, and so the usage seed's own delta
+# stays attributable to its sweep.
+#
+# `|| true` for the reason the seeds carry it: every path this step can return 1
+# on is a named CANNOT-RUN or a named FINDING. No forget: the compile is the
+# product's own.
+. "$HERE/lib/wiki_summaries_wait.sh"
+wiki_summaries_wait || true
+
+# ── AND WAIT FOR THE GRAPH TO SETTLE, for the two probes that read counts ──
+#
+# The install-time converge is SIGKILLed at a flat budget and the catch-up agent
+# does not tick for ten minutes, then runs for twenty to forty more. The v1.0.78
+# walk measured inside that window: contacts read 1629 during the walk and 1920
+# an hour later, on the same box, untouched. people_count_agreement and
+# people_stores_reconcile were not wrong about what they saw; they were asked
+# too early, and a disagreement measured mid-convergence is not a store defect.
+#
+# Sourced at the point of use for the same reason as the seed above: sibling
+# tests and workflows cite this file by line number.
+#
+# SOURCED HERE, CALLED LATE. The wait itself is deferred to the moment the first
+# gated probe is about to run (see the loop below). It used to be called right
+# here, which put a wait of up to 2700 s in front of EVERY probe in phase 2,
+# including the twenty-odd that never read a count and cannot be affected by a
+# moving graph. On a walk where the graph never settles that is 45 minutes
+# charged to probes that did not need it. Deferring also means a filtered run
+# that collects neither gated probe waits for nothing at all.
+. "$HERE/lib/converge_wait.sh"
+_CONVERGE_WAIT_DONE=0
+
+# -------------------------------------------------------------------------
 # PHASE 2 -- the real measurements.
 # -------------------------------------------------------------------------
 printf -- '--- PHASE 2: measurements ---\n'
@@ -221,15 +386,106 @@ CANNOT_REASONS="$(mktemp)"
 FAIL_REASONS="$(mktemp)"
 trap 'rm -f "$CANNOT_REASONS" "$FAIL_REASONS"' EXIT
 
+# OSTLER_PHASE1_VERDICTS: when set, every verdict the loop below reaches is
+# appended there as <probe>\t<PASS|FAIL|CANNOT-RUN|BROKEN>\t<utc>\t<reason>\t<fixture>,
+# so the cut-manifest replay (verify_cut_manifest.py, box_walk_probe rows) can
+# take the verdict measured HERE, against the seed fixture and after each
+# probe's negative control, instead of running the script again after the
+# forgets at the end of this file. v1.0.89: the replay re-ran
+# assistant_answers_grounded after SEED-FORGET OK and read tool_found_nothing
+# on stores it had emptied.
+#
+# The fifth column says whether the probe's verdict DEPENDS on that fixture, and
+# the replay takes only rows that read seed-fixture. The grounding seed
+# (OSTLER_GATE_*) and the preference seed feed assistant_answers_grounded; the
+# conversation seed feeds ingest_coverage's conversations count and the
+# grounded probe's pwg_topics; the usage seed feeds usage_journal_producers
+# (each lib's header names its consumer). Every other probe reads live state,
+# and its phase 2 re-run stays an independent second measurement: on v1.0.89
+# that second reading is what caught the stores diverging by 44 mid-tick.
+SEED_DEPENDENT_PROBES="assistant_answers_grounded ingest_coverage usage_journal_producers"
+_record_verdict() {
+    [ -n "${OSTLER_PHASE1_VERDICTS:-}" ] || return 0
+    local fixture=live
+    case " $SEED_DEPENDENT_PROBES " in *" $1 "*) fixture=seed-fixture ;; esac
+    printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        "$(printf '%s' "${3:-}" | tr '\n\t' '  ')" "$fixture" >> "$OSTLER_PHASE1_VERDICTS"
+}
+
 for p in $PROBES; do
     b="$(basename "$p" .sh)"
 
     case " $BROKEN_LIST " in
         *" $b "*)
             printf '\n[%s]\n  SKIPPED -- probe failed its own negative control in phase 1.\n' "$b"
+            _record_verdict "$b" BROKEN "failed its own negative control in phase 1"
             continue
             ;;
     esac
+
+    # A COUNT READ MID-CONVERGENCE IS NOT A STORE DEFECT. If the graph never
+    # settled, the two probes that read counts cannot measure the thing they
+    # exist to measure, so they are CANNOT-RUN with the cause named: never
+    # FAIL, never PASS. This is a coverage statement, and it is counted in the
+    # same four numbers as every other CANNOT-RUN rather than hidden.
+    # THE STATE THIS COMPARES AGAINST MUST BE ONE THE LIB CAN ACTUALLY SET.
+    # This read `!= "done"` until Aesop's review of #1849 caught it. converge_
+    # wait sets exactly five values -- unrun, skipped, stable, unreadable,
+    # unstable (lib/converge_wait.sh:59, 125, 170, 183-184) -- and "done" is
+    # not among them: it is the last remnant of the marker-file design that
+    # this lib deliberately abandoned. So the comparison was true for every
+    # value the lib can produce, and BOTH gated probes were CANNOT-RUN
+    # unconditionally, including after a wait that succeeded. The gate did not
+    # delay the two probes, it deleted them. The lib's own 21-arm suite could
+    # not see it because that suite tests the lib and this line is the wiring,
+    # which is why the arms added in test_the_walk_waits_for_converge.sh drive
+    # THIS block rather than converge_wait().
+    #
+    # ── THE WIKI PRODUCER GETS A SECOND WAIT, RIGHT BEFORE THE PROBE THAT NEEDS IT ──
+    #
+    # usage_journal_producers requires cm044_wiki_compiler to have written, and
+    # the only writer is the summary backfill, which queues for the shared
+    # Ollama slot behind whatever job won it at install. v1.0.89 run 3
+    # (2026-09-10, a cold install): the email conversation feed took the slot at
+    # 18:10Z and held it past 19:00Z; the wait at the top of this file watched
+    # "slot held; matching processes: 1" and expired at 900 s; the probe then
+    # read 0 rows and called it FAIL. A precondition the walk SAW unmet is not a
+    # measurement of the producer. So, when the first wait ended cannot-run (it
+    # did not converge in time), wait once more here, after the other probes
+    # have spent their time, with a budget sized to outlast a feed batch (run 1
+    # measured about 47 min from install). The wait's final state is handed to
+    # the probe, which refuses rather than fails if the producer still has not
+    # run. "finding" (the backfill ran and wrote nothing) is NOT retried: that
+    # is the defect the probe exists to catch.
+    if [ "$b" = "usage_journal_producers" ]; then
+        if [ "${WIKI_WAIT_STATE:-unrun}" = "cannot-run" ]; then
+            printf '\n  wiki summaries: the first wait ended cannot-run (%s); waiting once more here, before the only probe that needs it, budget %ss\n' \
+                "${WIKI_WAIT_DETAIL:-no detail}" "${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}"
+            OSTLER_WIKI_WAIT_BUDGET_S="${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}" wiki_summaries_wait || true
+        fi
+        export OSTLER_WIKI_WAIT_STATE="${WIKI_WAIT_STATE:-unrun}"
+        export OSTLER_WIKI_WAIT_DETAIL="${WIKI_WAIT_DETAIL:-}"
+    fi
+
+    # PASS ONLY ON "stable". Every other value, including unrun, means the
+    # graph was not measured to have stopped moving.
+    if converge_gates_probe "$b"; then
+        # The wait happens once, here, immediately before the first probe that
+        # needs it, rather than in front of all of phase 2.
+        if [ "$_CONVERGE_WAIT_DONE" -eq 0 ]; then
+            printf '\n'
+            converge_wait || true
+            _CONVERGE_WAIT_DONE=1
+        fi
+        if [ "$CONVERGE_STATE" != "stable" ]; then
+            printf '\n[%s]\n' "$b"
+            printf '  VERDICT: CANNOT-RUN -- %s\n' "$CONVERGE_DETAIL" | sed 's/^/  /'
+            CANNOT=$((CANNOT + 1)); CANNOT_LIST="$CANNOT_LIST $b"
+            printf '%s\t%s\n' "$b" "$CONVERGE_DETAIL" >> "$CANNOT_REASONS"
+            _record_verdict "$b" CANNOT-RUN "$CONVERGE_DETAIL"
+            continue
+        fi
+    fi
 
     printf '\n[%s]\n' "$b"
     out="$(bash "$p" 2>&1)"
@@ -238,6 +494,7 @@ for p in $PROBES; do
 
     if [ "$rc" -eq 0 ]; then
         PASS=$((PASS + 1))
+        _record_verdict "$b" PASS ""
     elif [ "$rc" -eq "$EX_CANNOT_RUN" ]; then
         CANNOT=$((CANNOT + 1)); CANNOT_LIST="$CANNOT_LIST $b"
         # Everything from the marker to the END of the probe's output is the
@@ -253,6 +510,7 @@ for p in $PROBES; do
         # contract breach and a different problem entirely.
         [ -n "$_why" ] || _why="UNRECORDED -- exited ${EX_CANNOT_RUN} with no 'VERDICT: CANNOT-RUN --' line, so it bypassed probe_cannot_run and named no prerequisite"
         printf '%s\t%s\n' "$b" "$_why" >> "$CANNOT_REASONS"
+        _record_verdict "$b" CANNOT-RUN "$_why"
     else
         FAIL=$((FAIL + 1)); FAIL_LIST="$FAIL_LIST $b"
         # Same extraction as CANNOT-RUN above: probe_fail() prints its detail
@@ -266,8 +524,24 @@ for p in $PROBES; do
         # nothing, which is a contract breach, not a finding without a reason.
         [ -n "$_why" ] || _why="UNRECORDED -- exited ${rc} with no 'VERDICT: FAIL --' line, so it bypassed probe_fail and named no finding"
         printf '%s\t%s\n' "$b" "$_why" >> "$FAIL_REASONS"
+        _record_verdict "$b" FAIL "$_why"
     fi
 done
+
+printf '\n'
+# Every measurement is taken by here, so removing the synthetic person cannot
+# change a verdict in THIS run. It never fails the walk.
+grounding_seed_forget || true
+preference_seed_forget || true
+conversation_seed_forget || true
+usage_seed_forget || true
+
+# But post_walk_qa.sh replays probes against this box AFTER this script exits
+# (the cut manifest's runtime proofs), and the compiled wiki still counts the
+# rows just removed. v1.0.87: graph 1838, vectors 1838, tile 1839, two FAIL
+# rows on a box with no defect. Recompile so the replay reads the box the
+# probes read. Never fails the walk; see lib/wiki_summaries_wait.sh.
+wiki_baseline_resync || true
 
 # -------------------------------------------------------------------------
 # REPORT -- four numbers, never one.

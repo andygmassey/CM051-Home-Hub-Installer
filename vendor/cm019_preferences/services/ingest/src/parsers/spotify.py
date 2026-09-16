@@ -7,7 +7,7 @@ from typing import AsyncIterator, Optional
 from datetime import datetime
 import aiofiles
 
-from .base import BaseParser, ParsedPreference
+from .base import BaseParser, ParsedPreference, describe_json_parse_failure
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -129,7 +129,7 @@ class SpotifyParser(BaseParser):
         try:
             data = json.loads(content)
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON: {e}")
+            logger.error(f"Failed to parse JSON from {file_path}: {describe_json_parse_failure(content, e)}")
             return
 
         play_count = 0

@@ -111,6 +111,29 @@ jobs:
 
       - name: daemon pins agree with each other
         if: always()
+        # THE TOKEN IS WHAT MAKES SITES 5 AND 6 READABLE AT ALL.
+        #
+        # The test verifies the pins against the PUBLISHED release assets on
+        # ostler-ai/ostler-releases and ostler-ai/ostler-assistant, and it does
+        # that through `gh`, which authenticates from GH_TOKEN. Without one this
+        # job reached neither repo and both remote sites went unverified: on run
+        # 34317749743 the hub-app site printed "could not reach ... NOT a pass"
+        # and the run still reported "9 passed, 0 failed" and exited 0, on the
+        # very pin commit whose hub-app release did not yet exist. The cut then
+        # died fetching that artefact.
+        #
+        # GITHUB_TOKEN is not enough and must not be used as a fallback: it is
+        # scoped to this repository and cannot read another org, so it would 404
+        # exactly like no token at all and the failure would blame the release
+        # rather than the credential. Same reasoning as cut.yml, which sets
+        # OSTLER_RELEASES_TOKEN from this secret for download-daemon.
+        #
+        # A PRIVATE repo also 404s an asset that EXISTS, and a DRAFT release
+        # 404s to a read token, so an unreadable answer here can never be read
+        # as "absent and therefore fine". That is why the test now counts an
+        # unverifiable site as a failure rather than a skip.
+        env:
+          GH_TOKEN: ${{ secrets.CM051_RELEASES_READ }}
         run: bash tests/test_daemon_pins_agree.sh
 
       # RED-TEAM-3: the installer's Gatekeeper staging gates verified a bundle

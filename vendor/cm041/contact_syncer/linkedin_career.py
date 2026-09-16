@@ -96,6 +96,8 @@ def embed_text(
         )
         resp.raise_for_status()
         data = resp.json()
+        from contact_syncer.usage import record_embed_usage  # usage journal: enriching
+        record_embed_usage(data, model)
     embs = data.get("embeddings") or [data.get("embedding")]
     return embs[0]
 

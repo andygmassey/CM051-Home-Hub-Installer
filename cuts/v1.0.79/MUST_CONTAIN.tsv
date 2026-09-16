@@ -1,0 +1,46 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.79.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.79/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN.
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS, IN ONE LINE
+# ===========================================================================
+# v1.0.79 IS THE FIRST CUT SINCE v1.0.77 WITH A CHANGED PAYLOAD, and both
+# changes exist because the v1.0.78 cold walk could finally see them.
+#
+# ===========================================================================
+# THE PAYLOAD REALLY MOVED THIS TIME, AND THAT IS MEASURED
+# ===========================================================================
+# v1.0.78 shipped v1.0.77's install.sh byte-for-byte. v1.0.79 does not:
+#
+#     27752dcd:install.sh  ->  3c41f39273f9afdfe7d61bc343e4e4357e8a163f  (v1.0.78)
+#     ea6ff417:install.sh  ->  aac0e199003f821ed29c3a31750d2f634d58105b  (#1848)
+#     6876f5e7:install.sh  ->  9a73d3109b866475...                       (#1850)
+#
+# 137 insertions, 2 deletions against the v1.0.78 tree. So unlike CM051#1835,
+# which shipped by SUBTRACTION and had to be keyed by an ABSENCE, both rows
+# below are keyed by PRESENCE.
+#
+# ===========================================================================
+# EVERY PATTERN WAS RUN AGAINST BOTH REFS, WITH A CONTROL
+# ===========================================================================
+# A capability whose pattern also matches at v1.0.78 measures nothing: it
+# would go green on the PREVIOUS artefact and could not notice this cut's
+# payload going missing. Each was counted at 27752dcd (must be 0) and at
+# 6876f5e7 (must be non-zero):
+#
+#     pattern                                     @v1.0.78  @v1.0.79
+#     _INITIAL_HYDRATE_QDRANT_RETRIED                    0      3
+#     declare -f _ostler_write_store_curl_config          0      1
+#     CONTROL present in BOTH refs                       5      8   <- must NOT discriminate
+#
+# The control is _ostler_ensure_qdrant_collections, which exists in both
+# trees. It is here because two zeros and a broken reader look identical.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+A FIRST INSTALL SILENTLY FINISHED WITHOUT TWO OF ITS FOUR QDRANT COLLECTIONS. The pre-creation ran on a one-shot 300s cap and, when the installer could not reach its own store inside that window, conversations and evernote_knowledge were simply never created; the readiness check asked count -gt 0, and a CARDINALITY TEST CANNOT SEE A MISSING MEMBER. install.sh:29350 records the identical shape from the v1.0.60 walk, so the v1.0.78 occurrence is a RECURRENCE, not a new defect. #1821 was necessary and not sufficient: it added a second call site, and both were still capped. This retries the creation at the point where readiness is PROVEN, re-checks PER NAME rather than by count, and fails loudly.	CM051	ea6ff417ac8127853805854f0420f1aa9a94c5b3	no	qdrant_collections_created_at_proven_readiness	TBD	CM051#1848
+THE INSTALLER COULD NOT AUTHENTICATE TO ITS OWN HEALTHY STORE. _OSTLER_STORE_CURL_ARGS is armed with -K <path> while OSTLER_DIR still names the /tmp/ostler-prelaunch-<pid> staging tree; promote then rebinds OSTLER_DIR and DELETES that tree, so every later credentialed curl was handed a path that no longer existed and exited 26 before issuing a request. Measured on the v1.0.78 walk: the store answered 9971 times with 200 while NOT ONE installer GET /collections reached the proxy, and two separate 300s waits were burned against a store that was up. This re-arms after the promote, guarded on the writer existing because promote's call site precedes its definition, and makes the readiness WARN print the path curl ACTUALLY used rather than recomputing a healthy one. FIFTH INSTANCE of a class install.sh already names at :353 and :13963: a value captured during staging and never rebound to the tree it will actually run from.	CM051	6876f5e7d11b1bd155e3be06790ad8f593f2a33f	no	store_credential_survives_the_promote	TBD	CM051#1850

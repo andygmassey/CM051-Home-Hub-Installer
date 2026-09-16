@@ -265,6 +265,75 @@ else
     fi
 fi
 
+# ── 6. THE CUT'S OWN PREFLIGHT, EVERY STEP THAT NEEDS NO ARTEFACT. ─────────
+#
+# EVERY OTHER ROW ABOVE IS LIVE, AND THAT IS WHY TWO TAGS DIED. This script was
+# built to defend the read/push boundary -- things a peer can change in the
+# seconds before a tag. It ran ZERO of the cut's own preflight gates, so GREEN
+# meant "nothing has moved since you looked" and NEVER "this tag will build".
+#
+# Measured 2026-09-07, twice:
+#   attempt 1  green dry run 15:51:33Z, preflight killed it 37s later on a
+#              missing cut-manifests/<v>.yaml and a 1.0.74 plist
+#   attempt 2  green dry run, preflight killed it on verify_bom_rows_are_in_the_pin
+#              exiting 2 -- a CANNOT-RUN I had ALREADY SEEN and filed as a
+#              footnote without asking whether it was wired into preflight
+#
+# Adding gates one at a time as they bite is the same bug with a shorter
+# interval. So this runs ALL of preflight that can be answered before an
+# artefact exists: 16 of the 18 steps in cut.yml's preflight job. The other two
+# need docker to inspect the wiki images and are reported CANNOT-RUN-HERE rather
+# than skipped, because a silent skip is how SKIP-is-not-a-pass lied for
+# fourteen cuts.
+#
+# THREE STATES, NOT TWO. rc 0 GREEN, rc 2 CANNOT-RUN, anything else RED.
+_pf() {   # _pf <label> <command...>
+    local _lbl="$1"; shift
+    local _o _r
+    _o="$(cd "$HERE" && "$@" 2>&1)"; _r=$?
+    case "$_r" in
+        0) row "$_lbl" "GREEN" "preflight step passes here" ;;
+        2) CANT=1; row "$_lbl" "CANNOT-RUN" "$(printf '%s' "$_o" | tail -1 | cut -c1-120)" ;;
+        *) RED=1;  row "$_lbl" "RED" "$(printf '%s' "$_o" | grep -E '^[[:space:]]*(FAIL|ERROR|##\[error\])' | head -1 | sed 's/^[[:space:]]*//' | cut -c1-120)" ;;
+    esac
+}
+export CUT_VERSION="${CUTV}" CUT_VERSION_SOURCE=tag
+
+_pf "pf: cut manifest exists"        bash -c '[ -f "cut-manifests/'"${CUTV}"'.yaml" ]'
+_pf "pf: cut pin is current"         bash scripts/verify_cut_pin_is_current.sh --cut "${CUTV}" --ref HEAD
+_pf "pf: rollforward registry pin"   ./tests/test_rollforward_registry_pin.sh
+_pf "pf: cut checklist complete"     python3 tests/test_the_cut_checklist_is_complete.py
+_pf "pf: BOM freshness self-test"    ./tests/test_cut_bom_is_fresh.sh --self-test
+_pf "pf: BOM rows in the pin"        bash scripts/verify_bom_rows_are_in_the_pin.sh "${CUTV}"
+_pf "pf: commit-checks gate fires"   ./tests/test_tagged_commit_is_green.sh
+_pf "pf: vendored BOM is this cut's" ./tests/test_cut_bom_is_fresh.sh "${CUTV}"
+_pf "pf: orphan gate self-test"      ./scripts/orphan_gate_selftest.sh
+_pf "pf: orphan gate harness"        ./tests/test_no_orphaned_fixes_gate.sh
+_pf "pf: rollforward claims"         bin/rollforward_gate.sh --verify-claims --cut "${CUTV}"
+_pf "pf: walk closure"               bin/rollforward_gate.sh --require-walk-closure --cut "${CUTV}"
+_pf "pf: launchagent pycache guard"  python3 scripts/verify_launchagent_pycache_guard.py --root .
+_pf "pf: no local cuts"              ./tests/test_no_local_cuts.sh
+_pf "pf: appcast debt collected"     ./tests/test_appcast_debt_is_collected.sh
+_pf "pf: installer version == cut"   bash tests/test_installer_version_matches_the_cut.sh "${CUTV}"
+
+# THE TWO THAT CANNOT BE ANSWERED HERE, NAMED RATHER THAN OMITTED.
+# Both inspect the wiki container images and need docker. They are deferred to
+# the cut, and that is acceptable for THIS cut for a measured reason rather than
+# a hopeful one: the wiki image pins are IDENTICAL between the v1.0.74 tag and
+# the tree being cut --
+#     wiki-compiler@sha256:64debb2e2209
+#     wiki-site@sha256:77eee04f13b1
+# -- so they will be answering about images that already passed at v1.0.74. If a
+# future cut moves either pin, this row is a lie and the deferral must be
+# revisited.
+# DEFERRED, NOT CANNOT-RUN, and the difference is the whole point. These two are
+# not unmeasured -- they are measured by the cut itself, which must pass them
+# before it ships anything. Coverage is RELOCATED, not lost, so this row is
+# reported and does NOT block the verdict. Marking it CANNOT-RUN would make this
+# script exit 2 forever and never be able to clear a tag, which would be a gate
+# that can only ever say no.
+row "pf: wiki provenance (2 steps)" "DEFERRED" "needs docker; RUN BY THE CUT, not skipped. Safe to defer for THIS cut because the wiki image pins are byte-identical to v1.0.74 (compiler 64debb2e2209, site 77eee04f13b1) -- revisit if a cut ever moves them."
+
 # ── report ─────────────────────────────────────────────────────────────────
 printf '  %-30s  %-12s  %s\n' "CHECK" "VERDICT" "DETAIL"
 for r in "${ROWS[@]}"; do

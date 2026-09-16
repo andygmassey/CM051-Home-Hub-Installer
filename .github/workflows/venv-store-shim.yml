@@ -32,6 +32,7 @@ on:
       - 'tests/test_venvs_install_store_shim.sh'
       - 'tests/test_store_callers_authenticate.sh'
       - 'tests/test_installer_authenticates_to_qdrant.sh'
+      - 'tests/test_store_curl_config_survives_the_promote.sh'
       - 'tests/test_wiki_compiler_gets_the_qdrant_key.sh'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in the same PR that narrows it.
@@ -135,6 +136,33 @@ jobs:
       - name: the gate itself parses
         if: always()
         run: /bin/bash -n tests/test_installer_authenticates_to_qdrant.sh
+
+  # ── #1850: THE CREDENTIAL FILE MOVES, THE ARMED PATH DOES NOT ──
+  #
+  # The job above asks whether the credential is CORRECT for the store it is
+  # sent to. This one asks whether curl can still OPEN it. Different question,
+  # and the v1.0.78 walk failed the second while passing the first.
+  #
+  # _ostler_write_store_curl_config captures the path by value into
+  # _OSTLER_STORE_CURL_ARGS=( -K "$_conf" ) and is armed while OSTLER_DIR is
+  # still the /tmp staging tree. Promote then deletes that tree and rebinds
+  # OSTLER_DIR. Every credentialed curl afterwards exits 26 BEFORE issuing a
+  # request, the caller reads 000, and it is indistinguishable from a dead
+  # store. On the walk: zero GET /collections reached the wire while the proxy
+  # served 9971 x 200.
+  store-credential-survives-the-promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: the armed store credential still exists after the promote
+        run: /bin/bash tests/test_store_curl_config_survives_the_promote.sh
+
+      - name: the gate itself parses
+        if: always()
+        run: /bin/bash -n tests/test_store_curl_config_survives_the_promote.sh
 
   # ── #550: the wiki COMPILER is a container, and the shim cannot reach it ──
   #

@@ -111,6 +111,16 @@ jobs:
         if: always()
         run: /bin/bash tests/test_egress_verdict_claims_only_what_it_checked.sh
 
+      # The published proof. Every other step here asks whether the software
+      # behaved; this one asks whether the INSTRUMENT can still fail, over five
+      # readings whose correct verdicts are known in advance -- two of which
+      # must come back RED. It is what docs/EGRESS_PROOF.md tells a sceptic to
+      # run, so if it ever stops being runnable the published document is a
+      # promise we are no longer keeping.
+      - name: The egress proof can still go red (docs/EGRESS_PROOF.md)
+        if: always()
+        run: /bin/bash tests/test_the_egress_proof_can_go_red.sh
+
       # The tripwire on Andy's one ratified cut of deferral. v1.0.36 ships the
       # enrichment agent gated OFF; the cut after it must carry the question
       # that lets the customer decide. This step is green today and turns red

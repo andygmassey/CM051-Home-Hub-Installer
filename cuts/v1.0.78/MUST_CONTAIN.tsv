@@ -1,0 +1,72 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.78.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.78/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN.
+#
+# ===========================================================================
+# EVERY ROW SAYS ONE OF THREE THINGS AND NEVER A FOURTH
+# ===========================================================================
+#   gate:<workflow>#<what>  a CI gate that FAILS on the real pre-fix tree
+#   artefact:<sha8>#<what>  measured on the published artefact itself
+#   needs-walk:<ver>#<what> UNPROVEN, and here is exactly what to look at
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS, IN ONE LINE
+# ===========================================================================
+# v1.0.78 CARRIES THE SAME PAYLOAD AS v1.0.77 PAST A GATE THAT COULD NOT
+# MEASURE IT. v1.0.77 built nothing: it refused at preflight step 9 and its
+# dry-run and cut jobs were SKIPPED.
+#
+# ===========================================================================
+# THE PAYLOAD IS BYTE-IDENTICAL TO v1.0.77, AND THAT IS MEASURED
+# ===========================================================================
+# install.sh is the same OBJECT at the old pin and at this cut's tree:
+#
+#     git rev-parse 9e380700:install.sh    -> 3c41f39273f9afdfe7d61bc343e4e4357e8a163f
+#     git rev-parse f5bbd436:install.sh    -> 3c41f39273f9afdfe7d61bc343e4e4357e8a163f
+#
+# Blob identity, not ancestry, for the reason verify_cut_pin_is_current.sh
+# states: ancestry proves ordering and says nothing about content. So this BOM
+# is v1.0.77's BOM carried forward unchanged, and the single row below has
+# STILL never reached an artefact.
+#
+# ===========================================================================
+# WHAT LANDED SINCE THE v1.0.77 TAG, AND WHY NEITHER COMMIT CARRIES A ROW
+# ===========================================================================
+# Exactly two commits are in a46763a6..f5bbd436. The predicate is the same one
+# v1.0.73 and v1.0.77 used: does the commit touch a path that reaches the
+# customer -- install.sh, gui/, vendor/ or assistant-agent/.
+#
+#   f5bbd436 (#1841) touches scripts/, tests/ and .github/workflows/ ONLY.
+#   It is the CUT MACHINERY, not the product. It is the reason this version
+#   number exists: verify_bom_rows_are_in_the_pin.sh keyed a BOM row by the
+#   line a fix ADDED, and CM051#1835 below ships by DELETING lines, so the
+#   gate reported CANNOT-RUN (exit 2) and refused v1.0.77 rather than grading
+#   an unexamined BOM as a pass. The gate was right; the blind spot was that
+#   it had no way to key an absence. Now it asserts the deleted line is ABSENT
+#   from the pinned blob. Nothing in the DMG changes as a result, so a row
+#   asserting otherwise would be false.
+#
+#   8260c230 (#1842) touches gui/ -- but only the version stamp
+#   (CFBundleShortVersionString 1.0.78 / CFBundleVersion 7800, in Info.plist,
+#   project.yml and the pbxproj) plus cut-manifests/v1.0.78.yaml. That IS in
+#   the artefact, and it deliberately carries no BOM row because it already
+#   has a HARDER gate of its own: tests/test_installer_version_matches_the_cut.sh
+#   run with CUT_VERSION_SOURCE=tag, which cut.yml runs at preflight and which
+#   scripts/new_cut.sh now runs too (#1825, #1841). A BOM row would be a
+#   second, weaker statement of a thing already proved exactly.
+#
+# ===========================================================================
+# THE CAPABILITY PATTERN IS UNCHANGED AND STILL DISCRIMINATES
+# ===========================================================================
+# first_install_can_claim_its_own_store_port resolves to one row in
+# manifest/capability_manifest.tsv. It was derived against the v1.0.76 tree
+# (the artefact that carries the deadlock) and is unchanged here, because the
+# tree it must discriminate against is unchanged: no artefact between v1.0.76
+# and now has ever contained this fix.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+A FIRST INSTALL COULD NOT START ITS OWN DATABASE. graph_db_start preflights 6333 and 7878, this user's own colima multiplexer holds them, and #1253 signal 2 demanded the store ANSWER our credential -- but that step is the one that STARTS the store. A container left running by an earlier walk answers 401 to the freshly written credential, so the check refused the install because the store held the wrong key and blocked the only step that rewrites it. Measured on the first honestly-cold walk of v1.0.76: ERR-06-PORTS-HELD, rc=1, DONE status=fail, no artefact walkable. Signal 1 plus the single-machine invariant is now sufficient for these two ports exactly as it already was for 3000, 6379, 8044 and 8144; #549 is unaffected because signal 1 still requires the holder argv to name THIS user's colima. LOAD-BEARING: multi-stack or multi-user on one Mac invalidates the invariant and REQUIRES revisiting the function.	CM051	5e382f21d8bebd388ba6fa91d6b33b936fc810d3	no	first_install_can_claim_its_own_store_port	TBD	CM051#1835

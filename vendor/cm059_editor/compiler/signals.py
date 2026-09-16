@@ -41,7 +41,9 @@ builder invoked directly with an L3 item yields a card the central
 from __future__ import annotations
 
 import json
+import os
 import socket
+import sys
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
@@ -508,15 +510,72 @@ def _is_loopback(base_url: str) -> bool:
     return host in _LOOPBACK_HOSTS
 
 
+def _service_token() -> str:
+    """The loopback service token, or "" when none is configured.
+
+    THE SERVER FAILS CLOSED BY DESIGN. ical-server.py:191-204 states it: a
+    request without a valid token is 401, and when no token is configured it
+    denies unconditionally rather than opening up. So an unauthenticated client
+    is not "degraded", it is locked out of every non-public route.
+
+    Env-var names are the server's own contract (its _SERVICE_TOKEN_ENV_VARS),
+    primary first. The file fallback exists because this compiler runs from a
+    LaunchAgent, and an agent only sees the environment its plist gives it.
+    """
+    for name in ("OSTLER_SERVICE_TOKEN", "PWG_SERVICE_TOKEN"):
+        v = (os.environ.get(name) or "").strip()
+        if v:
+            return v
+    try:
+        p = os.path.expanduser("~/.ostler/secrets/service_token")
+        with open(p, "r", encoding="utf-8") as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
+
+
 def _get_json(url: str, timeout: float):
     """GET one loopback URL. Returns parsed JSON, or None on any failure
-    (connection refused, timeout, non-200, malformed body)."""
+    (connection refused, timeout, non-200, malformed body).
+
+    🔴 A 401 IS NOT AN ABSENT SERVICE, AND CONFLATING THEM HID THIS FOR MONTHS.
+    Measured 2026-09-13 on a walked box: all three signal endpoints returned
+    401 "missing or invalid service token", this function returned None for
+    each, read_signals() turned that into "no live signals", and the front page
+    rendered 12 interest cards with signal_cards=0. The "Needs you now" section
+    -- people waiting on you, commitments, drafts, prep -- simply was not there,
+    and the tick logged "front-page: 12 cards (phase=steady)" as though healthy.
+    The data was present the whole time: the same endpoints with the token
+    return 200, and /api/v1/suggestions alone returned 3944 bytes.
+
+    So an auth failure is reported to stderr rather than swallowed. It stays
+    non-fatal -- the feed must not die because one endpoint is unhappy -- but
+    "I was refused" and "nothing was there" must never print identically again.
+    """
     try:
-        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        headers = {"Accept": "application/json"}
+        _tok = _service_token()
+        if _tok:
+            headers["Authorization"] = "Bearer " + _tok
+        req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
             if getattr(resp, "status", 200) not in (200, None):
                 return None
             return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        # Named loudly, never silently. 401/403 means the token is missing or
+        # wrong, which is a CONFIGURATION defect an operator can fix; a silent
+        # None makes it indistinguishable from a service that is simply idle.
+        if e.code in (401, 403):
+            print(
+                "front-page signals: REFUSED %s by %s -- the live signal cards "
+                "(people waiting, commitments, drafts, prep) will be ABSENT "
+                "from this feed. The service token is missing or wrong; the "
+                "compiler reads OSTLER_SERVICE_TOKEN, PWG_SERVICE_TOKEN, then "
+                "~/.ostler/secrets/service_token." % (e.code, url),
+                file=sys.stderr,
+            )
+        return None
     except (urllib.error.URLError, socket.timeout, ValueError, OSError):
         return None
     except Exception:  # noqa: BLE001 - a signal fetch never breaks the feed

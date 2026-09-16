@@ -19,6 +19,15 @@ name: install-sh-cannot-wedge-the-box
 # 3. --check DIED WITHOUT A TTY on every build ever shipped. Three read-only
 #    flags, and the guard listed two.
 #
+# 4. A RE-PROMPT LOOP THAT CANNOT GIVE UP. Found 2026-09-07, again by walking a
+#    box and not by CI: an install.sh spinning 2h19m on 50:51 of CPU with a
+#    1,755,085,045-byte log growing at ~218 KB/s, every line the same question.
+#    `gui_read` returns empty on EOF forever and three loops re-prompt on empty,
+#    so anything that closes the GUI's end of the pipe turns a question into a
+#    disk-filling loop -- and the box then trips install.sh's own 15 GB floor
+#    and refuses, NAMING THE WRONG CAUSE. The customer is told they are out of
+#    disk by the process that ate it.
+#
 # ── WHY macos-latest, AND WHY /bin/bash ─────────────────────────────────────
 #
 # NOT for convenience. install.sh runs on a customer Mac under /bin/bash, which
@@ -40,6 +49,11 @@ on:
       - 'tests/test_enrich_kickstart_cannot_block_ingest.sh'
       - 'tests/test_dead_launchagent_prune.sh'
       - 'tests/test_readonly_flags_need_no_tty.sh'
+      - 'tests/test_prompt_loops_gate.sh'
+      - 'scripts/verify_prompt_loops_are_bounded.sh'
+      # The ceiling is part of the gate. Without this path a PR could raise it
+      # and never run the check that the raise is the thing being reviewed.
+      - 'tests/PROMPT_LOOP_UNBOUNDED_CEILING'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in a PR that never runs it.
       - '.github/workflows/install-sh-cannot-wedge-the-box.yml'
@@ -88,15 +102,29 @@ jobs:
         if: always()
         run: /bin/bash tests/test_readonly_flags_need_no_tty.sh
 
+      # Two steps, deliberately. The self-test proves the gate can still tell a
+      # question from a wait; the gate then reports the real count in install.sh.
+      # Running only the second would leave a silently-broken predicate printing
+      # a clean sheet, which is the failure its own vacuity arm exists to stop.
+      - name: the prompt-loop gate can still tell a question from a wait
+        if: always()
+        run: /bin/bash tests/test_prompt_loops_gate.sh
+
+      - name: no NEW re-prompt loop that cannot give up
+        if: always()
+        run: /bin/bash scripts/verify_prompt_loops_are_bounded.sh
+
       # A test that no longer parses cannot fail honestly -- it fails for the
       # wrong reason, or worse, a sourcing error reads as a pass. Parse all
-      # three under the same 3.2 that runs them.
+      # five under the same 3.2 that runs them.
       - name: the gates themselves parse under bash 3.2
         if: always()
         run: |
           set -e
           for t in tests/test_enrich_kickstart_cannot_block_ingest.sh \
                    tests/test_dead_launchagent_prune.sh \
-                   tests/test_readonly_flags_need_no_tty.sh; do
+                   tests/test_readonly_flags_need_no_tty.sh \
+                   tests/test_prompt_loops_gate.sh \
+                   scripts/verify_prompt_loops_are_bounded.sh; do
             /bin/bash -n "$t" && echo "  parses: $t"
           done

@@ -184,6 +184,76 @@ PY
     rm -f -- "${_tmp}"
 fi
 
+# ── ARMS 8-10: THE HALF OF THIS CREDENTIAL THAT LIVES IN ANOTHER REPO ───────
+#
+# The arms above prove :8044 DEMANDS a credential. They say nothing about
+# whether the paired phone can SUPPLY one, and that is a different question
+# with its answer split across three repositories:
+#
+#   CM051  install.sh writes  ostler:$apr1$...  into ostler-wiki-htpasswd
+#          and the plaintext into ${SECRETS_DIR}/wiki_password
+#   oa     crates/zeroclaw-gateway/src/api.rs:434
+#            const WIKI_BASIC_AUTH_USERNAME: &str = "ostler";
+#          and wiki_password_file_path() reads $HOME/.ostler/secrets/wiki_password
+#   CM031  WikiWebView answers the basic-auth challenge with what oa returned
+#
+# 🗿 THIS SIDE CHECKED NEITHER. Measured 2026-09-07: this file verified the
+# nginx SHAPE and never the username or the path. oa is the better half -- its
+# wiki_credential_is_served_to_a_paired_caller DOES pin the username to
+# "ostler" -- but its DEFAULT path branch is unreached, because every oa test
+# sets OSTLER_WIKI_PASSWORD_FILE to a tempdir first. So:
+#
+#   the username   pinned in oa, and until now not here
+#   the path       pinned NOWHERE, on either side
+#
+# Renaming the htpasswd user, or moving the secrets file, would leave every
+# gate in both repos green while the phone got a 401 or a 503 on a credential
+# it had correctly fetched. A restriction gets gated and the way through does
+# not. oa's half is pinned by its own new test (oa tnm/pin-the-wiki-credential-constant).
+#
+# Neither repo can see the other at CI time, so each pins its own half and
+# names the twin. A change on either side goes red HERE or THERE, and the
+# reader is pointed at the file that has to move with it.
+
+# ARM 8 -- the htpasswd username is the one the gateway hands out.
+_want_user="ostler"
+if grep -qE "^printf '${_want_user}:%s\\\\n'" "${INSTALL_SH}"; then
+    ok "arm 8: htpasswd user is '${_want_user}', matching oa WIKI_BASIC_AUTH_USERNAME (api.rs:434)"
+else
+    bad "arm 8: no htpasswd line writing user '${_want_user}'. If this was renamed, oa crates/zeroclaw-gateway/src/api.rs:434 must change in the same breath or every paired phone gets a 401."
+fi
+
+# ARM 9 -- the plaintext lands where the gateway looks for it. Two facts, both
+# needed: the basename, and that SECRETS_DIR is ${OSTLER_DIR}/secrets. Checking
+# only the basename would pass on a file the gateway cannot find.
+_basename_ok=0; _dir_ok=0
+grep -qE '\$\{SECRETS_DIR\}/\$\{2:-wiki_password\}' "${INSTALL_SH}" && _basename_ok=1
+grep -qE '^SECRETS_DIR="\$\{OSTLER_DIR\}/secrets"' "${INSTALL_SH}" && _dir_ok=1
+if [ "${_basename_ok}" -eq 1 ] && [ "${_dir_ok}" -eq 1 ]; then
+    ok "arm 9: the plaintext is \${OSTLER_DIR}/secrets/wiki_password, which is where oa wiki_password_file_path() reads"
+else
+    bad "arm 9: the secrets path drifted (basename=${_basename_ok} dir=${_dir_ok}). oa reads \$HOME/.ostler/secrets/wiki_password and returns 503 if it is not there."
+fi
+
+# ARM 10 -- SELF-TEST on arm 8. A structural grep that resolves nothing passes
+# exactly like one that resolves. Rename the user in a COPY and require the
+# arm-8 predicate to go red on it.
+_tmp8="$(mktemp "${TMPDIR:-/tmp}/wikicred.XXXXXX")" || _tmp8=""
+if [ -z "${_tmp8}" ]; then
+    cant "arm 10: no temp file, so arm 8 is unproved"
+else
+    sed "s/^printf '${_want_user}:%s/printf 'somebodyelse:%s/" "${INSTALL_SH}" > "${_tmp8}"
+    _landed="$(grep -c "^printf 'somebodyelse:%s" "${_tmp8}")"
+    if [ "${_landed}" -lt 1 ]; then
+        cant "arm 10: the mutation did not land, so a green here would be the green you were hoping for"
+    elif grep -qE "^printf '${_want_user}:%s\\\\n'" "${_tmp8}"; then
+        bad "arm 10: arm 8's predicate still passes on a tree where the user was renamed -- arm 8 is blind"
+    else
+        ok "arm 10: arm 8 detects a renamed htpasswd user (mutation landed, ${_landed} occurrence)"
+    fi
+    rm -f -- "${_tmp8}"
+fi
+
 echo "== ${PASS} pass / ${FAIL} fail / ${CANT} cannot-run =="
 [ "${FAIL}" -gt 0 ] && exit 1
 [ "${CANT}" -gt 0 ] && exit 2

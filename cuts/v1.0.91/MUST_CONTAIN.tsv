@@ -1,0 +1,36 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.91.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.91/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN.
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS
+# ===========================================================================
+# Three merged ostler-ai/ostler-assistant fixes sat on main, one commit ahead
+# of the shipped daemon pin (hub-v0.4.79, 4fe9691b), unreachable by any
+# customer: the off-state toggle/slider track being invisible against its
+# card, the daemon authenticating the browser's hop to the wiki instead of
+# its own (the bare nginx 401 on the Personal wiki tab on every install), and
+# a doctest-CI fix to the wiki_proxy doc comments. Re-pinned to hub-v0.4.80
+# (daemon commit b014faf593123676e00fa1197360f5142081705e) plus a matching
+# Ostler.app rebuild for the same commit, in CM051 #1939 (split into #1940 +
+# a follow-up cut-record PR after ruleset 23060430 made #1939's
+# self-referential pin unmergeable -- see cuts/v1.0.91/cut.env's WHY THESE
+# PINS block).
+#
+# ===========================================================================
+# WHAT IS DELIBERATELY NOT A ROW
+# ===========================================================================
+# No install.sh behaviour changes except the matching OSTLER_ASSISTANT_VERSION
+# and DEFAULT_ASSISTANT_TARBALL_SHA256 curl-recovery pins. No wiki image
+# rebuild, no walk-instrument change.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+OFF-STATE TOGGLE/SLIDER TRACK WAS INVISIBLE AGAINST ITS CARD (low contrast, --pc-bg-track-off / --pc-border-track-off tokens added). Verified present in the hub-v0.4.80 daemon's bundled web/dist CSS and absent from hub-v0.4.79's.	ostler-assistant	b5a3a24f	no	none	TBD	CM051 #1940
+THE DAEMON'S HOP TO THE WIKI WAS UNAUTHENTICATED, USING THE BROWSER'S CREDENTIAL INSTEAD OF ITS OWN, CAUSING A BARE NGINX 401 ON THE PERSONAL WIKI TAB ON EVERY INSTALL. wiki_proxy.rs authenticates the daemon's own hop. Verified present via the new module's distinctive strings ("Ostler/0.1 (wiki_proxy)", "wiki is still starting up") in the hub-v0.4.80 Mach-O, absent (0 occurrences) from hub-v0.4.79's.	ostler-assistant	6dbff407	no	none	TBD	CM051 #1940
+WIKI_PROXY DOC-COMMENT QUOTES BROKE THE DOCTEST CI LANE, fenced as text rather than Rust (tip of ostler-assistant main at cut-pin time, b014faf5). CI-only; no runtime behaviour change.	ostler-assistant	b014faf5	no	none	TBD	CM051 #1940
+THE DAEMON PIN, MOVED AT ALL FIVE install.sh/gui/Makefile SITES. install.sh OSTLER_ASSISTANT_VERSION to 0.4.80 and DEFAULT_ASSISTANT_TARBALL_SHA256 to the published digest; gui/Makefile DAEMON_VERSION and DAEMON_SHA256 to the same. Both digests read from the published .sha256 sidecar and re-hashed independently, never typed. Split from CM051 #1939 into #1940 so the pin gate (cut-pin-is-actually-current) classifies this PR report rather than block: it touches no cuts/**/cut.env.	CM051	c938fab9da90661b6b22582a2940f875ddf48623	no	none	TBD	CM051 #1940
+THE HUB APP PIN, SAME COMMIT, SEPARATE CAPABILITY BECAUSE IT IS A SEPARATE REPO AND A SEPARATE FAILURE. gui/Makefile HUB_APP_SHA256 names the Ostler.app bundle published for hub-v0.4.80; HUB_APP_TARBALL_NAME interpolates DAEMON_VERSION, so the hub app digest must move whenever the daemon one does or download-hub-app fails closed, exactly as it did for v1.0.81.	CM051	c938fab9da90661b6b22582a2940f875ddf48623	no	none	TBD	CM051 #1940

@@ -165,9 +165,16 @@ for p in "$HOME/Library/LaunchAgents/com.creativemachines."* \
   launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
   rm -f "$p"
 done
+# "Ostler Safari Extension.app" is ours too -- install.sh:30702 renames
+# SafariHistoryExt.app to it -- and it was missing from this list, so a wiped
+# box kept a branded app in /Applications. The same omission existed in the
+# customer uninstaller and is fixed in the same change. It matters here for a
+# different reason: a walk measures a box, and a box still carrying our Safari
+# extension after a wipe is not the clean machine the walk believes it is on.
 rm -rf "$(_apps_dir)/Ostler.app" \
        "$(_apps_dir)/OstlerInstaller.app" \
-       "$(_apps_dir)/Ostler RemoteCapture.app"
+       "$(_apps_dir)/Ostler RemoteCapture.app" \
+       "$(_apps_dir)/Ostler Safari Extension.app"
 if [ -e "$(_bin_dir)/ostler-knowledge" ]; then
   sudo rm -f "$(_bin_dir)/ostler-knowledge" 2>/dev/null || \
     echo "[wipe] WARNING: $(_bin_dir)/ostler-knowledge survives (needs sudo)." >&2

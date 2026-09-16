@@ -70,6 +70,9 @@ _ICON_DEFS = (
     '<path d="m22 12.5-9.17 4.16a2 2 0 0 1-1.66 0L2 12.5"/><path d="m22 17.5-9.17 4.16a2 2 0 0 1-1.66 0L2 17.5"/></g>'
     '<g id="i-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M5 5l1.5 1.5M17.5 17.5 19 19M2 12h2M20 12h2M5 19l1.5-1.5M17.5 6.5 19 5"/></g>'
     '<g id="i-moon"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></g>'
+    '<g id="i-sunrise"><path d="M12 2v8"/><path d="m4.93 10.93 1.41 1.41"/>'
+    '<path d="M2 18h2"/><path d="M20 18h2"/><path d="m19.07 10.93-1.41 1.41"/>'
+    '<path d="M22 22H2"/><path d="m8 6 4-4 4 4"/><path d="M16 18a4 4 0 0 0-8 0"/></g>'
     '</defs></svg>'
 )
 
@@ -118,6 +121,8 @@ button{font-family:inherit}
 .brandrow{display:flex;align-items:center;gap:10px;justify-content:space-between}
 .brand{font-family:var(--f-display);font-weight:600;font-size:14px;letter-spacing:-.01em;color:var(--ink);display:flex;align-items:center;gap:9px}
 .brand .kick{font-family:var(--f-mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);font-weight:500}
+.brand-ic{display:flex;flex-shrink:0}
+.brand-ic svg{width:16px;height:16px;stroke:var(--accent);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .tt{width:38px;height:38px;border-radius:50%;border:1px solid var(--hair);background:var(--panel);color:var(--ink-70);cursor:pointer;box-shadow:var(--shadow-soft);display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .tt svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 
@@ -251,12 +256,44 @@ function layoutMasonry(m){
   m.style.height=Math.max.apply(null,colH)+'px';
 }
 function layoutAll(){ [].slice.call(document.querySelectorAll('.masonry')).forEach(layoutMasonry); }
+// A tap must REACH something. Until 2026-09-13 these handlers only added a CSS
+// class, so the control lit up as though the correction had registered while
+// nothing was written anywhere: no fetch, no endpoint, and
+// interest_corrections.json never once created. Lighting up is now earned --
+// the class is added only after the POST is accepted, and a refusal says so
+// rather than looking identical to success.
+var FB_EP='http://127.0.0.1:8089/api/v1/editor/feedback';
+function sendFeedback(el,action,done){
+  var card=el.closest('.card');
+  var cid=card?card.getAttribute('data-card-id'):null;
+  if(!cid){ done(false,'this card carries no id, so the tap cannot be recorded'); return; }
+  var body={card_id:cid,action:action};
+  var iid=card.getAttribute('data-interest-id'); if(iid) body.interest_id=iid;
+  fetch(FB_EP,{method:'POST',headers:{'Content-Type':'application/json'},
+               body:JSON.stringify(body)})
+    .then(function(r){ return r.text().then(function(t){
+        var j=null; try{ j=t?JSON.parse(t):null; }catch(e){}
+        return {ok:r.ok,status:r.status,j:j}; }); })
+    .then(function(x){ done(x.ok, x.ok?'':((x.j&&x.j.error)||('HTTP '+x.status))); })
+    .catch(function(e){ done(false, String(e&&e.message||e)); });
+}
+function markFailed(fb,why){
+  fb.classList.add('fb-failed');
+  var s=fb.querySelector('.fb-status');
+  if(!s){ s=document.createElement('span'); s.className='fb-status'; fb.appendChild(s); }
+  s.textContent='not saved';
+  s.title=why||'the Hub did not record this';
+}
 function wireFeedback(){
   [].slice.call(document.querySelectorAll('.fb')).forEach(function(fb){
     var pos=fb.querySelector('.pos'),neg=fb.querySelector('.neg'),dis=fb.querySelector('.dis');
-    if(pos)pos.onclick=function(){fb.classList.add('chosen');pos.classList.add('on-pos');if(neg)neg.classList.remove('on-neg');};
-    if(neg)neg.onclick=function(){fb.classList.add('chosen');neg.classList.add('on-neg');if(pos)pos.classList.remove('on-pos');};
-    if(dis)dis.onclick=function(){var el=dis.closest('.card');if(el){el.classList.add('removing');setTimeout(function(){el.remove();layoutAll();},260);}};
+    if(pos)pos.onclick=function(){sendFeedback(pos,'strengthen',function(ok,why){
+      if(!ok){markFailed(fb,why);return;}
+      fb.classList.add('chosen');pos.classList.add('on-pos');if(neg)neg.classList.remove('on-neg');});};
+    if(neg)neg.onclick=function(){sendFeedback(neg,'weaken',function(ok,why){
+      if(!ok){markFailed(fb,why);return;}
+      fb.classList.add('chosen');neg.classList.add('on-neg');if(pos)pos.classList.remove('on-pos');});};
+    if(dis)dis.onclick=function(){sendFeedback(dis,'drop',function(ok,why){if(!ok){markFailed(fb,why);return;}var el=dis.closest('.card');if(el){el.classList.add('removing');setTimeout(function(){el.remove();layoutAll();},260);}});};
   });
 }
 var tt=document.getElementById('tt'),ttic=document.getElementById('ttic');
@@ -460,6 +497,15 @@ def _card_html(card: dict) -> str:
     if _is_tint(card):
         classes.append("tint")
     cls = " ".join(classes)
+    # The tap has to say WHICH card, so the ids travel with the markup. Without
+    # these the feedback POST has nothing to send and the controls are
+    # decorative, which is exactly what they were until 2026-09-13.
+    _ids = f' data-card-id="{html.escape(str(card.get("id") or ""))}"'
+    _iid = card.get("interest_id")
+    if not _iid and isinstance(card.get("interest"), dict):
+        _iid = card["interest"].get("id")
+    if _iid:
+        _ids += f' data-interest-id="{html.escape(str(_iid))}"'
 
     # head: bare coloured icon + optional mono eyebrow + optional L2 chip
     eyebrow = _eyebrow_of(card)
@@ -483,7 +529,7 @@ def _card_html(card: dict) -> str:
             f'<span class="ap">{int(a[1])}%</span></div>'
             f'<div class="area-bar"><i style="width:{int(a[1])}%"></i></div></div>'
             for a in areas)
-        return (f'<div class="{cls}" style="--accent-c:{accent_var}">'
+        return (f'<div class="{cls}"{_ids} style="--accent-c:{accent_var}">'
                 f'{head}{core}<div class="areas">{rows}</div></div>')
 
     classification = _is_classification(card)
@@ -518,7 +564,7 @@ def _card_html(card: dict) -> str:
         foot += (f'<button class="act" type="button">'
                  f'{html.escape(action["label"])}{_icon("arrow")}</button>')
 
-    return (f'<div class="{cls}" style="--accent-c:{accent_var}">'
+    return (f'<div class="{cls}"{_ids} style="--accent-c:{accent_var}">'
             f'{head}{core}{meta}{foot}</div>')
 
 
@@ -584,7 +630,8 @@ def render(feed: dict) -> str:
         f'<style>{_CSS}</style></head><body>'
         f'{_ICON_DEFS}'
         '<div class="appbar"><div class="appbar-in"><div class="brandrow">'
-        '<div class="brand"><span class="kick">Ostler · The Editor</span> '
+        f'<div class="brand"><span class="brand-ic" aria-hidden="true">{_icon("sunrise")}</span>'
+        '<span class="kick">Ostler · The Editor</span> '
         'Front Page</div>'
         '<button class="tt" id="tt" type="button" '
         'aria-label="Toggle light or dark theme">'

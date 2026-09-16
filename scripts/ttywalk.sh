@@ -49,6 +49,13 @@
 #       ssh <host> scutil --get ComputerName
 #   If it still refuses, the die now prints both strings BYTE BY BYTE.
 #
+#   --expect-user <login> asserts WHICH ACCOUNT the walk runs as. The identity
+#   round trip has always read `id -un`; until 2026-09-13 it only printed it,
+#   so a walk pointed at the wrong account ran to completion. The probes read
+#   the Hub user's 0600 files under ~/.ostler/secrets, and as another account
+#   they degrade to CANNOT-RUN rather than FAIL, which is the quietest way for
+#   a blocking probe to stop asserting anything.
+#
 #   scripts/ttywalk.sh --host ... --expect-name ... --reset      # uninstall first
 #   scripts/ttywalk.sh --host ... --reset --wipe-stores          # AND wipe the stores
 #
@@ -75,6 +82,10 @@ PASS=0; FAIL=1; CANNOT_RUN=2
 HOST=""
 EXPECT_NAME=""
 EXPECT_MODEL=""
+# The third fact the identity round trip already collects. It was read and
+# PRINTED and never asserted, so `--host someoneelse@box` ran happily. See
+# identity_check() for why that matters more than it looks.
+EXPECT_USER=""
 DO_RESET=0
 WIPE_STORES=0
 REPORT_ONLY=0
@@ -89,12 +100,13 @@ while [[ $# -gt 0 ]]; do
         --host)         HOST="${2:-}"; shift 2 ;;
         --expect-name)  EXPECT_NAME="${2:-}"; shift 2 ;;
         --expect-model) EXPECT_MODEL="${2:-}"; shift 2 ;;
+        --expect-user)  EXPECT_USER="${2:-}"; shift 2 ;;
         --reset)        DO_RESET=1; shift ;;
         --wipe-stores)  WIPE_STORES=1; shift ;;
         --report-only)  REPORT_ONLY=1; shift ;;
         --stage-only)   STAGE_ONLY=1; shift ;;
         --from-dmg)     FROM_DMG="${2:-}"; shift 2 ;;
-        -h|--help)      sed -n '2,45p' "${BASH_SOURCE[0]}"; exit 0 ;;
+        -h|--help)      sed -n '2,71p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *)              die "unknown argument: $1" ;;
     esac
 done
@@ -118,12 +130,13 @@ SSH=(ssh -o ConnectTimeout=10 -o BatchMode=yes "$HOST")
 # Read all three facts in ONE round trip so they cannot describe different
 # machines, which is the failure a second ssh call would invite.
 identity_check() {
-    local when="$1" ident name model
+    local when="$1" ident name model user
     ident="$("${SSH[@]}" 'printf "%s\n%s\n%s\n" "$(scutil --get ComputerName)" "$(sysctl -n hw.model)" "$(id -un)"' 2>&1)" \
         || die "cannot reach ${HOST} (${when}): ${ident}"
 
     name="$(printf '%s' "$ident"  | sed -n 1p)"
     model="$(printf '%s' "$ident" | sed -n 2p)"
+    user="$(printf '%s' "$ident"  | sed -n 3p)"
 
     [[ -n "$name" ]] || die "the host answered with an EMPTY ComputerName (${when}).
        An empty string matches nothing and must never be read as a match."
@@ -139,7 +152,36 @@ $(identity_mismatch_hint "$EXPECT_NAME" "$name")"
        got '${model}'.
 $(identity_mismatch_hint "$EXPECT_MODEL" "$model")"
     fi
-    say "identity ${when}: ${name} / ${model} (as $(printf '%s' "$ident" | sed -n 3p))"
+    # THE THIRD FACT WAS COLLECTED, PRINTED, AND ASSERTED ON BY NOBODY.
+    #
+    # The round trip has always read `id -un`, and the say() below has always
+    # printed it, but nothing compared it to anything. So
+    # `--host someoneelse@box` ran the whole walk as the wrong account and the
+    # only trace was one line in a log.
+    #
+    # That is not a hypothetical on this harness. people_count_agreement
+    # already reads ~/.ostler/secrets/store-curl.conf on every walk and passes,
+    # which is the behavioural proof that the walk runs as an account that can
+    # read the Hub user's 0600 secrets. Run it as a DIFFERENT account and that
+    # path does not resolve: the probe degrades to CANNOT-RUN rather than
+    # failing, and a blocking probe that cannot run is invisible in exactly the
+    # way a passing one is quiet.
+    #
+    # Same shape as the two arms above, including the empty-answer guard: an
+    # empty string matches nothing and must never be read as a match.
+    if [[ -n "$EXPECT_USER" ]]; then
+        [[ -n "$user" ]] || die "the host answered with an EMPTY login name (${when}).
+       An empty string matches nothing and must never be read as a match."
+        if [[ "$user" != "$EXPECT_USER" ]]; then
+            die "IDENTITY MISMATCH (${when}). Expected to be running as '${EXPECT_USER}',
+       the host at ${HOST} answers '${user}'. The probes read the Hub user's
+       0600 files under ~/.ostler/secrets; as another account they degrade to
+       CANNOT-RUN, which is not a FAIL and is not a PASS.
+$(identity_mismatch_hint "$EXPECT_USER" "$user")"
+        fi
+    fi
+
+    say "identity ${when}: ${name} / ${model} (as ${user})"
 }
 
 # ── The report. Read the LOG, adjudicate on the MARKER ───────────────
@@ -595,12 +637,40 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         # PRESERVE THE EVIDENCE BEFORE DESTROYING IT. The graph on this box is
         # the only copy of whatever produced the 71 absent person nodes. A wipe
         # that loses it trades one investigation for another.
+        # 🔴 DUMP THE WHOLE STORE. THE URL IS /store WITH NO QUERY STRING.
+        #
+        # This used to request /store?default, which is the DEFAULT GRAPH ONLY.
+        # Oxigraph runs here WITHOUT --union-default-graph (install.sh:17504)
+        # and compartment.py:32 REQUIRES it stay off, so the default graph is
+        # not a view over the named graphs: everything in a named graph is
+        # simply absent from that dump.
+        #
+        # MEASURED on the founder box, v1.0.98, 2026-09-16:
+        #
+        #     /store?default      155,048 quads    22.7 MB
+        #     /store              231,105 quads    36.4 MB
+        #     SPARQL store total  231,105 quads
+        #
+        # The 76,057 quads the old URL silently dropped were the two named
+        # graphs in their entirety: urn:ostler:user/Andy (37,625, i.e. EVERY
+        # CM048 triple) and the projected-preferences graph (38,432). Both
+        # counted ZERO in the default-only dump and both are whole in the
+        # store-wide one, and the two graph counts add up to the difference
+        # exactly.
+        #
+        # So every walk record this project holds was graded by an instrument
+        # that could not read a third of the customer data, which is how a
+        # season of defects accumulated while the walks stayed green.
+        #
+        # THE QUOTES ON THE URL STILL MATTER even without the question mark:
+        # leave them, because the next person to add a parameter will not
+        # re-derive the zsh globbing note above.
         _dump="$HOME/ostler-prewipe-$(date -u +%Y%m%dT%H%M%SZ).nq"
         _tok="$HOME/.ostler/secrets/oxigraph_token"
         if [ -r "$_tok" ]; then
             if curl -fsS -m 300 -H "Authorization: Bearer $(cat "$_tok")" \
                     -H "Accept: application/n-quads" \
-                    "http://127.0.0.1:7878/store?default" > "$_dump" 2>/dev/null; then
+                    "http://127.0.0.1:7878/store" > "$_dump" 2>/dev/null; then
                 echo "graph dumped before wipe: $_dump ($(wc -c < "$_dump" | tr -d " ") bytes)"
             else
                 echo "CANNOT-WIPE: the graph did not dump, and a wipe that loses"
@@ -608,6 +678,57 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
                 rm -f "$_dump"
                 exit 2
             fi
+
+            # ── THE GUARD THAT WOULD HAVE CAUGHT THE ABOVE ────────────────
+            #
+            # A backup that silently captures two thirds is WORSE than no
+            # backup, because it is trusted. The old dump looked healthy by
+            # every signal this script had: exit 0, no stderr, 22.7 MB on
+            # disk. Size alone cannot tell a complete dump from a partial one,
+            # so compare the dump against what the store SAYS it holds.
+            #
+            # Oxigraph answers SPARQL text/csv as a header row plus the value,
+            # CRLF terminated, so tail plus tr is the whole parse. The UNION is
+            # required for the same reason as above: with union-default-graph
+            # off, one bare pattern counts the default graph only.
+            #
+            # N-Quads writes exactly one statement per line, so wc -l is the
+            # quad count. A literal containing a newline is escaped as a
+            # two-character sequence and does not add a line.
+            _store_total=$(curl -fsS -m 120 \
+                -H "Authorization: Bearer $(cat "$_tok")" \
+                -H "Accept: text/csv" \
+                --data-urlencode "query=SELECT (COUNT(*) AS ?c) WHERE { { ?s ?p ?o } UNION { GRAPH ?g { ?s ?p ?o } } }" \
+                "http://127.0.0.1:7878/query" 2>/dev/null | tail -1 | tr -d "\r")
+            _dumped=$(wc -l < "$_dump" | tr -d " ")
+
+            # CANNOT-RUN IS NOT A PASS. If the total did not come back as a
+            # number the guard has not cleared the dump, it has failed to look
+            # at it, and a destructive wipe is not the place to assume the
+            # best.
+            case "$_store_total" in
+                ""|*[!0-9]*)
+                    echo "CANNOT-WIPE: could not read the store quad total from Oxigraph,"
+                    echo "  so the dump at $_dump cannot be shown to be complete."
+                    echo "  Not knowing is not the same as knowing it is whole."
+                    exit 2
+                    ;;
+            esac
+
+            # 1% of slack absorbs live writes landing between the dump and the
+            # count. It does not absorb a missing graph, which is what the
+            # 33% shortfall above looked like.
+            _min_ok=$(( _store_total * 99 / 100 ))
+            if [ "$_dumped" -lt "$_min_ok" ]; then
+                echo "CANNOT-WIPE: the dump is materially short of the store."
+                echo "  store reports : $_store_total quads"
+                echo "  dump contains : $_dumped quads"
+                echo "  required      : $_min_ok quads (99%)"
+                echo "  A backup that captures part of the store and says nothing is"
+                echo "  worse than none, because the wipe that follows trusts it."
+                exit 2
+            fi
+            echo "dump verified complete: $_dumped of $_store_total quads reported by the store"
         else
             echo "CANNOT-WIPE: no oxigraph token at ~/.ostler/secrets/oxigraph_token,"
             echo "  so the graph cannot be dumped and cannot be safely destroyed."
@@ -624,6 +745,61 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         _CTL_OSTLER_BEFORE=0; [ -d "$HOME/.ostler" ] && _CTL_OSTLER_BEFORE=1
         _CTL_CONTENT_BEFORE=0; [ -d "$HOME/Documents/Ostler" ] && _CTL_CONTENT_BEFORE=1
         echo "positive control before the wipe: ~/.ostler=${_CTL_OSTLER_BEFORE} content-root=${_CTL_CONTENT_BEFORE}"
+
+        # ── PRESERVE THE LICENCE ACROSS THE WIPE ──────────────────────────────
+        #
+        # 🔴 MEASURED 2026-09-09, and it kills every wipe walk. The shipped
+        # uninstaller removes EVERYTHING under ~/.ostler except power.conf
+        # (install.sh:21732), and the licence lives at
+        # ~/.ostler/license/license.json (install.sh:1970). The licence
+        # preflight in this file runs at :487, BEFORE this block, so it passes;
+        # the wipe then deletes the licence; and the install that follows dies
+        # at ERR-02-LICENCE-REQUIRED with the box already wiped and no
+        # uninstaller left for a retry.
+        #
+        # That is not a hypothetical: the v1.0.82 walk hit the ERR-02 shape on
+        # its second priming attempt, straight after its first attempt had run
+        # the real uninstaller. Tonight was the FIRST wipe that ever found a
+        # shipped uninstaller to run, which is the only reason this had never
+        # fired before.
+        #
+        # The copy goes to mktemp OUTSIDE ~/.ostler on purpose: anywhere inside
+        # it is deleted by the very find this is protecting against.
+        #
+        # 🗿 THIS STAYS EVEN THOUGH THE UNINSTALLER NOW SPARES THE LICENCE.
+        # The uninstaller that runs here is the one ALREADY ON THE BOX, staged
+        # by whichever DMG was installed last. A box carrying a pre-fix build
+        # still deletes the licence, and that is precisely the box a walk is
+        # most likely to be resetting. The restore below is a `cp` over a file
+        # that may now already be there, which is idempotent, so keeping this
+        # costs nothing and removing it would strand exactly the case it was
+        # written for.
+        _LIC="$HOME/.ostler/license/license.json"
+        _LIC_BAK=""
+        if [ -s "$_LIC" ]; then
+            # PORTABLE mktemp. The BSD-only form that takes a bare prefix after
+            # the -t flag is DESCRIBED rather than written here, for the reason
+            # this same file records at its #1560 note: a comment that reproduces
+            # the wrong form satisfies the very grep meant to find remaining uses
+            # of it. BSD accepts that form; GNU REFUSES it, "too few X-s in
+            # template".
+            # Measured on the Linux runner: the -t form failed, _LIC_BAK stayed
+            # empty, the limb printed LICENCE PRESENT BUT COULD NOT BE COPIED,
+            # and the licence was destroyed. This limb runs on the macOS box in
+            # life, so it would never have failed there, and the test running it
+            # on the runner is the ONLY reason it was caught before it shipped.
+            _LIC_BAK="$(mktemp "${TMPDIR:-/tmp}/ostler-walk-licence.XXXXXX")"
+            if cp "$_LIC" "$_LIC_BAK" 2>/dev/null; then
+                echo "licence saved before the wipe: $(wc -c < "$_LIC_BAK" | tr -d " ") bytes"
+            else
+                _LIC_BAK=""
+                echo "LICENCE PRESENT BUT COULD NOT BE COPIED. The install after this wipe"
+                echo "  will refuse at ERR-02-LICENCE-REQUIRED. Continuing so the wipe itself"
+                echo "  is still measured, but expect that failure."
+            fi
+        else
+            echo "no licence to preserve at ~/.ostler/license/license.json"
+        fi
 
         # The REAL uninstaller. install.sh writes ~/.ostler/bin/ostler-uninstall
         # and the store teardown (docker compose down -v) lives inside it.
@@ -730,9 +906,53 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         # DECLARES in its own --help: "Always removes ~/.ostler/ (except
         # power.conf)". An UNDECLARED survivor is residue, and residue is
         # CANNOT-RUN rather than a reset that quietly did less than it said.
+        #
+        # 🔴 COUNT FILES, NOT ENTRIES, AND THIS COST A WALK. MEASURED
+        # 2026-09-09T17:16:52Z on the v1.0.82 walk box. This counted ENTRIES at
+        # maxdepth 1 and aborted the walk on ONE of them:
+        # ~/.ostler/data, which contained only ~/.ostler/data/knowledge-staging,
+        # which contained NOTHING. Zero files, zero bytes, and docker volume ls
+        # returned no volumes at all. The wipe had SUCCEEDED and the check said
+        # "The next walk would be grading carried-over content" about a tree with
+        # no content in it.
+        #
+        # IT IS NOT A ONE-OFF, IT IS A CLOSED LOOP. install.sh:22341 creates
+        # ~/.ostler/data/knowledge-staging on EVERY install, unconditionally, and
+        # says so at :22324-22327. The shipped uninstaller preserves it by design
+        # (install.sh:21724-21741, which only ever preserves an EXISTING one and
+        # never creates it). So install makes it, uninstall keeps it, and this
+        # check called it residue. Every wipe walk that finds a real uninstaller
+        # aborted here, and under the WIPE decision Andy made on 2026-09-09 that
+        # is every
+        # walk from now on. It had never fired before only because no earlier
+        # walk had found a shipped uninstaller to run.
+        #
+        # The two halves of this check disagreed about their own question: the
+        # content root below counts FILES (-type f), this counted ENTRIES. The
+        # question the error line asks is about CONTENT. So this counts files
+        # too, at any depth, and the declared keep is excluded BY ITS EXACT PATH
+        # rather than by name, so that a file called power.conf buried somewhere
+        # deeper is still residue.
+        #
+        # 🔴 THE LICENCE IS NOW A SECOND DECLARED KEEP, AND THIS HAD TO MOVE
+        # WITH THE UNINSTALLER OR EVERY WIPE WALK WOULD ABORT.
+        #
+        # Andy decided on 2026-09-10 that an uninstall must not destroy the
+        # thing the customer paid for, so the uninstaller install.sh generates
+        # now spares ~/.ostler/license/ alongside power.conf, and its own
+        # printed contract names it in the "will NOT remove" half. This
+        # predicate reads the same tree the uninstaller just finished with. Had
+        # it stayed keyed to power.conf alone it would have counted the
+        # surviving licence as one undeclared file and exited 2, CANNOT-RUN, on
+        # every single walk -- a check failing because the code it checks was
+        # fixed.
+        #
+        # Excluded by EXACT PATH, exactly like power.conf above and for exactly
+        # the same reason: a file called license.json buried somewhere deeper
+        # is residue like any other. `! -name` would open that hole.
         _fs_left=0
         if [ -d "$HOME/.ostler" ]; then
-            _fs_left=$(find "$HOME/.ostler" -mindepth 1 -maxdepth 1 ! -name power.conf 2>/dev/null | grep -c . || true)
+            _fs_left=$(find "$HOME/.ostler" -mindepth 1 -type f ! -path "$HOME/.ostler/power.conf" ! -path "$HOME/.ostler/license/license.json" 2>/dev/null | grep -c . || true)
         fi
         _content_left=0
         if [ -e "$_CONTENT_ROOT" ]; then
@@ -741,7 +961,7 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         if [ "${_fs_left:-0}" -gt 0 ] || [ "${_content_left:-0}" -gt 0 ]; then
             echo "WIPE INCOMPLETE ON DISK: ${_fs_left} undeclared entr(ies) under ~/.ostler,"
             echo "  ${_content_left} file(s) under ${_CONTENT_ROOT}."
-            find "$HOME/.ostler" -mindepth 1 -maxdepth 1 ! -name power.conf 2>/dev/null \
+            find "$HOME/.ostler" -mindepth 1 -type f ! -path "$HOME/.ostler/power.conf" ! -path "$HOME/.ostler/license/license.json" 2>/dev/null \
                 | head -10 | sed "s|^|    |"
             echo "  The next walk would be grading carried-over content, so this is"
             echo "  CANNOT-RUN, not a wipe."
@@ -756,6 +976,33 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
         # exists to stop a red being blamed on the wrong thing. Written only
         # AFTER the volume count is confirmed zero, so the claim is measured.
         printf "wiped-by-explicit-store-wipe(0 ostler_ volumes remain)\n" > ~/.walk-stores-provenance-run
+
+        # ── AND PUT THE LICENCE BACK, AFTER THE COUNT, NEVER BEFORE ───────────
+        #
+        # THE ORDER IS THE WHOLE POINT. The residue count above reads FILES under
+        # ~/.ostler and refuses on any it finds. Restoring the licence before it
+        # would make this harness plant a file and then fail the walk for finding
+        # it. So the restore happens here: after the count, after WIPE CONFIRMED,
+        # and after the provenance marker, so nothing downstream reads it as
+        # residue and the wipe is still measured on a genuinely empty tree.
+        #
+        # The RESET block below cannot undo this. It searches three paths for an
+        # uninstaller and the wipe has just deleted all of them, so it finds none
+        # and says so. If that ever changes, this restore moves after it.
+        if [ -n "$_LIC_BAK" ] && [ -s "$_LIC_BAK" ]; then
+            mkdir -p "$HOME/.ostler/license"
+            if cp "$_LIC_BAK" "$_LIC" 2>/dev/null; then
+                chmod 600 "$_LIC"
+                echo "licence restored ($(wc -c < "$_LIC" | tr -d " ") bytes)"
+            else
+                echo "LICENCE COULD NOT BE RESTORED. The install after this wipe will refuse"
+                echo "  at ERR-02-LICENCE-REQUIRED. The wipe itself is measured and confirmed."
+            fi
+            rm -f "$_LIC_BAK"
+        else
+            echo "no saved licence to restore; the preflight at :487 already refuses a walk"
+            echo "  that starts without one, so this path means the licence was unreadable."
+        fi
     ' || die "the store wipe did not complete; refusing to walk against a half-wiped box"
 fi
 
@@ -801,6 +1048,28 @@ if [[ "$DO_RESET" -eq 1 ]]; then
             echo "  Docker volumes were NOT removed: the graph, the vectors and the compiled"
             echo "  wiki are CARRIED OVER from the previous install. Any probe reading them is"
             echo "  measuring history, not this artefact."
+        fi
+        # #1828 config-only teardown. With no shipped uninstaller present the box
+        # keeps its previous ~/.ostler config, so the next install skips its
+        # interactive setup (the reuse gate at install.sh:5214 keys on
+        # ~/.ostler/config/.env holding USER_ID) and every probe measures
+        # carried-over state. Remove ONLY the host config that gates setup:
+        # config (the previous-answers .env), security (the keychain.json FILE,
+        # not the macOS Keychain), assistant-config (memory/brain.db, the poisoned
+        # count rows that made grounded measure history), and imports
+        # (icloud-contacts.vcf, the prior-export marker read below the reuse gate).
+        # Leave the container store
+        # volumes untouched -- whether to wipe those stays the operators
+        # --wipe-stores decision, exactly as the announcement above preserves.
+        if [[ -z "$_ran_uninstaller" ]]; then
+            echo "config-only teardown (#1828): clearing host config so the next install is a fresh setup"
+            for _cfg in ~/.ostler/config ~/.ostler/security ~/.ostler/assistant-config ~/.ostler/imports ~/.ostler/active_workspace.toml; do
+                if [[ -e "$_cfg" ]]; then
+                    echo "  removing $_cfg"
+                    rm -rf "$_cfg"
+                fi
+            done
+            echo "  store volumes (qdrant/oxigraph/redis/wiki/vane) LEFT INTACT: use --wipe-stores to remove them"
         fi
         # RECORDED BELOW THE ANNOUNCEMENT, NOT ABOVE IT. The honesty gate for
         # this block extracts it with an awk RANGE that ends at the first
@@ -1138,6 +1407,20 @@ say "control: ostler_fda resolves beside install.sh (the run-2 killer is closed)
         mv ~/.walk-stores-provenance-run ~/.walk-stores-provenance
     else
         printf 'unknown-no-reset-step\n' > ~/.walk-stores-provenance
+    fi
+    # THE HUB PASSPHRASE PROMPT HAS NO WAY PAST, so the walk must be able
+    # to answer it or the install re-prompts for ever (install.sh:8032-8051
+    # loops while true on empty or under-12-character input). walk_drive.py
+    # answers it with @passphrase, which resolves from this file at answer
+    # time, so the value is never an argument and never in the process table.
+    #
+    # GENERATED ON THE BOX, not passed in: it must not cross the wire, appear
+    # in an operator's shell history, or reach a transcript. It is a throwaway
+    # for a disposable walk account and is regenerated whenever it is absent.
+    if [ ! -s ~/.walk-passphrase ]; then
+        ( umask 077
+          LC_ALL=C tr -dc 'a-z' < /dev/urandom | head -c 24 > ~/.walk-passphrase )
+        chmod 600 ~/.walk-passphrase
     fi
     : > \"\$HOME/${REMOTE_DIR}/ttywalk.log\"
     chmod +x \"\$HOME/${REMOTE_DIR}/install.sh\" 2>/dev/null || true
