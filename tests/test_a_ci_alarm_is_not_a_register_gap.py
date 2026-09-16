@@ -37,6 +37,7 @@ import tempfile
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 SUBJECT = REPO / "tests" / "test_the_cut_checklist_is_complete.py"
+BY_REPO = {}
 MANIFEST = REPO / "cut-manifests"
 
 PASS = FAIL = 0
@@ -68,9 +69,26 @@ def registered_issue_numbers():
         return [int(x) for x in re.findall(r"\d+", p.stem)]
 
     newest = max(manifests, key=key)
-    ids = [int(m.group(1)) for m in
-           re.finditer(r"^  - issue:\s*(\d+)\s*$", newest.read_text(encoding="utf-8"),
-                       re.MULTILINE)]
+    # ── PER REPO, BECAUSE THE SUBJECT IS NOW PER REPO ──────────────────────
+    # Rows gained a `repo:` field, because a bare number is ambiguous: GitHub
+    # numbers issues and pull requests from one counter per repo and both
+    # repos reach four digits. The subject queries each repo separately, so a
+    # stub that answers every repo with the SAME flat list makes every row
+    # belonging to the other repo look unregistered. Read the pairs.
+    text = newest.read_text(encoding="utf-8")
+    pairs = re.findall(r"^  - issue:\s*(\d+)\s*\n    repo:\s*(\S+)", text, re.MULTILINE)
+    ids = [int(n) for n, _ in pairs]
+    global BY_REPO
+    BY_REPO = {}
+    for n, rp in pairs:
+        BY_REPO.setdefault(rp, []).append(int(n))
+    flat = [int(m.group(1)) for m in
+            re.finditer(r"^  - issue:\s*(\d+)\s*$", text, re.MULTILINE)]
+    if flat and len(flat) != len(pairs):
+        print(f"  [CANNOT-RUN] {len(flat)} issue rows but {len(pairs)} carry a `repo:` field. "
+              f"A row without one cannot be routed to a repo, and guessing is the defect "
+              f"this field exists to end.")
+        raise SystemExit(2)
     if not ids:
         print(f"  [CANNOT-RUN] parsed ZERO issue rows out of {newest.name}. That is a "
               f"broken predicate, not an empty register.")
@@ -83,8 +101,30 @@ def run_with_stub(issues):
 
     `issues` is a list of (number, [labels]).
     """
-    payload = json.dumps([{"number": n, "labels": [{"name": x} for x in labs]}
-                          for n, labs in issues])
+    # The subject asks each repo separately, so the stub must answer each
+    # repo separately. Answering both with one list would report every CM051
+    # row as an unregistered HR015 issue and vice versa.
+    #
+    # HR015 rows are scoped by a `[LAUNCH]` title prefix, so the stub has to
+    # supply titles too. A stub that returns numbers with no titles makes the
+    # subject correctly report that it cannot scope at all.
+    def _payload(nums):
+        return json.dumps([{"number": n,
+                            "title": f"[LAUNCH] fixture issue {n}",
+                            "labels": [{"name": x} for x in labs]}
+                           for n, labs in issues if n in nums])
+    cm = set(BY_REPO.get("CM051", []))
+    hr = set(BY_REPO.get("HR015", []))
+    # Arm-specific additions ONLY: numbers this arm invented, not rows the
+    # manifest already carries. Rows declaring `repo: none` are registered and
+    # deliberately belong to NEITHER repo's open list, so feeding them to CM051
+    # would report 99 registered rows as unregistered CM051 issues.
+    known = set()
+    for v in BY_REPO.values():
+        known |= set(v)
+    extra = {n for n, _ in issues} - known
+    payload_cm = _payload(cm | extra)
+    payload_hr = _payload(hr)
     with tempfile.TemporaryDirectory() as tmp:
         stub = pathlib.Path(tmp) / "gh"
         stub.write_text(
@@ -93,7 +133,9 @@ def run_with_stub(issues):
             # a subject that starts asking gh something new fails loudly here
             # rather than silently getting an issue list as the answer.
             'case "$*" in\n'
-            "  *'issue list'*) cat <<'JSON'\n" + payload + "\nJSON\n"
+            "  *HR015*) cat <<'JSON'\n" + payload_hr + "\nJSON\n"
+            "    ;;\n"
+            "  *'issue list'*) cat <<'JSON'\n" + payload_cm + "\nJSON\n"
             "    ;;\n"
             "  *'auth status'*) exit 0 ;;\n"
             "  *) echo \"stub: unexpected gh call: $*\" >&2; exit 3 ;;\n"

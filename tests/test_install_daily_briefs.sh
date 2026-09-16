@@ -252,18 +252,59 @@ if ! grep -q 'com.creativemachines.ostler.whatsapp-keepalive' "$KEEPALIVE_PLIST"
 fi
 echo "PASS: keepalive plist uses com.creativemachines.ostler.whatsapp-keepalive label"
 
-# ProgramArguments invokes `channel doctor`. Anything else (e.g.
-# a synthetic "ping" subcommand that doesn't exist on the binary)
-# would silently fail every fire.
-if ! grep -q '<string>channel</string>' "$KEEPALIVE_PLIST"; then
-    echo "FAIL [keepalive-program]: keepalive plist does not invoke channel subcommand" >&2
+# ProgramArguments invokes the keepalive RUNNER, not `channel doctor`.
+#
+# THIS ASSERTION USED TO REQUIRE THE OPPOSITE, and it was pinning the defect
+# in place. It demanded `<string>channel</string>` + `<string>doctor</string>`,
+# i.e. that the plist exec `ostler-assistant channel doctor` directly. That
+# command constructs its OWN WhatsAppWebChannel, whose is_ready() is
+# `self.client.lock().is_some()` on an object that never connected, so it
+# reported unhealthy on every run on every box; and doctor_channels() returns
+# Ok(()) regardless, so the job exited 0 every time. A test that requires a
+# probe which cannot pass and an exit code that cannot fail is not protecting
+# anything.
+#
+# The plist now runs assistant-agent/ostler-whatsapp-keepalive.sh, which asks
+# the running daemon's health registry, repairs once if needed, and exits
+# non-zero on any outcome that is not "the channel is up". Behaviour is proven
+# by tests/test_whatsapp_keepalive_repairs_and_reports.sh, which RUNS it
+# against a stub daemon; this file asserts the wiring only.
+if ! grep -q 'ostler-whatsapp-keepalive.sh' "$KEEPALIVE_PLIST"; then
+    echo "FAIL [keepalive-program]: keepalive plist does not invoke the keepalive runner" >&2
     exit 1
 fi
-if ! grep -q '<string>doctor</string>' "$KEEPALIVE_PLIST"; then
-    echo "FAIL [keepalive-program]: keepalive plist does not invoke channel doctor" >&2
+if grep -q '<string>doctor</string>' "$KEEPALIVE_PLIST"; then
+    echo "FAIL [keepalive-program]: keepalive plist still invokes 'channel doctor', which" >&2
+    echo "                          cannot measure the live channel and cannot repair it" >&2
     exit 1
 fi
-echo "PASS: keepalive plist invokes 'channel doctor'"
+echo "PASS: keepalive plist invokes the keepalive runner, not 'channel doctor'"
+
+# The runner has to exist and has to be installed, or the plist is inert.
+KEEPALIVE_RUNNER="${REPO_ROOT}/assistant-agent/ostler-whatsapp-keepalive.sh"
+if [[ ! -f "$KEEPALIVE_RUNNER" ]]; then
+    echo "FAIL [keepalive-runner-missing]: $KEEPALIVE_RUNNER does not exist" >&2
+    exit 1
+fi
+if ! bash -n "$KEEPALIVE_RUNNER"; then
+    echo "FAIL [keepalive-runner-syntax]: the keepalive runner does not parse" >&2
+    exit 1
+fi
+echo "PASS: keepalive runner exists and parses"
+
+if ! grep -q 'install -m 0755 "\$KEEPALIVE_SCRIPT_SRC" "\$KEEPALIVE_SCRIPT_DEST"' "$ASSISTANT_SNIPPET"; then
+    echo "FAIL [keepalive-runner-not-installed]: INSTALL_SNIPPET.sh does not install the runner" >&2
+    exit 1
+fi
+echo "PASS: INSTALL_SNIPPET installs the keepalive runner onto the customer's Mac"
+
+# And the cut has to carry it. A payload with the plist and no runner ships a
+# LaunchAgent that cannot exec.
+if ! grep -q 'assistant-agent/ostler-whatsapp-keepalive.sh' "${REPO_ROOT}/gui/Makefile"; then
+    echo "FAIL [keepalive-runner-not-staged]: gui/Makefile does not stage the runner into the payload" >&2
+    exit 1
+fi
+echo "PASS: gui/Makefile stages the keepalive runner into the DMG payload"
 
 # StartCalendarInterval has both 08:50 + 17:50 entries.
 if ! awk '
@@ -359,7 +400,7 @@ OUTPUT="$(
 )"
 
 # allowed_numbers contains the captured phone.
-if ! echo "$OUTPUT" | grep -q "allowed_numbers = \[\"$TEST_PHONE\"\]"; then
+if ! grep -q "allowed_numbers = \[\"$TEST_PHONE\"\]" <<<"$OUTPUT"; then
     echo "FAIL [emitter-allowed-numbers]: emitter did not seed allowed_numbers with the captured recipient" >&2
     echo "Output was:" >&2
     echo "$OUTPUT" >&2
@@ -368,7 +409,7 @@ fi
 echo "PASS: emitter writes allowed_numbers = [\"$TEST_PHONE\"]"
 
 # Cron jobs land with the captured TZ + recipient.
-if ! echo "$OUTPUT" | grep -q 'id = "morning-brief"'; then
+if ! grep -q 'id = "morning-brief"' <<<"$OUTPUT"; then
     echo "FAIL [emitter-morning-id]: emitter did not write id = \"morning-brief\"" >&2
     echo "Output was:" >&2
     echo "$OUTPUT" >&2
@@ -376,7 +417,7 @@ if ! echo "$OUTPUT" | grep -q 'id = "morning-brief"'; then
 fi
 echo "PASS: emitter writes morning-brief job id"
 
-if ! echo "$OUTPUT" | grep -q 'id = "evening-wrap"'; then
+if ! grep -q 'id = "evening-wrap"' <<<"$OUTPUT"; then
     echo "FAIL [emitter-evening-id]: emitter did not write id = \"evening-wrap\"" >&2
     exit 1
 fi
@@ -384,31 +425,31 @@ echo "PASS: emitter writes evening-wrap job id"
 
 # Schema discriminator must be kind (not type) on the schedule
 # variant, otherwise the daemon's serde rejects the job at load.
-if ! echo "$OUTPUT" | grep -q 'kind = "cron"'; then
+if ! grep -q 'kind = "cron"' <<<"$OUTPUT"; then
     echo "FAIL [emitter-schedule-kind]: emitter did not write kind = \"cron\"" >&2
     echo "Output was:" >&2
     echo "$OUTPUT" >&2
     exit 1
 fi
-if echo "$OUTPUT" | grep -q 'schedule = { type = "cron"'; then
+if grep -q 'schedule = { type = "cron"' <<<"$OUTPUT"; then
     echo "FAIL [emitter-schedule-type-drift]: emitter wrote legacy type = \"cron\"" >&2
     exit 1
 fi
 echo "PASS: emitter writes kind = \"cron\" (matches schema tag)"
 
-if ! echo "$OUTPUT" | grep -q 'job_type = "agent"'; then
+if ! grep -q 'job_type = "agent"' <<<"$OUTPUT"; then
     echo "FAIL [emitter-job-type]: emitter did not write job_type = \"agent\"" >&2
     exit 1
 fi
 echo "PASS: emitter writes job_type = \"agent\" on brief jobs"
 
-if ! echo "$OUTPUT" | grep -qE '^prompt = "[^"]+"'; then
+if ! grep -qE '^prompt = "[^"]+"' <<<"$OUTPUT"; then
     echo "FAIL [emitter-prompt]: emitter did not write a non-empty prompt field" >&2
     exit 1
 fi
 echo "PASS: emitter writes a non-empty prompt on brief jobs"
 
-if ! echo "$OUTPUT" | grep -q "tz = \"$TEST_TZ\""; then
+if ! grep -q "tz = \"$TEST_TZ\"" <<<"$OUTPUT"; then
     echo "FAIL [emitter-tz]: emitter did not thread USER_TZ ($TEST_TZ) into cron jobs" >&2
     echo "Output was:" >&2
     echo "$OUTPUT" >&2
@@ -416,13 +457,13 @@ if ! echo "$OUTPUT" | grep -q "tz = \"$TEST_TZ\""; then
 fi
 echo "PASS: emitter threads USER_TZ ($TEST_TZ) into cron jobs"
 
-if ! echo "$OUTPUT" | grep -q "to = \"$TEST_PHONE\""; then
+if ! grep -q "to = \"$TEST_PHONE\"" <<<"$OUTPUT"; then
     echo "FAIL [emitter-delivery-to]: emitter did not thread recipient into delivery.to" >&2
     exit 1
 fi
 echo "PASS: emitter threads recipient into delivery.to"
 
-if ! echo "$OUTPUT" | grep -q 'best_effort = false'; then
+if ! grep -q 'best_effort = false' <<<"$OUTPUT"; then
     echo "FAIL [emitter-best-effort]: emitter did not write best_effort = false" >&2
     exit 1
 fi
@@ -431,25 +472,25 @@ echo "PASS: emitter writes best_effort = false on cron jobs"
 # [providers] block lands in the rendered TOML with the canonical
 # Ollama fallback. Without this, agent-type cron jobs fail at fire
 # time with "no provider configured".
-if ! echo "$OUTPUT" | grep -q '^\[providers\]$'; then
+if ! grep -q '^\[providers\]$' <<<"$OUTPUT"; then
     echo "FAIL [emitter-providers-header]: emitter did not write [providers] section" >&2
     echo "Output was:" >&2
     echo "$OUTPUT" >&2
     exit 1
 fi
-if ! echo "$OUTPUT" | grep -q '^fallback = "ollama"$'; then
+if ! grep -q '^fallback = "ollama"$' <<<"$OUTPUT"; then
     echo "FAIL [emitter-providers-fallback]: emitter did not write fallback = \"ollama\"" >&2
     exit 1
 fi
-if ! echo "$OUTPUT" | grep -q '^\[providers\.models\.ollama\]$'; then
+if ! grep -q '^\[providers\.models\.ollama\]$' <<<"$OUTPUT"; then
     echo "FAIL [emitter-providers-ollama]: emitter did not write [providers.models.ollama] entry" >&2
     exit 1
 fi
-if ! echo "$OUTPUT" | grep -q '^base_url = "http://localhost:11434"$'; then
+if ! grep -q '^base_url = "http://localhost:11434"$' <<<"$OUTPUT"; then
     echo "FAIL [emitter-providers-base-url]: emitter did not write Ollama base_url" >&2
     exit 1
 fi
-if ! echo "$OUTPUT" | grep -qE '^model = "[^"]+"$'; then
+if ! grep -qE '^model = "[^"]+"$' <<<"$OUTPUT"; then
     echo "FAIL [emitter-providers-model]: emitter did not write a non-empty Ollama model" >&2
     exit 1
 fi
@@ -476,7 +517,7 @@ OUTPUT_OFF="$(
 # the old assertion was pinning a regression as if it were the requirement.
 #
 # Assert what actually matters: no job may be delivered to a DISABLED channel.
-if echo "$OUTPUT_OFF" | grep -qE 'channel = "whatsapp"'; then
+if grep -qE 'channel = "whatsapp"' <<<"$OUTPUT_OFF"; then
     echo "FAIL [emitter-suppress-cron]: emitter routed a cron job to whatsapp when CHANNEL_WHATSAPP_ENABLED=false" >&2
     echo "Output was:" >&2
     echo "$OUTPUT_OFF" >&2
@@ -497,13 +538,13 @@ OUTPUT_NO_PHONE="$(
     bash -c "$(cat "$EMITTER")" 2>&1
 )"
 
-if echo "$OUTPUT_NO_PHONE" | grep -q 'allowed_numbers'; then
+if grep -q 'allowed_numbers' <<<"$OUTPUT_NO_PHONE"; then
     echo "FAIL [emitter-suppress-allowed]: emitter wrote allowed_numbers with no recipient" >&2
     exit 1
 fi
 echo "PASS: emitter suppresses allowed_numbers when no recipient captured"
 
-if echo "$OUTPUT_NO_PHONE" | grep -q '\[\[cron\.jobs\]\]'; then
+if grep -q '\[\[cron\.jobs\]\]' <<<"$OUTPUT_NO_PHONE"; then
     echo "FAIL [emitter-suppress-cron-no-recipient]: emitter wrote cron jobs with no recipient" >&2
     exit 1
 fi

@@ -8,6 +8,12 @@
 # the page it lived on was dead.
 #
 # This test calls the render functions. It does not read the source.
+#
+# EVERY NEW DASHBOARD TILE GETS A ROW IN `TILES` BELOW. A renderer is reached
+# only from inside a route body, so a NameError, a bad .format key or a missing
+# copy constant in one of them is invisible to every static gate and takes the
+# whole page down. That is the failure this file exists for, and a tile that is
+# not listed here is not covered by it.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 python3 - <<'PY'
@@ -20,17 +26,33 @@ try:
 except Exception as exc:            # import-time deps may be absent in CI
     print(f"CANNOT-RUN: module would not load ({type(exc).__name__}: {exc})")
     sys.exit(0)
-fn = ns.get("render_source_status")
-if fn is None:
-    print("FAIL: render_source_status is not defined")
-    sys.exit(1)
-try:
-    out = fn()
-except NameError as exc:
-    print(f"FAIL: render_source_status raised NameError: {exc}")
-    sys.exit(1)
-except Exception as exc:
-    print(f"PASS (no NameError; non-fatal {type(exc).__name__} with no live Doctor)")
-    sys.exit(0)
-print(f"PASS: render_source_status returned {len(out)} chars, no NameError")
+TILES = ("render_source_status", "render_whatsapp_keepalive")
+
+failures = 0
+for name in TILES:
+    fn = ns.get(name)
+    if fn is None:
+        print(f"FAIL: {name} is not defined in web_ui's namespace")
+        failures += 1
+        continue
+    try:
+        out = fn()
+    except NameError as exc:
+        print(f"FAIL: {name} raised NameError: {exc}")
+        failures += 1
+    except (KeyError, ImportError, AttributeError) as exc:
+        # These three kill the page just as dead as a NameError and are never
+        # "no live Doctor": a missing copy constant (the .154 blocker: web_ui
+        # imported CONFIG_BTN_SAVE and 15 siblings that web_ui_copy did not
+        # define, and Doctor crash-looped), a bad .format key, or a renderer
+        # reaching for a name its module does not have. Without naming them
+        # they fall into the tolerant arm below and report PASS.
+        print(f"FAIL: {name} raised {type(exc).__name__}: {exc}")
+        failures += 1
+    except Exception as exc:
+        print(f"PASS: {name} (no NameError; non-fatal {type(exc).__name__} with no live Doctor)")
+    else:
+        print(f"PASS: {name} returned {len(out)} chars, no NameError")
+
+sys.exit(1 if failures else 0)
 PY
