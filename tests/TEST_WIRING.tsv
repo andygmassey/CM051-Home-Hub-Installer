@@ -119,6 +119,7 @@ test_cannot_run_branch_is_reachable.sh	WIRED	.github/workflows/cannot-run-branch
 test_cannot_run_is_a_third_state.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_cannot_run_names_its_prerequisite.sh	WIRED	.github/workflows/cut-manifest.yml
 test_canonical_keys_must_not_merge.py	WIRED	.github/workflows/vendor-integrity.yml
+test_case_in_command_substitution_parses_under_bash_32.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_closing_verdict_consults_failed_steps.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_cm041_usage_journal_producer.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm048_prompts_packaged.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -471,6 +472,7 @@ test_the_cut_checklist_is_complete.py	WIRED	.github/workflows/cut-checklist-comp
 test_the_daemon_freshness_row_decides_on_the_scoped_count.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_db_key_reaches_the_services_and_the_disk.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_the_doctor_dashboard_actually_renders.sh	WIRED	.github/workflows/vendor-integrity.yml
+test_the_doctor_status_poll_has_a_fork_budget.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_downloads_watcher_survives_a_real_export.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
 test_the_dry_run_can_still_go_green.sh	WIRED	.github/workflows/version-gate-not-tautological.yml
 test_the_egress_inventory_still_describes_the_software.py	WIRED	.github/workflows/install-abort-and-egress.yml
