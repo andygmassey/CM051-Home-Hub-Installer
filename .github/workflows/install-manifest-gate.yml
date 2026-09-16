@@ -49,6 +49,19 @@ on:
       - 'vendor/cm041/contact_syncer/**'
       - 'vendor/cm041/identity_resolver/**'
       - 'vendor/ostler_fda/identifier_quality.py'
+      # #1598. The knowledge-collection register gate. All FOUR of its inputs
+      # are listed, because it joins them: install.sh declares the register and
+      # drives one embed call site, install_manifest.tsv is where a searched
+      # collection must be declared so a walk can see it, and the three Doctor
+      # importers are the other three writers -- scanning install.sh alone
+      # reported the collection three of the four use as a dead row. A vendor
+      # pin bump that changed an importer's collection is precisely the event
+      # this gate exists for, so it must fire the job.
+      - 'tests/test_every_knowledge_collection_has_a_reader_verdict.sh'
+      - 'vendor/doctor/agent/import_evernote.py'
+      - 'vendor/doctor/agent/import_notion.py'
+      - 'vendor/doctor/agent/import_obsidian.py'
+      - 'install.sh'
   push:
     branches: [main]
 
@@ -95,6 +108,20 @@ jobs:
       - name: The class gate names every EXPECTED-vs-PRESENT difference
         if: always()
         run: /bin/bash tests/test_install_manifest_gate.sh
+
+      # #1598. A writer and a reader disagreeing on a Qdrant collection name is
+      # the dark-data shape in its purest form: Qdrant 404s an unknown
+      # collection, the reader maps 404 to an empty result, and the customer's
+      # notes are absent from every knowledge search with nothing reporting a
+      # fault. The assistant-side guard for it is a tautology -- it asserts a
+      # constant against two hard-coded literals beside a comment citing an
+      # install.sh line, and cannot open install.sh. This is the half that can.
+      # /bin/bash for the same reason as its siblings: it parses install.sh the
+      # way the cut host will, and a `case` inside a command substitution is a
+      # runtime-only failure there that `bash -n` does not catch.
+      - name: Every knowledge collection this install writes has a reader verdict (#1598)
+        if: always()
+        run: /bin/bash tests/test_every_knowledge_collection_has_a_reader_verdict.sh
 
       # #1820. This gate FAILS on a box whose required collections were never
       # created, and the v1.0.75 walk found exactly why: the #606 pre-creation

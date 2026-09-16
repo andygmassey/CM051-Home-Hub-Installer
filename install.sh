@@ -19812,6 +19812,57 @@ _qdrant_wait_s=0
 # against the live store at box-walk time. Two different questions, both worth
 # asking; do not let this one stand in for that one.
 _OSTLER_REQUIRED_QDRANT_COLLECTIONS=(people conversations preferences evernote_knowledge)
+
+# ── KNOWLEDGE COLLECTIONS: EVERY ONE THE INSTALL WRITES, AND WHETHER THE
+#    SHIPPED ASSISTANT READS IT (#1598) ────────────────────────────────────
+#
+# THE DEFECT THIS REGISTER EXISTS FOR. install.sh embeds Apple Notes into
+# `apple_notes_knowledge` (the Apple Notes hydrate leg, far below). The
+# assistant's `pwg_knowledge_search` read `evernote_knowledge` and nothing
+# else. A writer and a reader disagreeing on a collection name is the dark
+# data shape in its purest form: Qdrant answers 404 for an unknown collection,
+# the tool maps 404 to an empty result, and the customer's notes are absent
+# from every knowledge search with nothing anywhere reporting a fault. The
+# miss arrives wearing the costume of "you have no matching notes".
+#
+# THE READ SIDE IS FIXED, AND IT WAS MEASURED RATHER THAN BELIEVED. At the
+# tag this installer pins, `hub-v0.4.80`:
+#
+#     crates/zeroclaw-tools/src/pwg_knowledge_search.rs:56
+#     pub const KNOWLEDGE_COLLECTIONS: &[&str] =
+#         &["evernote_knowledge", "apple_notes_knowledge"];
+#
+# iterated at :209 and rank-merged at :215. Both collections are searched.
+#
+# 🔴 SO WHY DECLARE ANYTHING HERE. Because nothing on THIS side of the wire
+# knows that, and the assistant-side test that guards it is a tautology:
+# pwg_knowledge_search.rs:685-693 asserts `KNOWLEDGE_COLLECTIONS.contains(..)`
+# against two hard-coded literals beside a COMMENT citing an install.sh line.
+# It compares a constant to itself. It cannot open install.sh, and CM051's CI
+# cannot open the assistant repo. Measured: zero CM051 files name
+# KNOWLEDGE_COLLECTIONS, against a POSITIVE CONTROL of 32 naming
+# apple_notes_knowledge. A NINTH hydrate collection added here would go dark
+# with every test on both sides green -- which is exactly how the eighth did.
+#
+# WHAT THIS REGISTER IS, STATED HONESTLY. It is a DECLARATION, not a read of
+# the other repo, and a declaration can rot. What stops it rotting is
+# OSTLER_KNOWLEDGE_READER_VERSION below: the gate asserts it equals the
+# assistant version this installer actually pins, so the moment somebody bumps
+# the pin the register is stale and says so. Re-verify against the new tag and
+# move both, or the gate stays red. That is the one property available without
+# network access at gate time, and it is the property that matters: a pin bump
+# is exactly when a reader can quietly lose a collection.
+#
+# VERDICTS, and only these two words:
+#   searched  the shipped reader queries this collection
+#   excluded  a named decision that it deliberately does not
+# There is no third state. "Nobody checked" is not a verdict; it is a missing
+# row, and a missing row reds the gate.
+OSTLER_KNOWLEDGE_COLLECTIONS="evernote_knowledge:searched apple_notes_knowledge:searched"
+# The assistant tag the verdicts above were read at. MUST equal the default of
+# OSTLER_ASSISTANT_VERSION; see the note above for why that coupling is the
+# whole anti-rot mechanism.
+OSTLER_KNOWLEDGE_READER_VERSION="0.4.80"
 # 🔴 READINESS TESTS THE SURFACE THE NEXT STATEMENT ACTUALLY USES (#566).
 #
 # THIS LOOP USED TO READ:
@@ -30925,7 +30976,31 @@ fi
 _HYDRATE_APPLENOTES_BIN="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
 _HYDRATE_APPLENOTES_STAGING="${OSTLER_DIR}/data/knowledge-staging"
 _HYDRATE_APPLENOTES_DBPATH="${OSTLER_DIR}/data/knowledge-metadata.db"
-_HYDRATE_APPLENOTES_COLLECTION="apple_notes_knowledge"
+# TAKEN FROM THE REGISTER, NOT RE-TYPED (#1598). This used to be a bare
+# literal here and nowhere else, which is how it came to disagree with the
+# reader: one writer, one string, no declaration, nothing to compare it
+# against. It now reads the FIRST apple_notes entry out of
+# OSTLER_KNOWLEDGE_COLLECTIONS, so a collection cannot be embedded into
+# without a verdict recorded for it. The `:-` fallback keeps the historical
+# literal for a partial source-extraction (several wired tests lift regions of
+# this file), because losing the collection name would silently embed into ""
+# rather than fail loudly.
+# 🔴 NO `case` INSIDE A COMMAND SUBSTITUTION. The first draft of this lookup
+# was a `$( for ... case ... done )` one-liner. `bash -n install.sh` passed it,
+# because -n does not descend into command substitutions, and the CUT HOST'S
+# bash 3.2 then failed at RUNTIME with `syntax error near unexpected token
+# 'newline'` and assigned the collection the literal text of the loop.
+# Measured on /bin/bash 3.2.57 before this comment was written. A plain loop
+# has no such hazard, which is why this is five lines instead of one.
+_HYDRATE_APPLENOTES_COLLECTION=""
+for _kc in ${OSTLER_KNOWLEDGE_COLLECTIONS:-}; do
+    if [[ "$_kc" == apple_notes_knowledge:* ]]; then
+        _HYDRATE_APPLENOTES_COLLECTION="${_kc%%:*}"
+        break
+    fi
+done
+unset _kc
+_HYDRATE_APPLENOTES_COLLECTION="${_HYDRATE_APPLENOTES_COLLECTION:-apple_notes_knowledge}"
 _HYDRATE_APPLENOTES_EMBED_MODEL="${OSTLER_KNOWLEDGE_EMBED_MODEL:-nomic-embed-text}"
 _HYDRATE_APPLENOTES_MAXLEVEL="${OSTLER_KNOWLEDGE_MAX_COMPARTMENT_LEVEL:-2}"
 _HYDRATE_APPLENOTES_QDRANT="${QDRANT_URL:-http://localhost:6333}"
