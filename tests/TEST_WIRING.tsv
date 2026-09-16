@@ -635,6 +635,7 @@ gui/OstlerInstallerTests/OfflineGraceCacheReadTests.swift	WIRED	.github/workflow
 gui/OstlerInstallerTests/OnboardingButtonFooterProofTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/OnboardingQuestionViewSnapshotTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/OnboardingQuestionXOfYTests.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/PairingFailureMessageTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/PairingQRAutoShowTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/PassphraseMismatchUXTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/PermissionsIntroCatalogueKeysTest.swift	WIRED	.github/workflows/swift-tests.yml
