@@ -582,6 +582,7 @@ test_walk_record_names_the_failing_probes.sh	WIRED	.github/workflows/cut-manifes
 test_walk_record_states_measured_count.sh	WIRED	.github/workflows/cut-manifest.yml
 test_walkaway_no_phase2_input_leak.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_whatsapp_channel_block.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
+test_whatsapp_keepalive_repairs_and_reports.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_whatsapp_parser_does_not_claim_meta_messages.py	WIRED	.github/workflows/parser-claim-separation.yml
 test_wiki_baseline_background.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_wiki_compile_has_a_page_count_oracle.sh	WIRED	.github/workflows/wiki-compile-oracle.yml
