@@ -71,7 +71,17 @@ fi
 
 # ARM 5: the message a customer reads must exist and must name the port.
 # A curated code pointing at a missing string is worse than the catch-all.
-if bash -c 'set -u; source ./install.sh.strings.en-GB.sh >/dev/null 2>&1; printf "%s" "$MSG_FAIL_OLLAMA_PORT_IN_USE"' 2>/dev/null | grep -q '11434'; then
+# grep -c rather than a pipe into a short-circuiting grep. Under the
+# `set -uo pipefail` on line 19, a quiet grep exits at its first match and
+# SIGPIPEs the producer, so pipefail reports the whole pipeline FAILED
+# precisely when the needle IS present, and this arm would read "does not
+# name 11434" on a correct string. Measured: the inversion needs a producer
+# big enough to fill the pipe buffer (reproduced at 200k lines, not at this
+# arm's one-line string), so it is latent here rather than live -- which is
+# exactly why it gets fixed now instead of baselined. grep -c must read to
+# EOF, so it cannot short-circuit, and it is POSIX rather than a bashism.
+_port_named=$(bash -c 'set -u; source ./install.sh.strings.en-GB.sh >/dev/null 2>&1; printf "%s" "$MSG_FAIL_OLLAMA_PORT_IN_USE"' 2>/dev/null | grep -c '11434' || true)
+if [ "${_port_named}" -gt 0 ]; then
     ok "the customer-facing message resolves under set -u and names the port"
 else
     bad "MSG_FAIL_OLLAMA_PORT_IN_USE is missing or does not name 11434"
