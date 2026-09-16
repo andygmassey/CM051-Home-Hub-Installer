@@ -54,6 +54,7 @@ on:
       - 'tests/test_e1_source_readout_emits.sh'
       - 'tests/test_ostler_home_root_is_one_class.sh'
       - 'tests/test_imessage_zero_is_declared_not_undeclared.sh'
+      - 'tests/test_the_source_table_items_column_is_the_number_it_claims.sh'
       - 'vendor/doctor/agent/extension_token.py'
       - 'vendor/doctor/agent/whatsapp_pair.py'
       - 'vendor/doctor/agent/diagnostic_rules.py'
@@ -228,6 +229,20 @@ jobs:
       - name: An old-format sentinel must not abort the upgrade
         if: always()
         run: /bin/bash tests/test_an_old_format_sentinel_does_not_abort_the_install.sh
+
+      # #946: every gate above this line asserts what the WRITER put in the
+      # file. None of them reads what the CUSTOMER is shown. The renderer's own
+      # docstring names that gap -- "the Doctor must serve /api/v1/sources with
+      # one honest per-source row" is true whether or not a human can ever see
+      # one -- and the Items column shipped a return code as a count for three
+      # sources, the skipped count for browsing, and the size of the whole
+      # collection for a timed-out people step, with every producer gate green.
+      # This drives the real recorders, the real vendored reader AND the real
+      # vendored renderer, then asserts on the rendered cells.
+      # Explicit run step, not a loop entry (#647).
+      - name: The source table's Items column is the number it claims (#946)
+        if: always()
+        run: /bin/bash tests/test_the_source_table_items_column_is_the_number_it_claims.sh
 
       - name: All twelve tests parse under bash 3.2-compatible syntax
         if: always()
