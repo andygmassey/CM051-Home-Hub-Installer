@@ -126,8 +126,17 @@ grep -q "SCREEN_SHOWN" <<<"$out" \
   && bad "(M1) the pre-fix shape rendered a screen, so this test cannot tell the two apart" \
   || ok  "(M1) PRE-FIX IS CAUGHT: with no reuse block the person is never asked and the decision stays empty"
 
-# M2: guard inverted -- only ask when a decision already exists.
-out=$(run_arm 2 "" 'REUSE_MUTANT=1')
+# M2: the guard keys on the ABSENCE of a decision, shown by the arm that
+# already has one.
+#
+# THIS USED TO CARRY A DEAD LINE: `out=$(run_arm 2 "" 'REUSE_MUTANT=1')`,
+# immediately overwritten by the assignment below, injecting a variable nothing
+# reads. It looked like a mutation arm and could not fail. Removed rather than
+# repaired, because the arms in this file drive EXTRACTED blocks and cannot
+# mutate install.sh itself. The genuinely APPLIED mutants - the terms put back
+# inside the SKIP_PHASE2 guard, and an unknown record upgraded to accepted -
+# live in tests/test_the_licence_acknowledgement_reaches_the_customer.sh, which
+# mutates a copy of install.sh and asserts the mutated text before driving it.
 out=$(run_arm 2 "accepted")
 grep -q "SCREEN_SHOWN" <<<"$out" \
   && bad "(M2) asking when a decision already exists was not caught" \

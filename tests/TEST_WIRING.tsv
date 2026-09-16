@@ -493,6 +493,7 @@ test_the_generated_uninstaller_parses.sh	WIRED	.github/workflows/uninstall-remov
 test_the_governor_revendor_guard_is_actually_run.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_the_installer_downloads_from_the_repo_we_publish_to.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_licence_a_customer_paid_for_is_owner_only.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
+test_the_licence_acknowledgement_reaches_the_customer.sh	WIRED	.github/workflows/consent-registry.yml
 test_the_loopback_auth_gate_cannot_be_bypassed.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_the_manifest_selector_survives_v1_0_100.sh	WIRED	.github/workflows/cut-checklist-complete.yml
 test_the_merge_budget_scales_with_the_address_book.sh	WIRED	.github/workflows/killed-converge-gets-its-catchup.yml
