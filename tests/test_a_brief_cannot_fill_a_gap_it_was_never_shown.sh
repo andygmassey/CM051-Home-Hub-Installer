@@ -415,10 +415,49 @@ if [ "${SELF_TEST}" -eq 1 ]; then
 
     PREFIX_DIR="${WORK}/prefix"
     mkdir -p "${PREFIX_DIR}"
+
+    # THE PRE-FIX REF IS PINNED, AND THAT IS NOT A STYLE CHOICE.
+    #
+    # This defaulted to `origin/main`, which worked for exactly as long as the
+    # fix was unmerged. The moment #2013 landed, `origin/main` BECAME the fixed
+    # module, so MUTANT A ran the fix against itself, the suite passed, and the
+    # self-test correctly reported that the guard "does not detect the defect it
+    # was written for". Main went red at 2026-09-16T15:53:34Z, four seconds after
+    # #2013 merged, and every open PR inherited it.
+    #
+    # A mutant whose source is a MOVING REF stops being a mutant the day the fix
+    # lands. `gh run rerun` can never help, because a replay re-fetches a main
+    # that has moved further. So the pre-fix module is named by SHA:
+    # 923c5067 is the parent of #2013's merge commit, i.e. main immediately
+    # before the fix. Repin it only alongside a NEW defect and a new proof.
+    OSTLER_PREFIX_REF_DEFAULT="923c506770016550d76e055c4a87f2703b33408a"
+    PREFIX_REF="${OSTLER_PREFIX_REF:-${OSTLER_PREFIX_REF_DEFAULT}}"
+
     if git -C "${REPO}" show \
-        "${OSTLER_PREFIX_REF:-origin/main}:context-refresh/bin/generate_pwg_context.py" \
+        "${PREFIX_REF}:context-refresh/bin/generate_pwg_context.py" \
         > "${PREFIX_DIR}/generate_pwg_context.py" 2>/dev/null \
        && [ -s "${PREFIX_DIR}/generate_pwg_context.py" ]; then
+
+        # THE MUTANT MUST BE PROVED TO HAVE APPLIED BEFORE IT IS BELIEVED.
+        # A mutant that did not apply looks EXACTLY like one that was not
+        # caught: both show the suite passing. If the materialised module is
+        # byte-identical to the shipped one, the mutation is a no-op and the
+        # only honest verdict is CANNOT-RUN. This arm is what would have caught
+        # the moving-ref defect above on the day it was introduced, rather than
+        # reporting a guard that cannot fail as a guard that was proved.
+        if cmp -s "${PREFIX_DIR}/generate_pwg_context.py" \
+                  "${REPO}/context-refresh/bin/generate_pwg_context.py"; then
+            echo "  [CANNOT-RUN] MUTANT A: the ${PREFIX_REF} copy of the digest module is byte-identical to the shipped one, so the mutation is a no-op and proves nothing. Repin OSTLER_PREFIX_REF to a commit that predates the fix."
+            SELF_CANT=$((SELF_CANT+1))
+            MUTANT_A_APPLIED=0
+        else
+            MUTANT_A_APPLIED=1
+        fi
+    else
+        MUTANT_A_APPLIED=-1
+    fi
+
+    if [ "${MUTANT_A_APPLIED:-0}" -eq 1 ]; then
         set +e
         OSTLER_DIGEST_MODULE="${PREFIX_DIR}/generate_pwg_context.py" \
             bash "${BASH_SOURCE[0]}" > "${WORK}/mutantA.out" 2>&1
@@ -433,12 +472,13 @@ if [ "${SELF_TEST}" -eq 1 ]; then
             echo "  [FAIL] MUTANT A: the pre-fix module exited ${mrc}, expected 1. This guard does not detect the defect it was written for."
             tail -20 "${WORK}/mutantA.out" | sed 's/^/         /'
         fi
-    else
-        # The pre-fix copy is unavailable (shallow clone, no origin/main). That
-        # is CANNOT-RUN for the mutant, not a mutant that passed, and it gets
-        # its own exit code below so nobody can read "the mutant was not run"
-        # as "the guard was proved".
-        echo "  [CANNOT-RUN] MUTANT A: could not materialise ${OSTLER_PREFIX_REF:-origin/main} copy of the digest module -- the guard was NOT proved"
+    elif [ "${MUTANT_A_APPLIED:-0}" -eq -1 ]; then
+        # The pre-fix copy is unavailable (a shallow clone has no such commit;
+        # this workflow sets fetch-depth: 0 precisely so it does). That is
+        # CANNOT-RUN for the mutant, not a mutant that passed, and it gets its
+        # own exit code below so nobody can read "the mutant was not run" as
+        # "the guard was proved".
+        echo "  [CANNOT-RUN] MUTANT A: could not materialise the ${PREFIX_REF} copy of the digest module -- the guard was NOT proved"
         SELF_CANT=$((SELF_CANT+1))
     fi
 
