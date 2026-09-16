@@ -302,8 +302,8 @@
     "refresh_button": "Refresh code",
     "fetch_failed": "Couldn't reach the Ostler gateway yet. It might still be starting up – click Refresh to try again.",
     "fetch_refused": "The Ostler gateway refused the pairing request, so Refresh will not help. Ostler is still installed: open it and pair from inside the app instead. (Gateway returned {code}.)",
-    "fetch_unexpected": "The Ostler gateway answered, but not with a pairing code. Click Refresh to try again, or pair later from inside the app. (Gateway returned {code}.)",
-    "fetch_empty": "The Ostler gateway returned an empty pairing code. Click Refresh to try again, or pair later from inside the app.",
+    "fetch_unexpected": "The Ostler gateway answered, but not with a pairing code. You can try Refresh again, or pair later from inside the app. (Gateway returned {code}.)",
+    "fetch_empty": "The Ostler gateway returned an empty pairing code. You can try Refresh again, or pair later from inside the app.",
     "fetch_unreadable": "The Ostler gateway answered, but the pairing code could not be read. You can pair later from inside the app. ({reason})"
   },
 
