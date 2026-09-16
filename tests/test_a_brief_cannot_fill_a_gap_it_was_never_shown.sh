@@ -126,7 +126,7 @@ for required in ("build_digest", "_note_failure", "_get_json", "_sparql_select")
 
 PEOPLE = {
     "recent_meetings": [
-        {"name": "Jordan Blake", "organisation": "Northfield Ltd",
+        {"name": "Sam Patel", "organisation": "Acme Ltd",
          "last_contact": "2026-09-10"},
     ],
     "birthdays": [],
@@ -175,11 +175,11 @@ elif scenario == "all-sections-full":
         ]},
     })
     gen._sparql_select = lambda sparql: [
-        {"text": "Robin is your spouse", "name": "Robin Carter",
+        {"text": "Mary is your spouse", "name": "Mary Jones",
          "rel": "spouse", "created": "2026-06-16T09:00:00Z"},
-        {"calendarOwner": "Robin Carter", "summary": "Flight to Lisbon",
+        {"calendarOwner": "Mary Jones", "summary": "Flight to the coast",
          "start": "2026-10-04T07:15:00Z", "calendarType": "personal"},
-        {"orgName": "Northfield Ltd", "role": "client"},
+        {"orgName": "Acme Ltd", "role": "client"},
     ]
     out = gen.build_digest()
 
@@ -235,7 +235,7 @@ echo
 
 if drive_or_cant "one-failed-one-empty" "${WORK}/mixed.md"; then
     if [ "$(cat "${WORK}/mixed.md")" != "NONE" ] \
-       && grep -q "Jordan Blake" "${WORK}/mixed.md"; then
+       && grep -q "Sam Patel" "${WORK}/mixed.md"; then
         ok "premise: the mixed fixture built a digest and it carries the populated section"
     else
         bad "premise: the mixed fixture produced no usable digest, so limbs 2-4 would be vacuous"
@@ -284,7 +284,7 @@ fi
 # assert nothing at all.
 
 if drive_or_cant "all-sections-full" "${WORK}/full.md"; then
-    if [ "$(cat "${WORK}/full.md")" != "NONE" ] && grep -q "Jordan Blake" "${WORK}/full.md"; then
+    if [ "$(cat "${WORK}/full.md")" != "NONE" ] && grep -q "Sam Patel" "${WORK}/full.md"; then
         if grep -q "What is not in this digest" "${WORK}/full.md"; then
             bad "the gap block rendered on a digest with no gaps, so it is boilerplate and limbs 2-3 prove nothing"
         else
@@ -331,7 +331,7 @@ _Last updated: 2026-09-01 08:00 UTC._
 
 ## People you interact with most
 
-- Jordan Blake (Northfield Ltd)
+- Sam Patel (Acme Ltd)
 PRIOR
 
 run_dead_box() {
@@ -350,7 +350,7 @@ if [ "${rc}" -ne 2 ]; then
 elif [ ! -f "${STALEDIR}/CONTEXT.md" ]; then
     bad "the prior digest was deleted on a failed refresh: a stale digest beats no digest and that rule is not being changed"
 elif grep -q "NOT REFRESHED" "${STALEDIR}/CONTEXT.md" \
-     && grep -q "Jordan Blake" "${STALEDIR}/CONTEXT.md"; then
+     && grep -q "Sam Patel" "${STALEDIR}/CONTEXT.md"; then
     ok "a digest that could not be refreshed is KEPT and stamped NOT REFRESHED in the file the daemon injects"
 else
     bad "the prior digest was left claiming to be current: the brief recites facts of unknown age as today's news"
