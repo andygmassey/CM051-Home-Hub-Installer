@@ -282,6 +282,30 @@ jobs:
       # had no `checks: read`. The new gate reads the ACTIONS namespace, which
       # `checks: read` does not cover -- the identical defect, one scope over,
       # and it would have failed closed on every cut forever.
+      # 🔴 PyYAML IS NOT ON THE RUNNER BY DEFAULT, AND THE TEST REFUSES WITHOUT
+      # IT. Measured on this very PR: the step below exited 2 "CANNOT-RUN: no
+      # PyYAML; a regex over YAML is not a parse". That refusal is correct --
+      # the permissions question CANNOT be answered by text, because an absent
+      # scope and a scope set to none read differently and mean the same thing
+      # -- but a gate that reports CANNOT-RUN on every run is a gate nobody
+      # reads, which is the #1167 shape wearing a different hat.
+      #
+      # THE VERIFY LINE IS NOT DECORATION. An install that quietly does nothing
+      # reproduces the same defect one layer up, so the import is proved AFTER
+      # the install and the step dies if it is still missing. No `|| true` on
+      # the verification.
+      - name: PyYAML must be present, or the wiring assertion cannot run
+        if: always()
+        run: |
+          set -uo pipefail
+          if ! python3 -c 'import yaml' 2>/dev/null; then
+            python3 -m pip install --quiet --break-system-packages --ignore-installed pyyaml \
+              || python3 -m pip install --quiet --ignore-installed pyyaml \
+              || pip3 install --quiet pyyaml \
+              || true
+          fi
+          python3 -c 'import yaml, sys; sys.stdout.write("PyYAML %s on %s\n" % (yaml.__version__, sys.version.split()[0]))'
+
       - name: The run-at-commit gate is wired into the cut and can answer
         if: always()
         run: /bin/bash tests/test_the_run_at_commit_gate_is_wired_into_the_cut.sh
