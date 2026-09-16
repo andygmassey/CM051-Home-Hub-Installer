@@ -688,6 +688,7 @@ MSG_WARN_COULD_NOT_PERSIST_REGION_JSON_CONTINUING="Could not persist region.json
 MSG_WARN_COULD_NOT_RECORD_RECOVERY_KEY_DELIVERY="Could not record that the recovery key was delivered. This run's summary is still correct, but a later run may not be able to tell and could warn again – that is the safe direction for this to fail in."
 MSG_WARN_COULD_NOT_SAVE_KEYCHAIN_PLEASE_WRITE="Could not save to Keychain. Please write it down."
 MSG_WARN_COULD_NOT_START_OLLAMA_AUTOMATICALLY="Could not start Ollama automatically."
+MSG_FAIL_OLLAMA_PORT_IN_USE="Another program is already using port 11434, which Ostler needs for its local AI. Ostler could not start its own copy, so the install stopped here rather than half-finishing.\n\n  What is holding the port: %s\n  The exact error is in: %s\n\nThis is usually a copy of Ollama you already had, or one left running by a previous Ostler install. Quit it (or restart this Mac) and run the installer again."
 MSG_WARN_COULD_NOT_UPDATE_PIPELINE_OFFLINE="Could not update pipeline (offline?)"
 MSG_WARN_COULD_NOT_WRITE_PIPELINE_SIGNALS_JSON="Could not write pipeline_signals.json. The Doctor empty-Mail diagnostic will fall back to safe defaults until the next install or tick."
 MSG_WARN_CURL_SAID="Curl said:"
