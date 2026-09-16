@@ -2425,6 +2425,58 @@ def _load_people_from_oxigraph() -> list[dict]:
         "}"
     )
 
+    # Third query: the LAST-CONTACT signal, folded to one date per person.
+    #
+    # WHY THIS EXISTS (CM051, 2026-09-16). The Qdrant `people` payload built
+    # below used to stamp a hardcoded `"last_contact": ""` and nothing else.
+    # The reader -- ical-server.py `people_stale()` -- filters on
+    # `last_contact_ts`, so BOTH halves were dead:
+    #
+    #   - `last_contact_ts` was absent from every point. Measured on a live
+    #     box 2026-09-16: is_empty last_contact_ts = 3784 of 3784, IDENTICAL
+    #     to a deliberately fake payload key, while is_empty display_name = 0
+    #     on the same probe, so the predicate discriminates.
+    #   - `last_contact` was present on all 3784 and held the EMPTY STRING on
+    #     all 3784 (exact count, not a sample). So renaming the READER to ask
+    #     for `last_contact` would have swapped one permanently-empty answer
+    #     for another. The name was never the whole defect; the writer simply
+    #     never carried the value.
+    #
+    # The value was not missing from the product, only from this payload:
+    # Oxigraph holds it as the per-source predicates `_update_last_contact`
+    # writes a few hundred lines above. Measured on the same box: 1501 triples
+    # across lastContactEmail / lastContactWhatsApp / lastContactCalendar /
+    # lastContactIMessage, covering 1481 distinct people.
+    #
+    # `last_contact_ts` is the DOCUMENTED CONTRACT, which is why the writer
+    # moves rather than the reader: assistant_api/API.md names it, the four
+    # contact_syncer writers (syncer.py, facebook_friends.py,
+    # linkedin_connections.py, instagram_social.py) and meeting_syncer all
+    # stamp it, identity_resolver merges on it, and the shipped wire-shape
+    # tests assert it. One deviant writer against six conforming ones is a
+    # writer defect.
+    #
+    # MAX() across the four predicates, because "last contact" is the most
+    # recent contact by ANY channel -- an email last week and an iMessage in
+    # 2022 is a person contacted last week. GROUP BY collapses the several
+    # rows a multi-channel person would otherwise produce.
+    last_contact_rows = _sparql_query(
+        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
+        "SELECT ?uri (MAX(?d) AS ?lastContact) WHERE {\n"
+        "  ?uri a pwg:Person .\n"
+        "  { ?uri pwg:lastContactIMessage ?d }\n"
+        "  UNION { ?uri pwg:lastContactWhatsApp ?d }\n"
+        "  UNION { ?uri pwg:lastContactCalendar ?d }\n"
+        "  UNION { ?uri pwg:lastContactEmail ?d }\n"
+        "} GROUP BY ?uri"
+    )
+    last_contact_by_uri: dict[str, str] = {}
+    for row in last_contact_rows:
+        uri = (row.get("uri", {}) or {}).get("value", "")
+        value = (row.get("lastContact", {}) or {}).get("value", "").strip()
+        if uri and value:
+            last_contact_by_uri[uri] = value
+
     # Second query: identifiers grouped per person.
     id_rows = _sparql_query(
         "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
@@ -2493,8 +2545,46 @@ def _load_people_from_oxigraph() -> list[dict]:
             # can place this person. Empty -> omitted from those views (no
             # now() fabrication).
             "created_at": created_at,
+            # Most recent contact by ANY channel, as an ISO date ("" when the
+            # person has never been contacted through a tracked channel). The
+            # Qdrant payload derives both `last_contact` and `last_contact_ts`
+            # from this; see the query above for why it is read here at all.
+            "last_contact": last_contact_by_uri.get(uri, ""),
         })
     return people
+
+
+def _last_contact_epoch(value: str) -> int:
+    """ISO date (or datetime) -> epoch seconds. 0 when absent or unparseable.
+
+    0 is the DELIBERATE sentinel, not a fallback to now(): the reader's
+    filter is `last_contact_ts > 0`, so a person with no tracked contact
+    stays out of the stale list rather than being reported as "not spoken
+    to since 1970". Fabricating now() would be worse still -- it would
+    silently mark every unknown person as freshly contacted.
+
+    Parsed as a DATE at UTC midnight. The stored predicate is xsd:date
+    (`_update_last_contact` formats %Y-%m-%d), so there is no time-of-day
+    to preserve, and anchoring at midnight keeps the value stable rather
+    than drifting with the hour the ingest happened to run.
+    """
+    if not value:
+        return 0
+    try:
+        text = value.strip().replace("Z", "+00:00")
+        # Date-only is the shipped shape; accept a full datetime too rather
+        # than dropping a value some other writer may have stamped.
+        if len(text) == 10:
+            parsed = datetime.strptime(text, "%Y-%m-%d").replace(
+                tzinfo=timezone.utc
+            )
+        else:
+            parsed = datetime.fromisoformat(text)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+        return int(parsed.timestamp())
+    except (ValueError, TypeError):
+        return 0
 
 
 def _person_embed_doc(person: dict) -> str:
@@ -2533,11 +2623,23 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
     stably from the person URI so a re-install is idempotent) with a
     payload matching the reader contract, (5) returns a counts-only
     dict, (6) fails LOUD (status "error") if Oxigraph held Person nodes
-    but nothing landed in Qdrant.
+    but nothing landed in Qdrant, OR if only SOME of them landed.
+
+    THE (6) HALF WAS ONCE ALL-OR-NOTHING. ``_qdrant_upsert_points`` drops
+    any point with an empty vector and keeps going after a failed chunk,
+    returning only the count that landed -- so a partial sweep used to
+    come back here as ``sent > 0`` and fall through to the "ok" return,
+    carrying the smaller number as if it were the whole job. Measured on a
+    real customer install: 8679 Person nodes, 8643 points, a gap of 36
+    that a week of daily re-runs never closed, because "ok" told
+    install.sh there was nothing left to retry. ``sent`` is now compared
+    against ``total`` before anything is called a success.
 
     Returns counts only (parity with the other ingesters; install.sh
     reads ``sent``):
       ``status``         : "ok" | "no_data" | "error"
+      ``reason``         : present only on a partial landing;
+                           "partial_landing" when 0 < sent < total
       ``sent``           : points upserted into Qdrant
       ``points_created`` : alias of ``sent``
       ``total``          : Person nodes considered (with a display name)
@@ -2608,7 +2710,23 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
             # diverges from one that recomputes it (iOS Identifiable id + URL).
             "slug": _wiki_slug(person["display_name"]),
             "source": "fda_people_index",
-            "last_contact": "",
+            # BOTH names are stamped, and they are not redundant.
+            #
+            # `last_contact_ts` (epoch int) is what every read path actually
+            # filters and sorts on: people_stale()'s range filter, the
+            # "recency" sort in people_list(), and _recency_label(). It was
+            # absent from every point until 2026-09-16, which is why the
+            # stale / reconnect lists were permanently empty.
+            #
+            # `last_contact` (ISO date string) is kept because this payload has
+            # always carried the key and a consumer may read it; it now carries
+            # the real date instead of the empty string it used to hold on
+            # every record. Dropping it would be a gratuitous wire-shape change
+            # in a fix whose whole point is that the wire shape was not honoured.
+            "last_contact": person.get("last_contact", ""),
+            "last_contact_ts": _last_contact_epoch(
+                person.get("last_contact", "")
+            ),
         }
         # Surface the REAL pwg:createdAt date so the time-ordered wiki
         # views (year pages, person timeline, "recent people") can place
@@ -2654,6 +2772,40 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
             "status": "error",
             "sent": 0,
             "points_created": 0,
+            "total": len(people),
+        }
+
+    # ── A PARTIAL LANDING IS NOT A SUCCESS ──────────────────────────────
+    #
+    # The check above only ever caught the ALL-OR-NOTHING case. Anything
+    # between -- an empty vector dropped by _qdrant_upsert_points, or one
+    # chunk out of several failing while the others land -- fell straight
+    # through to the "ok" return below, carrying whatever count DID make
+    # it. That count is real, but the status calling it "ok" is not: it is
+    # indistinguishable, to every caller, from a complete sweep.
+    #
+    # MEASURED on a real customer install, ten hours after completion: the
+    # graph held 8679 Person nodes, the vector store held 8643 points, a
+    # gap of 36 that never closed on its own. install.sh only reads `sent`
+    # to decide the customer-facing message and reads process rc (which
+    # this function's own internal try/except keeps at 0 for any failure
+    # it already caught) to decide whether to write a success sentinel --
+    # so a shortfall here had no way to reach either decision. Comparing
+    # what was SENT against what was ASKED is the only place that
+    # information still exists once _qdrant_upsert_points returns.
+    if sent < len(people):
+        logger.warning(
+            "People: %d of %d Person nodes landed in Qdrant '%s'; %d did "
+            "not. Reporting error, not ok -- the missing %d would stay "
+            "unsearchable and invisible under a success status.",
+            sent, len(people), PEOPLE_QDRANT_COLLECTION,
+            len(people) - sent, len(people) - sent,
+        )
+        return {
+            "status": "error",
+            "reason": "partial_landing",
+            "sent": sent,
+            "points_created": sent,
             "total": len(people),
         }
 

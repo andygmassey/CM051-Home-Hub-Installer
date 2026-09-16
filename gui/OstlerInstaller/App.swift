@@ -5,11 +5,43 @@
 // installer Process. Window is fixed at 880x620 per the locked
 // design (plan §5).
 
+import AppKit
 import SwiftUI
+
+/// Releases the `caffeinate -dimsu` power assertion when the APP goes
+/// away, which is a different event from the install subprocess ending.
+///
+/// `CaffeinateManager.stop()` had exactly one call site --
+/// `InstallerCoordinator.handleTermination()` -- and its own header
+/// claimed it ran "on every install end path (success, failure, cancel,
+/// user quit)". Three of those four go through the subprocess handler.
+/// USER QUIT DOES NOT. There were zero app-termination hooks in the
+/// target: grep for applicationWillTerminate / NSApplicationDelegate /
+/// willTerminateNotification across gui/ returned nothing, while the
+/// same grep shape for `onAppear` resolved to real production sites.
+///
+/// `caffeinate` is spawned with `Process` and macOS does not kill a
+/// child when its parent dies. Quitting mid-install (cmd-Q, the footer
+/// Quit, or the Dock) therefore left an orphan reparented to launchd
+/// with its IOPMAssertion still held, and the customer's Mac would not
+/// sleep again until they rebooted -- with nothing on screen to explain
+/// why, and no obvious way to find the process.
+///
+/// `applicationWillTerminate` covers the ordinary quit paths.
+/// `stop()` is idempotent, so overlapping with the subprocess handler
+/// is harmless.
+final class InstallerAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillTerminate(_ notification: Notification) {
+        MainActor.assumeIsolated {
+            CaffeinateManager.shared.stop()
+        }
+    }
+}
 
 @main
 struct OstlerInstallerApp: App {
     @StateObject private var coordinator = InstallerCoordinator()
+    @NSApplicationDelegateAdaptor(InstallerAppDelegate.self) private var appDelegate
 
     var body: some Scene {
         Window("Ostler Installer", id: "main") {

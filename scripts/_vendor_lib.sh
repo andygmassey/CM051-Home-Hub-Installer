@@ -554,3 +554,46 @@ clear_manifest_patch_ref() {
     # Set the field to empty string (keeps the schema uniform).
     set_manifest_field "$1" divergence_patch ""
 }
+
+# ---------------------------------------------------------------------------
+# THE regenerate_forbidden BAN, IN ONE PLACE BECAUSE IT GUARDS TWO PATHS.
+#
+# It lived in regenerate_divergence_patch.sh only, and its own text said "Do not
+# route around it with sync_vendor.sh either" -- prose asking a human not to use
+# the very tool whose header calls itself "the one command to pull a fix into
+# the vendor" and whose step 4 regenerates the patch INLINE. Measured before
+# this change: regenerate_forbidden appeared 7 times in the guarded script, 0
+# times in sync_vendor.sh, and sync_vendor.sh invoked the guarded script 0
+# times. So the ban protected the specialist path and not the ordinary one.
+#
+# That matters here more than it would elsewhere: on cm041/contact_syncer the
+# declared reason is export of personal data from a private repo into this
+# public one, and a regeneration writes the source's own lines onto the patch's
+# MINUS side. A control that only guards the door nobody uses is not a control.
+#
+# Call this BEFORE any source checkout, so the ban cannot be cleared by
+# re-pointing an env placeholder or moving a checkout.
+vlib_refuse_if_regenerate_forbidden() {   # $1 = tree name
+    local _tree="$1" _forbid _why
+    _forbid="$(vlib_field "$_tree" regenerate_forbidden)"
+    [ "$_forbid" = "true" ] || return 0
+    _why="$(vlib_field "$_tree" regenerate_forbidden_reason)"
+    echo "" >&2
+    echo "REFUSED: $_tree is marked regenerate_forbidden in VENDOR_MANIFEST.toml." >&2
+    echo "" >&2
+    if [ -n "$_why" ]; then
+        echo "  Declared reason:" >&2
+        printf '%s\n' "$_why" | fold -s -w 72 | sed 's/^/    /' >&2
+    else
+        # Fail closed. A ban with no reason is malformed, and the safe reading
+        # of a malformed ban is that it still bans.
+        echo "  NO regenerate_forbidden_reason IS DECLARED. That is malformed, and it" >&2
+        echo "  is still a refusal: an undocumented ban is not a licence to proceed." >&2
+        echo "  Add the reason, or remove the ban deliberately." >&2
+    fi
+    echo "" >&2
+    echo "  This ban is checked BEFORE the source checkout, so it cannot be cleared" >&2
+    echo "  by re-pointing an env placeholder or moving a checkout. BOTH entry" >&2
+    echo "  points refuse: regenerate_divergence_patch.sh and sync_vendor.sh." >&2
+    return 1
+}

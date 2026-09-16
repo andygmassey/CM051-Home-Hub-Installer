@@ -6,10 +6,10 @@ local assistant baseline awareness of the customer's people, meetings,
 and preferences without the 9B local model having to call a tool every
 turn.
 
-> **DIVERGENT (grafted) copy — NOT byte-identical to upstream.** This
+> **DIVERGENT (grafted) copy -- NOT byte-identical to upstream.** This
 > file was originally vendored byte-for-byte at `f441f09f` but has since
 > carried CM051-local read-side fixes ahead of the upstream (see
-> "Local divergence" below). Do NOT re-vendor with a clean `cp` — that
+> "Local divergence" below). Do NOT re-vendor with a clean `cp` -- that
 > would silently drop the grafted fixes. Re-apply the patches on refresh.
 
 | Field | Value |
@@ -18,17 +18,20 @@ turn.
 | Upstream path | `scripts/generate_pwg_context.py` |
 | Original vendor commit | `f441f09f` (feat(assistant): inject personal-graph CONTEXT.md digest + lookup guidance) |
 | Original SHA-256 | `58d0c5e31d899ad994fb9413bd8d6d511d27433c84acaf01cff7119b2254a613` (pre-graft, historical) |
-| Current SHA-256 | `ebfadc8de45ecc40af059a0662bf9ec09d8af4277fed2f4d88b53f5dba7b5164` (post-graft, this repo) |
+| Current SHA-256 | `15a1c4dd142d8f0e710c7203fbfeb04992a3681a4f54df9036fcd1ed9b84b4e7` (post-graft, this repo) |
 | Vendored | 2026-06-02 (v1.0.1 launch-blocker #608) |
 | Diverged | 2026-06-28 (calendar-owner attribution, BATCH1 #3) |
-| Last divergence | 2026-08-18 (service-token auth + loud failure) |
+| Last divergence | 2026-09-16 (a gap the digest could not read must not look like a gap that is empty, HR015 #948). NOT upstream: a graft, like items 1 to 5. |
 
 ## Local divergence (grafted on top of `f441f09f`)
 
-These fixes live here (not yet upstream) and MUST be preserved across any
-re-vendor:
+These fixes MUST be preserved across any re-vendor. Six of the seven are NOT
+upstream; item 6 IS, and is listed anyway because a re-vendor still has to
+carry it deliberately rather than assume a clean `cp` reproduces it. Read each
+item's own last lines for its upstream status rather than this header, which is
+the kind of blanket claim that goes stale one item at a time:
 
-1. `_calendar_by_owner_section` — calendar events selected with
+1. `_calendar_by_owner_section` -- calendar events selected with
    `pwg:sourceCalendar` / `pwg:calendarType`, grouped and labelled by
    owner, L3 dropped, so the model is handed pre-attributed facts and can
    never merge one person's trip into another's (BATCH1 #3, `838f7a1`).
@@ -36,7 +39,7 @@ re-vendor:
    (calendar-kind rows no longer leak un-attributed) (BATCH1 #3 F1,
    `af7fb1b`).
 3. Unknown-owner calendar rows render under **"Unattributed"** (rendered
-   LAST), never silently under "Your calendar" — an unknown-owner event is
+   LAST), never silently under "Your calendar" -- an unknown-owner event is
    never attributed to the operator (BATCH1 #3 F2, the fail-open fix).
 4. **Service-token authentication** (2026-08-18). **BACKPORT, not a new
    fix.** The pinned base `f441f09f` sends no `Authorization` header, so
@@ -78,8 +81,56 @@ re-vendor:
    `.github/workflows/context-digest-auth.yml`.
 
    **Re-vendor guidance.** A re-vendor from current upstream main takes
-   divergence 4 natively and DROPS 1, 2, 3 and 5. Carry 5 across, or
-   land it upstream first.
+   divergence 4 natively and DROPS 1, 2, 3, 5, 6 and 7. Carry them across, or
+   land them upstream first. Divergence 6 IS filed upstream
+   (ostler-assistant#394) and will stop needing to be carried the moment
+   that merges and the vendor pin moves past it; until then it is carried
+   like the rest.
+
+6. **One route to the graph** (2026-09-09). The "Looking something up"
+   paragraph told the model to fetch people live with `http_request`
+   against `http://127.0.0.1:8090/api/v1/people/*`. That route works and
+   `install.sh` enables `allow_private_hosts` for it deliberately, but it
+   is invisible to everything that asks WHICH tool answered a turn.
+   `assistant_answers_grounded` grades on a `pwg_` tool having run, so a
+   correct answer fetched that way scores `memory_only`, which is one of
+   the two shapes behind that probe's FAIL on the v1.0.79 walk; and the
+   daemon's consolidation gate keyed live-graph state on the same prefix,
+   so a count fetched that way was memorised as though it were durable.
+   The paragraph now names `pwg_people` and `pwg_person_timeline`.
+   UPSTREAM NOW CARRIES THE SAME EDIT plus a test: ostler-assistant#394,
+     merged 2026-09-09 as `a9af0595878a423aa6b536fc560dd035510658d4`.
+     So this item is a MIRROR, not a graft, unlike items 1 to 5. It is
+     still listed because this copy is the one that SHIPS: the release
+     tarball carries the daemon and its `.app` and never `scripts/`, so
+     an upstream fix reaches a customer only by being here too.
+
+7. **A gap the digest could not read must not look like a gap that is
+   empty** (2026-09-16, HR015 #948). **NOT upstream.** A section renders
+   only when it has content, so one whose source returned 401 or 400 was,
+   in the document the model reads, byte for byte identical to one whose
+   source answered and held nothing. The difference was measured all
+   along, into `_FAILURES`, a stderr report and the exit code, and none of
+   those three reach the model composing the customer's daily brief. Four
+   briefs reached a phone; one announced "trips to places like New York in
+   September 2026 and Singapore later that year" for a customer with no
+   such trips.
+
+   This copy now renders three states rather than two, in the digest
+   itself: items, "nothing stored", and "COULD NOT BE READ" with the
+   status actually observed (`_run_section`,
+   `_unreadable_and_empty_block`). The block is emitted BEFORE the content
+   sections because the `MAX_CHARS` clip cuts from the end. And when no
+   section produced content, the prior `CONTEXT.md` is still kept, because
+   a stale digest beats no digest, but is stamped `NOT REFRESHED`
+   idempotently so an hour-old refusal is not recited as today's news.
+
+   Regression suite:
+   `tests/test_a_brief_cannot_fill_a_gap_it_was_never_shown.sh`, wired in
+   `.github/workflows/context-digest-auth.yml`. Item 5 is its nearest
+   relative and the pair is the point: item 5 made the failure loud to
+   LAUNCHD, item 7 makes it visible to the MODEL. Carrying one without the
+   other leaves the brief writer blind again.
 
 ## Why vendored rather than shipped in the assistant release
 
@@ -101,7 +152,7 @@ this copy. Tracked as a post-launch tidy; not a launch blocker.
 ## Refresh procedure
 
 This is a **grafted** copy (see "Local divergence"). Do NOT `cp` over it
-blindly — re-apply the local patches after taking the upstream base:
+blindly -- re-apply the local patches after taking the upstream base:
 
 ```sh
 cp /path/to/ostler-assistant/scripts/generate_pwg_context.py \

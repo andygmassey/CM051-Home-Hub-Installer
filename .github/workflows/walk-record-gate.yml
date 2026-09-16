@@ -37,6 +37,11 @@ on:
       - 'scripts/box_walk_probes/**'
       - 'tests/test_promote_scope_refuses_on_the_artefact.sh'
       - 'tests/test_promote_scope_only_ever_grows.sh'
+      # broken_probe visibility in the scoped adjudication, and its guard.
+      # scripts/post_walk_qa.sh (the broken_probe writer) is already watched
+      # above; this test file is the other trigger a run: step needs, or
+      # editing it would be dark on self-edit.
+      - 'tests/test_a_broken_probe_blocks_the_promote.sh'
       - 'scripts/walk_promote_scope.tsv'
       - 'scripts/verify_walk_record.sh'
       - 'tests/test_a_pairing_non_answer_is_not_a_rejection.sh'
@@ -51,6 +56,9 @@ on:
       - 'scripts/box_walk_probes/probes/pair_state_agreement.sh'
       - 'scripts/box_walk_probes/probes/assistant_answers_grounded.sh'
       - 'scripts/tests/test_grounded_probe_asserts_the_fact.sh'
+      # The parser grades full_response, the answer, not the chunk draft.
+      - 'scripts/tests/test_grounded_probe_grades_the_answer.sh'
+      - 'scripts/tests/test_run_box_walk_records_phase1_verdicts.sh'
       - 'tests/test_a_timed_out_turn_is_not_a_broken_assistant.sh'
       - 'tests/test_walk_record_gates_customer_download.sh'
       - 'tests/test_probe_absence_is_not_an_answer.sh'
@@ -61,6 +69,31 @@ on:
       - 'tests/test_the_converge_wait_resolves_the_credential_path.sh'
       - 'scripts/box_walk_probes/lib/converge_wait.sh'
       - 'scripts/box_walk_probes/lib/grounding_seed.sh'
+      # The preference seed: the same discipline on the other write route.
+      # The lib, its test and the fixture-facing docs all go in the watch
+      # set together, or a PR could narrow the lib without running the test
+      # that guards it (the 'DARK ON SELF-EDIT' case this file already
+      # records for test_post_walk_qa_measures_the_artefact.sh).
+      - 'scripts/box_walk_probes/lib/preference_seed.sh'
+      - 'tests/test_the_walk_seeds_the_preference_pair.sh'
+      # The conversation seed: the third write route, and the only one that
+      # needs a model call. Same rule as the two lines above -- the lib and
+      # its test go in the watch set together, or a PR could narrow the lib
+      # (drop the topics read-back, soften the person check on a PUBLIC repo)
+      # without running the suite that guards it.
+      - 'scripts/box_walk_probes/lib/conversation_seed.sh'
+      - 'tests/test_the_walk_seeds_the_conversation.sh'
+      # The usage seed: the same discipline on the producer that had nothing
+      # to write. Lib and test together, for the reason above -- a PR could
+      # otherwise narrow the lib without running the test that guards it.
+      - 'scripts/box_walk_probes/lib/usage_seed.sh'
+      - 'tests/test_the_walk_seeds_the_usage_producer.sh'
+      # The wiki summaries wait: the same discipline on the producer that
+      # writes from a DETACHED backfill. Lib and test together, for the reason
+      # above -- a PR could otherwise narrow the lib (read an empty log as a
+      # finished compile) without running the test that guards it.
+      - 'scripts/box_walk_probes/lib/wiki_summaries_wait.sh'
+      - 'tests/test_the_walk_waits_for_wiki_summaries.sh'
       # Same rule as the workflow-self-trigger below, applied to a test: a
       # suite this workflow RUNS but does not WATCH is dark on self-edit --
       # it could be narrowed, or gutted, in a PR that never runs it. I added
@@ -337,6 +370,22 @@ jobs:
         if: always()
         run: bash tests/test_promote_scope_refuses_on_the_artefact.sh
 
+      # A BROKEN PROBE MUST NOT BE INVISIBLE TO THE SCOPED ADJUDICATION.
+      #
+      # The awk that builds the scoped promote's non-pass list matched
+      # failed_probe and not_measured_probe rows only. broken_probe rows --
+      # written by the BROKEN_NAMES loop in post_walk_qa.sh for a probe that
+      # failed its own negative control and measured nothing -- were never
+      # read. A record could carry a broken probe alongside a failed_probe the
+      # scope file declares advisory and reach "every ARTEFACT-OWNED probe
+      # passed", exit 0, with the broken probe never considered. This drives
+      # the real gate over synthetic records and proves a broken probe is
+      # unconditionally blocking -- never scopable to advisory -- while an
+      # identical record without it still passes.
+      - name: A broken probe blocks the promote
+        if: always()
+        run: bash tests/test_a_broken_probe_blocks_the_promote.sh
+
       - name: The blocking set only ever grows
         if: always()
         run: bash tests/test_promote_scope_only_ever_grows.sh
@@ -510,6 +559,15 @@ jobs:
         # fact_missing, and kills a mutant with the assertion removed.
         run: /bin/bash scripts/tests/test_grounded_probe_asserts_the_fact.sh
 
+      # 2026-09-10: the parser graded the chunk accumulator the client is told to
+      # discard; the 0.4.79 guard's corrected reply travels only in full_response.
+      - name: the grounded probe grades the answer, not the draft
+        if: always()
+        run: /bin/bash scripts/tests/test_grounded_probe_grades_the_answer.sh
+      - name: run_box_walk.sh records phase 1 verdicts for the manifest replay
+        if: always()
+        run: /bin/bash scripts/tests/test_run_box_walk_records_phase1_verdicts.sh
+
       # THE OTHER HALF OF THAT PROBE. The step above proves the probe can tell
       # a carried fact from a missing one. It cannot see whether the walk ever
       # GIVES it a fact to look for, and until now the walk did not: nothing
@@ -522,9 +580,129 @@ jobs:
       # on the loader's exit 0, and every other outcome exports nothing and
       # says why. Its own mutation arm removes the exports and requires the
       # exit-0 assertion to stop passing.
+      # zsh, SO THE LOGIN-SHELL ARMS ARE MEASUREMENTS RATHER THAN CANNOT-RUN.
+      # `ssh host "cmd"` hands the remote text to the account's LOGIN shell,
+      # which on the walk boxes is zsh, while a runner and local mode use sh.
+      # Two suites below carry an arm that runs the real remote text under zsh
+      # and both were reporting CANNOT-RUN on ubuntu-latest for want of the
+      # binary (the usage seed's section 8, run 34389415936). A CANNOT-RUN is
+      # not a pass, so those arms were costing a line of output and asserting
+      # nothing. The update runs first because the runner image's package index
+      # can be stale enough to 404 the fetch, which would redden the job over a
+      # missing mirror rather than over anything this repo did.
+      - name: zsh, so the login-shell arms measure instead of skipping
+        run: sudo apt-get update -qq && sudo apt-get install -y zsh
+
       - name: The walk seeds the grounded probe, and a failed seed is not a FAIL
         if: always()
         run: /bin/bash tests/test_the_walk_seeds_the_grounded_probe.sh
+
+      # THE OTHER WRITE ROUTE. The step above gives the grounded probe a PERSON.
+      # Nothing gave the walk a PREFERENCE, so an empty preference wiki, an
+      # ingest that never ran and a broken write route were three faults
+      # wearing one face. On v1.0.81 it was the first of those: cm019_setup
+      # logged "already set up" with elapsed_s=0 and install.log holds no
+      # ingest-dir and no "Files processed".
+      #
+      # Pins the wiring, the currency check and both floor arms: the runner
+      # sources lib/preference_seed.sh above the phase-2 loop; the staged
+      # cm019 tree is compared BY CONTENT against the cm019 bundle inside the
+      # ARTEFACT (never this checkout, which can agree with the DMG while the
+      # box lags); and the profile must show BOTH an interest that cleared the
+      # 0.28 floor and a row that was screened by it, because one arm alone
+      # cannot tell a working screen from an absent one. Its mutation arm
+      # disables the suppressed check and requires the suite to notice.
+      - name: The walk seeds the preference pair, and both sides of the floor
+        if: always()
+        run: /bin/bash tests/test_the_walk_seeds_the_preference_pair.sh
+
+      # THE THIRD WRITE ROUTE, AND THE ONLY ONE THAT NEEDS A MODEL CALL. The
+      # two steps above give the walk a PERSON and a PREFERENCE. Nothing had
+      # ever put a CONVERSATION through the conversation pipeline, and that
+      # pipeline is the only writer of two things three probes read: the
+      # conversations Qdrant collection, which the installer pre-creates EMPTY
+      # (install.sh:18448), and the pwg:ConversationTopic nodes /api/v1/topics
+      # serves to pwg_topics. Nothing is processed at install time
+      # (install.sh:19178-19180 checks --help and an import and stops), so on a
+      # cold box those probes measured an empty store and could not tell that
+      # from a broken one.
+      #
+      # Pins the wiring, the fixture and the three-outcome discipline: the
+      # runner sources lib/conversation_seed.sh above the phase-2 loop and
+      # after the other two seeds; the fixture carries NO PERSON, with a
+      # must-fail arm that plants a name and requires the suite to refuse it,
+      # because CM051 is a PUBLIC repo; the conversations and topics read-backs
+      # are reported as SEPARATE verdicts, because a step-09 timeout yields a
+      # point and no topic; a zero usage journal is a FINDING naming the absent
+      # vendored producer and never a CANNOT-RUN; and the forget deletes only
+      # by the conversation id and sha1(id)[:8], proven by a decoy bundle that
+      # must survive. Its mutation arm disables the topics assertion and
+      # requires the suite to notice.
+      - name: The walk seeds one conversation, and a seed that did not work is not a FAIL
+        if: always()
+        run: /bin/bash tests/test_the_walk_seeds_the_conversation.sh
+      # THE PRODUCER THAT HAD NOTHING TO WRITE. The two steps above give a
+      # probe CONTENT. usage_journal_producers needed WORK: on v1.0.81
+      # cm051_ostler_fda_ingest was absent from a journal holding 557 parsed
+      # rows, and the writer was not the reason. A row is written only on a
+      # MEASURED embedding call (pwg_ingest.py:65-66), and the one ingest leg
+      # with guaranteed input on a wiped box was skipped by a hydrate sentinel
+      # that ttywalk's --reset does not clear (install.sh:26392-26413 gating
+      # :29374). So "the writer is broken" and "the writer was never asked"
+      # printed identically.
+      #
+      # Pins the wiring and the three-outcome discipline: the runner sources
+      # lib/usage_seed.sh above the phase-2 loop with the forget below it; the
+      # runtime assumption (a real /api/embed reporting a USABLE
+      # prompt_eval_count, observed once on the walk box at
+      # 2026-09-09T17:42:35Z under Ollama 0.33.3 and re-measured every walk
+      # because one box is not every box) is measured before anything is built
+      # on it and is CANNOT-RUN when absent or zero; the JOURNAL DELTA is the verdict and the sweep's exit code
+      # never is; a zero delta on a status-ok sweep is a named FINDING. Its
+      # mutation arm disables the delta check and requires the suite to notice.
+      # The stub box runs the real remote command text through /bin/sh, so this
+      # needs no box and no network.
+      - name: The walk runs the people sweep, so the FDA usage producer is measured
+        if: always()
+        run: /bin/bash tests/test_the_walk_seeds_the_usage_producer.sh
+
+      # THE PRODUCER THAT WRITES FROM A DETACHED BACKFILL. The step above makes
+      # the FDA producer write. cm044_wiki_compiler writes a cm044-compile- row
+      # only from the wiki compiler's summary pass, which wiki-recompile-tick.sh
+      # runs as a nohup'd background backfill (:394-451) that nothing in the
+      # walk waited for. Measured on the v1.0.82 walk at 18:53:06Z: the
+      # install-time tick had launched the backfill at 18:48:11Z, the summaries
+      # log was still 0 bytes, and usage_journal_producers had read the journal
+      # at about 18:51Z; cm044 rows: 0 (v1.0.81, a long-lived box: 553). And
+      # at 19:08Z, twenty minutes after the launch, the log was STILL 0 bytes,
+      # no process of ours was alive, both LaunchAgents read "not running,
+      # runs 1, last exit code 0": the backfill was gone and had written
+      # nothing while every liveness signal read green.
+      #
+      # Pins the wiring and the three-outcome discipline: the runner sources
+      # lib/wiki_summaries_wait.sh below the usage seed and above the phase-2
+      # loop; the kickstart text is exactly `kickstart -k
+      # gui/<id -u>/com.creativemachines.ostler.wiki-recompile`; completion is
+      # LIVENESS AND GROWTH, never the pid alone: the wrapper pid, the log's
+      # size growing, the slot holder, the account's processes naming the
+      # compiler (real pgrep -u against a real stub process), the container;
+      # a live pid with a 0-byte log is the FINDING "wrote nothing, still
+      # alive", a growing log at the budget is CANNOT-RUN "not converged in
+      # time", a dead wrapper with a 0-byte log and nothing alive is the 19:08Z
+      # FINDING "wrote nothing" reached without burning the budget, a positive
+      # delta is CONVERGED, a zero delta on a finished compile is a FINDING
+      # naming cm044_wiki_compiler as a present producer that did not write,
+      # and a refused kickstart, absent label plus absent tick, a tick that
+      # ends without a backfill, an unreadable box and an explicit skip are
+      # each a named CANNOT-RUN; the diagnostic block is printed and the
+      # summaries log's content never is (a name-shaped canary). Its mutation
+      # arm disables the delta check and requires the suite to notice. The
+      # stub box runs the real remote command text through /bin/sh against a
+      # real background process and the real pidfile path, so this needs no
+      # box and no launchd.
+      - name: The walk waits for the wiki summary backfill, so cm044_wiki_compiler has written before the journal is read
+        if: always()
+        run: /bin/bash tests/test_the_walk_waits_for_wiki_summaries.sh
 
       # THE OTHER HALF OF A HONEST PEOPLE READING. The seed above gives the
       # grounded probe a fact to look for; this gives the two COUNT-reading

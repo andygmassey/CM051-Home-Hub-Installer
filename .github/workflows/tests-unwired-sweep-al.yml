@@ -119,6 +119,14 @@ jobs:
           done
           exit $fail
 
+      # INDIVIDUAL STEP, not an entry in the `for t in ...` list above -- same
+      # reasoning as the W003 step in sweep-macos below: the new-tests-wired
+      # gate needs the test's path and an execution verb on one line, which a
+      # loop body cannot give it.
+      - name: The manual Homebrew tarball install targets a branch that still exists
+        if: always()
+        run: bash tests/test_a_manual_brew_tarball_must_target_a_branch_that_still_exists.sh
+
       - name: Python tests (a..l)
         # Independent axis from the shell tests: run even if those failed, so a
         # red shell run never hides whether the Python guards also broke.

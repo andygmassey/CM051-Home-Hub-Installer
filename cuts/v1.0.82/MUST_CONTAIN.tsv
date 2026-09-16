@@ -1,0 +1,74 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.82.
+#
+# ===========================================================================
+# THIS FILE IS THE SOURCE. CM051 VENDORS IT.
+# ===========================================================================
+# CM051 scripts/sync_cut_bom.sh copies this file into cuts/v1.0.82/ there and
+# records the OS003 commit it came from in cuts/BOM_PIN.
+#
+# ===========================================================================
+# WHY THIS CUT EXISTS, IN ONE LINE
+# ===========================================================================
+# v1.0.81 shipped, was walked, and FAILED 20/5/1. v1.0.82 carries the 0.4.77
+# daemon and the two halves of the pwg_preferences root cause.
+#
+# NONE OF v1.0.81's FOUR ROWS ARE CARRIED, and that is the difference from the
+# last two BOMs. v1.0.80 produced no artefact, so its rows carried forward
+# unchanged into v1.0.81. v1.0.81 DID produce an artefact and DID get a walk,
+# so its rows are in a shipped DMG and are closed by the cut having happened.
+# Its walk verdict is a separate question and is recorded in the walk record
+# and DEFECTS_ROLLFORWARD.md, not here: a BOM row says what the artefact
+# CONTAINS, never whether a probe went green on it.
+#
+# ===========================================================================
+# THE ref COLUMN IS THE MERGE COMMIT, NEVER THE PR HEAD.
+# ===========================================================================
+# Not a style preference. On v1.0.81 row 4 first named 34c536c3, the #1863 PR
+# head. That object is NOT an ancestor of main and is reachable only through
+# refs/pull/1863/head, which a fresh clone never fetches, so the row resolved
+# on the author's box and nowhere else. A row that is true on one machine is
+# worse than one wrong everywhere, because it passes review.
+#
+# Every ref below was checked twice before it was written: `git cat-file -t`
+# says commit, and `git merge-base --is-ancestor <ref> e8c9929c` says yes, so
+# each one is reachable from the commit this cut is branched at.
+#
+# ===========================================================================
+# WHAT IS DELIBERATELY NOT A ROW HERE
+# ===========================================================================
+# CM051 #1871 (7385262e, a fact_missing verdict says which side lost the fact)
+# and CM051 #1875 (e8c9929c, the walk seeds a preference pair and asserts both
+# sides of the 0.28 floor) are NOT rows. They change how the artefact is
+# MEASURED, not what it contains: both live under scripts/box_walk_probes/ and
+# neither reaches the DMG. Putting walk apparatus in a BOM would make the BOM
+# claim the artefact holds things it does not, which is the one thing this file
+# is for. They are recorded in cut-manifests/v1.0.82.yaml instead.
+#
+# OS003 #259 (e924f5bc, the preference seed loader) is not a row for the same
+# reason and one more: it is the walk-time ORACLE, and an oracle that shipped
+# inside the thing it grades would not be one.
+#
+# ===========================================================================
+# THE CAPABILITY COLUMN, AND ONE THING THAT WENT WRONG WRITING IT
+# ===========================================================================
+# cm019_code_restages_on_every_install was first keyed on the guard
+# `[[ -d "$CM019_BUNDLE" && -f .../requirements.txt ]]`, which reads as the
+# obvious signature of the fix. A control refuted it: that guard reads 1 at
+# v1.0.81 TOO, because it never moved. #1874 removed an INNER guard on the
+# destination interpreter, so the discriminating change is that the cp -R is
+# now unconditional inside the outer guard. Re-keyed, and re-checked in both
+# directions: 1 here, 0 at v1.0.81.
+#
+# daemon_lineage_contains_hub_v0477 is keyed on ANCESTRY, not on a digest,
+# because a digest-keyed row goes stale at the next re-pin. That is not
+# theoretical: hub_app_pinned_at_the_shipped_bundle went stale at 15:20:55Z
+# today when CM051 #1876 moved the pin, and it is re-pointed in the same change
+# that writes this file.
+#
+# This file is not the cut's readiness; gates/verify_must_contain.sh is.
+#
+what	repo	ref	landed	capability_id	verify	ticket
+THE 0.4.77 DAEMON, FIVE MERGED FIXES. ostler-assistant #392, #393, #395, #396 and #394, with #394 the head this cut pins. Built detached because the harness watchdog reaps supervised tasks under system memory pressure, and the first attempt was killed for memory mid-compile: it produced ZERO v0.4.77 tarballs, and `ls -t | head -1` in that worktree then returned a v0.4.43 tarball, four versions stale, which is the build-local.sh:102 provenance trap firing for real. So the artefact was proved rather than its filename: the binary carries a9af0595 once and the outgoing 42abcf8a zero times, against a control reading zero. Published to ostler-ai/ostler-releases at 10,175,419 B, Developer ID signed, notarised (Accepted c79dd998) and stapled.	ostler-assistant	a9af0595878a423aa6b536fc560dd035510658d4	no	daemon_lineage_contains_hub_v0477	TBD	ostler-assistant#394
+THE DAEMON PIN, MOVED AT ALL SIX SITES. install.sh OSTLER_ASSISTANT_VERSION to 0.4.77 and DEFAULT_ASSISTANT_TARBALL_SHA256 to 857d2f50..., gui/Makefile DAEMON_VERSION and DAEMON_SHA256 to the same pair, HUB_APP_SHA256 to the published bundle, and the sixth site is the published ostler-releases tarball itself. ASSISTANT_FALLBACK_VERSION 0.4.62 is NOT moved. The digest is the ostler-RELEASES copy: both repos publish a daemon tarball under the SAME name at the SAME tag with different bytes (10,175,419 B against 10,287,804 B), and taking the wrong one yields a 64-hex value that passes every format check and fails closed at the cut's checksum. That is how v1.0.80 died and how CM051 #983 died before it. Verified on main by name rather than from a diff, and against the sidecars downloaded back.	CM051	11e74b584323ba14d52aeb1ac8753cc6b373f188	no	daemon_pinned_at_hub_v0477	TBD	CM051 #1876
+THE HUB APP PIN, SAME COMMIT, SEPARATE CAPABILITY BECAUSE IT IS A SEPARATE REPO AND A SEPARATE FAILURE. gui/Makefile HUB_APP_SHA256 names the Ostler.app bundle published for 0.4.77 at d550cd4c..., 3,697,883 B, adhoc-signed by design and never notarised, exactly the 0.4.75 and 0.4.76 discipline. It is fetched from HUB_APP_REPO = ostler-ai/ostler-assistant, a DIFFERENT repo from DAEMON_REPO at the SAME tag string, which is what made this step invisible when v1.0.80 died on it. Its build-info commit is a9af0595, the same commit as the daemon, so verify-commit-parity keeps its meaning.	CM051	11e74b584323ba14d52aeb1ac8753cc6b373f188	no	hub_app_pinned_at_the_shipped_bundle	TBD	CM051 #1876
+cm019's CODE IS RE-STAGED ON EVERY INSTALL, LIKE THE OTHER THIRTEEN STAGING SITES. The whole staging block used to sit under `[[ ! -x "$CM019_PY" ]]`, a guard on its own DESTINATION, so any box that had ever installed skipped the cp -R and kept the previous DMG's vendored code while the install reported success. Measured on the v1.0.81 walk box: install.log :1016-1027 read 'Preference enrichment already set up', elapsed_s=0, and the tree and its .pth were dated eight days earlier. This is HALF the pwg_preferences root cause: a fix shipped in vendor/cm019_preferences/ could not reach that box at all. The `rm -rf` is gone ON PURPOSE and not by oversight: CM019_VENV lives INSIDE CM019_DIR, so deleting the tree deletes the interpreter. The cost, recorded as a known behaviour in cut-manifests/v1.0.82.yaml, is that a file the new bundle DELETED survives in the installed tree, which is the trade every other staging site already makes.	CM051	b403fbb54f425eeb70a452a04e8e6945c1dbb1fe	no	cm019_code_restages_on_every_install	TBD	CM051 #1874

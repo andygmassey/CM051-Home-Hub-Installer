@@ -45,6 +45,7 @@
 #     /opt/homebrew/bin/python3   3.14.4   <- what the build wants
 
 import argparse
+import datetime
 import fnmatch
 import hashlib
 import json
@@ -224,6 +225,75 @@ _TEXT_EXTS = {".sh", ".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".yaml", ".ym
               ".toml", ".md", ".txt", ".html", ".css", ".xml", ".plist", ".rs",
               ".swift", ".conf", ".ini", ".env"}
 
+# Compiled artefacts. A verbatim literal (a hostname, an email, an IP) baked
+# into source survives compilation, and strings(1) reads it straight back out
+# -- the same primitive already used for the large extensionless Mach-O case
+# below. Before this set existed, none of these suffixes were in _TEXT_EXTS,
+# none matched the extensionless branch, and _iter_dmg_tree_scan_files simply
+# never yielded them: not scanned as text, not scanned as binary, not counted,
+# not named. A leak compiled into a vendored .pyc read as CLEAN for the exact
+# reason CouldNotMeasure exists to prevent -- a file nobody opened produced a
+# zero that the must_match=False arm turned into a PASS.
+#
+# Extend this set before ever routing a new compiled/executable suffix out of
+# _TEXT_EXTS: an omission here is silent, not loud.
+_COMPILED_EXTS = {".pyc", ".dylib", ".so", ".a", ".o", ".node", ".wasm"}
+
+# Containers whose contents are unreachable to both a text read and strings(1).
+_ARCHIVE_EXTS = {".zip", ".jar", ".whl", ".tar", ".tgz", ".gz", ".bz2", ".xz"}
+_MAX_ARCHIVE_DEPTH = 3
+_ARCHIVE_TMPDIRS: list = []      # kept alive; cleaned at interpreter exit
+
+
+def _expand_archive(path: Path, depth: int):
+    """Expand `path` to a temp dir and return [root]; None if it cannot be read.
+
+    None is the load-bearing return: it means the bytes are still unexamined,
+    and the caller records that rather than treating an unopenable archive as
+    an absence of findings. A corrupt zip and a clean zip must not look alike.
+    """
+    if depth >= _MAX_ARCHIVE_DEPTH:
+        return None
+    import tarfile
+    import tempfile
+    import zipfile
+    try:
+        d = tempfile.mkdtemp(prefix="ostler-pii-scan-")
+        _ARCHIVE_TMPDIRS.append(d)
+        if zipfile.is_zipfile(path):
+            with zipfile.ZipFile(path) as z:
+                z.extractall(d)
+        elif tarfile.is_tarfile(path):
+            with tarfile.open(path) as t:
+                try:
+                    t.extractall(d, filter="data")
+                except TypeError:          # filter= is 3.12+
+                    t.extractall(d)
+        else:
+            # 🔴 A BARE .gz IS NOT AN ARCHIVE, IT IS ONE COMPRESSED STREAM.
+            # zipfile and tarfile both refuse it, so the first version of this
+            # function returned None and the file went down as unread. Measured
+            # on the v1.0.93 cut: after the enumerator fix took 660 unread
+            # files to 1, that 1 was
+            # python/lib/tcl9.0/cookiejar0.2/public_suffix_list.dat.gz, and it
+            # alone held every operator-PII row at CANNOT-RUN. Decompress the
+            # single stream to one file and let the caller scan that.
+            opener = {".gz": "gzip", ".bz2": "bz2", ".xz": "lzma"}.get(
+                path.suffix.lower())
+            if opener is None:
+                return None
+            mod = __import__(opener)
+            out = Path(d) / (path.stem or "decompressed")
+            with mod.open(path, "rb") as fh, open(out, "wb") as w:
+                while True:
+                    chunk = fh.read(1 << 20)
+                    if not chunk:
+                        break
+                    w.write(chunk)
+    except Exception:
+        return None
+    return [Path(d)]
+
 
 class CouldNotMeasure(Exception):
     """A scan that did not complete. NEVER convert this back into a count.
@@ -328,16 +398,29 @@ def _is_gate_definition_file(p: Path) -> bool:
     return False
 
 
-def _iter_dmg_tree_scan_files(root: Path):
+def _iter_dmg_tree_scan_files(root: Path, unscanned: Optional[list] = None,
+                              depth: int = 0):
     """Yield (path, use_strings) for every file under `root` worth scanning for
     operator-PII, faithful to "anywhere in the shipped DMG".
 
     - Text-extension files and small (<500KB) extensionless files are read as
       text (`use_strings=False`).
-    - Large (>=500KB) extensionless files are Mach-O-shaped binaries; they are
-      scanned via strings(1) (`use_strings=True`) so verbatim Rust/Swift-literal
-      PII compiled into a binary is still caught.
+    - Compiled-extension files (`_COMPILED_EXTS`: .pyc, .dylib, .so, .a, .o,
+      .node, .wasm) and large (>=500KB) extensionless files are binary-shaped;
+      they are scanned via strings(1) (`use_strings=True`) so a verbatim
+      Rust/Swift/Python-literal carrying PII survives compilation and is still
+      caught.
     - The gate's own pattern-definition files are skipped.
+
+    Any OTHER suffix -- one this function does not recognise as text, as a
+    known compiled type, or as extensionless -- is not yielded, exactly as
+    before. The difference is that it is no longer INVISIBLE: if `unscanned`
+    is given, the path is appended to it. 🔴 A suffix silently missing from
+    both _TEXT_EXTS and _COMPILED_EXTS used to mean the file was never opened,
+    never counted, and no line said so -- an unreadable-but-real file producing
+    the exact same zero as a genuinely clean tree. The caller decides what a
+    non-empty `unscanned` means for its verdict; this function's only job is to
+    never let that count go unrecorded.
 
     NOTE (documented limitation): Tauri packs the daemon's web/dist COMPRESSED
     inside its main binary, so neither a text read nor strings(1) can reach
@@ -358,12 +441,45 @@ def _iter_dmg_tree_scan_files(root: Path):
         if suffix in _TEXT_EXTS:
             yield (p, False)
             continue
+        if suffix in _COMPILED_EXTS:
+            yield (p, True)
+            continue
         if suffix == "":
             try:
                 size = p.stat().st_size
             except OSError:
                 continue
             yield (p, size >= 500_000)
+            continue
+        if suffix in _ARCHIVE_EXTS:
+            # 🔴 strings(1) CANNOT SEE INSIDE A COMPRESSED ARCHIVE. Deflated
+            # bytes carry no readable literal, so scanning a .zip as a binary
+            # returns a confident zero about a file whose contents were never
+            # examined. That is the exact false-zero shape this whole function
+            # exists to refuse, so an archive is EXPANDED and its members are
+            # scanned as files in their own right.
+            members = _expand_archive(p, depth)
+            if members is None:
+                if unscanned is not None:
+                    unscanned.append(p)      # could not expand: still honest
+                continue
+            for inner_root in members:
+                yield from _iter_dmg_tree_scan_files(inner_root, unscanned,
+                                                     depth=depth + 1)
+            continue
+        # ANY OTHER SUFFIX IS SCANNED, NOT SKIPPED. It used to be appended to
+        # `unscanned`, which was honest but fatal: the shipped .app carries 660
+        # files whose extensions are not on either list (.icns, .car, .svg,
+        # .example among them), so the operator-PII rows could never reach a
+        # verdict and the cut could never be built. An unknown extension is not
+        # evidence that a file is unreadable -- it is only evidence that nobody
+        # enumerated it. strings(1) reads any byte sequence, so the honest move
+        # is to READ it rather than to record that we did not.
+        #
+        # `unscanned` is deliberately NOT emptied of meaning by this. It still
+        # collects the files that genuinely cannot be read -- an archive that
+        # will not expand, above -- and one of those still poisons the row.
+        yield (p, True)
 
 
 # ---------------------------------------------------------------------------
@@ -568,9 +684,10 @@ def check_grep_in_dmg_tree(entry: dict, ctx: dict) -> Result:
     total = 0
     exempted = 0
     hit_paths: list[str] = []
+    unscanned: list[Path] = []
     seen: set[Path] = set()
     for root in roots:
-        for path, use_strings in _iter_dmg_tree_scan_files(root):
+        for path, use_strings in _iter_dmg_tree_scan_files(root, unscanned):
             rp = path.resolve()
             if rp in seen:
                 continue
@@ -592,6 +709,23 @@ def check_grep_in_dmg_tree(entry: dict, ctx: dict) -> Result:
                 continue
             total += n
             hit_paths.append(str(path))
+
+    # A file with an unrecognised suffix was never opened. That is silent and
+    # safe ONLY while it cannot change the verdict -- i.e. only while `total`
+    # is already positive on the side that means "found it". The moment the
+    # decision rests on total == 0, an unscanned file makes that a conclusion
+    # about the files we looked at, not about the artefact: CANNOT-RUN, never
+    # a manufactured PASS (must_match=False) or FAIL (must_match=True) either
+    # way, because the missing evidence could have flipped it.
+    if unscanned and total == 0:
+        shown = [str(p) for p in unscanned[:8]]
+        more = f" (+{len(unscanned) - len(shown)} more)" if len(unscanned) > len(shown) else ""
+        return Result(
+            entry["id"], entry["title"], "grep_in_dmg_tree", "CANNOT-RUN",
+            f"{len(unscanned)} file(s) carry an extension this scan does not recognise "
+            f"and were never opened: {', '.join(shown)}{more} -- hits=0 is not a finding "
+            f"about this artefact while part of the tree went unlooked-at.",
+            entry.get("source_pr", ""))
 
     ok = (total > 0) if must_match else (total == 0)
     status = "PASS" if ok else "FAIL"
@@ -950,7 +1084,262 @@ def check_plist_env_key_present(entry: dict, ctx: dict) -> Result:
 GIT_SHOW_TIMEOUT_SECONDS = 30
 GIT_GREP_TIMEOUT_SECONDS = 60
 
-BOX_WALK_PROBE_TIMEOUT_SECONDS = 180
+# 180 s was measured too small on 2026-09-10: assistant_answers_grounded asks
+# four questions of a local model and PASSED 4 of 4 in phase 1, then was
+# killed at 180 s in this replay and reported CANNOT-RUN twice on the v1.0.87
+# record (walks/v1.0.87.tsv). A cap the passing probe cannot fit under turns a
+# CLEAN record into PARTIAL by construction. The env override lets a walk on a
+# slower box raise it without a code change; the default fits the measured
+# probe with headroom.
+BOX_WALK_PROBE_TIMEOUT_SECONDS = int(os.environ.get("OSTLER_BOX_WALK_PROBE_TIMEOUT_SECONDS", "600"))
+
+# ── people_count_agreement's CAP IS PER-PROBE, AND IT SCALES WITH THE BOOK ──
+#
+# MEASURED: the customer's address book is about 8700 people. The flat
+# BOX_WALK_PROBE_TIMEOUT_SECONDS above was sized for the largest book ever
+# walked, about 1800 people, and people_count_agreement was reported
+# CANNOT-RUN -- "exceeded BOX_WALK_PROBE_TIMEOUT_SECONDS" -- against the real
+# book. Same failure the 180s cap hit on assistant_answers_grounded above:
+# an instrument error standing in for a diagnosis.
+#
+# THE PROBE'S OWN COST DRIVER, READ FROM scripts/box_walk_probes/probes/
+# people_count_agreement.sh RATHER THAN GUESSED: the probe does two O(1) count
+# queries (an Oxigraph SPARQL COUNT and a Doctor hydration-status GET), so its
+# own arithmetic does not grow with the book. What DOES grow with the book is
+# _await_converge(): when the install-time dedupe was killed at its own budget
+# (install.sh, OSTLER_DEDUPE_INSTALL_BUDGET_S), this probe waits up to
+# CONVERGE_WAIT_S (default 1800s) for the background ostler-dedupe-catchup
+# LaunchAgent to write dedupe-converge.done before it will trust either count.
+# That catch-up is the IDENTICAL identity-resolver convergence install.sh
+# already measured, so this reuses install.sh's own K rather than inventing a
+# second one: "THE BUDGET SCALES WITH THE ADDRESS BOOK, AND K IS MEASURED"
+# measured 1822 persons converging in 919s (0.504 s/person) and applied a
+# 1.5x margin to reach K = 0.7 s/person = 7/10, integer arithmetic only.
+#
+# install.sh caps the IN-BAND pass on purpose (#1927 raised that clamp from
+# 1800s to 2700s -- still a flat ceiling, still saturated by a book big
+# enough), so the customer is never held at the console; it hands anything
+# left to the uncapped background catch-up. For a book past ~3500 people that
+# in-band cap is already saturated (300 + (3500-100)*7/10 = 2680, near the
+# 2700 clamp), so the catch-up this probe waits on is doing real work for a
+# book like the customer's (8700), and this probe's own fixed
+# CONVERGE_WAIT_S(1800)+STABILITY_WAIT_S(300s) budget cannot see it finish.
+#
+# So the floor below (2200s) is CONVERGE_WAIT_S(1800) + STABILITY_WAIT_S(300)
+# + a 100s margin for the ingest-quiet wait and the two queries themselves --
+# the probe's own worst case for ANY book at or under the baseline this cap
+# was last known to fit (1800 people, per the walk history above). Past that
+# baseline the SAME K extends the wait by the same formula shape install.sh
+# uses (a baseline-relative clamp, never a bare multiply):
+#
+#     budget(persons) = clamp(2200 + max(0, persons - 1800) * 7/10, 2200, 9000)
+#     persons=1800  -> 2200 (floor, matches the largest book ever walked)
+#     persons=8700  -> 2200 + 6900*7/10 = 7030s (~117 min)
+#
+# The 9000s (2.5h) ceiling is a hard stop: a walk still running past that on
+# any book size is itself the finding, not a bigger number to reach for.
+#
+# AN UNREADABLE COUNT TAKES THE FLOOR, never a guess in the generous
+# direction -- same rule install.sh's own _ostler_dedupe_person_count follows
+# (install.sh: "It NEVER prints 0 as a stand-in for 'could not ask'"): a count
+# this gate could not read must not silently buy a longer timeout while
+# looking like a measurement.
+PEOPLE_COUNT_AGREEMENT_TIMEOUT_BASELINE_PERSONS = 1800
+PEOPLE_COUNT_AGREEMENT_TIMEOUT_FLOOR_SECONDS = 2200
+# THE ENV OVERRIDE STILL WINS, for the walk harness and for support -- same
+# rule install.sh states for its own converge budget, same reason: a box that
+# needs longer than the ceiling below must be raisable without a code change.
+PEOPLE_COUNT_AGREEMENT_TIMEOUT_CEILING_SECONDS = int(
+    os.environ.get("OSTLER_BOX_WALK_PEOPLE_COUNT_TIMEOUT_CEILING", "9000")
+)
+PEOPLE_COUNT_AGREEMENT_TIMEOUT_K_NUM = 7   # K = 7/10 = 0.7 s/person, install.sh's own measured K
+PEOPLE_COUNT_AGREEMENT_TIMEOUT_K_DEN = 10
+
+# The SPARQL predicate this reads is the SAME UNION the probe itself counts
+# with (people_count_agreement.sh), so a disagreement between this budget
+# input and the probe's own measurement means something rather than being two
+# unrelated guesses at the same graph.
+_PEOPLE_COUNT_QUERY = (
+    "SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { "
+    "{ ?p a <https://schema.ostler.ai/ontology#Person> } "
+    "UNION { ?p a <http://xmlns.com/foaf/0.1/Person> } }"
+)
+
+
+def _people_count_agreement_timeout_seconds(persons: Optional[int]) -> int:
+    """The per-probe timeout for people_count_agreement, scaled by population.
+
+    A pure function on purpose: the self-test below drives the formula
+    directly, with no ssh and no clock, the same way classify() in the shell
+    probe is self-tested apart from its sensors.
+    """
+    _explicit = os.environ.get("OSTLER_BOX_WALK_PEOPLE_COUNT_TIMEOUT_SECONDS", "")
+    if _explicit.strip().isdigit():
+        return int(_explicit)
+    baseline = PEOPLE_COUNT_AGREEMENT_TIMEOUT_BASELINE_PERSONS
+    floor_s = PEOPLE_COUNT_AGREEMENT_TIMEOUT_FLOOR_SECONDS
+    if persons is None or not isinstance(persons, int) or persons <= baseline:
+        derived = floor_s
+    else:
+        derived = floor_s + (
+            (persons - baseline)
+            * PEOPLE_COUNT_AGREEMENT_TIMEOUT_K_NUM
+            // PEOPLE_COUNT_AGREEMENT_TIMEOUT_K_DEN
+        )
+    return max(floor_s, min(derived, PEOPLE_COUNT_AGREEMENT_TIMEOUT_CEILING_SECONDS))
+
+
+def _people_count_for_timeout(cm051_dir: Path) -> Optional[int]:
+    """Best-effort person count, to SIZE the timeout above -- never a verdict.
+
+    Reads the same store credential and asks the same question
+    people_count_agreement.sh's own count_oxigraph() does, over the same
+    transport probe.sh's box_run() uses (ssh when OSTLER_BOX_HOST is set,
+    a local login shell otherwise). Any failure -- unreachable box, no
+    credential, an unparseable reply -- returns None, and the caller takes
+    the floor rather than guessing a population.
+    """
+    host = os.environ.get("OSTLER_BOX_HOST", "")
+    ssh_timeout = os.environ.get("OSTLER_SSH_TIMEOUT", "8")
+    store_conf = os.environ.get(
+        "OSTLER_PROBE_STORE_CURL_CONF", "$HOME/.ostler/secrets/store-curl.conf"
+    )
+    remote_cmd = (
+        "conf=\"{conf}\"; k=\"\"; "
+        "[ -r \"$conf\" ] 2>/dev/null && k=\"-K $conf\"; "
+        "curl -sS --noproxy '*' -m 10 -G $k 'http://127.0.0.1:7878/query' "
+        "--data-urlencode 'query={query}' -H 'Accept: application/sparql-results+json'"
+    ).format(conf=store_conf, query=_PEOPLE_COUNT_QUERY)
+    try:
+        if host:
+            proc = subprocess.run(
+                ["ssh", "-o", f"ConnectTimeout={ssh_timeout}", "-o", "BatchMode=yes",
+                 host, remote_cmd],
+                capture_output=True, check=False, timeout=20,
+            )
+        else:
+            proc = subprocess.run(
+                ["/bin/bash", "-lc", remote_cmd],
+                capture_output=True, check=False, timeout=20,
+            )
+        data = json.loads(proc.stdout.decode("utf-8", "replace"))
+        n = data["results"]["bindings"][0]["n"]["value"]
+        return int(n)
+    except Exception:
+        return None
+
+
+# ── assistant_answers_grounded's CAP IS PER-PROBE, AND IT IS READ FROM THE
+#    PROBE'S OWN DECLARATIONS ──
+#
+# #1601 was opened because this probe was reported FAIL on a timeout. The
+# timeout arm below now returns CANNOT-RUN, which fixed the misreporting. It
+# did NOT fix the cause: this probe still inherited the flat
+# BOX_WALK_PROBE_TIMEOUT_SECONDS, and that cap CANNOT FIT IT. The
+# contradiction is arithmetic and sits in the tree, provable with no box:
+#
+#   assistant_answers_grounded.sh declares a per-turn ceiling of 420s
+#     (CHAT_TIMEOUT="${OSTLER_PROBE_CHAT_TIMEOUT:-420}"), raised to seven
+#     minutes precisely because the file's own runtime note measured 2-5
+#     MINUTES per turn on a Mac mini under first-run ingest load.
+#   Its battery is three questions, plus a fourth seeded turn when the seed
+#     oracle names a fact to expect.
+#   Its own note states the consequence: "The default battery of 3 is
+#     therefore up to ~15 minutes, far and away the slowest probe here."
+#
+# ~15 minutes is 900s. The flat cap is 600s. The probe's own documented worst
+# case exceeded its cap by half again, so a walk that hit the slow end of the
+# range this file itself measured was guaranteed to lose the probe. A
+# CANNOT-RUN is honest; a CANNOT-RUN the configuration makes inevitable is
+# still a probe that never reports.
+#
+# So the cap is DERIVED FROM THE PROBE'S OWN NUMBERS rather than raised by
+# hand, the same rule people_count_agreement follows above (it reuses
+# install.sh's measured K rather than inventing a second one). Nothing here is
+# a new estimate: every input is read out of the probe file.
+#
+#     budget = (battery turns + seeded turn) * per-turn ceiling + overhead
+#
+# THE ENV OVERRIDE THE PROBE ITSELF READS MUST WIN. A walk that raises
+# OSTLER_PROBE_CHAT_TIMEOUT lengthens every turn, so a cap that ignored it
+# would re-create the same defect at the new value.
+#
+# AN UNREADABLE PROBE TAKES THE FLOOR, never a guess in the generous
+# direction -- the same rule the people-count budget above states. The floor
+# is not invented either: it is 900s, the probe's own "up to ~15 minutes".
+ASSISTANT_GROUNDED_TIMEOUT_FLOOR_SECONDS = 900
+ASSISTANT_GROUNDED_TIMEOUT_CEILING_SECONDS = int(
+    os.environ.get("OSTLER_BOX_WALK_ASSISTANT_GROUNDED_TIMEOUT_CEILING", "5400")
+)
+# Setup and teardown the turns do not cover: staging the WebSocket client on
+# the box, the token check, and the two mktemps. Deliberately small; it is not
+# a slush fund for an unmeasured cost.
+ASSISTANT_GROUNDED_TIMEOUT_OVERHEAD_SECONDS = 120
+ASSISTANT_GROUNDED_DEFAULT_PER_TURN_SECONDS = 420
+# The seeded question is appended when EXPECT_FACT is set, so the worst case is
+# one turn more than the battery. Budget for it always: a cap that fits only
+# the unseeded walk fails exactly on the walk that tests the most.
+ASSISTANT_GROUNDED_SEEDED_TURNS = 1
+
+_GROUNDED_BATTERY_RE = re.compile(
+    r"_questions\(\)\s*\{\s*cat <<'QEOF'\n(.*?)\nQEOF", re.S
+)
+_GROUNDED_PER_TURN_RE = re.compile(
+    r'CHAT_TIMEOUT="\$\{OSTLER_PROBE_CHAT_TIMEOUT:-(\d+)\}"'
+)
+
+
+def _assistant_grounded_declarations(cm051_dir: Path):
+    """(battery_turns, per_turn_seconds) read from the probe file itself.
+
+    Static, so this needs no box and no clock, and the self-test drives it
+    directly. Either element is None when it could not be read, and the caller
+    takes the floor rather than guessing in the generous direction.
+    """
+    probe = (cm051_dir / "scripts" / "box_walk_probes" / "probes"
+             / "assistant_answers_grounded.sh")
+    try:
+        text = probe.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return (None, None)
+    turns = None
+    m = _GROUNDED_BATTERY_RE.search(text)
+    if m:
+        n = len([ln for ln in m.group(1).split("\n") if ln.strip()])
+        turns = n if n > 0 else None
+    per_turn = None
+    m2 = _GROUNDED_PER_TURN_RE.search(text)
+    if m2:
+        per_turn = int(m2.group(1))
+    return (turns, per_turn)
+
+
+def _assistant_answers_grounded_timeout_seconds(turns, per_turn) -> int:
+    """The per-probe timeout for assistant_answers_grounded.
+
+    A pure function on purpose, the same way
+    _people_count_agreement_timeout_seconds is, so the formula can be driven
+    with no filesystem behind it.
+    """
+    explicit = os.environ.get(
+        "OSTLER_BOX_WALK_ASSISTANT_GROUNDED_TIMEOUT_SECONDS", ""
+    )
+    if explicit.strip().isdigit():
+        return int(explicit)
+    # The probe reads this itself, so the cap must move with it.
+    env_turn = os.environ.get("OSTLER_PROBE_CHAT_TIMEOUT", "")
+    if env_turn.strip().isdigit():
+        per_turn = int(env_turn)
+    elif not isinstance(per_turn, int) or per_turn <= 0:
+        per_turn = ASSISTANT_GROUNDED_DEFAULT_PER_TURN_SECONDS
+    floor_s = ASSISTANT_GROUNDED_TIMEOUT_FLOOR_SECONDS
+    if not isinstance(turns, int) or turns <= 0:
+        derived = floor_s
+    else:
+        derived = ((turns + ASSISTANT_GROUNDED_SEEDED_TURNS) * per_turn
+                   + ASSISTANT_GROUNDED_TIMEOUT_OVERHEAD_SECONDS)
+    return max(floor_s, min(derived, ASSISTANT_GROUNDED_TIMEOUT_CEILING_SECONDS))
+
 
 # The box-walk probes' CANNOT-RUN exit code. This is NOT a number invented here:
 # scripts/box_walk_probes/run_box_walk.sh:44 declares `EX_CANNOT_RUN=78` and 13
@@ -1011,6 +1400,163 @@ def _resolve_box_walk_probe(cm051_dir: Path, probe: str):
     return None
 
 
+# Probe rows that took their verdict from phase 1 in this run, by probe name,
+# and the number of box_walk_probe rows that reached a box at all. Printed
+# beside the summary so a log reader can see which rows were NOT re-run, AND
+# whether the phase 1 file was wired: with the take scoped to three probes,
+# silence is the normal outcome for the other 23, so the absence of a "taken"
+# line carries no information, and an env var that quietly stops being passed
+# restores the exact re-run that failed v1.0.89 with the record looking the
+# same either way. So when any box row ran, the summary always says what the
+# file was: unset, unreadable (with the path), or read (with its row counts).
+_PHASE1_TAKEN: list = []
+_BOX_WALK_ROWS_SEEN: list = []
+
+
+def _phase1_summary_line() -> str:
+    """One line on the state of OSTLER_PHASE1_VERDICTS, printed whenever a
+    box_walk_probe row reached a box. Never silent."""
+    path = os.environ.get("OSTLER_PHASE1_VERDICTS")
+    if not path:
+        return ("  box_walk_probe rows: OSTLER_PHASE1_VERDICTS is UNSET, so every probe row "
+                "was measured here, the seed-dependent ones included, after "
+                "run_box_walk.sh's forgets; the replay is not taking phase 1 verdicts")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            rows = [ln.rstrip("\n").split("\t") for ln in fh
+                    if ln.strip() and not ln.startswith("#")]
+    except OSError as e:
+        return (f"  box_walk_probe rows: OSTLER_PHASE1_VERDICTS={path} is UNREADABLE "
+                f"({e.__class__.__name__}: {e}), so every probe row was measured here, "
+                f"the seed-dependent ones included, after run_box_walk.sh's forgets")
+    seeded = sum(1 for r in rows if len(r) > 4 and r[4].strip() == "seed-fixture")
+    taken = ", ".join(sorted(_PHASE1_TAKEN)) if _PHASE1_TAKEN else "none"
+    return (f"  box_walk_probe rows: OSTLER_PHASE1_VERDICTS={path} read, {len(rows)} row(s), "
+            f"{seeded} marked seed-fixture; {len(_PHASE1_TAKEN)} row(s) took the phase 1 "
+            f"verdict (fixture present then, forgotten since) and were not re-run: {taken}; "
+            f"every other probe row was measured again")
+
+
+def _phase1_verdict(probe: str):
+    """The verdict run_box_walk.sh recorded for this probe in THIS QA run, or None.
+
+    OSTLER_PHASE1_VERDICTS names a TSV that run_box_walk.sh appends to as it
+    goes: <probe>\t<PASS|FAIL|CANNOT-RUN|BROKEN>\t<utc>\t<reason>\t<fixture>.
+    Phase 1 runs every probe against the seed fixture with its negative control
+    first. Until 2026-09-10 phase 2 ran the same script AGAIN, after
+    run_box_walk.sh had forgotten the seeds, so a fixture-dependent probe asked
+    its questions of stores that had been deliberately emptied (v1.0.89:
+    assistant_answers_grounded read 2 of 3 tool_found_nothing right after
+    SEED-FORGET OK, having read 4 of 4 grounded in phase 1). Directive item 5
+    says the grounded probe runs against the seed fixture; the only run that
+    does is phase 1, so the row takes that verdict and says so.
+
+    ONLY rows whose fixture column reads seed-fixture are taken (run_box_walk.sh
+    writes it from its own SEED_DEPENDENT_PROBES list). A probe that reads live
+    state is run here again, as before, because that second reading is an
+    independent measurement: on v1.0.89 it is what caught the graph and the
+    vector store diverging by 44 mid-tick while phase 1 had read them equal.
+    Taking every row would have turned 26 of that manifest's 30 rows into an
+    echo of phase 1.
+
+    Unset, unreadable, no row for this probe, or a row not marked seed-fixture
+    -> None -> the probe is run here exactly as before. BROKEN (the probe's own
+    negative control did not fire) is a defect and reads FAIL, never PASS:
+    re-running a broken probe used to let it pass here.
+    """
+    path = os.environ.get("OSTLER_PHASE1_VERDICTS")
+    if not path:
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            rows = [ln.rstrip("\n").split("\t") for ln in fh
+                    if ln.strip() and not ln.startswith("#")]
+    except OSError:
+        return None
+    hit = None
+    for r in rows:
+        if len(r) >= 2 and r[0] == probe:
+            hit = r          # last row wins: the latest verdict phase 1 reached
+    if hit is None:
+        return None
+    fixture = hit[4].strip() if len(hit) > 4 else ""
+    if fixture != "seed-fixture":
+        return None          # a live-state probe: measure it again, independently
+    status = hit[1].strip()
+    when = hit[2].strip() if len(hit) > 2 else "?"
+    why = hit[3].strip() if len(hit) > 3 else ""
+    if status == "BROKEN":
+        return ("FAIL", when,
+                "phase 1 marked the probe BROKEN (its negative control did not fire): "
+                + why)
+    if status not in ("PASS", "FAIL", "CANNOT-RUN"):
+        return None          # a word this reader does not know: measure, do not trust
+    return (status, when, why)
+
+
+def _box_walk_evidence_dir() -> Path:
+    """Where a non-PASS probe's FULL output survives this run, for a person to
+    read afterwards.
+
+    WHY THIS EXISTS. This function used to keep only the last line of a
+    probe's stdout, truncated to 200 characters -- enough for the probe's own
+    closing VERDICT sentence and nothing above it. no_unexpected_egress prints
+    the offending process and remote address on the lines BEFORE that verdict
+    (probe_note, in scripts/box_walk_probes/probes/no_unexpected_egress.sh),
+    so on a real failure that identifying detail was destroyed before anyone
+    could read it. Measured: two consecutive cuts with a red
+    no_unexpected_egress and no recoverable holder or address in either --
+    the defect could not be attributed, bisected, or fixed.
+
+    NEVER under a path this repo tracks. A box-walk probe runs against a live
+    customer machine and its output can carry paths, process names and remote
+    addresses -- the exact reason walks/*.tsv (public, committed) has only
+    ever carried probe NAMES, never probe OUTPUT (see the "NAMES ONLY, never a
+    probe's output" note in scripts/post_walk_qa.sh). ~/.ostler/ is already
+    the operator-local, untracked home for this kind of detail --
+    scripts/post_walk_qa.sh's own PROBE_LOG lives under ~/.ostler/walks/.
+
+    OSTLER_BOX_WALK_EVIDENCE_DIR lets a caller that already keeps a per-run
+    directory point this at THAT run instead of a fresh directory on every
+    invocation.
+    """
+    override = os.environ.get("OSTLER_BOX_WALK_EVIDENCE_DIR")
+    if override:
+        return Path(override)
+    return Path.home() / ".ostler" / "walks" / "evidence"
+
+
+def _write_box_walk_evidence(probe: str, status: str, exit_code: Optional[int],
+                              stdout: Optional[bytes], stderr: Optional[bytes]) -> str:
+    """Persist a non-PASS probe's full stdout+stderr and return where.
+
+    Returns a path on success, or a string starting "UNWRITEABLE:" naming why
+    not -- this NEVER raises and never silently drops the attempt. A detail
+    line that says the write itself failed is still more actionable than one
+    that is silent about it.
+    """
+    try:
+        evdir = _box_walk_evidence_dir()
+        evdir.mkdir(parents=True, exist_ok=True)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        ts = now.strftime("%Y%m%dT%H%M%S.%fZ")
+        evidence_file = evdir / f"{probe}.{status}.{ts}.{os.getpid()}.log"
+        with open(evidence_file, "w", encoding="utf-8") as fh:
+            fh.write(f"# probe    {probe}\n")
+            fh.write(f"# status   {status}\n")
+            fh.write(f"# exit     {exit_code}\n")
+            fh.write(f"# recorded {ts}\n")
+            fh.write("#\n# Operator-local and untracked ON PURPOSE: this can name paths,\n")
+            fh.write("# process names and remote addresses. Never move it under a tracked path.\n")
+            fh.write("\n=== stdout ===\n")
+            fh.write((stdout or b"").decode("utf-8", "replace"))
+            fh.write("\n=== stderr ===\n")
+            fh.write((stderr or b"").decode("utf-8", "replace"))
+        return str(evidence_file)
+    except OSError as e:
+        return f"UNWRITEABLE: {e.__class__.__name__}: {e}"
+
+
 def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
     """Invoke a named box-walk probe shell script and return its result.
 
@@ -1051,21 +1597,60 @@ def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
                       "OSTLER_BOX_HOST not set (runtime probe requires a reachable box)",
                       entry.get("source_pr", ""))
 
+    _BOX_WALK_ROWS_SEEN.append(probe)
     script = _resolve_box_walk_probe(cm051_dir, probe)
     if script is None:
         searched = ", ".join(
             str(d / f"{probe}.sh") for d in _box_walk_probe_search_dirs(cm051_dir)
         )
+        # `probe={probe}` (not `probe {probe!r}`) ON PURPOSE, matching every
+        # other box_walk_probe detail below: a caller reconstructing WHICH
+        # probe a phase-2 FAIL/CANNOT-RUN row names (scripts/post_walk_qa.sh
+        # extends the walk record's failed_probe/not_measured_probe rows to
+        # cover this phase) parses this exact prefix, and a probe that could
+        # not even be found is as attributable as one that ran and failed.
         return Result(entry["id"], entry["title"], "box_walk_probe", "FAIL",
-                      f"probe {probe!r} not registered. Searched: {searched}",
+                      f"probe={probe} not registered. Searched: {searched}",
                       entry.get("source_pr", ""))
+    phase1 = _phase1_verdict(probe)
+    if phase1 is not None:
+        status, when, why = phase1
+        _PHASE1_TAKEN.append(probe)
+        detail = (f"probe={probe} took the phase 1 verdict {status} (run_box_walk.sh at "
+                  f"{when}, seed fixture present, negative control first); not re-run "
+                  f"after the forgets")
+        if why:
+            detail += f" reason={why[:200]!r}"
+        return Result(entry["id"], entry["title"], "box_walk_probe", status, detail,
+                      entry.get("source_pr", ""))
+    # THE CAP IS PER-PROBE FOR people_count_agreement, AND IT SCALES WITH THE
+    # BOOK. Every other probe still takes the flat BOX_WALK_PROBE_TIMEOUT_SECONDS
+    # above -- "until the cap is per-probe" is no longer true for this one, and
+    # it is the one it was measured false against: 8700 real people, timed out
+    # at the flat 600s cap sized for the largest book ever walked (~1800).
+    _timeout_s = BOX_WALK_PROBE_TIMEOUT_SECONDS
+    _timeout_persons: Optional[int] = None
+    _grounded_turns = None
+    _grounded_per_turn = None
+    if probe == "people_count_agreement":
+        _timeout_persons = _people_count_for_timeout(cm051_dir)
+        _timeout_s = _people_count_agreement_timeout_seconds(_timeout_persons)
+    elif probe == "assistant_answers_grounded":
+        # #1601. Read from the probe's OWN declarations, never guessed. The
+        # flat cap is 600s and this probe's own note documents up to ~15
+        # minutes for the default battery, so inheriting the flat cap
+        # guaranteed a CANNOT-RUN on a slow-but-normal walk.
+        _grounded_turns, _grounded_per_turn = _assistant_grounded_declarations(cm051_dir)
+        _timeout_s = _assistant_answers_grounded_timeout_seconds(
+            _grounded_turns, _grounded_per_turn
+        )
     try:
         result = subprocess.run(
             ["/bin/bash", str(script)],
             capture_output=True, check=False,
-            timeout=BOX_WALK_PROBE_TIMEOUT_SECONDS,
+            timeout=_timeout_s,
         )
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as e:
         # A TIMEOUT IS CANNOT-RUN, NOT A FAILURE, AND THE DIFFERENCE IS NOT
         # PEDANTIC. MEASURED 2026-09-06 on the first live-box run of this
         # manifest: assistant_answers_grounded was 1 of 12 FAILs, reported as
@@ -1077,23 +1662,69 @@ def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
         #
         # A probe that drives a real conversation over a websocket against a
         # local model is legitimately slow. The cap is right for a probe that
-        # greps a file and wrong for that one. Until the cap is per-probe, the
-        # least this can do is refuse to call the result a failure.
+        # greps a file and wrong for that one. people_count_agreement is the
+        # other shape: not slow because it talks to a model, slow because it
+        # waits on a convergence whose cost is measured in install.sh, so its
+        # cap is derived above rather than raised by hand.
         #
         # CANNOT-RUN is already a first-class status here: it is rendered,
         # counted separately, and excluded from the "ran" denominator. This arm
         # simply never used it.
+        #
+        # WHATEVER THE PROBE MANAGED TO PRINT BEFORE THE KILL IS STILL
+        # EVIDENCE. subprocess.TimeoutExpired carries .stdout/.stderr with
+        # whatever capture_output had buffered at the moment it was killed --
+        # dropping that on the same reasoning as a genuine FAIL would repeat
+        # the exact defect this file exists to fix. Computed ONCE, above the
+        # people_count_agreement branch below, so both CANNOT-RUN messages
+        # carry the same pointer.
+        evidence_path = _write_box_walk_evidence(probe, "CANNOT-RUN", None,
+                                                  e.stdout, e.stderr)
+        if probe == "people_count_agreement":
+            # `probe={probe}`, not `probe {probe!r}`: matches the convention
+            # every other box_walk_probe detail uses so a caller (scripts/
+            # post_walk_qa.sh's phase-2 name extraction) can recover which
+            # probe this CANNOT-RUN names.
+            return Result(entry["id"], entry["title"], "box_walk_probe", "CANNOT-RUN",
+                          f"probe={probe} exceeded its population-scaled timeout of "
+                          f"{_timeout_s}s (persons="
+                          f"{_timeout_persons if _timeout_persons is not None else 'unreadable, floor applied'}"
+                          f") and was killed. NOTHING was measured: this is not a failing "
+                          f"probe, it is an unrun one. Re-run it directly with no cap, or "
+                          f"raise OSTLER_BOX_WALK_PEOPLE_COUNT_TIMEOUT_CEILING, to get its "
+                          f"verdict. full_output={evidence_path}",
+                          entry.get("source_pr", ""))
+        if probe == "assistant_answers_grounded":
+            # Its cap is derived from its own declarations, so the row says
+            # which numbers produced it rather than naming a constant that is
+            # not the one that applied. A reader who sees "4 turns x 420s"
+            # can check both against the probe file.
+            return Result(entry["id"], entry["title"], "box_walk_probe", "CANNOT-RUN",
+                          f"probe={probe} exceeded its declaration-derived timeout of "
+                          f"{_timeout_s}s (battery="
+                          f"{_grounded_turns if _grounded_turns is not None else 'unreadable, floor applied'}"
+                          f" + {ASSISTANT_GROUNDED_SEEDED_TURNS} seeded turn, per-turn "
+                          f"ceiling="
+                          f"{_grounded_per_turn if _grounded_per_turn is not None else 'unreadable'}"
+                          f"s) and was killed. NOTHING was measured: this is not a failing "
+                          f"probe, it is an unrun one. Re-run it directly with no cap, or "
+                          f"raise OSTLER_BOX_WALK_ASSISTANT_GROUNDED_TIMEOUT_SECONDS, to "
+                          f"get its verdict. full_output={evidence_path}",
+                          entry.get("source_pr", ""))
         return Result(entry["id"], entry["title"], "box_walk_probe", "CANNOT-RUN",
-                      f"probe {probe!r} exceeded BOX_WALK_PROBE_TIMEOUT_SECONDS="
+                      f"probe={probe} exceeded BOX_WALK_PROBE_TIMEOUT_SECONDS="
                       f"{BOX_WALK_PROBE_TIMEOUT_SECONDS}s and was killed. NOTHING was "
                       f"measured: this is not a failing probe, it is an unrun one. "
-                      f"Re-run it directly with no cap to get its verdict.",
+                      f"Re-run it directly with no cap to get its verdict. "
+                      f"full_output={evidence_path}",
                       entry.get("source_pr", ""))
     except FileNotFoundError as e:
         # A probe that is not on disk IS a defect, and stays a FAIL: the row
-        # names a runtime proof that does not exist.
+        # names a runtime proof that does not exist. Nothing ran, so there is
+        # no process output to preserve -- unlike the branches below, this one
+        # never writes an evidence file.
         return Result(entry["id"], entry["title"], "box_walk_probe", "FAIL",
-                      f"probe invocation failed: {e}", entry.get("source_pr", ""))
+                      f"probe={probe} invocation failed: {e}", entry.get("source_pr", ""))
     exit_code = result.returncode
     stdout_snippet = result.stdout.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
     stderr_snippet = result.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
@@ -1138,6 +1769,26 @@ def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
     detail = f"probe={probe} exit={exit_code} stdout={stdout_snippet[0][:200]!r}"
     if status != "PASS" and stderr_snippet[0]:
         detail += f" stderr={stderr_snippet[0][:200]!r}"
+    # 🔴 THE LAST LINE ALONE IS THE VERDICT SENTENCE, NOT THE EVIDENCE.
+    #
+    # stdout_snippet/stderr_snippet above are each ONE line -- the probe's own
+    # closing "VERDICT: ..." -- because lib/probe.sh's probe_fail() prints that
+    # sentence last and exits immediately after. Everything a probe prints
+    # BEFORE its verdict (probe_note, probe_examined) is the actual finding:
+    # no_unexpected_egress names the offending process and remote address on
+    # exactly those lines. Truncating to the last 200 characters of the last
+    # line discards them, which is why two consecutive real failures of that
+    # probe could not be attributed to a holder or an address by anyone
+    # reading only this detail string.
+    #
+    # So a non-PASS status ALSO gets its full, untruncated stdout+stderr
+    # written to an evidence file (see _write_box_walk_evidence) and the path
+    # is appended here. The short verdict line above stays as the thing a
+    # human reads first; the path is where the rest of it survives.
+    if status != "PASS":
+        evidence_path = _write_box_walk_evidence(probe, status, exit_code,
+                                                  result.stdout, result.stderr)
+        detail += f" full_output={evidence_path}"
     return Result(entry["id"], entry["title"], "box_walk_probe", status, detail, entry.get("source_pr", ""))
 
 
@@ -2511,11 +3162,31 @@ def main() -> int:
 
     colour = sys.stdout.isatty() and not args.json
 
-    manifests = []
-    if permanent.is_file():
-        manifests.append(("permanent", load_manifest(permanent)))
-    else:
-        print(f"WARN: {permanent} not present — skipping never-regress backstop", file=sys.stderr)
+    # THE PERMANENT MANIFEST IS NOT OPTIONAL. IT USED TO BE A WARN.
+    #
+    # permanent.yaml carries the never-regress backstop -- the operator
+    # personal-data and leak checks, and every box-walk probe row that is not
+    # specific to one cut. Before this check it was loaded "if present": an
+    # absent file, a wrong --manifest-dir, or a rename printed one WARN line to
+    # stderr and the run continued on the per-cut manifest alone. Nothing
+    # incremented fails or cannot_runs for the rows that were never read, so a
+    # run that examined a fraction of the estate still exited 0 and read GREEN.
+    #
+    # A missing required input is CANNOT-RUN, not a footnote: this gate has not
+    # found the artefact clean, it has failed to look at most of what "clean"
+    # is supposed to mean. Exit 2 is this repo's established CANNOT-RUN code
+    # (see the crash handler at the bottom of this file).
+    if not permanent.is_file():
+        print(f"ERROR: {permanent} not present -- refusing to run without the", file=sys.stderr)
+        print("       permanent never-regress backstop (operator PII, leak checks,", file=sys.stderr)
+        print("       every box-walk probe row not specific to one cut). Running", file=sys.stderr)
+        print("       on the per-cut manifest alone would silently drop the largest", file=sys.stderr)
+        print("       part of what this gate is supposed to examine.", file=sys.stderr)
+        print("       CANNOT-RUN, not a pass. Pass --manifest-dir correctly, or", file=sys.stderr)
+        print("       restore cut-manifests/permanent.yaml.", file=sys.stderr)
+        return 2
+
+    manifests = [("permanent", load_manifest(permanent))]
     manifests.append((per_cut.stem, load_manifest(per_cut)))
 
     ctx = {
@@ -2599,6 +3270,7 @@ def main() -> int:
     if args.json:
         print(json.dumps({
             "app_path": str(app_path),
+            "phase1_verdicts": (_phase1_summary_line().strip() if _BOX_WALK_ROWS_SEEN else None),
             "results": [asdict(r) for r in results],
             "summary": {"pass": passes, "fail": fails, "skip": skips,
                         "cannot_run": cannot_runs, "total": len(results),
@@ -2633,6 +3305,8 @@ def main() -> int:
                 if r.status == "CANNOT-RUN":
                     print(f"    - {r.id}  [{r.kind}]  {r.detail}")
             print()
+        if _BOX_WALK_ROWS_SEEN:
+            print(_phase1_summary_line())
         print(f"=== Summary: {passes} PASS  {fails} FAIL  {skips} SKIP  "
               f"{cannot_runs} CANNOT-RUN  ({len(results)} total"
               + (f", {entries_filtered_out} filtered out by --only-kind" if only_kinds else "")

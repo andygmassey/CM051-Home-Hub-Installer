@@ -241,6 +241,11 @@ def run_main(entries: list):
     write_manifest("v1.0.0.yaml", entries)
     env = {k: v for k, v in os.environ.items() if k != "DAEMON_VERSION"}
     env["OSTLER_BOX_HOST"] = "probe@example.invalid"
+    # A non-PASS box_walk_probe row now writes its full stdout/stderr to an
+    # evidence file (_write_box_walk_evidence). Pointed at this test's own
+    # tmp dir, not the real ~/.ostler/walks/evidence -- an unset override
+    # would leave real files behind in whoever's home directory runs this.
+    env["OSTLER_BOX_WALK_EVIDENCE_DIR"] = str(work / "evidence")
     return subprocess.run(
         [sys.executable, str(SUBJECT), "--cm051-dir", str(cm051),
          "--app-path", str(app), "--skip-source-at-sha"],

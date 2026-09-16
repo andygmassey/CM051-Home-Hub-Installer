@@ -492,6 +492,18 @@ run_probe() {
     _store_resolve
 
     local out
+    # ─── DO NOT GRADE THE STORES WHILE THE INGEST TICK IS MINTING ──────────
+    # The hourly com.ostler.fda-rerun moves the graph and the vector store apart
+    # by design between its legs. v1.0.89 read the difference and called it a
+    # disagreement. Hold, then read; a tick that will not stop is CANNOT-RUN,
+    # never a pass, and so is a state that could not be read at all.
+    box_wait_ingest_quiet
+    case $? in
+        0) : ;;
+        1) probe_cannot_run "$PROBE_TICK_DETAIL" ;;
+        2) probe_cannot_run "$PROBE_TICK_DETAIL" ;;
+    esac
+
     out="$(read_result 1)"
     _guard_reconcile_output "$out"
 
@@ -775,6 +787,103 @@ self_test() {
     _scase "A: fails on the first reading, no re-read -> FAIL" \
         "OK 7111 7284 106 0 0 30 7081 0 - -" \
         "$PROBE_EX_FAIL"
+
+    # ─── THE INGEST-TICK HOLD ───────────────────────────────────────────────
+    #
+    # box_wait_ingest_quiet decides whether this probe reads the stores at all,
+    # so its three outcomes are pinned here and the fourth arm proves the first
+    # three measure the hold rather than sitting beside it.
+    #
+    # A CLEAN reading is used throughout, so the only thing that can move the
+    # verdict is the hold itself.
+    _CLEAN="OK 7111 7111 0 0 0 0 7111 0 - -"
+    _KBUDGET=900
+    _kcase() {
+        # _kcase <label> <FAKE_TICK_SEQ> <FAKE_TICK_UNREADABLE 0|1> <expected exit>
+        local label="$1" tick="$2" unread="$3" want="$4" rc
+        _KLAST_OUT="$(SELF_TEST_LOCAL=1 FAKE_TICK_SEQ="$tick" FAKE_TICK_UNREADABLE="$unread" \
+                      FAKE_RECONCILE="$_CLEAN" OSTLER_PROBE_TICK_WAIT_S="$_KBUDGET" \
+                      run_probe 2>&1)"; rc=$?
+        if [ "$rc" -ne "$want" ]; then
+            printf '  SELF-TEST FAIL [%s]: expected exit %s, got %s\n' "$label" "$want" "$rc"
+            printf '    output: %s\n' "$(printf '%s' "$_KLAST_OUT" | tail -1)"
+            fails=$((fails + 1))
+            [ -z "$firstbad" ] && firstbad="$label"
+        else
+            printf '  ok [%s] exit %s\n' "$label" "$rc"
+        fi
+    }
+
+    # 1. Running for two polls, then not: the probe holds and then reads.
+    _KBUDGET=900
+    _kcase "tick running twice then quiet -> the probe proceeds" "running|running|quiet" 0 "$PROBE_EX_PASS"
+    # A ZERO-LENGTH WAIT AND A WAIT THAT HAPPENED MUST NOT SHARE A SILENCE.
+    case "$_KLAST_OUT" in
+        *'read "not running" after 30s'*) printf '  ok [the note names the 30s waited]\n' ;;
+        *) printf '  SELF-TEST FAIL [the note names the seconds waited]: absent from the output\n'
+           fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="tick note" ;;
+    esac
+
+    # 2. A tick that never stops, against a budget of one poll: CANNOT-RUN.
+    _KBUDGET=1
+    _kcase "tick still running past the budget -> CANNOT-RUN" "running" 0 "$PROBE_EX_CANNOT_RUN"
+
+    # 3. The state could not be read at all. A ttywalk --reset box has that job
+    #    loaded, so an unreadable state is a missing prerequisite, never a quiet
+    #    box, and never a pass.
+    _KBUDGET=900
+    _kcase "tick state UNREADABLE -> CANNOT-RUN" "quiet" 1 "$PROBE_EX_CANNOT_RUN"
+
+    # 3a. The job is not loaded on this host: the tick is definitively not
+    #     moving the stores, which is the only question the hold asks. The note
+    #     says "not loaded" verbatim, so a WALK log carrying it is a finding on
+    #     its face: the walked box has that agent loaded and must read running
+    #     or not running, never not loaded.
+    _KBUDGET=900
+    _kcase "the job is not loaded here -> the probe proceeds" "notloaded" 0 "$PROBE_EX_PASS"
+    case "$_KLAST_OUT" in
+        *'not loaded on this host'*) printf '  ok [the note says "not loaded" verbatim, with the label]\n' ;;
+        *) printf '  SELF-TEST FAIL [the not-loaded note]: absent from the output\n'
+           fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="notloaded note" ;;
+    esac
+
+    # 3b. A host with no /bin/launchctl has no hourly ingest to wait for, and
+    #     that is NOT the same as a launchctl that would not answer. The keyless
+    #     probe tests drive this probe on a Linux runner; without this branch the
+    #     hold refuses there and every one of those arms reads CANNOT-RUN.
+    #     Measured: it did exactly that on run 34501676075 before this existed.
+    _KBUDGET=900
+    _kcase "no launchctl on the host -> the probe proceeds" "noplatform" 0 "$PROBE_EX_PASS"
+    case "$_KLAST_OUT" in
+        *'is not present on this host'*) printf '  ok [the note says why the hold did not apply]\n' ;;
+        *) printf '  SELF-TEST FAIL [the note says why the hold did not apply]: absent from the output\n'
+           fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="noplatform note" ;;
+    esac
+
+    # 4. CONTROL: with the hold replaced by a no-op, arm 2's input passes.
+    #    Without this, arms 2 and 3 would read the same on a probe that never
+    #    called the helper at all. The real function is captured before it is
+    #    replaced and restored after, and an empty capture is itself a failure:
+    #    a mutant that did not land returns the green you hoped for.
+    _real_hold="$(declare -f box_wait_ingest_quiet)"
+    if [ -z "$_real_hold" ]; then
+        printf '  SELF-TEST FAIL [CONTROL]: box_wait_ingest_quiet is not defined, so arms 1 to 3 prove nothing\n'
+        fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="CONTROL"
+    else
+        box_wait_ingest_quiet() { return 0; }
+        _KBUDGET=1
+        _mrc=0
+        _mout="$(SELF_TEST_LOCAL=1 FAKE_TICK_SEQ="running" FAKE_TICK_UNREADABLE=0 \
+                 FAKE_RECONCILE="$_CLEAN" OSTLER_PROBE_TICK_WAIT_S=1 run_probe 2>&1)" || _mrc=$?
+        eval "$_real_hold"
+        if [ "$_mrc" -eq "$PROBE_EX_PASS" ]; then
+            printf '  ok [CONTROL: without the hold a running tick no longer refuses] exit %s\n' "$_mrc"
+        else
+            printf '  SELF-TEST FAIL [CONTROL]: the no-op mutant exited %s, so arms 2 and 3 measure something else\n' "$_mrc"
+            printf '    output: %s\n' "$(printf '%s' "$_mout" | tail -1)"
+            fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="CONTROL"
+        fi
+    fi
     # A RE-READ IS A MEASUREMENT AND CAN FAIL LIKE ANY OTHER. The three-state
     # guard runs on EVERY reading, not just the first: a re-read that comes back
     # refused or empty must be adjudicated, never quietly dropped in favour of

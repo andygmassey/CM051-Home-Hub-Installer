@@ -11,7 +11,16 @@ GATE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/verify_permission_briefin
 PASS=0; FAIL=0; TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 ok(){ printf '  PASS  %s\n' "$1"; PASS=$((PASS+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL+1)); }
-mk(){ mkdir -p "$1"; printf '%s\n' "$2" > "$1/install.sh"; }
+mkplist(){ mkdir -p "$1/gui/OstlerInstaller"; printf '%s\n' "$2" > "$1/gui/OstlerInstaller/Info.plist"; }
+# Every fixture needs A plist, now that the gate reads one -- see below -- so
+# `mk` stamps a minimal default declaring the one key already covered by
+# $ROWS ("Downloads"). Arms testing the plist-derived limb itself overwrite it
+# with `mkplist` after calling `mk`.
+DEFAULT_PLIST='<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+  <key>NSDownloadsFolderUsageDescription</key><string>x</string>
+</dict></plist>'
+mk(){ mkdir -p "$1"; printf '%s\n' "$2" > "$1/install.sh"; mkplist "$1" "$DEFAULT_PLIST"; }
 rc(){ bash "$GATE" "$1" >"$TMP/o" 2>&1; echo $?; }
 
 # EVERY FIXTURE MUST SATISFY THE PROMPT REGISTRY, AND THAT IS NOT INCIDENTAL.
@@ -72,6 +81,59 @@ mk "$TMP/d" 'PERMISSIONS_TOTAL=1
 echo -e "    1. ${BOLD}Contacts${NC}  x"
 kTCCServiceSystemPolicyAppData'
 [[ "$(rc "$TMP/d")" == 1 ]] && ok "requests AppData but never names it -> rc=1" || no "unnamed service NOT caught"
+
+# ---------------------------------------------------------------------------
+# THE PLIST-DERIVED LIMB. This is the third recurrence the gate's own header
+# now records: five hand-kept check_prompt calls covered at most three of the
+# eight NS*UsageDescription keys the shipped Info.plist actually declares, and
+# Contacts/Calendar/Reminders/Desktop/Photos had no row checking them at all.
+# Every arm below drives the plist directly rather than the five-row
+# registry, which the arms above already cover.
+# ---------------------------------------------------------------------------
+
+# E. A plist-declared, MAPPED key with NO row naming it must fail, by name --
+# this is the exact shape of the live Photos gap (see the file's own header).
+mk "$TMP/e" "PERMISSIONS_TOTAL=5
+$ROWS"
+mkplist "$TMP/e" '<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+  <key>NSContactsUsageDescription</key><string>x</string>
+</dict></plist>'
+[[ "$(rc "$TMP/e")" == 1 ]] && ok "plist declares Contacts, no row names it -> rc=1" || no "unmentioned plist permission NOT caught"
+grep -q 'NSContactsUsageDescription' "$TMP/o" && ok "and it names the exact key" || no "message did not name the key"
+
+# F. The SAME key, now WITH a matching row, must go green -- proving E failed
+# for the right reason and this is not just a check that always reds.
+ROWS_WITH_CONTACTS="$ROWS
+"'echo -e "    6. ${BOLD}Contacts${NC}  w"'
+mk "$TMP/f" "PERMISSIONS_TOTAL=6
+$ROWS_WITH_CONTACTS"
+mkplist "$TMP/f" '<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+  <key>NSContactsUsageDescription</key><string>x</string>
+</dict></plist>'
+[[ "$(rc "$TMP/f")" == 0 ]] && ok "same plist key WITH a Contacts row -> rc=0" || no "a correctly-disclosed plist permission wrongly failed"
+
+# G. A key the plist declares that this file has NEVER heard of -- simulating
+# the NEXT permission someone adds to Info.plist -- must fail loudly and name
+# the key, not pass because keyword_for_key() has no case for it. This is the
+# "cannot drift again" property: an unmapped key is a fail, not a silent skip.
+mk "$TMP/g" "PERMISSIONS_TOTAL=5
+$ROWS"
+mkplist "$TMP/g" '<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+  <key>NSMicrophoneUsageDescription</key><string>x</string>
+</dict></plist>'
+[[ "$(rc "$TMP/g")" == 1 ]] && ok "a plist key with no mapping -> rc=1 (future drift is caught)" || no "an unmapped plist key was NOT caught"
+grep -q 'NSMicrophoneUsageDescription' "$TMP/o" && grep -q 'NO mapping' "$TMP/o" \
+    && ok "and it names the exact unmapped key" || no "message did not name the unmapped key"
+
+# H. No Info.plist at all is CANNOT RUN (exit 2), never a pass -- this file
+# cannot certify a briefing against a plist it never read.
+mk "$TMP/h" "PERMISSIONS_TOTAL=5
+$ROWS"
+rm -f "$TMP/h/gui/OstlerInstaller/Info.plist"
+[[ "$(rc "$TMP/h")" == 2 ]] && ok "no Info.plist present -> CANNOT (exit 2), not a pass" || no "a missing plist was NOT treated as CANNOT-RUN"
 
 echo; echo "  $PASS passed, $FAIL failed"; [[ $FAIL == 0 ]] || exit 1
 echo "ALL PERMISSION-BRIEFING CONTROLS PASSED"

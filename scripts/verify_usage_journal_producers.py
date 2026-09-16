@@ -448,6 +448,13 @@ def main(argv=None):
     if missing:
         names = ", ".join("%s (%s, %s)" % (p.producer_id, p.repo, p.purpose)
                           for p in missing)
+        # PARSED, NOT ONLY READ: scripts/box_walk_probes/probes/usage_journal_producers.sh
+        # matches this line's prefix ("VERDICT: FAIL -- 1 of "), the phrase
+        # ("REQUIRED producers wrote nothing") and the single name to turn one
+        # exact case (only cm044_wiki_compiler missing, and the walk saw its
+        # backfill never got the Ollama slot) into a refusal instead of a FAIL.
+        # Reword any of the three and that refusal goes quiet, safe direction:
+        # the row reverts to FAIL. Change the probe's pattern in the same PR.
         print("VERDICT: FAIL -- %d of %d REQUIRED producers wrote nothing into "
               "%d parsed record(s): %s."
               % (len(missing), len(required), parsed, names))

@@ -95,6 +95,31 @@ original. The token value is never logged.
 Run it after each hydrate and on an interval (the CM051 installer wires a
 LaunchAgent that calls this; see the hand-off note in the builder report).
 
+WHAT THIS DIGEST NOW SAYS ABOUT ITS OWN GAPS (HR015 #948)
+---------------------------------------------------------
+Four daily briefs reached a customer as messages. One announced "trips to
+places like New York in September 2026 and Singapore later that year". There
+are no such trips; "places like" is the tell that the model was generating
+examples and the brief was presenting them as recall.
+
+The cause is in this file, not in the prompt. Every section below renders only
+when it has content, so a section whose source returned 401 or 400 was, in the
+document the model reads, byte for byte identical to a section whose source
+answered and held nothing. The difference was measured all along -- it went to
+``_FAILURES``, to the stderr report and to the exit code -- and none of those
+three reach the one consumer that can act on it. launchd hears the exit code;
+the model writing the customer's message hears nothing.
+
+So the fact is now put in the document. ``_unreadable_and_empty_block`` renders
+three states rather than two (items / nothing stored / COULD NOT BE READ, with
+the status actually observed), early enough that the MAX_CHARS clip cannot
+remove it. And when NO section produced content, the prior digest is still kept
+-- a stale digest beats no digest -- but it is stamped NOT REFRESHED in the
+file itself, so an hour-old refusal cannot be recited as today's news.
+
+Guarded by ``tests/test_a_brief_cannot_fill_a_gap_it_was_never_shown.sh``,
+wired into ``.github/workflows/context-digest-auth.yml``.
+
 SHIP-GATE (divergent-twin / paired fix): the per-owner calendar labelling
 below is the READ-SIDE half of a two-repo fix. The WRITE-SIDE half (which
 stamps pwg:sourceCalendar / pwg:calendarType and fails calendar privacy
@@ -213,6 +238,11 @@ _READS: list[str] = []
 _FAILURES: list[str] = []
 # Per-section item counts from the last build_digest() call, in digest order.
 _SECTION_COUNTS: list[tuple[str, int]] = []
+# Per-section (digest heading, item count, failed reads) from the last
+# build_digest() call. This is what lets the DIGEST itself tell "the source
+# answered and held nothing" apart from "the source did not answer"; see
+# _unreadable_and_empty_block.
+_SECTION_STATUS: list[tuple[str, int, list[str]]] = []
 
 
 def _reset_measurements() -> None:
@@ -221,6 +251,7 @@ def _reset_measurements() -> None:
     _READS.clear()
     _FAILURES.clear()
     _SECTION_COUNTS.clear()
+    _SECTION_STATUS.clear()
 
 
 def _note_read(line: str) -> None:
@@ -700,6 +731,84 @@ def _orgs_section() -> list[str]:
 # ── Digest assembly ──────────────────────────────────────────────────────────
 
 
+def _run_section(heading: str, builder) -> list[str]:
+    """Run one section builder and record what it produced AND what refused it.
+
+    The failure ledger is global and append-only, so the slice taken across the
+    call is exactly the reads that failed inside this builder. Nothing is
+    inferred: a section is marked unreadable only when a read performed while
+    it ran recorded a failure with the status it actually observed.
+    """
+    before = len(_FAILURES)
+    lines = builder()
+    _SECTION_STATUS.append((heading, len(lines), _FAILURES[before:]))
+    return lines
+
+
+def _unreadable_and_empty_block() -> list[str]:
+    """Declare, INSIDE the digest, every section that is empty or unreadable.
+
+    THIS IS THE FIX FOR THE FABRICATED BRIEF, AND IT IS A DATA-PATH FIX.
+
+    Every section of this digest renders only when it has content. A section
+    whose source returned 401, 400 or nothing at all therefore looks, to the
+    only consumer that matters, EXACTLY like a section whose source answered
+    and held nothing. The difference was measured, named and carried -- into
+    _FAILURES, the stderr report and the exit code. None of those three reach
+    the model. The model is handed a document headed "Baseline awareness of the
+    people, meetings and preferences that matter", told by the cron prompt to
+    use only the facts in its context, and asked for three or four sentences
+    about the day. Given a void where a section should be, it produces the most
+    plausible thing, and the brief presents that as recall.
+
+    That is not a prompt-tuning problem and it is not fixed by a firmer
+    sentence in the prompt. The document is missing a fact it was holding all
+    along, so the fact is put in the document. Three states, three renderings:
+
+        items                -> the section renders, as before
+        read OK, zero items  -> declared here as "nothing stored"
+        read did not answer  -> declared here as "COULD NOT BE READ", with
+                                the status that was actually observed
+
+    POSITION: this block is emitted EARLY, before the content sections, on
+    purpose. build_digest clips to MAX_CHARS from the END, so a block placed
+    after the content would be the first thing a busy graph deletes, and the
+    honesty would go missing on exactly the installs with the most to say.
+    """
+    gaps: list[str] = []
+    for heading, count, failed in _SECTION_STATUS:
+        if failed:
+            observed = "; ".join(failed)
+            gaps.append(f"- {heading}: COULD NOT BE READ ({observed})")
+        elif count == 0:
+            gaps.append(f"- {heading}: nothing stored.")
+    if not gaps:
+        return []
+
+    out = [
+        "## What is not in this digest",
+        "",
+        "These lines are the measured state of this digest. They are facts "
+        "about what was read, not judgements about the person you assist.",
+        "",
+        "\"Nothing stored\" means the source answered and held nothing for "
+        "that section. \"COULD NOT BE READ\" means the source did not answer, "
+        "so this digest does not know either way. Treat that as UNKNOWN. It is "
+        "not the same as empty and it is not the same as none.",
+        "",
+        "Do not fill either kind of gap. Do not offer an example, a typical "
+        "case, an illustration or a phrase of the form \"places like\" in "
+        "place of a stored fact. If you are asked about something only one of "
+        "these sections could answer, say in one short sentence that you have "
+        "nothing stored for it, or that you could not check it. Saying that is "
+        "a complete and correct answer.",
+        "",
+    ]
+    out.extend(gaps)
+    out.append("")
+    return out
+
+
 def build_digest() -> str | None:
     """Assemble the CONTEXT.md body.
 
@@ -714,12 +823,18 @@ def build_digest() -> str | None:
     """
     _reset_measurements()
 
-    user_asserted = _user_asserted_section()
-    people = _people_section()
-    recent = _meetings_section()
-    calendar_by_owner = _calendar_by_owner_section()
-    preferences = _preferences_section()
-    orgs = _orgs_section()
+    # Each builder runs through _run_section so the digest can report three
+    # states rather than two. The heading passed here is the one the reader
+    # sees, so the gap declaration below names sections the way the document
+    # names them and not by an internal key.
+    user_asserted = _run_section("Confirmed by you", _user_asserted_section)
+    people = _run_section("People you interact with most", _people_section)
+    recent = _run_section("Recent meetings (last 7 days)", _meetings_section)
+    calendar_by_owner = _run_section(
+        "Calendar events by owner", _calendar_by_owner_section)
+    preferences = _run_section(
+        "Preferences and things to keep in mind", _preferences_section)
+    orgs = _run_section("Key organisations", _orgs_section)
 
     _SECTION_COUNTS.extend([
         ("confirmed-by-you", len(user_asserted)),
@@ -745,6 +860,11 @@ def build_digest() -> str | None:
     )
     out.append(f"_Last updated: {now}._")
     out.append("")
+
+    # Before any content: what this digest does NOT hold, and which of those
+    # gaps are "nothing there" versus "we could not look". Placed here so the
+    # MAX_CHARS clip, which cuts from the end, can never remove it.
+    out.extend(_unreadable_and_empty_block())
 
     # User-asserted facts are authoritative -- things the customer told the
     # assistant directly -- so they lead the digest, above anything mined or
@@ -806,12 +926,35 @@ def build_digest() -> str | None:
 
     out.append("## Looking something up")
     out.append("")
+    # ONE ROUTE TO THE GRAPH, AND IT IS THE pwg_ TOOLS.
+    #
+    # This paragraph used to name a SECOND route: `http_request` against
+    # http://127.0.0.1:8090/api/v1/people/*. It works, install.sh enables
+    # allow_private_hosts for exactly that reason and says so at the
+    # LaunchAgent that installs this script, and it reaches the customer's
+    # real graph. It is also invisible to everything downstream that asks
+    # WHICH tool answered a turn, and two of those matter:
+    #
+    #   assistant_answers_grounded grades a turn on whether a tool named pwg_*
+    #   ran, so a correct answer fetched this way scores memory_only. That is a
+    #   defect verdict for the product working as instructed, and it is one of
+    #   the two shapes behind that probe's FAIL on the v1.0.79 walk.
+    #
+    #   the daemon's consolidation gate keyed live-graph state on the same
+    #   prefix, so a count fetched this way was memorised as though it were a
+    #   durable fact and recited stale the next day.
+    #
+    # THIS FILE IS THE COPY THAT SHIPS. The upstream ostler-assistant script
+    # carries the same edit (ostler-assistant#394) and a test for it, but the
+    # release tarball carries the daemon and its .app and never scripts/, so
+    # the customer runs THIS one. Changing only upstream would leave the
+    # instruction live on every machine under a green upstream gate, which is
+    # the failure this file's own header records from 2026-08-18.
     out.append(
-        "For a specific person or detail not listed above, you can fetch it "
-        "live with the http_request tool against the local graph: "
-        "`GET http://127.0.0.1:8090/api/v1/people/search?q=NAME` for a person, "
-        "or `GET http://127.0.0.1:8090/api/v1/people/context?name=NAME` for "
-        "their full context. These are local, read-only lookups."
+        "For a specific person or detail not listed above, call the "
+        "`pwg_people` tool with the person's name, or `pwg_person_timeline` "
+        "for the user's full history with them. Do not fetch graph data over "
+        "`http_request`: the pwg_ tools are the route to the graph."
     )
     out.append("")
 
@@ -863,6 +1006,84 @@ def _measured_report() -> list[str]:
     return out
 
 
+STALE_BANNER_OPEN = "<!-- ostler:context-refresh-status -->"
+STALE_BANNER_CLOSE = "<!-- /ostler:context-refresh-status -->"
+
+
+def _strip_stale_banner(body: str) -> str:
+    """Remove a previously stamped banner so stamps cannot accumulate.
+
+    Idempotence matters here: this runs on a schedule, so a banner that
+    appended rather than replaced would grow the digest by a paragraph an hour
+    until the MAX_CHARS clip ate the customer's actual data.
+    """
+    start = body.find(STALE_BANNER_OPEN)
+    if start == -1:
+        return body
+    end = body.find(STALE_BANNER_CLOSE, start)
+    if end == -1:
+        return body
+    return body[:start] + body[end + len(STALE_BANNER_CLOSE):].lstrip("\n")
+
+
+def _stamp_prior_digest_as_stale() -> bool:
+    """Mark an EXISTING CONTEXT.md as not refreshed, in the file itself.
+
+    Leaving the prior digest in place when nothing could be assembled is the
+    right call and is not being changed: a stale digest beats no digest.
+    Leaving it UNMARKED is the defect. The daemon injects this file verbatim
+    into every system prompt, including the 09:00 brief the customer receives
+    as a message on their phone, and the file opens by calling itself
+    "Baseline awareness" with a Last updated stamp the reader has no reason to
+    treat as old. So the one reader that can act on the difference is told, in
+    the document it actually reads, rather than in a stderr line and an exit
+    code that only launchd sees.
+
+    Creates NOTHING when there is no prior digest. An absent CONTEXT.md on a
+    box where no source answered is a state this repo's gates assert on
+    purpose, and manufacturing a file here would be a fresh defect of the same
+    family as the one being fixed.
+
+    Returns True when an existing digest was stamped.
+    """
+    try:
+        body = CONTEXT_PATH.read_text(encoding="utf-8")
+    except OSError:
+        return False
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    banner = [
+        STALE_BANNER_OPEN,
+        "> NOT REFRESHED. Every source was asked and none delivered data at "
+        f"{now}, so everything below stands as it was at the Last updated "
+        "stamp and may no longer be true.",
+        ">",
+        "> Do not present anything below as today's news, and do not fill the "
+        "gap with an example, a typical case or an illustration. If you are "
+        "asked about something only a fresh read could answer, say in one "
+        "short sentence that you could not check it.",
+        ">",
+        "> What did not answer:",
+    ]
+    if _FAILURES:
+        banner.extend(f"> - {line}" for line in _FAILURES)
+    else:
+        banner.append(
+            "> - no read recorded a failure, and no section produced content."
+        )
+    banner.append(STALE_BANNER_CLOSE)
+    banner.append("")
+
+    stamped = "\n".join(banner) + "\n" + _strip_stale_banner(body).lstrip("\n")
+    try:
+        tmp_path = CONTEXT_PATH.with_suffix(".md.tmp")
+        tmp_path.write_text(stamped, encoding="utf-8")
+        os.replace(tmp_path, CONTEXT_PATH)
+    except OSError:
+        return False
+    return True
+
+
 def main() -> int:
     digest = build_digest()
 
@@ -873,11 +1094,20 @@ def main() -> int:
         # script had not produced a digest on a single install.
         for line in _measured_report():
             print(line, file=sys.stderr)
-        print(
-            "generate_pwg_context: no digest assembled; CONTEXT.md not "
-            "written and any prior copy left unchanged",
-            file=sys.stderr,
-        )
+        stamped = _stamp_prior_digest_as_stale()
+        if stamped:
+            print(
+                "generate_pwg_context: no digest assembled; the prior "
+                "CONTEXT.md was kept and stamped NOT REFRESHED so the "
+                "assistant is not told stale facts are current",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "generate_pwg_context: no digest assembled; CONTEXT.md not "
+                "written and no prior copy exists to stamp",
+                file=sys.stderr,
+            )
         return EXIT_NOTHING_PRODUCED
 
     try:

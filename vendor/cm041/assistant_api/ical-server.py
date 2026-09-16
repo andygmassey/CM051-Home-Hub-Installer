@@ -67,6 +67,12 @@ import pwg_privacy
 try:
     from ostler_security.database import get_db_connection as _secure_connect
     from ostler_security.posture import record_posture
+    # Same hard-fail bracket as the two above, deliberately. A vendored
+    # ostler_security too old to carry db_key is exactly the stale-vendor
+    # condition that shipped the consent bug (see consent-registry.yml),
+    # and the consequence here is a service that silently opens every
+    # database in plaintext. That is a deploy bug, not a degrade path.
+    from ostler_security.db_key import resolve_db_key
 except ImportError as exc:
     raise RuntimeError(
         "ostler_security is required but not installed in this Python "
@@ -78,8 +84,26 @@ except ImportError as exc:
 # Read the database encryption key. Clean cut from LIFELINE_DB_KEY
 # 2026-05-01 (no beta testers were dispatched, so no deprecation
 # window is required).
-_ENCRYPTION_KEY = os.environ.get("OSTLER_DB_KEY")
-_KEY_SOURCE = "OSTLER_DB_KEY" if _ENCRYPTION_KEY else None
+#
+# 🔴 UNTIL THIS LINE CHANGED, THE KEY WAS NEVER DELIVERED TO THIS PROCESS.
+# It read OSTLER_DB_KEY out of the environment and nothing anywhere set
+# it. Measured across the whole tree with a positive control on the same
+# search shape: OSTLER_DB_KEY had 17 mentions, 3 readers and 0 setters,
+# while OSTLER_AI_CONVERSATIONS_DIR and OSTLER_AI_CONV_GIST_PRIVACY were
+# found being set in a rendered plist by the identical query. So the
+# setter query worked and there was nothing to find. This service has
+# therefore taken the plaintext branch below on every install ever
+# shipped, while the installer printed "Databases encrypted".
+#
+# resolve_db_key() keeps the environment variable first (unchanged, so
+# every existing harness and `ostler-migrate-dbs` run behaves exactly as
+# before) and adds the file the installer now writes into the 0700
+# security directory. The key is NOT carried in this agent's plist: see
+# the long note at the top of ostler_security/db_key.py for why a plist
+# is the wrong home for it.
+_DB_KEY = resolve_db_key()
+_ENCRYPTION_KEY = _DB_KEY.key
+_KEY_SOURCE = _DB_KEY.source
 _PLAINTEXT_WARNED = False
 
 # Record the security posture for Doctor / external introspection.
@@ -96,7 +120,11 @@ else:
     record_posture(
         "ical-server",
         "disabled",
-        reason="no_key",
+        # The reason is now the resolver's, not a hardcoded "no_key".
+        # "no key was configured" and "a key was configured and I refused
+        # to read it because another local account could read it too" are
+        # different facts, and Doctor must not print them identically.
+        reason=_DB_KEY.reason,
         backend="plaintext",
     )
 
@@ -106,23 +134,25 @@ def _warn_plaintext_once(db_path: str) -> None:
     to plaintext SQLite. Loud is the right level here: silent plaintext
     is the bug we are fixing.
 
-    Reachable only when ostler_security imported but no key was set;
-    a missing module hard-fails at import."""
+    Reachable only when ostler_security imported but no key was
+    resolved; a missing module hard-fails at import."""
     global _PLAINTEXT_WARNED
     if _PLAINTEXT_WARNED:
         return
     _PLAINTEXT_WARNED = True
+    detail = f" {_DB_KEY.detail}" if _DB_KEY.detail else ""
     print(
         f"WARNING: opening {db_path} as plaintext SQLite "
-        "(OSTLER_DB_KEY env var not set). Set OSTLER_DB_KEY to "
-        "enable at-rest encryption.",
+        f"(no database key: {_DB_KEY.reason}).{detail} "
+        "Recover the key with `ostler-unlock --install-key-file`, or set "
+        "OSTLER_DB_KEY, to enable at-rest encryption.",
         file=sys.stderr,
         flush=True,
     )
 import threading
 import urllib.request
 import uuid
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime, timedelta, timezone
@@ -534,6 +564,10 @@ PWG_CONVO_BIN = os.environ.get("PWG_CONVO_BIN", "/usr/local/bin/pwg-convo")
 # the existing degraded-when-USER_ID-unset path is preserved (normalise folds
 # "" -> the "primary" label, which is wrong for a graph IRI here).
 from identity_resolver.compartment import normalise_user_id as _normalise_user_id
+from identity_resolver.compartment import (
+    cm048_user_graph_uris as _cm048_user_graph_uris,
+    graph_scoped_select as _graph_scoped_select,
+)
 
 _raw_user_id = os.environ.get("USER_ID", "").strip()
 USER_ID = _normalise_user_id(_raw_user_id) if _raw_user_id else ""
@@ -940,6 +974,52 @@ def query_gmail(query="is:unread", max_results=10):
 # People Graph endpoints (CM041 Phase 3)
 # ===========================================================================
 
+# Identifies THIS API-server RUN, never the person. The prefix is pinned by
+# CM051 scripts/usage_journal_producers.tsv (row cm041_identity_resolution,
+# match_kind session_prefix, match_value "cm041-"); a different prefix here
+# reports that producer ABSENT and takes the gate red.
+_USAGE_RUN_ID = "cm041-api-" + datetime.now(timezone.utc).strftime(
+    "%Y-%m-%dT%H:%M:%SZ"
+)
+
+
+def _record_embed_usage(payload, model):
+    """Record one ``enriching`` usage row from an ``/api/embed`` response.
+
+    Separate from :func:`_embed_text` so the accounting can be tested without
+    a network call -- ``_embed_text`` is the one arm no unit test reaches.
+
+    MEASURED, NEVER ESTIMATED: ``tokens_from_ollama`` returns ``(None, None)``
+    when Ollama reported no counts, and ``record_usage`` then writes nothing.
+    A guessed row is worse than a missing one on a panel the customer reads
+    beside a price comparison.
+
+    Never raises: usage accounting must not break the search endpoint it
+    measures.
+    """
+    try:
+        from _vendor.ostler_usage_journal.usage_journal import (
+            record_usage,
+            tokens_from_ollama,
+        )
+
+        prompt, completion = tokens_from_ollama(
+            payload if isinstance(payload, dict) else {}
+        )
+        record_usage(
+            model=model,
+            input_tokens=prompt,
+            output_tokens=completion,
+            purpose="enriching",
+            session_id=_USAGE_RUN_ID,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        # This file has no logger -- it diagnoses through stderr. Matching that
+        # rather than introducing a second facility for one line.
+        print(f"[usage] journal write skipped: {exc}",
+              file=sys.stderr, flush=True)
+
+
 def _embed_text(text):
     """Embed text via Ollama and return the vector."""
     data = json.dumps({"model": EMBED_MODEL, "input": [text]}).encode()
@@ -949,14 +1029,77 @@ def _embed_text(text):
         headers={"Content-Type": "application/json"},
     )
     resp = urllib.request.urlopen(req, timeout=30)
-    return json.loads(resp.read())["embeddings"][0]
+    payload = json.loads(resp.read())
+    _record_embed_usage(payload, EMBED_MODEL)
+    return payload["embeddings"][0]
+
+
+# ----------------------------------------------------------------------
+# Graph scope (v1018-D012b). ONE implementation, shared -- see
+# identity_resolver/compartment.py for the full rationale.
+#
+# CM041 writes into the DEFAULT graph; CM048 writes this user's
+# conversation-derived data into the NAMED graph ``urn:ostler:user/<id>``.
+# Oxigraph runs WITHOUT ``--union-default-graph`` and compartment.py
+# REQUIRES it stay off, so an unqualified query reaches the default graph
+# only and every CM048-backed surface reads as empty. The scope has to
+# travel inside the query, and it names this user's graphs explicitly
+# rather than using a bare ``GRAPH ?g`` (which would put every other
+# user's compartment on this read path).
+#
+# The helper lives in compartment.py, NOT here, because this trap has
+# already been found and locally patched twice in the estate
+# (cm048_pipeline topic_writer.py and last_contact_updater.py each
+# documented it in their own docstring and fixed only their own surface).
+# A sixth private copy is how it stayed systemic.
+_USER_GRAPH_URIS = _cm048_user_graph_uris(_raw_user_id)
+
+
+def _graph_scoped(sparql):
+    """Scope a SELECT to the default graph plus this user's CM048 graphs."""
+    return _graph_scoped_select(sparql, _USER_GRAPH_URIS)
+
+
+def _forget_person_update(person_uri, graph_uris):
+    """SPARQL UPDATE erasing one person from the default AND named graphs.
+
+    The bare ``DELETE ... WHERE`` pair reaches the DEFAULT graph only. With
+    ``--union-default-graph`` off (it is, and compartment.py requires it
+    stays off) that pair CANNOT see a named graph, so CM048's facts,
+    relationship signals, outstanding todos and conversation links for
+    this person survived an erasure the endpoint reported as successful.
+    Every graph in scope therefore gets its own explicitly-scoped pair.
+
+    Kept as a named function so the erasure can be tested directly rather
+    than inferred from the handler around it.
+    """
+    esc_uri = person_uri.replace("\\", "\\\\").replace(">", "%3E")
+    clauses = [
+        "DELETE {{ <{uri}> ?p ?o }} WHERE {{ <{uri}> ?p ?o }};",
+        "DELETE {{ ?s ?p <{uri}> }} WHERE {{ ?s ?p <{uri}> }};",
+    ]
+    for graph in graph_uris:
+        clauses.append(
+            "DELETE {{ GRAPH <" + graph + "> {{ <{uri}> ?p ?o }} }} "
+            "WHERE {{ GRAPH <" + graph + "> {{ <{uri}> ?p ?o }} }};"
+        )
+        clauses.append(
+            "DELETE {{ GRAPH <" + graph + "> {{ ?s ?p <{uri}> }} }} "
+            "WHERE {{ GRAPH <" + graph + "> {{ ?s ?p <{uri}> }} }};"
+        )
+    return "\n".join(clauses).format(uri=esc_uri)
 
 
 def _sparql_select(sparql):
-    """Run a SPARQL SELECT on Oxigraph, return list of binding dicts."""
+    """Run a SPARQL SELECT on Oxigraph, return list of binding dicts.
+
+    The query is graph-scoped first (see ``_graph_scoped``) so CM048's
+    named-graph triples are on the read path alongside CM041's
+    default-graph ones.
+    """
     req = urllib.request.Request(
         OXIGRAPH_URL.rstrip("/") + "/query",
-        data=sparql.encode("utf-8"),
+        data=_graph_scoped(sparql).encode("utf-8"),
         headers={
             "Content-Type": "application/sparql-query",
             "Accept": "application/sparql-results+json",
@@ -1374,7 +1517,16 @@ def api_conversation_process(payload):
 
     Accepts {transcript, metadata}. Saves raw inputs, spawns background
     processing, returns job_id immediately.
+
+    Rule 0.8: call and meeting transcription is one of the eleven named
+    surfaces. Gate BEFORE the pwg-convo probe and before the thread is
+    spawned, so an unpaid Hub does not start work it will not finish.
+    The recording itself is never touched -- CM042 keeps its own file.
     """
+    paused = _subscription_paused("conversation_transcription")
+    if paused is not None:
+        return paused
+
     transcript = payload.get("transcript", "")
     metadata = payload.get("metadata", {})
 
@@ -1513,12 +1665,21 @@ def api_people_forget(slug):
 
     # Oxigraph: delete every triple where this URI is subject, then
     # every triple where it's object (incoming relationships, mentions).
-    # Both in one UPDATE so partial-failure is less likely.
-    esc_uri = person_uri.replace("\\", "\\\\").replace(">", "%3E")
-    sparql_update = (
-        "DELETE {{ <{uri}> ?p ?o }} WHERE {{ <{uri}> ?p ?o }};\n"
-        "DELETE {{ ?s ?p <{uri}> }} WHERE {{ ?s ?p <{uri}> }};"
-    ).format(uri=esc_uri)
+    # All in one UPDATE so partial-failure is less likely.
+    #
+    # v1018-D012b: the bare `DELETE ... WHERE` forms below reach the
+    # DEFAULT graph ONLY. CM048 writes this person's facts, relationship
+    # signals and conversation links into the NAMED graph
+    # `urn:ostler:user/<id>`, and with `--union-default-graph` off (it is,
+    # and compartment.py requires it stays off) an unqualified DELETE
+    # cannot see them. The erasure therefore silently under-deleted and
+    # left the person's records behind. Each named graph in this user's
+    # scope needs its own explicitly-scoped pair.
+    #
+    # Scope matches `_USER_GRAPH_URIS` -- the same graphs the readers
+    # span -- so a forget removes everything any Ostler surface could
+    # still show, without deleting out of another user's compartment.
+    sparql_update = _forget_person_update(person_uri, _USER_GRAPH_URIS)
     try:
         _sparql_update(sparql_update)
         stores_purged.append("oxigraph")
@@ -2295,22 +2456,98 @@ def _memory_query_facts() -> list:
     #
     # ?about is returned so a caller can name the subject: answering "who is
     # my wife" needs jane's name, not just the sentence.
+    # THE SECOND BUG, SAME SHAPE, FOUND 2026-09-16
+    # ------------------------------------------------------------------
+    # The query above was still asking a question no writer answers. On a
+    # live box:
+    #
+    #     ?s a pwg:PersonFact          0    in EVERY graph
+    #     ?s a <urn:ostler:Fact>     990    in the per-user named graph
+    #     CONTROL ?s a pwg:Person   3810    so the probe discriminates
+    #
+    # CM048 -- the conversation-mining pipeline that produces essentially
+    # all of a customer's remembered facts -- writes its OWN vocabulary in
+    # its OWN named graph (cm048_pipeline/src/ingest.py ~L1008):
+    #
+    #     GRAPH <urn:ostler:user/<id>> {
+    #       <fact> a <urn:ostler:Fact> ;
+    #              <urn:ostler:text>   "..." ;   # NOT pwg:factText
+    #              <urn:ostler:about>  <...>  ;  # NOT pwg:aboutPerson
+    #              <urn:ostler:domain> "..." ;   # NOT pwg:factDomain
+    #              <urn:ostler:userId> "..." ;   # NOT pwg:belongsToUser
+    #     }
+    #
+    # So there were TWO mismatches stacked, and fixing either alone still
+    # returns nothing: the TYPE and predicate names differ, AND the data
+    # sits in a NAMED GRAPH while a SPARQL query with no GRAPH clause reads
+    # only the default graph. That second half is easy to miss -- it is the
+    # reason the first probe written for this returned 0 for the control too.
+    #
+    # WHY THE READER MOVES AND NOT THE WRITER. 990 facts are already on this
+    # customer's disk in the CM048 vocabulary; rewriting the writer to emit
+    # pwg: terms would orphan every one of them and leave the surface empty
+    # until a full re-mine. And pwg:PersonFact is NOT dead vocabulary -- it
+    # is still written by contact_syncer/facebook_events.py,
+    # linkedin_career.py and google_calendar.py -- so the reader has to serve
+    # BOTH. Hence a UNION rather than a replacement.
+    #
+    # The shape is lifted from ostler_hygiene/graph_io.py build_facts_query,
+    # which is the canonical dual-vocabulary reader in this repo and has been
+    # reading both arms correctly all along. This function simply never used it.
+    #
+    # USER SCOPING IS CASE-INSENSITIVE ON PURPOSE. USER_ID here has been
+    # through identity_resolver.compartment.normalise_user_id, which
+    # LOWER-CASES; CM048 writes settings.user_id verbatim, so a box whose
+    # operator typed "Jane" has graph <urn:ostler:user/Jane> and userId
+    # "Jane" while this module holds "jane". Comparing those raw is the very
+    # defect class this commit is closing, so compare folded. USER_ID is
+    # already slug-normalised ([a-z0-9_-] only), so it cannot break the IRI
+    # or the literal it is interpolated into.
+    #
+    # L3 IS WITHHELD ON THE CM048 ARM, and that is a requirement of this
+    # change rather than an extra. These rows were unreachable before, so
+    # turning them on is the moment a privacy stamp starts to matter; CM048
+    # forbids L3 on facts (see ostler_hygiene/model.py), and an L3 row
+    # appearing here would be a new leak introduced by a fix. Withheld
+    # explicitly rather than trusted not to exist.
     sparql = (
         'PREFIX pwg: <{ns}>\n'
         'SELECT DISTINCT ?fact ?text ?source ?domain ?conf ?validFrom ?about ?aboutName '
         'WHERE {{\n'
-        '  ?fact a pwg:PersonFact ; pwg:factText ?text .\n'
-        '  {{ ?fact pwg:aboutPerson <{user}> }}\n'
-        '  UNION\n'
-        '  {{ ?fact pwg:belongsToUser <{user}> }}\n'
-        '  OPTIONAL {{ ?fact pwg:aboutPerson ?about .\n'
-        '             OPTIONAL {{ ?about pwg:displayName ?aboutName }} }}\n'
-        '  OPTIONAL {{ ?fact pwg:factSource ?source }}\n'
-        '  OPTIONAL {{ ?fact pwg:factDomain ?domain }}\n'
-        '  OPTIONAL {{ ?fact pwg:confidence ?conf }}\n'
-        '  OPTIONAL {{ ?fact pwg:validFrom ?validFrom }}\n'
-        '  FILTER NOT EXISTS {{ ?fact pwg:validTo ?end }}\n'
-        '}}'.format(ns=PWG_NS, user=USER_URI)
+        '  {{\n'
+        '    ?fact a pwg:PersonFact ; pwg:factText ?text .\n'
+        '    {{ ?fact pwg:aboutPerson <{user}> }}\n'
+        '    UNION\n'
+        '    {{ ?fact pwg:belongsToUser <{user}> }}\n'
+        '    OPTIONAL {{ ?fact pwg:aboutPerson ?about .\n'
+        '               OPTIONAL {{ ?about pwg:displayName ?aboutName }} }}\n'
+        '    OPTIONAL {{ ?fact pwg:factSource ?source }}\n'
+        '    OPTIONAL {{ ?fact pwg:factDomain ?domain }}\n'
+        '    OPTIONAL {{ ?fact pwg:confidence ?conf }}\n'
+        '    OPTIONAL {{ ?fact pwg:validFrom ?validFrom }}\n'
+        '    FILTER NOT EXISTS {{ ?fact pwg:validTo ?end }}\n'
+        '  }} UNION {{\n'
+        '    GRAPH ?g {{\n'
+        '      ?fact a <urn:ostler:Fact> ;\n'
+        '            <urn:ostler:text> ?text ;\n'
+        '            <urn:ostler:userId> ?uid .\n'
+        '      OPTIONAL {{ ?fact <urn:ostler:about> ?about }}\n'
+        '      OPTIONAL {{ ?fact <urn:ostler:domain> ?domain }}\n'
+        '      OPTIONAL {{ ?fact <urn:ostler:observedAt> ?validFrom }}\n'
+        '      OPTIONAL {{ ?fact <urn:ostler:privacyLevel> ?privacy }}\n'
+        '      OPTIONAL {{ ?fact <urn:ostler:signalStrength> ?signal }}\n'
+        '    }}\n'
+        '    FILTER (LCASE(STR(?uid)) = "{user_id}")\n'
+        '    FILTER (!BOUND(?privacy) || UCASE(STR(?privacy)) != "L3")\n'
+        # CM048 grades a fact qualitatively; the consumer wants a float and
+        # falls back to 0.5 on anything unparseable. Mapping here keeps the
+        # ordering CM048 intended instead of flattening all 990 to the
+        # default. Unrecognised grades stay unbound and take that default.
+        '    BIND(IF(STR(?signal) = "strong", 0.9,\n'
+        '         IF(STR(?signal) = "medium", 0.6,\n'
+        '         IF(STR(?signal) = "weak", 0.3, ?unmapped))) AS ?conf)\n'
+        '  }}\n'
+        '}}'.format(ns=PWG_NS, user=USER_URI, user_id=USER_ID)
     )
     return _sparql_select(sparql)
 
@@ -5453,7 +5690,15 @@ def api_ingest_ios(payload):
     (meetings, calendar) already keyed by date. The graph write is
     best-effort: a graph failure never fails the ingest (the JSONL spool
     is the durable record).
+
+    Rule 0.8 (PRODUCTISATION_CHECKLIST.md): this is NEW data arriving
+    from the phone, so it pauses without Ostler Pro. Reads are untouched
+    -- everything already spooled stays queryable on every endpoint.
     """
+    paused = _subscription_paused("ios_ingest")
+    if paused is not None:
+        return paused
+
     import time
     import uuid
 
@@ -5697,7 +5942,15 @@ def api_safari_ingest(payload):
     ``ostler_fda/pwg_ingest.ingest_browser_history`` but for one page
     at a time: sensitive-domain filter, Ollama embed of
     (title + host + url), Qdrant upsert into ``safari_history``.
+
+    Rule 0.8: browser capture is one of the eleven named surfaces. It
+    pauses without Ostler Pro. The extension keeps its own retry, so a
+    402 here is not a lost page, it is a deferred one.
     """
+    paused = _subscription_paused("safari_capture")
+    if paused is not None:
+        return paused
+
     import uuid as _uuid
     import time as _time
 
@@ -5804,6 +6057,126 @@ def api_safari_ingest(payload):
 # can fan out work and collect named results. Every helper is wrapped in
 # a blanket try/except – a misbehaving dependency must NEVER propagate
 # up to the endpoint handler.
+
+
+def _subscription_paused(surface):
+    """Rule 0.8: should this ingestion surface pause for an unpaid Hub?
+
+    Returns a ``(body, status)`` 402 tuple when ongoing intelligence is
+    paused, or ``None`` when the surface should carry on.
+
+    Named surfaces, so a Doctor reading the log can say WHICH pipeline
+    paused rather than "something is off". Pass the stable channel id.
+
+    🔴 FAILS OPEN, ON PURPOSE, AND ONLY ON A FAILURE TO ASK. If the gate
+    module cannot be imported or raises, the customer keeps their
+    intelligence. A packaging mistake must never masquerade as a lapsed
+    subscription -- that is a support call from someone who has paid. It
+    must also never be invisible, so the reason is printed every time.
+    The thing that makes this safe is that the gate module SHIPS BESIDE
+    this file: install.sh L22685 does `cp -R assistant_api/. ` into
+    ${OSTLER_DIR}/services/ical-server/, and this process already runs
+    with that directory on sys.path (api_subscription_receipt has
+    imported it the same way since PR #190).
+
+    Apple-restraint language: "paused", never "locked". Data already
+    ingested stays fully readable on every endpoint; only NEW data stops.
+    """
+    try:
+        import subscription_gate  # type: ignore[import-not-found]
+        if subscription_gate.is_active_or_grace():
+            return None
+        snapshot = subscription_gate.state_dict()
+    except Exception as exc:
+        print(
+            f"WARNING: subscription gate unavailable for {surface} "
+            f"({exc}); continuing to ingest. A customer is never paused "
+            "because we could not ask.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return None
+    print(
+        f"[subscription] {surface}: paused -- Ostler Pro is not active "
+        f"(status={snapshot.get('status')}, source={snapshot.get('source')}). "
+        "Existing data stays available; new capture resumes on the next "
+        "receipt push.",
+        flush=True,
+    )
+    return (
+        {
+            "status": "paused",
+            "reason": "subscription_inactive",
+            "surface": surface,
+            "detail": (
+                "Ostler Pro is not active, so new data is not being "
+                "processed. Everything already in your Hub stays "
+                "available. Subscribe in the Ostler app to resume."
+            ),
+        },
+        402,
+    )
+
+
+def _start_subscription_expiry_ticker():
+    """Walk the subscription state forward on a schedule. THE MISSING WIRE.
+
+    ``subscription_gate.expire_check()`` shipped with ZERO production
+    callers. Nothing anywhere in the installed Hub ever called it, so the
+    state file install.sh wrote on day zero (``status=active``,
+    ``expires_at=+30d``) still said ``active`` on day 300, and every Hub
+    buyer had Ostler Pro free for life. Two independent sweeps found it
+    on 2026-09-16.
+
+    This runs it hourly inside the ical-server, which is the right host
+    for three reasons: it is already a KeepAlive LaunchAgent
+    (``com.ostler.ical-server``, install.sh L22729), so there is no new
+    plist to bootstrap and no new EX_CONFIG failure mode on the install
+    path; it is the process that already owns the gate module; and it is
+    the process that serves the receipt push that writes the state.
+
+    A daemon thread, so it can never hold up interpreter shutdown, and
+    every tick is wrapped: a failure to walk the state must not take the
+    Assistant API down with it.
+
+    NOTE FOR ANYONE TEMPTED TO REMOVE THIS: deleting it will not restore
+    the defect on its own, because ``is_active_or_grace`` now walks the
+    state in-process on every read. That is deliberate belt and braces.
+    What you WILL break is the Doctor banner and every support
+    conversation, which read the persisted status.
+    """
+    interval = 3600
+
+    def _tick():
+        # Local import, matching this file's convention (there is no
+        # module-level `import time`; every handler imports it locally).
+        import time as _time
+
+        while True:
+            try:
+                import subscription_gate  # type: ignore[import-not-found]
+                subscription_gate.expire_check()
+            except Exception as exc:
+                print(
+                    f"WARNING: subscription expiry tick failed ({exc}); "
+                    "the in-process walk in is_active_or_grace still "
+                    "gates ingestion correctly.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            _time.sleep(interval)
+
+    thread = threading.Thread(
+        target=_tick,
+        name="subscription-expiry-ticker",
+        daemon=True,
+    )
+    thread.start()
+    print(
+        f"subscription expiry ticker: started (every {interval}s)",
+        flush=True,
+    )
+    return thread
 
 
 def api_subscription_receipt(payload):
@@ -7916,6 +8289,10 @@ if __name__ == "__main__":
     BIND_HOST = os.environ.get("OSTLER_API_BIND", "127.0.0.1")
     # Tag the historical privacy coverage gap before answering /people/*.
     _run_privacy_backfill_on_startup()
+    # Walk the subscription state forward from here on. Before this line
+    # existed, expire_check() had no production caller at all and no
+    # trial ever ended. See _start_subscription_expiry_ticker.
+    _start_subscription_expiry_ticker()
     # Service-token auth posture (v1.0.10 lockdown). Loud so a missing token
     # is never silent: without it, every non-public endpoint fails closed
     # (401). There is no environment escape hatch.
@@ -7944,4 +8321,33 @@ if __name__ == "__main__":
             file=sys.stderr,
             flush=True,
         )
-    HTTPServer((BIND_HOST, PORT), Handler).serve_forever()
+    # ONE SLOW HANDLER MUST NEVER TAKE THE WHOLE API DOWN.
+    #
+    # This was a plain HTTPServer, which serves exactly one request at a time.
+    # Measured on the v1.0.98 founder box: GET /api/v1/contacts/diff spent 126s
+    # inside the duplicate scan, and for that entire window /health and
+    # /calendar/today both returned 000 (curl rc=28, connect never answered) --
+    # so the iOS app showed "Hub offline" and the assistant answered nothing
+    # until the process was restarted. A single report route could deny service
+    # to the customer's whole Hub.
+    #
+    # The diff route's own cost is fixed separately (identity_resolver/
+    # batch_resolver.py: the edit distance is no longer computed for all 6.5M
+    # pairs). This is the structural half: no future slow handler gets to do
+    # the same thing again.
+    #
+    # SAFE TO THREAD, checked rather than assumed. Handler state is per-request
+    # (BaseHTTPRequestHandler instantiates one per connection). The module-level
+    # tables the handlers read -- _ALLOWED_HOST_NAMES, _PUBLIC_GET_PATHS,
+    # _SLUG_TRANSLIT, WIKI_HYDRATION_ALLOWED_ORIGINS, GWS_ENV,
+    # _ASSERT_FIELD_ALIASES, _MEMORY_SOURCE_LABELS, _DEGRADED_FEATURE_MAP -- are
+    # read-only after import (zero mutation sites). The only two mutable globals
+    # are idempotent: _PLAINTEXT_WARNED is a warn-once flag whose worst race
+    # prints the warning twice, and _reply_debt_service memoises an
+    # importlib.import_module whose worst race re-enters an import that
+    # sys.modules already makes idempotent.
+    #
+    # daemon_threads: a hung handler must not keep the process alive at
+    # shutdown, or launchd's stop turns into a kill.
+    ThreadingHTTPServer.daemon_threads = True
+    ThreadingHTTPServer((BIND_HOST, PORT), Handler).serve_forever()

@@ -48,6 +48,11 @@ on:
       - 'cut-deferrals.yaml'
       - 'scripts/post_walk_qa.sh'
       - 'tests/test_walk_record_names_the_failing_probes.sh'
+      # A failing box_walk_probe's full output, and a phase-2 (cut-manifest)
+      # failure reaching the walk record by name. BOTH are triggers: a run:
+      # with no matching paths: entry is dark on self-edit.
+      - 'tests/test_a_failing_probes_early_output_is_not_discarded.py'
+      - 'tests/test_phase_2_failures_reach_the_walk_record.sh'
       - 'tests/test_cannot_run_names_its_prerequisite.sh'
       - 'tests/test_walk_record_states_measured_count.sh'
       # A walk record named its SUBJECT six ways and its INSTRUMENT not at all,
@@ -66,6 +71,24 @@ on:
       # BOTH are triggers, or an edit to one is dark.
       - 'scripts/tests/test_an_unreachable_box_is_not_a_defect.sh'
       - 'scripts/box_walk_probes/acceptance_gate_v1013.sh'
+      # A4 graded a flag the installer sets by design and A6 read every log on
+      # the box; both stood red behind the A7 footer for three records.
+      - 'scripts/tests/test_acceptance_gate_grades_what_it_names.sh'
+      # daemon_is_listening.sh and the_recovery_key_reached_the_customer.sh
+      # each drove their self-test through a LOCAL copy of the decision logic
+      # rather than the code run_probe actually calls: a regression in the
+      # real chain left the negative control byte-identical. BOTH are
+      # triggers, or an edit to either is dark on self-edit.
+      - 'scripts/tests/test_a_probes_self_test_must_drive_its_own_decision.sh'
+      - 'scripts/box_walk_probes/probes/daemon_is_listening.sh'
+      - 'scripts/box_walk_probes/probes/the_recovery_key_reached_the_customer.sh'
+      # The replay reads the box after the walk's forgets; the walk recompiles first.
+      - 'tests/test_the_replay_reads_the_box_the_probes_read.sh'
+      - 'scripts/box_walk_probes/lib/wiki_summaries_wait.sh'
+      - 'scripts/box_walk_probes/run_box_walk.sh'
+      # The permanent-manifest-is-not-optional guard and its subject. BOTH are
+      # triggers: a run: with no matching paths: entry is dark on self-edit.
+      - 'tests/test_the_permanent_manifest_is_not_optional.sh'
   push:
     branches: [main]
 
@@ -133,6 +156,19 @@ jobs:
         run: |
           python -m pytest scripts/tests/test_verify_cut_manifest.py scripts/tests/test_grep_in_source_at_sha_names_files.py -v
 
+      # THE PERMANENT NEVER-REGRESS BACKSTOP IS NOT OPTIONAL.
+      #
+      # verify_cut_manifest.py used to load cut-manifests/permanent.yaml "if
+      # present": an absent file, a wrong --manifest-dir, or a rename printed
+      # one WARN to stderr and the run continued scoring the per-cut manifest
+      # alone, with no fail/cannot_run recorded for the rows never read. A run
+      # that examined a fraction of the estate still exited 0 GREEN. This drives
+      # the real gate over synthetic fixtures and proves an absent permanent.yaml
+      # now refuses with CANNOT-RUN before anything is scored.
+      - name: The permanent manifest backstop is not optional
+        if: always()
+        run: bash tests/test_the_permanent_manifest_is_not_optional.sh
+
       # A walk record travels -- logs, support bundles, CI output -- and this
       # repo is PUBLIC. A Person URI is derivable from an email or phone via
       # unsalted uuid5 with a namespace and template that are both in this
@@ -163,6 +199,43 @@ jobs:
         # same job SKIPS this step, and a skipped test reports nothing at all.
         if: always()
         run: /bin/bash scripts/tests/test_wiki_digest_pin_assertion.sh
+
+      # daemon_is_listening.sh and the_recovery_key_reached_the_customer.sh
+      # each defined a local decision function inside self_test (classify,
+      # _decide) and drove fixtures through THAT, while run_probe's real
+      # adjudication was a separately written if/case chain reaching
+      # probe_pass/probe_fail/probe_cannot_run directly and never called
+      # either function. A regression that turned a real FAIL into a PASS
+      # left the self-test byte-identical -- measured directly against the
+      # pre-fix files: mutating the named v1.0.31 and v1.0.68 FAIL calls into
+      # PASS left both self-tests reporting "ok" (rc=1, no BROKEN).
+      #
+      # Both probes now share ONE decision function between run_probe and
+      # self_test. This proves the coupling by mutating that function (the
+      # same named-incident FAIL -> PASS) and requiring the self-test to go
+      # BROKEN, using run_box_walk.sh's own phase-1 predicate.
+      #
+      # if: always() -- ci-maskless (#1695): a red earlier in the job must not
+      # skip the one check that would catch this class of regression.
+      - name: A probe's self-test must drive its own decision, not a copy
+        if: always()
+        run: /bin/bash scripts/tests/test_a_probes_self_test_must_drive_its_own_decision.sh
+
+      # v1.0.87: A4 asserted three pairing flags agree on an unpaired box, which
+      # no correctly installed box satisfies (the installer seeds the admin
+      # token, so token_paired is true by design); A6 counted a conversation
+      # ingest 400 against the wiki compiler because it read every log. Hermetic
+      # fake-box arms for both, plus the controls that they still fail.
+      - name: the acceptance gate grades what its titles name
+        if: always()
+        run: /bin/bash scripts/tests/test_acceptance_gate_grades_what_it_names.sh
+
+      # v1.0.87: the manifest replay read people_stores_reconcile after the walk
+      # removed its synthetic person, against a wiki compiled with the person in
+      # it. The walk now recompiles after the forgets; this proves the wiring.
+      - name: the replay reads the box the probes read
+        if: always()
+        run: /bin/bash tests/test_the_replay_reads_the_box_the_probes_read.sh
 
       # A grep_in_source_at_sha row must be provable by the SOURCE it names, not
       # by the manifest text that makes the claim.
@@ -227,6 +300,15 @@ jobs:
         if: always()
         run: python3 tests/test_a_timed_out_probe_is_not_a_failing_probe.py
 
+      # A FAILING PROBE'S EARLY OUTPUT MUST SURVIVE, NOT ONLY ITS LAST LINE.
+      # no_unexpected_egress prints the offending process and remote address
+      # BEFORE its closing VERDICT line; check_box_walk_probe used to keep
+      # only that last line, truncated to 200 characters, so on two
+      # consecutive real cuts the failure could not be attributed to anything.
+      - name: A failing probe's early output is not discarded
+        if: always()
+        run: python3 tests/test_a_failing_probes_early_output_is_not_discarded.py
+
       # THE SAME DEFECT ONE LAYER DOWN, AND IT SURVIVED THE ROW ABOVE. The
       # probe timeouts were fixed; the GH API timeouts were not.
       # _gh_api_json and _fetch_asset_content returned (None, "...timed out")
@@ -270,6 +352,20 @@ jobs:
       - name: the walk record names the failing probes, and leaks no host
         if: always()
         run: /bin/bash tests/test_walk_record_names_the_failing_probes.sh
+
+      # THE SAME NAMING, FOR A PHASE-2 (CUT-MANIFEST) FAILURE. no_unexpected_
+      # egress failed on two consecutive real cuts in the manifest replay
+      # while phase 1 stayed clean, and the walk record named nobody:
+      # failed_probe_names_recorded read "0 of 0" while a blocking probe was
+      # red, so scripts/verify_walk_record.sh's promote gate could not scope
+      # its decision and refused unscoped. This checks the manifest gate's
+      # output is captured, a FAIL/CANNOT-RUN row's probe name is recovered
+      # from it, and the merge into failed_probe/not_measured_probe turns
+      # "0 of 0" into "N of N" without inventing a failure that was never
+      # measured.
+      - name: a phase-2 (cut-manifest) failure reaches the walk record too
+        if: always()
+        run: /bin/bash tests/test_phase_2_failures_reach_the_walk_record.sh
 
   # The box-walk probe body itself. The primitive above only proves the
   # verifier honours a probe's exit code; this job proves the people probe

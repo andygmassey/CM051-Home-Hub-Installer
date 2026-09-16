@@ -217,29 +217,7 @@ ABS_VENDOR="$VLIB_REPO_ROOT/$VENDOR_PATH"
 # consulted, because every one of those is a thing an operator can change and
 # this ban must not be escapable by changing them. See the header for the
 # measurement that forced this.
-FORBID="$(vlib_field "$TREE" regenerate_forbidden)"
-if [ "$FORBID" = "true" ]; then
-    FORBID_WHY="$(vlib_field "$TREE" regenerate_forbidden_reason)"
-    echo "" >&2
-    echo "REFUSED: $TREE is marked regenerate_forbidden in VENDOR_MANIFEST.toml." >&2
-    echo "" >&2
-    if [ -n "$FORBID_WHY" ]; then
-        echo "  Declared reason:" >&2
-        printf '%s\n' "$FORBID_WHY" | fold -s -w 72 | sed 's/^/    /' >&2
-    else
-        # Fail closed. A ban with no reason is malformed, and the safe reading
-        # of a malformed ban is that it still bans.
-        echo "  NO regenerate_forbidden_reason IS DECLARED. That is malformed, and it" >&2
-        echo "  is still a refusal: an undocumented ban is not a licence to proceed." >&2
-        echo "  Add the reason, or remove the ban deliberately." >&2
-    fi
-    echo "" >&2
-    echo "  This ban is checked BEFORE the source checkout, so it cannot be cleared" >&2
-    echo "  by re-pointing an env placeholder or moving a checkout. Do not route" >&2
-    echo "  around it with sync_vendor.sh either: that re-syncs FROM source and" >&2
-    echo "  deletes the vendored side, which is where scrubs live." >&2
-    exit 1
-fi
+vlib_refuse_if_regenerate_forbidden "$TREE" || exit 1
 
 [ -n "$PATCH_REL" ]   || die_cannot_run "$TREE declares no divergence_patch path in the manifest"
 [ -d "$ABS_VENDOR" ]  || die_cannot_run "vendored tree missing on disk: $VENDOR_PATH"

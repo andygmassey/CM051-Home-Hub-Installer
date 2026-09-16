@@ -494,6 +494,18 @@ run_probe() {
     # "disagree" as settled fact. Neither marker helps: dedupe-converge.done had
     # fired, and hydration reported contacts state=done, while the count was
     # still moving through both.
+    # ─── DO NOT GRADE THE STORES WHILE THE INGEST TICK IS MINTING ──────────
+    # The hourly com.ostler.fda-rerun moves the graph and the vector store apart
+    # by design between its legs. v1.0.89 read the difference and called it a
+    # disagreement. Hold, then read; a tick that will not stop is CANNOT-RUN,
+    # never a pass, and so is a state that could not be read at all.
+    box_wait_ingest_quiet
+    case $? in
+        0) : ;;
+        1) probe_cannot_run "$PROBE_TICK_DETAIL" ;;
+        2) probe_cannot_run "$PROBE_TICK_DETAIL" ;;
+    esac
+
     local oxi doc _prev_pair="" _pair _runs=0 _stable=0 _swaited=0
     while :; do
         oxi="$(count_oxigraph)"

@@ -247,3 +247,55 @@ What we ask of you:
 Legal note: Recording the spoken word can be regulated by national law – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them.
 """,
 )
+
+
+# Personal-use-only terms, shown to every user in the Phase-2 consent batch.
+#
+# WHY THIS EXISTS, and why it is a CONSENT STRING rather than a terms page
+# nobody reads. Three obligations cannot be met by any warning, because the
+# person who would have to act on the warning is not the person in the room:
+#
+#   BUSINESS USE breaks the position the rest of the product rests on. If an
+#   employer deploys Ostler to staff, the EMPLOYER becomes the data controller
+#   for every colleague, client and patient captured, and the household-activity
+#   position that protects a private individual does not apply to them. That
+#   pulls in impact assessments, works-council duties in parts of the EU and
+#   vicarious liability in the US. None of it is survivable for a company this
+#   size, and all of it disappears if the product is personal-use only.
+#
+#   MINORS cannot consent. The operator ticking "I have consent" is legally
+#   meaningless on a child's behalf, so the obligation has to be named rather
+#   than folded into a general assurance.
+#
+#   PRIVILEGED SETTINGS are a different order of wrong even where recording is
+#   otherwise lawful: a doctor's room, a solicitor's office, a therapy session,
+#   a confessional. No terms page outsources that, so we ask directly.
+#
+# The copy is deliberately plain and short. It is a statement of what Ostler is
+# for, not a scare screen, and it mirrors SPOKEN_CAPTURE_RECORDING_CONSENT's
+# non-alarming register.
+PERSONAL_USE_ONLY = ConsentString(
+    tickbox_id="personal_use_only",
+    version="v1.0-2026-09-17",
+    scope="personal_use_only",
+    text="""What Ostler is for
+
+Ostler is built for one person, on their own Mac, to understand their own life. That is the whole design, and it is why your data never leaves this machine.
+
+It is not built for business use. Please do not deploy Ostler to staff, or use it in the course of your job to capture colleagues, clients, patients or customers. If an organisation does that, the organisation becomes responsible for everyone whose information it collects, and Ostler is not designed to carry that.
+
+You are the one recording. Ostler is the tool. Where your local law requires consent before a conversation is recorded, obtaining it is yours to do, and we cannot know from here whether any particular recording is lawful where you are.
+
+Three things we ask you not to do:
+
+- Do not record children without a parent or guardian agreeing. A child cannot give that agreement themselves, and your own assurance does not stand in for theirs.
+- Do not record in places where people expect real privacy: a doctor's appointment, a solicitor's meeting, a therapy session, a religious confession, a bathroom or changing room.
+- Do not use Ostler to record anyone covertly where the law where you are does not allow it.
+
+If you break these, we may end your licence. We would rather simply be clear up front.
+
+[ ] I understand. I am using Ostler for myself, personally.
+
+Legal note: Ostler is licensed for personal, non-commercial use by a natural person. Creative Machines is not a data controller or processor of the information you keep on your Mac, receives none of it, and gives no warranty that any particular recording or capture is lawful in your jurisdiction.
+""",
+)

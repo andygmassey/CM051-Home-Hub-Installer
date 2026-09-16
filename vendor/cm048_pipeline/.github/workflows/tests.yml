@@ -1,0 +1,170 @@
+name: Tests
+
+# Until 2026-08-23 this repo ran ONE test file of 36:
+#   prompt-gates.yml -> pytest tests/test_prompt_examples_do_not_teach_placeholders.py
+# Everything else was DARK. That included the 23 tests guarding #73 (the
+# poison-pill IRI fix, already merged to main) and the 13 guarding #74.
+# A fix on main with no CI guard is a fix that can be silently reverted.
+#
+# Why it was dark: src/ingest.py hard-fails at import when ostler_security
+# is missing, and ostler_security lives in HR015-Gaming-PC, which is
+# PRIVATE. CM048's GITHUB_TOKEN cannot check it out, so 35 files could not
+# even be COLLECTED. tests/conftest.py now supplies a minimal stand-in when
+# the real package is absent, and tests/test_security_guard_still_hard_fails.py
+# proves in a subprocess that the production guard is untouched.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    name: Full suite (${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        python: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # Measured on 2026-08-23 by collecting the suite locally: these are
+      # the only third-party imports the tests reach. cryptography is
+      # needed by ostler_security on a dev box; harmless here.
+      - name: Install test dependencies
+        run: |
+          python -m pip install --quiet --upgrade pip
+          python -m pip install --quiet \
+            pytest cryptography httpx pydantic pyyaml python-dateutil \
+            'pyoxigraph>=0.4,<1.0'
+
+      # ── The floor. PINNED, never derived. ───────────────────────────────
+      #
+      # 734 = the count collected on origin/main eaf63b7 (which includes
+      # #73's 23 and #74's 13). It is written here as a LITERAL and this
+      # file is tracked, so a squash merge cannot quietly lose the
+      # baseline the way a branch-local artefact would (CM051 #886).
+      #
+      # Deriving the floor from "whatever CI collects today" would make it
+      # agree with any number, including a collapsed suite. That is the
+      # vacuity this exists to prevent.
+      # ⚠️ THE COUNT LIMB ALONE IS BLIND TO AN UNIMPORTABLE MODULE, which is
+      # the very thing the error text below claims it catches. Measured on
+      # 2026-08-23 against this branch, both arms of a two-sided control:
+      #
+      #   module fails to import   pytest rc = 2   count = 773  -> PASSED
+      #   same tree, module ignored pytest rc = 0   count = 773  -> passed
+      #
+      # The count is BYTE-IDENTICAL in both arms. An entire ~40-test
+      # acceptance file had vanished (tests/test_topic_bridge_readback.py,
+      # missing pyoxigraph) and the number did not move -- because a floor
+      # measures the SURVIVORS, and the survivors still cleared it. The old
+      # `2>/dev/null` also discarded the only diagnostic. pytest's own rc
+      # discriminates 2-vs-0; the count never could. Both limbs, and the rc
+      # limb goes FIRST because it is the one that is not invariant.
+      - name: Collect, and refuse a suite that SHRUNK or STOPPED IMPORTING
+        id: collect
+        run: |
+          set -euo pipefail
+          # 734 -> 751: +17 for the usage-journal producer (tests/
+          # test_usage_journal_wiring.py 13 + test_usage_journal_vendor_drift.py 4).
+          #
+          # RAISED BY MY OWN DELTA, NOT SET TO A LOCAL ABSOLUTE. My host collects
+          # 813 with these files and 796 without -- a difference of exactly 17 --
+          # but 796 is not 734, and I did not measure on CI's interpreter (no
+          # python3.12 on this machine; measured on 3.14). Writing 813 here would
+          # import an unexplained +62 from my box into the number that governs
+          # the runner. 734 + 17 ratchets by the thing this PR actually adds and
+          # stays true on whichever interpreter CI runs.
+          FLOOR=751
+
+          # rc captured BEFORE any pipe. `$?` after a pipeline is the LAST
+          # command's rc -- it would be grep's, and grep almost always
+          # succeeds, so the check would be unproducible by construction.
+          set +e
+          python -m pytest tests/ --collect-only -q > collect.txt 2>&1
+          RC=$?
+          set -e
+          tail -3 collect.txt
+
+          if [[ "$RC" -ne 0 ]]; then
+            echo "::error::pytest exited ${RC} during COLLECTION -- a test module"
+            echo "::error::failed to import. This is CANNOT-RUN, not a pass, and"
+            echo "::error::the count below may still clear the floor on its own."
+            grep -E '^(ERROR|E  )' collect.txt | head -20 || true
+            exit 1
+          fi
+
+          COUNT=$(tail -1 collect.txt | grep -oE '^[0-9]+' || echo 0)
+          echo "collected=${COUNT}  floor=${FLOOR}  collect_rc=${RC}"
+          if [[ "$COUNT" -eq 0 ]]; then
+            echo "::error::Collected ZERO tests. Collection is broken -- this is"
+            echo "::error::CANNOT-RUN, not a pass."
+            exit 1
+          fi
+          if [[ "$COUNT" -lt "$FLOOR" ]]; then
+            echo "::error::Test count fell from ${FLOOR} to ${COUNT}. Tests were"
+            echo "::error::deleted or a module stopped importing. If the drop is"
+            echo "::error::intentional, lower FLOOR in this file IN THE SAME PR"
+            echo "::error::and say why in the commit message."
+            exit 1
+          fi
+          echo "count=${COUNT}" >> "$GITHUB_OUTPUT"
+
+      # ── The run ─────────────────────────────────────────────────────────
+      #
+      # ONE deselect, named and dated rather than a blanket "|| true":
+      #
+      #   tests/test_integration.py::test_batch_all_fixtures
+      #
+      # Verified pre-existing on PRISTINE origin/main by control run on
+      # 2026-08-23 (checked out detached at origin/main, no local changes,
+      # same failure). It is NOT caused by the PRs that unblocked this
+      # suite. Tracked separately so it gets fixed rather than forgotten --
+      # if it is still deselected in a month, that is a defect in us.
+      - name: Run the suite
+        run: |
+          python -m pytest tests/ -q \
+            --deselect tests/test_integration.py::test_batch_all_fixtures
+
+      # A green above with the guard test absent would mean the conftest
+      # stub is free to mask the security hard-fail. Assert it ran.
+      #
+      # This list is a PIN, by name, on purpose. It went red on 2026-08-23
+      # when test_the_stub_is_only_used_when_the_real_package_is_absent was
+      # replaced by test_conftest_defers_to_a_real_package_when_one_is_importable
+      # -- the file was green, 4/4, and the step still refused. That is the
+      # intended behaviour: a guard assertion can be renamed out of existence
+      # as easily as deleted, and a count would not have noticed. If you
+      # rename or remove one of these, update this list IN THE SAME PR and
+      # say why.
+      - name: Prove the security-guard test actually executed
+        run: |
+          set -euo pipefail
+          OUT=$(python -m pytest tests/test_security_guard_still_hard_fails.py -v 2>&1)
+          echo "$OUT" | tail -20
+          for t in test_probe_subprocess_actually_runs \
+                   test_probe_does_not_accept_an_unrelated_runtime_error \
+                   test_probe_rejects_a_message_that_names_the_package_without_the_cause_chain \
+                   test_ingest_still_refuses_to_import_without_ostler_security \
+                   test_conftest_defers_to_a_real_package_when_one_is_importable; do
+            echo "$OUT" | grep -q "${t}.*PASSED" || {
+              echo "::error::${t} did not run or did not pass. The conftest stub"
+              echo "::error::is unguarded: it could be masking the ostler_security"
+              echo "::error::hard-fail and nothing would say so."
+              exit 1
+            }
+          done
+          echo "All three guard assertions executed and passed."

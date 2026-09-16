@@ -32,6 +32,41 @@
 # ============================================================================
 
 pr_exemptions:
+  # ── v1.0.90 cut, 2026-09-12 (ORM). Three DRAFT PRs over 48h, self-titled
+  #    HELD by their own authors under the launch-directive freeze (item 2:
+  #    "main accepts only PRs that move a walk probe, fix an install abort, or
+  #    fix a cut build failure -- if a change does not move a probe, it
+  #    waits"). check-pr-age caught this on a workflow_dispatch dry run
+  #    (34674986834), before any tag was spent -- exactly what the dispatch
+  #    exists for. None of the three touches install.sh, gui/, cuts/,
+  #    cut-manifests/ or vendor/, so exempting them changes nothing about what
+  #    v1.0.90 ships: this cut's tree is unaffected whether they stay open,
+  #    merge, or close. Not a judgement on any of the three changes.
+  - ref: "CM051-Home-Hub-Installer#1873"
+    reason: >-
+      DRAFT, "HELD: an absent HTTP library has not failed, and saying so
+      buried the ones that did". Opened 2026-09-09, 149 additions / 1
+      deletion across .github/workflows/venv-store-shim.yml,
+      lib/ostler_store_auth.py, tests/TEST_WIRING.tsv and one new test.
+      Self-declared HELD, not yet qualifying under the freeze criteria.
+      Held state and file list confirmed via `gh pr view 1873`.
+    review_by: "2026-09-19"
+  - ref: "CM051-Home-Hub-Installer#1872"
+    reason: >-
+      DRAFT, "HELD: why the interest profile was empty on a box with 830
+      preference points". Opened 2026-09-09, 190 additions across
+      .github/workflows/vendor-integrity.yml, tests/TEST_WIRING.tsv and one
+      new test. Self-declared HELD, not yet qualifying under the freeze
+      criteria. Held state and file list confirmed via `gh pr view 1872`.
+    review_by: "2026-09-19"
+  - ref: "CM051-Home-Hub-Installer#1868"
+    reason: >-
+      DRAFT, "HELD UNDER FREEZE: the pipefail ratchet could not see the form
+      that reddened #1865". Opened 2026-09-09, 221 additions / 30 deletions,
+      all three files under tests/ (a baseline fixture and two test scripts).
+      Held state and file list confirmed via `gh pr view 1868`.
+    review_by: "2026-09-19"
+
   # ── v1.0.61 cut, 2026-09-03 (Archie). Six PRs over 48h, none of which can
   #    reach this DMG, deferred so check-pr-age does not kill `make ship` at
   #    cut.yml:862. Every row here is deferred on ARITHMETIC or on DRAFT
@@ -157,7 +192,31 @@ pr_exemptions:
       passes. The INSTALL path is untouched, so the 41-of-41 depth measurement
       still holds. This one row stays deferred because it is still open, not
       because of any judgement about its merit.
-    review_by: "2026-09-09"
+      RENEWED 2026-09-10T05:3xZ (Aesop): this review date expired at 2026-09-09
+      and cut run 34441097038 for v1.0.86 was refused by check-pr-age on it,
+      before the build, at 05:29:08Z. The PR is still open under the launch
+      freeze (directive item 2: it moves no walk probe), TNM was asked to
+      renew or close and renewal is the default. Re-decide on the new date.
+    review_by: "2026-09-12"
+  - ref: "CM051-Home-Hub-Installer#1818"
+    reason: >-
+      RE-DECIDED 2026-09-13, and the grounds have CHANGED rather than been
+      renewed. The previous row deferred this on the launch freeze and said
+      "retire this row when the freeze lifts or the PR merges". THE FREEZE HAS
+      LIFTED (Andy, 2026-09-13), so that ground is gone and this is not a
+      rollover of it. What still holds is narrower and is Andy's own
+      instruction, carried in the PR's title: '[LAUNCH ITEM, do not merge
+      until walk clears]'. No clean walk record exists yet, so the one
+      condition the PR sets for itself is unmet and merging it now would
+      break that instruction rather than honour the lifted freeze. It remains
+      a DRAFT. It touches no file in this cut's tree, so exempting it changes
+      nothing about what v1.0.97 ships: the tree is identical whether this
+      sits open, merges, or closes. Deferred on Andy's standing instruction
+      and on draft status, not on merit, and this is not a judgement about
+      the uninstaller change. RETIRE THIS ROW when a clean walk record exists
+      (then it can merge and be judged on merit) or when Andy withdraws the
+      walk-clears condition. Not on the next cut, not automatically.
+    review_by: "2026-09-20"
   - ref: "CM051-Home-Hub-Installer#495"
     reason: >-
       'feat(cut-infra): vendor drift check + .vendor-manifests'. DRAFT, and
@@ -524,6 +583,76 @@ pr_exemptions:
       prompt_injection_mode, delete the dead prompt guard); daemon-side and not a
       v1.0 payload change. Either finish it or close it -- a permanent draft is
       the same invisibility the 176-PR backlog was made of.
+    review_by: "2026-09-12"
+
+
+  # ── v1.0.89 cut, 2026-09-10 (Archie). SEVEN PRs over 48h, none of them in
+  #    CM051 and none of them ours to merge on someone else's behalf. The tag
+  #    would die in-build at cut.yml:862 exactly as v1.0.86 did, which is why
+  #    this is filed under freeze item 2(c), a cut build failure, and not as
+  #    tidy-up. NOTHING HERE IS CLOSED OR MERGED: the PRs stay open and stay
+  #    printed on every run. review_by is 2026-09-12 for all seven, which is
+  #    two days, not a parking space.
+  #
+  #    ⚠️ TWO OF THESE RECORD A REAL TENSION RATHER THAN HIDING IT. HR015 #846
+  #    and #847 are docs-only and register-only changes, so freeze item 2
+  #    forbids merging them, and that is precisely why they aged past 48h. The
+  #    freeze says do not merge; the pr-age gate refuses to ship while they are
+  #    open. An exemption is the only move that keeps both rules true and says
+  #    so out loud. When the freeze lifts they merge, they do not linger.
+  - ref: "CM044-PWG-Personal-Wiki#271"
+    reason: >-
+      'build(deps): bump python from b0aed0e to 8edbf9e in /docker', a
+      dependabot base-image bump owned by the wiki repo. Not merged during the
+      launch freeze: a dependency bump at T-minus buys this cut nothing and
+      costs it an unmeasured delta. The wiki images this artefact pins are
+      already built and pinned by digest, so CM044 main moving changes no byte
+      of this DMG. Deferred on that arithmetic, not on merit.
+    review_by: "2026-09-12"
+  - ref: "CM044-PWG-Personal-Wiki#272"
+    reason: >-
+      'build(deps): update lxml requirement', a dependabot bump owned by the
+      wiki repo, same arithmetic as #271: the pinned wiki images are pinned by
+      DIGEST, so CM044 main moving cannot reach this artefact. Not ours to
+      merge on the wiki repo's behalf during the freeze.
+    review_by: "2026-09-12"
+  - ref: "CM044-PWG-Personal-Wiki#273"
+    reason: >-
+      'build(deps): update pyoxigraph requirement', a dependabot bump owned by
+      the wiki repo, same arithmetic as #271 and #272. Deferred, not dismissed:
+      these three are cheap and should be swept the week after launch.
+    review_by: "2026-09-12"
+  - ref: "CM044-PWG-Personal-Wiki#269"
+    reason: >-
+      'docs(release-images): the header promised multi-arch that the workflow
+      stopped building'. A DRAFT, and docs-only, so the freeze holds it on two
+      counts. It describes a real documentation defect in the wiki repo and is
+      deferred on freeze status, not on merit.
+    review_by: "2026-09-12"
+  - ref: "CM031-PWG-Companion#189"
+    reason: >-
+      'test(#185): the fetch between the two tested ends of the wiki credential
+      chain', owned by the iOS repo. CM031 is not in the customer install path
+      for this cut and its source enters no part of this DMG, so merging it
+      changes nothing here and is not ours to decide at T-minus.
+    review_by: "2026-09-12"
+  - ref: "HR015-Gaming-PC#846"
+    reason: >-
+      'chore(docs): correct stale launch-state and the local-cut recipe that
+      points at the refused path'. DOCS-ONLY, which freeze item 2 forbids
+      merging, and that is exactly why it aged past 48h. It touches no
+      installer source, no pin and no vendored tree, so it cannot reach this
+      DMG. The exemption records the collision between the freeze and this gate
+      rather than resolving it by quietly merging a PR the freeze excludes.
+    review_by: "2026-09-12"
+  - ref: "HR015-Gaming-PC#847"
+    reason: >-
+      'chore(tokens): register the 5 Apple signing/notary secrets and flag the
+      unrecorded cert expiry'. A REGISTER change in HR015, no values, and
+      docs-only in the freeze's sense, so item 2 holds it. It reaches no
+      installer source and no pin. Worth landing the day the freeze lifts: an
+      unrecorded certificate expiry is a real future outage, and this row is
+      the reminder that it is written down nowhere else yet.
     review_by: "2026-09-12"
 
 deferrals:

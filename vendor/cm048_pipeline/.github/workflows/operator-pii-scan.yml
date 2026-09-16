@@ -89,8 +89,19 @@ jobs:
               exit 1
           fi
           # Scanner exits 0 = clean, 1 = hits, 2 = inventory issue, 3 = rg missing.
-          if ! "$SCANNER" "${{ steps.stage.outputs.stage_dir }}"; then
-              status=$?
+          #
+          # The status MUST be captured from the scanner itself. The previous
+          # form was `if ! "$SCANNER" ...; then status=$?` -- and inside that
+          # branch `$?` is the status of the NEGATION, which is always 0. So
+          # `exit "$status"` was `exit 0` and this job passed on EVERY scanner
+          # failure, real PII hits included. It printed "failed (exit 0)",
+          # which was the tell. Fixed at source in HR015 (template +
+          # bin/test_pii_scan_wiring.sh); this is the installed copy.
+          set +e
+          "$SCANNER" "${{ steps.stage.outputs.stage_dir }}"
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
               echo "::error::operator-pii-scan failed (exit $status). See output above." >&2
               exit "$status"
           fi

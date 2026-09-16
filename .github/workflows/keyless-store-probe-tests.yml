@@ -46,7 +46,14 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 60
     steps:
+      # fetch-depth 0: test_ingest_coverage_probe.sh pins its negative control
+      # to the pre-fix blob (git show ae5707d4:...), the tree whose parser read
+      # "(never exited)" as DEAD:(never on the v1.0.82 walk. A shallow checkout
+      # cannot read that blob, and the test then reports CANNOT-RUN (exit 2),
+      # which is not a pass. Same shape as cold-box-source-truth.yml.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: no_person_holds_two_contact_cards credential + 401/000 adjudication
         if: always()

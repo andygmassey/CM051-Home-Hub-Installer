@@ -25,6 +25,22 @@
 # /tmp/ostler-prelaunch, died at reboot), #578 (9 plists bake ${OSTLER_DIR}
 # while the staging tree is still live), and this. A value captured during
 # staging and never rebound to the tree it will run from.
+#
+# SECOND DEFECT, SAME FILE (v1.0.82 walk, 2026-09-09). The .pth is written
+# before <final>/lib/ostler_store_auth.py exists at its final path, and CPython
+# runs every `import` line of a .pth at EVERY interpreter start. So each
+# interpreter started in that window printed
+#   Error processing line 1 of .../ostler_store_auth.pth:
+#   ModuleNotFoundError: No module named 'ostler_store_auth'
+# into install.log (three times on the box: install.log:175, :492, :500), and
+# the install_error_honesty walk probe counted them against a run the
+# installer called clean. The fix guards the import so the line is a no-op
+# while the module is absent and identical in effect once it lands. Arms C
+# to F below pin that, BEHAVIOURALLY, on the .pth the real function wrote:
+# a real interpreter is started with the module absent (must be silent),
+# with a stub present (must import it), and then with the OLD line form
+# (must print the traceback, or the silence check cannot fail and is worth
+# nothing).
 
 set -uo pipefail
 
@@ -137,6 +153,96 @@ frozen at install time and the directory does not survive. Written: ${CONTENT}"
         bad "OSTLER_SECRETS_DIR does not point at the final secrets dir (${FINAL}/secrets). \
 Written: ${CONTENT}"
     fi
+fi
+
+# ---------------------------------------------------------------------------
+# ARMS C, D, E (BEHAVIOURAL): start a REAL interpreter against the .pth the
+# real function wrote, and read stderr. A grep of the .pth text cannot say
+# whether the interpreter is silent; only the interpreter can.
+# ---------------------------------------------------------------------------
+# errexit was switched on above; every command below reads its own rc.
+set +e
+if [ -f "${PTH}" ]; then
+    RUN_OUT="${SANDBOX}/run.out"; RUN_ERR="${SANDBOX}/run.err"
+    MARKER="${SANDBOX}/imported.marker"
+    STUB="${FINAL}/lib/ostler_store_auth.py"
+    start_interp() {
+        # Prints OSTLER_SECRETS_DIR so a pass also proves the line ran to
+        # completion rather than being skipped wholesale.
+        rm -f "${MARKER}"
+        OSTLER_PTH_TEST_MARKER="${MARKER}" "${VENV}/bin/python3" \
+            -c 'import os; print(os.environ.get("OSTLER_SECRETS_DIR", "<unset>"))' \
+            >"${RUN_OUT}" 2>"${RUN_ERR}"
+    }
+
+    # ARM C: module ABSENT (the lib dir exists and is empty, as it is when the
+    # .pth is written mid-install). Must be silent, rc 0, env default set.
+    rm -f "${STUB}"
+    start_interp; C_RC=$?
+    C_ERR_BYTES=$(wc -c < "${RUN_ERR}" | tr -d ' ')
+    if [ "${C_RC}" -eq 0 ] && [ "${C_ERR_BYTES}" -eq 0 ]; then
+        ok "arm C: module absent, interpreter start is SILENT (rc=0, stderr 0 bytes)"
+    else
+        bad "arm C: module absent, interpreter start printed ${C_ERR_BYTES} bytes to stderr \
+(rc=${C_RC}). This is the v1.0.82 install.log noise: $(tr '\n' '|' < "${RUN_ERR}")"
+    fi
+    if [ "$(cat "${RUN_OUT}")" = "${FINAL}/secrets" ]; then
+        ok "arm C: the line ran to completion (OSTLER_SECRETS_DIR default set)"
+    else
+        bad "arm C: OSTLER_SECRETS_DIR was not set by the .pth; got: $(cat "${RUN_OUT}")"
+    fi
+    if [ -f "${MARKER}" ]; then
+        bad "arm C: marker present with NO module on disk; the marker predicate is broken"
+    else
+        ok "arm C: control, no module means no marker"
+    fi
+
+    # ARM D: module PRESENT. A stub that drops a marker on import; the guard
+    # must let it through, silently.
+    printf 'import os\nopen(os.environ["OSTLER_PTH_TEST_MARKER"], "w").close()\n' > "${STUB}"
+    start_interp; D_RC=$?
+    D_ERR_BYTES=$(wc -c < "${RUN_ERR}" | tr -d ' ')
+    if [ -f "${MARKER}" ]; then
+        ok "arm D: module present, the .pth IMPORTED it (marker written)"
+    else
+        bad "arm D: module present but NOT imported (no marker). The guard is too strong: \
+the store-auth shim would never load. rc=${D_RC}, stderr: $(tr '\n' '|' < "${RUN_ERR}")"
+    fi
+    if [ "${D_RC}" -eq 0 ] && [ "${D_ERR_BYTES}" -eq 0 ]; then
+        ok "arm D: module present, interpreter start is silent (rc=0, stderr 0 bytes)"
+    else
+        bad "arm D: module present, stderr ${D_ERR_BYTES} bytes, rc=${D_RC}: $(tr '\n' '|' < "${RUN_ERR}")"
+    fi
+    rm -f "${STUB}"
+
+    # ARM E (MUST-FAIL): the OLD, unguarded line form, module absent, in the
+    # same venv. It must print the traceback. If it does not, arm C's silence
+    # proves nothing on this interpreter, and that is CANNOT-RUN, not a pass.
+    OLD_LINE="import sys, os; sys.path.append(\"${FINAL}/lib\"); os.environ.setdefault(\"OSTLER_SECRETS_DIR\", \"${FINAL}/secrets\"); __import__(\"ostler_store_auth\")"
+    printf '%s\n' "${OLD_LINE}" > "${PTH}"
+    start_interp; E_RC=$?
+    if grep -q "No module named 'ostler_store_auth'" "${RUN_ERR}"; then
+        ok "arm E: must-fail, the OLD unguarded form prints the traceback \
+($(wc -c < "${RUN_ERR}" | tr -d ' ') bytes on stderr, rc=${E_RC}), so arm C can fail"
+    else
+        cannot "the OLD unguarded .pth form did NOT print ModuleNotFoundError on this interpreter \
+($(command -v python3), rc=${E_RC}); arm C's silence cannot be trusted. stderr: $(tr '\n' '|' < "${RUN_ERR}")"
+    fi
+else
+    bad "arms C, D, E: no .pth to start an interpreter against"
+fi
+
+# ---------------------------------------------------------------------------
+# ARM F (SOURCE): the writer must carry the guard, so the old form is named
+# at its line rather than discovered on the next walk.
+# ---------------------------------------------------------------------------
+if grep -qF 'find_spec("ostler_store_auth") is not None and __import__("ostler_store_auth")' <<< "${FUNC}"; then
+    ok "arm F: the .pth writer guards the import with find_spec"
+elif grep -qF '__import__("ostler_store_auth")' <<< "${FUNC}"; then
+    bad "arm F: the .pth writer imports ostler_store_auth UNGUARDED. Every interpreter \
+started before <final>/lib exists prints a traceback into install.log."
+else
+    cannot "arm F: the .pth writer has no __import__ of ostler_store_auth at all; read it and re-decide"
 fi
 
 echo

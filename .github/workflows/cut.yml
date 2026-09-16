@@ -152,6 +152,18 @@ jobs:
       # STILL READ-ONLY. This does not widen the blast radius the note above
       # protects: `checks: read` cannot create a release.
       checks: read
+      # 🔴 AND `actions: read` IS A SEPARATE SCOPE FROM `checks: read` (#1167).
+      #
+      # verify_declared_gates_ran_at_commit.sh reads
+      # `gh api repos/<r>/actions/runs?head_sha=...`, which is the ACTIONS
+      # namespace, not the checks one. The lesson from the v1.0.43 refusal above
+      # is the same lesson here and it has to be learned per scope: an explicit
+      # `permissions:` block sets every UNLISTED scope to none, so without this
+      # line the new gate exits 2 CANNOT-RUN on every cut, forever, and a gate
+      # that is always red stops being read.
+      #
+      # STILL READ-ONLY, and still cannot create a release.
+      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -380,6 +392,37 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./scripts/verify_tagged_commit_is_green.sh "${GITHUB_SHA}" "${GITHUB_REPOSITORY}"
+
+      # #1167. THE STEP ABOVE ASKS WHETHER WHAT RAN WAS GREEN. THIS ONE ASKS
+      # WHETHER WHAT SHOULD HAVE RUN, RAN. Neither subsumes the other, and the
+      # gap between them is where two cut-blockers sat.
+      #
+      # A gate that never executed leaves NO check-run, so it leaves nothing
+      # red, and the step above reads the commit as green over the absence. Its
+      # zero-check-run refusal catches "no checks at all"; it cannot catch "all
+      # the checks except this one".
+      #
+      # MEASURED AGAINST THE ACTIONS API for the commit v1.0.48 was cut from,
+      # bfc1408d: customer-download-path.yml 0 runs, default-sources-requested
+      # .yml 0 runs, cut-gate-wrappers.yml 1 run push success as the control,
+      # 69 runs at the commit in total, and head_sha=000...0 returns 0 so the
+      # filter is honoured. Both of those carry a `paths:` filter ON TOP of a
+      # branch-only trigger, so even the "it ran on main at that SHA" defence
+      # does not hold for them.
+      #
+      # It reads the SAME baseline axis three uses rather than opening a rival
+      # register, so a decision recorded once is honoured by both.
+      #
+      # rc=2 is CANNOT-RUN and still blocks: zero workflow runs at the commit is
+      # a statement about the query, not about the commit.
+      - name: Every self-declared cut-blocker actually ran at this commit
+        if: always()
+        # GH_TOKEN for the same reason as the step above: the `permissions`
+        # block grants the scope to the job's GITHUB_TOKEN and does not put it
+        # anywhere `gh` looks. Without it this exits 2 on every cut.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/verify_declared_gates_ran_at_commit.sh "${GITHUB_SHA}" "${GITHUB_REPOSITORY}"
 
       - name: Vendored BOM is the BOM for this cut
         if: always()
@@ -911,6 +954,68 @@ jobs:
           # reintroduces the v1.0.22 failure from one side or the other. Three
           # credentials, three jobs, each failing where its own cause is.
           OSTLER_GH_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          #
+          # THE PR-AGE GATE CLAIMS SEVEN REPOSITORIES; THIS JOB'S OWN
+          # GITHUB_TOKEN CAN RESOLVE ONE. check-pr-age (below, via `make ship`)
+          # used to run with only GH_TOKEN in scope -- repo-scoped, so every
+          # sibling's `gh pr list` failed -- and reported GREEN, PARTIAL with
+          # rc=0 regardless, because an unreachable repo was a footnote, not a
+          # failure. That is fixed in verify_pr_age.sh itself now (an
+          # undeclared unreachable repo fails the gate); this line is the
+          # OTHER half -- giving the gate the credential to actually try.
+          #
+          # Same per-owner resolution as the orphan gate above: andygmassey ->
+          # PR_AGE_TOKEN_ANDYGMASSEY, ostler-ai -> PR_AGE_TOKEN_OSTLER_AI.
+          # NO CREDENTIAL WAS CREATED OR RE-SCOPED FOR THIS -- both variables
+          # point at the SAME EXISTING secret, OSTLER_GH_TOKEN_ANDYGMASSEY.
+          # TOKEN_INVENTORY.md (HR015 repo) records it MEASURED 2026-08-27 to
+          # read pull requests on ostler-ai/ostler-assistant -- the harder
+          # cross-org case -- which is why it is wired for both owner slots.
+          #
+          # Its coverage of pull-request READ on the five andygmassey siblings
+          # (CM044, CM041, CM059, CM031, HR015) is NOT separately confirmed in
+          # that register -- only its use for commit/tree reads in the
+          # freshness gate above is. If its scope panel does not cover one of
+          # them, verify_pr_age.sh now reports that repo CANNOT VERIFY by name
+          # (rather than a silent pass), so wiring it here can only make this
+          # gate more honest, never less. A human should still open the scope
+          # panel and confirm, or provision a narrower credential if it turns
+          # out not to cover one of these repos -- see the PR that added this
+          # comment for the exact ask.
+          PR_AGE_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          PR_AGE_TOKEN_OSTLER_AI: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          #
+          # DECLARED NARROWING, 2026-09-13, and it is why v1.0.91's first cut
+          # produced no DMG at all.
+          #
+          # #1930 changed verify_pr_age.sh so a repo it cannot reach FAILS the
+          # gate (exit 3) instead of being scored zero-overdue and reported
+          # green. That was the right change: the gate polices seven
+          # repositories, silently resolved one, and printed a pass. It is
+          # also a prerequisite of `ship` (gui/Makefile:3180), so when it
+          # refuses the build dies BEFORE the DMG exists. Run 34708384316 did
+          # exactly that, and every later red in it is a cascade of there
+          # being no dist/*.dmg left to inspect.
+          #
+          # THE TWO CREDENTIALS ABOVE ARE PRESENT AND STILL DID NOT RESOLVE.
+          # Measured on that run: both PR_AGE_TOKEN_* were in scope (the log
+          # shows them masked, not absent) and six of seven repositories were
+          # still unreachable. OSTLER_GH_TOKEN_ANDYGMASSEY was last set
+          # 2026-08-13, and TOKEN_INVENTORY.md records it MEASURED 2026-08-27
+          # to read PRs on ostler-ai/ostler-assistant, the harder cross-org
+          # case. So the capability was real and has since lapsed. THE REAL
+          # FIX IS THAT CREDENTIAL, and this line is not it.
+          #
+          # This DECLARES the narrowing instead of hiding it. The gate prints
+          # "PARTIAL (DECLARED)" and names every repo it did not examine,
+          # which is the whole point of #1930: an unreachable repo must be
+          # STATED, never silently scored zero. A cut that says which six
+          # repositories it did not police is honest. The old green was not.
+          #
+          # RETIRE THIS THE MOMENT THE TOKEN IS RESTORED. Delete the line and
+          # the gate polices all seven again. Leaving it once the credential
+          # works would re-create the blindness #1930 removed.
+          PR_AGE_ALLOW_PARTIAL: "andygmassey/CM044-PWG-Personal-Wiki,andygmassey/CM041-People-Graph,andygmassey/CM059-Ostler-Editor,andygmassey/CM031-PWG-Companion,andygmassey/HR015-Gaming-PC,ostler-ai/ostler-assistant"
           #
           # The wiki-image kinds need docker, which macos-26 does not have.
           # They are verified in the preflight job on ubuntu instead -- see the
@@ -1507,6 +1612,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OSTLER_RELEASES_TOKEN: ${{ secrets.CM051_RELEASES_READ }}
           OSTLER_GH_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          # Same wiring as the `cut` job's `make ship` step; see its comment
+          # there for what this does and does not prove. No credential was
+          # created or re-scoped for it -- both point at the existing
+          # OSTLER_GH_TOKEN_ANDYGMASSEY secret.
+          PR_AGE_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          PR_AGE_TOKEN_OSTLER_AI: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          # Declared narrowing, same reason and same retirement condition as the
+          # block in the cut job above. Retire both together when the
+          # credential is restored.
+          PR_AGE_ALLOW_PARTIAL: "andygmassey/CM044-PWG-Personal-Wiki,andygmassey/CM041-People-Graph,andygmassey/CM059-Ostler-Editor,andygmassey/CM031-PWG-Companion,andygmassey/HR015-Gaming-PC,ostler-ai/ostler-assistant"
           OSTLER_PROVENANCE_SKIP_KINDS: wiki_image_grep,wiki_image_absent
           PROV_GATE_SKIP_CLASSES: wiki
           OSTLER_ORPHAN_GATE_SKIP: CM044,CM041,CM059,CM031,daemon

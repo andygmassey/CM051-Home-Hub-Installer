@@ -37,6 +37,10 @@ on:
       - 'tests/test_new_cut_checks_what_preflight_checks.sh'
       - 'tests/test_new_cut_covers_every_pretag_gate.sh'
       - 'scripts/verify_bom_rows_are_in_the_pin.sh'
+      # Wired 2026-09-09: a staging copy guarded on its DESTINATION leaves the
+      # previous DMG's vendored code on any box that already has the tree, so a
+      # v1.0.82 vendored fix never reaches the walk box that must demonstrate it.
+      - 'tests/test_a_staging_copy_is_guarded_on_its_source.py'
       - 'tests/test_store_port_first_install_stale_store.sh'
       - 'install.sh'
       - '.github/workflows/cut.yml'
@@ -71,6 +75,9 @@ on:
       - 'tests/test_product_seed_regex_does_not_exclude_the_bundle.sh'
       - 'tests/test_provenance_gate_cannot_run_is_not_stale.sh'
       - 'tests/test_provenance_gate_marker_read_is_not_piped.sh'
+      # The anti-vacuity floor and its subject. BOTH are triggers: a run: with
+      # no matching paths: entry is dark on self-edit.
+      - 'tests/test_provenance_gate_refuses_when_it_examined_nothing.sh'
       - 'scripts/walk_dmg.sh'
       - 'tests/test_arm8b_vetoes_on_importable_not_merely_uncovered.sh'
       - 'tests/test_walk_arms_distinguish_cannot_run_from_fail.sh'
@@ -109,6 +116,14 @@ on:
       # which is how a test rots while reporting green on every unrelated push.
       - 'tests/test_pinned_wiki_images_are_arm64_only.sh'
       - 'tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh'
+      # #1167. The run-at-commit gate, its wiring test, and the baseline both
+      # of them read. All three are triggers: the gate is the defect surface,
+      # the test is the instrument, and a `run:` with no matching paths entry
+      # is dark on self-edit. cut.yml is already listed above, which is the
+      # fourth surface this test reads.
+      - 'scripts/verify_declared_gates_ran_at_commit.sh'
+      - 'tests/test_the_run_at_commit_gate_is_wired_into_the_cut.sh'
+      - 'scripts/cut_trigger_reachability_baseline.tsv'
       - 'scripts/cut_hygiene_gate.sh'
       - 'tests/test_mergeable_unknown_is_not_clean.sh'
       # Without this line the step that runs it below is DARK ON SELF-EDIT:
@@ -256,6 +271,45 @@ jobs:
         if: always()
         run: /bin/bash tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh
 
+      # #1167. The gate's own --self-test proves it can discriminate and runs in
+      # declared-gates-reachable.yml. This proves it is ASKED, on the cut, and
+      # can answer when it is: invoked by cut.yml, if: always(), GH_TOKEN
+      # passed, and the job granted `actions: read`.
+      #
+      # That last one is the reason this exists as a separate file. The first
+      # v1.0.43 tag was refused by verify_tagged_commit_is_green.sh because an
+      # explicit `permissions:` block sets every UNLISTED scope to none and it
+      # had no `checks: read`. The new gate reads the ACTIONS namespace, which
+      # `checks: read` does not cover -- the identical defect, one scope over,
+      # and it would have failed closed on every cut forever.
+      # 🔴 PyYAML IS NOT ON THE RUNNER BY DEFAULT, AND THE TEST REFUSES WITHOUT
+      # IT. Measured on this very PR: the step below exited 2 "CANNOT-RUN: no
+      # PyYAML; a regex over YAML is not a parse". That refusal is correct --
+      # the permissions question CANNOT be answered by text, because an absent
+      # scope and a scope set to none read differently and mean the same thing
+      # -- but a gate that reports CANNOT-RUN on every run is a gate nobody
+      # reads, which is the #1167 shape wearing a different hat.
+      #
+      # THE VERIFY LINE IS NOT DECORATION. An install that quietly does nothing
+      # reproduces the same defect one layer up, so the import is proved AFTER
+      # the install and the step dies if it is still missing. No `|| true` on
+      # the verification.
+      - name: PyYAML must be present, or the wiring assertion cannot run
+        if: always()
+        run: |
+          set -uo pipefail
+          if ! python3 -c 'import yaml' 2>/dev/null; then
+            python3 -m pip install --quiet --break-system-packages --ignore-installed pyyaml \
+              || python3 -m pip install --quiet --ignore-installed pyyaml \
+              || pip3 install --quiet pyyaml \
+              || true
+          fi
+          python3 -c 'import yaml, sys; sys.stdout.write("PyYAML %s on %s\n" % (yaml.__version__, sys.version.split()[0]))'
+
+      - name: The run-at-commit gate is wired into the cut and can answer
+        if: always()
+        run: /bin/bash tests/test_the_run_at_commit_gate_is_wired_into_the_cut.sh
+
       - name: Test parses under /bin/bash 3.2 (the cut host's shell)
         if: always()
         run: |
@@ -380,6 +434,20 @@ jobs:
       - name: provenance gate -- cannot-run is never reported as stale
         if: always()
         run: bash tests/test_provenance_gate_cannot_run_is_not_stale.sh
+
+      # THE ANTI-VACUITY FLOOR. Demonstrated live: OSTLER_PROVENANCE_ONLY_KINDS
+      # set to a kind matching no manifest row printed "0 pass / 0 fail / 0
+      # could-not-run / 47 not-run-here" and then PROVENANCE GREEN, exit 0. The
+      # verdict block checked FAIL > 0, then CANNOT > 0, and fell through to
+      # GREEN with no assertion that the three counts summed to more than
+      # zero -- cut.yml deliberately splits this gate by kind filter across two
+      # jobs, so a typo'd filter or an emptied manifest side certified a cut it
+      # never inspected. This drives the real gate over a genuine one-row
+      # manifest and proves a filter that matches nothing refuses (CANNOT-RUN),
+      # never GREEN, while a filter that matches something is untouched.
+      - name: provenance gate refuses when it examined nothing
+        if: always()
+        run: bash tests/test_provenance_gate_refuses_when_it_examined_nothing.sh
 
       # A marker pattern that cannot RUN must never report the component absent.
       # The wiki_image_absent rows are the #84 LOCK rows; rc=2 used to print green.
@@ -680,3 +748,13 @@ jobs:
       - name: pinned wiki images carry the design system (presence)
         if: always()
         run: bash tests/test_pinned_wiki_image_has_design_system.sh --presence-only
+
+      # A VENDORED TREE MUST BE RE-STAGED ON EVERY INSTALL.
+      #
+      # Measured on the v1.0.81 walk box: cm019_setup read "already set up" in
+      # 0 s because its cp -R sat under [[ ! -x "$CM019_PY" ]], so the box kept
+      # the previous DMG's code while the install reported success. Thirteen
+      # other staging sites already guard on the SOURCE; this keeps that.
+      - name: no staging copy is guarded on its destination
+        if: always()
+        run: python3 tests/test_a_staging_copy_is_guarded_on_its_source.py

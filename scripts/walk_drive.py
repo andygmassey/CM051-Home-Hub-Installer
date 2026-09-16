@@ -270,8 +270,23 @@ def build_table():
         ("Connect your iPhone and Watch",               "skip"),
         # Never store a login password on disk.
         ("Store your login password",                   "N"),
-        # Skip the passphrase branch: keeps the walk clear of credential entry.
+        # Skip the OPTIONAL passphrase branch: keeps the walk clear of
+        # credential entry where the installer offers a way past.
         ("Set a recovery passphrase too?",              "n"),
+        # 🔴 THE HUB PASSPHRASE IS MANDATORY AND HAS NO WAY PAST. The line
+        # above answers a DIFFERENT, optional question and used to be the only
+        # passphrase entry here. install.sh:8032-8051 loops `while true` on
+        # "Choose your passphrase", rejecting empty and anything under 12
+        # characters, so a walk that cannot answer it does not fail -- it
+        # re-prompts for ever. Measured 2026-09-13 on the v1.0.95 walk: the
+        # install sat at that prompt indefinitely and the run had to be killed.
+        #
+        # @passphrase resolves from ~/.walk-passphrase at answer time, so the
+        # value is never an argument, never in the process table and never in
+        # this file. If that file is absent the answer resolves empty and the
+        # loop resumes, which is why ttywalk.sh creates it during staging.
+        ("Choose your passphrase",                      "@passphrase"),
+        ("Confirm your passphrase",                     "@passphrase"),
         # Clean account: nothing to import.
         ("Import these during install?",                "n"),
         ("Import Gmail messages from this Takeout?",    "n"),

@@ -35,6 +35,21 @@ on:
       - 'tests/test_vendor_import_resolution.py'
       - 'tests/test_vendor_entrypoint_resolution.py'
       - 'tests/test_vendor_manifest_is_valid_toml.py'
+      # Watched because the step below RUNS it, plus the two files it READS
+      # that nothing here watched yet. Its SUBJECT, vendor/VENDOR_MANIFEST.toml,
+      # is already covered by the vendor/** glob at the top of this list, so it
+      # is deliberately NOT repeated: a second entry would read as coverage this
+      # change added and it is not. permanent.yaml is where the test takes its
+      # rules from, and gui/Makefile carries the two copy lines that make the
+      # manifest shipped at all, which the test asserts and refuses on rather
+      # than passing if they move.
+      - 'tests/test_the_shipped_vendor_manifest_names_no_operator.py'
+      - 'tests/test_the_pii_scan_reads_every_file_in_the_tree.py'
+      - 'scripts/verify_loopback_clients_authenticate.py'
+      - 'tests/test_the_loopback_auth_gate_cannot_be_bypassed.sh'
+      - 'scripts/verify_cut_manifest.py'
+      - 'cut-manifests/permanent.yaml'
+      - 'gui/Makefile'
       # The D024 harness. A path entry alone would only make the workflow
       # TRIGGER; the run step above is what makes it CHECK. Both are needed,
       # and the pair is the point: the gate must fire on changes to itself.
@@ -43,12 +58,37 @@ on:
       - 'tests/test_frontpage_tick_emits_interest_profile.sh'
       - 'tests/test_vendor_symbol_resolution.py'
       - 'tests/test_doctor_web_ui_strings_complete.py'
+      # The two behavioural gates added with the credential-route refusal and
+      # the Front Page add verb. Both BOOT the shipped Doctor over real HTTP,
+      # so both are watched here as well as run below: a path entry alone only
+      # makes the workflow trigger, and a run with no path entry is a gate that
+      # never fires on a change to itself.
+      - 'tests/test_doctor_credential_routes_refuse_cross_site.sh'
+      - 'tests/test_the_doctor_status_poll_has_a_fork_budget.py'
+      - 'vendor/doctor/agent/box_status.py'
+      - 'vendor/doctor/agent/pair_status.py'
+      - 'tests/test_the_pairing_qr_refuses_an_address_the_phone_cannot_open.py'
+      - 'tests/test_editor_feedback_accepts_the_add_verb.sh'
+      - 'tests/test_the_doctor_dashboard_actually_renders.sh'
+      # Watched because the step below RUNS it. Its tile half is the only place
+      # the keepalive's five customer-facing verdicts are actually rendered
+      # with the Doctor's real deps present.
+      - 'tests/test_whatsapp_keepalive_repairs_and_reports.sh'
+      - 'assistant-agent/ostler-whatsapp-keepalive.sh'
+      - 'assistant-agent/launchd/com.creativemachines.ostler.whatsapp-keepalive.plist'
       # v1018-D024, customer-visible half. Listed here AND run below, for the
       # reason recorded above: a path entry only makes the workflow trigger.
       # The gate also reads lib/ostler-resource-tier.sh and install.sh, so both
       # are watched -- a change to the shell pause reader can break the
       # Python/shell contract without touching vendor/ at all.
       - 'tests/test_doctor_governor_routes_vendored.sh'
+      # #1164: the #282 re-vendor guard had 0 automated callers for 28 cuts.
+      # Both it AND the ratchet over it are watched here, for the reason given
+      # above: a run with no path entry is a gate that never fires on a change
+      # to itself, and the thing most likely to change is the residue the
+      # ratchet pins.
+      - 'tests/test_the_governor_revendor_guard_is_actually_run.sh'
+      - 'scripts/verify_doctor_governor_revendor.sh'
       - 'lib/ostler-resource-tier.sh'
       - 'tests/vendor_import_resolution_baseline.txt'
       # The __main__-guard reachability gate. It scans vendor/, scripts/ and
@@ -126,6 +166,69 @@ jobs:
       # stayed green, so the format claim in the filename was asserted nowhere.
       - name: VENDOR_MANIFEST.toml is valid TOML
         run: python3 tests/test_vendor_manifest_is_valid_toml.py
+
+      # THE SAME FILE IS SHIPPED. gui/Makefile:1215 sets VENDOR_MANIFEST_SRC to
+      # $SRC_ROOT/vendor/VENDOR_MANIFEST.toml and :1249 copies it into the .app as
+      # ostler-payload/vendor-manifest.toml, so its PROSE is customer-facing bytes.
+      # The v1.0.83 cut was refused at "Build, sign, notarise, staple" on exactly
+      # that: one no-operator-hostname hit in the payload copy, arrived in #1881,
+      # 0 at tag v1.0.82 and 1 at v1.0.83. Every PR check on #1881 was green,
+      # because .github/scripts/operator-pii-scan.sh has no hostname alternative
+      # in its master pattern -- that pattern lives only in cut-manifests/
+      # permanent.yaml, which runs at CUT time. So the one instrument carrying it
+      # could not fire until a tag had been spent. This step moves the same rules
+      # to PR time for the one file the cut copies in verbatim. It declares no
+      # pattern of its own: it READS the no-operator-* rows out of permanent.yaml,
+      # so it cannot drift from the gate it anticipates and no second copy of an
+      # operator identifier enters the tree to make it work.
+      # PyYAML IS NOT PRESENT ON THE HOSTED RUNNER AND THE TEST SAYS SO RATHER
+      # THAN PASSING. Measured on run 34398125323: "[CANNOT-RUN] PyYAML is not
+      # importable, so the rules cannot be read", exit 2, on Python 3.11.16.
+      # That is the test behaving correctly and the job being red for a reason
+      # that is not the subject, so the dependency is installed here instead of
+      # the check being softened. Copied from the estate's existing step at
+      # .github/workflows/appcast-ship-wiring.yml:81, fallbacks and all.
+      - name: PyYAML must be present, or the rules cannot be read
+        run: |
+          set -uo pipefail
+          if ! python3 -c 'import yaml' 2>/dev/null; then
+            python3 -m pip install --quiet --break-system-packages --ignore-installed pyyaml \
+              || python3 -m pip install --quiet --ignore-installed pyyaml \
+              || pip3 install --quiet pyyaml \
+              || true
+          fi
+          python3 -c 'import yaml, sys; sys.stdout.write("PyYAML %s on %s\n" % (yaml.__version__, sys.version.split()[0]))'
+
+      - name: The shipped vendor manifest obeys the cut's own operator-PII rules
+        if: always()
+        run: python3 tests/test_the_shipped_vendor_manifest_names_no_operator.py
+
+      # The scan that test relies on must be able to READ the whole tree. The
+      # v1.0.92 cut proved it could not: 660 files in the built .app carried a
+      # suffix nobody had enumerated, so the operator-PII rows returned
+      # CANNOT-RUN and no DMG was ever produced. This asserts both halves of
+      # the fix -- that the newly reachable shapes really are scanned, and that
+      # a file which genuinely cannot be read still refuses rather than passing.
+      - name: The operator-PII scan reads every file in the tree
+        if: success() || failure()
+        run: python3 tests/test_the_pii_scan_reads_every_file_in_the_tree.py
+
+      # A client that cannot authenticate is refused in production and usually
+      # says nothing about it. The front page rendered interest cards only for
+      # roughly two dozen walks because its signal fetch 401'd and the failure
+      # was swallowed as "no live signals". This turns that into a pre-merge
+      # failure instead of something a customer notices before we do.
+      - name: Every loopback client of a gated service authenticates
+        if: success() || failure()
+        run: python3 scripts/verify_loopback_clients_authenticate.py .
+
+      # The gate above was reviewed adversarially and four working bypasses were
+      # found, including a comment mentioning "Authorization" counting as a
+      # credential. This fires each of those shapes at it, plus two negative
+      # controls, so the gate cannot silently weaken back.
+      - name: The loopback-auth gate cannot be bypassed
+        if: success() || failure()
+        run: bash tests/test_the_loopback_auth_gate_cannot_be_bypassed.sh
 
       - name: Divergent non-shipping twin guard (legacy, intra-repo only)
         if: always()
@@ -206,6 +309,13 @@ jobs:
       - name: Vendor entrypoint-resolution guard
         if: always()
         run: python3 tests/test_vendor_entrypoint_resolution.py
+
+      - name: the Doctor status poll has a fork budget
+        # `always()` because a test step that only runs on success can be
+        # MASKED by an earlier red, and a fork budget that silently stops
+        # being measured is the same defect it exists to catch.
+        if: always()
+        run: python3 tests/test_the_doctor_status_poll_has_a_fork_budget.py
 
       # Symbol-level guard: web_ui.py imports a batch of CONFIG_* string
       # constants `from web_ui_copy` -- the import-resolution guard above
@@ -373,6 +483,45 @@ jobs:
         # matches it rather than widening a shared predicate at cut time.
         run: python3 ./tests/test_doctor_silent_failure_grafts.py
 
+      # The Doctor's four credential routes, and the Front Page add verb.
+      #
+      # Both gates BOOT the shipped app and drive it over HTTP, because the
+      # thing under test is what a request gets back, not what the source says.
+      # They need the Doctor's own runtime deps; without them both exit 2
+      # (CANNOT-RUN) and CI goes red, which is correct -- a subject that could
+      # not be loaded is not one that passed.
+      - name: Install the vendored Doctor's runtime deps (behavioural gates)
+        if: always()
+        run: python3 -m pip install --quiet -r vendor/doctor/agent/requirements.txt
+
+      # web_ui.py has 34 routes, zero uses of Depends(, and one middleware:
+      # CORS with allow_origins=["*"]. Four routes vend or rotate a credential,
+      # and a bodyless POST is a CORS simple request, so any page the customer
+      # opened could mint a ZeroClaw device bearer and read it back. This
+      # asserts the refusal AND the success: the shipped iOS Companion sends no
+      # credential at all, so a gate that only proved the refusal could not
+      # tell a closed hole from a broken pairing flow.
+      - name: Credential routes refuse cross-site, and still serve the real callers
+        if: always()
+        run: bash tests/test_doctor_credential_routes_refuse_cross_site.sh
+
+      # #947. The pairing envelope validated hub_addr as a non-empty string and
+      # encoded it verbatim into the QR the customer scans. A link-local address
+      # with a zone index scans perfectly and can never connect, because the zone
+      # names an interface on the HUB. `if: always()` so an earlier red cannot
+      # delete this measurement.
+      - name: The pairing QR must refuse an address the phone cannot open
+        if: always()
+        run: python3 tests/test_the_pairing_qr_refuses_an_address_the_phone_cannot_open.py
+
+      # CM059 #24's masthead control POSTs {action:'add', subject}; the Doctor's
+      # allowlist excluded "add" and demanded a card_id, so the customer got a
+      # 400. The last assertion is the one that matters: it runs the compile the
+      # next full recompile runs and requires the added subject to come out.
+      - name: The Front Page add verb reaches the store and survives a compile
+        if: always()
+        run: bash tests/test_editor_feedback_accepts_the_add_verb.sh
+
       # v1.0.38 walk, 2026-08-23: the wiki was dead for about a day
       # and NOTHING said so. No alert, no card, no banner -- it was found only
       # because someone was asked to open the URL. Before the fix, the entire
@@ -385,6 +534,35 @@ jobs:
       # what makes that drop loud. Every assertion in it has a NEGATIVE
       # control beside it -- the same rule on a healthy snapshot must stay
       # silent -- so it cannot pass by firing on everything.
+      - name: The Doctor dashboard actually renders (not just answers)
+        if: always()
+        # WIRED HERE DELIBERATELY, beside the other two doctor tests, because
+        # this job pip-installs vendor/doctor/agent/requirements.txt above. The
+        # test reports CANNOT-RUN when fastapi is absent, and a CANNOT-RUN that
+        # nobody notices is a zero-denominator pass. Wired anywhere without the
+        # requirements it would prove nothing while reading green.
+        run: bash tests/test_the_doctor_dashboard_actually_renders.sh
+
+      # THE WHATSAPP KEEPALIVE TILE, wired here for the reason the step above
+      # states about itself. This file's script half runs on macOS in
+      # launchagent-success-verification.yml, where it belongs -- the product
+      # is macOS and the subject is a LaunchAgent. But its TILE half imports
+      # the vendored Doctor renderer, which pulls status_collector, which
+      # imports httpx. That is absent on the macOS runner, so the tile arms
+      # there report CANNOT-RUN and are NOT measured.
+      #
+      # A CANNOT-RUN that is CANNOT-RUN on every run is an arm that never runs.
+      # This job pip-installs the Doctor's requirements above, so the same file
+      # run here DOES measure them: each of the five keepalive verdicts must
+      # reach the page with its own words, an unrecognised verdict must render
+      # nothing, and needs_customer must say only the customer can fix it.
+      #
+      # Both wirings are deliberate and neither is redundant: this one cannot
+      # test the LaunchAgent surface and that one cannot test the tile.
+      - name: The WhatsApp keepalive verdict reaches the Doctor page
+        if: always()
+        run: /bin/bash tests/test_whatsapp_keepalive_repairs_and_reports.sh
+
       - name: A dead wiki announces itself
         if: always()
         run: python3 ./tests/test_a_dead_wiki_announces_itself.py
@@ -478,3 +656,22 @@ jobs:
       # vendor/doctor/ under a new name (the original had dev-machine
       # paths hard-coded, which is why it was pulled) and re-add the
       # step here.
+
+      # #1164. scripts/verify_doctor_governor_revendor.sh has been in the tree
+      # since the #282 graft with NO automated caller: its only wiring was a
+      # sentence in a comment, and the same cut-manifest row reported that fact
+      # unchanged through 28 manifests, v1.0.72 to v1.0.99.
+      #
+      # It was never simply wired because it EXITS 1 ON A HEALTHY TREE by
+      # design: the re-vendor has not happened, the config_panel half was
+      # deliberately not adopted, and exactly ONE of its nine checks fails as
+      # the honest state of the pin. `run: bash scripts/verify_...` would paint
+      # CI permanently red and the next person would delete it.
+      #
+      # So it is graded as a RATCHET over its OUTPUT rather than its exit code.
+      # More than one failure is a regression; ZERO failures means the
+      # re-vendor landed and the guard's scope note needs updating, which is
+      # good news and still a stop rather than a silent pass.
+      - name: the governor re-vendor guard is actually run (#1164)
+        if: always()
+        run: bash tests/test_the_governor_revendor_guard_is_actually_run.sh
