@@ -268,3 +268,22 @@ jobs:
           set -e
           python -m pip install --quiet -r vendor/cm024_knowledge/requirements.txt
           python3 tests/test_notion_obsidian_import_runs_end_to_end.py
+
+      # Consumer-half gap (2026-09-13): cli.py's _ai_adapters() excluded the
+      # gateway's own sessions.db from the ONLY entrypoint production ever
+      # invokes, so the customer's direct chats with their own assistant never
+      # reached the durable conversation store despite a complete, tested
+      # adapter for them. This walks the real path -- unify() over a real
+      # sqlite fixture, wire.stage() writing real files that are read back,
+      # wire.post() attempting the real CM048 POST with only the transport
+      # faked -- not just "the adapter is in the list", which is exactly the
+      # shape of proof that let the gap ship unnoticed. httpx is cm052's own
+      # runtime dependency (docs/VENDOR_CM051.md), installed here rather than
+      # in the shared step above because this is the only test in this job
+      # that imports the cm052 vendored package.
+      - name: gateway conversations reach the durable store, not just the adapter list
+        if: always()
+        run: |
+          set -e
+          python -m pip install --quiet httpx
+          python3 tests/test_gateway_conversations_reach_the_store.py
