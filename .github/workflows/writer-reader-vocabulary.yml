@@ -119,8 +119,8 @@ jobs:
           n="$(python -m pytest tests/test_writer_reader_vocabulary_contracts.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 28 ]; then
-            echo "REFUSING: expected at least 28 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 36 ]; then
+            echo "REFUSING: expected at least 36 collected tests, got ${n:-0}." >&2
             echo "A skipped module reports success in any runner that reads" >&2
             echo "'no failures' as 'passed'. Check rdflib, pydantic-settings," >&2
             echo "nameparser, pyyaml and ostler_security all installed." >&2

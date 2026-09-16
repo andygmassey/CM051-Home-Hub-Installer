@@ -10,6 +10,9 @@ import uuid
 from .config import settings
 from .vectorizer import vectorizer
 from .loaders import OxigraphLoader, QdrantLoader
+from .loaders.qdrant_loader import (
+    COMPARTMENT_AT_OR_ABOVE as QdrantLoader_COMPARTMENT_AT_OR_ABOVE,
+)
 from .filters import PreferenceFilter
 from .parsers import (
     BaseParser,
@@ -677,7 +680,8 @@ class IngestPipeline:
         query: str,
         user_id: str,
         compartment_level: int = 4,
-        limit: int = 10
+        limit: int = 10,
+        compartment_direction: str = QdrantLoader_COMPARTMENT_AT_OR_ABOVE,
     ) -> List[Dict[str, Any]]:
         """
         Search for similar preferences.
@@ -685,8 +689,19 @@ class IngestPipeline:
         Args:
             query: Search query text
             user_id: User to search for
-            compartment_level: Maximum compartment level to include
+            compartment_level: The compartment threshold. THIS IS NOT A
+                MAXIMUM and this docstring used to say it was. With the
+                default direction the search returns records AT OR ABOVE the
+                level. On CM019's 0..6 map (L0Personal to L6Broadcast, low
+                is private) that is the more PUBLIC half. So the default of 4
+                selects levels 4, 5 and 6, which is where
+                parsers/apple.py puts Apple Notes and Apple Health.
             limit: Max results
+            compartment_direction: passed straight through to
+                QdrantLoader.search(); see that method and the loader's module
+                header for the scale and the two directions. Deliberately NOT
+                exposed on the HTTP surface: flipping it is the privacy
+                decision itself, not a per-request option.
 
         Returns:
             List of matching preferences with scores
@@ -699,7 +714,8 @@ class IngestPipeline:
             vector=query_vector,
             limit=limit,
             compartment_level=compartment_level,
-            user_id=user_id
+            user_id=user_id,
+            compartment_direction=compartment_direction,
         )
 
         return results
