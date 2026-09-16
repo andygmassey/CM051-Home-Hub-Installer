@@ -65,6 +65,7 @@ on:
       # next PR that happened to touch gui/, as somebody else's red.
       - 'install.sh.strings.*.sh'
       - 'scripts/verify_swift_tests_ran.sh'
+      - 'tests/test_the_consent_button_is_not_below_the_fold.py'
       # #944's guard reads InstallCompleteView.swift, which IS under gui/, so
       # the view itself is covered. This line covers the OTHER direction: a PR
       # that edits only the guard. Without it the guard could be weakened or
@@ -87,6 +88,7 @@ on:
       # next PR that happened to touch gui/, as somebody else's red.
       - 'install.sh.strings.*.sh'
       - 'scripts/verify_swift_tests_ran.sh'
+      - 'tests/test_the_consent_button_is_not_below_the_fold.py'
       # #944's guard reads InstallCompleteView.swift, which IS under gui/, so
       # the view itself is covered. This line covers the OTHER direction: a PR
       # that edits only the guard. Without it the guard could be weakened or
@@ -124,6 +126,11 @@ jobs:
       - name: Parses under bash 3.2-compatible syntax
         run: bash -n scripts/verify_swift_tests_ran.sh
 
+      - name: the consent button stays outside the scroll region (#632, BW3-9, #503)
+        # always(), so an earlier red cannot mask a layout regression whose
+        # only previous detector was a human on a box walk.
+        if: always()
+        run: python3 tests/test_the_consent_button_is_not_below_the_fold.py
       # #944. The GUI rendered "Open your Wiki" unconditionally, so on a box
       # where the wiki's first compile had not finished the installer sent the
       # customer to a page that would not load, with a sign-in hint for a
@@ -135,7 +142,6 @@ jobs:
       # 30-minute macOS job is the wrong place for a check that takes a second.
       - name: The end-of-install screen cannot offer a wiki that is not serving
         run: python3 tests/test_the_wiki_button_is_not_offered_before_the_wiki_serves.py
-
   swift-tests:
     runs-on: macos-26
     timeout-minutes: 30
