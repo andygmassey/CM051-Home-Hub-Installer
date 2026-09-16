@@ -2191,3 +2191,24 @@ phrase	live activities	Apple framework name (WidgetKit Live Activities). Product
 phrase	notion markdown	product name plus a file format, from the CM024 Notion adapter's own docstring. No person.
 phrase	required gate	CI check/context name, not a person. This repository has no branch protection at all, and this PR adds one required GitHub Checks context named "CI Required Gate" (.github/workflows/ci-required-gate.yml). That literal string is the value branch protection must match, so it recurs verbatim in the job's display name, its script's exclude-self default and self-test fixtures, and the comments naming it. No person; the second word is the noun "gate" as in a merge gate, not a surname.
 phrase	Tell Ostler	the masthead control's own label, "Tell Ostler what you're into" (CM059 #24), quoted in the comment that explains why the add verb exists. A product string, not a person: the PAIR arm sees two capitalised words and cannot tell a UI label from a name.
+
+# ---------------------------------------------------------------------------
+# NONPERSON, vendor/doctor/agent/web_ui_copy.py -- 2 rows, both bound to that
+# one path, both PRODUCT.
+#
+# Each is the title tag and heading of the Doctor's import page for one
+# third-party knowledge-base app: an imperative verb followed by that app's
+# name. The page has to spell the product correctly or it points the customer
+# at something they do not have, so this is the case the kind exists for --
+# the value IS the fact -- and not the case where renaming costs nothing.
+#
+# The third finding in this PR was the other kind, and was RENAMED rather than
+# permitted: a synthetic Notion-export note in
+# tests/test_notion_obsidian_import_runs_end_to_end.py had a two-word title
+# that nothing asserted on. Arbitrary value, so no permit was warranted.
+#
+# Regenerate to check these:
+#   python3 bin/pii_name_guard.py --root . \
+#       --print-permits 'vendor/doctor/agent/web_ui_copy.py'
+nonperson	vendor/doctor/agent/web_ui_copy.py::200fd3a3e9e1c8c1	PRODUCT: lines 433-434, the title tag and heading of the customer-facing import page for one third-party knowledge-base app. The pair is an imperative verb plus that app's name, which the page has to spell correctly or it points the customer at something they do not have.
+nonperson	vendor/doctor/agent/web_ui_copy.py::3cd82b59cd3c9a35	PRODUCT: lines 501-502, the same two strings for the second third-party knowledge-base app the Doctor imports from. Same shape, same reason: the product name is the fact the page states, not an arbitrary label.

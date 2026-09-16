@@ -137,8 +137,8 @@ def _make_binary_shim(tmp: Path) -> Path:
 def _make_notion_fixture(root: Path) -> Path:
     export_dir = root / "notion_export"
     export_dir.mkdir()
-    (export_dir / "Project Plan abc12345abc12345abc12345abc12345.md").write_text(
-        "# Project Plan\n\nShip the consumer-half fix by Friday.\n",
+    (export_dir / "Handover abc12345abc12345abc12345abc12345.md").write_text(
+        "# Handover\n\nShip the consumer-half fix by Friday.\n",
         encoding="utf-8",
     )
     return export_dir
