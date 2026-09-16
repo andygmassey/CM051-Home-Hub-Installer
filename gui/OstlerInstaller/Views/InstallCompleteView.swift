@@ -35,6 +35,14 @@ struct InstallCompleteView: View {
     @State private var pairFetchInFlight: Bool = false
     @State private var pairFetchError: String? = nil
 
+    /// Starts at `.checking`, NOT at `.notResponding`.
+    ///
+    /// The initial value is the answer shown for the fraction of a second
+    /// before the probe returns, so it has to be the honest one: we have not
+    /// asked yet. Defaulting to `.notResponding` would put "Hub not
+    /// responding" on the screen of every healthy install on first paint.
+    @State private var hubReachability: HubReachability = .checking
+
     private let gatewayClient = GatewayClient()
 
     // The health probes install.sh runs at the tail of Phase 4. We
@@ -335,6 +343,16 @@ struct InstallCompleteView: View {
             // then the gateway was up). autoShowPairCode retries with
             // a short backoff so the QR appears on its own.
             await autoShowPairCode()
+        }
+        // A SECOND .task, deliberately, rather than a line inside the one
+        // above. autoShowPairCode retries the gateway with a backoff and can
+        // run for many seconds; sequencing the health probe behind it would
+        // leave the "Hub responding" row sitting on `.checking` for that whole
+        // time and report a warning about the Hub that is really a statement
+        // about the pair-code fetch. Separate .task modifiers run
+        // concurrently and are each cancelled on disappear.
+        .task {
+            await probeHubReachability()
         }
     }
 
