@@ -90,6 +90,22 @@ _SQLITE_MAGIC = b"SQLite format 3\x00"
 _WALK_FILE_BUDGET = 50_000
 
 
+# ── TWO SCALES, TWO CONSTANTS. SEE docs/PRIVACY_LEVELS.md ───────────────────
+#
+# `privacy_level` is L0..L3, a STRING, HIGHER is more private (L3 hidden).
+# `compartment_level` is 0..6, an INT, LOWER is more private (0 Personal).
+# Opposite directions, not interchangeable.
+#
+# Email conversations are held at the L2 floor above. The MATCHING statement on
+# the compartment scale is L2Trusted, which is the integer 2: owner-searchable,
+# not broadcast. Written as its own constant rather than derived from the
+# privacy level, because deriving one scale from the other is the mistake this
+# whole change exists to undo.
+_EMAIL_COMPARTMENT_LEVEL = 2
+
+
+
+
 # ---------------------------------------------------------------------------
 # Detection result
 # ---------------------------------------------------------------------------
@@ -1501,6 +1517,9 @@ def _email_thread_to_payload(
         # EXPLICIT conservative privacy floor: private-by-default, owner-
         # searchable, demo-withheld. Never a default, never below L2.
         "privacy_level": _EMAIL_PRIVACY_LEVEL,
+        # Stamped too: a payload with a privacy level and no compartment level
+        # matches neither arm of the compartment filter and becomes unfindable.
+        "compartment_level": _EMAIL_COMPARTMENT_LEVEL,
         "subject": thread.subject,
         "is_group_chat": len(thread.participants) > 1,
         "message_count": len(thread.messages),
@@ -1595,6 +1614,7 @@ def _persist_email_conversations(
     # sink. Every email conversation is owner-searchable + demo-withheld L2.
     for p in payloads:
         p["metadata"]["privacy_level"] = _EMAIL_PRIVACY_LEVEL
+        p["metadata"]["compartment_level"] = _EMAIL_COMPARTMENT_LEVEL
     (output_dir / "email_conversations.json").write_text(
         json.dumps(payloads, indent=2, default=str)
     )
