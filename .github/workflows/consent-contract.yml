@@ -22,6 +22,7 @@ on:
       - 'tests/test_consent_a7_a8.sh'
       - 'tests/test_third_party_data_consent.sh'
       - 'tests/test_autologin_consent_opt_in.sh'
+      - 'tests/test_recording_consent_gates_the_capture_companion.sh'
       - 'lib/progress_emitter.sh'
       - '.github/workflows/consent-contract.yml'
       - 'tests/test_the_consent_rules_table_is_safe.py'
@@ -33,6 +34,7 @@ on:
       - 'tests/test_consent_a7_a8.sh'
       - 'tests/test_third_party_data_consent.sh'
       - 'tests/test_autologin_consent_opt_in.sh'
+      - 'tests/test_recording_consent_gates_the_capture_companion.sh'
       - 'lib/progress_emitter.sh'
       - '.github/workflows/consent-contract.yml'
       - 'tests/test_the_consent_rules_table_is_safe.py'
@@ -91,3 +93,23 @@ jobs:
       - name: auto-login consent is opt-in and its copy does not overclaim
         if: always()
         run: /bin/bash tests/test_autologin_consent_opt_in.sh
+
+      # SAME JOB, SAME REASON. This one extracts the RemoteCapture phase out of
+      # install.sh and EXECUTES it under three consent answers, so it has to run
+      # under the shell the artefact ships under.
+      #
+      # `|| rc=$?`, not a bare call: the step shell is `/bin/bash -e {0}`, so a
+      # bare fallible call exits before rc is captured and the CANNOT-RUN branch
+      # becomes unreachable code -- the class cannot-run-branch-reachable exists
+      # to catch. A harness that could not read the phase has measured NOTHING
+      # about it, and that is not a pass.
+      - name: a declined recording consent stops the capture companion being installed
+        if: always()
+        run: |
+          set -uo pipefail
+          rc=0
+          /bin/bash tests/test_recording_consent_gates_the_capture_companion.sh || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The RemoteCapture phase could not be extracted from install.sh, so NOTHING was measured about whether a declined recording consent stops it. This is not a pass."
+          fi
+          exit "$rc"
