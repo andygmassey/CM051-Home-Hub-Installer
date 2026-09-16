@@ -1,0 +1,73 @@
+# The subscription spine. Three revenue defects, all measured 2026-09-16:
+#
+#   1. expire_check() had ZERO production callers. install.sh wrote
+#      status=active / expires_at=+30d on day zero and nothing ever
+#      walked it forward, so every Hub buyer had Ostler Pro free for
+#      life. (Control that the search worked: refresh_from_companion, a
+#      sibling in the same file, has a real caller in ical-server.py.)
+#   2. Andy's paid-once rule -- "keep it as long as they've paid (fully)
+#      for Pro at least once. ie. not the 30 days free plus a failed card
+#      try" -- was implemented in the Rust daemon and had ZERO occurrences
+#      in the Python gate that actually ships. (Control: grace_period_end,
+#      38 hits in the same vendor path.)
+#   3. PRODUCTISATION_CHECKLIST.md Rule 0.8, "non-negotiable for launch",
+#      names eleven ingestion surfaces that must check the gate. One did.
+#
+# NO `paths:` FILTER, deliberately. A paths filter here would be the
+# fourth version of the same mistake: the gate is reachable from the
+# installer, from five shell tick wrappers, from the ical-server and from
+# CM052's wire, and a change to any of them can un-gate a surface without
+# touching a path an allowlist would have thought to name. A grey tick on
+# this workflow is indistinguishable from a pass, and this is the one
+# contract where a silent pass costs money on every install.
+
+name: the-trial-must-actually-end
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  subscription-spine:
+    # macOS because the customer's Hub is macOS and the tick wrappers this
+    # test lifts its fixtures out of run under /bin/bash 3.2 there. A pass
+    # on a GNU runner would not be a pass on the box that ships.
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Name the tools, so a verdict can be attributed
+        run: |
+          set -euo pipefail
+          echo "bash:    $(/bin/bash --version | head -1)"
+          echo "python3: $(command -v python3) -- $(python3 --version)"
+          echo "grep:    /usr/bin/grep (BSD)"
+
+      - name: A customer 31 days in, who never subscribed, loses Ostler Pro
+        run: /bin/bash tests/test_the_trial_must_actually_end.sh
+
+      - name: The gate unit suite also runs under the Linux python matrix
+        run: |
+          set -euo pipefail
+          cd vendor/cm041/assistant_api
+          # Denominator check: `unittest discover` exits 0 when it collects
+          # nothing at all, so count what ran before believing the tick.
+          python3 -m unittest discover -s tests -p 'test_subscription*.py' -t . 2>&1 | tee /tmp/sub.log
+          n="$(sed -n 's/^Ran \([0-9][0-9]*\) test.*/\1/p' /tmp/sub.log | head -1)"
+          echo "collected: ${n:-0}"
+          if [ "${n:-0}" -lt 30 ]; then
+            echo "FAIL: only ${n:-0} tests collected; a green tick on an empty suite is the failure this repo keeps paying for." >&2
+            exit 1
+          fi

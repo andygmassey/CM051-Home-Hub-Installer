@@ -34,6 +34,10 @@ import sys
 try:
     from ostler_security.database import get_db_connection as _secure_connect
     from ostler_security.posture import record_posture
+    # Bracketed with the two above on purpose: a vendored ostler_security
+    # too old to carry db_key would otherwise leave this pipeline writing
+    # every coach row in plaintext with nothing saying so.
+    from ostler_security.db_key import resolve_db_key
 except ImportError as exc:
     raise RuntimeError(
         "ostler_security is required but not installed in this Python "
@@ -42,11 +46,32 @@ except ImportError as exc:
         "pip install /path/to/HR015/ostler_security/"
     ) from exc
 
-# Posture is recorded based on whether a key exists in env at import
-# time. CM048's run-loop reads the key from settings rather than env,
-# so this marker is a "best-known" startup snapshot. The per-write
-# warning still fires if a particular invocation gets no key.
-_KEY_SOURCE = "OSTLER_DB_KEY" if os.environ.get("OSTLER_DB_KEY") else None
+# Posture is recorded from whatever key this process can actually
+# resolve at import time: the OSTLER_DB_KEY environment variable first
+# (unchanged), then the protected key file the installer writes.
+#
+# 🔴 TWO SEPARATE BREAKS MET HERE, AND EITHER ONE ALONE WAS FATAL.
+#
+#   1. Nothing ever set OSTLER_DB_KEY. Measured across the tree: 17
+#      mentions, 3 readers, 0 setters, with OSTLER_AI_CONVERSATIONS_DIR
+#      found being set in a plist by the identical query as the control.
+#
+#   2. Even with it set, this pipeline would still have written
+#      plaintext. The coach write below read the key from
+#      `getattr(settings, 'encryption_key_hex', None)`, and Settings has
+#      no such field -- not in settings.py, not anywhere in the package.
+#      The getattr therefore returned None on every call that has ever
+#      run, so the `if encryption_key` branch was dead code and the
+#      plaintext branch was unconditional.
+#
+# The comment that used to sit here said the run-loop "reads the key
+# from settings rather than env", which made the marker sound like a
+# conservative approximation of a working path. There was no working
+# path. _ENCRYPTION_KEY below is now what the writer actually falls back
+# to, so the marker and the write agree.
+_DB_KEY = resolve_db_key()
+_ENCRYPTION_KEY = _DB_KEY.key
+_KEY_SOURCE = _DB_KEY.source
 if _KEY_SOURCE:
     record_posture(
         "cm048-ingest",
@@ -58,7 +83,11 @@ else:
     record_posture(
         "cm048-ingest",
         "disabled",
-        reason="no_key",
+        # The resolver's reason, not a hardcoded "no_key": "nothing was
+        # configured" and "a key file exists and I refused to read it
+        # because its mode lets another local account read it" must not
+        # reach Doctor as the same string.
+        reason=_DB_KEY.reason,
         backend="plaintext",
     )
 
@@ -73,10 +102,12 @@ def _warn_plaintext_once(db_path: str, encryption_key: str | None) -> None:
     if _PLAINTEXT_WARNED:
         return
     _PLAINTEXT_WARNED = True
+    detail = f" {_DB_KEY.detail}" if _DB_KEY.detail else ""
     print(
         f"WARNING: opening {db_path} as plaintext SQLite "
-        "(encryption key not provided). Set OSTLER_DB_KEY or pass "
-        "an encryption_key in settings to enable at-rest encryption.",
+        f"(no database key: {_DB_KEY.reason}).{detail} "
+        "Recover the key with `ostler-unlock --install-key-file`, or set "
+        "OSTLER_DB_KEY, to enable at-rest encryption.",
         file=sys.stderr,
         flush=True,
     )
@@ -1019,7 +1050,15 @@ def _write_coach(
         return 1
 
     settings.coach_db_path.parent.mkdir(parents=True, exist_ok=True)
-    encryption_key = getattr(settings, 'encryption_key_hex', None)
+    # `encryption_key_hex` is not a field on Settings and never has been,
+    # in this package or anywhere it is loaded from, so this getattr has
+    # returned None on every invocation since it was written and the
+    # branch below was dead. It is KEPT rather than deleted because a
+    # per-install settings override is a legitimate future shape and
+    # removing it would silently take that option away; what it no longer
+    # does is decide the answer on its own. `or _ENCRYPTION_KEY` is what
+    # makes the key the installer delivers actually reach the database.
+    encryption_key = getattr(settings, 'encryption_key_hex', None) or _ENCRYPTION_KEY
     # ostler_security is guaranteed importable (hard-fails at module
     # load if not). The remaining branch is whether a key is set.
     if encryption_key:

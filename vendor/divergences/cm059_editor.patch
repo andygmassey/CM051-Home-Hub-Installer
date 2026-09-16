@@ -1,42 +1,50 @@
---- a/emit_frontpage.py
-+++ b/emit_frontpage.py
-@@ -192,6 +192,20 @@
-         "stats": art.get("stats", {"interests": sum(len(b["interests"]) for b in blocks)}),
-     }
- 
+--- a/corrections.py
++++ b/corrections.py
+@@ -28,6 +28,8 @@
+ import json
+ import os
+ import urllib.request
 +
-+def _read_feed(path: str) -> dict | None:
-+    """Read an existing feed artefact, or None when absent/unreadable.
-+
-+    Deliberately forgiving: a corrupt or half-written previous feed must not
-+    stop the degraded path writing its stub, because then the stub really is
-+    the better of the two.
-+    """
-+    try:
-+        with open(path, "r", encoding="utf-8") as fh:
-+            data = json.load(fh)
-+        return data if isinstance(data, dict) else None
-+    except Exception:  # noqa: BLE001 - missing, unreadable or malformed
-+        return None
++from compiler.signals import _service_token
+ from datetime import datetime, timezone
  
- def emit(oxigraph_url: str | None = None, *, from_artefact: bool = False,
-          now: datetime | None = None) -> dict:
-@@ -304,18 +318,3 @@
+ DEFAULT_STORE = os.path.expanduser("~/.ostler/editor/interest_corrections.json")
+@@ -117,9 +119,17 @@
+         payload = self._assert_payload(action, key, factor)
+         try:
+             url = self.ical_server_url.rstrip("/") + "/api/v1/memory/assert"
++            # The server gates this route and fails CLOSED (ical-server.py:191).
++            # Without a credential the assert is refused, and this path already
++            # swallows failures, so the correction would vanish silently -- the
++            # same shape that left the front page without "Needs you now".
++            headers = {"Content-Type": "application/json"}
++            _tok = _service_token()
++            if _tok:
++                headers["Authorization"] = "Bearer " + _tok
+             req = urllib.request.Request(
+                 url, data=json.dumps(payload).encode("utf-8"),
+-                method="POST", headers={"Content-Type": "application/json"})
++                method="POST", headers=headers)
+             with urllib.request.urlopen(req, timeout=10) as resp:
+                 return 200 <= resp.status < 300
+         except Exception:
+--- a/interest_profile.py
++++ b/interest_profile.py
+@@ -5,7 +5,7 @@
+ without a live graph. The I/O layer (fetch_preferences) talks read-only to
+ Oxigraph; nothing here ever writes to the graph.
  
- if __name__ == "__main__":
-     raise SystemExit(main())
--
--
--def _read_feed(path: str) -> dict | None:
--    """Read an existing feed artefact, or None when absent/unreadable.
--
--    Deliberately forgiving: a corrupt or half-written previous feed must not
--    stop the degraded path writing its stub, because then the stub really is
--    the better of the two.
--    """
--    try:
--        with open(path, "r", encoding="utf-8") as fh:
--            data = json.load(fh)
--        return data if isinstance(data, dict) else None
--    except Exception:  # noqa: BLE001 - missing, unreadable or malformed
--        return None
+-Observed data shape on a real PWG (Oxigraph), pwg: = https://pwg.dev/ontology#
++Observed data shape on a real PWG (Oxigraph), pwg: = https://schema.ostler.ai/ontology#
+   ?s a pwg:LikePreference | pwg:DislikePreference
+      pwg:subject            "Web Development"
+      pwg:category           "professional"
+@@ -33,7 +33,7 @@
+ import urllib.request
+ from datetime import datetime, timezone
+ 
+-PWG_NS = "https://pwg.dev/ontology#"
++PWG_NS = "https://schema.ostler.ai/ontology#"
+ 
+ # ---------------------------------------------------------------------------
+ # Taxonomy: how far to trust each source category, and which coarse domain it

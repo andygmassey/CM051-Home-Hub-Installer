@@ -200,16 +200,23 @@ pr_exemptions:
     review_by: "2026-09-12"
   - ref: "CM051-Home-Hub-Installer#1818"
     reason: >-
-      '[LAUNCH ITEM, do not merge until walk clears] Ostler Uninstaller:
-      colima-safe teardown, --purge-data, standalone Uninstaller.app'. A DRAFT
-      opened 2026-09-08T03:58Z and held open on ANDY'S INSTRUCTION under the
-      launch freeze: it must not merge until a clean walk record exists, and
-      it moves no walk probe (directive item 2). It crossed 48h during the
-      v1.0.86 cut and check-pr-age refused run 34441097038 on it at
-      05:29:08Z, 2026-09-10, before the build, with no row here. Deferred on
-      Andy's standing instruction, not on merit. Retire this row when the
-      freeze lifts or the PR merges.
-    review_by: "2026-09-12"
+      RE-DECIDED 2026-09-13, and the grounds have CHANGED rather than been
+      renewed. The previous row deferred this on the launch freeze and said
+      "retire this row when the freeze lifts or the PR merges". THE FREEZE HAS
+      LIFTED (Andy, 2026-09-13), so that ground is gone and this is not a
+      rollover of it. What still holds is narrower and is Andy's own
+      instruction, carried in the PR's title: '[LAUNCH ITEM, do not merge
+      until walk clears]'. No clean walk record exists yet, so the one
+      condition the PR sets for itself is unmet and merging it now would
+      break that instruction rather than honour the lifted freeze. It remains
+      a DRAFT. It touches no file in this cut's tree, so exempting it changes
+      nothing about what v1.0.97 ships: the tree is identical whether this
+      sits open, merges, or closes. Deferred on Andy's standing instruction
+      and on draft status, not on merit, and this is not a judgement about
+      the uninstaller change. RETIRE THIS ROW when a clean walk record exists
+      (then it can merge and be judged on merit) or when Andy withdraws the
+      walk-clears condition. Not on the next cut, not automatically.
+    review_by: "2026-09-20"
   - ref: "CM051-Home-Hub-Installer#495"
     reason: >-
       'feat(cut-infra): vendor drift check + .vendor-manifests'. DRAFT, and

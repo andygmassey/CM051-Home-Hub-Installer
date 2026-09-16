@@ -19,6 +19,8 @@ on:
       - 'vendor/legal/consent_strings.py'
       - 'vendor/ostler_security/consent_cli.py'
       - 'tests/test_consent_tickbox_registry.sh'
+      - 'tests/test_every_consent_decision_is_recorded.sh'
+      - 'tests/test_the_reuse_path_still_asks_the_licence_terms.sh'
       - '.github/workflows/consent-registry.yml'
   push:
     branches: [main]
@@ -43,3 +45,22 @@ jobs:
 
       - name: Consent tickbox registry cross-check
         run: bash tests/test_consent_tickbox_registry.sh
+
+      - name: every consent decision the customer gives is actually recorded
+        # `always()` because a test step that only runs on success can be
+        # MASKED by an earlier red in the same job. A guard against answers
+        # that are never recorded must not itself stop being recorded.
+        if: always()
+        run: bash tests/test_every_consent_decision_is_recorded.sh
+
+      - name: a re-install still asks for the licence terms
+        # Same `always()` reasoning as the step above. This one guards the
+        # REUSE path specifically: the personal-use terms were rendered only
+        # inside `if [[ "$SKIP_PHASE2" == false ]]`, so "use previous answers"
+        # showed no terms and recorded no acknowledgement. The test extracts
+        # the blocks from install.sh at run time rather than copying them, and
+        # REFUSES (CANNOT-RUN, non-zero) if the extraction comes back short --
+        # so deleting the code under test fails the gate instead of emptying
+        # it into a green.
+        if: always()
+        run: bash tests/test_the_reuse_path_still_asks_the_licence_terms.sh
