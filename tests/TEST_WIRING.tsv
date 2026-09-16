@@ -119,6 +119,7 @@ test_cannot_run_branch_is_reachable.sh	WIRED	.github/workflows/cannot-run-branch
 test_cannot_run_is_a_third_state.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_cannot_run_names_its_prerequisite.sh	WIRED	.github/workflows/cut-manifest.yml
 test_canonical_keys_must_not_merge.py	WIRED	.github/workflows/vendor-integrity.yml
+test_case_in_command_substitution_parses_under_bash_32.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_closing_verdict_consults_failed_steps.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_cm041_usage_journal_producer.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm048_prompts_packaged.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
