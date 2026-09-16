@@ -54,6 +54,15 @@ jobs:
         if: always()
         run: bash tests/test_consent_a7_a8.sh
 
+      # The country table is DATA, deliberately, so a legal edit is not a code
+      # edit. This guard holds the one property that matters: it must never
+      # answer permissively for a place it does not actually know about. A
+      # country with sub-national variation carrying a permissive country-level
+      # answer means the strict path never fires for its strict states.
+      - name: The consent rules table cannot answer permissively for a place it does not know
+        if: always()
+        run: python3 tests/test_the_consent_rules_table_is_safe.py
+
       - name: third-party data consent
         if: always()
         run: bash tests/test_third_party_data_consent.sh

@@ -1,0 +1,302 @@
+# transcription_consent_rules.csv
+#
+# WHETHER A JURISDICTION REQUIRES EVERY PARTY TO AGREE BEFORE A CONVERSATION IS
+# TRANSCRIBED. Read by the consent spine to decide whether a claimed one-party
+# basis may stand or must be withheld.
+#
+# THIS IS NOT LEGAL ADVICE AND THE decided_by COLUMN SAYS SO ON EVERY ROW.
+# `gemini+kimi-2026-09` means two language models were asked and their answers
+# combined. That is a research aid. It is not a solicitor, it is not a citation,
+# and the statute references below are what those models reported rather than
+# anything verified against the statute book. A row becomes authoritative only
+# when decided_by names a person or a firm and decided_on is the date they said
+# it.
+#
+# THREE VALUES, NOT A BOOLEAN:
+#   yes      every party must agree
+#   no       one party agreeing is enough
+#   unclear  not determined, or determined to vary. TREAT AS STRICTEST.
+#
+# `unclear` is the majority answer (210 of 267 rows as written) and that is
+# honest rather than lazy: most of the world has no clean statutory mapping for
+# this, and pretending otherwise in a file the product reads is worse than
+# saying so.
+#
+# SUB-NATIONAL ROWS (US-CA, AU-NSW, CA-QC and so on) CANNOT BE MATCHED TODAY.
+# The Hub resolves a device REGION, which yields a country and never a state.
+# They are kept because they are correct and will be usable the day something
+# can resolve that finely. Until then, every country that HAS such rows is
+# forced to `unclear` at country level, so the strictest path applies rather
+# than a federal baseline being applied to a state it is wrong for. Without
+# that, a customer in California would match the US row, read `no`, and the
+# strict path would never fire.
+#
+# Lines beginning with # are comments. Parsers must skip them.
+iso,country,all_party,source,decided_on,decided_by
+US,United States (Federal Baseline),unclear,"18 U.S.C. § 2511 || COUNTRY-LEVEL SET TO unclear: this country has sub-national variation and the Hub resolves only a country, so a country-level answer here would be applied to states it is wrong for.",2026-09,gemini+kimi-2026-09
+US-CA,United States (California),yes,Cal. Penal Code § 632,2026-09,gemini+kimi-2026-09
+US-DE,United States (Delaware),yes,"Del. Code Ann. tit. 11, § 1335",2026-09,gemini+kimi-2026-09
+US-FL,United States (Florida),yes,Fla. Stat. § 934.03,2026-09,gemini+kimi-2026-09
+US-IL,United States (Illinois),yes,720 ILCS 5/14-2,2026-09,gemini+kimi-2026-09
+US-MD,United States (Maryland),yes,"Md. Code Ann., Cts. & Jud. Proc. § 10-402",2026-09,gemini+kimi-2026-09
+US-MA,United States (Massachusetts),yes,"Mass. Gen. Laws ch. 272, § 99",2026-09,gemini+kimi-2026-09
+US-MT,United States (Montana),yes,Mont. Code Ann. § 45-8-213,2026-09,gemini+kimi-2026-09
+US-NV,United States (Nevada),yes,NRS § 200.650 / Lane v. Allstate,2026-09,gemini+kimi-2026-09
+US-NH,United States (New Hampshire),yes,N.H. Rev. Stat. Ann. § 570-A:2,2026-09,gemini+kimi-2026-09
+US-PA,United States (Pennsylvania),yes,18 Pa. Cons. Stat. § 5703,2026-09,gemini+kimi-2026-09
+US-WA,United States (Washington),yes,Wash. Rev. Code § 9.73.030,2026-09,gemini+kimi-2026-09
+US-CT,United States (Connecticut),unclear,Conn. Gen. Stat. § 52-570d (Civil all-party / Criminal one-party),2026-09,gemini+kimi-2026-09
+US-OR,United States (Oregon),unclear,Or. Rev. Stat. § 165.540 (Phone one-party / In-person all-party),2026-09,gemini+kimi-2026-09
+AU,Australia (National Baseline),unclear,Telecommunications (Interception and Access) Act 1979,2026-09,gemini+kimi-2026-09
+AU-NSW,Australia (New South Wales),yes,Surveillance Devices Act 2007 (NSW) s 7,2026-09,gemini+kimi-2026-09
+AU-SA,Australia (South Australia),yes,Surveillance Devices Act 2016 (SA) s 4,2026-09,gemini+kimi-2026-09
+AU-WA,Australia (Western Australia),yes,Surveillance Devices Act 1998 (WA) s 5,2026-09,gemini+kimi-2026-09
+AU-TAS,Australia (Tasmania),yes,Listening Devices Act 1991 (TAS) s 5,2026-09,gemini+kimi-2026-09
+AU-ACT,Australia (Capital Territory),yes,Listening Devices Act 1992 (ACT) s 4,2026-09,gemini+kimi-2026-09
+AU-VIC,Australia (Victoria),unclear,Surveillance Devices Act 1999 (VIC) s 6 (Record one-party / Share all-party),2026-09,gemini+kimi-2026-09
+AU-NT,Australia (Northern Territory),unclear,Surveillance Devices Act (NT) s 11 (Record one-party / Share all-party),2026-09,gemini+kimi-2026-09
+AU-QLD,Australia (Queensland),no,Invasion of Privacy Act 1971 (QLD) s 43,2026-09,gemini+kimi-2026-09
+CA,Canada (Federal Baseline),unclear,Criminal Code s.184 (One-Party) / PIPEDA Commercial (All-Party),2026-09,gemini+kimi-2026-09
+CA-QC,Canada (Quebec),yes,Civil Code of Quebec / Law 25,2026-09,gemini+kimi-2026-09
+DE,Germany,yes,§201 StGB (Penal Code),2026-09,gemini+kimi-2026-09
+FR,France,yes,Art. 226-1 Code pénal,2026-09,gemini+kimi-2026-09
+CH,Switzerland,yes,Arts. 179bis/179ter SCC,2026-09,gemini+kimi-2026-09
+PH,Philippines,yes,RA 4200 Anti-Wiretapping Act,2026-09,gemini+kimi-2026-09
+MY,Malaysia,yes,PDPA 2010 (Amended 2024),2026-09,gemini+kimi-2026-09
+PK,Pakistan,yes,PECA 2016,2026-09,gemini+kimi-2026-09
+BD,Bangladesh,yes,Digital Security Act 2018,2026-09,gemini+kimi-2026-09
+GB,United Kingdom,unclear,RIPA 2000 (Personal one-party) / UK GDPR (Business all-party),2026-09,gemini+kimi-2026-09
+NZ,New Zealand,no,Crimes Act 1961 / Privacy Act 2020,2026-09,gemini+kimi-2026-09
+KR,South Korea,no,Protection of Communications Secrets Act,2026-09,gemini+kimi-2026-09
+JP,Japan,no,Act on the Protection of Personal Information (APPI),2026-09,gemini+kimi-2026-09
+TW,Taiwan,no,"Art. 29, Communication Security & Surveillance Act",2026-09,gemini+kimi-2026-09
+SE,Sweden,no,Brottsbalken Ch. 4 §§8–9,2026-09,gemini+kimi-2026-09
+FI,Finland,unclear,Criminal Code (Private one-party) / Workplace Privacy Act (Business all-party),2026-09,gemini+kimi-2026-09
+DK,Denmark,unclear,Criminal Code (Private one-party) / Danish DPA guidance (Business all-party),2026-09,gemini+kimi-2026-09
+CZ,Czechia,no,"Civil Code §§86, 88",2026-09,gemini+kimi-2026-09
+PL,Poland,no,Penal Code art. 267,2026-09,gemini+kimi-2026-09
+LV,Latvia,no,General penal baseline for non-interception,2026-09,gemini+kimi-2026-09
+RO,Romania,no,Telecom Act 506/2004,2026-09,gemini+kimi-2026-09
+IT,Italy,no,Art. 615-bis Penal Code / Cassation case law,2026-09,gemini+kimi-2026-09
+ES,Spain,no,Art. 18.3 Constitution / LOPDGDD,2026-09,gemini+kimi-2026-09
+NL,Netherlands,unclear,Dutch Penal Code (Private one-party) / GDPR (Business all-party),2026-09,gemini+kimi-2026-09
+IN,India,no,Telegraph Act 1885 / DPDPA 2023 processing rules,2026-09,gemini+kimi-2026-09
+ZA,South Africa,no,RICA Act 2002,2026-09,gemini+kimi-2026-09
+IL,Israel,no,Wiretapping Law 1979,2026-09,gemini+kimi-2026-09
+SG,Singapore,unclear,Common law (Private one-party) / PDPA (Business all-party),2026-09,gemini+kimi-2026-09
+MX,Mexico,unclear,Federal baseline (Private one-party) / LFPDPPP (Business all-party),2026-09,gemini+kimi-2026-09
+CN,China,unclear,Supreme Court evidence rules (One-party) / PIPL (Business all-party),2026-09,gemini+kimi-2026-09
+IE,Ireland,unclear,Data Protection Act 2018 / Privacy by default guidelines,2026-09,gemini+kimi-2026-09
+AE,United Arab Emirates,yes,Federal Decree-Law No. 45/2021 on PDPL,2026-09,gemini+kimi-2026-09
+SA,Saudi Arabia,yes,PDPL (MFR 2024 enforcement),2026-09,gemini+kimi-2026-09
+QA,Qatar,yes,Law No. 13 of 2016 (PDPPL),2026-09,gemini+kimi-2026-09
+BH,Bahrain,yes,Law No. 30 of 2018 (PDPL),2026-09,gemini+kimi-2026-09
+OM,Oman,yes,Royal Decree No. 6/2022 (PDPL),2026-09,gemini+kimi-2026-09
+KW,Kuwait,yes,CITRA Data Protection Regulation,2026-09,gemini+kimi-2026-09
+JO,Jordan,yes,Personal Data Protection Law 2023,2026-09,gemini+kimi-2026-09
+VN,Vietnam,yes,Decree 13/2023/ND-CP on PDP,2026-09,gemini+kimi-2026-09
+HK,Hong Kong,yes,PDPO (Cap. 486) DPP1 Notification rules,2026-09,gemini+kimi-2026-09
+NG,Nigeria,yes,Nigeria Data Protection Act 2023,2026-09,gemini+kimi-2026-09
+KE,Kenya,yes,Data Protection Act 2019,2026-09,gemini+kimi-2026-09
+EG,Egypt,yes,Law No. 151 of 2020,2026-09,gemini+kimi-2026-09
+MA,Morocco,yes,Law No. 09-08,2026-09,gemini+kimi-2026-09
+TN,Tunisia,yes,Organic Law n° 2004-63,2026-09,gemini+kimi-2026-09
+AR,Argentina,yes,Personal Data Protection Act No. 25.326,2026-09,gemini+kimi-2026-09
+BR,Brazil,yes,LGPD (Lei Geral de Proteção de Dados),2026-09,gemini+kimi-2026-09
+CO,Colombia,yes,Statutory Law 1581 of 2012 / Penal Code Art 192,2026-09,gemini+kimi-2026-09
+AF,Afghanistan,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+AX,Åland Islands,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+AL,Albania,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+DZ,Algeria,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+AS,American Samoa,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+AD,Andorra,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+AO,Angola,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+AI,Anguilla,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+AQ,Antarctica,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+AG,Antigua and Barbuda,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+AM,Armenia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+AW,Aruba,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+AT,Austria,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+AZ,Azerbaijan,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+BS,Bahamas,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+BB,Barbados,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+BY,Belarus,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+BE,Belgium,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+BZ,Belize,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+BJ,Benin,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+BM,Bermuda,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+BT,Bhutan,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+BO,Bolivia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+BQ,Bonaire,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+BA,Bosnia and Herzegovina,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+BW,Botswana,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+BV,Bouvet Island,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+IO,British Indian Ocean Territory,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+BN,Brunei Darussalam,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+BG,Bulgaria,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+BF,Burkina Faso,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+BI,Burundi,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+CV,Cabo Verde,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+KH,Cambodia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+CM,Cameroon,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+KY,Cayman Islands,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+CF,Central African Republic,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+TD,Chad,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+CL,Chile,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+CX,Christmas Island,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+CC,Cocos (Keeling) Islands,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+KM,Comoros,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+CD,Congo (Democratic Republic),unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+CG,Congo (Republic),unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+CK,Cook Islands,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+CR,Costa Rica,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+CI,Côte d'Ivoire,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+HR,Croatia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+CU,Cuba,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+CW,Curaçao,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+CY,Cyprus,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+DJ,Djibouti,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+DM,Dominica,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+DO,Dominican Republic,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+EC,Ecuador,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+SV,El Salvador,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+GQ,Equatorial Guinea,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+ER,Eritrea,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+EE,Estonia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+SZ,Eswatini,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+ET,Ethiopia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+FK,Falkland Islands,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+FO,Faroe Islands,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+FJ,Fiji,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+GF,French Guiana,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+PF,French Polynesia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+TF,French Southern Territories,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+GA,Gabon,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+GM,Gambia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+GE,Georgia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+GH,Ghana,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+GI,Gibraltar,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+GR,Greece,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+GL,Greenland,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+GD,Grenada,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+GP,Guadeloupe,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+GU,Guam,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+GT,Guatemala,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+GG,Guernsey,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+GN,Guinea,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+GW,Guinea-Bissau,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+GY,Guyana,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+HT,Haiti,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+HM,Heard Island and McDonald Islands,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+VA,Holy See,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+HN,Honduras,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+HU,Hungary,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+IS,Iceland,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+ID,Indonesia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+IR,Iran,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+IQ,Iraq,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+IM,Isle of Man,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+JE,Jersey,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+KZ,Kazakhstan,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+KI,Kiribati,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+KP,Korea (Democratic People's Republic),unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+LA,Lao People's Democratic Republic,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+LB,Lebanon,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+LS,Lesotho,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+LR,Liberia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+LY,Libya,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+LI,Liechtenstein,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+LT,Lithuania,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+LU,Luxembourg,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+MO,Macao,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+MG,Madagascar,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+MW,Malawi,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+MV,Maldives,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+ML,Mali,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+MT,Malta,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+MH,Marshall Islands,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+MQ,Martinique,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+MR,Mauritania,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+MU,Mauritius,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+YT,Mayotte,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+FM,Micronesia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+MD,Moldova,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+MC,Monaco,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+MN,Mongolia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+ME,Montenegro,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+MS,Montserrat,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+MZ,Mozambique,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+MM,Myanmar,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+NA,Namibia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+NR,Nauru,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+NP,Nepal,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+NC,New Caledonia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+NI,Nicaragua,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+NE,Niger,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+NU,Niue,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+NF,Norfolk Island,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+MK,North Macedonia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+MP,Northern Mariana Islands,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+NO,Norway,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+PA,Panama,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+PG,Papua New Guinea,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+PY,Paraguay,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+PE,Peru,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+PN,Pitcairn,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+PT,Portugal,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+PR,Puerto Rico,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+RE,Réunion,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+RU,Russian Federation,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+RW,Rwanda,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+BL,Saint Barthélemy,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+SH,Saint Helena,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+KN,Saint Kitts and Nevis,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+LC,Saint Lucia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+MF,Saint Martin,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+PM,Saint Pierre and Miquelon,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+VC,Saint Vincent and the Grenadines,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+WS,Samoa,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+SM,San Marino,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+ST,São Tomé and Príncipe,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+SN,Senegal,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+RS,Serbia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+SC,Seychelles,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+SL,Sierra Leone,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+SX,Sint Maarten,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+SK,Slovakia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+SI,Slovenia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+SB,Solomon Islands,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+SO,Somalia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+GS,South Georgia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+SS,South Sudan,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+LK,Sri Lanka,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+SD,Sudan,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+SR,Suriname,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+SJ,Svalbard and Jan Mayen,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+SY,Syrian Arab Republic,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+TJ,Tajikistan,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+TZ,Tanzania,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+TH,Thailand,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+TL,Timor-Leste,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+TG,Togo,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+TK,Tokelau,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+TO,Tonga,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+TT,Trinidad and Tobago,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+TR,Türkiye,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+TM,Turkmenistan,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+TC,Turks and Caicos Islands,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+TV,Tuvalu,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+UG,Uganda,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+UA,Ukraine,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+UM,United States Minor Outlying Islands,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+UY,Uruguay,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+UZ,Uzbekistan,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+VU,Vanuatu,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+VE,Venezuela,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+VG,Virgin Islands (British),unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+VI,Virgin Islands (U.S.),unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+WF,Wallis and Futuna,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+EH,Western Sahara,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+YE,Yemen,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+ZM,Zambia,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
+ZW,Zimbabwe,unclear,No confirmed specific statutory mapping; default to strictest workflow,2026-09,gemini+kimi-2026-09
