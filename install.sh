@@ -3051,7 +3051,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :7854   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :7899   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :7908 and :13970, both of which run
+    # Its two top-level arming calls are :7908 and :13994, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3042 above has just deleted
     # that tree and :3046 has just rebound OSTLER_DIR to the final one, so
@@ -3069,13 +3069,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :14741, where the note reads
+    # WhatsApp Web session path did it again at :14765, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :14758 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :14782 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3088,9 +3088,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:7908, :13970) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:7908, :13994) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :16813 / :16991 / :17148 / :17489 path. There the
+    # :16837 / :17015 / :17172 / :17513 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -13312,13 +13312,37 @@ fi
 # Interpolating either into the plist below (StandardOut/Err via
 # _ollama_rot_logs, ProgramArguments via the script path) baked dead
 # /tmp paths that broke the logrotate agent after reboot. The rotate
-# SCRIPT is written straight to the final bin dir so the plist's
-# ProgramArguments reference is always valid, independent of the later
-# staging-tree promotion (nothing else writes ${OSTLER_DIR}/bin pre-FDA,
-# so this direct write cannot be clobbered by the promotion rm+mv).
+# 🔴 THAT COMMENT WAS FALSE AND THE AGENT IT DESCRIBES HAS NEVER STARTED.
+#
+# It used to read: "SCRIPT is written straight to the final bin dir so the
+# plist's ProgramArguments reference is always valid, independent of the later
+# staging-tree promotion (nothing else writes ${OSTLER_DIR}/bin pre-FDA, so
+# this direct write cannot be clobbered by the promotion rm+mv)."
+#
+# The parenthesis is the whole safety argument and it is measurably wrong.
+# TWO things write into ${OSTLER_DIR}/bin before this point: the ostler-unlock
+# symlink and the engine-supervisor copy. So the STAGING tree does contain a
+# bin/, and _ostler_promote_prelaunch_tree merges PER TOP-LEVEL ENTRY: for each
+# staging entry it does `rm -rf "${OSTLER_FINAL_DIR}/${name}"` and then `mv`.
+# With `bin` among those entries, the promotion deletes the whole final bin/,
+# including this file, and replaces it with staging's.
+#
+# MEASURED ON A LIVE BOX: ~/.ostler/bin/ostler-ollama-logrotate does not exist
+# (ls rc=1), while ostler-fda in the same directory does (rc=0, 7,925 bytes) as
+# the control that the check works. launchd reports the consequence exactly:
+# EX_CONFIG (78), because it cannot exec a program that is not there. Both of
+# the agent's log files are 0 bytes: it has never emitted a line.
+#
+# WHY THE FIX IS TO STOP BEING SPECIAL. Every other program in this installer
+# is written to ${OSTLER_DIR}/bin and reaches the customer through the promote.
+# This one file used ${HOME}/.ostler/bin to dodge the promote, and the promote
+# ate it. Writing it where its siblings live means the same machinery that
+# delivers all of them delivers this one. The PLIST keeps naming the final
+# path, because that is where the promote puts it and that is what launchd
+# execs at runtime.
 _ollama_rot_logs="${HOME}/.ostler/logs"
-mkdir -p "${HOME}/.ostler/bin" "$_ollama_rot_logs" "${HOME}/Library/LaunchAgents"
-cat > "${HOME}/.ostler/bin/ostler-ollama-logrotate" <<'OLLAMAROTEOF'
+mkdir -p "${OSTLER_DIR}/bin" "$_ollama_rot_logs" "${HOME}/Library/LaunchAgents"
+cat > "${OSTLER_DIR}/bin/ostler-ollama-logrotate" <<'OLLAMAROTEOF'
 #!/usr/bin/env bash
 # Truncate the Ollama serve logs in place when they exceed the cap.
 # In-place overwrite (`cat tmp > file`) preserves the inode so ollama's
@@ -13342,7 +13366,7 @@ for _f in "${LOG_DIR}/ollama.err" "${LOG_DIR}/ollama.log"; do
     fi
 done
 OLLAMAROTEOF
-chmod +x "${HOME}/.ostler/bin/ostler-ollama-logrotate"
+chmod +x "${OSTLER_DIR}/bin/ostler-ollama-logrotate"
 
 OLLAMA_ROT_PLIST="${HOME}/Library/LaunchAgents/com.ostler.ollama-logrotate.plist"
 cat > "$OLLAMA_ROT_PLIST" <<OLLAMAROTPLIST
