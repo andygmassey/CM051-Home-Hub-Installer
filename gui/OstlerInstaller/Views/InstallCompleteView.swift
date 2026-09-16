@@ -35,6 +35,22 @@ struct InstallCompleteView: View {
     @State private var pairFetchInFlight: Bool = false
     @State private var pairFetchError: String? = nil
 
+    // #944. THE BUTTON BELOW USED TO BE UNCONDITIONAL, and this screen is the
+    // last thing a customer sees. install.sh already knows the answer: its
+    // "Next steps" banner prints the wiki URL only when WIKI_FIRST_COMPILE_OK
+    // is true, and prints "not yet available" otherwise. The GUI printed
+    // neither guard. So on a box where the first compile did not finish, the
+    // terminal path went quiet and the GUI actively sent the customer to a
+    // page that would not load, with a sign-in hint for a server that was not
+    // listening. The richer surface was the more misleading one.
+    //
+    // THREE STATES, THREE BRANCHES. "Not checked yet" is not "not serving",
+    // and "not serving" is not "broken for ever". A two-state flag here would
+    // read the first render as a failure and flash a false warning on every
+    // healthy install.
+    private enum WikiReachability { case checking, serving, notServing }
+    @State private var wikiReachability: WikiReachability = .checking
+
     /// Starts at `.checking`, NOT at `.notResponding`.
     ///
     /// The initial value is the answer shown for the fraction of a second
@@ -294,6 +310,11 @@ struct InstallCompleteView: View {
                 .padding(.vertical, 6)
             }
             .buttonStyle(.bordered)
+            // #944: off while checking and while not serving. A button that
+            // opens a dead page is worse than a button that is plainly not
+            // ready yet, because the customer blames the product for the
+            // blank tab and has no way to tell the two apart.
+            .disabled(wikiReachability != .serving)
 
             Spacer()
         }
@@ -316,10 +337,32 @@ struct InstallCompleteView: View {
         // actually succeeded, and this view cannot observe that. A promise the
         // GUI cannot verify is the failure mode install.sh's own comment warns
         // about: claiming a clipboard we could not write is worse than silence.
-        Text(ViewCopy.shared.string(for: "install_complete.wiki_signin_hint"))
-            .font(.ostlerCaption)
-            .foregroundStyle(Color.ostlerInkSubdued)
-            .fixedSize(horizontal: false, vertical: true)
+        // #944: the sign-in hint is a promise about a server that is
+        // answering. It only belongs under a wiki that is actually serving;
+        // under one that is not, it reads as "here is the password for the
+        // blank page", which is how a customer decides the install failed.
+        switch wikiReachability {
+        case .serving:
+            Text(ViewCopy.shared.string(for: "install_complete.wiki_signin_hint"))
+                .font(.ostlerCaption)
+                .foregroundStyle(Color.ostlerInkSubdued)
+                .fixedSize(horizontal: false, vertical: true)
+        case .checking:
+            Text(ViewCopy.shared.string(for: "install_complete.wiki_checking"))
+                .font(.ostlerCaption)
+                .foregroundStyle(Color.ostlerInkSubdued)
+                .fixedSize(horizontal: false, vertical: true)
+        case .notServing:
+            VStack(alignment: .leading, spacing: 2) {
+                Text(ViewCopy.shared.string(for: "install_complete.wiki_not_serving_label"))
+                    .font(.ostlerCaption)
+                    .foregroundStyle(Color.ostlerInk)
+                Text(ViewCopy.shared.string(for: "install_complete.wiki_not_serving_body"))
+                    .font(.ostlerCaption)
+                    .foregroundStyle(Color.ostlerInkSubdued)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
         }
         .padding(.horizontal, CGFloat.ostlerSpace4)
         .padding(.vertical, CGFloat.ostlerSpace2)
@@ -343,6 +386,7 @@ struct InstallCompleteView: View {
             // then the gateway was up). autoShowPairCode retries with
             // a short backoff so the QR appears on its own.
             await autoShowPairCode()
+            await probeWikiReachability()
         }
         // A SECOND .task, deliberately, rather than a line inside the one
         // above. autoShowPairCode retries the gateway with a backoff and can
@@ -760,5 +804,56 @@ struct InstallCompleteView: View {
         if let url = URL(string: "http://localhost:8044") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    // #944. THE INSTRUMENT AND THE DEFECT MUST SHARE A SURFACE. The claim this
+    // button makes is "your wiki is at this URL", so the evidence has to be
+    // that URL, not a line in the installer's own transcript saying it started
+    // a container. A log line is what the installer BELIEVES it did.
+    //
+    // 401 COUNTS AS SERVING, AND THIS IS THE TRAP. The wiki has sat behind
+    // auth_basic since #1609, so a correctly protected wiki answers an
+    // unauthenticated request with 401. install.sh learned this the hard way
+    // at its own poll loop: #1594 used `curl -sf`, whose -f fails on any 4xx,
+    // and a properly secured wiki then read as a dead one. That inversion
+    // would have SUPPRESSED the banner carrying the customer's password, so
+    // the fix would have hidden its own credential. Any HTTP answer at all
+    // means something is listening and serving; only a transport failure
+    // means it is not.
+    //
+    // The budget is deliberately longer than install.sh's own 60 seconds. The
+    // success screen can render the instant start-services fires, and a wiki
+    // that is still compiling on a cold box is the ordinary case this row was
+    // filed about, not an error.
+    private func probeWikiReachability() async {
+        guard let url = URL(string: "http://localhost:8044/") else {
+            wikiReachability = .notServing
+            return
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = 4
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+
+        for attempt in 1...45 {
+            if Task.isCancelled { return }
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                if response is HTTPURLResponse {
+                    wikiReachability = .serving
+                    return
+                }
+            } catch {
+                // A transport failure is the only evidence of "not serving".
+                // Swallowing it silently is what this row is about, so it is
+                // recorded once, on the last attempt, rather than never.
+                if attempt == 45 {
+                    NSLog("install_complete: wiki at :8044 did not answer in 45 attempts: %@",
+                          error.localizedDescription)
+                }
+            }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        wikiReachability = .notServing
     }
 }
