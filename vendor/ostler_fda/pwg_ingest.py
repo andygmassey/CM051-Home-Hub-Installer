@@ -1568,6 +1568,39 @@ def _qdrant_upsert_points(collection: str, points: list[dict]) -> int:
     chunks; logs and continues on a chunk failure. Returns the count
     the server acknowledged.
     """
+    # ── EVERY POINT LEAVES HERE LABELLED. THIS IS THE ONLY DOOR. ──────────
+    #
+    # Stamping at each construction site is necessary and not sufficient:
+    # payloads are also built indirectly and carried through, and a static
+    # check cannot follow all of them. Measured on this file: of eight dicts
+    # carrying a `payload` key, three are inline literals and five reference a
+    # payload built elsewhere.
+    #
+    # So the label is applied at the boundary instead, where nothing can get
+    # past it. A point with no compartment_level matches NEITHER arm of the
+    # compartment search filter, so it exists on the customer's disk and can
+    # never be found. That is the defect, and "there should not be any
+    # unlabelled records" is the requirement.
+    #
+    # It only ever ADDS a missing field. A payload that already carries one,
+    # from a classifier that actually decided, is never overwritten: a default
+    # silently replacing a real decision would be a privacy change wearing the
+    # clothes of a tidy-up.
+    stamped = 0
+    for _p in points:
+        _pay = _p.get("payload")
+        if isinstance(_pay, dict) and "compartment_level" not in _pay:
+            _pay["compartment_level"] = DEFAULT_COMPARTMENT
+            stamped += 1
+    if stamped:
+        # Said out loud, because a silent backfill and a correct writer print
+        # the same thing, and the next person needs to know which they have.
+        logger.info(
+            "Stamped compartment_level=%d on %d of %d point(s) that reached the "
+            "upsert without one. The writer that built them should set it.",
+            DEFAULT_COMPARTMENT, stamped, len(points),
+        )
+
     valid = [p for p in points if p.get("vector")]
     dropped = len(points) - len(valid)
     if dropped:

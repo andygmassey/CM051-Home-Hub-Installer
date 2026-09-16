@@ -175,7 +175,47 @@ def main():
     else:
         print("  PASS  no site writes compartment_level as a string literal")
 
-    print(f"\n{2 - len(fails)} passed, {len(fails)} failed, denominator 2")
+    # ── THE BOUNDARY STAMP: THE ONLY THING THAT CATCHES INDIRECT PAYLOADS ──
+    #
+    # Stamping each construction site is necessary and not sufficient. Measured
+    # on pwg_ingest.py: of eight dicts carrying a `payload` key, three are
+    # inline literals and FIVE reference a payload built elsewhere, which no
+    # static check can follow with confidence. The upsert function is the one
+    # door every point goes through, so the label is applied there too.
+    ing = FDA / "pwg_ingest.py"
+    if not ing.exists():
+        print("  FAIL  pwg_ingest.py is missing; the upsert boundary cannot be checked")
+        fails.append("no pwg_ingest")
+    else:
+        tree = ast.parse(ing.read_text(encoding="utf-8"))
+        fn = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "_qdrant_upsert_points":
+                fn = node
+        if fn is None:
+            print("  FAIL  _qdrant_upsert_points not found. It is the single door every")
+            print("        point passes through; if it was renamed, this guard is blind.")
+            fails.append("no upsert boundary")
+        else:
+            body = ast.dump(fn)
+            stamps = "compartment_level" in body
+            guards = "not in" in ast.unparse(fn)
+            if stamps and guards:
+                print("  PASS  the upsert boundary stamps a compartment level on any payload "
+                      "that arrives without one, and only when it is absent")
+            elif stamps:
+                print("  FAIL  the upsert boundary sets compartment_level UNCONDITIONALLY.")
+                print("        That overwrites a real decision from a classifier with a")
+                print("        default, which is a privacy change wearing the clothes of a")
+                print("        tidy-up.")
+                fails.append("unconditional stamp")
+            else:
+                print("  FAIL  the upsert boundary does not stamp compartment_level, so a")
+                print("        payload built indirectly can still reach Qdrant unlabelled")
+                print("        and become a record the customer can never find.")
+                fails.append("no boundary stamp")
+
+    print(f"\n{3 - len(fails)} passed, {len(fails)} failed, denominator 3")
     return 1 if fails else 0
 
 
