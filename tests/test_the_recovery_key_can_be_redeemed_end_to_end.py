@@ -214,7 +214,13 @@ def main() -> int:
         proc = run_redeemer(
             pkg_root,
             recovery_key + "\n",
-            ["--recovery-key", "--secret-file", "-",
+            # --print-key is REQUIRED now and was not before (#1970). These
+            # two arms observe the key by reading stdout, which is exactly
+            # what the flag is for. The default no longer prints, because a
+            # printed database key lands in shell history, scrollback and any
+            # screen share. Arm 7 below is untouched: it asserts on the key
+            # FILE, not on stdout.
+            ["--recovery-key", "--secret-file", "-", "--print-key",
              "--config-dir", str(config_dir)],
         )
         redeemed = proc.stdout.strip()
@@ -256,7 +262,13 @@ def main() -> int:
         wrong = run_redeemer(
             pkg_root,
             "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF-GG\n",
-            ["--recovery-key", "--secret-file", "-",
+            # --print-key is REQUIRED now and was not before (#1970). These
+            # two arms observe the key by reading stdout, which is exactly
+            # what the flag is for. The default no longer prints, because a
+            # printed database key lands in shell history, scrollback and any
+            # screen share. Arm 7 below is untouched: it asserts on the key
+            # FILE, not on stdout.
+            ["--recovery-key", "--secret-file", "-", "--print-key",
              "--config-dir", str(config_dir)],
         )
         check(
