@@ -64,8 +64,16 @@ on:
       # makes the workflow trigger, and a run with no path entry is a gate that
       # never fires on a change to itself.
       - 'tests/test_doctor_credential_routes_refuse_cross_site.sh'
+      - 'tests/test_the_doctor_status_poll_has_a_fork_budget.py'
+      - 'vendor/doctor/agent/box_status.py'
       - 'tests/test_editor_feedback_accepts_the_add_verb.sh'
       - 'tests/test_the_doctor_dashboard_actually_renders.sh'
+      # Watched because the step below RUNS it. Its tile half is the only place
+      # the keepalive's five customer-facing verdicts are actually rendered
+      # with the Doctor's real deps present.
+      - 'tests/test_whatsapp_keepalive_repairs_and_reports.sh'
+      - 'assistant-agent/ostler-whatsapp-keepalive.sh'
+      - 'assistant-agent/launchd/com.creativemachines.ostler.whatsapp-keepalive.plist'
       # v1018-D024, customer-visible half. Listed here AND run below, for the
       # reason recorded above: a path entry only makes the workflow trigger.
       # The gate also reads lib/ostler-resource-tier.sh and install.sh, so both
@@ -293,6 +301,13 @@ jobs:
         if: always()
         run: python3 tests/test_vendor_entrypoint_resolution.py
 
+      - name: the Doctor status poll has a fork budget
+        # `always()` because a test step that only runs on success can be
+        # MASKED by an earlier red, and a fork budget that silently stops
+        # being measured is the same defect it exists to catch.
+        if: always()
+        run: python3 tests/test_the_doctor_status_poll_has_a_fork_budget.py
+
       # Symbol-level guard: web_ui.py imports a batch of CONFIG_* string
       # constants `from web_ui_copy` -- the import-resolution guard above
       # checks the MODULE resolves but NOT the NAMES, so a stale string
@@ -509,6 +524,27 @@ jobs:
         # nobody notices is a zero-denominator pass. Wired anywhere without the
         # requirements it would prove nothing while reading green.
         run: bash tests/test_the_doctor_dashboard_actually_renders.sh
+
+      # THE WHATSAPP KEEPALIVE TILE, wired here for the reason the step above
+      # states about itself. This file's script half runs on macOS in
+      # launchagent-success-verification.yml, where it belongs -- the product
+      # is macOS and the subject is a LaunchAgent. But its TILE half imports
+      # the vendored Doctor renderer, which pulls status_collector, which
+      # imports httpx. That is absent on the macOS runner, so the tile arms
+      # there report CANNOT-RUN and are NOT measured.
+      #
+      # A CANNOT-RUN that is CANNOT-RUN on every run is an arm that never runs.
+      # This job pip-installs the Doctor's requirements above, so the same file
+      # run here DOES measure them: each of the five keepalive verdicts must
+      # reach the page with its own words, an unrecognised verdict must render
+      # nothing, and needs_customer must say only the customer can fix it.
+      #
+      # Both wirings are deliberate and neither is redundant: this one cannot
+      # test the LaunchAgent surface and that one cannot test the tile.
+      - name: The WhatsApp keepalive verdict reaches the Doctor page
+        if: always()
+        run: /bin/bash tests/test_whatsapp_keepalive_repairs_and_reports.sh
+
       - name: A dead wiki announces itself
         if: always()
         run: python3 ./tests/test_a_dead_wiki_announces_itself.py
