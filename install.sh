@@ -33356,36 +33356,97 @@ echo ""
 # dashboards below are available but de-emphasised so the next-
 # steps banner reads as "go look at your wiki" rather than "here
 # are five raw API surfaces". Resolves install UX BLOCKING #1.
-if [[ "$WIKI_FIRST_COMPILE_OK" == true ]]; then
-    echo -e "  ${BOLD}Your wiki:${NC} http://localhost:8044"
-    # #1594: the wiki now sits behind a credential, so the password has
-    # to appear HERE. The browser opens automatically a few lines below
-    # and will prompt immediately; a customer who was never shown the
-    # password experiences that as a broken install, not as security.
-    echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_SIGN_IN" "ostler" "${WIKI_PASSWORD}")"
-    # #1660: MAKE THE PROMPT A PASTE, NOT A MEMORY TEST. Andy's call: the
-    # credential is right, the friction is not. Basic auth prompts ONCE per
-    # browser and both Safari and Chrome then offer Keychain, so the whole cost
-    # of this decision is a single dialog -- provided the customer does not have
-    # to retype a 23-character string into it.
-    #
-    # pbcopy is macOS-only and this installer is macOS-only, but it is still
-    # guarded: a clipboard we could not write is a WORSE experience if we then
-    # claim we did. No 2>/dev/null on the probe -- if pbcopy is missing we say
-    # nothing about the clipboard rather than lying about it.
-    if command -v pbcopy >/dev/null 2>&1 && printf '%s' "${WIKI_PASSWORD}" | pbcopy; then
-        echo -e "  ${BOLD}         ${NC} Copied to your clipboard, so you can paste it. Your browser will offer to remember it."
-    fi
-    # Second line only when the owner-gated tailnet route actually
-    # landed. Deliberately says "your own devices" -- it is reachable
-    # from your phone and iPad over Tailscale, and from nothing else:
-    # not the LAN, not the internet, not other people on your tailnet.
-    if [[ -n "${OSTLER_WIKI_TAILNET_URL:-}" ]]; then
-        echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_TAILNET_BANNER" "$OSTLER_WIKI_TAILNET_URL")"
-    fi
-else
-    echo "  Your wiki:  not yet available (first compile failed -- see warnings above)"
+# >>> wiki-handover-banner (HR015 #943) ---------------------------------------
+# Extracted by its sentinels and EXECUTED, state by state, by
+# tests/test_the_wiki_credential_is_not_gated_on_the_wiki_being_ready.sh.
+# Keep both sentinels; the guard reports CANNOT-RUN without them.
+#
+# "IS THE WIKI READY YET" AND "DOES THE CUSTOMER GET THEIR SIGN-IN" ARE TWO
+# QUESTIONS, AND THIS BLOCK USED TO ANSWER BOTH WITH ONE FLAG.
+#
+# Everything about the credential sat inside `if WIKI_FIRST_COMPILE_OK`, so
+# when that flag was false the customer was told this and nothing else:
+#
+#     Your wiki:  not yet available (first compile failed -- see warnings above)
+#
+# No address. No username. No password. Not later, not anywhere. The wiki then
+# finished compiling in the background, started serving, and the customer met a
+# browser password box for a credential they had never been shown.
+#
+# Measured on a v1.0.98 install: the compiler was STILL RUNNING about an hour
+# after install.sh exited, and the wiki then worked perfectly with the
+# credential from ${SECRETS_DIR}/wiki_password. Nothing had failed.
+#
+# AND THE MESSAGE NAMED A CAUSE IT HAD NOT MEASURED. WIKI_FIRST_COMPILE_OK goes
+# false for at least three distinct reasons and only one of them is a failed
+# compile: `docker compose up -d wiki-site` returning non-zero; :8044 not
+# answering 200 inside the 60-second poll; and the baseline compile actually
+# failing. "first compile failed" was asserted on all three. The installer
+# already HOLDS the discriminators -- WIKI_PAGE_COUNT, WIKI_BASELINE_RC and the
+# last HTTP status off the port -- so the line now says what was measured.
+#
+# The password is seeded near the top of the install, hundreds of steps before
+# any of this, and it is never rotated (the reuse rule: rotating a credential a
+# browser has saved gives the customer a prompt they cannot answer). So there
+# is no state of this box in which we hold the credential and cannot hand it
+# over. It is handed over unconditionally, and only the READINESS line varies.
+
+echo -e "  ${BOLD}Your wiki:${NC} http://localhost:8044"
+
+# #1594: the wiki sits behind a credential, so the password has to appear
+# HERE. The browser opens automatically a few lines below and will prompt
+# immediately; a customer who was never shown the password experiences that
+# as a broken install, not as security.
+echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_SIGN_IN" "ostler" "${WIKI_PASSWORD}")"
+
+# #1660: MAKE THE PROMPT A PASTE, NOT A MEMORY TEST. Andy's call: the
+# credential is right, the friction is not. Basic auth prompts ONCE per
+# browser and both Safari and Chrome then offer Keychain, so the whole cost
+# of this decision is a single dialog -- provided the customer does not have
+# to retype a 23-character string into it.
+#
+# pbcopy is macOS-only and this installer is macOS-only, but it is still
+# guarded: a clipboard we could not write is a WORSE experience if we then
+# claim we did. No 2>/dev/null on the probe -- if pbcopy is missing we say
+# nothing about the clipboard rather than lying about it.
+if command -v pbcopy >/dev/null 2>&1 && printf '%s' "${WIKI_PASSWORD}" | pbcopy; then
+    echo -e "  ${BOLD}         ${NC} Copied to your clipboard, so you can paste it. Your browser will offer to remember it."
 fi
+
+# THE ROUTE BACK. The clipboard is the only copy otherwise, and it survives
+# about as long as the next thing the customer copies. This is the same fact
+# the GUI already puts on its completion screen
+# (gui/OstlerInstaller/Views/InstallCompleteView.swift, wiki_signin_hint); the
+# terminal path never carried it. Saying WHERE it is costs nothing and is not
+# a disclosure: the file is the customer's own, 0600, on their own disk.
+echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_PASSWORD_ON_DISK" "${SECRETS_DIR}/wiki_password")"
+
+# Second line only when the owner-gated tailnet route actually landed.
+# Deliberately says "your own devices" -- it is reachable from your phone and
+# iPad over Tailscale, and from nothing else: not the LAN, not the internet,
+# not other people on your tailnet.
+if [[ -n "${OSTLER_WIKI_TAILNET_URL:-}" ]]; then
+    echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_TAILNET_BANNER" "$OSTLER_WIKI_TAILNET_URL")"
+fi
+
+# READINESS, and only readiness. Four states, four sentences, none of them
+# naming a cause this run did not measure.
+if [[ "$WIKI_FIRST_COMPILE_OK" != true ]]; then
+    if [[ -z "${WIKI_PAGE_COUNT:-}" || ! "${WIKI_PAGE_COUNT:-}" =~ ^[0-9]+$ ]]; then
+        # The compile step did not reach its own page count, so this run has no
+        # evidence either way. "We could not look" is not "it failed", and the
+        # customer is not told it was.
+        echo -e "  ${BOLD}         ${NC} $MSG_INFO_WIKI_READINESS_NOT_MEASURED"
+    elif [[ "${WIKI_PAGE_COUNT}" -gt 0 ]]; then
+        # Pages exist on disk. This is the v1.0.98 case: building, not broken.
+        echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_STILL_BUILDING" "${WIKI_PAGE_COUNT}" "${_wiki_last_code:-000}")"
+    else
+        # Zero pages under the docs dir is the one state that IS a failure, and
+        # it is the only one allowed to say so.
+        echo -e "  ${BOLD}         ${NC} $MSG_WARN_WIKI_FIRST_COMPILE_PRODUCED_NO_PAGES"
+    fi
+fi
+# <<< wiki-handover-banner (HR015 #943) ---------------------------------------
 
 # Channel summary: tell the customer how to actually talk to the
 # assistant they just named. Lines only appear when the section 4a
