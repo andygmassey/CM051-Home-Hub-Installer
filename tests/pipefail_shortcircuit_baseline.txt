@@ -25,20 +25,35 @@
 # Lower a count as instances are fixed. Never raise one to make a red go away:
 # a raised count is the regression, written down.
 #
-# TOTAL INSTANCES AT THIS BASELINE: 207 across 67 files.
+# TOTAL INSTANCES AT THIS BASELINE: 208 across 68 files.
 #
-# 🟢 2026-09-16: 216/73 -> 207/67. The SIX files below were delisted because
+# 🟢 2026-09-16: 216/73 -> 208/68. The FIVE files below were delisted because
 # their instances were FIXED, not because anyone lowered a number. Each one is
 # invoked directly by .github/workflows/cut.yml, so each was a live landmine in
 # the job that builds the DMG (CM051 #1815, and #1814's line 122 is the one
 # that actually went off and killed v1.0.75):
 #
-#     bin/rollforward_gate.sh              1
 #     scripts/dry_run_cut_checks.sh        1
 #     scripts/provenance_gate.sh           3
 #     scripts/verify_no_orphaned_fixes.sh  1
 #     tests/test_cut_dispatch_is_dry.sh    1
 #     tests/test_no_local_cuts.sh          2
+#
+# 🔴 bin/rollforward_gate.sh IS THE SIXTH AND IS DELIBERATELY STILL LISTED.
+# It is VENDORED from OS003 and pinned by cuts/REGISTRY_PIN with a per-file
+# sha256. Fixing it in place here reds tests/test_rollforward_registry_pin.sh,
+# which is the gate working: that pin is what stopped CM051 running a
+# rollforward gate 239 diff lines behind the original. Measured on the first
+# attempt at this PR:
+#
+#     FAIL  bin/rollforward_gate.sh DIFFERS from the pin
+#           pinned ba4c36d81e6d3880...  actual 65db7d167b60ecf2...
+#
+# So the fix went UP to OS003 first (OS003 PR #301), and this row comes off
+# when that merges and the vendored copy is re-synced and re-pinned. The
+# deferral is recorded in tests/test_no_cut_path_script_is_a_pipefail_landmine.sh
+# as a row that names that PR, and that guard FAILS if the deferral outlives its
+# reason -- so it cannot quietly become permanent.
 #
 # #1815 listed SEVEN. scripts/stage_and_verify_dmg.sh was the seventh and is
 # ALREADY absent from this file -- measured, with a control: it is still named
@@ -53,6 +68,7 @@
 #
 .github/workflows/dry-run-ledger.yml	4
 .github/workflows/fda-deps-installed.yml	1
+bin/rollforward_gate.sh	1
 bin/redact_selftest.sh	1
 gui/scripts/sign-python-bundle.sh	2
 install.sh	21

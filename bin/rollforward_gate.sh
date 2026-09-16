@@ -1018,14 +1018,7 @@ fi
 # It even printed the zero. That is the vacuous pass this script exists to
 # prevent, in the script itself. Measured 2026-08-10 with a synthetic registry:
 # --only on a real id exits 0/1 correctly; --only on an unknown id exits 0 green.
-# `grep -c`, NOT `| grep -q`. Under the `set -o pipefail` this file sets, a
-# short-circuiting consumer closes the pipe while `cut` is still writing, cut
-# dies with EPIPE, the PIPELINE takes cut's status, and `!` inverts a match
-# that WAS found into "no such gate". The registry is 60-odd rows today, so
-# this fires the day it grows past the pipe buffer. `grep -c` must read to EOF
-# to produce a count, so it cannot short-circuit, and it is POSIX rather than
-# a bashism. See tests/test_pipefail_shortcircuit_inversion.sh.
-if [ -n "$ONLY" ] && [ "$(cut -f1 "$work/gates.tsv" | grep -cxF -- "$ONLY")" -eq 0 ]; then
+if [ -n "$ONLY" ] && ! cut -f1 "$work/gates.tsv" | grep -qxF "$ONLY"; then
 	red "PARSE ERROR: --only '$ONLY' matches no gate in the registry."
 	dim "Running nothing and reporting green is how a skipped gate becomes a passing one."
 	dim "Known ids:"

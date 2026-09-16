@@ -18,8 +18,11 @@
 # step 8 having built nothing. That file was row 1 of the baseline at the time.
 #
 # CM051 #1815 is the generalisation: of the files on that baseline, SEVEN were
-# invoked by .github/workflows/cut.yml itself. Six still were when this guard
-# was written, and #1815's PR fixed and delisted all six.
+# invoked by .github/workflows/cut.yml itself. SIX still were when this guard
+# was written -- the seventh, scripts/stage_and_verify_dmg.sh, is still named by
+# cut.yml but had already left the baseline. #1815's PR fixed and delisted five
+# of the six. The sixth is VENDORED and could not be fixed here; see DEFERRED
+# below, which is a mechanism with a route out and not an exemption.
 #
 # THIS FILE EXISTS SO THE INTERSECTION CANNOT REFILL. Emptying a set is not a
 # gate on the set. Without this, the next author adds `if ... | grep -q` to
@@ -80,6 +83,34 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 2
 
 WF='.github/workflows/cut.yml'
 BASELINE='tests/pipefail_shortcircuit_baseline.txt'
+
+# ── UPSTREAM DEFERRALS, AND WHY THIS LIST IS DANGEROUS ──────────────────────
+#
+# A file this repo VENDORS cannot be fixed here. cuts/REGISTRY_PIN records the
+# OS003 commit and a per-file sha256, and tests/test_rollforward_registry_pin.sh
+# goes RED on any in-place edit. That pin is not bureaucracy: it is what stopped
+# CM051 running a rollforward gate 239 diff lines behind the original. So the
+# fix has to land upstream, be re-synced and re-pinned, and until then the
+# landmine is still here and still on the baseline.
+#
+# ⛔ AN EXEMPTION LIST IS EXACTLY HOW SEVEN LANDMINES ACCUMULATED IN THE CUT
+# PATH. So this one is constrained in three ways, and all three are enforced
+# below rather than asked for in a comment:
+#
+#   1. every row must name an UPSTREAM PR. A deferral with no route out is an
+#      exemption, and this file will not accept one.
+#   2. a deferred path that is NOT in the intersection is a STALE deferral and
+#      is a FAILURE. The upstream fix landed, or the file left the baseline, and
+#      the row outlived its reason. Same shape as stale_exemptions() in the
+#      shipping-ledger verifier: an exemption is a claim about the world, and
+#      the world moves. While the row sits here, the file silently regressing
+#      back onto the baseline would go unnoticed.
+#   3. deferrals are COUNTED and PRINTED on every run, including a clean one, so
+#      the intersection can never be reported as an unqualified zero while one
+#      is outstanding.
+#
+# Rows are `path<TAB>upstream PR<TAB>date added`.
+DEFERRED="bin/rollforward_gate.sh	https://github.com/andygmassey/OS003-Ostler-Release/pull/301	2026-09-16"
 
 pass=0; fail=0
 ok()  { printf '  ok    %s\n' "$*"; pass=$((pass+1)); }
@@ -212,15 +243,67 @@ fi
 HITS="$(intersection "$WF" "$BASELINE")"
 HITS_N="$(printf '%s\n' "$HITS" | grep -c . )"
 
-printf '\n        INTERSECTION: %s file(s) named by the cut AND carrying a baselined landmine\n\n' "$HITS_N"
+deferred_paths() { printf '%s\n' "$DEFERRED" | grep -v '^$' | cut -f1; }
 
-if [ "$HITS_N" -eq 0 ]; then
-    ok "no script .github/workflows/cut.yml names is on the pipefail short-circuit baseline"
+# 🔴 THIS FUNCTION PRINTED `  (deferred )` FOR A ROW WITH NO PR AND THE
+# EMPTINESS TEST BELOW READ THAT AS AN ANSWER. Caught by mutation F on the first
+# run of this guard: a DEFERRED row of just `bin/rollforward_gate.sh`, with no
+# upstream PR at all, passed. awk's $2 was empty, but the surrounding decoration
+# made the OUTPUT non-empty, so `[ -z ... ]` was false. Exactly the shape of
+# `-q '.[0].field'` on an empty list printing the literal `null`: a wrapper
+# around nothing is not nothing. So the field is tested BEFORE it is decorated,
+# and the URL shape is asserted rather than merely its presence.
+deferral_pr() {
+    printf '%s\n' "$DEFERRED" | awk -F'\t' -v p="$1" '
+        $1 == p && $2 ~ /^https:\/\/github\.com\/.+\/pull\/[0-9]+$/ {
+            print $2 "  (deferred " $3 ")"
+        }'
+}
+
+DEF_N="$(deferred_paths | grep -c .)"
+printf '\n        INTERSECTION: %s file(s) named by the cut AND carrying a baselined landmine\n' "$HITS_N"
+printf '        of which DEFERRED UPSTREAM: %s\n\n' "$DEF_N"
+
+# CONSTRAINT 1 -- a deferral with no upstream PR is an exemption, and this file
+# does not accept exemptions.
+while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    if [ -z "$(deferral_pr "$d")" ]; then
+        bad "DEFERRAL WITHOUT A ROUTE OUT: ${d} is deferred and names no upstream PR. A deferral with no upstream fix in flight is an exemption."
+    fi
+done <<< "$(deferred_paths)"
+
+# CONSTRAINT 2 -- a deferral whose subject is NOT in the intersection has
+# outlived its reason. Failing here is the whole reason the list is safe: the
+# row cannot quietly become permanent, and while it sits here a silent
+# regression back onto the baseline would be invisible.
+while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    if [ "$(printf '%s\n' "$HITS" | grep -cxF -- "$d")" -eq 0 ]; then
+        bad "STALE DEFERRAL: ${d} is deferred but is NOT in the intersection any more. Either the upstream fix landed and was re-synced, or the file left the baseline. Delete the DEFERRED row in the same change -- while it is there, this file regressing back onto the baseline would pass unnoticed."
+    fi
+done <<< "$(deferred_paths)"
+
+UNDEFERRED="$(comm -23 <(printf '%s\n' "$HITS" | grep -v '^$' | sort) <(deferred_paths | sort))"
+UNDEFERRED_N="$(printf '%s\n' "$UNDEFERRED" | grep -c .)"
+
+# The deferrals are printed on EVERY run, clean or not. An outstanding landmine
+# in the cut path must never be renderable as an unqualified zero.
+while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    printf '  NOTE  DEFERRED UPSTREAM: %s carries %s baselined instance(s) and is VENDORED, so it cannot be fixed here.\n' \
+        "$d" "$(baseline_row_for "$d" | cut -f2)"
+    printf '        Fix is in flight at %s. It is still a live landmine in the cut until that merges and the vendored copy is re-pinned.\n' \
+        "$(deferral_pr "$d")"
+done <<< "$(deferred_paths)"
+
+if [ "$UNDEFERRED_N" -eq 0 ]; then
+    ok "no script .github/workflows/cut.yml names is on the pipefail short-circuit baseline, other than ${DEF_N} deferred upstream and named above"
 else
     while IFS= read -r p; do
         [ -n "$p" ] || continue
         bad "${p} is invoked by the cut AND carries $(baseline_row_for "$p" | cut -f2) baselined pipefail short-circuit instance(s)"
-    done <<< "$HITS"
+    done <<< "$UNDEFERRED"
     printf '\n'
     printf '  Each of these fires only when its own output crosses the 64KB pipe\n'
     printf '  buffer, so it is invisible until some unrelated change makes it\n'
