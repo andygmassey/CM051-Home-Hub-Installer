@@ -26858,6 +26858,49 @@ else
     info "$MSG_INFO_HUB_APP_DRAG_HINT"
 fi
 
+# ── Recover Ostler.app ────────────────────────────────────────
+#
+# Small addition alongside the Ostler.app staging above: places the
+# standalone "Recover Ostler.app" (gui/Recovery, CM051 recovery-app PR)
+# into /Applications so a locked-out customer has a GUI doorway to the
+# existing ostler-unlock redeemer instead of a terminal command. Same
+# minimal, presence-guarded shape as the Uninstaller app placement: no
+# spctl/codesign re-verification here (it rides the installer's own
+# signature the way the nested Uninstaller app does), non-fatal when
+# absent so a dev run of raw install.sh (which does not bundle it) is a
+# silent no-op rather than a false warning.
+RECOVERY_APP_DEST="/Applications/Ostler/Recover Ostler.app"
+RECOVERY_APP_SOURCE=""
+if [[ -d "${SCRIPT_DIR}/Recover Ostler.app" ]]; then
+    RECOVERY_APP_SOURCE="${SCRIPT_DIR}/Recover Ostler.app"
+elif [[ -d "${SCRIPT_DIR}/../Recover Ostler.app" ]]; then
+    RECOVERY_APP_SOURCE="${SCRIPT_DIR}/../Recover Ostler.app"
+fi
+if [[ -n "$RECOVERY_APP_SOURCE" ]]; then
+    # THE PARENT FOLDER DOES NOT EXIST ON A FRESH MAC. Andy banned /Applications
+    # sprawl in writing, so this app is staged into an Ostler sub-folder rather
+    # than beside the main app -- and a destination whose parent is absent makes
+    # cp -R fail into the warn branch, which reports "could not stage" and
+    # installs nothing. Create it first, with the same unprivileged-then-sudo
+    # ladder the copy below uses.
+    if [[ ! -d "/Applications/Ostler" ]]; then
+        mkdir -p "/Applications/Ostler" 2>/dev/null \
+            || sudo mkdir -p "/Applications/Ostler" 2>/dev/null || true
+    fi
+    if [[ -d "$RECOVERY_APP_DEST" ]]; then
+        pkill -f "${RECOVERY_APP_DEST}/Contents/MacOS" 2>/dev/null || true
+        sleep 0.5
+        rm -rf "$RECOVERY_APP_DEST" 2>/dev/null || sudo rm -rf "$RECOVERY_APP_DEST" 2>/dev/null || true
+    fi
+    if cp -R "$RECOVERY_APP_SOURCE" "$RECOVERY_APP_DEST" 2>/dev/null \
+       || sudo cp -R "$RECOVERY_APP_SOURCE" "$RECOVERY_APP_DEST" 2>/dev/null; then
+        xattr -dr com.apple.quarantine "$RECOVERY_APP_DEST" 2>/dev/null || true
+        ok "Recover Ostler.app staged at ${RECOVERY_APP_DEST}"  # i18n-exempt
+    else
+        warn "Could not stage Recover Ostler.app into /Applications"  # i18n-exempt
+    fi
+fi
+
 # ── 3.14b Third-party attribution catalogue ─────────────────────
 #
 # Land THIRD_PARTY_NOTICES.md at ~/.ostler/ so the user can read it
