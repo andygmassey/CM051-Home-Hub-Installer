@@ -416,7 +416,7 @@ JEOF
     out="$(evaluate "$r" "$DECLARE_RE" "$tmp/runs.json" "$tmp/baseline-empty.tsv")"; rc=$?
     if [ "$rc" != 1 ]; then
         no "(1) a gate that did not run at the commit was not caught (rc=${rc})" "$out"
-    elif printf '%s\n' "$out" | grep -q '^MISSING	scripts/gate_that_did_not.sh'; then
+    elif [ "$(printf '%s\n' "$out" | grep -c '^MISSING	scripts/gate_that_did_not.sh' || true)" -gt 0 ]; then
         ok "(1) a declarer whose workflow had no run at the commit is named, rc=1"
     else
         no "(1) rc=1 but the missing gate is not named" "$out"
@@ -424,7 +424,12 @@ JEOF
 
     # 2. POSITIVE CONTROL. The declarer whose workflow DID run must not be
     #    named, or arm 1 would just mean everything is reported missing.
-    printf '%s\n' "$out" | grep -q '^MISSING	scripts/gate_that_ran.sh' \
+    # 🔴 NOT `... | grep -q`. grep -q exits on the first match and SIGPIPEs the
+    # producer, and under `set -o pipefail` in a CONDITION that INVERTS the
+    # verdict: the pipeline reports failure ON A MATCH. Count in a substitution
+    # and compare the number -- grep -c must read to EOF, so there is no
+    # short-circuit to race.
+    [ "$(printf '%s\n' "$out" | grep -c '^MISSING	scripts/gate_that_ran.sh' || true)" -gt 0 ] \
         && no "(2) CONTROL FAILED: a gate that DID run was also reported missing" "$out" \
         || ok "(2) CONTROL: the declarer whose workflow ran is not reported missing"
 
@@ -443,7 +448,7 @@ JEOF
     # 5. A SKIPPED RUN IS NOT A RUN. The workflow fired and every job was
     #    skipped by an if:, so the gate did not execute.
     out="$(evaluate "$r" "$DECLARE_RE" "$tmp/skipped.json" "$tmp/baseline-empty.tsv")"; rc=$?
-    if [ "$rc" = 1 ] && printf '%s\n' "$out" | grep -q '^MISSING	scripts/gate_that_did_not.sh'; then
+    if [ "$rc" = 1 ] && [ "$(printf '%s\n' "$out" | grep -c '^MISSING	scripts/gate_that_did_not.sh' || true)" -gt 0 ]; then
         ok "(5) a run whose conclusion is 'skipped' does not count as having run"
     else
         no "(5) a skipped run was accepted as the gate having run (rc=${rc})" "$out"
