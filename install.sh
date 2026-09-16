@@ -21607,13 +21607,21 @@ fi
 
 if "$IMPORT_SCRIPT" "$DOWNLOADS" >/dev/null 2>&1; then
     _notify "Your latest export is now part of your world." "Done"
+    # Record ONLY on success. The comment here used to say exactly that
+    # while the write sat outside the branch, so a failed import was
+    # marked done and never retried: the hash is the dedupe key, and once
+    # it is in scan_state this export set is skipped for ever. #1571.
+    echo "$FOUND_HASH" >> "$SCAN_STATE"
 else
-    _notify "Imported your latest export. Some parts will finish in the background." "Done"
+    # The old message on this branch was "Imported your latest export.
+    # Some parts will finish in the background." The importer had just
+    # returned NON-ZERO, so nothing was imported and nothing is finishing
+    # in the background. Both branches claimed an import, which is why the
+    # failure was invisible to the person it happened to.
+    _notify "Ostler could not finish importing your ${_first} export. It will try again." "Import unfinished"
+    # No hash written, so the next tick retries this export set rather
+    # than skipping it for ever.
 fi
-
-# Record only after a real import attempt, so a failed/partial run is
-# retried next tick rather than silently marked done.
-echo "$FOUND_HASH" >> "$SCAN_STATE"
 
 if [[ -t 1 ]]; then
     echo "Imported ${#FOUND[@]} export(s):"
