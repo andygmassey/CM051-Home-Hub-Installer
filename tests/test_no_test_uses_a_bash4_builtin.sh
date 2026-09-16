@@ -98,7 +98,12 @@ N_HITS="$(printf '%s' "$HITS" | grep -c . || true)"
 # that EXECUTE installer shell would not notice: ubuntu's bash is 5.x, where
 # every one of these constructs works.
 SHIPPED=""
-for _f in "${REPO}/install.sh" "${REPO}"/lib/*.sh "${REPO}/assistant-agent/INSTALL_SNIPPET.sh"; do
+# The keepalive runner is shipped shell too: INSTALL_SNIPPET.sh installs it
+# into $OSTLER_DIR/bin and a LaunchAgent execs it twice a day on the
+# customer's Mac, under whatever /bin/bash that Mac has (3.2.57 on stock
+# macOS). A gate whose scope stops short of a newly shipped file is a gate
+# that passes for the wrong reason.
+for _f in "${REPO}/install.sh" "${REPO}"/lib/*.sh "${REPO}/assistant-agent/INSTALL_SNIPPET.sh" "${REPO}/assistant-agent/ostler-whatsapp-keepalive.sh"; do
     [ -f "$_f" ] || continue
     SHIPPED="${SHIPPED} ${_f}"
 done
@@ -179,7 +184,7 @@ if [ "$_n_ship_files" -lt 3 ]; then
     fatal "only ${_n_ship_files} shipped shell file(s) resolved. install.sh and lib/*.sh must be there; a glob that matched nothing would make arm E pass by scanning an empty set."
 fi
 if [ "$N_SHIP" -eq 0 ]; then
-    ok "E  the SHIPPED shell (${_n_ship_files} files: install.sh, lib/*.sh, INSTALL_SNIPPET.sh) uses no bash 4 construct"
+    ok "E  the SHIPPED shell (${_n_ship_files} files: install.sh, lib/*.sh, INSTALL_SNIPPET.sh, ostler-whatsapp-keepalive.sh) uses no bash 4 construct"
 else
     bad "E  ${N_SHIP} bash 4 construct(s) in the shell that runs on the customer's Mac:"
     printf '%s\n' "$SHIP_HITS" | grep -v '^$' | sed 's|^|        |' | head -10
