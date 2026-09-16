@@ -499,6 +499,7 @@ test_the_merge_budget_scales_with_the_address_book.sh	WIRED	.github/workflows/ki
 test_the_migrator_authenticates_and_a_refusal_is_loud.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_number_a_customer_types_reaches_all_three_consumers.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_the_operator_rollforward_refuses_a_blind_environment.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_the_os003_pointer_cannot_rot.sh	WIRED	.github/workflows/os003-pointer.yml
 test_the_pairing_qr_refuses_an_address_the_phone_cannot_open.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_permanent_manifest_is_not_optional.sh	WIRED	.github/workflows/cut-manifest.yml
 test_the_pii_hook_asks_cis_question.sh	WIRED	.github/workflows/operator-pii-scan.yml

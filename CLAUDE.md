@@ -184,7 +184,19 @@ only one of them is safe.
 
 ## 🗿 THE CUT MECHANISM LIVES IN OS003 -- NON-NEGOTIABLE
 
-**Before answering any question about what ships, where a component lives, or whether a fix is in the cut, read `~/Documents/Projects/OS003 - Ostler Release`.** It is the canonical cut mechanism, cut register and release truth. Do not infer the answer from this repo's scripts or their defaults -- `release.sh`'s `HR015_DIR` sibling-path default caused two false cut-blockers on 2026-08-08.
+**Before answering any question about what ships, where a component lives, or whether a fix is in the cut, read the OS003 release repository.** It is the canonical cut mechanism, cut register and release truth. Do not infer the answer from this repo's scripts or their defaults; `release.sh`'s `HR015_DIR` sibling-path default caused two false cut-blockers on 2026-08-08.
+
+**The authority is the repository `andygmassey/OS003-Ostler-Release` at `origin/main`, never a particular directory on a particular laptop.** A working copy is a fact that moves, and this file is read first by every agent, so a file path stated here as truth is a wrong answer handed to every future reader before they start.
+
+    OS003_CHECKOUT = ~/Developer/OS003-Ostler-Release
+
+That is the default local checkout. Override it with `$OS003_DIR`.
+
+**Run `scripts/verify_os003_pointer.sh` BEFORE you read that tree, every session.** It resolves the line above, then REFUSES unless the checkout is a git repository, is current with `origin/main`, and is readable. It prints the denominators it measured and exits 0 green / 1 red / 2 could-not-run. A checkout it could not measure is never a pass.
+
+**Why the rule moved (CM051 #1038).** It used to name the iCloud-backed OS003 copy under `~/Documents/Projects`. Measured 2026-09-17 on this machine: that checkout's HEAD is a strict ancestor of `origin/main`, **41 commits behind**, holding **53** cut directories against **70** in the current tree, so every cut from v1.0.82 onward was invisible to an agent obeying the rule. It also holds **1,607 iCloud-evicted files**, and this repo's own doctrine is that an evicted file makes `grep` return a FALSE ZERO that reads exactly like absence. So the instruction did not merely point somewhere stale; it pointed somewhere that answers questions with silence. The current tree measures 0 behind, 0 evicted, 70 cuts.
+
+That old path is deliberately not written out here, and `tests/test_the_os003_pointer_cannot_rot.sh` fails if it reappears. A copy-pasteable path in the file every agent reads first is a path some agent will paste, however carefully the sentence around it is worded.
 
 - `release.toml` -- the pins. Names where every component lives and how it ships.
 - `cuts/<version>/MUST_CONTAIN.tsv` -- the BOM. **The moment anything here is built it gets a row**, via `OS003/bin/bom_add.sh`.
