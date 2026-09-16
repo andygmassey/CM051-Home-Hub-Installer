@@ -119,6 +119,7 @@ test_cannot_run_branch_is_reachable.sh	WIRED	.github/workflows/cannot-run-branch
 test_cannot_run_is_a_third_state.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_cannot_run_names_its_prerequisite.sh	WIRED	.github/workflows/cut-manifest.yml
 test_canonical_keys_must_not_merge.py	WIRED	.github/workflows/vendor-integrity.yml
+test_case_in_command_substitution_parses_under_bash_32.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_closing_verdict_consults_failed_steps.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_cm041_usage_journal_producer.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm048_prompts_packaged.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -213,6 +214,7 @@ test_enrichment_optin_is_owed_after_v1_0_36.sh	WIRED	.github/workflows/install-a
 test_enrichment_reaches_the_corpus.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_err06_states_what_it_measured.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_err_trap_emits_done_fail.sh	WIRED	.github/workflows/step-end-status-honesty.yml
+test_every_consent_decision_is_recorded.sh	WIRED	.github/workflows/consent-registry.yml
 test_every_default_source_is_requested.sh	WIRED	.github/workflows/default-sources-requested.yml
 test_every_external_download_url_resolves.sh	WIRED	.github/workflows/download-urls-resolve.yml
 test_every_fail_call_has_error_code.sh	WIRED	.github/workflows/cold-box-source-truth.yml
@@ -469,6 +471,7 @@ test_the_cut_checklist_is_complete.py	WIRED	.github/workflows/cut-checklist-comp
 test_the_daemon_freshness_row_decides_on_the_scoped_count.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_db_key_reaches_the_services_and_the_disk.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_the_doctor_dashboard_actually_renders.sh	WIRED	.github/workflows/vendor-integrity.yml
+test_the_doctor_status_poll_has_a_fork_budget.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_downloads_watcher_survives_a_real_export.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
 test_the_dry_run_can_still_go_green.sh	WIRED	.github/workflows/version-gate-not-tautological.yml
 test_the_egress_inventory_still_describes_the_software.py	WIRED	.github/workflows/install-abort-and-egress.yml
@@ -579,6 +582,7 @@ test_walk_record_names_the_failing_probes.sh	WIRED	.github/workflows/cut-manifes
 test_walk_record_states_measured_count.sh	WIRED	.github/workflows/cut-manifest.yml
 test_walkaway_no_phase2_input_leak.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_whatsapp_channel_block.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
+test_whatsapp_keepalive_repairs_and_reports.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_whatsapp_parser_does_not_claim_meta_messages.py	WIRED	.github/workflows/parser-claim-separation.yml
 test_wiki_baseline_background.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_wiki_compile_has_a_page_count_oracle.sh	WIRED	.github/workflows/wiki-compile-oracle.yml
@@ -597,6 +601,7 @@ gui/OstlerInstallerTests/AdminAuthorizationGateTests.swift	WIRED	.github/workflo
 gui/OstlerInstallerTests/AdminPromptFinderPreAnnounceTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/AutoQuitAndKeepInstallerTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/BiometricProbeTests.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/CaffeinateTerminationTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/DeviceLimitReachedViewSnapshotTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/DeviceRegistrationClientTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/EmailSupportMailtoTest.swift	WIRED	.github/workflows/swift-tests.yml
@@ -613,6 +618,7 @@ gui/OstlerInstallerTests/LinkifyHelpTextTests.swift	WIRED	.github/workflows/swif
 gui/OstlerInstallerTests/LogDrawerFormatTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/LogRedactorTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/OfflineGraceBoundTests.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/OfflineGraceCacheReadTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/OnboardingButtonFooterProofTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/OnboardingQuestionViewSnapshotTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/OnboardingQuestionXOfYTests.swift	WIRED	.github/workflows/swift-tests.yml
@@ -623,6 +629,7 @@ gui/OstlerInstallerTests/PermissionsPrewarmCodeShapeTest.swift	WIRED	.github/wor
 gui/OstlerInstallerTests/PermissionsPrewarmInfoPlistTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/PermissionsPrewarmSequencingTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/ProgressDecoderTests.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/RecoveryKeySurvivesFailedInstallTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/ReuseSettingsExplanationTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/SelfRelocatorTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/SidebarPhaseAdvanceTests.swift	WIRED	.github/workflows/swift-tests.yml
@@ -630,6 +637,7 @@ gui/OstlerInstallerTests/SidebarStatusGlyphTests.swift	WIRED	.github/workflows/s
 gui/OstlerInstallerTests/StatementHeaderTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/StringsCatalogueEmDashTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/StringsCatalogueYNSuffixTest.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/SupportLogVisibilityTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TerminationExitCodeReconcileTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TypedInstallGateTest.swift	WIRED	.github/workflows/swift-tests.yml
 context-refresh/tests/test_context_digest_auth.py	WIRED	.github/workflows/context-digest-auth.yml

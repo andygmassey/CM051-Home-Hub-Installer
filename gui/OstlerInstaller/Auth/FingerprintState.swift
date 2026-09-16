@@ -292,6 +292,50 @@ struct FingerprintState {
         }
     }
 
+    // MARK: - Offline decision (cache-aware)
+
+    /// What to do when the registration POST could not reach the Worker.
+    enum OfflineDecision: Equatable {
+        /// This exact Mac has a cached fingerprint from an earlier
+        /// SUCCESSFUL registration. Proceed without touching the ledger:
+        /// the Worker already counted this machine.
+        case alreadyRegistered
+        /// No proof of a prior registration; within the bounded grace.
+        case proceed(attempt: Int)
+        /// No proof of a prior registration and the bound is spent.
+        case exhausted(attempts: Int)
+    }
+
+    /// Decide the offline path, consulting the fingerprint cache BEFORE
+    /// the bounded-grace ledger.
+    ///
+    /// The cache is written only on a Worker `.ok` (see
+    /// `writeCachedFingerprint`), so `.alreadyRegistered` is reachable
+    /// only for a Mac the Worker has already accepted and counted. A
+    /// fresh Mac has no cache and still consumes the bounded grace, which
+    /// is what the v1.0.10 lockdown exists to enforce.
+    ///
+    /// Pure apart from the ledger advance that `evaluateOfflineGrace`
+    /// already performs, and every path is injectable, so the whole
+    /// decision is assertable without a network or a live coordinator.
+    static func decideOffline(
+        licenseId: String,
+        computedFingerprint: String,
+        now: Date = Date(),
+        cacheURL: URL = fingerprintCachePath,
+        ledgerURL: URL = offlineGracePath
+    ) -> OfflineDecision {
+        if let cached = cachedFingerprint(at: cacheURL), cached == computedFingerprint {
+            return .alreadyRegistered
+        }
+        switch evaluateOfflineGrace(licenseId: licenseId, now: now, at: ledgerURL) {
+        case .proceed(let attempt):
+            return .proceed(attempt: attempt)
+        case .exhausted(let attempts):
+            return .exhausted(attempts: attempts)
+        }
+    }
+
     // MARK: - Helpers
 
     private static func ensureDirectory(parent: URL) throws {

@@ -32,4 +32,24 @@
 # not been raised since #839 and other tests landed in between. Stated rather
 # than smoothed over -- 318 is the number the workflow printed, and it is the
 # only number I can defend.
-318
+#
+# Raised to 374 on 2026-09-16 (recovery-key / support-log defect sweep). The 36
+# new cases cover: the recovery-key reveal surviving a FAILED install and the
+# auto-quit refusing to close over an unacknowledged key; the fingerprint cache
+# being read on the offline path so an already-registered Mac stops burning its
+# own grace allowance; the caffeinate assertion being released on app
+# termination; and four support-log blindnesses (redacted timestamps, missing
+# tool output, an unreachable watchdog overlay, an unreachable sidebar failure
+# glyph).
+#
+# MEASURED, not estimated -- but measured LOCALLY, which is the difference from
+# the raises above. Run on this branch with the same command swift-tests.yml
+# uses (xcodebuild build-for-testing then test-without-building, scheme
+# OstlerInstaller, platform=macOS) and scored with this repo's own
+# scripts/verify_swift_tests_ran.sh, which printed
+#     swift-tests: executed=374 failures=0 declared-floor=318
+# The pre-change baseline on the same box printed 338, so the floor was already
+# 20 behind before this branch touched it. The PR's own swift-tests run is the
+# CI confirmation; if it prints a different number, this line is what to correct
+# and 374 is the number to argue with.
+374
