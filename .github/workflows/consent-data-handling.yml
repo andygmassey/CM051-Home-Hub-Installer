@@ -232,3 +232,19 @@ jobs:
       - name: a killed contacts hydrate is an error, not an empty address book
         if: always()
         run: bash scripts/tests/test_hydrate_contacts_timeout_arm.sh
+
+      # A credential the install keeps in plain text has to say so on the
+      # screen where it is typed. The honest sentence already existed, in the
+      # preamble written INSIDE config.toml, which is a file the customer has
+      # no reason to open. At the prompt they read "Stored locally ... never
+      # sent to Creative Machines" and nothing else: true, and reassuring in
+      # exactly the direction the omission runs. Consent to hand over a
+      # password is given at the prompt, so the material fact belongs there.
+      # The guard reads the RENDERED string, not the literal, because a
+      # variable can be present and still expand to nothing, and it carries a
+      # same-shape control: the Disney export password is collected by the
+      # same secret prompt, is never persisted, and must NOT be made to claim
+      # storage.
+      - name: a stored secret says so where it is typed
+        if: always()
+        run: bash tests/test_a_stored_secret_says_so_where_it_is_typed.sh

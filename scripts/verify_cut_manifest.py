@@ -1229,6 +1229,118 @@ def _people_count_for_timeout(cm051_dir: Path) -> Optional[int]:
         return None
 
 
+# ── assistant_answers_grounded's CAP IS PER-PROBE, AND IT IS READ FROM THE
+#    PROBE'S OWN DECLARATIONS ──
+#
+# #1601 was opened because this probe was reported FAIL on a timeout. The
+# timeout arm below now returns CANNOT-RUN, which fixed the misreporting. It
+# did NOT fix the cause: this probe still inherited the flat
+# BOX_WALK_PROBE_TIMEOUT_SECONDS, and that cap CANNOT FIT IT. The
+# contradiction is arithmetic and sits in the tree, provable with no box:
+#
+#   assistant_answers_grounded.sh declares a per-turn ceiling of 420s
+#     (CHAT_TIMEOUT="${OSTLER_PROBE_CHAT_TIMEOUT:-420}"), raised to seven
+#     minutes precisely because the file's own runtime note measured 2-5
+#     MINUTES per turn on a Mac mini under first-run ingest load.
+#   Its battery is three questions, plus a fourth seeded turn when the seed
+#     oracle names a fact to expect.
+#   Its own note states the consequence: "The default battery of 3 is
+#     therefore up to ~15 minutes, far and away the slowest probe here."
+#
+# ~15 minutes is 900s. The flat cap is 600s. The probe's own documented worst
+# case exceeded its cap by half again, so a walk that hit the slow end of the
+# range this file itself measured was guaranteed to lose the probe. A
+# CANNOT-RUN is honest; a CANNOT-RUN the configuration makes inevitable is
+# still a probe that never reports.
+#
+# So the cap is DERIVED FROM THE PROBE'S OWN NUMBERS rather than raised by
+# hand, the same rule people_count_agreement follows above (it reuses
+# install.sh's measured K rather than inventing a second one). Nothing here is
+# a new estimate: every input is read out of the probe file.
+#
+#     budget = (battery turns + seeded turn) * per-turn ceiling + overhead
+#
+# THE ENV OVERRIDE THE PROBE ITSELF READS MUST WIN. A walk that raises
+# OSTLER_PROBE_CHAT_TIMEOUT lengthens every turn, so a cap that ignored it
+# would re-create the same defect at the new value.
+#
+# AN UNREADABLE PROBE TAKES THE FLOOR, never a guess in the generous
+# direction -- the same rule the people-count budget above states. The floor
+# is not invented either: it is 900s, the probe's own "up to ~15 minutes".
+ASSISTANT_GROUNDED_TIMEOUT_FLOOR_SECONDS = 900
+ASSISTANT_GROUNDED_TIMEOUT_CEILING_SECONDS = int(
+    os.environ.get("OSTLER_BOX_WALK_ASSISTANT_GROUNDED_TIMEOUT_CEILING", "5400")
+)
+# Setup and teardown the turns do not cover: staging the WebSocket client on
+# the box, the token check, and the two mktemps. Deliberately small; it is not
+# a slush fund for an unmeasured cost.
+ASSISTANT_GROUNDED_TIMEOUT_OVERHEAD_SECONDS = 120
+ASSISTANT_GROUNDED_DEFAULT_PER_TURN_SECONDS = 420
+# The seeded question is appended when EXPECT_FACT is set, so the worst case is
+# one turn more than the battery. Budget for it always: a cap that fits only
+# the unseeded walk fails exactly on the walk that tests the most.
+ASSISTANT_GROUNDED_SEEDED_TURNS = 1
+
+_GROUNDED_BATTERY_RE = re.compile(
+    r"_questions\(\)\s*\{\s*cat <<'QEOF'\n(.*?)\nQEOF", re.S
+)
+_GROUNDED_PER_TURN_RE = re.compile(
+    r'CHAT_TIMEOUT="\$\{OSTLER_PROBE_CHAT_TIMEOUT:-(\d+)\}"'
+)
+
+
+def _assistant_grounded_declarations(cm051_dir: Path):
+    """(battery_turns, per_turn_seconds) read from the probe file itself.
+
+    Static, so this needs no box and no clock, and the self-test drives it
+    directly. Either element is None when it could not be read, and the caller
+    takes the floor rather than guessing in the generous direction.
+    """
+    probe = (cm051_dir / "scripts" / "box_walk_probes" / "probes"
+             / "assistant_answers_grounded.sh")
+    try:
+        text = probe.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return (None, None)
+    turns = None
+    m = _GROUNDED_BATTERY_RE.search(text)
+    if m:
+        n = len([ln for ln in m.group(1).split("\n") if ln.strip()])
+        turns = n if n > 0 else None
+    per_turn = None
+    m2 = _GROUNDED_PER_TURN_RE.search(text)
+    if m2:
+        per_turn = int(m2.group(1))
+    return (turns, per_turn)
+
+
+def _assistant_answers_grounded_timeout_seconds(turns, per_turn) -> int:
+    """The per-probe timeout for assistant_answers_grounded.
+
+    A pure function on purpose, the same way
+    _people_count_agreement_timeout_seconds is, so the formula can be driven
+    with no filesystem behind it.
+    """
+    explicit = os.environ.get(
+        "OSTLER_BOX_WALK_ASSISTANT_GROUNDED_TIMEOUT_SECONDS", ""
+    )
+    if explicit.strip().isdigit():
+        return int(explicit)
+    # The probe reads this itself, so the cap must move with it.
+    env_turn = os.environ.get("OSTLER_PROBE_CHAT_TIMEOUT", "")
+    if env_turn.strip().isdigit():
+        per_turn = int(env_turn)
+    elif not isinstance(per_turn, int) or per_turn <= 0:
+        per_turn = ASSISTANT_GROUNDED_DEFAULT_PER_TURN_SECONDS
+    floor_s = ASSISTANT_GROUNDED_TIMEOUT_FLOOR_SECONDS
+    if not isinstance(turns, int) or turns <= 0:
+        derived = floor_s
+    else:
+        derived = ((turns + ASSISTANT_GROUNDED_SEEDED_TURNS) * per_turn
+                   + ASSISTANT_GROUNDED_TIMEOUT_OVERHEAD_SECONDS)
+    return max(floor_s, min(derived, ASSISTANT_GROUNDED_TIMEOUT_CEILING_SECONDS))
+
+
 # The box-walk probes' CANNOT-RUN exit code. This is NOT a number invented here:
 # scripts/box_walk_probes/run_box_walk.sh:44 declares `EX_CANNOT_RUN=78` and 13
 # of the 17 registered probes exit with it when a prerequisite is unreadable.
@@ -1518,9 +1630,20 @@ def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
     # at the flat 600s cap sized for the largest book ever walked (~1800).
     _timeout_s = BOX_WALK_PROBE_TIMEOUT_SECONDS
     _timeout_persons: Optional[int] = None
+    _grounded_turns = None
+    _grounded_per_turn = None
     if probe == "people_count_agreement":
         _timeout_persons = _people_count_for_timeout(cm051_dir)
         _timeout_s = _people_count_agreement_timeout_seconds(_timeout_persons)
+    elif probe == "assistant_answers_grounded":
+        # #1601. Read from the probe's OWN declarations, never guessed. The
+        # flat cap is 600s and this probe's own note documents up to ~15
+        # minutes for the default battery, so inheriting the flat cap
+        # guaranteed a CANNOT-RUN on a slow-but-normal walk.
+        _grounded_turns, _grounded_per_turn = _assistant_grounded_declarations(cm051_dir)
+        _timeout_s = _assistant_answers_grounded_timeout_seconds(
+            _grounded_turns, _grounded_per_turn
+        )
     try:
         result = subprocess.run(
             ["/bin/bash", str(script)],
@@ -1570,6 +1693,23 @@ def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
                           f"probe, it is an unrun one. Re-run it directly with no cap, or "
                           f"raise OSTLER_BOX_WALK_PEOPLE_COUNT_TIMEOUT_CEILING, to get its "
                           f"verdict. full_output={evidence_path}",
+                          entry.get("source_pr", ""))
+        if probe == "assistant_answers_grounded":
+            # Its cap is derived from its own declarations, so the row says
+            # which numbers produced it rather than naming a constant that is
+            # not the one that applied. A reader who sees "4 turns x 420s"
+            # can check both against the probe file.
+            return Result(entry["id"], entry["title"], "box_walk_probe", "CANNOT-RUN",
+                          f"probe={probe} exceeded its declaration-derived timeout of "
+                          f"{_timeout_s}s (battery="
+                          f"{_grounded_turns if _grounded_turns is not None else 'unreadable, floor applied'}"
+                          f" + {ASSISTANT_GROUNDED_SEEDED_TURNS} seeded turn, per-turn "
+                          f"ceiling="
+                          f"{_grounded_per_turn if _grounded_per_turn is not None else 'unreadable'}"
+                          f"s) and was killed. NOTHING was measured: this is not a failing "
+                          f"probe, it is an unrun one. Re-run it directly with no cap, or "
+                          f"raise OSTLER_BOX_WALK_ASSISTANT_GROUNDED_TIMEOUT_SECONDS, to "
+                          f"get its verdict. full_output={evidence_path}",
                           entry.get("source_pr", ""))
         return Result(entry["id"], entry["title"], "box_walk_probe", "CANNOT-RUN",
                       f"probe={probe} exceeded BOX_WALK_PROBE_TIMEOUT_SECONDS="
