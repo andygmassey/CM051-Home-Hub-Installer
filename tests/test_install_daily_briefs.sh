@@ -400,7 +400,7 @@ OUTPUT="$(
 )"
 
 # allowed_numbers contains the captured phone.
-if ! echo "$OUTPUT" | grep -q "allowed_numbers = \[\"$TEST_PHONE\"\]"; then
+if ! grep -q "allowed_numbers = \[\"$TEST_PHONE\"\]" <<<"$OUTPUT"; then
     echo "FAIL [emitter-allowed-numbers]: emitter did not seed allowed_numbers with the captured recipient" >&2
     echo "Output was:" >&2
     echo "$OUTPUT" >&2
@@ -409,7 +409,7 @@ fi
 echo "PASS: emitter writes allowed_numbers = [\"$TEST_PHONE\"]"
 
 # Cron jobs land with the captured TZ + recipient.
-if ! echo "$OUTPUT" | grep -q 'id = "morning-brief"'; then
+if ! grep -q 'id = "morning-brief"' <<<"$OUTPUT"; then
     echo "FAIL [emitter-morning-id]: emitter did not write id = \"morning-brief\"" >&2
     echo "Output was:" >&2
     echo "$OUTPUT" >&2
@@ -417,7 +417,7 @@ if ! echo "$OUTPUT" | grep -q 'id = "morning-brief"'; then
 fi
 echo "PASS: emitter writes morning-brief job id"
 
-if ! echo "$OUTPUT" | grep -q 'id = "evening-wrap"'; then
+if ! grep -q 'id = "evening-wrap"' <<<"$OUTPUT"; then
     echo "FAIL [emitter-evening-id]: emitter did not write id = \"evening-wrap\"" >&2
     exit 1
 fi
@@ -425,31 +425,31 @@ echo "PASS: emitter writes evening-wrap job id"
 
 # Schema discriminator must be kind (not type) on the schedule
 # variant, otherwise the daemon's serde rejects the job at load.
-if ! echo "$OUTPUT" | grep -q 'kind = "cron"'; then
+if ! grep -q 'kind = "cron"' <<<"$OUTPUT"; then
     echo "FAIL [emitter-schedule-kind]: emitter did not write kind = \"cron\"" >&2
     echo "Output was:" >&2
     echo "$OUTPUT" >&2
     exit 1
 fi
-if echo "$OUTPUT" | grep -q 'schedule = { type = "cron"'; then
+if grep -q 'schedule = { type = "cron"' <<<"$OUTPUT"; then
     echo "FAIL [emitter-schedule-type-drift]: emitter wrote legacy type = \"cron\"" >&2
     exit 1
 fi
 echo "PASS: emitter writes kind = \"cron\" (matches schema tag)"
 
-if ! echo "$OUTPUT" | grep -q 'job_type = "agent"'; then
+if ! grep -q 'job_type = "agent"' <<<"$OUTPUT"; then
     echo "FAIL [emitter-job-type]: emitter did not write job_type = \"agent\"" >&2
     exit 1
 fi
 echo "PASS: emitter writes job_type = \"agent\" on brief jobs"
 
-if ! echo "$OUTPUT" | grep -qE '^prompt = "[^"]+"'; then
+if ! grep -qE '^prompt = "[^"]+"' <<<"$OUTPUT"; then
     echo "FAIL [emitter-prompt]: emitter did not write a non-empty prompt field" >&2
     exit 1
 fi
 echo "PASS: emitter writes a non-empty prompt on brief jobs"
 
-if ! echo "$OUTPUT" | grep -q "tz = \"$TEST_TZ\""; then
+if ! grep -q "tz = \"$TEST_TZ\"" <<<"$OUTPUT"; then
     echo "FAIL [emitter-tz]: emitter did not thread USER_TZ ($TEST_TZ) into cron jobs" >&2
     echo "Output was:" >&2
     echo "$OUTPUT" >&2
@@ -457,13 +457,13 @@ if ! echo "$OUTPUT" | grep -q "tz = \"$TEST_TZ\""; then
 fi
 echo "PASS: emitter threads USER_TZ ($TEST_TZ) into cron jobs"
 
-if ! echo "$OUTPUT" | grep -q "to = \"$TEST_PHONE\""; then
+if ! grep -q "to = \"$TEST_PHONE\"" <<<"$OUTPUT"; then
     echo "FAIL [emitter-delivery-to]: emitter did not thread recipient into delivery.to" >&2
     exit 1
 fi
 echo "PASS: emitter threads recipient into delivery.to"
 
-if ! echo "$OUTPUT" | grep -q 'best_effort = false'; then
+if ! grep -q 'best_effort = false' <<<"$OUTPUT"; then
     echo "FAIL [emitter-best-effort]: emitter did not write best_effort = false" >&2
     exit 1
 fi
@@ -472,25 +472,25 @@ echo "PASS: emitter writes best_effort = false on cron jobs"
 # [providers] block lands in the rendered TOML with the canonical
 # Ollama fallback. Without this, agent-type cron jobs fail at fire
 # time with "no provider configured".
-if ! echo "$OUTPUT" | grep -q '^\[providers\]$'; then
+if ! grep -q '^\[providers\]$' <<<"$OUTPUT"; then
     echo "FAIL [emitter-providers-header]: emitter did not write [providers] section" >&2
     echo "Output was:" >&2
     echo "$OUTPUT" >&2
     exit 1
 fi
-if ! echo "$OUTPUT" | grep -q '^fallback = "ollama"$'; then
+if ! grep -q '^fallback = "ollama"$' <<<"$OUTPUT"; then
     echo "FAIL [emitter-providers-fallback]: emitter did not write fallback = \"ollama\"" >&2
     exit 1
 fi
-if ! echo "$OUTPUT" | grep -q '^\[providers\.models\.ollama\]$'; then
+if ! grep -q '^\[providers\.models\.ollama\]$' <<<"$OUTPUT"; then
     echo "FAIL [emitter-providers-ollama]: emitter did not write [providers.models.ollama] entry" >&2
     exit 1
 fi
-if ! echo "$OUTPUT" | grep -q '^base_url = "http://localhost:11434"$'; then
+if ! grep -q '^base_url = "http://localhost:11434"$' <<<"$OUTPUT"; then
     echo "FAIL [emitter-providers-base-url]: emitter did not write Ollama base_url" >&2
     exit 1
 fi
-if ! echo "$OUTPUT" | grep -qE '^model = "[^"]+"$'; then
+if ! grep -qE '^model = "[^"]+"$' <<<"$OUTPUT"; then
     echo "FAIL [emitter-providers-model]: emitter did not write a non-empty Ollama model" >&2
     exit 1
 fi
@@ -517,7 +517,7 @@ OUTPUT_OFF="$(
 # the old assertion was pinning a regression as if it were the requirement.
 #
 # Assert what actually matters: no job may be delivered to a DISABLED channel.
-if echo "$OUTPUT_OFF" | grep -qE 'channel = "whatsapp"'; then
+if grep -qE 'channel = "whatsapp"' <<<"$OUTPUT_OFF"; then
     echo "FAIL [emitter-suppress-cron]: emitter routed a cron job to whatsapp when CHANNEL_WHATSAPP_ENABLED=false" >&2
     echo "Output was:" >&2
     echo "$OUTPUT_OFF" >&2
@@ -538,13 +538,13 @@ OUTPUT_NO_PHONE="$(
     bash -c "$(cat "$EMITTER")" 2>&1
 )"
 
-if echo "$OUTPUT_NO_PHONE" | grep -q 'allowed_numbers'; then
+if grep -q 'allowed_numbers' <<<"$OUTPUT_NO_PHONE"; then
     echo "FAIL [emitter-suppress-allowed]: emitter wrote allowed_numbers with no recipient" >&2
     exit 1
 fi
 echo "PASS: emitter suppresses allowed_numbers when no recipient captured"
 
-if echo "$OUTPUT_NO_PHONE" | grep -q '\[\[cron\.jobs\]\]'; then
+if grep -q '\[\[cron\.jobs\]\]' <<<"$OUTPUT_NO_PHONE"; then
     echo "FAIL [emitter-suppress-cron-no-recipient]: emitter wrote cron jobs with no recipient" >&2
     exit 1
 fi
