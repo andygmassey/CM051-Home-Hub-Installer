@@ -27911,7 +27911,52 @@ _hydrate_payload_is_all_zero() {
 #
 # A reader (CM044) should cover THIS list rather than one somebody transcribed.
 OSTLER_SENTINEL_STATUSES="ok error timeout no_data cannot_run"
-OSTLER_SENTINEL_SOURCES="ai_conversations apple_notes browsing calendar contacts dedupe email email_preferences imessage people places privacy_backfill whatsapp"
+OSTLER_SENTINEL_SOURCES="ai_conversations apple_notes browsing calendar contacts dedupe email email_preferences imessage people photos places privacy_backfill reminders whatsapp"
+
+# ── EVERY EXTRACTOR SOURCE, AND WHERE THE CUSTOMER SEES IT (#1587) ───────
+#
+# 🔴 WHY THIS EXISTS, and it is a different failure from the one above.
+#
+# The list above is the WRITER'S vocabulary, and the gate on it proves the
+# declaration matches the writer. Both sides of that comparison enumerate
+# HYDRATE RECORDER CALL SITES, so a source with no call site is outside the
+# denominator and INVISIBLE TO THE CHECK. Photos and Reminders were exactly
+# that: shipped extractors (vendor/ostler_fda/photos_metadata.py,
+# vendor/ostler_fda/reminders.py) that a customer can turn on, that write
+# real data, and that could never appear in the Doctor source table, because
+# that table is built from the hydrate sentinels and they wrote none.
+#
+# The gate was wired, ran, passed, and was structurally incapable of noticing.
+# A gate whose denominator excludes its subject is decoration.
+#
+# SO THIS IS THE DENOMINATOR THAT CONTAINS THEM. It is keyed by the
+# EXTRACTOR'S own source names, read from the summary
+# vendor/ostler_fda/extract_all.py writes, and every one of them must say
+# where its result surfaces. Two forms, and nothing else is accepted:
+#
+#     <extractor key>:<hydrate source>          it reaches the source table
+#     <extractor key>:none:<reason>             it deliberately does not
+#
+# A `none` with no reason is not a decision, it is an omission wearing a
+# decision's clothes, so the gate refuses it.
+#
+# Several extractors legitimately map onto ONE hydrate source: browsing is fed
+# by safari_history, safari_bookmarks and chrome_history, and email by
+# apple_mail and google_takeout. That is a real many-to-one and not drift.
+OSTLER_FDA_SOURCE_SURFACING="\
+safari_history:browsing \
+safari_bookmarks:browsing \
+chrome_history:browsing \
+imessage:imessage \
+whatsapp_history:whatsapp \
+apple_notes:apple_notes \
+calendar:calendar \
+apple_mail:email \
+google_takeout:email \
+photos:photos \
+reminders:reminders \
+facebook_messenger:none:no_hydrate_step_in_v1 \
+apple_music:none:no_hydrate_step_in_v1"
 
 _hydrate_sentinel_record() {
     local source="$1"
@@ -31563,6 +31608,143 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
     fi
     unset _privacy_rc
 fi
+
+# ── PHOTOS AND REMINDERS REACH THE SOURCE TABLE (#1587) ──────────────────
+#
+# THE DEFECT. The Doctor source table is built from the hydrate sentinels
+# (vendor/doctor/agent/web_ui.py read_source_status, over _SOURCE_KINDS, and
+# status_collector.collect_hydrate_markers globbing the same directory). A
+# source that writes no sentinel CANNOT APPEAR IN IT AT ALL. Photos and
+# Reminders write none, so a customer could enable them, have them run, have
+# their data land, and never see either on the one surface built to tell them
+# what ran. Both extractors ship: vendor/ostler_fda/photos_metadata.py,
+# vendor/ostler_fda/reminders.py, vendor/cm041/contact_syncer/backfill_photos.py
+# and vendor/cm048_pipeline/src/reminders_push.py are all tracked files, so
+# this was never the present-in-repo-absent-from-the-DMG case.
+#
+# WHY HERE. run_all() has already written its own verdict per source into
+# ${OSTLER_DIR}/imports/fda/extraction_summary.json, back in 3.7. This does
+# not re-run anything and does not second-guess the extractor: it TRANSLATES
+# the extractor's verdict into the record the reporting surface reads. Putting
+# it in the hydrate section is what makes the recorders available at all; they
+# are defined some 4,000 lines below the extract.
+#
+# THE STATUSES ARE MAPPED, NOT INVENTED, and each mapping is a claim about
+# what actually happened:
+#   ok            -> _hydrate_sentinel_record       (a real count, and the
+#                    recorder downgrades an all-zero payload to no_data with
+#                    the declared reason passed below)
+#   no_fda        -> _hydrate_sentinel_record_cannot_run. Full Disk Access was
+#                    not granted, so the extractor could not LOOK. That is not
+#                    "looked and found nothing".
+#   not_found     -> _hydrate_sentinel_record_no_data. It looked; this Mac has
+#                    no such database. A healthy outcome.
+#   error         -> _hydrate_sentinel_record_error
+#   disabled_by_user -> NOTHING IS WRITTEN, deliberately. The declared status
+#                    vocabulary has no word for "the customer said no", and
+#                    inventing a sixth status is the exact cross-repo drift
+#                    (CM051 writes 13 sources / CM044 recognised 9) that the
+#                    declaration above exists to end. An absent sentinel makes
+#                    the reader report not_run, whose documented meaning is
+#                    "this recorder exists and has not fired", which is true.
+#   summary absent-> cannot_run. The extract crashed wholesale, so nothing is
+#                    known about either source. Saying so beats a missing row.
+#
+# THE HEADLINE COUNT GOES LAST IN THE PAYLOAD, and that is a contract, not a
+# style choice. _hydrate_payload_count walks the payload left to right and
+# keeps the LAST integer field it sees, so the order of COUNT_KEYS below
+# decides what the customer reads in the Items column. Written in the obvious
+# order, Photos reported 0 (recognised_people, with faces off) beside a payload
+# saying photo_events=12, and Reminders reported 4 (completed) for a person
+# with 7. Caught by the consumer-side test asserting the NUMBER, not the
+# presence of a row; a test that only checked the row existed would have
+# shipped both.
+#
+# LITERAL SOURCE NAMES AT EVERY CALL SITE, NOT A LOOP VARIABLE. The vocabulary
+# gate extracts the source token statically and has a control proving it would
+# SEE a variable form; a "$_src" here would make every call site unreadable and
+# the comparison would silently run over a subset. Two near-identical blocks is
+# the price of a gate that can still read them.
+_fda_summary="${OSTLER_DIR}/imports/fda/extraction_summary.json"
+_fda_py="${OSTLER_PYTHON:-}"
+if [[ ! -x "$_fda_py" ]]; then
+    _fda_py="$(command -v python3 2>/dev/null || true)"
+fi
+_fda_photos_outcome="cannot_run"; _fda_photos_detail="fda_extract_summary_absent"
+_fda_reminders_outcome="cannot_run"; _fda_reminders_detail="fda_extract_summary_absent"
+if [[ -r "$_fda_summary" && -x "$_fda_py" ]]; then
+    _fda_tsv="${OSTLER_DIAG_DIR}/fda-source-surfacing.tsv"
+    if ! "$_fda_py" - "$_fda_summary" > "$_fda_tsv" 2>>"${OSTLER_DIAG_DIR}/fda-source-surfacing.log" <<'FDASURFACEPY'
+import json
+import sys
+
+WANTED = ("photos", "reminders")
+COUNT_KEYS = {
+    "photos": ("recognised_people", "photo_events"),
+    "reminders": ("pending", "completed", "total_reminders"),
+}
+
+try:
+    with open(sys.argv[1], "rb") as fh:
+        sources = json.loads(fh.read().decode("utf-8"))["sources"]
+except Exception as exc:
+    sys.stderr.write("could not read the extract summary: %r\n" % (exc,))
+    raise SystemExit(1)
+
+for name in WANTED:
+    rec = sources.get(name)
+    if not isinstance(rec, dict):
+        print("%s\tcannot_run\tno_%s_record_in_extract_summary" % (name, name))
+        continue
+    status = rec.get("status", "")
+    if status == "ok":
+        parts = []
+        for key in COUNT_KEYS[name]:
+            value = rec.get(key)
+            if isinstance(value, int):
+                parts.append("%s=%d" % (key, value))
+        print("%s\tok\t%s" % (name, ",".join(parts) if parts else "items=0"))
+    elif status == "no_fda":
+        print("%s\tcannot_run\tfull_disk_access_not_granted" % name)
+    elif status == "not_found":
+        print("%s\tno_data\tnot_present_on_this_mac" % name)
+    elif status == "disabled_by_user":
+        print("%s\tskip\tturned_off_by_the_customer" % name)
+    elif status == "error":
+        print("%s\terror\textractor_reported_error" % name)
+    else:
+        print("%s\tcannot_run\tunrecognised_extractor_status" % name)
+FDASURFACEPY
+    then
+        : > "$_fda_tsv"
+    fi
+    while IFS=$'\t' read -r _fda_name _fda_outcome _fda_detail; do
+        case "$_fda_name" in
+            photos)    _fda_photos_outcome="$_fda_outcome";    _fda_photos_detail="$_fda_detail" ;;
+            reminders) _fda_reminders_outcome="$_fda_outcome"; _fda_reminders_detail="$_fda_detail" ;;
+        esac
+    done < "$_fda_tsv"
+    unset _fda_tsv _fda_name _fda_outcome _fda_detail
+fi
+
+case "$_fda_photos_outcome" in
+    ok)         _hydrate_sentinel_record photos "$_fda_photos_detail" "photos_extract_found_nothing" ;;
+    no_data)    _hydrate_sentinel_record_no_data photos "$_fda_photos_detail" ;;
+    cannot_run) _hydrate_sentinel_record_cannot_run photos "$_fda_photos_detail" ;;
+    error)      _hydrate_sentinel_record_error photos 1 "$_fda_photos_detail" ;;
+    *)          : ;;
+esac
+
+case "$_fda_reminders_outcome" in
+    ok)         _hydrate_sentinel_record reminders "$_fda_reminders_detail" "reminders_extract_found_nothing" ;;
+    no_data)    _hydrate_sentinel_record_no_data reminders "$_fda_reminders_detail" ;;
+    cannot_run) _hydrate_sentinel_record_cannot_run reminders "$_fda_reminders_detail" ;;
+    error)      _hydrate_sentinel_record_error reminders 1 "$_fda_reminders_detail" ;;
+    *)          : ;;
+esac
+
+unset _fda_summary _fda_py _fda_photos_outcome _fda_photos_detail \
+      _fda_reminders_outcome _fda_reminders_detail
 
 info "$MSG_HYDRATE_WIKI_RECOMPILE"
 

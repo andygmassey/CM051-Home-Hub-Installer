@@ -2631,7 +2631,7 @@ async def health():
 # (install.sh _hydrate_sentinel_record*); a contract test pins the two together.
 # ---------------------------------------------------------------------------
 
-# The 13 canonical hydrate sources (the ground truth: what install.sh actually
+# The 15 canonical hydrate sources (the ground truth: what install.sh actually
 # writes a sentinel for), each tagged with a kind. `operation` is work OVER
 # other data (dedupe over people, the privacy backfill), not a source a customer
 # connected; carried so the panel does not under-report real work, labelled so
@@ -2647,7 +2647,14 @@ _SOURCE_KINDS = {
     "email_preferences": "source",
     "imessage": "source",
     "people": "source",
+    # #1587: photos and reminders. They were absent from this map and from
+    # OSTLER_SENTINEL_SOURCES, while vendor/ostler_fda/photos_metadata.py and
+    # vendor/ostler_fda/reminders.py shipped and ran. This table is built by
+    # iterating THIS dict, so a source missing here has no row a customer can
+    # ever see, however much of their data it moved.
+    "photos": "source",
     "places": "source",
+    "reminders": "source",
     "whatsapp": "source",
     "dedupe": "operation",
     "privacy_backfill": "operation",

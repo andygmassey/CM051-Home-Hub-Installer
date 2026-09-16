@@ -211,6 +211,108 @@ case " ${DECLARED} " in
     *) ok "CONTROL: a status outside the declaration is detectably absent, so the coverage arm can fail" ;;
 esac
 
+echo "── DIRECTION 3: A DENOMINATOR THAT CAN CONTAIN THE SUBJECT (#1587) ──"
+# 🔴 THE FINDING THIS ARM EXISTS FOR, and it is about THIS FILE.
+#
+# Both directions above enumerate HYDRATE RECORDER CALL SITES on one side and
+# the declaration on the other. Photos and Reminders had NEITHER, so neither
+# direction could reach them: this gate was wired, ran on main, passed, and was
+# structurally incapable of noticing that two shipped extractors could never
+# appear on the surface built to report what ran. A gate whose denominator
+# excludes its subject proves only that the set it CAN see agrees with itself.
+#
+# So this arm's denominator is the EXTRACTOR'S OWN source vocabulary, read from
+# vendor/ostler_fda/extract_all.py, which is the list of things a customer can
+# turn on. Every one of them must say where its result surfaces, and "nowhere"
+# is allowed only with a reason somebody wrote down.
+EXTRACTOR="${REPO}/vendor/ostler_fda/extract_all.py"
+if [ ! -r "$EXTRACTOR" ]; then
+    echo "CANNOT-RUN: no extractor at ${EXTRACTOR}; Direction 3 would compare against nothing." >&2
+    exit 2
+fi
+EXTRACTOR_SRCS="$(grep -oE 'summary\["sources"\]\["[a-z_]+"\]' "$EXTRACTOR" \
+    | sed -E 's/.*\["([a-z_]+)"\]$/\1/' | sort -u)"
+N_EXTRACTOR="$(printf '%s\n' "$EXTRACTOR_SRCS" | grep -c . || true)"
+echo "  ${N_EXTRACTOR} source(s) the extractor can report on, read from $(basename "$EXTRACTOR")"
+
+# CONTROL ON THE DENOMINATOR ITSELF. If this list could not contain photos and
+# reminders, the arm below would pass over a set that excludes its own subject,
+# which is the precise defect being repaired. A floor alone is not enough: a
+# pattern that matched twelve other names and missed these two would clear it.
+_d3_missing_subject=""
+for want in photos reminders; do
+    printf '%s\n' "$EXTRACTOR_SRCS" | grep -qx "$want" || _d3_missing_subject="${_d3_missing_subject} ${want}"
+done
+if [ -n "$_d3_missing_subject" ]; then
+    echo "CANNOT-RUN: the extractor-source scan did not find:${_d3_missing_subject}." >&2
+    echo "  This arm exists because those two were outside every denominator." >&2
+    echo "  A denominator that cannot contain them measures nothing here." >&2
+    exit 2
+fi
+if [ "${N_EXTRACTOR:-0}" -lt 8 ]; then
+    echo "CANNOT-RUN: only ${N_EXTRACTOR} extractor source(s) found; suspect the pattern." >&2
+    exit 2
+fi
+ok "CONTROL: the denominator CONTAINS photos and reminders (${N_EXTRACTOR} sources examined), so this arm can see the case that defeated the two above"
+
+SURFACING="$(sed -n '/^OSTLER_FDA_SOURCE_SURFACING="/,/"$/p' "$SUBJECT" \
+    | sed -e 's/^OSTLER_FDA_SOURCE_SURFACING="//' -e 's/\\$//' -e 's/"$//' \
+    | tr ' ' '\n' | grep -E '^[a-z_]+:' | sort -u)"
+N_SURFACING="$(printf '%s\n' "$SURFACING" | grep -c . || true)"
+echo "  ${N_SURFACING} surfacing declaration(s) read from OSTLER_FDA_SOURCE_SURFACING"
+# 🔴 A MISSING REGISTER IS A FAIL, NOT A CANNOT-RUN, and the difference was
+# measured. Reverting install.sh to its pre-fix state makes this parse to 0,
+# and an exit 2 there would report "could not look" about the exact state this
+# arm exists to catch. install.sh being unreadable is a cannot-run and is
+# handled at the top of the file; a readable install.sh carrying no register is
+# a measurement, and the answer is that every extractor source is unmapped.
+if [ "${N_SURFACING:-0}" -eq 0 ]; then
+    bad "OSTLER_FDA_SOURCE_SURFACING is absent or empty. Nothing says where any extractor source surfaces, so no source can be shown to reach the customer."
+fi
+
+unmapped=""
+bad_target=""
+no_reason=""
+for esrc in $EXTRACTOR_SRCS; do
+    entry="$(printf '%s\n' "$SURFACING" | grep -m1 "^${esrc}:" || true)"
+    if [ -z "$entry" ]; then
+        unmapped="${unmapped} ${esrc}"
+        continue
+    fi
+    target="$(printf '%s' "$entry" | cut -d: -f2)"
+    reason="$(printf '%s' "$entry" | cut -d: -f3)"
+    if [ "$target" = "none" ]; then
+        [ -n "$reason" ] || no_reason="${no_reason} ${esrc}"
+        continue
+    fi
+    case " ${DECLARED_SRC} " in
+        *" ${target} "*) : ;;
+        *) bad_target="${bad_target} ${esrc}->${target}" ;;
+    esac
+    case " $(printf '%s ' $SITE_SRCS) " in
+        *" ${target} "*) : ;;
+        *) bad_target="${bad_target} ${esrc}->${target}(no_call_site)" ;;
+    esac
+done
+
+[ -z "$unmapped" ] \
+    && ok "every one of the ${N_EXTRACTOR} extractor sources says where it surfaces" \
+    || bad "extractor source(s) with NO surfacing declaration:${unmapped}. A customer can turn these on and has no way to learn whether they ran."
+[ -z "$bad_target" ] \
+    && ok "every surfacing target is a declared source with a real recorder call site" \
+    || bad "surfacing declaration(s) naming a target that is not a written, declared source:${bad_target}"
+[ -z "$no_reason" ] \
+    && ok "every deliberately unsurfaced source carries a written reason" \
+    || bad "source(s) declared 'none' with no reason:${no_reason}. An omission is not a decision."
+
+# CONTROL: the lookup must be able to MISS. Without this, an arm that matched
+# everything loosely would pass whatever the register said.
+if printf '%s\n' "$SURFACING" | grep -q "^zzq_not_a_real_extractor_source:"; then
+    bad "CONTROL BROKEN: a fabricated extractor name is somehow declared"
+else
+    ok "CONTROL: a fabricated extractor name is detectably unmapped, so the arms above can fail"
+fi
+
 echo
 echo "== ${PASS} pass / ${FAIL} fail / $((PASS+FAIL)) total =="
 [ "$FAIL" -eq 0 ] || exit 1
