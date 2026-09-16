@@ -400,8 +400,8 @@ echo "PASS=${PASS} FAIL=${FAIL} CANNOT-RUN=${CANT}"
 # Two mutants, and they fail in OPPOSITE directions on purpose.
 #
 #   MUTANT A reinstates the defect by running every limb against the pre-fix
-#   module materialised from origin/main with `git show`. The suite must go
-#   RED. A guard that cannot be made to fail is not a guard.
+#   module materialised with `git show` from a PINNED commit. The suite must
+#   go RED. A guard that cannot be made to fail is not a guard.
 #
 #   MUTANT B blinds the suite's own scanner by pointing it at a module that
 #   cannot be imported. The suite must REFUSE (exit 2), not pass. A scanner
@@ -415,30 +415,63 @@ if [ "${SELF_TEST}" -eq 1 ]; then
 
     PREFIX_DIR="${WORK}/prefix"
     mkdir -p "${PREFIX_DIR}"
+
+    # 🔴 A MUTATION BASELINE MUST NOT BE A MOVING REF, and this one was.
+    #
+    # It defaulted to origin/main, which held the PRE-FIX module only while
+    # the fix (c4d4b5af, #2013) was still an open PR. On the PR the mutant
+    # worked and the check was green. The moment #2013 merged, origin/main
+    # BECAME the fixed module, so MUTANT A started materialising the very
+    # code under test, that code passed (exit 0, correctly), and the suite
+    # reported "this guard does not detect the defect it was written for" on
+    # every main build from 2026-09-16 15:53Z onward -- reddening not just
+    # main but every PR branched from it, including ones that touch nothing
+    # near this file.
+    #
+    # A baseline is pinned or it is not a baseline. 923c5067 is the PARENT of
+    # the fix commit, so it is the pre-fix module and always will be.
+    # OSTLER_PREFIX_REF still overrides, for bisecting a future regression.
+    PREFIX_REF="${OSTLER_PREFIX_REF:-923c506770016550d76e055c4a87f2703b33408a}"
+
     if git -C "${REPO}" show \
-        "${OSTLER_PREFIX_REF:-origin/main}:context-refresh/bin/generate_pwg_context.py" \
+        "${PREFIX_REF}:context-refresh/bin/generate_pwg_context.py" \
         > "${PREFIX_DIR}/generate_pwg_context.py" 2>/dev/null \
        && [ -s "${PREFIX_DIR}/generate_pwg_context.py" ]; then
         set +e
-        OSTLER_DIGEST_MODULE="${PREFIX_DIR}/generate_pwg_context.py" \
-            bash "${BASH_SOURCE[0]}" > "${WORK}/mutantA.out" 2>&1
-        mrc=$?
+        cmp -s "${PREFIX_DIR}/generate_pwg_context.py" "${GEN}"
+        same=$?
         set -e
-        if [ "${mrc}" -eq 1 ]; then
-            SELF_PASS=$((SELF_PASS+1))
-            echo "  [PASS] MUTANT A: the pre-fix digest module makes this suite FAIL (exit 1)"
-            grep -E '^\s+\[FAIL\]' "${WORK}/mutantA.out" | sed 's/^/         /'
+        if [ "${same}" -eq 0 ]; then
+            # A MUTANT THAT DID NOT APPLY LOOKS EXACTLY LIKE ONE THAT WAS NOT
+            # CAUGHT: both end in "the suite stayed green". Separating them is
+            # the whole reason this branch exists -- it is what the moving-ref
+            # defect above hid for as long as it did. Identical bytes mean the
+            # mutation never happened, which is CANNOT-RUN, never a FAIL of
+            # the product and never a pass.
+            echo "  [CANNOT-RUN] MUTANT A: ${PREFIX_REF} materialised a module IDENTICAL to the one under test -- the mutant DID NOT APPLY, so the guard was NOT proved (is the baseline still pinned to a pre-fix commit?)"
+            SELF_CANT=$((SELF_CANT+1))
         else
-            SELF_FAIL=$((SELF_FAIL+1))
-            echo "  [FAIL] MUTANT A: the pre-fix module exited ${mrc}, expected 1. This guard does not detect the defect it was written for."
-            tail -20 "${WORK}/mutantA.out" | sed 's/^/         /'
+            set +e
+            OSTLER_DIGEST_MODULE="${PREFIX_DIR}/generate_pwg_context.py" \
+                bash "${BASH_SOURCE[0]}" > "${WORK}/mutantA.out" 2>&1
+            mrc=$?
+            set -e
+            if [ "${mrc}" -eq 1 ]; then
+                SELF_PASS=$((SELF_PASS+1))
+                echo "  [PASS] MUTANT A: the pre-fix digest module (${PREFIX_REF}) APPLIED, and makes this suite FAIL (exit 1)"
+                grep -E '^\s+\[FAIL\]' "${WORK}/mutantA.out" | sed 's/^/         /'
+            else
+                SELF_FAIL=$((SELF_FAIL+1))
+                echo "  [FAIL] MUTANT A: the pre-fix module APPLIED but exited ${mrc}, expected 1. This guard does not detect the defect it was written for."
+                tail -20 "${WORK}/mutantA.out" | sed 's/^/         /'
+            fi
         fi
     else
-        # The pre-fix copy is unavailable (shallow clone, no origin/main). That
-        # is CANNOT-RUN for the mutant, not a mutant that passed, and it gets
-        # its own exit code below so nobody can read "the mutant was not run"
-        # as "the guard was proved".
-        echo "  [CANNOT-RUN] MUTANT A: could not materialise ${OSTLER_PREFIX_REF:-origin/main} copy of the digest module -- the guard was NOT proved"
+        # The pre-fix copy is unavailable (shallow clone, or the pinned commit
+        # is not in this clone). That is CANNOT-RUN for the mutant, not a
+        # mutant that passed, and it gets its own exit code below so nobody
+        # can read "the mutant was not run" as "the guard was proved".
+        echo "  [CANNOT-RUN] MUTANT A: could not materialise the ${PREFIX_REF} copy of the digest module -- the guard was NOT proved"
         SELF_CANT=$((SELF_CANT+1))
     fi
 
