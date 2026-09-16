@@ -18820,13 +18820,71 @@ http {
     #
     # The credential include is a separate 0600 file for the same
     # reason the Oxigraph one is: this conf is 644.
+    #
+    # ─────────────────────────────────────────────────────────────────
+    # 🔴 NO CHALLENGE ON THE BROWSER'S ARM. Andy, on his own console walk
+    # of the last build: "The wiki via a browser is requesting
+    # authentication details I don't have."
+    #
+    # That is this server block, and the defect is not the credential --
+    # it is the CHALLENGE. `auth_basic` answers an uncredentialled
+    # request with `401 + WWW-Authenticate: Basic`, and that header is
+    # the entire reason a browser pops a password box. The password
+    # exists and is the customer's own, but nothing on the GUI path ever
+    # put it in front of them, so the box cannot be filled and the last
+    # thing the customer sees is a wall.
+    #
+    # DECISION_550:106 records the v1.0 disposition for this port as
+    # ABSENT, "one door via the daemon, direct publish removed". The door
+    # is now BUILT -- ostler-assistant crates/zeroclaw-gateway/src/wiki_proxy.rs,
+    # in the pinned daemon -- and the Hub's Wiki tab goes through it
+    # (web/src/pages/Wiki.tsx, WIKI_PROXY_PATH = '/wiki'). But the daemon
+    # is a NATIVE LaunchAgent and wiki-site is a container, so the
+    # daemon's own hop can only reach it over this published loopback
+    # port (wiki_proxy.rs, WIKI_ORIGIN = "http://127.0.0.1:8044"). DELETING
+    # the publish does not deliver "absent", it deletes the in-app wiki
+    # too, which is Andy's second complaint made permanent.
+    #
+    # So the port stays and the CHALLENGE goes. Measured on nginx
+    # 1.27-alpine, the pinned image, all four arms:
+    #   no credential  -> 403 + this page, ZERO WWW-Authenticate  (no box)
+    #   the daemon's   -> 200, wiki served       (in-app wiki unchanged)
+    #   a wrong one    -> 403, never served      (no re-prompt loop)
+    #   a rebind Host  -> 403                    (#550 gate intact)
+    #
+    # The guard sits in the REWRITE phase, which runs BEFORE the access
+    # phase, so `auth_basic` never runs on an uncredentialled request and
+    # never sets the challenge. `error_page 401` alone is NOT sufficient
+    # and was measured failing: it rewrites the status to 403 but the
+    # WWW-Authenticate header SURVIVES the internal redirect, so the
+    # response still carries a challenge. Both are kept -- the rewrite
+    # guard for the empty case, error_page for a stale WRONG credential a
+    # browser may already have cached from the box it was shown before.
+    #
+    # This does not weaken #1594. Without the credential the wiki is
+    # still not served; a second local account gets a signpost, not the
+    # customer's compiled life. The only thing that changed is that the
+    # person who owns the machine is told WHERE their wiki is instead of
+    # being asked for a password nobody ever showed them.
     server {
         listen 8044;
         location / {
             if ($ostler_store_host_ok = 0) { return 403; }
+            default_type "text/html; charset=utf-8";
+            # Empty Authorization: answer in the rewrite phase so auth_basic
+            # never runs and no challenge is ever emitted.
+            if ($http_authorization = "") { return 403 "<!doctype html><meta charset=utf-8><title>Your wiki is in the Ostler app</title><body style=\"font:16px -apple-system,system-ui,sans-serif;max-width:34em;margin:4em auto;padding:0 1.5em;color:#2b2b2b\"><h1 style=\"font-size:1.4em\">Your wiki lives in the Ostler app</h1><p>Open <b>Ostler</b> and choose <b>Wiki</b> in the sidebar. Your pages are there, already signed in.</p><p style=\"color:#6b6b6b;font-size:.9em\">This address is an internal one that Ostler uses to fetch those pages. There is nothing here for you to log in to.</p></body>"; }
             include /etc/nginx/ostler-wiki-auth.conf;
+            error_page 401 = @wiki_lives_in_the_app;
             set $ostler_wiki_upstream "http://wiki-site:8000";
             proxy_pass $ostler_wiki_upstream$request_uri;
+        }
+        # A credential that is present but WRONG lands here rather than on a
+        # second password box. Same page, same 403, no challenge honoured.
+        location @wiki_lives_in_the_app {
+            internal;
+            default_type "text/html; charset=utf-8";
+            return 403 "<!doctype html><meta charset=utf-8><title>Your wiki is in the Ostler app</title><body style=\"font:16px -apple-system,system-ui,sans-serif;max-width:34em;margin:4em auto;padding:0 1.5em;color:#2b2b2b\"><h1 style=\"font-size:1.4em\">Your wiki lives in the Ostler app</h1><p>Open <b>Ostler</b> and choose <b>Wiki</b> in the sidebar. Your pages are there, already signed in.</p><p style=\"color:#6b6b6b;font-size:.9em\">This address is an internal one that Ostler uses to fetch those pages. There is nothing here for you to log in to.</p></body>";
         }
     }
 
@@ -18957,7 +19015,7 @@ WAEOF
 umask "$_wa_um"
 chmod 600 "${OSTLER_DIR}/ostler-wiki-htpasswd" "${OSTLER_DIR}/ostler-wiki-auth.conf"
 unset _wiki_htpasswd_hash
-ok "Wiki browser credential written (0600); :8044 now demands a password. Username 'ostler', password in ${SECRETS_DIR}/wiki_password."
+ok "Wiki credential written (0600); :8044 serves the wiki only to it. The Ostler app presents it for you, so the wiki opens in-app with nothing to type. Username 'ostler', password in ${SECRETS_DIR}/wiki_password (needed only for the Tailscale route)."
 
 # ── Vane browser credential (#1660) ───────────────────────────────
 #
@@ -31963,11 +32021,18 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
             WIKI_FIRST_COMPILE_OK=false
             HEALTHY=false
             warn "$MSG_WARN_WIKI_PORT_NOT_ANSWERING"
-            # WHICH failure it was. 000 is "nothing answered"; 401 is "it
+            # WHICH failure it was. 000 is "nothing answered"; 403 is "it
             # answered and refused us", which means the wiki is UP and the
             # credential is wrong -- a completely different repair. Reporting
             # them as one symptom is what sends the next person to the wrong
             # place.
+            #
+            # 403 AND NOT 401 SINCE CM051 #1980. :8044 no longer emits a
+            # challenge: a wrong credential is caught by `error_page 401 =
+            # @wiki_lives_in_the_app`, which answers 403. Measured on nginx
+            # 1.27-alpine with that server block lifted verbatim out of this
+            # file. A diagnostic still naming 401 would describe a status this
+            # port can no longer return.
             info "$(printf "$MSG_INFO_WIKI_PORT_LAST_STATUS" "${_wiki_last_code:-000}")"
         fi
         # Detached full summary compile (summaries ON -- no skip flag).
@@ -33993,27 +34058,67 @@ echo ""
 # browser has saved gives the customer a prompt they cannot answer). So there
 # is no state of this box in which we hold the credential and cannot hand it
 # over. It is handed over unconditionally, and only the READINESS line varies.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# WHERE THIS BANNER SENDS THEM, CORRECTED (CM051 #1980).
+#
+# The unconditional handover above is right and is kept exactly as it was.
+# What was wrong was the DESTINATION. This block used to lead with
+# `Your wiki: http://localhost:8044` and hand over a password for it. Andy,
+# on his own console walk: "The wiki via a browser is requesting
+# authentication details I don't have."
+#
+# :8044 NO LONGER CHALLENGES A BROWSER. See the `listen 8044` server block
+# earlier in this file: an empty Authorization header is answered in nginx's
+# REWRITE phase, which runs BEFORE the access phase, so `auth_basic` never
+# fires and no `WWW-Authenticate` is emitted. MEASURED on nginx 1.27-alpine,
+# the pinned image, with that server block lifted verbatim out of this file:
+#
+#     no credential       403, WWW-Authenticate ABSENT, signpost page served
+#     the credential      200, wiki served
+#     a wrong credential  403, never served
+#     a rebind Host       403, the #550 gate intact
+#
+#   CONTROL, same detector against the same block with the rewrite guard
+#   removed: 401 with `WWW-Authenticate: Basic realm="Ostler personal wiki"`.
+#   So "challenge absent" above is a measurement and not a blind detector.
+#
+# A browser at :8044 therefore meets a signpost, never the wiki and never a
+# password box. Leading with that address would send the customer to a page
+# whose entire content is "go and open the app instead". So the banner now
+# leads with the place the wiki actually opens, the Ostler app, whose Wiki
+# tab reaches wiki-site through the daemon's proxy; and it still names
+# :8044, honestly, as the internal address Ostler itself fetches from.
+#
+# THE SIGN-IN IS STILL HANDED OVER IN EVERY STATE and #943 is not weakened.
+# The credential is real and is still demanded of a browser on the TAILNET
+# route, where nginx talks straight to another of your devices with no daemon
+# in the path. What changed is only that it is no longer presented as
+# something the customer must type to reach their own wiki on this Mac.
 
-echo -e "  ${BOLD}Your wiki:${NC} http://localhost:8044"
+echo -e "  ${BOLD}Your wiki:${NC} $MSG_INFO_WIKI_IN_THE_APP"
 
-# #1594: the wiki sits behind a credential, so the password has to appear
-# HERE. The browser opens automatically a few lines below and will prompt
-# immediately; a customer who was never shown the password experiences that
-# as a broken install, not as security.
+# :8044 is still named, and named for what it is. It is where Ostler fetches
+# the pages from, not a page anyone signs in to. Saying so costs one line and
+# stops the address reading like a destination the customer should try.
+echo -e "  ${BOLD}         ${NC} $MSG_INFO_WIKI_INTERNAL_ADDRESS"
+
+# #1594 / #943: the credential is handed over HERE, unconditionally, whatever
+# the readiness lines below report. It is what Ostler presents on the
+# customer's behalf, and what they need in their own hands on the Tailscale
+# route. A credential they were never shown is the whole of #943.
 echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_SIGN_IN" "ostler" "${WIKI_PASSWORD}")"
 
-# #1660: MAKE THE PROMPT A PASTE, NOT A MEMORY TEST. Andy's call: the
-# credential is right, the friction is not. Basic auth prompts ONCE per
-# browser and both Safari and Chrome then offer Keychain, so the whole cost
-# of this decision is a single dialog -- provided the customer does not have
-# to retype a 23-character string into it.
+# #1660: MAKE IT A PASTE, NOT A MEMORY TEST. The surface that still asks a
+# browser for this is the tailnet route, and retyping a long random string
+# into a phone is exactly the friction Andy objected to.
 #
 # pbcopy is macOS-only and this installer is macOS-only, but it is still
 # guarded: a clipboard we could not write is a WORSE experience if we then
 # claim we did. No 2>/dev/null on the probe -- if pbcopy is missing we say
 # nothing about the clipboard rather than lying about it.
 if command -v pbcopy >/dev/null 2>&1 && printf '%s' "${WIKI_PASSWORD}" | pbcopy; then
-    echo -e "  ${BOLD}         ${NC} Copied to your clipboard, so you can paste it. Your browser will offer to remember it."
+    echo -e "  ${BOLD}         ${NC} Copied to your clipboard, so you can paste it where you need it."
 fi
 
 # THE ROUTE BACK. The clipboard is the only copy otherwise, and it survives
@@ -34360,16 +34465,20 @@ done
 killall Dock 2>/dev/null || true
 
 # ── First-run auto-open ────────────────────────────────────────────
-# Open the customer-facing wiki in the default browser. Best-effort --
-# don't fail the install if this fails. Under GUI mode the installer
-# Swift app will offer its own "Open Wiki" affordance on the success
-# screen, so we skip here to avoid a double-open race.
-if [[ "${OSTLER_GUI:-}" == "1" ]]; then
-    # GUI installer will offer its own "Open Wiki" affordance; skip here.
-    :
-else
-    open "http://localhost:8044" 2>/dev/null || true
-fi
+# 🔴 THIS USED TO `open "http://localhost:8044"` AND THAT IS THE LINE THAT
+# PUT THE PASSWORD BOX ON ANDY'S SCREEN UNASKED. On the terminal path the
+# install finished by launching a browser straight at the credentialled
+# wiki port, so the last act of the installer was to demand a password it
+# had only printed somewhere in the scrollback.
+#
+# The port no longer challenges (see the `listen 8044` block), so the
+# browser would now land on the "your wiki is in the Ostler app" signpost
+# instead -- better, but still a browser tab the customer did not ask for,
+# pointing at an internal address, telling them to go somewhere else.
+#
+# Ostler.app is opened a few lines below on every successful install and
+# the wiki is a tab inside it, so the wiki IS auto-opened; it is just
+# opened in the place it actually lives. Nothing replaces this block.
 
 # CX-41 (DMG #27, 2026-05-24): launch Ostler.app at the end of a
 # successful install so the customer knows the Hub UI exists.

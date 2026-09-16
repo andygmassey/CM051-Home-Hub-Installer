@@ -18,9 +18,12 @@ set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 GATE="${REPO}/scripts/verify_walk_record.sh"
 SCOPE="${REPO}/scripts/walk_promote_scope.tsv"
-PASS=0; FAIL=0
+PASS=0; FAIL=0; CANT=0
 ok()  { PASS=$((PASS+1)); printf '  [PASS] %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  [FAIL] %s\n' "$1"; }
+# CANNOT-RUN is neither PASS nor FAIL: three outcomes, three branches. An arm
+# whose FIXTURE could not be built has not passed and has not found a defect.
+cant() { CANT=$((CANT+1)); printf '  [CANNOT-RUN] %s\n' "$1"; }
 
 [ -f "$GATE" ]  || { echo "CANNOT-RUN: no gate at ${GATE}" >&2; exit 2; }
 [ -f "$SCOPE" ] || { echo "CANNOT-RUN: no scope file at ${SCOPE}" >&2; exit 2; }
@@ -114,25 +117,55 @@ esac
 
 echo "── ...and must NOT refuse when every non-pass is declared advisory ──"
 
-D="${WORK}/b"; _rec "$D" FAILED no_store_port_is_tcp_reachable usage_journal_producers
+# 🔴 THESE ARMS USED TO HARDCODE `no_store_port_is_tcp_reachable` AS THEIR
+# ADVISORY EXAMPLE, AND IT WENT BLOCKING. Two different failures came out of
+# that in the same run: the arm below went red for a reason that is not a
+# defect (the probe it names is now correctly blocking), and the anti-vacuity
+# arm under it went VACUOUS -- its mutant is `sed advisory -> blocking` on that
+# row, which on an already-blocking row is a no-op, so it compared the scope
+# file against itself and still saw a refusal. A passing arm that proves
+# nothing is the worse half of that pair.
+#
+# So the names are READ FROM THE SCOPE FILE instead of written here. A future
+# promotion moves the example, it does not rot the test.
+ADV_PROBES="$(awk -F'\t' '!/^#/ && NF==4 && $2=="advisory" {print $1}' "$SCOPE")"
+ADV_N="$(printf '%s\n' "$ADV_PROBES" | /usr/bin/grep -c .)"
+ADV1="$(printf '%s\n' "$ADV_PROBES" | sed -n '1p')"
+ADV2="$(printf '%s\n' "$ADV_PROBES" | sed -n '2p')"
+if [ "$ADV_N" -lt 2 ]; then
+    # Not a failure of the gate: there are simply not two advisory rows left to
+    # build the record from. Say so rather than inventing one.
+    cant "the scope file declares ${ADV_N} advisory probe(s); these arms need 2 to build an advisory-only record"
+else
+
+D="${WORK}/b"; _rec "$D" FAILED "$ADV1" "$ADV2"
 R="$(_run "$D")"
 case "$R" in
-    0\|*ADVISORY,\ NOT\ BLOCKING*) ok "advisory-only non-passes allow the promote AND print the advisory list" ;;
+    0\|*ADVISORY,\ NOT\ BLOCKING*) ok "advisory-only non-passes allow the promote AND print the advisory list (${ADV1}, ${ADV2})" ;;
     0\|*) bad "advisory-only passed but printed no advisory list -- an unread red is the failure mode this introduces" ;;
     *)    bad "advisory-only non-passes gave rc=${R%%|*}, expected 0" ;;
 esac
 
 echo "── ...and the SAME record must refuse the moment one row moves back ──"
 # This is the anti-vacuity arm: it proves the arm above passed BECAUSE of the scope
-# file, not because the gate stopped looking.
+# file, not because the gate stopped looking. The mutant must therefore be a
+# REAL change to the row it names, so it is built against ${ADV1} -- known
+# advisory, because it was just read out of the advisory column.
 MUT="${WORK}/scope_mut.tsv"
-sed 's/^no_store_port_is_tcp_reachable\tadvisory/no_store_port_is_tcp_reachable\tblocking/' "$SCOPE" > "$MUT"
-R="$(_run "${WORK}/b" "$MUT")"
-case "$R" in
-    1\|*no_store_port_is_tcp_reachable*) ok "ANTI-VACUITY: flipping one row to blocking refuses the identical record" ;;
-    0\|*) bad "flipping a row to blocking changed nothing -- the gate is not reading the scope file" ;;
-    *)    bad "the mutated scope gave rc=${R%%|*}" ;;
-esac
+awk -F'\t' -v p="$ADV1" 'BEGIN{OFS="\t"} !/^#/ && NF==4 && $1==p {$2="blocking"} {print}' "$SCOPE" > "$MUT"
+# The mutant must actually differ, or this arm is the no-op it used to be.
+if cmp -s "$SCOPE" "$MUT"; then
+    bad "ANTI-VACUITY arm built a mutant identical to the scope file, so it proves nothing about ${ADV1}"
+else
+    R="$(_run "${WORK}/b" "$MUT")"
+    case "$R" in
+        1\|*"$ADV1"*) ok "ANTI-VACUITY: flipping ${ADV1} to blocking refuses the identical record" ;;
+        0\|*) bad "flipping a row to blocking changed nothing -- the gate is not reading the scope file" ;;
+        *)    bad "the mutated scope gave rc=${R%%|*}" ;;
+    esac
+fi
+
+fi
 
 echo "── fail-closed arms ──"
 
@@ -241,6 +274,7 @@ _orphan="$(comm -13 <(ls "${REPO}/scripts/box_walk_probes/probes/" | sed 's/\.sh
                   || bad "scope row(s) naming no probe: $(printf '%s' "$_orphan" | tr '\n' ' ')"
 
 echo
-echo "== ${PASS} pass / ${FAIL} fail / $((PASS+FAIL)) total =="
+echo "== ${PASS} pass / ${FAIL} fail / ${CANT} cannot-run / $((PASS+FAIL+CANT)) total =="
 [ "$FAIL" -eq 0 ] || exit 1
+[ "$CANT" -eq 0 ] || exit 2
 exit 0
