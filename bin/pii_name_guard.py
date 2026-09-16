@@ -76,6 +76,48 @@ scrubbing only the copy writes the original into the patch. Baseline rows are
 sha256 prefixes of the lowercased pair. They can confirm "this exact pair was
 already here" and they cannot be read back into a name.
 
+NAMED THINGS THAT ARE NOT PEOPLE, and why renaming them is the wrong fix
+=======================================================================
+The BLOCK message tells you to rename to the synthetic cast, and for a fixture
+or a variable that is the right answer: the value is arbitrary, so changing it
+costs nothing. It is the WRONG answer when the value is the fact. A table of
+which jurisdictions require every party to consent before a conversation is
+transcribed cannot avoid naming the jurisdictions, and a synthetic one makes
+the table FALSE -- the jurisdiction is its primary key. Same for the statute a
+row cites, and same for the third-party product a customer-facing import page
+says it imports from.
+
+None of the three existing escapes fits, and each fails in its own direction:
+
+  cast      is the approved SYNTHETIC PERSON cast. Admitting the halves of a
+            two-word place name to it would clear a real person who happens to
+            share either half, anywhere in the tree. It widens the PERSON
+            predicate to fix a NON-person problem.
+  skip      excludes the file. Point 4 above is the record of what that does:
+            exclusion "is precisely why real data survived in" the paths that
+            had it, and a data file can gain a real name tomorrow.
+  baseline  grandfathers PRE-EXISTING debt at a ratchet. Putting brand-new
+            content through it defeats the only thing the baseline is.
+
+So: kind `nonperson`, consulted by the PAIR arm ONLY, and BOUND TO A PATH.
+
+    nonperson<TAB><path-glob>::<16-hex digest><TAB><CLASS>: why it is not a person
+
+The permit clears that one pair in the files the glob matches and NOWHERE else,
+so a jurisdiction permitted in the consent table is still a finding the moment
+it appears in a conversation fixture. CLASS comes from a closed set
+(NONPERSON_CLASSES below); a class this parser does not know is CANNOT-RUN, so
+widening the KINDS of claim that may be made is a reviewed code change rather
+than free text in a TSV.
+
+It is HASHED for the same reason the baseline is, and the reason is stronger
+here rather than weaker: the registry must never become a readable list of the
+pairs the guard found, whatever kind they were filed under. A reviewer checks a
+row by regenerating it -- `--print-permits '<glob>'` emits the rows for a path,
+with the line numbers, and the emitted CLASS is deliberately a placeholder the
+loader REFUSES, so nobody can pipe the generator into the registry without
+classifying each row by hand.
+
 Exit codes
   0  clean            -- control fired, N files examined, no findings
   1  findings         -- BLOCK
@@ -176,6 +218,32 @@ _ROLE_LOCAL_WORDS = {
 }
 
 
+# The CLASSES a `nonperson` row may claim. Closed on purpose: the value is a
+# digest, so the CLASS and the path glob are the only two things a reviewer can
+# weigh, and free text would make the class unweighable. Adding a fourth is a
+# code change to this line, reviewed like any other.
+#
+#   JURISDICTION  a named legal territory: country, state, province, canton.
+#   STATUTE       a named body of law, or the citation form of one.
+#   PRODUCT       a third-party product or service, named in customer copy
+#                 where naming it wrongly would make the copy false.
+#
+# Deliberately NOT here: a document title, a fixture filename, a variable, a
+# test double. Those are arbitrary, renaming them costs nothing, and the BLOCK
+# message's advice is correct for them. This kind exists only for values that
+# are the FACT, where a synthetic substitute would make the artefact lie.
+NONPERSON_CLASSES = ("JURISDICTION", "STATUTE", "PRODUCT")
+
+# A classifier the generator emits and the loader REFUSES, so `--print-permits`
+# output cannot be committed without a human replacing it.
+NONPERSON_PLACEHOLDER = "CLASSIFY-ME"
+
+# "If you cannot write why it is permitted, it is not permitted" is the rule for
+# every kind. A class token alone is not a why, so the explanation after it has
+# to be long enough to be a sentence rather than a shrug.
+NONPERSON_MIN_REASON = 24
+
+
 class Registry:
     """The permit-list, the tier map and the baseline, in one TSV.
 
@@ -184,7 +252,8 @@ class Registry:
     shrugs at a malformed registry is a guard that can be disabled with a typo.
     """
 
-    KINDS = {"cast", "phrase", "strict", "selfcheck", "baseline", "skip"}
+    KINDS = {"cast", "phrase", "strict", "selfcheck", "baseline", "skip",
+             "nonperson"}
 
     def __init__(self, path: Path):
         self.path = path
@@ -195,7 +264,25 @@ class Registry:
         self.baseline: set[str] = set()
         self.baseline_unreviewed = 0
         self.skips: list[tuple[str, str]] = []
+        # path glob -> {digest}. PAIR arm only, and only where the glob matches.
+        self.nonperson: dict[str, set[str]] = {}
+        self.nonperson_rows = 0
         self.rows = 0
+
+    def nonperson_permits(self, rel: str | None) -> set[str]:
+        """Digests permitted in THIS file. Empty for an unnamed file.
+
+        rel=None means "no path in hand" -- the controls, and any caller
+        scanning a string rather than a file. It returns the EMPTY set, not
+        every permit: a permit with no path to check against is not a permit.
+        """
+        if rel is None or not self.nonperson:
+            return set()
+        out: set[str] = set()
+        for pat, digests in self.nonperson.items():
+            if fnmatch.fnmatch(rel, pat):
+                out |= digests
+        return out
 
     def load(self) -> None:
         if not self.path.is_file():
@@ -260,6 +347,10 @@ class Registry:
                     self.baseline_unreviewed += 1
             elif kind == "skip":
                 self.skips.append((value, reason))
+            elif kind == "nonperson":
+                glob, digest = self._parse_nonperson(lineno, value, reason)
+                self.nonperson.setdefault(glob, set()).add(digest)
+                self.nonperson_rows += 1
 
         if not self.cast:
             raise CannotRun(
@@ -273,6 +364,56 @@ class Registry:
                 "the guard only defends a baseline, and the identity modules -- "
                 "the whole reason this exists -- would go unexamined."
             )
+
+    def _parse_nonperson(self, lineno: int, value: str, reason: str):
+        """`<path-glob>::<16-hex>` plus `<CLASS>: why`. Every half fails closed.
+
+        Split from the RIGHT: a path glob may contain a colon, a 16-hex digest
+        never can, so the last `::` is the only unambiguous seam.
+        """
+        if "::" not in value:
+            raise CannotRun(
+                f"{self.path}:{lineno}: a nonperson row must be "
+                "'<path-glob>::<16-hex digest>'. A permit with no path is a "
+                "repo-wide exemption, which is the thing this kind exists to "
+                "avoid."
+            )
+        glob, digest = value.rsplit("::", 1)
+        glob, digest = glob.strip(), digest.strip()
+        if not glob:
+            raise CannotRun(
+                f"{self.path}:{lineno}: empty path glob. A permit that is not "
+                "bound to a path is bound to the whole tree."
+            )
+        if not re.fullmatch(r"[0-9a-f]{16}", digest):
+            raise CannotRun(
+                f"{self.path}:{lineno}: nonperson rows carry a 16-hex sha256 "
+                "prefix, never the pair itself. A registry that lists the pairs "
+                "verbatim publishes the leak it exists to stop, and that is as "
+                "true of this kind as it is of the baseline."
+            )
+        cls, _, why = reason.partition(":")
+        cls, why = cls.strip(), why.strip()
+        if cls not in NONPERSON_CLASSES:
+            extra = (
+                " CLASSIFY-ME is what --print-permits emits: it is a "
+                "placeholder, and committing it unedited is the mistake this "
+                "refusal exists to catch."
+                if cls == NONPERSON_PLACEHOLDER else ""
+            )
+            raise CannotRun(
+                f"{self.path}:{lineno}: nonperson reason must begin "
+                f"'<CLASS>: ' with CLASS one of {list(NONPERSON_CLASSES)}, "
+                f"got {cls!r}.{extra}"
+            )
+        if len(why) < NONPERSON_MIN_REASON:
+            raise CannotRun(
+                f"{self.path}:{lineno}: the {cls} claim is {len(why)} "
+                f"character(s) of reason, under the {NONPERSON_MIN_REASON} "
+                "required. Name WHAT the value is and WHY it is not a person. "
+                "A class token on its own is a label, not a reason."
+            )
+        return glob, digest
 
 
 class CannotRun(Exception):
@@ -373,10 +514,21 @@ def iter_files(root: Path, skips: list[tuple[str, str]]):
     yield None, None, stats
 
 
-def pair_offenders(text: str, reg: Registry, baseline_ok: bool):
-    """Capitalised two-word phrases that are not on the permit-list."""
+def pair_offenders(text: str, reg: Registry, baseline_ok: bool,
+                   rel: str | None = None):
+    """Capitalised two-word phrases that are not on the permit-list.
+
+    Returns (findings, examined, cleared_by_nonperson). The third number is
+    printed: a path-bound permit is meant to clear a handful of values in one
+    file, so if it ever clears a crowd it has stopped being a permit and become
+    an exclusion, and that has to be visible in the denominator rather than
+    inferable from a red turning green.
+    """
     out = []
     examined = 0
+    cleared_nonperson = 0
+    # Resolved ONCE per file, not per line: it is an fnmatch over every glob.
+    permits = reg.nonperson_permits(rel)
     for lineno, line in enumerate(text.splitlines(), 1):
         found = [(m.group(0), m.group(1).lower(), m.group(2).lower())
                  for m in _PAIR.finditer(line)]
@@ -392,10 +544,16 @@ def pair_offenders(text: str, reg: Registry, baseline_ok: bool):
                 continue
             if a in reg.cast and b in reg.cast:
                 continue
+            # The path-bound permit. It clears THIS pair in THIS file and
+            # nothing else: the same value one directory over is still a
+            # finding, and every other pair in this file is still a finding.
+            if permits and _digest(pair) in permits:
+                cleared_nonperson += 1
+                continue
             if baseline_ok and _digest(pair) in reg.baseline:
                 continue
             out.append((lineno, "PAIR", pair))
-    return out, examined
+    return out, examined, cleared_nonperson
 
 
 def token_offenders(text: str, reg: Registry, lexicon: set):
@@ -480,7 +638,7 @@ def identifier_offenders(text: str):
 def run_control(reg: Registry) -> tuple[bool, str]:
     a, b = "Wil" + "helmina", "Fitz" + "gerald"
     probe = f'# {a} {b} merged with Bob Doe\n'
-    found, _ = pair_offenders(probe, reg, baseline_ok=False)
+    found, _n, _c = pair_offenders(probe, reg, baseline_ok=False)
     if not any(v == f"{a} {b}" for _, _, v in found):
         return False, "a synthetic unknown name was NOT flagged by the PAIR arm"
 
@@ -489,11 +647,11 @@ def run_control(reg: Registry) -> tuple[bool, str]:
     pa = "Nie" + "ks"
     pb = "Uij" + "link"
     pprobe = f"# {pa} van {pb} signed off\n"
-    pfound, _ = pair_offenders(pprobe, reg, baseline_ok=False)
+    pfound, _n, _c = pair_offenders(pprobe, reg, baseline_ok=False)
     if not any(v == f"{pa} van {pb}" for _, _, v in pfound):
         return False, "a name with a lowercase particle was NOT flagged"
-    pclean, _ = pair_offenders("# Jane van Doe is one person\n", reg,
-                               baseline_ok=False)
+    pclean, _n, _c = pair_offenders("# Jane van Doe is one person\n", reg,
+                                    baseline_ok=False)
     if pclean:
         return False, "an approved-cast name with a particle WAS flagged"
 
@@ -506,11 +664,116 @@ def run_control(reg: Registry) -> tuple[bool, str]:
         return False, "a non-reserved mailbox was NOT flagged by the SHAPE arm"
 
     # Negative half: a predicate that flags everything passes the above.
-    clean, _ = pair_offenders('# "Jane Doe" and "Bob Doe" are one person\n',
-                              reg, baseline_ok=False)
+    clean, _n, _c = pair_offenders('# "Jane Doe" and "Bob Doe" are one person\n',
+                                   reg, baseline_ok=False)
     if clean:
         return False, f"an approved cast name WAS flagged: {[v for _, _, v in clean]}"
-    return True, "PAIR + PARTICLE + TOKEN + SHAPE arms all fired; cast not flagged"
+
+    ok, why = _control_nonperson(reg, a, b)
+    if not ok:
+        return False, why
+    return True, ("PAIR + PARTICLE + TOKEN + SHAPE + NONPERSON arms all fired; "
+                  "cast not flagged")
+
+
+def _control_nonperson(reg: Registry, person_a: str, person_b: str):
+    """The fifth arm: a path-bound permit must not become a blanket exemption.
+
+    THE FAILURE MODE THIS EXISTS FOR is not "the permit does not work". It is
+    "the permit works so well that the file it names is now unwatched" -- which
+    is exactly what the `skip` kind does, and point 4 of the module docstring is
+    the record of what THAT cost. So the arm asserts three things, and the
+    middle one is the one that matters:
+
+      1. the permitted pair is cleared in the file the permit names;
+      2. a PERSON-SHAPED pair on the very same line of the very same file is
+         STILL FLAGGED;
+      3. the permitted pair is STILL FLAGGED one path over.
+
+    The permit is injected here rather than read from the registry, so the arm
+    proves the MECHANISM on every run whether or not the repo currently has any
+    nonperson rows. A control that only fires when the feature is in use is not
+    a control, it is a usage report.
+    """
+    # Composed from fragments, like the other controls: this file must never
+    # carry the literal thing it hunts, and a whole synthetic pair sitting in
+    # the guard's own source would enter the corpus the guard scans.
+    ja, jb = "Nort" + "hmarch", "Terri" + "tory"
+    permitted = f"{ja} {jb}"
+
+    # The LOADER half, fired here rather than left to a test file so it runs on
+    # every invocation like everything else in this function. A kind whose
+    # parser can be fooled is a kind that can be widened by a typo, and each
+    # shape below is a different way to write a permit nobody reviewed.
+    probe_reg = Registry(reg.path)
+    good = f"lib/x.csv::{_digest(permitted)}"
+    for bad_value, bad_reason, what in (
+        (f"{_digest(permitted)}", "JURISDICTION: a named legal territory row",
+         "a permit with no path glob"),
+        (f"lib/x.csv::{permitted}", "JURISDICTION: a named legal territory row",
+         "a permit carrying the pair verbatim"),
+        (f"::{_digest(permitted)}", "JURISDICTION: a named legal territory row",
+         "a permit with an empty path glob"),
+        (good, "SOMETHINGELSE: a named legal territory row and then some",
+         "a class outside the closed set"),
+        (good, f"{NONPERSON_PLACEHOLDER}: line(s) [1] of lib/x.csv -- say what",
+         "the generator's own placeholder class"),
+        (good, "JURISDICTION: a state", "a reason too short to be a reason"),
+        (good, "JURISDICTION", "a class token with no reason at all"),
+    ):
+        try:
+            probe_reg._parse_nonperson(1, bad_value, bad_reason)
+        except CannotRun:
+            continue
+        return False, (f"the nonperson loader ACCEPTED {what}; it must "
+                       "CANNOT-RUN on every malformed permit or the kind can "
+                       "be widened by a typo")
+    try:
+        probe_reg._parse_nonperson(1, good, "STATUTE: the named code a row of "
+                                            "this table cites")
+    except CannotRun as exc:
+        return False, (f"the nonperson loader REFUSED a well-formed permit "
+                       f"({exc}); a parser that rejects everything proves "
+                       "nothing about the ones it should reject")
+
+    ctl = Registry(reg.path)
+    ctl.cast = reg.cast
+    ctl.phrases = reg.phrases
+    ctl.strict = reg.strict
+    ctl.selfcheck = reg.selfcheck
+    ctl.baseline = reg.baseline
+    ctl.nonperson = {k: set(v) for k, v in reg.nonperson.items()}
+    here = "lib/__pii_name_guard_control__.csv"
+    ctl.nonperson.setdefault(here, set()).add(_digest(permitted))
+
+    # One line carrying BOTH: if the permit leaked to the line, the person goes
+    # with it, and a two-line probe could hide that behind file-level luck.
+    line = f"XX,{permitted},yes,{person_a} {person_b},2026-09\n"
+
+    hits, _n, cleared = pair_offenders(line, ctl, baseline_ok=False, rel=here)
+    values = [v for _, _, v in hits]
+    if permitted in values:
+        return False, ("the path-bound NONPERSON permit did not clear its own "
+                       "pair in the file it names")
+    if cleared != 1:
+        return False, (f"the NONPERSON permit cleared {cleared} pair(s) where "
+                       "exactly 1 was permitted; the cleared-count is what "
+                       "makes a mass exemption visible, so it must be exact")
+    if f"{person_a} {person_b}" not in values:
+        return False, ("A PERSON-SHAPED PAIR WAS NOT FLAGGED in a file carrying "
+                       "a NONPERSON permit. The permit is behaving as an "
+                       "exclusion, which is the failure this arm exists for")
+
+    elsewhere, _n, cleared2 = pair_offenders(line, ctl, baseline_ok=False,
+                                             rel="tests/fixtures/elsewhere.md")
+    if permitted not in [v for _, _, v in elsewhere]:
+        return False, ("the NONPERSON permit cleared its pair OUTSIDE the path "
+                       "it is bound to; a path-bound permit that is not "
+                       "path-bound is a repo-wide exemption")
+    if cleared2 != 0:
+        return False, ("the NONPERSON permit cleared a pair in an unnamed path "
+                       f"({cleared2}); the binding is not being applied")
+    return True, ""
 
 
 def main() -> int:
@@ -519,6 +782,10 @@ def main() -> int:
     ap.add_argument("--registry", default=None)
     ap.add_argument("--print-baseline", action="store_true",
                     help="emit registry rows for every current finding (bootstrap only)")
+    ap.add_argument("--print-permits", metavar="GLOB", default=None,
+                    help="emit nonperson rows for the findings under GLOB, with "
+                         "line numbers and a CLASSIFY-ME placeholder the loader "
+                         "refuses. Never prints the value.")
     args = ap.parse_args()
 
     root = Path(args.root).resolve()
@@ -552,6 +819,8 @@ def main() -> int:
     # which of the three actually examined anything.
     seen = {"PAIR": 0, "TOKEN": 0, "MAILBOX": 0, "PHONE": 0}
     hit = {"PAIR": 0, "TOKEN": 0, "MAILBOX": 0, "PHONE": 0}
+    nonperson_cleared = 0
+    nonperson_files: set[str] = set()
     findings: dict[str, list] = defaultdict(list)
     stats = {}
     corpus: list[tuple[str, str]] = []
@@ -572,10 +841,13 @@ def main() -> int:
     for rel, payload in corpus:
         is_strict = any(fnmatch.fnmatch(rel, pat) for pat in reg.strict)
         is_self = any(fnmatch.fnmatch(rel, pat) for pat in reg.selfcheck)
-        bad, n = pair_offenders(payload, reg,
-                                baseline_ok=not (is_strict or is_self))
+        bad, n, cleared = pair_offenders(
+            payload, reg, baseline_ok=not (is_strict or is_self), rel=rel)
         candidates += n
         seen["PAIR"] += n
+        if cleared:
+            nonperson_cleared += cleared
+            nonperson_files.add(rel)
         if is_self:
             self_files += 1
         # `and not is_self` is LOAD-BEARING and it is a FIX, not a widening.
@@ -617,6 +889,12 @@ def main() -> int:
     print(f"    baseline pairs             {len(reg.baseline)}  "
           f"(UNREVIEWED: {reg.baseline_unreviewed})")
     print(f"    registry skips             {len(reg.skips)}")
+    # Printed whether or not any exist. A number that only appears when it is
+    # non-zero cannot be compared against the run before it.
+    print(f"    nonperson permits          {reg.nonperson_rows}  "
+          f"across {len(reg.nonperson)} path pattern(s)")
+    print(f"      pairs they cleared       {nonperson_cleared}  "
+          f"in {len(nonperson_files)} file(s)")
     print(f"  files examined               {files}")
     print(f"    of which STRICT tier       {strict_files}")
     print(f"    of which SELFCHECK (pair)  {self_files}")
@@ -682,6 +960,32 @@ def main() -> int:
                       f"2026-08-15 name sweep; first seen in {rel}")
         return 0
 
+    if args.print_permits:
+        # The rows a reviewer regenerates to check a committed permit. It emits
+        # the DIGEST and the LINE, never the value: the line is what sends an
+        # auditor to the source to decide for themselves whether the claim on
+        # the row is true, and the value in a terminal or a CI log is the leak.
+        emitted = 0
+        for rel, hits in sorted(findings.items()):
+            if not fnmatch.fnmatch(rel, args.print_permits):
+                continue
+            byval: dict[str, list[int]] = {}
+            for ln, kind, val in hits:
+                if kind == "PAIR":
+                    byval.setdefault(val, []).append(ln)
+            for val, lines in sorted(byval.items(), key=lambda kv: kv[1][0]):
+                emitted += 1
+                print(f"nonperson\t{rel}::{_digest(val)}\t"
+                      f"{NONPERSON_PLACEHOLDER}: line(s) {lines[:8]} of {rel} -- "
+                      "say what this is and why it cannot be a person, then "
+                      "replace the class with one of "
+                      f"{list(NONPERSON_CLASSES)}")
+        print(f"# {emitted} row(s) for {args.print_permits!r}. The class is a "
+              "placeholder the loader REFUSES.", file=sys.stderr)
+        # A generator that emitted nothing looks exactly like a clean tree. It
+        # is not a pass, so it does not return one.
+        return 0 if emitted else 2
+
     if findings:
         total = sum(len(v) for v in findings.values())
         print(f"pii-name-guard: BLOCK -- {total} finding(s) in "
@@ -708,6 +1012,17 @@ def main() -> int:
         print("  example.com / *.example for addresses, Ofcom drama ranges",
               file=sys.stderr)
         print("  (07700 900xxx, 020 7946 0xxx) for numbers.", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("  RENAMING IS THE WRONG FIX where the value IS the fact: a", file=sys.stderr)
+        print("  jurisdiction in a table of law, the statute a row cites, a", file=sys.stderr)
+        print("  third-party product named in customer copy. A synthetic", file=sys.stderr)
+        print("  substitute there does not scrub the artefact, it falsifies it.", file=sys.stderr)
+        print("  For those, and ONLY those, a path-bound nonperson permit:", file=sys.stderr)
+        print(f"      python3 {Path(__file__).name} --root . "
+              "--print-permits '<path glob>'", file=sys.stderr)
+        print(f"  then classify each row {list(NONPERSON_CLASSES)} with a", file=sys.stderr)
+        print("  written reason. It clears that pair in that path and nowhere", file=sys.stderr)
+        print("  else. It is NOT for a fixture, a filename or a test double.", file=sys.stderr)
         return 1
 
     print(f"pii-name-guard: CLEAN -- {candidates} candidate(s) across {files} "
