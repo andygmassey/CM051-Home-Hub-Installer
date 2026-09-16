@@ -79,12 +79,45 @@ jobs:
       #
       # Pinned, because an unpinned install is a third party choosing when this
       # gate changes behaviour.
+      # 🔴 A VENV, NOT A BARE `pip install`, AND THE RUNNER IS THE REASON.
+      # This step was `python3 -m pip install --quiet 'httpx==0.28.1'` and it
+      # FAILED on macos-latest, measured on run 104697906030:
+      #
+      #     error: externally-managed-environment
+      #
+      # macos-latest's python3 is PEP 668 externally managed, so pip refuses
+      # to write into it at all. The step went red, httpx never landed, and
+      # the Doctor arm below reported CANNOT-RUN -- which is the correct
+      # verdict for an arm that could not load its subject, and is also an arm
+      # measuring nothing. `--break-system-packages` would get past the error
+      # by writing into the runner's own interpreter, which every later step
+      # in this job then inherits; a venv cannot reach them.
+      #
+      # ONE dependency is enough, and that was measured rather than assumed:
+      # in a clean venv, `import diagnostic_rules` fails only on httpx (pulled
+      # transitively by status_collector), and succeeds with httpx alone.
+      #
+      # Pinned, because an unpinned install is a third party choosing when
+      # this gate changes behaviour.
       - name: Install the Doctor rule's transitive dependency
-        run: python3 -m pip install --quiet 'httpx==0.28.1'
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/doctor-venv
+          /tmp/doctor-venv/bin/python -m pip install --quiet 'httpx==0.28.1'
+          # PROVE it landed. A quiet install that exits 0 having done nothing
+          # would leave the arm below CANNOT-RUN with no signal about why,
+          # and this step exists precisely to make that arm gradeable.
+          /tmp/doctor-venv/bin/python -c "import httpx; print('httpx', httpx.__version__)"
 
+      # PATH is scoped to THIS step, deliberately. Putting the venv on
+      # GITHUB_PATH would hand it to every later step in the job, including
+      # the unittest discovery below, which currently runs under the runner's
+      # own python and must go on doing so: changing the interpreter under a
+      # suite nobody asked to move is how a green gate starts measuring a
+      # different thing.
       - name: A beta tester is warned before their window closes, and loses no data when it does
         if: always()
-        run: /bin/bash tests/test_beta_licence_expiry_warns_before_and_is_read_only.sh
+        run: PATH="/tmp/doctor-venv/bin:$PATH" /bin/bash tests/test_beta_licence_expiry_warns_before_and_is_read_only.sh
 
       - name: The gate unit suite also runs under the Linux python matrix
         run: |
