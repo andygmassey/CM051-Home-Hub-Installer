@@ -184,6 +184,55 @@ jobs:
           fi
           echo "OK: gate 1 exits 2 and says so."
 
+      # --- MUTATION 3b: THE OTHER WAY A SCAN CAN NOT HAPPEN -----------------
+      # A missing baseline is the obvious CANNOT-RUN. The dangerous one is a
+      # scan that ran, produced nothing, and looked clean. grep exits 2 with a
+      # usage message and NO output on an unrecognised flag, so a gate that
+      # swallowed stderr would print a bare zero and a green tick. This points
+      # the gate's grep at a wrapper that always errors, and requires both the
+      # exit 2 AND the reason.
+      - name: Gate 1 reports CANNOT-RUN (exit 2) when its own grep cannot run
+        if: always()
+        run: |
+          set -uo pipefail
+          printf '#!/bin/sh\nexec /usr/bin/grep --no-such-flag "$@"\n' > /tmp/fakegrep
+          chmod +x /tmp/fakegrep
+          # PROVE THE WRAPPER REALLY FAILS before scoring anything with it. A
+          # wrapper that quietly worked would make this whole step a green that
+          # measured the unmutated gate.
+          frc=0
+          /tmp/fakegrep -rlI --exclude-dir=.git -- x . >/dev/null 2>/dev/null || frc=$?
+          if [ "$frc" -ne 2 ]; then
+            echo "MUTATION DID NOT APPLY – the wrapper exited ${frc}, not 2." >&2
+            exit 1
+          fi
+          cp tests/test_privacy_scale_crossings_are_ratcheted.sh tests/.g1mutant.sh
+          sed -i 's|^GREP=/usr/bin/grep|GREP=/tmp/fakegrep|' tests/.g1mutant.sh
+          if [ "$(grep -c 'GREP=/tmp/fakegrep' tests/.g1mutant.sh)" -ne 1 ]; then
+            echo "MUTATION DID NOT APPLY – the gate still names its own grep." >&2
+            rm -f tests/.g1mutant.sh
+            exit 1
+          fi
+          rc=0
+          out="$(bash tests/.g1mutant.sh 2>&1)" || rc=$?
+          rm -f tests/.g1mutant.sh /tmp/fakegrep
+          echo "$out"
+          if [ "$rc" -ne 2 ]; then
+            echo "EXPECTED exit 2 from a gate whose scanner cannot run, got ${rc}." >&2
+            echo "A scan that produced nothing because it never happened must not read as clean." >&2
+            exit 1
+          fi
+          if [ "$(printf '%s\n' "$out" | grep -c 'matched ZERO files')" -eq 0 ]; then
+            echo "Exit 2 was returned without naming the uniform zero that caused it." >&2
+            exit 1
+          fi
+          if [ "$(printf '%s\n' "$out" | grep -c 'unrecognized option')" -eq 0 ]; then
+            echo "grep's own error text did not reach the log, so someone has put 2>/dev/null back on a probe." >&2
+            echo "The zero would then be reported with no reason attached, which is the defect." >&2
+            exit 1
+          fi
+          echo "OK: gate 1 exits 2, names the uniform zero, and shows grep's reason."
+
       # --- MUTATION 4: a NEW file takes on an intent comment ----------------
       - name: Gate 2 goes RED when a new file labels a privacy number by intent
         if: always()
