@@ -35,7 +35,7 @@ on:
       - 'vendor/cm019_preferences/services/ingest/src/loaders/qdrant_loader.py'
       - 'vendor/cm019_preferences/services/ingest/src/parsers/apple.py'
       - 'vendor/cm041/contact_syncer/privacy_model.py'
-      - 'tests/test_no_parser_labels_private_data_publishable.py'
+      - 'tests/test_no_parser_labels_sensitive_data_publishable.py'
       - 'vendor/doctor/agent/import_notion.py'
       - 'vendor/doctor/agent/import_obsidian.py'
       - 'vendor/doctor/agent/import_evernote.py'
@@ -139,4 +139,4 @@ jobs:
       # opposite. `if: always()` so an earlier red cannot delete this.
       - name: No parser labels private data publishable
         if: always()
-        run: python3 tests/test_no_parser_labels_private_data_publishable.py
+        run: python3 tests/test_no_parser_labels_sensitive_data_publishable.py
