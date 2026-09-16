@@ -94,12 +94,24 @@ case "${1:-}" in
     --self-test) self_test ;;
     --bisect)
         floor="${2:?--bisect needs a step floor}"; log="${3:?--bisect needs a log}"
-        read -r d t id src < <(depth_of "$log")
+        # See the note on the default branch below: a command substitution makes
+        # bash WAIT, so no SIGCHLD from this child can land during a later write.
+        read -r d t id src <<<"$(depth_of "$log")"
         printf 'depth %s/%s (%s, via %s) floor %s\n' "$d" "$t" "$id" "$src" "$floor"
         [[ "$d" -ge "$floor" ]] ;;
     ""|-h|--help) printf 'usage: %s [--self-test|--bisect <floor>] <install-log>\n' "$0"; exit 0 ;;
     *)
-        read -r d t id src < <(depth_of "$1")
+        # ── WHY $( ) AND NOT < <( ) ────────────────────────────────────────
+        # `read < <(cmd)` returns as soon as it has its line and leaves the
+        # child UNREAPED, so that child's SIGCHLD lands later, during one of
+        # the writes below. A command substitution makes bash WAIT for the
+        # child, so the signal is delivered and handled BEFORE any write
+        # starts. Measured: with the process substitution the child is still
+        # running when the writes begin; with the command substitution it has
+        # already exited. That removes the cause rather than shrinking the
+        # window, which matters because "rarer" is exactly the property that
+        # let this family sit green for weeks and then take a cut.
+        read -r d t id src <<<"$(depth_of "$1")"
         pct=0; [[ "$t" -gt 0 ]] && pct=$(( d * 100 / t ))
         # ── ONE WRITE, NOT FIVE ────────────────────────────────────────────
         # This was five separate printf calls and the THIRD one died on a
