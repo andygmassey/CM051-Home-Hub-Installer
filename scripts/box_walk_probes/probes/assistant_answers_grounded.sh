@@ -265,6 +265,7 @@ else:
       elif n < 65536:  h = struct.pack("!BBH", 0x81, 0x80 | 126, n)
       else:            h = struct.pack("!BBQ", 0x81, 0x80 | 127, n)
       s.sendall(h + m + mk)
+      _t_sent = time.time()   # TTFT clock starts at the LAST byte of the request
   def rd(n):
       global rest
       o = b""
@@ -287,6 +288,18 @@ send(json.dumps({"type": "message", "content": question}))
 # operator's personal data and this transcript lands in support bundles. The
 # prose is ACCUMULATED here only so the seeded turn can answer one yes/no
 # question about it on the box; it is never written out.
+# ── TIMING, PER TNM 2026-09-17. Emitted as frames, never averaged here.
+# TTFT is measured from the last byte of the request to the FIRST token that
+# carries content -- not to the first frame of any kind, because tool_call and
+# status frames arrive earlier and would flatter the number.
+# tok/s is over the WHOLE response: tokens counted / (end - first token).
+# COLD vs WARM is NOT decided here: this process cannot see whether the model
+# was resident before it connected. The probe reads `ollama ps` on the box
+# BEFORE each opening and labels the row. Blending the two is what makes a
+# TTFT figure useless, and they differ by an order of magnitude.
+_t_first = None
+_t_last = None
+_tok = 0
 text = ""
 while time.time() < deadline:
     try: op, pay = frame()
@@ -369,7 +382,20 @@ while time.time() < deadline:
             print("FRAME tool_fact %s" % ("YES" if carries(out, expect_fact) else "NO"))
             print("FRAME tool_fact_phrase %s" % ("YES" if carries_phrase(out, expect_fact) else "NO"))
     elif t == "chunk":
-        text += ev.get("content") or ""
+        _c = ev.get("content") or ""
+        if _c:
+            # FIRST CONTENT token, not first frame. Set once.
+            if _t_first is None: _t_first = time.time()
+            _t_last = time.time()
+            # Token count approximated by whitespace-delimited words. The
+            # gateway does not report token counts on this stream, so this is
+            # a WORD rate wearing a token name if reported as tokens. It is
+            # emitted as tok_per_s because that is the figure asked for, and
+            # the approximation is stated here rather than hidden: for English
+            # prose it runs ~0.75 of the true token count, consistently, so it
+            # is comparable BETWEEN runs even though it is not exact.
+            _tok += len(_c.split())
+        text += _c
     elif t in ("done", "session_start", "error", "chunk_reset"):
         # THE CLIENT DISCARDS THE DRAFT ON chunk_reset AND SHOWS full_response.
         # The gateway sends chunk_reset then done{full_response} on every turn
@@ -389,6 +415,18 @@ while time.time() < deadline:
             else:
                 graded = text
                 print("FRAME reply_source chunks")
+            if _t_first is not None:
+                print("FRAME ttft_s %.3f" % (_t_first - _t_sent))
+                _span = (_t_last - _t_first) if (_t_last and _t_last > _t_first) else 0.0
+                # A zero span with tokens is a single-frame reply, not an
+                # infinite rate. Report NOT-MEASURED rather than divide.
+                if _span > 0:
+                    print("FRAME tok_per_s %.2f" % (_tok / _span))
+                else:
+                    print("FRAME tok_per_s NOT-MEASURED single-frame-reply")
+                print("FRAME tokens %d" % _tok)
+            else:
+                print("FRAME ttft_s NOT-MEASURED no-content-token-arrived")
             print("FRAME reply_fact %s" % ("YES" if carries(graded, expect_fact) else "NO"))
             print("FRAME reply_fact_phrase %s" % ("YES" if carries_phrase(graded, expect_fact) else "NO"))
         print("FRAME %s" % t)

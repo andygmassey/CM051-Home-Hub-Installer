@@ -194,6 +194,7 @@ else:
       elif n < 65536:  h = struct.pack("!BBH", 0x81, 0x80 | 126, n)
       else:            h = struct.pack("!BBQ", 0x81, 0x80 | 127, n)
       s.sendall(h + m + mk)
+      _t_sent = time.time()   # TTFT clock starts at the LAST byte of the request
   def rd(n):
       global rest
       o = b""
@@ -216,6 +217,18 @@ send(json.dumps({"type": "message", "content": question}))
 # operator's personal data and this transcript lands in support bundles. The
 # prose is ACCUMULATED here only so the seeded turn can answer one yes/no
 # question about it on the box; it is never written out.
+# ── TIMING, PER TNM 2026-09-17. Emitted as frames, never averaged here.
+# TTFT is measured from the last byte of the request to the FIRST token that
+# carries content -- not to the first frame of any kind, because tool_call and
+# status frames arrive earlier and would flatter the number.
+# tok/s is over the WHOLE response: tokens counted / (end - first token).
+# COLD vs WARM is NOT decided here: this process cannot see whether the model
+# was resident before it connected. The probe reads `ollama ps` on the box
+# BEFORE each opening and labels the row. Blending the two is what makes a
+# TTFT figure useless, and they differ by an order of magnitude.
+_t_first = None
+_t_last = None
+_tok = 0
 text = ""
 while time.time() < deadline:
     try: op, pay = frame()
@@ -298,7 +311,20 @@ while time.time() < deadline:
             print("FRAME tool_fact %s" % ("YES" if carries(out, expect_fact) else "NO"))
             print("FRAME tool_fact_phrase %s" % ("YES" if carries_phrase(out, expect_fact) else "NO"))
     elif t == "chunk":
-        text += ev.get("content") or ""
+        _c = ev.get("content") or ""
+        if _c:
+            # FIRST CONTENT token, not first frame. Set once.
+            if _t_first is None: _t_first = time.time()
+            _t_last = time.time()
+            # Token count approximated by whitespace-delimited words. The
+            # gateway does not report token counts on this stream, so this is
+            # a WORD rate wearing a token name if reported as tokens. It is
+            # emitted as tok_per_s because that is the figure asked for, and
+            # the approximation is stated here rather than hidden: for English
+            # prose it runs ~0.75 of the true token count, consistently, so it
+            # is comparable BETWEEN runs even though it is not exact.
+            _tok += len(_c.split())
+        text += _c
     elif t in ("done", "session_start", "error", "chunk_reset"):
         # THE CLIENT DISCARDS THE DRAFT ON chunk_reset AND SHOWS full_response.
         # The gateway sends chunk_reset then done{full_response} on every turn
@@ -318,6 +344,18 @@ while time.time() < deadline:
             else:
                 graded = text
                 print("FRAME reply_source chunks")
+            if _t_first is not None:
+                print("FRAME ttft_s %.3f" % (_t_first - _t_sent))
+                _span = (_t_last - _t_first) if (_t_last and _t_last > _t_first) else 0.0
+                # A zero span with tokens is a single-frame reply, not an
+                # infinite rate. Report NOT-MEASURED rather than divide.
+                if _span > 0:
+                    print("FRAME tok_per_s %.2f" % (_tok / _span))
+                else:
+                    print("FRAME tok_per_s NOT-MEASURED single-frame-reply")
+                print("FRAME tokens %d" % _tok)
+            else:
+                print("FRAME ttft_s NOT-MEASURED no-content-token-arrived")
             print("FRAME reply_fact %s" % ("YES" if carries(graded, expect_fact) else "NO"))
             print("FRAME reply_fact_phrase %s" % ("YES" if carries_phrase(graded, expect_fact) else "NO"))
         print("FRAME %s" % t)
@@ -388,6 +426,7 @@ probe_main() {
 
     # ── THE BATTERY: N fresh sessions, the seeded question FIRST in each ─────
     _grounded=0; _no_tool=0; _tool_no_fact=0; _reply_no_fact=0; _incomplete=0; _done=0
+    _cold_n=0; _warm_n=0; _unk_n=0; _cold_ttft=""; _warm_ttft=""
     _client="$(_ws_client_py | base64 | tr -d '\n')"
     _i=0
     while [ "$_i" -lt "$OPENINGS" ]; do
@@ -395,6 +434,22 @@ probe_main() {
         # A FRESH SESSION EVERY TIME. Reusing one session would put the second
         # question second, which is the position that already grounds 40/40.
         _sess="openingturn-$$-${_i}-$(date +%s)"
+        # COLD or WARM, READ BEFORE THE REQUEST. `ollama ps` lists models
+        # currently resident. If the model under test is absent, this opening
+        # pays a cold load; if present, it does not. TTFT differs between the
+        # two by an order of magnitude, so a blended figure is not a number
+        # anyone can use, and this label is what keeps them separable.
+        # THREE STATES, not two: if `ollama ps` cannot be read at all, the row
+        # is UNKNOWN and is excluded from BOTH aggregates rather than being
+        # guessed into one of them.
+        _ps="$(box_run 'ollama ps 2>/dev/null' || true)"
+        if [ -z "$_ps" ]; then
+            _thermal="UNKNOWN"
+        elif [ "$(printf '%s\n' "$_ps" | grep -c -- "${MODEL_TAG%%:*}")" -gt 0 ]; then
+            _thermal="WARM"
+        else
+            _thermal="COLD"
+        fi
         _out="$(box_run "printf '%s' '${_client}' | base64 -d | OSTLER_SESSION='${_sess}' OSTLER_Q='${SEEDED_QUESTION}' OSTLER_EXPECT='${EXPECT_FACT}' python3 - 2>/dev/null")"
         if [ -z "$_out" ]; then
             _incomplete=$((_incomplete + 1))
@@ -405,6 +460,15 @@ probe_main() {
         _tool="$(printf '%s\n' "$_out" | grep -E '^FRAME tool_call ' | grep -cE 'pwg_')"
         _toolname="$(printf '%s\n' "$_out" | sed -n 's/^FRAME tool_call \(pwg_[a-z_]*\).*/\1/p' | head -1)"
         _toolfact="$(printf '%s\n' "$_out" | grep -c '^FRAME tool_fact YES')"
+        _ttft="$(printf '%s\n' "$_out" | sed -n 's/^FRAME ttft_s //p' | head -1)"
+        _tps="$(printf '%s\n' "$_out" | sed -n 's/^FRAME tok_per_s //p' | head -1)"
+        _ntok="$(printf '%s\n' "$_out" | sed -n 's/^FRAME tokens //p' | head -1)"
+        probe_note "opening ${_i}: thermal=${_thermal} ttft_s=${_ttft:-NOT-MEASURED} tok_per_s=${_tps:-NOT-MEASURED} tokens=${_ntok:-0} model=${MODEL_TAG} ram_gb=${RAM_GB:-unread}"
+        case "$_thermal" in
+            COLD) _cold_n=$((_cold_n+1)); [ -n "$_ttft" ] && _cold_ttft="$_cold_ttft $_ttft" ;;
+            WARM) _warm_n=$((_warm_n+1)); [ -n "$_ttft" ] && _warm_ttft="$_warm_ttft $_ttft" ;;
+            *)    _unk_n=$((_unk_n+1)) ;;
+        esac
         _replyfact="$(printf '%s\n' "$_out" | grep -c '^FRAME reply_fact YES')"
         if [ "$_tool" -eq 0 ]; then
             _no_tool=$((_no_tool + 1))
@@ -421,6 +485,11 @@ probe_main() {
         fi
     done
 
+    # COLD AND WARM ARE REPORTED SEPARATELY AND NEVER BLENDED. A mean over both
+    # populations is not a number anyone can act on: they differ by an order of
+    # magnitude, so the blend just tells you the mix, not the machine.
+    _mean() { [ -z "$1" ] && { printf 'NOT-MEASURED'; return; }; printf '%s' "$1" | tr ' ' '\n' | grep -v '^$' | awk '{s+=$1;n++} END{ if(n>0) printf "%.3f (n=%d)", s/n, n; else printf "NOT-MEASURED" }'; }
+    probe_note "TTFT COLD: $(_mean "$_cold_ttft")   TTFT WARM: $(_mean "$_warm_ttft")   unknown-thermal openings: ${_unk_n} (excluded from BOTH)"
     probe_examined "$_done"
     probe_note "model_tag=${MODEL_TAG} ram_gb=${RAM_GB:-unread} openings_completed=${_done} grounded=${_grounded} no_tool_call=${_no_tool} tool_found_nothing=${_tool_no_fact} fact_missing_in_reply=${_reply_no_fact} transport_excluded=${_incomplete}"
 
