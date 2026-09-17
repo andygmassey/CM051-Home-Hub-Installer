@@ -634,6 +634,129 @@ RECORDING_VALID_STATES = frozenset({
 })
 RECORDING_VALID_CONSENT = frozenset({"one_party", "all_party"})
 
+# ── Recording-consent jurisdiction: the head and the hands (HR015 #942) ──
+#
+# MEASURED ON CM051 origin/main e0fb21bf, 2026-09-16, from a NON-iCloud
+# checkout, because #942 records the previous scan as CANNOT-RUN after it
+# timed out on an iCloud path:
+#
+#   jurisdiction    6 sites in this file, 2 in API.md, 0 elsewhere in CM051
+#   consent_basis   5 sites in this file, 2 in API.md, 0 elsewhere in CM051
+#   producers       0.  Every site validated the value and echoed it back.
+#   branches        0.  Nothing anywhere behaved differently because of it.
+#
+#   CONTROL, same file and same predicate: RECORDING_ returns 19 sites and
+#   RECORDING_VALID_STATES is read by a real branch four lines below, so the
+#   search can find both a constant and a branch. The zeros above are real.
+#
+# A consent field that round-trips is not a consent mechanism. It looks like
+# compliance from every angle except the one that matters.
+#
+# WHERE THE VALUE COMES FROM, AND WHY NOT FROM LOCATION. #942 decided this:
+# derive the jurisdiction from the DEVICE REGION, never from GPS. Adding
+# always-on location to a privacy product in order to police recording
+# consent would be a self-inflicted wound. The Hub already resolved a region
+# at install time and persisted it to ~/.ostler/posture/region.json
+# (ostler_security.region.save_region), from the operator's own contacts,
+# phone number or locale. No permission was asked for and none is needed.
+# That file is the real input this endpoint now reads.
+#
+# WHAT IS DELIBERATELY NOT DONE HERE. CM042 is the single decider for whether
+# a capture starts; #942's own cut-manifest row says so, and says not to build
+# a second jurisdiction mechanism. This endpoint does not start or stop a
+# capture. It does two things CM042 cannot do from inside a Swift app that
+# never read region.json: supply the jurisdiction when the producer left it
+# null, and refuse to repeat a one-party consent claim in a country whose law
+# does not recognise one.
+#
+# THE TABLE IS SHORT AND COUNTRY-LEVEL ON PURPOSE. #942 asks for short and
+# maintainable rather than exhaustive. Two honest limits, stated rather than
+# papered over:
+#
+#   - It is COUNTRY level. region.json carries an ISO-3166 country, so this
+#     cannot tell California from Texas. US therefore is NOT in the table:
+#     marking the whole US all-party would withhold a truthful basis from the
+#     majority of US operators, and marking it one-party would assert
+#     something false in California, Illinois, Florida, Pennsylvania and
+#     Washington. Sub-national resolution belongs to CM042, which has the
+#     device locale with a region subtag.
+#   - It is not legal advice and this file must not be read as any. It is a
+#     conservative list of countries whose all-party rule is the reason the
+#     spoken-capture consent wording names them; the wording itself lives in
+#     legal/consent_strings.py and is reviewed there, not here.
+RECORDING_ALL_PARTY_ISO = frozenset({
+    "AT",  # Austria
+    "BE",  # Belgium
+    "CH",  # Switzerland
+    "DE",  # Germany, StGB 201
+    "DK",  # Denmark
+    "ES",  # Spain
+    "FI",  # Finland
+    "FR",  # France, penal code article 226-1
+    "GR",  # Greece
+    "IT",  # Italy
+    "NL",  # Netherlands
+    "PL",  # Poland
+    "PT",  # Portugal
+    "SE",  # Sweden
+})
+
+# The persisted device region. Read as JSON rather than by importing
+# ostler_security, because this file runs as a SCRIPT under the Hub venv and
+# an import that is merely usually available is not a dependency this
+# endpoint may acquire. A missing, unreadable or malformed file yields None,
+# which is "we do not know" and never "one party is fine".
+# THE READER HONOURS THE SAME ROOT THE WRITER DOES. ostler_security.region
+# resolves its directory from OSTLER_HOME before falling back to ~/.ostler
+# (region.py:_region_dir). This file's other paths expanduser ~/.ostler
+# directly, which is fine for files this file's own peers write, but region
+# .json is written by a DIFFERENT component: a reader that ignored
+# OSTLER_HOME would silently find nothing on any Hub that sets it, and
+# "nothing" here reads as "we do not know the jurisdiction". Writer and
+# reader resolve the same root or the pair is a contract only by accident.
+RECORDING_REGION_FILE = Path(os.environ.get(
+    "OSTLER_REGION_FILE",
+    os.path.join(
+        os.environ.get("OSTLER_HOME", os.path.expanduser("~/.ostler")),
+        "posture", "region.json",
+    ),
+))
+
+
+def _recording_device_jurisdiction():
+    """ISO-3166 country the Hub itself resolved at install, or None.
+
+    THIS IS THE PRODUCER #942 SAYS HAS NEVER EXISTED. It reads a real input
+    -- the region the installer derived from the operator's own Mac -- and
+    never guesses. Three outcomes collapse to None on purpose: no file, an
+    unreadable file, and a file with no usable iso_country. Not knowing is
+    not the same as knowing it is fine, and only the caller may act on it.
+    """
+    try:
+        raw = RECORDING_REGION_FILE.read_text()
+    except (OSError, ValueError):
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    iso = data.get("iso_country")
+    if not isinstance(iso, str):
+        return None
+    iso = iso.strip().upper()
+    # Two letters, exactly. A longer or shorter value is a malformed file,
+    # not a country, and must not be matched against the table.
+    if len(iso) != 2 or not iso.isalpha():
+        return None
+    return iso
+
+
+def _recording_requires_all_parties(iso):
+    """True only when we KNOW the country requires every party to agree."""
+    return iso is not None and iso in RECORDING_ALL_PARTY_ISO
+
 try:
     from zoneinfo import ZoneInfo
     _LOCAL_TZ = ZoneInfo(TIMEZONE)
@@ -6330,6 +6453,18 @@ def api_recording_active():
 
     Read-only. Never raises. Returns a JSON-serialisable dict in every
     branch so the handler can wrap it in a 200 unconditionally.
+   
+    TWO FIELDS ARE NOT PURE PASS-THROUGH (HR015 #942), and the key set is
+    unchanged either way:
+
+    - ``jurisdiction``: when the producer writes null, this endpoint
+      supplies the ISO country the Hub itself resolved at install from
+      ``~/.ostler/posture/region.json``. A value the producer DID set is
+      never overwritten.
+    - ``consent_basis``: a basis other than ``all_party`` is WITHHELD
+      (reported as null) when the resolved jurisdiction is one that
+      requires every party to agree. This only ever removes a claim; it
+      cannot add one.
     """
     from datetime import datetime, timezone
 
@@ -6440,6 +6575,41 @@ def api_recording_active():
         not isinstance(jurisdiction, str) or not jurisdiction
     ):
         jurisdiction = None
+
+    # ── THE HEAD (HR015 #942): a jurisdiction derived from a real input ──
+    # The CM042 producer writes null when it could not resolve one. The Hub
+    # can, from the region it persisted at install, so the Live Activity and
+    # the widget -- which already render this field -- stop showing nothing.
+    # A value the producer DID set is never overwritten: CM042 is the single
+    # decider and knows more about the capture than this endpoint does.
+    if jurisdiction is None:
+        jurisdiction = _recording_device_jurisdiction()
+
+    # ── THE HANDS (HR015 #942): behaviour CHANGES on the value ──
+    # A "one_party" basis asserted in a country that requires every party to
+    # agree is a claim this Hub will not repeat to the operator's phone. The
+    # basis is withheld -- set back to null, which the contract already
+    # defines as "not stated" -- so the surface shows no basis rather than a
+    # reassuring and wrong one.
+    #
+    # WITHHOLDING IS THE ONLY SAFE DIRECTION. This never upgrades a basis and
+    # never invents one: it cannot manufacture a consent nobody gave, and the
+    # worst case is that a correctly-obtained all-party consent recorded under
+    # the wrong label shows as unstated. Stopping short of a claim is the
+    # materially better position #942 asks for.
+    if (
+        consent_basis is not None
+        and consent_basis != "all_party"
+        and _recording_requires_all_parties(jurisdiction)
+    ):
+        print(
+            f"WARNING: withholding consent_basis={consent_basis!r} for "
+            f"jurisdiction={jurisdiction!r}: that country requires every "
+            f"party to agree, so a one-party basis is not reported",
+            file=sys.stderr,
+            flush=True,
+        )
+        consent_basis = None
 
     recording = {
         "meeting_id": meeting_id,
