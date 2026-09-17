@@ -131,6 +131,23 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "ostler_hygiene": ['${DEST}/ostler_hygiene'],
     "scripts": ["scripts/deferred-register-device.sh"],
     "scripts/deferred-register-device.sh": ["scripts/deferred-register-device.sh"],
+    # #1765: the graph namespace migrator. install.sh probes
+    # ${SCRIPT_DIR}/scripts/migrate_graph_namespace.py before running the
+    # one-way rewrite of the customer's graph identifiers. It was called for
+    # months against ${OSTLER_DIR}/scripts, a directory this installer never
+    # creates (1 occurrence in install.sh, the read itself, against 61 for
+    # ${OSTLER_DIR}/bin), so the guard was false on every box and the migration
+    # has never run. The file IS bundled; only the caller was wrong.
+    #
+    # THE SOURCE-PATH NEEDLE IS FOR THE SIBLING GATE, and it is NOT enough on
+    # its own here: the bundling block assigns
+    #     SRC_NS="${SRCROOT}/../scripts/migrate_graph_namespace.py"
+    # several lines above its cp, so deleting the cp leaves this string in the
+    # file and a source-path needle would stay satisfied over a package that no
+    # longer ships. The cp-unique needle below is what makes a deletion RED.
+    "scripts/migrate_graph_namespace.py": [
+        '${SRCROOT}/../scripts/migrate_graph_namespace.py'
+    ],
     # ⚠️ THIS ONE IS STILL COVERAGE-BLIND AND I AM SAYING SO RATHER THAN
     # HIDING IT. A cp-unique needle for this asset would have to be the cp
     # LINE itself, because its source is assigned three lines earlier as
@@ -269,6 +286,11 @@ CP_ONLY_NEEDLES: dict[str, list[str]] = {
     ],
     "scripts": [
         'cp "${SRC}" "${DEST}/scripts/deferred-register-device.sh"'
+    ],
+    # #1765, same shape and the same reason: SRC_NS is assigned above the cp,
+    # so only the cp line itself is unique to the copy actually happening.
+    "scripts/migrate_graph_namespace.py": [
+        'cp "${SRC_NS}" "${DEST}/scripts/migrate_graph_namespace.py"'
     ],
 }
 SCRIPT_DIR_REGEX = re.compile(r'"\$\{SCRIPT_DIR\}/([^"$]+?)"')
