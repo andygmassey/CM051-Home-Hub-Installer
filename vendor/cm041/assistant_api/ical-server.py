@@ -388,6 +388,52 @@ def _wiki_slug(name):
 _NAMELESS_BARE_ID_CHARS = frozenset("0123456789+-(). ")
 
 
+def _is_not_a_person_to_suggest(display_name, user_name=""):
+    """True when this row must not be SUGGESTED as a person to act on.
+
+    Complements ``_is_nameless_name`` rather than widening it. That predicate is
+    the canonical "is this displayable" test and its own docstring says it is
+    "byte-identical to compiler/nameless.py (CM044 wiki) and PersonNameFilter
+    (CM031 iOS); locked to prevent cross-surface drift" -- so extending it in
+    one surface is exactly the drift it exists to stop. This asks a different
+    and stricter question, and only the SUGGESTION surfaces ask it.
+
+    🔴 WHY IT EXISTS. Measured on a v1.0.100 box the moment the front page's
+    signal band started rendering:
+
+        "You and #PayPal have gone quiet. No contact for 17 months.
+         A short message keeps the thread alive."
+        "<an address the operator owns>'s birthday is in two days"
+        "<the operator's own name>'s birthday is in two days"
+
+    PayPal is a notification sender. The second is an address, not a person.
+    The third is the customer being reminded of his own birthday. All three
+    pass _is_nameless_name, which catches WhatsApp JIDs and bare numeric
+    handles and correctly says nothing about any of these.
+
+    Non-suggestable when:
+      1. it starts with "#" -- an SMS shortcode / business sender, and there is
+         no relationship to maintain,
+      2. it is an address rather than a name (contains "@" and no space), so a
+         card written in the product's voice has no name to use,
+      3. it IS the operator, compared case-insensitively against USER_NAME.
+
+    Nothing is deleted and nothing is hidden from the People list, search or
+    the graph. These rows are withheld from SUGGESTIONS only.
+    """
+    s = (display_name or "").strip()
+    if not s:
+        return True
+    if s.startswith("#"):
+        return True
+    if "@" in s and " " not in s:
+        return True
+    un = (user_name or "").strip()
+    if un and s.casefold() == un.casefold():
+        return True
+    return False
+
+
 def _is_nameless_name(display_name):
     """True when ``display_name`` is a raw handle, not a human name.
 
@@ -568,6 +614,18 @@ from identity_resolver.compartment import (
     cm048_user_graph_uris as _cm048_user_graph_uris,
     graph_scoped_select as _graph_scoped_select,
 )
+
+# The operator's own display name, used ONLY to keep them out of their own
+# suggestions (see _is_not_a_person_to_suggest). Absent is the safe state: an
+# empty string makes that clause a no-op rather than matching everyone, so a
+# box whose env predates this field behaves exactly as before.
+#
+# 🔴 I WROTE THE TWO CALL SITES BEFORE DEFINING THIS AND CAUGHT IT ONLY BY
+# GREPPING FOR THE DEFINITION. An undefined global here raises NameError inside
+# the birthdays and stale-contacts builders, which are wrapped, so it would have
+# surfaced as an EMPTY SUGGESTIONS PAYLOAD -- the same silent-empty shape as the
+# privacy-level defect this file was just fixed for, introduced by the fix.
+USER_NAME = os.environ.get("USER_NAME", "").strip()
 
 _raw_user_id = os.environ.get("USER_ID", "").strip()
 USER_ID = _normalise_user_id(_raw_user_id) if _raw_user_id else ""
@@ -4574,7 +4632,10 @@ def commitments_list(owner=None, due_before=None, status="open",
     commitments = commitments[:limit]
     for c in commitments:
         c.pop("_created", None)
-    return {"commitments": commitments, "count": len(commitments)}, 200
+    # Same contract as /api/v1/suggestions above, and the same measurement:
+    # untagged means L3 means dropped, so this payload declares its level.
+    return {"commitments": commitments, "count": len(commitments),
+            "privacy_level": "L2"}, 200
 
 
 # ── Reply debt (CM048 reply-debt detector, JTBD#1) ───────────────────
@@ -4722,6 +4783,10 @@ def api_reply_debt(threshold_hours=None, lookback_days=None,
         }, 200
 
     payload.setdefault("degraded", False)
+    # Same contract as the two payloads above. reply_debt is the "N people are
+    # waiting on you" card, badged L2 on the public front-page design.
+    if isinstance(payload, dict):
+        payload.setdefault("privacy_level", "L2")
     return payload, 200
 
 
@@ -4996,6 +5061,33 @@ def people_stale(months=3, limit=5):
         # Stale / reconnect list. Render-time filter only. Ref #664.
         if _is_nameless_name(name):
             continue
+        # 🔴 AND A SECOND, STRICTER SCREEN, BECAUSE RECONNECT ASKS A HARDER
+        # QUESTION THAN "IS THIS DISPLAYABLE".
+        #
+        # Measured on a v1.0.100 box once the front page's signal band started
+        # rendering at all: 3 of the 5 reconnect entries were raw email
+        # addresses and 2 were SMS shortcodes. The card the customer read was
+        #
+        #     "You and #PayPal have gone quiet. No contact for 17 months.
+        #      A short message keeps the thread alive."
+        #
+        # PayPal is a notification sender. There is no thread to keep alive,
+        # and the card is written in the product's voice about a relationship
+        # that does not exist.
+        #
+        # _is_nameless_name passes both: it catches WhatsApp JIDs and bare
+        # numeric handles, and an address or a #shortcode is neither. IT IS
+        # DELIBERATELY NOT EXTENDED HERE. Its own docstring says it is
+        # "byte-identical to compiler/nameless.py (CM044 wiki) and
+        # PersonNameFilter (CM031 iOS); locked to prevent cross-surface drift",
+        # so widening it in one surface is exactly the drift it exists to stop.
+        #
+        # This is a RECONNECT-ONLY screen at the call site. Nothing is deleted,
+        # nothing is hidden from the People list or the graph, and the person
+        # remains searchable. They are excluded from a suggestion that cannot
+        # be written properly without a human name.
+        if _is_not_a_person_to_suggest(name, USER_NAME):
+            continue
         months_since = int((now - lc_ts) / (30 * 86400))
         contacts.append({
             "name": name,
@@ -5080,6 +5172,10 @@ def people_birthdays(days=7):
         # recent endpoints use. Ref #664. The Qdrant point / graph node is never
         # deleted -- only withheld from this listing.
         if _is_nameless_name(name):
+            continue
+        # Shared suggestion screen: no shortcodes, no bare addresses, and never
+        # the operator's own birthday. See _is_not_a_person_to_suggest.
+        if _is_not_a_person_to_suggest(name, USER_NAME):
             continue
         try:
             # Parse MM-DD or YYYY-MM-DD
@@ -5209,6 +5305,30 @@ def api_suggestions():
     # change. Aliases share the same list reference – cheap, no copy.
     out["reconnect"] = out["stale_contacts"]
     out["follow_up"] = out["recent_meetings"]
+    # 🔴 THE FRONT PAGE'S "NEEDS YOU NOW" BAND WAS EMPTY BECAUSE THIS PAYLOAD
+    # NEVER SAID WHAT IT WAS. CM059's signals.py resolves an item's privacy
+    # level fail-closed: the item's own tag wins, else the enclosing payload's,
+    # else L3 -- "an untagged item cannot prove it is safe". Renderable levels
+    # are {L0, L1, L2}, so an untagged payload is dropped in full and silently.
+    #
+    # Measured on a v1.0.100 box, 2026-09-17, with the service token presented
+    # so a 401 could not be mistaken for the cause:
+    #     /api/v1/suggestions   200, 5 birthdays incl. one TODAY
+    #     /api/v1/commitments   200, 3 open commitments
+    #     _normalise_suggestions -> 0     _normalise_commitments -> 0
+    #     _renderable(item) -> False on every one
+    #     build_signal_cards -> 0 cards      front_page signal_cards: 0
+    # The consumer accepts any of privacy / privacy_level / privacyLevel /
+    # level, on the item OR the payload. This server sent none of them.
+    #
+    # L2 IS NOT A GUESS. ostler.ai's own front-page section badges every card
+    # in this band L2: "People L2", "Dates L2", "Commitments L2", "Prep L2",
+    # "Drafts L2". That is the designed level for exactly this content.
+    #
+    # Stamped on the PAYLOAD rather than each item, which is the inheritance
+    # the consumer implements, so an item carrying its OWN stricter tag still
+    # wins and is still withheld.
+    out["privacy_level"] = "L2"
     return out
 
 
