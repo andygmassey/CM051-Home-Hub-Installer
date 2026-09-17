@@ -233,6 +233,7 @@ test_err06_states_what_it_measured.sh	WIRED	.github/workflows/launchd-plist-path
 test_err_trap_emits_done_fail.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_every_consent_decision_is_recorded.sh	WIRED	.github/workflows/consent-registry.yml
 test_every_default_source_is_requested.sh	WIRED	.github/workflows/default-sources-requested.yml
+test_every_detected_export_reaches_the_importer.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_every_external_download_url_resolves.sh	WIRED	.github/workflows/download-urls-resolve.yml
 test_every_fail_call_has_error_code.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_every_knowledge_collection_has_a_reader_verdict.sh	WIRED	.github/workflows/install-manifest-gate.yml
@@ -260,6 +261,7 @@ test_fda_rerun_agent_loads_after_its_binary.sh	WIRED	.github/workflows/cold-box-
 test_fda_rerun_ingests.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_fda_rerun_recurs.sh	WIRED	.github/workflows/fda-rerun-recurs.yml
 test_final_summary_nounset_safe.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_forget_does_not_claim_an_erasure_it_did_not_do.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
 test_frontpage_tick_emits_interest_profile.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_gateway_conversations_reach_the_store.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_gdpr_export_detect.sh	WIRED	.github/workflows/gdpr-export-detect.yml
