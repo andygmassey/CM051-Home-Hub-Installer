@@ -107,22 +107,22 @@ echo
 echo "== the customer's graph actually gets migrated =="
 
 out="$(run_arm payload "" 0 "$BLOCK")"
-if printf '%s' "$out" | grep -q '^WITNESS_COUNT=1$'; then
+if [ "$(printf '%s' "$out" | grep -c '^WITNESS_COUNT=1$')" -gt 0 ]; then
     ok "(1) the migrator SHIPPED in the .app payload was found and RUN (witness count 1 of 1 expected)"
 else
     bad "(1) the payload copy was never executed. $(printf '%s' "$out" | grep '^WITNESS_COUNT=')"
 fi
-if printf '%s' "$out" | grep -q '^WITNESS_PATH=.*/sd/scripts/migrate_graph_namespace\.py$'; then
+if [ "$(printf '%s' "$out" | grep -c '^WITNESS_PATH=.*/sd/scripts/migrate_graph_namespace\.py$')" -gt 0 ]; then
     ok "(2) and it ran the PAYLOAD copy, not something else"
 else
     bad "(2) ran a path that is not the payload copy: $(printf '%s' "$out" | grep '^WITNESS_PATH=')"
 fi
-printf '%s' "$out" | grep -q 'OK Graph identifiers are current' \
+[ "$(printf '%s' "$out" | grep -c 'OK Graph identifiers are current')" -gt 0 ] \
   && ok  "(3) the customer is told their identifiers are current" \
   || bad "(3) a successful migration told the customer nothing"
 
 out="$(run_arm "" payload 0 "$BLOCK")"
-printf '%s' "$out" | grep -q '^WITNESS_COUNT=1$' \
+[ "$(printf '%s' "$out" | grep -c '^WITNESS_COUNT=1$')" -gt 0 ] \
   && ok  "(4) the legacy ~/.ostler/scripts location still works, so a hand-repaired box is not broken by this change" \
   || bad "(4) the fallback path was dropped; a box that has the file under ~/.ostler no longer migrates"
 
@@ -130,19 +130,19 @@ echo
 echo "== when it genuinely is not there, the customer is told LOUDLY =="
 
 out="$(run_arm "" "" 0 "$BLOCK")"
-printf '%s' "$out" | grep -q '^WITNESS_COUNT=0$' \
+[ "$(printf '%s' "$out" | grep -c '^WITNESS_COUNT=0$')" -gt 0 ] \
   && ok  "(5) NEGATIVE CONTROL: with no payload anywhere the witness is empty, so arms 1 and 4 measured a real execution" \
   || bad "(5) the witness recorded a run with nothing to run, so arms 1 and 4 prove nothing"
-printf '%s' "$out" | grep -q 'WARN .*DID NOT RUN' \
+[ "$(printf '%s' "$out" | grep -c 'WARN .*DID NOT RUN')" -gt 0 ] \
   && ok  "(6) the miss is stated as DID NOT RUN, not as a skip" \
   || bad "(6) the miss is still quiet or hedged: $(printf '%s' "$out" | grep '^WARN' || echo '<no warn at all>')"
-printf '%s' "$out" | grep -q 'DIAG_PERSISTED' \
+[ "$(printf '%s' "$out" | grep -c 'DIAG_PERSISTED')" -gt 0 ] \
   && ok  "(7) the diagnostics bundle is KEPT before the path is named, so the log still exists tomorrow" \
   || bad "(7) the warning names a purgeable path it never persisted"
 
 named=0
-printf '%s' "$out" | grep -q 'WARN .*/sd/scripts/migrate_graph_namespace\.py' && named=$((named+1))
-printf '%s' "$out" | grep -q 'WARN .*/od/scripts/migrate_graph_namespace\.py' && named=$((named+1))
+[ "$(printf '%s' "$out" | grep -c 'WARN .*/sd/scripts/migrate_graph_namespace\.py')" -gt 0 ] && named=$((named+1))
+[ "$(printf '%s' "$out" | grep -c 'WARN .*/od/scripts/migrate_graph_namespace\.py')" -gt 0 ] && named=$((named+1))
 [ "$named" -eq 2 ] \
   && ok  "(8) EVERY candidate path is named in the miss (${named} of ${CANDIDATES} searched)" \
   || bad "(8) only ${named} of ${CANDIDATES} searched paths were named; an operator is sent to the wrong place"
@@ -150,7 +150,7 @@ printf '%s' "$out" | grep -q 'WARN .*/od/scripts/migrate_graph_namespace\.py' &&
 echo
 echo "== what a customer is told when the migration goes wrong =="
 out="$(run_arm payload "" 1 "$BLOCK")"
-printf '%s' "$out" | grep -q 'WARN .*part-migrated' \
+[ "$(printf '%s' "$out" | grep -c 'WARN .*part-migrated')" -gt 0 ] \
   && ok  "(9) rc=1 still warns that the store may be part-migrated" \
   || bad "(9) the rc=1 arm no longer reaches the customer"
 
@@ -174,7 +174,7 @@ if [ "$M1" = "$BLOCK" ]; then
 else
     ok  "(M1a) mutant applied: the payload candidate is gone ($(printf '%s\n' "$BLOCK" | grep -c . ) lines -> $(printf '%s\n' "$M1" | grep -c . ))"
     out="$(run_arm payload "" 0 "$M1")"
-    printf '%s' "$out" | grep -q '^WITNESS_COUNT=0$' \
+    [ "$(printf '%s' "$out" | grep -c '^WITNESS_COUNT=0$')" -gt 0 ] \
       && ok  "(M1b) PRE-FIX IS CAUGHT: with only the ~/.ostler candidate, a shipped payload is never run" \
       || bad "(M1b) the pre-fix shape still ran the migrator, so arm (1) cannot tell the two apart"
 fi
@@ -187,7 +187,7 @@ if [ "$M2" = "$BLOCK" ]; then
 else
     ok  "(M2a) mutant applied: the else-arm persist call is gone"
     out="$(run_arm "" "" 0 "$M2")"
-    printf '%s' "$out" | grep -q 'DIAG_PERSISTED' \
+    [ "$(printf '%s' "$out" | grep -c 'DIAG_PERSISTED')" -gt 0 ] \
       && bad "(M2b) removing the persist call changed nothing, so arm (7) is decoration" \
       || ok  "(M2b) arm (7) goes red without the persist call, so it is measuring it"
 fi
@@ -199,7 +199,7 @@ if [ "$M3" = "$BLOCK" ]; then
 else
     ok  "(M3a) mutant applied: the warning now names one variable instead of the searched list"
     out="$(run_arm "" "" 0 "$M3")"
-    printf '%s' "$out" | grep -q 'WARN .*/od/scripts/migrate_graph_namespace\.py' \
+    [ "$(printf '%s' "$out" | grep -c 'WARN .*/od/scripts/migrate_graph_namespace\.py')" -gt 0 ] \
       && bad "(M3b) the single-path wording still named a real path, so arm (8) is decoration" \
       || ok  "(M3b) arm (8) goes red on the single-path wording, so it is measuring the named set"
 fi
