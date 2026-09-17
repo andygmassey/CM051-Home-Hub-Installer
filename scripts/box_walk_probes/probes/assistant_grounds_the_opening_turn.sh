@@ -226,6 +226,12 @@ send(json.dumps({"type": "message", "content": question}))
 # was resident before it connected. The probe reads `ollama ps` on the box
 # BEFORE each opening and labels the row. Blending the two is what makes a
 # TTFT figure useless, and they differ by an order of magnitude.
+# _t_sent IS INITIALISED HERE TOO, NOT ONLY AT THE SEND. FIXTURE MODE
+# (OSTLER_GROUNDED_FRAMES) never calls sendall, so a _t_sent that exists only
+# on the live path is UNDEFINED under the parser's own tests -- and a NameError
+# in this loop reads downstream as an EMPTY answer, which is how it presented:
+# five arms reporting "read ''" rather than anything mentioning time.
+_t_sent = None
 _t_first = None
 _t_last = None
 _tok = 0
@@ -344,7 +350,7 @@ while time.time() < deadline:
             else:
                 graded = text
                 print("FRAME reply_source chunks")
-            if _t_first is not None:
+            if _t_first is not None and _t_sent is not None:
                 print("FRAME ttft_s %.3f" % (_t_first - _t_sent))
                 _span = (_t_last - _t_first) if (_t_last and _t_last > _t_first) else 0.0
                 # A zero span with tokens is a single-frame reply, not an
