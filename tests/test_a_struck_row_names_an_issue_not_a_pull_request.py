@@ -92,6 +92,17 @@ EVIDENCE = (
 BANNED = "the issue this row names is CLOSED on GitHub"
 
 
+# A row's number is only meaningful in the repo the row names. `repo: none`
+# means a measured finding rather than a tracker item, so its id resolves
+# nowhere and must not be looked up against anything.
+REPO_BY_DECLARATION = {
+    "CM051": os.environ.get("OSTLER_REPO_CM051",
+                            "andygmassey/CM051-Home-Hub-Installer"),
+    "HR015": os.environ.get("OSTLER_REPO_HR015",
+                            "andygmassey/HR015-Gaming-PC"),
+}
+
+
 def _cited_title(gate):
     """The title the strike wrote down, pulled back out for the reader.
 
@@ -212,12 +223,27 @@ def main():
               " environment, so issue-versus-pull-request cannot be resolved."
               " This is NOT a pass. Arm 1 is the blocking arm and it ran.")
     else:
-        repo = os.environ.get("OSTLER_BOARD_REPO",
-                              "andygmassey/CM051-Home-Hub-Installer")
-        checked = prs = 0
+        # RESOLVE AGAINST THE REPO THE ROW DECLARES, NEVER A DEFAULT.
+        #
+        # The first version of this arm hard-coded CM051 and I reported "41 of
+        # 41 are pull requests" on that basis. Measured afterwards: 10 of the
+        # 41 declare `repo: HR015` and resolve, in HR015-Gaming-PC, to OPEN
+        # issues every one titled [LAUNCH]. Resolving a number against the
+        # wrong repository is the SAME category error the strike made, and the
+        # gate written to catch it had it too. A row's number is only
+        # meaningful in the repo the row names.
+        checked = prs = skipped = 0
         for r in struck:
             num = str(r.get("issue", "")).strip()
             if not num.isdigit():
+                continue
+            declared = str(r.get("repo", "")).strip()
+            repo = REPO_BY_DECLARATION.get(declared)
+            if repo is None:
+                # `repo: none` means a measured finding, not a tracker item.
+                # There is no issue for a strike to have found closed, and
+                # resolving the id anywhere would invent a referent.
+                skipped += 1
                 continue
             try:
                 out = subprocess.run(
@@ -234,15 +260,20 @@ def main():
                 if json.loads(out.stdout).get("pull_request"):
                     prs += 1
                     failures.append(
-                        "#%s is struck, but that number is a PULL REQUEST, not"
-                        " an issue." % num)
+                        "#%s is struck, but in %s that number is a PULL"
+                        " REQUEST, not an issue." % (num, repo))
             except ValueError:
                 continue
+        if skipped:
+            print("          (2) %d struck row(s) declare `repo: none`, so their"
+                  " number is an internal finding id with no tracker referent."
+                  " Not resolved, and NOT counted as passing." % skipped)
         if checked == 0:
             print("  ----  (2) NOT RUN: resolved 0 of %d numbers, so this arm"
                   " measured nothing and is not a pass." % len(struck))
         else:
-            print("  %s (2) resolved %d struck number(s); %d are pull requests"
+            print("  %s (2) resolved %d struck number(s) against the repo each"
+                  " row DECLARES; %d are pull requests"
                   % ("ok   " if prs == 0 else "FAIL ", checked, prs))
 
     print()
