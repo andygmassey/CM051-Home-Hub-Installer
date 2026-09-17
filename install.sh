@@ -23948,6 +23948,20 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
         <string>${HOME}</string>
         <key>USER_ID</key>
         <string>${USER_ID}</string>
+        <!-- USER_NAME reaches the read API ONLY through this block. The server
+             uses it for exactly one thing: keeping the operator out of their own
+             suggestions, so the front page never wishes the operator a happy
+             birthday by reading their own contact card back to them.
+
+             Measured on a v1.0.100 box: this plist carried 11 EnvironmentVariables
+             keys, USER_ID among them, and USER_NAME was not one of them. So
+             os.environ.get("USER_NAME") returned "" inside ical-server and the
+             owner clause was a no-op -- the fix present and never able to fire.
+             Caught by checking whether the consumer could receive the value
+             rather than by testing the predicate, which passed 10/10 in
+             isolation. -->
+        <key>USER_NAME</key>
+        <string>${USER_NAME}</string>
         <key>ICAL_SCRIPT</key>
         <string>${OSTLER_DIR}/ical/ical-query.sh</string>
         <key>INGEST_DIR</key>
