@@ -58,3 +58,73 @@ own took the repo-wide queue to 0 and that PR merged within the minute. The
 cancelled runs are re-run afterwards by editing the PR body -- NEVER with
 `gh run rerun`, which replays the ORIGINAL event payload and restores the
 stale result.
+
+---
+
+## Three things that are not about the queue, learned on 2026-09-18
+
+The file is about driving merges, but these turned up while driving them and
+they are cheaper to read here than to re-learn.
+
+### A record only beats an inference while it cannot be forged
+
+Given a fact that matters, prefer RECORDING it to RECONSTRUCTING it later from
+a related value. That much is ordinary. The part that is not ordinary is that a
+record has to be defended or it degrades into an inference with better manners.
+
+The case: `IMPORT_DECLINED`. The customer answers no to the GDPR import at one
+prompt. The first version of the fix reconstructed that answer downstream by
+testing whether `EXPORTS_DIR` was empty, which is what the decline had emptied.
+It was wrong, and not subtly: a later block refills `EXPORTS_DIR` for anybody
+who has an `icloud-contacts.vcf`, so on the declined path the guard could not
+fire at all. Its real firing condition had become "this customer has no iCloud
+contacts file", which has no relationship to consent.
+
+Recording the answer fixes that. What keeps it fixed is a test arm that pins
+the number of WRITES to the variable at exactly two: the initialisation that
+binds it under `set -u`, and the prompt. A third write means something other
+than the person can answer for them, and the arm goes red. Without that arm the
+record is just a variable anybody may set.
+
+Generalises to: any consent flag, any "we already checked this" marker, any
+provenance field. Ask who else can write it, then make the answer assertable.
+
+### A gate that checks a structured field is bypassed by free text
+
+CM051's checklist gate already prints, in capitals, `DO NOT STRIKE` when a row
+declares `repo: CM051` but its number is not an issue there. That guard reads
+the declared `repo:` FIELD.
+
+On 2026-09-16, 41 rows were struck by writing the claim into the `gate:` TEXT
+instead. Same claim, different surface, and the guard reads one of them. The
+strike stood for two days and removed six rows from the cut's count, two of
+them about consent and secrets.
+
+Same family: the ledger gate checks pins while a shipping-behaviour change
+rides in prose, and a vendor manifest asserts a pin while the content moved.
+
+**When a guard exists, ask which surface it reads, then ask where else the same
+claim can be made.**
+
+### A mutant that did not apply reads exactly like one that was not caught
+
+Known, written down, and it still happened five times in one shift between two
+agents, with five different causes:
+
+- a stale needle that no longer matched the code,
+- a default nothing exercised, so changing it changed no observable,
+- a `sed` range that ate the guard it was meant to mutate,
+- a `grep` that counted its own pattern,
+- and YAML folding a long scalar, so the parsed string was not a contiguous
+  substring of the file and the locator found nothing.
+
+Every one of them would have printed a clean run.
+
+The only thing that caught them is that the mutation asserted its own
+application FIRST and refused rather than reporting. Write the assertion before
+the mutation, every time:
+
+    assert s.count(old) == 1, "MUTANT DID NOT APPLY: %d matches" % s.count(old)
+
+And restore with `cmp` afterwards, so "I put it back" is measured rather than
+assumed.
