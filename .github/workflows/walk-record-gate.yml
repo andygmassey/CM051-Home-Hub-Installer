@@ -790,6 +790,12 @@ jobs:
           printf 'artefact_sha256_source\tmeasured(shasum -a 256 of the citest artefact)\n' >> walks/v0.0.0-citest.tsv
           printf 'walked_at\t2026-01-01T00:00:00Z\n' >> walks/v0.0.0-citest.tsv
           printf 'box_fp\tcitestcitest0000\n'    >> walks/v0.0.0-citest.tsv
+          # walk_kind: verify_walk_record.sh refuses any record that does not
+          # declare a CONSOLE walk, and it refuses at the exit-0 door. Without
+          # this the POSITIVE CONTROL below scores rc=2 and every refusal this
+          # job asserts afterwards would prove nothing.
+          printf 'walk_kind\tconsole\n'          >> walks/v0.0.0-citest.tsv
+          printf 'walk_kind_source\tdeclared: synthetic CI control record\n' >> walks/v0.0.0-citest.tsv
           printf 'pass\t14\n'                    >> walks/v0.0.0-citest.tsv
           printf 'fail\t0\n'                     >> walks/v0.0.0-citest.tsv
           printf 'cannot_run\t0\n'               >> walks/v0.0.0-citest.tsv
