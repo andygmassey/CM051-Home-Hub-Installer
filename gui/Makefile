@@ -2547,9 +2547,29 @@ staple-apps: guard-local-cut check-tools
 	# outer prefix, any remaining '.app/Contents/Resources/' means this bundle
 	# sits in a nested bundle's resource-sealed subtree.
 	$(STEP) "Round 1: stapling nested .apps (deepest-first) now their CDHashes are final"
+	# THE LIST IS READ A LINE AT A TIME, NEVER `for app in $$LIST`.
+	#
+	# v1.0.99 died on this line. #1970 added "Recover Ostler.app", the first
+	# bundle in this product whose name contains a SPACE, and an unquoted `for`
+	# splits on IFS. The single path
+	#   Contents/Resources/Recover Ostler.app
+	# became the two paths that do not exist
+	#   Contents/Resources/Recover        and        Ostler.app
+	# Each was reported here as "[skip] (no ticket issued for this CDHash)" --
+	# indistinguishable from a bundle Apple legitimately issued no ticket for --
+	# and then "[FAIL] ticket missing after staple" by the verify below, which
+	# failed the cut. The real bundle was never stapled and never named.
+	#
+	# A `find ... | while read` PIPELINE would fix the splitting and break the
+	# verify block instead: its counters would be incremented in a subshell and
+	# lost at the `done`. Both loops therefore read from a FILE, which runs the
+	# loop body in this shell.
 	@FAIL=0; \
-	NESTED_APPS="$$(find "$(APP_PATH)/Contents" -type d -name '*.app' 2>/dev/null | awk '{print length, $$0}' | sort -rn | cut -d' ' -f2-)"; \
-	for app in $$NESTED_APPS; do \
+	NESTED_LIST="$$(mktemp)"; \
+	find "$(APP_PATH)/Contents" -type d -name '*.app' 2>/dev/null \
+	    | awk '{print length, $$0}' | sort -rn | cut -d' ' -f2- > "$$NESTED_LIST"; \
+	while IFS= read -r app; do \
+	    [ -n "$$app" ] || continue; \
 	    REL="$${app#$(APP_PATH)/}"; \
 	    case "$$REL" in \
 	        *.app/Contents/Resources/*) \
@@ -2562,7 +2582,8 @@ staple-apps: guard-local-cut check-tools
 	    else \
 	        printf '  [skip] %s (no ticket issued for this CDHash)\n' "$$REL"; \
 	    fi; \
-	done
+	done < "$$NESTED_LIST"; \
+	rm -f "$$NESTED_LIST"
 	$(STEP) "Round 1: re-sealing the outer .app so it seals the freshly stapled nested bundles"
 	codesign --force --sign "$(CODESIGN_ID)" --options runtime --timestamp --entitlements "OstlerInstaller/OstlerInstaller.entitlements" "$(APP_PATH)"
 	@codesign --verify --deep --strict "$(APP_PATH)" 2>/dev/null || { \
@@ -2600,9 +2621,15 @@ staple-apps: guard-local-cut check-tools
 	# The excluded bundles are COUNTED and NAMED, not skipped quietly: a gate
 	# that can be emptied by an exclusion list has to say how much it excluded.
 	$(STEP) "Verifying every stapled .app in $(APP_PATH)"
+	# Same line-at-a-time read as Round 1, and for the same reason: a bundle
+	# name with a space split into two paths that do not exist, both of which
+	# then failed `stapler validate` and failed the cut.
 	@FAIL=0; EXCLUDED=0; CHECKED=0; \
-	NESTED_APPS="$$(find "$(APP_PATH)/Contents" -type d -name '*.app' 2>/dev/null)"; \
-	for app in "$(APP_PATH)" $$NESTED_APPS; do \
+	VERIFY_LIST="$$(mktemp)"; \
+	printf '%s\n' "$(APP_PATH)" > "$$VERIFY_LIST"; \
+	find "$(APP_PATH)/Contents" -type d -name '*.app' 2>/dev/null >> "$$VERIFY_LIST"; \
+	while IFS= read -r app; do \
+	    [ -n "$$app" ] || continue; \
 	    REL="$${app#$(APP_PATH)/}"; \
 	    case "$$REL" in \
 	        *.app/Contents/Resources/*) \
@@ -2617,7 +2644,8 @@ staple-apps: guard-local-cut check-tools
 	        printf '  [FAIL] %s -- ticket missing after staple\n' "$$REL" >&2; \
 	        FAIL=$$((FAIL+1)); \
 	    fi; \
-	done; \
+	done < "$$VERIFY_LIST"; \
+	rm -f "$$VERIFY_LIST"; \
 	printf '  %s bundle(s) required a ticket, %s deliberately excluded\n' "$$CHECKED" "$$EXCLUDED"; \
 	[ "$$CHECKED" -ge 3 ] || { \
 	    echo "ERROR: only $$CHECKED bundle(s) were ticket-checked -- expected at least 3" >&2; \
