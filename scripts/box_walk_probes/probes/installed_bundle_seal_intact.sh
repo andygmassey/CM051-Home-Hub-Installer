@@ -57,7 +57,7 @@
 #         bash probes/installed_bundle_seal_intact.sh
 #     ->  MISSING   /Applications/OstlerInstaller.app
 #         MISSING   /Applications/Ostler.app
-#         MISSING   /Applications/Ostler RemoteCapture.app
+#         MISSING   /Applications/Ostler/Ostler RemoteCapture.app
 #         rc=2
 #
 # A host that cannot even be resolved, and a full three-line verdict about it.
@@ -111,7 +111,12 @@ PROBE_QUESTION="does the installed bundle's signature still verify on the box, a
 
 APP_1="/Applications/OstlerInstaller.app"
 APP_2="/Applications/Ostler.app"
-APP_3="/Applications/Ostler RemoteCapture.app"
+# MOVED 2026-09-18 into the Ostler sub-folder. Both are named because a
+# box installed before that date still has it at the old path, and a probe
+# that knows only one of the two reports MISSING on a bundle that is
+# present and sealed.
+APP_3="/Applications/Ostler/Ostler RemoteCapture.app"
+[ -d "$APP_3" ] || APP_3="/Applications/Ostler RemoteCapture.app"
 
 # ---------------------------------------------------------------------------
 # Transport. Kept separate from box_reachable() because that one routes through
