@@ -10825,7 +10825,7 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     echo ""
     echo -e "  ${BOLD}You can change your mind any time.${NC} Turn individual connectors"
     echo "  off in Settings, delete everything via \"Reset Ostler\", or"
-    echo "  fully uninstall via ~/Documents/Ostler/Uninstall Ostler.app."
+    echo "  fully uninstall by running ostler-uninstall in Terminal."
     echo ""
     echo "  Withdrawing consent stops processing from that point forward. It"
     echo "  does not undo work Ostler already did with your earlier consent."
@@ -22914,9 +22914,9 @@ echo "    - Ostler directory (~/.ostler, except power.conf and your licence)"
 echo "    - Doctor, export watcher, hub power, email-ingest, conversation feeds"
 echo "      (whatsapp-bundle, email-bundle, spoken-bundle, imessage-bundle),"
 echo "      wiki-recompile, assistant, and RemoteCapture launchd services"
-echo "    - /Applications/Ostler RemoteCapture.app"
 echo "    - /Applications/Ostler.app"
-echo "    - /Applications/Ostler Safari Extension.app"
+echo "    - the /Applications/Ostler folder and everything the installer put"
+echo "      in it (RemoteCapture, the Safari extension, Recover Ostler)"
 echo "    - Ostler commands from PATH"
 echo ""
 echo "  This will NOT remove:"
@@ -23383,14 +23383,22 @@ _u_emit UNINSTALL_PHASE "name=remotecapture"
 # Application Support directory. Transcripts written under
 # ~/Documents/Ostler/Transcripts/ are user-facing content and are
 # handled by the keep-content decision higher up.
-if [[ -d "/Applications/Ostler RemoteCapture.app" ]]; then
-    # Stop it before unlinking it: see _u_quit_bundle_processes.
-    _u_quit_bundle_processes "/Applications/Ostler RemoteCapture.app"
-    echo "  Removing /Applications/Ostler RemoteCapture.app..."
-    rm -rf "/Applications/Ostler RemoteCapture.app" 2>/dev/null || \
-        sudo rm -rf "/Applications/Ostler RemoteCapture.app" 2>/dev/null || \
-        echo "  (warning: could not remove /Applications/Ostler RemoteCapture.app; remove manually)"
-fi
+# BOTH LOCATIONS, AND THE ORDER IS NOT ARBITRARY. The app moved into
+# /Applications/Ostler on 2026-09-18. An uninstaller that knows only the
+# new path leaves the old bundle on every box that never upgraded, and
+# one that knows only the old path leaves the new bundle on every box
+# that did. Neither is visible to the person running the uninstaller,
+# who is told it is gone.
+for _u_app in "/Applications/Ostler/Ostler RemoteCapture.app" "/Applications/Ostler RemoteCapture.app"; do
+    if [[ -d "$_u_app" ]]; then
+        # Stop it before unlinking it: see _u_quit_bundle_processes.
+        _u_quit_bundle_processes "$_u_app"
+        echo "  Removing ${_u_app}..."
+        rm -rf "$_u_app" 2>/dev/null || \
+            sudo rm -rf "$_u_app" 2>/dev/null || \
+            echo "  (warning: could not remove ${_u_app}; remove manually)"
+    fi
+done
 rm -rf "${HOME}/Library/Application Support/Ostler RemoteCapture" 2>/dev/null || true
 
 # ── Ostler.app (Tauri Hub desktop) ─────────────────────────────
@@ -23417,13 +23425,22 @@ _u_emit UNINSTALL_PHASE "name=safari_extension"
 # NOT remove" -- so an uninstall left a branded app in /Applications and
 # said nothing about it. Its process was found running on the walk box
 # alongside the hub, which is why it is stopped first like the others.
-if [[ -d "/Applications/Ostler Safari Extension.app" ]]; then
-    _u_quit_bundle_processes "/Applications/Ostler Safari Extension.app"
-    echo "  Removing /Applications/Ostler Safari Extension.app..."
-    rm -rf "/Applications/Ostler Safari Extension.app" 2>/dev/null || \
-        sudo rm -rf "/Applications/Ostler Safari Extension.app" 2>/dev/null || \
-        echo "  (warning: could not remove /Applications/Ostler Safari Extension.app; remove manually)"
-fi
+# Both locations, for the reason given at the RemoteCapture block above.
+for _u_app in "/Applications/Ostler/Ostler Safari Extension.app" "/Applications/Ostler Safari Extension.app"; do
+    if [[ -d "$_u_app" ]]; then
+        _u_quit_bundle_processes "$_u_app"
+        echo "  Removing ${_u_app}..."
+        rm -rf "$_u_app" 2>/dev/null || \
+            sudo rm -rf "$_u_app" 2>/dev/null || \
+            echo "  (warning: could not remove ${_u_app}; remove manually)"
+    fi
+done
+
+# The folder itself, once its contents are gone. rmdir and not rm -rf:
+# if anything is still in there it is something the uninstaller did not
+# put there and did not account for, and silently deleting a customer's
+# file to tidy a directory is not a trade this script gets to make.
+rmdir "/Applications/Ostler" 2>/dev/null || sudo rmdir "/Applications/Ostler" 2>/dev/null || true
 
 echo "  Restoring sleep settings..."
 sudo pmset -a sleep 1 2>/dev/null || true
@@ -26928,7 +26945,92 @@ progress "Setting up Ostler RemoteCapture (call + meeting transcripts)" "ostler_
 
 OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.3}"
 OSTLER_REMOTECAPTURE_REPO="${OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-releases}"
-REMOTECAPTURE_APP_PATH="/Applications/Ostler RemoteCapture.app"
+# ── ONE OSTLER FOLDER IN /Applications, NOT FOUR LOOSE BUNDLES ────
+#
+# Andy, 2026-09-18: the Uninstaller, RemoteCapture, the Safari
+# extension and the rest belong in an Ostler sub-folder rather than
+# scattered beside the main app.
+#
+# MEASURED ON THE WALK BOX THE SAME NIGHT, and it is the shape that
+# keeps recurring: the folder ALREADY EXISTED and held exactly one
+# app, Recover Ostler.app, while "Ostler RemoteCapture.app" and
+# "Ostler Safari Extension.app" sat loose next to it. Both halves
+# built, the wire between them absent.
+#
+# OSTLER.APP ITSELF STAYS AT THE TOP LEVEL. It is the thing a person
+# opens. Burying the app you launch inside a folder in order to tidy
+# the folder is the tidy winning over the customer.
+#
+# THE MIGRATION IS THE LOAD-BEARING HALF, NOT THE NEW PATH. An
+# upgrade that only writes the new location leaves the old bundle
+# where it was, so the customer ends up with two RemoteCaptures, two
+# menubar items, and a Screen Recording grant attached to the copy
+# that no longer runs. _ostler_relocate_app MOVES, and only when the
+# destination is absent, so a re-run is a no-op rather than a second
+# move. Where both exist the new one is the live one, so the old is
+# the leftover and removing it is the entire point of the exercise.
+#
+# The bundle NAMES are deliberately unchanged. Renaming a signed
+# bundle is how a TCC grant gets silently dropped, and RemoteCapture
+# holds the Screen Recording grant that makes it work at all.
+#
+# 🔴 WHETHER THE MOVE ITSELF KEEPS THAT GRANT IS NOT INSTRUMENTED, and
+# that is the honest word for it rather than "not affected". Measured on
+# the walk box 2026-09-18: the relocation runs, all three bundles still
+# pass codesign --verify --strict afterwards, and a second run is a
+# no-op. The TCC query returned EMPTY BOTH BEFORE AND AFTER, which is a
+# uniform zero across subject and control and therefore says the reader
+# lacked Full Disk Access, not that no grant exists. So the seal is
+# measured and the grant is not.
+#
+# WHAT MAKES THAT ACCEPTABLE RATHER THAN IGNORED: if the grant does not
+# survive, the failure is LOUD and already handled. The install's own
+# Screen Recording step prompts for it, and RemoteCapture cannot
+# silently half-work without it -- it captures nothing and says so. A
+# dropped grant costs the customer one prompt they have seen before. It
+# is not a silent regression, which is the only kind worth blocking a
+# tidy-up for.
+OSTLER_APPS_DIR="/Applications/Ostler"
+
+_ostler_apps_dir_ready() {
+    if [[ -d "$OSTLER_APPS_DIR" ]]; then
+        return 0
+    fi
+    mkdir -p "$OSTLER_APPS_DIR" 2>/dev/null \
+        || sudo mkdir -p "$OSTLER_APPS_DIR" 2>/dev/null || true
+    if [[ -d "$OSTLER_APPS_DIR" ]]; then
+        return 0
+    fi
+    return 1
+}
+
+# $1 = the old absolute path, $2 = the new one. Never fatal: a Mac
+# where the move cannot be made keeps a working app at the old path,
+# which is untidy and not broken. Tidiness must not be able to take
+# the install down.
+_ostler_relocate_app() {
+    local from="$1" to="$2"
+    if [[ ! -d "$from" ]]; then
+        return 0
+    fi
+    if [[ "$from" == "$to" ]]; then
+        return 0
+    fi
+    if [[ -d "$to" ]]; then
+        pkill -f "${from}/Contents/MacOS" 2>/dev/null || true
+        rm -rf "$from" 2>/dev/null || sudo rm -rf "$from" 2>/dev/null || true
+        return 0
+    fi
+    if ! _ostler_apps_dir_ready; then
+        return 0
+    fi
+    pkill -f "${from}/Contents/MacOS" 2>/dev/null || true
+    mv "$from" "$to" 2>/dev/null || sudo mv "$from" "$to" 2>/dev/null || true
+    return 0
+}
+
+REMOTECAPTURE_APP_PATH="${OSTLER_APPS_DIR}/Ostler RemoteCapture.app"
+_ostler_relocate_app "/Applications/Ostler RemoteCapture.app" "$REMOTECAPTURE_APP_PATH"
 REMOTECAPTURE_LAUNCHAGENT_LABEL="com.creativemachines.ostler-remotecapture"
 REMOTECAPTURE_LAUNCHAGENT_PLIST="${HOME}/Library/LaunchAgents/${REMOTECAPTURE_LAUNCHAGENT_LABEL}.plist"
 REMOTECAPTURE_BINARY_INSIDE_APP="${REMOTECAPTURE_APP_PATH}/Contents/MacOS/RemoteCapture"
@@ -27329,7 +27431,7 @@ fi
 # signature the way the nested Uninstaller app does), non-fatal when
 # absent so a dev run of raw install.sh (which does not bundle it) is a
 # silent no-op rather than a false warning.
-RECOVERY_APP_DEST="/Applications/Ostler/Recover Ostler.app"
+RECOVERY_APP_DEST="${OSTLER_APPS_DIR}/Recover Ostler.app"
 RECOVERY_APP_SOURCE=""
 if [[ -d "${SCRIPT_DIR}/Recover Ostler.app" ]]; then
     RECOVERY_APP_SOURCE="${SCRIPT_DIR}/Recover Ostler.app"
@@ -27343,10 +27445,7 @@ if [[ -n "$RECOVERY_APP_SOURCE" ]]; then
     # cp -R fail into the warn branch, which reports "could not stage" and
     # installs nothing. Create it first, with the same unprivileged-then-sudo
     # ladder the copy below uses.
-    if [[ ! -d "/Applications/Ostler" ]]; then
-        mkdir -p "/Applications/Ostler" 2>/dev/null \
-            || sudo mkdir -p "/Applications/Ostler" 2>/dev/null || true
-    fi
+    _ostler_apps_dir_ready || true
     if [[ -d "$RECOVERY_APP_DEST" ]]; then
         pkill -f "${RECOVERY_APP_DEST}/Contents/MacOS" 2>/dev/null || true
         sleep 0.5
@@ -34114,7 +34213,8 @@ if [[ "$NO_EXTENSIONS" == true ]]; then
     info "$MSG_INFO_BROWSER_EXTENSIONS_SKIPPED_NO_EXTENSIONS"
 else
     EXTENSIONS_BUNDLE="${SCRIPT_DIR}/extensions/OstlerSafariExtension.app.zip"
-    SAFARI_APP_INSTALL_PATH="/Applications/Ostler Safari Extension.app"
+    SAFARI_APP_INSTALL_PATH="${OSTLER_APPS_DIR}/Ostler Safari Extension.app"
+    _ostler_relocate_app "/Applications/Ostler Safari Extension.app" "$SAFARI_APP_INSTALL_PATH"
 
     if [[ -f "$EXTENSIONS_BUNDLE" ]]; then
         info "$MSG_INFO_INSTALLING_SAFARI_EXTENSION_APPLICATIONS"
@@ -34128,6 +34228,7 @@ else
             # (SafariHistoryExt.app); rename to the user-visible name
             # if needed so Safari Settings displays "Ostler Safari Extension".
             if [[ -d "/Applications/SafariHistoryExt.app" && ! -d "$SAFARI_APP_INSTALL_PATH" ]]; then
+                _ostler_apps_dir_ready || true
                 mv "/Applications/SafariHistoryExt.app" "$SAFARI_APP_INSTALL_PATH" 2>/dev/null || true
             fi
             ok "$(printf "$MSG_OK_SAFARI_EXTENSION_INSTALLED" "${SAFARI_APP_INSTALL_PATH}")"
