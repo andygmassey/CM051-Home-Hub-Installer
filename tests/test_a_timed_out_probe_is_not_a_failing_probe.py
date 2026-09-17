@@ -453,13 +453,20 @@ else:
 # reader is exercised against a realistic file rather than being handed numbers
 # directly. check_box_walk_probe resolves the probe from ctx["cm051_dir"], which
 # is this test's tmp tree, so the declarations must live there.
+# ⚠️ THE FIXTURE CARRIES THE SHAPE THE REAL PROBE SHIPS, tabs and all. Since
+# #1125 each row is "<question>\t<store set>" and the heredoc is UNQUOTED so
+# ${_TOOL_REGISTRY} expands on the box. A fixture still carrying the old quoted
+# single-column form would keep this arm green while the reader had stopped
+# matching the shipped file -- which is exactly what happened, and it was the
+# read-the-real-probe arm below that caught it, not this one.
 write_probe("assistant_answers_grounded", """#!/bin/bash
 CHAT_TIMEOUT="${OSTLER_PROBE_CHAT_TIMEOUT:-420}"
+_TOOL_REGISTRY='pwg_overview pwg_people pwg_person_timeline pwg_preferences pwg_knowledge_search pwg_decisions pwg_topics pwg_commitments'
 _questions() {
-    cat <<'QEOF'
-What do you know about me?
-What are my interests?
-Who have I been in contact with recently?
+    cat <<QEOF
+What do you know about me?\t${_TOOL_REGISTRY}
+What are my interests?\tpwg_preferences
+Who have I been in contact with recently?\tpwg_people pwg_person_timeline
 QEOF
 }
 echo 'VERDICT: PASS'
