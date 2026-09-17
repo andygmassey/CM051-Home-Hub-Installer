@@ -56,6 +56,7 @@ on:
       - 'tests/PROMPT_LOOP_UNBOUNDED_CEILING'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in a PR that never runs it.
+      - 'tests/test_the_wiki_backfill_enrols_for_the_slot.sh'
       - '.github/workflows/install-sh-cannot-wedge-the-box.yml'
   push:
     branches: [main]
@@ -102,6 +103,18 @@ jobs:
         if: always()
         run: /bin/bash tests/test_readonly_flags_need_no_tty.sh
 
+      # 5. THE WIKI SUMMARY BACKFILL NEVER RAN (#2112), and this is the same
+      #    family as 1: a wait that cannot end. It hand-rolled its own lock on
+      #    the SHARED Ollama slot directory, so it never enrolled as a waiter,
+      #    and a holder's bounded-hold countdown arms ONLY for an enrolled
+      #    waiter. The email-bundle tick was therefore never told anybody
+      #    wanted the slot, kept it correctly for 25+ minutes, and the backfill
+      #    waited for ever while writing a 0-byte log. Found by walking a box,
+      #    three times. The test's mutant reproduces both measured symptoms.
+      - name: the wiki backfill enrols for the slot instead of spinning on mkdir
+        if: always()
+        run: /bin/bash tests/test_the_wiki_backfill_enrols_for_the_slot.sh
+
       # Two steps, deliberately. The self-test proves the gate can still tell a
       # question from a wait; the gate then reports the real count in install.sh.
       # Running only the second would leave a silently-broken predicate printing
@@ -116,7 +129,7 @@ jobs:
 
       # A test that no longer parses cannot fail honestly -- it fails for the
       # wrong reason, or worse, a sourcing error reads as a pass. Parse all
-      # five under the same 3.2 that runs them.
+      # six under the same 3.2 that runs them.
       - name: the gates themselves parse under bash 3.2
         if: always()
         run: |
@@ -124,6 +137,7 @@ jobs:
           for t in tests/test_enrich_kickstart_cannot_block_ingest.sh \
                    tests/test_dead_launchagent_prune.sh \
                    tests/test_readonly_flags_need_no_tty.sh \
+                   tests/test_the_wiki_backfill_enrols_for_the_slot.sh \
                    tests/test_prompt_loops_gate.sh \
                    scripts/verify_prompt_loops_are_bounded.sh; do
             /bin/bash -n "$t" && echo "  parses: $t"
