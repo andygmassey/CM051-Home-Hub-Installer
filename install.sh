@@ -9151,9 +9151,41 @@ ostler_resource_tier_detect() {
         elif [ "${OSTLER_RAM_GB}" -ge 16 ]; then
             # 16GB is the installer's hard floor (ERR-02-PREREQ-RAM-LOW),
             # so the LOWEST supported machine sits at LOW, not floor:
-            # concurrency 2, qwen3.5:9b. The "floor" tier below is reserved
+            # concurrency 2. The "floor" tier below is reserved
             # for the sub-16GB / <=4 TOTAL-core case (e.g. an 8GB Air, were the
             # prereq ever lowered) and the detection-failure fallback.
+            #
+            # THE TIER DECIDES CONCURRENCY. IT DOES NOT DECIDE THE MODEL, and
+            # this comment used to name one. It said "concurrency 2,
+            # qwen3.5:9b", and a 16GB box NEVER gets qwen3.5:9b under any
+            # picker. That sentence cost a reader ten minutes going the wrong
+            # way, which is the only reason a comment fix is worth a PR.
+            #
+            # The model comes from lib/ostler-model-fit.sh, which is the
+            # authoritative picker, and it compares detected RAM against a
+            # per-model threshold table. Measured on origin/main:
+            #
+            #     model              min_fit   min_slow
+            #     qwen3.6:35b-a3b       48        36
+            #     qwen3.5:9b            24        18
+            #     gemma4:e2b            16        12
+            #
+            # So at 16GB, qwen3.5:9b is below even its min_slow of 18 and
+            # gemma4:e2b is the only model that fits. EVERY Mac of 23GB or
+            # less runs gemma4:e2b, and 16GB is the hard minimum, so the
+            # minimum supported customer runs the smallest model we ship.
+            #
+            # That is a PRODUCT fact about the minimum spec, not a bug in this
+            # function, and it is written here because this is where a reader
+            # looks for it and where the wrong answer used to be.
+            #
+            # DO NOT TAKE MY WORD FOR THE TABLE. tests/test_model_fit.sh
+            # already asserts every one of those thresholds against the real
+            # picker, and it carries the exact claim this comment makes:
+            #     assert_fit qwen3.5:9b 16 nofit
+            # The same test now also asserts that the numbers written ABOVE
+            # match lib/ostler-model-fit.sh, so this comment cannot rot the
+            # way the sentence it replaced did.
             tier="low"
         else
             tier="floor"
