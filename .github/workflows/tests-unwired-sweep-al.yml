@@ -27,10 +27,16 @@ name: tests-unwired-sweep-al
 #   test itself excludes), and the test is WIRED to cold-box-source-truth.yml
 #   at line 321, where it passes. A deferral list that still names a finished
 #   item teaches the next reader that the work is outstanding.
-#   * test_calendar_attendee_resolve_before_create.py FIX-NEEDED: the vendored
-#       ostler_fda.pwg_ingest still mints-a-URI-then-checks-self instead of
-#       resolving an existing person before creating one (no
-#       _person_uri_by_identifier_value, ingest_calendar writes no identifier).
+#   test_calendar_attendee_resolve_before_create.py WAS listed here with
+#   "FIX-NEEDED: the vendored ostler_fda.pwg_ingest still
+#   mints-a-URI-then-checks-self instead of resolving an existing person
+#   before creating one (no _person_uri_by_identifier_value, ingest_calendar
+#   writes no identifier)". THAT IS NOW FIXED, so the entry is removed rather
+#   than left to teach the next reader that the work is outstanding:
+#   pwg_ingest gained _person_uri_by_identifier_value, ingest_calendar writes
+#   the identifier triples and returns people_created / people_matched, and
+#   the test is INVOKED as an individual step in
+#   .github/workflows/privacy-spine.yml.
 #   * test_dmg_contains_bundled_python.sh             CANNOT-RUN: needs a built +
 #       notarised DMG (cd gui && make ship); it SKIPs (green-but-inert) otherwise.
 
