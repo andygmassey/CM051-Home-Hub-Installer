@@ -31918,8 +31918,15 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
             _mcr_record "" OVERRAN "still running after the install-time budget; NOT killed, because a half-applied repair invents a state worse than the one it was sent to fix"
             warn "Merge-consistency repair is still running after ${_MCR_BUDGET_S}s; leaving it to finish in the background (${_MCR_LOG})"  # i18n-exempt
         else
-            wait "$_MCR_PID" 2>/dev/null
-            _MCR_RC=$?
+            # `cmd; rc=$?` on its own line is the shape the appcast-ship-wiring
+            # ratchet refuses, and the reason is not style. A standalone read of
+            # $? is one inserted line away from reporting the status of
+            # something else entirely, and this value decides which of four
+            # outcomes the customer is told. Seed it and let the failure arm
+            # overwrite it, so the variable is never undefined and never holds
+            # a status it did not come from.
+            _MCR_RC=0
+            wait "$_MCR_PID" 2>/dev/null || _MCR_RC=$?
             # FOUR OUTCOMES, FOUR BRANCHES. Exit 1 is the pass REFUSING on
             # a broken predicate and changing nothing, exit 2 is a store it
             # could not read, exit 3 is HALF REPAIRED. Folding any of them
