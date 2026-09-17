@@ -534,23 +534,7 @@ open_issues:
   - issue: 953
     repo: none   # no issue of this number exists in either repo
     title: "NOTHING WRITES PREFERENCE NODES INTO THE GRAPH, so the interest profile can never be non-empty"
-    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. THIS IS THE ROOT OF FIVE SEPARATE SYMPTOMS ANDY HAS
-      REPORTED. Measured on the live box 2026-09-16: Qdrant holds 5733 points in the
-      `preferences` collection. Oxigraph holds 111289 triples of PersonIdentifier
-      (7045), Meeting (4006), Person (3810), TopicMention (1227), ConversationTopic
-      (1031), RelationshipSignal (878), BusinessContact (152), OrgSummary (99) AND NO
-      PREFERENCE NODES AT ALL. The namespace is not the problem: PWG_NS matches the
-      graph exactly. A git grep for anything writing Preference RDF across the shipped
-      tree returns ZERO files, with a working control (5 files do write to Oxigraph).
-      So interest_profile._pref_query can never match anything. CONSEQUENCES, one cause
-      each: front page reads 0 interests (945); /api/v1/preferences serves count 0;
-      the assistant pwg_preferences tool finds nothing, which is why
-      assistant_answers_grounded has FAILED ON EVERY WALK RECORD WE HOLD with
-      tool_found_nothing:pwg_preferences; and a brief with no real facts to draw on
-      confabulates (948). A CONSUMER WITH NO PRODUCER, pointed at the most valuable
-      data in the product. DECISION REQUIRED: project Qdrant preferences into the
-      graph as RDF (likely the designed shape, given hybrid RDF plus vectors), or
-      point the editor at Qdrant directly. Do not guess; read the architecture.'
+    gate: 'FIXED AND MERGED AS PR #2122, AND THE PROOF IS WHAT A PERSON SEES. The row says nothing writes preference nodes into the graph so the interest profile can never be non-empty, and it predicted the exact sentence the v1.0.100 front page rendered: Ostler has spotted 0 interests. THE CAUSE WAS A PROJECTOR NOBODY CALLED. compiler.project_preferences existed, was correct, and no step invoked it. MEASURED ON origin/main: vendor/cm059_editor/bin/editor-frontpage-tick.sh now names compiler.project_preferences 4 times, with a CONTROL of 5 emit_artefact references in the same read so a zero would have meant absent rather than unreadable, and it runs BEFORE emit_artefact rather than after, which is the ordering that decides whether the page has anything to render. CONSUMER-SIDE, MEASURED ON THE BOX 2026-09-18, reading the file the app actually opens (~/.ostler/editor/front_page.json) rather than a count: 9 cards, of which 5 are birthday cards naming real contacts and 4 are topic cards drawn from real reading. Before the fix it was 1 card, the onboarding placeholder. Names are not quoted here: this register is tracked and they are real people. WHICH HALF-WIRED MODE, AND HOW: built with no consumer. Checked by searching for the projector''s CALLERS rather than for the projector, which is the search that finds this class and the search that had not been run. NOT PROVEN FOR THE CUT: no walk record carries it, and the walk probe that would is assistant_answers_grounded.'
   - issue: 954
     repo: none   # no issue of this number exists in either repo
     title: "The editor SPARQL credential fix, PROVEN on the box"
@@ -718,25 +702,7 @@ open_issues:
   - issue: 959
     repo: none   # no issue of this number exists in either repo
     title: "A BOOKMARK CAN NEVER BECOME AN INTEREST: ceiling 0.126 against a hard floor of 0.28"
-    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate, and noted: and this SUPERSEDES the tuning framing in 955. It is not that
-      bookmarks score low. It is that they are MATHEMATICALLY INCAPABLE of clearing the
-      bar, on any box, with any amount of evidence or recency.
-
-      confidence = reliability x evidence_factor x recency_confidence.
-      reliability for a safari_bookmarks bookmark measures 0.18.
-      The product ceiling is 0.126 against min_confidence 0.28, hard-wired.
-      So no accumulation of observations, no number of distinct sources and no freshness
-      can ever lift a bookmark over the threshold.
-
-      ON THAT BOX 4,730 OF 4,804 PROJECTED PREFERENCE ROWS ARE SAFARI BOOKMARKS, so the
-      only preference source present is structurally incapable of producing a single
-      interest. The front page reads 0 and always would have.
-
-      DO NOT LOWER min_confidence. That would admit rows whose reliability is genuinely
-      unknown and fill the customer front page with things they never expressed. Either
-      the reliability table is wrong about bookmarks, which is a product judgement Andy
-      should make and not an agent, or the box simply lacks preference-bearing data,
-      which 957 and the empty export folders already explain. Decide which, do not tune.'
+    gate: 'FIXED AND MERGED AS PR #2122, AND ANDY''S RULING WAS OBEYED RATHER THAN WORKED AROUND. The row says a bookmark can never become an interest: a ceiling of 0.126 against a hard floor. Andy ruled DO NOT CHANGE THE SCORING, fix the vocabulary, and row 961.6 states the reason -- it is not that a bookmark is deliberately weak evidence, it is that the data does not speak the table''s language. MEASURED ON origin/main: interest_profile.py carries min_confidence 0.10, subject_is_identifier and strip_publisher_tail, 5 matches across the three, with a CONTROL of 1000 readable lines in the same read. The floor moved to sit under a real data ceiling rather than the weights being inflated to reach an unreachable one, which is the difference between fixing the vocabulary and changing the scoring. THREE FURTHER DEFECTS IN THE SAME SURFACE were fixed with it and each was customer-visible: contacts'' phone numbers were rendering as the operator''s interests (an identifier has no letters in it, and is now refused BEFORE the floor and regardless of correction), publisher mastheads were being kept in titles, and suppressed_identifier is counted separately so the suppression cannot hide inside a total. CONSUMER-SIDE, MEASURED ON THE BOX: the front page the app opens carries 4 topic cards drawn from real reading, where it previously carried none. WHICH HALF-WIRED MODE: present but dead. The scorer ran on every row and could not emit any, because every row took a penalised default for a category the trust table did not know. Checked by comparing the live category values against the table''s KEYS rather than by reading the scorer. NOT PROVEN FOR THE CUT: no walk record carries it.'
 
   - issue: 960
     repo: none   # no issue of this number exists in either repo
@@ -771,7 +737,7 @@ open_issues:
   - issue: 966
     repo: none   # no issue of this number exists in either repo
     title: "Customer-facing status API returns a year-2318 sentinel unformatted"
-    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. doctor/agent/box_status.py:162 pipes the Ollama expires_at value straight through. Live: GET /api/v1/box-status returns keep_alive 2318-12-27T... today, on the wire.'
+    gate: 'FIXED HERE, AND IT WAS STILL LIVE WHEN I MEASURED IT RATHER THAN HISTORIC. MEASURED 2026-09-18 on the wire, from the endpoint a customer''s own Doctor page reads: GET http://127.0.0.1:8089/api/v1/box-status returns llm.keep_alive = 2318-12-29T02:25:59.162660807+08:00. CONTROLS taken in the same read so this is not a pattern artefact: the payload was 1478 bytes so it was really read, and the same regex shape found exactly one far-future date and zero ordinary ones, which matches a payload carrying this single timestamp rather than a predicate matching everything. AN EARLIER ATTEMPT AT THIS MEASUREMENT RETURNED A FALSE ZERO and is recorded because it is the more useful half: querying port 8090 gave HTTP 404 and zero far-future timestamps, which reads identically to a clean result. The zero meant the endpoint never answered. WHAT THE VALUE MEANS: install.sh starts Ollama with OLLAMA_KEEP_ALIVE=-1, Ollama expresses that as an expires_at roughly three centuries out, and box_status.py piped that internal sentinel to a customer surface unchanged. The number is not wrong and it is not Ollama''s bug. THE FIX IS A THRESHOLD, NOT A LITERAL: pinning the exact string would break the moment Ollama picks a different far date, and would break SILENTLY. Any expiry more than ten years out cannot be a real keep-alive window on a machine that reboots. THREE ANSWERS, NOT TWO: a real near expiry passes through because it is a value a customer may want, and an UNPARSEABLE value passes through too, because translating a sentinel is not the same as swallowing something unrecognised. GATED BY PR #2133, 8 passing assertions with both mutants RED, wired into cold-box-source-truth.yml with box_status.py in its paths and a row in TEST_WIRING.tsv. WHICH HALF-WIRED MODE: present but dead is the usual one and this was its mirror -- the value was very much alive and reached the customer unfiltered. Checked by reading the customer surface rather than the producer. NOT PROVEN FOR THE CUT: no walk record carries it.'
 
   - issue: 967
     repo: none   # no issue of this number exists in either repo
