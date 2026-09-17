@@ -119,9 +119,9 @@ python3 - "$MK" "$OLD" "$NEW" "$OLD_SHA" "$NEW_SHA" <<'PY'
 import io, re, sys
 mk, old, new, olds, news = sys.argv[1:6]
 s = io.open(mk, encoding="utf-8").read()
-a = re.subn(r'(?m)^(DAEMON_VERSION\s+\??=\s*)%s\s*$' % re.escape(old), r'\g<1>%s' % new, s)
+a = re.subn(r'(?m)^(DAEMON_VERSION[ \t]+\??=[ \t]*)%s[ \t]*$' % re.escape(old), r'\g<1>%s' % new, s)
 s, na = a[0], a[1]
-b = re.subn(r'(?m)^(HUB_APP_SHA256\s+\??=\s*)%s\s*$' % re.escape(olds), r'\g<1>%s' % news, s)
+b = re.subn(r'(?m)^(HUB_APP_SHA256[ \t]+\??=[ \t]*)%s[ \t]*$' % re.escape(olds), r'\g<1>%s' % news, s)
 s, nb = b[0], b[1]
 if na != 1 or nb != 1:
     sys.stderr.write("ERROR: expected exactly one DAEMON_VERSION and one HUB_APP_SHA256 line; "
