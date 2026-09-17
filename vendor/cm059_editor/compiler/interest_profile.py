@@ -461,14 +461,58 @@ def subject_is_identifier(subject: str) -> bool:
 # Scoring layer (pure)
 # ---------------------------------------------------------------------------
 
+# A bookmark title is a HEADLINE PLUS A PUBLISHER, and the publisher is not
+# part of what anyone is interested in. Measured on the rendered cards from a
+# real box:
+#
+#     "Creating an innovation culture | McKinsey & Company"
+#     "Spending patterns shift in China| warc.com"
+#     "Demystifying the hackathon | McKinsey & Company"
+#
+# The trailing site name is noise on every one, and it also splits what should
+# be one interest: the same topic saved from two outlets aggregates as two
+# separate interests because the subjects differ only in their suffix.
+#
+# Conservative by construction. It peels ONE trailing segment, only after a
+# recognised separator, only when what remains is still substantial (>= 12
+# chars, so "AI | MIT" keeps its whole title rather than becoming "AI"), and
+# only when the peeled part is short enough to be a masthead rather than half
+# the sentence. Everything else is returned untouched.
+_PUBLISHER_TAIL_RE = re.compile(
+    r"^(?P<head>.+?)\s*[|\u2013\u2014]\s*(?P<tail>[^|\u2013\u2014]{1,40})$"
+)
+
+
+def strip_publisher_tail(subject: str) -> str:
+    """Remove a trailing ' | Publisher' from a saved-article title.
+
+    Returns the input unchanged when the shape does not clearly match, because
+    a wrong peel silently changes what an interest IS, which is worse than a
+    slightly noisy card.
+    """
+    s = (subject or "").strip()
+    m = _PUBLISHER_TAIL_RE.match(s)
+    if not m:
+        return s
+    head = m.group("head").strip()
+    tail = m.group("tail").strip()
+    # The head must survive as something readable, and the tail must look like
+    # a masthead rather than the second half of a thought.
+    if len(head) < 12 or not tail or len(tail) > len(head):
+        return s
+    return head
+
+
 def clean_subject(subject: str) -> str:
-    """Strip email reply/forward prefixes and collapse whitespace."""
+    """Strip email reply/forward prefixes, peel a publisher tail, collapse
+    whitespace."""
     s = (subject or "").strip()
     # peel repeated RE:/FW: prefixes
     prev = None
     while prev != s:
         prev = s
         s = _EMAIL_PREFIX_RE.sub("", s).strip()
+    s = strip_publisher_tail(s)
     s = re.sub(r"\s+", " ", s)
     return s
 
