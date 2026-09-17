@@ -57,6 +57,8 @@ on:
       - 'tests/test_case_in_command_substitution_parses_under_bash_32.sh'
       - 'tests/test_vendor_only_survives_sync.sh'
       - 'vendor/doctor/agent/web_ui.py'
+      - 'vendor/doctor/agent/box_status.py'
+      - 'tests/test_a_sentinel_is_not_a_date_on_a_customer_surface.py'
       - 'vendor/cm041/identity_resolver/batch_resolver.py'
       - 'vendor/cm041/identity_resolver/resolver.py'
       - 'tests/test_aiconv_agent_not_registered_without_owner_email.sh'
@@ -575,3 +577,12 @@ jobs:
       - name: Every ${SCRIPT_DIR} probe is bundled by a build phase
         if: always()
         run: python3 scripts/check_install_sh_script_dir_coverage.py --mode ci
+      - name: A sentinel is not a date on a customer surface
+        if: always()
+        # MEASURED ON A LIVE BOX 2026-09-18, on the wire, from the endpoint the
+        # customer's own Doctor page reads: llm.keep_alive =
+        # "2318-12-29T02:25:59...". install.sh starts Ollama with
+        # OLLAMA_KEEP_ALIVE=-1 and Ollama expresses that as an expires_at three
+        # centuries out. The number is not wrong; box_status piped an internal
+        # sentinel to a customer-facing surface unchanged.
+        run: python3 tests/test_a_sentinel_is_not_a_date_on_a_customer_surface.py

@@ -229,8 +229,71 @@ def probe_llm() -> dict[str, Any]:
         "resident": True,
         "model": first.get("name"),
         "vram_gb": round(vram / 1024 ** 3, 1),
-        "keep_alive": first.get("expires_at"),
+        "keep_alive": _keep_alive_for_a_person(first.get("expires_at")),
     }
+
+
+# ── A SENTINEL IS NOT A DATE, AND THE CUSTOMER WAS BEING SHOWN ONE ──────────
+#
+# MEASURED ON A LIVE BOX 2026-09-18, on the wire, from the endpoint a customer's
+# own Doctor page reads:
+#
+#     GET http://127.0.0.1:8089/api/v1/box-status
+#     llm.keep_alive = "2318-12-29T02:25:59.162660807+08:00"
+#
+# CONTROLS taken in the same read so the finding is not a pattern artefact: the
+# payload was 1478 bytes, so it was really read; the same regex shape found
+# exactly one far-future date and zero ordinary ones, which matches a payload
+# carrying this single timestamp rather than a predicate matching everything.
+#
+# WHAT THE VALUE MEANS. install.sh starts Ollama with OLLAMA_KEEP_ALIVE=-1,
+# which is Ollama's way of saying "keep the model resident indefinitely". Ollama
+# expresses that as an expires_at roughly three centuries out. So the number is
+# not wrong and it is not a bug in Ollama: it is an internal sentinel that this
+# function piped to a customer-facing surface unchanged. A person reading their
+# own Doctor page saw the year 2318.
+#
+# WHY A THRESHOLD AND NOT A LITERAL. Pinning the exact string would break the
+# moment Ollama picks a different far date, and would fail silently -- the
+# sentinel would start rendering as a date again with nothing to notice. Any
+# expiry more than ten years out cannot be a real keep-alive window on a machine
+# that reboots, so the threshold IS the meaning rather than a guess at it.
+#
+# THREE ANSWERS, NOT TWO. None passes through as None (no model resident, and
+# the caller already renders that as idle). A parseable near date passes through
+# unchanged, because that IS a real expiry a customer may want. An unparseable
+# value passes through unchanged too: this function's job is to translate a
+# sentinel, not to swallow a value it does not recognise, and hiding an
+# unexpected string would trade a visible oddity for an invisible one.
+_KEEP_ALIVE_INDEFINITE = "indefinite"
+_KEEP_ALIVE_SENTINEL_YEARS = 10
+
+
+def _keep_alive_for_a_person(expires_at):
+    """Translate Ollama's far-future expires_at sentinel into what it means."""
+    if not expires_at:
+        return expires_at
+    try:
+        import datetime as _dt
+        raw = str(expires_at)
+        # Ollama emits nanosecond precision; datetime.fromisoformat takes at
+        # most microseconds, so the fraction is trimmed rather than the whole
+        # value being discarded on a digit count.
+        if "." in raw:
+            head, _, tail = raw.partition(".")
+            frac = ""
+            i = 0
+            while i < len(tail) and tail[i].isdigit():
+                frac += tail[i]
+                i += 1
+            raw = head + "." + frac[:6] + tail[i:]
+        parsed = _dt.datetime.fromisoformat(raw)
+    except (ValueError, TypeError):
+        return expires_at
+    now = _dt.datetime.now(parsed.tzinfo) if parsed.tzinfo else _dt.datetime.now()
+    if (parsed - now).days > _KEEP_ALIVE_SENTINEL_YEARS * 365:
+        return _KEEP_ALIVE_INDEFINITE
+    return expires_at
 
 
 # ── Load attribution (I-2) - whose load is it? ──────────────────────────────
