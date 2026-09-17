@@ -7,7 +7,7 @@
 # hydrate recorder for. Those are two files in two repos that cannot share a
 # constant, so they drift silently unless something compares them:
 #
-#   SERVED    _SOURCE_KINDS in the vendored web_ui.py
+#   SERVED    _SOURCE_KINDS + _FDA_EXTRACT_KINDS in the vendored web_ui.py
 #   WRITTEN   the first arg to _hydrate_sentinel_record* in install.sh
 #
 # A source SERVED but never WRITTEN is a phantom row -- `not_run` forever, which
@@ -35,16 +35,38 @@ written="$(grep -vE '^[[:space:]]*#' "$INSTALL" \
     | sed -E 's/.*record(_error|_no_data|_cannot_run)?[[:space:]]+"?//; s/"$//' \
     | sort -u)"
 
-# SERVED: the keys of _SOURCE_KINDS in the vendored reader.
+# SERVED: the keys of the reader's row registers.
+#
+# TWO REGISTERS SINCE #1587, AND BOTH ARE SERVED. _SOURCE_KINDS is the
+# unconditional set: those rows print whether or not a sentinel exists, which
+# is what makes their `not_run` honest. _FDA_EXTRACT_KINDS is the conditional
+# set, and the condition is the sentinel's own presence, because those sources
+# are the ones the customer PICKS -- Photos defaults to off, and an
+# unconditional amber "not run yet" for a source somebody declined would
+# invent a failure rather than report one.
+#
+# Reading only the first dict would report the second's rows as WRITTEN but
+# not SERVED, which is what this gate did on the first run after #1587 and is
+# a false red: those rows do render. Reading both keeps BOTH original
+# directions intact -- a conditional row still cannot be a phantom, because it
+# needs a sentinel to appear at all and only a recorder writes one.
 served="$(python3 - "$WEBUI" <<'PY'
 import sys, re
 src = open(sys.argv[1]).read()
-try:
-    i = src.index("_SOURCE_KINDS = {")
+names = set()
+for reg in ("_SOURCE_KINDS = {", "_FDA_EXTRACT_KINDS = {"):
+    try:
+        i = src.index(reg)
+    except ValueError:
+        continue
     blk = src[i:src.index("}", i)]
-except ValueError:
+    names.update(re.findall(r'"([a-z_]+)"\s*:', blk))
+# _SOURCE_KINDS is not optional. Losing it would empty the served set and, via
+# the guard in the caller, report CANNOT-RUN rather than a silent agreement
+# over nothing -- but say which register was missing, not just that one was.
+if "_SOURCE_KINDS = {" not in src:
     sys.exit(2)
-for name in sorted(re.findall(r'"([a-z_]+)"\s*:', blk)):
+for name in sorted(names):
     print(name)
 PY
 )"
@@ -64,7 +86,7 @@ only_written="$(comm -23 <(printf '%s\n' "$written") <(printf '%s\n' "$served"))
 only_served="$(comm -13 <(printf '%s\n' "$written") <(printf '%s\n' "$served"))"
 
 echo "written (recorders): $(printf '%s ' $written)"
-echo "served  (_SOURCE_KINDS): $(printf '%s ' $served)"
+echo "served  (_SOURCE_KINDS + _FDA_EXTRACT_KINDS): $(printf '%s ' $served)"
 
 fail=0
 if [[ -n "$only_written" ]]; then
