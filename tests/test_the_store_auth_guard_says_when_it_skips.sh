@@ -32,6 +32,16 @@
 # asserts it is SILENT. A green ARM 4 means the mutant did not apply.
 set -uo pipefail
 
+# NO `... | grep -q` ANYWHERE IN HERE, and the first draft of this file used it
+# NINE times. It exits on first match and SIGPIPEs the producer, and this repo
+# ratchets against it (tests/test_pipefail_shortcircuit_inversion.sh, baseline
+# 69). The remedy used throughout is the one that ratchet itself prints:
+#
+#     [ "$(... | grep -c PAT)" -gt 0 ]        grep -c must read to EOF
+#
+# rather than the herestring form, because that is a bashism and this file is
+# meant to stay runnable under any POSIX shell the walk might use.
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALL="${ROOT}/install.sh"
 [ -r "$INSTALL" ] || { echo "CANNOT-RUN: ${INSTALL} is not readable."; exit 2; }
@@ -79,9 +89,9 @@ BUNDLED="${WORK}/ostler/python/bin/python3"
 echo
 echo "ARM 1: the bundled interpreter is still wired, unchanged"
 out="$(run "$BLOCK" "$BUNDLED")"
-printf '%s\n' "$out" | grep -q '^WIRED ' \
+[ "$(printf '%s\n' "$out" | grep -c '^WIRED ')" -gt 0 ] \
     && ok "(1) the bundled interpreter still gets the shim" || no "(1)" "$out"
-printf '%s\n' "$out" | grep -q '^WARN ' \
+[ "$(printf '%s\n' "$out" | grep -c '^WARN ')" -gt 0 ] \
     && no "(1b) it warned on the HEALTHY path, which would cry wolf on every install" "$out" \
     || ok "(1b) and says nothing, because nothing was skipped"
 
@@ -90,12 +100,12 @@ echo "ARM 2: THE DEFECT. A non-bundled interpreter must be SAID OUT LOUD."
 for py in "/opt/homebrew/bin/python3" "/usr/local/bin/python3" "/usr/bin/python3" ""; do
     label="${py:-<unset>}"
     out="$(run "$BLOCK" "$py")"
-    if printf '%s\n' "$out" | grep -q '^WARN .*store-auth .pth NOT wired'; then
+    if [ "$(printf '%s\n' "$out" | grep -c '^WARN .*store-auth .pth NOT wired')" -gt 0 ]; then
         ok "(2) ${label}: the skip is logged"
     else
         no "(2) ${label}: the shim was skipped and NOTHING was logged" "$out"
     fi
-    if printf '%s\n' "$out" | grep -q '^WIRED '; then
+    if [ "$(printf '%s\n' "$out" | grep -c '^WIRED ')" -gt 0 ]; then
         no "(2b) ${label}: a .pth was written into an interpreter we do not own" "$out"
     fi
 done
@@ -104,19 +114,19 @@ ok "(2b) no .pth is written into an interpreter we do not own, on any of the fou
 echo
 echo "ARM 3: the message carries what a reader needs"
 out="$(run "$BLOCK" "/opt/homebrew/bin/python3")"
-printf '%s\n' "$out" | grep -q '/opt/homebrew/bin/python3' \
+[ "$(printf '%s\n' "$out" | grep -c '/opt/homebrew/bin/python3')" -gt 0 ] \
     && ok "(3a) it names the interpreter that was actually used" || no "(3a)" "$out"
-printf '%s\n' "$out" | grep -q '#950' \
+[ "$(printf '%s\n' "$out" | grep -c '#950')" -gt 0 ] \
     && ok "(3b) it carries the issue number, so a log can be grepped for it" || no "(3b)" "$out"
-printf '%s\n' "$out" | grep -qE 'cm059-editor|ical-server|ostler_hygiene' \
+[ "$(printf '%s\n' "$out" | grep -cE 'cm059-editor|ical-server|ostler_hygiene')" -gt 0 ] \
     && ok "(3c) it names the blast radius: the services with no venv of their own" || no "(3c)" "$out"
-printf '%s\n' "$out" | grep -q 'NO credential' \
+[ "$(printf '%s\n' "$out" | grep -c 'NO credential')" -gt 0 ] \
     && ok "(3d) and says what that MEANS, not just that a file is missing" || no "(3d)" "$out"
 
 echo
 echo "ARM 4: THE MUTANT. The pre-fix block must be SILENT on the same input."
 out="$(run "$MUTANT" "/opt/homebrew/bin/python3")"
-if printf '%s\n' "$out" | grep -q '^WARN '; then
+if [ "$(printf '%s\n' "$out" | grep -c '^WARN ')" -gt 0 ]; then
     no "(4) the pre-fix block ALSO warned, so arm 2 proves nothing"
 else
     ok "(4) the pre-fix block says nothing at all: the silence, reproduced"
