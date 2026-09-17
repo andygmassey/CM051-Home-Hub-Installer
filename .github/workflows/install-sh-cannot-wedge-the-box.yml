@@ -58,6 +58,7 @@ on:
       # narrowed in a PR that never runs it.
       - 'tests/test_every_detected_export_reaches_the_importer.sh'
       - 'tests/test_the_wiki_backfill_enrols_for_the_slot.sh'
+      - 'tests/test_the_shipped_compose_mounts_ai_conversations.sh'
       - '.github/workflows/install-sh-cannot-wedge-the-box.yml'
   push:
     branches: [main]
@@ -103,6 +104,17 @@ jobs:
       - name: every read-only flag works without a controlling terminal
         if: always()
         run: /bin/bash tests/test_readonly_flags_need_no_tty.sh
+
+      # 5. THE SHIPPED COMPOSE HAD NO AI CONVERSATIONS MOUNT (#979), so the
+      #    wiki page for them was empty for ever and silently. THIRD instance
+      #    of #849 and #482: each time CM044 added a mount to its OWN dev
+      #    compose, tested it there, and the test stayed green while the
+      #    shipping heredoc in install.sh had nothing. This test reads
+      #    install.sh and nothing else, which is the only reading that would
+      #    have caught any of the three.
+      - name: the shipped compose mounts the AI Conversations tree
+        if: always()
+        run: /bin/bash tests/test_the_shipped_compose_mounts_ai_conversations.sh
 
       # 5. THE INSTALLER FOUND SEVEN EXPORTS, TOLD THE CUSTOMER SEVEN, AND
       #    IMPORTED ONE (#957). EXPORTS_DIR is first-write-wins at five
@@ -151,6 +163,7 @@ jobs:
           for t in tests/test_enrich_kickstart_cannot_block_ingest.sh \
                    tests/test_dead_launchagent_prune.sh \
                    tests/test_readonly_flags_need_no_tty.sh \
+                   tests/test_the_shipped_compose_mounts_ai_conversations.sh \
                    tests/test_every_detected_export_reaches_the_importer.sh \
                    tests/test_the_wiki_backfill_enrols_for_the_slot.sh \
                    tests/test_prompt_loops_gate.sh \

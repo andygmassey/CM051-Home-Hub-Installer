@@ -533,6 +533,7 @@ test_the_retention_tier_is_written_and_read_by_nothing.py	WIRED	.github/workflow
 test_the_reuse_path_still_asks_the_licence_terms.sh	WIRED	.github/workflows/consent-registry.yml
 test_the_run_at_commit_gate_is_wired_into_the_cut.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_the_sentinel_vocabulary_is_declared_and_complete.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_the_shipped_compose_mounts_ai_conversations.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_the_shipped_vendor_manifest_names_no_operator.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_source_table_covers_the_fda_extract_family.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_source_table_items_column_is_the_number_it_claims.sh	WIRED	.github/workflows/hydrate-sentinel.yml
