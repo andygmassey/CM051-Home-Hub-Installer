@@ -80,7 +80,43 @@ EVIDENCE = (
     "CLOSED BY:",
 )
 
+# The exact reasoning that removed 41 rows. A strike containing it is refused
+# whatever else it says.
+#
+# DELIBERATELY CONSERVATIVE, and measured: a row whose gate QUOTES this phrase
+# in order to record the history, as all 41 reversed rows now do, would also be
+# refused if somebody later re-struck it. That is the right way round. A fresh
+# strike has no reason to quote it, and a re-strike on a row that carries this
+# history is exactly the case that deserves to be argued with a human rather
+# than waved through by a substring.
 BANNED = "the issue this row names is CLOSED on GitHub"
+
+
+def _cited_title(gate):
+    """The title the strike wrote down, pulled back out for the reader.
+
+    Deliberately forgiving about WHERE it sits, and deliberately silent about
+    whether it is apt. This gate cannot tell whether a citation matches the
+    row; that judgement stays with a person. All it does is put the two
+    strings on adjacent lines so the person can make it in one glance.
+    """
+    for opener, closer in (('titled "', '"'), ("titled '", "'")):
+        i = gate.find(opener)
+        if i != -1:
+            j = gate.find(closer, i + len(opener))
+            if j != -1:
+                return gate[i + len(opener):j].strip()
+    for marker in ("closed by:", "CLOSED BY:", "TITLE:"):
+        i = gate.find(marker)
+        if i != -1:
+            tail = gate[i + len(marker):].strip()
+            # Up to the first sentence end that is not inside a version number.
+            for end in (". ", "\n"):
+                k = tail.find(end)
+                if k > 0:
+                    return tail[:k].strip()
+            return tail.strip()
+    return "<no title written down, which arm 1 should have caught>"
 
 
 def newest_board():
@@ -131,6 +167,16 @@ def main():
         print("  ok    (1) no row carries a strike, so none can be unevidenced")
     elif not failures:
         print("  ok    (1) every struck row names the title of what closed it")
+        # THE WHOLE VALUE OF ARM 1 IS THAT A READER SEES THE MISMATCH, so the
+        # two strings have to end up ADJACENT. "cut(v1.0.39): the manifest the
+        # tag needs" sitting on the line under "iPhone pairing is broken: the
+        # QR scanner sheet is never presented" is self-evidently absurd; the
+        # same two strings a screen apart are not, and a gate that collects
+        # evidence nobody reads has done nothing. (Archie, 2026-09-18.)
+        for r in struck:
+            print("          #%-6s row    : %s" % (r.get("issue"),
+                                                   str(r.get("title", ""))[:86]))
+            print("          %-7s closed : %s" % ("", _cited_title(str(r.get("gate", "")))[:86]))
 
     # ARM 1 CONTROL. The predicate must reject a row it should reject, or a
     # clean sheet above means only that the loop never bites.

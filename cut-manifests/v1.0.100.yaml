@@ -1571,3 +1571,13 @@ open_issues:
     repo: CM051
     title: "The store-port probe declares its own case count and nothing asserts it"
     gate: 'GATE: NONE YET. Found by Archie while rebasing #2030, and filed as the CLASS rather than the instance. probe_examined 30 is TYPED, not derived: delete four assertions and the probe still says 30. The rebase arithmetic would have been 26 + 4 + 9 = 39, and typing 39 would have turned every check in the repo green whether or not 39 was right, because nothing counts the assertions and compares. THE CONTRAST IS THE USEFUL HALF: assistant_answers_grounded.sh carries the same literal, but its test asserts EXAMINED: 61, so a wrong number there goes red; the store-port probe has no equivalent. TWO NON-FIXES NAMED EXPLICITLY: updating the literal to 39, and adding a test that asserts the literal equals 39 -- the second pins a claim to another claim and both drift together. Close by having the self-test increment as it runs and pass that count to probe_examined. FLAGGED FOR A SWEEP: probe_examined takes a literal at other call sites too.'
+
+  - issue: 2138
+    repo: CM051
+    title: 'A forgotten _st_tick still under-counts by one: fold the tick inside an assertion helper'
+    gate: 'GATE: NONE YET. Registered here because the checklist gate was RED on origin/main for this row and #2141 being absent, and a register that has stopped registering cannot answer the question it exists for. The finding itself is the generalisation of #2120: a probe that DECLARES its case count can be wrong in either direction, and a derived counter that must be maintained by hand at each assertion will eventually miss one. The fix named in the title, folding the tick inside the assertion helper so a case cannot be added without being counted, is the same move as recording a consent answer instead of inferring it: the state stops being reconstructable by discipline and starts being structural. NOT MEASURED HERE. This row records the issue, it does not gate it.'
+
+  - issue: 2141
+    repo: CM051
+    title: 'The Doctor page is unconditionally dark and uses the banned reds, not oxblood'
+    gate: 'GATE: NONE YET. Registered here for the same reason as #2138: the checklist gate was RED on origin/main because neither was in the register. CUSTOMER-FACING: the Doctor page is a surface the owner is sent to when something is wrong, so it is exactly the wrong page to be off-brand, and feedback_ostler_brand_light_not_dark is explicit that the brand is light with oxblood rather than the banned reds. NOT MEASURED HERE, and it needs a rendered screenshot of the shipped page rather than a source grep, because a palette can be correct in a stylesheet and overridden at render.'
