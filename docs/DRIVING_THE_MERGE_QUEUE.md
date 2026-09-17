@@ -58,3 +58,60 @@ own took the repo-wide queue to 0 and that PR merged within the minute. The
 cancelled runs are re-run afterwards by editing the PR body -- NEVER with
 `gh run rerun`, which replays the ORIGINAL event payload and restores the
 stale result.
+
+### The trap that cost the most: a driver that rewrites branches on a poll
+
+**Measured 2026-09-18.** An automated merge loop called `gh pr update-branch` on
+every BEHIND branch, every cycle. In one night it produced **33 merge-from-main
+commits across 12 branches**:
+
+```
+#2116  9      #2128  4      #2131  2      #2136  2
+#2123  7      #2130  2      #2132  2      #2137  1
+#2133  1      #2134  1      #2052  1      #2065  1
+```
+
+At ~140 checks per push that is roughly **4,600 check-runs of pure churn**, and
+the `CI Required Gate` on those same PRs then has to wait for all of them.
+
+**The shape is worse than the total.** Merge one PR, main moves, eleven branches
+go BEHIND, update eleven, 1,540 checks, merge one more. *The more it worked, the
+more work it made.* A poll side effect that costs 140 checks is not a poll side
+effect, it is a push.
+
+The branches open longest take the worst of it, because they are BEHIND after
+*every* merge. That is why #2116 and #2123 carried 9 and 7 while branches opened
+an hour earlier carried 1.
+
+**A BEHIND branch is not a problem until it is otherwise ready.** Update it once,
+deliberately, at the moment it would otherwise merge. Never on a timer.
+
+#### And the half that is a data-loss shape, not a cost
+
+**Never let an automated driver rewrite a branch a human has checked out.**
+
+The same loop twice pushed its own merge onto a branch while a person was
+resolving that branch's conflict locally: once on a divergence record, once on
+`install.sh` line citations. Both of GitHub's resolutions happened to be
+correct. That is the luckiest available outcome, not evidence the design was
+safe, and the next one lands silently on top of work nobody kept a copy of.
+
+The recovery that worked, and the order matters: **verify the remote's
+resolution against the gate that owns it BEFORE discarding your own.** For the
+citation conflict that was
+`tests/test_store_curl_config_survives_the_promote.sh` at 16 pass / 0 fail. The
+tempting order -- discard the redundant local work first, because the remote
+"obviously" already has it -- destroys the only thing that could have caught a
+bad merge.
+
+#### A citation conflict cannot be resolved by picking a side
+
+When both sides of a conflict are the same comment with different line numbers,
+**neither side is right after the merge**. The branch shifted the file; so did
+main. Picking either leaves every number wrong.
+
+Let the gate name the stale ones, then re-point each by **locating its
+construct** in the merged file. Do not apply the offset, even when the offset is
+uniform and correct: an offset holds until one hunk lands somewhere else, and
+then it is silently wrong for every citation after that point. Locating the
+construct cannot drift. It is a known cost paid to avoid an unbounded one.
