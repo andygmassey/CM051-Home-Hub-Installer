@@ -46,6 +46,13 @@ _rec() {
     mkdir -p "${d}/walks"
     local n=$#
     {
+        # walk_kind: scripts/verify_walk_record.sh refuses any record that does
+        # not declare a CONSOLE walk, and refuses it BEFORE the verdict, so
+        # without this line every arm below would return 2 and this file would
+        # measure nothing. Declared here because these fixtures exist to test
+        # the OTHER properties of the gate.
+        printf 'walk_kind\tconsole\n'
+        printf 'walk_kind_source\tdeclared: synthetic fixture for the promote-scope arms\n'
         printf 'version\tv9.9.9\n'
         printf 'version_source\tmeasured(CFBundleShortVersionString, matches argument)\n'
         printf 'artefact_sha256\t%s\n' "$SHA"
@@ -77,6 +84,13 @@ _rec2() {
     for p in ${failed//,/ };  do nf=$((nf+1)); done
     for p in ${notmeas//,/ }; do nm=$((nm+1)); done
     {
+        # walk_kind: scripts/verify_walk_record.sh refuses any record that does
+        # not declare a CONSOLE walk, and refuses it BEFORE the verdict, so
+        # without this line every arm below would return 2 and this file would
+        # measure nothing. Declared here because these fixtures exist to test
+        # the OTHER properties of the gate.
+        printf 'walk_kind\tconsole\n'
+        printf 'walk_kind_source\tdeclared: synthetic fixture for the promote-scope arms\n'
         printf 'version\tv9.9.9\n'
         printf 'version_source\tmeasured(CFBundleShortVersionString, matches argument)\n'
         printf 'artefact_sha256\t%s\n' "$SHA"
