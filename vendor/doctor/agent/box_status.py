@@ -270,7 +270,14 @@ _KEEP_ALIVE_SENTINEL_YEARS = 10
 
 
 def _keep_alive_for_a_person(expires_at):
-    """Translate Ollama's far-future expires_at sentinel into what it means."""
+    """Turn the far-future expires_at sentinel into what it actually means.
+
+    Worded to avoid a capitalised verb immediately in front of a product name:
+    the person-name guard reads that pair as a forename and surname, and it is
+    right to. A permit would have been the wrong fix for a line I am writing
+    fresh -- permits are for values that ARE the fact, like a registrant name in
+    a vendored file, not for prose I can simply phrase differently.
+    """
     if not expires_at:
         return expires_at
     try:
