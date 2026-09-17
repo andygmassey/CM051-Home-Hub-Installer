@@ -369,9 +369,22 @@ Active body:
 `participant_count` and `jurisdiction` may be `null`. Read-only; no
 POST surface (the producer writes the file directly).
 
+Two of those fields are not pure pass-through, and the key set is the
+same either way:
+
+- `jurisdiction`: when the producer writes `null`, the Hub supplies the
+  ISO country it resolved at install from `~/.ostler/posture/region.json`
+  (device region, never location). A value the producer did set is never
+  overwritten.
+- `consent_basis`: a basis other than `all_party` is withheld, and
+  reported as `null`, when the resolved jurisdiction is a country that
+  requires every party to agree. This only removes a claim; it never adds
+  one, and it cannot manufacture a consent nobody gave.
+
 | Env var                   | Default                              | Notes                              |
 | ------------------------- | ------------------------------------ | ---------------------------------- |
 | `RECORDING_STATE_FILE`    | `~/.ostler/recording_state.json`     | Producer-writer path; reader path. |
+| `OSTLER_REGION_FILE`      | `~/.ostler/posture/region.json`      | Device region the jurisdiction falls back to. |
 | `RECORDING_STALE_SECONDS` | `30`                                 | Mtime age beyond which the file is treated as a crashed producer. |
 
 ## Configuration
