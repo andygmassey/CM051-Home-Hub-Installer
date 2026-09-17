@@ -68,6 +68,32 @@ class _ScopeRefused(Exception):
     """The title scope found nothing, which is a refusal and not an answer."""
 
 
+#: Phrases a row uses to say, in its own words, that the work is not done.
+#: Matched against the NORMALISED gate text. Deliberately short and literal:
+#: every one of these was written by whoever measured the defect, so they are
+#: the author's own verdict rather than an inference drawn from prose.
+_UNFINISHED_MARKERS = (
+    "NOT STARTED",
+    "DECISION REQUIRED",
+    "CANNOT FIX",
+    "NO PR OPENED",
+    "NOTHING WRITES",
+)
+
+#: A row struck for this reason has had its GitHub issue closed. That is a
+#: statement about a ticket, never about a customer.
+_STRUCK_ON_CLOSURE = "IS CLOSED ON GITHUB"
+
+
+def _names_proof(g: str) -> bool:
+    """True when a gate points at something a reader can go and check.
+
+    A merged PR number or a named capability entry is checkable. A paragraph
+    saying somebody judged it done is not.
+    """
+    return bool(re.search(r"\bPR #\d+", g)) or "GATED BY ENTRY" in g
+
+
 def _is_ungated(r) -> bool:
     """True when a row carries no proof.
 
@@ -75,8 +101,48 @@ def _is_ungated(r) -> bool:
     tests/test_a_ci_alarm_is_not_a_register_gap.py can import and test it.
     While it was nested inside main() nothing could reach it, which is part of
     why it went eight months without anyone noticing it matched nothing.
+
+    🔴 CLOSING A TICKET IS NOT FIXING A DEFECT, AND FOR TWO CUTS IT COUNTED AS
+    ONE. Measured on cut-manifests/v1.0.100.yaml, parsed rather than grepped:
+    174 rows, of which 41 were struck with "the issue this row names is CLOSED
+    on GitHub", and SEVEN of those 41 still described unfinished work in their
+    own text -- NOT STARTED, CANNOT FIX, DECISION REQUIRED.
+
+    One of the seven was row 953, "NOTHING WRITES PREFERENCE NODES INTO THE
+    GRAPH, so the interest profile can never be non-empty". It was struck on
+    2026-09-16. v1.0.100 was cut and walked on 2026-09-17, and the front page
+    rendered a single card reading "Ostler has spotted 0 interests". The row
+    had predicted that exact sentence, and the walk consequence too:
+    assistant_answers_grounded is the single failed probe on walks/v1.0.95.tsv.
+
+    Every one of the 41 carries this sentence, which is correct and which the
+    arithmetic ignored:
+
+        closure is the register's own signal that someone judged the work
+        done... It is NOT proof that a customer can do the thing; only the
+        walk proves that.
+
+    A caveat that does not change the count is decoration. So the count now
+    reads it:
+
+      * a struck-on-closure row whose own text says NOT STARTED, CANNOT FIX or
+        DECISION REQUIRED is ungated, whatever else the gate says
+      * a struck-on-closure row that names no checkable proof (no merged PR, no
+        capability entry) is ungated
+
+    A struck row that DOES name a merged PR stays counted as gated. Closure
+    plus a PR someone can open is a different claim from closure alone, and
+    making all 41 red would bury the seven that matter in 34 that do not.
     """
-    return "NONE YET" in " ".join(str(r.get("gate", "")).upper().split())
+    g = " ".join(str(r.get("gate", "")).upper().split())
+    if "NONE YET" in g:
+        return True
+    if _STRUCK_ON_CLOSURE in g:
+        if any(m in g for m in _UNFINISHED_MARKERS):
+            return True
+        if not _names_proof(g):
+            return True
+    return False
 
 
 def newest_manifest() -> pathlib.Path | None:
