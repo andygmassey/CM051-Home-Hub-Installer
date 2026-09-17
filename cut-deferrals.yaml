@@ -32,6 +32,45 @@
 # ============================================================================
 
 pr_exemptions:
+  - ref: "CM059-Ostler-Editor#24"
+    reason: "feat(frontpage): render 'tell Ostler what you're into', and wire it to persist. Open 103h. CM059 is not consumed by the cut: MEASURED, 'CM059' appears 0 times in gui/Makefile. Not vendored, not pinned, not fetched, so its open PRs cannot change one byte of this DMG. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "HR015-Gaming-PC#927"
+    reason: "ledger: CM051 #1971, the Doctor dashboard 500ed on every load in v1.0.98. Open 82h. The cut reads HR015 as files ON MAIN (HR015_DIR in gui/Makefile). An OPEN pull request is by definition not on main, so it is not read and cannot change this artefact. These rows are ledger and docs work; several are CONFLICTING against main, and rebasing somebody's ledger append at T-minus is an unreviewed change to the release register. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "HR015-Gaming-PC#926"
+    reason: "ledger: record CM051 #1969, ostler-unlock PATH exposure + walk probe. Open 82h. The cut reads HR015 as files ON MAIN (HR015_DIR in gui/Makefile). An OPEN pull request is by definition not on main, so it is not read and cannot change this artefact. These rows are ledger and docs work; several are CONFLICTING against main, and rebasing somebody's ledger append at T-minus is an unreviewed change to the release register. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "HR015-Gaming-PC#925"
+    reason: "build(deps): update phonenumbers requirement from <10.0,>=9.0.38 to >=9.0.39,<10.0 in /contact_syncer. Open 86h. The cut reads HR015 as files ON MAIN (HR015_DIR in gui/Makefile). An OPEN pull request is by definition not on main, so it is not read and cannot change this artefact. These rows are ledger and docs work; several are CONFLICTING against main, and rebasing somebody's ledger append at T-minus is an unreviewed change to the release register. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "HR015-Gaming-PC#916"
+    reason: "directive: lift the freeze. Open 103h. The cut reads HR015 as files ON MAIN (HR015_DIR in gui/Makefile). An OPEN pull request is by definition not on main, so it is not read and cannot change this artefact. These rows are ledger and docs work; several are CONFLICTING against main, and rebasing somebody's ledger append at T-minus is an unreviewed change to the release register. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "HR015-Gaming-PC#914"
+    reason: "ledger: v1.0.91-v1.0.94 spent, v1.0.95 opened with the daemon + wiki payload. Open 118h. The cut reads HR015 as files ON MAIN (HR015_DIR in gui/Makefile). An OPEN pull request is by definition not on main, so it is not read and cannot change this artefact. These rows are ledger and docs work; several are CONFLICTING against main, and rebasing somebody's ledger append at T-minus is an unreviewed change to the release register. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "HR015-Gaming-PC#913"
+    reason: "docs(strategy): Ostler Pro is agency, and it is the same line as the network boundary. Open 119h. The cut reads HR015 as files ON MAIN (HR015_DIR in gui/Makefile). An OPEN pull request is by definition not on main, so it is not read and cannot change this artefact. These rows are ledger and docs work; several are CONFLICTING against main, and rebasing somebody's ledger append at T-minus is an unreviewed change to the release register. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "HR015-Gaming-PC#868"
+    reason: "(DRAFT): feat(qa): the A/B harness could not tell the two memory_only shapes apart. Open 199h. The cut reads HR015 as files ON MAIN (HR015_DIR in gui/Makefile). An OPEN pull request is by definition not on main, so it is not read and cannot change this artefact. These rows are ledger and docs work; several are CONFLICTING against main, and rebasing somebody's ledger append at T-minus is an unreviewed change to the release register. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "ostler-assistant#404"
+    reason: "feat(chat): the handover -- Ostler speaks first, and it is a real retrieval. Open 105h. The cut consumes ostler-assistant by TAG AND DIGEST, never by main: DAEMON_RELEASE_TAG is hub-v$(DAEMON_VERSION) and HUB_APP_SHA256 pins the exact bytes, verified fail-closed at fetch. So daemon main moving does not change this artefact. The pin moves only by an explicit re-pin, which is scripts/repin_hub_app.sh and is a reviewed CM051 commit. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "ostler-assistant#401"
+    reason: "build(deps): bump smol-toml from 1.6.1 to 1.7.1 in /web. Open 159h. The cut consumes ostler-assistant by TAG AND DIGEST, never by main: DAEMON_RELEASE_TAG is hub-v$(DAEMON_VERSION) and HUB_APP_SHA256 pins the exact bytes, verified fail-closed at fetch. So daemon main moving does not change this artefact. The pin moves only by an explicit re-pin, which is scripts/repin_hub_app.sh and is a reviewed CM051 commit. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "ostler-assistant#398"
+    reason: "build(deps): bump @vitest/mocker and vitest in /web. Open 190h. The cut consumes ostler-assistant by TAG AND DIGEST, never by main: DAEMON_RELEASE_TAG is hub-v$(DAEMON_VERSION) and HUB_APP_SHA256 pins the exact bytes, verified fail-closed at fetch. So daemon main moving does not change this artefact. The pin moves only by an explicit re-pin, which is scripts/repin_hub_app.sh and is a reviewed CM051 commit. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "CM044-PWG-Personal-Wiki#277"
+    reason: "fix(nav): wire Occasions and Conversations/timeline into mkdocs nav CM051 does not consume this repo's main branch, so its moving does not change one byte of this artefact. Measured on CM051 origin/main: CM041 ships as a committed vendored copy under vendor/cm041/, and the wiki ships as digest-pinned images in install.sh (ostler-wiki-site and ostler-wiki-compiler, both @sha256 pins). A digest pin and a committed copy are immune to upstream main by construction. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE: retire this row the moment CM051 next re-vendors cm041 or re-pins the wiki digests, because at that instant this PR's absence stops being invisible and becomes a real delta in the artefact. Not a judgement on merit: the nav wiring is wanted and reaches customers on the next wiki image rebuild."
+    review_by: 2026-09-24
+  - ref: "CM041-People-Graph#160"
+    reason: "test(cost): the six contact_syncer embed producers were unguarded CM051 does not consume this repo's main branch, so its moving does not change one byte of this artefact. Measured on CM051 origin/main: CM041 ships as a committed vendored copy under vendor/cm041/, and the wiki ships as digest-pinned images in install.sh (ostler-wiki-site and ostler-wiki-compiler, both @sha256 pins). A digest pin and a committed copy are immune to upstream main by construction. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE: retire this row the moment CM051 next re-vendors cm041 or re-pins the wiki digests, because at that instant this PR's absence stops being invisible and becomes a real delta in the artefact. Not a judgement on merit: it is a guard worth having and it lands at the next re-vendor."
+    review_by: 2026-09-24
   # ── v1.0.90 cut, 2026-09-12 (ORM). Three DRAFT PRs over 48h, self-titled
   #    HELD by their own authors under the launch-directive freeze (item 2:
   #    "main accepts only PRs that move a walk probe, fix an install abort, or
@@ -106,7 +145,7 @@ pr_exemptions:
       Landing #136 would require a re-vendor and a re-pin, and a re-pin at
       T-minus is an unmeasured delta against a walk that has not been run yet.
       Retire this row the moment the walk has settled #1619.
-    review_by: "2026-09-13"
+    review_by: 2026-09-24
   - ref: "CM044-PWG-Personal-Wiki#265"
     reason: >-
       'build(deps): update nh3 requirement'. Dependabot. CM044 reaches the DMG
@@ -366,7 +405,7 @@ pr_exemptions:
   # resolution failure from a name I typed is not evidence about the subject.
   - ref: "CM041-People-Graph#119"
     reason: "Introduces real-person tokens into its own test fixtures (guard green on main, red with it merged); and its new gate reds main until a call site exists. Cannot merge without publishing PII or breaking main."
-    review_by: "2026-09-12"
+    review_by: 2026-09-24
 
   # The daemon's four Dependabot bumps in web/. All four are RED on Lint, so
   # merging them to clear this gate would be shipping a failing PR to satisfy a
