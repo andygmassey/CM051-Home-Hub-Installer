@@ -3243,7 +3243,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8058   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8103   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8112 and :14484, both of which run
+    # Its two top-level arming calls are :8112 and :14525, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3234 above has just deleted
     # that tree and :3238 has just rebound OSTLER_DIR to the final one, so
@@ -3261,13 +3261,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15255, where the note reads
+    # WhatsApp Web session path did it again at :15296, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15272 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15313 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3280,9 +3280,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8112, :14484) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8112, :14525) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17327 / :17505 / :17662 / :18003 path. There the
+    # :17368 / :17546 / :17703 / :18044 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -8621,6 +8621,35 @@ if [[ "$SKIP_PHASE2" == false ]]; then
 
 EXPORTS_DIR=""
 DETECTED_EXPORTS=()
+# ── EVERY DETECTED ROOT, NOT JUST THE FIRST ──────────────────────────
+#
+# CM051 #957. EXPORTS_DIR is assigned five times with ${EXPORTS_DIR:-...},
+# which is FIRST-WRITE-WINS. DETECTED_EXPORTS collects every platform found
+# and is read in exactly three places: a length test, the count printed to
+# the customer, and the display loop. It never reaches the importer.
+#
+# So the install FINDS the exports, TELLS the person how many it found, and
+# then imports only the ones under whichever root happened to be detected
+# first, while the final summary says "GDPR import: Processed from <that one
+# dir>". A customer who keeps their Facebook export in Downloads and their
+# Instagram export on the Desktop gets one of the two, silently.
+#
+# This array carries the same value each of those five sites computes, with
+# no :- guard, so the importer can be given all of them. EXPORTS_DIR keeps
+# its first-write-wins behaviour untouched: it is the value the summary and
+# the step-count logic print, and changing what it means would ripple into
+# both for no gain.
+DETECTED_EXPORT_ROOTS=()
+# CONSENT IS A FACT ABOUT THE PERSON, NOT A SHAPE OF A PATH VARIABLE.
+# The first draft of #957 inferred "they declined" from EXPORTS_DIR being
+# empty at the point of import. Archie traced the actual path: the decline
+# empties EXPORTS_DIR, and the iCloud-contacts block below REFILLS it to
+# ${OSTLER_DIR}/imports whenever icloud-contacts.vcf exists, so by the time
+# the importer is fed, EXPORTS_DIR is non-empty again and the inference is
+# simply false. Its real firing condition had become "this customer has no
+# icloud-contacts.vcf", which has no relationship to consent at all.
+# So the answer is RECORDED here rather than reconstructed later.
+IMPORT_DECLINED=0
 # #619 (2026-06-06): folders the scan could not read (TCC or POSIX
 # permission denied). Recorded so a denied folder is surfaced as an
 # actionable message rather than masquerading as an empty one.
@@ -10284,6 +10313,7 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("LinkedIn: $(dirname "$f")")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$(dirname "$f")")}"
+        DETECTED_EXPORT_ROOTS+=("$(dirname "$(dirname "$f")")")
     done < <(find "$search_dir" -maxdepth 3 -name "Connections.csv" 2>/dev/null || true)
 
     # Facebook: folder containing your_friends.json (2026 export name) or
@@ -10296,12 +10326,14 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("Facebook: $(dirname "$f")")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$(dirname "$f")")}"
+        DETECTED_EXPORT_ROOTS+=("$(dirname "$(dirname "$f")")")
     done < <(find "$search_dir" -maxdepth 5 \( -name "your_friends.json" -o -name "friends.json" \) 2>/dev/null || true)
 
     # Instagram: followers_and_following directory
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("Instagram: $f")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$f")}"
+        DETECTED_EXPORT_ROOTS+=("$(dirname "$f")")
     done < <(find "$search_dir" -maxdepth 3 -type d -name "followers_and_following" 2>/dev/null || true)
 
     # Calendar exports: .ics files, at the depth they are actually shipped.
@@ -10371,6 +10403,7 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("Calendar: $f")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$f")}"
+        DETECTED_EXPORT_ROOTS+=("$(dirname "$f")")
     done < <(find "$search_dir" -maxdepth 6 -xdev \
                   \( -name 'node_modules' -o -name '.git' -o -name '.Trash' \
                      -o -name '*.app' -o -name '*.bundle' -o -name '*.framework' \
@@ -10388,6 +10421,7 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("Twitter/X: $(dirname "$f")")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$(dirname "$f")")}"
+        DETECTED_EXPORT_ROOTS+=("$(dirname "$(dirname "$f")")")
     done < <(find "$search_dir" -maxdepth 4 \( -name "tweets.js" -o -name "tweet.js" \) -path "*/data/*" 2>/dev/null || true)
 
     # Google Takeout zip: takeout-YYYYMMDDTHHMMSSZ-N-NNN.zip
@@ -10425,7 +10459,14 @@ if [[ ${#DETECTED_EXPORTS[@]} -gt 0 ]]; then
     echo ""
     IMPORT_CONFIRM="$(gui_read "$MSG_PROMPT_IMPORT_CONFIRM_TITLE" yesno "" "$MSG_PROMPT_IMPORT_CONFIRM_HELP" "" "import_confirm")"
     if [[ "${IMPORT_CONFIRM:-y}" == "n" || "${IMPORT_CONFIRM:-y}" == "N" ]]; then
+        # THIS IS THE ONLY PLACE THE PERSON SAYS NO, so it is the only place
+        # that can record it. Clearing EXPORTS_DIR alone used to be enough
+        # because it was the only thing the importer was given; #957 added
+        # DETECTED_EXPORT_ROOTS, so a decline that emptied EXPORTS_DIR and
+        # left the roots array full would import everything just refused.
+        IMPORT_DECLINED=1
         EXPORTS_DIR=""
+        DETECTED_EXPORT_ROOTS=()
     fi
 else
     echo ""
@@ -21506,7 +21547,51 @@ chmod +x "$IMPORT_SCRIPT"
 
 _PREFS_DROPZONE="${OSTLER_DIR}/imports/preferences"
 _IMPORT_DIRS=()
+# #957: EVERY detected root, deduplicated, not just the first one.
+# EXPORTS_DIR is first-write-wins by design (the summary prints it), so
+# feeding only that value here imported one root and silently dropped the
+# rest, after telling the customer how many had been found.
+#
+# EXPORTS_DIR is added FIRST so the existing behaviour is a strict subset:
+# if the roots array is ever empty, this line does exactly what it did
+# before. The dedupe is a plain loop rather than sort -u because ORDER
+# matters to the importer and sorting would silently reorder the roots.
+#
+# CX-126 IS HONOURED, NOT RE-OPENED. The three scan roots are ~/Downloads,
+# ~/Desktop and ~/Documents (line 10280), and a LinkedIn or Twitter export
+# unzipped one level below one of them makes dirname-of-dirname the scan
+# root ITSELF. CX-126 measured a multi-minute install stall when such a
+# tree was handed to the importer to rglob, so an EXTRA root equal to a
+# scan root is refused here and SAID OUT LOUD, never dropped in silence.
+# EXPORTS_DIR is exempt from that refusal on purpose: it is added above
+# with its existing value, so this change cannot alter what main already
+# imports. It can only ADD bounded export directories main was dropping.
+#
+# CONSENT, BELT AND BRACES, ON THE RECORDED ANSWER. IMPORT_DECLINED is set
+# at the prompt and nothing else writes it, so this fires on the decline path
+# whatever the iCloud-contacts block has since done to EXPORTS_DIR. An
+# earlier draft tested `EXPORTS_DIR is empty` here instead and was WRONG:
+# that block refills EXPORTS_DIR to ${OSTLER_DIR}/imports when the customer
+# has an icloud-contacts.vcf, so the guard could not fire on the very path
+# it was written for, and the clear at the prompt was carrying it alone.
+# (Caught in review by Archie, before the walk, on the traced path.)
+[[ "${IMPORT_DECLINED:-0}" == "1" ]] && DETECTED_EXPORT_ROOTS=()
 [[ -n "${EXPORTS_DIR:-}" && -d "${EXPORTS_DIR}" ]] && _IMPORT_DIRS+=("$EXPORTS_DIR")
+for _root in "${DETECTED_EXPORT_ROOTS[@]:-}"; do
+    [[ -n "$_root" && -d "$_root" ]] || continue
+    if [[ "$_root" == "${HOME}/Downloads" || "$_root" == "${HOME}/Desktop" \
+          || "$_root" == "${HOME}/Documents" || "$_root" == "${HOME}" ]]; then
+        [[ "$_root" == "${EXPORTS_DIR:-}" ]] || \
+            info "Not importing the whole of ${_root}: an export unpacked straight into it, so only the folders below it are read."  # i18n-exempt
+        continue
+    fi
+    _seen=false
+    for _known in "${_IMPORT_DIRS[@]:-}"; do
+        [[ "$_known" == "$_root" ]] && { _seen=true; break; }
+    done
+    [[ "$_seen" == true ]] || _IMPORT_DIRS+=("$_root")
+done
+unset _root _known _seen
 # CX-126: the install-time detector (line ~3554) now matches the current
 # 2026 export filenames (your_friends.json, tweets.js), so it seeds
 # EXPORTS_DIR to the actual export directory for every platform -- which
