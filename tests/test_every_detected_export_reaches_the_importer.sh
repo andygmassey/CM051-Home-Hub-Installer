@@ -54,10 +54,14 @@ mkdir -p "${HOME_FAKE}/Downloads/Basic_LinkedInDataExport" \
 INFO_LOG="${WORK}/info.log"
 
 # run <block> <exports_dir> [roots...]  -> prints one _IMPORT_DIRS entry per line
+# DECLINED is the recorded answer to the import prompt: set it to 1 in the
+# caller to run a case as though the person said no.
+DECLINED=0
 run() {
     local blk="$1" xd="$2"; shift 2
     : > "$INFO_LOG"
     HOME="$HOME_FAKE" EXPORTS_DIR="$xd" OSTLER_957_INFO="$INFO_LOG" \
+    IMPORT_DECLINED="$DECLINED" \
     /bin/bash -c '
         set -Eeuo pipefail
         info() { printf "%s\n" "$*" >> "$OSTLER_957_INFO"; }
@@ -96,14 +100,26 @@ echo "ARM 5-7: the edges, and the strict-subset guarantee"
 out="$(run "$BLOCK" "$L")"
 [ "$(printf '%s\n' "$out" | grep -c . || true)" -eq 1 ] \
     && ok "(5) CONTROL: an EMPTY roots array does exactly what main did" || no "(5)" "$out"
-# CONSENT. Every detector that fills the roots array also seeds EXPORTS_DIR,
-# so an empty EXPORTS_DIR beside a full roots array has exactly one cause:
-# the person answered no at the import prompt, which empties EXPORTS_DIR.
-# Importing there would read data somebody had just refused.
-out="$(run "$BLOCK" "" "$I")"
-[ "$(printf '%s\n' "$out" | grep -c . || true)" -eq 0 ] \
-    && ok "(6) roots are REFUSED when EXPORTS_DIR is empty, which is the declined case" \
-    || no "(6) a declined import was carried out anyway" "$out"
+# CONSENT, ON THE EXACT BRANCH WHERE THE FIRST DRAFT WAS WRONG. The decline
+# empties EXPORTS_DIR, and install.sh's iCloud-contacts block then REFILLS it
+# to ${OSTLER_DIR}/imports for any customer who has an icloud-contacts.vcf.
+# So at the point of import, a declined install has a NON-EMPTY EXPORTS_DIR,
+# and a guard that tested emptiness could not fire on the path it was written
+# for. This arm runs that branch: declined, EXPORTS_DIR refilled, roots full.
+REFILLED="${HOME_FAKE}/.ostler/imports"; mkdir -p "$REFILLED"
+DECLINED=1
+out="$(run "$BLOCK" "$REFILLED" "$I" "$T")"
+DECLINED=0
+printf '%s\n' "$out" | grep -qx -- "$I" \
+    && no "(6) a DECLINED import was carried out anyway, on the refilled-EXPORTS_DIR branch" "$out" \
+    || ok "(6) a declined import reaches the importer with none of the detected roots"
+[ "$(printf '%s\n' "$out" | grep -c . || true)" -eq 1 ] \
+    && ok "(6b) the refilled EXPORTS_DIR is still passed, exactly as main does it" \
+    || no "(6b) this changed what main does on the declined-with-vcf path" "$out"
+out="$(run "$BLOCK" "$REFILLED" "$I" "$T")"
+[ "$(printf '%s\n' "$out" | grep -c . || true)" -eq 3 ] \
+    && ok "(6c) CONTROL: the SAME inputs NOT declined import all three, so arm 6 measures consent" \
+    || no "(6c) the control case did not import 3, so arm 6 may be passing for another reason" "$out"
 out="$(run "$BLOCK" "$L" "${WORK}/never-existed")"
 printf '%s\n' "$out" | grep -qx -- "${WORK}/never-existed" \
     && no "(7) a NON-EXISTENT root was handed to the importer" "$out" \
@@ -169,6 +185,17 @@ else
     printf '%s\n' "$DECLINE" | grep -qF 'DETECTED_EXPORT_ROOTS=()' \
         && ok "(11) the decline branch empties DETECTED_EXPORT_ROOTS, not only EXPORTS_DIR" \
         || no "(11) the decline empties EXPORTS_DIR and leaves the roots array full" "$DECLINE"
+    printf '%s\n' "$DECLINE" | grep -qF 'IMPORT_DECLINED=1' \
+        && ok "(11a) the decline RECORDS the answer, so nothing downstream has to infer it" \
+        || no "(11a) the answer is not recorded, so a downstream guard must reconstruct it" "$DECLINE"
+    # Recording only beats inferring while the record cannot be forged. Two
+    # writes are legitimate: the 0 that binds it under set -u, and the 1 at
+    # the prompt. A third means something else can answer for the person.
+    W="$(grep -c '^[[:space:]]*IMPORT_DECLINED=' "$INSTALL" || true)"
+    [ "$W" -eq 2 ] \
+        && ok "(11b) IMPORT_DECLINED is written in exactly 2 places: the init and the prompt" \
+        || no "(11b) IMPORT_DECLINED is written in $W places, so the consent record can be overwritten" \
+             "$(grep -n '^[[:space:]]*IMPORT_DECLINED=' "$INSTALL")"
     printf '%s\n' "$DECLINE" | grep -qF 'EXPORTS_DIR=""' \
         && ok "(11-CONTROL) the extracted branch IS the decline: it clears EXPORTS_DIR too" \
         || no "(11-CONTROL) the awk range caught the wrong block, so arm 11 proves nothing" "$DECLINE"

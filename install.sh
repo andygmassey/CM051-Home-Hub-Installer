@@ -3243,7 +3243,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8058   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8103   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8112 and :14484, both of which run
+    # Its two top-level arming calls are :8112 and :14525, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3234 above has just deleted
     # that tree and :3238 has just rebound OSTLER_DIR to the final one, so
@@ -3261,13 +3261,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15255, where the note reads
+    # WhatsApp Web session path did it again at :15296, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15272 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15313 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3280,9 +3280,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8112, :14484) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8112, :14525) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17327 / :17505 / :17662 / :18003 path. There the
+    # :17368 / :17546 / :17703 / :18044 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -8640,6 +8640,16 @@ DETECTED_EXPORTS=()
 # the step-count logic print, and changing what it means would ripple into
 # both for no gain.
 DETECTED_EXPORT_ROOTS=()
+# CONSENT IS A FACT ABOUT THE PERSON, NOT A SHAPE OF A PATH VARIABLE.
+# The first draft of #957 inferred "they declined" from EXPORTS_DIR being
+# empty at the point of import. Archie traced the actual path: the decline
+# empties EXPORTS_DIR, and the iCloud-contacts block below REFILLS it to
+# ${OSTLER_DIR}/imports whenever icloud-contacts.vcf exists, so by the time
+# the importer is fed, EXPORTS_DIR is non-empty again and the inference is
+# simply false. Its real firing condition had become "this customer has no
+# icloud-contacts.vcf", which has no relationship to consent at all.
+# So the answer is RECORDED here rather than reconstructed later.
+IMPORT_DECLINED=0
 # #619 (2026-06-06): folders the scan could not read (TCC or POSIX
 # permission denied). Recorded so a denied folder is surfaced as an
 # actionable message rather than masquerading as an empty one.
@@ -10449,11 +10459,12 @@ if [[ ${#DETECTED_EXPORTS[@]} -gt 0 ]]; then
     echo ""
     IMPORT_CONFIRM="$(gui_read "$MSG_PROMPT_IMPORT_CONFIRM_TITLE" yesno "" "$MSG_PROMPT_IMPORT_CONFIRM_HELP" "" "import_confirm")"
     if [[ "${IMPORT_CONFIRM:-y}" == "n" || "${IMPORT_CONFIRM:-y}" == "N" ]]; then
-        # THIS IS THE ONLY PLACE THE PERSON SAYS NO. Clearing EXPORTS_DIR
-        # alone used to be enough because it was the only thing the importer
-        # was given. #957 added DETECTED_EXPORT_ROOTS, so a decline that
-        # emptied EXPORTS_DIR and left the roots array full would import
-        # everything they just refused. Both are cleared, here, together.
+        # THIS IS THE ONLY PLACE THE PERSON SAYS NO, so it is the only place
+        # that can record it. Clearing EXPORTS_DIR alone used to be enough
+        # because it was the only thing the importer was given; #957 added
+        # DETECTED_EXPORT_ROOTS, so a decline that emptied EXPORTS_DIR and
+        # left the roots array full would import everything just refused.
+        IMPORT_DECLINED=1
         EXPORTS_DIR=""
         DETECTED_EXPORT_ROOTS=()
     fi
@@ -21556,12 +21567,15 @@ _IMPORT_DIRS=()
 # with its existing value, so this change cannot alter what main already
 # imports. It can only ADD bounded export directories main was dropping.
 #
-# CONSENT, BELT AND BRACES. Every detector that fills the roots array also
-# seeds EXPORTS_DIR, so roots-without-EXPORTS_DIR has exactly one cause: the
-# person answered no at the import prompt and EXPORTS_DIR was emptied there.
-# That site now clears the roots too, and this refuses them a second time, so
-# neither edit alone can import data somebody declined.
-[[ -n "${EXPORTS_DIR:-}" ]] || DETECTED_EXPORT_ROOTS=()
+# CONSENT, BELT AND BRACES, ON THE RECORDED ANSWER. IMPORT_DECLINED is set
+# at the prompt and nothing else writes it, so this fires on the decline path
+# whatever the iCloud-contacts block has since done to EXPORTS_DIR. An
+# earlier draft tested `EXPORTS_DIR is empty` here instead and was WRONG:
+# that block refills EXPORTS_DIR to ${OSTLER_DIR}/imports when the customer
+# has an icloud-contacts.vcf, so the guard could not fire on the very path
+# it was written for, and the clear at the prompt was carrying it alone.
+# (Caught in review by Archie, before the walk, on the traced path.)
+[[ "${IMPORT_DECLINED:-0}" == "1" ]] && DETECTED_EXPORT_ROOTS=()
 [[ -n "${EXPORTS_DIR:-}" && -d "${EXPORTS_DIR}" ]] && _IMPORT_DIRS+=("$EXPORTS_DIR")
 for _root in "${DETECTED_EXPORT_ROOTS[@]:-}"; do
     [[ -n "$_root" && -d "$_root" ]] || continue
