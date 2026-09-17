@@ -56,6 +56,12 @@ on:
       - 'scripts/box_walk_probes/probes/pair_state_agreement.sh'
       - 'scripts/box_walk_probes/probes/assistant_answers_grounded.sh'
       - 'scripts/tests/test_grounded_probe_asserts_the_fact.sh'
+      # #1125 / #1597 / #1113: the store map, the unobserved turn, and the
+      # tools-offered discriminator. The sibling probe is listed too because
+      # this test cross-reads its REQUIRED_TOOLS line as the runtime registry,
+      # so an edit there that renamed or narrowed it would be dark otherwise.
+      - 'scripts/tests/test_grounded_probe_names_the_store_and_refuses_a_blind_turn.sh'
+      - 'scripts/box_walk_probes/probes/assistant_prompt_names_every_pwg_tool.sh'
       # The parser grades full_response, the answer, not the chunk draft.
       - 'scripts/tests/test_grounded_probe_grades_the_answer.sh'
       - 'scripts/tests/test_run_box_walk_records_phase1_verdicts.sh'
@@ -564,6 +570,35 @@ jobs:
       - name: the grounded probe grades the answer, not the draft
         if: always()
         run: /bin/bash scripts/tests/test_grounded_probe_grades_the_answer.sh
+
+      # #1125, #1597 and the probe-side half of #1113, all three the same class:
+      # the BLOCKING grounding probe grading something it could not see and
+      # calling the result `grounded`.
+      #
+      #   #1125  any pwg_ tool satisfied the success arm, so pwg_overview -- a
+      #          COUNT of how many preferences the graph holds -- scored 10/10
+      #          grounded on "what are my interests?", identically to the cell
+      #          that called pwg_preferences 10/10.
+      #   #1597  that arm's FALLTHROUGH was `echo "grounded"`. Measured on
+      #          origin/main e0fb21bf: three transcripts with a pwg tool called
+      #          and NO pwg tool_result frame anywhere each read grounded. Zero
+      #          successes observed, reported as the customer's data reached.
+      #   #1113  `no_tool_call` was printed both for a model that held eight
+      #          graph tools and declined them and for one the daemon offered
+      #          none (`tools=` empty in its own telemetry). Two owners, one
+      #          word.
+      #
+      # Seven arms: the probe's own control fires and its declared denominator
+      # is recounted from the file; the pre-fix adjudicator returns grounded on
+      # all four fixtures the fixed one now names or refuses; the fixed one
+      # narrows without reddening the must-misses; the battery's store map is
+      # cross-read against the runtime tool registry in both directions; ten
+      # mutants are each caught; the map scanner REFUSES when blinded and goes
+      # quiet when restored; and the tools-offered discriminator is driven
+      # through the real run_probe with its counter frozen as the mutant.
+      - name: the grounded probe names the store, and refuses a turn it never observed
+        if: always()
+        run: /bin/bash scripts/tests/test_grounded_probe_names_the_store_and_refuses_a_blind_turn.sh
       - name: run_box_walk.sh records phase 1 verdicts for the manifest replay
         if: always()
         run: /bin/bash scripts/tests/test_run_box_walk_records_phase1_verdicts.sh
