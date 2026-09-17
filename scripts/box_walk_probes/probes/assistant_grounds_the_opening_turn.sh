@@ -90,6 +90,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 PROBE_NAME="assistant_grounds_the_opening_turn"
 OPENINGS="${OSTLER_OPENING_TURNS:-10}"
+#: The daemon's plain-socket listener. ostler-assistant binds 127.0.0.1:8000
+#: (and *:8443 for the TLS companion); the client here speaks plain sockets, so
+#: 8000 is the one it can use. Overridable, because a port is exactly the kind
+#: of fact that moves.
+DAEMON_PORT="${OSTLER_DAEMON_PORT:-8000}"
 MIN_OPENINGS=10
 
 EXPECT_FACT="${OSTLER_GATE_EXPECT_FACT:-}"
@@ -376,7 +381,27 @@ PYEOF
 # the whole point of recording both is that the pair can DISAGREE. A probe
 # that derives its independent variable from a table is measuring the table.
 _read_model_tag() {
-    box_run 'cat "$HOME/.ostler/config/ai.env" 2>/dev/null | sed -n "s/^AI_MODEL=//p" | tr -d "\"'"'"'" | head -1'
+    # 🔴 THIS READ THE WRONG FILE AND THAT IS WHY THIS PROBE HAS NEVER RUN.
+    # It read $HOME/.ostler/config/ai.env. Measured on the v1.0.100 box
+    # 2026-09-17: that path does not exist, and nothing in install.sh writes
+    # it -- `grep -c 'ai\.env' install.sh` is 0 against a control of 24 for
+    # 'config/.env'. The installer writes AI_MODEL to $OSTLER_ENV_FILE, set at
+    # install.sh:14170 to "${OSTLER_DIR}/.env", i.e. ~/.ostler/.env, at
+    # install.sh:14265. On the box that file holds AI_MODEL=gemma4:e2b.
+    #
+    # The failure was invisible in the worst way: the probe reported
+    # CANNOT-RUN with a correct-sounding reason ("could not read AI_MODEL from
+    # the live config"), which reads as a box that has not been configured
+    # rather than a probe looking in the wrong place. TNM's decider has never
+    # produced a number because of this line.
+    #
+    # Both paths are read, most-likely first, and the one that answered is
+    # reported, so a future move shows up as a changed provenance string
+    # instead of a silent CANNOT-RUN.
+    box_run 'for f in "$HOME/.ostler/.env" "$HOME/.ostler/config/.env" "$HOME/.ostler/config/ai.env"; do
+                 v=$(sed -n "s/^AI_MODEL=//p" "$f" 2>/dev/null | tr -d "\"'"'"'" | head -1)
+                 if [ -n "$v" ]; then printf "%s\t%s\n" "$v" "$f"; exit 0; fi
+             done'
 }
 _read_ram_gb() {
     box_run 'if [ "$(uname)" = "Darwin" ]; then echo $(( $(sysctl -n hw.memsize) / 1073741824 )); else awk "/MemTotal/{print int(\$2/1048576)}" /proc/meminfo; fi'
@@ -394,9 +419,53 @@ _read_ram_gb() {
 # state, nothing about the model was learned). Unreadable -> CANNOT-RUN, and
 # NOT "absent", because "could not look" and "found nothing" print identically
 # and only one of them is evidence.
+# 🔴 THIS ASKED AN ENDPOINT THAT DOES NOT EXIST, ON THE WRONG PORT, WITHOUT A
+# CREDENTIAL. Three faults in one line, and every one of them produced the same
+# empty string, which the caller then read as "the person is not in memory".
+#
+# Measured on the v1.0.100 box 2026-09-17:
+#   GET :8000/api/v1/memory/search?q=Jane%20Doe   -> 404 {"error":"unknown endpoint"}
+#     ...and 404 WITH a valid service token too, so it was never an auth problem
+#   GET :8090/api/v1/people/context?name=Jane%20Doe -> 200 {"found": true, ...}
+#
+# The seed oracle that plants the person has always used :8090 and
+# /api/v1/people/context -- it says so in its own output ("seed: people-API
+# http://127.0.0.1:8090") -- and this probe asked somewhere else entirely.
+#
+# `curl -fsS` is what made it silent: -f turns any HTTP error into a non-zero
+# exit and NO BODY, so a 404 and a genuinely empty memory are the same empty
+# string here. That is the #945 shape exactly, in the instrument rather than in
+# the product: a reader that cannot tell "refused" from "nothing there".
+#
+# So: right port, right path, credential presented, and the HTTP CODE is
+# returned alongside the body so the caller can tell the three apart.
 _memory_mentions_person() {
-    box_run "curl -fsS --max-time 10 'http://127.0.0.1:8000/api/v1/memory/search?q=$(printf '%s' "$KNOWN_PERSON" | sed 's/ /%20/g')' 2>/dev/null"
+    box_run "TOK=\$(cat \"\$HOME/.ostler/secrets/service_token\" 2>/dev/null); \
+             curl -sS --max-time 10 -w '\\nHTTP_CODE=%{http_code}' \
+                  -H \"Authorization: Bearer \$TOK\" \
+                  'http://127.0.0.1:8090/api/v1/people/context?name=$(printf '%s' "$KNOWN_PERSON" | sed 's/ /%20/g')' 2>/dev/null"
 }
+
+# The assistant's OWN memory, which is NOT the people API. install.sh's reset
+# path names it directly -- "assistant-config (memory/brain.db, the poisoned
+# count rows that made grounded measure history)" -- so that is the file to
+# ask. Prints a COUNT, or nothing at all when it could not look, and the caller
+# keeps those two apart.
+_assistant_conv_memory_hits() {
+    box_run "db=\"\$HOME/.ostler/assistant-config/memory/brain.db\"; \
+             [ -r \"\$db\" ] || db=\"\$HOME/.ostler/assistant-config/brain.db\"; \
+             if [ -r \"\$db\" ]; then \
+                 strings -a \"\$db\" 2>/dev/null | grep -c -i -- '${KNOWN_PERSON}'; \
+             elif [ -d \"\$HOME/.ostler/assistant-config\" ]; then \
+                 grep -rc -i -- '${KNOWN_PERSON}' \"\$HOME/.ostler/assistant-config\" 2>/dev/null | awk -F: '{t+=\$2} END{print t+0}'; \
+             fi"
+}
+
+# Wrap a value in single quotes for a command sent over ssh, escaping any
+# embedded single quote. The seeded question ends in '?', which the remote
+# shell (zsh on a real walk box) GLOBS if it arrives bare -- "no matches found"
+# and the command never runs.
+_shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 
 probe_main() {
     [ -n "$KNOWN_PERSON" ] || { probe_cannot_run "OSTLER_GATE_KNOWN_PERSON is unset -- the seed oracle did not run, so there is no seeded person to ask about. Nothing was measured."; return; }
@@ -409,7 +478,9 @@ probe_main() {
         probe_cannot_run "could not read AI_MODEL from the live config on the box. The model is the INDEPENDENT VARIABLE of this experiment; without it the run answers nothing and must not be attributed to a model later. NOT INSTRUMENTED, not 'unknown model'."
         return
     fi
-    probe_note "model_tag=${MODEL_TAG} (read from the live config, NOT inferred from the fit table)"
+    MODEL_TAG_SRC="${MODEL_TAG#*$(printf '\t')}"
+    MODEL_TAG="${MODEL_TAG%%$(printf '\t')*}"
+    probe_note "model_tag=${MODEL_TAG} (read from ${MODEL_TAG_SRC:-unknown}, NOT inferred from the fit table)"
     probe_note "ram_gb=${RAM_GB:-unread}"
 
     # The fit-table cross-check. A DISAGREEMENT is reported and does not stop
@@ -419,16 +490,79 @@ probe_main() {
     fi
 
     _mem="$(_memory_mentions_person)"
+    _mem_code="$(printf '%s' "$_mem" | sed -n 's/^HTTP_CODE=//p' | tail -1)"
+    # A non-200 is CANNOT-RUN and names the code. It is NOT "the person is
+    # absent": that conflation is the defect this function was just fixed for.
+    if [ -n "$_mem_code" ] && [ "$_mem_code" != "200" ]; then
+        probe_cannot_run "the people API answered http=${_mem_code} for '${KNOWN_PERSON}', so precondition 1 is UNESTABLISHED. That is a refusal or a wrong route, NOT evidence that the person is missing from memory."
+        return
+    fi
     if [ -z "$_mem" ]; then
         probe_cannot_run "could not read daemon memory for the seeded person, so precondition 1 is UNESTABLISHED. 'Could not look' is not 'absent', and an opening turn run against unknown memory state is exactly the confound that voided the previous result."
         return
     fi
+    # 🔴 PRECONDITION 1 WAS INVERTED IN EFFECT, AND IT IS WHY THIS PROBE HAS
+    # NEVER PRODUCED A NUMBER.
+    #
+    # Its stated intent, from the header: "the daemon could answer from memory
+    # of a PREVIOUS RUN and never call a tool". That is the assistant's own
+    # CONVERSATIONAL memory. The check read /api/v1/people/context instead --
+    # which is the PEOPLE STORE, i.e. the data source the tool reads.
+    #
+    # So the probe refused whenever the seeded person was present in the very
+    # store the experiment requires to be populated. Measured 2026-09-17: the
+    # seed plants Jane Doe, people/context then returns 3 matches, and the
+    # probe reported CANNOT-RUN "the daemon ALREADY remembers Jane Doe". The
+    # seed and the precondition were fighting each other, and the precondition
+    # always won.
+    #
+    # The two are now checked SEPARATELY and in opposite directions:
+    #   1a. the person MUST be in the people store, or the tool has nothing to
+    #       find and an ungrounded answer proves nothing about the model
+    #   1b. the person must NOT be in the assistant's conversational memory,
+    #       which is the actual confound the header describes
     _hits="$(printf '%s' "$_mem" | grep -c -i -- "$KNOWN_PERSON")"
-    if [ "$_hits" -gt 0 ]; then
-        probe_cannot_run "the daemon ALREADY remembers ${KNOWN_PERSON} (${_hits} match(es) before the first question). It can answer from memory without calling a tool, which renders as a grounded pass. The box needs a fresh install for this measurement. Nothing about the model was learned."
+    if [ "$_hits" -eq 0 ]; then
+        probe_cannot_run "the people store does NOT hold ${KNOWN_PERSON}, so the tool has nothing to find. An ungrounded reply would then be a missing seed and not a model result. Re-run the seed oracle first."
         return
     fi
-    probe_note "precondition 1 OK: the seeded person is absent from daemon memory before the first question"
+    probe_note "precondition 1a OK: the people store holds ${KNOWN_PERSON} (${_hits} match(es)), so the tool has something to find"
+
+    # 1b: the assistant's OWN memory, which is a different store from the
+    # people API. Absence here is what the experiment needs. An unreadable
+    # memory is CANNOT-RUN, never a pass: "could not look" is not "absent".
+    _conv="$(_assistant_conv_memory_hits)"
+    if [ -z "$_conv" ]; then
+        probe_cannot_run "could not read the assistant's conversational memory, so precondition 1b is UNESTABLISHED. Not instrumented, and NOT 'no prior memory'."
+        return
+    fi
+    # 1b IS A RECORDED CAVEAT, NOT A REFUSAL, AND THE DIRECTION OF THE BIAS IS
+    # WHY.
+    #
+    # The header's fear was that prior memory "renders as a grounded pass".
+    # Read against the scoring below, it cannot. `_grounded` is reached only
+    # when the tool was CALLED, the tool returned the fact, AND the reply
+    # carries it. An answer produced from memory with no tool call takes the
+    # first branch and is counted `no_tool_call`, which is a FAILURE -- and
+    # no_tool_call is the precise shape this experiment exists to measure.
+    #
+    # So prior memory biases the result PESSIMISTICALLY. It can cost the model
+    # a grounded opening; it cannot buy it one. A pessimistic bias is safe to
+    # run under and unsafe to hide, so it is recorded on every result instead
+    # of stopping the run.
+    #
+    # It also cannot be designed away here: the ONLY seed route is
+    # POST /api/v1/memory/assert, which writes the daemon's memory by
+    # definition. A hard refusal therefore made the experiment unrunnable on
+    # any box where the seed had worked, which is every box. Measured
+    # 2026-09-17: people store 3 matches (needed), conversational memory 10
+    # hits (unavoidable), and the probe refused.
+    if [ "$_conv" != "0" ]; then
+        MEMORY_CAVEAT="the assistant's conversational memory already mentions ${KNOWN_PERSON} (${_conv} hit(s)) before the first question. The ONLY seed route is POST /api/v1/memory/assert, so this is unavoidable with the current oracle. It biases the result AGAINST the model -- a memory answer with no tool call scores no_tool_call, a failure -- and can never inflate the grounded count."
+        probe_note "precondition 1b CAVEAT: ${MEMORY_CAVEAT}"
+    else
+        probe_note "precondition 1b OK: ${KNOWN_PERSON} is absent from the assistant's conversational memory before the first question"
+    fi
 
     # ── THE BATTERY: N fresh sessions, the seeded question FIRST in each ─────
     _grounded=0; _no_tool=0; _tool_no_fact=0; _reply_no_fact=0; _incomplete=0; _done=0
@@ -456,10 +590,49 @@ probe_main() {
         else
             _thermal="COLD"
         fi
-        _out="$(box_run "printf '%s' '${_client}' | base64 -d | OSTLER_SESSION='${_sess}' OSTLER_Q='${SEEDED_QUESTION}' OSTLER_EXPECT='${EXPECT_FACT}' python3 - 2>/dev/null")"
-        if [ -z "$_out" ]; then
+        # 🔴 TWO FAULTS ON THIS LINE, AND TOGETHER THEY MADE EVERY OPENING READ
+        # AS A TRANSPORT FAILURE.
+        #
+        # 1. NO PORT WAS PASSED. The client's first statement is
+        #       host, port = "127.0.0.1", int(sys.argv[1])
+        #    and this invoked it as `python3 -` with no argv[1] at all, so it
+        #    died on IndexError before opening a socket. Measured 2026-09-17:
+        #    10 of 10 openings reported "NO FRAMES (transport...)".
+        #
+        # 2. `2>/dev/null` HID THAT. The client prints PROBE_FATAL on stderr
+        #    precisely so a transport failure is legible, and this threw it
+        #    away, leaving an empty stdout that is indistinguishable from a
+        #    daemon that answered nothing. That is this repo's own rule --
+        #    never manufacture a clean input, read stderr -- broken in the
+        #    instrument written to enforce it.
+        #
+        # stderr is now MERGED, not discarded, so a fatal is visible in the
+        # note rather than inferred from silence.
+        # 🔴 THE PROBE AND ITS OWN EMBEDDED CLIENT DISAGREED ABOUT THE INTERFACE.
+        # The client's signature, read from the source rather than assumed:
+        #     argv[1] port   argv[2] token_path   argv[3] question
+        #     argv[4] deadline_s   argv[5] expect_fact (optional)
+        # and the ONLY environment variable it consults is
+        # OSTLER_GROUNDED_FRAMES, the fixture switch. This line passed
+        # OSTLER_SESSION, OSTLER_Q and OSTLER_EXPECT -- none of which the client
+        # reads -- and no positional arguments at all. So it died on
+        # `sys.argv[2]` every single time, before opening a socket.
+        #
+        # Measured 2026-09-17 by running the extracted client by hand on the
+        # box, which is the only reason the real traceback was ever seen:
+        #     File "/tmp/wsclient.py", line 52
+        #       token_path, question, deadline_s = sys.argv[2], sys.argv[3], ...
+        #     IndexError: list index out of range
+        #
+        # NOTE ON THE SESSION. The client takes no session argument, so a
+        # "fresh session per opening" cannot be requested through it. That is
+        # recorded in the verdict rather than quietly assumed, because
+        # precondition 4 depends on it.
+        _out="$(box_run "printf '%s' '${_client}' | base64 -d | python3 - ${DAEMON_PORT} \"\$HOME/.ostler/secrets/zeroclaw_admin_token\" $(_shq "$SEEDED_QUESTION") 120 $(_shq "$EXPECT_FACT") 2>&1")"
+        if [ -z "$_out" ] || printf '%s' "$_out" | grep -q '^PROBE_FATAL\|Traceback'; then
             _incomplete=$((_incomplete + 1))
-            probe_note "opening ${_i}: NO FRAMES (transport, not a model result) -- excluded from the denominator"
+            _why="$(printf '%s' "$_out" | grep -m1 '^PROBE_FATAL\|Error' | head -c 160)"
+            probe_note "opening ${_i}: NO FRAMES (transport, not a model result) -- excluded from the denominator. ${_why:-client produced no output at all}"
             continue
         fi
         _done=$((_done + 1))
@@ -495,6 +668,7 @@ probe_main() {
     # populations is not a number anyone can act on: they differ by an order of
     # magnitude, so the blend just tells you the mix, not the machine.
     _mean() { [ -z "$1" ] && { printf 'NOT-MEASURED'; return; }; printf '%s' "$1" | tr ' ' '\n' | grep -v '^$' | awk '{s+=$1;n++} END{ if(n>0) printf "%.3f (n=%d)", s/n, n; else printf "NOT-MEASURED" }'; }
+    probe_note "MEMORY CAVEAT: ${MEMORY_CAVEAT:-none -- conversational memory was clean}"
     probe_note "TTFT COLD: $(_mean "$_cold_ttft")   TTFT WARM: $(_mean "$_warm_ttft")   unknown-thermal openings: ${_unk_n} (excluded from BOTH)"
     probe_examined "$_done"
     probe_note "model_tag=${MODEL_TAG} ram_gb=${RAM_GB:-unread} openings_completed=${_done} grounded=${_grounded} no_tool_call=${_no_tool} tool_found_nothing=${_tool_no_fact} fact_missing_in_reply=${_reply_no_fact} transport_excluded=${_incomplete}"
