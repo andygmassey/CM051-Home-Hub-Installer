@@ -36,7 +36,6 @@ test_a_failed_walk_must_not_exit_zero.sh	WIRED	.github/workflows/cold-box-source
 test_a_failing_probes_early_output_is_not_discarded.py	WIRED	.github/workflows/cut-manifest.yml
 test_a_file_we_could_not_read_is_not_a_clean_file.py	WIRED	.github/workflows/cut-manifest.yml
 test_a_forget_must_reach_every_named_graph.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
-test_forget_does_not_claim_an_erasure_it_did_not_do.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
 test_a_gate_that_cannot_look_says_97.sh	WIRED	.github/workflows/cut-manifest.yml
 test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_a_gui_uninstall_needs_its_decoder_cases.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
@@ -260,6 +259,7 @@ test_fda_rerun_agent_loads_after_its_binary.sh	WIRED	.github/workflows/cold-box-
 test_fda_rerun_ingests.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_fda_rerun_recurs.sh	WIRED	.github/workflows/fda-rerun-recurs.yml
 test_final_summary_nounset_safe.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_forget_does_not_claim_an_erasure_it_did_not_do.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
 test_frontpage_tick_emits_interest_profile.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_gateway_conversations_reach_the_store.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_gdpr_export_detect.sh	WIRED	.github/workflows/gdpr-export-detect.yml
