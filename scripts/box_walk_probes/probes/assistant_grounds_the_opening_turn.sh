@@ -226,7 +226,73 @@ else:
       if n == 126:   n = struct.unpack("!H", rd(2))[0]
       elif n == 127: n = struct.unpack("!Q", rd(8))[0]
       return op, rd(n)
+# 🔴 THE CONNECT FRAME IS NOT OPTIONAL FOR THIS EXPERIMENT, AND OMITTING IT
+# MADE THIS PROBE MEASURE THE WRONG CODE PATH ENTIRELY.
+#
+# ws.rs:420-457 accepts an optional {"type":"connect",...} first frame. If the
+# first frame is a plain {"type":"message"} instead, it is stashed as
+# first_msg_fallback and processed IMMEDIATELY -- the backward-compatible path
+# -- which runs BEFORE the #404 handover block at ws.rs:542 and consumes the
+# opening turn. So a client that opens with the question never gets a handover
+# and always reports no_tool_call.
+#
+# Measured 2026-09-17, same box, same daemon, twenty minutes apart:
+#   first frame {"type":"message"}  -> 10/10 no_tool_call, no handover_begin
+#   first frame {"type":"connect"}  -> handover_begin, then pwg_overview and
+#                                      pwg_commitments called with real data
+#
+# I filed a daemon issue saying #404 never ran, on the strength of the first
+# reading. It was my handshake. The issue is retracted. The real app sends
+# connect, so THIS is the path a customer takes and the one the experiment must
+# use.
+send(json.dumps({"type": "connect",
+                 "session_id": os.environ.get("OSTLER_SESSION") or ("openingturn-%d" % time.time()),
+                 "device_name": "walk-probe",
+                 "capabilities": []}))
+
+# 🔴 AND THE QUESTION MUST WAIT FOR THE HANDOVER TO FINISH.
+#
+# Sending connect makes the daemon run the #404 handover as the FIRST turn: it
+# asks its own opening question ("what should I know right now?"), calls
+# pwg_overview and pwg_commitments, and emits its own done frame. If the seeded
+# question is fired immediately after connect, the frames this parser grades
+# belong to the HANDOVER, not to the question -- and the handover never asks
+# about the seeded person, so every opening scored tool_found_nothing on
+# pwg_overview. Measured 2026-09-17: 3 of 3 that way, with tool=pwg_overview
+# every time, which is the handover's tool and not an answer to anything asked.
+#
+# That is the second time this handshake has made the probe measure the wrong
+# turn, in the opposite direction from the first. So the sequence is stated
+# explicitly and is what a customer actually experiences:
+#   1. app connects
+#   2. the handover briefs them            <- drained here, NOT graded
+#   3. the customer asks something         <- this is what the battery grades
+#
+# The drain is BOUNDED and its outcome is reported. A handover that never
+# finishes is a finding, not a reason to grade its frames as the answer.
+_ho_frames = 0
+_ho_done = False
+_ho_deadline = time.time() + 180
+while time.time() < _ho_deadline:
+    try:
+        _op, _pay = frame()
+    except Exception:
+        break
+    if _op == 8:
+        break
+    try:
+        _ev = json.loads(_pay)
+    except Exception:
+        continue
+    _ho_frames += 1
+    _t = _ev.get("type", "")
+    if _t == "done":
+        _ho_done = True
+        break
+print("FRAME handover_drained %s frames=%d" % ("OK" if _ho_done else "TIMEOUT", _ho_frames))
+
 send(json.dumps({"type": "message", "content": question}))
+_t_sent = time.time()
 # Emit ONLY frame types and tool outcomes. Never the answer prose: it is the
 # operator's personal data and this transcript lands in support bundles. The
 # prose is ACCUMULATED here only so the seeded turn can answer one yes/no
