@@ -1780,6 +1780,38 @@ def _queue_wiki_recompile(slug):
         return False
 
 
+def _forget_audit_has(slug):
+    """Has this slug been forgotten before?
+
+    True  -- an audit line for this slug exists, so a previous forget ran
+    False -- the log is readable and holds no line for this slug
+    None  -- the log could not be read, so the question is UNANSWERED
+
+    Three states and not two, deliberately. The caller uses this to decide
+    whether "no matching person" means "already erased" or "never found",
+    and an unreadable log must not be allowed to produce the reassuring
+    answer. See the branch in api_people_forget.
+
+    The writer is _queue_wiki_recompile, a few lines above: it appends
+    ``<utc> forget <slug>`` on every call. Reader and writer are kept
+    adjacent on purpose.
+    """
+    try:
+        audit = _RECOMPILE_QUEUE_DIR / "forget_audit.log"
+        if not audit.exists():
+            # An absent log on a Mac that has never forgotten anyone is a
+            # readable "no", not an error.
+            return False
+        needle = " forget " + slug
+        with audit.open("r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if line.rstrip("\n").endswith(needle):
+                    return True
+        return False
+    except OSError:
+        return None
+
+
 def api_people_forget(slug):
     """Handle POST /api/v1/people/{slug}/forget.
 
@@ -1831,12 +1863,76 @@ def api_people_forget(slug):
             break
 
     if person_uri is None:
-        # No matching person. Idempotent: treat as already-forgotten +
-        # still queue a wiki recompile in case a stale page exists.
+        # ── "I COULD NOT FIND THEM" IS NOT "I ALREADY ERASED THEM" ──
+        #
+        # This branch used to return already_forgotten=True for EVERY
+        # unresolved slug, and the docstring above says why it was written
+        # that way: idempotency, so a second call is benign for the iOS
+        # client. The reasoning is right and the implementation could not
+        # tell the two cases apart, because BOTH produce "no matching
+        # person":
+        #
+        #   a SECOND call, after we really did erase them   -> benign
+        #   a FIRST call whose lookup could not resolve the
+        #     person at all                                 -> NOT benign
+        #
+        # MEASURED ON THE WALK BOX 2026-09-18. A person present in the
+        # graph with five triples, asked to be forgotten, got HTTP 200 and
+        #
+        #   {"forgotten": false, "already_forgotten": true,
+        #    "stores_purged": []}
+        #
+        # and all five triples were still there afterwards. The customer is
+        # told the erasure happened. It did not. That is the same shape as
+        # CM051 #960 -- a deletion request the product ACCEPTS AND DOES NOT
+        # HONOUR -- surviving in the reporting after the SPARQL half was
+        # fixed.
+        #
+        # THE DISCRIMINATOR ALREADY EXISTED AND NOTHING READ IT.
+        # _queue_wiki_recompile appends one audit line per slug to
+        # forget_audit.log on every forget. So a slug that has been
+        # forgotten before HAS a line, and one that has not does not. That
+        # is precisely the fact this branch needed and never consulted.
+        #
+        # An unreadable audit log does NOT become a benign answer. It
+        # becomes "unknown", because a reader that cannot see the evidence
+        # must not rule in the reassuring direction.
+        #
+        # 🔴 THE STATUS CODE STAYS 200 AND THAT IS A DELIBERATE CHOICE, NOT
+        # AN OVERSIGHT. 404 is the more honest transport answer and it is
+        # also a CONTRACT CHANGE to a client that is already in customers'
+        # hands: the iOS Companion's ForgetPersonService was written against
+        # this endpoint returning 200 for both cases, and it cannot be
+        # re-tested from here tonight. Changing the transport could turn a
+        # wrong message into a broken screen.
+        #
+        # The BODY is what lied, so the body is what changes. A client that
+        # reads `forgotten` or `already_forgotten` now sees neither is true
+        # and can say so; one that only checks the HTTP code behaves exactly
+        # as it did yesterday. When the iOS side can be exercised, 404 is
+        # the right end state and this comment is the note to whoever does it.
+        prior = _forget_audit_has(slug)
         queued = _queue_wiki_recompile(slug)
+        if prior is True:
+            return {
+                "forgotten": False,
+                "already_forgotten": True,
+                "wiki_recompile_queued": queued,
+                "stores_purged": [],
+            }, 200
         return {
             "forgotten": False,
-            "already_forgotten": True,
+            "already_forgotten": False,
+            "not_found": True,
+            "audit_readable": prior is not None,
+            "reason": (
+                "no person matching this slug could be found, and there is no "
+                "record of them having been forgotten before"
+                if prior is False else
+                "no person matching this slug could be found, and the forget "
+                "audit log could not be read, so whether they were forgotten "
+                "earlier is unknown"
+            ),
             "wiki_recompile_queued": queued,
             "stores_purged": [],
         }, 200
