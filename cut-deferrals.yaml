@@ -2455,7 +2455,7 @@ deferrals:
       not a resolution on this gate -- only a merge or a deferral is. Deleting the branch
       would clear it and is exactly the delete-to-green habit #1168 refused.
       Clears when the content is on main, or is explicitly rejected in writing.
-    until_cut: "v1.0.49"
+    until_cut: "v1.0.100"
   - ref: "daemon:#282"
     reason: "Open PR predating the 2026-08-06 48h merge rule. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Work it into v1.0.17 via the phased sweep, not by widening a gate."
     until_cut: "v1.0.27"
@@ -2944,9 +2944,33 @@ deferrals:
   - ref: "CM041:#117"
     reason: "docs(normalise): a ONE-WORD docstring correction in identity_resolver/normalise.py. The surname-FIRST limitation note was renamed Chen -> Wang and Yu -> Min but the comparison value was left at the pre-rename word, so it reads 'Wang Wei' vs 'Wang Min' compares 'wei' against 'yu'. Zero runtime effect: the line is inside a docstring, and the swept file and repo contain no other residue of that rename. DEFERRED FOR A REASON, not for convenience. The vendored copy this DMG ships is pinned at dcfb7a3e and cut-freshness is currently GREEN on it. Merging #117 to CM041 main would put the pin behind upstream and force a re-pin of a SHIPPED ingest tree to correct one word of documentation, discarding a verified freshness state. I opened this PR myself at 09:0x today while reviewing the #564 re-pin that carried the typo downstream; the gate catching it within the hour is the gate working. It reaches the artefact at the next re-pin, with the rest of the cm041 batch."
     until_cut: "v1.0.20 -- arrives with the next cm041 re-pin, no separate action needed"
+  - ref: "CM051:fix/import-every-detected-export"
+    reason: >-
+      REAL FIX, REAL DEFECT, AND ZERO CI. One commit (8a31a5e6, 2026-09-16),
+      82 added / 1 removed, install.sh only, and no PR was ever opened for it so
+      not a single check has run on it. The defect it fixes is genuine and
+      customer-visible: seven detector arms each ran EXPORTS_DIR="${EXPORTS_DIR:-...}",
+      and ":-" means the FIRST detected export wins, so a customer with Facebook
+      and Google and LinkedIn exports on disk gets one imported and the rest
+      silently ignored. It replaces that with an EXPORT_ROOTS array plus
+      candidate and skipped counters.
+      NOT MERGED FOR THIS CUT, on risk rather than merit, and the risk is
+      measured rather than felt. It is unreviewed code in the installer export
+      detection path, landing minutes before a tag that is finally reaching the
+      signing stage, and it carries an instance of the exact class this repo
+      ratchets against: "find ... | grep -q ." inside an if, in a file that sets
+      pipefail 41 times. A short-circuiting consumer SIGPIPEs its producer and
+      pipefail takes the worst status, so the condition can report the producer
+      failing rather than the match succeeding. install.sh already carries 21
+      baselined instances; adding a 22nd uncounted one during a cut is the wrong
+      direction.
+      TO RETIRE: open the PR, fix the grep -q to the grep -c form that must read
+      to EOF, let the ratchet and the full suite run on it, and land it in
+      v1.0.100. The fix is wanted. It has simply never been checked.
+    until_cut: "v1.0.100"
   - ref: "CM051:fix/v1018-d031-stderr-tail"
     reason: "v1018-D032, the dispatch stderr TAIL fix. Two genuinely unmerged commits (80ce018, ca65a11) confirmed by patch-id; the third on the branch, 5e4aa7e for D021, is already in main. PR #542 was CLOSED without merging, so this is real abandoned work and the gate is right to name it. DO NOT MERGE THIS BRANCH. Measured 2026-08-11: a two-dot diff against main is 66 files, 91 insertions, 8885 DELETIONS -- the branch predates a large amount of main and merging it would revert repair_placeholder_names.py (378 lines), gut pwg_ingest.py (252), processor.py (180) and enrichment_validation.py (155). A three-dot diff shows a plausible-looking 643 insertions and hides all of that, which is exactly how this would have been merged by mistake. The fix itself is good and wanted: it is logging-only, it changes the failure path of four vendor pipelines to keep the last 2000 chars of a child's stderr instead of the first 500, and it addresses the diagnosis failure behind the open 14.5h CM048 hang. It must be RE-CUT as a fresh branch off current main, not merged from here. Deferred for this cut on risk, not merit: landing new code in four shipped ingest pipelines during the cut that is finally reaching the signing stage is not a trade worth making for failure-path logging."
-    until_cut: "v1.0.27 -- re-cut off main first, the existing branch must be deleted not merged"
+    until_cut: "v1.0.100 -- re-cut off main first, the existing branch must be deleted not merged"
 
 
   # =========================================================================

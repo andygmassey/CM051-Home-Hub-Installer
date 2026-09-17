@@ -2,10 +2,17 @@
 
 **Hand-built 2026-09-16, CM051 #1974. Location and shape only, never content.**
 
-Three vendored trees were edited by that PR. For each one, the proper record is
-its `divergence_patch`, and for each one the regeneration tool was RUN and
-could not produce it here. This file is the missing half, written by hand,
-following the pattern already set by `cm041_contact_syncer.UNRECORDED.md`.
+Three vendored trees were edited by that PR, and this file has since been
+extended in place by later PRs that hit the same refusals. For each one, the
+proper record is its `divergence_patch`, and for each one the regeneration tool
+was RUN and could not produce it here. This file is the missing half, written
+by hand, following the pattern already set by
+`cm041_contact_syncer.UNRECORDED.md`.
+
+Each later entry states when it was added and re-states the refusal it was
+measured against. Inheriting an earlier PR's refusal without re-running the
+tool would be the same thing as inheriting an ack: a debt with nobody's name
+on it.
 
 It is a record, not an instrument. Nothing reads it and it cannot be applied.
 Its whole job is to stop the next `sync_vendor.sh` deleting these edits without
@@ -80,6 +87,38 @@ handler and no storage call changed.
 
 Shape: +1 constant and 1 changed return, in each of two sibling files.
 `import_evernote.py` is NOT touched: it already returned this collection.
+
+### `vendor/doctor/agent/web_ui.py` -- the source table covers the FDA extract family (CM051 #1587, 2026-09-16)
+
+Same tree, same reason there is no patch, and the refusal was RE-MEASURED for
+this entry rather than inherited. `scripts/regenerate_divergence_patch.sh
+doctor`, run 2026-09-16 with `HR015` pointed at the local source checkout,
+printed the 43 upstream commits past the pin and then:
+
+    REFUSED: this is a RE-PIN, not a graft to record.
+
+so the advance limb still holds and there is still no patch to write here.
+
+- new module constant `_FDA_EXTRACT_KINDS`, a two-entry dict beside
+  `_SOURCE_KINDS`. It is the CONDITIONAL row register: a name in it joins the
+  table only when its hydrate sentinel exists on disk, because those sources
+  are the ones the customer picks and an unconditional row would show amber
+  "not run yet" for a source somebody declined.
+- `read_source_status()`: builds a local `kinds` dict from `_SOURCE_KINDS` plus
+  any `_FDA_EXTRACT_KINDS` entry whose sentinel is present, and iterates that
+  instead of `_SOURCE_KINDS` directly. Two added lines of loop, one changed
+  iteration target.
+- `render_source_status()`: `_LABEL` and `_COLOUR` each gain `cannot_run` and
+  `timeout`. Both are declared install.sh statuses that had no entry, so the
+  cell fell through to the raw identifier and a customer with Full Disk Access
+  ungranted read the word "cannot_run" in their own panel.
+- `render_source_status()`: the Items cell prints nothing for `cannot_run`,
+  `not_run` and `unreadable`. The cannot-run recorder writes `item_count=0`
+  because the change-detection helper it shares needs a number; printing that
+  0 beside "could not look" is a fabricated count.
+
+Shape: +1 constant, +1 loop in one reader, +4 label/colour entries and +1
+guard in one renderer.
 
 ## What a future sync must preserve
 
