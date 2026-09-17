@@ -55,8 +55,16 @@ Helper contract (the only public surface other pipelines depend on):
 - ``state_dict() -> dict`` -- for the Doctor banner + diagnostics.
 - ``refresh_from_companion(receipt_b64, expires_at_iso) -> None`` --
   writer called when the iOS Companion pushes a fresh receipt.
-- ``activate_first_month_free(purchase_date_iso) -> None`` -- writer
-  called by install.sh.
+- ``activate_first_month_free(purchase_date_iso, licence_tier,
+  licence_tier_state) -> None`` -- writer called by install.sh, which is
+  the only thing on a customer's Mac that ever opens the licence file.
+- ``licence_tier(state=None) -> (tier, state)`` -- what tier the verified
+  licence was issued at, and how confident we are of it. See
+  ``KEY_LICENCE_TIER`` for why those are two values and not one.
+- ``expiry_warning(now=None, state=None) -> dict | None`` -- what the
+  customer should be TOLD about their window, before it closes and after.
+  The clock is a parameter; see the function for why that is not merely
+  a testing convenience.
 - ``expire_check() -> None`` -- periodic state walker.
 
 Per locked memory feedback_subscription_gating_v1 + the 2026-05-27
@@ -97,6 +105,74 @@ SOURCE_DEFAULT = "default"
 # Sticky bit recording that the customer has fully paid for Ostler Pro at
 # least once. Once true it never goes back to false. See _has_ever_paid.
 KEY_HAS_EVER_PAID = "has_ever_paid"
+
+# ---------------------------------------------------------------------------
+# The licence tier (HR015 #928)
+# ---------------------------------------------------------------------------
+#
+# WHAT WAS WRONG. The customer's licence file is Ed25519-signed and verified
+# twice on every install -- once by the GUI (LicenseVerifier.swift) and once by
+# install.sh's own verifier before anything touches the Mac. Neither of them
+# read a tier, because the schema had no tier field, so the Hub had no way to
+# tell a Hub buyer from a Pro subscriber from a beta tester. Nothing downstream
+# could act on a distinction that was never carried.
+#
+# WHAT IS AND IS NOT GATED HERE. Nothing is gated on the tier yet, on purpose.
+# This records it so that it is CARRIED from day one; retrofitting a tier onto
+# licences already in customers' hands is the expensive version of this change,
+# and it is the version we avoid by landing the cheap one now.
+#
+# THE STATE IS AS LOAD-BEARING AS THE VALUE, and they are stored separately for
+# that reason. "We did not check" and "they are on hub" are different facts and
+# the first must never be readable as the second:
+#
+#   unverified  the licence gate did not run (OSTLER_DEV=1,
+#               --allow-unlicensed, or an install that predates this field).
+#               NOTHING is known about this customer's tier.
+#   absent      a verified licence with no tier field. Legacy, issued before
+#               tiers existed, and it bought the Hub.
+#   known       a verified, recognised tier.
+#   unknown     a verified tier this build does not recognise. Stored verbatim
+#               so support can see what the customer actually holds, and so an
+#               older Hub does not erase a newer tier by round-tripping it.
+KEY_LICENCE_TIER = "licence_tier"
+KEY_LICENCE_TIER_STATE = "licence_tier_state"
+
+# The licence's own update_window_expires_at, recorded at install time
+# (HR015 #929). For a BETA licence this is the beta window, and the beta
+# window is the entitlement -- see activate_first_month_free.
+KEY_LICENCE_EXPIRES_AT = "licence_expires_at"
+
+# How long before a window closes the customer is told it is closing.
+#
+# ANDY'S RULE, AND IT IS NOT A NICETY: "They are warned BEFORE it
+# happens, in the product, not after." A tester who discovers their beta
+# ended by noticing that nothing has updated for three days has been
+# told by the absence of the product, which is the worst possible
+# channel. Seven days is long enough to act on and short enough not to
+# become wallpaper.
+#
+# The Doctor rule carries a twin of this number, because the Doctor is a
+# separately vendored tree and cannot import this module. The guard test
+# pins the two equal, the same way test_licence_gate.sh pins install.sh's
+# public key to the Swift one.
+WARN_BEFORE_EXPIRY_DAYS = 7
+
+TIER_HUB = "hub"
+TIER_PRO = "pro"
+TIER_BETA = "beta"
+KNOWN_TIERS = (TIER_HUB, TIER_PRO, TIER_BETA)
+
+TIER_STATE_UNVERIFIED = "unverified"
+TIER_STATE_ABSENT = "absent"
+TIER_STATE_KNOWN = "known"
+TIER_STATE_UNKNOWN = "unknown"
+TIER_STATES = (
+    TIER_STATE_UNVERIFIED,
+    TIER_STATE_ABSENT,
+    TIER_STATE_KNOWN,
+    TIER_STATE_UNKNOWN,
+)
 
 
 def _state_file() -> Path:
@@ -193,6 +269,48 @@ def _write(state: dict) -> None:
 def _iso_now() -> str:
     """Return current UTC time as extended ISO-8601 Zulu."""
     return _now().isoformat().replace("+00:00", "Z")
+
+
+def _carry_tier(new_state: dict, old_state: dict) -> None:
+    """Copy the licence tier from ``old_state`` into ``new_state`` in place.
+
+    Both writers below build a FRESH dict rather than mutating what is on
+    disk, which is the right shape for a status machine and the wrong shape
+    for a fact about the customer that no writer here learns. The tier comes
+    from the licence, and the only thing that reads a licence is install.sh.
+    Without this, the first iOS receipt push after an install would silently
+    erase the tier and the Hub would be back to not knowing.
+    """
+    for key in (KEY_LICENCE_TIER, KEY_LICENCE_TIER_STATE, KEY_LICENCE_EXPIRES_AT):
+        if key in old_state:
+            new_state[key] = old_state.get(key)
+
+
+def licence_tier(state: Optional[dict] = None) -> tuple:
+    """Return ``(tier, state)`` for the installed licence.
+
+    ``tier`` is ``None`` whenever ``state`` is ``unverified``: there is no
+    defensible tier to report when nothing was verified, and returning
+    ``"hub"`` there would be inventing one. Callers that want to GRANT
+    something must branch on the state, not on the tier alone.
+
+    Never raises. An unreadable or absent state file reads as unverified,
+    which is the honest answer rather than the convenient one.
+    """
+    snapshot = _load() if state is None else state
+    if not isinstance(snapshot, dict):
+        return None, TIER_STATE_UNVERIFIED
+    tier_state = snapshot.get(KEY_LICENCE_TIER_STATE)
+    if tier_state not in TIER_STATES:
+        return None, TIER_STATE_UNVERIFIED
+    if tier_state == TIER_STATE_UNVERIFIED:
+        return None, TIER_STATE_UNVERIFIED
+    tier = snapshot.get(KEY_LICENCE_TIER)
+    if not isinstance(tier, str) or not tier:
+        # The state claims a tier was established and the value is missing.
+        # That is a broken record, not a hub customer.
+        return None, TIER_STATE_UNVERIFIED
+    return tier, tier_state
 
 
 def _has_ever_paid(state: dict) -> bool:
@@ -399,6 +517,140 @@ def state_dict() -> dict:
     return _load()
 
 
+# Warning kinds. Two, and they are different events needing different words.
+WARNING_ENDING_SOON = "ending_soon"
+WARNING_ENDED = "ended"
+
+
+def expiry_warning(
+    now: Optional[datetime] = None,
+    state: Optional[dict] = None,
+) -> Optional[dict]:
+    """What should the customer be TOLD about their window, right now?
+
+    Returns ``None`` when there is nothing to say, else a dict carrying
+    ``kind``, ``days_left`` (negative once past), ``expires_at``, ``tier``
+    and ``message``. Never raises. Never writes.
+
+    ANDY'S TWO RULES FOR HR015 #929 LIVE HERE.
+
+    1. EXPIRY DEGRADES TO READ-ONLY, NEVER DESTRUCTIVE. Nothing in this
+       module deletes, truncates or moves a single byte of customer data,
+       and this function is the place that says so in words the customer
+       reads. Every message below states that their data stays. "Paused",
+       never "locked": a lapsed tester keeps everything they have and
+       loses the product WORKING, which is a different sentence and a
+       different feeling. Deleting a tester's life because a date passed
+       is unrecoverable reputationally and we are not going to find out.
+
+    2. THEY ARE WARNED BEFORE IT HAPPENS. ``WARNING_ENDING_SOON`` fires
+       while the customer is still ACTIVE, from
+       ``WARN_BEFORE_EXPIRY_DAYS`` out. ``WARNING_ENDED`` exists so the
+       surfaces that show the first can also explain the second, but it
+       is the consolation prize: a product that only ever prints the
+       second one has told the customer nothing they had not already
+       worked out.
+
+    🔴 THE CLOCK IS INJECTED, AND THAT IS NOT A TESTING CONVENIENCE. A
+    test that reads the wall clock passes today and rots on a date
+    nobody chose -- and a WINDOW is precisely the thing whose tests rot,
+    because the interesting instants are all defined relative to a
+    moment. ``now`` is a parameter, the callers below pass nothing so
+    production gets ``_now()``, and the guard test drives a dozen fixed
+    instants either side of a fixed expiry. There is no environment
+    variable and no module global: a clock the launching process can set
+    is a clock an unpaid install can set to last year.
+
+    WHOSE WINDOW. ``expires_at`` is the state's own window, which for a
+    beta licence IS the beta window (activate_first_month_free puts it
+    there) and for everyone else is the free month or the last receipt.
+    So this one function warns a beta tester about their beta and a
+    subscriber about their subscription, without either case needing to
+    know about the other.
+    """
+    try:
+        now = now or _now()
+        snapshot = _load() if state is None else state
+        if not isinstance(snapshot, dict):
+            return None
+
+        expires = _parse_iso(snapshot.get("expires_at"))
+        if expires is None:
+            # An unreadable or absent window is not a window closing
+            # soon. Saying "your access ends in 0 days" off a date we
+            # could not read would be inventing an event. The gate's own
+            # fail-open / fail-closed asymmetry in _walk already decides
+            # what such a state MEANS; this function only reports.
+            return None
+
+        tier, tier_state = licence_tier(snapshot)
+        # Report the STATE when there is no tier, never a tier we made
+        # up. "unverified" in a message is a fact; "hub" would be a
+        # guess with the same shape as a fact.
+        label = tier if tier else tier_state
+
+        # Whole days, rounded towards the customer. 6.5 days left reads
+        # as 6, not 7: telling someone they have a week when they have
+        # six and a half days is the direction that costs them.
+        seconds_left = (expires - now).total_seconds()
+        days_left = int(seconds_left // 86400)
+
+        if seconds_left > 0:
+            if days_left > WARN_BEFORE_EXPIRY_DAYS:
+                return None
+            if days_left <= 0:
+                when = "today"
+            elif days_left == 1:
+                when = "tomorrow"
+            else:
+                when = "in {n} days".format(n=days_left)
+            return {
+                "kind": WARNING_ENDING_SOON,
+                "days_left": days_left,
+                "expires_at": snapshot.get("expires_at"),
+                "tier": tier,
+                "tier_state": tier_state,
+                "message": (
+                    "Your {label} access ends {when}. Ongoing intelligence "
+                    "will pause after that. Everything already in your Hub "
+                    "stays exactly where it is and stays readable; nothing "
+                    "is deleted. Subscribe in the Ostler app to carry on."
+                ).format(label=label, when=when),
+            }
+
+        # Past the window. Only worth saying while the customer is
+        # actually paused: a payer whose receipt has since landed is not
+        # in this state, and telling them their access ended would be
+        # false.
+        effective, _walked = _walk(snapshot, now)
+        if effective in (STATUS_ACTIVE, STATUS_GRACE):
+            return None
+        return {
+            "kind": WARNING_ENDED,
+            "days_left": days_left,
+            "expires_at": snapshot.get("expires_at"),
+            "tier": tier,
+            "tier_state": tier_state,
+            # NEVER the raw stamp. activate_first_month_free derives
+            # expires_at from datetime.now(), which carries microseconds,
+            # so the raw value reads as "2026-09-13T05:57:41.666985Z" in
+            # a sentence a customer is reading.
+            "message": (
+                "Your {label} access ended on {when}. Ongoing intelligence "
+                "is paused. Everything already in your Hub stays exactly "
+                "where it is and stays readable; nothing has been deleted. "
+                "Subscribe in the Ostler app to start it again."
+            ).format(label=label,
+                     when=expires.strftime("%d %B %Y").lstrip("0")),
+        }
+    except Exception:  # noqa: BLE001
+        # A warning that crashes must not take the caller with it. The
+        # Doctor rule and the tick wrappers both call this on paths that
+        # must never fail; silence is the correct degradation for a
+        # message, unlike for a gate.
+        return None
+
+
 def refresh_from_companion(receipt_b64: str, expires_at_iso: str) -> None:
     """Called when iOS Companion pushes a fresh StoreKit receipt.
 
@@ -424,10 +676,16 @@ def refresh_from_companion(receipt_b64: str, expires_at_iso: str) -> None:
         "receipt": receipt_b64,
         KEY_HAS_EVER_PAID: True,
     }
+    _carry_tier(new_state, _load())
     _write(new_state)
 
 
-def activate_first_month_free(purchase_date_iso: str) -> None:
+def activate_first_month_free(
+    purchase_date_iso: str,
+    licence_tier: Optional[str] = None,
+    licence_tier_state: Optional[str] = None,
+    licence_expires_at: Optional[str] = None,
+) -> None:
     """Called at install.sh time after license verification succeeds.
 
     Hub gets 30 days of Pro free with Hub purchase. Customer can then
@@ -447,6 +705,17 @@ def activate_first_month_free(purchase_date_iso: str) -> None:
     Doctor banner can see the shape of the window, but it is INERT for a
     never-paid customer: ``_walk`` refuses grace to anyone without the
     bit. Do not read the presence of that field as a granted fortnight.
+
+    ``licence_tier`` / ``licence_tier_state`` (HR015 #928) are what
+    install.sh read out of the customer's verified licence. This is the
+    ONLY entry point on a customer's Mac where a verified licence and the
+    Hub's own state meet, which is why the tier is recorded here and not
+    somewhere more obvious: install.sh is the only thing that ever opens
+    the licence file, and it does so exactly once.
+
+    An unrecognised tier is recorded, not rejected. A tier CM050 starts
+    issuing after this build shipped must survive contact with an older
+    Hub rather than being flattened to "hub" by the act of being read.
     """
     purchase_dt = _parse_iso(purchase_date_iso)
     if purchase_dt is None:
@@ -454,15 +723,54 @@ def activate_first_month_free(purchase_date_iso: str) -> None:
         # never silently writes a broken state.
         purchase_dt = _now()
     expires = purchase_dt + timedelta(days=30)
+
+    # ── A BETA TESTER'S WINDOW IS THEIR BETA, NOT A CALENDAR MONTH ──
+    #
+    # HR015 #929. Before this, every install got 30 days of Pro whatever
+    # the licence said, so a tester on a 90-day beta licence lost the
+    # product on day 31 with their beta still running, and a tester on a
+    # 14-day licence kept it for a fortnight after their beta ended.
+    # Neither is what the licence says, and the licence is the thing the
+    # customer was given.
+    #
+    # ONLY for tier `beta`, and only when the beta window is a date we
+    # can actually read. A hub or pro licence keeps the 30-day free
+    # month unchanged: their update window is about updates, not about
+    # whether the product runs, and reading it as an entitlement would
+    # cut off paying customers.
+    #
+    # Deliberately NOT clamped to 30 days. The beta window IS the grant.
+    licence_dt = _parse_iso(licence_expires_at)
+    if licence_tier == TIER_BETA and licence_dt is not None:
+        expires = licence_dt
+
     grace_end = expires + timedelta(days=GRACE_DAYS)
+    old_state = _load()
     new_state = {
         "status": STATUS_ACTIVE,
         "last_validated_at": _iso_now(),
         "expires_at": expires.isoformat().replace("+00:00", "Z"),
         "grace_period_end": grace_end.isoformat().replace("+00:00", "Z"),
         "source": SOURCE_FIRST_MONTH_FREE,
-        KEY_HAS_EVER_PAID: _has_ever_paid(_load()),
+        KEY_HAS_EVER_PAID: _has_ever_paid(old_state),
     }
+    # An unverified install must not overwrite a tier a previous verified
+    # install established. Re-running install.sh with --allow-unlicensed
+    # would otherwise cost the customer their recorded tier, and the loss
+    # would be invisible. The licence expiry rides with the tier for the
+    # same reason and in the same branch: they come from one reading of
+    # one file, and half of that reading is not a state worth keeping.
+    if licence_tier_state in TIER_STATES and licence_tier_state != TIER_STATE_UNVERIFIED:
+        new_state[KEY_LICENCE_TIER_STATE] = licence_tier_state
+        new_state[KEY_LICENCE_TIER] = (
+            licence_tier if isinstance(licence_tier, str) and licence_tier else TIER_HUB
+        )
+        if isinstance(licence_expires_at, str) and licence_expires_at:
+            new_state[KEY_LICENCE_EXPIRES_AT] = licence_expires_at
+        elif KEY_LICENCE_EXPIRES_AT in old_state:
+            new_state[KEY_LICENCE_EXPIRES_AT] = old_state.get(KEY_LICENCE_EXPIRES_AT)
+    else:
+        _carry_tier(new_state, old_state)
     _write(new_state)
 
 
@@ -515,18 +823,57 @@ def _main(argv: list) -> int:
     data. Anything else = this script itself failed, and the caller must
     treat that as "carry on", never as "paused".
     """
+    if "--tier" in argv:
+        # The seam the Hub's own diagnostics read. Prints
+        # "<state> <tier-or-none>" on one line and exits 0 whatever the
+        # answer: asking what tier a customer holds is not the same
+        # question as whether they may keep ingesting, and a non-zero
+        # exit here would make a Hub-tier customer look like a failure.
+        tier, tier_state = licence_tier()
+        print("{state} {tier}".format(state=tier_state, tier=tier or "none"))
+        return 0
+    if "--warning" in argv:
+        # The seam for anything that shows the customer a message. Prints
+        # the warning if there is one and exits 0 EITHER WAY: "nothing to
+        # say" is a successful answer, and a non-zero here would make a
+        # customer with months left look like a failed check.
+        warning = expiry_warning()
+        if warning:
+            print(warning["message"])
+        return 0
     if "--check" not in argv:
-        print("usage: subscription_gate.py --check", file=sys.stderr)
+        print("usage: subscription_gate.py --check | --tier | --warning",
+              file=sys.stderr)
         return 2
     if is_active_or_grace():
+        # STILL ACTIVE, AND STILL EXIT 0. The warning rides the check the
+        # five tick wrappers already make on every tick, so telling the
+        # customer their window is closing costs no new caller and no new
+        # scheduler -- which matters, because a scheduler is a thing that
+        # can fail to be loaded and this is the half that must not.
+        #
+        # Printing on the PASS path is the whole point of HR015 #929's
+        # second rule. A message that only ever prints once the product
+        # has stopped is not a warning, it is an obituary.
+        warning = expiry_warning()
+        if warning and warning["kind"] == WARNING_ENDING_SOON:
+            print(warning["message"])
         return 0
     snapshot = state_dict()
+    tier, tier_state = licence_tier(snapshot)
+    # The tier is NAMED in the pause message because it is the first
+    # question support asks and the customer is the one holding the
+    # answer. "unverified" is printed as itself, never as a tier: this
+    # line is read by a person deciding what to do next, and telling
+    # them "hub" when nothing was checked would send them the wrong way.
     print(
-        "Ostler Pro is not active (status={status}, source={source}). "
-        "Ongoing intelligence is paused; data already ingested stays "
-        "fully accessible. Subscribe in the Ostler app to resume.".format(
+        "Ostler Pro is not active (status={status}, source={source}, "
+        "licence={tier}). Ongoing intelligence is paused; data already "
+        "ingested stays fully accessible. Subscribe in the Ostler app "
+        "to resume.".format(
             status=snapshot.get("status", STATUS_INACTIVE),
             source=snapshot.get("source", SOURCE_DEFAULT),
+            tier=tier if tier else tier_state,
         )
     )
     return EXIT_PAUSED

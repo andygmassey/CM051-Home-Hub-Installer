@@ -505,4 +505,246 @@ final class LicenseVerifierTests: XCTestCase {
         )
     }
 
+    // MARK: - Licence tier (HR015 #928)
+    //
+    // MEASURED ON origin/main BEFORE THESE EXISTED: `tier` appeared 0 times
+    // across LicenseVerifier.swift, LicensePersistence.swift,
+    // LicenseEntryView.swift and their three test files, against
+    // `update_window_expires_at` as the control, which appears in all of
+    // them -- so the zero was a real absence, not a search that could not see
+    // the file. A licence carrying a tier verified and the value went
+    // nowhere.
+    //
+    // FOUR STATES, and every one of them is pinned below, because collapsing
+    // them is the whole defect: absent is not hub-by-decree, unrecognised is
+    // not malformed, and malformed is not a refusal to state a tier.
+    //
+    // The SHELL half of this schema lives in install.sh and is pinned by
+    // tests/test_licence_tier_reaches_the_hub.sh. The two must agree; that
+    // test's limb F is what notices when they stop.
+
+    func testTierAbsentReadsAsHubAndIsDistinguishableFromAnExplicitHub() throws {
+        let (verifier, privateKey) = makeVerifier()
+        let licenseData = try sign(makeLicenseBody(), with: privateKey)
+
+        guard case .valid(let claims) = verifier.verify(licenseData: licenseData) else {
+            XCTFail("Expected .valid for a licence with no tier field")
+            return
+        }
+        // The RAW field stays nil. Support has to be able to tell a licence
+        // issued before tiers existed from one deliberately issued at hub,
+        // and one non-optional enum cannot say both.
+        XCTAssertNil(claims.tier, "An absent tier must not be materialised into a value")
+        XCTAssertEqual(claims.resolvedTier, .hub, "An absent tier is what every licence sold so far bought: hub")
+    }
+
+    func testExplicitNullTierIsTreatedAsAbsent() throws {
+        // Pinned because the SHELL verifier had to be written to match this,
+        // and its first version did not. Swift's synthesised decoder cannot
+        // tell a missing key from a null one, so a licence carrying
+        // "tier": null passed here and aborted the install. Two verifiers of
+        // one schema must agree, and this is the direction they agree in.
+        let (verifier, privateKey) = makeVerifier()
+        var body = makeLicenseBody()
+        body["tier"] = NSNull()
+        let licenseData = try sign(body, with: privateKey)
+
+        guard case .valid(let claims) = verifier.verify(licenseData: licenseData) else {
+            XCTFail("Expected .valid for an explicit null tier")
+            return
+        }
+        XCTAssertNil(claims.tier)
+        XCTAssertEqual(claims.resolvedTier, .hub)
+    }
+
+    func testKnownTiersAreRecognised() throws {
+        for (raw, expected) in [("hub", LicenseTier.hub), ("pro", .pro), ("beta", .beta)] {
+            let (verifier, privateKey) = makeVerifier()
+            var body = makeLicenseBody()
+            body["tier"] = raw
+            let licenseData = try sign(body, with: privateKey)
+
+            guard case .valid(let claims) = verifier.verify(licenseData: licenseData) else {
+                XCTFail("Expected .valid for tier \(raw)")
+                continue
+            }
+            XCTAssertEqual(claims.resolvedTier, expected, "tier \(raw) did not resolve")
+            XCTAssertTrue(claims.resolvedTier.isRecognised)
+            XCTAssertEqual(claims.resolvedTier.name, raw)
+        }
+    }
+
+    func testTierIsCaseFolded() throws {
+        let (verifier, privateKey) = makeVerifier()
+        var body = makeLicenseBody()
+        body["tier"] = "BETA"
+        let licenseData = try sign(body, with: privateKey)
+
+        guard case .valid(let claims) = verifier.verify(licenseData: licenseData) else {
+            XCTFail("Expected .valid for tier BETA")
+            return
+        }
+        XCTAssertEqual(claims.resolvedTier, .beta)
+        // The raw field is NOT rewritten. What CM050 signed is what support
+        // sees.
+        XCTAssertEqual(claims.tier, "BETA")
+    }
+
+    func testUnrecognisedTierIsRecordedVerbatimAndNotRefused() throws {
+        // The case that decides whether a tier CM050 invents after this build
+        // ships becomes a product decision or a support incident on every Mac
+        // already in the field. It must INSTALL.
+        let (verifier, privateKey) = makeVerifier()
+        var body = makeLicenseBody()
+        body["tier"] = "enterprise"
+        let licenseData = try sign(body, with: privateKey)
+
+        guard case .valid(let claims) = verifier.verify(licenseData: licenseData) else {
+            XCTFail("An unrecognised tier must not refuse the licence")
+            return
+        }
+        XCTAssertEqual(claims.resolvedTier, .unknown("enterprise"))
+        XCTAssertFalse(
+            claims.resolvedTier.isRecognised,
+            "An unrecognised tier must never read as one of the known ones"
+        )
+        XCTAssertEqual(claims.resolvedTier.name, "enterprise", "The tier must survive verbatim")
+    }
+
+    func testMalformedTierIsMalformedAndNotMerelyUnrecognised() throws {
+        // These are not tiers this build has not heard of. They are not
+        // machine tokens at all, and the distinction is load-bearing: the
+        // shell half of this gate hands the tier to install.sh on ONE line of
+        // stdout, so a tier carrying whitespace would split that line.
+        let cases: [(String, Any)] = [
+            ("empty", ""),
+            ("whitespace inside", "beta tester"),
+            ("newline inside", "beta\nhub"),
+            ("too long", String(repeating: "a", count: 33)),
+            ("not a string", 7),
+        ]
+        for (label, value) in cases {
+            let (verifier, privateKey) = makeVerifier()
+            var body = makeLicenseBody()
+            body["tier"] = value
+            let licenseData = try sign(body, with: privateKey)
+
+            if case .malformed = verifier.verify(licenseData: licenseData) {
+                continue
+            }
+            XCTFail("Expected .malformed for a tier that is \(label)")
+        }
+    }
+
+    func testThirtyTwoCharacterTierIsAccepted() throws {
+        // The boundary, from the accepting side. Without it, "too long"
+        // above could pass because the limit had drifted to something far
+        // smaller and nobody would see it.
+        let (verifier, privateKey) = makeVerifier()
+        var body = makeLicenseBody()
+        let raw = String(repeating: "a", count: 32)
+        body["tier"] = raw
+        let licenseData = try sign(body, with: privateKey)
+
+        guard case .valid(let claims) = verifier.verify(licenseData: licenseData) else {
+            XCTFail("Expected .valid for a 32-character tier")
+            return
+        }
+        XCTAssertEqual(claims.resolvedTier, .unknown(raw))
+    }
+
+    func testTierCannotBePromotedAfterSigning() throws {
+        // Without this, every assertion above is a statement about a field
+        // the customer could rewrite in a text editor. The tier is inside the
+        // canonical body, so editing it breaks the signature.
+        let (verifier, privateKey) = makeVerifier()
+        var body = makeLicenseBody()
+        body["tier"] = "hub"
+        let signed = try sign(body, with: privateKey)
+
+        var doc = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: signed) as? [String: Any]
+        )
+        doc["tier"] = "pro"                       // edited AFTER signing
+        let forged = try JSONSerialization.data(withJSONObject: doc)
+
+        XCTAssertEqual(
+            verifier.verify(licenseData: forged),
+            .invalidSignature,
+            "A self-promoted tier must fail the signature check, not verify"
+        )
+    }
+
+    func testCanonicalJSONCoversTheTier() {
+        // The byte-level half of the test above, and the thing that keeps the
+        // Swift and TypeScript/Python canonicalisers producing the same bytes
+        // for a tiered licence. `tier` sorts after `stripe_payment_id` and
+        // before `update_window_expires_at`.
+        let body: [String: Any] = [
+            "signature_algorithm": "Ed25519",
+            "stripe_payment_id": "pi_TEST_canonical_tier",
+            "tier": "beta",
+            "version": 1,
+        ]
+        XCTAssertEqual(
+            String(data: LicenseVerifier.canonicalJSON(body)!, encoding: .utf8),
+            #"{"signature_algorithm":"Ed25519","stripe_payment_id":"pi_TEST_canonical_tier","tier":"beta","version":1}"#
+        )
+    }
+
+    func testCanonicalJSONEncodesNullTheSameWayThePythonTwinDoes() {
+        // THE REGRESSION TEST FOR A DIVERGENCE THIS CHANGE FOUND BY
+        // RUNNING. `testExplicitNullTierIsTreatedAsAbsent` failed in CI at
+        // the line where the TEST signs its own fixture, because
+        // canonicalJSON refused any body carrying NSNull and the signer
+        // could not produce bytes to sign.
+        //
+        // Reproduced locally on origin/main with the same body:
+        //
+        //     Swift   canonicalJSON -> nil  (REFUSED)
+        //     Python  canonical     -> {"tier":null,"version":1}
+        //
+        // The two canonicalisers are documented as byte-identical at the
+        // top of LicenseVerifier.swift. The reference bytes below are the
+        // Python twin's exact output, so this test fails if either side
+        // moves again.
+        let body: [String: Any] = ["version": 1, "tier": NSNull()]
+        XCTAssertEqual(
+            String(data: LicenseVerifier.canonicalJSON(body)!, encoding: .utf8),
+            #"{"tier":null,"version":1}"#,
+            "A JSON null must canonicalise as `null`, byte-for-byte as install.sh's verifier does"
+        )
+    }
+
+    func testANullRequiredFieldIsStillMalformed() {
+        // The control for the change above. Accepting null in the
+        // CANONICALISER must not make a null REQUIRED field acceptable:
+        // those are decided in different places, and only the second is a
+        // valid licence question. `license_id` is a non-optional String on
+        // LicenseClaims, so the typed decode rejects it before
+        // canonicalisation is ever reached.
+        let (verifier, privateKey) = makeVerifier()
+        var body = makeLicenseBody()
+        body["license_id"] = NSNull()
+        let licenseData = try? sign(body, with: privateKey)
+        XCTAssertNotNil(licenseData, "the signer must be able to produce these bytes now")
+        if case .malformed = verifier.verify(licenseData: licenseData!) {
+            // pass
+        } else {
+            XCTFail("A null in a REQUIRED field must still be .malformed")
+        }
+    }
+
+    func testTierWellFormednessPredicateItself() {
+        // The predicate on its own, both directions. A character-class check
+        // that accepted everything would let every case above pass, and the
+        // shell side has a twin of this exact class.
+        for good in ["hub", "pro", "beta", "a", "tier-1", "tier_1", "v1.0", String(repeating: "z", count: 32)] {
+            XCTAssertTrue(LicenseVerifier.isWellFormedTier(good), "\(good) should be well formed")
+        }
+        for bad in ["", " ", "a b", "a\tb", "a\nb", "beta!", "béta", String(repeating: "z", count: 33)] {
+            XCTAssertFalse(LicenseVerifier.isWellFormedTier(bad), "\(bad.debugDescription) should not be well formed")
+        }
+    }
+
 }

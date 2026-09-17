@@ -23,6 +23,7 @@ test_a_box_precondition_is_not_a_build_verdict.sh	WIRED	.github/workflows/cold-b
 test_a_brief_cannot_fill_a_gap_it_was_never_shown.sh	WIRED	.github/workflows/context-digest-auth.yml
 test_a_broken_ci_query_is_not_a_green_main.sh	WIRED	.github/workflows/red-main-opens-an-issue.yml
 test_a_broken_probe_blocks_the_promote.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_a_bundle_name_with_a_space_survives_the_staple_loops.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_a_calendar_export_is_found_where_exports_actually_sit.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_a_ci_alarm_is_not_a_register_gap.py	WIRED	.github/workflows/cut-checklist-complete.yml
 test_a_condition_function_must_not_short_circuit_its_own_pipeline.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
@@ -40,6 +41,7 @@ test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh	WIRED	.github/workflows
 test_a_gui_uninstall_needs_its_decoder_cases.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_a_hung_slot_holder_is_stopped.sh	WIRED	.github/workflows/ingest-slot.yml
 test_a_jq_index_read_cannot_return_the_string_null.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
+test_a_keepalive_agent_that_cannot_bind_is_not_reported_green.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_killed_converge_still_gets_its_catchup_agent.sh	WIRED	.github/workflows/killed-converge-gets-its-catchup.yml
 test_a_loopback_probe_must_not_ask_a_proxy.sh	WIRED	.github/workflows/colima-autostart.yml
 test_a_manual_brew_tarball_must_target_a_branch_that_still_exists.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -52,6 +54,7 @@ test_a_pairing_reader_runs_before_the_pairing_mutator.sh	WIRED	.github/workflows
 test_a_plistbuddy_read_takes_its_exit_code.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_promote_before_the_decline_arms_is_gated.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_ratchet_must_not_name_a_false_cause.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
+test_a_remembered_remote_access_answer_is_not_asked_again.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_remote_url_is_quoted_against_zsh_globbing.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_a_row_that_could_not_measure_is_counted_and_named.py	WIRED	.github/workflows/cut-manifest.yml
 test_a_running_daemon_is_not_a_daemon_that_can_read.sh	WIRED	.github/workflows/cold-box-source-truth.yml
@@ -77,6 +80,7 @@ test_a_walk_failure_is_classified.sh	WIRED	.github/workflows/walk-record-gate.ym
 test_a_walk_record_is_found_under_either_spelling.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_a_walk_record_names_the_instrument_that_graded_it.sh	WIRED	.github/workflows/cut-manifest.yml
 test_abort_still_reports_when_the_close_fails.sh	WIRED	.github/workflows/install-gui-contract.yml
+test_ai_conversations_default_to_the_locked_privacy_level.py	WIRED	.github/workflows/privacy-spine.yml
 test_ai_conversations_leg_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_ai_model_env_contract.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_aiconv_agent_not_registered_without_owner_email.sh	WIRED	.github/workflows/cold-box-source-truth.yml
@@ -87,6 +91,7 @@ test_an_abort_inside_a_step_is_counted.sh	WIRED	.github/workflows/step-end-statu
 test_an_abort_speaks_on_a_terminal_install.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_an_absent_launchd_domain_is_not_a_service_that_is_down.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_an_old_format_sentinel_does_not_abort_the_install.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_an_unconfirmed_calendar_is_not_buried_forever.py	WIRED	.github/workflows/privacy-spine.yml
 test_an_uninstall_does_not_consume_the_purchase.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_an_uninstall_that_cannot_ask_removes_nothing.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_an_unmeasured_count_is_not_a_measured_zero.sh	WIRED	.github/workflows/hydrate-sentinel.yml
@@ -109,6 +114,7 @@ test_assistant_ollama_num_ctx.sh	WIRED	.github/workflows/tests-unwired-sweep-al.
 test_audit_red_merges_predicate.py	WIRED	.github/workflows/red-merge-audit.yml
 test_autologin_consent_opt_in.sh	WIRED	.github/workflows/consent-contract.yml
 test_background_copy_promises_no_deadline.sh	WIRED	.github/workflows/background-copy-honesty.yml
+test_beta_licence_expiry_warns_before_and_is_read_only.sh	WIRED	.github/workflows/the-trial-must-actually-end.yml
 test_bom_ref_is_not_the_cut_pin.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_bom_verdict_gate_is_wired_into_the_promote.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_bookmarks_ingest_wired.sh	WIRED	.github/workflows/consent-data-handling.yml
@@ -118,7 +124,7 @@ test_brew_install_fail_loud.sh	WIRED	.github/workflows/tests-unwired-sweep-al.ym
 test_browsing_ingest_ensures_collection.py	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_bundle_phase_declares_every_copy.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_bundled_package_comes_from_its_declared_source.py	WIRED	.github/workflows/install-gui-contract.yml
-test_calendar_attendee_resolve_before_create.py	UNWIRED	-
+test_calendar_attendee_resolve_before_create.py	WIRED	.github/workflows/privacy-spine.yml
 test_calendar_hydrate_venv.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_cannot_run_branch_is_reachable.sh	WIRED	.github/workflows/cannot-run-branch-reachable.yml
 test_cannot_run_is_a_third_state.sh	WIRED	.github/workflows/hydrate-sentinel.yml
@@ -206,6 +212,7 @@ test_doctor_silent_failure_grafts.py	WIRED	.github/workflows/vendor-integrity.ym
 test_doctor_web_ui_strings_complete.py	WIRED	.github/workflows/vendor-integrity.yml
 test_e1_source_readout_emits.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_editor_feedback_accepts_the_add_verb.sh	WIRED	.github/workflows/vendor-integrity.yml
+test_egress_pool_member_is_not_a_policy_violation.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_egress_verdict_claims_only_what_it_checked.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_email_folder_prompt.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_email_ingest_bootstrap_guard.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -226,6 +233,7 @@ test_every_consent_decision_is_recorded.sh	WIRED	.github/workflows/consent-regis
 test_every_default_source_is_requested.sh	WIRED	.github/workflows/default-sources-requested.yml
 test_every_external_download_url_resolves.sh	WIRED	.github/workflows/download-urls-resolve.yml
 test_every_fail_call_has_error_code.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_every_knowledge_collection_has_a_reader_verdict.sh	WIRED	.github/workflows/install-manifest-gate.yml
 test_every_launchagent_is_torn_down.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_every_marker_pattern_compiles.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_every_plistbuddy_read_is_guarded.sh	WIRED	.github/workflows/cold-box-source-truth.yml
@@ -251,6 +259,7 @@ test_fda_rerun_ingests.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_fda_rerun_recurs.sh	WIRED	.github/workflows/fda-rerun-recurs.yml
 test_final_summary_nounset_safe.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_frontpage_tick_emits_interest_profile.sh	WIRED	.github/workflows/vendor-integrity.yml
+test_gateway_conversations_reach_the_store.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_gdpr_export_detect.sh	WIRED	.github/workflows/gdpr-export-detect.yml
 test_gdpr_folder_access_denied.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_gdpr_scan_prewarn.sh	WIRED	.github/workflows/consent-data-handling.yml
@@ -267,6 +276,7 @@ test_hydrate_apple_notes_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok
 test_hydrate_counters_survive_a_failed_producer.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_hydrate_email_preferences_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_hydrate_people_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
+test_hydrate_reminders_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_hydrate_sentinel_change_fields.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_hydrate_sentinel_not_on_error.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_ical_server_vendor_wired.sh	WIRED	.github/workflows/vendor-integrity.yml
@@ -315,6 +325,7 @@ test_launchagent_refusal_reason_is_recorded.sh	WIRED	.github/workflows/launchage
 test_launchagent_success_requires_verification.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_launchd_plist_no_tmp.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_licence_gate.sh	WIRED	.github/workflows/licence-gate.yml
+test_licence_tier_reaches_the_hub.sh	WIRED	.github/workflows/licence-gate.yml
 test_linkedin_export_detect.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_local_stores_do_not_route_through_a_proxy.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_loopback_property_fires.sh	WIRED	.github/workflows/store-host-exposure.yml
@@ -354,6 +365,7 @@ test_no_test_uses_a_bash4_builtin.sh	WIRED	.github/workflows/bash32-compat.yml
 test_no_unbounded_enrich_invocation.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_no_undefined_msg_refs_in_install_sh.sh	WIRED	.github/workflows/container-runtime-precondition.yml
 test_no_xcodebuild_pipe_into_early_exit.sh	WIRED	.github/workflows/pbxproj-sync.yml
+test_notion_obsidian_import_runs_end_to_end.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_ollama_agent_check_survives_a_not_yet_running_agent.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_ollama_agent_does_not_depend_on_a_foreign_port.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_ollama_install_path_contract.sh	WIRED	.github/workflows/consent-data-handling.yml
@@ -476,6 +488,7 @@ test_tailscale_recovery_wrapper.sh	WIRED	.github/workflows/tests-unwired-sweep-m
 test_takeout_split_zip_no_abort.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_config_does_not_promise_encryption_that_never_happens.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_the_consent_button_is_not_below_the_fold.py	WIRED	.github/workflows/swift-tests.yml
+test_the_consent_rules_table_is_safe.py	WIRED	.github/workflows/consent-contract.yml
 test_the_converge_veto_actually_runs.py	WIRED	.github/workflows/rule-2-holds-on-the-write.yml
 test_the_converge_wait_resolves_the_credential_path.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_cron_reader_sees_both_toml_spellings.sh	WIRED	.github/workflows/install-manifest-gate.yml
@@ -510,10 +523,12 @@ test_the_recovery_cli_does_not_print_the_key_by_default.py	WIRED	.github/workflo
 test_the_recovery_key_can_be_redeemed_end_to_end.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_the_recovery_key_is_disclosed_where_it_is_minted.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_replay_reads_the_box_the_probes_read.sh	WIRED	.github/workflows/cut-manifest.yml
+test_the_retention_tier_is_written_and_read_by_nothing.py	WIRED	.github/workflows/privacy-spine.yml
 test_the_reuse_path_still_asks_the_licence_terms.sh	WIRED	.github/workflows/consent-registry.yml
 test_the_run_at_commit_gate_is_wired_into_the_cut.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_the_sentinel_vocabulary_is_declared_and_complete.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_shipped_vendor_manifest_names_no_operator.py	WIRED	.github/workflows/vendor-integrity.yml
+test_the_source_table_covers_the_fda_extract_family.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_source_table_items_column_is_the_number_it_claims.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_the_success_screen_names_the_wiki_credential.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_summary_never_claims_a_recovery_path_that_was_not_handed_over.sh	WIRED	.github/workflows/cold-box-source-truth.yml

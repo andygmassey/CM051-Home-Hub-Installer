@@ -6210,6 +6210,17 @@ def _subscription_paused(surface):
         if subscription_gate.is_active_or_grace():
             return None
         snapshot = subscription_gate.state_dict()
+        # HR015 #928. The tier the customer's verified licence was issued
+        # at. Reported ALONGSIDE the pause, never instead of it: the two
+        # answer different questions, and an older Hub with no tier on
+        # file must still pause correctly. `licence_tier` is resolved
+        # defensively because this file also runs against Hubs whose
+        # staged gate module predates it.
+        tier_fn = getattr(subscription_gate, "licence_tier", None)
+        if callable(tier_fn):
+            lic_tier, lic_tier_state = tier_fn(snapshot)
+        else:
+            lic_tier, lic_tier_state = None, "unverified"
     except Exception as exc:
         print(
             f"WARNING: subscription gate unavailable for {surface} "
@@ -6221,7 +6232,8 @@ def _subscription_paused(surface):
         return None
     print(
         f"[subscription] {surface}: paused -- Ostler Pro is not active "
-        f"(status={snapshot.get('status')}, source={snapshot.get('source')}). "
+        f"(status={snapshot.get('status')}, source={snapshot.get('source')}, "
+        f"licence={lic_tier or lic_tier_state}). "
         "Existing data stays available; new capture resumes on the next "
         "receipt push.",
         flush=True,
@@ -6231,6 +6243,13 @@ def _subscription_paused(surface):
             "status": "paused",
             "reason": "subscription_inactive",
             "surface": surface,
+            # The tier and its STATE are separate fields for the same
+            # reason they are separate on disk: a client that sees
+            # licence_tier=null must be able to tell "this Hub never
+            # verified a licence" from "this Hub has no tier field",
+            # and one nullable string cannot say both.
+            "licence_tier": lic_tier,
+            "licence_tier_state": lic_tier_state,
             "detail": (
                 "Ostler Pro is not active, so new data is not being "
                 "processed. Everything already in your Hub stays "

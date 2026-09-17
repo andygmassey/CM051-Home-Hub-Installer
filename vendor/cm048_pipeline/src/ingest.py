@@ -1113,7 +1113,7 @@ def _write_coach(
                 json.dumps(obs.get("flags") or {}),
                 settings.user_id,
                 "private",
-                "tier-1-forever",
+                COACH_RETENTION_TIER,
                 datetime.now(timezone.utc).isoformat(),
             ),
         )
@@ -1155,7 +1155,56 @@ def _deterministic_id(conversation_id: str, kind: str, content: str) -> str:
     return str(uuid.uuid5(ns, seed))
 
 
+# ── Retention tiers ──────────────────────────────────────────────────
+#
+# 🔴 THIS FIELD IS WRITTEN ON EVERY RECORD AND READ BY NOTHING. Say that
+# out loud before using it to answer any question about data retention.
+#
+# MEASURED 2026-09-16 on origin/main, `git grep -n retention_tier -- .`:
+# 11 hits. Four in this file (the Qdrant payload, the SQLite DDL, the
+# INSERT column list, and this function); seven in CM048 prose and prompt
+# templates. READERS: 0. TESTS: 0. SWEEPERS: 0 -- no scheduled job, no
+# launchd plist, nothing anywhere in the repo deletes or ages out a record
+# on the strength of its tier. Positive control for that search shape:
+# `qdrant` in vendor/cm019_preferences resolves to 10 files of 84.
+#
+# The consequence, stated plainly so nobody has to rediscover it: there is
+# NO right-to-erasure mechanism behind these tiers. A record stamped
+# "tier-3-years" is kept exactly as long as one stamped "tier-1-forever",
+# which is forever. The tier is a classification we compute and store, not
+# a promise we keep. Do not describe it to a customer, in copy or in a
+# privacy policy, as though it expires anything.
+#
+# The durations live HERE rather than inside the tier names, which used to
+# be the entire specification. A name is not parseable policy: CM048's own
+# prompt 03_relationship_signal.md writes "tier-1 forever" with a space, a
+# form no code produces and no reader could have matched. A sweeper, when
+# one is built, reads this mapping; until then it is what makes the claim
+# auditable instead of implied.
+#
+# Filed: PRIVACY_ENFORCEMENT_GAPS.md at the repo root.
+#
+# None means "kept indefinitely"; an int is a retention period in days.
+RETENTION_TIERS: dict = {
+    "tier-1-forever": None,
+    "tier-2-decade": 3652,   # 10 years
+    "tier-3-years": 1095,    # 3 years
+}
+
+# The tier for a record whose retention is not a function of its content:
+# a coaching observation is about the customer's own conduct, so it is not
+# classified per-conversation. Named rather than inlined so the literal
+# cannot drift from RETENTION_TIERS.
+COACH_RETENTION_TIER = "tier-1-forever"
+
+
 def _retention_tier_for(classification: Classification) -> str:
+    """Classify a conversation's retention tier. See RETENTION_TIERS.
+
+    Every returned value is a key of RETENTION_TIERS, and
+    tests/test_the_retention_tier_is_written_and_read_by_nothing.py holds
+    that invariant plus the reader count above.
+    """
     if classification.sensitivity.level in ("sensitive", "highly-sensitive"):
         return "tier-1-forever"
     if classification.stakes == "high":
