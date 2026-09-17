@@ -816,7 +816,64 @@ self_test() {
     #     and a credential gate are both passes; being readable never is.
     [ "$(classify 1 '' ' 8044(200)' '' '')" = "FAIL" ] || fails="${fails} uncredentialled-read-excused-by-the-new-cases"
 
-    probe_examined 30 "adjudication cases"
+    # ── DERIVED, NOT TYPED (#2120) ────────────────────────────────────────
+    #
+    # This line used to read `probe_examined 30`. MEASURED 2026-09-18: the
+    # function contains 32 assertions of the counted shape, so the declared
+    # number was WRONG BY TWO and every check in the repo was green anyway,
+    # because nothing counted the assertions and compared.
+    #
+    # The row that filed this named two NON-fixes explicitly and both were
+    # tempting: updating the literal to the right number, and adding a test
+    # that asserts the literal equals itself. Either leaves the next rebase in
+    # exactly the same position -- delete four assertions and the probe still
+    # declares whatever was typed.
+    #
+    # So the number is COUNTED FROM THE ASSERTIONS THEMSELVES. Delete one and
+    # this drops by one, with nothing to remember and nothing to update.
+    #
+    # WHY READ ITS OWN SOURCE RATHER THAN INCREMENT A COUNTER. A counter beside
+    # each assertion is 32 more places to forget, which is the same defect with
+    # more surface. Reading the file is one place, and it fails in the SAFE
+    # direction: if the read breaks, the count collapses to 0 and the guard
+    # below turns that into BROKEN rather than into a confident zero.
+    #
+    # 🔴 grep -c EXITS 1 ON ZERO MATCHES while still printing 0, so under the
+    # `set -e` this file runs with, an unguarded substitution here would kill
+    # the self-test before it could report. Hence `|| true`.
+    #
+    # The pattern is matched with grep -F and a SINGLE-quoted argument. A
+    # double-quoted one lets the shell expand ${fails} to empty before grep
+    # ever sees it, which silently matches nothing and reports 0. That is how
+    # the first attempt at this measurement produced a false zero.
+    _st_src="${BASH_SOURCE[0]:-}"
+    _st_cases=0
+    if [ -r "${_st_src}" ]; then
+        # ANCHORED ON THE ASSERTION'S OWN SHAPE, and the anchor is load-bearing.
+        # The first version matched the pattern anywhere in the function and
+        # counted 33 against 32 real assertions, because the grep line BELOW is
+        # itself inside self_test and contains the pattern it searches for. A
+        # counter that counts itself is off by one for a reason nobody would
+        # look for. Every real case begins with `[ ` at indentation; the
+        # machinery does not.
+        _st_cases="$(awk '/^self_test\(\) \{/,/^\}/' "${_st_src}" \
+            | grep -cE '^[[:space:]]*\[ .*\|\| fails=' || true)"
+    fi
+    if [ "${_st_cases:-0}" -lt 1 ]; then
+        # A zero here means the count could not be taken, NOT that there are no
+        # cases -- the 32 assertions above have already run. Saying 0 would be a
+        # confident wrong answer about this probe's own coverage.
+        probe_note "CANNOT COUNT ITS OWN CASES: could not read ${_st_src:-<no source path>} to count assertions. The cases above still ran; the DENOMINATOR is unknown."  # i18n-exempt
+        probe_examined 0 "adjudication cases (COUNT UNAVAILABLE -- see the note above; this is not a claim that none ran)"
+    else
+        probe_examined "$_st_cases" "adjudication cases, counted from the assertions themselves rather than typed (#2120)"
+    fi
+    # Carried past the unset because the verdict sentence below quotes it too,
+    # and that sentence was the SECOND typed number in this function: it said
+    # "30 of 30" while 32 cases ran. One derived count feeds both, so they
+    # cannot disagree with each other or with the file.
+    _st_behaved="${_st_cases:-0}"
+    unset _st_src _st_cases
 
     # ── THE RUNNER'S CONTRACT, WHICH THIS FUNCTION USED TO BREAK ──────────
     #
@@ -842,7 +899,7 @@ self_test() {
             "${PROBE_NAME:-no_store_port_is_tcp_reachable}" "$fails"
         exit 1
     fi
-    probe_fail "NEGATIVE CONTROL DEMONSTRATED (this red is the expected result of --self-test, not a finding): classify() returned FAIL on a port that must not listen, on a published port that served an UNCREDENTIALLED request, and on a surface that refused the install's OWN credential; PASS only with the control up and nothing found; CANNOT_RUN on a stopped or unreadable control and on a surface that could not be asked; and both kinds of FAIL outranked an unmeasurable sibling. The sensor mappers adjudicated by status and curl rc: 401/403 refused; 2xx, 3xx and a 404 with no credential demand readable; connection refused, empty reply and reset not-serving; a timeout, a 5xx, a partial answer and an empty reading unmeasurable; and redis NOAUTH/PONG/no-answer/no-client into the same four. Both of the directive's end-states reached PASS without needing the other to exist: an ABSENT port graded as neither readable nor a credential gate, and a 403-refused / 200-served pair passed with no 401 anywhere in the run; a surface that SERVED an uncredentialled request still failed. 30 of 30 adjudication cases behaved."
+    probe_fail "NEGATIVE CONTROL DEMONSTRATED (this red is the expected result of --self-test, not a finding): classify() returned FAIL on a port that must not listen, on a published port that served an UNCREDENTIALLED request, and on a surface that refused the install's OWN credential; PASS only with the control up and nothing found; CANNOT_RUN on a stopped or unreadable control and on a surface that could not be asked; and both kinds of FAIL outranked an unmeasurable sibling. The sensor mappers adjudicated by status and curl rc: 401/403 refused; 2xx, 3xx and a 404 with no credential demand readable; connection refused, empty reply and reset not-serving; a timeout, a 5xx, a partial answer and an empty reading unmeasurable; and redis NOAUTH/PONG/no-answer/no-client into the same four. Both of the directive's end-states reached PASS without needing the other to exist: an ABSENT port graded as neither readable nor a credential gate, and a 403-refused / 200-served pair passed with no 401 anywhere in the run; a surface that SERVED an uncredentialled request still failed. ${_st_behaved} of ${_st_behaved} adjudication cases behaved, a number counted from the assertions rather than typed (#2120)."
 }
 
 probe_main "$@"
