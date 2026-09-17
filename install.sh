@@ -3353,6 +3353,46 @@ _ostler_promote_prelaunch_tree() {
     # line was never reached for a non-zero return: under `set -e` the
     # assignment itself aborted. The case below distinguishes not-ready
     # from could-not-look, and could only ever see 0.
+    # ── INSTANCE SEVEN OF THE STAGING-PATH-BY-VALUE CLASS, AND IT IS THE ONE
+    # THAT KILLS THE RECOVERY KEY ────────────────────────────────────────────
+    #
+    # A SYMLINK STORES ITS TARGET AS TEXT. ${OSTLER_DIR}/bin/ostler-unlock is
+    # created at install.sh:8168 as
+    #     ln -sfn "${OSTLER_VENV}/bin/ostler-unlock" ...
+    # and when that runs before this promote, OSTLER_VENV is still
+    # ${OSTLER_PRELAUNCH_DIR}/.venv. The mv relocates the LINK FILE and cannot
+    # touch the text inside it, so the customer is left with a link in its
+    # final home pointing into a directory macOS deletes.
+    #
+    # MEASURED ON THE v1.0.100 WALK BOX, about two hours after a clean install:
+    #     ~/.ostler/bin/ostler-unlock -> /tmp/ostler-prelaunch-71922/.venv/bin/ostler-unlock
+    #     target IS GONE
+    #     ~/.ostler/.venv/bin/ostler-unlock  -rwxr-xr-x  262 bytes  (the real one)
+    # and the walk probe ostler_unlock_reachable_by_name returned rc=127,
+    # "command not found", for the exact command a customer is told to type
+    # with their recovery key.
+    #
+    # DENOMINATOR: 1 of the 21 entries in ~/.ostler/bin pointed into /tmp. The
+    # other 20 were correct, so this is specific to this link and not a
+    # wholesale relocation failure -- which is why it survived six previous
+    # repairs of the same class in this very function.
+    #
+    # Re-pointed here rather than at the creation site because the creation
+    # site legitimately runs before the promote; this is the first moment the
+    # final path is known to be real.
+    if [[ -x "${OSTLER_DIR}/.venv/bin/ostler-unlock" ]]; then
+        ln -sfn "${OSTLER_DIR}/.venv/bin/ostler-unlock" "${OSTLER_DIR}/bin/ostler-unlock"
+        # ASSERT, do not assume. A dangling symlink is exactly what this block
+        # exists to remove, so it must never leave one behind.
+        if [[ -e "${OSTLER_DIR}/bin/ostler-unlock" ]]; then
+            _ostler_promote_venv_note "ostler-unlock re-pointed at ${OSTLER_DIR}/.venv/bin/ostler-unlock and RESOLVES"
+        else
+            _ostler_promote_venv_note "ostler-unlock re-point FAILED -- the link still does not resolve; the recovery key cannot be redeemed by name"
+        fi
+    else
+        _ostler_promote_venv_note "ostler-unlock NOT FOUND at ${OSTLER_DIR}/.venv/bin -- recovery-key redemption will not be reachable by name"
+    fi
+
     _rr_out=""; _rr_rc=0
     _rr_out="$(_ostler_verify_runtime_ready \
         "${OSTLER_DIR}/.venv/bin/python3" \
