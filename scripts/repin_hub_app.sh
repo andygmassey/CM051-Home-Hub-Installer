@@ -19,6 +19,26 @@
 # VERSION. A digest does not contain its version, so it was outside that search
 # BY CONSTRUCTION. That is why this is a script and not a checklist item.
 #
+# 🔴 A DAEMON RE-PIN IS SIX VALUES IN TWO FILES, NOT ONE. Measured 2026-09-17,
+# and the first version of this script moved only the first two:
+#
+#   gui/Makefile  DAEMON_VERSION                      0.4.80
+#   gui/Makefile  DAEMON_SHA256                       <daemon tarball digest>
+#   gui/Makefile  HUB_APP_SHA256                      <hub app digest>
+#   install.sh    OSTLER_ASSISTANT_VERSION            0.4.80
+#   install.sh    DEFAULT_ASSISTANT_TARBALL_SHA256    <daemon tarball digest>
+#   install.sh    OSTLER_KNOWLEDGE_READER_VERSION     0.4.80
+#
+# THE TWO DIGESTS ARE DIFFERENT ARTEFACTS and mixing them is silent: the daemon
+# tarball and the hub app tarball are separate downloads with separate hashes.
+# install.sh's comment at the reader-version line states the coupling in its own
+# words: it "MUST equal the default of OSTLER_ASSISTANT_VERSION ... that coupling
+# is the whole anti-rot mechanism".
+#
+# tests/test_daemon_pins_agree.sh enforces the version and the daemon digest
+# across both files, so a partial bump is caught -- but being caught at cut time
+# is what spending a version number looks like. This script does all six.
+#
 # WHAT IT DOES, in this order, refusing at the first failure:
 #   - both releases exist, are NOT drafts, and carry the expected asset
 #   - the hub-app tarball is DOWNLOADED and its sha256 COMPUTED from bytes,
@@ -49,6 +69,22 @@ MK="$REPO/gui/Makefile"
 mkvar() { sed -n "s/^$1  *?*:*= *//p" "$MK" | head -1 | tr -d ' '; }
 OLD="$(mkvar DAEMON_VERSION)"
 OLD_SHA="$(mkvar HUB_APP_SHA256)"
+OLD_DSHA="$(mkvar DAEMON_SHA256)"
+INSTALL="$REPO/install.sh"
+[ -f "$INSTALL" ] || { echo "ERROR: $INSTALL not found." >&2; exit 2; }
+shvar() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p" "$INSTALL" | head -1; }
+OLD_IVER="$(sed -n 's/^OSTLER_ASSISTANT_VERSION="\${OSTLER_ASSISTANT_VERSION:-\([^}]*\)}"$/\1/p' "$INSTALL" | head -1)"
+OLD_IDSHA="$(shvar DEFAULT_ASSISTANT_TARBALL_SHA256)"
+OLD_KVER="$(shvar OSTLER_KNOWLEDGE_READER_VERSION)"
+[ -n "$OLD_DSHA" ] && [ -n "$OLD_IVER" ] && [ -n "$OLD_IDSHA" ] && [ -n "$OLD_KVER" ] || {
+    echo "ERROR: could not read all six pins. Nothing written." >&2
+    echo "  DAEMON_SHA256='${OLD_DSHA:0:12}' install-ver='$OLD_IVER' install-sha='${OLD_IDSHA:0:12}' reader-ver='$OLD_KVER'" >&2
+    exit 2; }
+# The two files must AGREE before a re-pin, or this is not a re-pin, it is a
+# repair of a drift nobody has adjudicated.
+[ "$OLD_IVER" = "$OLD" ] || { echo "ERROR: install.sh says $OLD_IVER, gui/Makefile says $OLD. They already disagree; fix that first. Nothing written." >&2; exit 1; }
+[ "$OLD_KVER" = "$OLD" ] || { echo "ERROR: OSTLER_KNOWLEDGE_READER_VERSION is $OLD_KVER, not $OLD, and install.sh says it MUST equal the assistant version. Nothing written." >&2; exit 1; }
+[ "$OLD_IDSHA" = "$OLD_DSHA" ] || { echo "ERROR: the daemon digest already differs between the two files. Nothing written." >&2; exit 1; }
 DAEMON_REPO="$(mkvar DAEMON_REPO)"
 HUB_APP_REPO="$(mkvar HUB_APP_REPO)"
 TARGET="$(mkvar DAEMON_TARGET)"
@@ -104,7 +140,16 @@ gh release download "$TAG" --repo "$HUB_APP_REPO" --pattern "$HUB_ASSET" --dir "
     exit 1; }
 NEW_SHA="$(shasum -a 256 "$TMP/$HUB_ASSET" | cut -d' ' -f1)"
 [ "${#NEW_SHA}" -eq 64 ] || { echo "ERROR: computed digest is not 64 hex chars. Nothing written." >&2; exit 1; }
-echo "  [ok] sha256 computed from ${HUB_ASSET} bytes"
+echo "  [ok] hub-app sha256 computed from ${HUB_ASSET} bytes"
+
+# THE DAEMON TARBALL IS A DIFFERENT ARTEFACT WITH A DIFFERENT DIGEST, and it
+# lives in a different repo. Mixing the two is silent: both are 64 hex chars.
+gh release download "$TAG" --repo "$DAEMON_REPO" --pattern "$DAEMON_ASSET" --dir "$TMP" --clobber >/dev/null 2>&1 || {
+    echo "ERROR: could not download ${DAEMON_ASSET} from ${DAEMON_REPO} ${TAG}. Nothing written." >&2; exit 1; }
+NEW_DSHA="$(shasum -a 256 "$TMP/$DAEMON_ASSET" | cut -d' ' -f1)"
+[ "${#NEW_DSHA}" -eq 64 ] || { echo "ERROR: daemon digest is not 64 hex chars. Nothing written." >&2; exit 1; }
+[ "$NEW_DSHA" != "$NEW_SHA" ] || { echo "ERROR: the daemon and hub-app digests are IDENTICAL, which means the same file was downloaded twice. Nothing written." >&2; exit 1; }
+echo "  [ok] daemon sha256 computed from ${DAEMON_ASSET} bytes, and it differs from the hub-app digest"
 
 if [ "$NEW_SHA" = "$OLD_SHA" ] && [ "$NEW" != "$OLD" ]; then
     echo "ERROR: the new version's asset has the SAME digest as the old pin." >&2
@@ -115,24 +160,52 @@ if [ "$NEW_SHA" = "$OLD_SHA" ] && [ "$NEW" != "$OLD" ]; then
 fi
 
 # ── WRITE BOTH, OR NEITHER ─────────────────────────────────────────────────
-python3 - "$MK" "$OLD" "$NEW" "$OLD_SHA" "$NEW_SHA" <<'PY'
+python3 - "$MK" "$INSTALL" "$OLD" "$NEW" "$OLD_SHA" "$NEW_SHA" "$OLD_DSHA" "$NEW_DSHA" <<'PY'
 import io, re, sys
-mk, old, new, olds, news = sys.argv[1:6]
-s = io.open(mk, encoding="utf-8").read()
-a = re.subn(r'(?m)^(DAEMON_VERSION[ \t]+\??=[ \t]*)%s[ \t]*$' % re.escape(old), r'\g<1>%s' % new, s)
-s, na = a[0], a[1]
-b = re.subn(r'(?m)^(HUB_APP_SHA256[ \t]+\??=[ \t]*)%s[ \t]*$' % re.escape(olds), r'\g<1>%s' % news, s)
-s, nb = b[0], b[1]
-if na != 1 or nb != 1:
-    sys.stderr.write("ERROR: expected exactly one DAEMON_VERSION and one HUB_APP_SHA256 line; "
-                     "matched %d and %d. Nothing written.\n" % (na, nb))
+mk, ins, old, new, olds, news, oldd, newd = sys.argv[1:9]
+
+def sub1(text, pat, rep, label, counts):
+    out, n = re.subn(pat, rep, text)
+    counts.append((label, n))
+    return out
+
+counts = []
+m = io.open(mk, encoding="utf-8").read()
+m = sub1(m, r'(?m)^(DAEMON_VERSION[ \t]+\??=[ \t]*)%s[ \t]*$' % re.escape(old), r'\g<1>%s' % new, "Makefile DAEMON_VERSION", counts)
+m = sub1(m, r'(?m)^(HUB_APP_SHA256[ \t]+\??=[ \t]*)%s[ \t]*$' % re.escape(olds), r'\g<1>%s' % news, "Makefile HUB_APP_SHA256", counts)
+m = sub1(m, r'(?m)^(DAEMON_SHA256[ \t]+\??=[ \t]*)%s[ \t]*$' % re.escape(oldd), r'\g<1>%s' % newd, "Makefile DAEMON_SHA256", counts)
+
+i = io.open(ins, encoding="utf-8").read()
+i = sub1(i, r'(?m)^(OSTLER_ASSISTANT_VERSION="\$\{OSTLER_ASSISTANT_VERSION:-)%s(\}")$' % re.escape(old), r'\g<1>%s\g<2>' % new, "install.sh OSTLER_ASSISTANT_VERSION", counts)
+i = sub1(i, r'(?m)^(DEFAULT_ASSISTANT_TARBALL_SHA256=")%s(")$' % re.escape(oldd), r'\g<1>%s\g<2>' % newd, "install.sh DEFAULT_ASSISTANT_TARBALL_SHA256", counts)
+i = sub1(i, r'(?m)^(OSTLER_KNOWLEDGE_READER_VERSION=")%s(")$' % re.escape(old), r'\g<1>%s\g<2>' % new, "install.sh OSTLER_KNOWLEDGE_READER_VERSION", counts)
+
+bad = [(l, n) for l, n in counts if n != 1]
+if bad:
+    sys.stderr.write("ERROR: each pin must match EXACTLY ONCE. These did not, and nothing was written:\n")
+    for l, n in bad:
+        sys.stderr.write("    %-46s matched %d\n" % (l, n))
     sys.exit(1)
-io.open(mk, "w", encoding="utf-8").write(s)
+io.open(mk, "w", encoding="utf-8").write(m)
+io.open(ins, "w", encoding="utf-8").write(i)
 PY
 
 # ── READ BACK. A write that is not re-read is a claim, not a change. ────────
 GOT_V="$(mkvar DAEMON_VERSION)"
 GOT_S="$(mkvar HUB_APP_SHA256)"
+GOT_D="$(mkvar DAEMON_SHA256)"
+GOT_IV="$(sed -n 's/^OSTLER_ASSISTANT_VERSION="\${OSTLER_ASSISTANT_VERSION:-\([^}]*\)}"$/\1/p' "$INSTALL" | head -1)"
+GOT_ID="$(shvar DEFAULT_ASSISTANT_TARBALL_SHA256)"
+GOT_KV="$(shvar OSTLER_KNOWLEDGE_READER_VERSION)"
+_bad=""
+[ "$GOT_D"  = "$NEW_DSHA" ] || _bad="$_bad Makefile-DAEMON_SHA256"
+[ "$GOT_IV" = "$NEW" ]      || _bad="$_bad install-ASSISTANT_VERSION"
+[ "$GOT_ID" = "$NEW_DSHA" ] || _bad="$_bad install-TARBALL_SHA256"
+[ "$GOT_KV" = "$NEW" ]      || _bad="$_bad install-KNOWLEDGE_READER_VERSION"
+if [ -n "$_bad" ]; then
+    echo "ERROR: read-back failed on:$_bad" >&2
+    exit 1
+fi
 if [ "$GOT_V" != "$NEW" ] || [ "$GOT_S" != "$NEW_SHA" ]; then
     echo "ERROR: read-back disagrees with what was written." >&2
     echo "  DAEMON_VERSION  want ${NEW}      got ${GOT_V}" >&2
@@ -142,12 +215,26 @@ fi
 
 # The outgoing digest must be GONE. A sweep for the version would not have
 # found it, which is exactly how v1.0.80 shipped half a bump.
-LEFT="$(grep -c -- "$OLD_SHA" "$MK" || true)"
-if [ "$LEFT" -gt 0 ]; then
-    echo "ERROR: the OUTGOING digest still appears ${LEFT} time(s) in gui/Makefile." >&2
-    exit 1
-fi
+# THE OUTGOING VALUES MUST BE GONE FROM BOTH FILES. A sweep for the VERSION
+# would not have found the digests, which is exactly how v1.0.80 shipped half a
+# bump: a digest does not contain its version.
+LEFT=0
+for f in "$MK" "$INSTALL"; do
+    for v in "$OLD_SHA" "$OLD_DSHA"; do
+        n="$(grep -c -- "$v" "$f" || true)"
+        if [ "$n" -gt 0 ]; then
+            echo "ERROR: an OUTGOING digest still appears ${n} time(s) in ${f##*/}." >&2
+            LEFT=$((LEFT + n))
+        fi
+    done
+done
+[ "$LEFT" -eq 0 ] || exit 1
 
-echo "[repin] DAEMON_VERSION ${OLD} -> ${NEW}"
-echo "[repin] HUB_APP_SHA256 ${OLD_SHA} -> ${NEW_SHA}"
+echo "[repin] all SIX pins moved, in two files:"
+echo "  gui/Makefile DAEMON_VERSION                   ${OLD} -> ${NEW}"
+echo "  gui/Makefile DAEMON_SHA256                    ${OLD_DSHA:0:12} -> ${NEW_DSHA:0:12}"
+echo "  gui/Makefile HUB_APP_SHA256                   ${OLD_SHA:0:12} -> ${NEW_SHA:0:12}"
+echo "  install.sh   OSTLER_ASSISTANT_VERSION         ${OLD} -> ${NEW}"
+echo "  install.sh   DEFAULT_ASSISTANT_TARBALL_SHA256 ${OLD_DSHA:0:12} -> ${NEW_DSHA:0:12}"
+echo "  install.sh   OSTLER_KNOWLEDGE_READER_VERSION  ${OLD} -> ${NEW}"
 echo "[repin] both written and read back. cuts/<version>/cut.env DAEMON_COMMIT is NOT touched by this script."
