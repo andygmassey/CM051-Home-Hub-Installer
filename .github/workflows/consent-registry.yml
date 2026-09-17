@@ -30,6 +30,9 @@ on:
       # exported there stops being checkable without touching either of the
       # other two.
       - 'tests/test_the_licence_acknowledgement_reaches_the_customer.sh'
+      - 'tests/test_the_licence_screen_says_what_we_hash.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'vendor/legal/consent_strings.py'
       - 'vendor/doctor/agent/dashboard_components.py'
       - 'vendor/legal/__init__.py'
       - '.github/workflows/consent-registry.yml'
@@ -106,3 +109,14 @@ jobs:
       - name: the licence acknowledgement reaches the customer, end to end
         if: always()
         run: bash tests/test_the_licence_acknowledgement_reaches_the_customer.sh
+
+      - name: The licence screen says what we hash
+        if: always()
+        # The test above proves the screen RENDERS and that the stored hash is
+        # this build's bundled wording. It stubs every MSG_* with a placeholder,
+        # which is right for asking "does the slot render" and says nothing
+        # about the words in it. This one compares the words: every sentence the
+        # customer reads must appear verbatim in the text whose hash goes into
+        # the consent registry. A record naming wording the person never saw is
+        # worse than no record, because it looks like evidence.
+        run: bash tests/test_the_licence_screen_says_what_we_hash.sh
