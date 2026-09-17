@@ -130,6 +130,15 @@ on:
       # catalogue (also listed above) are all watched, because the reuse
       # arm is only visible to a customer through two MSG_ entries.
       - 'tests/test_a_remembered_remote_access_answer_is_not_asked_again.sh'
+      # #1765: the graph namespace migrator was called against a directory
+      # this installer never creates, so the migration has never run on any
+      # customer box. Three files make that true or false and all three are
+      # watched: the test, the caller (install.sh, already listed above), the
+      # bundling phase that puts the file where the caller now looks, and the
+      # coverage gate that binds the two.
+      - 'tests/test_the_namespace_migrator_is_found_where_it_ships.sh'
+      - 'gui/project.yml'
+      - 'scripts/check_install_sh_script_dir_coverage.py'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/cold-box-source-truth.yml'
   push:
@@ -542,3 +551,27 @@ jobs:
       - name: A remembered remote-access answer is not asked again
         if: always()
         run: bash tests/test_a_remembered_remote_access_answer_is_not_asked_again.sh
+      # #1765: THE MIGRATOR SHIPPED AND THE CALLER LOOKED SOMEWHERE ELSE.
+      #
+      # install.sh read ${OSTLER_DIR}/scripts/migrate_graph_namespace.py. That
+      # directory appears ONCE in install.sh, on the line that reads it,
+      # against 61 uses of ${OSTLER_DIR}/bin, so nothing has ever created it and
+      # the guard was false on every install ever made. gui/project.yml does
+      # bundle the file, into Resources/scripts, which install.sh reads as
+      # ${SCRIPT_DIR}/scripts for the sibling deferred-register-device.sh.
+      #
+      # The test EXECUTES the extracted resolver against a staged payload and a
+      # stub interpreter that records what it was handed, so "the migration ran"
+      # is a witness file and not an inference from prose.
+      #
+      # if: always() so an earlier red cannot mask it.
+      - name: The namespace migrator is found where it actually ships
+        if: always()
+        run: bash tests/test_the_namespace_migrator_is_found_where_it_ships.sh
+
+      # Its other half: the probe added above must stay bound to the bundling
+      # phase. This gate is what turns a deleted cp line red instead of shipping
+      # a caller that can never find its file again.
+      - name: Every ${SCRIPT_DIR} probe is bundled by a build phase
+        if: always()
+        run: python3 scripts/check_install_sh_script_dir_coverage.py --mode ci
