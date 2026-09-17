@@ -38,7 +38,15 @@ EXPECTED = {
     "contact_syncer/syncer.py": 5,
     "contact_syncer/backfill_photos.py": 2,
     "contact_syncer/dedup.py": 1,
-    "identity_resolver/batch_resolver.py": 2,
+    # 2 -> 3 on 2026-09-18 with CM041 #162. The gate refused the move and was
+    # right to: it does not accept a count change on the word of whoever made
+    # it, because trust_env=False on an EXTERNAL host is a hole rather than a
+    # guard. The new site was read before this number was touched --
+    # batch_resolver.py:1619, inside sweep_qdrant_orphans_of_merged_people,
+    # constructed against oxigraph_url whose default is http://localhost:7878.
+    # It is the customer's own local store, it already carries trust_env=False,
+    # and its own comment names this gate.
+    "identity_resolver/batch_resolver.py": 3,
     "identity_resolver/pre_ingest_hook.py": 1,
     "identity_resolver/resolver.py": 1,
     "meeting_syncer/brief.py": 1,
