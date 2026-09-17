@@ -639,51 +639,7 @@ open_issues:
   - issue: 958
     repo: none   # no issue of this number exists in either repo
     title: "THE NAMED-GRAPH SPLIT: 36,928 triples are invisible to five customer-facing readers"
-    gate: 'STRUCK 2026-09-16: the issue this row names is CLOSED on GitHub, so the row no longer represents open work and is no longer counted against the cut. WHAT THAT IS AND IS NOT EVIDENCE OF: closure is the register''s own signal that someone judged the work done, and for several of these the judgement is independently visible in a merged PR on main. It is NOT proof that a customer can do the thing; only the walk proves that, which is why item 9 keeps MERGED and PROVEN as different words. If any of these recurs it needs a NEW issue and a NEW row rather than a reopened line here. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. THE BIGGEST SINGLE DEFECT FOUND IN THIS SWEEP, and it has an
-      open register row whose verification was never performed:
-      cuts/DEFECTS_ROLLFORWARD.md:249, v1018-D012b.
-
-      CM048 writes every conversation artefact into the NAMED GRAPH
-      urn:ostler:user/<id> (vendor/cm048_pipeline/src/ingest.py:571-576, and
-      linker.py:156,173,178). Five customer-facing readers query the DEFAULT graph
-      with no union-default-graph: ical-server.py:1033-1043 _sparql_select, used at
-      :4250, :3268, :3582, :3812, and meeting_syncer/brief.py:174-184.
-
-      MEASURED ON THE LIVE BOX: the named graph holds 36,928 triples the default
-      graph cannot see, including 1,092 Conversation, 981 Fact, 378
-      RelationshipSignal and 66 OutstandingTodo. CONTROLS PROVING THE PROBE WORKS:
-      pwg:Person 3810 and ConversationTopic 1036 ARE visible by the same probe shape.
-      CONSUMER PROOF: /api/v1/commitments returns 200 with count 0 while
-      /api/v1/topics returns 50, because topic_writer.py:277-281 deliberately writes
-      the DEFAULT graph. The wiki Commitments page is a 166-byte index against People
-      2146 and Meetings 4001 from the same compile.
-
-      WHY IT IS SYSTEMIC RATHER THAN A BUG: topic_writer.py and last_contact_updater.py
-      EACH independently discovered this trap, documented it in their own docstrings,
-      and fixed only their own surface. Five other readers were left.
-
-      IT IS ALSO THE EXACT TRAP I FELL INTO on 954 four hours earlier: 38,432 triples
-      landed in a named graph and the reader returned 0. The fix there was to write the
-      default graph with a provenance marker. The same question has now been answered
-      independently three times by three authors, each for one file.
-
-      ALSO UNRESOLVED, SOURCE-ONLY, NOT BOX-VERIFIED: candidates.py:323,420 pass
-      using-graph-uri on SPARQL UPDATEs, which scopes the WHERE clause only, so
-      promote and unpromote likely WRITE the default graph while _list_candidates:368-376
-      READS the named one. Verify on a box before acting.
-
-      AND A SECOND WRITER/READER SPLIT ON DISK: 1,101 conversation files are written
-      FLAT into ~/Documents/Ostler/Conversations/ as <date>_<slug>_<id>.md, while every
-      shipped reader references only the bundle layout <date>/<slug>-<short-id>/. Both
-      writers are live: 59 flat and 53 bundles in one two-hour window. Of 59 recent flat
-      files, ZERO have an id matching any of the 5,487 bundle ids; the control lookup of
-      5 real bundle ids hit 5 of 5 and the name parser was validated three ways before
-      that zero was trusted. The only shipped code touching the flat files is
-      cm048_pipeline/src/cli.py:488, which COUNTS them for a progress display and never
-      reads one.
-
-      DENOMINATOR: roughly 150 reader expectations examined across five surfaces,
-      read-only throughout.'
+    gate: 'THE CONSUMER-SIDE NUMBER THIS ROW WAS FILED ON HAS MOVED, MEASURED ON THE BOX 2026-09-18. The row''s own proof was: /api/v1/commitments returns 200 with count 0 while /api/v1/topics returns 50, because CM048 writes conversation artefacts into the named graph urn:ostler:user/<id> and five customer-facing readers queried the default graph with no union-default-graph. RE-MEASURED THROUGH THE SHIPPED ENDPOINTS: commitments 11, topics 50. The topics 50 is the CONTROL and is unchanged, so the commitments number moved rather than the instrument. AND THE FIGURE RECONCILES WITH THE GRAPH: OutstandingTodo in named graphs is exactly 11, so the reader is now seeing the named graph rather than a different default-graph population. Conversation 167, Fact 117 and RelationshipSignal 53 are likewise present in named graphs and reachable. 🔴 A CONTROL IN THAT SAME RUN CAME BACK ZERO AND IT WAS MY QUERY THAT WAS WRONG, NOT THE BOX: pwg:Person read 0 because I used https://ostler.ai/ns#Person, a namespace nothing on this box writes. The real one is https://schema.ostler.ai/ontology#Person at 2595. Recorded because that same mistake had already produced a false finding elsewhere tonight, and a control that reads zero must be investigated before the measurement beside it is believed. WHICH HALF-WIRED MODE: built but unreachable. The data was written and the readers could not see it. Checked from the CONSUMER end, through the HTTP endpoints a customer''s own Doctor and iOS app call, not by reading the SPARQL. NOT PROVEN FOR THE CUT: no walk record carries it.'
   - issue: 959
     repo: none   # no issue of this number exists in either repo
     title: "A BOOKMARK CAN NEVER BECOME AN INTEREST: ceiling 0.126 against a hard floor of 0.28"
@@ -692,7 +648,7 @@ open_issues:
   - issue: 960
     repo: none   # no issue of this number exists in either repo
     title: "PRIVACY: Forget this person does not forget them. 223 triples about 9 people survive"
-    gate: 'BOTH HALVES NOW ADDRESSED, AND THE SECOND WAS FOUND BY RUNNING THE ENDPOINT RATHER THAN READING IT. HALF ONE, THE SPARQL, IS ON MAIN AND IN THE SERVER INSTALLED ON THE BOX: _forget_person_update emits an explicitly-scoped DELETE pair per graph instead of a bare DELETE WHERE, and its graph list is DERIVED from _cm048_user_graph_uris rather than hardcoded, so the delete scope and the read scope cannot drift apart. MEASURED IN THE INSTALLED SERVER, not the repo: _cm048_user_graph_uris 2 occurrences and _forget_person_update 2, with CONTROLS api_people_forget 7 and _sparql_select 38 in the same read, so a zero would have meant absent rather than unreadable. Named graphs on the box: exactly 2, holding 0 Person-typed subjects. HALF TWO, THE REPORTING, SURVIVED THAT FIX AND IS THE NEW FINDING. MEASURED ON THE BOX 2026-09-18 against the shipped endpoint: a person present with five triples, POST /api/v1/people/<slug>/forget, HTTP 200, forgotten false and already_forgotten true and stores_purged empty, with default=3 named=2 BEFORE and default=3 named=2 AFTER. Nothing was deleted and the customer is told the erasure already happened. The handler could not tell a SECOND call after a real erasure from a FIRST call whose lookup could not resolve the person, because both produce no matching person. The discriminator already existed and nothing read it: every forget appends a line to forget_audit.log. FIX RAISED IN PR #2131, which gives the reader three states so an unreadable log is unknown rather than the reassuring answer, with 10 passing assertions and two mutants RED. The synthetic subject was removed afterwards and the box verified clean, 0 remaining against a CONTROL of 30,540. WHICH HALF-WIRED MODE: built with no consumer. Checked by finding the audit writer with no reader, then by running the customer action end to end. NOT PROVEN: no walk has exercised the corrected reporting and #2131 is raised and not merged, so MERGED is the strongest word this row has earned.'
+    gate: 'PROVEN ON THE BOX, AND MY EARLIER GATE ON THIS ROW OVERSTATED THE DEFECT. Correcting that first, because the correction is the more useful half. The earlier text said a person with five triples was asked to be forgotten, got HTTP 200 with already_forgotten true, and all five survived. THE HTTP BEHAVIOUR WAS REAL AND THE SUBJECT WAS NOT A PERSON: I typed the synthetic subject a <https://ostler.ai/ns#Person>, and the population on the box is ontology#PersonIdentifier 6938, ontology#Person 2595, ontology#PersonFact 48, and ostler.ai/ns#Person ZERO. So the endpoint did not fail to erase a person, it correctly failed to find one. A malformed fixture and the defect produce identical output, which is the whole reason a fixture needs a control of its own, and I asserted the triples existed rather than that the product could see them. RE-RUN WITH THE NAMESPACE THE PRODUCT ACTUALLY USES, control first: ontology#Person on the box 2595; BEFORE default=3 named=2; POST /api/v1/people/<slug>/forget returns HTTP 200 with forgotten TRUE and stores_purged [oxigraph, qdrant]; AFTER default=0 named=0. THE FORGET WORKS AND IT REACHES THE NAMED GRAPH. That is this row''s own subject, measured end to end on a real install, and it is a stronger result than the one I first reported. The synthetic subject was removed and the box verified clean at 0. WHAT REMAINS, NARROWER AND STILL REAL: when the lookup genuinely cannot resolve a slug -- a name variant, a person merged away, a typo in a client -- the endpoint answers already_forgotten true, which a customer reads as erased. The handler cannot tell ''I erased them earlier'' from ''I never found them'', because both produce no matching person, and the discriminator it needed (forget_audit.log) was written by every forget and read by nothing. FIXED IN PR #2131, three states, with an unreadable log reading unknown rather than the reassuring answer. WHICH HALF-WIRED MODE: built with no consumer, for the audit log. Checked by finding the writer with no reader, then by running the customer action end to end -- twice, because the first fixture was mis-shaped.'
 
   - issue: 961
     repo: none   # no issue of this number exists in either repo
