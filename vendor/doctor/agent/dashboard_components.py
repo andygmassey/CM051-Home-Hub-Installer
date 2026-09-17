@@ -139,47 +139,71 @@ def _resolve_consent_registry():
     _CONSENT_IMPORT_ERROR = ""
     return True, "", resolved
 
-try:
-    from legal import (  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
-        ARTICLE_9_EU_CONSENT,
-        EU_VOICE_SPEAKER_ID_CONSENT,
-        SPOKEN_CAPTURE_RECORDING_CONSENT,
-        THIRD_PARTY_DATA_NOTICE,
-        WHATSAPP_UNOFFICIAL_RISK_CONSENT,
-    )
-    # tickbox_id -> ConsentString. Drives the bundled-hash check.
-    _BUNDLED_CONSENTS = {
-        ARTICLE_9_EU_CONSENT.tickbox_id: ARTICLE_9_EU_CONSENT,
-        WHATSAPP_UNOFFICIAL_RISK_CONSENT.tickbox_id: WHATSAPP_UNOFFICIAL_RISK_CONSENT,
-        EU_VOICE_SPEAKER_ID_CONSENT.tickbox_id: EU_VOICE_SPEAKER_ID_CONSENT,
-        THIRD_PARTY_DATA_NOTICE.tickbox_id: THIRD_PARTY_DATA_NOTICE,
-        SPOKEN_CAPTURE_RECORDING_CONSENT.tickbox_id: SPOKEN_CAPTURE_RECORDING_CONSENT,
-    }
-except ImportError:  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
-    _BUNDLED_CONSENTS = {}
-
-
 def _import_bundled_consents() -> dict:
     """Build the tickbox_id -> ConsentString map. Isolated for the same
     reason _import_consent_registry is: a test needs to force the failure.
+
+    DERIVED FROM THE `legal` PACKAGE, NOT LISTED BY HAND, and the reason is
+    measured rather than tidiness. This used to name five constants
+    explicitly. install.sh records SIX tickbox ids and
+    ostler_security.consent_cli.TICKBOX_REGISTRY knows all six, so the
+    sixth - personal_use_only, the licence term a customer acknowledges on
+    every install including the "use previous answers" re-install - landed
+    in ~/.ostler/posture/consent.json and reached this tile as grey
+    "unknown wording" with a "?". Measured 2026-09-16 by recording the real
+    decision through the real CLI and rendering this real tile: 6 in the
+    CLI registry, 6 ConsentStrings exported by `legal`, 5 here.
+
+    That grey state is the one _resolve_bundled_consents' docstring calls
+    "an honest-looking state that happens to be exactly what a genuinely
+    unrecognised tickbox_id renders". So the customer's licence
+    acknowledgement was indistinguishable from a bogus record, and the
+    drift check that install.sh's own screen comment says the record exists
+    to enable ("so the Doctor can flag drift between what the customer
+    agreed to and what the Hub currently bundles") could never run on it.
+
+    A hand-kept list cannot be right for longer than the next consent
+    string. The `legal` package is the single source of truth the installer,
+    the CLI and this tile already share, so enumerate it: a new
+    ConsentString exported there is checkable here the day it is added,
+    with nobody having to remember this file.
     """
-    from legal import (  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
-        ARTICLE_9_EU_CONSENT,
-        EU_VOICE_SPEAKER_ID_CONSENT,
-        SPOKEN_CAPTURE_RECORDING_CONSENT,
-        THIRD_PARTY_DATA_NOTICE,
-        WHATSAPP_UNOFFICIAL_RISK_CONSENT,
-    )
-    return {
-        c.tickbox_id: c
-        for c in (
-            ARTICLE_9_EU_CONSENT,
-            WHATSAPP_UNOFFICIAL_RISK_CONSENT,
-            EU_VOICE_SPEAKER_ID_CONSENT,
-            THIRD_PARTY_DATA_NOTICE,
-            SPOKEN_CAPTURE_RECORDING_CONSENT,
+    import legal  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
+    from legal import ConsentString  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
+
+    bundled = {}
+    for name in getattr(legal, "__all__", ()):
+        candidate = getattr(legal, name, None)
+        if isinstance(candidate, ConsentString):
+            bundled[candidate.tickbox_id] = candidate
+
+    if not bundled:
+        # FAIL THE WAY A MISSING PACKAGE FAILS, rather than returning an
+        # empty map. _resolve_bundled_consents caches whatever it gets, and
+        # an empty dict renders every record "unknown wording" for the life
+        # of the process while looking like a successful import. The two
+        # facts must not share one output - the same rule the consent tile
+        # itself was fixed under in task #429.
+        raise ImportError(
+            "legal package exported no ConsentString constants; "
+            "the consent tile cannot check wording drift",
         )
-    }
+    return bundled
+
+
+# ONE PRODUCER, AND IT USED TO BE TWO. This module-level block held its own
+# hand-written copy of the same five-constant map, and _resolve_bundled_consents
+# returns that cache whenever it is truthy - so on every install where `legal`
+# imports (that is, every working install) _import_bundled_consents below was
+# never called. The function was reachable only on the degraded path, which
+# means a test asserting on the function could go green while the tile the
+# customer looks at still read the stale copy: the instrument and the defect on
+# different surfaces. Calling the function here leaves one definition to keep
+# right.
+try:
+    _BUNDLED_CONSENTS = _import_bundled_consents()
+except ImportError:  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
+    _BUNDLED_CONSENTS = {}
 
 
 def _resolve_bundled_consents() -> dict:
