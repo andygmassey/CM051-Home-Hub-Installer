@@ -7960,9 +7960,39 @@ fi
 #
 # The blast radius is every service WITHOUT its own venv -- cm059-editor,
 # ical-server, ostler_hygiene -- which is why the warn names them.
+# 🔴 #950: THE GUARD USED TO SILENCE ITS OWN FAILURE, WHICH IS WHY NOTHING
+# WENT RED FOR THE WHOLE OF THE #550 STORE-AUTH WORK.
+#
+# The warn sat INSIDE this `if`, beside the call. So when PYTHON3_BIN is not
+# the bundled interpreter the shim was not written AND nothing was logged:
+# the install said the same thing whether the credential wiring had happened
+# or had been skipped entirely.
+#
+# SIX VALUES OF PYTHON3_BIN DO NOT MATCH, and none of them is exotic: the four
+# degrade branches in _ostler_relocate_bundled_python, a plain
+# `command -v python3`, and two Homebrew kegs. On any of those six, every
+# service without its own venv reached the stores bare and the log said
+# nothing at all.
+#
+# WHY THE EXISTING TEST COULD NOT CATCH IT, and this is the part worth
+# keeping: tests/test_store_auth_covers_every_interpreter.sh is STATIC. It
+# asserts the wiring CALL EXISTS at 15 sites against a floor of 15. A call
+# inside a guard that evaluates false still exists. Presence is not
+# execution, and a static test cannot tell them apart.
+#
+# THE WRITE STAYS GUARDED ON PURPOSE. _ostler_wire_store_auth_pth writes a
+# .pth into an interpreter''s site-packages, and doing that to a Homebrew keg
+# or to /usr/bin/python3 would modify software the customer did not install
+# from us and that other things on their Mac depend on. The guard is correct.
+# What was wrong was that its failure was invisible.
 if [[ -n "${PYTHON3_BIN:-}" && "${PYTHON3_BIN}" == "${OSTLER_FINAL_DIR}/python/"* ]]; then
     _ostler_wire_store_auth_pth "$PYTHON3_BIN" "${OSTLER_FINAL_DIR:-${HOME}/.ostler}" \
         || warn "store-auth .pth not wired into the bundled interpreter -- every service WITHOUT its own venv (cm059-editor, ical-server, ostler_hygiene) reaches the data stores with NO credential (#595/#210)"
+else
+    # The else that did not exist. Names the interpreter, the reason, the
+    # blast radius and the number, so a walk or a customer log can be grepped
+    # for it. i18n-exempt: this is an operator diagnostic, not customer copy.
+    warn "store-auth .pth NOT wired: PYTHON3_BIN is [${PYTHON3_BIN:-<unset>}], which is not the bundled interpreter under [${OSTLER_FINAL_DIR}/python/]. The shim is deliberately not written into an interpreter we do not own, so every service WITHOUT its own venv (cm059-editor, ical-server, ostler_hygiene) will reach the data stores with NO credential (#950/#595/#210)."  # i18n-exempt
 fi
 
 # ── and now the half that makes the shim RUN (#550) ───────────────────
