@@ -179,13 +179,27 @@ pr_exemptions:
       dropped iOS simulator slices between b10360 and b10472 and the fix was to
       pin DOWN). A major bump next to a known-fragile native pin is reviewed on
       a device, not merged to satisfy an age rule.
-    review_by: "2026-09-10"
+      RE-DECIDED 2026-09-17 ON A STRUCTURAL GROUND, NOT ROLLED. v1.0.97 was spent renewing
+      an exemption whose ground had already lapsed, so the date alone is not the decision.
+      MEASURED: CM031 appears 0 times in gui/Makefile, so the cut neither vendors, pins nor
+      fetches it; HR015 is read by the cut as files ON MAIN, and an OPEN pull request is by
+      definition not on main. Either way this PR cannot change one byte of the DMG.
+      RETIREMENT IS A CONDITION, NOT A DATE: retire when the repo becomes a cut input, or
+      when the PR lands, whichever is first. NOT A JUDGEMENT ON MERIT.
+    review_by: 2026-09-24
   - ref: "CM031-PWG-Companion#169"
     reason: >-
       'chore(deps): Bump the swift-minor-and-patch group with 2 updates'.
       Dependabot. iOS app, not in the Hub DMG. Same review path as #170 but
       lower risk (minor/patch group). Sweep with its sibling.
-    review_by: "2026-09-10"
+      RE-DECIDED 2026-09-17 ON A STRUCTURAL GROUND, NOT ROLLED. v1.0.97 was spent renewing
+      an exemption whose ground had already lapsed, so the date alone is not the decision.
+      MEASURED: CM031 appears 0 times in gui/Makefile, so the cut neither vendors, pins nor
+      fetches it; HR015 is read by the cut as files ON MAIN, and an OPEN pull request is by
+      definition not on main. Either way this PR cannot change one byte of the DMG.
+      RETIREMENT IS A CONDITION, NOT A DATE: retire when the repo becomes a cut input, or
+      when the PR lands, whichever is first. NOT A JUDGEMENT ON MERIT.
+    review_by: 2026-09-24
   - ref: "ostler-assistant#368"
     reason: >-
       'fix(pairing): rotation revokes paired devices, spares the admin token
@@ -198,7 +212,16 @@ pr_exemptions:
       merits with a test that fails on the original defect, never merged to
       clear a 48h clock. It also cannot reach this DMG: the daemon enters by
       PINNED BINARY, and this is unmerged upstream source.
-    review_by: "2026-09-10"
+      DRAFT, and a draft is a deliberate hold rather than a stalled PR: nobody has asked for
+      it to land. It is pairing-rotation work (revoke paired devices, spare the admin
+      token). RE-DECIDED 2026-09-17 ON A STRUCTURAL GROUND, NOT ROLLED. The cut consumes
+      ostler-assistant by TAG AND DIGEST, never by its main branch: gui/Makefile pins
+      DAEMON_RELEASE_TAG = hub-v$(DAEMON_VERSION) and HUB_APP_SHA256 to exact bytes,
+      verified fail-closed at fetch. The daemon that ships is a signed, notarised tarball
+      built from one named commit, so an unmerged PR is outside the artefact by
+      construction. RETIREMENT IS A CONDITION, NOT A DATE: retire when the PR lands and a
+      daemon release is cut from a commit that contains it. NOT A JUDGEMENT ON MERIT.
+    review_by: 2026-09-24
   - ref: "CM051-Home-Hub-Installer#1305"
     reason: >-
       'fix(usage-journal): the SHIPPING ostler_fda has never written a record
@@ -304,7 +327,16 @@ pr_exemptions:
       it. CUSTOMER IMPACT: none, it is CI wiring. REVIEW DATE: land it in the
       daemon repo's own next cycle, once no CM051 cut is in flight. NOT cleared by
       closing the PR: it is wanted, it is simply not this cut's to merge.
-    review_by: "2026-09-12"
+      CI-ONLY: it gives every main commit its own concurrency group. It changes no crate
+      under crates/ and no dependency, so it cannot alter the daemon binary even once
+      merged. RE-DECIDED 2026-09-17 ON A STRUCTURAL GROUND, NOT ROLLED. The cut consumes
+      ostler-assistant by TAG AND DIGEST, never by its main branch: gui/Makefile pins
+      DAEMON_RELEASE_TAG = hub-v$(DAEMON_VERSION) and HUB_APP_SHA256 to exact bytes,
+      verified fail-closed at fetch. The daemon that ships is a signed, notarised tarball
+      built from one named commit, so an unmerged PR is outside the artefact by
+      construction. RETIREMENT IS A CONDITION, NOT A DATE: retire when the PR lands and a
+      daemon release is cut from a commit that contains it. NOT A JUDGEMENT ON MERIT.
+    review_by: 2026-09-24
 
   # CM051:#982 -- CANNOT MERGE. It is RED, and that is the whole reason.
   #
@@ -614,7 +646,14 @@ pr_exemptions:
       tree an RC is being assembled from is how a cut acquires a defect nobody
       predicted. Green is a reason to land it EARLY IN THE NEXT CYCLE, not to land
       it now.
-    review_by: "2026-09-13"
+      RE-DECIDED 2026-09-17 ON A STRUCTURAL GROUND, NOT ROLLED. v1.0.97 was spent renewing
+      an exemption whose ground had already lapsed, so the date alone is not the decision.
+      MEASURED: CM031 appears 0 times in gui/Makefile, so the cut neither vendors, pins nor
+      fetches it; HR015 is read by the cut as files ON MAIN, and an OPEN pull request is by
+      definition not on main. Either way this PR cannot change one byte of the DMG.
+      RETIREMENT IS A CONDITION, NOT A DATE: retire when the repo becomes a cut input, or
+      when the PR lands, whichever is first. NOT A JUDGEMENT ON MERIT.
+    review_by: 2026-09-24
   - ref: "ostler-assistant#351"
     reason: >-
       DRAFT. A draft is work the author has explicitly said is not ready, so the
@@ -622,7 +661,16 @@ pr_exemptions:
       prompt_injection_mode, delete the dead prompt guard); daemon-side and not a
       v1.0 payload change. Either finish it or close it -- a permanent draft is
       the same invisibility the 176-PR backlog was made of.
-    review_by: "2026-09-12"
+      DRAFT, a deliberate hold. It is a security REFACTOR (rename prompt_injection_mode,
+      delete a dead prompt guard), not a fix for an observed defect. RE-DECIDED 2026-09-17
+      ON A STRUCTURAL GROUND, NOT ROLLED. The cut consumes ostler-assistant by TAG AND
+      DIGEST, never by its main branch: gui/Makefile pins DAEMON_RELEASE_TAG =
+      hub-v$(DAEMON_VERSION) and HUB_APP_SHA256 to exact bytes, verified fail-closed at
+      fetch. The daemon that ships is a signed, notarised tarball built from one named
+      commit, so an unmerged PR is outside the artefact by construction. RETIREMENT IS A
+      CONDITION, NOT A DATE: retire when the PR lands and a daemon release is cut from a
+      commit that contains it. NOT A JUDGEMENT ON MERIT.
+    review_by: 2026-09-24
 
 
   # ── v1.0.89 cut, 2026-09-10 (Archie). SEVEN PRs over 48h, none of them in
@@ -674,7 +722,14 @@ pr_exemptions:
       chain', owned by the iOS repo. CM031 is not in the customer install path
       for this cut and its source enters no part of this DMG, so merging it
       changes nothing here and is not ours to decide at T-minus.
-    review_by: "2026-09-12"
+      RE-DECIDED 2026-09-17 ON A STRUCTURAL GROUND, NOT ROLLED. v1.0.97 was spent renewing
+      an exemption whose ground had already lapsed, so the date alone is not the decision.
+      MEASURED: CM031 appears 0 times in gui/Makefile, so the cut neither vendors, pins nor
+      fetches it; HR015 is read by the cut as files ON MAIN, and an OPEN pull request is by
+      definition not on main. Either way this PR cannot change one byte of the DMG.
+      RETIREMENT IS A CONDITION, NOT A DATE: retire when the repo becomes a cut input, or
+      when the PR lands, whichever is first. NOT A JUDGEMENT ON MERIT.
+    review_by: 2026-09-24
   - ref: "HR015-Gaming-PC#846"
     reason: >-
       'chore(docs): correct stale launch-state and the local-cut recipe that
@@ -683,7 +738,14 @@ pr_exemptions:
       installer source, no pin and no vendored tree, so it cannot reach this
       DMG. The exemption records the collision between the freeze and this gate
       rather than resolving it by quietly merging a PR the freeze excludes.
-    review_by: "2026-09-12"
+      RE-DECIDED 2026-09-17 ON A STRUCTURAL GROUND, NOT ROLLED. v1.0.97 was spent renewing
+      an exemption whose ground had already lapsed, so the date alone is not the decision.
+      MEASURED: CM031 appears 0 times in gui/Makefile, so the cut neither vendors, pins nor
+      fetches it; HR015 is read by the cut as files ON MAIN, and an OPEN pull request is by
+      definition not on main. Either way this PR cannot change one byte of the DMG.
+      RETIREMENT IS A CONDITION, NOT A DATE: retire when the repo becomes a cut input, or
+      when the PR lands, whichever is first. NOT A JUDGEMENT ON MERIT.
+    review_by: 2026-09-24
   - ref: "HR015-Gaming-PC#847"
     reason: >-
       'chore(tokens): register the 5 Apple signing/notary secrets and flag the
@@ -692,7 +754,14 @@ pr_exemptions:
       installer source and no pin. Worth landing the day the freeze lifts: an
       unrecorded certificate expiry is a real future outage, and this row is
       the reminder that it is written down nowhere else yet.
-    review_by: "2026-09-12"
+      RE-DECIDED 2026-09-17 ON A STRUCTURAL GROUND, NOT ROLLED. v1.0.97 was spent renewing
+      an exemption whose ground had already lapsed, so the date alone is not the decision.
+      MEASURED: CM031 appears 0 times in gui/Makefile, so the cut neither vendors, pins nor
+      fetches it; HR015 is read by the cut as files ON MAIN, and an OPEN pull request is by
+      definition not on main. Either way this PR cannot change one byte of the DMG.
+      RETIREMENT IS A CONDITION, NOT A DATE: retire when the repo becomes a cut input, or
+      when the PR lands, whichever is first. NOT A JUDGEMENT ON MERIT.
+    review_by: 2026-09-24
 
 deferrals:
   - ref: "CM051:#1437"
