@@ -28,8 +28,25 @@
 # would also clear the real finding:
 #   * a pool member of a declared host  -> pool       (CANNOT-RUN)
 #   * an address in no declared pool    -> undeclared (still FAILs)
-# The second is the negative control and it uses the real unattributed address
-# from the same measurement, 199.165.136.100.
+# The second is the negative control.
+#
+# 🔴 THE NEGATIVE CONTROL MOVED ON 2026-09-18, AND THE REASON MATTERS MORE THAN
+# THE ADDRESS. It used to be 199.165.136.100, the real unattributed address from
+# the same measurement. That address has since been EXPLAINED -- Ostler's own
+# tailscaled holding a control connection on an address Tailscale's dial plan
+# handed out, which DNS deliberately does not publish -- and 199.165.136.0/24 is
+# now a declared CIDR row in the ledger. So it is no longer undeclared and
+# cannot serve as the control.
+#
+# It is replaced by 203.0.113.45, from TEST-NET-3 (RFC 5737), which is reserved
+# for documentation and can never be a real destination. That is a BETTER
+# control than the address it replaces: it cannot be explained later, so this
+# assertion cannot quietly stop testing anything the way the last one did.
+#
+# The pool assertion's subject moved for the same reason. 192.200.0.111 is now
+# inside a declared network, so it classifies `network` and no longer exercises
+# the pool arm at all. The pool arm is now driven by 20.205.243.170, a member of
+# api.github.com's pool, which is in no declared CIDR.
 #
 # British English throughout; " -- " not em-dashes.
 set -uo pipefail
@@ -65,8 +82,10 @@ grep -v '^DERP	' "$TMP/map.tsv" > "$TMP/map-noderp.tsv"
 cat > "$TMP/addrs.txt" <<'EOF'
 192.200.0.104
 192.200.0.111
+20.205.243.170
 205.147.105.30
 199.165.136.100
+203.0.113.45
 EOF
 
 # Reads a bucket for one address out of a --classify-declared run.
@@ -112,26 +131,35 @@ b="$(bucket_of "$TMP/out" 192.200.0.104)"
 
 # ---------------------------------------------------------------------------
 # 2. THE DEFECT. The pool member the run's own lookup did not return.
+#
+#    THE SUBJECT MOVED 2026-09-18. It was 192.200.0.111, the real address from
+#    #1143, but that address now sits inside a declared CIDR and classifies
+#    `network` before the pool arm is ever reached -- so it would have gone on
+#    passing this assertion while testing a different arm entirely. It is
+#    replaced by 20.205.243.170, a member of api.github.com's pool, which is in
+#    no declared network and therefore still exercises the pool arm. Assertion
+#    (9) covers the address that moved.
 # ---------------------------------------------------------------------------
-b="$(bucket_of "$TMP/out" 192.200.0.111)"
+b="$(bucket_of "$TMP/out" 20.205.243.170)"
 if [ "$b" = pool ]; then
-    ok "(2) 192.200.0.111, a member of controlplane.tailscale.com's pool that this run did not resolve -> pool (CANNOT-RUN), not a violation"
+    ok "(2) 20.205.243.170, a member of api.github.com's pool that this run did not resolve -> pool (CANNOT-RUN), not a violation"
 elif [ "$b" = undeclared ]; then
     no "(2) #1143 IS BACK: a pool member of a DECLARED host classified as undeclared, which makes the probe FAIL a walk on declared infrastructure" "$(cat "$TMP/out")"
 else
-    no "(2) 192.200.0.111 classified '${b}', expected pool" "$(cat "$TMP/out")"
+    no "(2) 20.205.243.170 classified '${b}', expected pool" "$(cat "$TMP/out")"
 fi
 
 # ---------------------------------------------------------------------------
-# 3. THE NEGATIVE CONTROL, and it is the load-bearing one. The pool arm must
-#    not be a rubber stamp. 199.165.136.100 shares a /24 with nothing any
-#    declared host resolved to, and it is the address from the same real
-#    measurement that genuinely deserved the probe's accusation.
+# 3. THE NEGATIVE CONTROL, and it is the load-bearing one. Neither the pool arm
+#    nor the network arm may be a rubber stamp. 203.0.113.45 is TEST-NET-3
+#    (RFC 5737), reserved for documentation: it shares a /24 with nothing any
+#    declared host resolved to, sits in no declared CIDR, and can never become
+#    a real destination that someone later explains away.
 # ---------------------------------------------------------------------------
-b="$(bucket_of "$TMP/out" 199.165.136.100)"
+b="$(bucket_of "$TMP/out" 203.0.113.45)"
 [ "$b" = undeclared ] \
-    && ok "(3) NEGATIVE CONTROL: 199.165.136.100, in no declared pool -> undeclared, so the probe can still accuse" \
-    || no "(3) NEGATIVE CONTROL FAILED: an address in no declared pool classified '${b}'. The pool arm clears everything and the probe can no longer fail" "$(cat "$TMP/out")"
+    && ok "(3) NEGATIVE CONTROL: 203.0.113.45, in no declared pool and no declared network -> undeclared, so the probe can still accuse" \
+    || no "(3) NEGATIVE CONTROL FAILED: an address in no declared pool and no declared network classified '${b}'. An arm clears everything and the probe can no longer fail" "$(cat "$TMP/out")"
 
 # ---------------------------------------------------------------------------
 # 4. The live relay map still attributes. Guards against the pool arm being
@@ -150,14 +178,18 @@ rc="$(classify "$PROBE" "$TMP/map-noderp.tsv" "$TMP/addrs.txt" "$TMP/out2")"
 if [ "$rc" != 0 ]; then
     no "(5) classifier exited ${rc} on the no-relay map" "$(cat "$TMP/out2" "$TMP/out2.err" 2>/dev/null)"
 else
-    b="$(bucket_of "$TMP/out2" 199.165.136.100)"
+    b="$(bucket_of "$TMP/out2" 203.0.113.45)"
     [ "$b" = unchecked ] \
         && ok "(5) with the DERP map unavailable, an unmatched address -> unchecked, not undeclared" \
-        || no "(5) with no relay map, 199.165.136.100 classified '${b}', expected unchecked" "$(cat "$TMP/out2")"
-    b="$(bucket_of "$TMP/out2" 192.200.0.111)"
+        || no "(5) with no relay map, 203.0.113.45 classified '${b}', expected unchecked" "$(cat "$TMP/out2")"
+    b="$(bucket_of "$TMP/out2" 20.205.243.170)"
     [ "$b" = pool ] \
         && ok "(5b) the pool arm is decided before the relay map is consulted, so it survives a missing DERP map" \
         || no "(5b) with no relay map, the pool member classified '${b}', expected pool" "$(cat "$TMP/out2")"
+    b="$(bucket_of "$TMP/out2" 199.165.136.100)"
+    [ "$b" = network ] \
+        && ok "(5c) the network arm is also decided before the relay map, so a declared CIDR survives a missing DERP map" \
+        || no "(5c) with no relay map, the declared-network address classified '${b}', expected network" "$(cat "$TMP/out2")"
 fi
 
 # ---------------------------------------------------------------------------
@@ -184,6 +216,31 @@ rc="$(classify "$PROBE" "$TMP/map-empty.tsv" "$TMP/addrs.txt" "$TMP/out4")"
 [ "$rc" = 2 ] \
     && ok "(7) an empty declared map is refused (rc=2), not classified against silently" \
     || no "(7) an empty declared map returned rc=${rc}, expected 2" "$(cat "$TMP/out4" "$TMP/out4.err" 2>/dev/null)"
+
+# ---------------------------------------------------------------------------
+# 8. THE NETWORK ARM ATTRIBUTES AN ADDRESS NO NAME COULD REACH. Added
+#    2026-09-18 with the arm itself. 199.165.136.100 is Ostler's own tailscaled
+#    holding a control connection on an address Tailscale's dial plan handed
+#    out; DNS does not publish it and it is in neither DERP map, so no
+#    hostname can ever resolve to it. The ledger declares the network instead.
+# ---------------------------------------------------------------------------
+b="$(bucket_of "$TMP/out" 199.165.136.100)"
+[ "$b" = network ] \
+    && ok "(8) an address inside a DECLARED CIDR that no name resolved to -> network, not undeclared" \
+    || no "(8) 199.165.136.100 classified '${b}', expected network. Either the CIDR rows are missing from the ledger or the arm is not wired" "$(cat "$TMP/out")"
+
+# ---------------------------------------------------------------------------
+# 9. A NAME STILL BEATS A NETWORK, AND THE ORDER IS THE POINT. 192.200.0.104 is
+#    both a resolved declared host AND inside a declared CIDR. If the network
+#    arm ran first it would swallow the stronger attribution and every
+#    Tailscale destination would print as "owner attributed, service not" even
+#    when the service was known. That would be a real loss of information
+#    dressed as a pass.
+# ---------------------------------------------------------------------------
+b="$(bucket_of "$TMP/out" 192.200.0.104)"
+[ "$b" = declared ] \
+    && ok "(9) an address that BOTH resolves from a declared host and sits in a declared CIDR -> declared, so the stronger attribution wins" \
+    || no "(9) 192.200.0.104 classified '${b}', expected declared. The network arm has been moved ahead of the name arm and is hiding known services" "$(cat "$TMP/out")"
 
 # ===========================================================================
 # MUTATION TESTING, BOTH DIRECTIONS.
@@ -223,10 +280,10 @@ else
     if [ "$rc" != 0 ]; then
         no "(M1) the mutant did not run (rc=${rc})" "$(cat "$TMP/m1" "$TMP/m1.err" 2>/dev/null)"
     else
-        b="$(bucket_of "$TMP/m1" 192.200.0.111)"
+        b="$(bucket_of "$TMP/m1" 20.205.243.170)"
         [ "$b" = undeclared ] \
             && ok "(M1) RED ON THE DEFECT: with the pool arm removed, the declared pool member is classified '${b}' again -- assertion (2) is load-bearing" \
-            || no "(M1) MUTANT SURVIVED: removing the pool arm still classified 192.200.0.111 as '${b}', so assertion (2) proves nothing" "$(cat "$TMP/m1")"
+            || no "(M1) MUTANT SURVIVED: removing the pool arm still classified 20.205.243.170 as '${b}', so assertion (2) proves nothing" "$(cat "$TMP/m1")"
     fi
 fi
 
@@ -256,10 +313,44 @@ else
     if [ "$rc" != 0 ]; then
         no "(M2) the mutant did not run (rc=${rc})" "$(cat "$TMP/m2" "$TMP/m2.err" 2>/dev/null)"
     else
-        b="$(bucket_of "$TMP/m2" 199.165.136.100)"
+        b="$(bucket_of "$TMP/m2" 203.0.113.45)"
         [ "$b" = pool ] \
             && ok "(M2) REFUSES WHEN BLINDED: a pool arm that clears everything turns the genuinely undeclared address into '${b}', and assertion (3) catches it" \
-            || no "(M2) MUTANT SURVIVED: a rubber-stamp pool arm still left 199.165.136.100 as '${b}', so assertion (3) proves nothing" "$(cat "$TMP/m2")"
+            || no "(M2) MUTANT SURVIVED: a rubber-stamp pool arm still left 203.0.113.45 as '${b}', so assertion (3) proves nothing" "$(cat "$TMP/m2")"
+    fi
+fi
+
+# MUTATION 3: BLIND THE NETWORK ARM. Make network_attribution_for claim every
+# address belongs to a declared network. This is the arm added on 2026-09-18
+# and it is the one with the most room to become a rubber stamp, because a CIDR
+# is a wider claim than a name by construction. If assertion (3) cannot see
+# this, the arm could be widened to 0.0.0.0/0 and nothing would notice.
+python3 - "$PROBE" "$TMP/mutant-net.sh" <<'PY'
+import sys
+src = open(sys.argv[1]).read()
+needle = """    local ip="$1" cidr purpose
+    [ -n "${DECLARED_CIDRS:-}" ] || return 1
+"""
+if needle not in src:
+    sys.stderr.write("MUTATION 3 DID NOT APPLY: network_attribution_for is not where this test expects it\n")
+    raise SystemExit(3)
+stamp = """    printf 'EVERYTHING/0\\tstamped\\n'; return 0
+"""
+open(sys.argv[2], "w").write(src.replace(needle, stamp, 1))
+PY
+m3_built=$?
+
+if [ "$m3_built" != 0 ]; then
+    no "(M3) the mutant could not be built, so the network arm's rubber-stamp direction was not tested" "re-point this test at network_attribution_for"
+else
+    rc="$(classify "$TMP/mutant-net.sh" "$TMP/map.tsv" "$TMP/addrs.txt" "$TMP/m3")"
+    if [ "$rc" != 0 ]; then
+        no "(M3) the mutant did not run (rc=${rc})" "$(cat "$TMP/m3" "$TMP/m3.err" 2>/dev/null)"
+    else
+        b="$(bucket_of "$TMP/m3" 203.0.113.45)"
+        [ "$b" = network ] \
+            && ok "(M3) REFUSES WHEN BLINDED: a network arm that claims every address turns the genuinely undeclared one into '${b}', and assertion (3) catches it" \
+            || no "(M3) MUTANT SURVIVED: a rubber-stamp network arm still left 203.0.113.45 as '${b}', so assertions (3) and (8) prove nothing" "$(cat "$TMP/m3")"
     fi
 fi
 
