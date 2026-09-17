@@ -3239,11 +3239,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8045) captures the path BY
+    # _ostler_write_store_curl_config (defined :8057) captures the path BY
     # VALUE and never re-reads it:
-    #     :8046   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8091   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8100 and :14419, both of which run
+    #     :8058   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8103   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8112 and :14452, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3234 above has just deleted
     # that tree and :3238 has just rebound OSTLER_DIR to the final one, so
@@ -3261,13 +3261,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15190, where the note reads
+    # WhatsApp Web session path did it again at :15223, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15207 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15240 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3276,13 +3276,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5695 against a definition at :8045. Top-level
+    # writer's own definition: :5707 against a definition at :8057. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8100, :14419) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8112, :14452) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17262 / :17440 / :17597 / :17938 path. There the
+    # :17295 / :17473 / :17630 / :17971 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -5579,6 +5579,18 @@ if [[ -f "${OSTLER_FINAL_DIR}/config/.env" ]] \
     ok "$MSG_OK_PREVIOUS_INSTALLATION_DETECTED_LOADING_CONFIG"
     # Source existing config from the canonical location.
     set -a; source "${OSTLER_FINAL_DIR}/config/.env"; set +a
+    # #1539: THE REMOTE-ACCESS ANSWER, CAPTURED UNDER ITS OWN NAME.
+    #
+    # The source above may have restored TAILSCALE_CONFIRM, but the restored
+    # value must NOT be allowed to act as this run's answer on its own: the
+    # customer has not yet been asked whether to reuse anything, and if they
+    # say no the question phase runs and asks again, which is correct. So the
+    # restored value is copied here, read only by the late fallback, and only
+    # when the customer actually chose "use previous answers".
+    #
+    # Empty when this box predates the .env line, which is a real state and
+    # not an error: the fallback then asks exactly as it does today.
+    TAILSCALE_CONFIRM_PREVIOUS="${TAILSCALE_CONFIRM:-}"
     USER_NAME="${USER_NAME:-}"
     USER_ID="${USER_ID:-}"
     ASSISTANT_NAME="${ASSISTANT_NAME:-}"
@@ -13979,6 +13991,27 @@ OSTLER_CONSENT_PERSONAL_USE_DECISION="${OSTLER_CONSENT_PERSONAL_USE_DECISION:-}"
 # rather than "missing".
 CHANNEL_WHATSAPP_CONSENT_ACCEPTED="${CHANNEL_WHATSAPP_CONSENT_ACCEPTED:-}"
 WA_CONSENT="${WA_CONSENT:-}"
+
+# ── THE REMOTE-ACCESS ANSWER (#1539) ──────────────────────────────────────
+#
+# THE ONLY SETTINGS QUESTION A RE-INSTALL RE-ASKED. Measured by executing the
+# late prompt block against a reuse run: with the customer's previous answer
+# of "skip" restored and TAILSCALE_CONFIRM_SHOWN_EARLY unset (Phase 2 is
+# skipped on a reuse, so the early prompt never runs), the fallback asked
+# again and the prompt's own default overwrote the remembered "skip" with
+# "setup". A person who said no to remote access was asked every time and
+# their answer was silently replaced.
+#
+# The detector added by #875 only ever covered the YES half: it asks the disk
+# whether a tailnet exists, so a customer who ACCEPTED setup is not re-asked.
+# A customer who DECLINED leaves nothing on disk by definition, so there was
+# never anything for it to find.
+#
+# EMPTY IS PRESERVED, same rule as the consent block above. An unanswered
+# question must stay unanswered so the fallback asks; defaulting it to
+# "setup" would enrol somebody in remote access they never agreed to, and
+# defaulting it to "skip" would switch off something they never refused.
+TAILSCALE_CONFIRM="${TAILSCALE_CONFIRM:-}"
 ENVEOF
 
 # This .env carries USER_ID + config the whole install reads; it is
@@ -27426,16 +27459,79 @@ elif _ts_already_configured; then
     TAILSCALE_CONFIRM_SHOWN_EARLY=1
     export TAILSCALE_CONFIRM TAILSCALE_CONFIRM_SHOWN_EARLY
     info "$MSG_INFO_TAILSCALE_ALREADY_CONFIGURED"
+elif [[ "${SKIP_PHASE2:-false}" == true ]] \
+     && { [[ "${TAILSCALE_CONFIRM_PREVIOUS:-}" == "setup" ]] \
+          || [[ "${TAILSCALE_CONFIRM_PREVIOUS:-}" == "skip" ]]; }; then
+    # ── #1539: "USE PREVIOUS ANSWERS" NOW COVERS THIS ONE TOO ─────────────
+    #
+    # The customer chose to reuse their settings, so Phase 2 (and with it the
+    # early prompt above) was skipped, SHOWN_EARLY is unset, and this fallback
+    # is what runs. The detector above answers only the YES half: it asks the
+    # disk whether a tailnet exists, so somebody who ACCEPTED remote access is
+    # already covered. Somebody who DECLINED leaves nothing on disk by
+    # definition, so before this arm they were asked again on every single
+    # re-install and the prompt default replaced their "skip" with "setup".
+    #
+    # ORDER MATTERS AND THIS ARM IS DELIBERATELY SECOND. If the tailnet IS
+    # configured the arm above wins and re-applies `serve`, which is what
+    # keeps the iOS app reachable. A remembered "skip" must not stop that:
+    # the box is demonstrably on the tailnet, and the state on disk outranks
+    # a remembered answer that contradicts it.
+    #
+    # ONLY TWO VALUES ARE HONOURED, and anything else falls through to the
+    # question. A truncated or hand-edited .env must not be able to enrol
+    # somebody in remote access, or switch it off, by carrying a word this
+    # installer does not recognise.
+    TAILSCALE_CONFIRM="$TAILSCALE_CONFIRM_PREVIOUS"
+    TAILSCALE_CONFIRM_SHOWN_EARLY=1
+    export TAILSCALE_CONFIRM TAILSCALE_CONFIRM_SHOWN_EARLY
+    if [[ "$TAILSCALE_CONFIRM" == "skip" ]]; then
+        info "$MSG_INFO_TAILSCALE_REUSED_ANSWER_SKIP"
+    else
+        info "$MSG_INFO_TAILSCALE_REUSED_ANSWER_SETUP"
+    fi
 else
     if [[ "${_TS_CONFIGURED_VERDICT:-}" == "cannot_run" ]]; then
         warn "$MSG_WARN_TAILSCALE_STATE_UNREADABLE"
     fi
     # Reached only when TAILSCALE_CONFIRM_SHOWN_EARLY is unset AND no tailnet
-    # state was found: nothing is set up and nobody has been asked yet. The
-    # walk-away middle never lands here.
+    # state was found AND no previous answer was restored: nothing is set up
+    # and nobody has been asked yet. The walk-away middle never lands here.
     TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setup" "$MSG_PROMPT_TAILSCALE_CONFIRM_HELP" "setup,skip" "tailscale_confirm")"
     TAILSCALE_CONFIRM_SHOWN_EARLY=1
     export TAILSCALE_CONFIRM TAILSCALE_CONFIRM_SHOWN_EARLY
+fi
+
+# ── PERSIST THE ANSWER HERE, NOT ONLY IN THE .env WRITER (#1539) ──────────
+#
+# The .env is written far above this line, so an answer given HERE, on the
+# reuse path, was never in it. Without this block the fix would work for boxes
+# installed after it lands and never for the boxes that have the problem: a
+# box whose .env predates the TAILSCALE_CONFIRM line would ask on every reuse
+# run, record nothing, and ask again on the next one. That is the same
+# self-perpetuating loop the consent block above documents.
+#
+# Replace-or-append, then READ THE VALUE BACK, matching the shape the Tailscale
+# IP persist uses a little further down. A silent persist failure would put the
+# customer straight back into being asked forever.
+if [[ -n "${TAILSCALE_CONFIRM:-}" && -f "${CONFIG_DIR}/.env" ]]; then
+    _ts_env_file="${CONFIG_DIR}/.env"
+    if grep -q '^TAILSCALE_CONFIRM=' "$_ts_env_file"; then
+        _ts_tmp_env="$(mktemp)"
+        if sed "s|^TAILSCALE_CONFIRM=.*|TAILSCALE_CONFIRM=\"${TAILSCALE_CONFIRM}\"|" \
+               "$_ts_env_file" > "$_ts_tmp_env"; then
+            mv "$_ts_tmp_env" "$_ts_env_file"
+        else
+            rm -f "$_ts_tmp_env"
+        fi
+        _ts_tmp_env=""
+    else
+        printf 'TAILSCALE_CONFIRM="%s"\n' "$TAILSCALE_CONFIRM" >> "$_ts_env_file"
+    fi
+    if ! grep -q "^TAILSCALE_CONFIRM=\"${TAILSCALE_CONFIRM}\"$" "$_ts_env_file"; then
+        warn "$MSG_WARN_TAILSCALE_ANSWER_NOT_REMEMBERED"
+    fi
+    unset _ts_env_file _ts_tmp_env
 fi
 
 if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then
@@ -28546,7 +28642,50 @@ _hydrate_payload_is_all_zero() {
 #
 # A reader (CM044) should cover THIS list rather than one somebody transcribed.
 OSTLER_SENTINEL_STATUSES="ok error timeout no_data cannot_run"
-OSTLER_SENTINEL_SOURCES="ai_conversations apple_notes browsing calendar contacts dedupe email email_preferences imessage people places privacy_backfill reminders whatsapp"
+OSTLER_SENTINEL_SOURCES="ai_conversations apple_notes browsing calendar contacts dedupe email email_preferences imessage people photos places privacy_backfill reminders whatsapp"
+
+# ── WHICH FDA EXTRACTOR SOURCE FEEDS WHICH DOCTOR ROW (#1587) ────────────
+#
+# THE DEFECT THIS CLOSES, measured on origin/main at d0c207fd by driving the
+# real vendored reader with a real sentinel on disk.
+#
+# A customer is asked, at install, to tick Reminders. It is ON by default and
+# it is in the Recommended preset (RECOMMENDED= at install.sh:10391, and the
+# preset copy names it). The extractor then runs and writes
+# imports/fda/reminders.json plus a per-source verdict into
+# imports/fda/extraction_summary.json. The Doctor panel headed "Where your
+# data came from" -- whose own copy promises "Every source Ostler reads,
+# whether it has run, how much it found and when it last looked. A source
+# that has never run says so rather than being left out" -- then shows
+# thirteen rows and not one of them is Reminders.
+#
+# 🔴 AND WRITING THE SENTINEL ALONE WOULD HAVE FIXED NOTHING. The obvious
+# reading is that the table is built from the sentinel directory, so a new
+# sentinel file produces a new row. It is not. `collect_hydrate_markers` in
+# the vendored status_collector.py does glob the directory, and the TABLE
+# does not use it: vendor/doctor/agent/web_ui.py:read_source_status iterates
+# a hard-coded `_SOURCE_KINDS` dict. MEASURED: with reminders.done and
+# photos.done both written and parseable, `render_source_status()` emitted 13
+# rows, none of them Reminders or Photos, while the positive control
+# imessage.done rendered. Both halves move here or neither does.
+#
+# THE LEFT COLUMN IS THE EXTRACTOR'S VOCABULARY (what a customer can tick and
+# what lands in OSTLER_FDA_SOURCES); THE RIGHT IS THE CANONICAL DOCTOR ROW.
+# They are NOT the same names and two of them are not one-to-one: three
+# browser extracts feed one `browsing` row, and photos_metadata and
+# photos_faces feed one `photos` row. That is exactly why it is written down
+# rather than derived by a prefix rule at runtime -- the same reasoning the
+# Doctor's own _SOURCE_ACTIVITY_ALIASES table records after a fuzzy join put
+# nine tick keys against three canonical names.
+#
+# tests/test_the_source_table_covers_the_fda_extract_family.sh asserts, in
+# both directions, that every source install.sh can enable appears here, that
+# every left-hand name is in the shipped extractor's own vocabulary
+# (extract_all.ALL_SOURCES), that every right-hand row is in
+# OSTLER_SENTINEL_SOURCES above, and that every right-hand row RENDERS in the
+# real vendored panel. A source added to the picker and to nothing else is
+# caught by the first of those, which is the durable half of #1587.
+OSTLER_FDA_SOURCE_ROWS="safari_history:browsing safari_bookmarks:browsing chrome_history:browsing apple_notes:apple_notes calendar:calendar imessage:imessage apple_mail:email google_takeout:email whatsapp_history:whatsapp photos_metadata:photos photos_faces:photos reminders:reminders"
 
 _hydrate_sentinel_record() {
     local source="$1"
@@ -28773,6 +28912,288 @@ _hydrate_sentinel_record_cannot_run() {
         printf 'last_update_at=%s\n' "$_HY_LAST_UPDATE_AT"
         printf 'detail=%s\n' "${reason:-precondition_unmet}"
     } > "$sentinel"
+}
+
+# Records the FDA EXTRACT family into the same sentinels every other source
+# uses, so the Doctor's per-source table can report them (#1587).
+#
+# ── THE RECORD ALREADY EXISTED AND NOTHING READ IT ───────────────────────
+#
+# ostler_fda.extract_all writes imports/fda/extraction_summary.json on EVERY
+# run -- the install-time extract at section 3.7 and every fda-rerun tick
+# alike. It carries one entry per source, always, including for a source the
+# customer declined, and it has done so since long before this function. A
+# repo-wide grep for a reader of that file returns the writer and nothing
+# else, against a POSITIVE CONTROL in the same grep: photos_people.json, in
+# the same directory, written by the same module, IS read (pwg_ingest.
+# ingest_photos_people). So the absence is a real absence and not a broken
+# search. This function is the missing reader.
+#
+# WHY NOT JUST ADD photos AND reminders TO THE PICKER'S OWN BOOKKEEPING: the
+# hydrate sentinel is the ONLY record the Doctor table reads. A source with no
+# sentinel is not reported as broken; it is not reported at all, which the
+# reader cannot tell apart from "fine".
+#
+# ── FIVE STATES IN, FIVE STATES OUT, AND NONE OF THEM FABRICATED ─────────
+#
+# The extractor's per-source `status` is one of ok / no_fda / not_found /
+# error / disabled_by_user. They are NOT interchangeable and the whole value
+# of this function is that it keeps them apart:
+#
+#   ok               -> _hydrate_sentinel_record with the real counts. If
+#                       every count is zero that recorder downgrades it to
+#                       no_data on its own, which is correct: looked, found
+#                       nothing.
+#   no_fda           -> CANNOT-RUN. Full Disk Access was not granted, so the
+#                       extractor never got to look. Recording a zero here is
+#                       the exact fabrication the cannot_run recorder was
+#                       added for: "could not look" is not "looked and found
+#                       none".
+#   not_found        -> no_data. The app or its store is not on this Mac.
+#                       That IS a look with an empty answer, and the detail
+#                       says why, so the panel does not read as a failure.
+#   error            -> error. The extractor arm raised. There is no process
+#                       rc to report -- the exception was caught inside
+#                       python -- so the payload is left EMPTY rather than
+#                       inventing a count, and rc is the recorder's own
+#                       default.
+#   disabled_by_user -> NO SENTINEL AT ALL, deliberately. Photos defaults to
+#                       OFF, so most boxes decline it; a row reading "not run
+#                       yet" in amber for a source the customer chose not to
+#                       have would be a false alarm this change invented. An
+#                       absent row for a declined source is correct: they did
+#                       not ask for it. Any sentinel from an earlier run when
+#                       they DID ask for it is left alone rather than
+#                       deleted -- it is still the last true thing that
+#                       happened to that source, and a recorder must not be
+#                       in the business of destroying state.
+#
+# An UNRECOGNISED status is recorded as cannot_run naming the status, never
+# absorbed into a healthy path. The extractor gaining a sixth state must
+# surface, and the fail-safe direction is the one the Doctor's own
+# check_hydrate_ingest rule takes with any status it has not seen.
+#
+# ── THE COUNT KEY IS DECLARED PER SOURCE, NOT GUESSED ────────────────────
+#
+# `_hydrate_payload_count` reads the LAST key of the payload, so the payload
+# is built with the customer-meaningful total LAST and the supporting numbers
+# before it. reminders has seven stats keys and `total_reminders` is the one
+# a person means by "how many"; photos has `photo_events` and
+# `recognised_people` and the events are the count. Getting this wrong is how
+# the Items column printed a return code (#946), so the key is chosen here,
+# once, next to its reason, rather than falling out of dict ordering.
+#
+# Never fails and never aborts the install: it is bookkeeping ABOUT ingest,
+# not ingest. A missing or unparseable summary is reported as CANNOT-RUN per
+# source, which is a state, not a crash.
+#
+# Use as: _hydrate_record_fda_extract [<summary.json>] [<python>]
+
+# ── ONE POLICY, TWO LITERAL CALL SITES ──────────────────────────────────
+#
+# This decides WHICH recorder a given extractor verdict deserves; the two
+# per-source functions below carry out that decision with their source name
+# written as a LITERAL.
+#
+# WHY IT IS SPLIT THAT WAY RATHER THAN LOOPED OVER A VARIABLE, which is what
+# the first draft did. tests/test_the_sentinel_vocabulary_is_declared_and_
+# complete.sh asserts that EVERY `_hydrate_sentinel_record*` call site in this
+# file has a statically readable source name, and it fails on a variable one.
+# That is not pedantry: its own comment records a mutation where a call site
+# went from 51 to 52 while the distinct-source count stayed at 13, because the
+# extractor saw the site, could not read `"$SRC"`, dropped it, and reported
+# agreement over the subset that was left. A silent under-count in the gate
+# that is supposed to catch an undeclared source. The looped draft of this
+# function made ten call sites unreadable and turned that gate red, which is
+# the gate working.
+#
+# Prints "<recorder>\t<argument>" on one line; `skip` means write nothing.
+_hydrate_fda_decision() {
+    local status="$1" payload="${2:-}"
+    case "$status" in
+        ok)
+            if [[ -n "$payload" ]]; then
+                printf 'record\t%s' "$payload"
+            else
+                # An ok verdict carrying no count is NOT a zero. Say so with a
+                # declared reason rather than printing a number nobody measured.
+                printf 'no_data\textract_ok_no_counts_reported'
+            fi
+            ;;
+        no_fda)
+            # Full Disk Access ungranted: the extractor never got to look.
+            # Recording zero here is the fabrication the cannot_run recorder
+            # exists to prevent. "Could not look" is not "looked and found none".
+            printf 'cannot_run\tfda_not_granted'
+            ;;
+        not_found)
+            # The app or its store is not on this Mac. That IS a look with an
+            # empty answer, and the detail says why, so the row does not read
+            # as a failure.
+            printf 'no_data\tnot_present_on_this_mac'
+            ;;
+        empty_no_content)
+            printf 'no_data\tstore_holds_no_content'
+            ;;
+        error)
+            # The extractor arm raised. The exception was caught inside python
+            # so there is no process rc to report, and the payload stays EMPTY
+            # rather than inventing a count.
+            printf 'error\t'
+            ;;
+        no_extract_summary|no_python_to_read_extract_summary|absent_from_extract_summary)
+            # Not extractor verdicts: these are the caller saying it could not
+            # obtain one. Passed through this same door so there is exactly one
+            # place a sentinel decision is made, and each keeps its own reason
+            # rather than collapsing into the unrecognised-status arm, whose
+            # detail would read "extract_status_unrecognised_no_extract_summary"
+            # to whoever is debugging at 2am.
+            printf 'cannot_run\t%s' "$status"
+            ;;
+        disabled_by_user)
+            # NO SENTINEL AT ALL, deliberately. Photos defaults to OFF, so most
+            # boxes decline it, and an amber "not run yet" row for a source the
+            # customer chose not to have would be a false alarm this change
+            # invented. An absent row for a declined source is correct: they
+            # did not ask for it. A sentinel left from an earlier run when they
+            # DID ask for it is not deleted -- it is still the last true thing
+            # that happened to that source, and a recorder has no business
+            # destroying state.
+            printf 'skip\t'
+            ;;
+        *)
+            # A state the reader has never seen must surface, never be absorbed
+            # into a healthy path. Same fail-safe direction the Doctor's own
+            # check_hydrate_ingest takes with an unfamiliar status.
+            printf 'cannot_run\textract_status_unrecognised_%s' "$status"
+            ;;
+    esac
+}
+
+_hydrate_fda_record_photos() {
+    local _d _r _a
+    _d="$(_hydrate_fda_decision "$1" "${2:-}")"
+    _r="${_d%%$'\t'*}"; _a="${_d#*$'\t'}"
+    case "$_r" in
+        record)     _hydrate_sentinel_record            photos "$_a" ;;
+        no_data)    _hydrate_sentinel_record_no_data    photos "$_a" ;;
+        cannot_run) _hydrate_sentinel_record_cannot_run photos "$_a" ;;
+        error)      _hydrate_sentinel_record_error      photos 1 "" ;;
+        *)          : ;;
+    esac
+}
+
+_hydrate_fda_record_reminders() {
+    local _d _r _a
+    _d="$(_hydrate_fda_decision "$1" "${2:-}")"
+    _r="${_d%%$'\t'*}"; _a="${_d#*$'\t'}"
+    case "$_r" in
+        record)     _hydrate_sentinel_record            reminders "$_a" ;;
+        no_data)    _hydrate_sentinel_record_no_data    reminders "$_a" ;;
+        cannot_run) _hydrate_sentinel_record_cannot_run reminders "$_a" ;;
+        error)      _hydrate_sentinel_record_error      reminders 1 "" ;;
+        *)          : ;;
+    esac
+}
+
+_hydrate_record_fda_extract() {
+    local summary="${1:-${OSTLER_DIR}/imports/fda/extraction_summary.json}"
+    local py="${2:-${OSTLER_PYTHON:-python3}}"
+    # The canonical rows this function owns. The full extractor-to-row map is
+    # OSTLER_FDA_SOURCE_ROWS above; these are the rows no other hydrate block
+    # writes, and writing one that another block owns would have two writers
+    # racing for one file.
+    local _name _status _payload
+
+    if [[ ! -x "$py" ]] && ! command -v "$py" >/dev/null 2>&1; then
+        _hydrate_fda_record_photos    "no_python_to_read_extract_summary"
+        _hydrate_fda_record_reminders "no_python_to_read_extract_summary"
+        return 0
+    fi
+    if [[ ! -f "$summary" ]]; then
+        # The extract never ran, or ran and could not write its own record.
+        # Either way nobody looked at Photos or Reminders on this box, and
+        # that is CANNOT-RUN. It is emphatically not zero items.
+        _hydrate_fda_record_photos    "no_extract_summary"
+        _hydrate_fda_record_reminders "no_extract_summary"
+        return 0
+    fi
+
+    # One line per row: "<row><TAB><status><TAB><payload>". The payload is
+    # empty for every status but ok. A parse failure prints nothing, and the
+    # unmatched-row sweep below turns that into CANNOT-RUN rather than silence.
+    local _parsed
+    _parsed="$(
+        OSTLER_FDA_SUMMARY="$summary" "$py" - <<'FDASUMEOF' 2>/dev/null
+import json, os, sys
+
+# key in extraction_summary.json -> (doctor row, ordered payload keys)
+# The LAST key listed is the one _hydrate_payload_count will take as the item
+# count, so it is the customer-meaningful total. reminders has seven stats
+# keys and total_reminders is the one a person means by "how many"; photos has
+# photo_events and recognised_people and the events are the count. Getting
+# this wrong is how the Items column once printed a return code (#946), so the
+# key is chosen here, once, next to its reason, rather than falling out of
+# dict ordering.
+#
+# NOTE: no brace or paren is closed in column 1 anywhere in this heredoc.
+# Several wired tests lift a bash function out of this file by scanning for
+# the first line that is exactly "}", and a column-1 closer inside an embedded
+# language truncates the extraction silently -- the test then runs half a
+# function and reports on it.
+WANT = {
+    "photos":    ("photos",    ("recognised_people", "photo_events")),
+    "reminders": ("reminders", ("pending", "completed", "total_reminders")),
+    }
+try:
+    doc = json.loads(open(os.environ["OSTLER_FDA_SUMMARY"],
+                          encoding="utf-8", errors="replace").read())
+    sources = doc.get("sources")
+    if not isinstance(sources, dict):
+        raise ValueError("no sources object")
+except Exception:
+    sys.exit(0)          # print nothing; the caller records CANNOT-RUN
+
+for key in sorted(WANT):
+    row, count_keys = WANT[key]
+    rec = sources.get(key)
+    if not isinstance(rec, dict):
+        continue         # absent from the summary: caller records CANNOT-RUN
+    status = str(rec.get("status", "")).strip() or "unrecognised"
+    payload = ""
+    if status == "ok":
+        parts = []
+        for k in count_keys:
+            v = rec.get(k)
+            if isinstance(v, bool) or not isinstance(v, int):
+                continue
+            parts.append("%s=%d" % (k, v))
+        payload = ",".join(parts)
+    sys.stdout.write("%s\t%s\t%s\n" % (row, status, payload))
+FDASUMEOF
+    )" || _parsed=""
+
+    local _seen=" "
+    while IFS=$'\t' read -r _name _status _payload; do
+        [[ -n "$_name" ]] || continue
+        _seen="${_seen}${_name} "
+        case "$_name" in
+            photos)    _hydrate_fda_record_photos    "$_status" "$_payload" ;;
+            reminders) _hydrate_fda_record_reminders "$_status" "$_payload" ;;
+            *)         : ;;
+        esac
+    done <<< "$_parsed"
+
+    # A row the parser never emitted has NOT reported zero. Say so.
+    case "$_seen" in
+        *" photos "*) : ;;
+        *) _hydrate_fda_record_photos "absent_from_extract_summary" ;;
+    esac
+    case "$_seen" in
+        *" reminders "*) : ;;
+        *) _hydrate_fda_record_reminders "absent_from_extract_summary" ;;
+    esac
+    return 0
 }
 
 # Post-condition probe for a killed Qdrant-backed hydrate step (#852).
@@ -32399,6 +32820,21 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
     fi
     unset _privacy_rc
 fi
+
+# ── THE FDA EXTRACT FAMILY GETS ITS SENTINELS (#1587) ────────────────────
+#
+# Photos and Reminders are extracted in section 3.7, thousands of lines
+# above, but the recorders live in THIS file below that point and bash
+# resolves a function at call time, so the record has to be written here.
+# The extractor's own summary is on disk by now and does not move, so
+# reading it late costs nothing and keeps every sentinel writer in one
+# section.
+#
+# Unconditional on purpose. Every other arm of this block is guarded by "did
+# the thing run", and the whole point of #1587 is that a source nobody
+# recorded is invisible rather than red. If the extract never happened this
+# writes CANNOT-RUN, which is the honest answer and the one that shows up.
+_hydrate_record_fda_extract || true
 
 info "$MSG_HYDRATE_WIKI_RECOMPILE"
 

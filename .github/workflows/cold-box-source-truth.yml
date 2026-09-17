@@ -63,6 +63,14 @@ on:
       - 'tests/test_aiconv_without_owner_email_does_not_redden_health_check.sh'
       - 'tests/test_aiconv_hydrate_honesty.sh'
       - 'tests/test_source_status_reports_ongoing_not_just_install.sh'
+      # Both halves again, and a third: this gate reads install.sh's source
+      # picker, the vendored Doctor's row register AND the shipped extractor's
+      # own vocabulary, so a change to any of the three can break the
+      # agreement it asserts. install.sh and web_ui.py are already listed
+      # above; extract_all.py is not, and without it a source added to the
+      # extractor is invisible to the gate that exists to notice exactly that.
+      - 'tests/test_the_source_table_covers_the_fda_extract_family.sh'
+      - 'vendor/ostler_fda/extract_all.py'
       - 'tests/test_converge_path_enforces_rule2.sh'
       - 'tests/test_fda_rerun_agent_loads_after_its_binary.sh'
       - 'tests/test_unknown_consent_is_not_declined.sh'
@@ -116,6 +124,12 @@ on:
       - 'tests/test_a_failed_walk_must_not_exit_zero.sh'
       - 'scripts/walk_drive.py'
       - 'install.sh.strings.en-GB.sh'
+      # #1539: the remote-access answer was the one settings question a
+      # re-install re-asked, and the answer had no durable home. The test,
+      # its subject (install.sh, already listed above) and the strings
+      # catalogue (also listed above) are all watched, because the reuse
+      # arm is only visible to a customer through two MSG_ entries.
+      - 'tests/test_a_remembered_remote_access_answer_is_not_asked_again.sh'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/cold-box-source-truth.yml'
   push:
@@ -184,6 +198,17 @@ jobs:
       - name: Source status must report ONGOING state, not the install verdict
         if: always()
         run: bash tests/test_source_status_reports_ongoing_not_just_install.sh
+
+      # #1587. The sibling above asks whether a row tells the truth over time;
+      # this one asks whether the row EXISTS. A source the customer ticked and
+      # that the table never mentions is not reported as broken, it is not
+      # reported at all, and no existing gate could see it: every one of them
+      # was scoped to the hydrate family, which is the half that already had
+      # rows. always(), because an earlier red must not hide a source that is
+      # missing from the panel entirely.
+      - name: The source table must cover the FDA extract family, not just hydrate
+        if: always()
+        run: bash tests/test_the_source_table_covers_the_fda_extract_family.sh
 
       # httpx is imported by batch_resolver at module scope. rapidfuzz is
       # stubbed inside the test itself (it backs only the fuzzy strategies,
@@ -501,3 +526,19 @@ jobs:
       - name: A running assistant is not an assistant that can read
         if: always()
         run: bash tests/test_a_running_daemon_is_not_a_daemon_that_can_read.sh
+
+      # #1539: "USE PREVIOUS ANSWERS" DID NOT COVER THE REMOTE-ACCESS QUESTION.
+      #
+      # Measured by EXECUTING the late prompt block against a reuse run: with a
+      # remembered "skip" restored and SHOWN_EARLY unset, it asked again and the
+      # prompt default replaced skip with setup. The detector added by #875
+      # covers only the customer who said YES, because somebody who declined
+      # leaves nothing on disk for it to find.
+      #
+      # This test drives the shipped block through seven scenarios and asserts on
+      # whether a PERSON was shown a prompt, not on whether a string exists.
+      #
+      # if: always() so an earlier red cannot mask it.
+      - name: A remembered remote-access answer is not asked again
+        if: always()
+        run: bash tests/test_a_remembered_remote_access_answer_is_not_asked_again.sh

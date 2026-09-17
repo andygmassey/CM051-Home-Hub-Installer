@@ -53,6 +53,7 @@ test_a_pairing_reader_runs_before_the_pairing_mutator.sh	WIRED	.github/workflows
 test_a_plistbuddy_read_takes_its_exit_code.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_promote_before_the_decline_arms_is_gated.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_ratchet_must_not_name_a_false_cause.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
+test_a_remembered_remote_access_answer_is_not_asked_again.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_remote_url_is_quoted_against_zsh_globbing.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_a_row_that_could_not_measure_is_counted_and_named.py	WIRED	.github/workflows/cut-manifest.yml
 test_a_running_daemon_is_not_a_daemon_that_can_read.sh	WIRED	.github/workflows/cold-box-source-truth.yml
@@ -525,6 +526,7 @@ test_the_reuse_path_still_asks_the_licence_terms.sh	WIRED	.github/workflows/cons
 test_the_run_at_commit_gate_is_wired_into_the_cut.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_the_sentinel_vocabulary_is_declared_and_complete.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_shipped_vendor_manifest_names_no_operator.py	WIRED	.github/workflows/vendor-integrity.yml
+test_the_source_table_covers_the_fda_extract_family.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_source_table_items_column_is_the_number_it_claims.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_the_success_screen_names_the_wiki_credential.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_summary_never_claims_a_recovery_path_that_was_not_handed_over.sh	WIRED	.github/workflows/cold-box-source-truth.yml
