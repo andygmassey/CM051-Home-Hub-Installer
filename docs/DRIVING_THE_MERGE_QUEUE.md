@@ -44,7 +44,34 @@ ruleset.
 ### The discipline that actually saves runner time
 
 One push per fix to install.sh costs 134 checks per fix. Batch install.sh
-changes into as few pushes as the work allows. This is the same conclusion row
+changes into as few pushes as the work allows.
+
+**AND THAT ADVICE IS AIMED AT THE WRONG FILE, WHICH MADE IT READ AS PERMISSION
+TO PUSH FREELY EVERYWHERE ELSE.** Measured 2026-09-18 on live heads, after one
+agent pushed 22 one-row board commits and starved the lane for an hour:
+
+| PR | touches | check-runs |
+|---|---|---|
+| #2132 | `cut-manifests/` only | 45 |
+| #2148 | docs only | 40 |
+| #2146 | board + a workflow + a test | 78 |
+| #2030 | probe + tests | 82 |
+| #2143 | `install.sh` | 141 |
+
+**There is a FLOOR, and the floor is the number that matters.** Of 151
+workflows, 116 are PR-triggered *with* a paths filter and **33 are PR-triggered
+with no paths filter at all**, so those 33 fire on every push whatever it
+touches. That is the ~40 you pay for a docs-only change.
+
+So the marginal cost of touching `cut-manifests/` is about **5** checks, and
+the cost of pushing *anything at all* is about **40**. A one-line board commit
+and a one-line README commit cost nearly the same as each other, and nearly a
+third of an `install.sh` one.
+
+**Batch every push, not just install.sh ones.** And note that both agents who
+read this paragraph tonight applied it correctly to install.sh and then pushed
+freely elsewhere, because it names one file. A rule that names its example
+gets read as a rule about that example. This is the same conclusion row
 1043 reached from the other direction ("manifest findings are batched into one
 push rather than one push per finding"), and it is worth restating because the
 tempting move -- push the small fix now, it is only one line -- is the
