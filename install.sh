@@ -28402,8 +28402,54 @@ fi
 #   3  REFUSED by the store (401/403). The migration did not run and NOTHING was
 #      written. Distinct from 2 because 2 is deliberately silent, and a refusal
 #      that is silent is invisible -- #1611.
-_ns_migrate_script="${OSTLER_DIR:-$PWD}/scripts/migrate_graph_namespace.py"
-if [[ -r "$_ns_migrate_script" ]]; then
+# 🔴 #1765: THE CALLER LOOKED WHERE THE FILE HAS NEVER BEEN, AND STILL DOES
+# NOT LOOK WHERE IT NOW SHIPS. This line used to read, unconditionally:
+#
+#     _ns_migrate_script="${OSTLER_DIR:-$PWD}/scripts/migrate_graph_namespace.py"
+#
+# MEASURED on main, 2026-09-17:
+#   ${OSTLER_DIR}/scripts   1 occurrence in this whole file, the line above,
+#                           i.e. the only thing that ever names that directory
+#                           is the line that reads it. Nothing creates it.
+#   ${OSTLER_DIR}/bin      61 occurrences, the CONTROL, so the pattern is not
+#                           blind to a real ${OSTLER_DIR} subdirectory.
+# So the guard below was false on every install ever made, and the migration
+# has never run on any customer box.
+#
+# WHERE IT ACTUALLY IS. gui/project.yml's "Bundle scripts/... into
+# Resources/scripts" phase copies migrate_graph_namespace.py into the .app's
+# Resources/scripts alongside deferred-register-device.sh, which install.sh
+# reads as ${SCRIPT_DIR}/scripts/deferred-register-device.sh, so the payload
+# directory is ${SCRIPT_DIR}/scripts and always has been for the sibling.
+#
+# THE FULL STOP AFTER THAT PATH MATTERED, and it is worth knowing:
+# tests/test_every_script_install_sh_reads_is_bundled.py matches
+# [A-Za-z0-9._-]+ after the scripts/ prefix, and it reads comments as if they
+# were code, so a sentence ending immediately after a path made it hunt for a
+# bundler for "deferred-register-device.sh." with the stop attached. Its
+# over-reading is the SAFE direction and is left alone; the prose gives way.
+# Repointing there is the whole fix; the file was already in the DMG.
+#
+# BOTH PATHS ARE TRIED, IN THIS ORDER, and the old one is kept deliberately:
+# a box that has been repaired by hand, or a future path that stages into
+# ~/.ostler, must not be broken by this change. First readable wins.
+#
+# EVERY PATH SEARCHED IS NAMED IN THE MISS. The old else-arm named ONE path --
+# the wrong one, so an operator reading the warning was sent to look for a
+# file in a directory that does not exist, and could reasonably conclude the
+# migrator was absent from the DMG when it is present in it.
+_ns_migrate_script=""
+_ns_searched=""
+for _ns_cand in \
+    "${SCRIPT_DIR}/scripts/migrate_graph_namespace.py" \
+    "${OSTLER_DIR:-$PWD}/scripts/migrate_graph_namespace.py"; do
+    _ns_searched="${_ns_searched}${_ns_searched:+, }${_ns_cand}"
+    if [[ -r "$_ns_cand" ]]; then
+        _ns_migrate_script="$_ns_cand"
+        break
+    fi
+done
+if [[ -n "$_ns_migrate_script" ]]; then
     info "Checking your graph's identifier namespace"  # i18n-exempt
     _ns_rc=0
     python3 "$_ns_migrate_script" local --apply \
@@ -28463,9 +28509,17 @@ if [[ -r "$_ns_migrate_script" ]]; then
 else
     # Say so rather than skipping in silence: an absent migrator on a box that
     # needs one is the same invisible-failure shape this block exists to end.
-    warn "Namespace migrator not found at ${_ns_migrate_script}; skipping"  # i18n-exempt
+    #
+    # LOUD, AND KEPT. A data migration that quietly does not happen is
+    # invisible by construction, so this arm now does what the rc=1 and rc=3
+    # arms above do: persist the diagnostics bundle FIRST, then name a path
+    # that still exists when somebody goes looking. It also names EVERY
+    # candidate that was tried, because the previous wording named the single
+    # path the variable happened to hold and that path was the wrong one.
+    _ostler_persist_diagnostics
+    warn "Identifier namespace migration DID NOT RUN: the migrator was not readable at any of ${_ns_searched}. Your graph keeps the identifiers it already has, which is the state every currently shipping box is in; nothing was changed. Diagnostics: ${OSTLER_DIAG_KEPT:-$OSTLER_DIAG_DIR}"  # i18n-exempt
 fi
-unset _ns_migrate_script
+unset _ns_migrate_script _ns_searched _ns_cand
 # --------------------------------------------------------------------------
 
 progress "Hydrating your graph from iCloud" "hydrate_graph"
