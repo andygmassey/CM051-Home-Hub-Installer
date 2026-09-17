@@ -21,9 +21,38 @@
 # and it is the root of the whole class.
 #
 # ---------------------------------------------------------------------------
-# WHY THIS ASSERTS ABSENCE OF A PORT AND NOT A REFUSED CREDENTIAL
+# WHAT THIS ASSERTS: NOT SERVED WITHOUT A CREDENTIAL. ABSENCE IS ONE WAY.
 #
-# Every credential-based design was defeated on this box:
+# ⚠️ THIS HEADING USED TO READ "WHY THIS ASSERTS ABSENCE OF A PORT AND NOT A
+# REFUSED CREDENTIAL", AND THE CODE BELOW IT HAS NOT MATCHED THAT SINCE THE
+# MAPPER STARTED GRADING 401/403 AS `refused` -> pass. LAUNCH DIRECTIVE item 5
+# then made the rewrite explicit and BLOCKING: assert REFUSED WITHOUT
+# CREDENTIAL. A heading that states the opposite of the predicate underneath it
+# is worse than no heading, because it is the part a reader trusts without
+# running anything -- and the scope file carried the same stale sentence.
+#
+# THE PREDICATE, AS IT ACTUALLY IS: a surface fails when it SERVES an
+# uncredentialled request, or when it refuses the install's OWN credential.
+# It passes when it refuses without one (401 or 403) AND serves with one, and
+# it also passes when nothing answers at all.
+#
+# THAT IS WHY THE TWO DECISIONS DO NOT CONFLICT. DECISION_550:106 makes the
+# 8044 direct publish ABSENT for v1.0; item 5 says a credential gate is the
+# correct shipped shape. Both are passes here, and neither is required for the
+# other to pass -- pinned as self-test cases 25-28. The floor that survives
+# both is the only thing actually asserted: an uncredentialled client is never
+# SERVED.
+#
+# The distinction matters at the customer, not just in the grading. A 401
+# carries `WWW-Authenticate`, which is what makes a browser pop a password box;
+# a 403 does not. Andy met the former on his own walk -- "the wiki via a
+# browser is requesting authentication details I don't have" -- so :8044 now
+# refuses with 403 and no challenge. This probe reads that as refused, which is
+# correct, and the customer reads it as a signpost instead of a wall.
+#
+# The original topological argument, kept because it is still why absence is
+# preferred WHERE IT IS AVAILABLE. Every credential-based design was defeated
+# on this box:
 #   - a shared nonce is presented TO whatever answers the port, so a squatter
 #     receives it on first use
 #   - a token in the URL is harvested from argv, which is READABLE ACROSS
@@ -31,8 +60,20 @@
 #   - a cookie is scoped to HOST and not to PORT (RFC 6265), so any loopback
 #     port the neighbour binds receives it
 #
-# So the assertion is topological: after the fix there is no TCP endpoint to
-# connect to, from ANY account including the owner's.
+# Where absence IS available, it is the strongest form: there is no TCP
+# endpoint to connect to, from ANY account including the owner's.
+#
+# 🔴 IT IS NOT AVAILABLE FOR :8044, AND ASSUMING IT WAS IS HOW THE "JUST
+# DELETE THE PUBLISH" READING OF DECISION_550 SURVIVED THIS LONG. Measured:
+# the Hub's Wiki tab does NOT read :8044 from the browser. It reads the
+# daemon, which proxies (ostler-assistant crates/zeroclaw-gateway/src/wiki_proxy.rs,
+# WIKI_ORIGIN = "http://127.0.0.1:8044", reached from web/src/pages/Wiki.tsx at
+# WIKI_PROXY_PATH = '/wiki'). The daemon is a native LaunchAgent and wiki-site
+# is a container, so that hop can only cross on a published loopback port.
+# Unpublishing 8044 does not deliver absence, it deletes the in-app wiki: the
+# customer trades a password box for an empty tab. So 8044 ships as a
+# credential gate that does not challenge, and this probe passes it on the
+# refused-without-credential arm rather than on the absent one.
 #
 # ⚠️ THE ROUTE THAT WOULD DELIVER THAT STATE IS DEAD, AND THIS BLOCK USED TO
 # NAME IT ANYWAY. It said the owner reaches the stores "over a unix socket in a
@@ -731,7 +772,108 @@ self_test() {
     [ "$(_verdict_for_redis '')" = "notserving" ] || fails="${fails} redis-no-answer-not-notserving"
     [ "$(_verdict_for_redis 'no_client')" = "unmeasurable" ] || fails="${fails} redis-missing-client-not-unmeasurable"
 
-    probe_examined 26 "adjudication cases"
+    # ── 25-28. THE DIRECTIVE'S TWO END-STATES, PINNED ─────────────────────
+    #
+    # LAUNCH DIRECTIVE item 5 makes this probe BLOCKING and says it must
+    # "assert REFUSED WITHOUT CREDENTIAL". DECISION_550:106 says the 8044
+    # direct publish is ABSENT for v1.0. Read carelessly those conflict: one
+    # reads as "a credential demand is the correct behaviour", the other as
+    # "there should be nothing there to demand anything". A customer must
+    # meet neither a password box nor a dead link.
+    #
+    # They do not actually conflict, because BOTH end-states are a pass and
+    # the probe must not require the other to exist. These four cases pin
+    # that, so a future edit cannot quietly make one of them the only way
+    # through.
+
+    # 25. ABSENT IS A PASS. A port that is not published answers nothing; the
+    #     mapper reads connection-refused as `notserving`, and notserving is
+    #     not one of classify's finding arguments at all. Assert it lands in
+    #     NEITHER finding direction -- not "served without a credential", and
+    #     not "refused the install's own". An absent port is not a lock-out.
+    _absent="$(_verdict_for_http 000 7)"
+    [ "$_absent" != "readable" ] || fails="${fails} absent-port-graded-as-readable"
+    [ "$_absent" != "refused" ]  || fails="${fails} absent-port-graded-as-a-credential-gate"
+
+    # 26. AND THE WHOLE-RUN VERDICT FOR IT IS PASS, not CANNOT_RUN. A port
+    #     that is genuinely gone contributes to no list, so a box where the
+    #     directive's end-state has been delivered adjudicates green rather
+    #     than abstaining. Distinct from case 3: that one says a clean box
+    #     passes, this one says the DECIDED end-state is that clean box.
+    [ "$(classify 1 '' '' '' '')" = "PASS" ] || fails="${fails} decided-absent-end-state-not-PASS"
+
+    # 27. A 401 IS NOT REQUIRED IN ORDER TO PASS. This is the shipped shape
+    #     of :8044 after the no-challenge fix: an uncredentialled browser is
+    #     refused with 403 and NO WWW-Authenticate, so it never meets a
+    #     password box, and the daemon's own hop is served 200. Both arms
+    #     behave, nothing reaches a finding list, and the verdict is PASS --
+    #     with no 401 anywhere in the run.
+    [ "$(_verdict_for_http 403 0)" = "refused" ]  || fails="${fails} no-challenge-403-not-refused"
+    [ "$(_verdict_for_http 200 0)" = "readable" ] || fails="${fails} credentialled-arm-200-not-served"
+
+    # 28. THE FLOOR THAT SURVIVES BOTH. Whichever end-state ships, a surface
+    #     that SERVES an uncredentialled request is still the defect. Absence
+    #     and a credential gate are both passes; being readable never is.
+    [ "$(classify 1 '' ' 8044(200)' '' '')" = "FAIL" ] || fails="${fails} uncredentialled-read-excused-by-the-new-cases"
+
+    # ── DERIVED, NOT TYPED (#2120) ────────────────────────────────────────
+    #
+    # This line used to read `probe_examined 30`. MEASURED 2026-09-18: the
+    # function contains 32 assertions of the counted shape, so the declared
+    # number was WRONG BY TWO and every check in the repo was green anyway,
+    # because nothing counted the assertions and compared.
+    #
+    # The row that filed this named two NON-fixes explicitly and both were
+    # tempting: updating the literal to the right number, and adding a test
+    # that asserts the literal equals itself. Either leaves the next rebase in
+    # exactly the same position -- delete four assertions and the probe still
+    # declares whatever was typed.
+    #
+    # So the number is COUNTED FROM THE ASSERTIONS THEMSELVES. Delete one and
+    # this drops by one, with nothing to remember and nothing to update.
+    #
+    # WHY READ ITS OWN SOURCE RATHER THAN INCREMENT A COUNTER. A counter beside
+    # each assertion is 32 more places to forget, which is the same defect with
+    # more surface. Reading the file is one place, and it fails in the SAFE
+    # direction: if the read breaks, the count collapses to 0 and the guard
+    # below turns that into BROKEN rather than into a confident zero.
+    #
+    # 🔴 grep -c EXITS 1 ON ZERO MATCHES while still printing 0, so under the
+    # `set -e` this file runs with, an unguarded substitution here would kill
+    # the self-test before it could report. Hence `|| true`.
+    #
+    # The pattern is matched with grep -F and a SINGLE-quoted argument. A
+    # double-quoted one lets the shell expand ${fails} to empty before grep
+    # ever sees it, which silently matches nothing and reports 0. That is how
+    # the first attempt at this measurement produced a false zero.
+    _st_src="${BASH_SOURCE[0]:-}"
+    _st_cases=0
+    if [ -r "${_st_src}" ]; then
+        # ANCHORED ON THE ASSERTION'S OWN SHAPE, and the anchor is load-bearing.
+        # The first version matched the pattern anywhere in the function and
+        # counted 33 against 32 real assertions, because the grep line BELOW is
+        # itself inside self_test and contains the pattern it searches for. A
+        # counter that counts itself is off by one for a reason nobody would
+        # look for. Every real case begins with `[ ` at indentation; the
+        # machinery does not.
+        _st_cases="$(awk '/^self_test\(\) \{/,/^\}/' "${_st_src}" \
+            | grep -cE '^[[:space:]]*\[ .*\|\| fails=' || true)"
+    fi
+    if [ "${_st_cases:-0}" -lt 1 ]; then
+        # A zero here means the count could not be taken, NOT that there are no
+        # cases -- the 32 assertions above have already run. Saying 0 would be a
+        # confident wrong answer about this probe's own coverage.
+        probe_note "CANNOT COUNT ITS OWN CASES: could not read ${_st_src:-<no source path>} to count assertions. The cases above still ran; the DENOMINATOR is unknown."  # i18n-exempt
+        probe_examined 0 "adjudication cases (COUNT UNAVAILABLE -- see the note above; this is not a claim that none ran)"
+    else
+        probe_examined "$_st_cases" "adjudication cases, counted from the assertions themselves rather than typed (#2120)"
+    fi
+    # Carried past the unset because the verdict sentence below quotes it too,
+    # and that sentence was the SECOND typed number in this function: it said
+    # "30 of 30" while 32 cases ran. One derived count feeds both, so they
+    # cannot disagree with each other or with the file.
+    _st_behaved="${_st_cases:-0}"
+    unset _st_src _st_cases
 
     # ── THE RUNNER'S CONTRACT, WHICH THIS FUNCTION USED TO BREAK ──────────
     #
@@ -757,7 +899,7 @@ self_test() {
             "${PROBE_NAME:-no_store_port_is_tcp_reachable}" "$fails"
         exit 1
     fi
-    probe_fail "NEGATIVE CONTROL DEMONSTRATED (this red is the expected result of --self-test, not a finding): classify() returned FAIL on a port that must not listen, on a published port that served an UNCREDENTIALLED request, and on a surface that refused the install's OWN credential; PASS only with the control up and nothing found; CANNOT_RUN on a stopped or unreadable control and on a surface that could not be asked; and both kinds of FAIL outranked an unmeasurable sibling. The sensor mappers adjudicated by status and curl rc: 401/403 refused; 2xx, 3xx and a 404 with no credential demand readable; connection refused, empty reply and reset not-serving; a timeout, a 5xx, a partial answer and an empty reading unmeasurable; and redis NOAUTH/PONG/no-answer/no-client into the same four. 26 of 26 adjudication cases behaved."
+    probe_fail "NEGATIVE CONTROL DEMONSTRATED (this red is the expected result of --self-test, not a finding): classify() returned FAIL on a port that must not listen, on a published port that served an UNCREDENTIALLED request, and on a surface that refused the install's OWN credential; PASS only with the control up and nothing found; CANNOT_RUN on a stopped or unreadable control and on a surface that could not be asked; and both kinds of FAIL outranked an unmeasurable sibling. The sensor mappers adjudicated by status and curl rc: 401/403 refused; 2xx, 3xx and a 404 with no credential demand readable; connection refused, empty reply and reset not-serving; a timeout, a 5xx, a partial answer and an empty reading unmeasurable; and redis NOAUTH/PONG/no-answer/no-client into the same four. Both of the directive's end-states reached PASS without needing the other to exist: an ABSENT port graded as neither readable nor a credential gate, and a 403-refused / 200-served pair passed with no 401 anywhere in the run; a surface that SERVED an uncredentialled request still failed. ${_st_behaved} of ${_st_behaved} adjudication cases behaved, a number counted from the assertions rather than typed (#2120)."
 }
 
 probe_main "$@"

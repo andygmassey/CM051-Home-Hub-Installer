@@ -774,6 +774,35 @@ entries:
       probe: "assistant_answers_grounded"
 
   # ==========================================================================
+  # Added 2026-09-17. On disk with no row naming it, which
+  # test_every_probe_on_disk_is_declared_in_permanent_manifest correctly
+  # refused: a probe nothing declares is a probe the cut never runs. That is
+  # the SECOND registration this probe needed -- scripts/walk_promote_scope.tsv
+  # says how to READ its result, this says the cut must RUN it, and having one
+  # without the other is a probe that is graded and never executed.
+  # ==========================================================================
+  - id: box-walk-assistant-grounds-the-opening-turn
+    title: the opening turn must reach the customer's data, not the model's weights
+    incident: >-
+      ostler-assistant d791de5f measured 40 runs of the grounded battery on a
+      walked box: 4 openings were answered with NO tool call at all, roughly
+      one in ten, and EVERY ONE of those failures was on QUESTION ONE.
+      Questions two and three grounded in all 40. Run twice to kill the obvious
+      confound, 20 runs with the Ollama slot contended and 20 with it free, 10
+      per cent both times, so contention is not the cause. It is a COLD START:
+      on the first turn nothing in the conversation establishes that looking
+      things up is what happens here, so the model sometimes answers from its
+      own weights instead of the customer's data. A customer's first question
+      is the one turn they judge the product on, and it is the only turn that
+      has ever failed this way. assistant_answers_grounded asks a battery and
+      adjudicates the whole thing; it cannot see a position-dependent failure,
+      because by its second question the context is already primed.
+    proof:
+      kind: box_walk_probe
+      probe: "assistant_grounds_the_opening_turn"
+
+
+  # ==========================================================================
   # The two probes added for the v1.0.45 walk. Both existed on disk with NO
   # row naming them, which `test_every_probe_on_disk_is_declared_in_permanent_
   # manifest` correctly refused: "a probe nothing declares is a probe the cut

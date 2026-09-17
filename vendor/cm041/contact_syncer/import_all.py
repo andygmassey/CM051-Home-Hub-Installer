@@ -184,13 +184,28 @@ def run_import(
     if ics_paths:
         print(f"📆 Google Calendar found ({len(ics_paths)} calendar file(s))")
         from contact_syncer.google_calendar import (
+            calendar_label_for_ics,
             import_calendar,
             load_calendar_provenance,
+            seed_calendar_provenance,
         )
-        # Operator-confirmed owner/type map (authoritative; written by the
-        # end-of-install onboarding confirmation). Loaded once and shared
-        # across every calendar file. Empty when nothing confirmed yet ->
-        # ingest auto-detection is the fallback.
+        # SEED THE MAP BEFORE READING IT. calendars.json is documented as
+        # the authoritative owner/type map "that the onboarding step
+        # writes and this ingest reads", and until 2026-09-16 nothing in
+        # the repo wrote it -- every reference was inside the reader. This
+        # is the writer. It records WHICH calendars this customer has, as
+        # unconfirmed entries, so the operator's later answer has a list
+        # to attach to. It never guesses a type and never overwrites a
+        # confirmed entry.
+        seeded = seed_calendar_provenance(
+            [calendar_label_for_ics(p) for p in ics_paths]
+        )
+        if seeded:
+            print(f"   recorded {seeded} calendar(s) awaiting confirmation")
+        # Operator-confirmed owner/type map (authoritative). Loaded once
+        # and shared across every calendar file. Entries seeded above are
+        # present but unconfirmed, so ingest auto-detection still governs
+        # owner, and privacy follows the unconfirmed default.
         provenance = load_calendar_provenance()
         agg = {"total": 0, "written": 0, "attendees_matched": 0,
                "attendees_new": 0, "errors": 0, "calendars": len(ics_paths)}

@@ -16,10 +16,35 @@
 #             would itself be a file full of everybody's names.
 #   selfcheck a guard's own source: PAIR arm only, no baseline.
 #   skip      a path glob that is not examined at all -- counted and printed
+#   nonperson <path-glob>::sha256[:16] of a pair that is a NAMED THING rather
+#             than a person, cleared by the PAIR arm ONLY in the files the glob
+#             matches. Reason must be '<CLASS>: why', CLASS one of
+#             JURISDICTION / STATUTE / PRODUCT, and the why at least 24
+#             characters. HASHED for the same reason the baseline is: the
+#             registry must never become a readable list of the pairs the guard
+#             found, whatever kind they were filed under.
 #
 # THE CAST IS THE CAST. Do NOT add a row here to make a red go green when the
 # value is somebody's actual name. That is the exact move that turns a
 # permit-list back into a denylist with extra steps.
+#
+# WHEN IS `nonperson` RIGHT, AND WHEN IS IT THE LAZY ANSWER
+#
+# The guard tells you to rename to the synthetic cast, and for a fixture, a
+# filename, a variable or a test double that is correct: the value is
+# arbitrary, so renaming costs nothing and leaves nothing permitted. Reach for
+# `nonperson` ONLY where the value IS the fact and a synthetic substitute would
+# make the artefact LIE -- the jurisdiction that is the primary key of a table
+# of law, the statute a row cites, the third-party product a customer-facing
+# import page says it imports from. If the value could be changed without
+# making anything false, it is not a nonperson case; rename it.
+#
+# To generate the rows without ever printing a value:
+#     python3 bin/pii_name_guard.py --root . --print-permits '<path glob>'
+# It emits the digest, the path and the LINE NUMBERS, with a CLASSIFY-ME class
+# the loader REFUSES -- so the output cannot be committed unread. Running it
+# again is also how a reviewer CHECKS a committed row: regenerate, diff the
+# digests, then read the named lines and judge the claim for yourself.
 
 
 # ---------------------------------------------------------------------------
@@ -2166,3 +2191,171 @@ phrase	live activities	Apple framework name (WidgetKit Live Activities). Product
 phrase	notion markdown	product name plus a file format, from the CM024 Notion adapter's own docstring. No person.
 phrase	required gate	CI check/context name, not a person. This repository has no branch protection at all, and this PR adds one required GitHub Checks context named "CI Required Gate" (.github/workflows/ci-required-gate.yml). That literal string is the value branch protection must match, so it recurs verbatim in the job's display name, its script's exclude-self default and self-test fixtures, and the comments naming it. No person; the second word is the noun "gate" as in a merge gate, not a surname.
 phrase	Tell Ostler	the masthead control's own label, "Tell Ostler what you're into" (CM059 #24), quoted in the comment that explains why the add verb exists. A product string, not a person: the PAIR arm sees two capitalised words and cannot tell a UI label from a name.
+
+# ---------------------------------------------------------------------------
+# NONPERSON, lib/transcription_consent_rules.csv. 14 rows: 6 JURISDICTION and
+# 8 STATUTE, all bound to that one path.
+#
+# The file is a table of which jurisdictions require every party to agree
+# before a conversation is transcribed. Its `country` column names the
+# territory and its `source` column names the law that territory's row cites.
+# Six territory names and eight statute names are two capitalised words, so the
+# PAIR arm reads them as people.
+#
+# RENAMING THEM -- what the BLOCK message advises -- IS THE WRONG FIX HERE. The
+# jurisdiction is the PRIMARY KEY of a table of law. A synthetic one does not
+# scrub this file, it makes the row false, and the row is what the consent
+# spine reads to decide whether a claimed one-party basis may stand. Same for
+# the statute: rename it and the citation points at a law that does not exist.
+#
+# Regenerate to check these:
+#   python3 bin/pii_name_guard.py --root . \
+#       --print-permits 'lib/transcription_consent_rules.csv'
+# then read the lines each row names and judge the claim for yourself. With
+# these 14 in place the guard reports 14 pairs cleared in 1 file: the permits
+# and the clearances are equal, so nothing else in the file was swallowed.
+
+# ---------------------------------------------------------------------------
+# NONPERSON, lib/transcription_consent_rules.csv -- 93 rows, ALL bound to that
+# one path. JURISDICTION rows are its `country` column, STATUTE rows are its
+# `source` citation column.
+#
+# The file is a table of which jurisdictions require every party to agree
+# before a conversation is transcribed. Territory names and statute titles are
+# routinely two capitalised words, so the PAIR arm reads them as people.
+#
+# RENAMING THEM -- what the BLOCK message advises -- IS THE WRONG FIX HERE. The
+# jurisdiction is the PRIMARY KEY of a table of law, and the consent spine
+# reads these rows to decide whether a claimed one-party basis may stand. A
+# synthetic jurisdiction does not scrub this file, it makes the row FALSE.
+# Rename the statute and the citation points at a law that does not exist.
+#
+# THESE REPLACE 100 REPO-WIDE `phrase` ROWS. An earlier pass on this branch
+# cleared the same table by listing the values verbatim as `phrase`, which
+# permits them in EVERY file in the tree and writes the whole list into the
+# registry. Both are wrong in the same direction: a territory name permitted in
+# a table of law should still be a finding in a conversation fixture, and the
+# registry should not be a readable list of the pairs the guard found. Path-
+# bound digests are narrower on both counts, and the 14 the phrase pass missed
+# are covered here too.
+#
+# Regenerate to check these:
+#   python3 bin/pii_name_guard.py --root . \
+#       --print-permits 'lib/transcription_consent_rules.csv'
+# then read the lines each row names and judge the claim for yourself.
+nonperson	lib/transcription_consent_rules.csv::a4f72f69132bcadf	JURISDICTION: the country column of row US, line 65: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::8d4f9085dbc23b57	STATUTE: the source citation column of row US-CA, line 66: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::22888c580dcffe58	STATUTE: the source citation column of row US-MD, line 70: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::222c720814e04274	STATUTE: the source citation column of row US-NV, line 73: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::11aef92476021abc	STATUTE: the source citation column of row US-AK, line 80: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::37bb1de87ad905b7	STATUTE: the source citation column of row US-ID, line 87: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::3cb992b2403f7126	STATUTE: the source citation column of row US-IA, line 89: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::b8ab88095ce5b1b1	STATUTE: the source citation column of row US-NY, line 101: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::28afe5c5f088aff6	JURISDICTION: the country column of row US-NC, line 102: the sub-national territory whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::45c4c065ccf401c9	JURISDICTION: the country column of row US-ND, line 103: the sub-national territory whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::bb809591ca6b414c	STATUTE: the source citation column of row US-OH, line 104: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::04769ad0cbd3e01c	JURISDICTION: the country column of row US-RI, line 106: the sub-national territory whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::43e89a67ba7e446a	JURISDICTION: the country column of row US-SC, line 107: the sub-national territory whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::1ec54b14d481665d	JURISDICTION: the country column of row US-SD, line 108: the sub-national territory whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::b1ed7b6985d1178d	STATUTE: the source citation column of row US-SD, line 108: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::8b0ac28088decb8c	STATUTE: the source citation column of row US-UT, line 111: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::e6f516f4638288ca	JURISDICTION: the country column of row US-WV, line 114: the sub-national territory whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::92dd35fbe7a66a8c	JURISDICTION: the country column of row AU, line 117: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::9e821314654c2527	STATUTE: the source citation column of row AU-NSW, line 118: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::a8e8aa2fa7c30948	JURISDICTION: the country column of row AU-SA, line 119: the sub-national territory whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::d02ee8ff03873fc7	JURISDICTION: the country column of row AU-WA, line 120: the sub-national territory whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::2efa1eb81be94c7f	STATUTE: the source citation column of row AU-TAS, line 121: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::f9dd96c68bd83928	JURISDICTION: the country column of row AU-ACT, line 122: the sub-national territory whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::c625d8b7db57ce8e	JURISDICTION: the country column of row AU-NT, line 124: the sub-national territory whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::c8e8280fb6a1a327	STATUTE: the source citation column of row AU-QLD, line 125: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::9c9af6101bd6b491	STATUTE: the source citation column of row CA, line 126: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::4ec647c754a35168	STATUTE: the source citation column of row CA-QC, line 127: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::35307c400774eb92	STATUTE: the source citation column of row PH, line 131: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::2ec6c7486a5aad57	STATUTE: the source citation column of row BD, line 134: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::fe089e6cdd8cad0e	STATUTE: the source citation column of row NZ, line 136: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::fcbe6dfac1c3caa6	STATUTE: the source citation column of row KR, line 137: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::5d7a0f8c2c280b6b	STATUTE: the source citation column of row JP, line 138: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::4766a8a36de56556	STATUTE: the source citation column of row TW, line 139: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::00869861c3011f03	STATUTE: the source citation column of row TW, line 139: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::8e38e3873a246027	STATUTE: the source citation column of row SE, line 140: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::261fdd0236437a94	STATUTE: the source citation column of row FI, line 141: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::ed0f8005d3d77411	STATUTE: the source citation column of row RO, line 146: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::3460b619902553fb	STATUTE: the source citation column of row NL, line 149: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::bfdb7daad3479918	STATUTE: the source citation column of row IN, line 150: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::212716311d648e5b	STATUTE: the source citation column of row IL, line 152: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::e335e87b37418cae	STATUTE: the source citation column of row IE, line 156: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::15c341f1eea2153f	STATUTE: the source citation column of row AE, line 157: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::cdba72eb52e4dda4	STATUTE: the source citation column of row OM, line 161: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::d85533ba786e2766	STATUTE: the source citation column of row JO, line 163: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::0f6169dcc6da1cfd	STATUTE: the source citation column of row JO, line 163: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::e9e85d5dccaf9134	STATUTE: the source citation column of row NG, line 166: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::bf934baa4a7be542	STATUTE: the source citation column of row NG, line 166: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::a645cdae66ee34ce	STATUTE: the source citation column of row TN, line 170: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::222b7fe4d47569e8	STATUTE: the source citation column of row BR, line 172: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::db8bb1d3c9351115	STATUTE: the source citation column of row CO, line 173: the named act, code or decree that row cites as its authority. Renaming it would point the citation at a law that does not exist.
+nonperson	lib/transcription_consent_rules.csv::e0c67046a3c83fbd	JURISDICTION: the country column of row AS, line 178: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::1ea1c10662c6b5f9	JURISDICTION: the country column of row BV, line 200: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::9549d5059124f5a7	JURISDICTION: the country column of row IO, line 201: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::29a768b6b06d14c1	JURISDICTION: the country column of row IO, line 201: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::f0561df6d26e34dd	JURISDICTION: the country column of row BN, line 202: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::0f9ea5841e716cb4	JURISDICTION: the country column of row BF, line 204: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::1dee6c1f0f6e4200	JURISDICTION: the country column of row CV, line 206: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::fd26a087ca744eed	JURISDICTION: the country column of row KY, line 209: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::e24b8bd59474689a	JURISDICTION: the country column of row CF, line 210: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::e3bcb4469cc3c275	JURISDICTION: the country column of row CX, line 213: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::7f5d8acf8f47ad23	JURISDICTION: the country column of row CD, line 216: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::5ad67bb94d1520c3	JURISDICTION: the country column of row CK, line 218: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::ee54b1b1e9bc25ac	JURISDICTION: the country column of row CR, line 219: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::56e07143bc9a352f	JURISDICTION: the country column of row SV, line 229: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::8e5afa94476a1439	JURISDICTION: the country column of row GQ, line 230: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::0c70295131b45431	JURISDICTION: the country column of row FK, line 235: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::3a534ac42c2d806c	JURISDICTION: the country column of row FO, line 236: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::3620e25259525fab	JURISDICTION: the country column of row GF, line 238: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::38caded7d9348f4f	JURISDICTION: the country column of row TF, line 240: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::6819e3b769d75e60	JURISDICTION: the country column of row HM, line 257: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::912c2e6414279ef0	JURISDICTION: the country column of row KP, line 269: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::99490dede6abc1f7	JURISDICTION: the country column of row LA, line 270: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::6827ca96f2098dbb	JURISDICTION: the country column of row MH, line 284: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::1bc3923bfe6a5ae2	JURISDICTION: the country column of row NF, line 304: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::12c56d15e2239ae2	JURISDICTION: the country column of row MP, line 306: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::7483eedcdc627d8f	JURISDICTION: the country column of row RU, line 316: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::29d5d38588cd4003	JURISDICTION: the country column of row SH, line 319: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::36dd8a622767192b	JURISDICTION: the country column of row KN, line 320: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::000f1e1ca955d518	JURISDICTION: the country column of row LC, line 321: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::fd3d00e28a50a56b	JURISDICTION: the country column of row MF, line 322: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::58b922f7ebc0e622	JURISDICTION: the country column of row PM, line 323: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::e9818185ddee5f1f	JURISDICTION: the country column of row VC, line 324: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::d520d1d782684ac2	JURISDICTION: the country column of row SM, line 326: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::70dfea54663e8e2c	JURISDICTION: the country column of row SL, line 331: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::322ae5a4a57d42d2	JURISDICTION: the country column of row SB, line 335: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::d9596b457775a546	JURISDICTION: the country column of row GS, line 337: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::ddea6abd2ee5d012	JURISDICTION: the country column of row SS, line 338: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::0f3c6c22821907ed	JURISDICTION: the country column of row SJ, line 342: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::c9abb93a24963f57	JURISDICTION: the country column of row SY, line 343: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::7295c6e24b777f8e	JURISDICTION: the country column of row TC, line 354: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::9df4cc59d021b1fd	JURISDICTION: the country column of row UM, line 358: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::c2738e47400a8416	JURISDICTION: the country column of row VG, line 363: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+nonperson	lib/transcription_consent_rules.csv::f32131a932eb4d67	JURISDICTION: the country column of row EH, line 366: the country whose ISO code that row already carries. It is the primary key of a table of consent law, so a synthetic substitute would not scrub this file, it would make the row false.
+
+# NONPERSON, vendor/doctor/agent/web_ui_copy.py -- 2 rows, both bound to that
+# one path, both PRODUCT.
+#
+# Each is the title tag and heading of the Doctor's import page for one
+# third-party knowledge-base app: an imperative verb followed by that app's
+# name. The page has to spell the product correctly or it points the customer
+# at something they do not have, so this is the case the kind exists for --
+# the value IS the fact -- and not the case where renaming costs nothing.
+#
+# The third finding in this PR was the other kind, and was RENAMED rather than
+# permitted: a synthetic Notion-export note in
+# tests/test_notion_obsidian_import_runs_end_to_end.py had a two-word title
+# that nothing asserted on. Arbitrary value, so no permit was warranted.
+#
+# Regenerate to check these:
+#   python3 bin/pii_name_guard.py --root . \
+#       --print-permits 'vendor/doctor/agent/web_ui_copy.py'
+nonperson	vendor/doctor/agent/web_ui_copy.py::200fd3a3e9e1c8c1	PRODUCT: lines 433-434, the title tag and heading of the customer-facing import page for one third-party knowledge-base app. The pair is an imperative verb plus that app's name, which the page has to spell correctly or it points the customer at something they do not have.
+nonperson	vendor/doctor/agent/web_ui_copy.py::3cd82b59cd3c9a35	PRODUCT: lines 501-502, the same two strings for the second third-party knowledge-base app the Doctor imports from. Same shape, same reason: the product name is the fact the page states, not an arbitrary label.
+nonperson	scripts/box_walk_probes/egress_hosts.tsv::a94a9f641d2531e2	PRODUCT: the registrant of the address block, as ARIN records it, in the ledger rows that declare Tailscale's networks. The ledger is a public claim about who our outbound connections reach, and the registrant name IS the claim: a synthetic substitute would not scrub this file, it would make the row assert that an address belongs to an organisation it does not belong to. It is checkable by anyone against the ARIN org record, which is the point of writing it.
+nonperson	scripts/box_walk_probes/probes/no_unexpected_egress.sh::a94a9f641d2531e2	PRODUCT: the same registrant name, in the comment that records how the 199.165.136.100 finding was explained. The comment is the evidence chain for a boundary claim; renaming the registrant would make the recorded measurement unrepeatable by the reader it is written for.
+nonperson	docs/EGRESS_INVENTORY.md::a94a9f641d2531e2	PRODUCT: the same registrant name, in the public privacy document, in the sentence that tells a reader which registry query to run to check our claim for themselves. The whole point of the sentence is that the name is verifiable against an external record; replacing it with a synthetic one would leave the instruction pointing at nothing.
