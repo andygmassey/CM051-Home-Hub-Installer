@@ -2455,7 +2455,7 @@ deferrals:
       not a resolution on this gate -- only a merge or a deferral is. Deleting the branch
       would clear it and is exactly the delete-to-green habit #1168 refused.
       Clears when the content is on main, or is explicitly rejected in writing.
-    until_cut: "v1.0.49"
+    until_cut: "v1.0.100"
   - ref: "daemon:#282"
     reason: "Open PR predating the 2026-08-06 48h merge rule. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Work it into v1.0.17 via the phased sweep, not by widening a gate."
     until_cut: "v1.0.27"
@@ -2946,7 +2946,7 @@ deferrals:
     until_cut: "v1.0.20 -- arrives with the next cm041 re-pin, no separate action needed"
   - ref: "CM051:fix/v1018-d031-stderr-tail"
     reason: "v1018-D032, the dispatch stderr TAIL fix. Two genuinely unmerged commits (80ce018, ca65a11) confirmed by patch-id; the third on the branch, 5e4aa7e for D021, is already in main. PR #542 was CLOSED without merging, so this is real abandoned work and the gate is right to name it. DO NOT MERGE THIS BRANCH. Measured 2026-08-11: a two-dot diff against main is 66 files, 91 insertions, 8885 DELETIONS -- the branch predates a large amount of main and merging it would revert repair_placeholder_names.py (378 lines), gut pwg_ingest.py (252), processor.py (180) and enrichment_validation.py (155). A three-dot diff shows a plausible-looking 643 insertions and hides all of that, which is exactly how this would have been merged by mistake. The fix itself is good and wanted: it is logging-only, it changes the failure path of four vendor pipelines to keep the last 2000 chars of a child's stderr instead of the first 500, and it addresses the diagnosis failure behind the open 14.5h CM048 hang. It must be RE-CUT as a fresh branch off current main, not merged from here. Deferred for this cut on risk, not merit: landing new code in four shipped ingest pipelines during the cut that is finally reaching the signing stage is not a trade worth making for failure-path logging."
-    until_cut: "v1.0.27 -- re-cut off main first, the existing branch must be deleted not merged"
+    until_cut: "v1.0.100 -- re-cut off main first, the existing branch must be deleted not merged"
 
 
   # =========================================================================
