@@ -545,26 +545,6 @@ class IdentityResolver:
             f"INSERT DATA {{ <{keep_uri}> a <{PWG}Person> }}"
         )
 
-        # 5c. RETIRE THE DISCARD. It is no longer a live Person.
-        #
-        # batch_resolver.py's merge does this at its step 7:
-        #     DELETE DATA { <discard_uri> a pwg:Person }
-        # This path never did. So the same logical operation left the graph in
-        # two different states depending on which merge path ran, and a person
-        # merged HERE went on being counted as a separate live Person forever.
-        #
-        # MEASURED on the live 16GB box 2026-09-18: 56 subjects carry
-        # pwg:mergedInto. 24 are correctly untyped (the batch path). THE OTHER
-        # 32 ARE STILL TYPED pwg:Person, carrying ~10 triples each, and every
-        # one of them inflates `SELECT (COUNT(DISTINCT ?p)) WHERE { ?p a
-        # pwg:Person }` -- the number the product reports as "people you know".
-        #
-        # Zero merge chains, so this is not an artefact of merging a merged
-        # node: it is one code path doing half of what the other one does.
-        self._sparql_update(
-            f"DELETE DATA {{ <{discard_uri}> a <{PWG}Person> }}"
-        )
-
         # 6. Collapse any accumulated displayName values on the kept node to a
         #    single canonical value. Step 4 copies every displayName from the
         #    discard when keep has none, so a merge can leave the node with
