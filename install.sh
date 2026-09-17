@@ -3243,7 +3243,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8058   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8103   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8112 and :14452, both of which run
+    # Its two top-level arming calls are :8112 and :14479, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3234 above has just deleted
     # that tree and :3238 has just rebound OSTLER_DIR to the final one, so
@@ -3261,13 +3261,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15223, where the note reads
+    # WhatsApp Web session path did it again at :15250, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15240 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15267 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3280,9 +3280,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8112, :14452) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8112, :14479) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17295 / :17473 / :17630 / :17971 path. There the
+    # :17322 / :17500 / :17657 / :17998 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -9151,9 +9151,36 @@ ostler_resource_tier_detect() {
         elif [ "${OSTLER_RAM_GB}" -ge 16 ]; then
             # 16GB is the installer's hard floor (ERR-02-PREREQ-RAM-LOW),
             # so the LOWEST supported machine sits at LOW, not floor:
-            # concurrency 2, qwen3.5:9b. The "floor" tier below is reserved
+            # concurrency 2. The "floor" tier below is reserved
             # for the sub-16GB / <=4 TOTAL-core case (e.g. an 8GB Air, were the
             # prereq ever lowered) and the detection-failure fallback.
+            #
+            # THIS TIER DECIDES CONCURRENCY. IT DOES NOT DECIDE THE MODEL, and
+            # this comment used to name one. It said "concurrency 2,
+            # qwen3.5:9b", and a 16GB box NEVER gets qwen3.5:9b under any
+            # picker. That sentence cost a reader ten minutes going the wrong
+            # way, which is the only reason a comment fix is worth a PR.
+            #
+            # The model comes from lib/ostler-model-fit.sh, the authoritative
+            # picker, which compares detected RAM against a per-model
+            # threshold table. Measured on origin/main:
+            #
+            #     model              min_fit   min_slow
+            #     qwen3.6:35b-a3b       48        36
+            #     qwen3.5:9b            24        18
+            #     gemma4:e2b            16        12
+            #
+            # So at 16GB, qwen3.5:9b is below even its min_slow of 18 and
+            # gemma4:e2b is the only model that fits. EVERY Mac of 23GB or
+            # less runs gemma4:e2b, and 16GB is the hard minimum, so the
+            # minimum supported customer runs the smallest model we ship.
+            # That is a PRODUCT fact about the minimum spec, not a bug here.
+            #
+            # DO NOT TAKE MY WORD FOR THE TABLE. tests/test_model_fit.sh
+            # asserts every threshold against the real picker and carries the
+            # exact claim this comment makes:  assert_fit qwen3.5:9b 16 nofit
+            # It also asserts that the numbers above match ostler-model-fit.sh,
+            # so this comment cannot rot the way the sentence it replaced did.
             tier="low"
         else
             tier="floor"
