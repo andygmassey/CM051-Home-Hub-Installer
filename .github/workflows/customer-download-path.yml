@@ -342,6 +342,7 @@ jobs:
   # ubuntu, not macOS: this reads TSV files and one public API. macOS bills 10x.
   download-currency:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
