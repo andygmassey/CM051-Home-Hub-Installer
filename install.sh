@@ -23962,6 +23962,23 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
              isolation. -->
         <key>USER_NAME</key>
         <string>${USER_NAME}</string>
+        <!-- REPLY_DEBT_PROJECT_DIR reaches the read API ONLY through this
+             block, and without it the "N people are waiting on you" card, the
+             FIRST card on the public front-page design, can never render.
+
+             The detector SHIPS: vendor/cm048_pipeline/src/reply_debt_service.py
+             installs under services/cm048/.venv/.../site-packages/src/ with its
+             own package marker beside it, and 67 CM048 files land with it. What
+             was missing is the path. _load_reply_debt_service reads
+             REPLY_DEBT_PROJECT_DIR, falls back to OSTLER_PROJECT_DIR, and
+             MEASURED on a v1.0.100 box neither was set anywhere: 0 occurrences
+             in install.sh and 0 in this plist. project_dir resolved empty, the
+             import was never attempted, the sentinel cached that failure, and
+             /api/v1/reply-debt answered count 0 with degraded true and reason
+             reply_debt_detector_unavailable, which the front page renders as no
+             card at all. A shipped detector that nothing pointed at. -->
+        <key>REPLY_DEBT_PROJECT_DIR</key>
+        <string>${OSTLER_DIR}/services/cm048/.venv/lib/python3.11/site-packages</string>
         <key>ICAL_SCRIPT</key>
         <string>${OSTLER_DIR}/ical/ical-query.sh</string>
         <key>INGEST_DIR</key>
