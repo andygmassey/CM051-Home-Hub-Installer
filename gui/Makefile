@@ -426,7 +426,6 @@ HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
 # grepped and differentially proven inside the hub-v0.4.80 daemon tarball,
 # and both binaries carry the same *_FRONTEND_COMMIT marker.
 HUB_APP_SHA256       ?= 29f0d6f63d87048d43b6bb43f334f8c0d2d9f7b367af435e178e510b11992238
-
 # ---------------------------------------------------------------------------
 # SAFARI EXTENSION (CM020) -- the third artefact the cut cannot build itself.
 #
