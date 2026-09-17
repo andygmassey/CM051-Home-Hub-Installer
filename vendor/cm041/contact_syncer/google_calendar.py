@@ -251,8 +251,19 @@ def _derive_source_calendar(event: Dict[str, Any]) -> str:
 #   }
 #
 # ``match`` is compared case-insensitively against the event's candidate
-# identities (source_calendar / organizer / organizer_email). A missing file
-# means "nothing confirmed yet" -> auto-detection alone.
+# identities (source_calendar / organizer / organizer_email).
+#
+# ``confirmed`` (bool) is the OPERATOR-DECISION flag and it is what makes
+# this map authoritative. ``seed_calendar_provenance`` below writes one
+# UNCONFIRMED entry per calendar the ingest discovers, so the file exists
+# and onboarding has a concrete list to present; only a human answer sets
+# ``confirmed: true``. An entry written by hand to the shape documented
+# above (carrying a ``type`` or a ``privacy_level``) counts as confirmed --
+# a human wrote it.
+#
+# NOTHING WROTE THIS FILE UNTIL 2026-09-16, AND THAT WAS THE BUG. There
+# were three references to the path in the whole repo and all three were
+# inside this reader. See ``_UNCONFIRMED_PRIVACY`` for what that did.
 CALENDAR_PROVENANCE_PATH = os.environ.get(
     "OSTLER_CALENDAR_PROVENANCE",
     os.path.expanduser("~/.ostler/calendars.json"),
@@ -277,8 +288,47 @@ _TYPE_DEFAULT_PRIVACY = {
     "work": "L2",
     "shared": "L2",
 }
-# Fail-closed default: missing / unknown / unclassified / unparseable -> L3.
+# Fail-closed default for a CONFIRMED calendar whose type we cannot read:
+# the operator answered, and the answer did not classify it -> L3.
 _DEFAULT_PRIVACY = "L3"
+
+# Default for a calendar the operator has NOT yet confirmed.
+#
+# WHY THIS IS NOT L3, and why that is not a re-opening of BATCH1 #2.
+#
+# BATCH1 #2 set the unclassified default to L3 so "an un-confirmed
+# calendar's events stay private UNTIL THE OPERATOR CLASSIFIES THEM AT
+# ONBOARDING". That is a sound rule and its premise was false in the
+# shipped product: no onboarding step existed, nothing ever wrote
+# calendars.json, so every entry took this branch and the hold was not
+# provisional, it was permanent. MEASURED 2026-09-16 against the two
+# calendar shapes a Google Takeout actually produces (a primary calendar
+# named by the account address, and a shared "Family" calendar): 2 of 2
+# resolved to L3, and ``_owner_denotes_operator`` was False for BOTH --
+# including the operator's own diary, because X-WR-CALNAME on a primary
+# calendar is an EMAIL ADDRESS and the operator-token set holds names.
+# So the customer's whole calendar was ingested and then withheld from
+# the wiki, search and the daily brief, with no surface that could ever
+# release it.
+#
+# L1 is the level this same package's canonical model already assigns to
+# an unrecognised source: ``privacy_model.level_for(source="mystery")``
+# is L1, pinned by test_privacy_model.test_unknown_source_fails_closed_to_private.
+# L1 is PRIVATE -- assistant-usable, owner's own pages only, never
+# broadcast -- and is NOT in ``privacy_model.PUBLISHABLE_LEVELS``, which
+# holds L2 alone. So nothing becomes publishable by this change.
+#
+# The partner-diary leak BATCH1 #3 F1 was really about is guarded
+# SEPARATELY and is untouched here: ``pwg:aboutPerson`` is still withheld
+# unless ``_owner_denotes_operator`` holds, so a third party's event is
+# still never attributed to the operator, and ``pwg:sourceCalendar`` still
+# carries whose diary it is for the by-owner readers.
+#
+# Once the operator HAS confirmed their calendars, an entry that is not
+# among them still falls to ``_DEFAULT_PRIVACY`` -- a new calendar
+# appearing after confirmation is held back, which is what BATCH1 #2
+# wanted and could not previously express.
+_UNCONFIRMED_PRIVACY = "L1"
 
 
 def load_calendar_provenance(
@@ -303,11 +353,142 @@ def load_calendar_provenance(
     return [e for e in entries if isinstance(e, dict) and e.get("match")]
 
 
+def calendar_label_for_ics(ics_path: str) -> str:
+    """The owning-calendar label for an export file, without parsing events.
+
+    Same priority the importer uses: ``X-WR-CALNAME`` first, then the
+    export filename stem, skipping the generic stems that carry no owner
+    signal. Returns "" when neither yields anything.
+    """
+    try:
+        with open(ics_path, "r", encoding="utf-8", errors="replace") as f:
+            # The header sits before the first VEVENT; a calendar export can
+            # be hundreds of MB, so do not read the whole file for it.
+            head = f.read(65536)
+    except OSError:
+        head = ""
+    name = _extract_calendar_name(head)
+    if name:
+        return name
+    stem = os.path.splitext(os.path.basename(ics_path))[0].strip()
+    if stem and stem.lower() not in _GENERIC_ICS_STEMS:
+        return stem
+    return ""
+
+
+def seed_calendar_provenance(
+    labels: List[str],
+    path: Optional[str] = None,
+) -> int:
+    """Write the calendar map the reader has always assumed existed.
+
+    THE DEFECT THIS CLOSES. ``calendars.json`` is documented above as the
+    authoritative owner/type map "that the onboarding step writes and this
+    ingest reads". Measured 2026-09-16 on origin/main: three references to
+    the path in the entire repo, and ALL THREE were inside this reader --
+    no writer anywhere. (Positive control, same command shape:
+    ``whatsapp_pair.json`` resolves to 5 files, writer included.) The file
+    therefore never existed on any install, ``load_calendar_provenance``
+    always returned ``[]``, and every event took the unconfirmed branch.
+
+    This seeds one UNCONFIRMED entry per calendar the ingest discovered,
+    so that (a) the file exists, (b) onboarding and the assistant have a
+    concrete list of this customer's calendars to ask about rather than
+    having to rediscover them, and (c) the operator's answer has somewhere
+    to land. It deliberately does NOT guess ``type`` or ``privacy_level``:
+    a guessed classification wearing the shape of a confirmed one is worse
+    than no entry, and ``_match_confirmed`` skips these for exactly that
+    reason.
+
+    An entry the operator has already confirmed is NEVER overwritten, and
+    entries for calendars not in this export are preserved -- an import of
+    one calendar must not erase the answers given about another.
+
+    Returns the number of entries ADDED. Never raises: a seed that cannot
+    be written must not break an import, and the ingest degrades to
+    exactly the behaviour it had before this existed.
+    """
+    p = path or CALENDAR_PROVENANCE_PATH
+    wanted = []
+    seen = set()
+    for label in labels:
+        clean = (label or "").strip()
+        key = clean.lower()
+        if clean and key not in seen:
+            seen.add(key)
+            wanted.append(clean)
+    if not wanted:
+        return 0
+
+    existing = load_calendar_provenance(p)
+    known = {str(e.get("match", "")).strip().lower() for e in existing}
+    added = [
+        {"match": label, "owner": "", "type": "", "confirmed": False}
+        for label in wanted
+        if label.lower() not in known
+    ]
+    if not added:
+        return 0
+
+    try:
+        os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+        # Atomic: a half-written map read by the next import would look
+        # like a malformed file and silently degrade to "nothing
+        # confirmed", discarding the operator's answers.
+        tmp = f"{p}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"calendars": existing + added}, f, indent=2)
+            f.write("\n")
+        os.replace(tmp, p)
+    except OSError as exc:
+        print(f"⚠️  could not write the calendar map at {p}: {exc}")
+        return 0
+    return len(added)
+
+
+def _is_confirmed(entry: Dict[str, str]) -> bool:
+    """True when this entry carries an OPERATOR DECISION, not a seed.
+
+    An explicit ``confirmed`` boolean wins -- that is what the onboarding
+    answer sets, and what ``seed_calendar_provenance`` sets to False.
+
+    With no such key the entry predates the flag or was hand-written to
+    the documented shape, and a ``type`` or ``privacy_level`` means a
+    human filled it in. A bare ``{match, owner}`` with neither is a seed.
+    """
+    flag = entry.get("confirmed")
+    if isinstance(flag, bool):
+        return flag
+    return bool(
+        str(entry.get("type") or "").strip()
+        or str(entry.get("privacy_level") or "").strip()
+    )
+
+
+def onboarding_has_confirmed(provenance: List[Dict[str, str]]) -> bool:
+    """True once the operator has confirmed AT LEAST ONE calendar.
+
+    This is the distinction the old code could not draw. It read an empty
+    list for both "onboarding has never run" and "onboarding ran and this
+    calendar was not among the answers", and applied the same permanent
+    L3 to both. Only the second of those is a decision worth failing
+    closed on; see ``_UNCONFIRMED_PRIVACY``.
+    """
+    return any(_is_confirmed(e) for e in provenance or [])
+
+
 def _match_confirmed(
     provenance: List[Dict[str, str]], event: Dict[str, Any]
 ) -> Optional[Dict[str, str]]:
-    """Return the confirmed provenance entry whose ``match`` equals one of
-    this event's candidate calendar identities (case-insensitive), or None."""
+    """Return the CONFIRMED provenance entry whose ``match`` equals one of
+    this event's candidate calendar identities (case-insensitive), or None.
+
+    A seeded, unconfirmed entry is deliberately NOT returned: it carries
+    no type and no level, so treating it as authoritative would send the
+    event to ``_TYPE_DEFAULT_PRIVACY.get("", _DEFAULT_PRIVACY)`` -- L3 --
+    and the seeding would have re-created the very burial it exists to
+    end, while looking like it had fixed it.
+    """
     if not provenance:
         return None
     candidates = {
@@ -322,6 +503,8 @@ def _match_confirmed(
     if not candidates:
         return None
     for entry in provenance:
+        if not _is_confirmed(entry):
+            continue
         if str(entry.get("match", "")).strip().lower() in candidates:
             return entry
     return None
@@ -335,13 +518,23 @@ def resolve_calendar_provenance(
 
     Operator-confirmed config is authoritative for owner and type; the
     auto-detected owner (``_derive_source_calendar``) is the fallback.
-    Privacy level fails CLOSED: an explicit, recognised confirmed
-    ``privacy_level`` wins; otherwise the confirmed type derives it
-    (personal/family -> L1, work/shared -> L2); an unknown/unclassified
-    type or an entirely unconfirmed calendar defaults to L3, not L1.
+
+    Privacy level, in three cases rather than the old two:
+
+    * this calendar IS confirmed -- an explicit recognised
+      ``privacy_level`` wins, else the confirmed type derives it
+      (personal/family -> L1, work/shared -> L2), else L3. Unchanged.
+    * this calendar is not confirmed but OTHERS ARE -- onboarding ran and
+      did not cover this one, so it is genuinely new. Fails closed to L3
+      until the operator is asked about it.
+    * NOTHING is confirmed -- onboarding has not happened. L1: private,
+      assistant-usable, owner's pages only, never publishable. See
+      ``_UNCONFIRMED_PRIVACY`` for why holding these at L3 was permanent
+      rather than provisional.
     """
     auto_owner = _derive_source_calendar(event)
-    confirmed = _match_confirmed(provenance or [], event)
+    provenance = provenance or []
+    confirmed = _match_confirmed(provenance, event)
 
     if confirmed:
         owner = str(confirmed.get("owner") or "").strip() or auto_owner
@@ -355,11 +548,13 @@ def resolve_calendar_provenance(
             # type, failing closed to L3 for an unknown/unclassified type.
             privacy = _TYPE_DEFAULT_PRIVACY.get(cal_type, _DEFAULT_PRIVACY)
     else:
-        # Unconfirmed calendar: onboarding has not classified it yet, so it
-        # fails closed to L3 (most restrictive) rather than defaulting open.
         owner = auto_owner
         cal_type = ""  # unclassified: onboarding assigns type, not ingest
-        privacy = _DEFAULT_PRIVACY
+        privacy = (
+            _DEFAULT_PRIVACY
+            if onboarding_has_confirmed(provenance)
+            else _UNCONFIRMED_PRIVACY
+        )
     return owner, cal_type, privacy
 
 

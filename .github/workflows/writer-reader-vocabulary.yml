@@ -33,6 +33,9 @@ on:
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'vendor/cm019_preferences/services/ingest/src/loaders/qdrant_loader.py'
+      - 'vendor/cm019_preferences/services/ingest/src/parsers/apple.py'
+      - 'vendor/cm041/contact_syncer/privacy_model.py'
+      - 'tests/test_no_parser_labels_sensitive_data_publishable.py'
       - 'vendor/doctor/agent/import_notion.py'
       - 'vendor/doctor/agent/import_obsidian.py'
       - 'vendor/doctor/agent/import_evernote.py'
@@ -41,6 +44,9 @@ on:
       - '.github/workflows/writer-reader-vocabulary.yml'
   pull_request:
     paths:
+      - 'vendor/cm019_preferences/services/ingest/src/parsers/apple.py'
+      - 'vendor/cm041/contact_syncer/privacy_model.py'
+      - 'tests/test_no_parser_labels_sensitive_data_publishable.py'
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'vendor/cm019_preferences/services/ingest/src/loaders/qdrant_loader.py'
@@ -127,3 +133,13 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_writer_reader_vocabulary_contracts.py -v
+
+
+      # A parser must not label the customer's most sensitive data publishable.
+      # apple.py wrote compartment_level=5 at four sites, each commented HIGHEST
+      # PRIVACY, and 5 is L5Commercial which privacy_model.py maps to the
+      # publishable level. The comment stated the intent and the number said the
+      # opposite. `if: always()` so an earlier red cannot delete this.
+      - name: No parser labels private data publishable
+        if: always()
+        run: python3 tests/test_no_parser_labels_sensitive_data_publishable.py

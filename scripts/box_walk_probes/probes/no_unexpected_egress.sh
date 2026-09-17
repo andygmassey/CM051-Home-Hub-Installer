@@ -337,6 +337,21 @@ DECLARED_DERP_OK=0        # 1 only when the DERP map actually parsed
 DECLARED_TOTAL_N=0        # ledger rows read
 DECLARED_EXCLUDED_N=0     # rows set aside as not-a-resolvable-hostname
 
+# ---------------------------------------------------------------------------
+# HOW MANY TIMES EACH DECLARED HOST IS RESOLVED, IN THE SAME REMOTE CALL.
+#
+# One lookup returns one slice of a rotating pool. Measured 2026-08-27 (#1143):
+# consecutive lookups of the same declared host returned .101 .102 .103 .104,
+# then .111, then .114 -- so a single slice is not the pool, and an address the
+# box is connected to can be absent from the slice taken at the same instant.
+#
+# Repeating the lookup widens the observed pool and shrinks the window in which
+# a declared destination looks undeclared. It does NOT close it, which is why
+# the pool arm below exists as well: this reduces how often the comparison
+# fails, the pool arm decides what a failed comparison is allowed to say.
+# ---------------------------------------------------------------------------
+DNS_ROUNDS="${OSTLER_EGRESS_DNS_ROUNDS:-3}"
+
 load_declared_map() {
     local all_rows resolvable excluded n_all n_res n_exc hosts_b64 joint
     HOSTS_FILE="${HOSTS_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/egress_hosts.tsv}"
@@ -369,6 +384,51 @@ load_declared_map() {
     #      excluded here by shape, not by name.
     resolvable="$(printf '%s\n' "$all_rows" | grep -E '^[A-Za-z0-9._-]+$' || true)"
     excluded="$(printf '%s\n' "$all_rows" | grep -vE '^[A-Za-z0-9._-]+$' || true)"
+
+    # ── A CIDR ROW IS A DECLARED NETWORK, AND IT IS A WEAKER CLAIM THAN A NAME ──
+    #
+    # Added 2026-09-18 after the 199.165.136.100 finding was finally explained
+    # rather than merely carried. MEASURED on the walk box that night:
+    #
+    #   the holder is /opt/homebrew/bin/tailscaled, started by the Ostler
+    #     LaunchAgent com.creativemachines.ostler.tailscaled, state under
+    #     ~/.ostler/tailscale -- so it IS one of ours and the attribution
+    #     exclusion list is right to keep it
+    #   ARIN says 199.165.136.0/24 is registered to Tailscale Inc. (NetName
+    #     TAILS), and Tailscale owns exactly four registered blocks
+    #   it is in NEITHER derp map -- not the anonymous default one (88 nodes)
+    #     nor the map this client itself holds (88 nodes, 47 distinct /24s,
+    #     none of them 199.165.136)
+    #   it shares no /24 with anything controlplane, login or log resolved to
+    #   it refuses an ordinary TLS handshake (alert 80) under every SNI tried,
+    #     including controlplane.tailscale.com, while the SAME request to a
+    #     DNS-published control address verifies and answers -- a positive
+    #     control proving the method could speak
+    #   tailscaled's own stderr records "control: netmap: got new dial plan
+    #     from control" three times and "controlhttp: forcing port 443 dial
+    #     due to recent noise dial"
+    #
+    # A dial plan is control handing the client addresses to reach CONTROL on
+    # that are deliberately absent from DNS, and the Noise transport is not TLS,
+    # which is why no certificate can be read. So the destination is declared by
+    # name already -- controlplane.tailscale.com -- and is unreachable by the
+    # only instrument this probe has for names.
+    #
+    # 🔴 WHAT A CIDR ROW IS ALLOWED TO SAY, AND WHAT IT IS NOT.
+    # It says "this address belongs to an organisation the ledger declares".
+    # It does NOT say which of that organisation's services answered, and it
+    # cannot: the session is not readable. That is a strictly weaker claim than
+    # a hostname match and it is reported in its own block, never folded into
+    # the DECLARED count, so a reader of a walk can see how much of the
+    # attribution rests on ownership rather than on resolution.
+    #
+    # It stays narrow for three reasons that are checkable rather than asserted:
+    # the blocks come from a registry lookup anyone can repeat, they are a
+    # closed set (four, for Tailscale), and the boundary regex is untouched --
+    # every destination outside these blocks is exactly as loud as before.
+    DECLARED_CIDRS="$(printf '%s\n' "$excluded" | grep -E '^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$' || true)"
+    excluded="$(printf '%s\n' "$excluded" | grep -vE '^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$' || true)"
+    DECLARED_CIDR_N="$(printf '%s\n' "$DECLARED_CIDRS" | grep -c . || true)"
     n_res="$(printf '%s\n' "$resolvable" | grep -c . || true)"
     n_exc="$(printf '%s\n' "$excluded" | grep -c . || true)"
     DECLARED_EXCLUDED_N="$n_exc"
@@ -405,15 +465,16 @@ for rid,r in (d.get('Regions') or {}).items():
         python3 -c \"
 import base64, socket
 for h in base64.b64decode('${hosts_b64}').decode('utf-8').split():
-    try:
-        seen=set()
-        for info in socket.getaddrinfo(h, None, socket.AF_INET):
-            ip=info[4][0]
-            if ip not in seen:
-                seen.add(ip)
-                print('HOST\\t%s\\t%s' % (h, ip))
-    except Exception:
-        pass
+    seen=set()
+    for _round in range(${DNS_ROUNDS}):
+        try:
+            for info in socket.getaddrinfo(h, None, socket.AF_INET):
+                ip=info[4][0]
+                if ip not in seen:
+                    seen.add(ip)
+                    print('HOST\\t%s\\t%s' % (h, ip))
+        except Exception:
+            break
 \" 2>/dev/null
     ")"
 
@@ -458,6 +519,181 @@ declared_attribution_for() {
     return 1
 }
 
+# ---------------------------------------------------------------------------
+# A ROTATING DNS POOL DEFEATS CONTEMPORANEOUS COMPARISON (#1143).
+#
+# The ledger header already says half of this: "Geo and round-robin DNS mean an
+# address seen at time T cannot be attributed by a lookup at T+n. Both halves
+# have to be sampled together." load_declared_map above does sample them
+# together. MEASURED 2026-08-27, that is necessary and NOT SUFFICIENT.
+#
+# When a declared host is a rotating pool, the socket can be held to a pool
+# member that this instant's lookup did not return. The probe then reports a
+# DECLARED destination as outside the boundary:
+#
+#     tailscale -> 192.200.0.111:443      reported UNDECLARED
+#     192.200.0.111 -> controlplane.tailscale.com, login.tailscale.com
+#                      (ledger rows 30 and 54)
+#
+# THAT IS NOT A POLICY VIOLATION, AND IT IS NOT A PASS EITHER. It is a
+# comparison that COULD NOT BE MADE. Reporting it as a violation is the
+# expensive direction: it trains the reader of a walk to discount this probe's
+# FAILs, and the one unattributed address in that same run (199.165.136.100,
+# carried unexplained for three weeks and explained on 2026-09-18) is then read
+# as more noise.
+#
+# THE DISCRIMINATOR, and it is a heuristic, stated so it can be argued with:
+# an unmatched IPv4 address that sits in the SAME /24 as an address a declared
+# host actually resolved into, in this run, is consistent with that host's
+# pool. A /24 is the smallest prefix generally announced, so this is the
+# tightest containment test available without a routing table.
+#
+# 🔴 IT IS DELIBERATELY NOT A PASS ARM. A heuristic that can be too broad must
+# fail towards refusing a verdict, never towards granting one. Every address it
+# catches lands in CANNOT-RUN, is printed by name with the declared host it is
+# pool-consistent with, and still blocks the walk. Widening it costs accuracy
+# of the reason; it can never manufacture a clean run.
+#
+# THE NEGATIVE CONTROL USED TO BE IN THE SAME MEASUREMENT, AND IS NOT ANY MORE.
+# It was 199.165.136.100, which shared a /24 with nothing any declared host
+# resolved to and so stayed UNDECLARED while the pool arm cleared the rest. That
+# address was EXPLAINED on 2026-09-18 -- Ostler's own tailscaled on a control
+# address Tailscale's dial plan hands out, which DNS does not publish -- and its
+# /24 is now a declared CIDR row, so it classifies `network` and can no longer
+# be the control.
+#
+# 🔴 THAT IS A HAZARD WORTH NAMING: a negative control that can be explained
+# later stops testing anything at the moment it is explained, and nothing about
+# the test's output changes when it does. The control is now 203.0.113.45, from
+# TEST-NET-3 (RFC 5737), reserved for documentation and incapable of ever
+# becoming a real destination. See tests/test_egress_pool_member_is_not_a_policy_violation.sh.
+# ---------------------------------------------------------------------------
+
+# $1 = candidate address. Prints "a.b.c." for a dotted-quad IPv4, nothing else.
+# IPv6 is deliberately unhandled: there is no equivalent minimum announced
+# prefix to reason from, so an IPv6 address is never called pool-consistent.
+_v4_24_prefix() {
+    printf '%s\n' "$1" | awk -F. '
+        NF == 4 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ &&
+        $1 <= 255 && $2 <= 255 && $3 <= 255 && $4 <= 255 { printf "%s.%s.%s.", $1, $2, $3 }'
+}
+
+# $1 = bare ip. Prints "<declared host>\t<how many of its addresses share the
+# /24>" and returns 0 when the address is consistent with a declared host's
+# observed address pool; returns 1 otherwise.
+pool_attribution_for() {
+    local ip="$1" pfx host n
+    pfx="$(_v4_24_prefix "$ip")"
+    [ -n "$pfx" ] || return 1
+    host="$(printf '%s\n' "$DECLARED_RESOLVED" | awk -F'\t' -v p="$pfx" '$1=="HOST" && index($3, p) == 1 {print $2; exit}')"
+    [ -n "$host" ] || return 1
+    n="$(printf '%s\n' "$DECLARED_RESOLVED" \
+         | awk -F'\t' -v p="$pfx" -v h="$host" '$1=="HOST" && $2==h && index($3, p) == 1 {print $3}' \
+         | sort -u | grep -c . || true)"
+    printf '%s\t%s\n' "$host" "${n:-0}"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# IPv4 CONTAINMENT, WITHOUT A BITWISE AND.
+#
+# POSIX awk has no bitwise operators and this file is bash 3.2 / BSD awk only,
+# so the mask is done by division: two addresses are in the same /n exactly when
+# they fall in the same block of 2^(32-n). Integer division is exact here --
+# every value involved is below 2^32 and awk carries those in a double without
+# loss.
+#
+# IPv6 IS DELIBERATELY UNHANDLED and returns 1, the same refusal the pool arm
+# makes, for the same reason: no equivalent minimum announced prefix to reason
+# from. An IPv6 address is therefore never attributed by network.
+# $1 = dotted-quad address. $2 = "a.b.c.d/NN". Exit 0 when contained.
+_ipv4_in_cidr() {
+    awk -v ip="$1" -v cidr="$2" '
+    function tonum(a,   p) { split(a, p, "."); return ((p[1]*256+p[2])*256+p[3])*256+p[4] }
+    BEGIN {
+        if (ip !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) exit 1
+        n = index(cidr, "/"); if (n == 0) exit 1
+        base = substr(cidr, 1, n - 1); bits = substr(cidr, n + 1) + 0
+        if (base !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) exit 1
+        if (bits < 0 || bits > 32) exit 1
+        block = 2 ^ (32 - bits)
+        exit (int(tonum(ip) / block) == int(tonum(base) / block)) ? 0 : 1
+    }'
+}
+
+# $1 = bare ip. Prints "<cidr>\t<purpose>" and returns 0 when the address falls
+# inside a network the ledger declares; returns 1 otherwise.
+network_attribution_for() {
+    local ip="$1" cidr purpose
+    [ -n "${DECLARED_CIDRS:-}" ] || return 1
+    while IFS= read -r cidr; do
+        [ -n "$cidr" ] || continue
+        if _ipv4_in_cidr "$ip" "$cidr"; then
+            purpose="$(awk -F'\t' -v c="$cidr" '$1 == c { print $2; exit }' "$HOSTS_FILE" 2>/dev/null)"
+            printf '%s\t%s\n' "$cidr" "${purpose:-declared network, no purpose recorded}"
+            return 0
+        fi
+    done <<< "$DECLARED_CIDRS"
+    return 1
+}
+
+# ---------------------------------------------------------------------------
+# THE SINGLE DECISION POINT. $1 = bare ip, already known to be outside the
+# LOCAL-NETWORK boundary and attributable to us.
+#
+# Prints "<bucket>\t<detail>" and always returns 0. Five buckets, because
+# there are five answers and only one of them is an accusation:
+#
+#   declared    the ledger or the live relay map names this exact address
+#   network     no name resolved to it, but it falls inside a network the
+#               ledger declares by CIDR. A WEAKER attribution than a name: it
+#               identifies the owner, never the service. Own block, own count,
+#               never folded into declared
+#   pool        it is consistent with a declared host's rotating pool, so the
+#               comparison could not be made -- CANNOT-RUN, never FAIL
+#   unchecked   the apparatus could not answer at all -- CANNOT-RUN
+#   undeclared  the apparatus was healthy, the address is in no declared pool,
+#               and nothing named it -- this is the finding the probe exists
+#               to make, and it is the only bucket that FAILs
+#
+# It is a function and not inline so a fixture can drive it directly. A
+# classifier only reachable by standing up a real box is a classifier whose
+# behaviour is asserted by nothing; see --classify-declared at the foot of this
+# file and tests/test_egress_pool_member_is_not_a_policy_violation.sh.
+# ---------------------------------------------------------------------------
+bucket_for_ip() {
+    local ip="$1" attribution pool network
+    if [ "$DECLARED_STATUS" != ok ]; then
+        printf 'unchecked\tthe declared ledger could not be consulted: %s\n' "$DECLARED_STATUS"
+        return 0
+    fi
+    if attribution="$(declared_attribution_for "$ip")"; then
+        printf 'declared\t%s\n' "$attribution"
+        return 0
+    fi
+    # AFTER the name arm, never before it. A hostname match is the stronger
+    # evidence and must win, so that a destination which CAN be named is named
+    # and the weaker bucket only ever holds what the stronger one could not
+    # reach.
+    if network="$(network_attribution_for "$ip")"; then
+        printf 'network\t%s\n' "$network"
+        return 0
+    fi
+    if pool="$(pool_attribution_for "$ip")"; then
+        printf 'pool\t%s\n' "$pool"
+        return 0
+    fi
+    if [ "$DECLARED_DERP_OK" != 1 ]; then
+        # It matched no declared host, but the relay map was unavailable, so
+        # "not a relay" was never established. Calling this undeclared would be
+        # an accusation resting on an instrument that did not run.
+        printf 'unchecked\tno declared host resolved to this address, and the DERP map was unavailable, so a relay could not be ruled out\n'
+        return 0
+    fi
+    printf 'undeclared\tno declared host and no live relay resolved to this address, and it shares no /24 with any address a declared host resolved into\n'
+    return 0
+}
+
 run_probe() {
     if ! box_reachable; then
         probe_cannot_run "cannot reach box ${OSTLER_BOX_HOST:-(local)} over ssh; nothing inspected"
@@ -476,7 +712,10 @@ run_probe() {
     load_declared_map || true
     if [ "$DECLARED_STATUS" = ok ]; then
         probe_note "ledger          : ${HOSTS_FILE} -- ${DECLARED_TOTAL_N} row(s), ${DECLARED_EXCLUDED_N} set aside as not-a-resolvable-hostname (globs and the unbounded-destination placeholder, which must never attribute anything)"
-        probe_note "                  $(printf '%s\n' "$DECLARED_RESOLVED" | grep -c .) addresses resolved; DERP map $( [ "$DECLARED_DERP_OK" = 1 ] && printf '%s node(s), fetched live' "$(printf '%s\n' "$DECLARED_DERPS" | grep -c .)" || printf 'UNAVAILABLE (relays cannot be attributed this run)' )"
+        probe_note "                  $(printf '%s\n' "$DECLARED_RESOLVED" | grep -c .) addresses resolved over ${DNS_ROUNDS} lookup round(s) per host; DERP map $( [ "$DECLARED_DERP_OK" = 1 ] && printf '%s node(s), fetched live' "$(printf '%s\n' "$DECLARED_DERPS" | grep -c .)" || printf 'UNAVAILABLE (relays cannot be attributed this run)' )"
+        probe_note "                  A DECLARED host may be a ROTATING POOL larger than any one"
+        probe_note "                  lookup returns. An address consistent with such a pool is"
+        probe_note "                  reported as CANNOT-RUN, never as a violation (#1143)."
         probe_note "                  NOT PROOF: a shared CDN address serves many tenants, so a"
         probe_note "                  match is 'consistent with', never 'was'. Content is never read."
     else
@@ -492,8 +731,8 @@ run_probe() {
     probe_note "                  proxied requests, and all payload content."
 
     local all ours total_sockets ours_n outside
-    local declared_lines undeclared_lines unchecked_lines
-    local declared_n undeclared_n unchecked_n
+    local declared_lines undeclared_lines unchecked_lines pool_lines network_lines
+    local declared_n undeclared_n unchecked_n pool_n network_n
     all="$(collect)"
     total_sockets="$(printf '%s' "$all" | grep -c . )"
 
@@ -549,12 +788,18 @@ run_probe() {
         probe_cannot_run "more sockets were UNATTRIBUTABLE (${unattrib_n}) than were attributable to Ostler (${ours_n}). The examined set is not a floor worth reporting: the processes that race the ps-walk are disproportionately short-lived ones like ours. Re-run when the box is quieter, or raise OSTLER_EGRESS_SAMPLES."
     fi
 
-    # THREE BUCKETS, because there are three answers. Declared: the ledger or
-    # the live relay map names this destination. Undeclared: the apparatus was
-    # healthy and still could not name it, which is the finding this probe
-    # exists to make. Unchecked: the apparatus could not answer, which proves
-    # nothing in either direction and must never be filed under either.
-    declared_lines=""; undeclared_lines=""; unchecked_lines=""
+    # FOUR BUCKETS, because there are four answers, and bucket_for_ip above is
+    # the one place that decides which. Declared: the ledger or the live relay
+    # map names this destination. Pool: it is consistent with a declared host's
+    # rotating address pool, so the comparison could not be made (#1143).
+    # Network: no name reached it, but it sits inside a CIDR the ledger
+    # declares, so the OWNER is attributed and the service is not -- a weaker
+    # claim, kept in its own count so it can never be read as a name match.
+    # Undeclared: the apparatus was healthy and still could not name it, which
+    # is the finding this probe exists to make. Unchecked: the apparatus could
+    # not answer, which proves nothing in either direction. Only UNDECLARED is
+    # an accusation; pool and unchecked are both CANNOT-RUN.
+    declared_lines=""; undeclared_lines=""; unchecked_lines=""; pool_lines=""; network_lines=""
     # READ ALL FOUR FIELDS. `ours` rows are cmd\tpid\tremote\tpath, and `read`
     # puts every leftover field into the LAST variable named -- so reading only
     # three leaves remote holding "1.2.3.4:443<TAB>/path/to/binary". The old
@@ -569,33 +814,53 @@ run_probe() {
     while IFS=$'\t' read -r cmd pid remote path; do
         [ -n "${remote:-}" ] || continue
         is_outside_boundary "$remote" || continue
-        local ip attribution label purpose
+        local ip verdict bucket detail label purpose
         # Shortest suffix from the end, so IPv6's own colons survive:
         # "1.2.3.4:443" -> "1.2.3.4", "[fe80::1]:443" -> "[fe80::1]".
         ip="${remote%:*}"
 
-        if [ "$DECLARED_STATUS" != ok ]; then
-            unchecked_lines="${unchecked_lines}    ${cmd} (pid ${pid}) -> ${remote}
-"
-            continue
-        fi
+        # ONE call, one decision. This loop formats; it does not adjudicate.
+        verdict="$(bucket_for_ip "$ip")"
+        bucket="${verdict%%	*}"
+        detail="${verdict#*	}"
 
-        if attribution="$(declared_attribution_for "$ip")"; then
-            label="${attribution%%	*}"
-            purpose="${attribution#*	}"
-            declared_lines="${declared_lines}    ${cmd} (pid ${pid}) -> ${remote}  [${label}]
+        case "$bucket" in
+            declared)
+                label="${detail%%	*}"
+                purpose="${detail#*	}"
+                declared_lines="${declared_lines}    ${cmd} (pid ${pid}) -> ${remote}  [${label}]
                 purpose : ${purpose}
 "
-        elif [ "$DECLARED_DERP_OK" != 1 ]; then
-            # It matched no declared host, but the relay map was unavailable,
-            # so "not a relay" was never established. Calling this undeclared
-            # would be an accusation resting on an instrument that did not run.
-            unchecked_lines="${unchecked_lines}    ${cmd} (pid ${pid}) -> ${remote}  [no declared host resolved to this address, and the DERP map was unavailable, so a relay could not be ruled out]
+                ;;
+            network)
+                label="${detail%%	*}"
+                purpose="${detail#*	}"
+                network_lines="${network_lines}    ${cmd} (pid ${pid}) -> ${remote}  [inside the DECLARED network ${label}]
+                purpose : ${purpose}
+                strength : OWNER, NOT SERVICE. No declared hostname resolved to
+                this address in this run and no relay map names it. The ledger
+                declares the network it sits in, so what is attributed is who
+                owns the address, not which of their services answered.
 "
-        else
-            undeclared_lines="${undeclared_lines}    ${cmd} (pid ${pid}) -> ${remote}  [no declared host and no live relay resolved to this address]
+                ;;
+            pool)
+                label="${detail%%	*}"
+                purpose="${detail#*	}"
+                pool_lines="${pool_lines}    ${cmd} (pid ${pid}) -> ${remote}  [same /24 as ${purpose} address(es) the DECLARED host ${label} resolved to in this run]
+                why this is not a finding : a rotating pool means the lookup
+                taken in this same call need not return the member the socket
+                is held to, so the comparison could not be made. See #1143.
 "
-        fi
+                ;;
+            unchecked)
+                unchecked_lines="${unchecked_lines}    ${cmd} (pid ${pid}) -> ${remote}  [${detail}]
+"
+                ;;
+            *)
+                undeclared_lines="${undeclared_lines}    ${cmd} (pid ${pid}) -> ${remote}  [${detail}]
+"
+                ;;
+        esac
     done <<< "$ours"
 
     # Count the CONNECTION lines, not every line: a declared entry emits a
@@ -604,10 +869,26 @@ run_probe() {
     declared_n="$(printf '%s' "$declared_lines" | grep -c ' -> ' || true)"
     undeclared_n="$(printf '%s' "$undeclared_lines" | grep -c . || true)"
     unchecked_n="$(printf '%s' "$unchecked_lines" | grep -c . || true)"
+    pool_n="$(printf '%s' "$pool_lines" | grep -c ' -> ' || true)"
+    network_n="$(printf '%s' "$network_lines" | grep -c ' -> ' || true)"
+
+    # THE DENOMINATOR OF THE LEDGER ITSELF, read here rather than inferred, so
+    # a reader of the verdict can see how many claims the comparison was made
+    # against without opening the file.
+    local ledger_rows
+    ledger_rows="$(grep -cvE '^[[:space:]]*(#|$)' "$HOSTS_FILE" 2>/dev/null || true)"
 
     if [ "${declared_n:-0}" -gt 0 ]; then
         probe_note "OUTSIDE THE BOUNDARY, DECLARED (${declared_n}):"
         printf '%s' "$declared_lines"
+    fi
+    if [ "${network_n:-0}" -gt 0 ]; then
+        probe_note "OUTSIDE THE BOUNDARY, DECLARED BY NETWORK ONLY -- OWNER ATTRIBUTED, SERVICE NOT (${network_n}):"
+        printf '%s' "$network_lines"
+    fi
+    if [ "${pool_n:-0}" -gt 0 ]; then
+        probe_note "OUTSIDE THE BOUNDARY, POOL-CONSISTENT -- COMPARISON COULD NOT BE MADE (${pool_n}):"
+        printf '%s' "$pool_lines"
     fi
     if [ "${unchecked_n:-0}" -gt 0 ]; then
         probe_note "OUTSIDE THE BOUNDARY, UNCHECKED (${unchecked_n}):"
@@ -621,16 +902,16 @@ run_probe() {
     # UNDECLARED first: a real finding outranks an unreadable instrument, and
     # if both are present the finding is still true.
     if [ "${undeclared_n:-0}" -gt 0 ]; then
-        probe_fail "${undeclared_n} connection(s) attributable to Ostler reached a destination outside the LOCAL-NETWORK boundary that the declared ledger does NOT name, and that the live DERP map does not explain. ${declared_n} further outside-boundary connection(s) WERE declared and are not counted here. Each undeclared one is either a ledger that needs a row or a defect that needs fixing."
+        probe_fail "${undeclared_n} connection(s) attributable to Ostler reached a destination outside the LOCAL-NETWORK boundary that the declared ledger (${ledger_rows} row(s)) does NOT name, that the live DERP map does not explain, and that shares no /24 with any address a declared host resolved into. ${declared_n} further outside-boundary connection(s) WERE declared by name and are not counted here; ${network_n} were inside a DECLARED NETWORK, which attributes the owner and not the service; ${pool_n} were pool-consistent and are reported as CANNOT-RUN, not as findings. Each undeclared one is either a ledger that needs a row or a defect that needs fixing."
     fi
-    if [ "${unchecked_n:-0}" -gt 0 ]; then
-        probe_cannot_run "${unchecked_n} outside-boundary connection(s) could not be checked against the declared ledger: ${DECLARED_STATUS}. This run cannot say whether they were declared or not, and a pass would be a guess. ${declared_n} other outside-boundary connection(s) did attribute cleanly."
+    if [ "${unchecked_n:-0}" -gt 0 ] || [ "${pool_n:-0}" -gt 0 ]; then
+        probe_cannot_run "the comparison against the declared ledger (${ledger_rows} row(s)) could not be completed for $(( unchecked_n + pool_n )) outside-boundary connection(s): ${unchecked_n} because the apparatus could not answer (${DECLARED_STATUS}), and ${pool_n} because the address is consistent with a DECLARED host's rotating address pool that this run's lookup did not fully enumerate (#1143). A rotating pool is a network condition, not a policy violation, and this probe will not report it as one. ${declared_n} other outside-boundary connection(s) did attribute cleanly. Raise OSTLER_EGRESS_DNS_ROUNDS (currently ${DNS_ROUNDS}) to widen the observed pool, or add the address's host to the ledger and re-run."
     fi
 
     # The PASS line CARRIES the blind-spot count. A verdict that states its own
     # denominator and its own unknowns cannot be quoted as "clean" by someone
     # reading only the last line, which is how a floor gets promoted to a proof.
-    probe_pass "of ${ours_n} examined established connections across ${SAMPLES} samples, every one either stayed inside the LOCAL-NETWORK boundary or matched a destination the ledger declares (${declared_n} declared crossing(s)), with ${unattrib_n} socket(s) unattributable. Since #1145 this DOES consult ${HOSTS_FILE}, resolved on the box in the same call as the socket read. Still a floor, not a proof of no leak: a shared address serves many tenants so a match is 'consistent with' and never 'was', content is never read, and the BLIND TO line above bounds the rest."
+    probe_pass "of ${ours_n} examined established connections across ${SAMPLES} samples, every one either stayed inside the LOCAL-NETWORK boundary or matched a destination the ledger declares (${declared_n} crossing(s) declared BY NAME and ${network_n} declared only BY NETWORK -- owner attributed, service not -- against ${ledger_rows} ledger row(s); 0 pool-consistent, 0 unchecked, 0 undeclared), with ${unattrib_n} socket(s) unattributable. Since #1145 this DOES consult ${HOSTS_FILE}, resolved on the box in the same call as the socket read. Still a floor, not a proof of no leak: a shared address serves many tenants so a match is 'consistent with' and never 'was', content is never read, and the BLIND TO line above bounds the rest."
 }
 
 # ---------------------------------------------------------------------------
@@ -915,6 +1196,76 @@ if [ "${1:-}" = "--classify-fixture" ]; then
     fi
     [ "$flagged" -eq 0 ] && exit 0
     exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# --classify-declared <map.tsv> <addresses.txt>
+#
+# Drives bucket_for_ip against a RECORDED declared map instead of a live box,
+# and prints "<bucket>\t<ip>\t<detail>" per address.
+#
+# WHY IT EXISTS. The four-bucket decision is the part of this probe that
+# decides whether a walk reports a FAIL, and until this mode it was reachable
+# only by standing up a real box with real sockets. That is a classifier whose
+# behaviour is asserted by nothing, and #1143 is what that costs: a declared
+# host reported as a boundary violation for three days.
+#
+# map.tsv rows, tab-separated, the same shape load_declared_map produces:
+#     HOST    <hostname>   <ipv4>
+#     DERP    <nodename>   <ipv4>
+#     STATUS  <text>          -- optional; anything but "ok" makes the whole
+#                                run UNCHECKED, which is how a broken
+#                                apparatus is exercised
+# Absence of any DERP row means the relay map was unavailable, exactly as on a
+# live run, so the fixture can drive that arm too.
+#
+# EXIT: 0 when every address classified, 2 when an input is missing or the map
+# has no usable row. It NEVER exits non-zero for a bucket -- the caller asserts
+# on the printed buckets, so a test cannot mistake "the mode died" for "nothing
+# was undeclared".
+# ---------------------------------------------------------------------------
+if [ "${1:-}" = "--classify-declared" ]; then
+    map="${2:-}"; addrs="${3:-}"
+    [ -f "$map" ]   || { echo "CANNOT-RUN: no declared map at '${map}'" >&2; exit 2; }
+    [ -f "$addrs" ] || { echo "CANNOT-RUN: no address list at '${addrs}'" >&2; exit 2; }
+
+    HOSTS_FILE="${HOSTS_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/egress_hosts.tsv}"
+
+    # THE CIDR ROWS COME FROM THE REAL LEDGER, BY THE SAME PATTERN
+    # load_declared_map uses. If this mode invented its own set, the network
+    # bucket would be asserted against a fixture and unasserted in production,
+    # which is the shape of a test that guards nothing. HOSTS_FILE is
+    # overridable, so a test can still point it at a fixture ledger and drive
+    # the arm with addresses of its own choosing.
+    DECLARED_CIDRS="$(grep -vE '^[[:space:]]*(#|$)' "$HOSTS_FILE" 2>/dev/null \
+        | cut -f1 | grep -E '^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$' || true)"
+    DECLARED_CIDR_N="$(printf '%s\n' "$DECLARED_CIDRS" | grep -c . || true)"
+
+    DECLARED_RESOLVED="$(grep '^HOST	' "$map" || true)"
+    DECLARED_DERPS="$(grep '^DERP	' "$map" || true)"
+    DECLARED_STATUS="$(awk -F'\t' '$1=="STATUS" {print $2; exit}' "$map")"
+    [ -n "$DECLARED_STATUS" ] || DECLARED_STATUS=ok
+    DECLARED_DERP_OK=0
+    if [ -n "$DECLARED_DERPS" ]; then DECLARED_DERP_OK=1; fi
+
+    if [ "$DECLARED_STATUS" = ok ] && [ -z "$DECLARED_RESOLVED" ]; then
+        echo "CANNOT-RUN: the map declares STATUS ok but carries no HOST row, so every address would classify against an empty set" >&2
+        exit 2
+    fi
+
+    seen=0
+    while read -r a; do
+        case "$a" in ''|\#*) continue ;; esac
+        v="$(bucket_for_ip "$a")"
+        printf '%s\t%s\t%s\n' "${v%%	*}" "$a" "${v#*	}"
+        seen=$((seen + 1))
+    done < "$addrs"
+
+    if [ "$seen" -eq 0 ]; then
+        echo "CANNOT-RUN: the address list had no address in it; a silent zero here would read as 'nothing was flagged'" >&2
+        exit 2
+    fi
+    exit 0
 fi
 
 probe_main "$@"

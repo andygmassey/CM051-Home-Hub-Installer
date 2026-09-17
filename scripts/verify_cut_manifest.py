@@ -1281,8 +1281,25 @@ ASSISTANT_GROUNDED_DEFAULT_PER_TURN_SECONDS = 420
 # the unseeded walk fails exactly on the walk that tests the most.
 ASSISTANT_GROUNDED_SEEDED_TURNS = 1
 
+# ⚠️ THE HEREDOC IS MATCHED WITH OR WITHOUT ITS QUOTES, and that is not
+# tolerance for sloppiness. Since #1125 each battery row carries a TAB and the
+# store set whose data could hold that question's answer, and the broad
+# opener's set is `${_TOOL_REGISTRY}` -- so the heredoc is UNQUOTED, because a
+# quoted one would ship the variable name to the box as a tool name.
+#
+# 🔴 THIS REGEX PINNED `<<'QEOF'` AND SILENTLY STOPPED MATCHING when that
+# changed. It did not fail loudly: it returned None, the caller took the FLOOR
+# (900s) exactly as designed, and the probe's real budget halved from 1800s to
+# 900s on a BLOCKING probe whose own runtime note records 2-5 minutes per turn.
+# A cap that silently shrinks is how #1601 happened -- a real diagnosis
+# reported as a timed-out instrument. Caught by this file's own
+# read-the-real-probe arm, which is why that arm reads the shipped file and not
+# only a fixture.
+#
+# The count is of NON-EMPTY LINES, so a tab and a store set on each one change
+# nothing about the number of turns.
 _GROUNDED_BATTERY_RE = re.compile(
-    r"_questions\(\)\s*\{\s*cat <<'QEOF'\n(.*?)\nQEOF", re.S
+    r"_questions\(\)\s*\{\s*cat <<'?QEOF'?\n(.*?)\nQEOF", re.S
 )
 _GROUNDED_PER_TURN_RE = re.compile(
     r'CHAT_TIMEOUT="\$\{OSTLER_PROBE_CHAT_TIMEOUT:-(\d+)\}"'

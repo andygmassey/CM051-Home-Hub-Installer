@@ -41,21 +41,32 @@
 #     26530  ${_HYDRATE_APPLENOTES_JSON_FILE} -- an FDA extraction OUTPUT, and
 #            the variable itself is not assigned until 26508, long after seed
 #
-# So the floor for this ratchet is THREE, not one, and getting below three is
-# not a hoist at all -- it needs the condition computed from something knowable
-# at seed, or an accepted design decision that the denominator moves. Writing a
-# gate that demands zero would be writing a gate nobody can satisfy, and an
-# unsatisfiable gate gets bypassed rather than met.
+#   NOT HOISTABLE (4 as of 2026-09-13, PIN raised 6 -> 7; see below)
+#     29909  ${_HYDRATE_REMINDERS_JSON_FILE} -- SAME shape as the
+#            apple_notes row directly above: an FDA extraction OUTPUT
+#            (reminders.json), variable assigned at install.sh:29909, itself
+#            long after seed. Written reason for the raise, as this file's
+#            own PIN comment requires: this decrement mirrors an ALREADY
+#            NOT-HOISTABLE sibling exactly (same fda_extract dependency,
+#            same "-s file exists" test), so hoisting it while its sibling
+#            stays un-hoisted would not shrink the true floor, only hide one
+#            member of it. The floor is 4 not-hoistable sites now, not 3.
 #
-# So this is a RATCHET, pinned at the measured 6. It is satisfiable TODAY, it
-# refuses a SEVENTH, and -- because it also fails when the count drops without
+# So the floor for this ratchet is FOUR now (was three), and getting below
+# four is not a hoist at all -- it needs the condition computed from
+# something knowable at seed, or an accepted design decision that the
+# denominator moves. Writing a gate that demands zero would be writing a gate
+# nobody can satisfy, and an unsatisfiable gate gets bypassed rather than met.
+#
+# So this is a RATCHET, pinned at the measured 7. It is satisfiable TODAY, it
+# refuses an EIGHTH, and -- because it also fails when the count drops without
 # the pin being lowered -- it forces the number DOWN over time instead of
 # merely freezing it. That second direction is the point: a ratchet that only
 # catches increases silently blesses a fix that was never recorded.
 #
 # ── EXIT CODES ───────────────────────────────────────────────────────────────
-#   0  ok        6 or fewer late decrements, pin accurate
-#   1  violation a 7th appeared, or the count fell without lowering PIN
+#   0  ok        7 or fewer late decrements, pin accurate
+#   1  violation an 8th appeared, or the count fell without lowering PIN
 #   2  CANNOT-RUN could not read install.sh / parsed nothing. NOT a pass.
 
 set -uo pipefail
@@ -63,9 +74,11 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALL_SH="${REPO_ROOT}/install.sh"
 
-# The measured population, 2026-09-03 at origin/main f237c3a0. LOWER THIS when
-# you hoist one. Raising it requires a written reason in the PR body.
-PIN=6
+# The measured population, 2026-09-03 at origin/main f237c3a0, raised
+# 2026-09-13 (6 -> 7) for the hydrate_reminders decrement -- see the
+# NOT-HOISTABLE list above for the written reason. LOWER THIS when you hoist
+# one. Raising it further requires a written reason in the PR body.
+PIN=7
 
 cannot() { echo "CANNOT-RUN [$1]: $2" >&2; exit 2; }
 [ -f "$INSTALL_SH" ] || cannot "no-install-sh" "$INSTALL_SH not found -- nothing was examined."
