@@ -3243,7 +3243,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8058   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8103   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8112 and :14479, both of which run
+    # Its two top-level arming calls are :8112 and :14484, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3234 above has just deleted
     # that tree and :3238 has just rebound OSTLER_DIR to the final one, so
@@ -3261,13 +3261,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15250, where the note reads
+    # WhatsApp Web session path did it again at :15255, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15267 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15272 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3280,9 +3280,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8112, :14479) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8112, :14484) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17322 / :17500 / :17657 / :17998 path. There the
+    # :17327 / :17505 / :17662 / :18003 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -11985,7 +11985,12 @@ if ! [[ "$TOTAL_STEPS" =~ ^[0-9]+$ ]] || [[ "$TOTAL_STEPS" -le 0 ]]; then
     #
     # tests/test_total_steps_dynamic.sh exercises this path (BASH_SOURCE is
     # unresolvable under `bash -c`) and fails if this constant drifts.
-    TOTAL_STEPS=42
+    # 42 -> 43 on 2026-09-18: the merge-consistency repair (CM041 #162) added
+    # a progress call. Bumped because tests/test_total_steps_dynamic.sh failed
+    # on it, which is the arm working as designed; a customer on the
+    # `curl | bash` path would otherwise have divided by 42 while 43 steps ran
+    # and watched the bar finish at 102%.
+    TOTAL_STEPS=43
     [[ -n "$EXPORTS_DIR" ]] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 fi
 CURRENT_STEP=0
@@ -20515,6 +20520,35 @@ if [[ -d "${SCRIPT_DIR}/contact_syncer" ]]; then
     # raise ImportError at install time.
     [[ -d "${SCRIPT_DIR}/meeting_syncer" ]] && cp -R "${SCRIPT_DIR}/meeting_syncer" "$PIPELINE_DIR/"
     [[ -d "${SCRIPT_DIR}/identity_resolver" ]] && cp -R "${SCRIPT_DIR}/identity_resolver" "$PIPELINE_DIR/"
+
+    # ── AN UPGRADE CAN LEAVE NEW SOURCE RUNNING OLD BEHAVIOUR ──────
+    #
+    # MEASURED ON THE WALK BOX 2026-09-18, and it cost twenty minutes
+    # before it was believed. New module copied in, then:
+    #
+    #   ImportError: cannot import name
+    #   sweep_qdrant_orphans_of_merged_people from
+    #   identity_resolver.batch_resolver
+    #
+    # while grep showed the symbol PRESENT in the file on the box, with
+    # a control proving the grep could speak. CPython had loaded the
+    # stale bytecode left by the previous install. Removing the
+    # directory's cache fixed it with no other change.
+    #
+    # THE COPY ABOVE REFRESHES THE SOURCE AND NOT THE CACHE. cp -R
+    # writes the .py files and leaves whatever pyc were there, so an
+    # UPGRADING customer -- the only kind who has an old cache -- can
+    # get the new code and the old behaviour, silently, with every
+    # version check reporting the new version because the SOURCE really
+    # is new. A fresh install never shows it, which is why it survived.
+    #
+    # Removing a cache can only cost one recompilation. Leaving a stale
+    # one costs a customer running code we do not ship.
+    for _pd in contact_syncer meeting_syncer identity_resolver; do
+        [[ -d "$PIPELINE_DIR/$_pd" ]] || continue
+        find "$PIPELINE_DIR/$_pd" -type d -name '__pycache__' -prune -exec rm -rf {} + 2>/dev/null || true
+    done
+    unset _pd
     # CM041 v1.0.9 (2026-07-15): pwg_privacy.py is the canonical
     # fail-closed L3 privacy helper at the CM041 repo root.
     # meeting_syncer/brief.py hard-imports it (top-level, unguarded)
@@ -31835,6 +31869,212 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
 
     unset _DEDUPE_LOG _DEDUPE_PID _DEDUPE_WAITED _DEDUPE_BUDGET_S
     unset _DEDUPE_TIMED_OUT _DEDUPE_DONE_MARKER _DEDUPE_KILLED_MARKER
+fi
+
+# ── A MERGED PERSON MUST LEAVE BOTH STORES (CM041 #162) ───────────────
+#
+# THE DEFECT, root-caused on the live box 2026-09-18. The two stores
+# disagreed about how many people the customer knows, and the walk probe
+# people_count_agreement has failed on it walk after walk:
+#
+#     oxigraph distinct Person subjects   2596
+#     qdrant  people points_count         2620
+#     the true number                     about 2564
+#
+# NEITHER SURFACE WAS RIGHT, and they were wrong in opposite directions.
+# There are two merge paths and they disagreed, and neither touched the
+# vector store at all:
+#
+#   batch_resolver step 7  DELETE DATA { <discard> a <Person> }  retires it
+#   resolver.py            had no equivalent step                leaves it typed
+#   either path            zero qdrant point deletions
+#
+# So a batch-merged person went untyped and kept a stale vector point (24
+# of those), and a resolver-merged person stayed typed and was counted as
+# live when they are not (32 of those). It also explains the older
+# people_stores_reconcile finding, where a named person was unsearchable
+# in one store and present in the other: a merged-away person still
+# answers from the vector store after the graph has retired them.
+#
+# 🔴 NOT NEW, AND THAT IS THE DAMNING PART. resolver.py step 5b already
+# carried a dated comment naming "the single largest contributor to the
+# people_count_agreement gap" and fixed the SURVIVOR half of it. The
+# DISCARD half and the vector half were left. The probe has been failing
+# walk to walk because each visit fixed a third of one defect.
+#
+# WHY THE REPAIR RUNS HERE AND NOT BY HAND. The two code fixes in CM041
+# stop NEW divergence; they do not repair the records already on a
+# customer's Mac. A repair run by hand fixes exactly one machine and
+# leaves every existing customer carrying the wrong number with nobody to
+# run it for them, and it would make the walk probe pass for a reason the
+# shipped artefact does not contain. This block is what makes the probe
+# moving evidence about the PRODUCT.
+#
+# AND IT RUNS ON UPGRADE, NOT ONLY ON A FRESH INSTALL. That is the half
+# that matters: the 24 and the 32 are on an EXISTING box. The guard below
+# is the same one the converge pass above uses, which is true in both
+# cases.
+# THE STEP COUNT HAS TO AGREE WITH WHAT ACTUALLY RUNS. This progress call
+# is CONDITIONAL, so TOTAL_STEPS (seeded by counting progress calls) counts
+# a step that may never fire, and the customer watches "step N of M" stop
+# one short of M for ever. tests/test_total_steps_dynamic.sh caught exactly
+# that on the first push of this block, at 8 conditional calls against 7
+# subtract entries.
+#
+# The predicate below is the WHOLE guard, both halves, because the step is
+# skipped when the module is absent as well as when the pipeline is. A
+# subtract that matched only the outer guard would be wrong on precisely
+# the boxes running a build older than CM041 #162, which are the ones that
+# take the skip.
+[[ -d "$PIPELINE_DIR/identity_resolver" \
+   && -x "$PIPELINE_DIR/.venv/bin/python3" \
+   && -f "$PIPELINE_DIR/identity_resolver/repair_merge_consistency.py" ]] \
+   || TOTAL_STEPS=$((TOTAL_STEPS - 1))
+
+if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python3" ]]; then
+    if [[ ! -f "$PIPELINE_DIR/identity_resolver/repair_merge_consistency.py" ]]; then
+        # A vendored tree older than CM041 #162. SAY SO rather than skip
+        # silently: "the module is not here" and "there was nothing to
+        # repair" print identically otherwise, and one of them is a
+        # customer whose two stores still disagree.
+        mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || true
+        {
+            printf 'ran_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            printf 'rc\t\n'
+            printf 'verdict\tNOT-SHIPPED\n'
+            printf 'reason\tthis build vendors an identity_resolver without repair_merge_consistency, so no repair was attempted\n'
+            printf 'log\t\n'
+        } > "${OSTLER_DIR}/state/merge_consistency_repair.tsv" 2>/dev/null || true
+        warn "Merge-consistency repair skipped: this build vendors an identity_resolver without repair_merge_consistency"  # i18n-exempt
+    else
+        progress "Reconciling merged people across both stores" "merge_consistency_repair"
+        _MCR_LOG="${OSTLER_DIR}/logs/merge-consistency-repair.log"
+        mkdir -p "$(dirname "$_MCR_LOG")" 2>/dev/null || true
+
+        # ── THE OUTCOME HAS TO BE WALK-VISIBLE, NOT A LINE IN A LOG ──
+        #
+        # A warn() the customer scrolls past and a log nobody opens is the
+        # same disease this repair exists to cure: the lint that reported
+        # "0 errors" while examining no pages, and the merge that recorded
+        # executed=true after its vector half failed. So every outcome,
+        # including the good one, is written to a state file a probe can
+        # grade, with the RC BESIDE the reason.
+        #
+        # people_count_agreement is already the walk probe that fails when
+        # the two counts disagree. What it could never say is WHY. This
+        # file is what lets the answer be "the repair could not read the
+        # vector store" instead of another unexplained gap carried for
+        # three weeks, which is exactly what the egress finding cost us.
+        _MCR_STATE="${OSTLER_DIR}/state/merge_consistency_repair.tsv"
+        mkdir -p "$(dirname "$_MCR_STATE")" 2>/dev/null || true
+        _mcr_record() {   # _mcr_record <rc> <verdict> <reason>
+            {
+                printf 'ran_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                printf 'rc\t%s\n' "$1"
+                printf 'verdict\t%s\n' "$2"
+                printf 'reason\t%s\n' "$3"
+                printf 'log\t%s\n' "$_MCR_LOG"
+            } > "$_MCR_STATE" 2>/dev/null || true
+        }
+        # WRITTEN BEFORE THE RUN, NOT ONLY AFTER IT. A pass that is killed,
+        # or an install that dies at the next step, would otherwise leave no
+        # row at all -- and "no row" reads as "this build predates the
+        # repair", which is a different and much more forgiving fact.
+        _mcr_record "" "DID-NOT-FINISH" "the repair started and no outcome was recorded, so it was interrupted"
+
+        # FOREGROUND, AND DELIBERATELY NOT BACKGROUNDED WITH A CAP the way
+        # the converge pass above is. That cap kills the pass mid-merge,
+        # and the long comment above it is an account of the torn state a
+        # kill between step 1 and step 6 leaves behind. A REPAIR that can
+        # be killed halfway can invent a new inconsistent state, which is
+        # the exact opposite of its job. It gets a bound, and if it
+        # exceeds the bound it says so instead of being capped silently.
+        _MCR_BUDGET_S="${OSTLER_MERGE_REPAIR_BUDGET_S:-600}"
+        (
+            cd "$PIPELINE_DIR" && \
+            OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
+            QDRANT_URL="${QDRANT_URL:-http://localhost:6333}" \
+            .venv/bin/python3 -m identity_resolver.repair_merge_consistency \
+                --oxigraph-url "${OXIGRAPH_URL:-http://localhost:7878}" \
+                --qdrant-url "${QDRANT_URL:-http://localhost:6333}" \
+                --apply
+        ) >>"$_MCR_LOG" 2>&1 &
+        _MCR_PID=$!
+        _MCR_WAITED=0
+        _MCR_OVERRAN=false
+        while kill -0 "$_MCR_PID" 2>/dev/null; do
+            sleep 10
+            _MCR_WAITED=$(( _MCR_WAITED + 10 ))
+            if [[ "$_MCR_WAITED" -ge "$_MCR_BUDGET_S" ]]; then
+                _MCR_OVERRAN=true
+                break
+            fi
+        done
+        if [[ "$_MCR_OVERRAN" == true ]]; then
+            # NOT killed. A half-applied repair is worse than a slow one,
+            # so it is left to finish in the background and the customer
+            # is told the install stopped waiting, not that it stopped.
+            _mcr_record "" OVERRAN "still running after the install-time budget; NOT killed, because a half-applied repair invents a state worse than the one it was sent to fix"
+            warn "Merge-consistency repair is still running after ${_MCR_BUDGET_S}s; leaving it to finish in the background (${_MCR_LOG})"  # i18n-exempt
+        else
+            # `cmd; rc=$?` on its own line is the shape the appcast-ship-wiring
+            # ratchet refuses, and the reason is not style. A standalone read of
+            # $? is one inserted line away from reporting the status of
+            # something else entirely, and this value decides which of four
+            # outcomes the customer is told. Seed it and let the failure arm
+            # overwrite it, so the variable is never undefined and never holds
+            # a status it did not come from.
+            _MCR_RC=0
+            wait "$_MCR_PID" 2>/dev/null || _MCR_RC=$?
+            # FOUR OUTCOMES, FOUR BRANCHES. Exit 1 is the pass REFUSING on
+            # a broken predicate and changing nothing, exit 2 is a store it
+            # could not read, exit 3 is HALF REPAIRED. Folding any of them
+            # into "done" is how a repair that never ran reads as a repair
+            # that found nothing, and folding 3 into 0 is how a customer
+            # keeps a half-fixed graph nobody re-runs.
+            case "$_MCR_RC" in
+                0)
+                    _mcr_record 0 OK "the repair completed; see the log for what it examined beside what it changed"
+                    ok "$(printf 'Merged people reconciled across both stores (%s)' "$_MCR_LOG")"  # i18n-exempt
+                    ;;
+                1)
+                    # Its negative control is an address RFC 6761 reserves
+                    # so it can never resolve. If the retirement predicate
+                    # ever claims that address the query is broken, and the
+                    # pass refuses rather than repairing on counts it
+                    # cannot trust. Non-fatal here, and loud.
+                    _mcr_record 1 REFUSED "the negative control was matched, so the retirement predicate is broken and nothing was changed"
+                    warn "Merge-consistency repair REFUSED and changed nothing: its own negative control was matched, so the predicate is broken. See ${_MCR_LOG}"  # i18n-exempt
+                    ;;
+                2)
+                    # CANNOT-RUN is not a pass. A vector store reporting
+                    # zero points prints identically to one with nothing
+                    # to repair, which is why the pass treats that as
+                    # unreadable rather than clean.
+                    _mcr_record 2 CANNOT-RUN "a store could not be read; a vector store reporting zero points is treated as unreadable, not as clean"
+                    warn "Merge-consistency repair CANNOT-RUN: a store could not be read, so the two people counts may still disagree. See ${_MCR_LOG}"  # i18n-exempt
+                    ;;
+                3)
+                    # EXIT_PARTIAL. Added after Archie blocked CM041 #162: a
+                    # half-finished repair used to print "Nothing was repaired"
+                    # after ten successful retirements, which is a lie in the
+                    # direction that makes an operator investigate the wrong
+                    # thing. HALF REPAIRED is neither REFUSED nor CANNOT-RUN,
+                    # and the right action is to RE-RUN, not to dig. The pass
+                    # is safe to re-run by construction, so say that here
+                    # rather than leaving the reader to work it out.
+                    _mcr_record 3 PARTIAL "the repair completed some of its work and not all of it; it is idempotent, so re-running is the correct action and not an investigation"
+                    warn "Merge-consistency repair completed PARTIALLY. It is safe to re-run and that is the fix. See ${_MCR_LOG}"  # i18n-exempt
+                    ;;
+                *)
+                    _mcr_record "$_MCR_RC" UNDOCUMENTED-EXIT "the pass exited with a code it does not document, so no outcome can be inferred from it"
+                    warn "Merge-consistency repair exited ${_MCR_RC}, which it does not document. Treating as not completed. See ${_MCR_LOG}"  # i18n-exempt
+                    ;;
+            esac
+            unset _MCR_RC
+        fi
+        unset _MCR_LOG _MCR_PID _MCR_WAITED _MCR_BUDGET_S _MCR_OVERRAN _MCR_STATE
+    fi
 fi
 
 # Apple Notes knowledge hydration (CM024 §7 / apple_notes adapter) ---

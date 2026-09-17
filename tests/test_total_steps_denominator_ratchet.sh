@@ -78,7 +78,33 @@ INSTALL_SH="${REPO_ROOT}/install.sh"
 # 2026-09-13 (6 -> 7) for the hydrate_reminders decrement -- see the
 # NOT-HOISTABLE list above for the written reason. LOWER THIS when you hoist
 # one. Raising it further requires a written reason in the PR body.
-PIN=7
+#
+# ── RAISED 2026-09-18, 7 -> 8, DELIBERATELY, FOR merge_consistency_repair ────
+#
+# This gate's own message offers two ways out: hoist the condition to seed
+# time, or, if it is genuinely unknowable that early, SAY SO and raise the pin
+# deliberately rather than silently. This is the second, and the claim is
+# MEASURED rather than asserted:
+#
+#     TOTAL_STEPS is seeded at         install.sh:11996
+#     identity_resolver is copied in   install.sh:20522
+#     the pipeline venv is created     install.sh:20655
+#
+# The step runs only when that package AND that venv AND the module
+# repair_merge_consistency.py all exist under PIPELINE_DIR. On a FRESH install
+# none of the three exists at line 11996 -- they are created eight and a half
+# thousand lines later. Evaluating the condition at seed would subtract a step
+# that IS going to run, on every first install, which is the same wrong
+# denominator this ratchet exists to prevent, arrived at from the other side.
+#
+# THE LATENESS IS THE CORRECTNESS HERE. By the time the decrement fires, the
+# question "will this step run" has an answer. At seed it does not, and a guess
+# is not a hoist.
+#
+# WHAT WOULD LOWER IT AGAIN: making the repair unconditional, which means
+# shipping the module in a tree that cannot be absent. That is a real option
+# and it is not tonight's.
+PIN=8
 
 cannot() { echo "CANNOT-RUN [$1]: $2" >&2; exit 2; }
 [ -f "$INSTALL_SH" ] || cannot "no-install-sh" "$INSTALL_SH not found -- nothing was examined."
