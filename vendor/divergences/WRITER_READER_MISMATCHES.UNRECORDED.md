@@ -132,3 +132,78 @@ loss.
 `vendor/cm019_preferences` is the fourth tree edited and is NOT listed here: it
 carries `verify = "skip"` and an empty `divergence_patch` by design, and its
 record lives in `CM019_DIVERGENCE_REGISTRY.md`, which this PR also updates.
+
+---
+
+## ADDED 2026-09-18, CM051 #2129 and #2131. Two trees, and the tool was RE-RUN.
+
+Per the rule at the top of this file, the refusals below were measured TODAY
+rather than inherited from the 2026-09-16 entry. Inheriting a refusal is
+inheriting an ack: a debt with nobody's name on it.
+
+The local CM041 checkout was UNSHALLOWED first, because a `--depth 1` clone
+cannot materialise a historic pin and the tool would have reported CANNOT-RUN
+for a reason that was mine and not the repo's. Both pins resolve in it now, and
+a fabricated SHA does not, so the check discriminates.
+
+`scripts/regenerate_divergence_patch.sh <tree>`, CM041 exported to that
+checkout:
+
+| tree | outcome | what the tool said |
+|---|---|---|
+| `cm041/identity_resolver` | **REFUSED**, exit 1 | "this is a RE-PIN, not a graft to record. Regenerating here would fold those upstream commits into the divergence patch and record them as local edits to this repo. Move the pin first, re-apply the graft on the new base, then run this tool if a divergence remains." It listed 16 unshipped commits touching this tree. |
+| `cm041/assistant_api` | **REFUSED**, exit 1 | Same verdict, listing one unshipped commit: `82f4537 feat(cost): complete the CM041 usage-journal producers`. |
+
+### Why the pin was NOT moved, which is what the tool's advice assumes
+
+The tool says "move the pin first". That advice is correct when a re-pin is
+wanted. Here it is not, and the reason is measured rather than preferred:
+
+    cm041/identity_resolver   16 commits since the pin, 14 of them on this
+                              tree's own hold_ack_shas list (list size 14)
+    cm041/assistant_api        1 commit since the pin, and it IS the single
+                              held commit 82f45376
+
+So moving either pin to CM041 main would silently UN-HOLD every commit held on
+2026-09-06 and pull them into the cut. A pin that names an older commit than
+the content is a recorded debt. A pin moved to main would be an unrecorded
+scope change, and it would undo a hold somebody made deliberately.
+
+That is also why "just update pinned_sha to the commit you vendored" is the
+wrong fix here even though the instinct behind it is right: the pin plus the
+divergence patch are supposed to RECONSTRUCT the vendored tree, and editing the
+SHA alone breaks that invariant in a way nothing in CI can see. The manifest's
+own comment says `$CM041` is assigned by nothing in this repo, so
+vendor-integrity resolves zero trees and goes green having checked nothing.
+
+### What was grafted, location and shape only, never content
+
+`vendor/cm041/identity_resolver/` -- CM051 #2129, carrying CM041 #162
+(`cc0150f2`) and #163 (`aee68c24`), applied as those PRs' source hunks rather
+than by syncing the tree, for the reason above:
+
+- `batch_resolver.py`: +1 function, `sweep_qdrant_orphans_of_merged_people`,
+  and its report type. One new `httpx.Client(trust_env=False)` against the
+  customer's local Oxigraph.
+- `resolver.py`: +1 step in `merge_persons` retiring the discard's type; and
+  `find_by_identifier` now follows `mergedInto` to the survivor via a new
+  `follow_merge_chain`.
+- `repair_merge_consistency.py`: new file, 8238 bytes, byte-identical to CM041
+  main.
+
+`vendor/cm041/assistant_api/ical-server.py` -- CM051 #2131:
+
+- +1 function `_forget_audit_has`, three-state.
+- The not-found arm of `api_people_forget` now distinguishes "never found" from
+  "already erased" and reports `not_found` rather than `already_forgotten`.
+  This one has NO upstream commit at all: it was written here, so there is no
+  CM041 SHA that describes it and a pin could not name it even in principle.
+
+### What a future sync must preserve
+
+A `sync_vendor.sh` refusal on either tree is EXPECTED and correct.
+`SYNC_ACCEPT_DIVERGENCE_LOSS=1` would restore a forget that tells a customer it
+erased somebody it never found, and a people count that is wrong in both stores
+at once. The remedy is to re-pin DELIBERATELY, with the 14 held commits
+adjudicated one at a time the way they were held, and then re-apply these
+grafts on the new base.
