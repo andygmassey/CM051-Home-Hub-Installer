@@ -232,6 +232,7 @@ MSG_INFO_MAC_SIDE_DATA_IMESSAGE_SAFARI_ETC="Mac-side data (iMessage, Safari, etc
 MSG_INFO_MANUAL_RESTART_LAUNCHCTL_KICKSTART_K_GUI="Manual restart: launchctl kickstart -k gui/\$(id -u)/com.creativemachines.ostler.assistant"
 MSG_INFO_MANUAL_RUN_BASH_BIN_EMAIL_INGEST="Manual run: bash %s/bin/email-ingest-tick.sh"
 MSG_INFO_MEETING_BRIEF_AGENT_SKIPPED="Skipping com.ostler.meeting-brief-sender install (v1.0.1 feature; endpoints not yet shipped)."
+MSG_INFO_MEMORY_HYGIENE_SKIPPED_NOT_STAGED="Skipping the memory-hygiene pass (not bundled with this installer); nothing is down-weighted automatically until it is."
 MSG_INFO_MESSAGE_WHEN_FEATURE_FLAG_LATER_FLIPPED="message when the feature flag is later flipped on."
 MSG_INFO_NEED_HELP_EMAIL_SUPPORT_OSTLER_AI="Need help? Email support@ostler.ai. We aim to reply within 2 working days."
 MSG_INFO_MKDIR_P_CP_R_TMP_HUB="  mkdir -p %s && cp -R /tmp/hub-power-src/hub-power/* %s/"
@@ -390,6 +391,7 @@ MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED="The background top-up helper could not be sch
 MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED="%s not set up: Ostler has no record of your answer to the question that governs it, so it did not assume one."
 MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED_WHY="  Re-run Ostler and choose to answer the questions again to turn it on. (consent record: %s)"
 MSG_WARN_MEETING_BRIEF_SENDER_NOT_LOADED="The daily brief could not be scheduled, so you will not receive the morning summary. Everything else works; re-run the installer to restore it."
+MSG_WARN_MEMORY_HYGIENE_NOT_LOADED="The memory-hygiene pass could not be scheduled, so stale or superseded facts will not be down-weighted automatically. Everything else works; re-run the installer to restore it."
 MSG_WARN_EXPORT_SCAN_NOT_LOADED="The Downloads watcher could not be started, so files you drop into Downloads will not be picked up automatically. Everything already imported is unaffected, and you can still add files from inside the app. Re-run the installer to restore it."
 MSG_WARN_DEFERRED_DEVICE_REGISTRATION_NOT_LOADED="The retry helper for device registration could not be scheduled. If your iPhone registered during setup this changes nothing; if it did not, you will need to pair again from the app rather than it completing on its own."
 # v1.0.38 walk (2026-08-23): a green install finished on a Mac with the
@@ -480,6 +482,7 @@ MSG_OK_EXPORT_WATCHER_INSTALLED_SCANS_DOWNLOADS_EVERY="Export watcher installed 
 # install log does not send the reader hunting for what was missing.
 MSG_WARN_EXPORT_SCAN_DAEMON_BINARY_MISSING="  Export watcher not started yet: the assistant program it runs is not on disk. Looked for: %s"
 MSG_OK_MEETING_BRIEF_SENDER_INSTALLED="Pre-meeting brief sender installed (polls every 10 minutes during waking hours)"
+MSG_OK_MEMORY_HYGIENE_INSTALLED="Memory-hygiene pass scheduled (runs daily to keep stale facts from crowding out current ones)"
 MSG_OK_STAY_AWAKE_AGENT_INSTALLED="Your Mac will stay awake on mains power so Ostler keeps working (it still sleeps on battery)"
 MSG_OK_EXTRACTED="Extracted to %s"
 MSG_OK_EXTRACTED_FROM_SOURCE_S_DATA_SAVED="Extracted from %s source(s). Data saved to %s/imports/fda/"
@@ -1560,6 +1563,17 @@ MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA="No Apple Notes to read. You can re-run 
 MSG_HYDRATE_APPLE_NOTES_SKIPPED_PIPELINE_PENDING="Knowledge importer not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_APPLE_NOTES_BACKGROUND_CONTINUES="Apple Notes are still loading in the background. Your knowledge base fills in as it goes, and shows you where it is up to."
 MSG_HYDRATE_APPLE_NOTES_HEARTBEAT="  Still reading your Apple Notes (%ss so far). A large notes library can take a few minutes."
+
+# Reminders knowledge hydration (CM024 reminders adapter, same pattern as
+# Apple Notes above). Reminders are converted to markdown + embedded
+# locally; only reminder-count totals are shown to the customer -- no
+# reminder titles or notes leave the process.
+MSG_HYDRATE_REMINDERS_STARTED="Reading your Reminders - they stay on this Mac"
+MSG_HYDRATE_REMINDERS_DONE="Added %s reminders to your knowledge base"
+MSG_HYDRATE_REMINDERS_SKIPPED_NO_DATA="No Reminders to read. You can re-run later from Settings."
+MSG_HYDRATE_REMINDERS_SKIPPED_PIPELINE_PENDING="Knowledge importer not ready yet. You can re-run later from Settings."
+MSG_HYDRATE_REMINDERS_BACKGROUND_CONTINUES="Reminders are still loading in the background. Your knowledge base fills in as it goes, and shows you where it is up to."
+MSG_HYDRATE_REMINDERS_HEARTBEAT="  Still reading your Reminders (%ss so far). A large reminders list can take a few minutes."
 
 # People search index (#600)
 MSG_HYDRATE_PEOPLE_STARTED="Indexing your people for search"
