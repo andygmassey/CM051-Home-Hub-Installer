@@ -128,3 +128,45 @@ the mutation, every time:
 
 And restore with `cmp` afterwards, so "I put it back" is measured rather than
 assumed.
+
+### A bare integer is not an address
+
+Added the same night as the three above, because it cost more than all of
+them and because three separate layers made the identical mistake on the same
+field.
+
+A cut-manifest row carries `issue:`, `repo:`, `title:` and `gate:` in one
+record. The number is only meaningful in the repo the row names.
+
+1. A board strike removed 41 rows asserting "the issue this row names is
+   CLOSED on GitHub", resolving every number without reading `repo:`.
+2. The audit of that strike resolved all 41 against CM051 and reported "41 of
+   41 are pull requests". Ten of them declare `repo: HR015` and are OPEN
+   issues there, every one titled `[LAUNCH]`.
+3. A peer's five spot-checks confirmed the audit. Three of the five were
+   `repo: none` and two were HR015; all five were resolved against CM051. The
+   check was a COPY OF THE METHOD UNDER TEST, so it added confidence and no
+   information, which is the worst thing a control can do, and it looked like
+   a control, which made the wrong conclusion more credible.
+4. The gate written to catch exactly this hard-coded CM051.
+
+Nobody was careless. Everybody treated a number as self-locating.
+
+**Before resolving an identifier, ask which register it belongs to, and read
+the field that says so.** And when asking a second party to check a result,
+give them the QUESTION, never the method: "resolve these five row numbers and
+tell me what they are" is a control; "confirm these five are pull requests"
+is a mirror.
+
+### Corrections do not converge, and a shrinking series is not evidence
+
+The finding above was corrected five times: 29 rows, then 41 with 6
+suppressed, then 41 with 2, then ten open `[LAUNCH]` issues, then those ten
+triaged down to two with real outstanding work.
+
+Four of the five shrank. Both parties had begun to treat "smaller" as the
+direction of truth, which made the one correction that went the OTHER way the
+hardest to receive and the only one that mattered.
+
+**A trend in corrections carries no information about the next correction.**
+Each is measured from scratch, from the artefact, or it is not measured.
