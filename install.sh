@@ -3239,11 +3239,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8045) captures the path BY
+    # _ostler_write_store_curl_config (defined :8057) captures the path BY
     # VALUE and never re-reads it:
-    #     :8046   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8091   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8100 and :14249, both of which run
+    #     :8058   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8103   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8112 and :14427, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3234 above has just deleted
     # that tree and :3238 has just rebound OSTLER_DIR to the final one, so
@@ -3261,13 +3261,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15020, where the note reads
+    # WhatsApp Web session path did it again at :15198, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15037 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15215 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3276,13 +3276,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5695 against a definition at :8045. Top-level
+    # writer's own definition: :5707 against a definition at :8057. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8100, :14249) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8112, :14427) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17092 / :17270 / :17427 / :17768 path. There the
+    # :17270 / :17448 / :17605 / :17946 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -5579,6 +5579,18 @@ if [[ -f "${OSTLER_FINAL_DIR}/config/.env" ]] \
     ok "$MSG_OK_PREVIOUS_INSTALLATION_DETECTED_LOADING_CONFIG"
     # Source existing config from the canonical location.
     set -a; source "${OSTLER_FINAL_DIR}/config/.env"; set +a
+    # #1539: THE REMOTE-ACCESS ANSWER, CAPTURED UNDER ITS OWN NAME.
+    #
+    # The source above may have restored TAILSCALE_CONFIRM, but the restored
+    # value must NOT be allowed to act as this run's answer on its own: the
+    # customer has not yet been asked whether to reuse anything, and if they
+    # say no the question phase runs and asks again, which is correct. So the
+    # restored value is copied here, read only by the late fallback, and only
+    # when the customer actually chose "use previous answers".
+    #
+    # Empty when this box predates the .env line, which is a real state and
+    # not an error: the fallback then asks exactly as it does today.
+    TAILSCALE_CONFIRM_PREVIOUS="${TAILSCALE_CONFIRM:-}"
     USER_NAME="${USER_NAME:-}"
     USER_ID="${USER_ID:-}"
     ASSISTANT_NAME="${ASSISTANT_NAME:-}"
@@ -13349,6 +13361,90 @@ else
 </dict>
 </plist>
 OLLAMAPLIST
+    # ── THE PLIST ABOVE CARRIES KeepAlive, WHICH IS A PROMISE AND A TRAP (#1574).
+    #
+    # KeepAlive means launchd restarts this agent every time it dies. When it
+    # CAN bind that is the property the Hub needs. When it cannot, it is a
+    # process that restarts itself for ever and tells nobody: MEASURED on a box
+    # where something else already held 11434, 368 restarts in 40 minutes,
+    # roughly one every 7 seconds, on an install that had already reported
+    # green.
+    #
+    # THE INSTALL PASSED, WHICH IS THE HALF THAT MAKES IT INVISIBLE. The
+    # readiness loop below wants the port to answer AND our own agent to be
+    # running. A foreign Ollama answers the first for ever, and the second is
+    # momentarily TRUE on every respawn, because `state = running` is what a
+    # crash-looping job looks like in the instant between exec and exit. On the
+    # _ollama_domain_absent path there is no second condition at all: the loop
+    # falls back to the curl alone, which a stranger satisfies outright.
+    #
+    # Same root cause as #1754, opposite ending. There the loop times out and
+    # the install aborts with ERR-08 naming the holder. Here it never times
+    # out, so the curated abort is never reached and the customer is told the
+    # thing is running.
+    #
+    # THE EVIDENCE IS ALREADY ON DISK AND WAS BEING THROWN AWAY, exactly as it
+    # was for #1754. The plist above sends this agent's stderr to ollama.err,
+    # launchd opens that path with O_APPEND, and every failed bind writes
+    # "listen tcp 127.0.0.1:11434: bind: address already in use" to it. So the
+    # question "could OUR agent bind during THIS install?" is answerable from a
+    # file we already own, with no extra process and no guess.
+    #
+    # SCOPED BY BYTE OFFSET, NOT BY CONTENT. A bind failure from a PREVIOUS
+    # install is still in that file and is not this install's finding. Reading
+    # the whole file would abort a healthy install on a stale line. So the size
+    # is taken HERE, before anything of ours is started, and only what is
+    # written after it is ever read.
+    _ollama_err_path="${OLLAMA_LOG_DIR}/ollama.err"
+    _ollama_err_bytes_before=0
+    if [[ -r "$_ollama_err_path" ]]; then
+        _ollama_err_bytes_before="$(wc -c < "$_ollama_err_path" 2>/dev/null | tr -d ' ' || true)"
+    fi
+    case "${_ollama_err_bytes_before:-}" in
+        ''|*[!0-9]*) _ollama_err_bytes_before=0 ;;
+    esac
+
+    # How many times has OUR side failed to bind since that offset?
+    #
+    # Prints a number, always, including when the file is absent or unreadable.
+    # "could not look" is reported as 0 here ON PURPOSE and it is the safe
+    # direction for this one predicate: its only consumer promotes a POSITIVE
+    # count into an abort, so an unreadable log must not manufacture one. The
+    # consumer states that in as many words rather than leaving it implied.
+    #
+    # grep -c, never `grep -q`: this file runs under pipefail, and a quiet grep
+    # exits at its first match, SIGPIPEs the producer, and inverts the verdict
+    # precisely when the needle IS present. grep -c reads to EOF.
+    _ollama_bind_failures_since() {
+        local _f="$1" _off="$2" _n
+        [[ -r "$_f" ]] || { printf '0\n'; return 0; }
+        _n="$(tail -c "+$((_off + 1))" "$_f" 2>/dev/null \
+              | grep -c 'address already in use' || true)"
+        case "${_n:-}" in
+            ''|*[!0-9]*) printf '0\n' ;;
+            *) printf '%s\n' "$_n" ;;
+        esac
+    }
+
+    # Take the agent out of the world, so a failed install does not leave a
+    # process restarting itself every 7 seconds for ever.
+    #
+    # BOTH DOMAINS AND THE LEGACY VERB, because the registration above tries
+    # bootstrap into gui/<uid> and then falls back to `launchctl load`, which
+    # lands in whichever domain the caller is in. Booting out only the one we
+    # think we used leaves the other running.
+    #
+    # AND THE PLIST IS REMOVED, which is the half that actually ends it. A
+    # bootout lasts until the next login; the file is what brings the agent
+    # back. Removing it is safe because it is ours, it is rewritten by the next
+    # run of this installer, and the only reason we are here is that it names a
+    # port this agent has been measured to be unable to take.
+    _ostler_stop_doomed_ollama_agent() {
+        launchctl bootout "gui/$(id -u)/com.ostler.ollama" >/dev/null 2>&1 || true
+        launchctl bootout "user/$(id -u)/com.ostler.ollama" >/dev/null 2>&1 || true
+        launchctl unload "$OLLAMA_PLIST" >/dev/null 2>&1 || true
+        rm -f "$OLLAMA_PLIST" 2>/dev/null || true
+    }
     # 🔴 THIS WAS ALLOWED TO FAIL COMPLETELY AND SAY NOTHING (#1559).
     #
     # `bootstrap` then `load` then `|| true`, with stderr discarded on both. So
@@ -13530,6 +13626,12 @@ OLLAMAPLIST
                 | sed -n 's/^c//p' | sort -u | tr '\n' ' ' || true)"
 
             if [[ -n "$_ollama_bind_evidence" || -n "$_ollama_port_holder" ]]; then
+                # #1574: this arm knew the port was taken and still left the
+                # KeepAlive agent registered, so an install that ABORTED here
+                # walked away leaving a process restarting itself every 7
+                # seconds against a port it can never have. Both curated exits
+                # now go through the same helper; neither leaves a crash-looper.
+                _ostler_stop_doomed_ollama_agent
                 fail_with_code "ERR-08-OLLAMA-PORT-11434-IN-USE" \
                     "$(printf "$MSG_FAIL_OLLAMA_PORT_IN_USE" "${_ollama_port_holder:-unknown}" "${OLLAMA_LOG_DIR}/ollama.err")"
             fi
@@ -13540,6 +13642,61 @@ OLLAMAPLIST
         sleep 2
         OLLAMA_WAIT=$((OLLAMA_WAIT + 2))
     done
+    # ── THE LOOP ENDING IS NOT THE SAME FACT AS OUR AGENT WORKING (#1574) ──
+    #
+    # Everything above this line can be satisfied by a stranger. Before the
+    # customer is told Ollama is running, ask the one question the loop cannot:
+    # did OUR side fail to bind while this install was doing it?
+    #
+    # COSTS NOTHING ON A HEALTHY BOX. The first read is a tail of a file we
+    # already write; on every install where the agent bound, it is 0 and this
+    # block ends here.
+    _ollama_bind_fails="$(_ollama_bind_failures_since "$_ollama_err_path" "$_ollama_err_bytes_before")"
+    if [[ "${_ollama_bind_fails:-0}" -gt 0 ]]; then
+        # ONE FAILED BIND IS NOT YET A CRASH LOOP, and aborting on it would be
+        # the wrong error. A previous Ollama of OURS shutting down as this one
+        # starts can lose a single race and then take the port on the next
+        # KeepAlive respawn, and that install is healthy. The two states differ
+        # in one observable thing: whether it is STILL happening.
+        #
+        # So sample again. KeepAlive respawns this agent about every 7 seconds
+        # (368 restarts in 40 minutes, measured), so a window wider than that
+        # catches a live loop and a settled race writes nothing into it. This
+        # is the only place in this step that spends time, and it is spent ONLY
+        # on a box that has already shown a bind failure.
+        _ollama_resample_from=0
+        if [[ -r "$_ollama_err_path" ]]; then
+            _ollama_resample_from="$(wc -c < "$_ollama_err_path" 2>/dev/null | tr -d ' ' || true)"
+        fi
+        case "${_ollama_resample_from:-}" in
+            ''|*[!0-9]*) _ollama_resample_from=0 ;;
+        esac
+        info "$(printf '    checking whether the local AI agent can hold port 11434 (%ss)' "${OSTLER_OLLAMA_CRASHLOOP_WINDOW_S:-15}")"  # i18n-exempt
+        sleep "${OSTLER_OLLAMA_CRASHLOOP_WINDOW_S:-15}"
+        _ollama_bind_fails_now="$(_ollama_bind_failures_since "$_ollama_err_path" "$_ollama_resample_from")"
+
+        if [[ "${_ollama_bind_fails_now:-0}" -gt 0 ]]; then
+            # STILL failing, so this is not a race, it is a port we can never
+            # take, and the agent we just registered will restart itself
+            # against it for ever. Take it back out of the world before we
+            # stop, then fail with the SAME curated code the timeout path uses,
+            # because it is the same fact about the same box.
+            #
+            # A NOTE ON THE ONE PREDICATE THAT READS AN ABSENCE AS 0: an
+            # unreadable log cannot reach this branch, because 0 is not
+            # greater than 0. Nothing here is promoted from "could not look".
+            _ollama_port_holder="$(lsof -nP -iTCP:11434 -sTCP:LISTEN -Fc 2>/dev/null \
+                | sed -n 's/^c//p' | sort -u | tr '\n' ' ' || true)"
+            _ostler_stop_doomed_ollama_agent
+            fail_with_code "ERR-08-OLLAMA-PORT-11434-IN-USE" \
+                "$(printf "$MSG_FAIL_OLLAMA_PORT_IN_USE" "${_ollama_port_holder:-unknown}" "$_ollama_err_path")"
+        fi
+
+        # It settled. Say so rather than saying nothing: the log holds a bind
+        # failure that a support reader will find, and an unexplained one sends
+        # them hunting a defect that resolved itself.
+        warn "The local AI agent lost port 11434 once while starting and then took it. That is a normal handover from a previous copy, not a fault, and the bind error in ${_ollama_err_path} is that moment."  # i18n-exempt
+    fi
     ok "$MSG_OK_OLLAMA_RUNNING"
 fi
 
@@ -13809,6 +13966,27 @@ OSTLER_CONSENT_PERSONAL_USE_DECISION="${OSTLER_CONSENT_PERSONAL_USE_DECISION:-}"
 # rather than "missing".
 CHANNEL_WHATSAPP_CONSENT_ACCEPTED="${CHANNEL_WHATSAPP_CONSENT_ACCEPTED:-}"
 WA_CONSENT="${WA_CONSENT:-}"
+
+# ── THE REMOTE-ACCESS ANSWER (#1539) ──────────────────────────────────────
+#
+# THE ONLY SETTINGS QUESTION A RE-INSTALL RE-ASKED. Measured by executing the
+# late prompt block against a reuse run: with the customer's previous answer
+# of "skip" restored and TAILSCALE_CONFIRM_SHOWN_EARLY unset (Phase 2 is
+# skipped on a reuse, so the early prompt never runs), the fallback asked
+# again and the prompt's own default overwrote the remembered "skip" with
+# "setup". A person who said no to remote access was asked every time and
+# their answer was silently replaced.
+#
+# The detector added by #875 only ever covered the YES half: it asks the disk
+# whether a tailnet exists, so a customer who ACCEPTED setup is not re-asked.
+# A customer who DECLINED leaves nothing on disk by definition, so there was
+# never anything for it to find.
+#
+# EMPTY IS PRESERVED, same rule as the consent block above. An unanswered
+# question must stay unanswered so the fallback asks; defaulting it to
+# "setup" would enrol somebody in remote access they never agreed to, and
+# defaulting it to "skip" would switch off something they never refused.
+TAILSCALE_CONFIRM="${TAILSCALE_CONFIRM:-}"
 ENVEOF
 
 # This .env carries USER_ID + config the whole install reads; it is
@@ -18820,13 +18998,71 @@ http {
     #
     # The credential include is a separate 0600 file for the same
     # reason the Oxigraph one is: this conf is 644.
+    #
+    # ─────────────────────────────────────────────────────────────────
+    # 🔴 NO CHALLENGE ON THE BROWSER'S ARM. Andy, on his own console walk
+    # of the last build: "The wiki via a browser is requesting
+    # authentication details I don't have."
+    #
+    # That is this server block, and the defect is not the credential --
+    # it is the CHALLENGE. `auth_basic` answers an uncredentialled
+    # request with `401 + WWW-Authenticate: Basic`, and that header is
+    # the entire reason a browser pops a password box. The password
+    # exists and is the customer's own, but nothing on the GUI path ever
+    # put it in front of them, so the box cannot be filled and the last
+    # thing the customer sees is a wall.
+    #
+    # DECISION_550:106 records the v1.0 disposition for this port as
+    # ABSENT, "one door via the daemon, direct publish removed". The door
+    # is now BUILT -- ostler-assistant crates/zeroclaw-gateway/src/wiki_proxy.rs,
+    # in the pinned daemon -- and the Hub's Wiki tab goes through it
+    # (web/src/pages/Wiki.tsx, WIKI_PROXY_PATH = '/wiki'). But the daemon
+    # is a NATIVE LaunchAgent and wiki-site is a container, so the
+    # daemon's own hop can only reach it over this published loopback
+    # port (wiki_proxy.rs, WIKI_ORIGIN = "http://127.0.0.1:8044"). DELETING
+    # the publish does not deliver "absent", it deletes the in-app wiki
+    # too, which is Andy's second complaint made permanent.
+    #
+    # So the port stays and the CHALLENGE goes. Measured on nginx
+    # 1.27-alpine, the pinned image, all four arms:
+    #   no credential  -> 403 + this page, ZERO WWW-Authenticate  (no box)
+    #   the daemon's   -> 200, wiki served       (in-app wiki unchanged)
+    #   a wrong one    -> 403, never served      (no re-prompt loop)
+    #   a rebind Host  -> 403                    (#550 gate intact)
+    #
+    # The guard sits in the REWRITE phase, which runs BEFORE the access
+    # phase, so `auth_basic` never runs on an uncredentialled request and
+    # never sets the challenge. `error_page 401` alone is NOT sufficient
+    # and was measured failing: it rewrites the status to 403 but the
+    # WWW-Authenticate header SURVIVES the internal redirect, so the
+    # response still carries a challenge. Both are kept -- the rewrite
+    # guard for the empty case, error_page for a stale WRONG credential a
+    # browser may already have cached from the box it was shown before.
+    #
+    # This does not weaken #1594. Without the credential the wiki is
+    # still not served; a second local account gets a signpost, not the
+    # customer's compiled life. The only thing that changed is that the
+    # person who owns the machine is told WHERE their wiki is instead of
+    # being asked for a password nobody ever showed them.
     server {
         listen 8044;
         location / {
             if ($ostler_store_host_ok = 0) { return 403; }
+            default_type "text/html; charset=utf-8";
+            # Empty Authorization: answer in the rewrite phase so auth_basic
+            # never runs and no challenge is ever emitted.
+            if ($http_authorization = "") { return 403 "<!doctype html><meta charset=utf-8><title>Your wiki is in the Ostler app</title><body style=\"font:16px -apple-system,system-ui,sans-serif;max-width:34em;margin:4em auto;padding:0 1.5em;color:#2b2b2b\"><h1 style=\"font-size:1.4em\">Your wiki lives in the Ostler app</h1><p>Open <b>Ostler</b> and choose <b>Wiki</b> in the sidebar. Your pages are there, already signed in.</p><p style=\"color:#6b6b6b;font-size:.9em\">This address is an internal one that Ostler uses to fetch those pages. There is nothing here for you to log in to.</p></body>"; }
             include /etc/nginx/ostler-wiki-auth.conf;
+            error_page 401 = @wiki_lives_in_the_app;
             set $ostler_wiki_upstream "http://wiki-site:8000";
             proxy_pass $ostler_wiki_upstream$request_uri;
+        }
+        # A credential that is present but WRONG lands here rather than on a
+        # second password box. Same page, same 403, no challenge honoured.
+        location @wiki_lives_in_the_app {
+            internal;
+            default_type "text/html; charset=utf-8";
+            return 403 "<!doctype html><meta charset=utf-8><title>Your wiki is in the Ostler app</title><body style=\"font:16px -apple-system,system-ui,sans-serif;max-width:34em;margin:4em auto;padding:0 1.5em;color:#2b2b2b\"><h1 style=\"font-size:1.4em\">Your wiki lives in the Ostler app</h1><p>Open <b>Ostler</b> and choose <b>Wiki</b> in the sidebar. Your pages are there, already signed in.</p><p style=\"color:#6b6b6b;font-size:.9em\">This address is an internal one that Ostler uses to fetch those pages. There is nothing here for you to log in to.</p></body>";
         }
     }
 
@@ -18957,7 +19193,7 @@ WAEOF
 umask "$_wa_um"
 chmod 600 "${OSTLER_DIR}/ostler-wiki-htpasswd" "${OSTLER_DIR}/ostler-wiki-auth.conf"
 unset _wiki_htpasswd_hash
-ok "Wiki browser credential written (0600); :8044 now demands a password. Username 'ostler', password in ${SECRETS_DIR}/wiki_password."
+ok "Wiki credential written (0600); :8044 serves the wiki only to it. The Ostler app presents it for you, so the wiki opens in-app with nothing to type. Username 'ostler', password in ${SECRETS_DIR}/wiki_password (needed only for the Tailscale route)."
 
 # ── Vane browser credential (#1660) ───────────────────────────────
 #
@@ -19754,6 +19990,57 @@ _qdrant_wait_s=0
 # against the live store at box-walk time. Two different questions, both worth
 # asking; do not let this one stand in for that one.
 _OSTLER_REQUIRED_QDRANT_COLLECTIONS=(people conversations preferences evernote_knowledge)
+
+# ── KNOWLEDGE COLLECTIONS: EVERY ONE THE INSTALL WRITES, AND WHETHER THE
+#    SHIPPED ASSISTANT READS IT (#1598) ────────────────────────────────────
+#
+# THE DEFECT THIS REGISTER EXISTS FOR. install.sh embeds Apple Notes into
+# `apple_notes_knowledge` (the Apple Notes hydrate leg, far below). The
+# assistant's `pwg_knowledge_search` read `evernote_knowledge` and nothing
+# else. A writer and a reader disagreeing on a collection name is the dark
+# data shape in its purest form: Qdrant answers 404 for an unknown collection,
+# the tool maps 404 to an empty result, and the customer's notes are absent
+# from every knowledge search with nothing anywhere reporting a fault. The
+# miss arrives wearing the costume of "you have no matching notes".
+#
+# THE READ SIDE IS FIXED, AND IT WAS MEASURED RATHER THAN BELIEVED. At the
+# tag this installer pins, `hub-v0.4.80`:
+#
+#     crates/zeroclaw-tools/src/pwg_knowledge_search.rs:56
+#     pub const KNOWLEDGE_COLLECTIONS: &[&str] =
+#         &["evernote_knowledge", "apple_notes_knowledge"];
+#
+# iterated at :209 and rank-merged at :215. Both collections are searched.
+#
+# 🔴 SO WHY DECLARE ANYTHING HERE. Because nothing on THIS side of the wire
+# knows that, and the assistant-side test that guards it is a tautology:
+# pwg_knowledge_search.rs:685-693 asserts `KNOWLEDGE_COLLECTIONS.contains(..)`
+# against two hard-coded literals beside a COMMENT citing an install.sh line.
+# It compares a constant to itself. It cannot open install.sh, and CM051's CI
+# cannot open the assistant repo. Measured: zero CM051 files name
+# KNOWLEDGE_COLLECTIONS, against a POSITIVE CONTROL of 32 naming
+# apple_notes_knowledge. A NINTH hydrate collection added here would go dark
+# with every test on both sides green -- which is exactly how the eighth did.
+#
+# WHAT THIS REGISTER IS, STATED HONESTLY. It is a DECLARATION, not a read of
+# the other repo, and a declaration can rot. What stops it rotting is
+# OSTLER_KNOWLEDGE_READER_VERSION below: the gate asserts it equals the
+# assistant version this installer actually pins, so the moment somebody bumps
+# the pin the register is stale and says so. Re-verify against the new tag and
+# move both, or the gate stays red. That is the one property available without
+# network access at gate time, and it is the property that matters: a pin bump
+# is exactly when a reader can quietly lose a collection.
+#
+# VERDICTS, and only these two words:
+#   searched  the shipped reader queries this collection
+#   excluded  a named decision that it deliberately does not
+# There is no third state. "Nobody checked" is not a verdict; it is a missing
+# row, and a missing row reds the gate.
+OSTLER_KNOWLEDGE_COLLECTIONS="evernote_knowledge:searched apple_notes_knowledge:searched"
+# The assistant tag the verdicts above were read at. MUST equal the default of
+# OSTLER_ASSISTANT_VERSION; see the note above for why that coupling is the
+# whole anti-rot mechanism.
+OSTLER_KNOWLEDGE_READER_VERSION="0.4.80"
 # 🔴 READINESS TESTS THE SURFACE THE NEXT STATEMENT ACTUALLY USES (#566).
 #
 # THIS LOOP USED TO READ:
@@ -26858,6 +27145,49 @@ else
     info "$MSG_INFO_HUB_APP_DRAG_HINT"
 fi
 
+# ── Recover Ostler.app ────────────────────────────────────────
+#
+# Small addition alongside the Ostler.app staging above: places the
+# standalone "Recover Ostler.app" (gui/Recovery, CM051 recovery-app PR)
+# into /Applications so a locked-out customer has a GUI doorway to the
+# existing ostler-unlock redeemer instead of a terminal command. Same
+# minimal, presence-guarded shape as the Uninstaller app placement: no
+# spctl/codesign re-verification here (it rides the installer's own
+# signature the way the nested Uninstaller app does), non-fatal when
+# absent so a dev run of raw install.sh (which does not bundle it) is a
+# silent no-op rather than a false warning.
+RECOVERY_APP_DEST="/Applications/Ostler/Recover Ostler.app"
+RECOVERY_APP_SOURCE=""
+if [[ -d "${SCRIPT_DIR}/Recover Ostler.app" ]]; then
+    RECOVERY_APP_SOURCE="${SCRIPT_DIR}/Recover Ostler.app"
+elif [[ -d "${SCRIPT_DIR}/../Recover Ostler.app" ]]; then
+    RECOVERY_APP_SOURCE="${SCRIPT_DIR}/../Recover Ostler.app"
+fi
+if [[ -n "$RECOVERY_APP_SOURCE" ]]; then
+    # THE PARENT FOLDER DOES NOT EXIST ON A FRESH MAC. Andy banned /Applications
+    # sprawl in writing, so this app is staged into an Ostler sub-folder rather
+    # than beside the main app -- and a destination whose parent is absent makes
+    # cp -R fail into the warn branch, which reports "could not stage" and
+    # installs nothing. Create it first, with the same unprivileged-then-sudo
+    # ladder the copy below uses.
+    if [[ ! -d "/Applications/Ostler" ]]; then
+        mkdir -p "/Applications/Ostler" 2>/dev/null \
+            || sudo mkdir -p "/Applications/Ostler" 2>/dev/null || true
+    fi
+    if [[ -d "$RECOVERY_APP_DEST" ]]; then
+        pkill -f "${RECOVERY_APP_DEST}/Contents/MacOS" 2>/dev/null || true
+        sleep 0.5
+        rm -rf "$RECOVERY_APP_DEST" 2>/dev/null || sudo rm -rf "$RECOVERY_APP_DEST" 2>/dev/null || true
+    fi
+    if cp -R "$RECOVERY_APP_SOURCE" "$RECOVERY_APP_DEST" 2>/dev/null \
+       || sudo cp -R "$RECOVERY_APP_SOURCE" "$RECOVERY_APP_DEST" 2>/dev/null; then
+        xattr -dr com.apple.quarantine "$RECOVERY_APP_DEST" 2>/dev/null || true
+        ok "Recover Ostler.app staged at ${RECOVERY_APP_DEST}"  # i18n-exempt
+    else
+        warn "Could not stage Recover Ostler.app into /Applications"  # i18n-exempt
+    fi
+fi
+
 # ── 3.14b Third-party attribution catalogue ─────────────────────
 #
 # Land THIRD_PARTY_NOTICES.md at ~/.ostler/ so the user can read it
@@ -26983,16 +27313,79 @@ elif _ts_already_configured; then
     TAILSCALE_CONFIRM_SHOWN_EARLY=1
     export TAILSCALE_CONFIRM TAILSCALE_CONFIRM_SHOWN_EARLY
     info "$MSG_INFO_TAILSCALE_ALREADY_CONFIGURED"
+elif [[ "${SKIP_PHASE2:-false}" == true ]] \
+     && { [[ "${TAILSCALE_CONFIRM_PREVIOUS:-}" == "setup" ]] \
+          || [[ "${TAILSCALE_CONFIRM_PREVIOUS:-}" == "skip" ]]; }; then
+    # ── #1539: "USE PREVIOUS ANSWERS" NOW COVERS THIS ONE TOO ─────────────
+    #
+    # The customer chose to reuse their settings, so Phase 2 (and with it the
+    # early prompt above) was skipped, SHOWN_EARLY is unset, and this fallback
+    # is what runs. The detector above answers only the YES half: it asks the
+    # disk whether a tailnet exists, so somebody who ACCEPTED remote access is
+    # already covered. Somebody who DECLINED leaves nothing on disk by
+    # definition, so before this arm they were asked again on every single
+    # re-install and the prompt default replaced their "skip" with "setup".
+    #
+    # ORDER MATTERS AND THIS ARM IS DELIBERATELY SECOND. If the tailnet IS
+    # configured the arm above wins and re-applies `serve`, which is what
+    # keeps the iOS app reachable. A remembered "skip" must not stop that:
+    # the box is demonstrably on the tailnet, and the state on disk outranks
+    # a remembered answer that contradicts it.
+    #
+    # ONLY TWO VALUES ARE HONOURED, and anything else falls through to the
+    # question. A truncated or hand-edited .env must not be able to enrol
+    # somebody in remote access, or switch it off, by carrying a word this
+    # installer does not recognise.
+    TAILSCALE_CONFIRM="$TAILSCALE_CONFIRM_PREVIOUS"
+    TAILSCALE_CONFIRM_SHOWN_EARLY=1
+    export TAILSCALE_CONFIRM TAILSCALE_CONFIRM_SHOWN_EARLY
+    if [[ "$TAILSCALE_CONFIRM" == "skip" ]]; then
+        info "$MSG_INFO_TAILSCALE_REUSED_ANSWER_SKIP"
+    else
+        info "$MSG_INFO_TAILSCALE_REUSED_ANSWER_SETUP"
+    fi
 else
     if [[ "${_TS_CONFIGURED_VERDICT:-}" == "cannot_run" ]]; then
         warn "$MSG_WARN_TAILSCALE_STATE_UNREADABLE"
     fi
     # Reached only when TAILSCALE_CONFIRM_SHOWN_EARLY is unset AND no tailnet
-    # state was found: nothing is set up and nobody has been asked yet. The
-    # walk-away middle never lands here.
+    # state was found AND no previous answer was restored: nothing is set up
+    # and nobody has been asked yet. The walk-away middle never lands here.
     TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setup" "$MSG_PROMPT_TAILSCALE_CONFIRM_HELP" "setup,skip" "tailscale_confirm")"
     TAILSCALE_CONFIRM_SHOWN_EARLY=1
     export TAILSCALE_CONFIRM TAILSCALE_CONFIRM_SHOWN_EARLY
+fi
+
+# ── PERSIST THE ANSWER HERE, NOT ONLY IN THE .env WRITER (#1539) ──────────
+#
+# The .env is written far above this line, so an answer given HERE, on the
+# reuse path, was never in it. Without this block the fix would work for boxes
+# installed after it lands and never for the boxes that have the problem: a
+# box whose .env predates the TAILSCALE_CONFIRM line would ask on every reuse
+# run, record nothing, and ask again on the next one. That is the same
+# self-perpetuating loop the consent block above documents.
+#
+# Replace-or-append, then READ THE VALUE BACK, matching the shape the Tailscale
+# IP persist uses a little further down. A silent persist failure would put the
+# customer straight back into being asked forever.
+if [[ -n "${TAILSCALE_CONFIRM:-}" && -f "${CONFIG_DIR}/.env" ]]; then
+    _ts_env_file="${CONFIG_DIR}/.env"
+    if grep -q '^TAILSCALE_CONFIRM=' "$_ts_env_file"; then
+        _ts_tmp_env="$(mktemp)"
+        if sed "s|^TAILSCALE_CONFIRM=.*|TAILSCALE_CONFIRM=\"${TAILSCALE_CONFIRM}\"|" \
+               "$_ts_env_file" > "$_ts_tmp_env"; then
+            mv "$_ts_tmp_env" "$_ts_env_file"
+        else
+            rm -f "$_ts_tmp_env"
+        fi
+        _ts_tmp_env=""
+    else
+        printf 'TAILSCALE_CONFIRM="%s"\n' "$TAILSCALE_CONFIRM" >> "$_ts_env_file"
+    fi
+    if ! grep -q "^TAILSCALE_CONFIRM=\"${TAILSCALE_CONFIRM}\"$" "$_ts_env_file"; then
+        warn "$MSG_WARN_TAILSCALE_ANSWER_NOT_REMEMBERED"
+    fi
+    unset _ts_env_file _ts_tmp_env
 fi
 
 if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then
@@ -28103,7 +28496,50 @@ _hydrate_payload_is_all_zero() {
 #
 # A reader (CM044) should cover THIS list rather than one somebody transcribed.
 OSTLER_SENTINEL_STATUSES="ok error timeout no_data cannot_run"
-OSTLER_SENTINEL_SOURCES="ai_conversations apple_notes browsing calendar contacts dedupe email email_preferences imessage people places privacy_backfill whatsapp"
+OSTLER_SENTINEL_SOURCES="ai_conversations apple_notes browsing calendar contacts dedupe email email_preferences imessage people photos places privacy_backfill reminders whatsapp"
+
+# ── WHICH FDA EXTRACTOR SOURCE FEEDS WHICH DOCTOR ROW (#1587) ────────────
+#
+# THE DEFECT THIS CLOSES, measured on origin/main at d0c207fd by driving the
+# real vendored reader with a real sentinel on disk.
+#
+# A customer is asked, at install, to tick Reminders. It is ON by default and
+# it is in the Recommended preset (RECOMMENDED= at install.sh:10391, and the
+# preset copy names it). The extractor then runs and writes
+# imports/fda/reminders.json plus a per-source verdict into
+# imports/fda/extraction_summary.json. The Doctor panel headed "Where your
+# data came from" -- whose own copy promises "Every source Ostler reads,
+# whether it has run, how much it found and when it last looked. A source
+# that has never run says so rather than being left out" -- then shows
+# thirteen rows and not one of them is Reminders.
+#
+# 🔴 AND WRITING THE SENTINEL ALONE WOULD HAVE FIXED NOTHING. The obvious
+# reading is that the table is built from the sentinel directory, so a new
+# sentinel file produces a new row. It is not. `collect_hydrate_markers` in
+# the vendored status_collector.py does glob the directory, and the TABLE
+# does not use it: vendor/doctor/agent/web_ui.py:read_source_status iterates
+# a hard-coded `_SOURCE_KINDS` dict. MEASURED: with reminders.done and
+# photos.done both written and parseable, `render_source_status()` emitted 13
+# rows, none of them Reminders or Photos, while the positive control
+# imessage.done rendered. Both halves move here or neither does.
+#
+# THE LEFT COLUMN IS THE EXTRACTOR'S VOCABULARY (what a customer can tick and
+# what lands in OSTLER_FDA_SOURCES); THE RIGHT IS THE CANONICAL DOCTOR ROW.
+# They are NOT the same names and two of them are not one-to-one: three
+# browser extracts feed one `browsing` row, and photos_metadata and
+# photos_faces feed one `photos` row. That is exactly why it is written down
+# rather than derived by a prefix rule at runtime -- the same reasoning the
+# Doctor's own _SOURCE_ACTIVITY_ALIASES table records after a fuzzy join put
+# nine tick keys against three canonical names.
+#
+# tests/test_the_source_table_covers_the_fda_extract_family.sh asserts, in
+# both directions, that every source install.sh can enable appears here, that
+# every left-hand name is in the shipped extractor's own vocabulary
+# (extract_all.ALL_SOURCES), that every right-hand row is in
+# OSTLER_SENTINEL_SOURCES above, and that every right-hand row RENDERS in the
+# real vendored panel. A source added to the picker and to nothing else is
+# caught by the first of those, which is the durable half of #1587.
+OSTLER_FDA_SOURCE_ROWS="safari_history:browsing safari_bookmarks:browsing chrome_history:browsing apple_notes:apple_notes calendar:calendar imessage:imessage apple_mail:email google_takeout:email whatsapp_history:whatsapp photos_metadata:photos photos_faces:photos reminders:reminders"
 
 _hydrate_sentinel_record() {
     local source="$1"
@@ -28330,6 +28766,288 @@ _hydrate_sentinel_record_cannot_run() {
         printf 'last_update_at=%s\n' "$_HY_LAST_UPDATE_AT"
         printf 'detail=%s\n' "${reason:-precondition_unmet}"
     } > "$sentinel"
+}
+
+# Records the FDA EXTRACT family into the same sentinels every other source
+# uses, so the Doctor's per-source table can report them (#1587).
+#
+# ── THE RECORD ALREADY EXISTED AND NOTHING READ IT ───────────────────────
+#
+# ostler_fda.extract_all writes imports/fda/extraction_summary.json on EVERY
+# run -- the install-time extract at section 3.7 and every fda-rerun tick
+# alike. It carries one entry per source, always, including for a source the
+# customer declined, and it has done so since long before this function. A
+# repo-wide grep for a reader of that file returns the writer and nothing
+# else, against a POSITIVE CONTROL in the same grep: photos_people.json, in
+# the same directory, written by the same module, IS read (pwg_ingest.
+# ingest_photos_people). So the absence is a real absence and not a broken
+# search. This function is the missing reader.
+#
+# WHY NOT JUST ADD photos AND reminders TO THE PICKER'S OWN BOOKKEEPING: the
+# hydrate sentinel is the ONLY record the Doctor table reads. A source with no
+# sentinel is not reported as broken; it is not reported at all, which the
+# reader cannot tell apart from "fine".
+#
+# ── FIVE STATES IN, FIVE STATES OUT, AND NONE OF THEM FABRICATED ─────────
+#
+# The extractor's per-source `status` is one of ok / no_fda / not_found /
+# error / disabled_by_user. They are NOT interchangeable and the whole value
+# of this function is that it keeps them apart:
+#
+#   ok               -> _hydrate_sentinel_record with the real counts. If
+#                       every count is zero that recorder downgrades it to
+#                       no_data on its own, which is correct: looked, found
+#                       nothing.
+#   no_fda           -> CANNOT-RUN. Full Disk Access was not granted, so the
+#                       extractor never got to look. Recording a zero here is
+#                       the exact fabrication the cannot_run recorder was
+#                       added for: "could not look" is not "looked and found
+#                       none".
+#   not_found        -> no_data. The app or its store is not on this Mac.
+#                       That IS a look with an empty answer, and the detail
+#                       says why, so the panel does not read as a failure.
+#   error            -> error. The extractor arm raised. There is no process
+#                       rc to report -- the exception was caught inside
+#                       python -- so the payload is left EMPTY rather than
+#                       inventing a count, and rc is the recorder's own
+#                       default.
+#   disabled_by_user -> NO SENTINEL AT ALL, deliberately. Photos defaults to
+#                       OFF, so most boxes decline it; a row reading "not run
+#                       yet" in amber for a source the customer chose not to
+#                       have would be a false alarm this change invented. An
+#                       absent row for a declined source is correct: they did
+#                       not ask for it. Any sentinel from an earlier run when
+#                       they DID ask for it is left alone rather than
+#                       deleted -- it is still the last true thing that
+#                       happened to that source, and a recorder must not be
+#                       in the business of destroying state.
+#
+# An UNRECOGNISED status is recorded as cannot_run naming the status, never
+# absorbed into a healthy path. The extractor gaining a sixth state must
+# surface, and the fail-safe direction is the one the Doctor's own
+# check_hydrate_ingest rule takes with any status it has not seen.
+#
+# ── THE COUNT KEY IS DECLARED PER SOURCE, NOT GUESSED ────────────────────
+#
+# `_hydrate_payload_count` reads the LAST key of the payload, so the payload
+# is built with the customer-meaningful total LAST and the supporting numbers
+# before it. reminders has seven stats keys and `total_reminders` is the one
+# a person means by "how many"; photos has `photo_events` and
+# `recognised_people` and the events are the count. Getting this wrong is how
+# the Items column printed a return code (#946), so the key is chosen here,
+# once, next to its reason, rather than falling out of dict ordering.
+#
+# Never fails and never aborts the install: it is bookkeeping ABOUT ingest,
+# not ingest. A missing or unparseable summary is reported as CANNOT-RUN per
+# source, which is a state, not a crash.
+#
+# Use as: _hydrate_record_fda_extract [<summary.json>] [<python>]
+
+# ── ONE POLICY, TWO LITERAL CALL SITES ──────────────────────────────────
+#
+# This decides WHICH recorder a given extractor verdict deserves; the two
+# per-source functions below carry out that decision with their source name
+# written as a LITERAL.
+#
+# WHY IT IS SPLIT THAT WAY RATHER THAN LOOPED OVER A VARIABLE, which is what
+# the first draft did. tests/test_the_sentinel_vocabulary_is_declared_and_
+# complete.sh asserts that EVERY `_hydrate_sentinel_record*` call site in this
+# file has a statically readable source name, and it fails on a variable one.
+# That is not pedantry: its own comment records a mutation where a call site
+# went from 51 to 52 while the distinct-source count stayed at 13, because the
+# extractor saw the site, could not read `"$SRC"`, dropped it, and reported
+# agreement over the subset that was left. A silent under-count in the gate
+# that is supposed to catch an undeclared source. The looped draft of this
+# function made ten call sites unreadable and turned that gate red, which is
+# the gate working.
+#
+# Prints "<recorder>\t<argument>" on one line; `skip` means write nothing.
+_hydrate_fda_decision() {
+    local status="$1" payload="${2:-}"
+    case "$status" in
+        ok)
+            if [[ -n "$payload" ]]; then
+                printf 'record\t%s' "$payload"
+            else
+                # An ok verdict carrying no count is NOT a zero. Say so with a
+                # declared reason rather than printing a number nobody measured.
+                printf 'no_data\textract_ok_no_counts_reported'
+            fi
+            ;;
+        no_fda)
+            # Full Disk Access ungranted: the extractor never got to look.
+            # Recording zero here is the fabrication the cannot_run recorder
+            # exists to prevent. "Could not look" is not "looked and found none".
+            printf 'cannot_run\tfda_not_granted'
+            ;;
+        not_found)
+            # The app or its store is not on this Mac. That IS a look with an
+            # empty answer, and the detail says why, so the row does not read
+            # as a failure.
+            printf 'no_data\tnot_present_on_this_mac'
+            ;;
+        empty_no_content)
+            printf 'no_data\tstore_holds_no_content'
+            ;;
+        error)
+            # The extractor arm raised. The exception was caught inside python
+            # so there is no process rc to report, and the payload stays EMPTY
+            # rather than inventing a count.
+            printf 'error\t'
+            ;;
+        no_extract_summary|no_python_to_read_extract_summary|absent_from_extract_summary)
+            # Not extractor verdicts: these are the caller saying it could not
+            # obtain one. Passed through this same door so there is exactly one
+            # place a sentinel decision is made, and each keeps its own reason
+            # rather than collapsing into the unrecognised-status arm, whose
+            # detail would read "extract_status_unrecognised_no_extract_summary"
+            # to whoever is debugging at 2am.
+            printf 'cannot_run\t%s' "$status"
+            ;;
+        disabled_by_user)
+            # NO SENTINEL AT ALL, deliberately. Photos defaults to OFF, so most
+            # boxes decline it, and an amber "not run yet" row for a source the
+            # customer chose not to have would be a false alarm this change
+            # invented. An absent row for a declined source is correct: they
+            # did not ask for it. A sentinel left from an earlier run when they
+            # DID ask for it is not deleted -- it is still the last true thing
+            # that happened to that source, and a recorder has no business
+            # destroying state.
+            printf 'skip\t'
+            ;;
+        *)
+            # A state the reader has never seen must surface, never be absorbed
+            # into a healthy path. Same fail-safe direction the Doctor's own
+            # check_hydrate_ingest takes with an unfamiliar status.
+            printf 'cannot_run\textract_status_unrecognised_%s' "$status"
+            ;;
+    esac
+}
+
+_hydrate_fda_record_photos() {
+    local _d _r _a
+    _d="$(_hydrate_fda_decision "$1" "${2:-}")"
+    _r="${_d%%$'\t'*}"; _a="${_d#*$'\t'}"
+    case "$_r" in
+        record)     _hydrate_sentinel_record            photos "$_a" ;;
+        no_data)    _hydrate_sentinel_record_no_data    photos "$_a" ;;
+        cannot_run) _hydrate_sentinel_record_cannot_run photos "$_a" ;;
+        error)      _hydrate_sentinel_record_error      photos 1 "" ;;
+        *)          : ;;
+    esac
+}
+
+_hydrate_fda_record_reminders() {
+    local _d _r _a
+    _d="$(_hydrate_fda_decision "$1" "${2:-}")"
+    _r="${_d%%$'\t'*}"; _a="${_d#*$'\t'}"
+    case "$_r" in
+        record)     _hydrate_sentinel_record            reminders "$_a" ;;
+        no_data)    _hydrate_sentinel_record_no_data    reminders "$_a" ;;
+        cannot_run) _hydrate_sentinel_record_cannot_run reminders "$_a" ;;
+        error)      _hydrate_sentinel_record_error      reminders 1 "" ;;
+        *)          : ;;
+    esac
+}
+
+_hydrate_record_fda_extract() {
+    local summary="${1:-${OSTLER_DIR}/imports/fda/extraction_summary.json}"
+    local py="${2:-${OSTLER_PYTHON:-python3}}"
+    # The canonical rows this function owns. The full extractor-to-row map is
+    # OSTLER_FDA_SOURCE_ROWS above; these are the rows no other hydrate block
+    # writes, and writing one that another block owns would have two writers
+    # racing for one file.
+    local _name _status _payload
+
+    if [[ ! -x "$py" ]] && ! command -v "$py" >/dev/null 2>&1; then
+        _hydrate_fda_record_photos    "no_python_to_read_extract_summary"
+        _hydrate_fda_record_reminders "no_python_to_read_extract_summary"
+        return 0
+    fi
+    if [[ ! -f "$summary" ]]; then
+        # The extract never ran, or ran and could not write its own record.
+        # Either way nobody looked at Photos or Reminders on this box, and
+        # that is CANNOT-RUN. It is emphatically not zero items.
+        _hydrate_fda_record_photos    "no_extract_summary"
+        _hydrate_fda_record_reminders "no_extract_summary"
+        return 0
+    fi
+
+    # One line per row: "<row><TAB><status><TAB><payload>". The payload is
+    # empty for every status but ok. A parse failure prints nothing, and the
+    # unmatched-row sweep below turns that into CANNOT-RUN rather than silence.
+    local _parsed
+    _parsed="$(
+        OSTLER_FDA_SUMMARY="$summary" "$py" - <<'FDASUMEOF' 2>/dev/null
+import json, os, sys
+
+# key in extraction_summary.json -> (doctor row, ordered payload keys)
+# The LAST key listed is the one _hydrate_payload_count will take as the item
+# count, so it is the customer-meaningful total. reminders has seven stats
+# keys and total_reminders is the one a person means by "how many"; photos has
+# photo_events and recognised_people and the events are the count. Getting
+# this wrong is how the Items column once printed a return code (#946), so the
+# key is chosen here, once, next to its reason, rather than falling out of
+# dict ordering.
+#
+# NOTE: no brace or paren is closed in column 1 anywhere in this heredoc.
+# Several wired tests lift a bash function out of this file by scanning for
+# the first line that is exactly "}", and a column-1 closer inside an embedded
+# language truncates the extraction silently -- the test then runs half a
+# function and reports on it.
+WANT = {
+    "photos":    ("photos",    ("recognised_people", "photo_events")),
+    "reminders": ("reminders", ("pending", "completed", "total_reminders")),
+    }
+try:
+    doc = json.loads(open(os.environ["OSTLER_FDA_SUMMARY"],
+                          encoding="utf-8", errors="replace").read())
+    sources = doc.get("sources")
+    if not isinstance(sources, dict):
+        raise ValueError("no sources object")
+except Exception:
+    sys.exit(0)          # print nothing; the caller records CANNOT-RUN
+
+for key in sorted(WANT):
+    row, count_keys = WANT[key]
+    rec = sources.get(key)
+    if not isinstance(rec, dict):
+        continue         # absent from the summary: caller records CANNOT-RUN
+    status = str(rec.get("status", "")).strip() or "unrecognised"
+    payload = ""
+    if status == "ok":
+        parts = []
+        for k in count_keys:
+            v = rec.get(k)
+            if isinstance(v, bool) or not isinstance(v, int):
+                continue
+            parts.append("%s=%d" % (k, v))
+        payload = ",".join(parts)
+    sys.stdout.write("%s\t%s\t%s\n" % (row, status, payload))
+FDASUMEOF
+    )" || _parsed=""
+
+    local _seen=" "
+    while IFS=$'\t' read -r _name _status _payload; do
+        [[ -n "$_name" ]] || continue
+        _seen="${_seen}${_name} "
+        case "$_name" in
+            photos)    _hydrate_fda_record_photos    "$_status" "$_payload" ;;
+            reminders) _hydrate_fda_record_reminders "$_status" "$_payload" ;;
+            *)         : ;;
+        esac
+    done <<< "$_parsed"
+
+    # A row the parser never emitted has NOT reported zero. Say so.
+    case "$_seen" in
+        *" photos "*) : ;;
+        *) _hydrate_fda_record_photos "absent_from_extract_summary" ;;
+    esac
+    case "$_seen" in
+        *" reminders "*) : ;;
+        *) _hydrate_fda_record_reminders "absent_from_extract_summary" ;;
+    esac
+    return 0
 }
 
 # Post-condition probe for a killed Qdrant-backed hydrate step (#852).
@@ -30824,7 +31542,31 @@ fi
 _HYDRATE_APPLENOTES_BIN="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
 _HYDRATE_APPLENOTES_STAGING="${OSTLER_DIR}/data/knowledge-staging"
 _HYDRATE_APPLENOTES_DBPATH="${OSTLER_DIR}/data/knowledge-metadata.db"
-_HYDRATE_APPLENOTES_COLLECTION="apple_notes_knowledge"
+# TAKEN FROM THE REGISTER, NOT RE-TYPED (#1598). This used to be a bare
+# literal here and nowhere else, which is how it came to disagree with the
+# reader: one writer, one string, no declaration, nothing to compare it
+# against. It now reads the FIRST apple_notes entry out of
+# OSTLER_KNOWLEDGE_COLLECTIONS, so a collection cannot be embedded into
+# without a verdict recorded for it. The `:-` fallback keeps the historical
+# literal for a partial source-extraction (several wired tests lift regions of
+# this file), because losing the collection name would silently embed into ""
+# rather than fail loudly.
+# 🔴 NO `case` INSIDE A COMMAND SUBSTITUTION. The first draft of this lookup
+# was a `$( for ... case ... done )` one-liner. `bash -n install.sh` passed it,
+# because -n does not descend into command substitutions, and the CUT HOST'S
+# bash 3.2 then failed at RUNTIME with `syntax error near unexpected token
+# 'newline'` and assigned the collection the literal text of the loop.
+# Measured on /bin/bash 3.2.57 before this comment was written. A plain loop
+# has no such hazard, which is why this is five lines instead of one.
+_HYDRATE_APPLENOTES_COLLECTION=""
+for _kc in ${OSTLER_KNOWLEDGE_COLLECTIONS:-}; do
+    if [[ "$_kc" == apple_notes_knowledge:* ]]; then
+        _HYDRATE_APPLENOTES_COLLECTION="${_kc%%:*}"
+        break
+    fi
+done
+unset _kc
+_HYDRATE_APPLENOTES_COLLECTION="${_HYDRATE_APPLENOTES_COLLECTION:-apple_notes_knowledge}"
 _HYDRATE_APPLENOTES_EMBED_MODEL="${OSTLER_KNOWLEDGE_EMBED_MODEL:-nomic-embed-text}"
 _HYDRATE_APPLENOTES_MAXLEVEL="${OSTLER_KNOWLEDGE_MAX_COMPARTMENT_LEVEL:-2}"
 _HYDRATE_APPLENOTES_QDRANT="${QDRANT_URL:-http://localhost:6333}"
@@ -31833,6 +32575,21 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
     unset _privacy_rc
 fi
 
+# ── THE FDA EXTRACT FAMILY GETS ITS SENTINELS (#1587) ────────────────────
+#
+# Photos and Reminders are extracted in section 3.7, thousands of lines
+# above, but the recorders live in THIS file below that point and bash
+# resolves a function at call time, so the record has to be written here.
+# The extractor's own summary is on disk by now and does not move, so
+# reading it late costs nothing and keeps every sentinel writer in one
+# section.
+#
+# Unconditional on purpose. Every other arm of this block is guarded by "did
+# the thing run", and the whole point of #1587 is that a source nobody
+# recorded is invisible rather than red. If the extract never happened this
+# writes CANNOT-RUN, which is the honest answer and the one that shows up.
+_hydrate_record_fda_extract || true
+
 info "$MSG_HYDRATE_WIKI_RECOMPILE"
 
 progress "Compiling your personal wiki (first run)" "wiki_compile"
@@ -31997,11 +32754,18 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
             WIKI_FIRST_COMPILE_OK=false
             HEALTHY=false
             warn "$MSG_WARN_WIKI_PORT_NOT_ANSWERING"
-            # WHICH failure it was. 000 is "nothing answered"; 401 is "it
+            # WHICH failure it was. 000 is "nothing answered"; 403 is "it
             # answered and refused us", which means the wiki is UP and the
             # credential is wrong -- a completely different repair. Reporting
             # them as one symptom is what sends the next person to the wrong
             # place.
+            #
+            # 403 AND NOT 401 SINCE CM051 #1980. :8044 no longer emits a
+            # challenge: a wrong credential is caught by `error_page 401 =
+            # @wiki_lives_in_the_app`, which answers 403. Measured on nginx
+            # 1.27-alpine with that server block lifted verbatim out of this
+            # file. A diagnostic still naming 401 would describe a status this
+            # port can no longer return.
             info "$(printf "$MSG_INFO_WIKI_PORT_LAST_STATUS" "${_wiki_last_code:-000}")"
         fi
         # Detached full summary compile (summaries ON -- no skip flag).
@@ -33425,7 +34189,7 @@ if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
             else
             CM052_USER_EMAIL="${USER_EMAIL:-}" \
             OSTLER_AI_CONVERSATIONS_DIR="${HOME}/Documents/Ostler/AI Conversations" \
-            OSTLER_AI_CONV_TRANSCRIPT_PRIVACY="${OSTLER_AI_CONV_TRANSCRIPT_PRIVACY:-L2}" \
+            OSTLER_AI_CONV_TRANSCRIPT_PRIVACY="${OSTLER_AI_CONV_TRANSCRIPT_PRIVACY:-L3}" \
             OSTLER_AI_CONV_GIST_PRIVACY="${OSTLER_AI_CONV_GIST_PRIVACY:-L2}" \
             $_AICONV_TIMEOUT_WRAP "$_AICONV_BIN" \
                 --source all --since-days 365 --json \
@@ -33554,7 +34318,7 @@ except Exception:
         <key>OSTLER_AI_CONVERSATIONS_DIR</key>
         <string>${HOME}/Documents/Ostler/AI Conversations</string>
         <key>OSTLER_AI_CONV_TRANSCRIPT_PRIVACY</key>
-        <string>${OSTLER_AI_CONV_TRANSCRIPT_PRIVACY:-L2}</string>
+        <string>${OSTLER_AI_CONV_TRANSCRIPT_PRIVACY:-L3}</string>
         <key>OSTLER_AI_CONV_GIST_PRIVACY</key>
         <string>${OSTLER_AI_CONV_GIST_PRIVACY:-L2}</string>
     </dict>
@@ -34027,27 +34791,67 @@ echo ""
 # browser has saved gives the customer a prompt they cannot answer). So there
 # is no state of this box in which we hold the credential and cannot hand it
 # over. It is handed over unconditionally, and only the READINESS line varies.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# WHERE THIS BANNER SENDS THEM, CORRECTED (CM051 #1980).
+#
+# The unconditional handover above is right and is kept exactly as it was.
+# What was wrong was the DESTINATION. This block used to lead with
+# `Your wiki: http://localhost:8044` and hand over a password for it. Andy,
+# on his own console walk: "The wiki via a browser is requesting
+# authentication details I don't have."
+#
+# :8044 NO LONGER CHALLENGES A BROWSER. See the `listen 8044` server block
+# earlier in this file: an empty Authorization header is answered in nginx's
+# REWRITE phase, which runs BEFORE the access phase, so `auth_basic` never
+# fires and no `WWW-Authenticate` is emitted. MEASURED on nginx 1.27-alpine,
+# the pinned image, with that server block lifted verbatim out of this file:
+#
+#     no credential       403, WWW-Authenticate ABSENT, signpost page served
+#     the credential      200, wiki served
+#     a wrong credential  403, never served
+#     a rebind Host       403, the #550 gate intact
+#
+#   CONTROL, same detector against the same block with the rewrite guard
+#   removed: 401 with `WWW-Authenticate: Basic realm="Ostler personal wiki"`.
+#   So "challenge absent" above is a measurement and not a blind detector.
+#
+# A browser at :8044 therefore meets a signpost, never the wiki and never a
+# password box. Leading with that address would send the customer to a page
+# whose entire content is "go and open the app instead". So the banner now
+# leads with the place the wiki actually opens, the Ostler app, whose Wiki
+# tab reaches wiki-site through the daemon's proxy; and it still names
+# :8044, honestly, as the internal address Ostler itself fetches from.
+#
+# THE SIGN-IN IS STILL HANDED OVER IN EVERY STATE and #943 is not weakened.
+# The credential is real and is still demanded of a browser on the TAILNET
+# route, where nginx talks straight to another of your devices with no daemon
+# in the path. What changed is only that it is no longer presented as
+# something the customer must type to reach their own wiki on this Mac.
 
-echo -e "  ${BOLD}Your wiki:${NC} http://localhost:8044"
+echo -e "  ${BOLD}Your wiki:${NC} $MSG_INFO_WIKI_IN_THE_APP"
 
-# #1594: the wiki sits behind a credential, so the password has to appear
-# HERE. The browser opens automatically a few lines below and will prompt
-# immediately; a customer who was never shown the password experiences that
-# as a broken install, not as security.
+# :8044 is still named, and named for what it is. It is where Ostler fetches
+# the pages from, not a page anyone signs in to. Saying so costs one line and
+# stops the address reading like a destination the customer should try.
+echo -e "  ${BOLD}         ${NC} $MSG_INFO_WIKI_INTERNAL_ADDRESS"
+
+# #1594 / #943: the credential is handed over HERE, unconditionally, whatever
+# the readiness lines below report. It is what Ostler presents on the
+# customer's behalf, and what they need in their own hands on the Tailscale
+# route. A credential they were never shown is the whole of #943.
 echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_SIGN_IN" "ostler" "${WIKI_PASSWORD}")"
 
-# #1660: MAKE THE PROMPT A PASTE, NOT A MEMORY TEST. Andy's call: the
-# credential is right, the friction is not. Basic auth prompts ONCE per
-# browser and both Safari and Chrome then offer Keychain, so the whole cost
-# of this decision is a single dialog -- provided the customer does not have
-# to retype a 23-character string into it.
+# #1660: MAKE IT A PASTE, NOT A MEMORY TEST. The surface that still asks a
+# browser for this is the tailnet route, and retyping a long random string
+# into a phone is exactly the friction Andy objected to.
 #
 # pbcopy is macOS-only and this installer is macOS-only, but it is still
 # guarded: a clipboard we could not write is a WORSE experience if we then
 # claim we did. No 2>/dev/null on the probe -- if pbcopy is missing we say
 # nothing about the clipboard rather than lying about it.
 if command -v pbcopy >/dev/null 2>&1 && printf '%s' "${WIKI_PASSWORD}" | pbcopy; then
-    echo -e "  ${BOLD}         ${NC} Copied to your clipboard, so you can paste it. Your browser will offer to remember it."
+    echo -e "  ${BOLD}         ${NC} Copied to your clipboard, so you can paste it where you need it."
 fi
 
 # THE ROUTE BACK. The clipboard is the only copy otherwise, and it survives
@@ -34394,16 +35198,20 @@ done
 killall Dock 2>/dev/null || true
 
 # ── First-run auto-open ────────────────────────────────────────────
-# Open the customer-facing wiki in the default browser. Best-effort --
-# don't fail the install if this fails. Under GUI mode the installer
-# Swift app will offer its own "Open Wiki" affordance on the success
-# screen, so we skip here to avoid a double-open race.
-if [[ "${OSTLER_GUI:-}" == "1" ]]; then
-    # GUI installer will offer its own "Open Wiki" affordance; skip here.
-    :
-else
-    open "http://localhost:8044" 2>/dev/null || true
-fi
+# 🔴 THIS USED TO `open "http://localhost:8044"` AND THAT IS THE LINE THAT
+# PUT THE PASSWORD BOX ON ANDY'S SCREEN UNASKED. On the terminal path the
+# install finished by launching a browser straight at the credentialled
+# wiki port, so the last act of the installer was to demand a password it
+# had only printed somewhere in the scrollback.
+#
+# The port no longer challenges (see the `listen 8044` block), so the
+# browser would now land on the "your wiki is in the Ostler app" signpost
+# instead -- better, but still a browser tab the customer did not ask for,
+# pointing at an internal address, telling them to go somewhere else.
+#
+# Ostler.app is opened a few lines below on every successful install and
+# the wiki is a tab inside it, so the wiki IS auto-opened; it is just
+# opened in the place it actually lives. Nothing replaces this block.
 
 # CX-41 (DMG #27, 2026-05-24): launch Ostler.app at the end of a
 # successful install so the customer knows the Hub UI exists.

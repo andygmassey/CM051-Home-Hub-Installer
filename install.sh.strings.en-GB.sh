@@ -330,6 +330,8 @@ MSG_INFO_VOICE_RECOGNITION_WILL_STAY_OFF_YOU="Voice recognition will stay off. Y
 MSG_INFO_WAITING_YOU_SIGN_TAILSCALE_UP_3="Waiting for you to sign in to Tailscale (up to 3 minutes)..."
 MSG_INFO_TAILSCALE_SETUP_LATER_FROM_SETTINGS="Tailscale remote access was not set up. Your iOS Companion will work on your home Wi-Fi; you can set up remote access later from Settings."
 MSG_INFO_TAILSCALE_ALREADY_CONFIGURED="This Mac is already connected to your Tailscale network, so there is nothing to set up. Keeping your existing connection."
+MSG_INFO_TAILSCALE_REUSED_ANSWER_SKIP="Remote access: keeping the answer you gave last time, which was to skip it. Your iOS app will work on your home Wi-Fi, and you can set up remote access later from Settings."
+MSG_INFO_TAILSCALE_REUSED_ANSWER_SETUP="Remote access: keeping the answer you gave last time, which was to set it up."
 MSG_INFO_WHATSAPP_CONNECTOR_LEFT_OFF_YOU_CAN="WhatsApp connector left off. You can enable it later via Settings."
 MSG_INFO_WHATSAPP_KEEPALIVE_SCHEDULED_08_50_17="WhatsApp keepalive scheduled at 08:50 + 17:50 (label com.creativemachines.ostler.whatsapp-keepalive)"
 MSG_INFO_WIKI_RECOMPILE_CATCHUP_SKIPPED_NO_TICK="Skipping first-day wiki catch-up: the wiki-recompile tick is not installed. The daily wiki rebuild, if installed, still runs."
@@ -584,10 +586,16 @@ MSG_WARN_TAILSCALE_SERVE_PORT_FAILED="Could not expose Hub port %s on your tailn
 # ── Wiki on the tailnet, owner-gated (v1.0.17) ──
 MSG_OK_WIKI_TAILNET_SERVED="Your wiki is now readable from your own devices at %s – signed in as you, and only you."
 MSG_INFO_WIKI_TAILNET_OWNER="Wiki access is restricted to your Tailscale account (%s). Other people on your tailnet get a 403."
-MSG_INFO_WIKI_TAILNET_LOCAL_ONLY="Your wiki stays on this Mac only – browse it at http://localhost:8044"
-MSG_INFO_WIKI_TAILNET_BANNER="%s  (from your own devices, over Tailscale)"
-MSG_INFO_WIKI_SIGN_IN="Sign in as %s with the password %s – your browser will offer to remember it, so you only type it once."
-MSG_INFO_WIKI_PORT_LAST_STATUS="Last HTTP status from the wiki port: %s (000 means nothing answered; 401 means it answered and refused the credential)."
+MSG_INFO_WIKI_TAILNET_LOCAL_ONLY="Your wiki stays on this Mac only. Open Ostler and choose Wiki in the sidebar to read it."
+MSG_INFO_WIKI_TAILNET_BANNER="%s  (from your own devices, over Tailscale. This is the one route that asks you for the sign-in above.)"
+# CM051 #1980. Where the wiki actually opens. :8044 answers an
+# uncredentialled browser with a signpost and no challenge (see the
+# `listen 8044` server block in install.sh), so the address is named for
+# what it is rather than offered as a destination.
+MSG_INFO_WIKI_IN_THE_APP="in the Ostler app. Open Ostler and choose Wiki in the sidebar; your pages are there, already signed in."
+MSG_INFO_WIKI_INTERNAL_ADDRESS="Ostler fetches those pages from http://localhost:8044 on this Mac. That address is internal and has nothing on it for you to sign in to."
+MSG_INFO_WIKI_SIGN_IN="Your wiki sign-in is %s with the password %s. Ostler presents it for you, so there is nothing to type on this Mac; you need it in your own hands only when you open the wiki from another of your devices over Tailscale."
+MSG_INFO_WIKI_PORT_LAST_STATUS="Last HTTP status from the wiki port: %s (000 means nothing answered; 403 means it answered and refused the credential)."
 # HR015 #943. The four lines below are the readiness half of the wiki handover.
 # They exist because the credential half is no longer gated on them: a customer
 # whose first build is merely slow still gets their address and sign-in, and
@@ -595,11 +603,11 @@ MSG_INFO_WIKI_PORT_LAST_STATUS="Last HTTP status from the wiki port: %s (000 mea
 # measure, which is what "first compile failed" did on every one of the three
 # non-failure paths into that branch.
 MSG_INFO_WIKI_PASSWORD_ON_DISK="Your password is also kept at %s, so the clipboard is not the only copy."
-MSG_INFO_WIKI_STILL_BUILDING="Still building. %s pages are on disk already, and the last reply from the wiki address was HTTP %s. It will appear at the address above with the same sign-in. Nothing for you to do."
-MSG_WARN_WIKI_FIRST_COMPILE_PRODUCED_NO_PAGES="The first build has produced no pages yet (see the warnings above). The address and sign-in above are still yours and will work once it has built."
-MSG_INFO_WIKI_READINESS_NOT_MEASURED="This run did not measure whether the wiki is serving yet, so it is not claiming either way. The address and sign-in above are yours regardless."
-MSG_WARN_WIKI_TAILNET_OWNER_UNRESOLVED="Could not confirm which Tailscale account owns this Mac, so the wiki has NOT been exposed on your tailnet. It is still available on this Mac at http://localhost:8044"
-MSG_WARN_WIKI_TAILNET_SERVE_FAILED="Could not publish the wiki on your tailnet; it is still available on this Mac at http://localhost:8044"
+MSG_INFO_WIKI_STILL_BUILDING="Still building. %s pages are on disk already, and the last reply from the wiki address was HTTP %s. It will appear in the Ostler app on its own. Nothing for you to do."
+MSG_WARN_WIKI_FIRST_COMPILE_PRODUCED_NO_PAGES="The first build has produced no pages yet (see the warnings above). Your wiki still opens in the Ostler app once it has built, and the sign-in above stays yours."
+MSG_INFO_WIKI_READINESS_NOT_MEASURED="This run did not measure whether the wiki is serving yet, so it is not claiming either way. Your wiki opens in the Ostler app regardless, and the sign-in above stays yours."
+MSG_WARN_WIKI_TAILNET_OWNER_UNRESOLVED="Could not confirm which Tailscale account owns this Mac, so the wiki has NOT been exposed on your tailnet. It is still available on this Mac, in the Ostler app under Wiki."
+MSG_WARN_WIKI_TAILNET_SERVE_FAILED="Could not publish the wiki on your tailnet; it is still available on this Mac, in the Ostler app under Wiki."
 MSG_WARN_WIKI_TAILNET_GATE_RELOAD_FAILED="Could not reload the wiki access gate, so the wiki has NOT been exposed on your tailnet."
 MSG_WARN_WIKI_TAILNET_FUNNEL_ON="Tailscale Funnel is switched on for %s. Funnel publishes to the open internet. Ostler never switches Funnel on and your wiki refuses Funnel traffic, so nothing of Ostler's is public – but if you did not mean to enable it, turn it off in the Tailscale admin console for this machine."
 MSG_OK_THIRD_PARTY_ATTRIBUTIONS_INSTALLED_SOURCE="Third-party attributions installed (source: %s)"
@@ -892,6 +900,7 @@ MSG_WARN_STALE_COLIMA_LAUNCHAGENT_NOT_REMOVED="Could not remove a stale Colima s
 MSG_WARN_STOP_CONFLICTING_SERVICES_CHANGE_PORTS_DOCKER="Stop the conflicting services or change the ports in docker-compose.yml"
 MSG_WARN_TAILSCALE_DIDN_T_SIGN_WITHIN_3MIN="Tailscale didn't sign in within 3 minutes. You can come back to this later from Settings."
 MSG_WARN_TAILSCALE_ENV_PERSIST_VERIFY_FAILED="Tailscale IP was written to .env but a follow-up read could not see it. iOS Companion may not pick it up – re-run install.sh --repair if that happens."
+MSG_WARN_TAILSCALE_ANSWER_NOT_REMEMBERED="Could not save your remote-access answer, so the next re-install will ask you again. Everything else is unaffected."
 MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL="Tailscale install failed – you can install it later from tailscale.com"
 MSG_WARN_TAILSCALE_STATE_UNREADABLE="This Mac has existing Tailscale settings that could not be read, so we cannot tell whether it is still connected to your network. Please choose below – if it is already connected, setting it up again does no harm."
 MSG_WARN_THE_DEPLOYED_SERVICES_REFUSE_START_WITHOUT="the deployed services refuse to start without them."
