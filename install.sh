@@ -35,7 +35,7 @@ set -Eeuo pipefail
 # .app -- there is exactly ONE python3.11 in the artefact and install.sh
 # never copies it out -- so ~/.ostler/.venv/pyvenv.cfg anchors `home`
 # and the stdlib path INSIDE Contents/Resources/python for the life of
-# the install. CPython writes pycache/*.pyc next to the source it
+# the install. CPython writes __pycache__/*.pyc next to the source it
 # imports, so ANY later import by the Ostler python writes into the
 # signed bundle and breaks the code seal. Controlled pair on the
 # shipped app, `import json, ssl, sqlite3, urllib.request, email.parser`:
@@ -420,7 +420,7 @@ _ostler_wire_store_auth_pth() {
     # and it cannot be caught by a control that varies the same variable twice.
     # `setdefault`, never assignment: a caller that has deliberately exported
     # OSTLER_SECRETS_DIR keeps its own value.
-    printf 'import sys, os; sys.path.append(%s); os.environ.setdefault("OSTLER_SECRETS_DIR", %s); import importlib.util as _u; _u.find_spec("ostler_store_auth") is not None and import("ostler_store_auth")\n' \
+    printf 'import sys, os; sys.path.append(%s); os.environ.setdefault("OSTLER_SECRETS_DIR", %s); import importlib.util as _u; _u.find_spec("ostler_store_auth") is not None and __import__("ostler_store_auth")\n' \
         "\"${_root}/lib\"" "\"${_root}/secrets\"" > "${_sp}/ostler_store_auth.pth" || return 3
     chmod 0644 "${_sp}/ostler_store_auth.pth" 2>/dev/null || true
     return 0
@@ -1379,7 +1379,7 @@ warn()  { gui_active || echo -e "${YELLOW}[warn]${NC}  $*"; gui_warn "$*"; }
 # itself -- caller decides whether to exit or recover.
 # Run-wide error tally. See the closing verdict just above `gui_done ok`.
 #
-# WHY THIS EXISTS SEPARATELY FROM THE EMITTER'S OSTLER_ERROR_LINES.
+# WHY THIS EXISTS SEPARATELY FROM THE EMITTER'S __OSTLER_ERROR_LINES.
 # That one lives in lib/progress_emitter.sh's gui_log and feeds `errors=` on the
 # DONE marker. gui_log returns EARLY when OSTLER_GUI != 1, and on the TTY path
 # gui_log is a no-op stub entirely -- so the emitter's counter is GUI-only BY
@@ -3009,7 +3009,7 @@ OSTLER_PRELAUNCH_PROMOTED=false
 #   ~/.ostler/.venv/pyvenv.cfg
 #     home = OstlerInstaller.app/Contents/Resources/python/bin
 #
-# CPython writes pycache/*.pyc next to the source it imports, so ANY import
+# CPython writes __pycache__/*.pyc next to the source it imports, so ANY import
 # by ANY of those interpreters broke the app's code seal. Measured on the
 # shipped v1.0.45 app, one ordinary import
 # (json, ssl, sqlite3, urllib.request, email.parser):
@@ -3792,10 +3792,10 @@ siblings = {}
 for root, dirs, files in os.walk(pkg):
     here = set()
     for fn in files:
-        if fn.endswith(".py") and fn != "init.py":
+        if fn.endswith(".py") and fn != "__init__.py":
             here.add(fn[:-3])
     for d in dirs:
-        if os.path.exists(os.path.join(root, d, "init.py")):
+        if os.path.exists(os.path.join(root, d, "__init__.py")):
             here.add(d)
     siblings[root] = here
 pkg_name = os.path.basename(pkg.rstrip(os.sep))
@@ -3845,9 +3845,9 @@ missing = sorted(m for m in wanted if importlib.util.find_spec(m) is None)
 
 # The package itself must import, not merely resolve.
 try:
-    import("ostler_fda.identifier_quality")
+    __import__("ostler_fda.identifier_quality")
 except Exception as exc:
-    missing.append("ostler_fda.identifier_quality (%s: %s)" % (type(exc).name, exc))
+    missing.append("ostler_fda.identifier_quality (%s: %s)" % (type(exc).__name__, exc))
 
 print("scanned=%d third_party=%d missing=%d" % (scanned, len(wanted), len(missing)))
 for m in missing:
@@ -8039,7 +8039,7 @@ _OSTLER_STORE_CURL_ARGS=()
 #    Two different secrets, one header.
 #
 #    DEMONSTRATED against the pinned image (qdrant/qdrant v1.12.1) with
-#    QDRANTSERVICEAPI_KEY set, i.e. the post-#1222 default:
+#    QDRANT__SERVICE__API_KEY set, i.e. the post-#1222 default:
 #        /readyz       bare                          200   <- readiness PASSES
 #        /collections  Bearer <oxigraph token>       401   <- and then this
 #        /collections  bare                          401
@@ -11633,7 +11633,7 @@ composite_cleanup() {
     #   - OSTLER_DONE_EMITTED empty: no ok/fail/cancelled marker went
     #     out (a clean success, an explicit fail, or a user-cancel all
     #     set it, so none of those false-trigger here).
-    #   - OSTLER_STEP_ID non-empty: the install had actually begun, so
+    #   - __OSTLER_STEP_ID non-empty: the install had actually begun, so
     #     an early `--help`/`--version`/pre-step `exit 0` (which never
     #     opens a step) cannot be mislabelled as a failure.
     # Fully ${VAR:-}-guarded so the backstop itself is set -u safe.
@@ -11653,17 +11653,17 @@ composite_cleanup() {
     # this block and runs it; a line outside them is a line the test
     # cannot see.
     local _ostler_exit_rc=$?
-    if [[ -z "${OSTLER_DONE_EMITTED:-}" && -n "${OSTLER_STEP_ID:-}" ]]; then
-        OSTLER_LAST_ERROR_CODE="ERR-99-INSTALL-ABORT-${OSTLER_STEP_ID}"
+    if [[ -z "${OSTLER_DONE_EMITTED:-}" && -n "${__OSTLER_STEP_ID:-}" ]]; then
+        OSTLER_LAST_ERROR_CODE="ERR-99-INSTALL-ABORT-${__OSTLER_STEP_ID}"
         export OSTLER_LAST_ERROR_CODE
-        gui_log error "Install aborted before completion during step '${OSTLER_STEP_ID}' with no completion marker (likely a set -u unbound-variable abort)."
+        gui_log error "Install aborted before completion during step '${__OSTLER_STEP_ID}' with no completion marker (likely a set -u unbound-variable abort)."
         # #561: the TTY half, for the same reason spelled out in full at
         # _ostler_on_err. gui_log is a no-op whenever OSTLER_GUI != 1, so on
         # a terminal install this backstop -- the thing that exists PRECISELY
         # to speak when everything else has failed to -- was itself mute.
         # A backstop that cannot be heard is not a backstop.
         gui_active || printf '%b[fail]%b  [%s] Install aborted during step %s. No completion marker was emitted (likely a set -u unbound-variable abort).\n' \
-            "${RED:-}" "${NC:-}" "${OSTLER_LAST_ERROR_CODE}" "${OSTLER_STEP_ID}" >&2
+            "${RED:-}" "${NC:-}" "${OSTLER_LAST_ERROR_CODE}" "${__OSTLER_STEP_ID}" >&2
         # #873: hand the real exit status to the step gui_done is about to
         # close, so the STEP_END carries a measured rc wherever bash left
         # us one. See the capture at the top of this function.
@@ -11822,7 +11822,7 @@ _ostler_on_err() {
     # THE FIX IS HERE AND NOT AT THE CALL SITES because there are nine
     # `local X="$(...)"` sites in this file and none carries `|| true`; a
     # per-site guard fixes the ones we thought of. This is also NOT the
-    # re-entrancy fix (a dedicated OSTLER_ON_ERR_ACTIVE flag) -- re-entrancy
+    # re-entrancy fix (a dedicated __OSTLER_ON_ERR_ACTIVE flag) -- re-entrancy
     # produces fail THEN fail, and the measurement above is fail then ok.
     #
     # NOT `return` OUTRIGHT. lib/progress_emitter.sh:717-725 records what
@@ -11831,7 +11831,7 @@ _ostler_on_err() {
     # marker is not terminal and the GUI does not close on it -- so the
     # failure keeps a voice. Only the last word is withheld.
     if [[ "${BASH_SUBSHELL:-0}" -gt 0 ]]; then
-        gui_log error "Command failed inside a subshell at line ${line}${OSTLER_STEP_ID:+ (step ${OSTLER_STEP_ID})}: ${cmd}"
+        gui_log error "Command failed inside a subshell at line ${line}${__OSTLER_STEP_ID:+ (step ${__OSTLER_STEP_ID})}: ${cmd}"
         return
     fi
     # If a terminal DONE marker already went out (an explicit
@@ -11849,7 +11849,7 @@ _ostler_on_err() {
     # by the GUI's LogRedactor) so support has the raw context. Keep the
     # raw command OFF the customer banner -- the banner carries step +
     # code only, via the DONE marker below.
-    local step="${OSTLER_STEP_ID:-}"
+    local step="${__OSTLER_STEP_ID:-}"
     gui_log error "Install aborted unexpectedly at line ${line}${step:+ (step ${step})}: ${cmd}"
     # ── THE TTY HALF (#561, found on the 2026-08-29 v1.0.50 box walk) ──
     #
@@ -12062,7 +12062,7 @@ progress() {
     # field for almost the entire install. gui_step_end now reads the
     # status accumulated by gui_step_record_rc from the step's own
     # children. Passing `ok` here would assert over a measurement.
-    if [[ -n "${OSTLER_STEP_ID:-}" ]]; then
+    if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
         gui_step_end
     fi
     gui_step_begin "$id" "$title" 3 "$CURRENT_STEP" "$TOTAL_STEPS"
@@ -13102,7 +13102,7 @@ _ostler_configure_reboot_autologin() {
     #
     # Explicit prompt id: without one gui_read slugifies the TITLE into the id,
     # so the id would churn every time this copy is edited (and a derived id is
-    # redacted out of the install log by the emitter, per OSTLER_PROMPT_ID_DERIVED).
+    # redacted out of the install log by the emitter, per __OSTLER_PROMPT_ID_DERIVED).
     local _consent
     _consent="$(gui_read "$MSG_PROMPT_AUTOLOGIN_CONSENT" text "N" "$_explain" "" "autologin_consent")"
     case "$_consent" in
@@ -18472,20 +18472,20 @@ services:
     # In-VM compose clients reach it as qdrant:6334 on the docker network,
     # which does not require a host publish.
     #
-    # QDRANTSERVICEAPI_KEY is the staged (default-OFF) native-auth
+    # QDRANT__SERVICE__API_KEY is the staged (default-OFF) native-auth
     # scaffolding for v1.0.1. IMPORTANT (verified on-device): Qdrant treats
-    # a PRESENT-but-empty QDRANTSERVICEAPI_KEY as auth-ENABLED (empty
+    # a PRESENT-but-empty QDRANT__SERVICE__API_KEY as auth-ENABLED (empty
     # => 401, absent => 200) -- the original "EMPTY => no auth" assumption
     # was WRONG and was the ERR-99-INSTALL-ABORT-L9858 box-walk failure. So
     # when store-auth is default-OFF the installer REMOVES the API_KEY line
     # from this block after generating the compose (see "empty-api-key
-    # quirk" below), leaving QDRANTLOG_LEVEL as the sole entry so the
+    # quirk" below), leaving QDRANT__LOG_LEVEL as the sole entry so the
     # block stays valid YAML and Qdrant runs keyless -- matching the pinned
     # vendored clients that send no api key. That keyless default is
     # precisely why no port of this container may be published.
     environment:
-      QDRANTLOG_LEVEL: "INFO"
-      QDRANTSERVICEAPI_KEY: "${QDRANT_API_KEY:-}"
+      QDRANT__LOG_LEVEL: "INFO"
+      QDRANT__SERVICE__API_KEY: "${QDRANT_API_KEY:-}"
     volumes:
       - qdrant_data:/qdrant/storage
     restart: unless-stopped
@@ -18808,7 +18808,7 @@ services:
       # 🔴 THE COMPILER NEEDS QDRANT'S CREDENTIAL, AND IT IS OUTSIDE THE SHIM.
       #
       # Since #1222 flipped OSTLER_STORE_AUTH_ENFORCE to default-ON, qdrant
-      # boots with QDRANTSERVICEAPI_KEY set and 401s any uncredentialled
+      # boots with QDRANT__SERVICE__API_KEY set and 401s any uncredentialled
       # read. Every host-side Python client is covered by the store-auth .pth
       # shim -- but this is a CONTAINER, and the shim reaches it by neither
       # route: the .pth is seeded into venv site-packages (never into a pinned
@@ -18823,7 +18823,7 @@ services:
       #    customer who has little data. A healthy graph reads as an empty one.
       #
       # Interpolated by compose from ~/.ostler/.env, the same file and the same
-      # mechanism as the qdrant service's own QDRANTSERVICEAPI_KEY. Empty
+      # mechanism as the qdrant service's own QDRANT__SERVICE__API_KEY. Empty
       # when ENFORCE=0, and CM044 sends no header at all in that case, so the
       # keyless path is unchanged.
       #
@@ -18895,7 +18895,7 @@ DCEOF
 
 # ── v1.0.10 install-abort fix: Qdrant empty-api-key quirk ─────────
 # Verified empirically on-device: Qdrant treats a PRESENT-but-empty
-# QDRANTSERVICEAPI_KEY env var as auth-ENABLED (empty => HTTP 401,
+# QDRANT__SERVICE__API_KEY env var as auth-ENABLED (empty => HTTP 401,
 # absent => 200). The compose line above interpolates ${QDRANT_API_KEY:-},
 # which is EMPTY whenever store-auth is default-OFF (the v1.0.10 shipping
 # default), so Qdrant would boot DEMANDING a credential the shipped keyless
@@ -18906,10 +18906,10 @@ DCEOF
 # and Oxigraph 0.4.6 has no native auth, so ONLY Qdrant needs this.)
 # 2026-08-28: default flipped to 1, so this strip is now the OPT-OUT path.
 # It stays because the reasoning above is still exactly right for anyone who
-# sets OSTLER_STORE_AUTH_ENFORCE=0: an empty QDRANTSERVICEAPI_KEY makes
+# sets OSTLER_STORE_AUTH_ENFORCE=0: an empty QDRANT__SERVICE__API_KEY makes
 # Qdrant demand a credential nobody sends. The line must be absent, not empty.
 if [[ "${OSTLER_STORE_AUTH_ENFORCE:-1}" != "1" ]]; then
-    sed -i.bak '/QDRANTSERVICEAPI_KEY:/d' "${OSTLER_DIR}/docker-compose.yml" \
+    sed -i.bak '/QDRANT__SERVICE__API_KEY:/d' "${OSTLER_DIR}/docker-compose.yml" \
         && rm -f "${OSTLER_DIR}/docker-compose.yml.bak"
 fi
 
@@ -20118,7 +20118,7 @@ OSTLER_KNOWLEDGE_READER_VERSION="0.4.80"
 # and `A || B` EVALUATES B ONLY WHEN A FAILS. `/readyz` answers 200 with no
 # credential -- recorded in the comment this replaces, and re-measured
 # independently by @A2 2026-08-29 against the pinned image
-# (qdrant v1.12.1, QDRANTSERVICEAPI_KEY set): readyz bare 200,
+# (qdrant v1.12.1, QDRANT__SERVICE__API_KEY set): readyz bare 200,
 # collections bare 401, collections api-key 200, collections WRONG key 401
 # (that last one is his sole-tenancy control -- a keyless store would have
 # 200'd a wrong key). So arm 1 ALWAYS won and ARM 2 NEVER EXECUTED. The
@@ -21967,7 +21967,7 @@ try:
             encoding='utf-8')
 except Exception as _exc:
     sys.stderr.write('[activity] could not record ongoing status: ' +
-                     type(_exc).name + ': ' + str(_exc) + chr(10))
+                     type(_exc).__name__ + ': ' + str(_exc) + chr(10))
 
 failed = []
 if results.get('status') == 'error':
@@ -23661,7 +23661,7 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
         <!-- Redirect the bytecode cache OUT of the notarised app. This
              agent runs a venv python whose base_prefix is the interpreter
              bundled inside OstlerInstaller.app, so every import writes
-             pycache into the signed bundle and breaks its code seal
+             __pycache__ into the signed bundle and breaks its code seal
              (measured on v1.0.45: 69 .pyc from one ordinary import,
              codesign rc=1, spctl refusing).
              LaunchAgents inherit no environment, so it must be set here. -->
@@ -23938,7 +23938,7 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
         <!-- Redirect the bytecode cache OUT of the notarised app. This
              agent runs a venv python whose base_prefix is the interpreter
              bundled inside OstlerInstaller.app, so every import writes
-             pycache into the signed bundle and breaks its code seal
+             __pycache__ into the signed bundle and breaks its code seal
              (measured on v1.0.45: 69 .pyc from one ordinary import,
              codesign rc=1, spctl refusing).
              LaunchAgents inherit no environment, so it must be set here. -->
@@ -30757,7 +30757,7 @@ result = ingest_browser_history(fda)
 try:
     result['bookmarks'] = ingest_bookmarks(fda)
 except Exception as exc:
-    result['bookmarks'] = {'status': 'error', 'error': type(exc).name}
+    result['bookmarks'] = {'status': 'error', 'error': type(exc).__name__}
 print(json.dumps(result))
 " 2>>"$_HYDRATE_BROWSING_LOG" | tail -n 1
     )"
@@ -31095,7 +31095,7 @@ result = ingest_imessage(fda)
 try:
     result['social'] = ingest_social(fda)
 except Exception as exc:
-    result['social'] = {'status': 'error', 'error': type(exc).name}
+    result['social'] = {'status': 'error', 'error': type(exc).__name__}
 print(json.dumps(result))
 " 2>>"$_HYDRATE_IMESSAGE_LOG" | tail -n 1
     )"
@@ -32438,7 +32438,7 @@ try:
     present = {c.get("name") for c in cols if isinstance(c, dict)}
 except Exception as exc:
     # Unreadable shape is CANNOT-RUN, never "everything is missing".
-    print("CANNOT-RUN: the store answered in an unexpected shape (%s)" % type(exc).name)
+    print("CANNOT-RUN: the store answered in an unexpected shape (%s)" % type(exc).__name__)
     sys.exit(0)
 print(" ".join(name for name in sys.argv[1:] if name not in present))
 ' "${_OSTLER_REQUIRED_QDRANT_COLLECTIONS[@]}")" || {
@@ -32496,7 +32496,7 @@ try:
     result = ingest_browser_history(Path('${_INITIAL_HYDRATE_FDA_DIR}'))
     print(json.dumps(result))
 except Exception as exc:
-    print(json.dumps({'status': 'error', 'error': type(exc).name}))
+    print(json.dumps({'status': 'error', 'error': type(exc).__name__}))
 " >>"$_INITIAL_HYDRATE_LOG" 2>&1 || _INITIAL_HYDRATE_RETRY_RC=$?
 
     # #839: the `|| true` that used to sit here kept errexit off the
@@ -32662,7 +32662,7 @@ import json, sys
 try:
     print('dedupe_merge:', json.dumps(run()))
 except Exception as exc:
-    print('dedupe_merge failed:', type(exc).name, exc)
+    print('dedupe_merge failed:', type(exc).__name__, exc)
     sys.exit(1)
 " >>"$_INITIAL_HYDRATE_LOG" 2>&1 || _dedupe_rc=$?
     if [[ "$_dedupe_rc" -ne 0 ]]; then
@@ -32914,7 +32914,7 @@ set -e
 #
 #   CM044 compile.py:1438   returns results
 #   CM044 compile.py:1577   main() DISCARDS the return value
-#   CM044 main.py:4     calls main() with no sys.exit
+#   CM044 __main__.py:4     calls main() with no sys.exit
 #
 # The container entrypoint is `python -m compiler`, so the process exits 0
 # whether it wrote eighteen thousand pages or none, and `.compile-complete`
@@ -33130,10 +33130,10 @@ step "$MSG_STEP_RUNNING_HEALTH_CHECK" "health_check"
 # Phase 4 (`step` only sets the phase title, not the per-step state)
 # then jumped straight to "Done" -- confusing because the customer
 # sees the row never visibly complete.
-if [[ -n "${OSTLER_STEP_ID:-}" ]]; then
+if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
     gui_step_end
 fi
-OSTLER_STEP_ID="health_check"
+__OSTLER_STEP_ID="health_check"
 gui_step_begin "health_check" "$MSG_STEP_RUNNING_HEALTH_CHECK" 3 "$CURRENT_STEP" "$TOTAL_STEPS"
 
 # 🔴 THIS LINE USED TO READ `HEALTHY=true`, AND IT ERASED TWO VERDICTS.
@@ -33811,7 +33811,7 @@ if [[ -x "${ASSISTANT_BINARY:-}" ]]; then
     _DOCTOR_PROBE_RC=0
     DOCTOR_OUTPUT=$($_DOCTOR_TIMEOUT_WRAP "${ASSISTANT_BINARY}" doctor 2>&1) || {
         _DOCTOR_PROBE_RC=$?
-        DOCTOR_OUTPUT="DOCTOR_INVOCATION_FAILED"
+        DOCTOR_OUTPUT="__DOCTOR_INVOCATION_FAILED__"
     }
     eval "${_saved_err_trap:-}"
     # #839: a warming daemon is an EXPECTED non-zero here and the step
@@ -33823,7 +33823,7 @@ if [[ -x "${ASSISTANT_BINARY:-}" ]]; then
     fi
     unset _DOCTOR_PROBE_RC
 
-    if [[ "$DOCTOR_OUTPUT" == "DOCTOR_INVOCATION_FAILED" ]]; then
+    if [[ "$DOCTOR_OUTPUT" == "__DOCTOR_INVOCATION_FAILED__" ]]; then
         info "$MSG_INFO_OSTLER_ASSISTANT_DOCTOR_DEFERRED_DAEMON_MAY"
         info "$MSG_INFO_STARTING_RUN_OSTLER_ASSISTANT_DOCTOR_AFTER"
         info "$MSG_INFO_LAUNCH_VERIFY_CRON_DELIVERY_IMESSAGE_TCC"
@@ -35325,7 +35325,7 @@ echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━�
 # under TTY mode (OSTLER_GUI unset). The GUI consumes DONE to flip
 # its sidebar to the success state and offer a "Reveal in Finder"
 # affordance for ~/Documents/Ostler.
-if [[ -n "${OSTLER_STEP_ID:-}" ]]; then
+if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
     gui_step_end
 fi
 
@@ -35387,8 +35387,8 @@ fi
 # killed by its timeout cap raises no err(), so on the v1.0.60 walk this verdict
 # printed "no errors raised" beside `DONE ... failed_steps=2`, telling a customer
 # whose search index came out empty that the install went fine. So the verdict
-# now ALSO consults OSTLER_FAILED_STEPS (the emitter's step-failure tally) and
-# NAMES the steps from OSTLER_FAILED_STEP_IDS -- the SAME ids the STEP_END
+# now ALSO consults __OSTLER_FAILED_STEPS (the emitter's step-failure tally) and
+# NAMES the steps from __OSTLER_FAILED_STEP_IDS -- the SAME ids the STEP_END
 # lines carry, appended at the one site that increments the count, so the number
 # and the names cannot disagree. The reassuring line prints only when BOTH
 # tallies are zero.
@@ -35398,14 +35398,14 @@ fi
 # ok|completed_with_failures|fail) with a Swift blast radius; it is NOT touched
 # here, so #839 (status=ok means "reached the end") is left intact.
 # CLOSING VERDICT (#616):
-if [[ "${_OSTLER_RUN_ERRORS:-0}" -gt 0 || "${OSTLER_FAILED_STEPS:-0}" -gt 0 ]]; then
+if [[ "${_OSTLER_RUN_ERRORS:-0}" -gt 0 || "${__OSTLER_FAILED_STEPS:-0}" -gt 0 ]]; then
     # Not a clean finish. Report each kind of trouble that actually occurred:
     # a run can have message errors, failed steps, or both.
     if [[ "${_OSTLER_RUN_ERRORS:-0}" -gt 0 ]]; then
         warn "$(printf "$MSG_WARN_INSTALL_FINISHED_WITH_ERRORS" "${_OSTLER_RUN_ERRORS:-0}")"
     fi
-    if [[ "${OSTLER_FAILED_STEPS:-0}" -gt 0 ]]; then
-        warn "$(printf "$MSG_WARN_INSTALL_FINISHED_WITH_FAILED_STEPS" "${OSTLER_FAILED_STEPS:-0}" "${OSTLER_FAILED_STEP_IDS:-unknown}")"
+    if [[ "${__OSTLER_FAILED_STEPS:-0}" -gt 0 ]]; then
+        warn "$(printf "$MSG_WARN_INSTALL_FINISHED_WITH_FAILED_STEPS" "${__OSTLER_FAILED_STEPS:-0}" "${__OSTLER_FAILED_STEP_IDS:-unknown}")"
     fi
     warn "$MSG_WARN_INSTALL_FINISHED_WITH_ERRORS_WHERE"
 else
