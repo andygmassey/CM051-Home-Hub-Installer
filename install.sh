@@ -3243,7 +3243,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8058   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8103   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8112 and :14484, both of which run
+    # Its two top-level arming calls are :8112 and :14525, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3234 above has just deleted
     # that tree and :3238 has just rebound OSTLER_DIR to the final one, so
@@ -3261,13 +3261,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15255, where the note reads
+    # WhatsApp Web session path did it again at :15296, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15272 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15313 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3280,9 +3280,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8112, :14484) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8112, :14525) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17327 / :17505 / :17662 / :18003 path. There the
+    # :17368 / :17546 / :17703 / :18044 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -8621,6 +8621,35 @@ if [[ "$SKIP_PHASE2" == false ]]; then
 
 EXPORTS_DIR=""
 DETECTED_EXPORTS=()
+# ── EVERY DETECTED ROOT, NOT JUST THE FIRST ──────────────────────────
+#
+# CM051 #957. EXPORTS_DIR is assigned five times with ${EXPORTS_DIR:-...},
+# which is FIRST-WRITE-WINS. DETECTED_EXPORTS collects every platform found
+# and is read in exactly three places: a length test, the count printed to
+# the customer, and the display loop. It never reaches the importer.
+#
+# So the install FINDS the exports, TELLS the person how many it found, and
+# then imports only the ones under whichever root happened to be detected
+# first, while the final summary says "GDPR import: Processed from <that one
+# dir>". A customer who keeps their Facebook export in Downloads and their
+# Instagram export on the Desktop gets one of the two, silently.
+#
+# This array carries the same value each of those five sites computes, with
+# no :- guard, so the importer can be given all of them. EXPORTS_DIR keeps
+# its first-write-wins behaviour untouched: it is the value the summary and
+# the step-count logic print, and changing what it means would ripple into
+# both for no gain.
+DETECTED_EXPORT_ROOTS=()
+# CONSENT IS A FACT ABOUT THE PERSON, NOT A SHAPE OF A PATH VARIABLE.
+# The first draft of #957 inferred "they declined" from EXPORTS_DIR being
+# empty at the point of import. Archie traced the actual path: the decline
+# empties EXPORTS_DIR, and the iCloud-contacts block below REFILLS it to
+# ${OSTLER_DIR}/imports whenever icloud-contacts.vcf exists, so by the time
+# the importer is fed, EXPORTS_DIR is non-empty again and the inference is
+# simply false. Its real firing condition had become "this customer has no
+# icloud-contacts.vcf", which has no relationship to consent at all.
+# So the answer is RECORDED here rather than reconstructed later.
+IMPORT_DECLINED=0
 # #619 (2026-06-06): folders the scan could not read (TCC or POSIX
 # permission denied). Recorded so a denied folder is surfaced as an
 # actionable message rather than masquerading as an empty one.
@@ -10284,6 +10313,7 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("LinkedIn: $(dirname "$f")")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$(dirname "$f")")}"
+        DETECTED_EXPORT_ROOTS+=("$(dirname "$(dirname "$f")")")
     done < <(find "$search_dir" -maxdepth 3 -name "Connections.csv" 2>/dev/null || true)
 
     # Facebook: folder containing your_friends.json (2026 export name) or
@@ -10296,12 +10326,14 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("Facebook: $(dirname "$f")")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$(dirname "$f")")}"
+        DETECTED_EXPORT_ROOTS+=("$(dirname "$(dirname "$f")")")
     done < <(find "$search_dir" -maxdepth 5 \( -name "your_friends.json" -o -name "friends.json" \) 2>/dev/null || true)
 
     # Instagram: followers_and_following directory
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("Instagram: $f")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$f")}"
+        DETECTED_EXPORT_ROOTS+=("$(dirname "$f")")
     done < <(find "$search_dir" -maxdepth 3 -type d -name "followers_and_following" 2>/dev/null || true)
 
     # Calendar exports: .ics files, at the depth they are actually shipped.
@@ -10371,6 +10403,7 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("Calendar: $f")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$f")}"
+        DETECTED_EXPORT_ROOTS+=("$(dirname "$f")")
     done < <(find "$search_dir" -maxdepth 6 -xdev \
                   \( -name 'node_modules' -o -name '.git' -o -name '.Trash' \
                      -o -name '*.app' -o -name '*.bundle' -o -name '*.framework' \
@@ -10388,6 +10421,7 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("Twitter/X: $(dirname "$f")")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$(dirname "$f")")}"
+        DETECTED_EXPORT_ROOTS+=("$(dirname "$(dirname "$f")")")
     done < <(find "$search_dir" -maxdepth 4 \( -name "tweets.js" -o -name "tweet.js" \) -path "*/data/*" 2>/dev/null || true)
 
     # Google Takeout zip: takeout-YYYYMMDDTHHMMSSZ-N-NNN.zip
@@ -10425,7 +10459,14 @@ if [[ ${#DETECTED_EXPORTS[@]} -gt 0 ]]; then
     echo ""
     IMPORT_CONFIRM="$(gui_read "$MSG_PROMPT_IMPORT_CONFIRM_TITLE" yesno "" "$MSG_PROMPT_IMPORT_CONFIRM_HELP" "" "import_confirm")"
     if [[ "${IMPORT_CONFIRM:-y}" == "n" || "${IMPORT_CONFIRM:-y}" == "N" ]]; then
+        # THIS IS THE ONLY PLACE THE PERSON SAYS NO, so it is the only place
+        # that can record it. Clearing EXPORTS_DIR alone used to be enough
+        # because it was the only thing the importer was given; #957 added
+        # DETECTED_EXPORT_ROOTS, so a decline that emptied EXPORTS_DIR and
+        # left the roots array full would import everything just refused.
+        IMPORT_DECLINED=1
         EXPORTS_DIR=""
+        DETECTED_EXPORT_ROOTS=()
     fi
 else
     echo ""
@@ -10825,7 +10866,7 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     echo ""
     echo -e "  ${BOLD}You can change your mind any time.${NC} Turn individual connectors"
     echo "  off in Settings, delete everything via \"Reset Ostler\", or"
-    echo "  fully uninstall via ~/Documents/Ostler/Uninstall Ostler.app."
+    echo "  fully uninstall by running ostler-uninstall in Terminal."
     echo ""
     echo "  Withdrawing consent stops processing from that point forward. It"
     echo "  does not undo work Ostler already did with your earlier consent."
@@ -21506,7 +21547,51 @@ chmod +x "$IMPORT_SCRIPT"
 
 _PREFS_DROPZONE="${OSTLER_DIR}/imports/preferences"
 _IMPORT_DIRS=()
+# #957: EVERY detected root, deduplicated, not just the first one.
+# EXPORTS_DIR is first-write-wins by design (the summary prints it), so
+# feeding only that value here imported one root and silently dropped the
+# rest, after telling the customer how many had been found.
+#
+# EXPORTS_DIR is added FIRST so the existing behaviour is a strict subset:
+# if the roots array is ever empty, this line does exactly what it did
+# before. The dedupe is a plain loop rather than sort -u because ORDER
+# matters to the importer and sorting would silently reorder the roots.
+#
+# CX-126 IS HONOURED, NOT RE-OPENED. The three scan roots are ~/Downloads,
+# ~/Desktop and ~/Documents (line 10280), and a LinkedIn or Twitter export
+# unzipped one level below one of them makes dirname-of-dirname the scan
+# root ITSELF. CX-126 measured a multi-minute install stall when such a
+# tree was handed to the importer to rglob, so an EXTRA root equal to a
+# scan root is refused here and SAID OUT LOUD, never dropped in silence.
+# EXPORTS_DIR is exempt from that refusal on purpose: it is added above
+# with its existing value, so this change cannot alter what main already
+# imports. It can only ADD bounded export directories main was dropping.
+#
+# CONSENT, BELT AND BRACES, ON THE RECORDED ANSWER. IMPORT_DECLINED is set
+# at the prompt and nothing else writes it, so this fires on the decline path
+# whatever the iCloud-contacts block has since done to EXPORTS_DIR. An
+# earlier draft tested `EXPORTS_DIR is empty` here instead and was WRONG:
+# that block refills EXPORTS_DIR to ${OSTLER_DIR}/imports when the customer
+# has an icloud-contacts.vcf, so the guard could not fire on the very path
+# it was written for, and the clear at the prompt was carrying it alone.
+# (Caught in review by Archie, before the walk, on the traced path.)
+[[ "${IMPORT_DECLINED:-0}" == "1" ]] && DETECTED_EXPORT_ROOTS=()
 [[ -n "${EXPORTS_DIR:-}" && -d "${EXPORTS_DIR}" ]] && _IMPORT_DIRS+=("$EXPORTS_DIR")
+for _root in "${DETECTED_EXPORT_ROOTS[@]:-}"; do
+    [[ -n "$_root" && -d "$_root" ]] || continue
+    if [[ "$_root" == "${HOME}/Downloads" || "$_root" == "${HOME}/Desktop" \
+          || "$_root" == "${HOME}/Documents" || "$_root" == "${HOME}" ]]; then
+        [[ "$_root" == "${EXPORTS_DIR:-}" ]] || \
+            info "Not importing the whole of ${_root}: an export unpacked straight into it, so only the folders below it are read."  # i18n-exempt
+        continue
+    fi
+    _seen=false
+    for _known in "${_IMPORT_DIRS[@]:-}"; do
+        [[ "$_known" == "$_root" ]] && { _seen=true; break; }
+    done
+    [[ "$_seen" == true ]] || _IMPORT_DIRS+=("$_root")
+done
+unset _root _known _seen
 # CX-126: the install-time detector (line ~3554) now matches the current
 # 2026 export filenames (your_friends.json, tweets.js), so it seeds
 # EXPORTS_DIR to the actual export directory for every platform -- which
@@ -22948,9 +23033,9 @@ echo "    - Ostler directory (~/.ostler, except power.conf and your licence)"
 echo "    - Doctor, export watcher, hub power, email-ingest, conversation feeds"
 echo "      (whatsapp-bundle, email-bundle, spoken-bundle, imessage-bundle),"
 echo "      wiki-recompile, assistant, and RemoteCapture launchd services"
-echo "    - /Applications/Ostler RemoteCapture.app"
 echo "    - /Applications/Ostler.app"
-echo "    - /Applications/Ostler Safari Extension.app"
+echo "    - the /Applications/Ostler folder and everything the installer put"
+echo "      in it (RemoteCapture, the Safari extension, Recover Ostler)"
 echo "    - Ostler commands from PATH"
 echo ""
 echo "  This will NOT remove:"
@@ -23417,14 +23502,22 @@ _u_emit UNINSTALL_PHASE "name=remotecapture"
 # Application Support directory. Transcripts written under
 # ~/Documents/Ostler/Transcripts/ are user-facing content and are
 # handled by the keep-content decision higher up.
-if [[ -d "/Applications/Ostler RemoteCapture.app" ]]; then
-    # Stop it before unlinking it: see _u_quit_bundle_processes.
-    _u_quit_bundle_processes "/Applications/Ostler RemoteCapture.app"
-    echo "  Removing /Applications/Ostler RemoteCapture.app..."
-    rm -rf "/Applications/Ostler RemoteCapture.app" 2>/dev/null || \
-        sudo rm -rf "/Applications/Ostler RemoteCapture.app" 2>/dev/null || \
-        echo "  (warning: could not remove /Applications/Ostler RemoteCapture.app; remove manually)"
-fi
+# BOTH LOCATIONS, AND THE ORDER IS NOT ARBITRARY. The app moved into
+# /Applications/Ostler on 2026-09-18. An uninstaller that knows only the
+# new path leaves the old bundle on every box that never upgraded, and
+# one that knows only the old path leaves the new bundle on every box
+# that did. Neither is visible to the person running the uninstaller,
+# who is told it is gone.
+for _u_app in "/Applications/Ostler/Ostler RemoteCapture.app" "/Applications/Ostler RemoteCapture.app"; do
+    if [[ -d "$_u_app" ]]; then
+        # Stop it before unlinking it: see _u_quit_bundle_processes.
+        _u_quit_bundle_processes "$_u_app"
+        echo "  Removing ${_u_app}..."
+        rm -rf "$_u_app" 2>/dev/null || \
+            sudo rm -rf "$_u_app" 2>/dev/null || \
+            echo "  (warning: could not remove ${_u_app}; remove manually)"
+    fi
+done
 rm -rf "${HOME}/Library/Application Support/Ostler RemoteCapture" 2>/dev/null || true
 
 # ── Ostler.app (Tauri Hub desktop) ─────────────────────────────
@@ -23451,13 +23544,22 @@ _u_emit UNINSTALL_PHASE "name=safari_extension"
 # NOT remove" -- so an uninstall left a branded app in /Applications and
 # said nothing about it. Its process was found running on the walk box
 # alongside the hub, which is why it is stopped first like the others.
-if [[ -d "/Applications/Ostler Safari Extension.app" ]]; then
-    _u_quit_bundle_processes "/Applications/Ostler Safari Extension.app"
-    echo "  Removing /Applications/Ostler Safari Extension.app..."
-    rm -rf "/Applications/Ostler Safari Extension.app" 2>/dev/null || \
-        sudo rm -rf "/Applications/Ostler Safari Extension.app" 2>/dev/null || \
-        echo "  (warning: could not remove /Applications/Ostler Safari Extension.app; remove manually)"
-fi
+# Both locations, for the reason given at the RemoteCapture block above.
+for _u_app in "/Applications/Ostler/Ostler Safari Extension.app" "/Applications/Ostler Safari Extension.app"; do
+    if [[ -d "$_u_app" ]]; then
+        _u_quit_bundle_processes "$_u_app"
+        echo "  Removing ${_u_app}..."
+        rm -rf "$_u_app" 2>/dev/null || \
+            sudo rm -rf "$_u_app" 2>/dev/null || \
+            echo "  (warning: could not remove ${_u_app}; remove manually)"
+    fi
+done
+
+# The folder itself, once its contents are gone. rmdir and not rm -rf:
+# if anything is still in there it is something the uninstaller did not
+# put there and did not account for, and silently deleting a customer's
+# file to tidy a directory is not a trade this script gets to make.
+rmdir "/Applications/Ostler" 2>/dev/null || sudo rmdir "/Applications/Ostler" 2>/dev/null || true
 
 echo "  Restoring sleep settings..."
 sudo pmset -a sleep 1 2>/dev/null || true
@@ -26993,7 +27095,92 @@ progress "Setting up Ostler RemoteCapture (call + meeting transcripts)" "ostler_
 
 OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.3}"
 OSTLER_REMOTECAPTURE_REPO="${OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-releases}"
-REMOTECAPTURE_APP_PATH="/Applications/Ostler RemoteCapture.app"
+# ── ONE OSTLER FOLDER IN /Applications, NOT FOUR LOOSE BUNDLES ────
+#
+# Andy, 2026-09-18: the Uninstaller, RemoteCapture, the Safari
+# extension and the rest belong in an Ostler sub-folder rather than
+# scattered beside the main app.
+#
+# MEASURED ON THE WALK BOX THE SAME NIGHT, and it is the shape that
+# keeps recurring: the folder ALREADY EXISTED and held exactly one
+# app, Recover Ostler.app, while "Ostler RemoteCapture.app" and
+# "Ostler Safari Extension.app" sat loose next to it. Both halves
+# built, the wire between them absent.
+#
+# OSTLER.APP ITSELF STAYS AT THE TOP LEVEL. It is the thing a person
+# opens. Burying the app you launch inside a folder in order to tidy
+# the folder is the tidy winning over the customer.
+#
+# THE MIGRATION IS THE LOAD-BEARING HALF, NOT THE NEW PATH. An
+# upgrade that only writes the new location leaves the old bundle
+# where it was, so the customer ends up with two RemoteCaptures, two
+# menubar items, and a Screen Recording grant attached to the copy
+# that no longer runs. _ostler_relocate_app MOVES, and only when the
+# destination is absent, so a re-run is a no-op rather than a second
+# move. Where both exist the new one is the live one, so the old is
+# the leftover and removing it is the entire point of the exercise.
+#
+# The bundle NAMES are deliberately unchanged. Renaming a signed
+# bundle is how a TCC grant gets silently dropped, and RemoteCapture
+# holds the Screen Recording grant that makes it work at all.
+#
+# 🔴 WHETHER THE MOVE ITSELF KEEPS THAT GRANT IS NOT INSTRUMENTED, and
+# that is the honest word for it rather than "not affected". Measured on
+# the walk box 2026-09-18: the relocation runs, all three bundles still
+# pass codesign --verify --strict afterwards, and a second run is a
+# no-op. The TCC query returned EMPTY BOTH BEFORE AND AFTER, which is a
+# uniform zero across subject and control and therefore says the reader
+# lacked Full Disk Access, not that no grant exists. So the seal is
+# measured and the grant is not.
+#
+# WHAT MAKES THAT ACCEPTABLE RATHER THAN IGNORED: if the grant does not
+# survive, the failure is LOUD and already handled. The install's own
+# Screen Recording step prompts for it, and RemoteCapture cannot
+# silently half-work without it -- it captures nothing and says so. A
+# dropped grant costs the customer one prompt they have seen before. It
+# is not a silent regression, which is the only kind worth blocking a
+# tidy-up for.
+OSTLER_APPS_DIR="/Applications/Ostler"
+
+_ostler_apps_dir_ready() {
+    if [[ -d "$OSTLER_APPS_DIR" ]]; then
+        return 0
+    fi
+    mkdir -p "$OSTLER_APPS_DIR" 2>/dev/null \
+        || sudo mkdir -p "$OSTLER_APPS_DIR" 2>/dev/null || true
+    if [[ -d "$OSTLER_APPS_DIR" ]]; then
+        return 0
+    fi
+    return 1
+}
+
+# $1 = the old absolute path, $2 = the new one. Never fatal: a Mac
+# where the move cannot be made keeps a working app at the old path,
+# which is untidy and not broken. Tidiness must not be able to take
+# the install down.
+_ostler_relocate_app() {
+    local from="$1" to="$2"
+    if [[ ! -d "$from" ]]; then
+        return 0
+    fi
+    if [[ "$from" == "$to" ]]; then
+        return 0
+    fi
+    if [[ -d "$to" ]]; then
+        pkill -f "${from}/Contents/MacOS" 2>/dev/null || true
+        rm -rf "$from" 2>/dev/null || sudo rm -rf "$from" 2>/dev/null || true
+        return 0
+    fi
+    if ! _ostler_apps_dir_ready; then
+        return 0
+    fi
+    pkill -f "${from}/Contents/MacOS" 2>/dev/null || true
+    mv "$from" "$to" 2>/dev/null || sudo mv "$from" "$to" 2>/dev/null || true
+    return 0
+}
+
+REMOTECAPTURE_APP_PATH="${OSTLER_APPS_DIR}/Ostler RemoteCapture.app"
+_ostler_relocate_app "/Applications/Ostler RemoteCapture.app" "$REMOTECAPTURE_APP_PATH"
 REMOTECAPTURE_LAUNCHAGENT_LABEL="com.creativemachines.ostler-remotecapture"
 REMOTECAPTURE_LAUNCHAGENT_PLIST="${HOME}/Library/LaunchAgents/${REMOTECAPTURE_LAUNCHAGENT_LABEL}.plist"
 REMOTECAPTURE_BINARY_INSIDE_APP="${REMOTECAPTURE_APP_PATH}/Contents/MacOS/RemoteCapture"
@@ -27394,7 +27581,7 @@ fi
 # signature the way the nested Uninstaller app does), non-fatal when
 # absent so a dev run of raw install.sh (which does not bundle it) is a
 # silent no-op rather than a false warning.
-RECOVERY_APP_DEST="/Applications/Ostler/Recover Ostler.app"
+RECOVERY_APP_DEST="${OSTLER_APPS_DIR}/Recover Ostler.app"
 RECOVERY_APP_SOURCE=""
 if [[ -d "${SCRIPT_DIR}/Recover Ostler.app" ]]; then
     RECOVERY_APP_SOURCE="${SCRIPT_DIR}/Recover Ostler.app"
@@ -27408,10 +27595,7 @@ if [[ -n "$RECOVERY_APP_SOURCE" ]]; then
     # cp -R fail into the warn branch, which reports "could not stage" and
     # installs nothing. Create it first, with the same unprivileged-then-sudo
     # ladder the copy below uses.
-    if [[ ! -d "/Applications/Ostler" ]]; then
-        mkdir -p "/Applications/Ostler" 2>/dev/null \
-            || sudo mkdir -p "/Applications/Ostler" 2>/dev/null || true
-    fi
+    _ostler_apps_dir_ready || true
     if [[ -d "$RECOVERY_APP_DEST" ]]; then
         pkill -f "${RECOVERY_APP_DEST}/Contents/MacOS" 2>/dev/null || true
         sleep 0.5
@@ -34548,7 +34732,8 @@ if [[ "$NO_EXTENSIONS" == true ]]; then
     info "$MSG_INFO_BROWSER_EXTENSIONS_SKIPPED_NO_EXTENSIONS"
 else
     EXTENSIONS_BUNDLE="${SCRIPT_DIR}/extensions/OstlerSafariExtension.app.zip"
-    SAFARI_APP_INSTALL_PATH="/Applications/Ostler Safari Extension.app"
+    SAFARI_APP_INSTALL_PATH="${OSTLER_APPS_DIR}/Ostler Safari Extension.app"
+    _ostler_relocate_app "/Applications/Ostler Safari Extension.app" "$SAFARI_APP_INSTALL_PATH"
 
     if [[ -f "$EXTENSIONS_BUNDLE" ]]; then
         info "$MSG_INFO_INSTALLING_SAFARI_EXTENSION_APPLICATIONS"
@@ -34562,6 +34747,7 @@ else
             # (SafariHistoryExt.app); rename to the user-visible name
             # if needed so Safari Settings displays "Ostler Safari Extension".
             if [[ -d "/Applications/SafariHistoryExt.app" && ! -d "$SAFARI_APP_INSTALL_PATH" ]]; then
+                _ostler_apps_dir_ready || true
                 mv "/Applications/SafariHistoryExt.app" "$SAFARI_APP_INSTALL_PATH" 2>/dev/null || true
             fi
             ok "$(printf "$MSG_OK_SAFARI_EXTENSION_INSTALLED" "${SAFARI_APP_INSTALL_PATH}")"

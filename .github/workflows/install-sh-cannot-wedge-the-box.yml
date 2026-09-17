@@ -56,6 +56,7 @@ on:
       - 'tests/PROMPT_LOOP_UNBOUNDED_CEILING'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in a PR that never runs it.
+      - 'tests/test_every_detected_export_reaches_the_importer.sh'
       - 'tests/test_the_wiki_backfill_enrols_for_the_slot.sh'
       - '.github/workflows/install-sh-cannot-wedge-the-box.yml'
   push:
@@ -103,7 +104,20 @@ jobs:
         if: always()
         run: /bin/bash tests/test_readonly_flags_need_no_tty.sh
 
-      # 5. THE WIKI SUMMARY BACKFILL NEVER RAN (#2112), and this is the same
+      # 5. THE INSTALLER FOUND SEVEN EXPORTS, TOLD THE CUSTOMER SEVEN, AND
+      #    IMPORTED ONE (#957). EXPORTS_DIR is first-write-wins at five
+      #    detector sites, and the importer was seeded from that one value,
+      #    so every root after the first was detected, counted, displayed and
+      #    never read. Built with no consumer: the detector had one, and it
+      #    was a display loop. The test drives the SHIPPED block out of
+      #    install.sh, refuses with CANNOT-RUN if it cannot find it, and
+      #    carries its own mutant so a green run means the predicate still
+      #    discriminates.
+      - name: every detected export root reaches the importer, not just the first
+        if: always()
+        run: /bin/bash tests/test_every_detected_export_reaches_the_importer.sh
+
+      # 6. THE WIKI SUMMARY BACKFILL NEVER RAN (#2112), and this is the same
       #    family as 1: a wait that cannot end. It hand-rolled its own lock on
       #    the SHARED Ollama slot directory, so it never enrolled as a waiter,
       #    and a holder's bounded-hold countdown arms ONLY for an enrolled
@@ -129,7 +143,7 @@ jobs:
 
       # A test that no longer parses cannot fail honestly -- it fails for the
       # wrong reason, or worse, a sourcing error reads as a pass. Parse all
-      # six under the same 3.2 that runs them.
+      # seven under the same 3.2 that runs them.
       - name: the gates themselves parse under bash 3.2
         if: always()
         run: |
@@ -137,6 +151,7 @@ jobs:
           for t in tests/test_enrich_kickstart_cannot_block_ingest.sh \
                    tests/test_dead_launchagent_prune.sh \
                    tests/test_readonly_flags_need_no_tty.sh \
+                   tests/test_every_detected_export_reaches_the_importer.sh \
                    tests/test_the_wiki_backfill_enrols_for_the_slot.sh \
                    tests/test_prompt_loops_gate.sh \
                    scripts/verify_prompt_loops_are_bounded.sh; do
