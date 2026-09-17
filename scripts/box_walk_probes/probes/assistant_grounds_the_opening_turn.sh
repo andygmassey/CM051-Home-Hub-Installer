@@ -199,6 +199,15 @@ else:
       elif n < 65536:  h = struct.pack("!BBH", 0x81, 0x80 | 126, n)
       else:            h = struct.pack("!BBQ", 0x81, 0x80 | 127, n)
       s.sendall(h + m + mk)
+      # `global` IS LOAD-BEARING AND WAS ABSENT. Without it this assignment
+      # bound a LOCAL, the module-level _t_sent stayed None, and the TTFT
+      # branch below -- `if _t_first is not None and _t_sent is not None` --
+      # could never be true. Measured 2026-09-17: ten openings, every one
+      # reporting "ttft_s NOT-MEASURED no-content-token-arrived" while a chunk
+      # carrying content had demonstrably arrived. The message named the wrong
+      # cause, which is why it survived: it blamed the daemon for sending
+      # nothing when the clock had simply never started.
+      global _t_sent
       _t_sent = time.time()   # TTFT clock starts at the LAST byte of the request
   def rd(n):
       global rest
@@ -236,9 +245,21 @@ send(json.dumps({"type": "message", "content": question}))
 # on the live path is UNDEFINED under the parser's own tests -- and a NameError
 # in this loop reads downstream as an EMPTY answer, which is how it presented:
 # five arms reporting "read ''" rather than anything mentioning time.
-_t_sent = None
+# 🔴 AND THIS BLOCK RAN *AFTER* THE SEND, SO IT CLOBBERED THE CLOCK.
+# `send(...)` is called above, then these lines execute and put _t_sent back to
+# None. Even with the `global` fix alone the TTFT branch would still never
+# fire. Two independent faults, either one fatal, and both produced the same
+# message. _t_sent is therefore initialised ONLY IF THE SEND DID NOT SET IT,
+# which keeps fixture mode working -- OSTLER_GROUNDED_FRAMES never calls
+# sendall, and a _t_sent that exists only on the live path raises NameError in
+# the loop below, which reads downstream as an EMPTY answer.
+try:
+    _t_sent
+except NameError:
+    _t_sent = None
 _t_first = None
 _t_last = None
+_content_frames = 0
 _tok = 0
 text = ""
 while time.time() < deadline:
@@ -327,6 +348,7 @@ while time.time() < deadline:
             # FIRST CONTENT token, not first frame. Set once.
             if _t_first is None: _t_first = time.time()
             _t_last = time.time()
+            _content_frames += 1
             # Token count approximated by whitespace-delimited words. The
             # gateway does not report token counts on this stream, so this is
             # a WORD rate wearing a token name if reported as tokens. It is
@@ -358,12 +380,21 @@ while time.time() < deadline:
             if _t_first is not None and _t_sent is not None:
                 print("FRAME ttft_s %.3f" % (_t_first - _t_sent))
                 _span = (_t_last - _t_first) if (_t_last and _t_last > _t_first) else 0.0
-                # A zero span with tokens is a single-frame reply, not an
-                # infinite rate. Report NOT-MEASURED rather than divide.
-                if _span > 0:
+                # 🔴 THE GUARD WAS `_span > 0` AND THAT IS NOT THE QUESTION.
+                # This gateway does not stream: measured 2026-09-17, the whole
+                # reply arrives as ONE chunk frame, then chunk_reset, then
+                # done. _t_first and _t_last are then taken microseconds apart
+                # on the SAME frame, so the span is tiny but non-zero and the
+                # division produced tok_per_s=8108987.73 for a 58-token reply.
+                # A number that large is obviously wrong; one merely plausible
+                # would have been believed.
+                #
+                # The real question is HOW MANY CONTENT FRAMES ARRIVED. One
+                # frame carries no rate information at all, whatever its span.
+                if _content_frames > 1 and _span > 0:
                     print("FRAME tok_per_s %.2f" % (_tok / _span))
                 else:
-                    print("FRAME tok_per_s NOT-MEASURED single-frame-reply")
+                    print("FRAME tok_per_s NOT-MEASURED single-frame-reply (%d content frame(s); this gateway delivers the whole reply at once, so a stream rate does not exist)" % _content_frames)
                 print("FRAME tokens %d" % _tok)
             else:
                 print("FRAME ttft_s NOT-MEASURED no-content-token-arrived")
@@ -582,7 +613,20 @@ probe_main() {
         # THREE STATES, not two: if `ollama ps` cannot be read at all, the row
         # is UNKNOWN and is excluded from BOTH aggregates rather than being
         # guessed into one of them.
-        _ps="$(box_run 'ollama ps 2>/dev/null' || true)"
+        # 🔴 ABSOLUTE PATH, AND THIS IS THE REPO'S OWN DOCUMENTED TRAP.
+        # `box_run` is a NON-LOGIN ssh, which does not carry the Homebrew PATH.
+        # Measured on the walk box 2026-09-17:
+        #     non-login:  `which ollama` -> "ollama not found"
+        #     login:      /opt/homebrew/bin/ollama (a symlink into Ollama.app)
+        # So this read came back EMPTY every time, the three-state branch fell
+        # to UNKNOWN, and all ten openings were excluded from BOTH the COLD and
+        # WARM aggregates -- the two numbers TNM asked for. The probe reported
+        # "unknown-thermal openings: 10" and nobody read it as a broken PATH.
+        #
+        # The three states stay three: a read that genuinely fails is still
+        # UNKNOWN, and UNKNOWN is still excluded from both. What changes is
+        # that a missing PATH entry no longer masquerades as one.
+        _ps="$(box_run 'OLL=/opt/homebrew/bin/ollama; [ -x "$OLL" ] || OLL=/usr/local/bin/ollama; [ -x "$OLL" ] || OLL="$(command -v ollama 2>/dev/null)"; [ -n "$OLL" ] && "$OLL" ps 2>/dev/null' || true)"
         if [ -z "$_ps" ]; then
             _thermal="UNKNOWN"
         elif [ "$(printf '%s\n' "$_ps" | grep -c -- "${MODEL_TAG%%:*}")" -gt 0 ]; then
@@ -670,7 +714,11 @@ probe_main() {
     _mean() { [ -z "$1" ] && { printf 'NOT-MEASURED'; return; }; printf '%s' "$1" | tr ' ' '\n' | grep -v '^$' | awk '{s+=$1;n++} END{ if(n>0) printf "%.3f (n=%d)", s/n, n; else printf "NOT-MEASURED" }'; }
     probe_note "MEMORY CAVEAT: ${MEMORY_CAVEAT:-none -- conversational memory was clean}"
     probe_note "TTFT COLD: $(_mean "$_cold_ttft")   TTFT WARM: $(_mean "$_warm_ttft")   unknown-thermal openings: ${_unk_n} (excluded from BOTH)"
-    probe_examined "$_done"
+    # probe_examined takes <count> AND <unit>. Passing only the count made
+    # probe.sh:73 die on "$2: unbound variable" under set -u, AFTER the whole
+    # ten-opening battery had run -- so the measurement was taken and then
+    # thrown away at the last line. Measured 2026-09-17.
+    probe_examined "$_done" "opening(s)"
     probe_note "model_tag=${MODEL_TAG} ram_gb=${RAM_GB:-unread} openings_completed=${_done} grounded=${_grounded} no_tool_call=${_no_tool} tool_found_nothing=${_tool_no_fact} fact_missing_in_reply=${_reply_no_fact} transport_excluded=${_incomplete}"
 
     # ── THE DENOMINATOR GATE, fixed in advance ──────────────────────────────
