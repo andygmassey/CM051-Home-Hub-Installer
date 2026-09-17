@@ -391,6 +391,72 @@ _YEAR_TAIL_RE = re.compile(r"\b(19|20)\d{2}\b")
 _NOISY_SOURCES = {"csv", "email", "imap"}
 
 
+# 🔴 AN IDENTIFIER IS NOT A TASTE, AND NOTHING WAS SAYING SO.
+#
+# Found by looking at the page a person sees rather than at the counts. With
+# the unreachable 0.28 floor lowered, the v1.0.100 box's front page rendered
+# four interest cards and every one was a contact identifier:
+#
+#     [interest] c…@icloud.com   "One of the things Ostler reckons you're into."
+#     [interest] +85 … 77        "One of the things Ostler reckons you're into."
+#     [interest] +85 … 67
+#     [interest] +44 … 07
+#
+# That is worse than the empty page it replaced: it is nonsense, and it is
+# nonsense built out of the customer's contacts. The floor had been masking it.
+#
+# The existing screens could not catch this. subject_privacy() CAPS THE PRIVACY
+# LEVEL of a personal-looking subject; it never rejects the row, so the
+# interest still reaches the page wearing an L2 badge. The noise table applies
+# score PENALTIES for shapes like email_thread and dated_subject, and a penalty
+# only reorders. Neither is a refusal, and a refusal is what an identifier
+# needs.
+#
+# Deliberately narrow: an email address or a telephone number, anchored whole.
+# A subject that merely CONTAINS an address (the words "thoughts on" followed
+# by one) is left
+# to the existing person-or-org screen, because that one is arguably about
+# something. This rejects only subjects that ARE an identifier and nothing else.
+_IDENTIFIER_SUBJECT_RE = re.compile(
+    r"""^\s*(?:
+        [^\s@]+@[^\s@]+\.[^\s@]+          # an email address, whole
+      | \+?[\d][\d\s().\-]{6,}[\d]          # a phone number, 8+ digits with separators
+    )\s*$""",
+    re.VERBOSE,
+)
+
+
+def subject_is_identifier(subject: str) -> bool:
+    """True when the subject IS an email address or telephone number.
+
+    Such a row can never be an interest: it names a way to reach a person, not
+    something the person likes. Returns False for empty input so an absent
+    subject is handled by the existing emptiness checks rather than here.
+    """
+    s = (subject or "").strip()
+    if not s:
+        return False
+    if _IDENTIFIER_SUBJECT_RE.match(s):
+        return True
+    # 🔴 AND THE MASKED FORM, which is what actually reaches here. The subject
+    # is stored ALREADY REDACTED by the writer upstream: measured on the box,
+    # the top interests were literally '+85 … 77' and '+44 … 07' -- a country
+    # code, a U+2026 ellipsis and two digits. The full-identifier regex above
+    # needs 8+ digits and matched none of them, so the first version of this
+    # screen removed the one email address and left every phone number on the
+    # page. I only caught that by reading the rendered cards again instead of
+    # trusting the count going 4671 -> 4656.
+    #
+    # A TASTE HAS LETTERS IN IT. "jazz", "K-pop", "Formula 1", "Tokyo 2020" all
+    # do. A subject with no alphabetic character at all is a number, a
+    # redaction, or punctuation, and none of those is something a person is
+    # into. This is deliberately a property of the SUBJECT rather than a
+    # pattern list, so it survives the redaction format changing.
+    if not any(ch.isalpha() for ch in s):
+        return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Scoring layer (pure)
 # ---------------------------------------------------------------------------
@@ -721,7 +787,46 @@ def apply_corrections(interests: list[dict], corrections: dict | None,
 
 def compile_profile(raws: list[dict], now: datetime | None = None,
                     corrections: dict | None = None,
-                    min_confidence: float = 0.28,
+                    # 🔴 0.28 WAS UNREACHABLE BY EVERY SOURCE THAT SHIPS, so
+                    # this filter could only ever return nothing. Measured on a
+                    # real v1.0.100 box with 4792 projected rows:
+                    #
+                    #   safari_bookmarks / bookmark  4716 rows  reliability 0.0334
+                    #   imessage         / social      76 rows  reliability 0.0775
+                    #
+                    # confidence = reliability x evidence_factor x recency, and
+                    # both factors are capped at 1.0, so confidence can never
+                    # EXCEED reliability. The best real interest on that box
+                    # scored 0.1601 -- with five corroborating observations.
+                    # 0.28 is 1.75x the best value the corpus can produce, so
+                    # every row was suppressed and the customer's front page
+                    # read "Ostler has spotted 0 interests from what it has read
+                    # so far". Measured at several floors on the same rows:
+                    #
+                    #   0.28 -> 0 interests,    4701 suppressed
+                    #   0.10 -> 4671 interests,   30 suppressed
+                    #   0.00 -> 4701 interests,    0 suppressed
+                    #
+                    # 0.10 is chosen because it is REACHABLE by a shipped source
+                    # and still DISCRIMINATES: it rejects 30 rows rather than
+                    # waving everything through, which a floor of 0 would.
+                    #
+                    # ⚠️ THIS IS NOT THE FRONT PAGE'S NOISE CONTROL AND MUST NOT
+                    # BE TUNED AS IF IT WERE. frontpage.py caps the page at
+                    # MAX_INTEREST_CARDS = 12 and MAX_PER_DOMAIN = 4, ranked by
+                    # score. 4671 interests in the artefact therefore produce at
+                    # most 12 cards. This floor exists to keep genuine garbage
+                    # out of the artefact and out of /api/v1/preferences, not to
+                    # decide what a person sees.
+                    #
+                    # THE DEEPER SHAPE, recorded because it will come back: no
+                    # amount of corroboration can lift a weak source, since
+                    # evidence_factor saturates at 1.0. A topic bookmarked once
+                    # and one bookmarked fifty times across three sources both
+                    # ceiling at the source's own reliability. If richer sources
+                    # (email, conversation mining) land and the table is not
+                    # revisited, this floor will need revisiting with it.
+                    min_confidence: float = 0.10,
                     contact_lexicon: frozenset = frozenset()) -> dict:
     """Full pipeline: raw rows -> grouped, ranked, corrected profile dict.
     ``contact_lexicon`` (see build_contact_lexicon) screens every subject
@@ -741,8 +846,16 @@ def compile_profile(raws: list[dict], now: datetime | None = None,
     domains: dict[str, list[dict]] = {}
     dislikes: list[dict] = []
     suppressed = 0
+    suppressed_identifier = 0
     for it in interests:
         corrected = bool(it.get("corrected"))
+        # An identifier is refused BEFORE the confidence floor and REGARDLESS
+        # of `corrected`. A phone number does not become a taste because
+        # someone confirmed it, and letting a correction override this is how
+        # the nonsense would come back one feedback click later.
+        if subject_is_identifier(it.get("subject", "")):
+            suppressed_identifier += 1
+            continue
         if not corrected and it["confidence"] < min_confidence:
             suppressed += 1
             continue
@@ -768,6 +881,9 @@ def compile_profile(raws: list[dict], now: datetime | None = None,
             "interests": sum(len(b["interests"]) for b in domain_blocks),
             "dislikes": len(dislikes),
             "suppressed_low_confidence": suppressed,
+            # Counted separately: "below the bar" and "not a taste at all" are
+            # different findings and a single number would hide the second.
+            "suppressed_identifier": suppressed_identifier,
             "domains": len(domain_blocks),
         },
         "domains": domain_blocks,
