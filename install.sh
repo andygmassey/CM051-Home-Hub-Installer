@@ -11985,7 +11985,12 @@ if ! [[ "$TOTAL_STEPS" =~ ^[0-9]+$ ]] || [[ "$TOTAL_STEPS" -le 0 ]]; then
     #
     # tests/test_total_steps_dynamic.sh exercises this path (BASH_SOURCE is
     # unresolvable under `bash -c`) and fails if this constant drifts.
-    TOTAL_STEPS=42
+    # 42 -> 43 on 2026-09-18: the merge-consistency repair (CM041 #162) added
+    # a progress call. Bumped because tests/test_total_steps_dynamic.sh failed
+    # on it, which is the arm working as designed; a customer on the
+    # `curl | bash` path would otherwise have divided by 42 while 43 steps ran
+    # and watched the bar finish at 102%.
+    TOTAL_STEPS=43
     [[ -n "$EXPORTS_DIR" ]] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 fi
 CURRENT_STEP=0
@@ -31727,6 +31732,23 @@ fi
 # that matters: the 24 and the 32 are on an EXISTING box. The guard below
 # is the same one the converge pass above uses, which is true in both
 # cases.
+# THE STEP COUNT HAS TO AGREE WITH WHAT ACTUALLY RUNS. This progress call
+# is CONDITIONAL, so TOTAL_STEPS (seeded by counting progress calls) counts
+# a step that may never fire, and the customer watches "step N of M" stop
+# one short of M for ever. tests/test_total_steps_dynamic.sh caught exactly
+# that on the first push of this block, at 8 conditional calls against 7
+# subtract entries.
+#
+# The predicate below is the WHOLE guard, both halves, because the step is
+# skipped when the module is absent as well as when the pipeline is. A
+# subtract that matched only the outer guard would be wrong on precisely
+# the boxes running a build older than CM041 #162, which are the ones that
+# take the skip.
+[[ -d "$PIPELINE_DIR/identity_resolver" \
+   && -x "$PIPELINE_DIR/.venv/bin/python3" \
+   && -f "$PIPELINE_DIR/identity_resolver/repair_merge_consistency.py" ]] \
+   || TOTAL_STEPS=$((TOTAL_STEPS - 1))
+
 if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python3" ]]; then
     if [[ ! -f "$PIPELINE_DIR/identity_resolver/repair_merge_consistency.py" ]]; then
         # A vendored tree older than CM041 #162. SAY SO rather than skip
