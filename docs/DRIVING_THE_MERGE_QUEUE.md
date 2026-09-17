@@ -58,6 +58,24 @@ own took the repo-wide queue to 0 and that PR merged within the minute. The
 cancelled runs are re-run afterwards by editing the PR body -- NEVER with
 `gh run rerun`, which replays the ORIGINAL event payload and restores the
 stale result.
+**AND THE BODY-EDIT HALF OF THAT IS WRONG FOR MOST WORKFLOWS IN THIS REPO.**
+Measured 2026-09-18, after editing #2133's body to re-trigger its starved
+aggregator and watching nothing happen: `on: pull_request:` with no `types:`
+defaults to `opened, synchronize, reopened`, and **`edited` is not in that
+list**. Only the workflows that name it explicitly respond:
+`enforce-ledger-write`, `installer-version-consistency`,
+`install-gui-contract`, `patch-new-files-visible`, `bash32-compat`. The
+aggregator you most want to re-run, `ci-required-gate.yml`, is not one.
+
+For everything else you need a `synchronize` event, which means a real push.
+`gh pr update-branch` is the honest one: it produces a push AND clears
+`BEHIND`, so it costs one CI cycle instead of two.
+
+And the advice was generalised from the one workflow that had already been
+fixed. `enforce-ledger-write` carries `edited` because its own printed remedy
+was once unreachable for exactly this reason, with a comment saying so at
+line 57. Somebody learned it there, wrote the remedy down, and it holds
+nowhere else.
 
 ---
 
@@ -153,10 +171,25 @@ record. The number is only meaningful in the repo the row names.
 Nobody was careless. Everybody treated a number as self-locating.
 
 **Before resolving an identifier, ask which register it belongs to, and read
-the field that says so.** And when asking a second party to check a result,
-give them the QUESTION, never the method: "resolve these five row numbers and
-tell me what they are" is a control; "confirm these five are pull requests"
-is a mirror.
+the field that says so.**
+
+#### Ask for the answer, not for the confirmation
+
+The operational half, and the one that transfers furthest. The peer's
+spot-checks failed because of how they were ASKED, not because the peer was
+careless:
+
+> "Confirm these five are pull requests" sends someone to check whether five
+> numbers are pull requests. "Resolve these five row numbers and tell me what
+> they are" forces them to open the row to find out WHERE to resolve it, and
+> the `repo:` field is sitting right there.
+
+A reviewer given the conclusion and the method can only agree or disagree
+with the method. A reviewer given the question has to build their own, and
+that is the only version that can fail independently. **Handing over the
+method is how a second pair of eyes becomes a second copy of the first.**
+
+The rule binds the asker, not the reviewer.
 
 ### Corrections do not converge, and a shrinking series is not evidence
 
