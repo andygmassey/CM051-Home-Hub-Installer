@@ -4574,7 +4574,10 @@ def commitments_list(owner=None, due_before=None, status="open",
     commitments = commitments[:limit]
     for c in commitments:
         c.pop("_created", None)
-    return {"commitments": commitments, "count": len(commitments)}, 200
+    # Same contract as /api/v1/suggestions above, and the same measurement:
+    # untagged means L3 means dropped, so this payload declares its level.
+    return {"commitments": commitments, "count": len(commitments),
+            "privacy_level": "L2"}, 200
 
 
 # ── Reply debt (CM048 reply-debt detector, JTBD#1) ───────────────────
@@ -4722,6 +4725,10 @@ def api_reply_debt(threshold_hours=None, lookback_days=None,
         }, 200
 
     payload.setdefault("degraded", False)
+    # Same contract as the two payloads above. reply_debt is the "N people are
+    # waiting on you" card, badged L2 on the public front-page design.
+    if isinstance(payload, dict):
+        payload.setdefault("privacy_level", "L2")
     return payload, 200
 
 
@@ -5209,6 +5216,30 @@ def api_suggestions():
     # change. Aliases share the same list reference – cheap, no copy.
     out["reconnect"] = out["stale_contacts"]
     out["follow_up"] = out["recent_meetings"]
+    # 🔴 THE FRONT PAGE'S "NEEDS YOU NOW" BAND WAS EMPTY BECAUSE THIS PAYLOAD
+    # NEVER SAID WHAT IT WAS. CM059's signals.py resolves an item's privacy
+    # level fail-closed: the item's own tag wins, else the enclosing payload's,
+    # else L3 -- "an untagged item cannot prove it is safe". Renderable levels
+    # are {L0, L1, L2}, so an untagged payload is dropped in full and silently.
+    #
+    # Measured on a v1.0.100 box, 2026-09-17, with the service token presented
+    # so a 401 could not be mistaken for the cause:
+    #     /api/v1/suggestions   200, 5 birthdays incl. one TODAY
+    #     /api/v1/commitments   200, 3 open commitments
+    #     _normalise_suggestions -> 0     _normalise_commitments -> 0
+    #     _renderable(item) -> False on every one
+    #     build_signal_cards -> 0 cards      front_page signal_cards: 0
+    # The consumer accepts any of privacy / privacy_level / privacyLevel /
+    # level, on the item OR the payload. This server sent none of them.
+    #
+    # L2 IS NOT A GUESS. ostler.ai's own front-page section badges every card
+    # in this band L2: "People L2", "Dates L2", "Commitments L2", "Prep L2",
+    # "Drafts L2". That is the designed level for exactly this content.
+    #
+    # Stamped on the PAYLOAD rather than each item, which is the inheritance
+    # the consumer implements, so an item carrying its OWN stricter tag still
+    # wins and is still withheld.
+    out["privacy_level"] = "L2"
     return out
 
 
