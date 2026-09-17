@@ -244,6 +244,23 @@ jobs:
           bash tests/test_dedupe_deps_reach_the_consumer_venv.sh
 
       - name: PyYAML, which the helper's real interpreter has and this runner does not
+        # 🔴 `if: always()` IS LOAD-BEARING AND WAS ABSENT. Measured 2026-09-18.
+        # Every step after this one carries `if: always()`; this one did not, so
+        # the moment any earlier step failed, the DEPENDENCY INSTALL was skipped
+        # while the steps that need it still ran. They then failed with
+        #
+        #     ModuleNotFoundError: No module named 'yaml'
+        #
+        # which reads as a product defect in lib/ostler-confirm-identity.py and
+        # is nothing of the kind: it is the apparatus not being set up, reported
+        # as the subject being broken. That cost a real diagnosis, on a branch
+        # whose actual failure was four steps upstream, and the neighbouring
+        # green run on another branch made it look like a flake.
+        #
+        # CANNOT-RUN is not FAIL. A step that installs the apparatus must run on
+        # the same condition as the steps that consume it, or the job reports
+        # the wrong subject.
+        if: always()
         # install.sh does not run these helpers under a bare python3 by choice:
         # it prefers the calendar/email-ingest venv, then the import-pipeline
         # venv, both of which carry PyYAML, because the identity leg writes
