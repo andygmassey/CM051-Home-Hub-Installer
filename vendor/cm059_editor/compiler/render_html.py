@@ -72,6 +72,29 @@ def _row(it: dict) -> str:
 </div>"""
 
 
+def _empty_note(s: dict) -> str:
+    """The blank-page sentence. FOUR causes, four sentences - never one blank.
+
+    Kept deliberately in step with frontpage.interest_page_state: this preview
+    and the shipping Front Page card must not disagree about which of the
+    causes a given profile has, or the reader learns the wrong thing from
+    whichever they open first."""
+    raw = s.get("raw_rows")
+    held = int(s.get("suppressed_low_confidence") or 0)
+    if raw is None:
+        return ('<p class="empty">Nothing to show yet, and this profile does not '
+                'record how much was read, so it cannot say whether nothing arrived '
+                'or nothing read was clear enough.</p>')
+    raw_n = int(raw or 0)
+    if raw_n == 0:
+        return ('<p class="empty">Nothing has been read yet that says what you are '
+                'into - 0 signals read, 0 held back.</p>')
+    return (f'<p class="empty">{raw_n} signal{"s" if raw_n != 1 else ""} were read '
+            f'and {held} held back below the confidence bar, so none was clear enough '
+            'to show. This page is empty because of the bar, not because the box is '
+            'empty.</p>')
+
+
 def render(profile: dict, top_per_domain: int = 8) -> str:
     s = profile.get("stats", {})
     doms = []
@@ -83,7 +106,7 @@ def render(profile: dict, top_per_domain: int = 8) -> str:
     if profile.get("dislikes"):
         rows = "".join(_row(it) for it in profile["dislikes"][:top_per_domain])
         dislikes = f'<div class="dom"><h2>Things to avoid</h2>{rows}</div>'
-    body = "".join(doms) or '<p class="empty">No confident interests yet - still settling in.</p>'
+    body = "".join(doms) or _empty_note(s)
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>What Ostler thinks you're into</title><style>{_CSS}</style></head><body>

@@ -299,21 +299,90 @@ def settling_card(settling: dict | None, now: datetime) -> dict:
     )
 
 
+def interest_page_state(stats: dict) -> str:
+    """Which of FOUR different things an empty Interests page can mean.
+
+    🔴 "No interests" is not one fact. A box that has read nothing and a box
+    that has read 830 preference signals and believed none of them rendered the
+    SAME blank page, with nothing anywhere telling the customer which they were
+    looking at. That is the Doctor consent-tile shape (task #429: an unreadable
+    registry returned "", indistinguishable from "no records yet") and it is
+    closed the same way, by naming the reason on the surface a person reads.
+
+    The compiler already carries both numbers in ``stats``; nothing rendered
+    them. Returns one of:
+
+      populated     - interests > 0. There is something to confirm.
+      all_held      - nothing shown, but rows WERE read. The bar, not the box.
+      nothing_read  - nothing shown because nothing has been read yet.
+      unmeasured    - nothing shown and the profile does not record which.
+                      COULD-NOT-LOOK is not FOUND-NOTHING: an artefact compiled
+                      by a build older than this one has no ``raw_rows``, and
+                      reading that absence as a zero would put the confident
+                      "nothing has reached Ostler" sentence on a box that may
+                      well have read plenty.
+    """
+    if int(stats.get("interests", 0) or 0) > 0:
+        return "populated"
+    raw = stats.get("raw_rows")
+    if raw is None:
+        return "unmeasured"
+    return "all_held" if int(raw or 0) > 0 else "nothing_read"
+
+
 def confirm_interests_card(profile: dict, now: datetime) -> dict:
     """Phase B onboarding card: invite the user to confirm / correct what Ostler
     thinks they are into. Persistent until completed (no TTL). Folds the Phase-0
-    verify-and-correct surface into the card feed."""
+    verify-and-correct surface into the card feed.
+
+    Four bodies, one per ``interest_page_state``, because an empty page has
+    several causes and the customer is entitled to know which one they have."""
     stats = profile.get("stats", {})
-    n = stats.get("interests", 0)
-    body = (f"Ostler has spotted {n} interest{'s' if n != 1 else ''} from what it "
-            "has read so far. Tell it which are spot on, which are off, and add "
-            "anything it has missed - it sharpens everything that follows.")
+    n = int(stats.get("interests", 0) or 0)
+    raw_n = int(stats.get("raw_rows") or 0)
+    held = int(stats.get("suppressed_low_confidence") or 0)
+    state = interest_page_state(stats)
+
+    title = "Confirm what Ostler thinks you're into"
+    action_label = "Review interests"
+
+    if state == "populated":
+        body = (f"Ostler has spotted {n} interest{'s' if n != 1 else ''} from what it "
+                "has read so far. Tell it which are spot on, which are off, and add "
+                "anything it has missed - it sharpens everything that follows.")
+        evidence = f"{n} interests inferred so far"
+    elif state == "all_held":
+        title = "Ostler is not sure enough yet to say what you're into"
+        action_label = "Tell Ostler what you're into"
+        body = (f"Ostler has read {raw_n} preference signal{'s' if raw_n != 1 else ''} "
+                f"about you and held every one of them back: not that there is nothing "
+                "there, but that nothing yet is clear enough to put in front of you. "
+                "It sharpens as more arrives, and telling Ostler one thing you are "
+                "into settles it straight away.")
+        evidence = (f"{raw_n} signals read, {held} held back below the confidence bar, "
+                    "0 clear enough to show")
+    elif state == "nothing_read":
+        title = "Ostler has not read anything about what you're into yet"
+        action_label = "Tell Ostler what you're into"
+        body = ("Nothing has reached Ostler yet that says what you are into, so there "
+                "is nothing here to confirm. Interests fill in as the background feeds "
+                "and any exports you add finish reading. You can tell Ostler one thing "
+                "you are into right now, and it counts straight away.")
+        evidence = "0 signals read, 0 held back"
+    else:  # unmeasured
+        action_label = "Tell Ostler what you're into"
+        body = ("Ostler has nothing to show here yet, and this profile does not record "
+                "how much it read, so it cannot honestly say whether nothing has "
+                "reached it or nothing it read was clear enough. The next compile will "
+                "say which. You can tell Ostler one thing you are into either way.")
+        evidence = "0 interests; signals read not recorded by this profile"
+
     return _make_card(
         "onboarding", "confirm_interests",
-        title="Confirm what Ostler thinks you're into",
+        title=title,
         body=body, now=now, priority=PRIORITY_ONBOARDING,
-        action={"label": "Review interests", "kind": "open_interest_profile"},
-        evidence=f"{n} interests inferred so far",
+        action={"label": action_label, "kind": "open_interest_profile"},
+        evidence=evidence,
         source="ostler:interest_profile",
         privacy="L1",  # onboarding copy + a count; about the operator, no PII
     )

@@ -1,6 +1,8 @@
+diff --git a/corrections.py b/corrections.py
+index b33f69cb..a75ce107 100644
 --- a/corrections.py
 +++ b/corrections.py
-@@ -28,6 +28,8 @@
+@@ -28,6 +28,8 @@ from __future__ import annotations
  import json
  import os
  import urllib.request
@@ -9,7 +11,7 @@
  from datetime import datetime, timezone
  
  DEFAULT_STORE = os.path.expanduser("~/.ostler/editor/interest_corrections.json")
-@@ -117,9 +119,17 @@
+@@ -117,9 +119,17 @@ class CorrectionStore:
          payload = self._assert_payload(action, key, factor)
          try:
              url = self.ical_server_url.rstrip("/") + "/api/v1/memory/assert"
@@ -28,9 +30,114 @@
              with urllib.request.urlopen(req, timeout=10) as resp:
                  return 200 <= resp.status < 300
          except Exception:
+diff --git a/frontpage.py b/frontpage.py
+index 236e41dd..d6cc1d31 100644
+--- a/frontpage.py
++++ b/frontpage.py
+@@ -299,21 +299,90 @@ def settling_card(settling: dict | None, now: datetime) -> dict:
+     )
+ 
+ 
++def interest_page_state(stats: dict) -> str:
++    """Which of FOUR different things an empty Interests page can mean.
++
++    🔴 "No interests" is not one fact. A box that has read nothing and a box
++    that has read 830 preference signals and believed none of them rendered the
++    SAME blank page, with nothing anywhere telling the customer which they were
++    looking at. That is the Doctor consent-tile shape (task #429: an unreadable
++    registry returned "", indistinguishable from "no records yet") and it is
++    closed the same way, by naming the reason on the surface a person reads.
++
++    The compiler already carries both numbers in ``stats``; nothing rendered
++    them. Returns one of:
++
++      populated     - interests > 0. There is something to confirm.
++      all_held      - nothing shown, but rows WERE read. The bar, not the box.
++      nothing_read  - nothing shown because nothing has been read yet.
++      unmeasured    - nothing shown and the profile does not record which.
++                      COULD-NOT-LOOK is not FOUND-NOTHING: an artefact compiled
++                      by a build older than this one has no ``raw_rows``, and
++                      reading that absence as a zero would put the confident
++                      "nothing has reached Ostler" sentence on a box that may
++                      well have read plenty.
++    """
++    if int(stats.get("interests", 0) or 0) > 0:
++        return "populated"
++    raw = stats.get("raw_rows")
++    if raw is None:
++        return "unmeasured"
++    return "all_held" if int(raw or 0) > 0 else "nothing_read"
++
++
+ def confirm_interests_card(profile: dict, now: datetime) -> dict:
+     """Phase B onboarding card: invite the user to confirm / correct what Ostler
+     thinks they are into. Persistent until completed (no TTL). Folds the Phase-0
+-    verify-and-correct surface into the card feed."""
++    verify-and-correct surface into the card feed.
++
++    Four bodies, one per ``interest_page_state``, because an empty page has
++    several causes and the customer is entitled to know which one they have."""
+     stats = profile.get("stats", {})
+-    n = stats.get("interests", 0)
+-    body = (f"Ostler has spotted {n} interest{'s' if n != 1 else ''} from what it "
+-            "has read so far. Tell it which are spot on, which are off, and add "
+-            "anything it has missed - it sharpens everything that follows.")
++    n = int(stats.get("interests", 0) or 0)
++    raw_n = int(stats.get("raw_rows") or 0)
++    held = int(stats.get("suppressed_low_confidence") or 0)
++    state = interest_page_state(stats)
++
++    title = "Confirm what Ostler thinks you're into"
++    action_label = "Review interests"
++
++    if state == "populated":
++        body = (f"Ostler has spotted {n} interest{'s' if n != 1 else ''} from what it "
++                "has read so far. Tell it which are spot on, which are off, and add "
++                "anything it has missed - it sharpens everything that follows.")
++        evidence = f"{n} interests inferred so far"
++    elif state == "all_held":
++        title = "Ostler is not sure enough yet to say what you're into"
++        action_label = "Tell Ostler what you're into"
++        body = (f"Ostler has read {raw_n} preference signal{'s' if raw_n != 1 else ''} "
++                f"about you and held every one of them back: not that there is nothing "
++                "there, but that nothing yet is clear enough to put in front of you. "
++                "It sharpens as more arrives, and telling Ostler one thing you are "
++                "into settles it straight away.")
++        evidence = (f"{raw_n} signals read, {held} held back below the confidence bar, "
++                    "0 clear enough to show")
++    elif state == "nothing_read":
++        title = "Ostler has not read anything about what you're into yet"
++        action_label = "Tell Ostler what you're into"
++        body = ("Nothing has reached Ostler yet that says what you are into, so there "
++                "is nothing here to confirm. Interests fill in as the background feeds "
++                "and any exports you add finish reading. You can tell Ostler one thing "
++                "you are into right now, and it counts straight away.")
++        evidence = "0 signals read, 0 held back"
++    else:  # unmeasured
++        action_label = "Tell Ostler what you're into"
++        body = ("Ostler has nothing to show here yet, and this profile does not record "
++                "how much it read, so it cannot honestly say whether nothing has "
++                "reached it or nothing it read was clear enough. The next compile will "
++                "say which. You can tell Ostler one thing you are into either way.")
++        evidence = "0 interests; signals read not recorded by this profile"
++
+     return _make_card(
+         "onboarding", "confirm_interests",
+-        title="Confirm what Ostler thinks you're into",
++        title=title,
+         body=body, now=now, priority=PRIORITY_ONBOARDING,
+-        action={"label": "Review interests", "kind": "open_interest_profile"},
+-        evidence=f"{n} interests inferred so far",
++        action={"label": action_label, "kind": "open_interest_profile"},
++        evidence=evidence,
+         source="ostler:interest_profile",
+         privacy="L1",  # onboarding copy + a count; about the operator, no PII
+     )
+diff --git a/interest_profile.py b/interest_profile.py
+index b5cc850e..699e3c26 100644
 --- a/interest_profile.py
 +++ b/interest_profile.py
-@@ -5,7 +5,7 @@
+@@ -5,7 +5,7 @@ is a pure function of (raw preference rows, now, corrections) so it is testable
  without a live graph. The I/O layer (fetch_preferences) talks read-only to
  Oxigraph; nothing here ever writes to the graph.
  
@@ -39,7 +146,12 @@
    ?s a pwg:LikePreference | pwg:DislikePreference
       pwg:subject            "Web Development"
       pwg:category           "professional"
-@@ -33,7 +33,7 @@
+@@ -29,16 +29,37 @@ import os
+ import re
+ import sys
+ import unicodedata
++import urllib.error
+ import urllib.parse
  import urllib.request
  from datetime import datetime, timezone
  
@@ -48,3 +160,541 @@
  
  # ---------------------------------------------------------------------------
  # Taxonomy: how far to trust each source category, and which coarse domain it
+-# routes to. Trust is the Phase-0 noise lever - low-trust categories still
+-# appear in the profile but sink, and are flagged for the correction surface.
++# routes to. Trust is the Phase-0 noise lever, and it feeds TWO different
++# mechanisms - ranking (via ``score``) and MEMBERSHIP (via the confidence floor
++# in compile_profile).
++#
++# THIS COMMENT USED TO SAY, VERBATIM: "low-trust categories still appear in the
++# profile but sink, and are flagged for the correction surface." THEY DO NOT.
++# compile_profile drops every uncorrected row whose confidence is below
++# ``min_confidence`` and counts the drops in ``stats.suppressed_low_confidence``;
++# render_html renders that count as "N low-confidence signals held back". Three
++# code sites treat the floor as a SCREEN, so the screen is the design and the
++# sentence above was prose that predated it. Corrected 2026-09-17 after a box
++# holding 830 preference points served an empty Interests page.
++#
++# A reader changing these numbers must therefore ask BOTH questions:
++#   - does this rank the row where it belongs?          (score)
++#   - can this row reach the floor at all?              (membership)
++# The second one is the trap. A category whose trust, multiplied by the trust of
++# every source that can realistically carry it, lands under the floor is not
++# "sunk", it is DELETED, and the domain it routes to is dead by construction.
++# That is what happened to the Interests domain: see the CATEGORY_DOMAIN note
++# below and the derivation above ``min_confidence`` in compile_profile.
++#
+ # Values tuned against the real category distribution on Andy's graph.
+ # ---------------------------------------------------------------------------
+ 
+@@ -80,6 +101,20 @@ CATEGORY_DOMAIN = {
+ }
+ DEFAULT_DOMAIN = "Other"
+ 
++# 🔴 THE INTERESTS DOMAIN HAS EXACTLY TWO FEEDER CATEGORIES, `interest` and
++# `inferred_interest`, and NO OTHER CATEGORY ROUTES TO IT (2 of the 15 rows
++# above). So whether a customer ever sees an "Interests" section is decided
++# entirely by whether those two can clear the confidence floor. Measured on
++# 2026-09-17 against the pre-fix code, over all 15 categories x 8 sources (the
++# 7 in SOURCE_TRUST plus the unknown-source default) = 120 pairs: 4 of the 16
++# Interests pairs survived, and all four needed `you` or `linkedin`. A Facebook
++# interests export, which is the commonest real origin of an `interest` row,
++# scored 0.2484 against a floor of 0.28 and was deleted. Anything the source
++# table does not name scored 0.1720.
++#
++# If you lower a CATEGORY_TRUST value here, or add a category that routes to a
++# domain with few feeders, re-run that sweep. A domain can die silently.
++
+ # How far to trust each DATA SOURCE - distinct from category trust, and just as
+ # important. Learned from real data: `csv` is imported email/recruiter subject
+ # lines (noise dressed up with high strength + recent dates); `linkedin` is
+@@ -524,11 +559,39 @@ def confidence(flags: list[str], category: str, source: str = "") -> float:
+ # sharply once richer sources (email/conversation mining) give repeated, multi-
+ # source observations of the same interest. That dependency is the point.
+ 
++EVIDENCE_BASE = 1.00   # a single observation is NEUTRAL, not penalised
++EVIDENCE_SPAN = 0.30   # unchanged span, so the de-clustering spread is identical
++
++
+ def evidence_factor(observations: int, n_sources: int) -> float:
+-    """Saturating boost for corroboration. 1 observation from 1 source -> 0.70;
+-    more observations and (weighted 2x) more distinct sources push toward 1.0."""
++    """Saturating boost for corroboration. 1 observation from 1 source -> 1.00
++    (neutral); more observations and (weighted 2x) more distinct sources push
++    toward 1.30.
++
++    🔴 THIS USED TO RETURN 0.70 FOR THE SINGLE-OBSERVATION CASE, spanning
++    [0.70, 1.0]. The docstring called it a "boost" and it was arithmetically a
++    DISCOUNT: because ``finalise_confidence`` multiplies reliability by this and
++    by ``recency_confidence`` (itself <= 1.0), the displayed confidence could
++    never EXCEED the reliability, and for the overwhelmingly common single-
++    observation row it was pinned 30% BELOW it. Two consequences, both measured:
++
++      1. corroboration could not lift a row past the floor, ever. CM051 #1872
++         measured 1, 3, 10, 20 and 50 identical `interest` rows and got zero
++         interests every time. With the ceiling at reliability (0.2475) and the
++         floor at 0.28, no amount of evidence could close the gap. A saturating
++         corroboration term that cannot change an outcome is dead code.
++      2. ``min_confidence`` was derived against RELIABILITY - that is the number
++         ``confidence()`` returns and the number every comment in this file
++         reasons about - but it is APPLIED to the finalised value. This factor
++         silently moved the real screen from 0.28 to 0.28/0.70 = 0.40 in
++         reliability terms, which is what killed the Interests domain.
++
++    The span is unchanged at 0.30, so the stated purpose ("de-clusters the flat
++    60/62/64% band") is preserved bit for bit; only the base point moves, from
++    "penalise every uncorroborated row" to "neutral, and reward corroboration".
++    ``finalise_confidence`` still clamps the product into [0, 1]."""
+     extra = max(0, observations - 1) + 2 * max(0, n_sources - 1)
+-    return round(0.70 + 0.30 * (1.0 - 2.71828 ** (-extra / 4.0)), 4)
++    return round(EVIDENCE_BASE + EVIDENCE_SPAN * (1.0 - 2.71828 ** (-extra / 4.0)), 4)
+ 
+ 
+ def recency_confidence(last_seen, now, half_life_days: float = 720.0) -> float:
+@@ -718,13 +781,42 @@ def apply_corrections(interests: list[dict], corrections: dict | None,
+     return out
+ 
+ 
++MIN_CONFIDENCE = 0.28
++"""The membership floor. An uncorrected row whose FINALISED confidence is below
++this is not ranked low, it is DELETED from the profile and counted in
++``stats.suppressed_low_confidence``.
++
++WHAT IT IS COMPARED AGAINST, because that is the part that went wrong once:
++the finalised confidence, ``reliability x evidence_factor x recency_confidence``.
++Since ``evidence_factor`` is now neutral at one observation and
++``recency_confidence`` spans [0.75, 1.0], a single fresh row is screened at
++essentially its own reliability, which is ``category_trust x source_trust`` -
++the quantity this 0.28 was chosen against. Before the evidence_factor fix the
++comparison ran against reliability x 0.70, i.e. an effective reliability floor
++of 0.40, which no realistic Interests row could reach.
++
++EVERY DOMAIN MUST BE REACHABLE FROM A REALISTIC SOURCE. Interests has only two
++feeder categories (see the note under CATEGORY_DOMAIN); at 0.40 effective, only
++``you`` and ``linkedin`` cleared it and the domain was dead for everyone else.
++Change this number only with the 15 x 8 category-by-source sweep in
++tests/test_the_interests_domain_is_reachable.py in front of you; it prints the
++full matrix and fails if any domain loses every realistic source."""
++
++
+ def compile_profile(raws: list[dict], now: datetime | None = None,
+                     corrections: dict | None = None,
+-                    min_confidence: float = 0.28,
++                    min_confidence: float = MIN_CONFIDENCE,
+                     contact_lexicon: frozenset = frozenset()) -> dict:
+     """Full pipeline: raw rows -> grouped, ranked, corrected profile dict.
+     ``contact_lexicon`` (see build_contact_lexicon) screens every subject
+-    against known contact names; empty = heuristics-only, the safe default."""
++    against known contact names; empty = heuristics-only, the safe default.
++
++    ``stats`` carries BOTH facts the caller needs to tell an empty page apart:
++    ``raw_rows`` (how much was read) and ``suppressed_low_confidence`` (how much
++    was read and then screened). ``interests == 0`` alone cannot distinguish
++    "nothing to read" from "read plenty, believed none of it", and a renderer
++    that shows the same blank for both is the defect this pair exists to close.
++    """
+     now = now or datetime.now(timezone.utc)
+     interests = [build_interest(r, now, contact_lexicon=contact_lexicon)
+                  for r in raws]
+@@ -778,15 +870,76 @@ def compile_profile(raws: list[dict], now: datetime | None = None,
+ # I/O layer (read-only Oxigraph)
+ # ---------------------------------------------------------------------------
+ 
++def _oxigraph_credential() -> tuple[str, str] | None:
++    """The Oxigraph loopback credential, or None when none is configured.
++
++    NOT A SECOND MECHANISM. lib/ostler_store_auth.py is the estate's single
++    decider for which credential belongs to which store port, and this reads
++    the SAME env var and the SAME 0600 file it does:
++
++        7878 -> ("Authorization", "Bearer ", "OXIGRAPH_TOKEN", "oxigraph_token")
++
++    WHY THIS FUNCTION EXISTS AT ALL, rather than importing that shim. The shim
++    is delivered as a .pth inside each SERVICE'S VENV, so it patches urllib
++    automatically for anything running in one. THE EDITOR HAS NO VENV: its
++    LaunchAgent runs `PYTHONPATH=<src> python3 -m compiler.emit_frontpage`
++    against the system interpreter. So the blanket fix cannot reach this call
++    site, and this is the one consumer it was never able to cover.
++    """
++    val = (os.environ.get("OXIGRAPH_TOKEN") or "").strip()
++    if not val:
++        secrets_dir = os.environ.get(
++            "OSTLER_SECRETS_DIR", os.path.expanduser("~/.ostler/secrets"))
++        try:
++            with open(os.path.join(secrets_dir, "oxigraph_token"),
++                      encoding="utf-8") as fh:
++                val = fh.read().strip()
++        except OSError:
++            val = ""
++    return ("Authorization", "Bearer " + val) if val else None
++
++
+ def _sparql_select(oxigraph_url: str, query: str, timeout: float = 30.0) -> list[dict]:
++    """Read-only SPARQL SELECT against Oxigraph.
++
++    THE DEFECT THIS FIXES, measured on a v1.0.98 box 2026-09-16:
++        curl 127.0.0.1:7878/query with no credential  -> HTTP 401
++        curl 127.0.0.1:7878/query with the credential -> 111,289 triples
++    This function sent Accept and Content-Type and nothing else, so every
++    query 401ed, every read returned zero rows, and the compiler wrote
++    {"stats": {"raw_rows": 0, "interests": 0}} AND EXITED 0. The customer's
++    front page read "0 interests inferred so far" for at least three builds
++    and no gate went red, because an empty graph and a refused query are the
++    same branch in every caller above this one.
++
++    A 401 is now RAISED rather than swallowed. An unreadable store must be a
++    loud failure, not a quiet zero: a zero that could not be measured is the
++    exact shape that hid this for three builds.
++    """
+     url = oxigraph_url.rstrip("/") + "/query"
+     data = urllib.parse.urlencode({"query": query}).encode("utf-8")
+-    req = urllib.request.Request(url, data=data, method="POST", headers={
++    headers = {
+         "Accept": "text/csv",
+         "Content-Type": "application/x-www-form-urlencoded",
+-    })
+-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+-        body = resp.read().decode("utf-8")
++    }
++    cred = _oxigraph_credential()
++    if cred is not None:
++        headers[cred[0]] = cred[1]
++    req = urllib.request.Request(url, data=data, method="POST", headers=headers)
++    try:
++        with urllib.request.urlopen(req, timeout=timeout) as resp:
++            body = resp.read().decode("utf-8")
++    except urllib.error.HTTPError as exc:
++        if exc.code in (401, 403):
++            raise RuntimeError(
++                f"Oxigraph refused the query with HTTP {exc.code}. The store "
++                "requires a credential and none was presented or it was "
++                "rejected. Expected OXIGRAPH_TOKEN in the environment or a "
++                "readable ~/.ostler/secrets/oxigraph_token. Refusing to report "
++                "an empty profile, which is indistinguishable from an empty "
++                "graph."
++            ) from exc
++        raise
+     rows = list(csv.DictReader(io.StringIO(body)))
+     return rows
+ 
+diff --git b/project_preferences.py b/project_preferences.py
+new file mode 100644
+index 00000000..b20355b0
+--- /dev/null
++++ b/project_preferences.py
+@@ -0,0 +1,272 @@
++"""Project preference facts from Qdrant into the RDF graph.
++
++WHY THIS EXISTS, measured on a live v1.0.98 box 2026-09-16:
++
++    Qdrant  `preferences` collection      5,733 points
++    Oxigraph                            111,289 triples, and ZERO preference
++                                        nodes of any kind
++
++and a `git grep` across the whole shipped tree for anything writing
++LikePreference or DislikePreference RDF returns NOTHING, against a working
++control (five files do write to Oxigraph). So interest_profile._pref_query
++could never match a single row, on any box, ever.
++
++THAT ONE MISSING LINK IS THE ROOT OF FIVE SYMPTOMS reported separately:
++  the front page reads "0 interests inferred so far"
++  /api/v1/preferences serves count 0
++  the assistant's pwg_preferences tool finds nothing
++  assistant_answers_grounded has FAILED ON EVERY WALK RECORD we hold, with
++    tool_found_nothing:pwg_preferences
++  and a daily brief with no real facts to draw on confabulates
++
++A consumer with no producer, pointed at the most valuable data in the product.
++
++WHY RDF AND NOT "JUST READ QDRANT". The reader asks for ?subject ?category
++?strength ?source ?observed ?created: a structured fact with provenance. That
++is an RDF record. Qdrant's job is similarity search over embeddings OF those
++facts. Pointing the reader at the vector store would mean answering a
++structured question with a nearest-neighbour search and inheriting whatever a
++payload happened to carry. The graph is the designed home and the code says so.
++
++WHY THE BRIDGE LIVES HERE, stated so the next reader does not mistake it for
++the final shape: the CORRECT long-term fix is for whatever writes these points
++to Qdrant to write the RDF at the same time, from one producer. This module is
++a projection that runs before each compile so the graph is correct today. When
++the upstream pipeline emits RDF directly, delete this and its tick step.
++
++DELETE THIS MODULE WHEN, and the condition is a TEST rather than an intention:
++removing the projection step from the tick leaves interest_profile's own row
++count UNCHANGED. Until that is true, one producer is not yet writing both
++stores and the bridge is still load-bearing. A bridge with no stated exit
++condition is still here in a year, which is Archie's point and he is right.
++
++IDEMPOTENT BY CONSTRUCTION: every node's IRI is derived from the preference's
++own identity, so re-running replaces rather than duplicates.
++"""
++from __future__ import annotations
++
++import hashlib
++import json
++import os
++import urllib.error
++import urllib.parse
++import urllib.request
++
++PWG_NS = "https://schema.ostler.ai/ontology#"
++_QDRANT_DEFAULT = "http://127.0.0.1:6333"
++_OXIGRAPH_DEFAULT = "http://127.0.0.1:7878"
++_COLLECTION = "preferences"
++_PAGE = 512
++
++# Like and Dislike become the two node types the reader asks for. Neutral is
++# deliberately NOT projected: interest_profile only ever queries
++# LikePreference and DislikePreference, and inventing a third class the reader
++# does not read would be a producer with no consumer, which is the defect this
++# module exists to fix.
++PROJECTOR_ID = "ostler:cm059:preference-projection"
++
++_POLARITY = {"like": "LikePreference", "dislike": "DislikePreference"}
++
++
++def _secret(env_var: str, filename: str) -> str:
++    """Same env-then-0600-file resolution lib/ostler_store_auth.py uses. Not a
++    second decider: the same variable names and the same files."""
++    val = (os.environ.get(env_var) or "").strip()
++    if val:
++        return val
++    d = os.environ.get("OSTLER_SECRETS_DIR", os.path.expanduser("~/.ostler/secrets"))
++    try:
++        with open(os.path.join(d, filename), encoding="utf-8") as fh:
++            return fh.read().strip()
++    except OSError:
++        return ""
++
++
++def _post(url: str, body: bytes, headers: dict, timeout: float = 60.0) -> bytes:
++    req = urllib.request.Request(url, data=body, method="POST", headers=headers)
++    try:
++        with urllib.request.urlopen(req, timeout=timeout) as resp:
++            return resp.read()
++    except urllib.error.HTTPError as exc:
++        detail = ""
++        try:
++            detail = exc.read().decode("utf-8", "replace")[:300]
++        except Exception:
++            pass
++        raise RuntimeError(
++            f"{url} refused with HTTP {exc.code}. {detail}"
++        ) from exc
++
++
++def read_qdrant_preferences(qdrant_url: str | None = None) -> list[dict]:
++    """Every preference point, with its payload. Raises on a refused read: a
++    store that will not answer must never be reported as an empty store."""
++    base = (qdrant_url or os.environ.get("OSTLER_QDRANT_URL", _QDRANT_DEFAULT)).rstrip("/")
++    headers = {"Content-Type": "application/json"}
++    key = _secret("QDRANT_API_KEY", "qdrant_api_key")
++    if key:
++        headers["api-key"] = key
++
++    out: list[dict] = []
++    offset = None
++    while True:
++        payload = {"limit": _PAGE, "with_payload": True, "with_vector": False}
++        if offset is not None:
++            payload["offset"] = offset
++        raw = _post(f"{base}/collections/{_COLLECTION}/points/scroll",
++                    json.dumps(payload).encode("utf-8"), headers)
++        result = json.loads(raw).get("result") or {}
++        pts = result.get("points") or []
++        out.extend(pts)
++        offset = result.get("next_page_offset")
++        if not offset or not pts:
++            break
++    return out
++
++
++def _iri(point: dict) -> str:
++    pl = point.get("payload") or {}
++    ident = pl.get("preference_id") or f"{pl.get('source','')}|{pl.get('category','')}|{pl.get('subject','')}"
++    return f"urn:ostler:preference:{hashlib.sha256(str(ident).encode('utf-8')).hexdigest()[:32]}"
++
++
++def _lit(value: str) -> str:
++    """An N-Triples literal. NOT json.dumps.
++
++    JSON escapes non-ASCII as backslash-u and emits SURROGATE PAIRS for
++    anything outside the BMP. Oxigraph rejects a lone surrogate with
++    "expected \\u escape sequence should be followed by hexadecimal digits",
++    measured on the first real run of this projector. A customer's
++    preferences contain emoji, so this is not a rare path.
++
++    N-Triples 1.1 is UTF-8, so the correct escaping is the characters the
++    grammar requires and nothing else.
++    """
++    out = str(value)
++    out = out.replace(chr(92), chr(92) * 2)
++    out = out.replace(chr(34), chr(92) + chr(34))
++    out = out.replace(chr(10), chr(92) + "n")
++    out = out.replace(chr(13), chr(92) + "r")
++    out = out.replace(chr(9), chr(92) + "t")
++    # A raw control character is not legal in the grammar either.
++    out = "".join(c for c in out if c >= " " or c == chr(92))
++    return chr(34) + out + chr(34)
++
++
++def to_triples(points: list[dict]) -> tuple[list[str], int]:
++    """-> (n-triples lines, count of points skipped). Skips anything whose
++    polarity the reader does not query, or which lacks a field the reader
++    REQUIRES: a row missing subject, category, strength or source cannot
++    satisfy the SELECT and would be written for nobody."""
++    lines: list[str] = []
++    skipped = 0
++    for p in points:
++        pl = p.get("payload") or {}
++        polarity = str(pl.get("preference_type", "")).strip().lower()
++        node_type = _POLARITY.get(polarity)
++        subject = pl.get("subject")
++        category = pl.get("category")
++        strength = pl.get("strength")
++        source = pl.get("source")
++        if not node_type or not subject or not category or strength is None or not source:
++            skipped += 1
++            continue
++        s = f"<{_iri(p)}>"
++        lines.append(
++            f'{s} <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> '
++            f'<{PWG_NS}{node_type}> .')
++        lines.append(f'{s} <{PWG_NS}subject> {_lit(subject)} .')
++        lines.append(f'{s} <{PWG_NS}category> {_lit(category)} .')
++        lines.append(f'{s} <{PWG_NS}preferenceStrength> {_lit(strength)} .')
++        lines.append(f'{s} <{PWG_NS}dataSource> {_lit(source)} .')
++        if pl.get("observed_at"):
++            lines.append(f'{s} <{PWG_NS}observedAt> {_lit(pl["observed_at"])} .')
++        if pl.get("created_at"):
++            lines.append(f'{s} <{PWG_NS}createdAt> {_lit(pl["created_at"])} .')
++        # Carried so a level-aware reader can filter later. The current reader
++        # does not SELECT it; losing it here would make that impossible.
++        lvl = pl.get("privacy_level") or pl.get("compartment_level")
++        if lvl:
++            lines.append(f'{s} <{PWG_NS}privacyLevel> {_lit(lvl)} .')
++        # PROVENANCE MARKER. Written into the DEFAULT graph, because the reader
++        # (interest_profile._pref_query) has no GRAPH clause and therefore never
++        # sees a named graph. Measured: 38432 triples landed in a named graph and
++        # fetch_preferences still returned 0. So the projection lives in the
++        # default graph and is made replaceable by this marker instead, which
++        # deletes ONLY what this projector wrote and never another producer's
++        # rows.
++        lines.append(f'{s} <{PWG_NS}projectedBy> {_lit(PROJECTOR_ID)} .')
++    return lines, skipped
++
++
++
++def _count_marked(oxi: str, headers: dict) -> int:
++    """How many nodes currently carry this projector's marker. Used to refuse a
++    delete that does not match what we are about to write."""
++    q = (f"PREFIX pwg: <{PWG_NS}> SELECT (COUNT(DISTINCT ?s) AS ?n) "
++         f"WHERE {{ ?s pwg:projectedBy {_lit(PROJECTOR_ID)} }}")
++    h = {"Accept": "text/csv",
++         "Content-Type": "application/x-www-form-urlencoded"}
++    if "Authorization" in headers:
++        h["Authorization"] = headers["Authorization"]
++    raw = _post(oxi + "/query",
++                urllib.parse.urlencode({"query": q}).encode("utf-8"), h)
++    rows = raw.decode("utf-8", "replace").splitlines()
++    try:
++        return int(rows[1].strip().strip('"'))
++    except Exception:
++        return 0
++
++
++def project(qdrant_url: str | None = None, oxigraph_url: str | None = None) -> dict:
++    """Read Qdrant, replace the projected preference graph in Oxigraph.
++
++    Writes into a NAMED GRAPH so the projection can be replaced wholesale
++    without touching anything another producer wrote. Dropping the graph first
++    makes this idempotent: a preference removed upstream disappears here too,
++    which a plain insert would never achieve.
++    """
++    oxi = (oxigraph_url or os.environ.get("OSTLER_OXIGRAPH_URL", _OXIGRAPH_DEFAULT)).rstrip("/")
++    tok = _secret("OXIGRAPH_TOKEN", "oxigraph_token")
++    headers = {"Content-Type": "application/sparql-update"}
++    if tok:
++        headers["Authorization"] = "Bearer " + tok
++
++    points = read_qdrant_preferences(qdrant_url)
++    lines, skipped = to_triples(points)
++
++    # Replace only our own rows. DELETE WHERE on the marker is exact: a row
++    # another producer wrote has no marker and is untouched.
++    # COUNT BEFORE DELETE, AND REFUSE ON A MISMATCH. Archie's attack, taken:
++    # if the provenance predicate is ever absent or renamed, this DELETE either
++    # removes nothing (the projection then doubles every run) or, with a
++    # mistyped pattern, removes far more than it wrote. Neither is visible
++    # afterwards. So ask the graph how many nodes carry the marker, and refuse
++    # if that number is wildly out of line with what we are about to write.
++    existing = _count_marked(oxi, headers)
++    expected_nodes = len({l.split(" ", 1)[0] for l in lines}) if lines else 0
++    if existing and expected_nodes and existing > max(10 * expected_nodes, 1000):
++        raise RuntimeError(
++            f"refusing to delete: {existing} nodes carry the projection marker "
++            f"but this run would write only {expected_nodes}. That ratio means "
++            "either the marker is wrong or the store holds something this "
++            "projector did not write. Investigate before re-running."
++        )
++    delete = (f"DELETE WHERE {{ ?s <{PWG_NS}projectedBy> {_lit(PROJECTOR_ID)} ; ?p ?o }}")
++    body = delete if not lines else (
++        delete + " ;\nINSERT DATA {\n" + "\n".join(lines) + "\n}")
++    _post(f"{oxi}/update", body.encode("utf-8"), headers)
++    return {"points": len(points), "triples": len(lines), "skipped": skipped,
++            "nodes": len(lines and set(l.split(" ")[0] for l in lines) or ())}
++
++
++if __name__ == "__main__":
++    import sys
++    try:
++        r = project()
++    except Exception as exc:  # loud, never a quiet zero
++        print(f"preference projection FAILED: {exc}", file=sys.stderr)
++        raise SystemExit(1)
++    print(f"projected {r['nodes']} preference nodes "
++          f"({r['triples']} triples) from {r['points']} Qdrant points; "
++          f"{r['skipped']} skipped as unqueryable")
+diff --git a/render_html.py b/render_html.py
+index 8b3101b2..9876e6b1 100644
+--- a/render_html.py
++++ b/render_html.py
+@@ -72,6 +72,29 @@ def _row(it: dict) -> str:
+ </div>"""
+ 
+ 
++def _empty_note(s: dict) -> str:
++    """The blank-page sentence. FOUR causes, four sentences - never one blank.
++
++    Kept deliberately in step with frontpage.interest_page_state: this preview
++    and the shipping Front Page card must not disagree about which of the
++    causes a given profile has, or the reader learns the wrong thing from
++    whichever they open first."""
++    raw = s.get("raw_rows")
++    held = int(s.get("suppressed_low_confidence") or 0)
++    if raw is None:
++        return ('<p class="empty">Nothing to show yet, and this profile does not '
++                'record how much was read, so it cannot say whether nothing arrived '
++                'or nothing read was clear enough.</p>')
++    raw_n = int(raw or 0)
++    if raw_n == 0:
++        return ('<p class="empty">Nothing has been read yet that says what you are '
++                'into - 0 signals read, 0 held back.</p>')
++    return (f'<p class="empty">{raw_n} signal{"s" if raw_n != 1 else ""} were read '
++            f'and {held} held back below the confidence bar, so none was clear enough '
++            'to show. This page is empty because of the bar, not because the box is '
++            'empty.</p>')
++
++
+ def render(profile: dict, top_per_domain: int = 8) -> str:
+     s = profile.get("stats", {})
+     doms = []
+@@ -83,7 +106,7 @@ def render(profile: dict, top_per_domain: int = 8) -> str:
+     if profile.get("dislikes"):
+         rows = "".join(_row(it) for it in profile["dislikes"][:top_per_domain])
+         dislikes = f'<div class="dom"><h2>Things to avoid</h2>{rows}</div>'
+-    body = "".join(doms) or '<p class="empty">No confident interests yet - still settling in.</p>'
++    body = "".join(doms) or _empty_note(s)
+     return f"""<!doctype html><html><head><meta charset="utf-8">
+ <meta name="viewport" content="width=device-width,initial-scale=1">
+ <title>What Ostler thinks you're into</title><style>{_CSS}</style></head><body>
