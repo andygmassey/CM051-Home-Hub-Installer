@@ -43,6 +43,7 @@ test_a_hung_slot_holder_is_stopped.sh	WIRED	.github/workflows/ingest-slot.yml
 test_a_jq_index_read_cannot_return_the_string_null.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_a_keepalive_agent_that_cannot_bind_is_not_reported_green.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_killed_converge_still_gets_its_catchup_agent.sh	WIRED	.github/workflows/killed-converge-gets-its-catchup.yml
+test_a_launchagent_names_an_absolute_interpreter.py	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_loopback_probe_must_not_ask_a_proxy.sh	WIRED	.github/workflows/colima-autostart.yml
 test_a_manual_brew_tarball_must_target_a_branch_that_still_exists.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_a_matched_grep_cannot_epipe_its_own_producer.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
@@ -68,7 +69,6 @@ test_a_status_read_is_guarded.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_a_stored_secret_says_so_where_it_is_typed.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_a_subshell_cannot_emit_a_terminal_done.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_a_taken_port_is_named_not_abstracted.sh	WIRED	.github/workflows/cold-box-source-truth.yml
-test_a_launchagent_names_an_absolute_interpreter.py	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_tally_that_contradicts_the_log_is_not_a_pass.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_timed_out_probe_is_not_a_failing_probe.py	WIRED	.github/workflows/cut-manifest.yml
 test_a_timed_out_turn_is_not_a_broken_assistant.sh	WIRED	.github/workflows/walk-record-gate.yml
