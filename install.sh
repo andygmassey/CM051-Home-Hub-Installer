@@ -23956,7 +23956,7 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
              Measured on a v1.0.100 box: this plist carried 11 EnvironmentVariables
              keys, USER_ID among them, and USER_NAME was not one of them. So
              os.environ.get("USER_NAME") returned "" inside ical-server and the
-             owner clause was a no-op -- the fix present and never able to fire.
+             owner clause was a no-op, the fix present and never able to fire.
              Caught by checking whether the consumer could receive the value
              rather than by testing the predicate, which passed 10/10 in
              isolation. -->
