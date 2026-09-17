@@ -47,6 +47,25 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 STRINGS = ROOT / "install.sh.strings.en-GB.sh"
 
 BANNED = "companion"
+
+# ── ROADMAP PROMISES, ADDED 2026-09-18 (CM051 #1008 limb 4) ─────────────────
+#
+# The locked rule is that customer copy carries no roadmap. MEASURED on main:
+# two strings on the FAILURE path promised things, and one of them contradicted
+# a third string in the same file:
+#
+#   :210  "Intel support is not on the roadmap; raise a request if required."
+#   :956  "Intel support is coming in v1.0.1."
+#   :985  "Linux support coming soon."
+#
+# An Intel Mac owner was told either that it is coming or that it is not,
+# depending on which string fired. Both are shown to a person whose install has
+# just refused to run, which is the worst moment to be inconsistent.
+#
+# The phrases are matched, not the topics. "Intel is not supported" is a fact and
+# must stay sayable; "Intel support is coming in v1.0.1" is a promise.
+ROADMAP_PHRASES = ("coming in v1.0", "coming soon", "on the roadmap in",
+                   "will be supported in v", "planned for v1.0")
 PASS = FAIL = 0
 
 
@@ -79,6 +98,23 @@ def offenders(text):
             continue
         if BANNED in m.group("value").lower():
             out.append(f"{i}: {m.group('name')}")
+    return out
+
+
+def roadmap_offenders(text):
+    """Every MSG_* whose VALUE promises a future version. Comments are not values."""
+    out = []
+    for i, line in enumerate(text.splitlines(), 1):
+        if line.lstrip().startswith("#"):
+            continue
+        m = _ASSIGN.match(line.strip())
+        if not m:
+            continue
+        v = m.group("value").lower()
+        for ph in ROADMAP_PHRASES:
+            if ph in v:
+                out.append(f"{i}: {m.group('name')}  [{ph}]")
+                break
     return out
 
 
@@ -125,6 +161,23 @@ def main():
         bad("(2) a comment tripped the gate. It will be switched off the first "
             "time someone writes a provenance note")
 
+    # ── 3. NO ROADMAP PROMISES IN CUSTOMER COPY (#1008 limb 4) ──
+    road = roadmap_offenders(src)
+    if not road:
+        ok("(3) no customer string promises a future version")
+    else:
+        bad(f"(3) {len(road)} customer string(s) promise a future version", "\n".join(road))
+
+    # ── 4. AND THE FACT IS STILL SAYABLE. A gate that banned the TOPIC would
+    #       force the copy to stop telling an Intel owner why the install
+    #       refused, which is worse than the promise it removes.
+    if "not supported" in src and not roadmap_offenders(src):
+        ok("(4) 'not supported' is still sayable, so the gate bans the PROMISE "
+           "and not the subject")
+    else:
+        bad("(4) the copy can no longer state the plain fact, so this gate has "
+            "over-reached")
+
     # ===================================================================
     # MUTATION. The gate must catch both the obvious and the sneaky form.
     # ===================================================================
@@ -152,6 +205,17 @@ def main():
                "so 'companion' does not slip past a capital-C check")
         else:
             bad("(M2) MUTANT SURVIVED: a lowercase 'companion' was not caught")
+
+    m3 = src.replace('MSG_FAIL_THIS_INSTALLER_MACOS_ONLY_LINUX_SUPPORT="This installer is for macOS only."',
+                     'MSG_FAIL_THIS_INSTALLER_MACOS_ONLY_LINUX_SUPPORT="This installer is for macOS only. Linux support coming soon."', 1)
+    if m3 == src:
+        bad("(M3) the mutant could not be built", "re-point this test at the macOS-only string")
+    else:
+        if roadmap_offenders(m3):
+            ok("(M3) RED ON A ROADMAP PROMISE: putting 'coming soon' back into a "
+               "customer string is caught")
+        else:
+            bad("(M3) MUTANT SURVIVED: a reintroduced roadmap promise was not caught")
 
     print()
     print(f"=== {PASS} passed / {FAIL} failed ===")

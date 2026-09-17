@@ -953,7 +953,7 @@ MSG_ERR_URL="  url:      %s"
 
 # ── Fail messages (terminal -- the installer exits after) ──
 
-MSG_FAIL_ARCH_INTEL_NOT_SUPPORTED_V1_0="Intel Macs are not supported in v1.0. Apple Silicon (M1, M2, M3 or M4) is required. Intel support is coming in v1.0.1."
+MSG_FAIL_ARCH_INTEL_NOT_SUPPORTED_V1_0="Intel Macs are not supported. Ostler needs Apple Silicon (M1, M2, M3 or M4)."
 MSG_FAIL_AT_LEAST_16_GB_RAM_REQUIRED="At least 16 GB RAM required. You have %s GB. 24 GB recommended."
 MSG_FAIL_CM042_SIGNATURE_FAILED="Ostler RemoteCapture install aborted: signature or notarisation check failed. The bundle was left in /Applications for support. Email support@ostler.ai and re-run the installer."
 MSG_FAIL_COULD_NOT_PULL_AFTER_3_ATTEMPTS="Could not pull %s after 3 attempts. Check your network and re-run the installer."
@@ -982,7 +982,7 @@ MSG_FAIL_DAEMON_RUN_SOURCE_UNSUPPORTED_SKEW="The bundled Ostler daemon (v%s at %
 MSG_FAIL_OSTLER_SECURITY_INSTALL_FAILED_RE_RUN="ostler_security install failed. Re-run with --allow-plaintext for dev/CI, or fix the pip error above and retry."
 MSG_FAIL_PASSKEY_SETUP_FAILED_RE_RUN_WITH="Passkey setup failed. Re-run with --allow-plaintext for dev/CI, or fix the error above and retry."
 MSG_FAIL_PYSQLCIPHER3_REQUIRED_ENCRYPTED_DATABASES_RE_RUN="sqlcipher3 is required for encrypted databases. Re-run with --allow-plaintext for dev/CI, or fix the pip error above and retry."
-MSG_FAIL_THIS_INSTALLER_MACOS_ONLY_LINUX_SUPPORT="This installer is for macOS only. Linux support coming soon."
+MSG_FAIL_THIS_INSTALLER_MACOS_ONLY_LINUX_SUPPORT="This installer is for macOS only."
 MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID="Xcode Command Line Tools install did not complete in 15 minutes. Open Terminal and run 'xcode-select --install', click Install on the macOS dialog and wait for it to finish, then re-run this installer."
 
 # ── DMG #48 (2026-05-27) silent-bail hardening (PR 2 of TNM brief
