@@ -135,6 +135,14 @@ done
 # The holder now goes away, as a real tick does when its bounded hold
 # expires. The backfill must then TAKE the slot and compile, which is the
 # whole point: it waited rather than dying, and it noticed.
+# BEFORE releasing: the launcher must still be ALIVE. A launcher that has
+# already exited while the slot is held is one that gave up, and from the
+# outside that is indistinguishable from one that is waiting.
+if kill -0 "$LPID" 2>/dev/null; then
+    ok "(2a) it is still waiting, not exited: the acquire really does block"
+else
+    no "(2a) the launcher exited while the slot was still held, so it gave up"
+fi
 kill "$HOLDER" 2>/dev/null; wait "$HOLDER" 2>/dev/null
 rm -rf "$SLOT" 2>/dev/null || true
 wait "$LPID" 2>/dev/null; brc=$?
@@ -152,12 +160,22 @@ grep -q 'STUB docker' "$LOG" \
     || no "(2e) the contended path exited $brc" "$(cat "$LOG")"
 
 echo
-echo "ARM 3: a missing library is CANNOT-RUN and says so, never a silent fallback"
+echo "ARM 3: no library yet, so the pre-lib fallback runs AND says it is degraded"
+# The fallback is required by tests/test_ingest_offpeak_throttle.sh, which
+# checks both launch sites for a blocking mkdir acquire with PID-liveness
+# reclaim. It must still work, and it must not look like the fixed path: the
+# private lock cannot enrol, which is exactly #2112.
 H="$(fresh c)"; rm -f "$H/.ostler/lib/ostler-ingest-slot.sh"; LOG="${WORK}/c.log"
 launch "$BODY" "$H" "$LOG"; rc=$?
-[ "$rc" -eq 2 ] && ok "(3a) exits 2, the CANNOT-RUN code, not 0 and not 1" || no "(3a) exit $rc" "$(cat "$LOG")"
-grep -q 'CANNOT-RUN' "$LOG" && ok "(3b) and says CANNOT-RUN in the log" || no "(3b)" "$(cat "$LOG")"
-grep -q 'STUB docker' "$LOG" && no "(3c) it compiled anyway, unarbitrated" || ok "(3c) it did NOT compile without arbitration"
+[ "$rc" -eq 0 ] && ok "(3a) the fallback still compiles, so a late library does not lose the summaries" || no "(3a) exit $rc" "$(cat "$LOG")"
+grep -q 'STUB docker' "$LOG" && ok "(3b) the compile really ran on the fallback path" || no "(3b)" "$(cat "$LOG")"
+grep -q '2112' "$LOG" && ok "(3c) the log names the degradation, so a silent fallback cannot pass for the fix" || no "(3c) the fallback is silent about being unable to enrol" "$(cat "$LOG")"
+
+echo
+echo "ARM 3d: THE BACKFILL MUST NEVER GIVE UP. A yield here means no summaries."
+grep -qE 'GAVE UP|attempt [0-9]+ of|_try -le' "$BODY" \
+    && no "(3d) the launcher carries a bounded attempt cap: a yield skips the summaries entirely" \
+    || ok "(3d) no attempt cap: the acquire blocks, which is what test_ingest_offpeak_throttle.sh requires"
 
 echo
 echo "ARM 4: the launcher records WHY it carries no max-hold watchdog"

@@ -33451,49 +33451,82 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
             cd "$_wd" || exit 1
             printf "%s wiki-summaries: starting, slot %s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_slot"
 
-            if [ ! -r "$_lib" ]; then
-                # CANNOT-RUN, said out loud. Silently falling back to a
-                # private lock is what produced #2112 in the first place.
-                printf "%s wiki-summaries: CANNOT-RUN: the ingest-slot library is not at %s, so this compile cannot arbitrate for Ollama with the feed ticks. Not starting.\n" \
-                    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_lib"
-                exit 2
-            fi
-            # shellcheck source=/dev/null
-            . "$_lib" || { printf "%s wiki-summaries: CANNOT-RUN: the ingest-slot library would not source.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; exit 2; }
-
-            _got=0
-            _try=1
-            while [ "$_try" -le 12 ]; do
-                if ostler_slot_acquire wiki-summaries; then
-                    _got=1
-                    break
+            # THE SHAPE HERE IS wiki-recompile-tick.sh:410-440, DELIBERATELY.
+            # That site already did this correctly and install.sh did not. Two
+            # launch sites for the same payload that disagree is how one of
+            # them stays broken. tests/test_ingest_offpeak_throttle.sh checks
+            # BOTH sites, and its two requirements are honoured rather than
+            # edited: a BLOCKING acquire, because a yield here means no
+            # summaries at all, and reclaim on a DEAD PID rather than a time
+            # threshold, because a real compile legitimately runs for hours.
+            _slot_lib_active=0
+            if [ -r "$_lib" ]; then
+                # shellcheck source=/dev/null
+                if . "$_lib" 2>/dev/null; then
+                    command -v ostler_slot_acquire >/dev/null 2>&1 && _slot_lib_active=1
                 fi
-                printf "%s wiki-summaries: attempt %s of 12 yielded; holder is %s (pid %s). Retrying.\n" \
-                    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_try" \
-                    "$(cat "$_slot/holder" 2>/dev/null || echo "not recorded")" \
-                    "$(cat "$_slot/pid" 2>/dev/null || echo "not recorded")"
-                _try=$(( _try + 1 ))
-            done
+            fi
 
-            if [ "$_got" != "1" ]; then
-                printf "%s wiki-summaries: GAVE UP after 12 attempts. The slot is held by %s (pid %s). The summaries are NOT compiled; the wiki will show pages without them until the next daily compile.\n" \
-                    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-                    "$(cat "$_slot/holder" 2>/dev/null || echo "not recorded")" \
-                    "$(cat "$_slot/pid" 2>/dev/null || echo "not recorded")"
+            if [ "$_slot_lib_active" = "1" ]; then
+                # BLOCKING, with no give-up. An earlier draft capped this at
+                # twelve attempts and then exited, which would have skipped
+                # the summaries entirely, and broke the assertion in
+                # test_ingest_offpeak_throttle.sh that says exactly why.
+                # Every pass through ostler_slot_acquire ENROLS as a waiter,
+                # which is the whole of #2112: a holder starts its bounded
+                # hold countdown only when a waiter is enrolled, and the old
+                # mkdir spin was invisible to it.
+                until ostler_slot_acquire wiki-summaries; do
+                    printf "%s wiki-summaries: yielded; holder is %s (pid %s). Enrolled, retrying.\n" \
+                        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                        "$(cat "$_slot/holder" 2>/dev/null || echo "not recorded")" \
+                        "$(cat "$_slot/pid" 2>/dev/null || echo "not recorded")"
+                    sleep 10
+                done
+                # NOT ostler_slot_run, which wiki-recompile-tick.sh does use.
+                # The difference is about WHEN: a preempted tick is retried by
+                # the next tick, and the install-time backfill has no next tick
+                # for a day. A first-run summary compile legitimately runs for
+                # hours, so a 180s bound would kill the thing this block exists
+                # to start. Nothing can take the slot meanwhile: a waiter
+                # reclaims only when the holder PID is dead, and a waiter out
+                # of patience yields rather than takes. The reason is written
+                # into the lock dir so a reader is told, not left to infer.
+                printf "%s\n" "first-run summary compile: no max-hold watchdog, a compile may legitimately run for hours" \
+                    > "$_slot/unbounded_reason" 2>/dev/null || true
+                trap "ostler_slot_release 2>/dev/null || true" EXIT
+                printf "%s wiki-summaries: slot acquired via the shared library, compiling.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                if docker compose --profile compile run --rm -T wiki-compiler </dev/null; then
+                    printf "%s wiki-summaries: compile finished OK.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                    exit 0
+                fi
+                printf "%s wiki-summaries: compile FAILED. The wiki will show pages without summaries until the next daily compile.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
                 exit 1
             fi
 
-            # Honest metadata for anyone inspecting the lock: this holder
-            # carries no watchdog, and the reason is here rather than in a
-            # comment they would have to go and find.
-            printf "%s\n" "first-run summary compile: no max-hold watchdog, a compile may legitimately run for hours" \
-                > "$_slot/unbounded_reason" 2>/dev/null || true
-
-            trap "ostler_slot_release 2>/dev/null || true" EXIT
-            printf "%s wiki-summaries: slot acquired, compiling.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            docker compose --profile compile run --rm -T wiki-compiler </dev/null
-            _rc=$?
-            printf "%s wiki-summaries: compile finished, rc=%s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_rc"
+            # Fail-safe: the library is not on the box yet. Unchanged pre-lib
+            # behaviour, a blocking acquire with PID-liveness reclaim. It is
+            # invisible to the holder, which IS #2112, so say so rather than
+            # let a silent fallback look like the fixed path.
+            printf "%s wiki-summaries: the ingest-slot library is not readable at %s, falling back to the private lock. That lock cannot enrol as a waiter, so a holder will not shorten its hold for it (#2112).\n" \
+                "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_lib"
+            while ! mkdir "$_slot" 2>/dev/null; do
+                _h="$(cat "$_slot/pid" 2>/dev/null || true)"
+                if [ -n "${_h:-}" ] && kill -0 "$_h" 2>/dev/null; then
+                    sleep 10
+                else
+                    rm -rf "$_slot" 2>/dev/null || true
+                fi
+            done
+            printf "%s\n" "$$" > "$_slot/pid"
+            trap "rm -rf \"$_slot\" 2>/dev/null || true" EXIT
+            printf "%s wiki-summaries: slot acquired via the fallback lock, compiling.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            if docker compose --profile compile run --rm -T wiki-compiler </dev/null; then
+                printf "%s wiki-summaries: compile finished OK.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                exit 0
+            fi
+            printf "%s wiki-summaries: compile FAILED. The wiki will show pages without summaries until the next daily compile.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            exit 1
             exit $_rc
         ' _ "$_wiki_slot" "$OSTLER_DIR" "$_wiki_slot_lib" >"$WIKI_BG_LOG" 2>&1 &
         disown 2>/dev/null || true
