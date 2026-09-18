@@ -50,7 +50,7 @@ run_block() {   # $1 = rc the recorder should return
 
 # (1) MUST-MISS. A recorder that SUCCEEDS must say nothing.
 out_ok="$(run_block 0)"
-if printf '%s' "${out_ok}" | grep -q '^WARN:'; then
+if [ "$(printf '%s' "${out_ok}" | grep -c '^WARN:' || true)" -gt 0 ]; then
     bad "a SUCCESSFUL recorder produced a warning, so the warning carries no information"
 else
     ok "a successful recorder is silent"
@@ -58,7 +58,7 @@ fi
 
 # (2) MUST-HIT. A recorder that DIES must say so.
 out_bad="$(run_block 3)"
-if printf '%s' "${out_bad}" | grep -q '^WARN:.*recorder exited 3'; then
+if [ "$(printf '%s' "${out_bad}" | grep -c '^WARN:.*recorder exited 3' || true)" -gt 0 ]; then
     ok "a recorder that exits 3 is REPORTED, with its exit code"
 else
     bad "a recorder that exited 3 produced no warning naming it. Output was: ${out_bad}"
@@ -66,7 +66,7 @@ fi
 
 # (3) THE WARNING MUST NAME THE CONSEQUENCE, not just the failure. "Something
 # failed" sends a reader nowhere; naming the panel tells them what to check.
-if printf '%s' "${out_bad}" | grep -qi 'missing'; then
+if [ "$(printf '%s' "${out_bad}" | grep -ci 'missing' || true)" -gt 0 ]; then
     ok "the warning names the CONSEQUENCE, that rows may be missing rather than reporting a state"
 else
     bad "the warning does not say what the failure costs the customer"
@@ -75,7 +75,7 @@ fi
 # (4) THE INSTALL MUST NOT DIE. This is the whole reason the || true was there,
 # and a fix that turns a bookkeeping failure into an aborted install would be a
 # worse defect than the one it closes.
-if printf '%s' "${out_bad}" | grep -q 'BLOCK_EXIT=0'; then
+if [ "$(printf '%s' "${out_bad}" | grep -c 'BLOCK_EXIT=0' || true)" -gt 0 ]; then
     ok "CONTROL: the block still exits 0 on a recorder failure, so the install is not aborted"
 else
     bad "the block exited non-zero on a recorder failure. A bookkeeping failure must never abort a customer's install."
@@ -90,7 +90,7 @@ old_out="$(/bin/bash -c '
     _hydrate_record_fda_extract || true
     printf "BLOCK_EXIT=%s\n" "$?"
 ' 2>&1)"
-if printf '%s' "${old_out}" | grep -q '^WARN:'; then
+if [ "$(printf '%s' "${old_out}" | grep -c '^WARN:' || true)" -gt 0 ]; then
     bad "MUTATION ARM: the pre-fix form warned, so this fixture no longer reproduces the defect and arms (2) and (3) prove nothing"
 else
     ok "MUTATION ARM: the pre-fix '|| true' form is SILENT on the same failure, which is the defect this closes"

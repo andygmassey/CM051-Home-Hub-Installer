@@ -244,7 +244,7 @@ else
     # run_box_walk.sh records a bare 78 as "UNRECORDED ... bypassed
     # probe_cannot_run and named no prerequisite" and calls that a contract
     # breach, so the code alone is not enough.
-    if printf '%s' "${_out}" | grep -q '^VERDICT: CANNOT-RUN -- '; then
+    if [ "$(printf '%s' "${_out}" | grep -c '^VERDICT: CANNOT-RUN -- ' || true)" -gt 0 ]; then
         ok "it emits the VERDICT: CANNOT-RUN marker the walk runner parses"
     else
         bad "it exited 78 with no 'VERDICT: CANNOT-RUN --' line, which the runner records as UNRECORDED and names a contract breach. Output was: ${_out}"
@@ -252,7 +252,7 @@ else
 
     # (3) IT MUST NAME THE MISSING PREREQUISITE. probe_cannot_run's own comment
     # says a reason that does not name it leaves the operator guessing.
-    if printf '%s' "${_out}" | grep -q 'OSTLER_BOX_HOST'; then
+    if [ "$(printf '%s' "${_out}" | grep -c 'OSTLER_BOX_HOST' || true)" -gt 0 ]; then
         ok "the reason names the missing prerequisite by name"
     else
         bad "the CANNOT-RUN reason does not name the missing prerequisite, so an operator cannot act on it"
@@ -262,7 +262,7 @@ else
     # 78 for every input, arm (1) would pass while the gate discriminated
     # nothing. A host that IS set must NOT take the absent-host branch.
     _out2="$(OSTLER_BOX_HOST="unreachable.invalid" /bin/bash "${_ag}" 2>&1)"; _rc2=$?
-    if [ "${_rc2}" -ne 78 ] || ! printf '%s' "${_out2}" | grep -q 'is not set'; then
+    if [ "${_rc2}" -ne 78 ] || ! [ "$(printf '%s' "${_out2}" | grep -c 'is not set' || true)" -gt 0 ]; then
         ok "CONTROL: a host that IS set does not take the absent-host branch (rc ${_rc2}), so arm (1) is about the branch and not a constant"
     else
         bad "CONTROL: a host that IS set produced the same absent-host refusal, so this gate returns CANNOT-RUN regardless of input and arm (1) proves nothing"

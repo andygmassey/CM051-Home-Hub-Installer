@@ -80,7 +80,7 @@ echo "-- the reader must turn each seed state into a DIFFERENT sentence --"
 
 # CONTROL FIRST: the apparatus must be alive before any absence is asserted.
 _ctl="$(run_with seeded)"
-if printf '%s' "${_ctl}" | grep -q 'grounding_seed'; then
+if [ "$(printf '%s' "${_ctl}" | grep -c 'grounding_seed' || true)" -gt 0 ]; then
     ok "CONTROL: the gate reaches its advisory block and names the field"
 else
     bad "CONTROL: the gate never mentioned the field at all, so every assertion
@@ -94,7 +94,7 @@ fi
 assert_says() {
     local seed="$1" want="$2" label="$3" out
     out="$(run_with "${seed}")"
-    if printf '%s' "${out}" | grep -qi -- "${want}"; then
+    if [ "$(printf '%s' "${out}" | grep -ci -- "${want}" || true)" -gt 0 ]; then
         ok "${label}"
     else
         bad "${label} -- did not find '${want}'. Advisory lines were:
@@ -113,7 +113,7 @@ assert_says "not-recorded(marker unreadable)" "CANNOT-RUN" \
 # rather than defaulted. This is the arm that stops a missing field reading as
 # a clean one, which is how the other 21 records got here.
 _out="$(run_with "")"
-if printf '%s' "${_out}" | grep -q 'ABSENT from this record'; then
+if [ "$(printf '%s' "${_out}" | grep -c 'ABSENT from this record' || true)" -gt 0 ]; then
     ok "a record with NO seed field is reported ABSENT, not assumed seeded"
 else
     bad "a record with no seed field did not report the absence, so every
