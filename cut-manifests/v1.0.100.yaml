@@ -741,7 +741,164 @@ open_issues:
   - issue: 960
     repo: none   # no issue of this number exists in either repo
     title: "PRIVACY: Forget this person does not forget them. 223 triples about 9 people survive"
-    gate: '🔴 BLOCKING, AND THIS ROW IS REOPENED BECAUSE IT WAS CLOSED AGAINST A PREDICATE THAT CANNOT SEE THE DEFECT IT WAS CLOSED FOR: measured 2026-09-18 on the shipped box and re-derived here. A forget deletes the fact''s LINK and leaves the fact''s CONTENT, so the sentence a customer asked to be erased is still in the graph and still returned. Evidence on row 2217: 47 of 48 orphaned facts created within 100ms of a forget, CONTROL with the forget times shifted by one hour matching 0 of 48, vector store measured clean at 2,604 of 2,604. WHY THIS ROW SAID OTHERWISE, AND IT IS THE INSTRUMENT RATHER THAN THE HONESTY. The gate cited below, tests/test_a_forget_must_reach_every_named_graph.py, is CORRECT AND COMPLETE FOR WHAT IT TESTS, and all five of its mutation arms mutate the GRAPH CLAUSE: a bare DELETE reaching a named graph, the clause count, an unqualified query, a normalise-only scope carrying the raw-cased graph, and an unrestricted graph variable in the rewriter. Its first arm takes the delete PATTERN as given and asks only whether it reaches every graph. The defect is IN that pattern. The instrument''s surface is graph scoping, the defect''s surface is what the delete removes, so this gate cannot see it by construction and no amount of it passing would ever have caught it. AND THE CONSUMER-SIDE PROOF WAS BLIND FOR THE SAME REASON. It counted triples that MENTION the person, reading 4 of 4 surviving before the fix and 0 after. Re-derived on a synthetic store, both predicates shown non-zero first so neither is always-zero: BEFORE the forget, 3 triples mention the person and 1 carries the content; AFTER the shipped forget, 0 mention the person and 1 STILL CARRIES THE CONTENT; after the correct fix, 0 and 0. A predicate keyed on the person URI reads 0 in BOTH the broken world and the fixed one, so it cannot tell them apart. The second clause is exactly what makes that true: once it has run, no triple mentions the person, which is why a person-keyed count reports a clean erasure over surviving content. WHAT IS NOT WITHDRAWN: the graph-scoping work IS done, its gate IS wired, it DID run on main, and its five mutants ARE caught. This row is not reopened because that work was wrong. It is reopened because it answered a different question. WHICH HALF-WIRED FAILURE MODE: a probe never graded, in its sharpest form. The probe WAS graded, and graded green, against a mutation set sharing no surface with the defect. A gate green on the wrong surface is worth less than no gate, because it closes the row. RETIRE BY: the fix on row 2217, plus a mutation arm that mutates the DELETE PATTERN rather than the graph clause, and a regression test shaped as the measurement run backwards, which is to assert a fact, forget the person, and assert that ZERO triples carrying that fact URI remain. Not by re-running the existing gate. PRIOR VERDICT, UNCHANGED, FOLLOWS. THE STRIKE''S EVIDENCE WAS WRONG AND ITS CONCLUSION IS RIGHT, and both halves matter. This row is one of the 31 whose number resolves to a CM051 PULL REQUEST rather than any issue, so "the issue this row names is CLOSED" was never a fact about this row. It is left struck anyway, because the work is INDEPENDENTLY PROVEN done, which is a different and better reason. VERIFIED ON origin/main 2026-09-16, by running the gate rather than reading the diff: #1973 (squash bf5f376d25cb) ships tests/test_a_forget_must_reach_every_named_graph.py and the workflow forget-reaches-every-graph.yml. The workflow triggers on pull_request AND push, and it RAN on main''s current head with conclusion success, so it is wired and not merely present. THE GATE CAN FAIL, which is the check that matters: it carries FIVE mutation arms and all five are caught -- a bare DELETE reaching a named graph, a bare DELETE with the full clause count, an unqualified query reaching the named graph, a normalise-only scope carrying the raw-cased graph, and a shipped rewriter emitting an unrestricted GRAPH ?g. It also asserts the FIVE readers route through one shared helper defined once in compartment.py, rather than five copies that can drift apart. CONSUMER-SIDE, from #1973''s own measurement: pre-fix the API returned forgotten=true and stores_purged while 4 of 4 triples SURVIVED in the named graph, and a control person''s records were untouched after the fix, so the delete is precise and not broad. The subject there is a person''s records, not a file. WHICH HALF-WIRED FAILURE MODE: "a probe never graded" and "built but unreachable". Checked by running the gate, reading its mutation arms, and confirming the workflow actually executed on main rather than merely existing. STILL NOT PROVEN in the item-9 sense: no v1.0.99 DMG exists, so no walk has exercised it. ORIGINAL STRIKE TEXT BELOW. STRIKE REVERSED 2026-09-18, AND THE ROW IS COUNTED AGAIN. This row was struck on 2026-09-16 on the ground that its number named an issue that had been closed on the tracker. The strike sentence is deliberately PARAPHRASED here and not quoted: _STRUCK_ON_CLOSURE is a plain substring test on the whole gate value, so quoting it verbatim put all 41 reversed rows back inside the struck branch, escaping only through _names_proof. One edit to this prose would have flipped 41 rows to ungated. Measured, then removed. MY FIRST EVIDENCE FOR THIS WAS ITSELF THE ERROR I WAS REPORTING, and the corrected version is worse for the strike, not better. I resolved all 41 numbers against CM051 and reported 41 of 41 as pull requests. But THE ROW DECLARES ITS OWN REPO and I did not read the field: 10 of the 41 declare repo HR015 and 31 declare repo none. Resolving an HR015 number against CM051 is the same category error the strike made, committed by the agent auditing it, and it was caught only because a pre-existing note inside row 947 said HR015 #947 IS AN OPEN ISSUE. RE-MEASURED AGAINST THE REPO EACH ROW DECLARES. The ten HR015 rows are 946, 947, 948, 940, 942, 941, 943, 944, 928 and 929, and all ten resolve in andygmassey/HR015-Gaming-PC to OPEN issues, every one titled [LAUNCH]. They were struck as closed while they are open launch work. That is not a number collision, it is a false statement about live launch issues. The remaining 31 declare repo none, which the checklist gate itself defines as measured findings rather than tracker items, so there is no issue for the strike to have found closed at all; the number is an internal id. What made the strike look plausible is that those internal ids also land on closed CM051 pull requests, which is exactly the coincidence a repo field exists to prevent, and exactly the coincidence I then fell for while checking it. AND ROW 1014, STRUCK BY THIS SAME STRIKE, IS TITLED "78 registered rows name issues that are already CLOSED": the row about this class of error was removed by the error. HOW IT GOT IN: commit d7a3da88, inside PR #1975, whose subject is a SPARQL editor bug, so nobody reviewing that PR was reviewing a 41-row board strike. Its own message says "and one strike was wrong", so the counterexample was already in hand and was filed as an exception rather than read as evidence about the method. WHAT THIS REVERSAL IS AND IS NOT: it restores the row to the count. It is NOT a claim the work is undone, and it is NOT a re-triage. Each of the 41 needs its own measurement, which is a day of work and is owed. Until then the row is counted as ungated, which looks worse and is true. THE SIZE OF THE EFFECT, MEASURED, AND I REVISED IT DOWN TWICE. First I said 4 ungated to 33, from my own literal search rather than the gate''s definition. Then 40 to 46, which double-counted rows my own reversal text had accidentally marked ungated: the narrative SPELLED OUT the ungated marker while describing it, and the checklist gate counts that marker by substring, so the prose became the verdict. Third time in one night that writing ABOUT a predicate tripped it. AND THE FIRST STATEMENT OF THE FIX NAMED THE WRONG MECHANISM, which Archie caught: the ungated test is a plain substring on the whole uppercased value, with no anchor and no position test, so putting the verdict at the FRONT protects nothing. What actually protects it is NEVER SPELLING THE MARKER IN THE NARRATIVE. The verdict is still at the front because that is where a verdict belongs, but anyone relying on the position would put the marker back in the prose below it and silently flip the row for ever, with a correct-looking verdict still on top. A fix whose stated mechanism is wrong is a fix that gets undone by somebody following the instructions. The final measurement, running the checklist gate''s own _is_ungated against an origin/main checkout and against this board: 40 before, 42 after. Of the four newly counted, TWO are rows registered in this same PR (2138 and 2141) and only TWO were suppressed by the strike: 956, evernote_knowledge empty on a box that shipped the importer, and 1018, another session mutating the shared checkouts. Two rows stop being counted, correctly: 941 and 960 carry real gates of 10,160 and 5,635 characters, and on main they were counted only because the unevidenced strike text sat on top of them. THIS WAS ALREADY FILED, ALREADY MEASURED, AND HALF ALREADY FIXED, AND MY FIRST ACCOUNT OF IT CLAIMED FAR TOO MUCH. Row 2114, 41 of 174 cut-checklist rows were struck on issue closure, not on a fix, names this exact defect with the same arithmetic I re-derived. PR #2115 then fixed _is_ungated so a struck row whose own text says the work is unfinished, or that names no checkable proof, is counted again. Row 2114 records the before and after: 0 ungated before, 35 after, with a control of 6 struck rows naming a merged PR that correctly stayed gated. So the COUNT was restored by #2115 two days before I looked, and that is why my successive estimates of the damage kept shrinking: I was measuring the residue of a defect somebody had already largely closed. TWELVE rows independently say, in their own gate text, that the number resolves to a PULL REQUEST: 946, 947, 948, 940, 942, 941, 943, 944, 928, 929, 960 and 1045, and row 960 puts it plainly, THE STRIKE''S EVIDENCE WAS WRONG AND ITS CONCLUSION IS RIGHT. WHAT WAS ACTUALLY LEFT UNDONE, and it is all this reversal is: the strike TEXT still asserted a false REASON on all 41 rows, so every reader was told the number named a closed issue when it named an unrelated merged pull request, and nothing stopped the next strike being made the same way. The text is corrected here and tests/test_a_struck_row_names_an_issue_not_a_pull_request.py refuses it next time. That is the whole contribution, and it is smaller than the first three versions of this paragraph said. HOW IT WAS FOUND, because no process caught it: by accident, while gating row 957 for a fix, noticing the row was already struck, and checking the number out of habit. The estate already carries the memory feedback_task_ids_collide_with_github_numbers and it did not prevent this. GATE: tests/test_a_struck_row_names_an_issue_not_a_pull_request.py now refuses a strike that names no title, and refuses one whose number resolves to a pull request. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. HIGHEST SEVERITY IN THIS MANIFEST because it is a deletion request the product ACCEPTS AND DOES NOT HONOUR. ical-server.py:1596 issues a bare DELETE WHERE with no GRAPH clause, so it cannot reach urn:ostler:user/<id> where CM048 writes. MEASURED ON THE BOX: 223 triples about 9 persons survive a forget. CONTROL: all 9 are properly typed pwg:Person in the default graph, so the probe can see them. A customer who asks Ostler to forget someone is told it happened. It did not.'
+    gate: >-
+      GATED 2026-09-19, AND THE FIX IS MERGED RATHER THAN OWED. THIS ROW NO LONGER DECLARES ITSELF A
+      BLOCKER, and the reason is a merged change and not a re-reading of the old evidence. CM051 #2220
+      grafts the repair into vendor/cm041/assistant_api/ical-server.py and is on main. WHAT WAS WRONG:
+      _forget_person_update deleted every triple where the person is the SUBJECT and every triple
+      where the person is the OBJECT. The second clause removes a fact's LINK to the person and leaves
+      the fact NODE, so factText, factSource, belongsToUser, privacyLevel and createdAt all survived
+      and the reader, which lists by belongsToUser, kept returning the sentence. WHAT LANDED: fact-
+      collecting clauses that run BEFORE the link delete, scoped by fact TYPE plus the fact-to-person
+      PREDICATE, for BOTH vocabularies, because pwg:PersonFact is 48 facts on the box and CM048's
+      urn:ostler:Fact is 1,274, so a pwg-only repair would have left 96 per cent of the customer's
+      facts standing. PROOF, driven and not read:
+      tests/test_a_forget_erases_the_fact_not_just_the_link.py lifts the SHIPPED function by AST and
+      runs it against a synthetic store under pyoxigraph AND rdflib, which agree on every figure. 15
+      pass / 0 fail, rc 0 under OSTLER_CUT_IN_PROGRESS=1, and the same file driven against the pre-fix
+      server gives 2 failures and rc 1, so the instrument can fail. It is named in cut.yml by CM051
+      #2217, so its refusal executes during a cut and not only on a pull request. AND THE OBVIOUS
+      REPAIR WOULD HAVE BEEN WORSE THAN THE DEFECT, which is why this row is gated on the scoping
+      rather than on the deletion. Deleting every triple of any subject linking to the person was
+      measured against a store carrying a meeting BOTH people attended and a bystander node carrying
+      spouseOf: it erased the meeting with its other attendees and the bystander's entire record
+      including their own name. On a people graph a shared node is the normal case and not a corner,
+      RelationshipSignal 380 and fromConversation 1353 on the box. The broad form is kept in the test
+      as a NEGATIVE CONTROL that must destroy what the scoped one keeps, because four MUST-MISS arms
+      with nothing in the fixture that can fail them are green by construction, and they were, for
+      several hours. STILL OWED, and recorded rather than quietly carried: the same fix upstream in
+      CM041 so the two converge, and the vendored tree is 1,151 lines ahead of CM041 main (row 2218)
+      so a re-vendor would destroy shipped behaviour. The divergence is recorded at
+      vendor/divergences/cm041_assistant_api.UNRECORDED.md because regeneration was run against a
+      CM041 worktree at exactly the pinned sha and REFUSED: upstream still carries a value of
+      personal-contact shape that the vendored tree has scrubbed, so recording it would publish that
+      value into this PUBLIC repo. NOT PROVEN in the item 9 sense: no walk probe exercises a real
+      forget against a real store, so the CI green is a probe about a function rather than about a
+      customer. LEDGER: HR015 #981, merged. ORIGINAL TEXT FOLLOWS. 🔴 BLOCKING, AND THIS ROW IS
+      REOPENED BECAUSE IT WAS CLOSED AGAINST A PREDICATE THAT CANNOT SEE THE DEFECT IT WAS CLOSED FOR:
+      measured 2026-09-18 on the shipped box and re-derived here. A forget deletes the fact's LINK and
+      leaves the fact's CONTENT, so the sentence a customer asked to be erased is still in the graph
+      and still returned. Evidence on row 2217: 47 of 48 orphaned facts created within 100ms of a
+      forget, CONTROL with the forget times shifted by one hour matching 0 of 48, vector store
+      measured clean at 2,604 of 2,604. WHY THIS ROW SAID OTHERWISE, AND IT IS THE INSTRUMENT RATHER
+      THAN THE HONESTY. The gate cited below, tests/test_a_forget_must_reach_every_named_graph.py, is
+      CORRECT AND COMPLETE FOR WHAT IT TESTS, and all five of its mutation arms mutate the GRAPH
+      CLAUSE: a bare DELETE reaching a named graph, the clause count, an unqualified query, a
+      normalise-only scope carrying the raw-cased graph, and an unrestricted graph variable in the
+      rewriter. Its first arm takes the delete PATTERN as given and asks only whether it reaches every
+      graph. The defect is IN that pattern. The instrument's surface is graph scoping, the defect's
+      surface is what the delete removes, so this gate cannot see it by construction and no amount of
+      it passing would ever have caught it. AND THE CONSUMER-SIDE PROOF WAS BLIND FOR THE SAME REASON.
+      It counted triples that MENTION the person, reading 4 of 4 surviving before the fix and 0 after.
+      Re-derived on a synthetic store, both predicates shown non-zero first so neither is always-zero:
+      BEFORE the forget, 3 triples mention the person and 1 carries the content; AFTER the shipped
+      forget, 0 mention the person and 1 STILL CARRIES THE CONTENT; after the correct fix, 0 and 0. A
+      predicate keyed on the person URI reads 0 in BOTH the broken world and the fixed one, so it
+      cannot tell them apart. The second clause is exactly what makes that true: once it has run, no
+      triple mentions the person, which is why a person-keyed count reports a clean erasure over
+      surviving content. WHAT IS NOT WITHDRAWN: the graph-scoping work IS done, its gate IS wired, it
+      DID run on main, and its five mutants ARE caught. This row is not reopened because that work was
+      wrong. It is reopened because it answered a different question. WHICH HALF-WIRED FAILURE MODE: a
+      probe never graded, in its sharpest form. The probe WAS graded, and graded green, against a
+      mutation set sharing no surface with the defect. A gate green on the wrong surface is worth less
+      than no gate, because it closes the row. RETIRE BY: the fix on row 2217, plus a mutation arm
+      that mutates the DELETE PATTERN rather than the graph clause, and a regression test shaped as
+      the measurement run backwards, which is to assert a fact, forget the person, and assert that
+      ZERO triples carrying that fact URI remain. Not by re-running the existing gate. PRIOR VERDICT,
+      UNCHANGED, FOLLOWS. THE STRIKE'S EVIDENCE WAS WRONG AND ITS CONCLUSION IS RIGHT, and both halves
+      matter. This row is one of the 31 whose number resolves to a CM051 PULL REQUEST rather than any
+      issue, so "the issue this row names is CLOSED" was never a fact about this row. It is left
+      struck anyway, because the work is INDEPENDENTLY PROVEN done, which is a different and better
+      reason. VERIFIED ON origin/main 2026-09-16, by running the gate rather than reading the diff:
+      #1973 (squash bf5f376d25cb) ships tests/test_a_forget_must_reach_every_named_graph.py and the
+      workflow forget-reaches-every-graph.yml. The workflow triggers on pull_request AND push, and it
+      RAN on main's current head with conclusion success, so it is wired and not merely present. THE
+      GATE CAN FAIL, which is the check that matters: it carries FIVE mutation arms and all five are
+      caught -- a bare DELETE reaching a named graph, a bare DELETE with the full clause count, an
+      unqualified query reaching the named graph, a normalise-only scope carrying the raw-cased graph,
+      and a shipped rewriter emitting an unrestricted GRAPH ?g. It also asserts the FIVE readers route
+      through one shared helper defined once in compartment.py, rather than five copies that can drift
+      apart. CONSUMER-SIDE, from #1973's own measurement: pre-fix the API returned forgotten=true and
+      stores_purged while 4 of 4 triples SURVIVED in the named graph, and a control person's records
+      were untouched after the fix, so the delete is precise and not broad. The subject there is a
+      person's records, not a file. WHICH HALF-WIRED FAILURE MODE: "a probe never graded" and "built
+      but unreachable". Checked by running the gate, reading its mutation arms, and confirming the
+      workflow actually executed on main rather than merely existing. STILL NOT PROVEN in the item-9
+      sense: no v1.0.99 DMG exists, so no walk has exercised it. ORIGINAL STRIKE TEXT BELOW. STRIKE
+      REVERSED 2026-09-18, AND THE ROW IS COUNTED AGAIN. This row was struck on 2026-09-16 on the
+      ground that its number named an issue that had been closed on the tracker. The strike sentence
+      is deliberately PARAPHRASED here and not quoted: _STRUCK_ON_CLOSURE is a plain substring test on
+      the whole gate value, so quoting it verbatim put all 41 reversed rows back inside the struck
+      branch, escaping only through _names_proof. One edit to this prose would have flipped 41 rows to
+      ungated. Measured, then removed. MY FIRST EVIDENCE FOR THIS WAS ITSELF THE ERROR I WAS
+      REPORTING, and the corrected version is worse for the strike, not better. I resolved all 41
+      numbers against CM051 and reported 41 of 41 as pull requests. But THE ROW DECLARES ITS OWN REPO
+      and I did not read the field: 10 of the 41 declare repo HR015 and 31 declare repo none.
+      Resolving an HR015 number against CM051 is the same category error the strike made, committed by
+      the agent auditing it, and it was caught only because a pre-existing note inside row 947 said
+      HR015 #947 IS AN OPEN ISSUE. RE-MEASURED AGAINST THE REPO EACH ROW DECLARES. The ten HR015 rows
+      are 946, 947, 948, 940, 942, 941, 943, 944, 928 and 929, and all ten resolve in
+      andygmassey/HR015-Gaming-PC to OPEN issues, every one titled [LAUNCH]. They were struck as
+      closed while they are open launch work. That is not a number collision, it is a false statement
+      about live launch issues. The remaining 31 declare repo none, which the checklist gate itself
+      defines as measured findings rather than tracker items, so there is no issue for the strike to
+      have found closed at all; the number is an internal id. What made the strike look plausible is
+      that those internal ids also land on closed CM051 pull requests, which is exactly the
+      coincidence a repo field exists to prevent, and exactly the coincidence I then fell for while
+      checking it. AND ROW 1014, STRUCK BY THIS SAME STRIKE, IS TITLED "78 registered rows name issues
+      that are already CLOSED": the row about this class of error was removed by the error. HOW IT GOT
+      IN: commit d7a3da88, inside PR #1975, whose subject is a SPARQL editor bug, so nobody reviewing
+      that PR was reviewing a 41-row board strike. Its own message says "and one strike was wrong", so
+      the counterexample was already in hand and was filed as an exception rather than read as
+      evidence about the method. WHAT THIS REVERSAL IS AND IS NOT: it restores the row to the count.
+      It is NOT a claim the work is undone, and it is NOT a re-triage. Each of the 41 needs its own
+      measurement, which is a day of work and is owed. Until then the row is counted as ungated, which
+      looks worse and is true. THE SIZE OF THE EFFECT, MEASURED, AND I REVISED IT DOWN TWICE. First I
+      said 4 ungated to 33, from my own literal search rather than the gate's definition. Then 40 to
+      46, which double-counted rows my own reversal text had accidentally marked ungated: the
+      narrative SPELLED OUT the ungated marker while describing it, and the checklist gate counts that
+      marker by substring, so the prose became the verdict. Third time in one night that writing ABOUT
+      a predicate tripped it. AND THE FIRST STATEMENT OF THE FIX NAMED THE WRONG MECHANISM, which
+      Archie caught: the ungated test is a plain substring on the whole uppercased value, with no
+      anchor and no position test, so putting the verdict at the FRONT protects nothing. What actually
+      protects it is NEVER SPELLING THE MARKER IN THE NARRATIVE. The verdict is still at the front
+      because that is where a verdict belongs, but anyone relying on the position would put the marker
+      back in the prose below it and silently flip the row for ever, with a correct-looking verdict
+      still on top. A fix whose stated mechanism is wrong is a fix that gets undone by somebody
+      following the instructions. The final measurement, running the checklist gate's own _is_ungated
+      against an origin/main checkout and against this board: 40 before, 42 after. Of the four newly
+      counted, TWO are rows registered in this same PR (2138 and 2141) and only TWO were suppressed by
+      the strike: 956, evernote_knowledge empty on a box that shipped the importer, and 1018, another
+      session mutating the shared checkouts. Two rows stop being counted, correctly: 941 and 960 carry
+      real gates of 10,160 and 5,635 characters, and on main they were counted only because the
+      unevidenced strike text sat on top of them. THIS WAS ALREADY FILED, ALREADY MEASURED, AND HALF
+      ALREADY FIXED, AND MY FIRST ACCOUNT OF IT CLAIMED FAR TOO MUCH. Row 2114, 41 of 174 cut-
+      checklist rows were struck on issue closure, not on a fix, names this exact defect with the same
+      arithmetic I re-derived. PR #2115 then fixed _is_ungated so a struck row whose own text says the
+      work is unfinished, or that names no checkable proof, is counted again. Row 2114 records the
+      before and after: 0 ungated before, 35 after, with a control of 6 struck rows naming a merged PR
+      that correctly stayed gated. So the COUNT was restored by #2115 two days before I looked, and
+      that is why my successive estimates of the damage kept shrinking: I was measuring the residue of
+      a defect somebody had already largely closed. TWELVE rows independently say, in their own gate
+      text, that the number resolves to a PULL REQUEST: 946, 947, 948, 940, 942, 941, 943, 944, 928,
+      929, 960 and 1045, and row 960 puts it plainly, THE STRIKE'S EVIDENCE WAS WRONG AND ITS
+      CONCLUSION IS RIGHT. WHAT WAS ACTUALLY LEFT UNDONE, and it is all this reversal is: the strike
+      TEXT still asserted a false REASON on all 41 rows, so every reader was told the number named a
+      closed issue when it named an unrelated merged pull request, and nothing stopped the next strike
+      being made the same way. The text is corrected here and
+      tests/test_a_struck_row_names_an_issue_not_a_pull_request.py refuses it next time. That is the
+      whole contribution, and it is smaller than the first three versions of this paragraph said. HOW
+      IT WAS FOUND, because no process caught it: by accident, while gating row 957 for a fix,
+      noticing the row was already struck, and checking the number out of habit. The estate already
+      carries the memory feedback_task_ids_collide_with_github_numbers and it did not prevent this.
+      GATE: tests/test_a_struck_row_names_an_issue_not_a_pull_request.py now refuses a strike that
+      names no title, and refuses one whose number resolves to a pull request. ORIGINAL FINDING, which
+      carried no gate until now: It previously carried no gate. HIGHEST SEVERITY IN THIS MANIFEST
+      because it is a deletion request the product ACCEPTS AND DOES NOT HONOUR. ical-server.py:1596
+      issues a bare DELETE WHERE with no GRAPH clause, so it cannot reach urn:ostler:user/<id> where
+      CM048 writes. MEASURED ON THE BOX: 223 triples about 9 persons survive a forget. CONTROL: all 9
+      are properly typed pwg:Person in the default graph, so the probe can see them. A customer who
+      asks Ostler to forget someone is told it happened. It did not.
 
   - issue: 961
     repo: none   # no issue of this number exists in either repo
@@ -1580,7 +1737,38 @@ open_issues:
   - issue: 2141
     repo: CM051
     title: 'The Doctor page is unconditionally dark and uses the banned reds, not oxblood'
-    gate: 'GATE: NONE YET. Registered here for the same reason as #2138: the checklist gate was RED on origin/main because neither was in the register. CUSTOMER-FACING: the Doctor page is a surface the owner is sent to when something is wrong, so it is exactly the wrong page to be off-brand, and feedback_ostler_brand_light_not_dark is explicit that the brand is light with oxblood rather than the banned reds. NOT MEASURED HERE, and it needs a rendered screenshot of the shipped page rather than a source grep, because a palette can be correct in a stylesheet and overridden at render.'
+    gate: >-
+      GATED 2026-09-19, MEASURED ON THE RENDERED PAGE RATHER THAN ON THE STYLESHEET. This row asked
+      for exactly that and said a source grep would not do, because a palette can be correct in a
+      stylesheet and overridden at render. CM051 #2214 is merged and satisfies it:
+      tests/test_the_doctor_page_is_on_brand.py renders the shipped Doctor dashboard and measures the
+      pixels it actually produces. IT REFUSES RATHER THAN PASSING WHEN IT CANNOT RENDER, exit 2 when
+      fastapi is absent, so a missing dependency is a CANNOT-RUN and not a quiet green; that was
+      driven locally and it reported CANNOT-RUN rather than a pass. IT IS WIRED IN THE JOB THAT
+      INSTALLS WHAT IT NEEDS, vendor-integrity.yml, which pip-installs
+      vendor/doctor/agent/requirements.txt in the same job, and that workflow ran GREEN on the merge
+      head, so the page was really rendered rather than skipped. Its path filter names all four files
+      that carry the palette, because the page was off-brand in three of them at once and a filter
+      naming only web_ui.py would have missed two. ITS OWN INSTRUMENTS CARRY CONTROLS: luminance is
+      shown to separate white from black, contrast is shown to separate a legible pair from an
+      illegible one, and the token reader is shown to find a seeded token so an empty result means
+      absent rather than broken. AND THE REFUSAL NOW RUNS DURING A CUT, which it did not when #2214
+      landed: CM051 #2218 names it in cut.yml, so its rc 1 arm executes at cut time instead of
+      nowhere. That gap was found on #2215 and the same defect was present here, in the same batch.
+      NOT PROVEN in the item 9 sense: no walk probe opens the Doctor page and reads its palette, so
+      this is a probe about a rendered artefact rather than about what a customer sees on their own
+      box. The brand rule itself is feedback_ostler_brand_light_not_dark: light with oxblood, never
+      the banned reds. ORIGINAL TEXT FOLLOWS. the ungated marker, PARAPHRASED AND DECLARED because
+      that marker is matched by a plain substring test over the WHOLE gate value with no position
+      test, so carrying it verbatim anywhere in this row would hold the row ungated for ever
+      regardless of the verdict above. Row 939 records the same trap flipping 41 rows at once. It
+      read:. Registered here for the same reason as #2138: the checklist gate was RED on origin/main
+      because neither was in the register. CUSTOMER- FACING: the Doctor page is a surface the owner is
+      sent to when something is wrong, so it is exactly the wrong page to be off-brand, and
+      feedback_ostler_brand_light_not_dark is explicit that the brand is light with oxblood rather
+      than the banned reds. NOT MEASURED HERE, and it needs a rendered screenshot of the shipped page
+      rather than a source grep, because a palette can be correct in a stylesheet and overridden at
+      render.
   - issue: 2149
     repo: none
     title: '_is_ungated cannot tell a verdict from a mention, so a row that DESCRIBES a strike is counted as one'
@@ -1751,56 +1939,65 @@ open_issues:
       One-click forget deletes the link and leaves the text, so the sentence the
       customer asked to be erased is still in the graph and still returned
     gate: >-
-      🔴 BLOCKING (the product reports an erasure as complete while the
-      erased content remains readable, on a surface whose own docstring cites
-      GDPR Article 17): MEASURED ON THE SHIPPED BOX 2026-09-18, by correlation
-      with a shifted control, then explained by the code.
-      THE CORRELATION: 48 PersonFacts carry a createdAt; 68 forget audit entries
-      exist; 47 of the 48 were created within 100ms of a forget, minimum delta
-      0.0023s, maximum 0.0326s. CONTROL, the same test with the forget times
-      shifted by one hour: 0 of 48. Shifting collapses the match to zero, so the
-      correlation is not an artefact of both populations being dense in the same
-      afternoon.
-      THE MECHANISM, at vendor/cm041/assistant_api/ical-server.py:1244,
-      _forget_person_update issues DELETE { <uri> ?p ?o } WHERE { <uri> ?p ?o }
-      and DELETE { ?s ?p <uri> } WHERE { ?s ?p <uri> }, plus the same pair
-      scoped into every named graph, which is a correct fix someone already
-      made. The second clause removes the aboutPerson LINK from fact to person.
-      IT DOES NOT REMOVE THE FACT NODE. factText, factSource, belongsToUser,
-      privacyLevel, factConfidence and createdAt all survive. So the fact is
-      orphaned, not erased, and it is still returned by the belongsToUser arm of
-      the facts reader, which is the same population of 48.
-      THIS ALSO CLOSES THE OPEN QUESTION FILED AS ROW 2216, and the way it was
-      missed is the lesson. Four facts were reported as unable to all be true;
-      three were right and the fourth was an instrument error. A search of the
-      shipped server for something that deletes aboutPerson found nothing,
-      because the delete does not name aboutPerson: it is ?s ?p <uri>, a
-      wildcard predicate. The search was for a field name against code that
-      names no field. Row 2216 should be closed by this row, not measured again.
-      THE OTHER HALF WAS MEASURED AND IT IS CLEAN, WHICH BOUNDS THIS ROW
-      USEFULLY: 2,604 vector points scanned, 2,604 distinct person_uri values,
-      ZERO orphaned points whose uri is absent from the graph entirely, CONTROL
-      2,604 present. So there is no vector residue, the person node itself is
-      correctly removed, and the searchable-embedding half of the under-delete
-      does not exist. THIS ROW IS THEREFORE NOT "FORGET UNDER-DELETES" IN
-      GENERAL. It is exactly one thing: a forget deletes the fact's LINK and
-      leaves the fact's CONTENT. Deleted: the aboutPerson triple, the person
-      node, the vector points. Surviving: factText, factSource, belongsToUser,
-      privacyLevel, factConfidence, createdAt. A reader listing facts by
-      belongsToUser still returns the text and nothing else leaks.
-      THE BOUNDING DECIDES THE FIX. Had the vector store been dirty this would
-      need a sweep across both stores, like the merge orphans. It does not. It
-      is one clause: the forget must delete fact NODES whose aboutPerson is the
-      person, not merely the aboutPerson triple. A DELETE WHERE matching
-      ?fact pwg:aboutPerson <uri> and then removing ?fact ?p ?o.
-      THE TEST IS THE MEASUREMENT RUN IN REVERSE: assert a fact, forget the
-      person, assert that ZERO triples carrying that fact URI remain.
-      IT WANTS ITS OWN CHANGE AND ITS OWN REVIEW. This is the erasure path, a
-      delete that is subtly wrong destroys data with no backup, and the file is
-      the Assistant API rather than anything either of tonight's sessions owns.
-      NOT DRIVEN, ON PURPOSE. The correlation plus the code establishes the
-      shape, and driving a deletion path to prove a deletion defect is the one
-      experiment where being wrong is expensive.
+      GATED 2026-09-19 BY A MERGED FIX, AND THE DISPOSITION CHANGES WITH IT. CM051 #2220 is on main
+      and grafts the repair into vendor/cm041/assistant_api/ical-server.py. The row's own statement of
+      the defect stands and is not withdrawn: the product reported an erasure as complete while the
+      erased content remained readable. It is the DISPOSITION that changes, because the fix exists
+      rather than being upstream and unclaimed as this row previously recorded. THE REPAIR: fact-
+      collecting clauses that run BEFORE the link delete, scoped by fact TYPE plus the fact-to-person
+      PREDICATE, covering both the pwg:PersonFact vocabulary (48 facts on the box) and CM048's
+      urn:ostler:Fact (1,274), so it reaches 1,322 rather than 48. THE ORDERING IS LOAD-BEARING AND IS
+      DRIVEN, not asserted: moved after the link delete the collecting clauses match nothing and the
+      repair silently does nothing while looking correct, and that control fires. PROOF:
+      tests/test_a_forget_erases_the_fact_not_just_the_link.py, which lifts the SHIPPED function by
+      AST rather than re-implementing it, under pyoxigraph AND rdflib with a disagreement treated as a
+      finding. 15 pass / 0 fail. Driven RED against the pre-fix server first: 2 failures and rc 1
+      under a cut, so the gate can fail. Named in cut.yml by CM051 #2217 so the refusal runs during a
+      cut. FOUR MUST-MISS ARMS, each of which the obvious repair fails: a bystander's own fact, a fact
+      ABOUT the bystander that merely MENTIONS the forgotten person, a meeting BOTH attended, and the
+      bystander's own name on a node carrying spouseOf. The broad clause is retained as a negative
+      control that must destroy the last two. WHAT REMAINS OWED: the same fix upstream in CM041, and
+      the CM041-side removal of a personal-contact-shaped value that currently makes this tree's
+      divergence unrecordable. Both are named on row 2218 and at
+      vendor/divergences/cm041_assistant_api.UNRECORDED.md. NOT PROVEN in the item 9 sense: no walk
+      probe performs a real forget against a real store. LEDGER: HR015 #981, merged. ORIGINAL TEXT
+      FOLLOWS. 🔴 BLOCKING (the product reports an erasure as complete while the erased content remains
+      readable, on a surface whose own docstring cites GDPR Article 17): MEASURED ON THE SHIPPED BOX
+      2026-09-18, by correlation with a shifted control, then explained by the code. THE CORRELATION:
+      48 PersonFacts carry a createdAt; 68 forget audit entries exist; 47 of the 48 were created
+      within 100ms of a forget, minimum delta 0.0023s, maximum 0.0326s. CONTROL, the same test with
+      the forget times shifted by one hour: 0 of 48. Shifting collapses the match to zero, so the
+      correlation is not an artefact of both populations being dense in the same afternoon. THE
+      MECHANISM, at vendor/cm041/assistant_api/ical-server.py:1244, _forget_person_update issues
+      DELETE { <uri> ?p ?o } WHERE { <uri> ?p ?o } and DELETE { ?s ?p <uri> } WHERE { ?s ?p <uri> },
+      plus the same pair scoped into every named graph, which is a correct fix someone already made.
+      The second clause removes the aboutPerson LINK from fact to person. IT DOES NOT REMOVE THE FACT
+      NODE. factText, factSource, belongsToUser, privacyLevel, factConfidence and createdAt all
+      survive. So the fact is orphaned, not erased, and it is still returned by the belongsToUser arm
+      of the facts reader, which is the same population of 48. THIS ALSO CLOSES THE OPEN QUESTION
+      FILED AS ROW 2216, and the way it was missed is the lesson. Four facts were reported as unable
+      to all be true; three were right and the fourth was an instrument error. A search of the shipped
+      server for something that deletes aboutPerson found nothing, because the delete does not name
+      aboutPerson: it is ?s ?p <uri>, a wildcard predicate. The search was for a field name against
+      code that names no field. Row 2216 should be closed by this row, not measured again. THE OTHER
+      HALF WAS MEASURED AND IT IS CLEAN, WHICH BOUNDS THIS ROW USEFULLY: 2,604 vector points scanned,
+      2,604 distinct person_uri values, ZERO orphaned points whose uri is absent from the graph
+      entirely, CONTROL 2,604 present. So there is no vector residue, the person node itself is
+      correctly removed, and the searchable-embedding half of the under-delete does not exist. THIS
+      ROW IS THEREFORE NOT "FORGET UNDER-DELETES" IN GENERAL. It is exactly one thing: a forget
+      deletes the fact's LINK and leaves the fact's CONTENT. Deleted: the aboutPerson triple, the
+      person node, the vector points. Surviving: factText, factSource, belongsToUser, privacyLevel,
+      factConfidence, createdAt. A reader listing facts by belongsToUser still returns the text and
+      nothing else leaks. THE BOUNDING DECIDES THE FIX. Had the vector store been dirty this would
+      need a sweep across both stores, like the merge orphans. It does not. It is one clause: the
+      forget must delete fact NODES whose aboutPerson is the person, not merely the aboutPerson
+      triple. A DELETE WHERE matching ?fact pwg:aboutPerson <uri> and then removing ?fact ?p ?o. THE
+      TEST IS THE MEASUREMENT RUN IN REVERSE: assert a fact, forget the person, assert that ZERO
+      triples carrying that fact URI remain. IT WANTS ITS OWN CHANGE AND ITS OWN REVIEW. This is the
+      erasure path, a delete that is subtly wrong destroys data with no backup, and the file is the
+      Assistant API rather than anything either of tonight's sessions owns. NOT DRIVEN, ON PURPOSE.
+      The correlation plus the code establishes the shape, and driving a deletion path to prove a
+      deletion defect is the one experiment where being wrong is expensive.
   - issue: 2210
     repo: none
     title: 'OS003 carries no row for the merge-consistency repair, and no cut directory since v1.0.81'
@@ -2400,63 +2597,90 @@ open_issues:
       The seven v1.0.100 walk failures triaged: two already fixed on main, one
       green on a box, two narrowed, two open
     gate: >-
-      🟡 TRIAGE, NOT A FIX (this row exists so nobody writes a fix that
-      already exists, and so the remaining work is four items rather than
-      seven): measured 2026-09-18 across the repository, the tags and a live
-      box, with every probe extracted from the v1.0.100 tag and its sha printed
-      and matched before any run.
-      1. ostler_unlock_reachable_by_name -- CAUSE FOUND, FIX MERGED, NOT
-      DELIVERED. Bisected to commit 2bb84015 (#1969), which ADDED
-      ln -sfn ${OSTLER_VENV}/bin/ostler-unlock while OSTLER_VENV still points at
-      the /tmp prelaunch staging tree, so the link dangles once promote removes
-      it. At v1.0.95 that line does not exist at all, which is why the probe did
-      not exist either. Fix is #2116, merged 2026-09-18T12:12:17Z, AFTER the
-      2026-09-17 tag. In no artefact.
-      2. install_manifest_complete -- CAUSE FOUND, FIX MERGED, NOT DELIVERED,
-      AND THE FAILURE POINTS THE OPPOSITE WAY FROM THE OBVIOUS READING. Driven
-      on the box with the tagged verifier: "2 present subject(s) UNDECLARED",
-      the launch agent com.ostler.memory-hygiene and the Qdrant collection
-      reminders_knowledge. Not something declared and missing: something
-      SHIPPING that no manifest row had ever decided about. Both are absent
-      from the manifest at the tag and PRESENT on origin/main, 49 rows against
-      51. Added by ec5b5048 (#2117) at 2026-09-17T23:58, whose own note reads
-      "PRESENT on the v1.0.100 walk and declared NOWHERE, which is what
-      reddened install_manifest_complete". Already diagnosed and fixed the same
-      night as the walk.
-      A HYPOTHESIS OF MINE DIED HERE AND IT IS WORTH RECORDING WHY. I predicted
-      this probe failed because the manifest gained a row between the tags,
-      qdrant_collection apple_notes_knowledge, added by bfce6872 (#2032). It
-      did gain exactly that one row and the verifier is byte-identical between
-      the tags, so the reasoning was sound and the conclusion was wrong: that
-      row is declared CONDITIONAL, so its absence cannot fail anything. Driving
-      it beat predicting it.
-      3. acceptance_gate_v1013 -- GREEN ON A BOX TODAY, WHICH IS NOT THE SAME
-      CLAIM. 7 pass / 0 fail / 1 needs-eyes / 0 could-not-run, rc 0, with a box
-      target set so it took the runtime path rather than the exit-0-with-no-
-      target path. But that is the box as it is NOW, after work has landed on
-      it, not the artefact as walked. The record says FAIL and the run says
-      GREEN, and the honest reading is that the box changed, not that the
-      record was wrong. Closing it needs a cold install of the v1.0.100 DMG,
-      which is a thin walk and not a probe run.
-      4. people_count_agreement -- OPEN, AND THE CLEANEST REMAINING FAILURE.
-      Tagged probe, sha matched: FAIL, oxigraph 2613 against doctor 2607, six
-      apart on an allowance of min(2% of 2613, cap 5) = 5. The cap landed in
-      #1799 which PREDATES v1.0.95, and v1.0.95 passed, so the cap does not
-      explain 95 to 100. A six-person drift does.
-      5. no_store_port_is_tcp_reachable -- NARROWED TO ONE PORT. Five of six
-      surfaces refuse uncredentialled and serve credentialled. Only 8144, the
-      tailnet wiki gate, refuses both. Three candidates remain and the probe
-      distinguishes them itself; see row 2224.
-      6. no_unexpected_egress -- OPEN. Its probe was made KINDER in this window
-      and failed anyway, and its declared allowlist is unchanged at 46 rows
-      across both tags.
-      7. assistant_answers_grounded -- NOT A REGRESSION. It is the single failed
-      probe on the v1.0.95 walk as well, red across both. Its product half is
-      row 955.
-      SO THE REMAINING WORK IS FOUR ITEMS, NOT SEVEN, and two of the four need
-      a cold walk rather than an investigation.
-      WHICH HALF-WIRED FAILURE MODE: present in the repo but not in the DMG, for
-      items 1 and 2. Both fixes are on main and in no artefact, which is exactly
-      the gap the three words exist to name.
-
-
+      AMENDED 2026-09-19: THE FOUR REMAINING WALK ITEMS ARE NOW TWO PASSES, ONE ROOT-CAUSED FAIL AND
+      ONE GENUINE OPEN FAIL, all driven against probes EXTRACTED FROM THE TAG with their shas printed,
+      because main and v1.0.100 differ. no_unexpected_egress PASS. Detection proved first: a socket
+      planted on :64612 was observed by this run own sampler, so a clean reading is interpretable.
+      EXAMINED 13 established connections of 35 on the box, 22 attributed to operator processes, ZERO
+      unattributable, ledger 46 rows with 124 addresses resolved over 3 lookup rounds and a live DERP
+      map of 88 nodes. Two declared crossings, both tailscale. All four of its CANNOT-RUN branches
+      were available and none fired. THE PROBE OWN CAVEAT IS CARRIED UNSOFTENED: it is a FLOOR, not a
+      proof of no leak, blind to sub-sample connections, UDP, DNS, proxied requests and all payload,
+      and a shared CDN address makes a match consistent-with rather than was.
+      no_store_port_is_tcp_reachable PASS, and 8144 was never a defect. Fully recorded on row 2224,
+      which is retired. The short version: the installer had written a 261-byte FAIL-CLOSED
+      PLACEHOLDER because no tailnet owner was resolved, so nothing listens on 8144 at all. The
+      earlier 401 and 403 readings were taken against the PREVIOUS install where an owner WAS bound.
+      Same port, same probe, same sha, opposite answer, and the only variable was an unrecorded box
+      state. acceptance_gate_v1013 FAIL on a fresh install, ROOT-CAUSED, fix raised. 7 pass / 0 fail
+      on the box as it was; 6 pass / 1 FAIL on a fresh install, arm A8 LaunchAgents exit clean,
+      com.ostler.export-scan and com.ostler.fda-rerun both exit 1. The cause is ordering, from the
+      timestamps rather than the error text: both .err files predate their own program by about 110
+      seconds, because install.sh bootstraps the agents before it places the binaries they invoke, and
+      launchctl holds the non-zero last-exit for one hour (fda-rerun) to FOUR (export-scan). So the
+      probe fails DETERMINISTICALLY on any walk run shortly after an install and passes on a box that
+      has been up a few hours. THE SAME-BOX GREEN WAS CORRECTLY REFUSED AS EVIDENCE, which is the
+      discipline that found this. PR #2221 quiesces both agents before the payload swap.
+      people_count_agreement FAIL, AND THE SIGN HAS INVERTED, which no staleness story predicts on its
+      own. Oxigraph 2583 against doctor 2612, differ by 29, allowance min(2 percent of 2612 = 52, cap
+      5) = 5. Held across 3 reads over 60 seconds, which bounds it rather than proving writing
+      stopped. EXAMINED 2 of 2 surfaces readable. Before the reinstall it was oxigraph 2613 HIGH
+      against doctor 2607; now the doctor is 29 HIGH against oxigraph. THE FIVE-NUMBER LINE, which is
+      what makes the two readings comparable at all: total Person 2613 then 2583; mergedInto carriers
+      still typed Person 32 then 25; RetiredPerson 0 then 0; total mergedInto 56 then 81; Person minus
+      merged 2581 then 2558. Internal consistency holds at both points (2583 minus 25 is 2558).
+      TWENTY-FIVE NEW MERGES HAPPENED DURING THE REINSTALL and 25 phantoms remain, so the population
+      is actively CONVERGING, which supports convergence rather than loss for the seventeen-person gap
+      this row previously recorded as unexplained. RetiredPerson is STILL ZERO across all three box
+      states tonight, so CM041 #166 repair has never run there. SO people_count_agreement IS NOT THE
+      SAME DEFECT AS THE SIX: the gap is 29, the sign inverted, and 25 merged-away nodes are still
+      counted as living people inside the oxigraph figure. Closing the doctor-versus-graph gap would
+      still leave 25 people who do not exist, which is why rows 2155, 2202 and 2206 remain separate
+      cut blockers rather than duplicates of this one. THE SPECIMEN IS PRESERVED, which is why any of
+      this is still settleable: a 26,177,052-byte n-quads dump of the pre-reinstall graph, 174,584
+      lines, sha matched box-to-laptop with 0 malformed lines on re-parse, and all five numbers
+      reconstruct from the dump exactly. The earlier state was NOT destroyed by the reinstall. WHICH
+      HALF-WIRED FAILURE MODE: a probe whose subject is an artefact rather than a person, twice. A8
+      was measuring a box that had been up long enough for its own failure to clear, and the store-
+      port probe was measuring a box configuration nobody had recorded. Both were caught by re-driving
+      a tag-extracted probe against a freshly installed box rather than trusting a same-box green.
+      ORIGINAL TEXT FOLLOWS. 🟡 TRIAGE, NOT A FIX (this row exists so nobody writes a fix that already
+      exists, and so the remaining work is four items rather than seven): measured 2026-09-18 across
+      the repository, the tags and a live box, with every probe extracted from the v1.0.100 tag and
+      its sha printed and matched before any run. 1. ostler_unlock_reachable_by_name -- CAUSE FOUND,
+      FIX MERGED, NOT DELIVERED. Bisected to commit 2bb84015 (#1969), which ADDED ln -sfn
+      ${OSTLER_VENV}/bin/ostler-unlock while OSTLER_VENV still points at the /tmp prelaunch staging
+      tree, so the link dangles once promote removes it. At v1.0.95 that line does not exist at all,
+      which is why the probe did not exist either. Fix is #2116, merged 2026-09-18T12:12:17Z, AFTER
+      the 2026-09-17 tag. In no artefact. 2. install_manifest_complete -- CAUSE FOUND, FIX MERGED, NOT
+      DELIVERED, AND THE FAILURE POINTS THE OPPOSITE WAY FROM THE OBVIOUS READING. Driven on the box
+      with the tagged verifier: "2 present subject(s) UNDECLARED", the launch agent com.ostler.memory-
+      hygiene and the Qdrant collection reminders_knowledge. Not something declared and missing:
+      something SHIPPING that no manifest row had ever decided about. Both are absent from the
+      manifest at the tag and PRESENT on origin/main, 49 rows against 51. Added by ec5b5048 (#2117) at
+      2026-09-17T23:58, whose own note reads "PRESENT on the v1.0.100 walk and declared NOWHERE, which
+      is what reddened install_manifest_complete". Already diagnosed and fixed the same night as the
+      walk. A HYPOTHESIS OF MINE DIED HERE AND IT IS WORTH RECORDING WHY. I predicted this probe
+      failed because the manifest gained a row between the tags, qdrant_collection
+      apple_notes_knowledge, added by bfce6872 (#2032). It did gain exactly that one row and the
+      verifier is byte-identical between the tags, so the reasoning was sound and the conclusion was
+      wrong: that row is declared CONDITIONAL, so its absence cannot fail anything. Driving it beat
+      predicting it. 3. acceptance_gate_v1013 -- GREEN ON A BOX TODAY, WHICH IS NOT THE SAME CLAIM. 7
+      pass / 0 fail / 1 needs-eyes / 0 could-not-run, rc 0, with a box target set so it took the
+      runtime path rather than the exit-0-with-no- target path. But that is the box as it is NOW,
+      after work has landed on it, not the artefact as walked. The record says FAIL and the run says
+      GREEN, and the honest reading is that the box changed, not that the record was wrong. Closing it
+      needs a cold install of the v1.0.100 DMG, which is a thin walk and not a probe run. 4.
+      people_count_agreement -- OPEN, AND THE CLEANEST REMAINING FAILURE. Tagged probe, sha matched:
+      FAIL, oxigraph 2613 against doctor 2607, six apart on an allowance of min(2% of 2613, cap 5) =
+      5. The cap landed in #1799 which PREDATES v1.0.95, and v1.0.95 passed, so the cap does not
+      explain 95 to 100. A six-person drift does. 5. no_store_port_is_tcp_reachable -- NARROWED TO ONE
+      PORT. Five of six surfaces refuse uncredentialled and serve credentialled. Only 8144, the
+      tailnet wiki gate, refuses both. Three candidates remain and the probe distinguishes them
+      itself; see row 2224. 6. no_unexpected_egress -- OPEN. Its probe was made KINDER in this window
+      and failed anyway, and its declared allowlist is unchanged at 46 rows across both tags. 7.
+      assistant_answers_grounded -- NOT A REGRESSION. It is the single failed probe on the v1.0.95
+      walk as well, red across both. Its product half is row 955. SO THE REMAINING WORK IS FOUR ITEMS,
+      NOT SEVEN, and two of the four need a cold walk rather than an investigation. WHICH HALF-WIRED
+      FAILURE MODE: present in the repo but not in the DMG, for items 1 and 2. Both fixes are on main
+      and in no artefact, which is exactly the gap the three words exist to name.
