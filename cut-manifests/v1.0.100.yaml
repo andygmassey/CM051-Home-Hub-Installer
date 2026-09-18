@@ -5747,3 +5747,34 @@ open_issues:
       gate saying it could not look, and the reason names the missing prerequisite. NOT A DUPLICATE OF
       ROW 2241: that row is about a gate the cut never runs. This is about how the results of gates
       that DO run are rendered to a person.
+  - issue: 2243
+    repo: none
+    title: 'Eight self-declared cut-blocking gates run on a pull request and NOT on a tag push, and the register marks all eight UNREVIEWED'
+    gate: >-
+      MEASURED 2026-09-19 FROM THE REACHABILITY SWEEP'S OWN THIRD AXIS AND THEN INDEPENDENTLY. NOT
+      BLOCKING, and filed because the register already admits nobody has decided it. THE NUMBERS: 22
+      of 30 declarers are reachable from a cut-tag entry point, and EIGHT declare themselves cut-
+      blocking, are reachable, and DO NOT RUN ON A TAG PUSH. The baseline that records them holds 11
+      rows, of which 3 are marked DECIDED and EIGHT ARE MARKED UNREVIEWED. So this is not a discovery
+      the register missed; it is a decision the register is openly waiting for. AND THE SEVERITY IS
+      NARROWER THAN DEAD, WHICH IS THE PART WORTH GETTING RIGHT. I checked whether any of the eight is
+      wired to nothing, because that would be the first of the seven modes and a much worse finding.
+      ALL EIGHT ARE WIRED, each named by a workflow that triggers on a pull request, verified per file
+      rather than in aggregate. So they DO run. They run BEFORE a merge and never AT a cut. WHAT THAT
+      ACTUALLY COSTS, stated precisely rather than alarmingly: every commit reaching main passes
+      through pull-request checks, so a pull-request-time gate does cover main IN GENERAL. The gap is
+      the PATHS FILTER. A workflow scoped to paths runs only when those paths change, so a gate's
+      coverage of the tree is exactly as good as its filter, and a defect arriving through a path its
+      filter does not name is never examined by it. A CUT-TIME run has no such scoping: it would
+      examine the tree as built. So these eight are guarded by their filters rather than by the cut,
+      and NOBODY HAS CHECKED THOSE FILTERS AGAINST WHAT EACH GATE CLAIMS TO GUARD. WHY IT IS NOT
+      BLOCKING: they run, they can refuse, and they refuse on the path that produces main. Calling
+      this a cut blocker would put a filter-scope question beside real defects on the list that stops
+      a tag, which is the mislabelling this board keeps recording in the other direction. WHAT WOULD
+      CLOSE IT: each of the eight UNREVIEWED rows gains a DECIDED verdict with a reason, and the
+      reason must say which of two things is true. EITHER the gate's paths filter demonstrably covers
+      everything it claims to guard, so a cut-time run would add nothing, OR it does not and the gate
+      is wired to fire on a tag push as well. It must NOT close by marking them decided without that
+      distinction, because DECIDED with no reason is the same as UNREVIEWED with extra confidence. NOT
+      A DUPLICATE OF ROW 2241: that row is about the cut never evaluating a CAPABILITY at all. This is
+      about gates that DO run, on a different trigger from the one they declare themselves to guard.
