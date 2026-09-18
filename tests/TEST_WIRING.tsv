@@ -57,6 +57,7 @@ test_a_pairing_non_answer_is_not_a_rejection.sh	WIRED	.github/workflows/walk-rec
 test_a_pairing_reader_runs_before_the_pairing_mutator.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_a_plistbuddy_read_takes_its_exit_code.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_promote_before_the_decline_arms_is_gated.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_a_quiesced_interval_agent_is_re_registered.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_ratchet_must_not_name_a_false_cause.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_a_remembered_remote_access_answer_is_not_asked_again.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_remote_url_is_quoted_against_zsh_globbing.sh	WIRED	.github/workflows/walk-record-gate.yml
@@ -331,7 +332,6 @@ test_installer_output_keeps_the_tail.sh	WIRED	.github/workflows/installer-memory
 test_installer_version_consistency.sh	WIRED	.github/workflows/installer-version-consistency.yml
 test_installer_version_matches_the_cut.sh	WIRED	.github/workflows/cut.yml
 test_interval_agents_are_quiesced_before_their_programs_move.sh	WIRED	.github/workflows/cold-box-source-truth.yml
-test_a_quiesced_interval_agent_is_re_registered.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_invoked_tests_are_watched_gate.sh	WIRED	.github/workflows/invoked-tests-are-watched.yml
 test_killed_converge_leaves_a_record.sh	WIRED	.github/workflows/killed-converge-leaves-a-record.yml
 test_knowledge_repo_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
