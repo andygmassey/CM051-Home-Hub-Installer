@@ -208,7 +208,35 @@ fi
 # is prose in both places, nothing executes a line lookup into this file, so it
 # is left for its owners rather than fixed under a freeze.
 . "$HERE/lib/grounding_seed.sh"
-grounding_seed_apply || true
+
+# 🔴 THE SEED STATE REACHED NOTHING, AND THAT IS WHY 17 OF 21 COMMITTED WALKS
+# CANNOT BE READ. grounding_seed.sh has always set GROUNDING_SEED_STATE to one
+# of five values -- unrun, seeded, skipped, absent, failed -- and NOTHING
+# anywhere consumed it. The `|| true` below then discarded the exit code too,
+# so a walk whose seed never applied looked identical to one whose seed worked.
+#
+# assistant_answers_grounded is red on 17 of the 21 committed walk records. An
+# unseeded box and a broken product produce THE SAME RED, and the record could
+# not tell them apart, so every one of those reds has been ambiguous.
+#
+# The `|| true` behaviour is KEPT deliberately: a missing seed oracle is not a
+# product defect and must not abort the walk. What changes is that the outcome
+# is now WRITTEN DOWN instead of thrown away. Same shape as the
+# stores-provenance marker, which post_walk_qa.sh reads back over ssh.
+_gs_rc=0
+grounding_seed_apply || _gs_rc=$?
+_gs_state="${GROUNDING_SEED_STATE:-unrun}"
+if printf '%s rc=%s\n' "${_gs_state}" "${_gs_rc}" > "${HOME}/.walk-grounding-seed-run"; then
+    printf '  seed state recorded for the walk record: %s (rc=%s)\n\n' \
+        "${_gs_state}" "${_gs_rc}"
+else
+    # NOT silent, and NOT a clean value. A marker that could not be written
+    # must reach the record as an absence, which post_walk_qa.sh reports as
+    # NOT RECORDED rather than inventing a state.
+    printf '  WARNING: could not write the grounding-seed marker to %s\n' \
+        "${HOME}/.walk-grounding-seed-run"
+    printf '  The walk record will say NOT RECORDED rather than guess.\n\n'
+fi
 
 # ── AND THE PREFERENCE SEED, the same discipline on the other write route ──
 #

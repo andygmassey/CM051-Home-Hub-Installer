@@ -34,6 +34,7 @@ test_a_denied_read_is_not_an_absence.sh	WIRED	.github/workflows/unreachable-not-
 test_a_dev_wipe_verdict_is_not_inverted.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
 test_a_failed_hydrate_may_not_fabricate_a_count.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_a_failed_import_is_not_announced_as_done.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
+test_a_failed_source_recorder_is_not_silent.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_failed_walk_must_not_exit_zero.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_failing_probes_early_output_is_not_discarded.py	WIRED	.github/workflows/cut-manifest.yml
 test_a_file_we_could_not_read_is_not_a_clean_file.py	WIRED	.github/workflows/cut-manifest.yml
@@ -527,6 +528,7 @@ test_the_dry_run_can_still_go_green.sh	WIRED	.github/workflows/version-gate-not-
 test_the_egress_inventory_still_describes_the_software.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_the_egress_proof_can_go_red.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_the_emergency_cut_row_tells_the_truth.sh	WIRED	.github/workflows/cut-manifest.yml
+test_the_erasure_graft_survives_a_revendor.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
 test_the_failed_to_look_message_can_actually_print.sh	WIRED	.github/workflows/dmg-delivery-gate.yml
 test_the_forward_calendar_window_survives_the_rerun.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_generated_uninstaller_parses.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
@@ -753,6 +755,7 @@ scripts/tests/test_resolve_cut_daemon_pin.sh	WIRED	gui/Makefile
 scripts/tests/test_run_box_walk_records_phase1_verdicts.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_store_curl_conf_permissions.sh	WIRED	.github/workflows/secrets-dir-mode.yml
 scripts/tests/test_the_keyword_and_the_prose_agree.py	WIRED	.github/workflows/enforce-ledger-write.yml
+scripts/tests/test_the_walk_record_says_whether_the_box_was_seeded.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_verify_app_provenance.sh	WIRED	gui/Makefile
 scripts/tests/test_verify_branch_truth_gate.sh	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_verify_clean_tree_gate.sh	WIRED	.github/workflows/cut-manifest.yml

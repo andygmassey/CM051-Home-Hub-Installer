@@ -146,6 +146,7 @@ on:
       - 'tests/test_a_walk_failure_is_classified.sh'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in the very PR that narrows it.
+      - 'scripts/tests/test_the_walk_record_says_whether_the_box_was_seeded.sh'
       - '.github/workflows/walk-record-gate.yml'
   push:
     branches: [main]
@@ -639,6 +640,25 @@ jobs:
       - name: run_box_walk.sh records phase 1 verdicts for the manifest replay
         if: always()
         run: /bin/bash scripts/tests/test_run_box_walk_records_phase1_verdicts.sh
+
+      - name: The walk record says whether the box was SEEDED before the grounded probe asked
+        # `if: always()` REQUIRED, same reason as every sibling here: a red in an
+        # earlier step would otherwise SKIP this one, and a skipped gate reads
+        # as a passing gate in the check list.
+        if: always()
+        # 🔴 assistant_answers_grounded is red on 17 of the 21 committed walk
+        # records, and an UNSEEDED box and a BROKEN product produce THE SAME
+        # RED. grounding_seed.sh has always computed the state -- seeded,
+        # skipped, absent, failed, unrun -- and NOTHING consumed it, while
+        # run_box_walk.sh threw away the exit code with `|| true` on top. So
+        # every one of those 17 reds has been ambiguous and the record looked
+        # complete either way.
+        #
+        # This asserts the READER, because a field written and never
+        # interpreted is the same defect one layer along. Its MUST-MISS arm
+        # requires seeded and skipped to produce DIFFERENT sentences, so a
+        # reader that echoed the value instead of grading it would fail.
+        run: /bin/bash scripts/tests/test_the_walk_record_says_whether_the_box_was_seeded.sh
 
       # THE OTHER HALF OF THAT PROBE. The step above proves the probe can tell
       # a carried fact from a missing one. It cannot see whether the walk ever
