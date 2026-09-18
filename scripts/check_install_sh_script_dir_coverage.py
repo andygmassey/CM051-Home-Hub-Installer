@@ -131,6 +131,23 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "ostler_hygiene": ['${DEST}/ostler_hygiene'],
     "scripts": ["scripts/deferred-register-device.sh"],
     "scripts/deferred-register-device.sh": ["scripts/deferred-register-device.sh"],
+    # #1765: the graph namespace migrator. install.sh probes
+    # ${SCRIPT_DIR}/scripts/migrate_graph_namespace.py before running the
+    # one-way rewrite of the customer's graph identifiers. It was called for
+    # months against ${OSTLER_DIR}/scripts, a directory this installer never
+    # creates (1 occurrence in install.sh, the read itself, against 61 for
+    # ${OSTLER_DIR}/bin), so the guard was false on every box and the migration
+    # has never run. The file IS bundled; only the caller was wrong.
+    #
+    # THE SOURCE-PATH NEEDLE IS FOR THE SIBLING GATE, and it is NOT enough on
+    # its own here: the bundling block assigns
+    #     SRC_NS="${SRCROOT}/../scripts/migrate_graph_namespace.py"
+    # several lines above its cp, so deleting the cp leaves this string in the
+    # file and a source-path needle would stay satisfied over a package that no
+    # longer ships. The cp-unique needle below is what makes a deletion RED.
+    "scripts/migrate_graph_namespace.py": [
+        '${SRCROOT}/../scripts/migrate_graph_namespace.py'
+    ],
     # ⚠️ THIS ONE IS STILL COVERAGE-BLIND AND I AM SAYING SO RATHER THAN
     # HIDING IT. A cp-unique needle for this asset would have to be the cp
     # LINE itself, because its source is assigned three lines earlier as
@@ -209,6 +226,25 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "THIRD_PARTY_NOTICES.md": ["vendor/THIRD_PARTY_NOTICES.md"],
     "LICENSES": ["vendor/LICENSES"],
     "Ostler.app": ["OSTLER_APP_PATH"],
+    # Recover Ostler.app (#1970): the standalone GUI doorway to the installed
+    # ostler-unlock redeemer. install.sh probes ${SCRIPT_DIR}/Recover Ostler.app
+    # and stages it into /Applications/Ostler; the copy into Resources is the
+    # RECOVERY_APP_PATH block in the "Bundle install.sh + lib/..." phase.
+    #
+    # ⚠️ THE NEEDLE IS THE cp ITSELF, and that is load-bearing. The three
+    # obvious candidates are all WEAK, each for the reason the store-auth entry
+    # above records: "RECOVERY_APP_PATH" survives in the ${VAR:-} capture and in
+    # the else-branch message, and "${DEST}/Recover Ostler.app" survives on the
+    # xattr line beside the copy. Any of them would leave the gate reporting
+    # covered with the cp deleted -- a positive control carrying the very thing
+    # it hunts. This fragment appears on the cp line and nowhere else in
+    # gui/project.yml. MUTATION-PROVED: with the cp line deleted the gate exits
+    # 1 and names this asset; restored, it exits 0.
+    #
+    # Not source-shaped, so tests/test_bundled_package_comes_from_its_declared_
+    # source.py lists it as out-of-scope rather than failing on it -- the same
+    # branch that already carries the bare-variable "OSTLER_APP_PATH" above.
+    "Recover Ostler.app": ['cp -R "$RECOVERY_APP_SRC"'],
     # W8 / F6: the Safari extension is now staged by the "Bundle Safari
     # extension into Resources" postBuildScript (and by release.sh for the
     # tarball path). Enforce the postBuildScript's presence so a future
@@ -250,6 +286,11 @@ CP_ONLY_NEEDLES: dict[str, list[str]] = {
     ],
     "scripts": [
         'cp "${SRC}" "${DEST}/scripts/deferred-register-device.sh"'
+    ],
+    # #1765, same shape and the same reason: SRC_NS is assigned above the cp,
+    # so only the cp line itself is unique to the copy actually happening.
+    "scripts/migrate_graph_namespace.py": [
+        'cp "${SRC_NS}" "${DEST}/scripts/migrate_graph_namespace.py"'
     ],
 }
 SCRIPT_DIR_REGEX = re.compile(r'"\$\{SCRIPT_DIR\}/([^"$]+?)"')

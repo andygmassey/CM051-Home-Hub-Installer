@@ -371,8 +371,14 @@ months." Surface these as User Coach meta-observations.
    priority (overnight), throttled one-at-a-time. `prompt_version`
    recorded per step output so re-runs can filter.
 8. **Data retention participation** from day one. Every datum carries
-   `retention_tier` + `retention_score_inputs`. See
-   `HR015/DATA_RETENTION.md` for the cross-cutting spec.
+   `retention_tier`. **NOT IMPLEMENTED AS RETENTION.** The tier is
+   computed and stored and nothing reads it; no sweeper exists, so no
+   record has ever expired. `retention_score_inputs` is written by
+   nothing at all. `HR015/DATA_RETENTION.md` does not exist and never
+   did -- measured 2026-09-16, zero files matching `*retention*` in the
+   repo. The live statement of what is and is not true lives at the
+   definition site, `src/ingest.py` `RETENTION_TIERS`, and the gap is
+   filed in `PRIVACY_ENFORCEMENT_GAPS.md` at the CM051 repo root.
 
 Phase A kicks off now — A.1 complete, A.2 (enrichment prompts) in
 progress.

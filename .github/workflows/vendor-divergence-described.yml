@@ -1,0 +1,196 @@
+name: vendor-divergence-described
+
+# AN UNDESCRIBED VENDOR DIVERGENCE IS RED ON THE PR THAT INTRODUCES IT.
+# CM051 #1961.
+#
+# WHAT #1961 SAYS, AND THE CORRECTION THAT IS THE LOAD-BEARING PART
+#
+# It does NOT say the freshness gate is broken. verify_vendor_fresh.sh is
+# fail-closed by default (VENDOR_FRESH_STRICT defaults to 1 since 2026-08-15)
+# and vendor-integrity.yml opts out at exactly one call site with fourteen
+# lines of reasoning above it, printing GATE: DEGRADED and never GREEN.
+# Re-measured while writing this rather than inherited: exactly one setting of
+# VENDOR_FRESH_STRICT to zero in the whole tree. Arm A of the suite pins all
+# three of those facts, so a PR that quietly widens the opt-out goes red here.
+# Arm A counts the literal setting anywhere under .github/workflows, comments
+# included, which is why this paragraph describes it in words rather than
+# writing it out. That strictness is deliberate: a commented-out copy is the
+# first step to an uncommented one, and it should cost a sentence to add.
+#
+# The gap is the CONSEQUENCE of that opt-out. A runner has no CM041, CM048 or
+# HR015 checkout, so every cross-repo tree degrades to unverifiable and the
+# content limb never executes. Nothing on CI stands between "somebody hand-
+# edited a vendored file" and "the next sync_vendor.sh deletes it, and the
+# person meeting the refusal reaches for SYNC_ACCEPT_DIVERGENCE_LOSS=1".
+#
+# WHY THIS GATE AND NOT THE FIX THE ISSUE PROPOSES
+#
+# #1961 proposes making the source repos resolvable on the runner, then
+# dropping the opt-out. That is a credentials-and-checkout project against
+# PRIVATE repositories from a PUBLIC repo's runners, and even done perfectly it
+# does not close the window on the PR that introduces the divergence: it tells
+# you the bytes differ, not whether a human wrote down why.
+#
+# This gate asks a question that needs no source repo at all, so it runs on any
+# runner, on the PR itself: a vendored tree's content changed, was that change
+# DESCRIBED anywhere? Four routes, every one of them a diff a reviewer can see:
+# the divergence patch changed, the pin moved, an unrecorded_divergence record
+# was written, or the file carries a VENDOR_ONLY.tsv row. Anything else is RED.
+#
+# THE TWO GATES FAIL IN DIFFERENT DIRECTIONS AND THE ESTATE NEEDS BOTH. The
+# freshness gate catches a tree that drifted from a source it CAN read. This one
+# catches a tree that was edited where no source is readable at all.
+#
+# THE SPECIMENS ARE REAL AND MERGED. The suite drives the gate over f2fe7eea
+# (#1956: three trees edited, two described, cm048_pipeline described nowhere,
+# in a commit whose own manifest field says "NOTHING WILL GO RED about it") and
+# over fb5c7bcf (#1974: two vendored files hand-edited, the record left as prose
+# in a manifest note). Both RED. The same f2fe7eea run reports its other two
+# trees OK, which is the control that the gate discriminates rather than
+# refusing everything.
+#
+# fetch-depth: 0 IS LOAD-BEARING, TWICE. The gate computes a merge base, and a
+# shallow clone cannot. It also cannot reach the two historical specimens, and
+# the suite reports that by name as CANNOT-RUN rather than quietly scoring
+# nothing.
+#
+# British English throughout. No em dashes.
+
+on:
+  pull_request:
+    paths:
+      # THE SUBJECT. Everything this gate adjudicates lives here.
+      - 'vendor/**'
+      - 'scripts/verify_vendor_divergence_described.py'
+      - 'tests/test_an_undescribed_vendor_divergence_is_red.sh'
+      # Arm A asserts on these two, so a change to either must run the suite
+      # that judges it. A gate that asserts on a file it does not watch cannot
+      # fire on the commit that breaks it.
+      - 'scripts/verify_vendor_fresh.sh'
+      - '.github/workflows/vendor-integrity.yml'
+      # A gate must trigger on changes to ITSELF, or it can be quietly narrowed
+      # in the very PR that narrows it.
+      - '.github/workflows/vendor-divergence-described.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  described:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Both the merge base and the two historical specimens need real
+          # history. Without this the gate reports CANNOT-RUN, which is honest
+          # and useless, and the suite says so by name rather than passing.
+          fetch-depth: 0
+
+      # THE GATE ITSELF, AGAINST THIS PULL REQUEST. This is the step that can
+      # actually stop an undescribed divergence from landing.
+      - name: Every vendored edit in this PR is written down somewhere
+        if: github.event_name == 'pull_request'
+        run: |
+          python3 scripts/verify_vendor_divergence_described.py \
+            --base "${{ github.event.pull_request.base.sha }}" \
+            --head "${{ github.event.pull_request.head.sha }}"
+
+      # THE SUITE. Twenty arms: the opt-out is still one call site; the four
+      # description routes and the four ways to fake one; the two real merged
+      # specimens with a discrimination control; and CANNOT-RUN proved distinct
+      # from RED on four different unmeasurable inputs.
+      #
+      # if: always(), ci-maskless (#1695): without it a red in the step above
+      # SKIPS this one, and a skipped check reports nothing at all rather than
+      # no objection. They share no state.
+      - name: The gate can say RED, GREEN and CANNOT-RUN, proved on real commits
+        if: always()
+        run: /bin/bash tests/test_an_undescribed_vendor_divergence_is_red.sh
+
+      # THE NEGATIVE CONTROL. A harness that has never been observed to fail is
+      # not evidence. Replace the gate with a stub that always exits 0, the
+      # classic false-pass shape, and REQUIRE the suite to go red. The stub is
+      # written into a scratch tree, never over the tracked file, so a failure
+      # here cannot leave a doctored gate behind for a later step to measure.
+      - name: Negative control, the suite must go RED on a stub gate
+        if: always()
+        run: |
+          set -u
+          FAKE="${RUNNER_TEMP}/fakeroot"
+          rm -rf "$FAKE"
+          mkdir -p "${FAKE}/scripts" "${FAKE}/tests" "${FAKE}/.github/workflows"
+          cp scripts/verify_vendor_fresh.sh "${FAKE}/scripts/"
+          cp .github/workflows/vendor-integrity.yml "${FAKE}/.github/workflows/"
+          cp tests/test_an_undescribed_vendor_divergence_is_red.sh "${FAKE}/tests/"
+          printf '#!/usr/bin/env python3\nimport sys\nprint("GATE: GREEN -- nothing examined")\nsys.exit(0)\n' \
+            > "${FAKE}/scripts/verify_vendor_divergence_described.py"
+          chmod +x "${FAKE}/scripts/verify_vendor_divergence_described.py"
+          set +e
+          /bin/bash "${FAKE}/tests/test_an_undescribed_vendor_divergence_is_red.sh" \
+            > "${RUNNER_TEMP}/stub.out" 2>&1
+          rc=$?
+          set -e
+          tail -8 "${RUNNER_TEMP}/stub.out"
+          echo "suite against a stub gate exited ${rc}"
+          if [ "$rc" -ne 1 ]; then
+            echo "NEGATIVE CONTROL FAILED: expected exit 1 from the suite."
+            echo "rc=2 would mean the suite could not run, which is not a red"
+            echo "attributable to the stub. A dead fixture satisfying the"
+            echo "control is the same false pass in a new costume."
+            cat "${RUNNER_TEMP}/stub.out"
+            exit 1
+          fi
+          if [ "$(grep -c 'B1 a vendored file edited with no record' "${RUNNER_TEMP}/stub.out")" -eq 0 ]; then
+            echo "NEGATIVE CONTROL FAILED: the suite went red, but not on the arm"
+            echo "that matters. A gate that always exits 0 must be caught by the"
+            echo "arm that requires a RED on an undescribed edit, by name."
+            cat "${RUNNER_TEMP}/stub.out"
+            exit 1
+          fi
+          echo "negative control OK: stub gate -> suite exit 1, naming the arm that should have reddened"
+
+      - name: The gate compiles and the suite parses under /bin/bash
+        if: always()
+        run: |
+          python3 -m py_compile scripts/verify_vendor_divergence_described.py
+          bash -n tests/test_an_undescribed_vendor_divergence_is_red.sh
+          echo "gate compiles, suite parses"
+
+  # ==========================================================================
+  # macOS. The re-vendor happens on a Mac, where /bin/bash is 3.2.57 and the
+  # userland is BSD. The suite leans on `sed -i.bak`, `grep -c`, `mktemp -d`
+  # and heredocs, all of which behave differently enough between GNU and BSD
+  # that an ubuntu-only green says nothing about the machine an operator runs
+  # sync_vendor.sh on.
+  # ==========================================================================
+  described-macos:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Record the shell this job actually has
+        run: |
+          set -u
+          echo "/bin/bash -> $(/bin/bash --version | head -1)"
+          maj="$(/bin/bash -c 'echo ${BASH_VERSINFO[0]}')"
+          if [ "${maj}" != "3" ]; then
+            echo "CANNOT-RUN: /bin/bash here is not 3.x, so this job would measure"
+            echo "            the same shell the ubuntu job does and report a"
+            echo "            second green for the first job's reason."
+            exit 1
+          fi
+
+      - name: The same twenty arms, on bash 3.2 and BSD userland
+        run: /bin/bash tests/test_an_undescribed_vendor_divergence_is_red.sh

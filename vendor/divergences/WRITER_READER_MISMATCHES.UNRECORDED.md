@@ -2,10 +2,17 @@
 
 **Hand-built 2026-09-16, CM051 #1974. Location and shape only, never content.**
 
-Three vendored trees were edited by that PR. For each one, the proper record is
-its `divergence_patch`, and for each one the regeneration tool was RUN and
-could not produce it here. This file is the missing half, written by hand,
-following the pattern already set by `cm041_contact_syncer.UNRECORDED.md`.
+Three vendored trees were edited by that PR, and this file has since been
+extended in place by later PRs that hit the same refusals. For each one, the
+proper record is its `divergence_patch`, and for each one the regeneration tool
+was RUN and could not produce it here. This file is the missing half, written
+by hand, following the pattern already set by
+`cm041_contact_syncer.UNRECORDED.md`.
+
+Each later entry states when it was added and re-states the refusal it was
+measured against. Inheriting an earlier PR's refusal without re-running the
+tool would be the same thing as inheriting an ack: a debt with nobody's name
+on it.
 
 It is a record, not an instrument. Nothing reads it and it cannot be applied.
 Its whole job is to stop the next `sync_vendor.sh` deleting these edits without
@@ -81,6 +88,38 @@ handler and no storage call changed.
 Shape: +1 constant and 1 changed return, in each of two sibling files.
 `import_evernote.py` is NOT touched: it already returned this collection.
 
+### `vendor/doctor/agent/web_ui.py` -- the source table covers the FDA extract family (CM051 #1587, 2026-09-16)
+
+Same tree, same reason there is no patch, and the refusal was RE-MEASURED for
+this entry rather than inherited. `scripts/regenerate_divergence_patch.sh
+doctor`, run 2026-09-16 with `HR015` pointed at the local source checkout,
+printed the 43 upstream commits past the pin and then:
+
+    REFUSED: this is a RE-PIN, not a graft to record.
+
+so the advance limb still holds and there is still no patch to write here.
+
+- new module constant `_FDA_EXTRACT_KINDS`, a two-entry dict beside
+  `_SOURCE_KINDS`. It is the CONDITIONAL row register: a name in it joins the
+  table only when its hydrate sentinel exists on disk, because those sources
+  are the ones the customer picks and an unconditional row would show amber
+  "not run yet" for a source somebody declined.
+- `read_source_status()`: builds a local `kinds` dict from `_SOURCE_KINDS` plus
+  any `_FDA_EXTRACT_KINDS` entry whose sentinel is present, and iterates that
+  instead of `_SOURCE_KINDS` directly. Two added lines of loop, one changed
+  iteration target.
+- `render_source_status()`: `_LABEL` and `_COLOUR` each gain `cannot_run` and
+  `timeout`. Both are declared install.sh statuses that had no entry, so the
+  cell fell through to the raw identifier and a customer with Full Disk Access
+  ungranted read the word "cannot_run" in their own panel.
+- `render_source_status()`: the Items cell prints nothing for `cannot_run`,
+  `not_run` and `unreadable`. The cannot-run recorder writes `item_count=0`
+  because the change-detection helper it shares needs a number; printing that
+  0 beside "could not look" is a fabricated count.
+
+Shape: +1 constant, +1 loop in one reader, +4 label/colour entries and +1
+guard in one renderer.
+
 ## What a future sync must preserve
 
 If `sync_vendor.sh` refuses on any of these three trees, the refusal is
@@ -93,3 +132,125 @@ loss.
 `vendor/cm019_preferences` is the fourth tree edited and is NOT listed here: it
 carries `verify = "skip"` and an empty `divergence_patch` by design, and its
 record lives in `CM019_DIVERGENCE_REGISTRY.md`, which this PR also updates.
+
+---
+
+## ADDED 2026-09-18, CM051 #2129. `cm041/identity_resolver`, and the tool was RE-RUN.
+## ADDED 2026-09-18, CM051 #2131. `cm041/assistant_api`, and the tool was RE-RUN.
+
+Per the rule at the top of this file, the refusal below was measured TODAY
+rather than inherited from the 2026-09-16 entry. Inheriting a refusal is
+inheriting an ack: a debt with nobody's name on it.
+
+SCOPE NARROWED AFTER REVIEW. This entry first covered BOTH this tree and
+`cm041/assistant_api`. Archie caught the hazard: #2131 makes the assistant_api
+graft and touched no register file, so if it merged first, or if this PR were
+held or closed, that graft would have shipped unrecorded. Worse, it is the one
+graft a pin can never describe even in principle, because it has no upstream
+commit. Its record now lives in #2131 itself. Each PR carries its own half and
+the merge order stops mattering.
+THIS ENTRY LIVES IN THE PR THAT MAKES THE GRAFT, DELIBERATELY. It was first
+written into CM051 #2129 alongside the identity_resolver half, and Archie
+caught the hazard in that: #2131 touches no register file at all, so if it
+merged first, or if #2129 were held or closed, this graft would ship with
+nothing recording it. An ordering requirement that lives only in a merge loop
+is not recorded anywhere. Each PR now carries its own record and the order
+stops mattering.
+
+The local CM041 checkout was UNSHALLOWED first, because a `--depth 1` clone
+cannot materialise a historic pin and the tool would have reported CANNOT-RUN
+for a reason that was mine and not the repo's. The pin resolves in it now and a
+fabricated SHA does not, so the check discriminates.
+
+`scripts/regenerate_divergence_patch.sh cm041/identity_resolver`, CM041
+exported to that checkout:
+
+| tree | outcome | what the tool said |
+|---|---|---|
+| `cm041/identity_resolver` | **REFUSED**, exit 1 | "this is a RE-PIN, not a graft to record. Regenerating here would fold those upstream commits into the divergence patch and record them as local edits to this repo. Move the pin first, re-apply the graft on the new base, then run this tool if a divergence remains." It listed 16 unshipped commits touching this tree. |
+
+### Why the pin was NOT moved, which is what the tool's advice assumes
+
+Measured: 16 commits sit between this tree's pin and CM041 main, and FOURTEEN of
+them are on this tree's own `hold_ack_shas` list, which has exactly 14 entries.
+Moving the pin to main would have silently un-held every commit classified
+individually on 2026-09-06 and pulled them into the cut.
+
+A pin naming an older commit than the content is a recorded debt. A pin moved to
+main would be an unrecorded scope change that also undoes a deliberate hold.
+
+There is a second reason, independent of the hold: `pinned_sha` and
+`divergence_patch` are a RECONSTRUCTION PAIR, not a label. Editing the SHA alone
+leaves the patch as diff(old pin, old tree), so the pair reconstructs nothing and
+the manifest asserts a round-trip that no longer holds.
+
+### What was grafted, location and shape only, never content
+
+`vendor/cm041/identity_resolver/`, carrying CM041 #162 (`cc0150f2`) and #163
+(`aee68c24`), applied as those PRs' source hunks rather than by syncing the
+tree, for the reason above:
+
+- `batch_resolver.py`: +1 function, `sweep_qdrant_orphans_of_merged_people`, and
+  its report type. One new `httpx.Client(trust_env=False)` against the
+  customer's local Oxigraph.
+- `resolver.py`: +1 step in `merge_persons` retiring the discard's type; and
+  `find_by_identifier` now follows `mergedInto` to the survivor via a new
+  `follow_merge_chain`.
+- `repair_merge_consistency.py`: new file, 8238 bytes, byte-identical to CM041
+  main.
+`scripts/regenerate_divergence_patch.sh cm041/assistant_api`, CM041 exported to
+that checkout:
+
+| tree | outcome | what the tool said |
+|---|---|---|
+| `cm041/assistant_api` | **REFUSED**, exit 1 | "this is a RE-PIN, not a graft to record. Regenerating here would fold those upstream commits into the divergence patch and record them as local edits to this repo. Move the pin first, re-apply the graft on the new base, then run this tool if a divergence remains." It listed one unshipped commit: `82f4537 feat(cost): complete the CM041 usage-journal producers`. |
+
+### Why the pin was NOT moved, which is what the tool's advice assumes
+
+Measured: this tree has exactly ONE commit between its pin and CM041 main, and
+it IS the single entry on its own `hold_ack_shas` list. Moving the pin would
+have silently un-held the one commit somebody held deliberately on 2026-09-06.
+
+A pin naming an older commit than the content is a recorded debt. A pin moved
+to main would be an unrecorded scope change that also undoes a hold.
+
+There is a second reason, independent of the hold: `pinned_sha` and
+`divergence_patch` are a RECONSTRUCTION PAIR, not a label. Editing the SHA
+alone leaves the patch as diff(old pin, old tree), so the pair reconstructs
+nothing and the manifest asserts a round-trip that no longer holds.
+
+### The case a pin cannot describe even in principle
+
+This graft has NO upstream commit. `_forget_audit_has` was written in CM051,
+not in CM041, so no CM041 SHA describes the vendored `ical-server.py` and none
+ever will. A vendored tree can contain code that exists nowhere upstream, which
+means `pinned_sha` is not and can never be a description of what is vendored.
+Only pin plus patch is, and where the code is locally authored, only a record
+is. This file is that record.
+
+### What was grafted, location and shape only, never content
+
+`vendor/cm041/assistant_api/ical-server.py`:
+
+- `+1` function, `_forget_audit_has`, THREE-state: True when an audit line for
+  the slug exists, False when the log is readable and holds none, None when the
+  log could not be read at all.
+- The not-found arm of `api_people_forget` now distinguishes "never found" from
+  "already erased" and reports `not_found` rather than `already_forgotten`.
+  HTTP status deliberately unchanged at 200, because the iOS Companion's
+  ForgetPersonService was written against that and cannot be re-tested from
+  here; the BODY is what lied, so the body is what changed.
+
+Shape: +1 function, +1 rewritten branch in one handler.
+
+### What a future sync must preserve
+
+A `sync_vendor.sh` refusal on this tree is EXPECTED and correct.
+`SYNC_ACCEPT_DIVERGENCE_LOSS=1` would restore a people count that is wrong in
+both stores at once, and a sync that resurrects people the graph merged away.
+The remedy is to re-pin DELIBERATELY, with the 14 held commits adjudicated one
+at a time the way they were held, then re-apply this graft on the new base.
+`SYNC_ACCEPT_DIVERGENCE_LOSS=1` would restore a forget that tells a customer it
+erased somebody it never found. The remedy is to re-pin DELIBERATELY, with the
+held commit adjudicated the way it was held, then re-apply this graft on the
+new base.

@@ -72,7 +72,16 @@ class IngestResponse(BaseModel):
 
 
 class SearchRequest(BaseModel):
-    """Vector similarity search request."""
+    """Vector similarity search request.
+
+    ``compartment_level`` IS NOT A MAXIMUM, whatever its name suggests. It is
+    the threshold of the compartment arm, and this service selects records AT
+    OR ABOVE it, the more PUBLIC half of CM019's 0..6 map (L0Personal to
+    L6Broadcast). The default of 4 therefore returns levels 4, 5 and 6.
+    See loaders/qdrant_loader.py's module header for the scale, the second
+    scale that runs the other way, and why the direction is not a per-request
+    option here.
+    """
     query: str
     user_id: str
     compartment_level: int = 4

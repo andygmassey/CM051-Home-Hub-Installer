@@ -36,6 +36,7 @@ on:
   pull_request:
     paths:
       - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'tests/test_forget_does_not_claim_an_erasure_it_did_not_do.py'
       - 'vendor/cm041/identity_resolver/compartment.py'
       - 'vendor/cm041/meeting_syncer/brief.py'
       - 'vendor/cm048_pipeline/src/candidates.py'
@@ -65,3 +66,13 @@ jobs:
       # not passed.
       - name: A forget reaches every named graph, and readers span them
         run: python3 tests/test_a_forget_must_reach_every_named_graph.py
+      - name: A forget that found nobody must not report that it erased them
+        if: always()
+        # The workflow above proves the DELETE reaches every graph (#960's
+        # SPARQL half). This proves the REPORTING half, which survived that
+        # fix: a lookup miss used to return already_forgotten=true, so a
+        # customer exercising a right the product advertises was told it was
+        # done on a person still fully present. Measured on the box
+        # 2026-09-18: five triples, HTTP 200, "already_forgotten": true, five
+        # triples still there.
+        run: python3 tests/test_forget_does_not_claim_an_erasure_it_did_not_do.py
