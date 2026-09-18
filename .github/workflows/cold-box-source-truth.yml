@@ -56,6 +56,7 @@ on:
       # a gate you have read, not a gate you have run: editing the test, or the
       # install.sh ordering it asserts, would not re-trigger it.
       - 'tests/test_interval_agents_are_quiesced_before_their_programs_move.sh'
+      - 'tests/test_a_quiesced_interval_agent_is_re_registered.sh'
       - 'tests/test_a_taken_port_is_named_not_abstracted.sh'
       - 'tests/test_a_keepalive_agent_that_cannot_bind_is_not_reported_green.sh'
       - 'install.sh'
@@ -641,3 +642,13 @@ jobs:
       - name: interval agents are quiesced before their programs move
         if: always()
         run: bash tests/test_interval_agents_are_quiesced_before_their_programs_move.sh
+
+      # The sibling above proves the quiesce is ORDERED correctly and NAMES both
+      # agents. Both were true on the install that booted com.ostler.fda-rerun
+      # out and never brought it back (walk box, 2026-09-18T17:20Z). Ordering is
+      # not debt: a bootout owes a re-registration, and only export-scan already
+      # had one. This gate RUNS the quiesce with launchctl stubbed and reads the
+      # flag it leaves behind, so it fails on the tree the sibling passed.
+      - name: a quiesced interval agent is re-registered
+        if: always()
+        run: bash tests/test_a_quiesced_interval_agent_is_re_registered.sh
