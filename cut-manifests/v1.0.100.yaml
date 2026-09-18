@@ -1640,3 +1640,61 @@ open_issues:
     repo: none   # measured finding, not a tracker item
     title: "The divergence patch APPLIES CLEANLY and does not reconstruct the tree, so a re-pin deletes shipped work"
     gate: '🔴 BLOCKING (a re-pin of vendor:doctor today deletes a shipped customer surface): MEASURED 2026-09-18 BY DOING THE RECONSTRUCTION, NOT BY READING A PATCH. For each vendored tree whose source_repo is $HR015, git archive the PINNED sha of its source path into a temp tree, apply its divergence_patch with patch -p1 --forward, then diff -rq the result against the tree CM051 actually ships. ELEVEN TREES MEASURED, SEVEN RECONSTRUCT EXACTLY, AND THAT IS THE CONTROL that makes the other four mean something: ostler_fda, legal, email_ingest, imessage_bridge, hub_power, spoken_source and email_source all come back with 0 non-test files differing, so the method works and a mismatch is a fact about the tree rather than about the instrument. THREE DO NOT RECONSTRUCT. doctor: 11 non-test shipped files differ (README.md, agent/box_status.py, agent/dashboard_components.py, agent/diagnostic_copy.py, agent/diagnostic_rules.py, agent/import_notion.py, agent/import_obsidian.py, agent/pair_status.py, agent/web_ui.py, agent/web_ui_copy.py, agent/whatsapp_pair.py). ostler_security: 2, consent_cli.py and passphrase_recovery_cli.py. whatsapp_source: 2, bin/whatsapp-bundle-tick.sh and launchd/com.creativemachines.ostler.whatsapp-bundle.plist. 🔴 AND THE PATCH APPLIES CLEANLY IN EVERY CASE. patch exits 0, no fuzz, no failed hunks, and the reconstruction is still eleven files wrong. That is worse than a patch that fails, because a failure announces itself and this returns success. Two trees exit 1 from patch and reconstruct PERFECTLY (email_source, spoken_source), which is the same lesson from the other side: the exit status is not the verdict, the diff is. THE CONCRETE, CUSTOMER-VISIBLE INSTANCE, and it is the one row 965 was gated on: render_whatsapp_keepalive is present in vendor/doctor/agent/dashboard_components.py:1292 and absent from HR015 at the pin, from HR015 main, and from the patch. CONTROL, a function both trees certainly have: render_system_overview, 1 at the pin and 1 on main. So the WhatsApp keepalive TILE exists only in the vendored copy, and a re-pin regenerating from pin plus patch deletes it, silently, returning the keepalive job to writing its verdict into a file nobody reads, which is the exact defect row 965 names. ostler_security MATTERS FOR A DIFFERENT REASON: passphrase_recovery_cli.py is the recovery-key surface, and the recovery key a customer cannot redeem is one of the two launch blockers this estate already carries. A re-pin dropping a graft there could undo a fix nobody would think to re-check. MY FIRST CONTROL WAS NOT A CONTROL, and the row records it because the mistake is the reusable part: I grepped the patch for read_whatsapp_keepalive as a supposedly-known-present control and got 0, the same as the subject. A uniform zero across subject and control is the tell, and I nearly reported the absence without knowing whether the search worked at all. 🗿 AND MY FIRST STATEMENT OF WHAT THIS MEANS WAS WRONG, CORRECTED BY ARCHIE WITHIN THE HOUR, AND THE CORRECTION MAKES IT WORSE RATHER THAN BETTER. I wrote that the non-empty divergence_patch form has no gate and that the register was silently green over doctor. IT HAS ONE AND IT IS ALREADY RED. Run with the source repositories resolvable, verify_vendor_fresh.sh reports doctor as DIFFERING from source@pinned_sha+patch and as having advanced past its pin, and returns RED. I asserted an absence of verification without running the verifier, which is the same error as reporting an absence without a control. WHAT IS ACTUALLY TRUE IS THE LINE BESIDE IT: 24 trees, 8 fresh, 3 stale or divergent, 10 UNVERIFIABLE, 3 acked. THIRTEEN OF TWENTY-FOUR ARE NOT CHECKED AT ALL, because the gate resolves its sources through environment variables nothing in the login profile sets, so where CI runs it, it checks nothing. The redness is real and INVISIBLE. That is a different defect from an unverified claim and it wants a different fix: make the gate runnable where somebody looks, rather than add a verification it already performs. 20 of the 24 trees carry a non-empty patch. ARCHIE REPRODUCED THE RECONSTRUCTION INDEPENDENTLY, matched the 11 non-test figure exactly, and swept every tree with a non-empty patch rather than only the HR015-sourced ones: FIVE trees apply cleanly and do not reconstruct (doctor 11, cm041/assistant_api 3 differing plus 4 files present ONLY in the vendored copy, ostler_security 2, cm048_pipeline 2, whatsapp_source 2), and cm041/contact_syncer fails to apply at all with 18 differing, which at least announces itself. cm041/assistant_api is the next hazard after doctor, because it is already a re-pin candidate and a re-pin would drop those four files exactly as a doctor re-pin would delete the keepalive tile. The register-level row is his; this one stays the doctor finding and the method. NOT MEASURED, AND NAMED RATHER THAN IMPLIED COVERED: the 12 trees whose source lives in CM019, CM021, CM024, CM040, CM041, CM048 or CM059. They need their own checkouts and this measurement was not run on them. Their reconstruction is unknown, which is not the same as clean. WHAT IS OWED: regenerate the three failing patches BEFORE any re-pin of those trees; add a gate that performs the reconstruction rather than checking that the patch applies; and run the same measurement on the other 12. Owner archie, the vendor register is his.'
+  - issue: 2220
+    repo: none
+    title: >-
+      The v1.0.100 walk FAILED and six of its seven failures are REGRESSIONS
+      against v1.0.95, which the record says and nobody had read
+    gate: >-
+      🔴 BLOCKING (seven probes failed a real walk of the shipped
+      artefact and six of them passed on v1.0.95): MEASURED 2026-09-18 by
+      reading walks/v1.0.100.tsv, which is now on main after CM051 #2116 merged.
+      A thin ssh walk started 2026-09-17T14:10:01Z, verdict FAILED, qa_exit 1.
+      THE SEVEN FAILED PROBES, AND WHEN EACH LAST PASSED, from the record''s own
+      regression_of lines: acceptance_gate_v1013 regressed since v1.0.95;
+      assistant_answers_grounded since v1.0.89; install_manifest_complete,
+      no_store_port_is_tcp_reachable, no_unexpected_egress,
+      ostler_unlock_reachable_by_name and people_count_agreement all since
+      v1.0.95. SIX OF SEVEN ARE REGRESSIONS AGAINST ONE VERSION. That is the
+      shape of a change between 95 and 100 rather than seven independent
+      defects, and it is the first thing anyone fixing these should look at.
+      FOUR NOT MEASURED: assistant_grounds_the_opening_turn (also the one BROKEN
+      probe), doctor_page_renders_for_a_customer, ingest_coverage,
+      usage_journal_producers. A probe that could not run has not passed.
+      ONE OF THE SEVEN IS ALREADY EXPLAINED AND ITS FIX IS ON MAIN.
+      ostler_unlock_reachable_by_name: at the v1.0.100 tag install.sh links
+      ${OSTLER_VENV}/bin/ostler-unlock, and OSTLER_VENV still points at the
+      /tmp prelaunch staging tree at that moment, so the link dangles once
+      promote removes the tree. #2116 re-points it at ${OSTLER_DIR}/.venv and
+      ASSERTS it resolves; it merged 2026-09-18T12:12:17Z, AFTER the tag, so the
+      defect was in the walked artefact and the fix is in no artefact yet. That
+      is MERGED, not DELIVERED and not PROVEN.
+      🔴 AND A CLAIM I MADE ABOUT THIS RECORD IS WITHDRAWN, because it
+      was wrong and the record says so on its own face. I reported that the
+      summary counts UNDER-COUNT the name lists: 7 failed_probe lines against
+      fail=6, and 4 not_measured_probe lines against cannot_run=3. Both are
+      explained by fields I had not read.
+      Line 12 states the scope outright: counts_scope is
+      box_walk_probes_only(phase1), while verdict, qa_exit,
+      failed_probe_names_recorded, failed_probe and not_measured_probe COVER ALL
+      PHASES. So the seventh failed probe is a phase-2 failure the phase-1
+      counts deliberately exclude.
+      Line 34 explains the other: broken_probe is
+      assistant_grounds_the_opening_turn, which also appears in the
+      not-measured list, so 4 not-measured is 3 cannot-run plus 1 broken, and
+      line 17 says the buckets partition the suite at 28 of 29 with the broken
+      one skipped.
+      THE RECORD IS SELF-CONSISTENT AND EXPLICITLY SCOPED. I read two counts as
+      covering everything when the file states on line 12 that they do not. That
+      is the same error I made earlier the same evening about the probes''
+      unset-host behaviour, which is also documented and also deliberate. READ
+      THE SCOPE BEFORE JUDGING THE INSTRUMENT, and that rule cost me twice in
+      one session on the same board.
+      WHAT IS GENUINELY MISSING AND IS NOT A DEFECT IN THE RECORD: the failure
+      REASONS are withheld in a public repo by design, and live in the walked
+      box''s own logs. So the seven can be named from here and not diagnosed
+      from here.
+      WHICH HALF-WIRED FAILURE MODE: a probe never graded, for the four not
+      measured. The other seven were graded and failed, which is the instrument
+      working.
+
