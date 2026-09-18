@@ -2754,6 +2754,20 @@ _ostler_set_paths() {
     fi
     SECURITY_DIR="${OSTLER_DIR}/security-module"
     SECURITY_CONFIG_DIR="${OSTLER_DIR}/security"
+    # 🔴 REBOUND HERE, NOT CAPTURED ONCE AT TOP LEVEL. This used to be assigned
+    # once near the recovery-key block, which runs BEFORE the promote, so it
+    # froze the prelaunch path while SECURITY_CONFIG_DIR beside it was rebound
+    # to the real tree. The writer then mkstemp'd into the live directory and
+    # os.replace()d onto a path in a tree that had already been deleted:
+    #
+    #   FileNotFoundError: '/Users/<user>/.ostler/security/tmp*.tmp'
+    #     -> '/tmp/ostler-prelaunch-<pid>/security/recovery_key_delivered.json'
+    #
+    # The install reported success. The marker was never written, and the two
+    # branches that read it could not fire on any install that promotes, which
+    # is every install. Found on a cold walk that PASSED: the only tell was a
+    # traceback count of 1.
+    RECOVERY_DELIVERY_MARKER="${SECURITY_CONFIG_DIR}/recovery_key_delivered.json"
     PIPELINE_DIR="${OSTLER_DIR}/import-pipeline"
     USER_TREE_SENTINEL="${OSTLER_DIR}/.installer-tree-created"
     # CX-87 (DMG #48g): derived path vars assigned BEFORE the FDA
@@ -3239,14 +3253,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8127) captures the path BY
+    # _ostler_write_store_curl_config (defined :8141) captures the path BY
     # VALUE and never re-reads it:
-    #     :8128   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8173   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8182 and :14595, both of which run
+    #     :8142   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8187   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8196 and :14608, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :3234 above has just deleted
-    # that tree and :3238 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :3248 above has just deleted
+    # that tree and :3252 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -3261,13 +3275,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15366, where the note reads
+    # WhatsApp Web session path did it again at :15379, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15383 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15396 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3276,13 +3290,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5747 against a definition at :8127. Top-level
+    # writer's own definition: :5761 against a definition at :8141. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8182, :14595) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8196, :14608) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17438 / :17616 / :17773 / :18114 path. There the
+    # :17451 / :17629 / :17786 / :18127 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -8429,7 +8443,6 @@ SECURITY_PREEXISTED=false
 # is scoped to THIS PROCESS ONLY and answers nothing about a previous run;
 # this file is what a later run reads instead of inferring delivery from
 # keychain.json's mere presence. It never holds the key or any part of it.
-RECOVERY_DELIVERY_MARKER="${SECURITY_CONFIG_DIR}/recovery_key_delivered.json"
 
 # Check if security is already configured (re-run detection)
 #

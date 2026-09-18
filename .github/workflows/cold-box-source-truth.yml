@@ -47,6 +47,10 @@ on:
   pull_request:
     paths:
       - 'tests/test_no_program_dodges_the_promote.sh'
+      # The class gate AND its subject. install.sh is already listed below; this
+      # names the gate itself so editing it re-triggers the workflow that runs
+      # it, rather than leaving it dark on self-edit.
+      - 'tests/test_no_path_is_frozen_across_the_promote.sh'
       - 'tests/test_a_taken_port_is_named_not_abstracted.sh'
       - 'tests/test_a_keepalive_agent_that_cannot_bind_is_not_reported_green.sh'
       - 'install.sh'
@@ -587,6 +591,27 @@ jobs:
         # is not retried. Both rows are FIXED (23 of 23 agents absolute on the
         # walk box) and nothing kept them that way until this file.
         run: python3 tests/test_a_launchagent_names_an_absolute_interpreter.py
+
+
+      # 🔴 INSTANCE SIX OF THE STAGING-PATH FAMILY, AND THE FIRST TO GET A GATE.
+      # install.sh:353 already records "THIRD OCCURRENCE OF THIS CLASS"; every
+      # prior instance was fixed as an instance. A path derived from OSTLER_DIR
+      # but captured at TOP LEVEL is frozen at whatever the value then was, and
+      # the promote rebinds OSTLER_DIR underneath it. Used after the promote it
+      # names a directory that has been deleted.
+      #
+      # Found on a cold walk that reported PASS: the recovery-key delivery
+      # marker was never written and the install said it succeeded. The only
+      # tell was a Python traceback count of 1 in a 1,537-line log, which the
+      # walk adjudicator counts and prints but does not grade.
+      #
+      # The predicate is POSITIONAL on purpose. 67 top-level derivations exist
+      # and 66 are correct because they sit after the promote; a presence test
+      # would report 67 and be ignored.
+      - name: no path is frozen across the prelaunch promote
+        if: always()
+        run: bash tests/test_no_path_is_frozen_across_the_promote.sh
+
       - name: A sentinel is not a date on a customer surface
         if: always()
         # MEASURED ON A LIVE BOX 2026-09-18, on the wire, from the endpoint the

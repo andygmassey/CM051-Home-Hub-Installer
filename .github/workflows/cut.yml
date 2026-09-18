@@ -334,6 +334,31 @@ jobs:
           OSTLER_CUT_IN_PROGRESS: '1'
         run: python3 tests/test_strict_checks_are_back_on_before_a_cut.py
 
+      # 🔴 THE DOCTOR PAGE IS THE ONE A CUSTOMER IS SENT TO WHEN SOMETHING IS
+      # WRONG, and board row 2141 measured it rendering unconditionally dark
+      # with the banned bright reds rather than oxblood #7A1F1F. The fix exists
+      # UPSTREAM in HR015 doctor/agent; what ships from here is the vendored
+      # copy, 48 commits behind its pin, and the re-pin is blocked on two
+      # vendored importers whose content exists in no upstream repository. So
+      # CM051 cannot patch its way out and what it owes is a REFUSAL.
+      #
+      # It PASSES outside a cut, because the state is known and tracked rather
+      # than unnoticed, and FAILS here. Without this step that refusal arm runs
+      # NOWHERE: the gate is invoked by vendor-integrity.yml, which never sets
+      # the flag, so the rc-1 branch was unreachable and the PR body claiming
+      # it was a cut gate asserted a pipeline that did not exist.
+      #
+      # It renders the page and reads the delivered bytes, so it needs the
+      # Doctor's runtime dependencies; without them it exits 2 (CANNOT-RUN),
+      # which is a refusal and not a pass.
+      - name: The Doctor page a customer is sent to is on brand
+        if: always()
+        env:
+          OSTLER_CUT_IN_PROGRESS: '1'
+        run: |
+          python3 -m pip install --quiet -r vendor/doctor/agent/requirements.txt
+          python3 tests/test_the_doctor_page_is_on_brand.py
+
       # 🔴 THE ERASURE REFUSAL, WIRED SO IT ACTUALLY RUNS DURING A CUT.
       #
       # tests/test_a_forget_erases_the_fact_not_just_the_link.py (PR #2215)

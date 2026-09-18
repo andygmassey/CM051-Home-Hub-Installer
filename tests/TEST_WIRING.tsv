@@ -28,6 +28,7 @@ test_a_bundle_name_with_a_space_survives_the_staple_loops.sh	WIRED	.github/workf
 test_a_calendar_export_is_found_where_exports_actually_sit.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_a_ci_alarm_is_not_a_register_gap.py	WIRED	.github/workflows/cut-checklist-complete.yml
 test_a_condition_function_must_not_short_circuit_its_own_pipeline.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
+test_a_cut_gate_is_reachable_in_the_cut.py	WIRED	.github/workflows/declared-gates-reachable.yml
 test_a_dead_wiki_announces_itself.py	WIRED	.github/workflows/vendor-integrity.yml
 test_a_denied_read_is_not_an_absence.sh	WIRED	.github/workflows/unreachable-not-absence.yml
 test_a_dev_wipe_verdict_is_not_inverted.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
@@ -377,6 +378,7 @@ test_no_local_cuts.sh	WIRED	.github/workflows/cut.yml
 test_no_main_body_call_to_a_heredoc_only_symbol.sh	WIRED	.github/workflows/sensitive-artefact-exposure.yml
 test_no_orphaned_fixes_gate.sh	WIRED	.github/workflows/cut.yml
 test_no_parser_labels_sensitive_data_publishable.py	WIRED	.github/workflows/writer-reader-vocabulary.yml
+test_no_path_is_frozen_across_the_promote.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_no_probe_lives_outside_the_walk_glob.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_no_program_dodges_the_promote.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_no_test_uses_a_bash4_builtin.sh	WIRED	.github/workflows/bash32-compat.yml
@@ -516,7 +518,7 @@ test_the_cut_checklist_is_complete.py	WIRED	.github/workflows/cut-checklist-comp
 test_the_daemon_freshness_row_decides_on_the_scoped_count.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_db_key_reaches_the_services_and_the_disk.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_the_doctor_dashboard_actually_renders.sh	WIRED	.github/workflows/vendor-integrity.yml
-test_the_doctor_page_is_on_brand.py	WIRED	.github/workflows/vendor-integrity.yml
+test_the_doctor_page_is_on_brand.py	WIRED	.github/workflows/cut.yml
 test_the_doctor_status_poll_has_a_fork_budget.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_downloads_watcher_survives_a_real_export.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
 test_the_dry_run_can_still_go_green.sh	WIRED	.github/workflows/version-gate-not-tautological.yml
