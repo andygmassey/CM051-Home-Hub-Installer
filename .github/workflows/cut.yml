@@ -346,9 +346,7 @@ jobs:
       # than unnoticed, and FAILS here. Without this step that refusal arm runs
       # NOWHERE: the gate is invoked by vendor-integrity.yml, which never sets
       # the flag, so the rc-1 branch was unreachable and the PR body claiming
-      # it was a cut gate was asserting a pipeline that did not exist. Measured
-      # on main before this step: 0 occurrences in this file, against 1 for
-      # test_the_cut_checklist_is_complete as a control.
+      # it was a cut gate asserted a pipeline that did not exist.
       #
       # It renders the page and reads the delivered bytes, so it needs the
       # Doctor's runtime dependencies; without them it exits 2 (CANNOT-RUN),
@@ -360,6 +358,36 @@ jobs:
         run: |
           python3 -m pip install --quiet -r vendor/doctor/agent/requirements.txt
           python3 tests/test_the_doctor_page_is_on_brand.py
+
+      # 🔴 THE ERASURE REFUSAL, WIRED SO IT ACTUALLY RUNS DURING A CUT.
+      #
+      # tests/test_a_forget_erases_the_fact_not_just_the_link.py (PR #2215)
+      # exits 0 outside a cut and 1 under OSTLER_CUT_IN_PROGRESS=1. It was
+      # wired into forget-reaches-every-graph.yml, which is a PR check and
+      # sets no such flag, so the refusal arm -- the half the PR leads with --
+      # executed nowhere. cut.yml names every test it runs, one `run:` per
+      # line, and it did not name this one. Measured on the merge commit:
+      # 0 occurrences in cut.yml, against a control of 1 for the checklist
+      # gate, which IS run here.
+      #
+      # THIS CHANGES NOTHING TODAY AND THAT IS THE POINT. A cut is already
+      # refused by the checklist gate, which counts rows 960 and 2217 among
+      # 15 that declare themselves BLOCKING. But that refusal rests on the
+      # ROW'S OWN PROSE. The day the upstream CM041 fix lands and the row is
+      # re-gated, that refusal stops, and without this line the only
+      # instrument that can actually SEE the defect would not be running at
+      # the moment it is needed -- a fix would be accepted on the strength of
+      # the same person-keyed predicate that closed row 960 the first time.
+      #
+      # It self-clears: when the erasure is genuinely fixed the test goes
+      # 9 pass / 0 fail and this step passes with no edit here.
+      - name: A forget erases the sentence, not only its link to a person
+        if: always()
+        env:
+          OSTLER_CUT_IN_PROGRESS: '1'
+        run: |
+          python3 -m pip install --quiet rdflib pyoxigraph
+          python3 tests/test_a_forget_erases_the_fact_not_just_the_link.py
 
       - name: Cut BOM freshness gate self-test
         if: always()
