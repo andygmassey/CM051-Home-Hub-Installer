@@ -533,6 +533,7 @@ test_the_migrator_authenticates_and_a_refusal_is_loud.py	WIRED	.github/workflows
 test_the_namespace_migrator_is_found_where_it_ships.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_number_a_customer_types_reaches_all_three_consumers.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_the_operator_rollforward_refuses_a_blind_environment.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_the_os003_pointer_cannot_rot.sh	WIRED	.github/workflows/os003-pointer.yml
 test_the_owner_node_is_minted_and_named_once.sh	WIRED	.github/workflows/owner-node-minted.yml
 test_the_pairing_qr_refuses_an_address_the_phone_cannot_open.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_permanent_manifest_is_not_optional.sh	WIRED	.github/workflows/cut-manifest.yml
