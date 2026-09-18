@@ -33,6 +33,10 @@
 #   5. the version and the artefact sha were MEASURED off the box, not
 #      asserted -- the record's own *_source fields say which, and until #931
 #      nothing read them
+#   6. the walk was a CONSOLE walk, declared by whoever was at the box. An ssh
+#      thin walk cannot grant TCC, cannot answer a GUI sheet, and cannot see
+#      first launch, so it does not authorise a customer-facing repoint. Absent
+#      declaration reads as thin, never as unknown-therefore-fine.
 #
 # EXIT CODES -- CANNOT-RUN IS NOT A PASS AND NOT A FAIL
 #   0  a clean walk of this exact version is on record
@@ -164,6 +168,66 @@ for f in pass fail cannot_run broken; do
         exit 2
     fi
 done
+
+# --- a human must have been at the console -----------------------------------
+#
+# 🔴 THIS FILE'S OWN HEADER HAS ALWAYS SAID "the cut publishes; A HUMAN WALKS;
+# the walk writes evidence", AND UNTIL NOW IT COULD NOT READ THAT. The record
+# carried no field distinguishing an ssh thin walk from a console walk, so the
+# sentence was a description of intent sitting above a gate that did not check
+# it.
+#
+# WHAT WAS ASSUMED INSTEAD, and it is false. The belief was that a CLEAN verdict
+# implies a console walk: the TCC and GUI probes cannot run over ssh, so they
+# land in cannot_run, and cannot_run > 0 makes the verdict PARTIAL. Measured
+# 2026-09-17 on committed records, denominator first -- 20 records, 20 FAILED,
+# 0 CLEAN in this repo's entire history:
+#
+#   walks/v1.0.88.tsv   pass=25 fail=1 cannot_run=0
+#   walks/v1.0.89.tsv   pass=25 fail=1 cannot_run=0
+#
+# Both ssh thin walks, both cannot_run=0. One probe away from CLEAN, and CLEAN
+# would have repointed the public customer download on the strength of a walk no
+# human ever saw. CLEAN is not even the only door: the FAILED|PARTIAL arm below
+# exits 0 whenever every named non-pass is advisory.
+#
+# ⚠️ WHERE THIS IS CALLED FROM IS THE WHOLE DESIGN, AND MY FIRST VERSION PUT IT
+# IN THE WRONG PLACE. I ran it once, before the verdict, as a single early gate.
+# tests/test_walk_record_gates_customer_download.sh arm 931-9 failed
+# immediately: the live walks/v1.0.44.tsv, a walk that MEASURED REAL DEFECTS on
+# a real box, went from rc=1 to rc=2. That converts evidence of badness into
+# absence of evidence -- the exact inversion this file's own comments warn about
+# two screens down, written after the same mistake was made there.
+#
+# So it is a function, invoked immediately before each of the two exit-0 paths
+# and nowhere else. A record that refuses for a DEFECT keeps refusing for the
+# defect and keeps saying so. Only a record that would otherwise AUTHORISE A
+# PROMOTE is asked who was at the box.
+#
+# FAIL-CLOSED ON ABSENCE, and absence is the common case: every record written
+# before scripts/post_walk_qa.sh gained the field has no walk_kind at all, and
+# each must read as "not a console walk" rather than "unknown, therefore fine".
+# Same doctrine as walk_promote_scope.tsv's unlisted probe.
+_require_console_walk() {
+    local _kind; _kind="$(field walk_kind)"
+    [[ "$_kind" == "console" ]] && return 0
+    echo "[walk-gate] REFUSED: ${RECORD} records walk_kind='${_kind:-<absent>}', not 'console'." >&2
+    echo "            $(field walk_kind_source)" >&2
+    echo "" >&2
+    echo "            Nothing is wrong with this walk. It simply is not the evidence" >&2
+    echo "            this decision needs: passing this gate repoints" >&2
+    echo "            ostler.ai/install.dmg at this build, and an ssh walk grades only" >&2
+    echo "            what ssh can reach. It cannot grant Full Disk Access, cannot" >&2
+    echo "            answer a GUI consent sheet, and cannot see what a customer sees" >&2
+    echo "            on first launch." >&2
+    echo "" >&2
+    echo "            Walk it at the console, then record THAT walk:" >&2
+    echo "              OSTLER_CONSOLE_WALK=\"<who was at the console, when, what they granted>\" \\" >&2
+    echo "                  scripts/post_walk_qa.sh <box-host> ${VERSION}" >&2
+    echo "" >&2
+    echo "            Exit 2: absence of the evidence, not evidence of a defect." >&2
+    exit 2
+}
 
 # --- the verdict must agree with the counts ----------------------------------
 # A record is a claim plus its evidence. If they disagree, the claim is the
@@ -550,7 +614,8 @@ _adjudicate_scoped() {
 
 case "$VERDICT" in
     CLEAN)
-        echo "[walk-gate] OK: ${VERSION} walked clean on $(field walked_at) -- pass=${N_PASS} fail=0 cannot_run=0 broken=0"
+        _require_console_walk
+        echo "[walk-gate] OK: ${VERSION} walked clean at the console on $(field walked_at) -- pass=${N_PASS} fail=0 cannot_run=0 broken=0"
         exit 0
         ;;
     FAILED|PARTIAL)
@@ -588,7 +653,11 @@ case "$VERDICT" in
             exit 2
         fi
         _adjudicate_scoped "$VERDICT" "${_NONPASS[@]}"
-        echo "[walk-gate] OK: ${VERSION} -- every ARTEFACT-OWNED probe passed."
+        # Reached only when every named non-pass is advisory, i.e. this record
+        # is about to authorise a promote despite a non-CLEAN verdict. Same
+        # question, same door.
+        _require_console_walk
+        echo "[walk-gate] OK: ${VERSION} -- every ARTEFACT-OWNED probe passed, and it was walked at the console."
         echo "            Record verdict stays ${VERDICT} (pass=${N_PASS} fail=${N_FAIL} cannot_run=${N_CANNOT} broken=${N_BROKEN});"
         echo "            the scoreboard is unchanged and the advisory reds above are unclosed."
         exit 0

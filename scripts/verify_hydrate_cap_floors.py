@@ -110,6 +110,9 @@ DECLARED = [
      "PRECEDENT. ⚠️ Same mis-attribution risk as initial_hydrate above"),
     ("_HYDRATE_APPLENOTES_CAP",  "hydrate_apple_notes",       PHASE_MSG, MEASURED_FLOOR_S,
      "PRECEDENT: already named + tunable at 1800 before T1; unchanged"),
+    ("_HYDRATE_REMINDERS_CAP",   "hydrate_reminders",         PHASE_MSG, MEASURED_FLOOR_S,
+     "PRECEDENT: same shape and same 1800s default as _HYDRATE_APPLENOTES_CAP "
+     "above, added alongside it (2026-09-13); no measurement of its own yet"),
     ("_HYDRATE_EMAILPREFS_CAP",  "hydrate_email_preferences", PHASE_MSG, MEASURED_FLOOR_S,
      "PRECEDENT: already named + tunable at 1800 before T1; unchanged"),
     # THE ONLY ROW WHERE THE PROMISE LIMB IS ACTUALLY ENFORCEABLE. Contacts is

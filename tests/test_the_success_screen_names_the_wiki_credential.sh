@@ -95,34 +95,109 @@ d=json.load(open('${COPY}',encoding='utf-8'))
 sys.stdout.write(d.get('install_complete',{}).get('${KEY}',''))
 " 2>/dev/null)"
 
-# --- arm 3: it names the username the htpasswd line actually writes --------
-# Read the username from install.sh rather than hardcoding it here, so a
-# rename cannot leave this test asserting a stale value that still passes.
-USERNAME="$(/usr/bin/grep -oE "printf '[a-z]+:%s" "${INSTALL_SH}" | head -1 | sed "s/printf '//; s/:%s//")"
-if [ -z "${USERNAME}" ]; then
-    cant "could not read the htpasswd username out of install.sh; not assuming one"
-elif printf '%s' "${HINT}" | /usr/bin/grep -q "${USERNAME}"; then
-    ok "the hint names the username install.sh writes (${USERNAME})"
-else
-    bad "the hint does not name the username install.sh writes (${USERNAME})"
+# --- THE COUPLING PREDICATE, RE-DERIVED ----------------------------------
+# 🔴 THIS TEST USED TO COUPLE TO THE WRONG FACT, and Andy's walk is what
+# exposed it. Arm 5 asked "is ostler-wiki-auth.conf still installed?" and
+# treated that as "does the customer meet a password box?". Those were the
+# same fact when it was written and they are not any more.
+#
+# The credential still exists, and MUST: the daemon's wiki proxy presents it
+# on its own loopback hop. What changed is that :8044 no longer CHALLENGES a
+# browser. `auth_basic` answers an uncredentialled request with
+# `401 + WWW-Authenticate: Basic`, and that header alone is what pops the
+# box. install.sh now answers the empty-Authorization case in nginx's
+# REWRITE phase, before the access phase runs, so auth_basic never fires and
+# no challenge is emitted.
+#
+# So the question this test exists to ask -- "is the last click of a GUI
+# install an unexplained password box?" -- is answered by the CHALLENGE, not
+# by the credential. Measured on nginx 1.27-alpine, the pinned image: with
+# the guard, an uncredentialled GET returns 403 and ZERO WWW-Authenticate
+# headers; without it, 401 and one.
+#
+# Extract the `listen 8044` server block and ask it directly.
+WIKI_BLOCK="$(awk '/^ *server \{$/{buf=""} {buf=buf $0 "\n"} /^ *\}$/{if (buf ~ /listen 8044;/) {printf "%s", buf; exit}}' "${INSTALL_SH}")"
+if [ -z "${WIKI_BLOCK}" ]; then
+    cant "could not extract the 'listen 8044' server block from install.sh, so the challenge question cannot be asked"
+    finish
+fi
+# Positive control: the block we extracted must be the wiki one. A predicate
+# that silently matched the wrong block would answer confidently and wrongly.
+if ! printf '%s' "${WIKI_BLOCK}" | /usr/bin/grep -q 'ostler-wiki-auth.conf'; then
+    cant "the extracted 8044 block does not include the wiki auth conf; the extractor matched the wrong block"
+    finish
+fi
+CHALLENGES=yes
+if printf '%s' "${WIKI_BLOCK}" | /usr/bin/grep -q 'http_authorization = ""'; then
+    CHALLENGES=no
 fi
 
-# --- arm 4: it says where the password is ---------------------------------
-if printf '%s' "${HINT}" | /usr/bin/grep -q 'wiki_password'; then
-    ok "the hint says where the password is"
-else
-    bad "the hint never names the wiki_password file, so it tells the customer nothing actionable"
-fi
-
-# --- arm 5: COUPLING. Required only while :8044 demands a credential -------
-if /usr/bin/grep -q 'ostler-wiki-auth.conf' "${INSTALL_SH}"; then
-    if [ "${_rc}" -eq 0 ]; then
-        ok ":8044 still demands a credential AND the success screen explains it"
+if [ "${CHALLENGES}" = no ]; then
+    # --- arm 3/4 (no-challenge form): the hint must NOT send the customer
+    # hunting for a password, because no box will ever ask for one.
+    if printf '%s' "${HINT}" | /usr/bin/grep -q 'wiki_password'; then
+        bad "the hint still tells the customer where the wiki password is, but :8044 no longer asks a browser for one; that sends them to a file they do not need"
     else
-        bad ":8044 demands a credential (ostler-wiki-auth.conf is still installed) but the success screen does not explain it"
+        ok "the hint does not send the customer after a password they will never be asked for"
     fi
+    # It must instead say where the wiki actually is. The Hub reaches it
+    # through the daemon proxy, so the answer is the Ostler app.
+    if printf '%s' "${HINT}" | /usr/bin/grep -qi 'ostler\|sidebar'; then
+        ok "the hint names where the wiki actually opens (in the app)"
+    else
+        bad "the hint neither explains a password box nor says where the wiki opens, so the button is unexplained either way"
+    fi
+    # --- arm 5: COUPLING, restated on the real fact ----------------------
+    ok ":8044 emits no challenge to a browser, so there is no password box for the success screen to explain"
 else
-    ok "install.sh no longer installs the wiki auth include, so the hint is not required"
+    # --- arm 3: it names the username the htpasswd line actually writes ---
+    # Read the username from install.sh rather than hardcoding it here, so a
+    # rename cannot leave this test asserting a stale value that still passes.
+    USERNAME="$(/usr/bin/grep -oE "printf '[a-z]+:%s" "${INSTALL_SH}" | head -1 | sed "s/printf '//; s/:%s//")"
+    if [ -z "${USERNAME}" ]; then
+        cant "could not read the htpasswd username out of install.sh; not assuming one"
+    elif printf '%s' "${HINT}" | /usr/bin/grep -q "${USERNAME}"; then
+        ok "the hint names the username install.sh writes (${USERNAME})"
+    else
+        bad "the hint does not name the username install.sh writes (${USERNAME})"
+    fi
+
+    # --- arm 4: it says where the password is ----------------------------
+    if printf '%s' "${HINT}" | /usr/bin/grep -q 'wiki_password'; then
+        ok "the hint says where the password is"
+    else
+        bad "the hint never names the wiki_password file, so it tells the customer nothing actionable"
+    fi
+
+    # --- arm 5: COUPLING --------------------------------------------------
+    if [ "${_rc}" -eq 0 ]; then
+        ok ":8044 still challenges a browser AND the success screen explains it"
+    else
+        bad ":8044 challenges a browser but the success screen does not explain it"
+    fi
+fi
+
+# --- arm 5b: the button must not open the port that has no wiki for it ----
+# Whatever the challenge state, "Open your Wiki" must not send the customer
+# to a browser on :8044. With the challenge it was a password box; without
+# it, it is a signpost telling them to go and open the app instead.
+#
+# Matches the CONSTRUCT, `URL(string: "http://localhost:8044"`, not the bare
+# string. The block above this function explains the defect and necessarily
+# quotes the old URL, and a substring grep cannot tell that comment from the
+# code it describes -- it flagged exactly that on first run. Stripping `//`
+# lines first would be the other classic wrong answer: it cannot see a
+# trailing comment and would quietly shrink the subject.
+_URLCALL='URL(string: "http://localhost:8044"'
+# Positive control: the construct must exist in this file at all, or a zero
+# below means "my pattern shape is wrong", not "the call is gone".
+_ctl="$(/usr/bin/grep -cF 'URL(string: "' "${VIEW}")"
+if [ "${_ctl}" -lt 1 ]; then
+    cant "no 'URL(string: \"' construct found in InstallCompleteView.swift at all; the pattern shape cannot measure anything"
+elif /usr/bin/grep -qF "${_URLCALL}" "${VIEW}"; then
+    bad "InstallCompleteView.swift still opens a browser at :8044; the wiki is reached through the daemon proxy inside Ostler.app"
+else
+    ok "the success screen does not open a browser at :8044 (${_ctl} URL(string:) calls examined)"
 fi
 
 # --- arm 6: MUST-FAIL. Remove the key from a copy, arm 2 must go red ------
