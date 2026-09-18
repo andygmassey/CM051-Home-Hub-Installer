@@ -234,6 +234,48 @@ else:
         ok("the unscoped collecting clause is absent, so a bystander who references "
            "the forgotten person keeps everything but that reference")
 
+# ── PROVED-RED-BY: this file (declared self-test, mutation on the REAL subject)
+#
+# The controls above run on synthetic functions. This arm mutates THE SHIPPED
+# FUNCTION ITSELF, in memory, and asserts the subject predicate reports the loss.
+# It is here because the gate spent a night in the "no known-failing fixture"
+# bucket, which is the bucket the reachability sweep describes as a gate that
+# cannot say no being read as coverage. It also pins the exact hole this gate
+# had: the counts below must show the vocabulary SURVIVING in the raw text while
+# the predicate reports it GONE, because that difference IS the fix.
+print("-- mutation on the real subject: the gate must be able to say no --")
+
+if body is not None:
+    pair = '("%s", "%s"),' % SHAPES[1]
+    if pair.replace(" ", "") not in src.replace(" ", ""):
+        cant("the CM048 pair is not present in the shipped source in the form this "
+             "arm mutates, so the mutation could not be applied. A mutant that did "
+             "not apply looks exactly like one that was not caught, and this arm "
+             "refuses rather than reporting a pass it did not earn.")
+    mutated = src.replace(pair, "", 1)
+    if mutated == src:
+        cant("the mutation did not change the source, so nothing was tested")
+    raw_before = src.count(SHAPES[1][0])
+    raw_after = mutated.count(SHAPES[1][0])
+    mut_strings = code_strings(mutated, FUNC)
+    still_missing = [f for f, a in SHAPES
+                     if not in_code(mut_strings, f) or not in_code(mut_strings, a)]
+    print("     MUTANT APPLIED: %s occurs %d time(s) in the raw text before and "
+          "%d after, and %d time(s) in code strings after"
+          % (SHAPES[1][0], raw_before, raw_after,
+             sum(1 for c in mut_strings if SHAPES[1][0] in c)))
+    if raw_after < 1:
+        bad("MUTATION ARM: the mutation removed EVERY textual occurrence, so this "
+            "arm no longer distinguishes a source-text predicate from a code "
+            "predicate and cannot pin the defect it exists to pin.")
+    elif still_missing:
+        ok("MUTATION ARM: deleting the CM048 pair FROM THE CODE is caught, while %d "
+           "occurrence(s) survive in prose. The first version of this gate read "
+           "that prose and passed." % raw_after)
+    else:
+        bad("MUTATION ARM: the CM048 pair was deleted from the code and the gate "
+            "still reports it present. The predicate is reading prose again.")
+
 print()
 print("== %d pass / %d fail / %d total ==" % (len(PASS), len(FAIL), len(PASS) + len(FAIL)))
 sys.exit(1 if FAIL else 0)
