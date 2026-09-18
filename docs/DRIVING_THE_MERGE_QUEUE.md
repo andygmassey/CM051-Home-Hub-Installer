@@ -159,6 +159,63 @@ own took the repo-wide queue to 0 and that PR merged within the minute. The
 cancelled runs are re-run afterwards by editing the PR body -- NEVER with
 `gh run rerun`, which replays the ORIGINAL event payload and restores the
 stale result.
+
+### The trap that cost the most: a driver that rewrites branches on a poll
+
+**Measured 2026-09-18.** An automated merge loop called `gh pr update-branch` on
+every BEHIND branch, every cycle. In one night it produced **33 merge-from-main
+commits across 12 branches**:
+
+```
+#2116  9      #2128  4      #2131  2      #2136  2
+#2123  7      #2130  2      #2132  2      #2137  1
+#2133  1      #2134  1      #2052  1      #2065  1
+```
+
+At ~140 checks per push that is roughly **4,600 check-runs of pure churn**, and
+the `CI Required Gate` on those same PRs then has to wait for all of them.
+
+**The shape is worse than the total.** Merge one PR, main moves, eleven branches
+go BEHIND, update eleven, 1,540 checks, merge one more. *The more it worked, the
+more work it made.* A poll side effect that costs 140 checks is not a poll side
+effect, it is a push.
+
+The branches open longest take the worst of it, because they are BEHIND after
+*every* merge. That is why #2116 and #2123 carried 9 and 7 while branches opened
+an hour earlier carried 1.
+
+**A BEHIND branch is not a problem until it is otherwise ready.** Update it once,
+deliberately, at the moment it would otherwise merge. Never on a timer.
+
+#### And the half that is a data-loss shape, not a cost
+
+**Never let an automated driver rewrite a branch a human has checked out.**
+
+The same loop twice pushed its own merge onto a branch while a person was
+resolving that branch's conflict locally: once on a divergence record, once on
+`install.sh` line citations. Both of GitHub's resolutions happened to be
+correct. That is the luckiest available outcome, not evidence the design was
+safe, and the next one lands silently on top of work nobody kept a copy of.
+
+The recovery that worked, and the order matters: **verify the remote's
+resolution against the gate that owns it BEFORE discarding your own.** For the
+citation conflict that was
+`tests/test_store_curl_config_survives_the_promote.sh` at 16 pass / 0 fail. The
+tempting order -- discard the redundant local work first, because the remote
+"obviously" already has it -- destroys the only thing that could have caught a
+bad merge.
+
+#### A citation conflict cannot be resolved by picking a side
+
+When both sides of a conflict are the same comment with different line numbers,
+**neither side is right after the merge**. The branch shifted the file; so did
+main. Picking either leaves every number wrong.
+
+Let the gate name the stale ones, then re-point each by **locating its
+construct** in the merged file. Do not apply the offset, even when the offset is
+uniform and correct: an offset holds until one hunk lands somewhere else, and
+then it is silently wrong for every citation after that point. Locating the
+construct cannot drift. It is a known cost paid to avoid an unbounded one.
 **AND THE BODY-EDIT HALF OF THAT IS WRONG FOR MOST WORKFLOWS IN THIS REPO.**
 Measured 2026-09-18, after editing #2133's body to re-trigger its starved
 aggregator and watching nothing happen: `on: pull_request:` with no `types:`
@@ -669,3 +726,105 @@ So the bar was never on the regeneration. It was on doing it in the wrong order,
 and the prohibition had hardened around the example rather than the mechanism. A
 rule that names its example gets read as a rule about that example - which this
 file has already recorded once, from the other direction.
+
+### Overlap is not conflict, and reporting one as the other cost a wrong plan
+
+Facing eleven conflicted pull requests, the cheap measurement is which files each
+one touches that main has also touched since its base. That is an **overlap
+set**, and it is a superset of the conflict set, because git auto-merges most
+overlapping files.
+
+Measured both ways on the same eleven:
+
+    predicted from overlap   TEST_WIRING.tsv in SIX of eleven
+    actual, by merging       TEST_WIRING.tsv in ONE of eleven
+
+The prediction produced a plan - "six of these are one command run six times" -
+that was reported to another session as a finding. It was an honest measurement
+of the wrong thing. **If the question is "what will conflict", the only
+instrument is a merge.**
+
+### Four kinds of conflict, and only two can be resolved mechanically
+
+Measured across eleven pull requests in one repository on one night:
+
+**APPEND.** Both sides add at the end, or add a sibling entry: two workflow steps
+in one job, two method notes at the end of a file, two rows at the end of a
+register. **Keep both.** It is the only resolution that loses nothing, and the
+danger is that taking one side leaves a file that parses and reads perfectly
+while a gate has silently vanished.
+
+**GENERATED.** The file is produced by a tool that forbids hand-editing -
+`TEST_WIRING.tsv`, a divergence patch. **Regenerate, never resolve.** The
+conflict markers are noise; the file's content is not a human artefact.
+
+**REWRITE.** Two independently written versions of one document, differing from
+the title down. One was 135 lines against 133, the same document twice. **Cannot
+be batched**, needs somebody to choose or to merge the content by hand.
+
+**SAME-SUBJECT EDIT, and this is the one that bites.** Both sides changed the
+same rows or the same function, each correctly, for different reasons. Keeping
+both produced **five duplicated register rows** - and the file still parsed, the
+gate still passed, and the count was silently wrong. In a source file the same
+shape was a two-line helper call on one side and a twenty-five-line explicit
+implementation on the other, both correct, both about privacy-level comparison
+direction.
+
+> **A mechanical resolution is safe exactly when the two sides are about
+> different things. The moment they are about the same thing, keeping both is
+> as wrong as keeping one - and it is wrong in the direction that looks fine.**
+
+So classify before resolving. The classification costs one merge per branch and
+it decides whether the work is a command, a judgement, or a conversation.
+
+### Every error tonight had one shape
+
+    a 404 from classic protection      for the ruleset that was enforcing
+    HEAD ahead-behind of a checkout    for whether a pin was current
+    files that overlap                 for files that conflict
+    a path passed to a scanner         where the scanner wanted the list itself
+    a log's tail                       for the tick that mattered
+    a UTC instant against a local date  for an ordering
+
+**In every case the instrument was honest and the question was the wrong one.**
+None of these was a broken tool or a careless reading; each was a true answer to
+something adjacent to the subject.
+
+### The sharpened form, and why it is the actionable one
+
+That rule was tested against a third session's own seven faults from the same
+night rather than agreed with. It held on six. The seventh did not fit, and the
+exception is what makes the rule usable:
+
+    six faults   an honest tool answering the wrong question
+    one fault    a NameError on a scan's success path -- a real code defect
+
+> **The wrong-question faults are the dangerous ones precisely because the tool
+> does not misbehave. A broken tool announces itself. An honest tool answering
+> the wrong question hands you a confident, checkable-looking result.**
+
+The cost difference is the evidence, measured on one night: the fault that
+crashed cost ten minutes. The faults that answered honestly cost hours, and two
+of them reached the board as findings before being withdrawn.
+
+So this is not advice to distrust your tools. It is advice about **where to spend
+scepticism**: on the readings that come back clean.
+
+### The drill, when a measurement surprises you
+
+Do **not** first suspect the tool.
+
+1. Write down, in words, the question you believe you asked.
+2. Read the command and write down the question it **actually** asks.
+3. The gap is the bug.
+
+And state the units every time, because every one of these faults was a missing
+unit: **which clock, which corpus, whose exit status, which tick, which ref.**
+
+The same pair of sessions each hit the overlap-versus-conflict version of this
+within an hour of each other, in opposite directions. One reported an overlap set
+as a conflict set and had to withdraw a plan built on it. The other measured that
+two branches both *touch* the same file, then **actually merged both orders
+before saying they conflict** - they did, in both orders, but the overlap alone
+would not have shown it. Same trap, one step apart, and only the second reading
+was evidence.

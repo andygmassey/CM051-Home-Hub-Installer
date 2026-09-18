@@ -1,14 +1,16 @@
 --- a/consent_cli.py
 +++ b/consent_cli.py
-@@ -41,6 +41,7 @@
+@@ -40,7 +40,9 @@
+     from legal import (  # noqa: E402
          ARTICLE_9_EU_CONSENT,
          EU_VOICE_SPEAKER_ID_CONSENT,
++        PERSONAL_USE_ONLY,
          SPOKEN_CAPTURE_RECORDING_CONSENT,
 +        THIRD_PARTY_DATA_NOTICE,
          WHATSAPP_UNOFFICIAL_RISK_CONSENT,
      )
  except ImportError as exc:  # pragma: no cover - smoke
-@@ -55,12 +56,19 @@
+@@ -55,13 +57,29 @@
      ARTICLE_9_EU_CONSENT.tickbox_id: ARTICLE_9_EU_CONSENT,
      WHATSAPP_UNOFFICIAL_RISK_CONSENT.tickbox_id: WHATSAPP_UNOFFICIAL_RISK_CONSENT,
      EU_VOICE_SPEAKER_ID_CONSENT.tickbox_id: EU_VOICE_SPEAKER_ID_CONSENT,
@@ -27,7 +29,17 @@
 -    # the record silently -- same failure mode as #659's third-party gate.
 +    # the record silently — same failure mode as #659's third-party gate.
      SPOKEN_CAPTURE_RECORDING_CONSENT.tickbox_id: SPOKEN_CAPTURE_RECORDING_CONSENT,
++    # Personal-use-only licence term (every region), tickbox id
++    # "personal_use_only". Registered here at the same time as the call site,
++    # because THIS IS THE FOURTH TIME this exact gap has been created and the
++    # #659 comment above narrates the third: defined in consent_strings.py,
++    # called by install.sh, never registered here, so argparse `choices`
++    # rejected it with exit 2 and the consent was SILENTLY DROPPED while the
++    # customer saw an accept. test_consent_tickbox_registry.sh caught it again
++    # within minutes of the call site landing, which is the gate working.
++    PERSONAL_USE_ONLY.tickbox_id: PERSONAL_USE_ONLY,
  }
+ 
  
 --- a/database.py
 +++ b/database.py
@@ -100,6 +112,142 @@
              file=sys.stderr,
          )
          return 2
+--- a/passphrase_recovery_cli.py
++++ b/passphrase_recovery_cli.py
+@@ -54,13 +54,15 @@
+     ostler-unlock --recovery-key --install-key-file
+ 
+     # know the passphrase, just want a one-off key on stdout
+-    ostler-unlock --passphrase > /dev/null
++    ostler-unlock --passphrase --print-key > /dev/null
+ 
+ Invocation::
+ 
+     python -m ostler_security.passphrase_recovery_cli [options]
+ 
+-stdout carries the key and NOTHING else, so a caller can capture it.
++stdout carries the key and NOTHING else, so a caller can capture it -- but
++ONLY when --print-key is passed, or when the --install-key-file handoff
++failed and the key would otherwise be lost. It is not printed by default.
+ Every other line goes to stderr.
+ 
+ SECRETS NEVER TOUCH ARGV
+@@ -75,13 +77,16 @@
+ Exit codes
+ ----------
+ 
+-    0   Unlocked. The key is on stdout.
++    0   Unlocked. The key went where you asked: the key file, or stdout
++        under --print-key.
+     1   Wrong recovery key / wrong passphrase, or attempts exhausted.
+     2   Nothing to unlock: no config, or the config has no recovery key
+         configured. Retrying will not help.
+     3   Unexpected internal failure.
+     4   Unlocked, but --install-key-file could not write the key file.
+         The key IS on stdout and is not lost; only the handoff failed.
++    5   Unlocked, but neither --install-key-file nor --print-key was given,
++        so there was nowhere to put the key. Nothing was printed.
+ """
+ from __future__ import annotations
+ 
+@@ -105,6 +110,10 @@
+ EXIT_NOTHING_TO_UNLOCK = 2
+ EXIT_INTERNAL = 3
+ EXIT_KEY_FILE_WRITE_FAILED = 4
++# 5, not a reuse of argparse's 2: this is a successful unlock that was given
++# nowhere to put the key, which is a different outcome from a usage error and
++# from "nothing to unlock".
++EXIT_NO_DESTINATION = 5
+ 
+ SecretReader = Callable[[str], str]
+ 
+@@ -230,6 +239,7 @@
+     passphrase_reader: SecretReader = hidden_reader,
+     max_attempts: int = 3,
+     write_key_file: bool = False,
++    print_key: bool = False,
+     key_file: Optional[Path] = None,
+     stdout: TextIO = sys.stdout,
+     stderr: TextIO = sys.stderr,
+@@ -395,9 +405,51 @@
+                 "gui/$(id -u)/com.ostler.ical-server",
+             )
+ 
+-    # stdout is the clean channel. Nothing else is ever written to it.
+-    stdout.write(key_hex + "\n")
+-    stdout.flush()
++    # THE KEY REACHES stdout ONLY WHEN SOMEONE ASKED FOR IT THERE.
++    #
++    # This used to be unconditional, with a comment calling stdout the clean
++    # channel. Clean is not the property that matters for a database
++    # encryption key. A default that prints it puts it in shell history, in
++    # terminal scrollback, in any screen share running at the time, and in
++    # whatever log captures the session -- none of which the customer chose
++    # and none of which they can un-choose afterwards.
++    #
++    # NO SHIPPED CALLER WANTED IT THERE. Checked before changing the default
++    # rather than after: every customer-facing invocation in the tree passes
++    # --install-key-file (install.sh.strings.en-GB.sh:408 and install.sh:32479),
++    # and install.sh:15316 imports install_key_file as a FUNCTION rather than
++    # capturing stdout. So the printing default served no consumer and only
++    # ever leaked.
++    if print_key:
++        stdout.write(key_hex + "\n")
++        stdout.flush()
++    elif rc == EXIT_KEY_FILE_WRITE_FAILED:
++        # THE ONE CASE WHERE PRINTING IS STILL RIGHT, and it is why this is a
++        # branch rather than a deletion. The handoff failed, so the key exists
++        # nowhere else. Losing it costs the customer their databases; printing
++        # it costs them an exposed key they at least know about. Say which is
++        # happening, so it is not mistaken for the old default.
++        _err(stderr, "")
++        _err(
++            stderr,
++            "Printing the key here because the key file could not be written "
++            "and it would otherwise be lost. This is NOT the normal path. "
++            "Capture it, then clear your scrollback.",
++        )
++        stdout.write(key_hex + "\n")
++        stdout.flush()
++    elif not write_key_file:
++        # Neither flag: refuse rather than guess. The old behaviour was to
++        # print, which is the thing being fixed; silently doing nothing would
++        # be worse still, because the customer would think it had worked.
++        _err(stderr, "")
++        _err(
++            stderr,
++            "Unlocked, and the key has NOT been written anywhere. Choose one:",
++        )
++        _err(stderr, "  --install-key-file   hand it to the Hub services (what you almost certainly want)")
++        _err(stderr, "  --print-key          print it to stdout (it will land in your shell history)")
++        rc = EXIT_NO_DESTINATION
+     return rc
+ 
+ 
+@@ -456,6 +508,15 @@
+         ),
+     )
+     parser.add_argument(
++        "--print-key",
++        action="store_true",
++        help=(
++            "Print the unlocked key to stdout. NOT the default: a printed key "
++            "lands in shell history, scrollback and any screen share. Use "
++            "--install-key-file unless you are scripting."
++        ),
++    )
++    parser.add_argument(
+         "--key-file",
+         type=Path,
+         default=None,
+@@ -480,6 +541,7 @@
+         secret_file=args.secret_file,
+         max_attempts=args.max_attempts,
+         write_key_file=args.install_key_file,
++        print_key=args.print_key,
+         key_file=args.key_file,
+     )
+ 
 --- a/pyproject.toml
 +++ b/pyproject.toml
 @@ -17,19 +17,25 @@
