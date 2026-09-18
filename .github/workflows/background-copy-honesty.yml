@@ -66,6 +66,7 @@ on:
       - 'gui/project.yml'
       - 'tests/test_readme_states_the_floors_the_installer_enforces.sh'
       - 'tests/test_install_refuses_below_the_macos_floor.sh'
+      - 'tests/test_install_records_the_os_it_ran_on.sh'
       # HR015 #943, fifth member of the family. The deadline test guards a
       # promise about WHEN; #613 about WHETHER; #616 about WHAT IS THERE. This
       # one guards a cause named that was never measured, and a credential the
@@ -157,6 +158,22 @@ jobs:
         # and this test fails the moment that pin and gui/project.yml differ.
         # Its control is the pre-fix block, which must NOT refuse on 13.
         run: bash tests/test_install_refuses_below_the_macos_floor.sh
+
+      - name: The installer records the OS it installed onto
+        if: always()
+        # MEASURED 2026-09-18: MACOS_VERSION had four uses in install.sh and
+        # none of them wrote it anywhere. The installer detected the OS, gated
+        # on it, printed it, and threw it away, so a finished install left no
+        # record on the box of what it ran on. Three macOS 27 changes fail
+        # SILENTLY where every step passes, and the first question about such a
+        # report is what the customer was running.
+        #
+        # The test extracts the real block from install.sh by marker rather
+        # than by line number, runs it under a stubbed sw_vers, and carries
+        # both a CONTROL (the pre-fix block, which must write nothing) and a
+        # MUTANT (the source field hard-coded to an assertion, which must stop
+        # the measured() arm passing).
+        run: bash tests/test_install_records_the_os_it_ran_on.sh
 
       # HR015 #943. Andy walked v1.0.98 and met a browser password box for a
       # credential he had never been shown. The whole handover -- address,

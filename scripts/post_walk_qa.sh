@@ -577,6 +577,36 @@ if [[ -n "$CUT_VERSION" ]]; then
     esac
     echo "  stores: ${STORES_PROVENANCE}"
 
+    # ── THE OS THE WALKED BOX RAN, READ OFF THE BOX ──────────────────
+    #
+    # READ OVER SSH, NEVER LOCALLY. This script runs on the operator's Mac
+    # against a remote $BOX, so `sw_vers` here would record the operator's
+    # machine and label it as the walked box. That is the whole defect class
+    # this record exists to avoid: a value that is true about something other
+    # than the subject.
+    #
+    # WHY THE FIELD EXISTS AT ALL. Three macOS 27 changes fail silently on a
+    # box where every probe passes. A walk on 26 and a walk on 27 produce
+    # identical records today, so a green walk cannot be attributed to an OS
+    # and a regression cannot be pinned to one. Measured 2026-09-18 across the
+    # twenty records in walks/: zero carry any OS field, against a control of
+    # seven "version" occurrences in a single record.
+    BOX_OS="$(ssh -o BatchMode=yes -o ConnectTimeout=8 "$BOX" \
+        'sw_vers -productVersion 2>/dev/null' 2>/dev/null | tr -d '[:space:]')"
+    # Validate the SHAPE, same reasoning as the version read below: a box that
+    # answers with an error string must not have it travel on as an OS.
+    if [[ -n "$BOX_OS" && ! "$BOX_OS" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+        echo "  ⚠️  the box returned something that is not an OS version; discarding it." >&2
+        BOX_OS=""
+    fi
+    if [[ -n "$BOX_OS" ]]; then
+        BOX_OS_SOURCE="measured(sw_vers -productVersion over ssh on the walked box)"
+        echo "  box OS: ${BOX_OS}"
+    else
+        BOX_OS_SOURCE="asserted-unverifiable(box did not answer sw_vers)"
+        echo "  ⚠️  could not read the OS off ${BOX}. Recording ${BOX_OS_SOURCE}."
+    fi
+
     INSTALLED_VERSION="$(ssh -o BatchMode=yes -o ConnectTimeout=8 "$BOX" \
         'cat ~/.walk-artefact-version 2>/dev/null' 2>/dev/null | tr -d '[:space:]')"
     if [[ -n "$INSTALLED_VERSION" ]]; then
@@ -775,6 +805,9 @@ if [[ -n "$CUT_VERSION" ]]; then
         printf '# Ostler walk record -- written by scripts/post_walk_qa.sh\n'
         printf '# Read by scripts/verify_walk_record.sh, which gates the customer download.\n'
         printf '# The box is recorded as a hash: this repo is public.\n'
+        printf '# os_version is the OS of the WALKED BOX, read over ssh, never the\n'
+        printf '# operator machine. A walk on macOS 26 and a walk on 27 were previously\n'
+        printf '# indistinguishable in this file, so no result could be attributed to an OS.\n'
         printf '# version_source says how the version was obtained. Anything other than\n'
         printf '# measured(...) means the version is an assertion, not an observation.\n'
         printf '#\n'
@@ -799,6 +832,8 @@ if [[ -n "$CUT_VERSION" ]]; then
         printf '# along, because these keys were unqualified.\n'
         printf 'version\t%s\n'        "$RECORDED_VERSION"
         printf 'version_source\t%s\n' "$VERSION_SOURCE"
+        printf 'os_version\t%s\n'        "${BOX_OS:-}"
+        printf 'os_version_source\t%s\n' "${BOX_OS_SOURCE:-asserted-unverifiable(not read)}"
         printf 'artefact_sha256\t%s\n'        "$ARTEFACT_SHA"
         printf 'artefact_sha256_source\t%s\n' "$ARTEFACT_SHA_SOURCE"
         printf 'walked_at\t%s\n'   "$(date -u +%Y-%m-%dT%H:%M:%SZ)"

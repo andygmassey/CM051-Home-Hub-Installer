@@ -436,6 +436,60 @@ MSG
 esac
 fi
 
+# ── THE OS THE BOX RAN, AND IT IS READ HERE OR IT IS DECORATION ──────────────
+#
+# 🔴 THIS BLOCK EXISTS SO os_version DOES NOT REPEAT version_source's HISTORY.
+# post_walk_qa.sh recorded version_source from 2026-08-24 and NOTHING read it
+# until #931, so a record that openly said the version was unverifiable cleared
+# this gate identically to one that measured it. walks/README.md records that
+# in its own field table. Adding a new *_source field without a reader would
+# establish, for the second time, that they are advisory.
+#
+# WHY THE FIELD EXISTS. Three macOS 27 changes fail SILENTLY on a box where
+# every probe passes: cross-team container reads denied without a prompt, the
+# relocated TCC store, and Local Network enforcement moved to Network
+# Extension. A walk on 26 and a walk on 27 produced byte-identical records, so
+# a green walk could not be attributed to an OS and a regression could not be
+# pinned to one.
+#
+# ABSENCE REFUSES, AND THAT IS SAFE TO DO TODAY RATHER THAN LATER. Measured
+# 2026-09-18: all twenty records in walks/ carry verdict=FAILED, so not one is
+# a promotion candidate and none is newly blocked by this. The alternative, a
+# warning that lets an unattributable record through, is the exact shape this
+# repository keeps finding and removing: a warn bucket is not a safe bucket.
+OS_VERSION="$(field os_version)"
+OS_VERSION_SOURCE="$(field os_version_source)"
+if [[ -z "$OS_VERSION_SOURCE" ]]; then
+    echo "[walk-gate] REFUSED: ${RECORD} carries no os_version_source field." >&2
+    echo "            Written since 2026-09-18. A record without it predates the format;" >&2
+    echo "            which OS produced these results is unknown, and three macOS 27" >&2
+    echo "            failure modes are invisible on 26. CANNOT-RUN." >&2
+    exit 2
+fi
+case "$OS_VERSION_SOURCE" in
+    measured\(*)
+        if [[ -z "$OS_VERSION" ]]; then
+            echo "[walk-gate] REFUSED: ${RECORD} claims os_version_source ${OS_VERSION_SOURCE}" >&2
+            echo "            but os_version is EMPTY. A source that says measured must have" >&2
+            echo "            measured something. CANNOT-RUN." >&2
+            exit 2
+        fi
+        echo "[walk-gate] box OS: ${OS_VERSION} (${OS_VERSION_SOURCE})"
+        ;;
+    *)
+        cat >&2 <<MSG
+[walk-gate] REFUSED: ${RECORD} says os_version_source ${OS_VERSION_SOURCE}.
+
+  The OS in this record was not read off the box. Real probe results are filed
+  here against an OS nothing confirmed the box was running. On macOS 27 three
+  known failures are silent, so an unattributable record cannot be read as
+  evidence about either OS. Not a failure of the walk -- an unattributable
+  one. CANNOT-RUN.
+MSG
+        exit 2
+        ;;
+esac
+
 # ── SCOPED PROMOTE (Andy's decision, 2026-09-05) ─────────────────────────────
 #
 # A non-CLEAN record no longer refuses unconditionally. It refuses if any probe

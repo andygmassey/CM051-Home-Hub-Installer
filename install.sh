@@ -5127,6 +5127,49 @@ MACOS_VERSION=$(sw_vers -productVersion)
 MACOS_MAJOR=$(echo "$MACOS_VERSION" | cut -d. -f1)
 ok "$(printf "$MSG_OK_MACOS_DETECTED" "${MACOS_VERSION}")"
 
+# ── RECORD THE OS THE BOX ACTUALLY RAN, BEFORE THE FLOOR CHECK ────────
+#
+# MEASURED 2026-09-18: MACOS_VERSION had four uses in this file and not one
+# of them wrote it anywhere. The installer detected the OS, gated on it,
+# printed it to the terminal and threw it away, so the moment an install
+# finished there was no record on the box of what it had installed onto.
+#
+# WHY THAT MATTERS MORE THAN IT LOOKS. Three macOS 27 changes fail SILENTLY
+# on a box where every step passed: cross-team container reads are denied
+# without a prompt, the TCC store moved, and Local Network enforcement moved
+# to Network Extension. None of them raises. Each turns into an empty result.
+# The first question about any such report is what the customer was running,
+# and until now their box could not answer it.
+#
+# WRITTEN BEFORE THE FLOOR CHECK ON PURPOSE. An install that aborts because
+# the OS is too old is precisely the case where the OS is the answer, so the
+# record must exist before the refusal rather than after it.
+#
+# THE _source SUFFIX IS THE WALK RECORD'S CONVENTION, NOT DECORATION. There,
+# anything other than measured(...) means the value is an assertion rather
+# than an observation, and version_source spent months being written and read
+# by nothing until #931. Same shape, same discipline: every value here says
+# how it was obtained, and a reader that finds anything other than measured()
+# knows not to trust it.
+#
+# BEST EFFORT THROUGHOUT. A failure to record must never be worse than not
+# installing, so every write is guarded and this block cannot abort the run.
+_OS_STATE_DIR="${OSTLER_DIR:-${HOME}/.ostler}/state"
+if mkdir -p "${_OS_STATE_DIR}" 2>/dev/null; then
+    {
+        printf 'recorded_at\t%s\n'       "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'os_version\t%s\n'        "${MACOS_VERSION}"
+        printf 'os_version_source\t%s\n' 'measured(sw_vers -productVersion)'
+        printf 'os_major\t%s\n'          "${MACOS_MAJOR}"
+        printf 'os_build\t%s\n'          "$(sw_vers -buildVersion 2>/dev/null || printf 'unreadable')"
+        printf 'os_build_source\t%s\n'   'measured(sw_vers -buildVersion)'
+        printf 'arch\t%s\n'              "$(uname -m 2>/dev/null || printf 'unreadable')"
+        printf 'arch_source\t%s\n'       'measured(uname -m)'
+        printf 'installer_floor\t%s\n'   '14'
+    } > "${_OS_STATE_DIR}/os_at_install.tsv" 2>/dev/null || true
+fi
+unset _OS_STATE_DIR
+
 # THE macOS FLOOR IS THE DMG'S, AND THIS CHECK REFUSES BELOW IT.
 #
 # Until 2026-09-07 this block WARNED below 13 and recommended 13, while the
