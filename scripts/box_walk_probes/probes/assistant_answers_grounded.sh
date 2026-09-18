@@ -265,6 +265,7 @@ else:
       elif n < 65536:  h = struct.pack("!BBH", 0x81, 0x80 | 126, n)
       else:            h = struct.pack("!BBQ", 0x81, 0x80 | 127, n)
       s.sendall(h + m + mk)
+      _t_sent = time.time()   # TTFT clock starts at the LAST byte of the request
   def rd(n):
       global rest
       o = b""
@@ -287,6 +288,24 @@ send(json.dumps({"type": "message", "content": question}))
 # operator's personal data and this transcript lands in support bundles. The
 # prose is ACCUMULATED here only so the seeded turn can answer one yes/no
 # question about it on the box; it is never written out.
+# ── TIMING, PER TNM 2026-09-17. Emitted as frames, never averaged here.
+# TTFT is measured from the last byte of the request to the FIRST token that
+# carries content -- not to the first frame of any kind, because tool_call and
+# status frames arrive earlier and would flatter the number.
+# tok/s is over the WHOLE response: tokens counted / (end - first token).
+# COLD vs WARM is NOT decided here: this process cannot see whether the model
+# was resident before it connected. The probe reads `ollama ps` on the box
+# BEFORE each opening and labels the row. Blending the two is what makes a
+# TTFT figure useless, and they differ by an order of magnitude.
+# _t_sent IS INITIALISED HERE TOO, NOT ONLY AT THE SEND. FIXTURE MODE
+# (OSTLER_GROUNDED_FRAMES) never calls sendall, so a _t_sent that exists only
+# on the live path is UNDEFINED under the parser's own tests -- and a NameError
+# in this loop reads downstream as an EMPTY answer, which is how it presented:
+# five arms reporting "read ''" rather than anything mentioning time.
+_t_sent = None
+_t_first = None
+_t_last = None
+_tok = 0
 text = ""
 while time.time() < deadline:
     try: op, pay = frame()
@@ -369,7 +388,20 @@ while time.time() < deadline:
             print("FRAME tool_fact %s" % ("YES" if carries(out, expect_fact) else "NO"))
             print("FRAME tool_fact_phrase %s" % ("YES" if carries_phrase(out, expect_fact) else "NO"))
     elif t == "chunk":
-        text += ev.get("content") or ""
+        _c = ev.get("content") or ""
+        if _c:
+            # FIRST CONTENT token, not first frame. Set once.
+            if _t_first is None: _t_first = time.time()
+            _t_last = time.time()
+            # Token count approximated by whitespace-delimited words. The
+            # gateway does not report token counts on this stream, so this is
+            # a WORD rate wearing a token name if reported as tokens. It is
+            # emitted as tok_per_s because that is the figure asked for, and
+            # the approximation is stated here rather than hidden: for English
+            # prose it runs ~0.75 of the true token count, consistently, so it
+            # is comparable BETWEEN runs even though it is not exact.
+            _tok += len(_c.split())
+        text += _c
     elif t in ("done", "session_start", "error", "chunk_reset"):
         # THE CLIENT DISCARDS THE DRAFT ON chunk_reset AND SHOWS full_response.
         # The gateway sends chunk_reset then done{full_response} on every turn
@@ -389,6 +421,18 @@ while time.time() < deadline:
             else:
                 graded = text
                 print("FRAME reply_source chunks")
+            if _t_first is not None and _t_sent is not None:
+                print("FRAME ttft_s %.3f" % (_t_first - _t_sent))
+                _span = (_t_last - _t_first) if (_t_last and _t_last > _t_first) else 0.0
+                # A zero span with tokens is a single-frame reply, not an
+                # infinite rate. Report NOT-MEASURED rather than divide.
+                if _span > 0:
+                    print("FRAME tok_per_s %.2f" % (_tok / _span))
+                else:
+                    print("FRAME tok_per_s NOT-MEASURED single-frame-reply")
+                print("FRAME tokens %d" % _tok)
+            else:
+                print("FRAME ttft_s NOT-MEASURED no-content-token-arrived")
             print("FRAME reply_fact %s" % ("YES" if carries(graded, expect_fact) else "NO"))
             print("FRAME reply_fact_phrase %s" % ("YES" if carries_phrase(graded, expect_fact) else "NO"))
         print("FRAME %s" % t)
@@ -446,8 +490,82 @@ _fact_missing_side() {   # _fact_missing_side <transcript>
 # surfaces": my first predicate watched the wrong object.
 _GRAPH_TOOL_RE='^FRAME tool_call pwg_'
 
+# ── ROW 1125: A pwg_ PREFIX IS STILL NOT AN ANSWER ───────────────────────────
+#
+# The paragraph above closed the any-tool hole: `memory_recall` no longer
+# scores as grounding. It did NOT close the hole one level up, and #1125
+# measured it. Studio, same system prompt, same six tool descriptions lifted
+# from the running daemon, n=10 per cell, quantisation the only variable:
+#
+#   "What are my interests?"
+#     gemma4:e2b         Q4_K_M  ->  pwg_overview 9/10 · pwg_preferences 1/10
+#     gemma4:e2b-it-q8_0 Q8_0    ->  pwg_preferences 10/10
+#
+# THE PROBE SCORED BOTH ROWS 10/10 GROUNDED. They are not the same product
+# behaviour. `pwg_overview` returns "how many people, meetings, conversations
+# and compiled preferences your graph contains" -- an INVENTORY COUNT. A
+# customer who asks what their interests are and is told their graph holds
+# 9,879 preferences has not been told their interests. The probe reported the
+# same verdict for both, so every `grounded` it has emitted is weaker than it
+# reads.
+#
+# WHAT IS ENFORCED, AND WHY IT IS A TRANSCRIPTION RATHER THAN A JUDGEMENT.
+#
+# #1125's own thread warned that "enforcing one expected tool per question
+# makes the probe brittle, because several pwg tools can legitimately answer
+# the same question", and that picking the tool is "a judgement about what a
+# good answer is". It would be, if the mapping had no source. It has one: the
+# ROUTING GUIDANCE THE PRODUCT ITSELF SHIPS, which the sibling probe
+# assistant_prompt_names_every_pwg_tool already pins clause by clause:
+#
+#   "For a BROAD opener about the user, call `pwg_overview` FIRST. For a
+#    person call `pwg_people`; history `pwg_person_timeline`. Tastes -- what
+#    they are interested in, enjoy, are into -- `pwg_preferences`. Notes
+#    `pwg_knowledge_search`. Decisions `pwg_decisions`; topics `pwg_topics`;
+#    owed `pwg_commitments`."
+#
+# Each battery question matches exactly ONE of those clauses, and its store
+# set is that clause's tools, copied. So the mapping is not an opinion about
+# good answers; it moves when the shipped guidance moves, and the self-test
+# refuses if it ever names a tool the runtime does not register.
+#
+# THE BROAD OPENER IS DELIBERATELY UNCONSTRAINED, and that is not an oversight
+# to be tightened later. The shipped guidance places NO store restriction on a
+# broad opener -- it says call overview first, not only overview -- so a probe
+# that restricted it would go red on a model following the product's own
+# instruction. That is the #1597 disease (the fix and the gate fighting each
+# other) and it is not being reintroduced here to make a number look better.
+# The self-test's anti-vacuity arm requires at least one question to declare a
+# PROPER SUBSET, so an all-8 row cannot quietly spread to the whole battery.
+#
+# Every pwg_* tool the runtime registers. They sit behind one `pwg_people.enabled`
+# gate and move as a set; the self-test cross-reads the sibling probe's
+# REQUIRED_TOOLS and refuses if the two disagree, because a battery naming a
+# tool the runtime never registers is a gate that can never be satisfied, and
+# one silently missing a tool narrows what counts as an answer.
+_TOOL_REGISTRY='pwg_overview pwg_people pwg_person_timeline pwg_preferences pwg_knowledge_search pwg_decisions pwg_topics pwg_commitments'
+
+# Did any tool in the set carry this result mark? A named function over a
+# TRANSCRIPT FILE, so the self-test drives the same code the walk runs.
+# `if grep -q`, never a bare trailing grep: this file runs under pipefail and
+# a function whose last command is a failed grep returns non-zero to callers
+# that are reading its ECHO, not its status.
+_result_mark() {   # _result_mark <transcript> <OK|ERR|EMPTY> <space-separated tools>
+    _rm_t="$1"; _rm_m="$2"
+    # shellcheck disable=SC2086  # $3 is a tool SET and must word-split
+    for _rm_x in $3; do
+        if grep -q "^FRAME tool_result ${_rm_x} ${_rm_m}\$" "$_rm_t"; then return 0; fi
+    done
+    return 1
+}
+
 adjudicate_turn() {
     _t="$1"
+    # THE STORE SET FOR THIS QUESTION (#1125). An EMPTY set is a REFUSAL, never
+    # a pass. A question with no declared store set has not been adjudicated,
+    # and a gate that grades an unmapped question is grading nothing -- the
+    # zero-denominator shape this whole file exists to refuse.
+    _accept="${2:-}"
     grep -q '^PROBE_FATAL' "$_t" && { echo "fatal"; return; }
     grep -q '^FRAME done$' "$_t" || { echo "incomplete"; return; }
     grep -q '^FRAME tool_call ' "$_t" || { echo "no_tool_call"; return; }
@@ -479,14 +597,51 @@ adjudicate_turn() {
     # So: a SUCCESSFUL graph read anywhere in the turn is the thing being
     # measured, and it outranks an error that the model recovered from. An
     # error only decides the verdict when nothing succeeded.
-    grep -q '^FRAME tool_result pwg_.* OK$' "$_t" && { echo "grounded"; return; }
+    #
+    # ⚠️ AMENDED BY #1125, AND THE AMENDMENT IS THE POINT OF BOTH ROWS. "A
+    # successful graph read" is now "a successful read OF A STORE THAT COULD
+    # HOLD THE ANSWER". The probe's own `recovered` fixture was itself an
+    # instance of #1125's blindness: pwg_person_timeline ERR then pwg_overview
+    # OK, on a question about the customer's CONTACTS, scored grounded because
+    # some pwg tool returned OK. The model consulted the index and never went
+    # back for the data, which is HALF the recovery person_query's error text
+    # asks for -- its wording is "call pwg_overview first and then call the
+    # person tool AGAIN". The full recovery still scores grounded and is
+    # fixture-pinned below; the half one now scores tool_error, because the
+    # person store was tried, failed, and nothing ever read it successfully.
+    [ -n "$_accept" ] || { echo "no_expected_tools"; return; }
+    _result_mark "$_t" OK "$_accept" && { echo "grounded"; return; }
+    # The right store was TRIED and broke, or was tried and was empty. Both are
+    # more specific and more actionable than "some other store answered", so
+    # they outrank wrong_store.
+    _result_mark "$_t" ERR "$_accept" && { echo "tool_error"; return; }
+    # A truthful "no such person" lands here -- see the client's EMPTY mark,
+    # which flags a result whose body announces an empty set. Success-shaped
+    # emptiness is the #810 shape and must not read as retrieval.
+    _result_mark "$_t" EMPTY "$_accept" && { echo "tool_found_nothing"; return; }
+    # #1125's measured shape: a graph tool succeeded and its store cannot hold
+    # what was asked for. Retrieval happened; it read the wrong shelf. Not a
+    # FAIL of retrieval, so it keeps its own word rather than borrowing
+    # tool_error's, exactly as memory_only does one gate above.
+    grep -q '^FRAME tool_result pwg_.* OK$' "$_t" && { echo "wrong_store"; return; }
     grep -q '^FRAME tool_result pwg_.* ERR$' "$_t" && { echo "tool_error"; return; }
-    # A graph tool answered without erroring. NOTE: a truthful "no such person"
-    # also lands here -- see tool_found_nothing in the client, which marks a
-    # result whose body announces an empty set. Success-shaped emptiness is the
-    # #810 shape and must not read as retrieval.
     grep -q '^FRAME tool_result pwg_.* EMPTY$' "$_t" && { echo "tool_found_nothing"; return; }
-    echo "grounded"
+    # ── #1597 / ZERO DENOMINATOR: NOTHING WAS OBSERVED, SO NOTHING PASSED ────
+    #
+    # 🔴 THIS LINE USED TO READ `echo "grounded"`. Measured on origin/main
+    # e0fb21bf, three transcripts in which NO pwg tool_result frame was ever
+    # seen -- a pwg tool CALLED and no result frame at all, a result frame the
+    # client could not parse (`FRAME unparseable`), and a pwg call whose only
+    # result came from a non-pwg tool -- each adjudicated `grounded`. Zero
+    # successful reads, zero errors, zero empties, and the probe reported the
+    # customer's data had been reached. A negative control on the same function
+    # returned tool_error and memory_only, so the reader was alive and the
+    # uniform answer was the defect.
+    #
+    # A graph call whose outcome was never observed is not a pass and not a
+    # fail: it is lost coverage on that turn, and it routes to UNMEASURED so
+    # the probe reports CANNOT-RUN rather than a clean sheet.
+    echo "no_tool_result"
 }
 
 # ── NAME THE TOOL, NOT ONLY THE SHAPE ───────────────────────────────────────
@@ -513,6 +668,13 @@ _offending_tool() {
             sed -n 's/^FRAME tool_result \(pwg_[A-Za-z0-9_]*\) ERR$/\1/p' "$1" | head -1 ;;
         tool_found_nothing)
             sed -n 's/^FRAME tool_result \(pwg_[A-Za-z0-9_]*\) EMPTY$/\1/p' "$1" | head -1 ;;
+        # #1125. wrong_store's only actionable fact is WHICH store answered:
+        # "[wrong_store]" alone reads as a routing mystery, "[wrong_store:
+        # pwg_overview]" names the inventory tool that answered a content
+        # question and is the whole finding. Capped at the first with head -1,
+        # the same cap the two arms above use.
+        wrong_store)
+            sed -n 's/^FRAME tool_result \(pwg_[A-Za-z0-9_]*\) OK$/\1/p' "$1" | head -1 ;;
     esac
 }
 
@@ -536,9 +698,20 @@ classify_verdict() {
     # classify_verdict <turn verdict> -> defect | unmeasured | ok
     case "$1" in
         grounded)                                     printf 'ok' ;;
-        no_tool_call|memory_only|tool_error|tool_found_nothing|fact_missing)
+        # wrong_store (#1125) is a DEFECT and not lost coverage: the turn
+        # completed, retrieval succeeded, and the customer was handed a count
+        # where they asked for content. That is a product behaviour, observed.
+        no_tool_call|memory_only|tool_error|tool_found_nothing|fact_missing|wrong_store)
                                                       printf 'defect' ;;
-        incomplete|fatal)                             printf 'unmeasured' ;;
+        # no_tool_result and no_expected_tools are UNMEASURED, and calling
+        # either a defect would be the error this function was written to fix.
+        # no_tool_result: a graph call whose outcome never arrived says nothing
+        # about whether the assistant can reach the customer's data (#1597).
+        # no_expected_tools: the battery failed to declare a store set, which
+        # is a fault in the INSTRUMENT, and an instrument fault must never be
+        # announced as a product failure -- nor swallowed as a pass.
+        incomplete|fatal|no_tool_result|no_expected_tools)
+                                                      printf 'unmeasured' ;;
         *)                                            printf 'unmeasured' ;;
     esac
 }
@@ -546,11 +719,37 @@ classify_verdict() {
 # The battery. Each SHOULD reach the graph on a populated box. Deliberately
 # phrased the way a new customer phrases them, not the way the tools are shaped
 # -- that mismatch IS #854, and a probe written to suit the tools would hide it.
+#
+# ⚠️ THE QUESTIONS THEMSELVES ARE LOAD-BEARING AND ARE NOT TO BE REWORDED.
+# #1113 measured question 2 grounding 3 times in 10 while 1 and 3 grounded 10
+# of 10, and the first instinct there was to reword it. That instinct was
+# withdrawn in the same thread and the withdrawal is the rule: question 2 is
+# phrased as a customer phrases it, its 70% miss rate IS the finding, and
+# rewording it until it passes would delete the finding and leave the customer
+# experience exactly as broken.
+#
+# COLUMN 2 IS THE STORE SET (#1125), TAB-SEPARATED, one clause of the shipped
+# routing guidance each. See _TOOL_REGISTRY above for the source and for why
+# the broad opener is unconstrained.
+#
+#   "What do you know about me?"        BROAD OPENER clause. No store
+#                                       restriction: the guidance says call
+#                                       overview FIRST, not overview only, and
+#                                       any store can legitimately answer it.
+#   "What are my interests?"            "Tastes -- what they are interested in,
+#                                       enjoy, are into -- pwg_preferences".
+#                                       pwg_overview is deliberately ABSENT:
+#                                       that is the #1125 measurement, an
+#                                       inventory count answering a question
+#                                       about content. Widening this row needs
+#                                       the shipped guidance to widen first.
+#   "Who have I been in contact ..."    "For a person call pwg_people; history
+#                                       pwg_person_timeline".
 _questions() {
-    cat <<'QEOF'
-What do you know about me?
-What are my interests?
-Who have I been in contact with recently?
+    cat <<QEOF
+What do you know about me?	${_TOOL_REGISTRY}
+What are my interests?	pwg_preferences
+Who have I been in contact with recently?	pwg_people pwg_person_timeline
 QEOF
 }
 
@@ -577,14 +776,44 @@ run_probe() {
     _questions > "$_qfile"
     # The seeded turn, only when the seed oracle named a fact to expect. It
     # is asked LAST so the three unseeded questions keep their positions in
-    # every prior walk record.
-    [ -n "$EXPECT_FACT" ] && printf '%s\n' "$SEEDED_QUESTION" >> "$_qfile"
+    # every prior walk record. Its store set is the person clause, the same
+    # one question 3 carries: it asks who someone is and where they work.
+    [ -n "$EXPECT_FACT" ] && printf '%s\t%s\n' "$SEEDED_QUESTION" "pwg_people pwg_person_timeline" >> "$_qfile"
     _declared="$(grep -c . "$_qfile")"
 
+    # ── THE MAPPING IS CHECKED BEFORE A SINGLE QUESTION IS ASKED (#1125) ─────
+    #
+    # Two ways a store set can be worthless, and both are silent at run time:
+    # EMPTY, which would make every turn no_expected_tools and the whole probe
+    # CANNOT-RUN after fifteen minutes of LLM calls; and naming a tool the
+    # runtime does not register, which is a gate NOTHING can ever satisfy. The
+    # second is the dangerous one, because it looks like a product failure.
+    # Both are caught here, up front, and reported as an instrument fault.
+    _bad_map=""
+    while IFS="$(printf '\t')" read -r _mq _mt; do
+        [ -n "$_mq" ] || continue
+        if [ -z "$_mt" ]; then
+            _bad_map="${_bad_map} [\"${_mq}\" declares NO store set]"
+            continue
+        fi
+        for _mx in $_mt; do
+            case " ${_TOOL_REGISTRY} " in
+                *" ${_mx} "*) : ;;
+                *) _bad_map="${_bad_map} [\"${_mq}\" names ${_mx}, which the runtime does not register]" ;;
+            esac
+        done
+    done < "$_qfile"
+    [ -n "$_bad_map" ] && probe_cannot_run "the battery's store map is unusable, so no verdict here would mean anything:${_bad_map}. That is a fault in THIS PROBE, not in the product, and it is reported as one rather than as the assistant failing to reach the customer's data."
+
     _asked=0; _failed=0; _unmeasured=0; _detail=""; _unmeasured_detail=""
+    # ROW 1113. How many turns produced ANY tool call at all. See the
+    # discriminator below: without this count a no_tool_call verdict cannot
+    # distinguish a model that declined the tools it held from a model that
+    # was never offered any.
+    _turns_with_tool_call=0
     _tmp="$(mktemp)"
     exec 3< "$_qfile"
-    while IFS= read -r _q <&3; do
+    while IFS="$(printf '\t')" read -r _q _accept_tools <&3; do
         [ -n "$_q" ] || continue
         _asked=$(( _asked + 1 ))
         # The fact travels to the client ONLY for the seeded question, as a
@@ -593,7 +822,13 @@ run_probe() {
         _fact=""
         [ -n "$EXPECT_FACT" ] && [ "$_q" = "$SEEDED_QUESTION" ] && _fact="$EXPECT_FACT"
         box_run "python3 ${_remote_py} ${_port} '${TOKEN_PATH}' \"\$(printf %s '${_q}')\" ${CHAT_TIMEOUT} \"\$(printf %s '${_fact}')\"" > "$_tmp" 2>&1
-        _v="$(adjudicate_turn "$_tmp")"
+        # ROW 1113, counted BEFORE adjudication and independent of its verdict:
+        # a turn that emitted any tool_call frame is direct evidence, from this
+        # box in this run, that the model was offered tools.
+        if grep -q '^FRAME tool_call ' "$_tmp"; then
+            _turns_with_tool_call=$(( _turns_with_tool_call + 1 ))
+        fi
+        _v="$(adjudicate_turn "$_tmp" "$_accept_tools")"
         case "$(classify_verdict "$_v")" in
             ok) : ;;
             defect)
@@ -610,6 +845,12 @@ run_probe() {
                     else
                         _detail="${_detail} [fact_missing: a pwg_ tool answered, NO tool result carried '${EXPECT_FACT}', and neither did the reply -- retrieval did not deliver it]"
                     fi
+                elif [ "$_v" = "wrong_store" ]; then
+                    # #1125. Name BOTH sides or the reader cannot tell a
+                    # routing defect from a wrong map: the tool that answered,
+                    # and the stores whose data could have held the answer.
+                    # Our own tool identifiers, never customer data.
+                    _detail="${_detail} [wrong_store: ${_tname:-a pwg_ tool} answered, and the answer to this question lives in ${_accept_tools}]"
                 else
                     _detail="${_detail} [${_v}${_tname:+:${_tname}}]"
                 fi ;;
@@ -627,8 +868,45 @@ run_probe() {
     rm -f "$_tmp" "$_qfile"
     box_run "rm -f ${_remote_py}" >/dev/null 2>&1
 
+    # ── ROW 1113: WAS THE MODEL EVER OFFERED TOOLS ON THIS BOX? ─────────────
+    #
+    # #1113 opened on a walk that read "2 of 3 questions did not reach the
+    # customer's own data: [no_tool_call] [no_tool_call]", and the daemon's own
+    # telemetry for those turns said:
+    #
+    #   outcome="ok" ... llm_calls=2 tool_calls=0 iterations=1 tools=
+    #
+    # `tools=` EMPTY. No tools were offered, so tool_calls=0 was not the model
+    # declining -- it never had any. The probe printed the same verdict token
+    # for that as for a model that held eight graph tools and reached for none,
+    # and those are different defects with different owners: one is tool
+    # availability, the other is routing. The probe could not see the daemon's
+    # telemetry line and still cannot; it is not read here and nothing in this
+    # file pretends to.
+    #
+    # WHAT IT CAN SEE, IN BAND, WITH NO NEW FRAME AND NO NEW FILE: the battery
+    # asks three questions against the same daemon in the same run. If ANY turn
+    # produced a tool_call frame, tools were demonstrably offered on this box.
+    # That is precisely the reasoning that killed #1113's own MCP root cause --
+    # "three pwg_* tool calls happened while MCP was disabled, so MCP being off
+    # does not prevent grounding" -- turned from a one-off argument into a
+    # standing discriminator.
+    #
+    # ⚠️ IT DOES NOT CHANGE THE VERDICT, AND MUST NOT. Zero tools offered is a
+    # worse product failure, not a lesser one: a customer whose assistant holds
+    # no graph tools cannot be answered from their own data at all. The FAIL
+    # stands. Only the attribution changes, which is the same discipline
+    # _fact_missing_side already applies one screen above -- the verdict token
+    # is left alone so every consumer keeps working, and the detail gains the
+    # discriminator the reader could not otherwise get.
+    if [ "$_turns_with_tool_call" -eq 0 ]; then
+        _offer_note=" NO turn in this battery produced a tool call at all, so it is NOT established that the model was offered any tools (#1113 measured tools= EMPTY in the daemon's own telemetry on exactly this shape). Read this as tool availability unproven, NOT as the model declining tools it held."
+    else
+        _offer_note=" Tools WERE offered on this box: ${_turns_with_tool_call} of ${_asked} turns produced at least one tool call, so a no_tool_call turn here is the model declining tools it held (routing), not an empty tool list."
+    fi
+
     # The denominator, always. "0 of 0 grounded" must never read as success.
-    probe_examined "$_asked" "questions asked over /ws/chat (battery declares ${_declared}; ${_failed} answered without reaching the graph, ${_unmeasured} never completed)"
+    probe_examined "$_asked" "questions asked over /ws/chat (battery declares ${_declared}; ${_failed} answered without reaching the graph, ${_unmeasured} never completed or were never observed, ${_turns_with_tool_call} produced at least one tool call)"
 
     [ "$_asked" -eq 0 ] && probe_cannot_run "no questions were asked; the battery is empty"
 
@@ -642,10 +920,10 @@ run_probe() {
     # another timed out. Lost coverage outranks a pass, because a battery that
     # only half ran has not established the promise.
     [ "$_failed" -gt 0 ] && probe_fail \
-        "${_failed} of ${_asked} questions COMPLETED without reaching the customer's own data:${_detail} (verdicts are frame-stream states, plus the seeded turn's fact-carried assertion computed on the box; answer text is never read here)"
+        "${_failed} of ${_asked} questions COMPLETED without reaching the customer's own data:${_detail} (verdicts are frame-stream states, plus the seeded turn's fact-carried assertion computed on the box; answer text is never read here).${_offer_note}"
 
     [ "$_unmeasured" -gt 0 ] && probe_cannot_run \
-        "${_unmeasured} of ${_asked} turns never completed:${_unmeasured_detail}. That is a clock or a client, NOT evidence that the assistant cannot answer. The per-turn ceiling is ${CHAT_TIMEOUT}s and this file own runtime note records 2-5 MINUTES per turn on a Mac mini under first-run ingest load. Raise OSTLER_PROBE_CHAT_TIMEOUT and re-walk, or walk a box that has finished ingesting. Not a pass."
+        "${_unmeasured} of ${_asked} turns never completed or had their retrieval outcome never observed:${_unmeasured_detail}. That is a clock, a client or a dropped result frame, NOT evidence that the assistant cannot answer. The per-turn ceiling is ${CHAT_TIMEOUT}s and this file own runtime note records 2-5 MINUTES per turn on a Mac mini under first-run ingest load. Raise OSTLER_PROBE_CHAT_TIMEOUT and re-walk, or walk a box that has finished ingesting. A no_tool_result turn means a graph tool was CALLED and no result frame for it was ever seen, which is an unobserved turn and not a grounded one (#1597). Not a pass."
 
     probe_pass "all ${_asked} questions produced a tool-backed answer over /ws/chat at ${GATEWAY}${EXPECT_FACT:+, and the seeded reply carried the expected fact}"
 }
@@ -671,29 +949,91 @@ self_test() {
     #     nothing. Not an error, and not retrieval either.
     printf 'FRAME session_start\nFRAME tool_call pwg_person_timeline\nFRAME tool_result pwg_person_timeline EMPTY\nFRAME done\n' > "$_d/empty"
 
+    # The three store sets the battery declares, named once so every fixture
+    # below is adjudicated against a set a REAL question actually carries. A
+    # set invented for the self-test would make these arms prove nothing about
+    # the walk.
+    _ALL="$_TOOL_REGISTRY"
+    _PERSON='pwg_people pwg_person_timeline'
+    _TASTES='pwg_preferences'
+
     _ok=1
-    [ "$(adjudicate_turn "$_d/good")"       = "grounded" ]           || _ok=0
-    [ "$(adjudicate_turn "$_d/toolerr")"    = "tool_error" ]         || _ok=0
-    [ "$(adjudicate_turn "$_d/notool")"     = "no_tool_call" ]       || _ok=0
-    [ "$(adjudicate_turn "$_d/incomplete")" = "incomplete" ]         || _ok=0
-    [ "$(adjudicate_turn "$_d/memonly")"    = "memory_only" ]        || _ok=0
-    [ "$(adjudicate_turn "$_d/empty")"      = "tool_found_nothing" ] || _ok=0
+    [ "$(adjudicate_turn "$_d/good" "$_TASTES")"       = "grounded" ]           || _ok=0
+    [ "$(adjudicate_turn "$_d/toolerr" "$_TASTES")"    = "tool_error" ]         || _ok=0
+    [ "$(adjudicate_turn "$_d/notool" "$_ALL")"        = "no_tool_call" ]       || _ok=0
+    [ "$(adjudicate_turn "$_d/incomplete" "$_ALL")"    = "incomplete" ]         || _ok=0
+    [ "$(adjudicate_turn "$_d/memonly" "$_ALL")"       = "memory_only" ]        || _ok=0
+    [ "$(adjudicate_turn "$_d/empty" "$_PERSON")"      = "tool_found_nothing" ] || _ok=0
 
     # ── A RECOVERED TURN IS NOT A FAILED ONE (#1597) ─────────────────────────
     # The product is BUILT to recover: person_query's error text tells the model
     # to call pwg_overview and try again. Those turns must not read as defects.
-    printf 'FRAME session_start\nFRAME tool_call pwg_person_timeline\nFRAME tool_result pwg_person_timeline ERR\nFRAME tool_call pwg_overview\nFRAME tool_result pwg_overview OK\nFRAME done\n' > "$_d/recovered"
-    [ "$(adjudicate_turn "$_d/recovered")"  = "grounded" ]           || _ok=0
+    # THE FULL RECOVERY the error text asks for: call pwg_overview, then call
+    # the person tool AGAIN. The person store is read successfully in the end,
+    # so the customer got their contacts and the turn is grounded.
+    printf 'FRAME session_start\nFRAME tool_call pwg_person_timeline\nFRAME tool_result pwg_person_timeline ERR\nFRAME tool_call pwg_overview\nFRAME tool_result pwg_overview OK\nFRAME tool_call pwg_person_timeline\nFRAME tool_result pwg_person_timeline OK\nFRAME done\n' > "$_d/recovered"
+    [ "$(adjudicate_turn "$_d/recovered" "$_PERSON")"  = "grounded" ]  || _ok=0
+    # ⚠️ THE HALF RECOVERY, AND IT CHANGED VERDICT IN THE #1125 LIFT. This was
+    # the `recovered` fixture, asserted `grounded`, because SOME pwg tool
+    # returned OK. On a question about the customer's contacts the model
+    # consulted the INDEX and never went back for the data, so the customer got
+    # counts. That fixture was itself an instance of the blindness #1125
+    # reports, sitting inside the control that was meant to prove the probe
+    # could see. It is tool_error now: the person store was tried, it failed,
+    # and nothing ever read it successfully.
+    printf 'FRAME session_start\nFRAME tool_call pwg_person_timeline\nFRAME tool_result pwg_person_timeline ERR\nFRAME tool_call pwg_overview\nFRAME tool_result pwg_overview OK\nFRAME done\n' > "$_d/recovered_half"
+    [ "$(adjudicate_turn "$_d/recovered_half" "$_PERSON")" = "tool_error" ] || _ok=0
     # MUST-MISS: an error the model NEVER recovered from is still a defect.
     # Without this arm the reorder would have made the probe unable to fail.
-    [ "$(adjudicate_turn "$_d/toolerr")"    = "tool_error" ]         || _ok=0
+    [ "$(adjudicate_turn "$_d/toolerr" "$_TASTES")"    = "tool_error" ]         || _ok=0
     # MUST-MISS: a turn that only ever found nothing is still not retrieval,
     # even though EMPTY is not an error.
-    [ "$(adjudicate_turn "$_d/empty")"      = "tool_found_nothing" ] || _ok=0
+    [ "$(adjudicate_turn "$_d/empty" "$_PERSON")"      = "tool_found_nothing" ] || _ok=0
     # CONTROL: recovery is decided by a SUCCESSFUL read, not merely by a second
     # tool call. Two failures in a row must still be tool_error.
     printf 'FRAME session_start\nFRAME tool_call pwg_person_timeline\nFRAME tool_result pwg_person_timeline ERR\nFRAME tool_call pwg_topics\nFRAME tool_result pwg_topics ERR\nFRAME done\n' > "$_d/twoerrs"
-    [ "$(adjudicate_turn "$_d/twoerrs")"    = "tool_error" ]         || _ok=0
+    [ "$(adjudicate_turn "$_d/twoerrs" "$_PERSON")"    = "tool_error" ]         || _ok=0
+
+    # ── #1125: THE WRONG STORE IS NOT GROUNDING ─────────────────────────────
+    # The measured shape. "What are my interests?" answered by pwg_overview,
+    # which returns a count of how many preferences the graph holds. Scored
+    # grounded by every adjudicator this file has had until now, identically
+    # to the Q8 cell that called pwg_preferences 10 times out of 10.
+    printf 'FRAME session_start\nFRAME tool_call pwg_overview\nFRAME tool_result pwg_overview OK\nFRAME done\n' > "$_d/wrongstore"
+    [ "$(adjudicate_turn "$_d/wrongstore" "$_TASTES")" = "wrong_store" ]        || _ok=0
+    # MUST-MISS, AND IT IS THE WHOLE POINT: the SAME frames on the BROAD
+    # OPENER, whose clause places no store restriction, are grounded. A probe
+    # that called pwg_overview wrong everywhere would fight the routing
+    # guidance the product ships.
+    [ "$(adjudicate_turn "$_d/wrongstore" "$_ALL")"    = "grounded" ]           || _ok=0
+    # MUST-MISS: the RIGHT store on the same question is still grounded, so the
+    # new arm narrows the verdict rather than reddening the question.
+    [ "$(adjudicate_turn "$_d/good" "$_TASTES")"       = "grounded" ]           || _ok=0
+    # CONTROL: a wrong-store hit does not mask the right store ERRORING. The
+    # tool that broke is the actionable fact and outranks the one that answered.
+    printf 'FRAME session_start\nFRAME tool_call pwg_preferences\nFRAME tool_result pwg_preferences ERR\nFRAME tool_call pwg_overview\nFRAME tool_result pwg_overview OK\nFRAME done\n' > "$_d/rightbroke"
+    [ "$(adjudicate_turn "$_d/rightbroke" "$_TASTES")" = "tool_error" ]         || _ok=0
+
+    # ── #1597 / ZERO DENOMINATOR: AN UNOBSERVED TURN IS NOT A GROUNDED ONE ──
+    # All three were MEASURED as `grounded` on origin/main e0fb21bf. Each has a
+    # pwg tool CALLED and not one pwg tool_result frame anywhere: no success,
+    # no error, no empty. The probe reported the customer's data reached.
+    printf 'FRAME session_start\nFRAME tool_call pwg_people\nFRAME done\n' > "$_d/noresult"
+    printf 'FRAME session_start\nFRAME tool_call pwg_people\nFRAME unparseable\nFRAME done\n' > "$_d/unparseable"
+    printf 'FRAME session_start\nFRAME tool_call pwg_people\nFRAME tool_result memory_recall OK\nFRAME done\n' > "$_d/nonpwg_result"
+    [ "$(adjudicate_turn "$_d/noresult" "$_PERSON")"      = "no_tool_result" ]  || _ok=0
+    [ "$(adjudicate_turn "$_d/unparseable" "$_PERSON")"   = "no_tool_result" ]  || _ok=0
+    [ "$(adjudicate_turn "$_d/nonpwg_result" "$_PERSON")" = "no_tool_result" ]  || _ok=0
+    # MUST-MISS: the same call WITH its result frame is grounded, so the new
+    # arm fires on the missing observation and not on the call.
+    printf 'FRAME session_start\nFRAME tool_call pwg_people\nFRAME tool_result pwg_people OK\nFRAME done\n' > "$_d/withresult"
+    [ "$(adjudicate_turn "$_d/withresult" "$_PERSON")"    = "grounded" ]        || _ok=0
+
+    # ── THE INSTRUMENT REFUSES RATHER THAN GRADES ───────────────────────────
+    # An empty store set is a fault in this probe. It must not grade the turn
+    # in either direction, and its class must be unmeasured, not defect.
+    [ "$(adjudicate_turn "$_d/good" "")"               = "no_expected_tools" ]  || _ok=0
+    [ "$(adjudicate_turn "$_d/good")"                  = "no_expected_tools" ]  || _ok=0
 
     # ── THE CONTENT ASSERTION (2026-09-07) ──────────────────────────────────
     # (g) MEASURED ad hoc on a v1.0.74 box (ostler-assistant b4118b45's commit
@@ -712,25 +1052,25 @@ self_test() {
     # (j) THE FRAME GATE STAYS FIRST: a reply that carries the fact without
     #     any tool call is still no_tool_call -- the fact came from nowhere.
     printf 'FRAME session_start\nFRAME chunk_reset\nFRAME reply_fact YES\nFRAME done\n' > "$_d/notool_fact"
-    [ "$(adjudicate_turn "$_d/factmissing")"      = "fact_missing" ]  || _ok=0
-    [ "$(adjudicate_turn "$_d/factcarried")"      = "grounded" ]      || _ok=0
-    [ "$(adjudicate_turn "$_d/factmissing_full")" = "fact_missing" ]  || _ok=0
-    [ "$(adjudicate_turn "$_d/notool_fact")"      = "no_tool_call" ]  || _ok=0
+    [ "$(adjudicate_turn "$_d/factmissing" "$_PERSON")"      = "fact_missing" ]  || _ok=0
+    [ "$(adjudicate_turn "$_d/factcarried" "$_PERSON")"      = "grounded" ]      || _ok=0
+    [ "$(adjudicate_turn "$_d/factmissing_full" "$_PERSON")" = "fact_missing" ]  || _ok=0
+    [ "$(adjudicate_turn "$_d/notool_fact" "$_PERSON")"      = "no_tool_call" ]  || _ok=0
 
     # (l) WHICH SIDE LOST IT. Same verdict, two different owners, and until
     #     2026-09-09 the record could not tell them apart. The verdict token is
     #     deliberately unchanged on both, so every consumer of it keeps working.
     printf 'FRAME session_start\nFRAME tool_call pwg_people\nFRAME tool_result pwg_people OK\nFRAME tool_fact YES\nFRAME chunk_reset\nFRAME reply_fact NO\nFRAME done\n' > "$_d/fact_ignored"
     printf 'FRAME session_start\nFRAME tool_call pwg_people\nFRAME tool_result pwg_people OK\nFRAME tool_fact NO\nFRAME chunk_reset\nFRAME reply_fact NO\nFRAME done\n' > "$_d/fact_not_retrieved"
-    [ "$(adjudicate_turn "$_d/fact_ignored")"       = "fact_missing" ]   || _ok=0
-    [ "$(adjudicate_turn "$_d/fact_not_retrieved")" = "fact_missing" ]   || _ok=0
+    [ "$(adjudicate_turn "$_d/fact_ignored" "$_PERSON")"       = "fact_missing" ]   || _ok=0
+    [ "$(adjudicate_turn "$_d/fact_not_retrieved" "$_PERSON")" = "fact_missing" ]   || _ok=0
     [ "$(_fact_missing_side "$_d/fact_ignored")"       = "ignored" ]       || _ok=0
     [ "$(_fact_missing_side "$_d/fact_not_retrieved")" = "not_retrieved" ] || _ok=0
     # MUST-MISS: a transcript with NO tool_fact frame at all is the pre-change
     # shape, and it must read not_retrieved rather than crash or claim ignored.
     [ "$(_fact_missing_side "$_d/factmissing")"        = "not_retrieved" ] || _ok=0
     # (k) UNSEEDED turns carry no reply_fact frame and are unchanged.
-    [ "$(adjudicate_turn "$_d/good")"             = "grounded" ]      || _ok=0
+    [ "$(adjudicate_turn "$_d/good" "$_TASTES")"             = "grounded" ]      || _ok=0
 
     # THE PREDICATE ITSELF, driven through the client's --self-check so the
     # self-test exercises the code the walk runs, not a re-implementation.
@@ -759,7 +1099,110 @@ self_test() {
     # would be reported as the failing graph tool.
     printf 'FRAME session_start\nFRAME tool_call memory_recall\nFRAME tool_result memory_recall ERR\nFRAME done\n' > "$_d/nonpwg"
     [ -z "$(_offending_tool "$_d/nonpwg" tool_error)" ]                      || _name_ok=0
+    # #1125. wrong_store's name is its only actionable fact: WHICH store
+    # answered. Without it the detail reads as a routing mystery.
+    [ "$(_offending_tool "$_d/wrongstore" wrong_store)" = "pwg_overview" ]   || _name_ok=0
     [ "$_name_ok" -eq 1 ] || _ok=0
+
+    # ── THE BATTERY'S OWN STORE MAP, CHECKED AGAINST THE RUNTIME (#1125) ────
+    #
+    # 🔴 THE TRAP THIS ARM EXISTS FOR: a store set naming a tool the runtime
+    # does not register is a gate NOTHING can satisfy, and it fails looking
+    # exactly like a product defect -- every turn on that question would score
+    # wrong_store forever. The map is checked against the SAME registry the
+    # sibling probe assistant_prompt_names_every_pwg_tool pins, read from that
+    # file rather than copied, so the two cannot drift apart silently.
+    _sibling="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/assistant_prompt_names_every_pwg_tool.sh"
+    _map_ok=1
+    if [ ! -f "$_sibling" ]; then
+        printf '  store-map control: CANNOT-RUN, no sibling probe at %s\n' "$_sibling"
+        _map_ok=0
+    else
+        _sib_tools="$(sed -n 's/^REQUIRED_TOOLS="\(.*\)"$/\1/p' "$_sibling" | head -1)"
+        # THE READER IS PROVED BEFORE ITS ANSWER IS BELIEVED. An empty read
+        # here would make every membership test below vacuously fail, which is
+        # a different bug wearing this one's face.
+        if [ -z "$_sib_tools" ]; then
+            printf '  store-map control: CANNOT-RUN, could not read REQUIRED_TOOLS from the sibling probe\n'
+            _map_ok=0
+        else
+            for _t8 in $_TOOL_REGISTRY; do
+                case " ${_sib_tools} " in
+                    *" ${_t8} "*) : ;;
+                    *) printf '  store-map control: %s is in this battery and NOT in the runtime registry\n' "$_t8"; _map_ok=0 ;;
+                esac
+            done
+            for _t8 in $_sib_tools; do
+                case " ${_TOOL_REGISTRY} " in
+                    *" ${_t8} "*) : ;;
+                    *) printf '  store-map control: %s is registered by the runtime and missing from this battery\n' "$_t8"; _map_ok=0 ;;
+                esac
+            done
+        fi
+    fi
+    # ANTI-VACUITY. The broad opener declares all 8 on purpose, and that arm
+    # can never return wrong_store. If EVERY row did that the mechanism would
+    # be decoration that still reported a verdict, which is this week's defect
+    # class exactly. At least one question must declare a PROPER SUBSET.
+    _subset_rows=0
+    while IFS="$(printf '\t')" read -r _sq _st; do
+        [ -n "$_sq" ] || continue
+        [ -n "$_st" ] || continue
+        [ "$_st" = "$_TOOL_REGISTRY" ] || _subset_rows=$(( _subset_rows + 1 ))
+    done <<QSUB
+$(_questions)
+QSUB
+    if [ "$_subset_rows" -lt 1 ]; then
+        printf '  store-map control: NO battery row declares a proper subset, so wrong_store can never fire\n'
+        _map_ok=0
+    fi
+    # 🔴 AND THE HOLE THE ARM ABOVE LEFT, FOUND BY MUTATING THIS FILE RATHER
+    # THAN BY READING IT. "At least one proper subset" is satisfied by question
+    # 3 alone, so widening question 2 back to the whole registry -- undoing the
+    # #1125 fix on the exact question #1125 measured -- left every control
+    # green. A battery-wide floor cannot guard a per-row property.
+    #
+    # THE PROPERTY, stated positively: pwg_overview is the ONLY tool in the
+    # registry that returns metadata about the graph instead of data from it,
+    # so it may appear in exactly one set, the unconstrained broad opener.
+    # Two arms, because widening a row to `preferences overview` and widening
+    # it to the full registry are different mutations and each escapes the
+    # other's arm.
+    _full_rows=0; _overview_rows=0
+    while IFS="$(printf '\t')" read -r _sq _st; do
+        [ -n "$_sq" ] || continue
+        [ -n "$_st" ] || continue
+        if [ "$_st" = "$_TOOL_REGISTRY" ]; then
+            _full_rows=$(( _full_rows + 1 ))
+        else
+            case " ${_st} " in
+                *" pwg_overview "*) _overview_rows=$(( _overview_rows + 1 )) ;;
+            esac
+        fi
+    done <<QOVW
+$(_questions)
+QOVW
+    if [ "$_full_rows" -ne 1 ]; then
+        printf '  store-map control: %s battery rows declare the WHOLE registry, expected exactly 1 (the broad opener). An unconstrained row can never return wrong_store.\n' "$_full_rows"
+        _map_ok=0
+    fi
+    if [ "$_overview_rows" -ne 0 ]; then
+        printf '  store-map control: %s constrained row(s) accept pwg_overview, which returns a COUNT of the graph rather than anything in it. That is the #1125 shape being readmitted.\n' "$_overview_rows"
+        _map_ok=0
+    fi
+    # EVERY row must declare a set at all, or that question is ungraded.
+    _unmapped_rows=0
+    while IFS="$(printf '\t')" read -r _sq _st; do
+        [ -n "$_sq" ] || continue
+        [ -n "$_st" ] || _unmapped_rows=$(( _unmapped_rows + 1 ))
+    done <<QMAP
+$(_questions)
+QMAP
+    if [ "$_unmapped_rows" -ne 0 ]; then
+        printf '  store-map control: %s battery row(s) declare no store set\n' "$_unmapped_rows"
+        _map_ok=0
+    fi
+    [ "$_map_ok" -eq 1 ] || _ok=0
     rm -rf "$_d"
 
     # ── AND THE ROUTING, WHICH IS WHAT DECIDES THE PROBE'"'"'S VERDICT ────────
@@ -784,15 +1227,32 @@ self_test() {
     _rt tool_error          defect
     _rt tool_found_nothing  defect
     _rt fact_missing        defect
+    # #1125. An observed product behaviour, so a DEFECT: the turn completed,
+    # retrieval succeeded, and the wrong shelf was read.
+    _rt wrong_store         defect
     _rt incomplete          unmeasured
     _rt fatal               unmeasured
+    # #1597. Nothing was observed, so nothing passed and nothing failed. If
+    # either of these ever routes to `ok` the probe is back to reporting a
+    # clean sheet on a zero denominator, and if either routes to `defect` it
+    # blames the product for the instrument's blindness.
+    _rt no_tool_result      unmeasured
+    _rt no_expected_tools   unmeasured
     _rt some_future_verdict unmeasured
 
-    probe_examined 23 "planted transcript fixtures, predicate checks and verdict-routing cases"
+    # 61 = 35 adjudicator and predicate arms (the 37 `|| _ok=0` lines less the
+    # two roll-ups) + 6 tool-name arms + 8 store-map control sites + 12 routing
+    # cases. COUNTED, not estimated, and counted by code SITE rather than by
+    # execution: two of the map sites sit inside per-tool loops. scripts/tests/
+    # test_grounded_probe_names_the_store_and_refuses_a_blind_turn.sh recounts
+    # them from this file with the same definition and goes red if the number
+    # and the arms drift apart. Without that recount a declared denominator is
+    # just a number, which is the shape this probe exists to refuse.
+    probe_examined 61 "planted transcript fixtures, predicate checks, store-map controls and verdict-routing cases"
     if [ "$_ok" -eq 1 ]; then
         # The control FIRED: six known-bad shapes each produced their own
         # non-grounded verdict, and the healthy ones did not.
-        probe_fail "control fired: tool_error, no_tool_call, incomplete, memory_only, tool_found_nothing and fact_missing (the seeded turn whose reply did not carry the fact, measured on a v1.0.74 box, ostler-assistant b4118b45) are each detected, the healthy fixtures are not misread as broken, and 8 of 8 verdicts route correctly -- a completed turn that missed the graph is a DEFECT, a turn that never completed is UNMEASURED, and an unrecognised verdict is unmeasured rather than announced as a product failure"
+        probe_fail "control fired: tool_error, no_tool_call, incomplete, memory_only, tool_found_nothing and fact_missing (the seeded turn whose reply did not carry the fact, measured on a v1.0.74 box, ostler-assistant b4118b45) are each detected; wrong_store fires on the #1125 shape -- an inventory tool answering a question about content -- while the same frames on the broad opener stay grounded; no_tool_result fires on all three #1597 shapes in which a graph tool was called and no result for it was ever observed, each of which read grounded on origin/main e0fb21bf; an empty store set refuses instead of grading; the battery's store map agrees with the runtime registry and at least one row is a proper subset so wrong_store can fire at all; the healthy fixtures are not misread as broken; and 12 of 12 verdicts route correctly -- a completed turn that missed the graph is a DEFECT, a turn that never completed or was never observed is UNMEASURED, and an unrecognised verdict is unmeasured rather than announced as a product failure"
     fi
     # Reaching here means the adjudicator could NOT tell a broken turn from a
     # healthy one. Passing is how this suite spells BROKEN.

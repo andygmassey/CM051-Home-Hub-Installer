@@ -774,7 +774,38 @@ jobs:
 
   cut:
     needs: preflight
-    if: github.event_name == 'push'
+    # 🔴 THE ORDER WAS BUILD-THEN-SHIP-THEN-FIND-OUT, AND IT IS WHY EVERY CUT
+    # BURNS.
+    #
+    # Measured 2026-09-17 on the v1.0.100 walk: six probes failed, and every
+    # one of them can ONLY run against an installed Ostler. A GitHub runner has
+    # none, so CI -- 80+ checks, all green before the tag -- measured the
+    # instruments and nothing about the product. The walk that found the six
+    # ran AFTER the tag, because until this commit a tag was the only thing
+    # that produced a DMG: this job was `push` only, and the dry-run job's own
+    # header says it has "no credential step, and no upload-artifact step".
+    #
+    # So a candidate could not be walked before it became the ship. Four of the
+    # six were introduced between v1.0.95 and v1.0.100 and would have been
+    # caught by one walk of a candidate:
+    #   install_manifest_complete       2da78644 added a launch agent and a
+    #                                   Qdrant collection, declared neither
+    #   ostler_unlock_reachable_by_name 2bb84015 added a symlink that captured
+    #                                   the /tmp staging path by value
+    #   no_unexpected_egress            passed on v1.0.95 four days earlier
+    #   acceptance_gate_v1013           passed on every prior walk
+    #
+    # THE FIX IS THE ORDER, NOT MORE GATES. This job now also runs on
+    # workflow_dispatch, so a real signed, notarised, stapled candidate can be
+    # built and WALKED before any tag exists. Everything that PUBLISHES stays
+    # `push` only and is marked below, so a dispatch can never reach a
+    # customer: no release object, no appcast, no tag-content assertion.
+    #
+    # The cost is honest and stated: a dispatch consumes the signing identity
+    # and a notarisation round trip. That is the price of finding out before
+    # shipping rather than after, and it is smaller than a burnt version
+    # number, of which two have already been spent learning this.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     # macos-26, NOT macos-14. macos-14 carries Xcode 15.4 and gui/.xcode-version
     # pins 26.6 (17F113), so check-pbxproj-sync could only ever report
     # UNAVAILABLE on that image -- measured on the v1.0.26 cut. The DMG should
@@ -1243,7 +1274,10 @@ jobs:
 
       - name: The artefact's content IS the tag being cut
         id: artefact_content
-        if: always()
+        # PUSH ONLY: a dispatch has no tag for the artefact's content to equal.
+        # Skipped rather than relaxed -- this assertion must never be taught to
+        # pass on a missing tag.
+        if: always() && github.event_name == 'push'
         env:
           CUT_VERSION: ${{ github.ref_name }}
         run: |
@@ -1315,7 +1349,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ostler-dmg-${{ github.ref_name }}
+          # A dispatch build is a CANDIDATE and is named so. Nobody should be
+          # able to mistake one for a released artefact in the artefact list.
+          name: ostler-dmg-${{ github.event_name == 'push' && github.ref_name || format('candidate-{0}-{1}', github.ref_name, github.run_number) }}
           path: |
             dist/*.dmg
             dist/SHA256SUMS
@@ -1420,7 +1456,9 @@ jobs:
       # A build that never produced a DMG makes the gate exit 2, so this
       # correctly skips rather than repeating the failure as "No DMG found".
       - name: Publish the release object, then prove the customer url serves it
-        if: always() && steps.artefact_content.outcome == 'success'
+        # PUBLISHES. Push only, so a walked candidate cannot reach a customer
+        # by accident.
+        if: always() && github.event_name == 'push' && steps.artefact_content.outcome == 'success'
         env:
           # Pairs with CM051_RELEASES_READ, which is already wired at four
           # sites in this file and reads FROM ostler-ai releases. A matching
@@ -1450,7 +1488,8 @@ jobs:
           /bin/bash scripts/publish_release.sh "${GITHUB_REF_NAME}" "$DMG"
 
       - name: AU-1 appcast publish (post-upload, cannot destroy the artefact)
-        if: always()
+        # PUBLISHES to the update feed. Push only.
+        if: always() && github.event_name == 'push'
         env:
           OSTLER_SPARKLE_SIGNING_KEY: ${{ secrets.OSTLER_SPARKLE_SIGNING_KEY }}
         run: |

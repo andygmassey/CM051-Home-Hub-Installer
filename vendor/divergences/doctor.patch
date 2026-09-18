@@ -7108,3 +7108,13 @@
          "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
          "INSERT DATA {\n"
          f"  {body}\n"
+--- a/agent/web_ui.py
++++ b/agent/web_ui.py
+@@ -2463,6 +2463,7 @@ _SOURCE_KINDS = {
+     "imessage": "source",
+     "people": "source",
+     "places": "source",
++    "reminders": "source",
+     "whatsapp": "source",
+     "dedupe": "operation",
+     "privacy_backfill": "operation",

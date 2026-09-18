@@ -186,6 +186,46 @@ else
     log "compiler/emit_artefact.py not in the staged tree; skipping the interest-profile artefact (staged tree predates it)."
 fi
 
+# --- Step 1.5: PROJECT QDRANT PREFERENCES INTO THE GRAPH ---------------
+#
+# 🔴 compiler/project_preferences.py SHIPPED AND WAS CALLED BY NOTHING.
+# Measured on the v1.0.100 box, with a control of the same shape:
+#     grep -rl project_preferences ~/.ostler  -> 1 (the file itself)
+#     grep -rl emit_frontpage      ~/.ostler  -> 15
+# Its own docstring says it "runs before each compile". Nothing ran it.
+#
+# The consequence was the front page a customer actually sees. Before:
+#     Oxigraph pwg:LikePreference nodes   0
+#     interest_profile.json stats         raw_rows 0
+#     front_page.json                     1 card, "Ostler has spotted 0
+#                                         interests from what it has read so far"
+# After running it by hand on the same box:
+#     projected 4792 preference nodes (43128 triples) from 5721 Qdrant points
+#     graph total                         76167 -> 120493 triples
+#     interest_profile.json stats         raw_rows 4792
+#
+# It runs BEFORE emit_artefact because emit_artefact reads what this writes.
+# Guarded on the file existing for the same reason Step 1 is: a tick against an
+# older staged tree degrades instead of erroring every hour.
+#
+# ⚠️ THIS IS NECESSARY AND NOT SUFFICIENT, AND SAYING SO HERE IS THE POINT.
+# With all 4792 rows present the profile STILL reports 0 interests:
+#     suppressed_low_confidence   4701 of 4792
+# because compile_profile's min_confidence default is 0.28 while the dominant
+# source, bookmarks, has a measured ceiling of 0.18 with unlimited
+# corroboration. That is a separate defect (the interest floor) and this wiring
+# does not close it. Anyone reading a still-empty front page after this change
+# should look there, not here.
+if [ -f "$SOURCE_DIR/compiler/project_preferences.py" ]; then
+    _project_rc=0
+    PYTHONPATH="$SOURCE_DIR" "$PYTHON_BIN" -m compiler.project_preferences || _project_rc=$?
+    if [ "$_project_rc" -ne 0 ]; then
+        log "preference projection failed (rc=${_project_rc}); the interest profile will read whatever the graph already held, which on a first run is nothing."
+    fi
+else
+    log "compiler/project_preferences.py not in the staged tree; skipping the preference projection (staged tree predates it)."
+fi
+
 # --- Step 2: the Dashboard front page (unchanged) ----------------------
 PYTHONPATH="$SOURCE_DIR" "$PYTHON_BIN" -m compiler.emit_frontpage --oxigraph "$OSTLER_OXIGRAPH_URL"
 log "Editor front-page tick complete"

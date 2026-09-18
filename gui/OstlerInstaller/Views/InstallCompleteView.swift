@@ -800,8 +800,31 @@ struct InstallCompleteView: View {
         }
     }
 
+    // 🔴 THIS USED TO OPEN http://localhost:8044 IN THE BROWSER, AND THAT IS
+    // THE BUTTON ANDY PRESSED. His words on his own console walk: "The wiki
+    // via a browser is requesting authentication details I don't have."
+    //
+    // :8044 is nginx, and until this change it answered an uncredentialled
+    // request with `401 + WWW-Authenticate: Basic`. That header is what makes
+    // a browser pop a password box. The password was the customer's own and
+    // sat 0600 on their disk, but this screen is the LAST thing they see and
+    // the box cannot be filled from it.
+    //
+    // install.sh no longer challenges a browser on that port, so this button
+    // would now open a tab saying "your wiki is in the Ostler app". Opening a
+    // browser to be told to close it is not a fix. The wiki is a tab INSIDE
+    // Ostler.app -- the Hub fetches it through the daemon's own proxy, which
+    // presents the credential on the customer's behalf (ostler-assistant
+    // crates/zeroclaw-gateway/src/wiki_proxy.rs, reached from
+    // web/src/pages/Wiki.tsx at WIKI_PROXY_PATH) -- so this button opens the
+    // place the wiki actually is.
+    //
+    // No deep link: the Hub registers no URL scheme (measured, zero
+    // CFBundleURLSchemes in the hub app tree), so this opens the app and the
+    // customer picks Wiki in the sidebar. The hint copy beside the button
+    // says exactly that.
     private func openWiki() {
-        if let url = URL(string: "http://localhost:8044") {
+        if let url = URL(string: "file:///Applications/Ostler.app") {
             NSWorkspace.shared.open(url)
         }
     }
