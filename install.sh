@@ -18783,32 +18783,37 @@ services:
       # (WIKI_HYDRATION_STATUS_FILE below); that lands at ~/.ostler/state
       # on the host where the endpoint reads it.
       - ${HOME}/.ostler/state:/state
-      # 🔴 #849 -- THE PRO OBSIDIAN VAULT WRITER COULD NOT RUN ON ANY
-      # INSTALL. compiler/vault_licence.py gates it on the Pro licence
-      # state. Before this line, NOTHING under ${HOME}/.ostler except
-      # state/ was mounted here, so the reader resolved
-      # ~/.ostler/licence/state.json to /root/.ostler/licence/state.json
-      # INSIDE the container -- a path that has never existed on any
-      # install -- and fail-closed to pro_none on every compile pass.
-      # Every Pro customer silently got no vault, forever.
+      # 🗿 THE ${HOME}/.ostler/licence MOUNT USED TO BE HERE AND IS GONE ON
+      # PURPOSE. Board row 971, and it is the sharper half of #849.
       #
-      # ⚠️ IT WAS ALREADY FIXED IN CM044's docker/docker-compose.yml AND
-      # TESTED THERE, AND THAT TEST WAS GREEN WHILE THIS FILE WAS BROKEN.
-      # CM044's test_licence_dir_is_bind_mounted reads CM044's OWN dev
-      # compose. The customer runs THIS compose, generated here. Measured
-      # 2026-08-23, control on both sides:
-      #     CM044 docker/docker-compose.yml   .ostler/licence -> 5
-      #     CM051 install.sh                  .ostler/licence -> 0
-      #     control: wiki-compiler present in both (5 and 15), so neither
-      #     count is a false zero from reading the wrong file.
-      # A guard on the dev compose says nothing about the artefact.
+      # #849 was real and its diagnosis was right as far as it went:
+      # compiler/vault_licence.py resolved ~/.ostler/licence/state.json,
+      # which inside a container that declares no USER and no ENV HOME lands
+      # at /root/..., a path no install has ever had, so the Pro vault write
+      # fail-closed to pro_none on every compile pass. The mount and the env
+      # var below made that path reachable.
       #
-      # READ-ONLY: the compiler CONSUMES licence state, nothing in CM044
-      # writes it, and a writable mount onto the licence tree is a foothold
-      # the wiki compiler has no reason to hold. Scoped to licence/ alone,
-      # not all of ~/.ostler, which also holds daemon config and store
-      # credentials.
-      - ${HOME}/.ostler/licence:/licence:ro
+      # THE PATH THEY MADE REACHABLE WAS FICTION. Nothing in this estate has
+      # ever written ~/.ostler/licence/state.json. CM044's own module said so
+      # in its docstring on 2026-07-30 and asked for confirmation before
+      # v1.0.13 merged; nobody answered for seven weeks. So the mount was
+      # correct plumbing to an address that does not exist, and a Pro
+      # customer's vault stayed shut whether or not it was there.
+      #
+      # WHERE THE ENTITLEMENT ACTUALLY LIVES: the phone pushes the StoreKit
+      # receipt to /api/v1/subscription/receipt, subscription_gate writes
+      # ~/.ostler/state/subscription_state.json, and every pipeline calls
+      # is_active_or_grace() on it. Andy decided 2026-09-18 that the Apple
+      # receipt is the truth, so CM044's reader moved to that file
+      # (CM044 #280) and this mount serves nobody.
+      #
+      # AND NO NEW MOUNT REPLACES IT. ${HOME}/.ostler/state:/state is already
+      # bind-mounted above, for the hydration status file, so the Hub's
+      # subscription state has been inside this container the whole time, one
+      # directory away from a reader looking in the wrong place. Leaving the
+      # dead mount would keep a second entitlement address alive in the
+      # shipped compose for the next person to wire something to, which is
+      # the defect row 971 exists to close rather than to relocate.
       # 🔴 #482 -- THE BURSAR SAID "You're not on the meter. Nothing recorded
       # yet this month." ON A BOX THAT HAD DONE A FULL INSTALL AND COMPILED A
       # WIKI, AND THIS MISSING MOUNT IS WHY.
@@ -18869,17 +18874,22 @@ services:
       # host-side CM041 ical-server hydration endpoint reads the same
       # file the compiler writes. See compiler/hydration.py::status_path.
       - WIKI_HYDRATION_STATUS_FILE=/state/wiki_hydration.json
-      # #849, second half. Absolute in-container path of the Pro licence
-      # state file, matching the ${HOME}/.ostler/licence:/licence:ro mount
-      # above. Set EXPLICITLY rather than letting the mount land at the
-      # container's ~/.ostler/licence: the image declares no USER and no
-      # ENV HOME, so "~" is /root ONLY by inheritance from the base image.
-      # The day anyone adds a USER line, a HOME-relative resolution would
-      # silently stop matching and the Pro vault writer would go quiet
-      # again in exactly the #849 way -- with no error, because the reader
-      # fail-closes to pro_none. An explicit env var is also the thing a
-      # test can assert lands inside a declared mount target.
-      - OSTLER_LICENCE_STATE_FILE=/licence/state.json
+      # #849's second half, re-aimed by board row 971. Absolute in-container
+      # path of the Hub's OWN subscription state, inside the
+      # ${HOME}/.ostler/state:/state mount declared above.
+      #
+      # THE NAME IS THE HUB'S, not a second one for the same fact. A box that
+      # relocates this file relocates it for every reader at once; a private
+      # variable here is how the two addresses diverged in the first place.
+      #
+      # Set EXPLICITLY rather than letting a HOME-relative path resolve: the
+      # image declares no USER and no ENV HOME, so "~" is /root ONLY by
+      # inheritance from the base image. The day anyone adds a USER line, a
+      # HOME-relative read would silently stop matching and the Pro vault
+      # writer would go quiet again in exactly the #849 way, with no error,
+      # because the reader fail-closes to pro_none. An explicit env var is
+      # also the thing a test can assert lands inside a declared mount.
+      - OSTLER_SUBSCRIPTION_STATE=/state/subscription_state.json
       # #979. The path INSIDE the container, matching the bind mount above.
       # The renderer reads compiler/config.py::ai_conversations_dir, which
       # honours this. Without it the mount would be present and unread,
@@ -18898,7 +18908,7 @@ services:
       # mount-source note above). An earlier version of this comment named
       # ${HOME}/.ostler/workspace, which the daemon does NOT read.
       #
-      # Set EXPLICITLY, for the identical reason OSTLER_LICENCE_STATE_FILE
+      # Set EXPLICITLY, for the identical reason OSTLER_SUBSCRIPTION_STATE
       # is: the image declares no USER and no ENV HOME, so "~" is /root only
       # by inheritance from the base image. A HOME-relative resolution would
       # silently stop matching the day anyone adds a USER line, and the

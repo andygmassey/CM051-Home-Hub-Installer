@@ -99,33 +99,23 @@ def block_of(text):
     return text[i:j], i, j
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--base", default="origin/main",
-                    help="revision whose citations are known good")
-    ap.add_argument("--check", action="store_true",
-                    help="report only, write nothing")
-    args = ap.parse_args()
+def align_and_report(base, cur, base_label, check, write_path):
+    """The whole judgement, over two TEXTS rather than two files.
 
-    if not INSTALL.is_file():
-        print("CANNOT-RUN: install.sh not found at %s" % INSTALL)
-        return 2
-    cur = INSTALL.read_text(encoding="utf-8")
+    Split out of main() so --self-test can drive it with a MUTATED copy held
+    in memory: the self-test then needs no git revision, writes nothing, and
+    exercises the accept predicate against the REAL install.sh lines rather
+    than a synthetic file, which could encode the shape the code handles
+    instead of the shape the repository has.
 
-    try:
-        base = subprocess.run(
-            ["git", "-C", str(ROOT), "show", "%s:install.sh" % args.base],
-            capture_output=True, text=True, check=True).stdout
-    except Exception as exc:
-        print("CANNOT-RUN: could not read install.sh at %s (%s)"
-              % (args.base, exc))
-        return 2
-
+    Exit codes as in the module docstring: 0 nothing to do, 1 repairs needed
+    or made, 2 CANNOT-RUN.
+    """
     b = block_of(base)
     c = block_of(cur)
     if b is None:
         print("CANNOT-RUN: the re-arm comment's anchors are absent from %s."
-              % args.base)
+              % base_label)
         return 2
     if c is None:
         print("CANNOT-RUN: the re-arm comment's anchors are absent from the"
@@ -144,13 +134,13 @@ def main():
         print("CANNOT-RUN: the comment carries %d citation(s) at %s and %d in"
               " the working tree. The prose itself changed, so they cannot be"
               " paired by position. Repair by hand."
-              % (len(base_cites), args.base, len(cur_cites)))
+              % (len(base_cites), base_label, len(cur_cites)))
         return 2
     if not cur_cites:
         print("CANNOT-RUN: no line citations found in the re-arm comment.")
         return 2
     print("EXAMINED: %d citation(s), paired by order of appearance, base %s"
-          % (len(cur_cites), args.base))
+          % (len(cur_cites), base_label))
 
     # The alignment. base line N (1-indexed) -> working-tree line, for every
     # line that survived the edit. A deleted line simply has no entry, which
@@ -168,7 +158,7 @@ def main():
         bn, cn = int(b_raw), int(c_raw)
         if bn < 1 or bn > len(base_lines):
             refusals.append("citation %d: :%d is outside %s (%d lines)"
-                            % (idx, bn, args.base, len(base_lines)))
+                            % (idx, bn, base_label, len(base_lines)))
             continue
         target = amap.get(bn)
         if target is None:
@@ -205,7 +195,7 @@ def main():
     if not moves:
         print("\nNothing to do: every citation still lands on its anchor.")
         return 0
-    if args.check:
+    if check:
         print("\n--check: %d citation(s) need re-pointing." % len(moves))
         return 1
 
@@ -231,6 +221,108 @@ def main():
     print("\nRewrote %d citation(s) in install.sh. Run"
           " tests/test_store_curl_config_survives_the_promote.sh." % len(moves))
     return 1
+
+
+def self_test():
+    """Prove this checker can still go red, and can still refuse.
+
+    🔴 A GATE THAT CANNOT FAIL IS NOT A GATE, and this one is at particular
+    risk of becoming one: on most pull requests install.sh is untouched, so
+    base and tree are identical, the alignment is the identity map and the
+    step reports 18 of 18 already correct. That green says the base revision
+    resolved. It says NOTHING about whether the checker would notice a moved
+    citation, so CI watches it notice one on every run.
+
+    Four arms, over the real install.sh text, mutated in memory. Nothing is
+    written. Each arm names the exit code it demands, and all three codes are
+    represented, because CANNOT-RUN is not FAIL and is not PASS.
+    """
+    if not INSTALL.is_file():
+        print("SELF-TEST CANNOT-RUN: install.sh not found at %s" % INSTALL)
+        return 2
+    real = INSTALL.read_text(encoding="utf-8")
+    if block_of(real) is None:
+        print("SELF-TEST CANNOT-RUN: the re-arm comment's anchors are absent"
+              " from install.sh, so there is nothing to mutate.")
+        return 2
+    lines = real.split("\n")
+    block, _, _ = block_of(real)
+    cites = [int(x) for x in CITE.findall(block)]
+
+    failures = []
+
+    def arm(name, base, cur, want):
+        print("\n--- SELF-TEST ARM: %s (demands exit %d) ---" % (name, want))
+        got = align_and_report(base, cur, "self-test base", True, None)
+        print("    exit %d, wanted %d" % (got, want))
+        if got != want:
+            failures.append("%s: exit %d, wanted %d" % (name, got, want))
+
+    # 1. A clean tree reads clean. Without this arm the other three could all
+    #    pass on a checker that returns non-zero unconditionally.
+    arm("an untouched tree is clean", real, real, 0)
+
+    # 2. THE ARM THAT MATTERS. Three lines inserted at the top shift every
+    #    citation, and none of the inserted text goes anywhere near the
+    #    comment, so a checker that compared only the comment block would see
+    #    nothing and pass.
+    shifted = "\n".join(["# self-test insertion"] * 3 + lines)
+    arm("three lines inserted above everything", real, shifted, 1)
+
+    # 3. A refusal, not a guess: the anchors gone means the block cannot be
+    #    located at all.
+    arm("the comment's start anchor is deleted",
+        real, real.replace(START, "    # (anchor removed by the self-test)", 1), 2)
+
+    # 4. A refusal of the other kind: a CITED line is deleted, so the
+    #    alignment has no image for it. Re-pointing that citation at whatever
+    #    sits at the same number afterwards is exactly the silent damage this
+    #    tool refuses to do.
+    if cites:
+        n = cites[0]
+        gutted = "\n".join(lines[:n - 1] + lines[n:])
+        arm("a cited line is deleted (citation :%d)" % n, real, gutted, 2)
+    else:
+        failures.append("no citations found, so arm 4 could not be built")
+
+    print()
+    if failures:
+        print("SELF-TEST FAIL: %d of 4 arm(s) did not behave" % len(failures))
+        for f in failures:
+            print("    %s" % f)
+        return 1
+    print("SELF-TEST PASS: 4 of 4 arms behaved, exits 0/1/2 all represented.")
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--base", default="origin/main",
+                    help="revision whose citations are known good")
+    ap.add_argument("--check", action="store_true",
+                    help="report only, write nothing")
+    ap.add_argument("--self-test", action="store_true",
+                    help="prove the checker still goes red, and still refuses")
+    args = ap.parse_args()
+
+    if args.self_test:
+        return self_test()
+
+    if not INSTALL.is_file():
+        print("CANNOT-RUN: install.sh not found at %s" % INSTALL)
+        return 2
+    cur = INSTALL.read_text(encoding="utf-8")
+
+    try:
+        base = subprocess.run(
+            ["git", "-C", str(ROOT), "show", "%s:install.sh" % args.base],
+            capture_output=True, text=True, check=True).stdout
+    except Exception as exc:
+        print("CANNOT-RUN: could not read install.sh at %s (%s)"
+              % (args.base, exc))
+        return 2
+
+    return align_and_report(base, cur, args.base, args.check, INSTALL)
 
 
 if __name__ == "__main__":
