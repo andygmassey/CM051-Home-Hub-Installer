@@ -55,6 +55,12 @@ _rec() {
         printf 'walk_kind_source\tdeclared: synthetic fixture for the promote-scope arms\n'
         printf 'version\tv9.9.9\n'
         printf 'version_source\tmeasured(CFBundleShortVersionString, matches argument)\n'
+        # os_version / os_version_source: REQUIRED since 2026-09-18. A fixture that
+        # omits a field the format requires is a fixture THINNER THAN THE SUBJECT,
+        # which is the defect this estate keeps finding in fakes. The gate refuses
+        # absence deliberately, so the fixture must carry it like the real writer does.
+        printf 'os_version\t27.0\n'
+        printf 'os_version_source\tmeasured(sw_vers -productVersion over ssh on the walked box)\n'
         printf 'artefact_sha256\t%s\n' "$SHA"
         printf 'artefact_sha256_source\tmeasured(shasum -a 256 on the walked box)\n'
         printf 'walked_at\t2026-09-05T00:00:00Z\n'
@@ -93,6 +99,12 @@ _rec2() {
         printf 'walk_kind_source\tdeclared: synthetic fixture for the promote-scope arms\n'
         printf 'version\tv9.9.9\n'
         printf 'version_source\tmeasured(CFBundleShortVersionString, matches argument)\n'
+        # os_version / os_version_source: REQUIRED since 2026-09-18. A fixture that
+        # omits a field the format requires is a fixture THINNER THAN THE SUBJECT,
+        # which is the defect this estate keeps finding in fakes. The gate refuses
+        # absence deliberately, so the fixture must carry it like the real writer does.
+        printf 'os_version\t27.0\n'
+        printf 'os_version_source\tmeasured(sw_vers -productVersion over ssh on the walked box)\n'
         printf 'artefact_sha256\t%s\n' "$SHA"
         printf 'artefact_sha256_source\tmeasured(shasum -a 256 on the walked box)\n'
         printf 'walked_at\t2026-09-05T00:00:00Z\n'
