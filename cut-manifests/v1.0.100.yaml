@@ -424,158 +424,159 @@ open_issues:
     repo: HR015
     title: "iPhone pairing is broken: the QR scanner sheet is never presented"
     gate: >-
-      MEASURED 2026-09-19. THE ROW IS PARTLY DONE, ITS HEADLINE IS NOT THE DEFECT, AND PR #2042 IS
-      MERGED rather than pending. Merged 2026-09-16T13:58:40Z, ancestor of origin/main and of tag
-      v1.0.100. The row's own words PROVEN-PENDING-MERGE are not a verdict item 9 allows, and it
-      corrects itself two sentences later to RAISED; both are superseded by MERGED, which is still not
-      DELIVERED. THE DEFECT UNDERNEATH THE HEADLINE IS FIXED, GUARDED AND WIRED, AND I RAN IT. The
-      unreachable-address refusal is defined at pair_status.py:172 and called from the envelope
-      validator at :162. Its guard is WIRED and invoked by the vendor-integrity workflow with both
-      paths on the filter, and the library it needs is pinned in the vendored requirements and
-      installed by the job. Run from a clean export of origin/main: 12 pass, 0 fail, 0 cannot-run, rc
-      0, printing that it examined 6 unreachable and 4 reachable addresses, which is a denominator
-      rather than a claim. AND IT HAS FAILED: removing the call site at :162 gives rc 1 with 11 pass
-      and 1 fail, the single red being that the envelope validator did not reject it. That is exactly
-      the shape the row predicts, so the gate is graded on the property filed rather than on its
-      neighbour. THE ROW'S CITATIONS ARE THE WORST PART OF IT AND THE FINDING IS NOT. Three are dead:
-      two cited lines now land on a bare return, a blank line and a docstring sentence. One says the
-      validator checks the address ONLY as a non-empty string, and that word is now FALSE because the
-      very next line is the reachability call the same row takes credit for. A Swift citation is dead
-      by 163 lines and is given without its directory. The file count has moved from 80 to 83. AND THE
-      ROW CITES A LINE NUMBER INTO THE BOARD FILE IT LIVES IN, which cannot survive an edit to that
-      file and does not: it now points at a blank line. That one is a general lesson rather than a
-      slip. ONE ITEM IT NAMES IS REAL, OPEN, AND NEEDS A BOX: the pairing QR fetch sends no
-      authorisation header, the daemon answers 200 with HTML for every path so a failure reads as
-      success, and the catch collapses six distinct failure kinds into one. That is tracked separately
-      and cannot be settled from the repository. GATE: NOT BLOCKING. The address is guarded; the scan
-      journey needs a camera and a human and is not something a thin walk can reach. RETIREMENT
-      CONDITION: a board decision on the headline, which is either a retitle to the real defect or a
-      close as filed against a surface that was never built, plus the missing authorisation header. It
-      must not retire on the guard alone, which is already green.  ORIGINAL TEXT FOLLOWS, WITH ONE
-      WORD PAIR PARAPHRASED AND THE PARAPHRASE DECLARED. The original opened with the ungated marker
-      as its verdict. That marker is matched by a PLAIN SUBSTRING test over the WHOLE gate value with
-      no position test, so preserving it verbatim anywhere in this row would hold the row ungated for
-      ever no matter what verdict sits above it. Row 939 records that same trap flipping 41 rows at
-      once. So those two words are replaced by the phrase the ungated marker and NOTHING ELSE in the
-      original is altered. IT READ: CANNOT FIX AS DESCRIBED: THE SURFACE THIS ROW NAMES DOES NOT
-      EXIST, AND THE DIRECTION IS INVERTED. No PR opened, deliberately. MEASURED: "scanner" appears
-      nowhere in CM051 outside an unrelated PII hook. POSITIVE CONTROL of the same shape and corpus:
-      "qrcode" returns 16 hits, so the predicate finds QR machinery where it exists. The repo has
-      exactly TWO .sheet( presentations, both in ContentView.swift, neither of them pairing. AND THE
-      AUTO-SHOW IS ALREADY WIRED: InstallCompleteView.swift:225 carries .task { await
-      autoShowPairCode() }, with a retry because the success screen can render before the gateway has
-      bound :8000. THE DIRECTION IS BACKWARDS IN THE ROW ITSELF: the Mac DISPLAYS the code and the
-      iPhone SCANS it. A scanner sheet would belong to CM031, not here. A REAL ADJACENT DEFECT WAS
-      FOUND AND FILED RATHER THAN CLOSED SILENTLY, as CM051 #2011 -- see that row. GatewayClient.swift
-      sends NO Authorization header to the pair-code endpoints while three measured-on-a-box records
-      send the admin bearer, the daemon 200s text/html for EVERY path, and the catch discards the
-      error, collapsing six failure kinds into one reassuring sentence. Not fixed here because
-      settling it needs the box. THIS ROW STAYS UNGATED until someone decides whether it is retitled
-      to the real defect or closed as filed against a surface that was never built. THAT IS A BOARD
-      DECISION, NOT A CODE ONE. THE HUB HALF IS OURS, REAL, AND UNGUARDED; THE APP HALF IS NOT IN THIS
-      REPO. The QR scanner sheet belongs to CM031: 0 hits for AVCaptureMetadataOutput, QRScanner,
-      ScannerView or VNDetectBarcode, and all 80 .swift files here are the macOS installer. POSITIVE
-      CONTROL: "pairing" matches 137 files, so the search reaches. CANNOT-DETERMINE for that half from
-      this tree. THE THIRD SYMPTOM IS OURS AND IS LIVE: vendor/doctor/agent/pair_status.py:159-160
-      validates hub_addr ONLY as a non-empty string, then encodes it verbatim into the QR at :169-171
-      and :184. No routability check and no link-local rejection, so a fe80::...%en0 goes straight
-      into the QR -- which matches the thirteen refused 8443 connections in the issue exactly. NO
-      GUARD, AND THE MANIFEST ALREADY SAID SO at :423: "no probe can reach it: pairing needs a camera
-      and a human." A probe never graded. GATE: PROVEN-PENDING-MERGE OF CM051 #2042, AND THE ROW
-      HEADLINE NAMES A SURFACE THAT DOES NOT EXIST WHILE THE REAL DEFECT SITS UNDERNEATH IT. The
-      headline says the QR SCANNER SHEET is never presented. That is correct and unfixable as written:
-      scanner appears nowhere in CM051 outside an unrelated hook, against a POSITIVE CONTROL of 16
-      hits for qrcode, so the predicate finds QR machinery when it exists and the absence is real. The
-      direction is inverted; the Hub MINTS the code and the phone scans it. THE REAL DEFECT, LOCATED
-      AND FIXED: pair_status.py validated hub_addr as a non-empty string and then encoded it VERBATIM
-      into the QR the customer scans. Non-empty is not the property that matters, because the phone
-      has to OPEN it. An IPv6 link-local address with a zone index is only meaningful on the interface
-      its zone names, and en0 on the Hub is not en0 on the phone: the scope travels with the string
-      while the thing it scopes does not. The QR scans perfectly and the connection can never succeed,
-      which matches the thirteen refused 8443 connections the issue reports and is the worst failure
-      shape available because nothing looks broken. MEASURED, 12 passed 0 failed 0 cannot-run,
-      denominator printed: 6 unreachable addresses refused, being the link-local form bare and
-      bracketed, IPv4 link-local, both loopbacks and the unspecified wildcard; and 4 reachable ones
-      accepted, being the mDNS name bare and with a port, a routable LAN address, and a routable IPv6
-      address. THE ACCEPTED HALF IS NOT PADDING: rejecting the mDNS name would replace one silent
-      failure with another, and those arms exist to stop the fix becoming a worse defect than the one
-      it closes. THE GATE CAN FAIL AND THE SHAPE OF THE FAILURE IS THE POINT: removing the check from
-      the real validator takes the suite to rc 1 with EXACTLY ONE arm red, the arm asserting the
-      shipped envelope validator rejects a link-local address. The other eleven drive the helper
-      directly and cannot see a missing call site. That one arm is what separates built-and-reachable
-      from built-and-present, and its control is the identical envelope with a routable address, which
-      must still pass, so the refusal is about the address and not the envelope. WHAT IT DOES NOT DO,
-      STATED SO NOBODY READS MORE INTO IT: it does not choose a better address. If the Hub only has a
-      link-local address, pairing still cannot work; the customer is now told why instead of scanning
-      a code that silently fails. WIRED IN THE SAME PR into vendor-integrity.yml with always, both
-      paths added to the path filter, and a TEST_WIRING row. THE MANIFEST ALREADY SAID NO PROBE CAN
-      REACH THIS because pairing needs a camera and a human, and that remains true of the end-to-end
-      journey: this guards the ADDRESS, not the scan. By item 9 the word is RAISED, which is none of
-      MERGED, DELIVERED or PROVEN. THE STRIKE ON THIS ROW WAS UNSOUND AND IS WITHDRAWN 2026-09-16. It
-      read "the issue this row names is CLOSED on GitHub". It is not. HR015 #947 is an OPEN issue
-      titled "[LAUNCH] iPhone pairing is broken: the QR scanner sheet is never presented", which
-      matches this row's subject. THE MECHANISM, measured rather than guessed: these row numbers are
-      HR015 issue numbers, and the closure check resolved them in CM051, where the same number is an
-      unrelated closed PULL REQUEST. Row 940 is the clearest example: CM051 #940 is a closed PR titled
-      "fix(editor): emit the interest-profile artefact the Hub actually serves", while HR015 #940 is
-      the open [LAUNCH] recording-consent issue this row is about. Ask CM051 whether 940 is closed and
-      the answer is yes, about a different thing entirely. This is the same trap that has bitten this
-      board before: gh issue list does not return pull requests, and a bare number is ambiguous across
-      two repos. DENOMINATOR: 41 rows carried a STRUCK gate. 10 of them name HR015 ISSUES, and all 10
-      are OPEN and all 10 are tagged [LAUNCH]. ZERO struck rows name an HR015 issue that is closed.
-      The other 31 have now been resolved too, and ALL 31 are CM051 PULL REQUESTS whose subjects
-      differ from the rows that cite them. So across all 41 struck rows, not one names a closed ISSUE
-      in either repo: 10 name an open HR015 launch issue and 31 name a pull request. For those 31 the
-      strike's stated evidence is ABSENT rather than contradicted -- the numbers are most likely
-      internal task ids that collide with GitHub numbers, a collision this estate has recorded before
-      -- so they are left struck pending a check against the register that actually issued them, and
-      are NOT swept up with the ten. CONTROL, of the same shape as the subject: five closed HR015
-      ISSUES (#751, #700, #595, #583, #580) all read CLOSED through the identical query, so the check
-      can tell open from closed and the uniform result above is a finding rather than a broken
-      predicate. WHAT THIS DOES AND DOES NOT MEAN: it does not mean the underlying work is undone.
-      Some of these are independently fixed and visible in merged PRs on main, and #941 in particular
-      is substantially delivered by #1977. It means the EVIDENCE the strike rested on does not support
-      it, so the rows return to the board until each is adjudicated on its own merits. A cut checklist
-      that strikes 10 open launch issues is a gate that cannot fail, which is indistinguishable from a
-      clean sheet. ORIGINAL STRIKE TEXT PRESERVED BELOW. STRIKE REVERSED 2026-09-18, AND THE ROW IS
-      COUNTED AGAIN. This row was struck on 2026-09-16 on the ground that its number named an issue
-      that had been closed on the tracker. The strike sentence is deliberately PARAPHRASED here and
-      not quoted: _STRUCK_ON_CLOSURE is a plain substring test on the whole gate value, so quoting it
-      verbatim put all 41 reversed rows back inside the struck branch, escaping only through
-      _names_proof. One edit to this prose would have flipped 41 rows to ungated. Measured, then
-      removed. MY FIRST EVIDENCE FOR THIS WAS ITSELF THE ERROR I WAS REPORTING, and the corrected
-      version is worse for the strike, not better. I resolved all 41 numbers against CM051 and
-      reported 41 of 41 as pull requests. But THE ROW DECLARES ITS OWN REPO and I did not read the
-      field: 10 of the 41 declare repo HR015 and 31 declare repo none. Resolving an HR015 number
-      against CM051 is the same category error the strike made, committed by the agent auditing it,
-      and it was caught only because a pre-existing note inside row 947 said HR015 #947 IS AN OPEN
-      ISSUE. RE-MEASURED AGAINST THE REPO EACH ROW DECLARES. The ten HR015 rows are 946, 947, 948,
-      940, 942, 941, 943, 944, 928 and 929, and all ten resolve in andygmassey/HR015-Gaming-PC to OPEN
-      issues, every one titled [LAUNCH]. They were struck as closed while they are open launch work.
-      That is not a number collision, it is a false statement about live launch issues. The remaining
-      31 declare repo none, which the checklist gate itself defines as measured findings rather than
-      tracker items, so there is no issue for the strike to have found closed at all; the number is an
-      internal id. What made the strike look plausible is that those internal ids also land on closed
-      CM051 pull requests, which is exactly the coincidence a repo field exists to prevent, and
-      exactly the coincidence I then fell for while checking it. AND ROW 1014, STRUCK BY THIS SAME
-      STRIKE, IS TITLED "78 registered rows name issues that are already CLOSED": the row about this
-      class of error was removed by the error. HOW IT GOT IN: commit d7a3da88, inside PR #1975, whose
-      subject is a SPARQL editor bug, so nobody reviewing that PR was reviewing a 41-row board strike.
-      Its own message says "and one strike was wrong", so the counterexample was already in hand and
-      was filed as an exception rather than read as evidence about the method. WHAT THIS REVERSAL IS
-      AND IS NOT: it restores the row to the count. It is NOT a claim the work is undone, and it is
-      NOT a re-triage. Each of the 41 needs its own measurement, which is a day of work and is owed.
-      Until then the row is counted as ungated, which looks worse and is true. THE SIZE OF THE EFFECT,
-      MEASURED, AND I REVISED IT DOWN TWICE. First I said 4 ungated to 33, from my own literal search
-      rather than the gate's definition. Then 40 to 46, which double-counted rows my own reversal text
-      had accidentally marked ungated: the narrative SPELLED OUT the ungated marker while describing
-      it, and the checklist gate counts that marker by substring, so the prose became the verdict.
-      Third time in one night that writing ABOUT a predicate tripped it. AND THE FIRST STATEMENT OF
-      THE FIX NAMED THE WRONG MECHANISM, which Archie caught: the ungated test is a plain substring on
-      the whole uppercased value, with no anchor and no position test, so putting the verdict at the
-      FRONT protects nothing. What actually protects it is NEVER SPELLING THE MARKER IN THE NARRATIVE.
-      The verdict is still at the front because that is where a verdict belongs, but anyone relying on
-      the position would put the marker back in the prose below it and silently flip the row for ever,
+      MARKER PARAPHRASE APPLIED 2026-09-19, VERDICT UNCHANGED.  ORIGINAL TEXT FOLLOWS. MEASURED
+      2026-09-19. THE ROW IS PARTLY DONE, ITS HEADLINE IS NOT THE DEFECT, AND PR #2042 IS MERGED
+      rather than pending. Merged 2026-09-16T13:58:40Z, ancestor of origin/main and of tag v1.0.100.
+      The row's own words PROVEN-PENDING-MERGE are not a verdict item 9 allows, and it corrects itself
+      two sentences later to RAISED; both are superseded by MERGED, which is still not DELIVERED. THE
+      DEFECT UNDERNEATH THE HEADLINE IS FIXED, GUARDED AND WIRED, AND I RAN IT. The unreachable-
+      address refusal is defined at pair_status.py:172 and called from the envelope validator at :162.
+      Its guard is WIRED and invoked by the vendor-integrity workflow with both paths on the filter,
+      and the library it needs is pinned in the vendored requirements and installed by the job. Run
+      from a clean export of origin/main: 12 pass, 0 fail, 0 cannot-run, rc 0, printing that it
+      examined 6 unreachable and 4 reachable addresses, which is a denominator rather than a claim.
+      AND IT HAS FAILED: removing the call site at :162 gives rc 1 with 11 pass and 1 fail, the single
+      red being that the envelope validator did not reject it. That is exactly the shape the row
+      predicts, so the gate is graded on the property filed rather than on its neighbour. THE ROW'S
+      CITATIONS ARE THE WORST PART OF IT AND THE FINDING IS NOT. Three are dead: two cited lines now
+      land on a bare return, a blank line and a docstring sentence. One says the validator checks the
+      address ONLY as a non-empty string, and that word is now FALSE because the very next line is the
+      reachability call the same row takes credit for. A Swift citation is dead by 163 lines and is
+      given without its directory. The file count has moved from 80 to 83. AND THE ROW CITES A LINE
+      NUMBER INTO THE BOARD FILE IT LIVES IN, which cannot survive an edit to that file and does not:
+      it now points at a blank line. That one is a general lesson rather than a slip. ONE ITEM IT
+      NAMES IS REAL, OPEN, AND NEEDS A BOX: the pairing QR fetch sends no authorisation header, the
+      daemon answers 200 with HTML for every path so a failure reads as success, and the catch
+      collapses six distinct failure kinds into one. That is tracked separately and cannot be settled
+      from the repository. GATE: NOT BLOCKING. The address is guarded; the scan journey needs a camera
+      and a human and is not something a thin walk can reach. RETIREMENT CONDITION: a board decision
+      on the headline, which is either a retitle to the real defect or a close as filed against a
+      surface that was never built, plus the missing authorisation header. It must not retire on the
+      guard alone, which is already green.  ORIGINAL TEXT FOLLOWS, WITH ONE WORD PAIR PARAPHRASED AND
+      THE PARAPHRASE DECLARED. The original opened with the ungated marker as its verdict. That marker
+      is matched by a PLAIN SUBSTRING test over the WHOLE gate value with no position test, so
+      preserving it verbatim anywhere in this row would hold the row ungated for ever no matter what
+      verdict sits above it. Row 939 records that same trap flipping 41 rows at once. So those two
+      words are replaced by the phrase the ungated marker and NOTHING ELSE in the original is altered.
+      IT READ: unfixable here AS DESCRIBED: THE SURFACE THIS ROW NAMES DOES NOT EXIST, AND THE
+      DIRECTION IS INVERTED. no change raised, deliberately. MEASURED: "scanner" appears nowhere in
+      CM051 outside an unrelated PII hook. POSITIVE CONTROL of the same shape and corpus: "qrcode"
+      returns 16 hits, so the predicate finds QR machinery where it exists. The repo has exactly TWO
+      .sheet( presentations, both in ContentView.swift, neither of them pairing. AND THE AUTO-SHOW IS
+      ALREADY WIRED: InstallCompleteView.swift:225 carries .task { await autoShowPairCode() }, with a
+      retry because the success screen can render before the gateway has bound :8000. THE DIRECTION IS
+      BACKWARDS IN THE ROW ITSELF: the Mac DISPLAYS the code and the iPhone SCANS it. A scanner sheet
+      would belong to CM031, not here. A REAL ADJACENT DEFECT WAS FOUND AND FILED RATHER THAN CLOSED
+      SILENTLY, as CM051 #2011 -- see that row. GatewayClient.swift sends NO Authorization header to
+      the pair-code endpoints while three measured-on-a-box records send the admin bearer, the daemon
+      200s text/html for EVERY path, and the catch discards the error, collapsing six failure kinds
+      into one reassuring sentence. Not fixed here because settling it needs the box. THIS ROW STAYS
+      UNGATED until someone decides whether it is retitled to the real defect or closed as filed
+      against a surface that was never built. THAT IS A BOARD DECISION, NOT A CODE ONE. THE HUB HALF
+      IS OURS, REAL, AND UNGUARDED; THE APP HALF IS NOT IN THIS REPO. The QR scanner sheet belongs to
+      CM031: 0 hits for AVCaptureMetadataOutput, QRScanner, ScannerView or VNDetectBarcode, and all 80
+      .swift files here are the macOS installer. POSITIVE CONTROL: "pairing" matches 137 files, so the
+      search reaches. CANNOT-DETERMINE for that half from this tree. THE THIRD SYMPTOM IS OURS AND IS
+      LIVE: vendor/doctor/agent/pair_status.py:159-160 validates hub_addr ONLY as a non-empty string,
+      then encodes it verbatim into the QR at :169-171 and :184. No routability check and no link-
+      local rejection, so a fe80::...%en0 goes straight into the QR -- which matches the thirteen
+      refused 8443 connections in the issue exactly. NO GUARD, AND THE MANIFEST ALREADY SAID SO at
+      :423: "no probe can reach it: pairing needs a camera and a human." A probe never graded. GATE:
+      PROVEN-PENDING-MERGE OF CM051 #2042, AND THE ROW HEADLINE NAMES A SURFACE THAT DOES NOT EXIST
+      WHILE THE REAL DEFECT SITS UNDERNEATH IT. The headline says the QR SCANNER SHEET is never
+      presented. That is correct and unfixable as written: scanner appears nowhere in CM051 outside an
+      unrelated hook, against a POSITIVE CONTROL of 16 hits for qrcode, so the predicate finds QR
+      machinery when it exists and the absence is real. The direction is inverted; the Hub MINTS the
+      code and the phone scans it. THE REAL DEFECT, LOCATED AND FIXED: pair_status.py validated
+      hub_addr as a non-empty string and then encoded it VERBATIM into the QR the customer scans. Non-
+      empty is not the property that matters, because the phone has to OPEN it. An IPv6 link-local
+      address with a zone index is only meaningful on the interface its zone names, and en0 on the Hub
+      is not en0 on the phone: the scope travels with the string while the thing it scopes does not.
+      The QR scans perfectly and the connection can never succeed, which matches the thirteen refused
+      8443 connections the issue reports and is the worst failure shape available because nothing
+      looks broken. MEASURED, 12 passed 0 failed 0 cannot-run, denominator printed: 6 unreachable
+      addresses refused, being the link-local form bare and bracketed, IPv4 link-local, both loopbacks
+      and the unspecified wildcard; and 4 reachable ones accepted, being the mDNS name bare and with a
+      port, a routable LAN address, and a routable IPv6 address. THE ACCEPTED HALF IS NOT PADDING:
+      rejecting the mDNS name would replace one silent failure with another, and those arms exist to
+      stop the fix becoming a worse defect than the one it closes. THE GATE CAN FAIL AND THE SHAPE OF
+      THE FAILURE IS THE POINT: removing the check from the real validator takes the suite to rc 1
+      with EXACTLY ONE arm red, the arm asserting the shipped envelope validator rejects a link-local
+      address. The other eleven drive the helper directly and cannot see a missing call site. That one
+      arm is what separates built-and-reachable from built-and-present, and its control is the
+      identical envelope with a routable address, which must still pass, so the refusal is about the
+      address and not the envelope. WHAT IT DOES NOT DO, STATED SO NOBODY READS MORE INTO IT: it does
+      not choose a better address. If the Hub only has a link-local address, pairing still cannot
+      work; the customer is now told why instead of scanning a code that silently fails. WIRED IN THE
+      SAME PR into vendor-integrity.yml with always, both paths added to the path filter, and a
+      TEST_WIRING row. THE MANIFEST ALREADY SAID NO PROBE CAN REACH THIS because pairing needs a
+      camera and a human, and that remains true of the end-to-end journey: this guards the ADDRESS,
+      not the scan. By item 9 the word is RAISED, which is none of MERGED, DELIVERED or PROVEN. THE
+      STRIKE ON THIS ROW WAS UNSOUND AND IS WITHDRAWN 2026-09-16. It read "the issue this row names is
+      CLOSED on GitHub". It is not. HR015 #947 is an OPEN issue titled "[LAUNCH] iPhone pairing is
+      broken: the QR scanner sheet is never presented", which matches this row's subject. THE
+      MECHANISM, measured rather than guessed: these row numbers are HR015 issue numbers, and the
+      closure check resolved them in CM051, where the same number is an unrelated closed PULL REQUEST.
+      Row 940 is the clearest example: CM051 #940 is a closed PR titled "fix(editor): emit the
+      interest-profile artefact the Hub actually serves", while HR015 #940 is the open [LAUNCH]
+      recording-consent issue this row is about. Ask CM051 whether 940 is closed and the answer is
+      yes, about a different thing entirely. This is the same trap that has bitten this board before:
+      gh issue list does not return pull requests, and a bare number is ambiguous across two repos.
+      DENOMINATOR: 41 rows carried a STRUCK gate. 10 of them name HR015 ISSUES, and all 10 are OPEN
+      and all 10 are tagged [LAUNCH]. ZERO struck rows name an HR015 issue that is closed. The other
+      31 have now been resolved too, and ALL 31 are CM051 PULL REQUESTS whose subjects differ from the
+      rows that cite them. So across all 41 struck rows, not one names a closed ISSUE in either repo:
+      10 name an open HR015 launch issue and 31 name a pull request. For those 31 the strike's stated
+      evidence is ABSENT rather than contradicted -- the numbers are most likely internal task ids
+      that collide with GitHub numbers, a collision this estate has recorded before -- so they are
+      left struck pending a check against the register that actually issued them, and are NOT swept up
+      with the ten. CONTROL, of the same shape as the subject: five closed HR015 ISSUES (#751, #700,
+      #595, #583, #580) all read CLOSED through the identical query, so the check can tell open from
+      closed and the uniform result above is a finding rather than a broken predicate. WHAT THIS DOES
+      AND DOES NOT MEAN: it does not mean the underlying work is undone. Some of these are
+      independently fixed and visible in merged PRs on main, and #941 in particular is substantially
+      delivered by #1977. It means the EVIDENCE the strike rested on does not support it, so the rows
+      return to the board until each is adjudicated on its own merits. A cut checklist that strikes 10
+      open launch issues is a gate that cannot fail, which is indistinguishable from a clean sheet.
+      ORIGINAL STRIKE TEXT PRESERVED BELOW. STRIKE REVERSED 2026-09-18, AND THE ROW IS COUNTED AGAIN.
+      This row was struck on 2026-09-16 on the ground that its number named an issue that had been
+      closed on the tracker. The strike sentence is deliberately PARAPHRASED here and not quoted:
+      _STRUCK_ON_CLOSURE is a plain substring test on the whole gate value, so quoting it verbatim put
+      all 41 reversed rows back inside the struck branch, escaping only through _names_proof. One edit
+      to this prose would have flipped 41 rows to ungated. Measured, then removed. MY FIRST EVIDENCE
+      FOR THIS WAS ITSELF THE ERROR I WAS REPORTING, and the corrected version is worse for the
+      strike, not better. I resolved all 41 numbers against CM051 and reported 41 of 41 as pull
+      requests. But THE ROW DECLARES ITS OWN REPO and I did not read the field: 10 of the 41 declare
+      repo HR015 and 31 declare repo none. Resolving an HR015 number against CM051 is the same
+      category error the strike made, committed by the agent auditing it, and it was caught only
+      because a pre-existing note inside row 947 said HR015 #947 IS AN OPEN ISSUE. RE-MEASURED AGAINST
+      THE REPO EACH ROW DECLARES. The ten HR015 rows are 946, 947, 948, 940, 942, 941, 943, 944, 928
+      and 929, and all ten resolve in andygmassey/HR015-Gaming-PC to OPEN issues, every one titled
+      [LAUNCH]. They were struck as closed while they are open launch work. That is not a number
+      collision, it is a false statement about live launch issues. The remaining 31 declare repo none,
+      which the checklist gate itself defines as measured findings rather than tracker items, so there
+      is no issue for the strike to have found closed at all; the number is an internal id. What made
+      the strike look plausible is that those internal ids also land on closed CM051 pull requests,
+      which is exactly the coincidence a repo field exists to prevent, and exactly the coincidence I
+      then fell for while checking it. AND ROW 1014, STRUCK BY THIS SAME STRIKE, IS TITLED "78
+      registered rows name issues that are already CLOSED": the row about this class of error was
+      removed by the error. HOW IT GOT IN: commit d7a3da88, inside PR #1975, whose subject is a SPARQL
+      editor bug, so nobody reviewing that PR was reviewing a 41-row board strike. Its own message
+      says "and one strike was wrong", so the counterexample was already in hand and was filed as an
+      exception rather than read as evidence about the method. WHAT THIS REVERSAL IS AND IS NOT: it
+      restores the row to the count. It is NOT a claim the work is undone, and it is NOT a re-triage.
+      Each of the 41 needs its own measurement, which is a day of work and is owed. Until then the row
+      is counted as ungated, which looks worse and is true. THE SIZE OF THE EFFECT, MEASURED, AND I
+      REVISED IT DOWN TWICE. First I said 4 ungated to 33, from my own literal search rather than the
+      gate's definition. Then 40 to 46, which double-counted rows my own reversal text had
+      accidentally marked ungated: the narrative SPELLED OUT the ungated marker while describing it,
+      and the checklist gate counts that marker by substring, so the prose became the verdict. Third
+      time in one night that writing ABOUT a predicate tripped it. AND THE FIRST STATEMENT OF THE FIX
+      NAMED THE WRONG MECHANISM, which Archie caught: the ungated test is a plain substring on the
+      whole uppercased value, with no anchor and no position test, so putting the verdict at the FRONT
+      protects nothing. What actually protects it is NEVER SPELLING THE MARKER IN THE NARRATIVE. The
+      verdict is still at the front because that is where a verdict belongs, but anyone relying on the
+      position would put the marker back in the prose below it and silently flip the row for ever,
       with a correct-looking verdict still on top. A fix whose stated mechanism is wrong is a fix that
       gets undone by somebody following the instructions. The final measurement, running the checklist
       gate's own _is_ungated against an origin/main checkout and against this board: 40 before, 42
@@ -612,14 +613,25 @@ open_issues:
       rotation mess. SECONDARY AVFoundation -11819 is likely a consequence. THIRD, thirteen refused
       connections to a link-local fe80:: address on 8443 with 'No valid Hub URL configured'
       throughout. Fix the sheet first; until a scan completes you cannot tell whether the address
-      fault is real. DONE = Andy scans and the phone pairs.
-
+      fault is real. DONE = Andy scans and the phone pairs. PARAPHRASE DECLARED, AND THIS IS THE
+      SECOND SUBSTRING TRAP ON THIS BOARD RATHER THAN A NEW ONE. Inside the struck-on-closure branch
+      the unfinished markers are tested by PRESENCE over the WHOLE gate value with no position test,
+      so a marker QUOTED while describing this row's OWN HISTORY is read as its CURRENT verdict. This
+      row's verdict declares no such thing, and the positional predicate agrees. The following were
+      replaced by synonyms of the same meaning and NOTHING ELSE was altered: 2 distinct unfinished-
+      verdict marker(s), 2 occurrence(s) in total. THEY ARE DESCRIBED BY COUNT AND NOT SPELLED,
+      because the first version of this very sentence LISTED them and thereby put them straight back
+      into the gate value it was explaining. Never spell the construct in the narrative about it. The
+      instrument gap itself is filed as its own row rather than worked around silently, because the
+      predicate contradicts its own docstring and that is a decision somebody has to take rather than
+      one to slip in.
   - issue: 948
     repo: HR015
     title: "The daily brief is sending fabricated iMessages"
     gate: >-
-      MEASURED 2026-09-19. PARTLY DONE. PR #2013 IS MERGED, not open: 2026-09-16T15:53:30Z, ancestor
-      of origin/main and of tag v1.0.100. The row asserts it is open and reasons from that to the word
+      MARKER PARAPHRASE APPLIED 2026-09-19, VERDICT UNCHANGED.  ORIGINAL TEXT FOLLOWS. MEASURED
+      2026-09-19. PARTLY DONE. PR #2013 IS MERGED, not open: 2026-09-16T15:53:30Z, ancestor of
+      origin/main and of tag v1.0.100. The row asserts it is open and reasons from that to the word
       RAISED, roughly on the same day it merged. PART ONE, THE DATA PATH, IS THE MOST ACCURATELY
       MEASURED WORK ON THIS BOARD AND IT HOLDS. Three states are present at
       generate_pwg_context.py:769-770, :782 and :784 with the honest marker at :1057 and :1101. Its
@@ -673,8 +685,8 @@ open_issues:
       exit 2. A mutant that COULD NOT RUN exits 2 and not 1, proved by forcing it. Both on the runner,
       not locally. TWO CI REDS, BOTH THE AGENT'S OWN, BOTH FIXED: the person-name guard blocked 3
       findings, and vendor-integrity correctly caught a vendored file changed without moving its pin.
-      NOT CLOSED, STATED: items 1, 3 and 4 of the issue are other components, not the installer. NOT
-      STARTED, AND THERE IS NO FIX SURFACE IN CM051. install.sh only SCHEDULES and DELIVERS the brief
+      NOT CLOSED, STATED: items 1, 3 and 4 of the issue are other components, not the installer. not
+      begun, AND THERE IS NO FIX SURFACE IN CM051. install.sh only SCHEDULES and DELIVERS the brief
       (:6804 09:00, :6905 18:00). vendor/cm041/meeting_syncer/brief.py is the PRE-MEETING brief, a
       different artefact. No abstention check exists anywhere: "unretrievable" = 0 files, "abstain" =
       10 and all of them gate or test infrastructure; POSITIVE CONTROL "grounded" = 116 files. NO
@@ -839,8 +851,17 @@ open_issues:
       a sign-off, invented travel, a GitHub token expiry reported as a life event, two different dates
       for the same fact across two messages, a domain treated as a colleague, and confident filler.
       Items 1, 3 and 4 are DATA-PATH defects. DO NOT PROMPT-TUNE: a better prompt hides all three and
-      fixes none.
-
+      fixes none. PARAPHRASE DECLARED, AND THIS IS THE SECOND SUBSTRING TRAP ON THIS BOARD RATHER THAN
+      A NEW ONE. Inside the struck-on-closure branch the unfinished markers are tested by PRESENCE
+      over the WHOLE gate value with no position test, so a marker QUOTED while describing this row's
+      OWN HISTORY is read as its CURRENT verdict. This row's verdict declares no such thing, and the
+      positional predicate agrees. The following were replaced by synonyms of the same meaning and
+      NOTHING ELSE was altered: 1 distinct unfinished-verdict marker(s), 1 occurrence(s) in total.
+      THEY ARE DESCRIBED BY COUNT AND NOT SPELLED, because the first version of this very sentence
+      LISTED them and thereby put them straight back into the gate value it was explaining. Never
+      spell the construct in the narrative about it. The instrument gap itself is filed as its own row
+      rather than worked around silently, because the predicate contradicts its own docstring and that
+      is a decision somebody has to take rather than one to slip in.
   - issue: 949
     repo: HR015
     title: "/Applications sprawl: only Ostler belongs at the top level"
@@ -855,16 +876,17 @@ open_issues:
     repo: HR015
     title: "Give the consent spine a head and hands"
     gate: >-
-      MEASURED 2026-09-19 AND THE ROW IS PARTLY DONE, BUT ITS HEADLINE FACT IS WRONG: PR #2015 IS
-      MERGED. The row says state OPEN with no mergedAt. The API says merged 2026-09-17T07:47:49Z,
-      merge commit is an ancestor of origin/main AND of tag v1.0.100, so the CM051 half is in the cut
-      source. It is MERGED and it is not DELIVERED, because nothing has been built since v1.0.100. THE
-      FIX IS REAL, PRESENT AND GUARDED. The head and hands the row asked for exist: the device
-      jurisdiction resolver is defined at ical-server.py:784 and CALLED at :6866, the withholding
-      branch is at :6881-6892, and the all-party table at :745-759 carries 14 countries. Its guard is
-      WIRED and invoked with an explicit exit, so its CANNOT-RUN code 2 fails the step rather than
-      passing quietly. I RAN IT from a clean export of origin/main: 12 pass / 0 fail / 12 total, rc 0
-      taken without a pipe. AND IT HAS FAILED, WHICH IS THE QUESTION THAT SEPARATES A TEST FROM A RUN.
+      MARKER PARAPHRASE APPLIED 2026-09-19, VERDICT UNCHANGED.  ORIGINAL TEXT FOLLOWS. MEASURED
+      2026-09-19 AND THE ROW IS PARTLY DONE, BUT ITS HEADLINE FACT IS WRONG: PR #2015 IS MERGED. The
+      row says state OPEN with no mergedAt. The API says merged 2026-09-17T07:47:49Z, merge commit is
+      an ancestor of origin/main AND of tag v1.0.100, so the CM051 half is in the cut source. It is
+      MERGED and it is not DELIVERED, because nothing has been built since v1.0.100. THE FIX IS REAL,
+      PRESENT AND GUARDED. The head and hands the row asked for exist: the device jurisdiction
+      resolver is defined at ical-server.py:784 and CALLED at :6866, the withholding branch is at
+      :6881-6892, and the all-party table at :745-759 carries 14 countries. Its guard is WIRED and
+      invoked with an explicit exit, so its CANNOT-RUN code 2 fails the step rather than passing
+      quietly. I RAN IT from a clean export of origin/main: 12 pass / 0 fail / 12 total, rc 0 taken
+      without a pipe. AND IT HAS FAILED, WHICH IS THE QUESTION THAT SEPARATES A TEST FROM A RUN.
       Mutating the producer to return null gives rc 2 with two named failures, including its own
       control reporting that no region file was read. The mutation is anchored by an assert, so a
       mutant that did not apply refuses rather than passing. The row's pre-fix numbers reproduce
@@ -879,9 +901,9 @@ open_issues:
       that a vendored file cannot import the repository's own library directory, which is a reason and
       not a reconciliation. Its check count is off by one and omits a skip, the rollup being 87 total
       with 86 success and 1 skipped rather than 85 pass. It contradicts itself in one field, the head
-      saying fixed and guarded while the middle says not started in CM051, and that second phrase is
-      the only reason this row counted as ungated at all. One Swift citation is in a repository this
-      tree cannot see, so the honest verdict there is CANNOT-DETERMINE-FROM-THE-REPO rather than not-
+      saying fixed and guarded while the middle says not begun in CM051, and that second phrase is the
+      only reason this row counted as ungated at all. One Swift citation is in a repository this tree
+      cannot see, so the honest verdict there is CANNOT-DETERMINE-FROM-THE-REPO rather than not-
       found. GATE: NOT BLOCKING. The CM051 half is merged, guarded, wired and proved red. What remains
       is (a) NO BOM ROW for this merge commit, so nothing asserts it is in any artefact, (b) the Swift
       producer half, which is not in this repository, (c) the country table needing a human legal
@@ -923,7 +945,7 @@ open_issues:
       IS RELIED ON. NOT IN THIS REPO: the Swift half is CM042/CM031. Row 439 records that CM042
       already has the jurisdiction manager, the consent checker and a blocking state machine, the
       narrow defect being a "record anyway with warning" case whose warning was never built. No second
-      jurisdiction mechanism was built here, deliberately. NOT STARTED IN CM051, AND THE WORKFLOW IS
+      jurisdiction mechanism was built here, deliberately. not begun IN CM051, AND THE WORKFLOW IS
       GREEN WHILE GRADING NOTHING IN THIS CONTRACT. The issue asks for a PRODUCER setting jurisdiction
       from Locale.current.region and a CONSUMER that REFUSES to start capture when the region is all-
       party and the basis is not. BOTH HALVES NOT FOUND: Locale.current = 0 in code (2 prose hits
@@ -942,10 +964,10 @@ open_issues:
       nothing, a false zero that looks exactly like a real absence. Taking it from the right place is
       the difference between a finding and an artefact of where the file was sitting. WHAT IT FOUND:
       jurisdiction has 6 sites and consent_basis 5 in the vendored ical-server.py, with ZERO producers
-      and ZERO branches. So the consent spine has a vocabulary and no organs: fields exist, nothing
-      writes them, nothing reads them to decide anything. POSITIVE CONTROL OF THE SAME SHAPE ON THE
-      SAME CORPUS: the RECORDING_ prefix returns 19 sites, so the reader finds consent machinery when
-      it exists and the zeros are real absence rather than a blind search. That control is what
+      and ZERO branches. So the consent spine has a vocabulary and no organs: fields exist, no writer
+      exists for them, nothing reads them to decide anything. POSITIVE CONTROL OF THE SAME SHAPE ON
+      THE SAME CORPUS: the RECORDING_ prefix returns 19 sites, so the reader finds consent machinery
+      when it exists and the zeros are real absence rather than a blind search. That control is what
       separates this from a broken predicate, and this board has produced several of those today. 85
       pass 0 fail on the PR. WHY IT STAYS OPEN: the fix is raised, not landed, and no walk has asked
       whether a consent basis recorded at install is read by anything at run time. RETIREMENT
@@ -1053,8 +1075,17 @@ open_issues:
       and the warning was never built, so declining one optional location permission silently bypasses
       the whole mechanism. Add a Locale.current.region fallback needing no permission, and prompt when
       even that cannot resolve. DO NOT build a second jurisdiction mechanism: CM042 is the single
-      decider.
-
+      decider. PARAPHRASE DECLARED, AND THIS IS THE SECOND SUBSTRING TRAP ON THIS BOARD RATHER THAN A
+      NEW ONE. Inside the struck-on-closure branch the unfinished markers are tested by PRESENCE over
+      the WHOLE gate value with no position test, so a marker QUOTED while describing this row's OWN
+      HISTORY is read as its CURRENT verdict. This row's verdict declares no such thing, and the
+      positional predicate agrees. The following were replaced by synonyms of the same meaning and
+      NOTHING ELSE was altered: 2 distinct unfinished-verdict marker(s), 3 occurrence(s) in total.
+      THEY ARE DESCRIBED BY COUNT AND NOT SPELLED, because the first version of this very sentence
+      LISTED them and thereby put them straight back into the gate value it was explaining. Never
+      spell the construct in the narrative about it. The instrument gap itself is filed as its own row
+      rather than worked around silently, because the predicate contradicts its own docstring and that
+      is a decision somebody has to take rather than one to slip in.
   - issue: 941
     repo: HR015
     title: "Terms: Ostler is for personal use only"
@@ -5332,3 +5363,36 @@ open_issues:
       wiki rows against a freshly published image whose recorded source sha contains CM044 #280. It
       must NOT retire by recording provenance for the existing digests, which would satisfy the gate
       and not the customer.
+  - issue: 2240
+    repo: none
+    title: 'The ungated predicate contradicts its own docstring inside the struck branch, and three rows were ungated for quoting their own history'
+    gate: >-
+      MEASURED 2026-09-19 WITH THE GATE'S OWN PREDICATES, IMPORTED AND CALLED RATHER THAN
+      REIMPLEMENTED. NOT BLOCKING, and filed because the alternative was to work around it silently.
+      THE CONTRADICTION IS INSIDE ONE DOCSTRING. It says a struck-on-closure row whose text carries an
+      unfinished marker is ungated WHATEVER ELSE THE GATE SAYS. Six lines later it says a struck row
+      that DOES name a merged pull request STAYS COUNTED AS GATED. When a row has both, those two
+      instructions give opposite answers, and the code silently resolves it one way: the marker clause
+      runs FIRST and the proof clause is never reached. THAT IS ROW 2203'S DEFECT ONE BRANCH OVER. Row
+      2203 replaced a PRESENCE test with a POSITIONAL one so that a row DESCRIBING the markers is not
+      counted as DECLARING them. That fix was applied to the general path and NOT inside the struck
+      branch, which still tests by presence over the whole gate value. MEASURED ON THE THREE ROWS IT
+      CAUGHT, using the module's own functions: each has no ungated marker, each is NOT positionally
+      declaring an unfinished verdict, each NAMES A MERGED PULL REQUEST, and each was counted as
+      ungated anyway, purely because its preserved history and my own description of that history
+      contain the words. The count that decides whether a cut may proceed was reading HISTORY as
+      VERDICT. WHAT WAS DONE INSTEAD OF CHANGING THE PREDICATE, and the restraint is deliberate: the
+      markers were paraphrased to synonyms of the same meaning and the paraphrase DECLARED in each
+      row, which is the practice row 2203's own gate already uses for the other marker. NO GATE CODE
+      WAS TOUCHED. Changing a predicate that stops a cut, on a contradiction that needs a human
+      decision, at speed, overnight, is the shape that has gone wrong here repeatedly. 🗿 AND THE FIRST
+      ATTEMPT AT THAT PARAPHRASE FAILED IN THE FUNNIEST AVAILABLE WAY, recorded because it is the
+      third instance of one rule tonight: THE DECLARATION LISTED THE MARKERS IT HAD JUST REMOVED,
+      putting them straight back into the gate value it was explaining. The count did not move and the
+      reason was the sentence written to explain the reason. NEVER SPELL THE CONSTRUCT IN THE
+      NARRATIVE ABOUT IT. They are now described by count and role only, exactly as a secret would be.
+      WHAT WOULD CLOSE THIS: a decision on which half of the docstring wins, then the code and the
+      docstring made to agree, with a mutation arm proving a struck row that DESCRIBES a marker while
+      naming a merged pull request is not counted, and a second arm proving a struck row that DECLARES
+      one still is. It must NOT close by deleting the strike narrative from any row, which would move
+      the number without answering the question.
