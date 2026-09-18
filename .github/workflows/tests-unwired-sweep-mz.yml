@@ -55,22 +55,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # A STEP OF ITS OWN, AND THE REASON IS MECHANICAL RATHER THAN A PREFERENCE.
-      # scripts/verify_new_tests_are_wired.sh scores a test WIRED only when its
-      # path appears on a line that ALSO carries an EXECUTION VERB, because
-      # naming a test is not running it. An entry in the `for t in ... \` list
-      # below carries no verb on its own line, so a test wired only there is
-      # scored DARK. Measured: adding it to that list left the gate reporting
-      # DARK, and this step is what makes it WIRED.
-      - name: The meeting brief guard can tell its own failure from a clean result
-        if: always()
-        # Board row 2211. The degraded check used to collapse every failure of
-        # its own pipeline into the one answer that SENDS, so a brief could ship
-        # with missing attendee facts whenever the guard itself broke. This
-        # lifts the real block from install.sh by marker and drives all three
-        # outcomes, with the pre-fix block as a mutant that must SEND.
-        run: /bin/bash tests/test_the_brief_guard_can_tell_its_own_failure_from_a_clean_result.sh
-
       - name: install.sh structural + helper regression tests (m..z batch)
         run: |
           set -uo pipefail
@@ -132,6 +116,23 @@ jobs:
       # touches "$t", never a literal path. Every existing entry in that list is
       # grandfathered because that gate inspects only NEWLY ADDED tests. This
       # one is named so both gates can see the same fact.
+
+      # A STEP OF ITS OWN, AND THE REASON IS MECHANICAL RATHER THAN A PREFERENCE.
+      # scripts/verify_new_tests_are_wired.sh scores a test WIRED only when its
+      # path appears on a line that ALSO carries an EXECUTION VERB, because
+      # naming a test is not running it. An entry in the `for t in ... \` list
+      # below carries no verb on its own line, so a test wired only there is
+      # scored DARK. Measured: adding it to that list left the gate reporting
+      # DARK, and this step is what makes it WIRED.
+      - name: The meeting brief guard can tell its own failure from a clean result
+        if: always()
+        # Board row 2211. The degraded check used to collapse every failure of
+        # its own pipeline into the one answer that SENDS, so a brief could ship
+        # with missing attendee facts whenever the guard itself broke. This
+        # lifts the real block from install.sh by marker and drives all three
+        # outcomes, with the pre-fix block as a mutant that must SEND.
+        run: /bin/bash tests/test_the_brief_guard_can_tell_its_own_failure_from_a_clean_result.sh
+
       - name: B2 -- a removed Transcripts folder is reported as removed
         # `if: always()` because this step shares a job with the loop above. Without
         # it, a failure in ANY earlier m..z test skips this one, and a test that
