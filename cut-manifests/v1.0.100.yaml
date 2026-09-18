@@ -1640,3 +1640,58 @@ open_issues:
     repo: none   # measured finding, not a tracker item
     title: "The divergence patch APPLIES CLEANLY and does not reconstruct the tree, so a re-pin deletes shipped work"
     gate: '🔴 BLOCKING (a re-pin of vendor:doctor today deletes a shipped customer surface): MEASURED 2026-09-18 BY DOING THE RECONSTRUCTION, NOT BY READING A PATCH. For each vendored tree whose source_repo is $HR015, git archive the PINNED sha of its source path into a temp tree, apply its divergence_patch with patch -p1 --forward, then diff -rq the result against the tree CM051 actually ships. ELEVEN TREES MEASURED, SEVEN RECONSTRUCT EXACTLY, AND THAT IS THE CONTROL that makes the other four mean something: ostler_fda, legal, email_ingest, imessage_bridge, hub_power, spoken_source and email_source all come back with 0 non-test files differing, so the method works and a mismatch is a fact about the tree rather than about the instrument. THREE DO NOT RECONSTRUCT. doctor: 11 non-test shipped files differ (README.md, agent/box_status.py, agent/dashboard_components.py, agent/diagnostic_copy.py, agent/diagnostic_rules.py, agent/import_notion.py, agent/import_obsidian.py, agent/pair_status.py, agent/web_ui.py, agent/web_ui_copy.py, agent/whatsapp_pair.py). ostler_security: 2, consent_cli.py and passphrase_recovery_cli.py. whatsapp_source: 2, bin/whatsapp-bundle-tick.sh and launchd/com.creativemachines.ostler.whatsapp-bundle.plist. 🔴 AND THE PATCH APPLIES CLEANLY IN EVERY CASE. patch exits 0, no fuzz, no failed hunks, and the reconstruction is still eleven files wrong. That is worse than a patch that fails, because a failure announces itself and this returns success. Two trees exit 1 from patch and reconstruct PERFECTLY (email_source, spoken_source), which is the same lesson from the other side: the exit status is not the verdict, the diff is. THE CONCRETE, CUSTOMER-VISIBLE INSTANCE, and it is the one row 965 was gated on: render_whatsapp_keepalive is present in vendor/doctor/agent/dashboard_components.py:1292 and absent from HR015 at the pin, from HR015 main, and from the patch. CONTROL, a function both trees certainly have: render_system_overview, 1 at the pin and 1 on main. So the WhatsApp keepalive TILE exists only in the vendored copy, and a re-pin regenerating from pin plus patch deletes it, silently, returning the keepalive job to writing its verdict into a file nobody reads, which is the exact defect row 965 names. ostler_security MATTERS FOR A DIFFERENT REASON: passphrase_recovery_cli.py is the recovery-key surface, and the recovery key a customer cannot redeem is one of the two launch blockers this estate already carries. A re-pin dropping a graft there could undo a fix nobody would think to re-check. MY FIRST CONTROL WAS NOT A CONTROL, and the row records it because the mistake is the reusable part: I grepped the patch for read_whatsapp_keepalive as a supposedly-known-present control and got 0, the same as the subject. A uniform zero across subject and control is the tell, and I nearly reported the absence without knowing whether the search worked at all. 🗿 AND MY FIRST STATEMENT OF WHAT THIS MEANS WAS WRONG, CORRECTED BY ARCHIE WITHIN THE HOUR, AND THE CORRECTION MAKES IT WORSE RATHER THAN BETTER. I wrote that the non-empty divergence_patch form has no gate and that the register was silently green over doctor. IT HAS ONE AND IT IS ALREADY RED. Run with the source repositories resolvable, verify_vendor_fresh.sh reports doctor as DIFFERING from source@pinned_sha+patch and as having advanced past its pin, and returns RED. I asserted an absence of verification without running the verifier, which is the same error as reporting an absence without a control. WHAT IS ACTUALLY TRUE IS THE LINE BESIDE IT: 24 trees, 8 fresh, 3 stale or divergent, 10 UNVERIFIABLE, 3 acked. THIRTEEN OF TWENTY-FOUR ARE NOT CHECKED AT ALL, because the gate resolves its sources through environment variables nothing in the login profile sets, so where CI runs it, it checks nothing. The redness is real and INVISIBLE. That is a different defect from an unverified claim and it wants a different fix: make the gate runnable where somebody looks, rather than add a verification it already performs. 20 of the 24 trees carry a non-empty patch. ARCHIE REPRODUCED THE RECONSTRUCTION INDEPENDENTLY, matched the 11 non-test figure exactly, and swept every tree with a non-empty patch rather than only the HR015-sourced ones: FIVE trees apply cleanly and do not reconstruct (doctor 11, cm041/assistant_api 3 differing plus 4 files present ONLY in the vendored copy, ostler_security 2, cm048_pipeline 2, whatsapp_source 2), and cm041/contact_syncer fails to apply at all with 18 differing, which at least announces itself. cm041/assistant_api is the next hazard after doctor, because it is already a re-pin candidate and a re-pin would drop those four files exactly as a doctor re-pin would delete the keepalive tile. The register-level row is his; this one stays the doctor finding and the method. NOT MEASURED, AND NAMED RATHER THAN IMPLIED COVERED: the 12 trees whose source lives in CM019, CM021, CM024, CM040, CM041, CM048 or CM059. They need their own checkouts and this measurement was not run on them. Their reconstruction is unknown, which is not the same as clean. WHAT IS OWED: regenerate the three failing patches BEFORE any re-pin of those trees; add a gate that performs the reconstruction rather than checking that the patch applies; and run the same measurement on the other 12. Owner archie, the vendor register is his.'
+  - issue: 2219
+    repo: none
+    title: >-
+      The whole Doctor "Where your data came from" panel exists only in the
+      vendored copy, so a re-pin deletes it, and two of its rows already break
+      the promise the panel makes
+    gate: >-
+      🔴 BLOCKING (a doctor re-pin removes a customer-facing panel that
+      has no upstream to come back from, and the panel already fails its own
+      stated promise for two sources): MEASURED 2026-09-18 by RENDERING the
+      shipped code rather than reading it, with HOME and OSTLER_DIR pointed at a
+      temp directory and never at the real dot-ostler, which is a live data
+      subject.
+      FINDING ONE, THE PANEL HAS NO UPSTREAM. HR015 doctor/agent/web_ui.py is
+      4,992 lines; CM051 vendor/doctor/agent/web_ui.py is 6,745. Swept the whole
+      HR015 tracked tree rather than the one file anyone would think of, and
+      independently against the origin/main REF as well as the working tree,
+      with both sweeps agreeing: read_source_status 0 files,
+      _SOURCE_KINDS 0, _FDA_EXTRACT_KINDS 0, render_source_status 0, and the
+      panel's own promise text 0. CONTROL, a doctor symbol that MUST be found,
+      collect_licence_state, 2 files. CONTROL, a symbol that must be found
+      nowhere, 0 files. The predicate discriminates in both directions, so the
+      zero is real. The entire panel is vendor-only, and the promise text
+      appears twice in CM051 and never in HR015.
+      WHAT THAT DOES TO ROW 2212. The known cost of a doctor re-pin was the
+      WhatsApp keepalive tile plus two reverted importers. It is larger: a
+      re-pin from HR015 deletes the source-status panel outright, and there is
+      nowhere for it to come back from because it has never existed upstream.
+      Fourth instance of the pattern row 2218 names, and the largest.
+      FINDING TWO, LIVE TODAY ON MAIN. The panel's copy reads "Every source
+      Ostler reads, whether it has run, how much it found and when it last
+      looked. A source that has never run says so rather than being left out."
+      Driven on the shipped vendored code:
+      ARM 1, no sentinel on disk, 13 rows render, reminders ABSENT, photos
+      ABSENT, CONTROL imessage PRESENT.
+      ARM 2, after reminders.done is written, reminders PRESENT.
+      The row CAN appear, so the predicate discriminates; photos and reminders
+      are simply left out until they have run. Thirteen sources honour the
+      promise and these two do not, which is the exact complaint the earlier
+      source-table work was opened to close. The cause is visible in
+      read_source_status: _SOURCE_KINDS entries are added unconditionally, while
+      _FDA_EXTRACT_KINDS entries join only when their sentinel already exists.
+      A CUSTOMER WHO TICKS REMINDERS AND WHOSE EXTRACTOR NEVER RUNS IS TOLD
+      NOTHING AT ALL, which is the state the panel's own copy promises not to
+      produce.
+      WHERE THE FIX GOES, AND IT IS NOT OBVIOUS. There is no upstream file to
+      fix, so the rule of never editing a vendored copy has nothing to point at.
+      Either the panel is lifted into HR015 first and fixed there, or this is
+      the one tree where a vendor-side edit is the only option, and that must be
+      a recorded decision rather than a habit. The call belongs to whoever owns
+      the vendor register.
+      WHICH HALF-WIRED FAILURE MODE: present in the repo but not in the DMG,
+      inverted. It is in the DMG and absent from the repository that is supposed
+      to be its source.
+
