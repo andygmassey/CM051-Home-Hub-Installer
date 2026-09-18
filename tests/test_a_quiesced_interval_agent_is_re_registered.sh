@@ -141,6 +141,84 @@ else
   bad "  set -e, so this aborts the install outright."
 fi
 
+# ---- THE PROMOTE IS THE WINDOW, AND IT MUST BE QUIESCED FROM INSIDE. --------
+#
+# The promote loop does `rm -rf "${OSTLER_FINAL_DIR}/${name}"` then `mv` for
+# every top-level entry, and bin/ is one of them. For that whole window
+# ~/.ostler/bin does not exist. MEASURED 2026-09-18 on an install reporting
+# status=ok: fda-rerun.err and export-scan.err were both written at 01:09:05
+# and their programs were placed at 01:10:57 -- 112s later. The quiesce at the
+# bottom of install.sh guards the sub-second `cat > bin/ostler-fda` write, and
+# every promote call site precedes it, so it was correctly ordered against the
+# wrong event.
+promote_check() {   # $1 = file to read; echoes "ok" | "no-call" | "late" | "no-rm"
+  python3 - "$1" <<'PYEOF'
+import re, sys
+src = open(sys.argv[1], encoding="utf-8").read().split("\n")
+start = next((i for i, l in enumerate(src)
+              if l.startswith("_ostler_promote_prelaunch_tree() {")), None)
+if start is None:
+    print("no-fn"); raise SystemExit
+depth = 0
+body = []
+for i in range(start, len(src)):
+    body.append(src[i])
+    depth += src[i].count("{") - src[i].count("}")
+    if depth <= 0 and i > start:
+        break
+# Comments are not code. A prose line DESCRIBING the rm -rf sits above the
+# call by design, and matching it made this gate report the fixed tree as
+# broken -- the same "the gate matched its own comment" trap that has now
+# cost two sittings. Strip comments before looking for either landmark.
+code = ["" if l.lstrip().startswith("#") else l for l in body]
+call = next((i for i, l in enumerate(code)
+             if l.strip() == "_ostler_quiesce_interval_agents"), None)
+rm = next((i for i, l in enumerate(code)
+           if re.search(r'rm -rf "\$\{OSTLER_FINAL_DIR\}', l)), None)
+if rm is None:      print("no-rm")
+elif call is None:  print("no-call")
+elif call < rm:     print("ok")
+else:               print("late")
+PYEOF
+}
+
+# CONTROL: a fixture with the call AFTER the rm must read as "late".
+CTL="$WORK/ctl.sh"
+{
+  echo '_ostler_promote_prelaunch_tree() {'
+  echo '    rm -rf "${OSTLER_FINAL_DIR}/${name}"'
+  echo '    _ostler_quiesce_interval_agents'
+  echo '}'
+} > "$CTL"
+if [ "$(promote_check "$CTL")" = "late" ]; then
+  ok "CONTROL (promote): a quiesce AFTER the rm -rf is detected, so this arm can fail"
+else
+  bad "CONTROL (promote): a deliberately late fixture read as '$(promote_check "$CTL")'."
+  bad "                   This arm cannot fail and its verdict below means nothing."
+fi
+
+case "$(promote_check install.sh)" in
+  ok)      ok "the promote quiesces the interval agents before it rm -rf's the tree" ;;
+  late)    bad 'the promote calls the quiesce AFTER it has already rm -rf-ed ${OSTLER_FINAL_DIR}/bin.' ;;
+  no-call) bad "the promote never calls _ostler_quiesce_interval_agents, so both agents can tick"
+           bad "  into a bin/ that has been rm -rf-ed. The customer gets a no-program-found error:"
+           bad "  re-run the installer to repair' from the installer that is running." ;;
+  no-rm)   echo "CANNOT-RUN: no rm -rf of OSTLER_FINAL_DIR found in the promote; the" >&2
+           echo "            promote's form changed and this arm is blind." >&2; exit 2 ;;
+  no-fn)   echo "CANNOT-RUN: _ostler_promote_prelaunch_tree not found" >&2; exit 2 ;;
+esac
+
+# The definition must be in scope by the time the promote runs.
+def_line="$(grep -n '^_ostler_quiesce_interval_agents() {' install.sh | cut -d: -f1 | head -1)"
+promote_def="$(grep -n '^_ostler_promote_prelaunch_tree() {' install.sh | cut -d: -f1 | head -1)"
+if [ -n "$def_line" ] && [ -n "$promote_def" ] && [ "$def_line" -lt "$promote_def" ]; then
+  ok "the quiesce is defined (line $def_line) before the promote (line $promote_def), so it is in scope when called"
+else
+  bad "the quiesce is defined at line ${def_line:-?} but the promote at line ${promote_def:-?}."
+  bad "  bash resolves functions at call time: the promote's first call site runs long"
+  bad "  before a later definition exists, so the call dies on 'command not found'."
+fi
+
 echo
 echo "== $PASS pass / $FAIL fail / $((PASS+FAIL)) total =="
 [ "$FAIL" -eq 0 ] || exit 1

@@ -3201,6 +3201,59 @@ _ostler_drop_venvs_anchored_in_an_app() {
     return 0
 }
 
+# Defined HERE, above _ostler_promote_prelaunch_tree, because the promote is
+# what makes the interval agents' programs vanish and the promote is called as
+# early as the payload staging step. A definition further down the file is not
+# in scope at that point and the call would die on "command not found".
+_ostler_quiesce_interval_agents() {
+    local _label _domain
+    _domain="gui/$(id -u)"
+    for _label in com.ostler.export-scan com.ostler.fda-rerun; do
+        if launchctl print "${_domain}/${_label}" >/dev/null 2>&1; then
+            launchctl bootout "${_domain}/${_label}" 2>/dev/null || true
+            info "Quiesced ${_label} while its program is replaced; it is re-registered below."
+            # 🔴 A BOOTOUT OWES A RE-REGISTRATION, AND ONLY ONE OF THESE TWO
+            # ALREADY HAD ONE. Without the line below, the sentence this
+            # function just printed is false for fda-rerun.
+            #
+            # export-scan is re-registered unconditionally further down: its
+            # plist is rewritten and bootstrapped on every single run. fda-rerun
+            # is not. Its load is gated on _OSTLER_FDA_RERUN_LOAD_PENDING, set
+            # at exactly ONE site -- inside the plist-rewrite block, which fires
+            # only when the plist is ABSENT, carries the legacy
+            # StartCalendarInterval, or lacks the homebrew PATH.
+            #
+            # On an UPGRADE whose plist is already current all three triggers are
+            # false, so the flag is never set and this bootout is PERMANENT: the
+            # hourly FDA re-run is gone until the customer next logs in.
+            #
+            # MEASURED, walk box, 2026-09-18T17:20Z, install that printed
+            # "Quiesced com.ostler.fda-rerun ... it is re-registered below":
+            #   launchctl print gui/501/com.ostler.fda-rerun -> rc=113
+            #   "Could not find service com.ostler.fda-rerun in domain for user"
+            #   com.ostler.fda-rerun.plist mtime  2026-09-14 (pre-install)
+            #   com.ostler.export-scan  last exit code = 0, runs = 1
+            # A fresh install was never affected: its plist is absent, so the
+            # rewrite fires and sets the flag. Only upgrades lose the agent,
+            # which is why the fresh-install probes stayed green.
+            #
+            # The window this destroys is exactly the window the agent exists
+            # for: iCloud syncs that land in the HOURS AFTER the install.
+            if [ "${_label}" = "com.ostler.fda-rerun" ]; then
+                # Belt and braces: the deferred load dereferences this path, and
+                # a quiesce that ran without the assignment above would abort the
+                # install under `set -u` rather than merely skip the load.
+                : "${FDA_RERUN_PLIST:=${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist}"
+                _OSTLER_FDA_RERUN_LOAD_PENDING=1
+            fi
+        fi
+    done
+    # An `if` whose condition is false returns 0, but the loop's last command on
+    # the export-scan iteration is that `if`. Be explicit rather than rely on it:
+    # this function is called at top level under `set -e`.
+    return 0
+}
+
 _ostler_promote_prelaunch_tree() {
     if [[ "$OSTLER_PRELAUNCH_PROMOTED" == "true" ]]; then
         return 0
@@ -3215,6 +3268,30 @@ _ostler_promote_prelaunch_tree() {
         OSTLER_PRELAUNCH_PROMOTED=true
         return 0
     fi
+
+    # 🔴 QUIESCE BEFORE THE TREE MOVES, NOT BEFORE THE PAYLOAD WRITE.
+    #
+    # The loop below does `rm -rf "${OSTLER_FINAL_DIR}/${name}"` then `mv` for
+    # every top-level entry, and one of those entries is bin/. For the whole of
+    # that window ~/.ostler/bin does not exist, so a StartInterval tick from
+    # com.ostler.export-scan or com.ostler.fda-rerun finds no program and writes
+    # "re-run the installer to repair" into the customer's error log -- naming
+    # the installer that is running at that moment.
+    #
+    # MEASURED on the walk box 2026-09-18, on an install that reported
+    # status=ok failed_steps=0 errors=0:
+    #     ~/.ostler/logs/fda-rerun.err      written 01:09:05
+    #     ~/.ostler/logs/export-scan.err    written 01:09:05
+    #     ~/.ostler/bin/ostler-fda          placed  01:10:57
+    #     ~/.ostler/bin/ostler-scan-exports placed  01:10:57
+    # Both errors predate their own program by 112 seconds.
+    #
+    # The quiesce added lower down guards the `cat > bin/ostler-fda` payload
+    # write, which is a sub-second window, and every promote call site precedes
+    # it. So it was ordered correctly against the wrong event: the gate asserting
+    # "the quiesce precedes every interval-agent program write" was true, and the
+    # agents still ticked into a bin/ that had been rm -rf'd 112s earlier.
+    _ostler_quiesce_interval_agents
 
     mkdir -p "$OSTLER_FINAL_DIR"
     chmod 700 "$OSTLER_FINAL_DIR" 2>/dev/null || true
@@ -22170,54 +22247,6 @@ unset _PREFS_DROPZONE _IMPORT_DIRS
 # A bootout of a label that is not loaded is a no-op, so this is safe on a
 # first install. The jobs are re-registered further down, after their programs
 # exist, by the code that already does it.
-_ostler_quiesce_interval_agents() {
-    local _label _domain
-    _domain="gui/$(id -u)"
-    for _label in com.ostler.export-scan com.ostler.fda-rerun; do
-        if launchctl print "${_domain}/${_label}" >/dev/null 2>&1; then
-            launchctl bootout "${_domain}/${_label}" 2>/dev/null || true
-            info "Quiesced ${_label} while its program is replaced; it is re-registered below."
-            # 🔴 A BOOTOUT OWES A RE-REGISTRATION, AND ONLY ONE OF THESE TWO
-            # ALREADY HAD ONE. Without the line below, the sentence this
-            # function just printed is false for fda-rerun.
-            #
-            # export-scan is re-registered unconditionally further down: its
-            # plist is rewritten and bootstrapped on every single run. fda-rerun
-            # is not. Its load is gated on _OSTLER_FDA_RERUN_LOAD_PENDING, set
-            # at exactly ONE site -- inside the plist-rewrite block, which fires
-            # only when the plist is ABSENT, carries the legacy
-            # StartCalendarInterval, or lacks the homebrew PATH.
-            #
-            # On an UPGRADE whose plist is already current all three triggers are
-            # false, so the flag is never set and this bootout is PERMANENT: the
-            # hourly FDA re-run is gone until the customer next logs in.
-            #
-            # MEASURED, walk box, 2026-09-18T17:20Z, install that printed
-            # "Quiesced com.ostler.fda-rerun ... it is re-registered below":
-            #   launchctl print gui/501/com.ostler.fda-rerun -> rc=113
-            #   "Could not find service com.ostler.fda-rerun in domain for user"
-            #   com.ostler.fda-rerun.plist mtime  2026-09-14 (pre-install)
-            #   com.ostler.export-scan  last exit code = 0, runs = 1
-            # A fresh install was never affected: its plist is absent, so the
-            # rewrite fires and sets the flag. Only upgrades lose the agent,
-            # which is why the fresh-install probes stayed green.
-            #
-            # The window this destroys is exactly the window the agent exists
-            # for: iCloud syncs that land in the HOURS AFTER the install.
-            if [ "${_label}" = "com.ostler.fda-rerun" ]; then
-                # Belt and braces: the deferred load dereferences this path, and
-                # a quiesce that ran without the assignment above would abort the
-                # install under `set -u` rather than merely skip the load.
-                : "${FDA_RERUN_PLIST:=${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist}"
-                _OSTLER_FDA_RERUN_LOAD_PENDING=1
-            fi
-        fi
-    done
-    # An `if` whose condition is false returns 0, but the loop's last command on
-    # the export-scan iteration is that `if`. Be explicit rather than rely on it:
-    # this function is called at top level under `set -e`.
-    return 0
-}
 _ostler_quiesce_interval_agents
 
 cat > "${OSTLER_DIR}/bin/ostler-fda" <<'FDAEOF'
