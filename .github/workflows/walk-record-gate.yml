@@ -127,6 +127,9 @@ on:
       - 'tests/test_walk_pass_requires_zero_failed_steps.sh'
       - 'tests/test_walk_port_probe_matches_install_sh.sh'
       - 'tests/test_a_security_note_cannot_claim_a_flag_is_off.sh'
+      # The same probe's per-port table, guarded for the OTHER way it goes
+      # stale: pointers. Twelve install.sh line numbers, twelve stale (#1595).
+      - 'tests/test_the_store_port_table_cites_anchors_not_line_numbers.sh'
       - 'scripts/box_walk_probes/probes/no_store_port_is_tcp_reachable.sh'
       - 'tests/test_a_self_test_denominator_counts_itself.sh'
       - 'scripts/box_walk_probes/lib/probe.sh'
@@ -521,6 +524,22 @@ jobs:
       - name: A security note cannot claim a flag is off when it ships on
         if: always()
         run: bash tests/test_a_security_note_cannot_claim_a_flag_is_off.sh
+
+      # The third way this table has gone stale, and the only one that fails
+      # SILENTLY. A wrong line number still resolves -- to something else --
+      # so a reader following it is not told anything is wrong. Measured at
+      # d0c207fd: twelve install.sh:<line> pointers in this probe, twelve
+      # stale, landing on the Gatekeeper quarantine dialog, a launchctl print
+      # branch, Safari's History.db path, a bare `fi` and a plist header. Two
+      # of seven port rows named a verification point under a paragraph
+      # claiming every row named one.
+      #
+      # if: always() -- this and the security-note step above guard the same
+      # table against two different kinds of drift. Learning about one but not
+      # the other on a red run is how the second gets forgotten.
+      - name: The store-port table cites grep anchors, not line numbers (#1595)
+        if: always()
+        run: bash tests/test_the_store_port_table_cites_anchors_not_line_numbers.sh
 
       - name: Port probe agrees with install.sh's own two-instrument table
         if: always()
