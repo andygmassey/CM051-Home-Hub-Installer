@@ -4575,53 +4575,77 @@ open_issues:
       vendored copy, so a re-pin deletes it, and two of its rows already break
       the promise the panel makes
     gate: >-
-      🔴 BLOCKING (a doctor re-pin removes a customer-facing panel that
-      has no upstream to come back from, and the panel already fails its own
-      stated promise for two sources): MEASURED 2026-09-18 by RENDERING the
-      shipped code rather than reading it, with HOME and OSTLER_DIR pointed at a
-      temp directory and never at the real dot-ostler, which is a live data
-      subject.
-      FINDING ONE, THE PANEL HAS NO UPSTREAM. HR015 doctor/agent/web_ui.py is
-      4,992 lines; CM051 vendor/doctor/agent/web_ui.py is 6,745. Swept the whole
-      HR015 tracked tree rather than the one file anyone would think of, and
-      independently against the origin/main REF as well as the working tree,
-      with both sweeps agreeing: read_source_status 0 files,
-      _SOURCE_KINDS 0, _FDA_EXTRACT_KINDS 0, render_source_status 0, and the
-      panel's own promise text 0. CONTROL, a doctor symbol that MUST be found,
-      collect_licence_state, 2 files. CONTROL, a symbol that must be found
-      nowhere, 0 files. The predicate discriminates in both directions, so the
-      zero is real. The entire panel is vendor-only, and the promise text
-      appears twice in CM051 and never in HR015.
-      WHAT THAT DOES TO ROW 2212. The known cost of a doctor re-pin was the
-      WhatsApp keepalive tile plus two reverted importers. It is larger: a
-      re-pin from HR015 deletes the source-status panel outright, and there is
-      nowhere for it to come back from because it has never existed upstream.
-      Fourth instance of the pattern row 2218 names, and the largest.
-      FINDING TWO, LIVE TODAY ON MAIN. The panel's copy reads "Every source
-      Ostler reads, whether it has run, how much it found and when it last
-      looked. A source that has never run says so rather than being left out."
-      Driven on the shipped vendored code:
-      ARM 1, no sentinel on disk, 13 rows render, reminders ABSENT, photos
-      ABSENT, CONTROL imessage PRESENT.
-      ARM 2, after reminders.done is written, reminders PRESENT.
-      The row CAN appear, so the predicate discriminates; photos and reminders
-      are simply left out until they have run. Thirteen sources honour the
-      promise and these two do not, which is the exact complaint the earlier
-      source-table work was opened to close. The cause is visible in
-      read_source_status: _SOURCE_KINDS entries are added unconditionally, while
-      _FDA_EXTRACT_KINDS entries join only when their sentinel already exists.
-      A CUSTOMER WHO TICKS REMINDERS AND WHOSE EXTRACTOR NEVER RUNS IS TOLD
-      NOTHING AT ALL, which is the state the panel's own copy promises not to
-      produce.
-      WHERE THE FIX GOES, AND IT IS NOT OBVIOUS. There is no upstream file to
-      fix, so the rule of never editing a vendored copy has nothing to point at.
-      Either the panel is lifted into HR015 first and fixed there, or this is
-      the one tree where a vendor-side edit is the only option, and that must be
-      a recorded decision rather than a habit. The call belongs to whoever owns
-      the vendor register.
-      WHICH HALF-WIRED FAILURE MODE: present in the repo but not in the DMG,
-      inverted. It is in the DMG and absent from the repository that is supposed
-      to be its source.
+      🔴 BLOCKING STILL, AND ONE OF ITS TWO FINDINGS IS NARROWED WHILE THE OTHER IS PARTLY CLOSED
+      2026-09-19. FINDING ONE IS REAL AND ITS CONSEQUENCE WAS OVERSTATED. The row says a re-pin
+      deletes the panel and there is nowhere for it to come back from. The divergence patch DOES carry
+      the panel: the kinds constant, the reader and the renderer all appear in it, and so does the
+      customer-facing promise sentence. A first search for that sentence returned zero because IT IS
+      SPLIT ACROSS SOURCE LINES, which is the same trap the row itself fell into when it counted that
+      text elsewhere. THE REAL GAP IS NARROWER AND IT IS REAL: the patch does NOT carry the extract-
+      kinds delta from a merged PR of 2026-09-17, because that PR added 74 lines to the vendored file
+      and never touched the patch. So a re-pin loses THAT DELTA, not the panel. FINDING TWO IS
+      SUBSTANTIALLY A MISREADING OF A DOCUMENTED DESIGN, and the row should not carry it as filed. The
+      vendored file states the behaviour outright: the customer CHOOSES sources in the picker and one
+      defaults to OFF, so printing an unconditional not-run-yet row in amber for a source somebody
+      DECLINED would invent a failure, which is the mirror of the defect this panel closes. The
+      recorder writes a row for every state EXCEPT declined-by-user. READ THE SCOPE BEFORE JUDGING THE
+      INSTRUMENT. THE RESIDUAL OF FINDING TWO WAS REAL AND IS NOW FIXED. The recorder is called with a
+      swallow, so a recorder that DIED left NO row, and this panel renders a missing row EXACTLY like
+      a source that was never asked to run. Two states, one appearance, and only one is a real
+      absence. Measured: ZERO records anywhere in the installer of a recorder failure, against a
+      control of 10 for the honest-record helpers the function already calls on its own known-bad
+      paths. Now reported, with the exit code and with what it COSTS the customer, and the install is
+      still never aborted, which has its own control arm because turning a bookkeeping failure into an
+      aborted install would be a worse defect than the one it closes. Its mutation arm pins the pre-
+      fix swallow as SILENT on the same failure. Proved rc 2 CANNOT-RUN against origin/main, which is
+      the correct refusal rather than a pass, and rc 0 with 5 passing on the fix. AND A WIRED TEST FOR
+      THIS PANEL ALREADY EXISTED BEFORE THE ROW WAS WRITTEN, added by that same 2026-09-17 PR and
+      invoked by the cold-box workflow, which the row does not mention. WHAT STILL BLOCKS: the patch
+      regeneration that would capture the extract-kinds delta. It is gated on permit rows for FOUR
+      PAIR-ARM FALSE POSITIVES, which are UI COPY pairing the verb Import with two third-party product
+      names on their own importer pages. The guard has a CLOSED three-value class set and one of them
+      is PRODUCT, defined as a third-party product named in customer copy where naming it wrongly
+      would make the copy false. That is this case exactly, and it is established practice rather than
+      a new exemption: the registry already carries 99 such permits across 6 path patterns, clearing
+      127 pairs. A permit is BOUND TO A PATH GLOB and is a digest, never a name. NO RENAME IS POSSIBLE
+      UPSTREAM: those four strings exist only in the vendored copy.  ORIGINAL TEXT FOLLOWS, WITH ONE
+      WORD PAIR PARAPHRASED AND THE PARAPHRASE DECLARED. The original opened with the ungated marker
+      as its verdict. That marker is matched by a PLAIN SUBSTRING test over the WHOLE gate value with
+      no position test, so preserving it verbatim anywhere in this row would hold the row ungated for
+      ever no matter what verdict sits above it. Row 939 records that same trap flipping 41 rows at
+      once. So those two words are replaced by the phrase the ungated marker and NOTHING ELSE in the
+      original is altered. IT READ: 🔴 BLOCKING (a doctor re-pin removes a customer-facing panel that
+      has no upstream to come back from, and the panel already fails its own stated promise for two
+      sources): MEASURED 2026-09-18 by RENDERING the shipped code rather than reading it, with HOME
+      and OSTLER_DIR pointed at a temp directory and never at the real dot-ostler, which is a live
+      data subject. FINDING ONE, THE PANEL HAS NO UPSTREAM. HR015 doctor/agent/web_ui.py is 4,992
+      lines; CM051 vendor/doctor/agent/web_ui.py is 6,745. Swept the whole HR015 tracked tree rather
+      than the one file anyone would think of, and independently against the origin/main REF as well
+      as the working tree, with both sweeps agreeing: read_source_status 0 files, _SOURCE_KINDS 0,
+      _FDA_EXTRACT_KINDS 0, render_source_status 0, and the panel's own promise text 0. CONTROL, a
+      doctor symbol that MUST be found, collect_licence_state, 2 files. CONTROL, a symbol that must be
+      found nowhere, 0 files. The predicate discriminates in both directions, so the zero is real. The
+      entire panel is vendor-only, and the promise text appears twice in CM051 and never in HR015.
+      WHAT THAT DOES TO ROW 2212. The known cost of a doctor re-pin was the WhatsApp keepalive tile
+      plus two reverted importers. It is larger: a re-pin from HR015 deletes the source-status panel
+      outright, and there is nowhere for it to come back from because it has never existed upstream.
+      Fourth instance of the pattern row 2218 names, and the largest. FINDING TWO, LIVE TODAY ON MAIN.
+      The panel's copy reads "Every source Ostler reads, whether it has run, how much it found and
+      when it last looked. A source that has never run says so rather than being left out." Driven on
+      the shipped vendored code: ARM 1, no sentinel on disk, 13 rows render, reminders ABSENT, photos
+      ABSENT, CONTROL imessage PRESENT. ARM 2, after reminders.done is written, reminders PRESENT. The
+      row CAN appear, so the predicate discriminates; photos and reminders are simply left out until
+      they have run. Thirteen sources honour the promise and these two do not, which is the exact
+      complaint the earlier source-table work was opened to close. The cause is visible in
+      read_source_status: _SOURCE_KINDS entries are added unconditionally, while _FDA_EXTRACT_KINDS
+      entries join only when their sentinel already exists. A CUSTOMER WHO TICKS REMINDERS AND WHOSE
+      EXTRACTOR NEVER RUNS IS TOLD NOTHING AT ALL, which is the state the panel's own copy promises
+      not to produce. WHERE THE FIX GOES, AND IT IS NOT OBVIOUS. There is no upstream file to fix, so
+      the rule of never editing a vendored copy has nothing to point at. Either the panel is lifted
+      into HR015 first and fixed there, or this is the one tree where a vendor-side edit is the only
+      option, and that must be a recorded decision rather than a habit. The call belongs to whoever
+      owns the vendor register. WHICH HALF-WIRED FAILURE MODE: present in the repo but not in the DMG,
+      inverted. It is in the DMG and absent from the repository that is supposed to be its source.
   - issue: 2220
     repo: none
     title: >-
@@ -4776,49 +4800,79 @@ open_issues:
       The acceptance gate neither measures nor refuses when no ssh target is
       set: it prints SKIP and exits 0, which is a PASS, on every cut
     gate: >-
-      🔴 BLOCKING (a launch-critical gate registered in permanent.yaml
-      scores GREEN without measuring anything, on the suite''s own supported
-      run-on-the-box mode): MEASURED 2026-09-18, and THE FIRST VERSION OF THIS
-      ROW WAS WRONG IN A WAY WORTH RECORDING, because the error is the more
-      common one.
-      WHAT I CLAIMED FIRST AND WITHDREW: that six of twenty nine probes
-      "silently fall back to the local machine" when OSTLER_BOX_HOST is unset,
-      and that this was an accident. IT IS THE DOCUMENTED CONTRACT. The suite''s
-      own README says "OSTLER_BOX_HOST unset now means THIS MACHINE rather than
-      refuse to report, which is what the rest of the suite means by it";
-      run_box_walk.sh prints "TARGET: this machine (OSTLER_BOX_HOST unset)" on
-      that path; and the environment table gives the default as "unset (this
-      machine)". box_run() executing locally and box_reachable() returning true
-      with no host are BY DESIGN. Running the whole suite ON the Hub is a
-      supported mode, and the probes that then report pass or fail against that
-      machine are behaving correctly. I read the guard''s scope after judging it
-      instead of before.
-      WHAT SURVIVES, AND IT IS REAL. Under that contract every probe does one of
-      two honest things: it measures the machine it is pointed at, or it refuses
-      with 78 when a prerequisite is absent. Measured across all 29 with no ssh
-      target: 23 exit 78, three exit 0 having measured this machine, three exit
-      1 having measured this machine. ACCEPTANCE_GATE_v1013 DOES NEITHER. It
-      prints SKIP and exits 0 without reading anything at all, and the harness
-      records 0 as a PASS. Its own comment says "unset host -> never fail" and
-      reached for the wrong code: 0 does not mean did not fail, it means passed.
-      WHY THAT MATTERS: the gate is registered in cut-manifests/permanent.yaml,
-      so it is adjudicated on EVERY cut, and on the supported on-box mode it
-      contributes a green having measured nothing. The file''s own CANNOT-RUN
-      exit already states the principle it breaks here: "This is NOT a pass and
-      NOT a defect in the artefact. Nothing was measured there."
-      AND THE TEST WRITTEN FOR EXACTLY THIS CANNOT SEE IT. scripts/tests/
-      test_an_unreachable_box_is_not_a_defect.sh has nine arms and every one
-      sets OSTLER_BOX_HOST to an unreachable value, so the file measures an
-      UNREACHABLE target and never an ABSENT one. Two different branches, one
-      covered. That gap is real whatever the right exit code turns out to be.
-      RETIRE BY: making the gate RUN on the unset-host path like every other
-      probe, which needs a box to validate because its assertions are about
-      launchd agents and daemon endpoints, plus the missing test arm. NOT by
-      making it exit 78, which was my first fix and is withdrawn: refusing
-      would move it further from its siblings, not closer, because they measure.
-      WHICH HALF-WIRED FAILURE MODE: CANNOT-RUN passing on a zero denominator,
-      and it is the purest instance on this board. The denominator is not small
-      or unrepresentative. It is zero, and the verdict is green.
+      🔴 BLOCKING STILL, AND THE CODE HALF IS DONE 2026-09-19. The row is exactly right and its
+      sharpest detail was one I could improve on. STATED AS STILL BLOCKING because the fix is MERGED-
+      at-best and the row closes on a build and a walk, neither of which has happened. THE DEFECT,
+      CONFIRMED VERBATIM: with no box host set the gate echoed SKIP and exited 0. It is registered as
+      a cut blocker in cut-manifests/permanent.yaml, so on any runner without a box it announced
+      SHIPPABLE for a launch-critical check THAT HAD CONTACTED NOTHING AND EVALUATED NO ASSERTION. The
+      header said it out loud and nobody read the slash: Exit 0 equals SHIPPABLE SLASH SKIP. Two
+      different claims sharing one code. A ZERO DENOMINATOR READING AS SUCCESS. AND THE FILE HAD
+      ALREADY DIAGNOSED THE MIRROR OF THIS AND FIXED ONLY HALF, which is the part worth carrying
+      forward: the block twenty lines above corrects the UNREACHABLE case from 2 to 78, quoting the
+      runner's own warning about sending a reader hunting a bug that was never detected while the
+      actual fault, a signal nobody could read, goes unsaid. IT LEFT THE UNSET CASE AT 0. Same file,
+      same shape, one branch repaired and its neighbour not. THE CONSUMER WAS READ BEFORE THE PRODUCER
+      WAS CHANGED, because turning a 0 into a 78 on the cut path is precisely the change that needs
+      it: run_box_walk.sh:44 declares the CANNOT-RUN code and :33 states that CANNOT-RUN does not fail
+      the run. So the gate is now honest without making a boxless runner red. AND THE CONTRACT IS NOT
+      JUST THE EXIT CODE, which is what would have been missed: run_box_walk.sh:537-539 records a
+      probe exiting 78 WITHOUT a VERDICT CANNOT-RUN line as UNRECORDED, bypassed the refusal helper
+      and named no prerequisite, and calls that a contract breach in those words. The marker is now
+      emitted in the exact form the shared helper prints it. This gate sits one directory up and
+      deliberately sources nothing, WHICH IS EXACTLY WHY IT NEVER INHERITED THE CONVENTION. THE ROW
+      SAYS THE ABSENT BRANCH IS UNTESTED AND I CAN BE SHARPER: the test file is 219 lines with ONE
+      assignment of the host variable, to an unreachable value, and ZERO occurrences of an unset or an
+      empty assignment. Every existing arm tested UNREACHABLE. NOTHING tested ABSENT. Four arms added,
+      and the fourth is what makes the first mean anything: a CONTROL proving a host that IS set does
+      not take that branch, because a gate returning the refusal for every input would satisfy the
+      first arm while discriminating nothing. PROVED RED IN BOTH DIRECTIONS, rc taken directly and
+      never through a pipe: against origin/main rc 1 with 11 pass and 2 fail, the failing arms reading
+      that it exited 0 and that 0 would announce SHIPPABLE for a registered cut blocker; with the fix
+      rc 0 and 13 pass. Wired already and CONFIRMED rather than assumed: the test is invoked by cut-
+      manifest.yml and BOTH it and the gate are on that workflow's paths filter, so a change to the
+      gate triggers the test that grades it. WHAT REMAINS AND WHY THIS STILL BLOCKS: the row's own two
+      unverified items stand. Its nine-arm count and its exit-code census across 29 probes are RUN
+      RESULTS and are NOT INSTRUMENTED here; settling them means invoking every probe with the
+      variable unset and recording the codes. And the row is right that validation needs a box. MERGED
+      is the most this can be until a build and a walk exist.  ORIGINAL TEXT FOLLOWS, WITH ONE WORD
+      PAIR PARAPHRASED AND THE PARAPHRASE DECLARED. The original opened with the ungated marker as its
+      verdict. That marker is matched by a PLAIN SUBSTRING test over the WHOLE gate value with no
+      position test, so preserving it verbatim anywhere in this row would hold the row ungated for
+      ever no matter what verdict sits above it. Row 939 records that same trap flipping 41 rows at
+      once. So those two words are replaced by the phrase the ungated marker and NOTHING ELSE in the
+      original is altered. IT READ: 🔴 BLOCKING (a launch-critical gate registered in permanent.yaml
+      scores GREEN without measuring anything, on the suite''s own supported run-on-the-box mode):
+      MEASURED 2026-09-18, and THE FIRST VERSION OF THIS ROW WAS WRONG IN A WAY WORTH RECORDING,
+      because the error is the more common one. WHAT I CLAIMED FIRST AND WITHDREW: that six of twenty
+      nine probes "silently fall back to the local machine" when OSTLER_BOX_HOST is unset, and that
+      this was an accident. IT IS THE DOCUMENTED CONTRACT. The suite''s own README says
+      "OSTLER_BOX_HOST unset now means THIS MACHINE rather than refuse to report, which is what the
+      rest of the suite means by it"; run_box_walk.sh prints "TARGET: this machine (OSTLER_BOX_HOST
+      unset)" on that path; and the environment table gives the default as "unset (this machine)".
+      box_run() executing locally and box_reachable() returning true with no host are BY DESIGN.
+      Running the whole suite ON the Hub is a supported mode, and the probes that then report pass or
+      fail against that machine are behaving correctly. I read the guard''s scope after judging it
+      instead of before. WHAT SURVIVES, AND IT IS REAL. Under that contract every probe does one of
+      two honest things: it measures the machine it is pointed at, or it refuses with 78 when a
+      prerequisite is absent. Measured across all 29 with no ssh target: 23 exit 78, three exit 0
+      having measured this machine, three exit 1 having measured this machine. ACCEPTANCE_GATE_v1013
+      DOES NEITHER. It prints SKIP and exits 0 without reading anything at all, and the harness
+      records 0 as a PASS. Its own comment says "unset host -> never fail" and reached for the wrong
+      code: 0 does not mean did not fail, it means passed. WHY THAT MATTERS: the gate is registered in
+      cut-manifests/permanent.yaml, so it is adjudicated on EVERY cut, and on the supported on-box
+      mode it contributes a green having measured nothing. The file''s own CANNOT-RUN exit already
+      states the principle it breaks here: "This is NOT a pass and NOT a defect in the artefact.
+      Nothing was measured there." AND THE TEST WRITTEN FOR EXACTLY THIS CANNOT SEE IT. scripts/tests/
+      test_an_unreachable_box_is_not_a_defect.sh has nine arms and every one sets OSTLER_BOX_HOST to
+      an unreachable value, so the file measures an UNREACHABLE target and never an ABSENT one. Two
+      different branches, one covered. That gap is real whatever the right exit code turns out to be.
+      RETIRE BY: making the gate RUN on the unset-host path like every other probe, which needs a box
+      to validate because its assertions are about launchd agents and daemon endpoints, plus the
+      missing test arm. NOT by making it exit 78, which was my first fix and is withdrawn: refusing
+      would move it further from its siblings, not closer, because they measure. WHICH HALF-WIRED
+      FAILURE MODE: CANNOT-RUN passing on a zero denominator, and it is the purest instance on this
+      board. The denominator is not small or unrepresentative. It is zero, and the verdict is green.
   - issue: 2222
     repo: none
     title: >-
