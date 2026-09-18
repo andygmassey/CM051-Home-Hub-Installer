@@ -504,3 +504,41 @@ instruction already says to do, and there was other work available.
 
 A shared register is not a queue you can jump when your item is urgent. It is a
 queue *because* items are urgent.
+
+### A duplicate check keyed on a field that is in dispute cannot see the duplicate
+
+Two sessions appended a row for the same two pull requests to the same register.
+The owner's duplicate check was a `Counter` keyed on `(repo, pr)` and it reported
+one row each.
+
+It could not have reported anything else. The two sessions spelled the `repo`
+field differently - one owner-qualified, one bare - so **the key built to detect
+the collision contained the field the collision was in**. A plain textual count
+of the identifying line said 2, with a control line that said 1.
+
+    Counter keyed on (repo, pr)      ->  1 each   (wrong)
+    grep -c '^  pr: 2160$'           ->  2        (right, control row 1)
+
+> **A duplicate check must key on the field that IDENTIFIES the thing, never on
+> a composite containing a field whose spelling is in dispute.**
+
+That generalises past this register. Every composite key in this estate has a
+field that two people could spell differently, and the check is silent in
+exactly the case it exists for.
+
+The convention question underneath it was settled by counting rather than by
+argument: 107 rows owner-qualify the repo and 4 use the bare form, and the row
+the owner had copied was one of the 4. **A sample of one is not a convention**,
+and copying the last row you read reproduces whatever that row got wrong.
+
+### A head SHA in a permanent register is a timestamp, not a property
+
+One of the duplicate rows recorded `head_sha: 9b3f5a6e`. That was the head at
+04:40:39Z; the branch moved at 05:17:20Z. Both SHAs exist, so it is staleness and
+not a typo - the value was true when it was read and false by the time the row
+was committed.
+
+Same shape as relaying `2 of 2 SUCCESS` as "the PR is green" while a push was
+restarting the suite. The answer is not to stop recording the SHA. It is that a
+row recording a moving value must also record **the instant it was read**, or the
+reader cannot tell a stale value from a wrong one.
