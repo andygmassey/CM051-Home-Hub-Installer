@@ -128,6 +128,30 @@ def cannot_run(msg: str) -> "None":
     sys.exit(2)
 
 
+def _adds_mention(repo, base, head, path, name):
+    """True if this diff ADDED a line to `path` that mentions `name`.
+
+    Reads the DIFF, deliberately, and only lines that start with a single
+    `+`. The file itself already mentions every tree that shares it, which is
+    precisely why a whole-file test cannot tell them apart, and a hunk header
+    carries surrounding context that would match for the same wrong reason.
+    """
+    out = git(repo, "diff", "--unified=0", "%s...%s" % (base, head), "--", path,
+              allow_fail=True)
+    if not out:
+        return False
+    for line in out.splitlines():
+        if line.startswith("+") and not line.startswith("+++") and name in line:
+            return True
+    return False
+
+
+def _sharers(blocks, path):
+    """How many declared trees point their unrecorded_divergence at `path`."""
+    return sum(1 for b in (blocks or {}).values()
+               if (b.get("unrecorded_divergence") or "").strip() == path)
+
+
 def git(repo, *args, allow_fail=False):
     proc = subprocess.run(
         ["git", "-C", repo, *args],
@@ -395,6 +419,33 @@ def main():
                     "unrecorded_divergence names %r, and that file never mentions "
                     "the tree %r, so it records somebody else's divergence"
                     % (decl_head, name)
+                )
+            elif decl_head == decl_base and not _adds_mention(
+                    repo, args.base, args.head, decl_head, name):
+                # 🔴 A RECORD TOUCHED FOR ONE TREE DOES NOT DESCRIBE ANOTHER.
+                # Several trees can point at ONE record, and the whole-file
+                # `name not in blob` test above cannot separate them: a shared
+                # record mentions every tree that shares it, so once it is
+                # touched for ONE tree it reads as a description for ALL of
+                # them in the same diff, and the others' divergences are
+                # written down nowhere.
+                #
+                # MEASURED, not reasoned, on the real repo the day the
+                # extend-in-place relaxation landed: a diff touching vendored
+                # files in BOTH doctor and ostler_fda while appending one line
+                # "for the doctor tree only" to the record they share returned
+                # GATE GREEN, with ostler_fda described nowhere.
+                #
+                # So when the POINTER did not move, the record must have GAINED
+                # A LINE NAMING THIS TREE. A moved pointer keeps the whole-file
+                # test, because a new per-tree file legitimately names its tree
+                # throughout rather than only in the added lines.
+                decl_problem = (
+                    "unrecorded_divergence names %r, which WAS touched in this "
+                    "diff but gained no line mentioning %r. %d tree(s) share "
+                    "that record, so touching it for one of them does not "
+                    "describe this one"
+                    % (decl_head, name, _sharers(man_head, decl_head))
                 )
             else:
                 decl_ok = True
