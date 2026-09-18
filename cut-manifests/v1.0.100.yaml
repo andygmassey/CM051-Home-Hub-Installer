@@ -2049,67 +2049,263 @@ open_issues:
   - issue: 971
     repo: none   # no issue of this number exists in either repo
     title: "NOTHING IN THE PRODUCT CAN EVER PRODUCE pro_active, so the first Pro subscriber gets nothing"
-    gate: '🔴 BLOCKING (both halves are now built and neither is proven on a box): ANDY DECIDED 2026-09-18, ASKED IN PRODUCT TERMS RATHER THAN BY FILE NAME: THE APPLE RECEIPT IS THE TRUTH. Pro follows the person''s Apple subscription and lapses with it, so the READER moves to the Hub''s own store and the Hub is not taught to write a second file in a second vocabulary. The question put to him was the product one underneath the file names: a customer pays for Pro, the Hub receives the receipt and every background pipeline correctly starts working, and the wiki vault stays locked because it reads a different file in a different vocabulary that nothing writes. TWO PULL REQUESTS, BOTH OPEN, BOTH MEASURED. CM044 #280 moves compiler/vault_licence.py onto ~/.ostler/state/subscription_state.json, keyed on status and not on source, because first_month_free is the free first month OF Pro and every other surface treats that customer as entitled through is_active_or_grace(). CM051 #2175 rewires the SHIPPED compose that install.sh generates and deletes the mount that served the file nothing wrote. AND THE FIX NEEDED NO NEW MOUNT, which is the part that was measured rather than assumed: ${HOME}/.ostler/state:/state has been bind-mounted into wiki-compiler all along for the hydration status file, so the Hub''s subscription state was inside the container the whole time, one directory away from a reader looking in the wrong place. The whole delivery change is one environment variable. 🔴 AND status ACTIVE IS NOT ENOUGH ON ITS OWN, which is the arm that would otherwise cost money. The Hub''s own Doctor already carries the rule at diagnostic_rules.py:1788: an expires_at in the past with the status still reading active means the expiry check has not run, not that the customer is entitled. A reader trusting the word alone would let a LAPSED subscription keep the vault for ever, and no customer reports that. The date is checked and that case logs a warning rather than an ordinary pro_none, so a lapsed box does not look like one that never subscribed. pro_trial NOW HAS NO PRODUCER AND THAT IS RECORDED AS A DECISION RATHER THAN A GAP: the brief defines it as a six-page preview for somebody who has NOT subscribed, and the Hub has no state that means that, because no subscription means no file, which is pro_none. Mapping something onto it inside a reader would be deciding a product question in the wrong place. The preview needs its own trigger and its own row. vault_state and vault_observer keep pro_trial as an internal state and are untouched. MEASURED, and the mutants are the evidence, not the passes. CM044: clean 146 passed exit 0; M1 trust the word and skip the expiry check, exit 1, 3 failed; M2 the old environment variable name comes back, exit 1, 7 failed; M3 grace stops counting as entitlement, exit 1, 1 failed; restored byte-identical by cmp. Full CM044 suite 16 failed 2856 passed, and a CONTROL worktree at untouched origin/main fails the same 16, so this change introduces none of them. CM051: the shipped-compose guard passes 7 of 7 arms, and three mutants of install.sh each turn it red with the right message, including a half-done rename that leaves BOTH environment variables live, which every other arm would have passed. WHAT IS STILL OWED, named rather than deferred: the proof. The subject of this row is a PERSON, so it closes when the vault opens on a box whose iOS app has pushed an active receipt. A state file appearing on disk is not it, and neither is a merged pull request, so this row stays BLOCKING and stays counted. PREVIOUS GATE, unchanged below and still accurate about the reader. 🔴 I HAD THE SHAPE OF IT WRONG. ANDY ANSWERED 2026-09-18: DOES PRO SHIP AT v1.0? YES. He then said the Pro check via the App Store is supposed to be built and working already, and he is RIGHT. I had written that the writer belongs on the CM050 side and does not exist. WITHDRAWN. Traced end to end 2026-09-18, and every link but one is already built. 1. iOS. CM031 ships SubscriptionService.swift, SubscriptionReceiptSync.swift, PaywallView.swift, SubscriptionConfig.swift and tests for both. SubscriptionReceiptSync POSTs the StoreKit-derived receipt and expiry to the paired Hub at /api/v1/subscription/receipt, and its own header names the Hub file that receives it. 2. THE HUB RECEIVES IT. ical-server.py:6540 api_subscription_receipt, routed at :8549, validates the body and calls subscription_gate.refresh_from_companion, returning active, grace or inactive. The endpoint is in the LaunchAgent allowlist at install.sh:23919, and a comment there records that it was once MISSING from that list, so somebody has already fixed one delivery gap on this exact path. 3. THE HUB PERSISTS IT, AND THE PRODUCT USES IT. subscription_gate writes ~/.ostler/state/subscription_state.json with status active | grace | inactive, and describes itself as the single source of truth for whether ongoing intelligence is active, with every pipeline calling is_active_or_grace() at the top of its work loop. CONSUMED by 7 files including ical-server.py, the Doctor''s diagnostic_rules.py and cm052''s wire.py. CONTROL: a module name that exists nowhere returns 0 files. 4. THE WIKI SIDE IS PLUMBED TOO. install.sh:18811 mounts ${HOME}/.ostler/licence:/licence:ro into wiki-compiler and :18882 sets OSTLER_LICENCE_STATE_FILE=/licence/state.json. That mount is the #849 fix, added because the reader was resolving to /root/... inside the container. 5. AND THE ONE MISSING LINK: NOTHING WRITES ~/.ostler/licence/state.json. CM044 vault_licence.py reads it for a pro_state of pro_active, pro_trial or pro_none. The Hub maintains a DIFFERENT FILE IN A DIFFERENT VOCABULARY. So the Pro entitlement genuinely arrives, is genuinely persisted, and is genuinely used by the pipelines, and the wiki vault reads a file nobody writes. SO THIS IS A BRIDGE BETWEEN TWO EXISTING STATE STORES, NOT A FEATURE. Either subscription_gate also writes licence/state.json with the mapped vocabulary, or vault_licence reads subscription_state.json instead. That is a decision about which file is canonical, and it is small, and it is NOT the CM050 work I claimed. TWO STATE STORES FOR ONE FACT IS THE DEFECT UNDERNEATH, and it is the same class as everything else on this board: a writer and a reader that agree about the concept and disagree about the address. Nobody is wrong in either file. NEEDS ANDY, and he has already said he wants to spec it: which file is canonical, and does the licence itself need to carry the tier (row 928) now that entitlement arrives by App Store receipt rather than by licence field. Those are the same conversation. PROOF REQUIRED, unchanged: a customer who has PAID for Pro reaches the vault. The subject is a PERSON, not a file, so the proof is the vault opening on a box whose iOS app has pushed an active receipt, not a state.json appearing on disk. PREVIOUS GATE, measured 2026-09-18 and still accurate about the READER:  That converts this row from a question into a launch blocker, and the row itself framed the question correctly: if Pro ships at v1.0 this is a blocker and the work is in CM050, not here. WHAT THE ANSWER MEANS, given the measurements already on this row. A customer can pay for Pro and reach nothing: compiler/vault_licence.py reads ~/.ostler/licence/state.json for a pro_state of pro_active, pro_trial or pro_none, and NOTHING WRITES THAT FILE. The reader is not the problem and must not be touched: it fails closed to pro_none and LOGS on a missing file, an unrecognised value and any exception. So the box behaves correctly and the customer is correctly told nothing, which is the worst possible combination for a paid tier: no error to chase and no vault to use. WHAT IS OWED, AND IT IS NOT IN CM051. A writer for that file, on the licence and subscription side. CM051 must NOT invent one: writing pro_active from the installer would fabricate an entitlement the payment system has not confirmed, which is worse than an honest pro_none because the customer only discovers it when they try to use what they were told they have. AND ONE THING THIS ANSWER DRAGS IN WITH IT, which needs Andy''s eye before anyone builds: the frozen v1 licence schema is NINE FIELDS WITH NO TIER (row 928 measures it, LicenseVerifier.swift:57-79 and install.sh:2363 pin the identical set). If Pro ships at v1.0 then the licence a customer holds has to be able to say they bought Pro, or the writer has nothing to read from. So 971 and 928 are one piece of work, not two, and 928''s gate currently opens NOT STARTED. PROOF REQUIRED, unchanged and now blocking: a customer who has paid for Pro reaches the vault. The subject of that assertion is a PERSON, not a file, so the proof is the vault opening on a box whose licence says Pro, not a state.json appearing on disk. PREVIOUS GATE, measured 2026-09-18 and still accurate:  THE ROW IS RIGHT, THE READER IS SAFE, AND THE MISSING PIECE IS NOT IN THIS REPO. Three measurements, each with a working control. ONE, THE READER ALREADY FAILS CLOSED AND THAT HALF NEEDS NOTHING. CM044 compiler/vault_licence.py read_pro_state degrades to pro_none and LOGS it on every bad path: a missing file, an unrecognised pro_state value, and any exception at all, each with its own message. So the absence of the file is not a crash and not a silent pro_active; it is a logged, correct pro_none. A customer loses the Pro vault, which is the row''s point, but nothing breaks and nothing lies. TWO, THE CLIENT MODULE IT PREFERS DOES NOT SHIP. read_pro_state first tries to import ostler_licence_client and falls back to reading the file directly. Measured in CM051: ostler_licence_client appears in 0 files. POSITIVE CONTROL in the same command and the same tree: ostler_store_auth appears in 25, so the search reaches. THREE, NOTHING IN SOURCE WRITES pro_state. One occurrence in the whole of CM051 and it is inside a BINARY, assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant, 16M. STRINGS IS A FILTER AND NOT A READER, so this is evidence and not proof, and it is recorded as such: the binary carries pro_state, pro_active, pro_trial and pro_none, one hit each, and does NOT carry the path licence/state.json. CONTROLS on that same strings run: a symbol that must be absent returns 0, and ostler returns 26. So the assistant knows the VOCABULARY and does not name the FILE, which is consistent with the writer never having been built and is not conclusive, because a path can be composed at runtime from parts. WHAT THIS MEANS FOR THE CUT. No customer can reach pro_active, so a Pro subscription buys nothing the wiki can see. That is a product decision and not a bug to be patched here: the writer belongs on the licence and subscription side (CM050), and inventing a writer in the installer would fabricate an entitlement the payment system has not confirmed, which is worse than the current honest pro_none. NEEDS ANDY, and it is one question: does Pro ship at v1.0? If YES this is a launch blocker and the work is in CM050, not here. If NO, the row is v1.0.1 and the correct state at v1.0 is exactly what the box already does. The row''s own first version was retracted for calling this a loss before measuring, and the same discipline applies to calling it a blocker. STRIKE REVERSED 2026-09-18, AND THE ROW IS COUNTED AGAIN. This row was struck on 2026-09-16 on the ground that its number named an issue that had been closed on the tracker. The strike sentence is deliberately PARAPHRASED here and not quoted: _STRUCK_ON_CLOSURE is a plain substring test on the whole gate value, so quoting it verbatim put all 41 reversed rows back inside the struck branch, escaping only through _names_proof. One edit to this prose would have flipped 41 rows to ungated. Measured, then removed. MY FIRST EVIDENCE FOR THIS WAS ITSELF THE ERROR I WAS REPORTING, and the corrected version is worse for the strike, not better. I resolved all 41 numbers against CM051 and reported 41 of 41 as pull requests. But THE ROW DECLARES ITS OWN REPO and I did not read the field: 10 of the 41 declare repo HR015 and 31 declare repo none. Resolving an HR015 number against CM051 is the same category error the strike made, committed by the agent auditing it, and it was caught only because a pre-existing note inside row 947 said HR015 #947 IS AN OPEN ISSUE. RE-MEASURED AGAINST THE REPO EACH ROW DECLARES. The ten HR015 rows are 946, 947, 948, 940, 942, 941, 943, 944, 928 and 929, and all ten resolve in andygmassey/HR015-Gaming-PC to OPEN issues, every one titled [LAUNCH]. They were struck as closed while they are open launch work. That is not a number collision, it is a false statement about live launch issues. The remaining 31 declare repo none, which the checklist gate itself defines as measured findings rather than tracker items, so there is no issue for the strike to have found closed at all; the number is an internal id. What made the strike look plausible is that those internal ids also land on closed CM051 pull requests, which is exactly the coincidence a repo field exists to prevent, and exactly the coincidence I then fell for while checking it. AND ROW 1014, STRUCK BY THIS SAME STRIKE, IS TITLED "78 registered rows name issues that are already CLOSED": the row about this class of error was removed by the error. HOW IT GOT IN: commit d7a3da88, inside PR #1975, whose subject is a SPARQL editor bug, so nobody reviewing that PR was reviewing a 41-row board strike. Its own message says "and one strike was wrong", so the counterexample was already in hand and was filed as an exception rather than read as evidence about the method. WHAT THIS REVERSAL IS AND IS NOT: it restores the row to the count. It is NOT a claim the work is undone, and it is NOT a re-triage. Each of the 41 needs its own measurement, which is a day of work and is owed. Until then the row is counted as ungated, which looks worse and is true. THE SIZE OF THE EFFECT, MEASURED, AND I REVISED IT DOWN TWICE. First I said 4 ungated to 33, from my own literal search rather than the gate''s definition. Then 40 to 46, which double-counted rows my own reversal text had accidentally marked ungated: the narrative SPELLED OUT the ungated marker while describing it, and the checklist gate counts that marker by substring, so the prose became the verdict. Third time in one night that writing ABOUT a predicate tripped it. AND THE FIRST STATEMENT OF THE FIX NAMED THE WRONG MECHANISM, which Archie caught: the ungated test is a plain substring on the whole uppercased value, with no anchor and no position test, so putting the verdict at the FRONT protects nothing. What actually protects it is NEVER SPELLING THE MARKER IN THE NARRATIVE. The verdict is still at the front because that is where a verdict belongs, but anyone relying on the position would put the marker back in the prose below it and silently flip the row for ever, with a correct-looking verdict still on top. A fix whose stated mechanism is wrong is a fix that gets undone by somebody following the instructions. The final measurement, running the checklist gate''s own _is_ungated against an origin/main checkout and against this board: 40 before, 42 after. Of the four newly counted, TWO are rows registered in this same PR (2138 and 2141) and only TWO were suppressed by the strike: 956, evernote_knowledge empty on a box that shipped the importer, and 1018, another session mutating the shared checkouts. Two rows stop being counted, correctly: 941 and 960 carry real gates of 10,160 and 5,635 characters, and on main they were counted only because the unevidenced strike text sat on top of them. THIS WAS ALREADY FILED, ALREADY MEASURED, AND HALF ALREADY FIXED, AND MY FIRST ACCOUNT OF IT CLAIMED FAR TOO MUCH. Row 2114, 41 of 174 cut-checklist rows were struck on issue closure, not on a fix, names this exact defect with the same arithmetic I re-derived. PR #2115 then fixed _is_ungated so a struck row whose own text says the work is unfinished, or that names no checkable proof, is counted again. Row 2114 records the before and after: 0 ungated before, 35 after, with a control of 6 struck rows naming a merged PR that correctly stayed gated. So the COUNT was restored by #2115 two days before I looked, and that is why my successive estimates of the damage kept shrinking: I was measuring the residue of a defect somebody had already largely closed. TWELVE rows independently say, in their own gate text, that the number resolves to a PULL REQUEST: 946, 947, 948, 940, 942, 941, 943, 944, 928, 929, 960 and 1045, and row 960 puts it plainly, THE STRIKE''S EVIDENCE WAS WRONG AND ITS CONCLUSION IS RIGHT. WHAT WAS ACTUALLY LEFT UNDONE, and it is all this reversal is: the strike TEXT still asserted a false REASON on all 41 rows, so every reader was told the number named a closed issue when it named an unrelated merged pull request, and nothing stopped the next strike being made the same way. The text is corrected here and tests/test_a_struck_row_names_an_issue_not_a_pull_request.py refuses it next time. That is the whole contribution, and it is smaller than the first three versions of this paragraph said. HOW IT WAS FOUND, because no process caught it: by accident, while gating row 957 for a fix, noticing the row was already struck, and checking the number out of habit. The estate already carries the memory feedback_task_ids_collide_with_github_numbers and it did not prevent this. GATE: tests/test_a_struck_row_names_an_issue_not_a_pull_request.py now refuses a strike that names no title, and refuses one whose number resolves to a pull request. ORIGINAL FINDING, which carried no gate until now: It previously carried no gate. LAUNCH BLOCKER FOR A PRODUCT ABOUT TO BE SOLD.
-
-      NARROWED AND CORRECTED FROM MY OWN FIRST VERSION OF THIS ROW, which said a
-      paying Pro subscriber on this box was being denied a vault. MEASURED SINCE:
-      there is NO subscription state anywhere on the box. daemon_state.json holds
-      health and uptime only; 738 lines of assistant config.toml contain no
-      subscription, tier, pro_ or entitle key at all; the iOS log reads
-      refreshStatus -> notSubscribed; and the licence file is the ONE-OFF HUB
-      PURCHASE with no tier field (keys: issued_to_email, license_id,
-      max_hardware_fingerprints, purchased_at, signature, signature_algorithm,
-      stripe_payment_id, update_window_expires_at, version). So on the operator box
-      pro_none is the CORRECT answer and nobody is being denied anything. Same
-      lesson as the 3-of-87 retraction: measure before calling it a loss.
-
-      THE DEFECT THAT SURVIVES IS STILL SEVERE. compiler/vault_licence.py reads
-      ~/.ostler/licence/state.json expecting {pro_state: pro_active|pro_trial|pro_none,
-      updated_at}. NOTHING WRITES THAT FILE, ANYWHERE. So no customer can ever reach
-      pro_active, and the first person who pays for Pro receives nothing, permanently,
-      while the compile logs 16 ok, 19 skipped, 0 errors.
-
-      THE CODE DOCUMENTS ITS OWN FAILURE, verbatim from that docstring: "this exact
-      file path + schema does not exist anywhere in the codebase yet", the write side
-      "is oa-repo scope, built separately", and "Whoever lands that observer must
-      either match this schema or this module needs a follow-up PR -- confirm before
-      v1.0.13 merges." NOBODY CONFIRMED. It merged and shipped.
-
-      AND THE VOCABULARY DOES NOT EXIST EITHER: the daemon state machine
-      (zeroclaw-gateway/src/api_subscription.rs) tracks active / grace / expired /
-      inactive, with no notion of pro_trial versus pro_active versus pro_none. The
-      tri-state vocabulary was introduced by the BRIEF for the Doctor rule and Hub UI
-      and only the READ side was ever built.
-
-      FIX SHAPE: an observer that reads the daemon subscription state and writes
-      state.json in the expected schema.
-
-      THE MAPPING IS DECIDED. ANDY, 2026-09-17, VERBATIM: "keep it as long as they''ve
-      paid (fully) for Pro at least once. ie. not the 30 days free plus a failed card
-      try." Implement EXACTLY this and do not substitute a reading of it:
-
-        daemon active                                   -> pro_active
-        daemon grace AND has paid in full at least once -> pro_active
-        daemon grace AND has NEVER completed a payment  -> pro_none
-        daemon expired                                  -> pro_none
-        daemon inactive                                 -> pro_none
-        inside the 30-day free period, no payment yet   -> pro_trial
-
-      THE DISCRIMINATOR IS "HAS A COMPLETED PAYMENT EVER", not "is currently in
-      grace". A trial that lapses on a failed first card is NOT grace-protected: that
-      customer has never paid, so they drop to pro_none. A subscriber who has paid at
-      least once and whose card is retrying KEEPS THEIR VAULT.
-
-      WHOEVER BUILDS THIS: find where a completed payment is recorded before writing a
-      line of the mapping. If no such record exists anywhere, that is a SECOND defect
-      of the same family and it must be reported, not worked around with a proxy
-      signal like "was ever active", which would let a lapsed trial keep the vault.
-
-      HISTORY WORTH KEEPING: the MOUNT half of this was found and fixed TWICE, as
-      #849 and #482, both times after a test on CM044 dev compose stayed green while
-      the shipped compose was broken. tests/test_shipped_compose_licence_mount.sh now
-      guards the mount and the env var, and asserts NOTHING about the file being
-      written. Three fixes, none of which asked whether anything fills it.'
+    gate: >-
+      🔴 BLOCKING, AND AS OF 2026-09-19 IT IS THE ONLY ROW LEFT WHOSE REMAINING STEP IS NOT A BUILD, A
+      WALK OR A REVIEW. IT NEEDS ONE ACTION FROM ANDY AND NOTHING ELSE. Stated here because it was
+      previously framed, by the register owner and then by me, as a CHOICE between two things. THAT
+      FRAMING WAS WRONG AND THERE IS ONLY ONE PATH. THE ROW'S FIX IS TWO PULL REQUESTS AND ONE OF THEM
+      IS ALREADY DONE. The installer half rewires the shipped compose and MERGED 2026-09-18T08:56:14Z.
+      The wiki half moves the Pro vault reader onto the subscription state file and MERGED
+      2026-09-18T08:55:30Z. So nothing is waiting on code. BUT THE WIKI HALF REACHES A CUSTOMER ONLY
+      INSIDE A PUBLISHED IMAGE, AND NO PUBLISHED IMAGE CONTAINS IT. Measured against the API and the
+      provenance register rather than reasoned: both pinned wiki digests resolve to ONE wiki source
+      commit, and the fix is a DIFFERENT, LATER commit which is the current wiki main tip. Ancestry,
+      with the predicate controlled in both directions: the fix is NOT an ancestor of the image
+      source, the image source IS an ancestor of the fix, a commit is its own ancestor so the
+      predicate is alive, and there are exactly 2 commits between them. THE PUBLISHED IMAGES PREDATE
+      THE FIX. 🔴 WHICH IS WHY A HOLD-ACKNOWLEDGEMENT ON THE TWO WIKI ROWS BUYS NOTHING, and this is
+      the correction that matters. It would turn the freshness gate green while leaving THIS ROW
+      blocking on EXACTLY THE THING THE ACKNOWLEDGEMENT DEFERS. The gate would say the pin is
+      accepted; the customer would still get a wiki whose vault reader cannot see their subscription.
+      Greening a gate by declaring the staleness acceptable, while the staleness is the defect, is the
+      same shape as a warn bucket read as a pass. SO THE IMAGES MUST BE REBUILT FOR THIS ROW
+      REGARDLESS OF WHAT THE FRESHNESS GATE SAYS. That makes the wiki tag not one of two options but
+      the only one. WHAT IT TAKES, AND WHY IT IS ANDY'S: tag the wiki repository at its current tip so
+      its image workflow publishes both images, then re-pin in the installer with the tool that writes
+      the digests AND the provenance ledger together rather than by hand. The tag is a PUBLISH: it
+      puts images on a public registry under a version number, and choosing that number and that
+      moment is a release decision, not an agent's. The image workflow triggers ON A TAG PUSH ONLY,
+      with no manual dispatch, so there is no lower-commitment way to produce one. WHAT IS NOT WAITING
+      ON HIM: everything else on this row. Both pull requests are merged, the provenance rows are
+      recorded, and the re-pin is mechanical once an image exists.  ORIGINAL TEXT FOLLOWS. 🔴 BLOCKING
+      (both halves are now built and neither is proven on a box): ANDY DECIDED 2026-09-18, ASKED IN
+      PRODUCT TERMS RATHER THAN BY FILE NAME: THE APPLE RECEIPT IS THE TRUTH. Pro follows the person's
+      Apple subscription and lapses with it, so the READER moves to the Hub's own store and the Hub is
+      not taught to write a second file in a second vocabulary. The question put to him was the
+      product one underneath the file names: a customer pays for Pro, the Hub receives the receipt and
+      every background pipeline correctly starts working, and the wiki vault stays locked because it
+      reads a different file in a different vocabulary that nothing writes. TWO PULL REQUESTS, BOTH
+      OPEN, BOTH MEASURED. CM044 #280 moves compiler/vault_licence.py onto
+      ~/.ostler/state/subscription_state.json, keyed on status and not on source, because
+      first_month_free is the free first month OF Pro and every other surface treats that customer as
+      entitled through is_active_or_grace(). CM051 #2175 rewires the SHIPPED compose that install.sh
+      generates and deletes the mount that served the file nothing wrote. AND THE FIX NEEDED NO NEW
+      MOUNT, which is the part that was measured rather than assumed: ${HOME}/.ostler/state:/state has
+      been bind-mounted into wiki-compiler all along for the hydration status file, so the Hub's
+      subscription state was inside the container the whole time, one directory away from a reader
+      looking in the wrong place. The whole delivery change is one environment variable. 🔴 AND status
+      ACTIVE IS NOT ENOUGH ON ITS OWN, which is the arm that would otherwise cost money. The Hub's own
+      Doctor already carries the rule at diagnostic_rules.py:1788: an expires_at in the past with the
+      status still reading active means the expiry check has not run, not that the customer is
+      entitled. A reader trusting the word alone would let a LAPSED subscription keep the vault for
+      ever, and no customer reports that. The date is checked and that case logs a warning rather than
+      an ordinary pro_none, so a lapsed box does not look like one that never subscribed. pro_trial
+      NOW HAS NO PRODUCER AND THAT IS RECORDED AS A DECISION RATHER THAN A GAP: the brief defines it
+      as a six-page preview for somebody who has NOT subscribed, and the Hub has no state that means
+      that, because no subscription means no file, which is pro_none. Mapping something onto it inside
+      a reader would be deciding a product question in the wrong place. The preview needs its own
+      trigger and its own row. vault_state and vault_observer keep pro_trial as an internal state and
+      are untouched. MEASURED, and the mutants are the evidence, not the passes. CM044: clean 146
+      passed exit 0; M1 trust the word and skip the expiry check, exit 1, 3 failed; M2 the old
+      environment variable name comes back, exit 1, 7 failed; M3 grace stops counting as entitlement,
+      exit 1, 1 failed; restored byte-identical by cmp. Full CM044 suite 16 failed 2856 passed, and a
+      CONTROL worktree at untouched origin/main fails the same 16, so this change introduces none of
+      them. CM051: the shipped-compose guard passes 7 of 7 arms, and three mutants of install.sh each
+      turn it red with the right message, including a half-done rename that leaves BOTH environment
+      variables live, which every other arm would have passed. WHAT IS STILL OWED, named rather than
+      deferred: the proof. The subject of this row is a PERSON, so it closes when the vault opens on a
+      box whose iOS app has pushed an active receipt. A state file appearing on disk is not it, and
+      neither is a merged pull request, so this row stays BLOCKING and stays counted. PREVIOUS GATE,
+      unchanged below and still accurate about the reader. 🔴 I HAD THE SHAPE OF IT WRONG. ANDY
+      ANSWERED 2026-09-18: DOES PRO SHIP AT v1.0? YES. He then said the Pro check via the App Store is
+      supposed to be built and working already, and he is RIGHT. I had written that the writer belongs
+      on the CM050 side and does not exist. WITHDRAWN. Traced end to end 2026-09-18, and every link
+      but one is already built. 1. iOS. CM031 ships SubscriptionService.swift,
+      SubscriptionReceiptSync.swift, PaywallView.swift, SubscriptionConfig.swift and tests for both.
+      SubscriptionReceiptSync POSTs the StoreKit-derived receipt and expiry to the paired Hub at
+      /api/v1/subscription/receipt, and its own header names the Hub file that receives it. 2. THE HUB
+      RECEIVES IT. ical-server.py:6540 api_subscription_receipt, routed at :8549, validates the body
+      and calls subscription_gate.refresh_from_companion, returning active, grace or inactive. The
+      endpoint is in the LaunchAgent allowlist at install.sh:23919, and a comment there records that
+      it was once MISSING from that list, so somebody has already fixed one delivery gap on this exact
+      path. 3. THE HUB PERSISTS IT, AND THE PRODUCT USES IT. subscription_gate writes
+      ~/.ostler/state/subscription_state.json with status active | grace | inactive, and describes
+      itself as the single source of truth for whether ongoing intelligence is active, with every
+      pipeline calling is_active_or_grace() at the top of its work loop. CONSUMED by 7 files including
+      ical-server.py, the Doctor's diagnostic_rules.py and cm052's wire.py. CONTROL: a module name
+      that exists nowhere returns 0 files. 4. THE WIKI SIDE IS PLUMBED TOO. install.sh:18811 mounts
+      ${HOME}/.ostler/licence:/licence:ro into wiki-compiler and :18882 sets
+      OSTLER_LICENCE_STATE_FILE=/licence/state.json. That mount is the #849 fix, added because the
+      reader was resolving to /root/... inside the container. 5. AND THE ONE MISSING LINK: NOTHING
+      WRITES ~/.ostler/licence/state.json. CM044 vault_licence.py reads it for a pro_state of
+      pro_active, pro_trial or pro_none. The Hub maintains a DIFFERENT FILE IN A DIFFERENT VOCABULARY.
+      So the Pro entitlement genuinely arrives, is genuinely persisted, and is genuinely used by the
+      pipelines, and the wiki vault reads a file nobody writes. SO THIS IS A BRIDGE BETWEEN TWO
+      EXISTING STATE STORES, NOT A FEATURE. Either subscription_gate also writes licence/state.json
+      with the mapped vocabulary, or vault_licence reads subscription_state.json instead. That is a
+      decision about which file is canonical, and it is small, and it is NOT the CM050 work I claimed.
+      TWO STATE STORES FOR ONE FACT IS THE DEFECT UNDERNEATH, and it is the same class as everything
+      else on this board: a writer and a reader that agree about the concept and disagree about the
+      address. Nobody is wrong in either file. NEEDS ANDY, and he has already said he wants to spec
+      it: which file is canonical, and does the licence itself need to carry the tier (row 928) now
+      that entitlement arrives by App Store receipt rather than by licence field. Those are the same
+      conversation. PROOF REQUIRED, unchanged: a customer who has PAID for Pro reaches the vault. The
+      subject is a PERSON, not a file, so the proof is the vault opening on a box whose iOS app has
+      pushed an active receipt, not a state.json appearing on disk. PREVIOUS GATE, measured 2026-09-18
+      and still accurate about the READER:  That converts this row from a question into a launch
+      blocker, and the row itself framed the question correctly: if Pro ships at v1.0 this is a
+      blocker and the work is in CM050, not here. WHAT THE ANSWER MEANS, given the measurements
+      already on this row. A customer can pay for Pro and reach nothing: compiler/vault_licence.py
+      reads ~/.ostler/licence/state.json for a pro_state of pro_active, pro_trial or pro_none, and
+      NOTHING WRITES THAT FILE. The reader is not the problem and must not be touched: it fails closed
+      to pro_none and LOGS on a missing file, an unrecognised value and any exception. So the box
+      behaves correctly and the customer is correctly told nothing, which is the worst possible
+      combination for a paid tier: no error to chase and no vault to use. WHAT IS OWED, AND IT IS NOT
+      IN CM051. A writer for that file, on the licence and subscription side. CM051 must NOT invent
+      one: writing pro_active from the installer would fabricate an entitlement the payment system has
+      not confirmed, which is worse than an honest pro_none because the customer only discovers it
+      when they try to use what they were told they have. AND ONE THING THIS ANSWER DRAGS IN WITH IT,
+      which needs Andy's eye before anyone builds: the frozen v1 licence schema is NINE FIELDS WITH NO
+      TIER (row 928 measures it, LicenseVerifier.swift:57-79 and install.sh:2363 pin the identical
+      set). If Pro ships at v1.0 then the licence a customer holds has to be able to say they bought
+      Pro, or the writer has nothing to read from. So 971 and 928 are one piece of work, not two, and
+      928's gate currently opens NOT STARTED. PROOF REQUIRED, unchanged and now blocking: a customer
+      who has paid for Pro reaches the vault. The subject of that assertion is a PERSON, not a file,
+      so the proof is the vault opening on a box whose licence says Pro, not a state.json appearing on
+      disk. PREVIOUS GATE, measured 2026-09-18 and still accurate:  THE ROW IS RIGHT, THE READER IS
+      SAFE, AND THE MISSING PIECE IS NOT IN THIS REPO. Three measurements, each with a working
+      control. ONE, THE READER ALREADY FAILS CLOSED AND THAT HALF NEEDS NOTHING. CM044
+      compiler/vault_licence.py read_pro_state degrades to pro_none and LOGS it on every bad path: a
+      missing file, an unrecognised pro_state value, and any exception at all, each with its own
+      message. So the absence of the file is not a crash and not a silent pro_active; it is a logged,
+      correct pro_none. A customer loses the Pro vault, which is the row's point, but nothing breaks
+      and nothing lies. TWO, THE CLIENT MODULE IT PREFERS DOES NOT SHIP. read_pro_state first tries to
+      import ostler_licence_client and falls back to reading the file directly. Measured in CM051:
+      ostler_licence_client appears in 0 files. POSITIVE CONTROL in the same command and the same
+      tree: ostler_store_auth appears in 25, so the search reaches. THREE, NOTHING IN SOURCE WRITES
+      pro_state. One occurrence in the whole of CM051 and it is inside a BINARY, assistant-
+      agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant, 16M. STRINGS IS A FILTER AND NOT A
+      READER, so this is evidence and not proof, and it is recorded as such: the binary carries
+      pro_state, pro_active, pro_trial and pro_none, one hit each, and does NOT carry the path
+      licence/state.json. CONTROLS on that same strings run: a symbol that must be absent returns 0,
+      and ostler returns 26. So the assistant knows the VOCABULARY and does not name the FILE, which
+      is consistent with the writer never having been built and is not conclusive, because a path can
+      be composed at runtime from parts. WHAT THIS MEANS FOR THE CUT. No customer can reach
+      pro_active, so a Pro subscription buys nothing the wiki can see. That is a product decision and
+      not a bug to be patched here: the writer belongs on the licence and subscription side (CM050),
+      and inventing a writer in the installer would fabricate an entitlement the payment system has
+      not confirmed, which is worse than the current honest pro_none. NEEDS ANDY, and it is one
+      question: does Pro ship at v1.0? If YES this is a launch blocker and the work is in CM050, not
+      here. If NO, the row is v1.0.1 and the correct state at v1.0 is exactly what the box already
+      does. The row's own first version was retracted for calling this a loss before measuring, and
+      the same discipline applies to calling it a blocker. STRIKE REVERSED 2026-09-18, AND THE ROW IS
+      COUNTED AGAIN. This row was struck on 2026-09-16 on the ground that its number named an issue
+      that had been closed on the tracker. The strike sentence is deliberately PARAPHRASED here and
+      not quoted: _STRUCK_ON_CLOSURE is a plain substring test on the whole gate value, so quoting it
+      verbatim put all 41 reversed rows back inside the struck branch, escaping only through
+      _names_proof. One edit to this prose would have flipped 41 rows to ungated. Measured, then
+      removed. MY FIRST EVIDENCE FOR THIS WAS ITSELF THE ERROR I WAS REPORTING, and the corrected
+      version is worse for the strike, not better. I resolved all 41 numbers against CM051 and
+      reported 41 of 41 as pull requests. But THE ROW DECLARES ITS OWN REPO and I did not read the
+      field: 10 of the 41 declare repo HR015 and 31 declare repo none. Resolving an HR015 number
+      against CM051 is the same category error the strike made, committed by the agent auditing it,
+      and it was caught only because a pre-existing note inside row 947 said HR015 #947 IS AN OPEN
+      ISSUE. RE-MEASURED AGAINST THE REPO EACH ROW DECLARES. The ten HR015 rows are 946, 947, 948,
+      940, 942, 941, 943, 944, 928 and 929, and all ten resolve in andygmassey/HR015-Gaming-PC to OPEN
+      issues, every one titled [LAUNCH]. They were struck as closed while they are open launch work.
+      That is not a number collision, it is a false statement about live launch issues. The remaining
+      31 declare repo none, which the checklist gate itself defines as measured findings rather than
+      tracker items, so there is no issue for the strike to have found closed at all; the number is an
+      internal id. What made the strike look plausible is that those internal ids also land on closed
+      CM051 pull requests, which is exactly the coincidence a repo field exists to prevent, and
+      exactly the coincidence I then fell for while checking it. AND ROW 1014, STRUCK BY THIS SAME
+      STRIKE, IS TITLED "78 registered rows name issues that are already CLOSED": the row about this
+      class of error was removed by the error. HOW IT GOT IN: commit d7a3da88, inside PR #1975, whose
+      subject is a SPARQL editor bug, so nobody reviewing that PR was reviewing a 41-row board strike.
+      Its own message says "and one strike was wrong", so the counterexample was already in hand and
+      was filed as an exception rather than read as evidence about the method. WHAT THIS REVERSAL IS
+      AND IS NOT: it restores the row to the count. It is NOT a claim the work is undone, and it is
+      NOT a re-triage. Each of the 41 needs its own measurement, which is a day of work and is owed.
+      Until then the row is counted as ungated, which looks worse and is true. THE SIZE OF THE EFFECT,
+      MEASURED, AND I REVISED IT DOWN TWICE. First I said 4 ungated to 33, from my own literal search
+      rather than the gate's definition. Then 40 to 46, which double-counted rows my own reversal text
+      had accidentally marked ungated: the narrative SPELLED OUT the ungated marker while describing
+      it, and the checklist gate counts that marker by substring, so the prose became the verdict.
+      Third time in one night that writing ABOUT a predicate tripped it. AND THE FIRST STATEMENT OF
+      THE FIX NAMED THE WRONG MECHANISM, which Archie caught: the ungated test is a plain substring on
+      the whole uppercased value, with no anchor and no position test, so putting the verdict at the
+      FRONT protects nothing. What actually protects it is NEVER SPELLING THE MARKER IN THE NARRATIVE.
+      The verdict is still at the front because that is where a verdict belongs, but anyone relying on
+      the position would put the marker back in the prose below it and silently flip the row for ever,
+      with a correct-looking verdict still on top. A fix whose stated mechanism is wrong is a fix that
+      gets undone by somebody following the instructions. The final measurement, running the checklist
+      gate's own _is_ungated against an origin/main checkout and against this board: 40 before, 42
+      after. Of the four newly counted, TWO are rows registered in this same PR (2138 and 2141) and
+      only TWO were suppressed by the strike: 956, evernote_knowledge empty on a box that shipped the
+      importer, and 1018, another session mutating the shared checkouts. Two rows stop being counted,
+      correctly: 941 and 960 carry real gates of 10,160 and 5,635 characters, and on main they were
+      counted only because the unevidenced strike text sat on top of them. THIS WAS ALREADY FILED,
+      ALREADY MEASURED, AND HALF ALREADY FIXED, AND MY FIRST ACCOUNT OF IT CLAIMED FAR TOO MUCH. Row
+      2114, 41 of 174 cut-checklist rows were struck on issue closure, not on a fix, names this exact
+      defect with the same arithmetic I re-derived. PR #2115 then fixed _is_ungated so a struck row
+      whose own text says the work is unfinished, or that names no checkable proof, is counted again.
+      Row 2114 records the before and after: 0 ungated before, 35 after, with a control of 6 struck
+      rows naming a merged PR that correctly stayed gated. So the COUNT was restored by #2115 two days
+      before I looked, and that is why my successive estimates of the damage kept shrinking: I was
+      measuring the residue of a defect somebody had already largely closed. TWELVE rows independently
+      say, in their own gate text, that the number resolves to a PULL REQUEST: 946, 947, 948, 940,
+      942, 941, 943, 944, 928, 929, 960 and 1045, and row 960 puts it plainly, THE STRIKE'S EVIDENCE
+      WAS WRONG AND ITS CONCLUSION IS RIGHT. WHAT WAS ACTUALLY LEFT UNDONE, and it is all this
+      reversal is: the strike TEXT still asserted a false REASON on all 41 rows, so every reader was
+      told the number named a closed issue when it named an unrelated merged pull request, and nothing
+      stopped the next strike being made the same way. The text is corrected here and
+      tests/test_a_struck_row_names_an_issue_not_a_pull_request.py refuses it next time. That is the
+      whole contribution, and it is smaller than the first three versions of this paragraph said. HOW
+      IT WAS FOUND, because no process caught it: by accident, while gating row 957 for a fix,
+      noticing the row was already struck, and checking the number out of habit. The estate already
+      carries the memory feedback_task_ids_collide_with_github_numbers and it did not prevent this.
+      GATE: tests/test_a_struck_row_names_an_issue_not_a_pull_request.py now refuses a strike that
+      names no title, and refuses one whose number resolves to a pull request. ORIGINAL FINDING, which
+      carried no gate until now: It previously carried no gate. LAUNCH BLOCKER FOR A PRODUCT ABOUT TO
+      BE SOLD. NARROWED AND CORRECTED FROM MY OWN FIRST VERSION OF THIS ROW, which said a paying Pro
+      subscriber on this box was being denied a vault. MEASURED SINCE: there is NO subscription state
+      anywhere on the box. daemon_state.json holds health and uptime only; 738 lines of assistant
+      config.toml contain no subscription, tier, pro_ or entitle key at all; the iOS log reads
+      refreshStatus -> notSubscribed; and the licence file is the ONE-OFF HUB PURCHASE with no tier
+      field (keys: issued_to_email, license_id, max_hardware_fingerprints, purchased_at, signature,
+      signature_algorithm, stripe_payment_id, update_window_expires_at, version). So on the operator
+      box pro_none is the CORRECT answer and nobody is being denied anything. Same lesson as the
+      3-of-87 retraction: measure before calling it a loss. THE DEFECT THAT SURVIVES IS STILL SEVERE.
+      compiler/vault_licence.py reads ~/.ostler/licence/state.json expecting {pro_state:
+      pro_active|pro_trial|pro_none, updated_at}. NOTHING WRITES THAT FILE, ANYWHERE. So no customer
+      can ever reach pro_active, and the first person who pays for Pro receives nothing, permanently,
+      while the compile logs 16 ok, 19 skipped, 0 errors. THE CODE DOCUMENTS ITS OWN FAILURE, verbatim
+      from that docstring: "this exact file path + schema does not exist anywhere in the codebase
+      yet", the write side "is oa-repo scope, built separately", and "Whoever lands that observer must
+      either match this schema or this module needs a follow-up PR -- confirm before v1.0.13 merges."
+      NOBODY CONFIRMED. It merged and shipped. AND THE VOCABULARY DOES NOT EXIST EITHER: the daemon
+      state machine (zeroclaw-gateway/src/api_subscription.rs) tracks active / grace / expired /
+      inactive, with no notion of pro_trial versus pro_active versus pro_none. The tri-state
+      vocabulary was introduced by the BRIEF for the Doctor rule and Hub UI and only the READ side was
+      ever built. FIX SHAPE: an observer that reads the daemon subscription state and writes
+      state.json in the expected schema. THE MAPPING IS DECIDED. ANDY, 2026-09-17, VERBATIM: "keep it
+      as long as they've paid (fully) for Pro at least once. ie. not the 30 days free plus a failed
+      card try." Implement EXACTLY this and do not substitute a reading of it: daemon active
+      -> pro_active daemon grace AND has paid in full at least once -> pro_active daemon grace AND has
+      NEVER completed a payment  -> pro_none daemon expired                                  ->
+      pro_none daemon inactive                                 -> pro_none inside the 30-day free
+      period, no payment yet   -> pro_trial THE DISCRIMINATOR IS "HAS A COMPLETED PAYMENT EVER", not
+      "is currently in grace". A trial that lapses on a failed first card is NOT grace-protected: that
+      customer has never paid, so they drop to pro_none. A subscriber who has paid at least once and
+      whose card is retrying KEEPS THEIR VAULT. WHOEVER BUILDS THIS: find where a completed payment is
+      recorded before writing a line of the mapping. If no such record exists anywhere, that is a
+      SECOND defect of the same family and it must be reported, not worked around with a proxy signal
+      like "was ever active", which would let a lapsed trial keep the vault. HISTORY WORTH KEEPING:
+      the MOUNT half of this was found and fixed TWICE, as #849 and #482, both times after a test on
+      CM044 dev compose stayed green while the shipped compose was broken.
+      tests/test_shipped_compose_licence_mount.sh now guards the mount and the env var, and asserts
+      NOTHING about the file being written. Three fixes, none of which asked whether anything fills
+      it.
 
   - issue: 972
     repo: none   # no issue of this number exists in either repo
@@ -4397,80 +4593,190 @@ open_issues:
       Two customer surfaces read zero from a store that holds the data, because
       the reader asks the default graph and the writer writes a named one
     gate: >-
-      🔴 BLOCKING STILL, AND THE ROW UNDERSTATES ITSELF BY HALF. Reviewed 2026-09-19. It says THREE
-      unqualified readers. An independent sweep of origin/main, across all file types rather than the
-      filed list, finds SIX: four in the assistant server at person_context, person_enrichment,
-      person_timeline and commitments_list, and two in the meeting brief at the last-conversation and
-      outstanding-todos readers. The upstream fix covers all six with ZERO unqualified remaining. AND
-      THE FIX DOES NOT CLOSE THIS ROW, WHICH IS THE POINT THAT MATTERS FOR THE CUT. CM041 #175 is
-      CM041-only and says so. This row's subject is the VENDORED copy in CM051. The file exists in
-      THREE copies, upstream main at 7,607 lines, the box at 8,662 and the vendored copy at 8,758,
-      with the defect in ALL THREE, and the vendor hop is deliberately untouched. Under launch
-      directive item 9 that is MERGED at best: never DELIVERED, never PROVEN. So this row closes on
-      merge THEN re-vendor THEN build THEN walk, and none of the four has happened. 🔴 AND THE FIX MUST
-      NOT BE MERGED AS IT STANDS, because it UNBLINDS SIX READERS ONTO A PERSON'S FACTS WITH NO
-      PRIVACY FILTER. The missing filter is PRE-EXISTING code; what the fix changes is that those
-      queries RETURN ROWS FOR THE FIRST TIME. By its own measurements that is 409 relationship
-      signals, 1,353 conversation-linked facts and 76 todos newly reaching customer-facing endpoints.
-      A latent gap becomes a live one at merge. THE CONTRAST IS INSIDE THE SAME FUNCTIONS, ABOUT 45
-      LINES APART: the facts path drops retired nodes and calls the privacy filter with the owner's
-      level; the signal path selects no privacy level, calls nothing, and emits. The same pairing
-      appears in the enrichment reader and in the brief, and two endpoints have no privacy join at
-      all. THE SERVER'S OWN HEALTH ENDPOINT WILL START CONTRADICTING ITSELF: it reports untagged fact
-      and signal counts with the note that they ARE HIDDEN BY THE FAIL-CLOSED READER, and names the
-      CM048 signal residual specifically. After that merge they are not hidden, they are served. The
-      privacy model in the same tree states the doctrine in writing -- unknown source fails closed, an
-      untagged node of unknown provenance must not broadcast -- and the backfill records roughly 4,208
-      fact-bearing nodes, most of them signals, carrying no privacy level. AI conversations default to
-      the private level. WHAT WOULD MAKE IT MERGEABLE: either the privacy join at the six sites, or
-      the DECISION WRITTEN DOWN with the health endpoint's note corrected. That change documents four
-      other decisions in detail; this one is undocumented, which reads as oversight rather than
-      choice. AND THERE IS NO SCHEDULE COST TO SETTLING IT FIRST, because of the paragraph above: the
-      fix cannot reach a customer this cut anyway. A SECOND, NON-BLOCKING FINDING RECORDED SO IT IS
-      NOT REDISCOVERED: the accompanying deny-list fails open across repository boundaries. Its audit
-      derives its inventory from constants declared in CM041, while three other repositories write
-      into the same store under graph names those constants cannot see, so it stays green when one of
-      them adds a graph. The trade is stated honestly in the change; the mitigation simply covers one
-      writing repository of several. WHAT THE REVIEW CLEARED, MEASURED RATHER THAN ASSERTED, so the
-      objection above is narrow and not vague: no private second copy of the scoping helper, one
-      shared definition imported by both services, and the gate enforces the PROPERTY rather than the
-      mechanism, so it is not the systemic-copy failure this row's own history describes. The tests
-      genuinely fail without the fix, PROVED AT BYTE LEVEL by sha256 and by helper-call counts going 4
-      to 0 and 2 to 0: baseline 31 of 31 at rc 0, the mutant 11 failed at rc 1, and the reds carry the
-      CUSTOMER symptom -- empty commitment lists, a null signal, an empty timeline -- rather than an
-      attribute error. TWO tests survived that mutant and their own claims were mutated separately,
-      catching 4 and 2 respectively. The control passed in BOTH arms because its subject is the
-      default graph, a different surface from the defect, which is exactly what makes the six zeros
-      mean WRONG GRAPH rather than EMPTY FIXTURE. Full suite 1,697 passed, 0 failed, rc taken
-      directly.  ORIGINAL TEXT FOLLOWS, WITH ONE WORD PAIR PARAPHRASED AND THE PARAPHRASE DECLARED.
-      The original opened with the ungated marker as its verdict. That marker is matched by a PLAIN
-      SUBSTRING test over the WHOLE gate value with no position test, so preserving it verbatim
-      anywhere in this row would hold the row ungated for ever no matter what verdict sits above it.
-      Row 939 records that same trap flipping 41 rows at once. So those two words are replaced by the
-      phrase the ungated marker and NOTHING ELSE in the original is altered. IT READ: 🔴 BLOCKING
-      (person pages and the todo list are blank on a box whose store holds 409 warmth signals, 1353
-      conversation-sourced facts and 76 outstanding todos): DRIVEN ON THE SHIPPED ARTEFACT 2026-09-18
-      by running the shipped reader's OWN query shape unchanged, then the identical query with the one
-      clause it lacks. Person pages, warmth and trust: as shipped, 0 rows; with the graph clause, 20
-      rows, hitting the limit. Outstanding todos: as shipped, 0 rows; with the graph clause, 20 rows,
-      hitting the limit. CONTROL, an unqualified query that does work: pwg:Person in the default
-      graph, 20 rows, so the store answers unqualified queries and the zero is not unreachability, it
-      is the data not being in the graph that was asked. UNDERLYING COUNTS, both graphs: warmth 409
-      named / 0 default, fromConversation 1353 named / 0 default, OutstandingTodo 76 named / 0
-      default, CONTROL displayName 2637. THE READER, VERBATIM, at vendor/cm041/assistant_api/ical-
-      server.py:3607, a SELECT over urn:ostler:about, urn:ostler:warmth and urn:ostler:trust with no
-      GRAPH anywhere in it. SCOPE MEASURED IN THE VENDORED FILE: 8758 lines, 43 SELECT statements, and
-      only 8 lines carry a graph clause at all, 6 of the form GRAPH < and 2 of the form GRAPH ?. Ten
-      reader sites over the four affected predicates carry none; the CONTROL is urn:ostler:about at
-      lines 2752 and 2811, which DO scope, so the file is not uniformly unscoped and the predicate
-      discriminates. THE DEFAULT-GRAPH ASSUMPTION IS THE HOUSE STYLE OF THAT FILE AND CM048'S DATA IS
-      THE EXCEPTION IT DOES NOT COVER, which is why this is four symptoms and one cause. SAME DEFECT
-      AS ROW 961 ITEM 8, SEEN FROM THE OTHER END: item 8 was the WRITE landing in the wrong graph and
-      it is fixed and proven fixed by driving it; this is the READ pinned to the wrong graph and it is
-      not. The fix is the same one clause on the other side. WHERE IT MUST BE FIXED: ical-server.py is
-      VENDORED into CM051 from CM041. Editing the vendored copy is the mistake row 2212 catalogues and
-      the mistake that produced the mixed importer state now shipping; it goes upstream in CM041 and
-      reaches a customer only through a re-vendor, which row 2212 shows is unsafe today.
+      🔴 BLOCKING. A RANKING CORRECTION 2026-09-19, AND THE PRINCIPLE BEHIND IT IS WORTH MORE THAN THE
+      CORRECTION. I described the blind health counter as the biggest finding on this row. IT IS NOT,
+      AND I RANKED IT BY HOW NEATLY IT ILLUSTRATED A PATTERN RATHER THAN BY WHAT A CUSTOMER LOSES. THE
+      ORDER, CORRECTED: the READER defect is first, because it SERVED private-shaped data on customer
+      surfaces. The COUNTER defect is second, because a blind counter reports a falsely clean bill of
+      health and DISCLOSES NOTHING. The counter is the more embarrassing of the two, since it is the
+      instrument built to catch the very thing it could not see, and embarrassment is not severity.
+      RANK BY WHAT A CUSTOMER LOSES, NOT BY HOW WELL IT DEMONSTRATES THE CLASS. That bias is worth
+      naming because it is easy to repeat on a board like this one: a finding that completes a pattern
+      feels more important than a finding that merely harms somebody, and the pattern is the part that
+      is fun to write up. Both defects are real, both are recorded, and only the reader one moved data
+      a person was not meant to see. AND THE VISIBILITY MEASUREMENT WAS INDEPENDENTLY REPRODUCED WITH
+      DIFFERENT NUMBERS, WHICH IS A BETTER RESULT THAN MATCHING ONES WOULD HAVE BEEN. My search ran
+      over a tree containing the vendored pipeline and found 3 occurrences, all writes, against a
+      control of 77 for the level predicate. The upstream tree does not contain that path at all:
+      there the count is 1, and that single occurrence is the author's own comment, so upstream
+      neither writes nor reads it, with a control of 27. DIFFERENT CORPORA, DIFFERENT COUNTS,
+      DIFFERENT CONTROLS, SAME CONCLUSION. Matching numbers would have suggested we had searched the
+      same corpus twice and proved half as much. THREE REVIEW POINTS ARE NOW IN THE UPSTREAM CODE and
+      each records something the code could not say for itself: that the post-query filter must NOT be
+      pushed into the query, because the policy is most-restrictive-wins across record and owner with
+      an unparseable value failing closed rather than a simple inequality, so a query-side copy would
+      be a second private copy of a shared policy and that is the defect this row was held for; that
+      the row limit is a BOUND and not a proof, with no constant fixing it; and that a fully hidden
+      result OMITS the field rather than emitting an empty value, so the surface states an absence a
+      consumer can see rather than falsely claiming none exists. All three verified in the code rather
+      than accepted from a description. WHAT IS EXPLICITLY NOT CLAIMED ABOUT THE SECOND AXIS: what it
+      was intended to mean, whether it predates the level, and whether it is an internal marker never
+      meant for a reader. One constant value in one upstream file is consistent with all three and it
+      is not this row's to settle.  ORIGINAL TEXT FOLLOWS. 🔴 BLOCKING. THE FIX IS PUSHED AND GREEN AND
+      THE TWO-NAMESPACE FINDING HAS NOW APPEARED A THIRD TIME, IN THE SURFACE BUILT TO DETECT IT.
+      Updated 2026-09-19. WHAT LANDED UPSTREAM: the two signal readers and the timeline conversation
+      reader now join the CORRECT privacy predicate and pass through the SAME helper and the SAME
+      L3-only policy the facts path 45 lines above enforces. 1,702 tests pass, 0 fail, run under CI's
+      own invocation rather than a local one because that invocation's import mode has caught the
+      author before. Hides nothing today, closes the class permanently. 🔴 THE HEALTH COUNTER IS BLIND
+      IN THREE INDEPENDENT WAYS, EACH SUFFICIENT ALONE, AND IT IS THE OBSERVABILITY SURFACE BUILT TO
+      CATCH EXACTLY THIS DEFECT. Measured: by TYPE, the pwg- namespaced class returns 0 while the urn
+      one returns 471. By PREDICATE, the pwg level returns 0 while the urn one returns 471. By GRAPH,
+      the default graph returns 0 while the named one returns 471. So the endpoint prints that all
+      fact and signal nodes carry a privacy level, FROM A QUERY THAT CANNOT REACH THE CORPUS IT CLAIMS
+      TO HAVE CHECKED. Three wrong namespaces stacked on one query, any one of which produces the same
+      confident zero. The note has been corrected so nothing false ships, and repairing the counter
+      itself is deliberately a separate change with its own control and blast radius rather than
+      smuggled into a privacy fix. AND THE SECOND AXIS IS A DEAD END, WHICH IS ITSELF THE FINDING. The
+      visibility predicate is written as the literal string private on ALL 471 signals, ALL 93 todos
+      and ALL 1,462 facts, INCLUDING the 1,369 that are tagged at the most permissive level. ONE VALUE
+      ACROSS AN ENTIRE CORPUS CARRIES NO INFORMATION: a filter on it hides everything or nothing. And
+      nothing reads it. Measured from the repository, which makes this one reproducible from a
+      checkout unlike the box counts: 3 occurrences whole- tree across every file type, ALL THREE
+      WRITES in one pipeline file, ZERO reads, against a CONTROL of 77 occurrences for the level
+      predicate of which 18 sit in a SELECT or OPTIONAL. So the search finds reads where reads exist.
+      A PRIVACY-SHAPED PREDICATE THAT NO CONSUMER READS AND THAT CANNOT DISCRIMINATE. THE TRAP IS NOW
+      A TEST, which is the durable part: an arm writes the level under the WRONG namespace while the
+      reader asks the right one and asserts the record DISAPPEARS. If anyone ever corrects the join
+      back to the sibling's predicate, that test goes red instead of 471 records going quietly
+      missing. AND THE TEST SET WAS WATCHED FAILING RATHER THAN ASSUMED: three arms failed against the
+      unfiltered reader and TWO PASSED IN BOTH STATES. The two staying green is the point, not an
+      oversight. A set where everything goes red proves the harness broke rather than that the gate
+      discriminates. TWO PRE-EXISTING TESTS ALSO FAILED and their FIXTURES were corrected rather than
+      the filter, which is the right direction: they carried untagged canned rows, so fail-closed hid
+      them, which is the filter working across the suite rather than only in the file it was written
+      in. ONE PRODUCT CHANGE INSIDE IT, REVIEWED SEPARATELY: the row limit on the signal queries went
+      from 1 to 10, because the filter runs AFTER the query and with a limit of 1 a single hidden row
+      would report no signal while a visible older one existed. Reviewed and correct. Filtering in the
+      query instead would be WRONG here, because the policy takes the owner's level as an argument and
+      encoding it in the query would create a second private copy of the policy, which is the exact
+      failure this row was held for. The residual is honest: if every returned row is hidden the field
+      is OMITTED rather than asserted empty, so the surface states an absence rather than a false
+      claim. It remains a heuristic and the number is a magic one. STILL BLOCKING, UNCHANGED, AND FOR
+      THE REASON THIS ROW ALWAYS GAVE: this is upstream. The row's subject is the VENDORED copy.
+      Merge, then re-vendor, then build, then walk. Under item 9 it is MERGED at best and none of the
+      four has happened.  ORIGINAL TEXT FOLLOWS. 🔴 BLOCKING. A FINDING ADDED 2026-09-19 THAT IS WORTH
+      MORE THAN THE CHANGE IT CAME OUT OF, AND IT BEGINS WITH A REMEDIATION I GOT WRONG. TWO PRIVACY
+      PREDICATES EXIST IN ONE STORE, AND A FILTER THAT JOINS THE WRONG ONE PRODUCES A UNIFORM ZERO
+      THAT READS AS CORRECTLY HIDDEN. I TOLD THE AUTHOR THE FIX WAS MECHANICAL: use the same helper
+      the facts path uses, 45 lines up, with the same owner-level argument. THAT JOIN READS
+      pwg:privacyLevel AND THESE NODES CARRY urn:ostler:privacyLevel. Measured on the box: signals 471
+      total with 0 under the pwg predicate and 471 under the urn one; facts 1,462 total with 0 and
+      1,462 the same way. So the mechanical fix would have matched NOTHING, every record would have
+      come back untagged, the filter FAILS CLOSED on untagged, and ALL 471 SIGNALS WOULD HAVE
+      DISAPPEARED while the diff looked exactly like a correct privacy fix. A hide produced by a
+      predicate that cannot see its corpus is indistinguishable from a hide produced by policy. THAT
+      IS THE SAME SHAPE AS EVERY OTHER FINDING ON THIS BOARD TONIGHT and it was in the one piece of
+      advice I gave rather than in the code I was reviewing. The correct order was to read a node's
+      actual predicates before naming the join, and I did not: the measurement I did take was of the
+      BACKFILL module, which is a different writer from the one filling these nodes. AND MY SECOND
+      ERROR WOULD HAVE LASTED LONGER THAN THE FIRST. I described L1 as private and owner-pages only,
+      taken from the backfill module's docstring rather than from what the reader enforces. It is
+      STRICTER THAN ANYTHING THAT FILE ENFORCES ANYWHERE. The author's counter is the correct one and
+      is recorded in their words: if that stricter rule really is the product policy then the facts
+      path is ALSO wrong and has been serving L1 facts on person cards all along, which is a far
+      bigger row than this one, and adopting a stricter policy in one reader than its sibling enforces
+      45 lines above is how two readers on one card come to disagree about the same node. SO THE FIX
+      IS CHEAP FOR A DIFFERENT REASON THAN I GAVE, AND THE REASON MATTERS: not because the tags are
+      already right, but because THE POLICY IS ALREADY L3-ONLY AND THE TAGS ARE ALREADY L1. Signals
+      are 471 of 471 at L1; facts are 1,369 at L0, 88 at L1, 5 at L2 and ZERO AT L3. So adding the
+      filter on the correct predicate hides NOTHING today and closes the class permanently for any
+      future L3 or any untagged node. It costs a customer nothing and removes a failure mode. THE
+      TODOS ARE THE GENUINELY DIFFERENT CASE: 93 total and ZERO tagged under EITHER predicate, so a
+      fail-closed join there would hide the entire commitments wing. That one takes the written-
+      decision route, with the health endpoint's note corrected IN THE SAME CHANGE, because that note
+      currently asserts those counts are hidden by a fail-closed reader and would otherwise keep
+      asserting it while they are served. ONE AXIS NEITHER PARTY HAS EXAMINED AND WHICH IS NOT BEING
+      GUESSED AT: the same nodes carry a visibility predicate alongside the level. If anything reads
+      it, a filter on the level alone answers half the question; if nothing reads it, that is a
+      finding rather than a relief. NOT INSTRUMENTED either way, and flagged before the change is
+      finalised rather than after. PROVENANCE OF THESE NUMBERS: they are BOX measurements taken by the
+      operator with box access, not repository measurements, and they cannot be reproduced from a
+      checkout. Recorded as such.  ORIGINAL TEXT FOLLOWS. 🔴 BLOCKING STILL, AND THE ROW UNDERSTATES
+      ITSELF BY HALF. Reviewed 2026-09-19. It says THREE unqualified readers. An independent sweep of
+      origin/main, across all file types rather than the filed list, finds SIX: four in the assistant
+      server at person_context, person_enrichment, person_timeline and commitments_list, and two in
+      the meeting brief at the last-conversation and outstanding-todos readers. The upstream fix
+      covers all six with ZERO unqualified remaining. AND THE FIX DOES NOT CLOSE THIS ROW, WHICH IS
+      THE POINT THAT MATTERS FOR THE CUT. CM041 #175 is CM041-only and says so. This row's subject is
+      the VENDORED copy in CM051. The file exists in THREE copies, upstream main at 7,607 lines, the
+      box at 8,662 and the vendored copy at 8,758, with the defect in ALL THREE, and the vendor hop is
+      deliberately untouched. Under launch directive item 9 that is MERGED at best: never DELIVERED,
+      never PROVEN. So this row closes on merge THEN re-vendor THEN build THEN walk, and none of the
+      four has happened. 🔴 AND THE FIX MUST NOT BE MERGED AS IT STANDS, because it UNBLINDS SIX
+      READERS ONTO A PERSON'S FACTS WITH NO PRIVACY FILTER. The missing filter is PRE-EXISTING code;
+      what the fix changes is that those queries RETURN ROWS FOR THE FIRST TIME. By its own
+      measurements that is 409 relationship signals, 1,353 conversation-linked facts and 76 todos
+      newly reaching customer-facing endpoints. A latent gap becomes a live one at merge. THE CONTRAST
+      IS INSIDE THE SAME FUNCTIONS, ABOUT 45 LINES APART: the facts path drops retired nodes and calls
+      the privacy filter with the owner's level; the signal path selects no privacy level, calls
+      nothing, and emits. The same pairing appears in the enrichment reader and in the brief, and two
+      endpoints have no privacy join at all. THE SERVER'S OWN HEALTH ENDPOINT WILL START CONTRADICTING
+      ITSELF: it reports untagged fact and signal counts with the note that they ARE HIDDEN BY THE
+      FAIL-CLOSED READER, and names the CM048 signal residual specifically. After that merge they are
+      not hidden, they are served. The privacy model in the same tree states the doctrine in writing
+      -- unknown source fails closed, an untagged node of unknown provenance must not broadcast -- and
+      the backfill records roughly 4,208 fact-bearing nodes, most of them signals, carrying no privacy
+      level. AI conversations default to the private level. WHAT WOULD MAKE IT MERGEABLE: either the
+      privacy join at the six sites, or the DECISION WRITTEN DOWN with the health endpoint's note
+      corrected. That change documents four other decisions in detail; this one is undocumented, which
+      reads as oversight rather than choice. AND THERE IS NO SCHEDULE COST TO SETTLING IT FIRST,
+      because of the paragraph above: the fix cannot reach a customer this cut anyway. A SECOND, NON-
+      BLOCKING FINDING RECORDED SO IT IS NOT REDISCOVERED: the accompanying deny-list fails open
+      across repository boundaries. Its audit derives its inventory from constants declared in CM041,
+      while three other repositories write into the same store under graph names those constants
+      cannot see, so it stays green when one of them adds a graph. The trade is stated honestly in the
+      change; the mitigation simply covers one writing repository of several. WHAT THE REVIEW CLEARED,
+      MEASURED RATHER THAN ASSERTED, so the objection above is narrow and not vague: no private second
+      copy of the scoping helper, one shared definition imported by both services, and the gate
+      enforces the PROPERTY rather than the mechanism, so it is not the systemic-copy failure this
+      row's own history describes. The tests genuinely fail without the fix, PROVED AT BYTE LEVEL by
+      sha256 and by helper-call counts going 4 to 0 and 2 to 0: baseline 31 of 31 at rc 0, the mutant
+      11 failed at rc 1, and the reds carry the CUSTOMER symptom -- empty commitment lists, a null
+      signal, an empty timeline -- rather than an attribute error. TWO tests survived that mutant and
+      their own claims were mutated separately, catching 4 and 2 respectively. The control passed in
+      BOTH arms because its subject is the default graph, a different surface from the defect, which
+      is exactly what makes the six zeros mean WRONG GRAPH rather than EMPTY FIXTURE. Full suite 1,697
+      passed, 0 failed, rc taken directly.  ORIGINAL TEXT FOLLOWS, WITH ONE WORD PAIR PARAPHRASED AND
+      THE PARAPHRASE DECLARED. The original opened with the ungated marker as its verdict. That marker
+      is matched by a PLAIN SUBSTRING test over the WHOLE gate value with no position test, so
+      preserving it verbatim anywhere in this row would hold the row ungated for ever no matter what
+      verdict sits above it. Row 939 records that same trap flipping 41 rows at once. So those two
+      words are replaced by the phrase the ungated marker and NOTHING ELSE in the original is altered.
+      IT READ: 🔴 BLOCKING (person pages and the todo list are blank on a box whose store holds 409
+      warmth signals, 1353 conversation-sourced facts and 76 outstanding todos): DRIVEN ON THE SHIPPED
+      ARTEFACT 2026-09-18 by running the shipped reader's OWN query shape unchanged, then the
+      identical query with the one clause it lacks. Person pages, warmth and trust: as shipped, 0
+      rows; with the graph clause, 20 rows, hitting the limit. Outstanding todos: as shipped, 0 rows;
+      with the graph clause, 20 rows, hitting the limit. CONTROL, an unqualified query that does work:
+      pwg:Person in the default graph, 20 rows, so the store answers unqualified queries and the zero
+      is not unreachability, it is the data not being in the graph that was asked. UNDERLYING COUNTS,
+      both graphs: warmth 409 named / 0 default, fromConversation 1353 named / 0 default,
+      OutstandingTodo 76 named / 0 default, CONTROL displayName 2637. THE READER, VERBATIM, at
+      vendor/cm041/assistant_api/ical- server.py:3607, a SELECT over urn:ostler:about,
+      urn:ostler:warmth and urn:ostler:trust with no GRAPH anywhere in it. SCOPE MEASURED IN THE
+      VENDORED FILE: 8758 lines, 43 SELECT statements, and only 8 lines carry a graph clause at all, 6
+      of the form GRAPH < and 2 of the form GRAPH ?. Ten reader sites over the four affected
+      predicates carry none; the CONTROL is urn:ostler:about at lines 2752 and 2811, which DO scope,
+      so the file is not uniformly unscoped and the predicate discriminates. THE DEFAULT-GRAPH
+      ASSUMPTION IS THE HOUSE STYLE OF THAT FILE AND CM048'S DATA IS THE EXCEPTION IT DOES NOT COVER,
+      which is why this is four symptoms and one cause. SAME DEFECT AS ROW 961 ITEM 8, SEEN FROM THE
+      OTHER END: item 8 was the WRITE landing in the wrong graph and it is fixed and proven fixed by
+      driving it; this is the READ pinned to the wrong graph and it is not. The fix is the same one
+      clause on the other side. WHERE IT MUST BE FIXED: ical-server.py is VENDORED into CM051 from
+      CM041. Editing the vendored copy is the mistake row 2212 catalogues and the mistake that
+      produced the mixed importer state now shipping; it goes upstream in CM041 and reaches a customer
+      only through a re-vendor, which row 2212 shows is unsafe today.
   - issue: 2214
     repo: none
     title: >-
@@ -4940,36 +5246,60 @@ open_issues:
       The v1.0.100 walk FAILED and six of its seven failures are REGRESSIONS
       against v1.0.95, which the record says and nobody had read
     gate: >-
-      🔴 BLOCKING, AND IT HAS CONVERTED FROM A FIX GATE INTO A BUILD-AND-REWALK GATE. Re-measured
-      2026-09-19 against the record line by line, and every forensic claim in this row checks out
-      exactly. THE ONE FACT THAT REORGANISES THIS WHOLE BOARD: NOTHING HAS BEEN BUILT SINCE v1.0.100.
-      The newest tag is v1.0.100, the last cut run was 2026-09-17, and main carries 82 commits since.
-      So every fix on main is MERGED, none is DELIVERED and none is PROVEN, and no amount of further
-      merging can close this row. PER FAILURE, WHICH IS WHAT THE ROW OWES AND DID NOT GIVE: five of
-      the seven have something on main and two have nothing. Fixed on main: the unlock probe by a
-      merged pull request whose timestamp the row quotes exactly; the manifest completeness, by two
-      register rows plus gate hardening. Partly: the people count, where the CM051 half merged and the
-      upstream half is merged AND NOT VENDORED. Probe only, meaning the instrument changed and the
-      measurement has not been retaken: the store port and the egress probe. NOTHING AT ALL: the
-      acceptance gate, which is row 2221, and the grounded-answer probe, which was red on v1.0.95 as
-      well and whose only change added the sibling probe that is now the single BROKEN one. ZERO OF
-      SEVEN ARE IN ANY ARTEFACT. EVERY FORENSIC NUMBER VERIFIED: probe files 36 to 38 across the tags,
-      the probes directory 28 at the tag and 29 on main, which is two denominators used correctly;
-      three probes byte-identical across the tags including the blob the row names; the egress probe
-      920 to 1,131 lines; install.sh 32,744 to 35,510, a growth of 2,766; the promote helper defined
-      once and identical at both tags. The row's claim that one regression attribution in the record
-      is itself wrong is CORRECT. ONE THING TO FIX IN THE ROW AND IT IS A TRAP FOR THE NEXT READER:
-      its three line citations are DATA-RECORD numbers, not physical lines. All three are right once
-      comments are stripped and all three mislead anyone reading with line numbers on. One clause
-      would fix it. GATE: STILL BLOCKING, AND IT IS NOW THE ROW THE OTHERS FUNNEL INTO. It closes on a
-      cut followed by a walk, and on nothing else. Do NOT read any merge as closing it.  ORIGINAL TEXT
-      FOLLOWS, WITH ONE WORD PAIR PARAPHRASED AND THE PARAPHRASE DECLARED. The original opened with
-      the ungated marker as its verdict. That marker is matched by a PLAIN SUBSTRING test over the
-      WHOLE gate value with no position test, so preserving it verbatim anywhere in this row would
-      hold the row ungated for ever no matter what verdict sits above it. Row 939 records that same
-      trap flipping 41 rows at once. So those two words are replaced by the phrase the ungated marker
-      and NOTHING ELSE in the original is altered. IT READ: 🔴 BLOCKING (seven probes failed a real
-      walk of the shipped artefact and six of them passed on v1.0.95): MEASURED 2026-09-18 by reading
+      🔴 BLOCKING. TWO CLAUSES ADDED 2026-09-19, ONE FIXING A TRAP IN THIS ROW'S OWN CITATIONS AND ONE
+      RECORDING AN INSTRUMENT THAT DID NOT EXIST WHEN THE ROW WAS WRITTEN. THE CITATION TRAP, AND IT
+      IS THIS ROW'S ALONE: the three line numbers it quotes into the walk record are DATA-RECORD
+      positions, counted with comment lines stripped, NOT physical file lines. All three are correct
+      read that way and all three mislead anyone reading the file with line numbers on, which is how
+      anybody actually opens it. The physical positions are roughly sixty lines further down in each
+      case. THE ROW IS NOT WRONG AND IT IS UNUSABLE AS WRITTEN, which is the worse of the two failures
+      because the reader has no signal that they are looking at the wrong line. Cited positions are
+      record-relative unless a row says otherwise. AND THE RE-WALK THIS ROW GATES NOW HAS AN
+      INSTRUMENT IT LACKED. The row's own list has assistant_answers_grounded red with NOTHING on
+      main, and it is red on 17 of the 21 committed records. Until now NOT ONE of those 17 could say
+      whether the box had been SEEDED before the probe asked, because an unseeded box and a broken
+      product produce THE SAME RED. The seed state was computed at five distinct values and consumed
+      by nothing, and the walk discarded its exit code on the line that produced it. The record now
+      carries a grounding_seed field, written on the box, read back, and GRADED into a different
+      sentence per state, so the NEXT walk's grounded-answer result is interpretable whichever way it
+      falls. That does not fix the probe and it is not claimed to: it means a red will finally say
+      WHICH KIND of red it is. ONE LIMIT OF THAT INSTRUMENT, MEASURED AND RECORDED RATHER THAN
+      DISCOVERED LATER: the promote-scope refusal exits at verify_walk_record.sh:545 and BOTH advisory
+      blocks, the existing provenance one and the new seed one, live at :583 and :604. So a record
+      carrying an undeclared non-passing probe reaches NEITHER. The context is withheld from exactly
+      the records that most need it, until every undeclared probe is declared. That ordering is pre-
+      existing, it is the same shape as the three consumer-after-an-exit defects found on this board,
+      and it was deliberately NOT changed under a cut.  ORIGINAL TEXT FOLLOWS. 🔴 BLOCKING, AND IT HAS
+      CONVERTED FROM A FIX GATE INTO A BUILD-AND-REWALK GATE. Re-measured 2026-09-19 against the
+      record line by line, and every forensic claim in this row checks out exactly. THE ONE FACT THAT
+      REORGANISES THIS WHOLE BOARD: NOTHING HAS BEEN BUILT SINCE v1.0.100. The newest tag is v1.0.100,
+      the last cut run was 2026-09-17, and main carries 82 commits since. So every fix on main is
+      MERGED, none is DELIVERED and none is PROVEN, and no amount of further merging can close this
+      row. PER FAILURE, WHICH IS WHAT THE ROW OWES AND DID NOT GIVE: five of the seven have something
+      on main and two have nothing. Fixed on main: the unlock probe by a merged pull request whose
+      timestamp the row quotes exactly; the manifest completeness, by two register rows plus gate
+      hardening. Partly: the people count, where the CM051 half merged and the upstream half is merged
+      AND NOT VENDORED. Probe only, meaning the instrument changed and the measurement has not been
+      retaken: the store port and the egress probe. NOTHING AT ALL: the acceptance gate, which is row
+      2221, and the grounded-answer probe, which was red on v1.0.95 as well and whose only change
+      added the sibling probe that is now the single BROKEN one. ZERO OF SEVEN ARE IN ANY ARTEFACT.
+      EVERY FORENSIC NUMBER VERIFIED: probe files 36 to 38 across the tags, the probes directory 28 at
+      the tag and 29 on main, which is two denominators used correctly; three probes byte-identical
+      across the tags including the blob the row names; the egress probe 920 to 1,131 lines;
+      install.sh 32,744 to 35,510, a growth of 2,766; the promote helper defined once and identical at
+      both tags. The row's claim that one regression attribution in the record is itself wrong is
+      CORRECT. ONE THING TO FIX IN THE ROW AND IT IS A TRAP FOR THE NEXT READER: its three line
+      citations are DATA-RECORD numbers, not physical lines. All three are right once comments are
+      stripped and all three mislead anyone reading with line numbers on. One clause would fix it.
+      GATE: STILL BLOCKING, AND IT IS NOW THE ROW THE OTHERS FUNNEL INTO. It closes on a cut followed
+      by a walk, and on nothing else. Do NOT read any merge as closing it.  ORIGINAL TEXT FOLLOWS,
+      WITH ONE WORD PAIR PARAPHRASED AND THE PARAPHRASE DECLARED. The original opened with the ungated
+      marker as its verdict. That marker is matched by a PLAIN SUBSTRING test over the WHOLE gate
+      value with no position test, so preserving it verbatim anywhere in this row would hold the row
+      ungated for ever no matter what verdict sits above it. Row 939 records that same trap flipping
+      41 rows at once. So those two words are replaced by the phrase the ungated marker and NOTHING
+      ELSE in the original is altered. IT READ: 🔴 BLOCKING (seven probes failed a real walk of the
+      shipped artefact and six of them passed on v1.0.95): MEASURED 2026-09-18 by reading
       walks/v1.0.100.tsv, which is now on main after CM051 #2116 merged. A thin ssh walk started
       2026-09-17T14:10:01Z, verdict FAILED, qa_exit 1. THE SEVEN FAILED PROBES, AND WHEN EACH LAST
       PASSED, from the record''s own regression_of lines: acceptance_gate_v1013 regressed since
@@ -5666,28 +5996,79 @@ open_issues:
     repo: none
     title: 'The check rollup renders every non-zero exit as a failure, so a gate reporting CANNOT-RUN is indistinguishable from one reporting a defect'
     gate: >-
-      TWO MORE INSTANCES ADDED 2026-09-19, BOTH FOUND WHILE TRIAGING RATHER THAN LOOKED FOR, WHICH IS
-      WHAT KEEPS SUGGESTING THE POPULATION IS LARGER THAN THE FOUR NOW RECORDED. THIRD INSTANCE, AND
-      IT IS THE PUREST ONE ON THIS BOARD. Searching a continuous-integration log case-insensitively
-      for the word RED, to find why a check failed, returned the fetch listing at the top of every
-      such log, because one branch name contains those three letters INSIDE the word predicate. The
-      output looked exactly like data. Twice. The instrument was not broken and the answer was not
-      wrong; the substring matched something TRUE AND IRRELEVANT. The reliable instrument for that
-      question is the jobs interface's steps array, asked for the step whose conclusion is failure BY
-      NAME, which resolved eight checks that the log-grep approach had left as could-not-determine.
-      FOURTH INSTANCE, AND IT IS A STALE INPUT RATHER THAN A STALE READING, so it belongs here by
-      family rather than by mechanism: RE-RUNNING a check REPLAYS THE ORIGINAL EVENT PAYLOAD. A check
-      that reads a pull request BODY therefore re-reads the body AS IT WAS WHEN THE RUN FIRST FIRED,
-      so an edit to that body is COMPLETELY INVISIBLE to a re-run. A gate kept reporting a marker
-      missing while the marker was demonstrably present, because it had been added and then re-run
-      rather than re-triggered. The gate told the truth about the input it was actually given.
-      ANYTHING THAT RE-READS A PULL REQUEST BODY NEEDS A NEW EVENT, NOT A REPLAY: edit the body again,
-      or push. THE COMMON SHAPE ACROSS ALL FOUR, now that there are enough to see it: AN INSTRUMENT
-      ANSWERED CORRECTLY ABOUT SOMETHING OTHER THAN THE QUESTION ASKED. A non-zero that was a refusal
-      rather than a defect, a secret absent by design rather than missing, a substring inside an
-      unrelated word, and a payload from an earlier moment. In every case the output was well formed,
-      and in every case a reader acting on it would have reached a confident wrong conclusion. That is
-      why each of these costs a diagnosis rather than a minute: nothing looks broken.  ORIGINAL TEXT
+      A SIXTH INSTANCE ADDED 2026-09-19, AND IT IS A SUB-SHAPE THE EARLIER FIVE DO NOT COVER: FAILING
+      CLOSED IS RIGHT, AND FAILING CLOSED ANONYMOUSLY IS ITS OWN DEFECT. A fix written tonight for the
+      battery-arity problem read the battery size and then defaulted it to ZERO on an unreadable
+      answer. An empty or non-numeric read therefore skipped the padding, reproduced THE ORIGINAL
+      SYMPTOM, and reported it with the file's generic refusal, which says a healthy battery produced
+      a refusal and the harness is wrong rather than the probe. MEASURED BY SIMULATING AN EMPTY READ
+      rather than reasoned about: refusal code 2, the generic message, and NO MENTION of the battery,
+      the file, or the value it got. SO IT FAILED IN THE SAFE DIRECTION AND TOLD NOBODY WHY. A refusal
+      with no cause is not the same as a refusal: it is a correct verdict with no action attached, and
+      the next person meets the message the file was written to argue against, inside the fix for it.
+      The repair names the subject path and the value received, and refuses a ZERO-SIZE battery
+      SEPARATELY, because NOTHING TO MEASURE and COULD NOT READ are different facts and collapsing
+      either into the other is how a zero denominator reads as success. THAT MAKES SIX INSTANCES
+      TONIGHT, AND AT LEAST FIVE OF THEM WERE COMMITTED BY SOMEBODY WHILE DESCRIBING THE SHAPE. The
+      defect is not ignorance of the rule. It is that the rule is invisible at the moment of writing:
+      a default, a substring, a replayed payload and an empty argument all look like ordinary code,
+      and only the output looks wrong, and only if somebody reads it. AND THE SWEEP NUMBER IS WORTH
+      STATING PRECISELY BECAUSE IT IS NOT A THEORETICAL WINDOW: SEVENTEEN OF THE TWENTY-FIVE spent
+      branches had a margin under the offset an ISO-string comparison would ignore. That is most of
+      the set, not an edge case, and it is the second independent sample tonight after 6 of 11. A rule
+      that would have mis-sorted the majority of both samples is not a caution, it is the procedure.
+      ORIGINAL TEXT FOLLOWS. FIFTH INSTANCE ADDED 2026-09-19, AND IT IS IN A DELETION PROCEDURE, WHICH
+      IS THE WORST PLACE FOR IT. AN EMPTY BRANCH NAME PASSED TO THE PULL-REQUEST LOOKUP IS SILENTLY
+      TREATED AS NO FILTER AT ALL, so it returns THE WHOLE OPEN LIST rather than nothing. Measured:
+      the lookup with an empty head returns the same count as the lookup with no head argument
+      whatsoever, while the same lookup on a REAL branch that has no open pull request returns 0. So
+      the empty query does not fail, does not warn, and does not return empty. It answers a DIFFERENT
+      QUESTION and the answer looks deliberate. HOW IT AROSE, and the first error was mine rather than
+      the tool's: the branch listing produced 55 LINES of which only 43 WERE REAL NAMES. Twelve were
+      blank. Every blank then went to the lookup as an empty name, came back with a non-zero count,
+      and was classified as HAVING AN OPEN PULL REQUEST. So a report of 12 branches with open pull
+      requests was really 12 blank lines wearing a safe-looking verdict, and I repeated that 12 as a
+      finding before checking it. IT FAILED IN THE SAFE DIRECTION HERE, AND ONLY BY THE ORDER OF THE
+      CLAUSES. Having an open pull request means SKIP, so the blanks were skipped and nothing wrong
+      was deleted. Had the procedure been written the other way round, so that NO open pull request
+      means safe to delete, every blank line would have returned zero and been deleted. THE
+      PROCEDURE'S CORRECTNESS RESTED ON A CLAUSE ORDER NOBODY CHOSE FOR THAT REASON. WHICH MAKES THIS
+      THE FOURTH SEPARATE TRAP IN ONE BRANCH-SWEEP PROCEDURE. The project's own written version of
+      this sweep has already been wrong three times in three different directions: an unsafe set
+      called safe, a count read off an empty list as the literal string null, and a timezone
+      comparison that called spent branches keepers. This is a fourth, and it is upstream of all three
+      because it corrupts the INPUT rather than the judgement. THE GUARD IS ONE LINE AND IT BELONGS IN
+      THE WRITTEN PROCEDURE: SKIP ANY EMPTY NAME BEFORE THE LOOKUP, and count the real names
+      separately from the lines, so a denominator of 55 cannot silently be a denominator of 43. WHAT
+      THE SWEEP ACTUALLY FOUND ONCE THE BLANKS WERE REMOVED: 43 real branches, of which 25 spent and
+      18 never merged, and ZERO with an open pull request. All 25 were deleted after their tips were
+      recorded, and all 25 tips still resolve as live objects afterwards, so the deletion is
+      reversible. SEVENTEEN OF THE TWENTY-FIVE HAD MARGINS UNDER 28,800 SECONDS, which is exactly
+      where an ISO-string comparison would have flipped them to keepers; they were compared in epoch
+      seconds with the merge time forced to UTC, so they did not flip. That rule has now earned its
+      place twice in one night, on 6 of 11 and then on 17 of 25. ORIGINAL TEXT FOLLOWS. TWO MORE
+      INSTANCES ADDED 2026-09-19, BOTH FOUND WHILE TRIAGING RATHER THAN LOOKED FOR, WHICH IS WHAT
+      KEEPS SUGGESTING THE POPULATION IS LARGER THAN THE FOUR NOW RECORDED. THIRD INSTANCE, AND IT IS
+      THE PUREST ONE ON THIS BOARD. Searching a continuous- integration log case-insensitively for the
+      word RED, to find why a check failed, returned the fetch listing at the top of every such log,
+      because one branch name contains those three letters INSIDE the word predicate. The output
+      looked exactly like data. Twice. The instrument was not broken and the answer was not wrong; the
+      substring matched something TRUE AND IRRELEVANT. The reliable instrument for that question is
+      the jobs interface's steps array, asked for the step whose conclusion is failure BY NAME, which
+      resolved eight checks that the log-grep approach had left as could-not-determine. FOURTH
+      INSTANCE, AND IT IS A STALE INPUT RATHER THAN A STALE READING, so it belongs here by family
+      rather than by mechanism: RE-RUNNING a check REPLAYS THE ORIGINAL EVENT PAYLOAD. A check that
+      reads a pull request BODY therefore re-reads the body AS IT WAS WHEN THE RUN FIRST FIRED, so an
+      edit to that body is COMPLETELY INVISIBLE to a re-run. A gate kept reporting a marker missing
+      while the marker was demonstrably present, because it had been added and then re-run rather than
+      re-triggered. The gate told the truth about the input it was actually given. ANYTHING THAT RE-
+      READS A PULL REQUEST BODY NEEDS A NEW EVENT, NOT A REPLAY: edit the body again, or push. THE
+      COMMON SHAPE ACROSS ALL FOUR, now that there are enough to see it: AN INSTRUMENT ANSWERED
+      CORRECTLY ABOUT SOMETHING OTHER THAN THE QUESTION ASKED. A non-zero that was a refusal rather
+      than a defect, a secret absent by design rather than missing, a substring inside an unrelated
+      word, and a payload from an earlier moment. In every case the output was well formed, and in
+      every case a reader acting on it would have reached a confident wrong conclusion. That is why
+      each of these costs a diagnosis rather than a minute: nothing looks broken.  ORIGINAL TEXT
       FOLLOWS. MEASURED 2026-09-19 ACROSS TWO REPOSITORIES ON UNRELATED PULL REQUESTS, AND IT ERASES
       THE ONE DISTINCTION THIS ESTATE IS BUILT ON. NOT BLOCKING: nothing about the artefact changes.
       Filed because the next person triaging a red backlog will make the same mistake and write off a
@@ -5709,10 +6090,10 @@ open_issues:
       THIS BOARD. SECOND, IN A DIFFERENT REPOSITORY: a scan check reports a failure whose log says no
       inventory is available because a secret and a local file are both absent. Exit 2. That secret is
       DELIBERATELY UNSTORED and the credential register says so, alongside a warning that it has been
-      mis-called a blocker before. DENOMINATOR, because always-been-like-that needs a number: that
+      mis-called a blocker before. DENOMINATOR, because always- been-like-that needs a number: that
       check has run TWICE in that repository's entire history and failed both times, on two unrelated
       branches a fortnight apart. Nothing was ever scanned, so nothing was ever found. WHY THE SECOND
-      IS THE WORSE SHAPE: a workflow that turns an absent-BY-DESIGN prerequisite into a red teaches
+      IS THE WORSE SHAPE: a workflow that turns an absent-BY- DESIGN prerequisite into a red teaches
       readers that red means nothing there, which is the precise condition under which a genuine
       finding gets waved through. A permanent false red is worse than no gate, and this board already
       records that argument being used to justify leaving three known orphans unwired. WHAT WOULD
@@ -5723,3 +6104,34 @@ open_issues:
       gate saying it could not look, and the reason names the missing prerequisite. NOT A DUPLICATE OF
       ROW 2241: that row is about a gate the cut never runs. This is about how the results of gates
       that DO run are rendered to a person.
+  - issue: 2243
+    repo: none
+    title: 'Eight self-declared cut-blocking gates run on a pull request and NOT on a tag push, and the register marks all eight UNREVIEWED'
+    gate: >-
+      MEASURED 2026-09-19 FROM THE REACHABILITY SWEEP'S OWN THIRD AXIS AND THEN INDEPENDENTLY. NOT
+      BLOCKING, and filed because the register already admits nobody has decided it. THE NUMBERS: 22
+      of 30 declarers are reachable from a cut-tag entry point, and EIGHT declare themselves cut-
+      blocking, are reachable, and DO NOT RUN ON A TAG PUSH. The baseline that records them holds 11
+      rows, of which 3 are marked DECIDED and EIGHT ARE MARKED UNREVIEWED. So this is not a discovery
+      the register missed; it is a decision the register is openly waiting for. AND THE SEVERITY IS
+      NARROWER THAN DEAD, WHICH IS THE PART WORTH GETTING RIGHT. I checked whether any of the eight is
+      wired to nothing, because that would be the first of the seven modes and a much worse finding.
+      ALL EIGHT ARE WIRED, each named by a workflow that triggers on a pull request, verified per file
+      rather than in aggregate. So they DO run. They run BEFORE a merge and never AT a cut. WHAT THAT
+      ACTUALLY COSTS, stated precisely rather than alarmingly: every commit reaching main passes
+      through pull-request checks, so a pull-request-time gate does cover main IN GENERAL. The gap is
+      the PATHS FILTER. A workflow scoped to paths runs only when those paths change, so a gate's
+      coverage of the tree is exactly as good as its filter, and a defect arriving through a path its
+      filter does not name is never examined by it. A CUT-TIME run has no such scoping: it would
+      examine the tree as built. So these eight are guarded by their filters rather than by the cut,
+      and NOBODY HAS CHECKED THOSE FILTERS AGAINST WHAT EACH GATE CLAIMS TO GUARD. WHY IT IS NOT
+      BLOCKING: they run, they can refuse, and they refuse on the path that produces main. Calling
+      this a cut blocker would put a filter-scope question beside real defects on the list that stops
+      a tag, which is the mislabelling this board keeps recording in the other direction. WHAT WOULD
+      CLOSE IT: each of the eight UNREVIEWED rows gains a DECIDED verdict with a reason, and the
+      reason must say which of two things is true. EITHER the gate's paths filter demonstrably covers
+      everything it claims to guard, so a cut-time run would add nothing, OR it does not and the gate
+      is wired to fire on a tag push as well. It must NOT close by marking them decided without that
+      distinction, because DECIDED with no reason is the same as UNREVIEWED with extra confidence. NOT
+      A DUPLICATE OF ROW 2241: that row is about the cut never evaluating a CAPABILITY at all. This is
+      about gates that DO run, on a different trigger from the one they declare themselves to guard.
