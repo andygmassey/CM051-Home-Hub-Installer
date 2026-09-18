@@ -31,7 +31,90 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-INSTALL="$REPO_ROOT/install.sh"
+# 🔴 OVERRIDABLE SO THIS GATE CAN BE SHOWN TO FAIL. It was not, and row 775
+# recorded the consequence: "NO MUTATION, NO CONTROL -- the mutation/self-test
+# grep returns 0 lines over this test". A gate that guards every hydrate source
+# a customer has, and has never once been demonstrated to go red, is a gate
+# nobody can trust. The override is READ-ONLY and used only by --self-test
+# below, which points it at mutated COPIES in a temp dir and never writes here.
+INSTALL="${OSTLER_TEST_INSTALL:-$REPO_ROOT/install.sh}"
+
+# ── --self-test: DRIVE THIS GATE AGAINST MUTATED COPIES ─────────────────────
+# Each arm mutates a COPY of install.sh in a temp dir, runs THIS SCRIPT against
+# it, and demands an exit code. Nothing under the repo is written. A mutant is
+# refused unless its literal occurs the expected number of times, because a
+# mutation that did not apply looks exactly like one that was not caught.
+if [[ "${1:-}" == "--self-test" ]]; then
+    _st_work="$(mktemp -d)"
+    trap 'rm -rf "$_st_work"' EXIT
+    _st_fail=0
+    _st_arms=0
+
+    _st_arm() {   # _st_arm <name> <mutated install path> <wanted rc> <wanted substring>
+        local name="$1" inst="$2" want_rc="$3" want_txt="$4" out rc
+        _st_arms=$((_st_arms + 1))
+        out="$(OSTLER_TEST_INSTALL="$inst" bash "${BASH_SOURCE[0]}" 2>&1)"; rc=$?
+        if [[ "$rc" != "$want_rc" ]]; then
+            echo "  [FAIL] ${name}: exit ${rc}, wanted ${want_rc}"
+            _st_fail=$((_st_fail + 1)); return
+        fi
+        if [[ -n "$want_txt" ]] && ! printf '%s' "$out" | grep -qF -- "$want_txt"; then
+            echo "  [FAIL] ${name}: exit ${rc} as wanted, but the output does not name [${want_txt}]"
+            _st_fail=$((_st_fail + 1)); return
+        fi
+        echo "  [PASS] ${name}: exit ${rc}${want_txt:+, naming [${want_txt}]}"
+    }
+
+    # ARM 1. The real install.sh must PASS. Without this the other arms could
+    # all pass on a gate that returns non-zero unconditionally.
+    _st_arm "an unmutated install.sh passes" "$REPO_ROOT/install.sh" 0 "every hydrate source is guarded"
+
+    # ARM 2. A guarded source loses its error-variant recorder and writes the
+    # SUCCESS sentinel on the error path instead: the original #711 defect.
+    _st_mut2="$_st_work/mutant2.sh"
+    _st_lit='_hydrate_sentinel_record_error "whatsapp"'
+    _st_n="$(grep -cF -- "$_st_lit" "$REPO_ROOT/install.sh")"
+    if [[ "$_st_n" != "1" ]]; then
+        echo "  [CANNOT-RUN] arm 2: its literal occurs ${_st_n} time(s) in install.sh, expected 1."
+        echo "               Re-anchor the mutant rather than deleting it: a mutation that"
+        echo "               cannot be applied proves nothing about this gate."
+        _st_fail=$((_st_fail + 1))
+    else
+        sed 's/_hydrate_sentinel_record_error "whatsapp"/_hydrate_sentinel_record "whatsapp"/' \
+            "$REPO_ROOT/install.sh" > "$_st_mut2"
+        # prove the edit landed, and that it landed ONCE
+        if [[ "$(grep -cF -- '_hydrate_sentinel_record "whatsapp"' "$_st_mut2")" -lt 1 ]]; then
+            echo "  [CANNOT-RUN] arm 2: the mutation did not land in the copy"
+            _st_fail=$((_st_fail + 1))
+        else
+            _st_arm "a source writing the SUCCESS sentinel on its error path is caught" \
+                    "$_st_mut2" 1 "UNGUARDED  whatsapp"
+        fi
+    fi
+
+    # ARM 3. The DERIVATION breaks: the call sites stop matching the pattern the
+    # population is derived from. The gate must refuse rather than report a
+    # population it did not establish.
+    _st_mut3="$_st_work/mutant3.sh"
+    sed 's/_hydrate_sentinel_record_error "/_hydrate_sentinel_recordERR "/g; s/_hydrate_sentinel_record "/_hydrate_sentinel_recordOK "/g' \
+        "$REPO_ROOT/install.sh" > "$_st_mut3"
+    _st_left="$(grep -oE '_hydrate_sentinel_[a-z_]+ "[a-z_]+"' "$_st_mut3" | grep -oE '"[a-z_]+"' | sort -u | wc -l | tr -d ' ')"
+    if [[ "$_st_left" -ge 13 ]]; then
+        echo "  [CANNOT-RUN] arm 3: the mutation left ${_st_left} derivable source(s), so it does not break the derivation"
+        _st_fail=$((_st_fail + 1))
+    else
+        _st_arm "a broken population derivation refuses instead of reporting a typed number" \
+                "$_st_mut3" 1 "the derivation is broken"
+    fi
+
+    echo
+    if [[ "$_st_fail" -gt 0 ]]; then
+        echo "SELF-TEST FAIL: ${_st_fail} of ${_st_arms} arm(s) did not behave"
+        exit 1
+    fi
+    echo "SELF-TEST PASS: ${_st_arms} of ${_st_arms} arms behaved -- this gate passes a clean tree and goes RED on both defect shapes."
+    exit 0
+fi
 
 FAILURES=0
 CHECKS=0

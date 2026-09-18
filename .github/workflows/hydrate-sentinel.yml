@@ -87,6 +87,19 @@ jobs:
       - name: A failed hydrate step must not suppress its retry (#711)
         run: bash tests/test_hydrate_sentinel_not_on_error.sh
 
+      # 🔴 THE GATE ABOVE HAD NEVER BEEN SHOWN TO FAIL. Row 775 measured it:
+      # the mutation/self-test grep returned 0 lines over that test, against a
+      # control that finds them where they exist. It guards every hydrate
+      # source a customer has, and a gate that cannot be demonstrated red is
+      # not evidence. This drives it against MUTATED COPIES of install.sh in a
+      # temp dir: a clean tree must pass, a source writing the success sentinel
+      # on its error path must go red by name, and a broken population
+      # derivation must REFUSE rather than report a number it did not
+      # establish. Nothing under the repo is written.
+      - name: the hydrate sentinel gate can still go red
+        if: always()
+        run: bash tests/test_hydrate_sentinel_not_on_error.sh --self-test
+
       # if: always() so a failure in the first test cannot silence the second.
       # A skipped test reads as "no objection", which is the class of defect
       # this whole workflow exists to remove.
