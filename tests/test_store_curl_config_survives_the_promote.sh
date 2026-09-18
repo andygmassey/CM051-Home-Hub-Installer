@@ -258,8 +258,17 @@ else
     if [ -z "$bad_cites" ]; then
         ok "and every one of them still lands on the construct it names"
     else
+        # NAME THE REMEDY HERE, where the person reading the failure is.
+        # A tool nobody can find at the moment they need it is the same
+        # defect as enforce-ledger-write's remedy being unreachable, which
+        # that file carries a comment about at its line 57.
         bad "these citations no longer point at what the comment claims:${bad_cites}" \
-            "$(for n in $bad_cites; do printf ':%s -> %s\n' "$n" "$(sed -n "${n}p" "$SRC" | sed 's/^ *//')"; done)"
+            "$(for n in $bad_cites; do printf ':%s -> %s\n' "$n" "$(sed -n "${n}p" "$SRC" | sed 's/^ *//')"; done)
+REPAIR (#2152): python3 scripts/repair_rearm_citations.py --check
+It aligns this tree against origin/main line by line and re-points each
+citation at the line its anchor moved to. It REFUSES rather than guessing,
+and it is NOT an offset: an offset would land a citation on a line this
+predicate accepts while the comment's claim about it is wrong."
     fi
 
     # CONTROL on that predicate. A line that is certainly NOT one of the cited
