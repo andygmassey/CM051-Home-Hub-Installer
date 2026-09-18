@@ -32,6 +32,8 @@ on:
       - 'tests/test_the_cut_checklist_is_complete.py'
       - 'tests/test_a_blocking_row_stops_a_cut.sh'
       - 'tests/test_a_ci_alarm_is_not_a_register_gap.py'
+      - 'tests/test_a_struck_row_names_an_issue_not_a_pull_request.py'
+      - 'tests/test_a_verdict_is_not_a_mention.py'
       - '.github/workflows/cut-checklist-complete.yml'
   push:
     branches: [main]
@@ -105,3 +107,42 @@ jobs:
         # step masked by an earlier red would not say so.
         if: always()
         run: bash tests/test_the_manifest_selector_survives_v1_0_100.sh
+
+      # A ROW MAY NOT BE REMOVED FROM THE COUNT ON THE CLOSURE OF A NUMBER.
+      #
+      # On 2026-09-16, 41 rows were struck with "the issue this row names is
+      # CLOSED on GitHub". Measured 2026-09-18: 41 of 41 resolve to a PULL
+      # REQUEST, and 0 of 41 share two distinctive words with their row title.
+      # Row 947 is iPhone pairing and PR 947 is a cut manifest. Row 1014,
+      # struck by the same strike, is titled "78 registered rows name issues
+      # that are already CLOSED".
+      #
+      # The blocking arm is OFFLINE and asks for the one thing nobody could
+      # have supplied while making that mistake: the TITLE of what closed it.
+      # The API arm runs and blocks whenever a token is present, and says so
+      # rather than passing when it is not. A permanently-CANNOT-RUN gate is
+      # row #2110's defect and this must not become one.
+      #
+      # if: always() for the same reason as every step above it.
+      - name: a struck row names an issue, not a pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        if: always()
+        run: python3 tests/test_a_struck_row_names_an_issue_not_a_pull_request.py
+
+      # A ROW THAT DESCRIBES A VERDICT IS NOT A ROW THAT DECLARES ONE.
+      #
+      # Row 2114 is the row ABOUT the strike, so it must quote the strike
+      # sentence and list the unfinished markers in order to describe them. A
+      # plain substring test read that documentation as the row's own verdict
+      # and had miscounted it since PR #2115 landed. It surfaced only because
+      # two agents counted the same field carefully and disagreed by one.
+      #
+      # The arm that matters is the BYPASS arm: a rule that ignores brackets
+      # can be dodged by putting a real verdict in brackets, so a gate that
+      # quotes a marker AND declares one must still be caught.
+      #
+      # if: always() for the same reason as every step above it.
+      - name: a verdict is not a mention
+        if: always()
+        run: python3 tests/test_a_verdict_is_not_a_mention.py

@@ -103,14 +103,26 @@ FIX_INV=(  "sudo already available without a password"    "Install aborted at li
 # what make it visible on the mounted DMG. The invariants are the strings
 # each fix introduced into the CODE PATH: the stats key the veto returns, and
 # the f-string of the tombstone update. Not comments, not SHAs.
+# 🔴 THE SECOND #755 ROW, ADDED 2026-09-16 (CM051 #1619), AND WHY A SECOND ROW.
+# The row above names the FUNCTION. A function name is not a behaviour: a
+# refactor that keeps `_source_is_the_users_own` and drops the bundle test
+# leaves that row green while the artefact ingests another device's address
+# book again, which is #1619 exactly. The DISCRIMINATOR is the owning-bundle
+# string, so this row names that instead. Measured on the vendored tree
+# 2026-09-16: `com.apple.AddressBookSourceSync` 5, `_source_is_the_users_own`
+# 2, control `_read_abcddb_as_vcards` 2 in the same file, so all three are real
+# readings. Same lesson as the two #145 rows one file along: a gate keyed to a
+# name proves the name and is blind to the behaviour behind it.
 PAYLOAD_IDS=(  "#1543-rule-2-on-the-write"
                "#755-only-the-users-own-address-book"
+               "#1619-the-discriminator-is-the-owning-bundle"
                "#142-a-kinship-word-is-never-welded"
                "#145-the-resolver-elects-the-real-given-name"
                "#145-the-batch-path-elects-it-too"
                "#1573-dedupe-merge-vetoes-two-cards"
                "#1573-dedupe-merge-leaves-a-tombstone" )
 PAYLOAD_PATH=( "contact_syncer/syncer.py"
+               "contact_syncer/syncer.py"
                "contact_syncer/syncer.py"
                "identity_resolver/canonical_name.py"
                "identity_resolver/resolver.py"
@@ -119,6 +131,7 @@ PAYLOAD_PATH=( "contact_syncer/syncer.py"
                "ostler_fda/dedupe_merge.py" )
 PAYLOAD_INV=(  "_node_holds_a_different_canonical_key"
                "_source_is_the_users_own"
+               "com.apple.AddressBookSourceSync"
                "is_kinship_given_name"
                "prefer_real_given_name"
                "prefer_real_given_name"

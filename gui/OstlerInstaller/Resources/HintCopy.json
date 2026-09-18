@@ -383,6 +383,17 @@
     "illustration": null,
     "needs_fda": true
   },
+  "merge_consistency_repair": {
+    "id": "merge_consistency_repair",
+    "title": "Tidying up duplicate people",
+    "subtitle": "One person, one record",
+    "why": "When Ostler finds the same person twice, it merges them. Until now the merged-away copy could linger in one of the two places Ostler keeps people, so the count you saw was wrong in both. This pass clears those leftovers so a person appears once, and the number of people you know is the number you actually know.",
+    "duration_estimate_s": 45,
+    "long_running_threshold_s": 120,
+    "long_running_copy": "This scales with how many duplicates were merged over the life of your Hub.",
+    "illustration": null,
+    "needs_fda": false
+  },
   "cm048_setup": {
     "id": "cm048_setup",
     "title": "Setting up conversation memory",
