@@ -59,6 +59,7 @@ on:
       - 'tests/test_every_detected_export_reaches_the_importer.sh'
       - 'tests/test_the_wiki_backfill_enrols_for_the_slot.sh'
       - 'tests/test_the_shipped_compose_mounts_ai_conversations.sh'
+      - 'tests/test_the_store_auth_guard_says_when_it_skips.sh'
       - '.github/workflows/install-sh-cannot-wedge-the-box.yml'
   push:
     branches: [main]
@@ -115,6 +116,16 @@ jobs:
       - name: the shipped compose mounts the AI Conversations tree
         if: always()
         run: /bin/bash tests/test_the_shipped_compose_mounts_ai_conversations.sh
+      # 8. A GUARD THAT SILENCED ITS OWN FAILURE (#950). The store-auth .pth
+      #    is written only for the bundled interpreter, correctly, but the
+      #    warn sat INSIDE the same `if`, so on any of six ordinary values of
+      #    PYTHON3_BIN the shim was skipped and nothing was logged. The whole
+      #    of the #550 store-auth work was inert and silent. The existing test
+      #    is STATIC and asserts the CALL EXISTS: a call inside a false guard
+      #    still exists. This one EXECUTES the shipped block.
+      - name: the store-auth guard says when it skips
+        if: always()
+        run: /bin/bash tests/test_the_store_auth_guard_says_when_it_skips.sh
 
       # 5. THE INSTALLER FOUND SEVEN EXPORTS, TOLD THE CUSTOMER SEVEN, AND
       #    IMPORTED ONE (#957). EXPORTS_DIR is first-write-wins at five
@@ -155,7 +166,7 @@ jobs:
 
       # A test that no longer parses cannot fail honestly -- it fails for the
       # wrong reason, or worse, a sourcing error reads as a pass. Parse all
-      # seven under the same 3.2 that runs them.
+      # eight under the same 3.2 that runs them.
       - name: the gates themselves parse under bash 3.2
         if: always()
         run: |
@@ -164,6 +175,7 @@ jobs:
                    tests/test_dead_launchagent_prune.sh \
                    tests/test_readonly_flags_need_no_tty.sh \
                    tests/test_the_shipped_compose_mounts_ai_conversations.sh \
+                   tests/test_the_store_auth_guard_says_when_it_skips.sh \
                    tests/test_every_detected_export_reaches_the_importer.sh \
                    tests/test_the_wiki_backfill_enrols_for_the_slot.sh \
                    tests/test_prompt_loops_gate.sh \
