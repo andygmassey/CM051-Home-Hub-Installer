@@ -283,46 +283,71 @@ thing that must NEVER be claimed in advance is a MEASUREMENT: two independent
 measurements of the same quantity is a control, and it is the cheapest one
 there is.
 
-### Two mechanisms, both falsified by their own author, inside one hour
+### Three mechanisms in one night, and the third was the first
 
-Row 2155 named a writer twice on 2026-09-18 and was wrong twice.
+Row 2155 named a writer, withdrew it, named another, withdrew that, and ended
+back on the original. Every step was measured. The corrections did not converge
+on anything; the middle one was simply wrong.
 
-    mechanism 1   the fda ingest re-CREATES the retired node
-    falsified by  createdAt dated today on the phantoms: 0
-                  CONTROL, phantoms carrying any createdAt: 32 of 32
-                  CONTROL, newest createdAt anywhere in the graph: 02:42
-                  a re-create must write a createdAt; none was written
+    mechanism 1   the fda iMessage ingest re-CREATES the retired node     <- correct
+    mechanism 2   repair_overmerged_contact_cards.py re-TYPES it          <- excluded
+    mechanism 3   nobody can tell, there is no write provenance           <- premature
+    back to 1     the pipeline's own people_created counter names it
 
-    mechanism 2   repair_overmerged_contact_cards.py re-TYPES it
-    falsified by  phantoms holding any icloud_contact_uid: 0
-                  CONTROL, icloud_contact_uid values in the graph: 2,221
-                  that module acts only on nodes holding two or more of them
+**A trend in corrections carries no information about the next correction.**
+Anyone reading the direction of travel rather than the evidence would have
+treated the second withdrawal as progress. It was the one that was wrong.
 
-Both falsifications came from the person who made the claim, from queries built
-to break it. The second one is the instructive half: **the falsifying query was
-available when the claim was made and was not run first.**
+What withdrew a correct mechanism was two errors of the same family, and both
+are cheap to make again.
 
-What the second falsification left behind is not a third mechanism. It is this:
+**A UTC instant compared against a local date.** Both hosts run at +0800. A
+detect-only reading logged as `02:39` was LOCAL, which is `2026-09-17T18:39Z`.
+The phantoms' newest `createdAt` is `19:04Z`, twenty five minutes AFTER that
+reading. The falsifying question asked how many phantoms carried a `createdAt`
+dated *today* in UTC. The answer, 0, was **true and irrelevant**, and the
+arithmetic was allowed to choose a mechanism.
 
-> **There is no write provenance in that graph.** Nothing records which process
-> asserted a triple, so "what re-typed 32 nodes three hours ago" is not a
-> question the store can answer.
+Quote every timestamp in UTC with the zone printed, or in epoch seconds. A `Z`
+on a value that was never converted is worse than no suffix at all.
 
-The honest words are **NOT INSTRUMENTED**, and the tell that you have earned
-them is that you can say which command would have shown the positive and point
-at the fact that it does not exist. "Not observed" and "not reproducible" both
-claim a measurement that was never available.
+**A zero from the wrong tick.** The same investigation read `people_created: 0`
+from the TAIL of a log, hours after the event, when the nodes already existed
+and there was nothing left to create. Twelve lines further up, two consecutive
+ticks each report `people_created: 32`.
 
-Two consequences for how a row is written:
+> **A zero from the wrong tick is not a smaller measurement. It is a
+> measurement of something else.**
 
-- **A named writer on a row is read as a diagnosed writer.** Prose hedging does
-  not survive being skimmed the next day. Either name the query that identified
-  it, or name nothing.
-- **Keep the dead mechanisms in the row, clearly marked dead.** They are the
-  only thing stopping the next person spending an hour re-excluding a module
-  that has already been excluded, with the numbers that excluded it.
+The remedy is mechanical and belongs in any run that reads an append-only log
+for the effect of an action it just took:
 
-And one that is not about this row at all: three corrections in a row narrowed
-what was known, and the temptation each time was to treat the narrowing as
-converging on the answer. It was not. It converged on the admission that the
-instrument does not exist.
+    record the log's line count BEFORE the action
+    take the action
+    read ONLY the lines appended after that mark, and say how many there were
+    an empty slice is CANNOT-RUN, never 0
+
+### What survived all three, and it is the part that generalises
+
+**A control has to come from the same population as the treatment.** The
+obvious control for "does retiring by replacement stop the revival" was the 24
+nodes already correctly retired. Measured, they carry no identifiers and no
+source at all, so no ingest can ever match them. They had sat untyped through
+dozens of ticks precisely because nothing could see them. A control that cannot
+be acted on by the mechanism under test proves the mechanism is off, not that
+the fix is on.
+
+**NOT INSTRUMENTED is still the right word when it is true, and it was not
+true here.** The store genuinely records no write provenance, and that is now a
+registered launch item. But one pipeline happened to print a counter, and the
+answer was in it. The lesson is not that the honest absence was wrong to say;
+it is that saying it is a claim about where you looked, so it has to name the
+places, and a log a product writes on every tick is one of them.
+
+### A named writer on a row is read as a diagnosed writer
+
+Prose hedging does not survive being skimmed the next day. Either name the
+query or the counter that identified the writer, or name nothing. And keep the
+dead mechanisms in the row, clearly marked dead, with the numbers that killed
+them: they are the only thing stopping the next person spending an hour
+re-excluding a module that has already been excluded.
