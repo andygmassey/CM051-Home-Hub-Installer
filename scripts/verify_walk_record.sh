@@ -590,6 +590,37 @@ _adjudicate_scoped() {
             *)
                 echo "            stores_provenance: ${_stores}" >&2 ;;
         esac
+        # GROUNDING SEED. The sibling of the block above, and it disambiguates
+        # the single most-failed probe in the corpus. assistant_answers_grounded
+        # is red on 17 of the 21 committed records, and an UNSEEDED box and a
+        # BROKEN product produce exactly the same red. Until this field existed,
+        # not one of those 17 said which it was.
+        #
+        # PURELY INFORMATIONAL, like the block above: it changes what a human
+        # debugs next, never whether the promote is allowed.
+        _seed="$(field grounding_seed)"
+        case "${_seed}" in
+            '')
+                echo "            grounding_seed: ABSENT from this record. It predates the field," >&2
+                echo "            so whether a grounded-answer red means an unseeded box or a" >&2
+                echo "            broken product is NOT RECORDED. Those are different defects." >&2 ;;
+            seeded*)
+                echo "            grounding_seed: SEEDED. A grounded-answer red here is about the" >&2
+                echo "            product, because the fact the probe asks for was put there first." >&2 ;;
+            skipped*)
+                echo "            grounding_seed: SKIPPED. The probe ran UNSEEDED, so a red says" >&2
+                echo "            nothing about grounding: there was no planted fact to find." >&2 ;;
+            absent*|failed*)
+                echo "            grounding_seed: ${_seed}. The seed did NOT apply, so a" >&2
+                echo "            grounded-answer red is NOT evidence against the build. Fix the" >&2
+                echo "            seed oracle and walk again before debugging the product." >&2 ;;
+            not-recorded*)
+                echo "            grounding_seed: ${_seed}" >&2
+                echo "            The marker could not be read. That is CANNOT-RUN for this field," >&2
+                echo "            not a seeded box and not an unseeded one." >&2 ;;
+            *)
+                echo "            grounding_seed: ${_seed}" >&2 ;;
+        esac
         # EVIDENCE OF BADNESS OUTRANKS ABSENCE OF EVIDENCE. That rule is already
         # stated forty lines up, for records naming no probes; this applies it to
         # a record that names both kinds. rc=1 says a defect was measured; rc=2

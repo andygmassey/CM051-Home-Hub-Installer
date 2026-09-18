@@ -577,6 +577,21 @@ if [[ -n "$CUT_VERSION" ]]; then
     esac
     echo "  stores: ${STORES_PROVENANCE}"
 
+    # GROUNDING SEED STATE. Same discipline as stores_provenance directly
+    # above, and for the same reason one step further on: an unseeded box and a
+    # broken product produce the SAME red from assistant_answers_grounded, and
+    # until now the record could not tell them apart on any of the 17 walks
+    # where that probe failed. An unreadable marker is recorded as
+    # not-recorded(...), NEVER as a clean value.
+    GROUNDING_SEED="$(ssh -o BatchMode=yes -o ConnectTimeout=8 "$BOX" \
+        'cat ~/.walk-grounding-seed-run 2>/dev/null' 2>/dev/null | tr -s '[:space:]' ' ' | sed 's/ *$//')"
+    case "$GROUNDING_SEED" in
+        seeded*|skipped*|absent*|failed*|unrun*) : ;;
+        '') GROUNDING_SEED="not-recorded(no ~/.walk-grounding-seed-run on the box; this walk predates the marker or the read failed)" ;;
+        *)  GROUNDING_SEED="not-recorded(marker held an unrecognised value)" ;;
+    esac
+    echo "  seed:   ${GROUNDING_SEED}"
+
     INSTALLED_VERSION="$(ssh -o BatchMode=yes -o ConnectTimeout=8 "$BOX" \
         'cat ~/.walk-artefact-version 2>/dev/null' 2>/dev/null | tr -d '[:space:]')"
     if [[ -n "$INSTALLED_VERSION" ]]; then
@@ -858,6 +873,15 @@ if [[ -n "$CUT_VERSION" ]]; then
         # why the estate looks clean: the denominator of records that COULD
         # carry the value is 2, and 2 of 2 are wrong.
         printf 'stores_provenance\t%s\n' "$STORES_PROVENANCE"
+        printf '#\n'
+        printf '# grounding_seed answers the one question assistant_answers_grounded\n'
+        printf '# begs and has never stated: was this box SEEDED before the probe\n'
+        printf '# asked? An unseeded box and a broken product produce the SAME red.\n'
+        printf '# That probe is red on 17 of the 21 committed records, and not one\n'
+        printf '# of them says which kind of red it was. Five states: seeded,\n'
+        printf '# skipped, absent, failed, unrun -- plus not-recorded when the\n'
+        printf '# marker could not be read, which is NOT the same as unrun.\n'
+        printf 'grounding_seed\t%s\n' "$GROUNDING_SEED"
         printf 'counts_scope\tbox_walk_probes_only(phase1); verdict+qa_exit+failed_probe_names_recorded+failed_probe+not_measured_probe cover all phases\n'
         printf 'pass\t%s\n'        "${n_pass:-0}"
         printf 'fail\t%s\n'        "${n_fail:-0}"
