@@ -1,3 +1,77 @@
+# Driving the merge queue on CM051
+
+Written 2026-09-16, after two sessions hit the same two edges on the same day.
+Both cost real time and neither is guessable from the outside.
+
+## Why merging is serial whatever you do
+
+Measured, `gh api repos/andygmassey/CM051-Home-Hub-Installer/rules/branches/main`:
+
+    {"checks":["CI Required Gate"], "strict": true}
+
+One required check, **strict up-to-date**. The instant a merge lands, every
+other branch in the repo is BEHIND by construction.
+
+**So only one PR can be up to date at a time.** Merging is inherently serial no
+matter how many people drive it. Two drivers running at once does not halve the
+time, it doubles the wasted updates: each invalidates the other's in-flight
+branch before its gate can conclude. Measured on the day this was written, that
+was most of a 334-run backlog.
+
+**Drive alone, in a batch.** If two of you are clearing PRs, split the list,
+then take turns with the whole pool. Sequential batches, never parallel drivers.
+
+**Update ONE branch at a time and let its gate conclude.** The required gate
+polls every other check on the head and finishes last, so it can take about 40
+minutes on this repo. Updating three at once starts three 40-minute waits, two
+of which you will invalidate yourself.
+
+## `gh run rerun` replays the ORIGINAL event payload
+
+This is the one that looks like a safe action and is not.
+
+Any gate that reads the PULL REQUEST BODY reads it **from the event payload**,
+not from the API. `enforce-ledger-write.yml` is one, and its own header says so.
+So:
+
+1. The gate fails because the body is wrong.
+2. You fix the body. A fresh `edited` event fires and the gate PASSES.
+3. You re-run the old failed job "to be sure".
+4. **The re-run replays the pre-edit body and fails again**, overwriting the
+   passing result.
+
+Measured 2026-09-16: a green ledger-pr check was overwritten by a stale red
+exactly that way, and the PR sat blocked on a body that had already been
+corrected.
+
+**The remedy for a body-reading gate is to edit the body**, which fires a fresh
+event. Never re-run it. An aggregate that reads no body, such as `CI Required
+Gate`, is safe to re-run, which is why the trap is easy to miss: the same
+command is correct for one gate and destructive for another.
+
+## `DIRTY` is terminal for an automated driver
+
+`mergeStateStatus: DIRTY` means a merge conflict. It needs a human merge and it
+will never clear on its own.
+
+A driver that only checks for failures and staleness will poll it forever.
+Measured: 32 polls, about 20 minutes, while every PR behind it waited.
+
+**Skip DIRTY and report it.** Resolve conflicts by hand, separately, and give
+generated files (`TEST_WIRING.tsv` and similar) to their generator rather than
+hand-merging: taking either side of a conflict in a sorted, generated file
+silently drops whichever row the other side registered, and the file still
+parses afterwards, so nothing tells you.
+
+## A checklist that avoids all three
+
+1. `gh pr view N --json mergeStateStatus` first. DIRTY, skip and report.
+2. Any failing check: read it, fix the cause, do NOT re-run a body-reading gate.
+3. BEHIND: update ONE branch, then wait for `CI Required Gate` to conclude on
+   the new head before touching another.
+4. Merge, then expect every other branch to be BEHIND again. That is normal and
+   not a symptom.
+
 
 ## The check count is a property of install.sh, not of the policy
 
