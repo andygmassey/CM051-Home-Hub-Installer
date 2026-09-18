@@ -366,6 +366,43 @@ it decides whether the work is a command, a judgement, or a conversation.
 
 **In every case the instrument was honest and the question was the wrong one.**
 None of these was a broken tool or a careless reading; each was a true answer to
-something adjacent to the subject. The defence is not more care, it is naming the
-subject out loud before taking the reading, and pairing the reading with a
-control that would fail if the instrument had drifted onto the neighbour.
+something adjacent to the subject.
+
+### The sharpened form, and why it is the actionable one
+
+That rule was tested against a third session's own seven faults from the same
+night rather than agreed with. It held on six. The seventh did not fit, and the
+exception is what makes the rule usable:
+
+    six faults   an honest tool answering the wrong question
+    one fault    a NameError on a scan's success path -- a real code defect
+
+> **The wrong-question faults are the dangerous ones precisely because the tool
+> does not misbehave. A broken tool announces itself. An honest tool answering
+> the wrong question hands you a confident, checkable-looking result.**
+
+The cost difference is the evidence, measured on one night: the fault that
+crashed cost ten minutes. The faults that answered honestly cost hours, and two
+of them reached the board as findings before being withdrawn.
+
+So this is not advice to distrust your tools. It is advice about **where to spend
+scepticism**: on the readings that come back clean.
+
+### The drill, when a measurement surprises you
+
+Do **not** first suspect the tool.
+
+1. Write down, in words, the question you believe you asked.
+2. Read the command and write down the question it **actually** asks.
+3. The gap is the bug.
+
+And state the units every time, because every one of these faults was a missing
+unit: **which clock, which corpus, whose exit status, which tick, which ref.**
+
+The same pair of sessions each hit the overlap-versus-conflict version of this
+within an hour of each other, in opposite directions. One reported an overlap set
+as a conflict set and had to withdraw a plan built on it. The other measured that
+two branches both *touch* the same file, then **actually merged both orders
+before saying they conflict** - they did, in both orders, but the overlap alone
+would not have shown it. Same trap, one step apart, and only the second reading
+was evidence.
