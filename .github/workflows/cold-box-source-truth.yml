@@ -76,6 +76,7 @@ on:
       - 'tests/test_aiconv_without_owner_email_does_not_redden_health_check.sh'
       - 'tests/test_aiconv_hydrate_honesty.sh'
       - 'tests/test_source_status_reports_ongoing_not_just_install.sh'
+      - 'tests/test_a_failed_source_recorder_is_not_silent.sh'
       # Both halves again, and a third: this gate reads install.sh's source
       # picker, the vendored Doctor's row register AND the shipped extractor's
       # own vocabulary, so a change to any of the three can break the
@@ -599,6 +600,7 @@ jobs:
         run: python3 tests/test_a_launchagent_names_an_absolute_interpreter.py
 
 
+
       # 🔴 INSTANCE SIX OF THE STAGING-PATH FAMILY, AND THE FIRST TO GET A GATE.
       # install.sh:353 already records "THIRD OCCURRENCE OF THIS CLASS"; every
       # prior instance was fixed as an instance. A path derived from OSTLER_DIR
@@ -656,6 +658,29 @@ jobs:
       - name: a quiesced interval agent is re-registered
         if: always()
         run: bash tests/test_a_quiesced_interval_agent_is_re_registered.sh
+
+
+      - name: A source recorder that DIED is not a source that never ran
+        if: always()
+        # 🔴 The recorder is called with `|| true`. Keeping the install alive
+        # when BOOKKEEPING dies is correct and is kept. Discarding the fact
+        # that it died was not: a failed recorder leaves NO row, and this
+        # panel renders a missing row exactly like a source never asked to
+        # run. Two states, one appearance, and only one is a real absence.
+        #
+        # Measured before the fix: 0 occurrences anywhere in install.sh of any
+        # record of a recorder failure, against a control of 10 for the
+        # honest-record helpers the function already calls on its known-bad
+        # paths. So the zero was real.
+        #
+        # The test LIFTS THE REAL BLOCK from install.sh by its own markers
+        # rather than re-typing it, and reports CANNOT-RUN, not a pass, if the
+        # markers are gone. Its mutation arm pins the pre-fix `|| true` form as
+        # SILENT on the same failure, so the fixture cannot quietly stop
+        # reproducing the defect. Its fourth arm is a control that the block
+        # still exits 0, because turning a bookkeeping failure into an aborted
+        # install would be a worse defect than the one this closes.
+        run: /bin/bash tests/test_a_failed_source_recorder_is_not_silent.sh
 
 
 

@@ -116,6 +116,23 @@ jobs:
       # touches "$t", never a literal path. Every existing entry in that list is
       # grandfathered because that gate inspects only NEWLY ADDED tests. This
       # one is named so both gates can see the same fact.
+
+      # A STEP OF ITS OWN, AND THE REASON IS MECHANICAL RATHER THAN A PREFERENCE.
+      # scripts/verify_new_tests_are_wired.sh scores a test WIRED only when its
+      # path appears on a line that ALSO carries an EXECUTION VERB, because
+      # naming a test is not running it. An entry in the `for t in ... \` list
+      # below carries no verb on its own line, so a test wired only there is
+      # scored DARK. Measured: adding it to that list left the gate reporting
+      # DARK, and this step is what makes it WIRED.
+      - name: The meeting brief guard can tell its own failure from a clean result
+        if: always()
+        # Board row 2211. The degraded check used to collapse every failure of
+        # its own pipeline into the one answer that SENDS, so a brief could ship
+        # with missing attendee facts whenever the guard itself broke. This
+        # lifts the real block from install.sh by marker and drives all three
+        # outcomes, with the pre-fix block as a mutant that must SEND.
+        run: /bin/bash tests/test_the_brief_guard_can_tell_its_own_failure_from_a_clean_result.sh
+
       - name: B2 -- a removed Transcripts folder is reported as removed
         # `if: always()` because this step shares a job with the loop above. Without
         # it, a failure in ANY earlier m..z test skips this one, and a test that
@@ -153,6 +170,20 @@ jobs:
       - name: the success screen names the wiki credential
         if: always()
         run: bash tests/test_the_success_screen_names_the_wiki_credential.sh
+
+      # BOARD ROW 997. Its own step with an execution verb, because
+      # verify_new_tests_are_wired.sh scores a path WIRED only on a line that
+      # also carries one, and an entry in the batch list above carries none.
+      # Placed last so it can mask nothing; it carries `if: always()` so
+      # nothing masks it.
+      - name: The forward calendar window survives the hourly re-run
+        if: always()
+        # extract_all.py reads OSTLER_CALENDAR_FUTURE_DAYS, default 30. The
+        # installer hydrates 365 through a DIFFERENTLY NAMED variable, so the
+        # reader's name was never set and the com.ostler.fda-rerun agent, which
+        # inherits nothing, rewrote calendar_events.json with 30 days on the
+        # first tick after installing and every tick after.
+        run: /bin/bash tests/test_the_forward_calendar_window_survives_the_rerun.sh
 
   python-ubuntu:
     # Vendored-logic tests (parsers, identity resolver, migration guard,

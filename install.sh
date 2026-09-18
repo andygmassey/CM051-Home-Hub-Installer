@@ -3373,7 +3373,7 @@ _ostler_promote_prelaunch_tree() {
     # behind `|| true`, do nothing while looking applied. That path is harmless
     # anyway: both armings (:8273, :14685) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17528 / :17706 / :17863 / :18204 path. There the
+    # :17528 / :17706 / :17863 / :18205 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -17978,6 +17978,7 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
                  OSTLER_SAFARI_BACKFILL_DAYS="${OSTLER_SAFARI_BACKFILL_DAYS}" \
                  OSTLER_WHATSAPP_BACKFILL_DAYS="${OSTLER_WHATSAPP_BACKFILL_DAYS}" \
                  OSTLER_MAIL_BACKFILL_DAYS="${OSTLER_MAIL_BACKFILL_DAYS}" \
+                 OSTLER_CALENDAR_FUTURE_DAYS="${OSTLER_HYDRATE_CALENDAR_FUTURE_DAYS:-365}" \
                  "$OSTLER_PYTHON" -c "
 import sys, json
 sys.path.insert(0, '${FDA_DIR}')
@@ -22268,6 +22269,32 @@ if [[ ! -x "$OSTLER_PYTHON" ]]; then
     OSTLER_PYTHON="$(command -v python3 || true)"
 fi
 
+# 🔴 BOARD ROW 997: THE FORWARD CALENDAR WINDOW WAS CLAWED BACK WITHIN THE HOUR.
+#
+# extract_all.py reads OSTLER_CALENDAR_FUTURE_DAYS and defaults it to 30. The
+# installer's own calendar hydrate uses 365, but it reaches that value by
+# interpolating a DIFFERENTLY NAMED variable, OSTLER_HYDRATE_CALENDAR_FUTURE_DAYS,
+# straight into its own heredoc. The reader's name appears nowhere else in
+# install.sh, so nothing ever set it.
+#
+# This script is driven by the com.ostler.fda-rerun LaunchAgent, whose
+# environment inherits nothing from the installer shell, as the comment above
+# already records for OSTLER_PYTHON. It calls run_all(), which rewrites
+# calendar_events.json. So the customer's 365-day forward window was replaced
+# by a 30-day one on the first tick after installing, and on every tick after
+# that, for ever. A writer/reader contract mismatch, not a missing export:
+# measured on origin/main, NO sibling window variable is exported either, they
+# are passed as an env prefix on the invocation.
+#
+# THE LIBRARY DEFAULT IS DELIBERATELY NOT MOVED, and extract_all.py says why in
+# its own words: a library default that changes underneath a shipped install is
+# a migration rather than a fix, and install.sh is what supplies the product
+# value. This is install.sh supplying it.
+#
+# The `:-` form means an operator who exports their own value still wins, and
+# it keeps this safe under `set -u` like everything else in this wrapper.
+export OSTLER_CALENDAR_FUTURE_DAYS="${OSTLER_CALENDAR_FUTURE_DAYS:-365}"
+
 if [[ ! -d "$FDA_DIR/ostler_fda" ]]; then
     echo "Error: FDA extraction module not installed."
     echo "Re-run the Ostler installer to set it up."
@@ -22909,16 +22936,48 @@ if [[ -z "${RESPONSE}" ]]; then
     exit 0
 fi
 
-# Degraded short-circuit. The hub returns degraded=true when the
-# People Graph is unreachable; we do not want to ship a brief with
-# missing attendee facts.
-DEGRADED=$(printf '%s' "${RESPONSE}" | python3 -c \
+# Degraded short-circuit, with THREE outcomes rather than two.
+# The hub returns degraded=true when the People Graph is unreachable; we do
+# not want to ship a brief with missing attendee facts.
+#
+# 🔴 BOARD ROW 2211. This previously collapsed EVERY failure of the pipeline
+# into DEGRADED="False", which is the single answer that ships the brief:
+#
+#     ... 2>>"${LOG_FILE}") || DEGRADED="False"
+#
+# Malformed JSON, a truncated response, an unwritable LOG_FILE, or python3
+# resolving to the Apple stub on a box without Command Line Tools each read
+# as "the People Graph is healthy". The comment above stated the intent
+# exactly and the code inverted it on every error path. A guard that cannot
+# tell its own failure from a clean result is not a guard, and this one was
+# confidently wrong in the precise direction the comment says must not
+# happen, on a schedule, unattended, with its own log recording nothing
+# because the failure was consumed by the ||.
+#
+# A brief NOT sent is recoverable. A brief sent with missing attendee facts
+# is not. So COULD-NOT-DETERMINE skips, and says why.
+DEGRADED_RC=0
+DEGRADED_RAW=$(printf '%s' "${RESPONSE}" | python3 -c \
     'import json,sys; print(json.load(sys.stdin).get("degraded", False))' \
-    2>>"${LOG_FILE}") || DEGRADED="False"
-if [[ "${DEGRADED}" == "True" ]]; then
-    echo "$(date -u +%FT%TZ) skip: hub degraded" >> "${LOG_FILE}"
+    2>>"${LOG_FILE}") || DEGRADED_RC=$?
+if [[ "${DEGRADED_RC}" -ne 0 ]]; then
+    echo "$(date -u +%FT%TZ) skip: CANNOT-RUN, could not read degraded state (rc=${DEGRADED_RC}); not sending rather than sending a brief that may be missing attendee facts" >> "${LOG_FILE}"
     exit 0
 fi
+DEGRADED=$(printf '%s' "${DEGRADED_RAW}" | tr -d '[:space:]')
+case "${DEGRADED}" in
+    True)
+        echo "$(date -u +%FT%TZ) skip: hub degraded" >> "${LOG_FILE}"
+        exit 0
+        ;;
+    False)
+        : # the only path that sends
+        ;;
+    *)
+        echo "$(date -u +%FT%TZ) skip: CANNOT-RUN, unrecognised degraded value; not sending rather than guessing" >> "${LOG_FILE}"
+        exit 0
+        ;;
+esac
 
 # Iterate meetings. Each meeting's idempotency key is UID + start;
 # the assistant's announcement endpoint is the WhatsApp arm.
@@ -29079,7 +29138,42 @@ _hydrate_compute_change() {
         prev_lua="$(grep -m1 '^last_update_at=' "$sentinel" 2>/dev/null | cut -d= -f2-)" || prev_lua=""
     fi
     _HY_ITEM_COUNT="$new_count"
-    if [[ -n "$prev_lua" && "$prev_count" == "$new_count" ]]; then
+    if [[ -z "$new_count" ]]; then
+        # 🔴 AN UNMEASURABLE COUNT HAS NO "LAST CHANGED" ANSWER, AND SAYING
+        # NOTHING IS THE ONLY HONEST ONE.
+        #
+        # The branch below carries the previous timestamp forward when the count
+        # is UNCHANGED. With no count at all, "" == "" compares equal on every
+        # run forever, so the timestamp froze at whatever it first held and
+        # could never advance again -- for the SOURCE'S WHOLE LIFE, no matter
+        # how many times it ran.
+        #
+        # MEASURED on the walk box 2026-09-18T17:18Z. Three of thirteen
+        # sentinels write `payload=ran=1,rc=0`, which carries no count key:
+        #
+        #   sentinel          recorded_at            last_update_at
+        #   places            2026-09-18T17:18:30Z   2026-09-17T12:45:10Z
+        #   privacy_backfill  2026-09-18T17:18:31Z   2026-09-17T12:45:10Z
+        #   dedupe            2026-09-18T17:17:57Z   2026-09-17T12:44:49Z
+        #   calendar (control)2026-09-18T17:16:11Z   2026-09-18T17:16:11Z
+        #
+        # recorded_at moved, so the file WAS rewritten; last_update_at did not.
+        # places had just written 929 places that same minute.
+        #
+        # IT IS CUSTOMER-VISIBLE. The Doctor's source table renders
+        #     when = r.get("last_update_at") or r.get("recorded_at")
+        # so those three show a date a day old, in the column a customer reads
+        # as "when did this last happen", on a box where they ran minutes ago.
+        # The gap widens forever.
+        #
+        # Empty is not a loss of information: the Doctor's own `or` above then
+        # falls back to recorded_at, which is accurate and fresh. This is the
+        # same rule the item_count path already follows one screen up -- "a
+        # fabricated 0 is the exact shape
+        # tests/test_an_unmeasured_count_is_not_a_measured_zero.sh exists to
+        # stop". A frozen timestamp is that fabricated zero wearing a date.
+        _HY_LAST_UPDATE_AT=""
+    elif [[ -n "$prev_lua" && "$prev_count" == "$new_count" ]]; then
         _HY_LAST_UPDATE_AT="$prev_lua"
     else
         _HY_LAST_UPDATE_AT="$now"
@@ -33674,7 +33768,29 @@ fi
 # the thing run", and the whole point of #1587 is that a source nobody
 # recorded is invisible rather than red. If the extract never happened this
 # writes CANNOT-RUN, which is the honest answer and the one that shows up.
-_hydrate_record_fda_extract || true
+#
+# 🔴 THE `|| true` IS RIGHT AND ITS SILENCE IS NOT. Keeping the install alive
+# when the RECORDER dies is correct: a bookkeeping failure must not abort a
+# customer's install. But `|| true` also threw away the fact that it died, and
+# a recorder that failed leaves NO row at all -- which the Doctor source table
+# renders exactly like a source that was never asked to run. The two states
+# print identically, and only one of them is a customer whose sources are
+# genuinely absent.
+#
+# That is the same shape as the walk's seed marker: an outcome computed, then
+# discarded on the line that produced it. Measured: nothing anywhere in this
+# file recorded a recorder failure, 0 occurrences, against a control of 10 for
+# the honest-record helpers this function already calls on its known-bad paths.
+#
+# So the behaviour is UNCHANGED -- still never fatal -- and the failure is now
+# said out loud. warn is used rather than a silent log because the one person
+# who can act on it is reading this transcript.
+_hydrate_fda_extract_record_rc=0
+_hydrate_record_fda_extract || _hydrate_fda_extract_record_rc=$?
+if [[ "${_hydrate_fda_extract_record_rc}" -ne 0 ]]; then
+    warn "The data-source recorder exited ${_hydrate_fda_extract_record_rc}, so some rows on the Doctor's \"Where your data came from\" panel may be MISSING rather than reporting a state. A missing row and a source that never ran look the same there, and this one is the former."
+fi
+unset _hydrate_fda_extract_record_rc
 
 info "$MSG_HYDRATE_WIKI_RECOMPILE"
 
