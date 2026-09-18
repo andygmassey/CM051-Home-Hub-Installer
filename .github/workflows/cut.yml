@@ -317,6 +317,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 tests/test_the_cut_checklist_is_complete.py
 
+      # 🔴 strict_required_status_checks_policy WAS TURNED OFF ON 2026-09-18,
+      # deliberately, and board row 2208 says in its own words that the row is
+      # THE ONLY RECORD THAT IT WAS TURNED OFF. A setting whose only trace is a
+      # line of prose on a 200-row board gets shipped in that state, not because
+      # anyone decides to but because nobody is holding the thread on cut day.
+      # This is that thread. It PASSES outside a cut, because turning it off
+      # during the merge queue is the decision that was taken and this does not
+      # relitigate it; it FAILS here, because a cut branch has to come from a
+      # main whose required check was confirmed against the tip it merged into.
+      # It refuses rather than passing if it cannot read the setting.
+      - name: strict required checks are back on before the cut
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OSTLER_CUT_IN_PROGRESS: '1'
+        run: python3 tests/test_strict_checks_are_back_on_before_a_cut.py
+
       - name: Cut BOM freshness gate self-test
         if: always()
         run: ./tests/test_cut_bom_is_fresh.sh --self-test
