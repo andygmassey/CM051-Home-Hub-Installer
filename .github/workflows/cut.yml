@@ -22,8 +22,19 @@
 #     cut:                if: github.event_name == 'push'
 #     dry-run:            if: github.event_name == 'workflow_dispatch'
 #
-# So a dispatch runs the CHECKS and stops. It cannot produce an artefact and
-# cannot bypass the tag that pins what was cut. That is exactly the argument
+# 🔴 RE-MEASURED 2026-09-19, AND THE `cut:` LINE ABOVE IS NO LONGER WHAT THE
+# FILE SAYS. #2118 widened it to `push || workflow_dispatch` on purpose, so a
+# candidate could be BUILT and WALKED before a tag existed. The reading below
+# was written against the old guard and survived the change unedited, which is
+# the same defect this very block was added to correct, one version later.
+#
+#     cut:                if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+#
+# So a dispatch now runs the checks AND builds a real signed, notarised,
+# stapled CANDIDATE. It still cannot bypass the tag that pins what was cut:
+# every step that publishes carries its own `if: github.event_name == 'push'`,
+# no job holds `contents: write`, and the candidate is uploaded under a
+# `candidate-<ref>-<run>` name with no release object behind it. That is exactly the argument
 # the comment ~40 lines above already makes, and it is the right one: reading
 # the trigger list alone gives the wrong answer in BOTH directions -- it calls
 # this file unsafe when it is safe, and it would call a file safe that
@@ -67,14 +78,26 @@
 #
 #   1. `workflow_dispatch:` DECLARES NO INPUTS. There is nothing to set, so
 #      there is nothing to set wrongly. Adding one would be the violation.
-#   2. Everything that signs, notarises, staples, packages, releases, archives
-#      or uploads lives in the `cut` job, and that job carries
-#      `if: github.event_name == 'push'`. A dispatch cannot make its own event
-#      name be `push`, and the only push this workflow answers to is a
-#      `v1.0.*` TAG push. The gate is on the EVENT, not on a variable.
-#   3. The dry-run job holds `permissions: contents: read` -- strictly less
-#      than the `cut` job's `contents: write`. A job that cannot write contents
-#      cannot create a release, whatever its steps say.
+#   2. PUBLISHING is gated on the EVENT, at the step. Everything that puts an
+#      artefact, or a pointer to one, where a CUSTOMER can fetch it carries its
+#      own `if: github.event_name == 'push'`: the release publish and the
+#      appcast publish. A dispatch cannot make its own event name be `push`,
+#      and the only push this workflow answers to is a `v1.0.*` TAG push.
+#
+#      🔴 THIS POINT USED TO SAY THE GATE WAS ON THE `cut` JOB AS A WHOLE, and
+#      that stopped being true at #2118. BUILDING is deliberately NOT gated any
+#      more: a dispatch produces a real signed, notarised, stapled candidate,
+#      because the v1.0.100 walk failed six probes that only an installed
+#      Ostler can exercise, and a candidate that cannot be built cannot be
+#      walked. The guarantee did not weaken, it got more precise: produce on a
+#      dispatch, publish only on a tag.
+#   3. NO job holds `contents: write`. The workflow-level block is
+#      `contents: read`, so the `cut` job, which declares none of its own,
+#      inherits read. A job that cannot write contents cannot create a release,
+#      whatever its steps say. This used to read "the dry-run job holds
+#      contents: read, strictly less than the cut job's contents: write" -- and
+#      once the cut job became dispatch-reachable, that write scope was a
+#      publisher waiting for its first line of code.
 #   4. The dry-run job contains no signing-credential step, no notary
 #      credential step, and no upload-artifact step. They are not disabled
 #      there; they are ABSENT, because they only exist in `cut`.
@@ -102,7 +125,33 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write     # create the release
+  # 🔴 READ, NOT WRITE. THE COMMENT THAT USED TO SIT ON THIS LINE NAMED A
+  # CONSUMER THAT DOES NOT EXIST.
+  #
+  # It said `contents: write     # create the release`. Nothing in this file
+  # creates a release with this token, and that is not an inference:
+  #   * scripts/publish_release.sh REFUSES to run unless PUBLISH_RELEASE_TOKEN
+  #     is set, and its own error says why in as many words, that
+  #     secrets.GITHUB_TOKEN cannot reach the release because it lives under a
+  #     different owner. Every gh call in it is `GH_TOKEN="$PUBLISH_RELEASE_TOKEN"`.
+  #   * the appcast step runs `make publish-appcast PUBLISH_APPCAST=onbox`,
+  #     which publishes nothing from CI by Andy's 2026-08-19 decision.
+  #   * the `cut` job was searched, comments excluded, for `git push`,
+  #     `gh release create|edit|upload`, `gh api` with a write method,
+  #     attestation and action-gh-release. Zero.
+  #
+  # So the scope had no consumer, and it was the only thing standing between a
+  # workflow_dispatch and a published release. #2118 made the `cut` job
+  # dispatch-reachable on purpose, so a candidate could be WALKED before a tag
+  # existed, and it correctly push-gated every step that publishes. It left
+  # this line alone. A dispatch-reachable job holding `contents: write` is a
+  # publisher waiting for its first line of code, which is exactly what
+  # scripts/verify_dispatch_cannot_ship.py exists to refuse.
+  #
+  # If a step ever does need to write contents, it belongs in a job of its own
+  # gated on `github.event_name == 'push'`, not in this block, where every job
+  # that declares no `permissions:` inherits it silently.
+  contents: read
   id-token: write     # keyless signing / attestation later
 
 concurrency:
@@ -776,12 +825,15 @@ jobs:
   # 2. CUT. macOS runner; the only place signing credentials exist.
   #    $CI is set by GitHub, which is what satisfies guard-local-cut.
   #
-  #    TAG PUSHES ONLY. `if: github.event_name == 'push'` is the whole
-  #    enforcement of the header's guarantee: every step that signs,
-  #    notarises, staples, packages, releases, archives or uploads lives in
-  #    THIS job, and a workflow_dispatch cannot make its event name be
-  #    `push`. The only push this workflow answers to is a v1.0.* tag push,
-  #    so "the cut job ran" and "a tag was written down" are the same fact.
+  #    🔴 NOT TAG PUSHES ONLY, NOT SINCE #2118, AND THIS COMMENT SAID
+  #    OTHERWISE FOR TWO DAYS. It read: "TAG PUSHES ONLY. `if:
+  #    github.event_name == 'push'` is the whole enforcement of the header's
+  #    guarantee", while the job below it already ran on a dispatch as well.
+  #
+  #    What is true: a dispatch reaches this job and BUILDS a candidate, and
+  #    every step in it that PUBLISHES carries its own push gate. So "the cut
+  #    job ran" no longer means "a tag was written down"; "the release was
+  #    published" still does, which is the fact that matters to a customer.
   # ---------------------------------------------------------------------
 
       # v1.0.39 SHIPPED REPORTING ITSELF AS 1.0.38. The DMG was signed,

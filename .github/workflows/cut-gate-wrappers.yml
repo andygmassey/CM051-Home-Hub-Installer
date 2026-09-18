@@ -44,6 +44,16 @@ on:
       - 'tests/test_store_port_first_install_stale_store.sh'
       - 'install.sh'
       - '.github/workflows/cut.yml'
+      # Wired 2026-09-19. The dispatch gate ran in ONE place: the `preflight`
+      # job of cut.yml. Measured across the 154 workflow files in this repo,
+      # 152 of which carry a pull_request trigger, NOT ONE names it, so its
+      # first real execution was a tag push or a dispatch. #2118 then changed
+      # the contract the gate enforces and nothing re-ran it, so the gate has
+      # been RED against its own repo since 2026-09-17 and the next tag would
+      # have died in preflight. Both halves listed, guard and subject, per the
+      # self-edit note above.
+      - 'scripts/verify_dispatch_cannot_ship.py'
+      - 'tests/test_cut_dispatch_is_dry.sh'
       - 'scripts/verify_cut_provenance.sh'
       - 'scripts/verify_no_orphaned_fixes.sh'
       - 'scripts/verify_pr_age.sh'
@@ -259,6 +269,22 @@ jobs:
       - name: The operator rollforward runner refuses a blind environment
         if: always()
         run: /bin/bash tests/test_the_operator_rollforward_refuses_a_blind_environment.sh
+
+      # THE DISPATCH GATE, ON A PR, FOR THE FIRST TIME.
+      #
+      # Its control 14 runs the checker against this repo's REAL cut.yml, so a
+      # change that reopens the publish route, or that moves the contract
+      # without moving the enforcer, fails here instead of in preflight on a
+      # tag. That is the whole difference between a version number spent and a
+      # PR turned red.
+      #
+      # /bin/bash deliberately: the cut host is macOS and ships bash 3.2, and
+      # this suite drives python mutations whose quoting differs under 5.
+      #
+      # if: always() so an earlier red in this job cannot mask it.
+      - name: A workflow_dispatch cannot publish
+        if: always()
+        run: /bin/bash tests/test_cut_dispatch_is_dry.sh
 
       # Wired 2026-09-06 (#1694). See the paths note above: three gate
       # self-tests that ran nowhere. Each proves its gate REJECTS a violation,
