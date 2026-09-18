@@ -69,9 +69,38 @@ frames() {
 # `. lib/probe.sh` source (which would replace the stubs) and the trailing
 # probe_main (which would run it). A unit is not its file -- extracting run_probe
 # alone would leave classify_verdict undefined and every arm would measure that.
-verdict() {  # verdict <turn1> <turn2> <turn3>  -> PASS | FAIL | CANNOT-RUN
+# THE BATTERY SIZE IS DERIVED FROM THE SUBJECT, NOT DECLARED HERE.
+#
+# 🔴 THIS HARNESS USED TO HARD-CODE THREE TURNS, and when the battery grew to
+# four the fourth turn got no synthetic answer, the control arm never reached
+# PASS, and this file refused at its first arm having measured nothing. The
+# refusal message was literally correct -- "the harness is wrong, not the
+# probe" -- and it named its own defect while nobody could see it, because the
+# CI rollup renders any non-zero as "failure" and a CANNOT-RUN (exit 2) is
+# indistinguishable from a FAIL (exit 1) in that list.
+#
+# A test whose harness encodes the SHAPE of its subject cannot survive the
+# subject changing, which is the same family as a fixture encoding the flag
+# rather than the property. So the count is read from _questions() in the
+# SUBJECT, and callers supply only the turns they care about; the remainder are
+# padded HEALTHY so an arm about turn 2 stays an arm about turn 2 when a turn 4
+# appears. cat at the consumption site uses 2>/dev/null, so a missing answer
+# file is silently EMPTY rather than an error, which is exactly why this failed
+# quietly instead of loudly.
+_battery_size() {
+    sed -n '/^_questions()/,/^}/p' "$SUBJECT" \
+        | sed -n '/<<QEOF/,/^QEOF/p' \
+        | grep -c "$(printf '\t')"
+}
+
+verdict() {  # verdict <turn...>  -> PASS | FAIL | CANNOT-RUN
     local h="${WORK}/h.sh" i=1
+    local _n _last
+    _n="$(_battery_size)"
     : > "${WORK}/answers"
+    set -- "$@"
+    _last="${@: -1}"
+    while [ "$#" -lt "${_n:-0}" ]; do set -- "$@" "$_last"; done
     for t in "$@"; do frames "$t" >> "${WORK}/answers.$i"; i=$((i+1)); done
     cat > "$h" <<HDR
 set -uo pipefail
