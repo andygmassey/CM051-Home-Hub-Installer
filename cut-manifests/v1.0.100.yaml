@@ -5396,3 +5396,40 @@ open_issues:
       naming a merged pull request is not counted, and a second arm proving a struck row that DECLARES
       one still is. It must NOT close by deleting the strike narrative from any row, which would move
       the number without answering the question.
+  - issue: 2241
+    repo: none
+    title: 'CUT BLOCKER: the shipping path never evaluates a capability, so DELIVERED has never been measured by the cut that produces the artefact'
+    gate: >-
+      🔴 BLOCKING. MEASURED 2026-09-19 WITH CONTROLS, AND IT UNDERCUTS THE WORD LAUNCH DIRECTIVE ITEM 9
+      RESERVES FOR THE MIDDLE STATE. Item 9 defines DELIVERED as present in a mounted DMG BY A
+      CAPABILITY PATTERN that was zero on the previous artefact. That is the only mechanism the
+      directive names for distinguishing MERGED from DELIVERED. THE CUT DOES NOT RUN IT. THE CHAIN,
+      READ RATHER THAN ASSUMED. cut.yml runs make ship. The ship target's full prerequisite list is 28
+      targets long and contains NO capability verification. Five of its prerequisites were opened and
+      read in full, totalling 370 lines, and the capability gate appears ZERO times in all five.
+      POSITIVE CONTROL of the same shape on the same bodies: those same five contain 1 and 8 real
+      script invocations, so the predicate finds a gate call when there is one and the zeros are real
+      absences. The only mention of the word anywhere in the installer Makefile is a COMMENT, and both
+      mentions in the cut workflow are COMMENTS, each confirmed by testing the line for a leading hash
+      rather than by eye. WHAT THE CUT DOES CHECK IS THE BOM'S FRESHNESS, NOT ITS CLAIMS. The workflow
+      runs a bill-of-materials freshness test, which asserts the vendored register is the one for this
+      version. Nothing then asks whether any capability the register DECLARES is actually present in
+      the artefact. So the register can be perfectly fresh and perfectly unverified at the same time,
+      and those two states are indistinguishable from the cut's output. WHAT THIS MEANS FOR TWO OTHER
+      ROWS ON THIS BOARD, and it is the reason this is filed rather than noted. ROW 2202 prescribes a
+      capability expressing a conjunction and calls it the thing that can stop a cut. IT CANNOT,
+      because nothing evaluates it at cut time, so writing it as specified would be the FIRST of the
+      seven modes, built with no consumer, on the row that exists to catch exactly that. ROW 2223
+      reports 22 of 27 capabilities verified against the real artefact. THAT VERIFICATION WAS RUN BY
+      HAND. It is a real measurement and it is not a gate, and the distinction is the whole of this
+      row. WHY IT IS BLOCKING RATHER THAN A NOTE: every claim of DELIVERED made about this cut rests
+      on a mechanism the cut does not execute. That does not make the claims false, and several were
+      checked by hand tonight against a mounted DMG. It makes them UNGATED, so nothing prevents the
+      next cut from regressing silently, which is the precise failure item 9 was written after. WHAT
+      WOULD CLOSE IT, and the smallest honest version is small: ONE step on the shipping path that
+      evaluates the required capabilities against the BUILT artefact and fails the cut when a required
+      one is absent, with a denominator printed so a zero-row run cannot read as success, and with a
+      control that must find a capability known to be present. It must run against the ARTEFACT and
+      not the working tree, because those are 702 lines apart and row 2202 measured exactly that gap.
+      RELATED AND NOT A DUPLICATE: row 2223 is about whether individual patterns CAN be verified; this
+      row is about whether anything ASKS.
