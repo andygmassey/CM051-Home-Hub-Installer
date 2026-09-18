@@ -41,21 +41,32 @@
 #     26530  ${_HYDRATE_APPLENOTES_JSON_FILE} -- an FDA extraction OUTPUT, and
 #            the variable itself is not assigned until 26508, long after seed
 #
-# So the floor for this ratchet is THREE, not one, and getting below three is
-# not a hoist at all -- it needs the condition computed from something knowable
-# at seed, or an accepted design decision that the denominator moves. Writing a
-# gate that demands zero would be writing a gate nobody can satisfy, and an
-# unsatisfiable gate gets bypassed rather than met.
+#   NOT HOISTABLE (4 as of 2026-09-13, PIN raised 6 -> 7; see below)
+#     29909  ${_HYDRATE_REMINDERS_JSON_FILE} -- SAME shape as the
+#            apple_notes row directly above: an FDA extraction OUTPUT
+#            (reminders.json), variable assigned at install.sh:29909, itself
+#            long after seed. Written reason for the raise, as this file's
+#            own PIN comment requires: this decrement mirrors an ALREADY
+#            NOT-HOISTABLE sibling exactly (same fda_extract dependency,
+#            same "-s file exists" test), so hoisting it while its sibling
+#            stays un-hoisted would not shrink the true floor, only hide one
+#            member of it. The floor is 4 not-hoistable sites now, not 3.
 #
-# So this is a RATCHET, pinned at the measured 6. It is satisfiable TODAY, it
-# refuses a SEVENTH, and -- because it also fails when the count drops without
+# So the floor for this ratchet is FOUR now (was three), and getting below
+# four is not a hoist at all -- it needs the condition computed from
+# something knowable at seed, or an accepted design decision that the
+# denominator moves. Writing a gate that demands zero would be writing a gate
+# nobody can satisfy, and an unsatisfiable gate gets bypassed rather than met.
+#
+# So this is a RATCHET, pinned at the measured 7. It is satisfiable TODAY, it
+# refuses an EIGHTH, and -- because it also fails when the count drops without
 # the pin being lowered -- it forces the number DOWN over time instead of
 # merely freezing it. That second direction is the point: a ratchet that only
 # catches increases silently blesses a fix that was never recorded.
 #
 # ── EXIT CODES ───────────────────────────────────────────────────────────────
-#   0  ok        6 or fewer late decrements, pin accurate
-#   1  violation a 7th appeared, or the count fell without lowering PIN
+#   0  ok        7 or fewer late decrements, pin accurate
+#   1  violation an 8th appeared, or the count fell without lowering PIN
 #   2  CANNOT-RUN could not read install.sh / parsed nothing. NOT a pass.
 
 set -uo pipefail
@@ -63,9 +74,37 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALL_SH="${REPO_ROOT}/install.sh"
 
-# The measured population, 2026-09-03 at origin/main f237c3a0. LOWER THIS when
-# you hoist one. Raising it requires a written reason in the PR body.
-PIN=6
+# The measured population, 2026-09-03 at origin/main f237c3a0, raised
+# 2026-09-13 (6 -> 7) for the hydrate_reminders decrement -- see the
+# NOT-HOISTABLE list above for the written reason. LOWER THIS when you hoist
+# one. Raising it further requires a written reason in the PR body.
+#
+# ── RAISED 2026-09-18, 7 -> 8, DELIBERATELY, FOR merge_consistency_repair ────
+#
+# This gate's own message offers two ways out: hoist the condition to seed
+# time, or, if it is genuinely unknowable that early, SAY SO and raise the pin
+# deliberately rather than silently. This is the second, and the claim is
+# MEASURED rather than asserted:
+#
+#     TOTAL_STEPS is seeded at         install.sh:11996
+#     identity_resolver is copied in   install.sh:20522
+#     the pipeline venv is created     install.sh:20655
+#
+# The step runs only when that package AND that venv AND the module
+# repair_merge_consistency.py all exist under PIPELINE_DIR. On a FRESH install
+# none of the three exists at line 11996 -- they are created eight and a half
+# thousand lines later. Evaluating the condition at seed would subtract a step
+# that IS going to run, on every first install, which is the same wrong
+# denominator this ratchet exists to prevent, arrived at from the other side.
+#
+# THE LATENESS IS THE CORRECTNESS HERE. By the time the decrement fires, the
+# question "will this step run" has an answer. At seed it does not, and a guess
+# is not a hoist.
+#
+# WHAT WOULD LOWER IT AGAIN: making the repair unconditional, which means
+# shipping the module in a tree that cannot be absent. That is a real option
+# and it is not tonight's.
+PIN=8
 
 cannot() { echo "CANNOT-RUN [$1]: $2" >&2; exit 2; }
 [ -f "$INSTALL_SH" ] || cannot "no-install-sh" "$INSTALL_SH not found -- nothing was examined."

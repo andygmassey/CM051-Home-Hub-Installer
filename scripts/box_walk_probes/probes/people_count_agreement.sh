@@ -541,12 +541,40 @@ run_probe() {
     for v in "$oxi" "$doc"; do [ "$v" != "UNAVAILABLE" ] && readable=$((readable + 1)); done
     probe_examined "$readable" "of 2 people-count surfaces readable"
 
+    # ── WHY, NOT JUST WHETHER (CM041 #162) ───────────────────────────
+    #
+    # This probe could always say the two counts disagree and never say
+    # what caused it, and that gap is why it was carried walk after walk
+    # as a number rather than as a defect. Root-caused 2026-09-18: two
+    # merge paths disagreed, one retired the discard's Person type and
+    # the other did not, and neither deleted the vector point. The
+    # install now runs a repair and records its OUTCOME, not just its
+    # log, at ~/.ostler/state/merge_consistency_repair.tsv.
+    #
+    # THE ABSENT FILE IS ITSELF AN ANSWER, and it is spelled out rather
+    # than left blank: it means this box was installed by a build that
+    # predates the repair, which is a different fact from a repair that
+    # ran and could not read a store. Read with no branch for absence,
+    # those two print identically.
+    local _MCR_FILE _MCR_SUFFIX _mcr_raw _mcr_verdict _mcr_reason _mcr_at
+    _MCR_FILE=".ostler/state/merge_consistency_repair.tsv"
+    _mcr_raw="$(box_run "cat \"\$HOME/${_MCR_FILE}\" 2>/dev/null" 2>/dev/null || true)"
+    if [ -z "$_mcr_raw" ]; then
+        _MCR_SUFFIX=" MERGE-CONSISTENCY REPAIR: no record at ~/${_MCR_FILE}, so this box was installed by a build that predates it (CM041 #162). That is not evidence the repair failed, it is evidence it was never offered."
+    else
+        _mcr_verdict="$(printf '%s\n' "$_mcr_raw" | awk -F'\t' '$1=="verdict" {print $2; exit}')"
+        _mcr_reason="$(printf '%s\n' "$_mcr_raw" | awk -F'\t' '$1=="reason" {print $2; exit}')"
+        _mcr_at="$(printf '%s\n' "$_mcr_raw" | awk -F'\t' '$1=="ran_at" {print $2; exit}')"
+        _MCR_SUFFIX=" MERGE-CONSISTENCY REPAIR: ${_mcr_verdict:-UNREADABLE} at ${_mcr_at:-an unrecorded time} -- ${_mcr_reason:-the record carried no reason}."
+    fi
+    probe_note "merge-consistency repair:${_MCR_SUFFIX}"
+
     local r token detail
     r="$(adjudicate_counts "$oxi" "$doc" "$TOLERANCE_PCT")"
     token="${r%% *}"; detail="${r#* }"
 
     case "$token" in
-        DISAGREE)     probe_fail "people counts disagree: $detail (task #273). A count is the simplest claim the product makes. STABILITY: the pair held for ${_STABILITY_WINDOW}s across ${STABILITY_RUNS} reads -- that BOUNDS the motion, it does not prove writing stopped, and a plateau of exactly this shape once produced a disagreement that vanished minutes later." ;;
+        DISAGREE)     probe_fail "people counts disagree: $detail (task #273).${_MCR_SUFFIX} A count is the simplest claim the product makes. STABILITY: the pair held for ${_STABILITY_WINDOW}s across ${STABILITY_RUNS} reads -- that BOUNDS the motion, it does not prove writing stopped, and a plateau of exactly this shape once produced a disagreement that vanished minutes later." ;;
         INSUFFICIENT) probe_cannot_run "$detail" ;;
         *)            probe_pass "$detail" ;;
     esac

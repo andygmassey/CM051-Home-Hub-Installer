@@ -67,6 +67,41 @@ assert_fit gemma4:e2b 15 slow
 assert_fit gemma4:e2b 16 fits    # min_fit boundary -> fits
 assert_fit gemma4:e2b 64 fits
 
+# ---------------------------------------------------------------------------
+# THE COMMENT IN install.sh MUST NOT DRIFT FROM THIS TABLE.
+#
+# install.sh's RAM-tier branch used to say the 16GB tier meant "concurrency 2,
+# qwen3.5:9b". The tier decides CONCURRENCY; the model comes from the picker,
+# and a 16GB box can never get qwen3.5:9b (asserted directly below). That one
+# wrong noun sent a reader ten minutes the wrong way.
+#
+# The replacement comment quotes the threshold table BY VALUE, which is useful
+# to a reader and rots the moment the table moves. So it is checked. Each row
+# is required in BOTH files, and the control proves the predicate can fail: a
+# threshold that is deliberately not in the table must NOT be found.
+# ---------------------------------------------------------------------------
+echo "== install.sh's quoted thresholds match lib/ostler-model-fit.sh =="
+_mf_drift=0; _mf_missing=""
+for _row in "qwen3.6:35b-a3b 48 36" "qwen3.5:9b 24 18" "gemma4:e2b 16 12"; do
+    set -- $_row
+    if [ "$(grep -c "#     $1 *$2 *$3\$" "$INSTALL")" -lt 1 ]; then
+        _mf_missing="$_mf_missing $1"
+        _mf_drift=1
+    fi
+done
+if [ "$_mf_drift" -eq 0 ]; then
+    ok "all 3 threshold rows appear in install.sh's comment"
+else
+    bad "install.sh's comment does not carry these rows:$_mf_missing"
+fi
+# CONTROL: a row that is NOT the real table must be rejected, or the grep above
+# would accept anything and pass for ever.
+if [ "$(grep -c '#     qwen3.5:9b *16 *12$' "$INSTALL")" -eq 0 ]; then
+    ok "CONTROL: a wrong threshold row is not found, so the check discriminates"
+else
+    bad "CONTROL: a threshold row that is not in the table was found"
+fi
+
 echo "== verdicts: qwen3.5:9b (24/18 thresholds) =="
 assert_fit qwen3.5:9b 16 nofit
 assert_fit qwen3.5:9b 18 slow    # min_slow boundary
