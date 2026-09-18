@@ -181,6 +181,51 @@ def _names_proof(g: str) -> bool:
     return bool(re.search(r"\bPR #\d+", g)) or "GATED BY ENTRY" in g
 
 
+# ── AN UNFINISHED VERDICT COUNTS WHEREVER IT APPEARS, NOT ONLY ON A STRUCK ROW
+#
+# 🔴 BOARD ROW 2203. _is_ungated applied the unfinished markers ONLY inside the
+# struck-on-closure branch, so a row that says NOT STARTED in its own words and
+# was never struck was counted as GATED. The marker was checked in one branch
+# and ignored everywhere else, and the number it feeds is the one that decides
+# whether a cut may proceed.
+#
+# That is worse than the 2026-09-16 strike rather than better. The strike
+# removed 41 rows loudly, in a commit with a message, and was found. This
+# removed rows silently, with no event to notice, for as long as the branch
+# structure has existed.
+#
+# 🗿 AND THE OBVIOUS FIX IS THE DEFECT #2149 FILED. Applying the markers to
+# every row would also count row 2149 itself, which is the row ABOUT the
+# markers and quotes four of them, and row 2203, which quotes five while
+# describing this. The rule has to be VERDICT versus MENTION.
+#
+# The discriminator is the one already measured for BLOCKING: a row states its
+# verdict first, so the marker must sit in the disposition and inside the same
+# window. MEASURED on v1.0.100: three rows move (775, 1162, 1589), each leading
+# with "NOT STARTED", and rows 2149 and 2203 carry five markers apiece with
+# ZERO in their verdict, so the trap is avoided by the same rule that does the
+# counting rather than by a special case.
+#
+# A ROW WHOSE UNFINISHED HALF IS NOT ITS LEADING VERDICT IS REPORTED, NEVER
+# DROPPED. Row 1774 reads "STAGING HALF FIXED AT THE CAUSE; ... THE HELD-
+# PRODUCER HALF IS ..." and leads with the fixed half. A positional rule cannot
+# see that without reopening the mention problem, so it is printed by number
+# for a person to judge, exactly as a BLOCKING mention is.
+def _declares_unfinished(g: str) -> bool:
+    """True when the row's own VERDICT says the work is not done."""
+    head = _disposition(g)
+    return any(0 <= head.find(mk) <= _BLOCKING_VERDICT_WINDOW
+               for mk in _UNFINISHED_MARKERS)
+
+
+def _mentions_unfinished_outside_the_verdict(g: str) -> bool:
+    """A marker is in the row and is not its verdict. Reported, not counted."""
+    if _declares_unfinished(g):
+        return False
+    up = " ".join(str(g).upper().split())
+    return any(mk in up for mk in _UNFINISHED_MARKERS)
+
+
 def _is_ungated(r) -> bool:
     """True when a row carries no proof.
 
@@ -223,6 +268,11 @@ def _is_ungated(r) -> bool:
     """
     g = " ".join(str(r.get("gate", "")).upper().split())
     if "NONE YET" in g:
+        return True
+    # Row 2203: a row whose own VERDICT says the work is not done is ungated,
+    # struck or not. The positional rule is what keeps rows that merely
+    # DESCRIBE the markers out of the count.
+    if _declares_unfinished(g):
         return True
     if _STRUCK_ON_CLOSURE in g:
         if _verdict_markers(g):
@@ -439,6 +489,9 @@ def main() -> int:
     # saying every registered issue was gated. It is the exact shape it exists
     # to catch: a gate that cannot fail reads identically to a clean sheet.
     ungated = [r for r in rows if _is_ungated(r)]
+    unfinished_mentions = [r for r in rows
+                           if _mentions_unfinished_outside_the_verdict(
+                               str(r.get("gate", "")))]
     print(f"== checklist: {manifest.name} ==")
     print(f"  registered issues : {len(registered)}")
     for k in sorted(KNOWN_REPOS):
@@ -446,6 +499,13 @@ def main() -> int:
     print(f"    repo none       : {len(no_issue_rows)}  (measured findings, not tracker items)")
     print(f"  rows with a gate  : {len(rows) - len(ungated)}")
     print(f"  NONE YET          : {len(ungated)}")
+    # NEVER SILENTLY NARROWER. A row whose unfinished half is not its leading
+    # verdict is not counted, and is named here so a person can judge it.
+    if unfinished_mentions:
+        print(f"  unfinished, not as a verdict : {len(unfinished_mentions)}  "
+              f"{[int(r['issue']) for r in unfinished_mentions][:14]}")
+        print("      (a marker appears in these rows outside their verdict: prose, "
+              "history, or one half of a two-half row. NOT counted.)")
     print()
 
     # ── PROPERTY 1: the register must cover every OPEN issue, IN EVERY REPO ─
