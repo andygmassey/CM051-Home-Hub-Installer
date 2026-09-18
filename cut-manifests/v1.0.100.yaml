@@ -1684,6 +1684,30 @@ open_issues:
       rather than the last walk on which the probe passed, which are different
       claims and only one of them is what the word means. The other six rows of
       that field are sound.
+      AND THE FIVE REGRESSIONS SPLIT AGAIN ON WHETHER THE INSTRUMENT MOVED,
+      which is the difference between "the product broke" and "the probe got
+      stricter". Measured by asking whether each probe FILE changed between the
+      tags. CONTROL: install.sh, which certainly changed, shows 26 commits under
+      the same query.
+      THREE HAD NO PROBE CHANGE AT ALL, zero commits touching them:
+      acceptance_gate_v1013, install_manifest_complete, people_count_agreement.
+      A fixed instrument, a passing result at v1.0.95, a failing result at
+      v1.0.100. These are the cleanest product regressions on the board and they
+      should be driven first.
+      ONE HAD ITS PROBE MADE KINDER AND FAILED ANYWAY: no_unexpected_egress,
+      920 to 1,131 lines by commit 23720893, "a rotating DNS pool is CANNOT-RUN,
+      not a policy violation". That change can only REDUCE how often the probe
+      calls something a violation, and the declared allowlist is unchanged at 46
+      rows across both tags. A probe made more forgiving that still fails is
+      stronger evidence of a real defect than one left alone.
+      ONE HAD ITS PROBE AND ITS PRODUCT CHANGED IN THE SAME COMMIT:
+      no_store_port_is_tcp_reachable, by 5b16bef0 (#1980), which rewrote the
+      wiki port so an uncredentialled request gets 403 and a plain-English page
+      with ZERO WWW-Authenticate instead of a browser password box, and updated
+      the probe by 99 lines to match. Both halves shipped in v1.0.100 and the
+      probe still failed, so the question is whether the port does what the new
+      design says or whether the credentialled half broke. That one cannot be
+      settled from the repository; it needs the port answered on a box.
       WHAT THE TWO WALKS SAY SIDE BY SIDE, and this is the headline:
       v1.0.95 on 2026-09-13, pass 24 fail 1 cannot-run 1 broken 0.
       v1.0.100 on 2026-09-17, pass 19 fail 6 cannot-run 3 broken 1.
