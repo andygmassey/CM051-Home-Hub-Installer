@@ -66,6 +66,7 @@ test_a_self_test_denominator_counts_itself.sh	WIRED	.github/workflows/walk-recor
 test_a_slow_step_is_not_a_wedged_one.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_staging_copy_is_guarded_on_its_source.py	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_a_status_read_is_guarded.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
+test_a_store_refusal_is_not_an_empty_batch.py	WIRED	.github/workflows/writer-reader-vocabulary.yml
 test_a_stored_secret_says_so_where_it_is_typed.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_a_struck_row_names_an_issue_not_a_pull_request.py	WIRED	.github/workflows/cut-checklist-complete.yml
 test_a_subshell_cannot_emit_a_terminal_done.sh	WIRED	.github/workflows/step-end-status-honesty.yml
