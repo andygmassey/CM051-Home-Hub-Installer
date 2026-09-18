@@ -451,3 +451,56 @@ This is the same shape as a pull request whose green was eleven days old: the
 number is a fact about a moment, and relaying it turns it into a claim about
 now. Re-read the state in the same turn you act on it, and when you hand a state
 to someone else, hand them the query rather than the answer.
+
+### BSD awk has no `\s`, and the zero it returns looks like a clean file
+
+Re-measuring a known data-loss defect, the first reading said the swallow was
+gone from all three files:
+
+    awk '/except Exception/{getline; if ($0 ~ /^\s*pass\s*$/) n++} END{print n+0}'
+      facebook_friends.py      0
+      linkedin_connections.py  0
+      instagram_social.py      0
+
+Three zeros, one per file, on a pattern that reads correctly. The truth is 1, 2
+and 1. **`\s` is a GNU extension and BSD awk does not implement it**, so the
+alternation never matched and every file reported clean.
+
+The control is one line and it is the only reason this was caught:
+
+    echo "  pass" | awk '/^\s*pass\s*$/{print "matched"}'              -> nothing
+    echo "  pass" | awk '/^[[:space:]]*pass[[:space:]]*$/{print "ok"}' -> ok
+
+**Put a must-match line through the pattern before trusting what the pattern
+says is absent.** Not through the subject - through the *pattern*. A predicate
+that cannot match a line built to match it has not measured the subject at all.
+
+This is the second false negative on the same defect category, in two different
+tools, for two unrelated reasons: an earlier sweep reported it clean with a
+single-line regex while the real code uses the standard two-line idiom. A
+category that has produced a false negative twice should never be measured again
+without a must-match control in the same command.
+
+### The collision the owner warned about, caused by the person who was warned
+
+The register owner said the specific risk in a shared repo is two sessions
+appending a row for the same thing. Hours later, with a cut-blocking pull
+request stalled on a missing register entry, the other session asked the owner
+to write it, judged the block too important to wait, and wrote it anyway.
+
+    feature_prs entries       186
+    duplicate row for PR A      2
+    duplicate row for PR B      2
+
+Both sets in the working tree, neither pushed. No data lost, because the tip
+SHAs were recorded and the owner had not committed - but the file briefly said
+two different things about the same two changes.
+
+**The reasoning that produced it is the reasoning that produces every
+collision**: the person who breaks the rule always has a reason, and the reason
+is usually true. The block was real. The correct move was to say the pull
+request is blocked and work on something else, which is what the operating
+instruction already says to do, and there was other work available.
+
+A shared register is not a queue you can jump when your item is urgent. It is a
+queue *because* items are urgent.
