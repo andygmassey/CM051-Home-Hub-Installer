@@ -4152,37 +4152,80 @@ open_issues:
       Two customer surfaces read zero from a store that holds the data, because
       the reader asks the default graph and the writer writes a named one
     gate: >-
-      🔴 BLOCKING (person pages and the todo list are blank on a box whose
-      store holds 409 warmth signals, 1353 conversation-sourced facts and 76
-      outstanding todos): DRIVEN ON THE SHIPPED ARTEFACT 2026-09-18 by running
-      the shipped reader's OWN query shape unchanged, then the identical query
-      with the one clause it lacks. Person pages, warmth and trust: as shipped,
-      0 rows; with the graph clause, 20 rows, hitting the limit. Outstanding
-      todos: as shipped, 0 rows; with the graph clause, 20 rows, hitting the
-      limit. CONTROL, an unqualified query that does work: pwg:Person in the
-      default graph, 20 rows, so the store answers unqualified queries and the
-      zero is not unreachability, it is the data not being in the graph that was
-      asked. UNDERLYING COUNTS, both graphs: warmth 409 named / 0 default,
-      fromConversation 1353 named / 0 default, OutstandingTodo 76 named / 0
-      default, CONTROL displayName 2637. THE READER, VERBATIM, at
-      vendor/cm041/assistant_api/ical-server.py:3607, a SELECT over
-      urn:ostler:about, urn:ostler:warmth and urn:ostler:trust with no GRAPH
-      anywhere in it. SCOPE MEASURED IN THE VENDORED FILE: 8758 lines, 43
-      SELECT statements, and only 8 lines carry a graph clause at all, 6 of the
-      form GRAPH < and 2 of the form GRAPH ?. Ten reader sites over the four
-      affected predicates carry none; the CONTROL is urn:ostler:about at lines
-      2752 and 2811, which DO scope, so the file is not uniformly unscoped and
-      the predicate discriminates. THE DEFAULT-GRAPH ASSUMPTION IS THE HOUSE
-      STYLE OF THAT FILE AND CM048'S DATA IS THE EXCEPTION IT DOES NOT COVER,
-      which is why this is four symptoms and one cause. SAME DEFECT AS ROW 961
-      ITEM 8, SEEN FROM THE OTHER END: item 8 was the WRITE landing in the
-      wrong graph and it is fixed and proven fixed by driving it; this is the
-      READ pinned to the wrong graph and it is not. The fix is the same one
-      clause on the other side. WHERE IT MUST BE FIXED: ical-server.py is
-      VENDORED into CM051 from CM041. Editing the vendored copy is the mistake
-      row 2212 catalogues and the mistake that produced the mixed importer
-      state now shipping; it goes upstream in CM041 and reaches a customer only
-      through a re-vendor, which row 2212 shows is unsafe today.
+      🔴 BLOCKING STILL, AND THE ROW UNDERSTATES ITSELF BY HALF. Reviewed 2026-09-19. It says THREE
+      unqualified readers. An independent sweep of origin/main, across all file types rather than the
+      filed list, finds SIX: four in the assistant server at person_context, person_enrichment,
+      person_timeline and commitments_list, and two in the meeting brief at the last-conversation and
+      outstanding-todos readers. The upstream fix covers all six with ZERO unqualified remaining. AND
+      THE FIX DOES NOT CLOSE THIS ROW, WHICH IS THE POINT THAT MATTERS FOR THE CUT. CM041 #175 is
+      CM041-only and says so. This row's subject is the VENDORED copy in CM051. The file exists in
+      THREE copies, upstream main at 7,607 lines, the box at 8,662 and the vendored copy at 8,758,
+      with the defect in ALL THREE, and the vendor hop is deliberately untouched. Under launch
+      directive item 9 that is MERGED at best: never DELIVERED, never PROVEN. So this row closes on
+      merge THEN re-vendor THEN build THEN walk, and none of the four has happened. 🔴 AND THE FIX MUST
+      NOT BE MERGED AS IT STANDS, because it UNBLINDS SIX READERS ONTO A PERSON'S FACTS WITH NO
+      PRIVACY FILTER. The missing filter is PRE-EXISTING code; what the fix changes is that those
+      queries RETURN ROWS FOR THE FIRST TIME. By its own measurements that is 409 relationship
+      signals, 1,353 conversation-linked facts and 76 todos newly reaching customer-facing endpoints.
+      A latent gap becomes a live one at merge. THE CONTRAST IS INSIDE THE SAME FUNCTIONS, ABOUT 45
+      LINES APART: the facts path drops retired nodes and calls the privacy filter with the owner's
+      level; the signal path selects no privacy level, calls nothing, and emits. The same pairing
+      appears in the enrichment reader and in the brief, and two endpoints have no privacy join at
+      all. THE SERVER'S OWN HEALTH ENDPOINT WILL START CONTRADICTING ITSELF: it reports untagged fact
+      and signal counts with the note that they ARE HIDDEN BY THE FAIL-CLOSED READER, and names the
+      CM048 signal residual specifically. After that merge they are not hidden, they are served. The
+      privacy model in the same tree states the doctrine in writing -- unknown source fails closed, an
+      untagged node of unknown provenance must not broadcast -- and the backfill records roughly 4,208
+      fact-bearing nodes, most of them signals, carrying no privacy level. AI conversations default to
+      the private level. WHAT WOULD MAKE IT MERGEABLE: either the privacy join at the six sites, or
+      the DECISION WRITTEN DOWN with the health endpoint's note corrected. That change documents four
+      other decisions in detail; this one is undocumented, which reads as oversight rather than
+      choice. AND THERE IS NO SCHEDULE COST TO SETTLING IT FIRST, because of the paragraph above: the
+      fix cannot reach a customer this cut anyway. A SECOND, NON-BLOCKING FINDING RECORDED SO IT IS
+      NOT REDISCOVERED: the accompanying deny-list fails open across repository boundaries. Its audit
+      derives its inventory from constants declared in CM041, while three other repositories write
+      into the same store under graph names those constants cannot see, so it stays green when one of
+      them adds a graph. The trade is stated honestly in the change; the mitigation simply covers one
+      writing repository of several. WHAT THE REVIEW CLEARED, MEASURED RATHER THAN ASSERTED, so the
+      objection above is narrow and not vague: no private second copy of the scoping helper, one
+      shared definition imported by both services, and the gate enforces the PROPERTY rather than the
+      mechanism, so it is not the systemic-copy failure this row's own history describes. The tests
+      genuinely fail without the fix, PROVED AT BYTE LEVEL by sha256 and by helper-call counts going 4
+      to 0 and 2 to 0: baseline 31 of 31 at rc 0, the mutant 11 failed at rc 1, and the reds carry the
+      CUSTOMER symptom -- empty commitment lists, a null signal, an empty timeline -- rather than an
+      attribute error. TWO tests survived that mutant and their own claims were mutated separately,
+      catching 4 and 2 respectively. The control passed in BOTH arms because its subject is the
+      default graph, a different surface from the defect, which is exactly what makes the six zeros
+      mean WRONG GRAPH rather than EMPTY FIXTURE. Full suite 1,697 passed, 0 failed, rc taken
+      directly.  ORIGINAL TEXT FOLLOWS, WITH ONE WORD PAIR PARAPHRASED AND THE PARAPHRASE DECLARED.
+      The original opened with the ungated marker as its verdict. That marker is matched by a PLAIN
+      SUBSTRING test over the WHOLE gate value with no position test, so preserving it verbatim
+      anywhere in this row would hold the row ungated for ever no matter what verdict sits above it.
+      Row 939 records that same trap flipping 41 rows at once. So those two words are replaced by the
+      phrase the ungated marker and NOTHING ELSE in the original is altered. IT READ: 🔴 BLOCKING
+      (person pages and the todo list are blank on a box whose store holds 409 warmth signals, 1353
+      conversation-sourced facts and 76 outstanding todos): DRIVEN ON THE SHIPPED ARTEFACT 2026-09-18
+      by running the shipped reader's OWN query shape unchanged, then the identical query with the one
+      clause it lacks. Person pages, warmth and trust: as shipped, 0 rows; with the graph clause, 20
+      rows, hitting the limit. Outstanding todos: as shipped, 0 rows; with the graph clause, 20 rows,
+      hitting the limit. CONTROL, an unqualified query that does work: pwg:Person in the default
+      graph, 20 rows, so the store answers unqualified queries and the zero is not unreachability, it
+      is the data not being in the graph that was asked. UNDERLYING COUNTS, both graphs: warmth 409
+      named / 0 default, fromConversation 1353 named / 0 default, OutstandingTodo 76 named / 0
+      default, CONTROL displayName 2637. THE READER, VERBATIM, at vendor/cm041/assistant_api/ical-
+      server.py:3607, a SELECT over urn:ostler:about, urn:ostler:warmth and urn:ostler:trust with no
+      GRAPH anywhere in it. SCOPE MEASURED IN THE VENDORED FILE: 8758 lines, 43 SELECT statements, and
+      only 8 lines carry a graph clause at all, 6 of the form GRAPH < and 2 of the form GRAPH ?. Ten
+      reader sites over the four affected predicates carry none; the CONTROL is urn:ostler:about at
+      lines 2752 and 2811, which DO scope, so the file is not uniformly unscoped and the predicate
+      discriminates. THE DEFAULT-GRAPH ASSUMPTION IS THE HOUSE STYLE OF THAT FILE AND CM048'S DATA IS
+      THE EXCEPTION IT DOES NOT COVER, which is why this is four symptoms and one cause. SAME DEFECT
+      AS ROW 961 ITEM 8, SEEN FROM THE OTHER END: item 8 was the WRITE landing in the wrong graph and
+      it is fixed and proven fixed by driving it; this is the READ pinned to the wrong graph and it is
+      not. The fix is the same one clause on the other side. WHERE IT MUST BE FIXED: ical-server.py is
+      VENDORED into CM051 from CM041. Editing the vendored copy is the mistake row 2212 catalogues and
+      the mistake that produced the mixed importer state now shipping; it goes upstream in CM041 and
+      reaches a customer only through a re-vendor, which row 2212 shows is unsafe today.
   - issue: 2214
     repo: none
     title: >-
