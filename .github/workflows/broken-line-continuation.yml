@@ -102,6 +102,33 @@ jobs:
       # it reports 18 of 18 citations already correct.
       #
       # if: always() so an earlier red cannot delete this.
-      - name: the re-arm comment's line citations still land
+      - name: the citation checker still goes red, and still refuses
+        # 🔴 THE ARM THAT MAKES THE STEP BELOW WORTH HAVING. On most pull
+        # requests install.sh is untouched, so base and tree are identical and
+        # --check reports 18 of 18 already correct. That green proves the base
+        # revision RESOLVED. It proves nothing about whether the checker would
+        # notice a moved citation, and a gate that cannot fail is not a gate.
+        # Four arms, all three exit codes, over the real install.sh mutated in
+        # memory. Nothing is written.
         if: always()
-        run: python3 scripts/repair_rearm_citations.py --check
+        run: python3 scripts/repair_rearm_citations.py --self-test
+
+      - name: the re-arm comment's line citations still land
+        # THE BASE REF HAS TO BE FETCHED BY EXPLICIT REFSPEC, and this step
+        # failed on its own first CI run for want of it: actions/checkout
+        # leaves a depth-1 clone of the PR merge ref, `origin/main` does not
+        # exist in it, and the checker correctly reported CANNOT-RUN rather
+        # than assuming a clean base. `git fetch origin main` alone is not
+        # enough either -- on some configurations it only moves FETCH_HEAD and
+        # never writes refs/remotes/origin/main, which is why this repo's
+        # ledger gate already asks for exactly the ref by name.
+        #
+        # || true on the fetch, deliberately: a fetch that fails leaves the ref
+        # absent, the checker exits 2 CANNOT-RUN and the step goes RED. A gate
+        # whose instrument did not arrive has not passed.
+        if: always()
+        run: |
+          base="${{ github.base_ref || 'main' }}"
+          git fetch --no-tags origin \
+            "+refs/heads/${base}:refs/remotes/origin/${base}" || true
+          python3 scripts/repair_rearm_citations.py --check --base "origin/${base}"
