@@ -3373,7 +3373,7 @@ _ostler_promote_prelaunch_tree() {
     # behind `|| true`, do nothing while looking applied. That path is harmless
     # anyway: both armings (:8273, :14685) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17528 / :17706 / :17863 / :18204 path. There the
+    # :17528 / :17706 / :17863 / :18205 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -17978,6 +17978,7 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
                  OSTLER_SAFARI_BACKFILL_DAYS="${OSTLER_SAFARI_BACKFILL_DAYS}" \
                  OSTLER_WHATSAPP_BACKFILL_DAYS="${OSTLER_WHATSAPP_BACKFILL_DAYS}" \
                  OSTLER_MAIL_BACKFILL_DAYS="${OSTLER_MAIL_BACKFILL_DAYS}" \
+                 OSTLER_CALENDAR_FUTURE_DAYS="${OSTLER_HYDRATE_CALENDAR_FUTURE_DAYS:-365}" \
                  "$OSTLER_PYTHON" -c "
 import sys, json
 sys.path.insert(0, '${FDA_DIR}')
@@ -22267,6 +22268,32 @@ OSTLER_PYTHON="${OSTLER_PYTHON:-${OSTLER_DIR}/.venv/bin/python3}"
 if [[ ! -x "$OSTLER_PYTHON" ]]; then
     OSTLER_PYTHON="$(command -v python3 || true)"
 fi
+
+# 🔴 BOARD ROW 997: THE FORWARD CALENDAR WINDOW WAS CLAWED BACK WITHIN THE HOUR.
+#
+# extract_all.py reads OSTLER_CALENDAR_FUTURE_DAYS and defaults it to 30. The
+# installer's own calendar hydrate uses 365, but it reaches that value by
+# interpolating a DIFFERENTLY NAMED variable, OSTLER_HYDRATE_CALENDAR_FUTURE_DAYS,
+# straight into its own heredoc. The reader's name appears nowhere else in
+# install.sh, so nothing ever set it.
+#
+# This script is driven by the com.ostler.fda-rerun LaunchAgent, whose
+# environment inherits nothing from the installer shell, as the comment above
+# already records for OSTLER_PYTHON. It calls run_all(), which rewrites
+# calendar_events.json. So the customer's 365-day forward window was replaced
+# by a 30-day one on the first tick after installing, and on every tick after
+# that, for ever. A writer/reader contract mismatch, not a missing export:
+# measured on origin/main, NO sibling window variable is exported either, they
+# are passed as an env prefix on the invocation.
+#
+# THE LIBRARY DEFAULT IS DELIBERATELY NOT MOVED, and extract_all.py says why in
+# its own words: a library default that changes underneath a shipped install is
+# a migration rather than a fix, and install.sh is what supplies the product
+# value. This is install.sh supplying it.
+#
+# The `:-` form means an operator who exports their own value still wins, and
+# it keeps this safe under `set -u` like everything else in this wrapper.
+export OSTLER_CALENDAR_FUTURE_DAYS="${OSTLER_CALENDAR_FUTURE_DAYS:-365}"
 
 if [[ ! -d "$FDA_DIR/ostler_fda" ]]; then
     echo "Error: FDA extraction module not installed."
