@@ -1640,3 +1640,165 @@ open_issues:
     repo: none   # measured finding, not a tracker item
     title: "The divergence patch APPLIES CLEANLY and does not reconstruct the tree, so a re-pin deletes shipped work"
     gate: '🔴 BLOCKING (a re-pin of vendor:doctor today deletes a shipped customer surface): MEASURED 2026-09-18 BY DOING THE RECONSTRUCTION, NOT BY READING A PATCH. For each vendored tree whose source_repo is $HR015, git archive the PINNED sha of its source path into a temp tree, apply its divergence_patch with patch -p1 --forward, then diff -rq the result against the tree CM051 actually ships. ELEVEN TREES MEASURED, SEVEN RECONSTRUCT EXACTLY, AND THAT IS THE CONTROL that makes the other four mean something: ostler_fda, legal, email_ingest, imessage_bridge, hub_power, spoken_source and email_source all come back with 0 non-test files differing, so the method works and a mismatch is a fact about the tree rather than about the instrument. THREE DO NOT RECONSTRUCT. doctor: 11 non-test shipped files differ (README.md, agent/box_status.py, agent/dashboard_components.py, agent/diagnostic_copy.py, agent/diagnostic_rules.py, agent/import_notion.py, agent/import_obsidian.py, agent/pair_status.py, agent/web_ui.py, agent/web_ui_copy.py, agent/whatsapp_pair.py). ostler_security: 2, consent_cli.py and passphrase_recovery_cli.py. whatsapp_source: 2, bin/whatsapp-bundle-tick.sh and launchd/com.creativemachines.ostler.whatsapp-bundle.plist. 🔴 AND THE PATCH APPLIES CLEANLY IN EVERY CASE. patch exits 0, no fuzz, no failed hunks, and the reconstruction is still eleven files wrong. That is worse than a patch that fails, because a failure announces itself and this returns success. Two trees exit 1 from patch and reconstruct PERFECTLY (email_source, spoken_source), which is the same lesson from the other side: the exit status is not the verdict, the diff is. THE CONCRETE, CUSTOMER-VISIBLE INSTANCE, and it is the one row 965 was gated on: render_whatsapp_keepalive is present in vendor/doctor/agent/dashboard_components.py:1292 and absent from HR015 at the pin, from HR015 main, and from the patch. CONTROL, a function both trees certainly have: render_system_overview, 1 at the pin and 1 on main. So the WhatsApp keepalive TILE exists only in the vendored copy, and a re-pin regenerating from pin plus patch deletes it, silently, returning the keepalive job to writing its verdict into a file nobody reads, which is the exact defect row 965 names. ostler_security MATTERS FOR A DIFFERENT REASON: passphrase_recovery_cli.py is the recovery-key surface, and the recovery key a customer cannot redeem is one of the two launch blockers this estate already carries. A re-pin dropping a graft there could undo a fix nobody would think to re-check. MY FIRST CONTROL WAS NOT A CONTROL, and the row records it because the mistake is the reusable part: I grepped the patch for read_whatsapp_keepalive as a supposedly-known-present control and got 0, the same as the subject. A uniform zero across subject and control is the tell, and I nearly reported the absence without knowing whether the search worked at all. 🗿 AND MY FIRST STATEMENT OF WHAT THIS MEANS WAS WRONG, CORRECTED BY ARCHIE WITHIN THE HOUR, AND THE CORRECTION MAKES IT WORSE RATHER THAN BETTER. I wrote that the non-empty divergence_patch form has no gate and that the register was silently green over doctor. IT HAS ONE AND IT IS ALREADY RED. Run with the source repositories resolvable, verify_vendor_fresh.sh reports doctor as DIFFERING from source@pinned_sha+patch and as having advanced past its pin, and returns RED. I asserted an absence of verification without running the verifier, which is the same error as reporting an absence without a control. WHAT IS ACTUALLY TRUE IS THE LINE BESIDE IT: 24 trees, 8 fresh, 3 stale or divergent, 10 UNVERIFIABLE, 3 acked. THIRTEEN OF TWENTY-FOUR ARE NOT CHECKED AT ALL, because the gate resolves its sources through environment variables nothing in the login profile sets, so where CI runs it, it checks nothing. The redness is real and INVISIBLE. That is a different defect from an unverified claim and it wants a different fix: make the gate runnable where somebody looks, rather than add a verification it already performs. 20 of the 24 trees carry a non-empty patch. ARCHIE REPRODUCED THE RECONSTRUCTION INDEPENDENTLY, matched the 11 non-test figure exactly, and swept every tree with a non-empty patch rather than only the HR015-sourced ones: FIVE trees apply cleanly and do not reconstruct (doctor 11, cm041/assistant_api 3 differing plus 4 files present ONLY in the vendored copy, ostler_security 2, cm048_pipeline 2, whatsapp_source 2), and cm041/contact_syncer fails to apply at all with 18 differing, which at least announces itself. cm041/assistant_api is the next hazard after doctor, because it is already a re-pin candidate and a re-pin would drop those four files exactly as a doctor re-pin would delete the keepalive tile. The register-level row is his; this one stays the doctor finding and the method. NOT MEASURED, AND NAMED RATHER THAN IMPLIED COVERED: the 12 trees whose source lives in CM019, CM021, CM024, CM040, CM041, CM048 or CM059. They need their own checkouts and this measurement was not run on them. Their reconstruction is unknown, which is not the same as clean. WHAT IS OWED: regenerate the three failing patches BEFORE any re-pin of those trees; add a gate that performs the reconstruction rather than checking that the patch applies; and run the same measurement on the other 12. Owner archie, the vendor register is his.'
+  - issue: 2213
+    repo: none
+    title: >-
+      Two customer surfaces read zero from a store that holds the data, because
+      the reader asks the default graph and the writer writes a named one
+    gate: >-
+      🔴 BLOCKING (person pages and the todo list are blank on a box whose
+      store holds 409 warmth signals, 1353 conversation-sourced facts and 76
+      outstanding todos): DRIVEN ON THE SHIPPED ARTEFACT 2026-09-18 by running
+      the shipped reader's OWN query shape unchanged, then the identical query
+      with the one clause it lacks. Person pages, warmth and trust: as shipped,
+      0 rows; with the graph clause, 20 rows, hitting the limit. Outstanding
+      todos: as shipped, 0 rows; with the graph clause, 20 rows, hitting the
+      limit. CONTROL, an unqualified query that does work: pwg:Person in the
+      default graph, 20 rows, so the store answers unqualified queries and the
+      zero is not unreachability, it is the data not being in the graph that was
+      asked. UNDERLYING COUNTS, both graphs: warmth 409 named / 0 default,
+      fromConversation 1353 named / 0 default, OutstandingTodo 76 named / 0
+      default, CONTROL displayName 2637. THE READER, VERBATIM, at
+      vendor/cm041/assistant_api/ical-server.py:3607, a SELECT over
+      urn:ostler:about, urn:ostler:warmth and urn:ostler:trust with no GRAPH
+      anywhere in it. SCOPE MEASURED IN THE VENDORED FILE: 8758 lines, 43
+      SELECT statements, and only 8 lines carry a graph clause at all, 6 of the
+      form GRAPH < and 2 of the form GRAPH ?. Ten reader sites over the four
+      affected predicates carry none; the CONTROL is urn:ostler:about at lines
+      2752 and 2811, which DO scope, so the file is not uniformly unscoped and
+      the predicate discriminates. THE DEFAULT-GRAPH ASSUMPTION IS THE HOUSE
+      STYLE OF THAT FILE AND CM048'S DATA IS THE EXCEPTION IT DOES NOT COVER,
+      which is why this is four symptoms and one cause. SAME DEFECT AS ROW 961
+      ITEM 8, SEEN FROM THE OTHER END: item 8 was the WRITE landing in the
+      wrong graph and it is fixed and proven fixed by driving it; this is the
+      READ pinned to the wrong graph and it is not. The fix is the same one
+      clause on the other side. WHERE IT MUST BE FIXED: ical-server.py is
+      VENDORED into CM051 from CM041. Editing the vendored copy is the mistake
+      row 2212 catalogues and the mistake that produced the mixed importer
+      state now shipping; it goes upstream in CM041 and reaches a customer only
+      through a re-vendor, which row 2212 shows is unsafe today.
+  - issue: 2214
+    repo: none
+    title: >-
+      The conversation counter walks one directory level and the conversations
+      are three levels down, so it reports 15 per cent of the customer's own data
+    gate: >-
+      🔴 BLOCKING (a customer is told they have 3,002 conversations when
+      they have 20,126): MEASURED ON THE BOX 2026-09-18 against the directory
+      the shipped code actually walks, provenance checked rather than assumed:
+      output_conversations_dir takes its default from
+      ostler_paths.conversations_dir and is overridden nowhere in the box's
+      config. glob("*.md") as shipped at cli.py:488 returns 3,002; rglob
+      ("**/*.md") returns 20,126; 17,124 files are invisible to the counter.
+      THE TREE SHAPE IS THE PROOF, not the ratio: depth 1 holds 3,002 .md,
+      depth 2 holds 0, depth 3 holds 17,124. That is exactly the documented
+      layout, Conversations/<date>/<slug>-<id>/file.md, so a non-recursive glob
+      sees the top level and nothing below it. THE RATIO IS THE MISLEADING
+      NUMBER AND THE GAP IS THE REAL ONE. An earlier reading of this said 16x
+      (1113 of 17574) and it now reads 6.7x (3002 of 20126). The multiple FELL
+      while the absolute gap ROSE from 16,461 to 17,124, because the flat count
+      grew. A falling multiple reads like improvement and is not. ONE LINE
+      FIXES THE COUNT, glob to rglob at cli.py:488, in CM048. WHAT IS A
+      PRODUCT DECISION AND NOT A CODE ONE: whether the counter should also
+      filter by depth or by the metadata sidecar, which is a question about
+      what counts as a conversation.
+  - issue: 2215
+    repo: none
+    title: >-
+      384 of the customer's own people carry no owner, so an owner-scoped reader
+      cannot see them
+    gate: >-
+      🟡 MEASURED, FIX NOT YET SIZED (over ten per cent of the people on
+      the box are unowned): MEASURED ON THE SHIPPED BOX 2026-09-18: 384
+      pwg:Person nodes carry no belongsToUser at all, against 3,153 belonging
+      to the configured user and 10 to another. Any reader that scopes people
+      by owner returns nothing for those 384. WHAT IS NOT MEASURED, AND THE
+      ROW IS HONEST ABOUT IT: whether any shipped reader does scope people by
+      owner. Until that is answered this is a latent hazard rather than an
+      observed loss, and it is the same question row 961 item 10 answered for
+      Qdrant's user_id, where the field turned out to be neither written nor
+      read. The two must not be assumed to have the same answer: user_id was
+      absent on every point, and belongsToUser is present on 3,163 and absent
+      on 384, which is the ragged shape of a real gap rather than the uniform
+      shape of a field nobody writes.
+  - issue: 2216
+    repo: none
+    title: >-
+      48 relationship facts exist with no subject link, written by a path that
+      appears to write one, and the four facts about them cannot all be true
+    gate: >-
+      🟡 OPEN QUESTION, DELIBERATELY NOT RESOLVED (a reader asking who a
+      fact is about gets nothing for 48 of the customer's own facts): MEASURED
+      ON THE SHIPPED BOX 2026-09-18. Zero of 48 pwg:PersonFacts carry
+      pwg:aboutPerson, and zero of ALL PersonFacts of any age do. They are
+      still reachable through the belongsToUser arm so the customer surface
+      finds them, but meeting_syncer/brief.py:285 requires pwg:aboutPerson and
+      therefore returns nothing for every person. FOUR FACTS THAT CANNOT ALL BE
+      TRUE: all 48 were created 2026-09-17 between 12:48 and 18:28 UTC, AFTER
+      the 12:31 install, by shipped code; the only shipped write path emitting
+      factDomain "relationship" is the assert endpoint at 2274-2287; that block
+      DOES include pwg:aboutPerson at line 2275; and nothing shipped deletes
+      it. THIS ROW IS FILED UNRESOLVED ON PURPOSE. The agent who measured it
+      had already guessed a mechanism wrong twice that day and stopped rather
+      than guess a third time, which is the correct place to stop. FOR WHOEVER
+      TAKES IT: the literal at 2275 proves the text is in the file, never that
+      the branch containing it executed. A second write path, or an earlier
+      return inside that same block, produces exactly what was measured. Drive
+      the endpoint and read back; do not read the source.
+  - issue: 2217
+    repo: none
+    title: >-
+      One-click forget deletes the link and leaves the text, so the sentence the
+      customer asked to be erased is still in the graph and still returned
+    gate: >-
+      🔴 BLOCKING (the product reports an erasure as complete while the
+      erased content remains readable, on a surface whose own docstring cites
+      GDPR Article 17): MEASURED ON THE SHIPPED BOX 2026-09-18, by correlation
+      with a shifted control, then explained by the code.
+      THE CORRELATION: 48 PersonFacts carry a createdAt; 68 forget audit entries
+      exist; 47 of the 48 were created within 100ms of a forget, minimum delta
+      0.0023s, maximum 0.0326s. CONTROL, the same test with the forget times
+      shifted by one hour: 0 of 48. Shifting collapses the match to zero, so the
+      correlation is not an artefact of both populations being dense in the same
+      afternoon.
+      THE MECHANISM, at vendor/cm041/assistant_api/ical-server.py:1244,
+      _forget_person_update issues DELETE { <uri> ?p ?o } WHERE { <uri> ?p ?o }
+      and DELETE { ?s ?p <uri> } WHERE { ?s ?p <uri> }, plus the same pair
+      scoped into every named graph, which is a correct fix someone already
+      made. The second clause removes the aboutPerson LINK from fact to person.
+      IT DOES NOT REMOVE THE FACT NODE. factText, factSource, belongsToUser,
+      privacyLevel, factConfidence and createdAt all survive. So the fact is
+      orphaned, not erased, and it is still returned by the belongsToUser arm of
+      the facts reader, which is the same population of 48.
+      THIS ALSO CLOSES THE OPEN QUESTION FILED AS ROW 2216, and the way it was
+      missed is the lesson. Four facts were reported as unable to all be true;
+      three were right and the fourth was an instrument error. A search of the
+      shipped server for something that deletes aboutPerson found nothing,
+      because the delete does not name aboutPerson: it is ?s ?p <uri>, a
+      wildcard predicate. The search was for a field name against code that
+      names no field. Row 2216 should be closed by this row, not measured again.
+      THE OTHER HALF WAS MEASURED AND IT IS CLEAN, WHICH BOUNDS THIS ROW
+      USEFULLY: 2,604 vector points scanned, 2,604 distinct person_uri values,
+      ZERO orphaned points whose uri is absent from the graph entirely, CONTROL
+      2,604 present. So there is no vector residue, the person node itself is
+      correctly removed, and the searchable-embedding half of the under-delete
+      does not exist. THIS ROW IS THEREFORE NOT "FORGET UNDER-DELETES" IN
+      GENERAL. It is exactly one thing: a forget deletes the fact's LINK and
+      leaves the fact's CONTENT. Deleted: the aboutPerson triple, the person
+      node, the vector points. Surviving: factText, factSource, belongsToUser,
+      privacyLevel, factConfidence, createdAt. A reader listing facts by
+      belongsToUser still returns the text and nothing else leaks.
+      THE BOUNDING DECIDES THE FIX. Had the vector store been dirty this would
+      need a sweep across both stores, like the merge orphans. It does not. It
+      is one clause: the forget must delete fact NODES whose aboutPerson is the
+      person, not merely the aboutPerson triple. A DELETE WHERE matching
+      ?fact pwg:aboutPerson <uri> and then removing ?fact ?p ?o.
+      THE TEST IS THE MEASUREMENT RUN IN REVERSE: assert a fact, forget the
+      person, assert that ZERO triples carrying that fact URI remain.
+      IT WANTS ITS OWN CHANGE AND ITS OWN REVIEW. This is the erasure path, a
+      delete that is subtly wrong destroys data with no backup, and the file is
+      the Assistant API rather than anything either of tonight's sessions owns.
+      NOT DRIVEN, ON PURPOSE. The correlation plus the code establishes the
+      shape, and driving a deletion path to prove a deletion defect is the one
+      experiment where being wrong is expensive.
+
