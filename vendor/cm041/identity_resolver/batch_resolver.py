@@ -41,12 +41,11 @@ from identity_resolver.normalise import (
     normalise_phone,
 )
 from identity_resolver.decisions import apply_user_decisions, load_duplicate_decisions
-from identity_resolver.canonical_name import (
-    choose_canonical_display_name,
-    prefer_real_given_name,
-)
+from identity_resolver.canonical_name import choose_canonical_display_name, prefer_real_given_name
 
 logger = logging.getLogger(__name__)
+
+from . import retirement
 
 PWG = "https://schema.ostler.ai/ontology#"
 
@@ -1255,10 +1254,11 @@ def _merge_oxigraph(
         f"INSERT DATA {{ <{keep_uri}> a <{PWG}Person> }}"
     )
 
-    # 7. Remove discard's type triple (no longer a live Person)
-    _sparql_update(url, client,
-        f"DELETE DATA {{ <{discard_uri}> a <{PWG}Person> }}"
-    )
+    # 7. RETIRE the discard: REPLACE its type, do not merely remove it.
+    #    An untyped node answers every writer's existence check with "no such
+    #    node" and gets re-created on the next ingest. retirement.py carries
+    #    the measurement that proved it.
+    _sparql_update(url, client, retirement.retire_update(discard_uri))
 
     # 8. Collapse accumulated displayName values on the kept node to ONE
     #    canonical value. Step 5 copies every displayName off the discard when

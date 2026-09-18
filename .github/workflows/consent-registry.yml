@@ -16,6 +16,8 @@ on:
   pull_request:
     paths:
       - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_customer_copy_says_ios_app_not_companion.py'
       - 'vendor/legal/consent_strings.py'
       - 'vendor/ostler_security/consent_cli.py'
       - 'tests/test_consent_tickbox_registry.sh'
@@ -106,3 +108,12 @@ jobs:
       - name: the licence acknowledgement reaches the customer, end to end
         if: always()
         run: bash tests/test_the_licence_acknowledgement_reaches_the_customer.sh
+      - name: Customer copy says the app, not the repository (#1008)
+        if: always()
+        # MEASURED on main 2026-09-18: the strings file the installer PRINTS
+        # carried "iOS Companion" ten times, nine of them live customer strings,
+        # two on the subscription path a person reads while deciding to pay.
+        # "Companion" is an internal project word; to a customer it names a
+        # thing they cannot find in the App Store. The rule was locked and
+        # nothing was checking it.
+        run: python3 tests/test_customer_copy_says_ios_app_not_companion.py

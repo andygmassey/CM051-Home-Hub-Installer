@@ -20,6 +20,8 @@ from .normalise import _jaro_winkler, normalise_email, normalise_phone
 
 logger = logging.getLogger(__name__)
 
+from . import retirement
+
 PWG = "https://schema.ostler.ai/ontology#"
 
 # Store URLs proven this process to NOT be in --union-default-graph mode
@@ -561,9 +563,14 @@ class IdentityResolver:
         #
         # Zero merge chains, so this is not an artefact of merging a merged
         # node: it is one code path doing half of what the other one does.
-        self._sparql_update(
-            f"DELETE DATA {{ <{discard_uri}> a <{PWG}Person> }}"
-        )
+        # REPLACE the type, never merely remove it. Removal left the node with
+        # no rdf:type at all, and every ingest writer's existence check asks
+        # `SELECT ?t WHERE { <uri> a ?t }` -- ANY type -- so an untyped node
+        # reads as NEVER CREATED and the next ingest re-created the person we
+        # had just merged away. See identity_resolver/retirement.py for the
+        # measurement: this exact removal set the phantom count to 0 and one
+        # ingest put it back to 32.
+        self._sparql_update(retirement.retire_update(discard_uri))
 
         # 6. Collapse any accumulated displayName values on the kept node to a
         #    single canonical value. Step 4 copies every displayName from the
