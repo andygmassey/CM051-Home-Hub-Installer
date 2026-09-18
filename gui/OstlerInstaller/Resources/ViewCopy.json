@@ -317,6 +317,7 @@
     "hydration_label": "What's happening now",
     "hydration_body": "Ostler is now building your private knowledge base in the background. The first pass can take a few hours, and your wiki and assistant get richer as it keeps working. You can close this window. It carries on by itself.",
     "hub_status_label": "Hub status",
+    "hub_status_caveat": "These lines are what the installer recorded as it ran, not a live check of your Mac. A tick means the step reported success at the time; it does not mean Ostler re-checked it just now.",
     "status_ok": "OK",
     "status_see_log": "see log",
     "open_ostler_button": "Open Ostler",

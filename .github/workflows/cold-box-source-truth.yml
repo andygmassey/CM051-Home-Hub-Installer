@@ -51,6 +51,7 @@ on:
       # names the gate itself so editing it re-triggers the workflow that runs
       # it, rather than leaving it dark on self-edit.
       - 'tests/test_no_path_is_frozen_across_the_promote.sh'
+      - 'tests/test_the_store_proxy_rereads_the_credential_it_enforces.sh'
       - 'tests/test_a_taken_port_is_named_not_abstracted.sh'
       - 'tests/test_a_keepalive_agent_that_cannot_bind_is_not_reported_green.sh'
       - 'install.sh'
@@ -609,3 +610,17 @@ jobs:
       - name: no path is frozen across the prelaunch promote
         if: always()
         run: bash tests/test_no_path_is_frozen_across_the_promote.sh
+      # 🔴 THIRD INSTANCE OF ONE SHAPE IN ONE NIGHT: a consumer brought up
+      # before the thing it consumes is in place. LaunchAgents started before
+      # their binaries, the recovery-key marker captured before the promote,
+      # and a proxy started 55 seconds before its auth config.
+      #
+      # nginx reads its config at START, and `docker compose up -d` does not
+      # restart an unchanged container, so on a box where the proxy already
+      # exists the freshly minted store token is written and NEVER enforced.
+      # Measured: privacy backfill and places-ingest both 401 against 7878 and
+      # the install says readers stay fail-closed. A first-time customer
+      # install always mints fresh.
+      - name: the store proxy re-reads the credential it enforces
+        if: always()
+        run: bash tests/test_the_store_proxy_rereads_the_credential_it_enforces.sh

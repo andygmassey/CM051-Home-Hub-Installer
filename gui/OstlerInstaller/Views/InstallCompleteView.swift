@@ -96,10 +96,18 @@ struct InstallCompleteView: View {
     //
     // WHAT CHANGES HERE, and it is the half that can be done honestly today:
     //
-    // 1. THREE STATES, NOT TWO. `ok` and `warn` meant "the log line matched"
-    //    and "it did not". A service that is fine but logged differently, and
-    //    a service that is genuinely down, rendered IDENTICALLY. They are now
-    //    separable, and a row nobody could check says so.
+    // 1. TWO STATES, AND THEY CANNOT BE THREE FROM HERE. This block used to
+    //    claim three states and that "a service that is fine but logged
+    //    differently, and a service that is genuinely down" were "now
+    //    separable". They were not, and they cannot be: every row below is
+    //    `ok(...) ? .ok : .warn`, a two-state ternary over the transcript, and
+    //    StepStatus having five cases available does not make the transcript
+    //    carry a third answer. From a log line alone "did not tick green" is
+    //    genuinely one state. Separating them needs a live check, which is
+    //    item 2, and item 2 covers the Hub and not the six services.
+    //
+    //    So the claim is withdrawn rather than reworded. What replaces it is
+    //    item 3, which is now actually rendered.
     // 2. ONE REAL CHECK. The gateway's UNAUTHENTICATED `/health` needs no
     //    token and answers whether the Hub is actually serving. That is one
     //    genuine observation of the box rather than of the transcript.
@@ -480,6 +488,24 @@ struct InstallCompleteView: View {
     private var hubStatusSection: some View {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 4) {
+                // 🔴 THE ROWS BELOW ARE THE TRANSCRIPT, AND THE CUSTOMER IS NOW
+                // TOLD SO ON THE SCREEN. The comment block above serviceChecks
+                // claimed this had been done -- "THE LOG-DERIVED ROWS SAY SO.
+                // They are labelled as the installer's own report" -- and it
+                // had not: the phrase existed only in that comment. Measured,
+                // with a positive control of 18 install_complete.* keys proving
+                // the search reaches the copy catalogue, zero rendered strings
+                // said anything of the kind.
+                //
+                // A green tick implies a check that did not happen. This is the
+                // half of board row 1589 that can be done honestly without the
+                // service token, and it is the half that was claimed rather
+                // than made.
+                Text(ViewCopy.shared.string(for: "install_complete.hub_status_caveat"))
+                    .font(.ostlerCaption)
+                    .foregroundStyle(Color.ostlerInkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, .ostlerSpace1)
                 ForEach(serviceChecks) { check in
                     HStack(spacing: .ostlerSpace2) {
                         Image(systemName: check.status == .ok
