@@ -50,6 +50,7 @@ from identity_resolver.batch_resolver import (
     _sparql_update,
     sweep_qdrant_orphans_of_merged_people,
 )
+from identity_resolver import retirement
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,24 @@ def _still_typed_subjects(url: str, client: httpx.Client) -> List[str]:
     return [r["s"] for r in rows if r.get("s")]
 
 
+def _resurrectable_subjects(url: str, client: httpx.Client) -> List[str]:
+    """Merge subjects that assert NO type at all.
+
+    These are what the OLD removal-based retirement left behind, and they are
+    the population that gets re-created. A producer decides whether a person
+    exists by asking `SELECT ?t WHERE { <uri> a ?t }` -- ANY type -- so a node
+    matching this query answers "no such person" and the next ingest mints it
+    again, re-asserting `a pwg:Person` and appending another createdAt.
+
+    THIS IS WHY A CLEAN RUN WAS NOT A FIX. On 2026-09-18 the still-typed count
+    went to 0 at 02:39 and back to 32 after one ingest. The nodes were not
+    re-typed by a bug in the merge: they were re-CREATED, because retiring
+    them had made them invisible.
+    """
+    rows = _sparql_query(url, client, retirement.untyped_merge_subjects_query())
+    return [r["s"] for r in rows if r.get("s")]
+
+
 def repair(
     oxigraph_url: str,
     qdrant_url: str,
@@ -101,6 +120,7 @@ def repair(
             )
             still_typed = _still_typed_subjects(oxigraph_url, client)
             retired = _retired_subjects(oxigraph_url, client)
+            resurrectable = _resurrectable_subjects(oxigraph_url, client)
 
             # NEGATIVE CONTROL. The retirement predicate must not claim a
             # subject that cannot exist. If it does, every count above is
@@ -117,8 +137,10 @@ def repair(
             print(
                 "merge subjects examined : %d\n"
                 "  still typed as Person : %d   (counted as live people they are not)\n"
-                "  correctly retired     : %d"
-                % (len(merged), len(still_typed), len(retired))
+                "  correctly retired     : %d\n"
+                "  of those, UNTYPED     : %d   (will be RE-CREATED by the next ingest)"
+                % (len(merged), len(still_typed), len(retired),
+                   len(resurrectable))
             )
 
     except Exception as exc:  # noqa: BLE001 -- a failed READ is CANNOT-RUN
@@ -133,36 +155,52 @@ def repair(
     # some subjects may already be retired, and printing the CANNOT-RUN
     # sentence would be false in exactly the way this module exists to stop.
     attempted = 0
+    upgraded = 0
     try:
         with httpx.Client(timeout=30, trust_env=False) as client:
-            if still_typed and apply:
+            if apply:
+                # ONE definition of retirement, in retirement.py. It REPLACES
+                # the type rather than removing it: an untyped node answers
+                # every producer's existence check with "no such person" and
+                # is re-created on the next ingest, which is how a repair
+                # that reported 0 was back to 32 hours later.
                 for uri in still_typed:
                     _sparql_update(
-                        oxigraph_url, client,
-                        f"DELETE DATA {{ <{uri}> a <{PWG}Person> }}",
-                    )
-                    _sparql_update(
-                        oxigraph_url, client,
-                        f"DELETE DATA {{ <{uri}> a "
-                        f"<http://xmlns.com/foaf/0.1/Person> }}",
+                        oxigraph_url, client, retirement.retire_update(uri),
                     )
                     attempted += 1
+                # MIGRATION, same operation, different starting state. These
+                # already have no Person type, so the old repair called them
+                # DONE. They are the resurrectable ones. retire_update is
+                # idempotent, so the DELETEs are no-ops and the INSERT is the
+                # whole point.
+                for uri in resurrectable:
+                    _sparql_update(
+                        oxigraph_url, client, retirement.retire_update(uri),
+                    )
+                    upgraded += 1
             # COUNT THE EFFECT, NOT THE ATTEMPT. Incrementing a counter after
             # issuing an update reports what we asked for, not what happened,
             # in a module whose whole subject is two stores publishing counts
             # that were not true. Re-read and take the delta.
             remaining = _still_typed_subjects(oxigraph_url, client)
             retired_now = len(still_typed) - len(remaining)
+            still_untyped = _resurrectable_subjects(oxigraph_url, client)
+            upgraded_now = len(resurrectable) - len(still_untyped)
     except Exception as exc:  # noqa: BLE001
         print(
             "PARTIAL: the repair failed part-way (%s). %d subject(s) had "
             "already been attempted and the graph is in a half-repaired state. "
-            "Re-run this step; it is idempotent." % (exc, attempted)
+            "Re-run this step; it is idempotent."
+            % (exc, attempted + upgraded)
         )
         return EXIT_PARTIAL
     print(
-        "  retired by this run   : %d   (attempted %d, apply=%s)"
-        % (retired_now, attempted, apply)
+        "  retired by this run   : %d   (attempted %d, apply=%s)\n"
+        "  upgraded to RetiredPerson: %d   (attempted %d)\n"
+        "  STILL RESURRECTABLE   : %d   <- must be 0, or the next ingest undoes this"
+        % (retired_now, attempted, apply, upgraded_now, upgraded,
+           len(still_untyped))
     )
 
     report = sweep_qdrant_orphans_of_merged_people(
