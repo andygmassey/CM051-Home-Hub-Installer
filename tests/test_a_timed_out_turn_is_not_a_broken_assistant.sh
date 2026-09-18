@@ -97,6 +97,23 @@ verdict() {  # verdict <turn...>  -> PASS | FAIL | CANNOT-RUN
     local h="${WORK}/h.sh" i=1
     local _n _last
     _n="$(_battery_size)"
+    # VALIDATE THE READ, NEVER DEFAULT IT. An empty or non-numeric answer here
+    # used to fall through `${_n:-0}` to zero, which skips the padding, returns
+    # the ORIGINAL symptom, and reports it as "the harness is wrong" without
+    # naming the cause. A CANNOT-RUN that does not say what it could not read
+    # is the failure this whole file exists to argue against, so it names the
+    # file and the value it actually got.
+    case "$_n" in
+        ''|*[!0-9]*)
+            printf 'CANNOT-RUN: could not read the battery size from %s (got %s); refusing rather than assuming a size\n' \
+                "$SUBJECT" "${_n:-<empty>}" >&2
+            exit 2
+            ;;
+    esac
+    [ "$_n" -ge 1 ] || {
+        printf 'CANNOT-RUN: %s declares a battery of %s questions; nothing to measure\n' "$SUBJECT" "$_n" >&2
+        exit 2
+    }
     : > "${WORK}/answers"
     set -- "$@"
     _last="${@: -1}"
