@@ -220,7 +220,7 @@ fi
 # existed: 219 lines, ONE assignment of that variable, and ZERO occurrences of
 # `unset OSTLER_BOX_HOST` or an empty assignment. So the branch that runs when
 # nobody names a box at all had no coverage, and that branch exited 0 --
-# announcing SHIPPABLE for a registered cut blocker that had measured nothing.
+# announcing SHIPPABLE for a registered launch-critical gate that had measured nothing.
 #
 # A zero denominator reading as success is the failure this whole suite exists
 # to catch, and it was sitting in the suite's own subject.
@@ -237,7 +237,7 @@ else
     if [ "${_rc}" -eq 78 ]; then
         ok "an UNSET box host exits 78 (CANNOT-RUN), not 0 (SHIPPABLE)"
     else
-        bad "an UNSET box host exited ${_rc}. 0 would announce SHIPPABLE for a registered cut blocker that contacted no box and evaluated no assertion."
+        bad "an UNSET box host exited ${_rc}. 0 would announce SHIPPABLE for a registered launch-critical gate that contacted no box and evaluated no assertion."
     fi
 
     # (2) THE MARKER LINE, which is half the contract and is easy to forget.

@@ -62,7 +62,7 @@ set -uo pipefail
 # 🔴 AN UNSET HOST IS CANNOT-RUN, NOT A PASS, AND THIS EXITED 0 FOR BOTH.
 #
 # The header above declares "Exit: 0 = SHIPPABLE / SKIP", and that slash is the
-# defect written down. This gate is registered as a cut blocker in
+# defect written down. This gate is registered as launch-critical in
 # cut-manifests/permanent.yaml, so on any runner without a box it announced
 # SHIPPABLE for a launch-critical gate that had measured NOTHING. A zero
 # denominator read as success.

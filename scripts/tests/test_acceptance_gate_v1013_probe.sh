@@ -51,7 +51,7 @@ if [[ -x "${PROBE}" ]]; then ok "probe script exists + is executable"; else bad 
 printf '\n=== CASE: OSTLER_BOX_HOST unset -> CANNOT-RUN (exit 78), never SHIPPABLE ===\n'
 out="$(env -u OSTLER_BOX_HOST "${PROBE}" 2>&1)"; rc=$?
 printf '%s\n' "${out}" | sed 's/^/  | /'
-if [[ "${rc}" -eq 78 ]]; then ok "unset host -> exit 78 (CANNOT-RUN, not SHIPPABLE)"; else bad "unset host gave rc=${rc}, expected 78. 0 would announce SHIPPABLE for a registered cut blocker that contacted no box."; fi
+if [[ "${rc}" -eq 78 ]]; then ok "unset host -> exit 78 (CANNOT-RUN, not SHIPPABLE)"; else bad "unset host gave rc=${rc}, expected 78. 0 would announce SHIPPABLE for a registered launch-critical gate that contacted no box."; fi
 # THE MARKER IS HALF THE CONTRACT. run_box_walk.sh:537-539 records a probe that
 # exits 78 with no "VERDICT: CANNOT-RUN --" line as UNRECORDED, and calls that a
 # contract breach in those words. The code alone is not enough.

@@ -3,7 +3,7 @@
 
 WHY THIS EXISTS, and it closes a gap the register owner named rather than hid.
 
-Board rows 960 and 2217 stopped declaring themselves cut blockers because CM051
+Board rows 960 and 2217 stopped declaring themselves launch-critical because CM051
 #2220 is MERGED: the one-click erasure now removes the fact NODE and not merely
 its link to the person. That fix reaches customers as a GRAFT into
 vendor/cm041/assistant_api/, because the same fix cannot currently land upstream
