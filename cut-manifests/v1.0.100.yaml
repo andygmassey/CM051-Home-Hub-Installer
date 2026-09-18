@@ -3628,7 +3628,147 @@ open_issues:
   - issue: 2155
     repo: none
     title: 'CUT BLOCKER: the merge repair strips the only type triple and the iMessage ingest re-creates the person, 32 of them, twice'
-    gate: '🔴 BLOCKING. MEASURED BY TNM ON THE BOX 2026-09-18, read-only, with a live control, and it CONTRADICTS a PROVEN claim made earlier the same night. At 02:39 a detect-only run after a people sync showed still-typed-as-Person 0 and correctly-retired 56. Minutes ago the same box showed live people 2598, merge subjects 56, PHANTOMS (carry mergedInto AND still a Person) 32, correctly retired 24, qdrant points 2597, CONTROL on the dead ostler.ai/ns# namespace 0. So the 32 phantoms are BACK and the earlier PROVEN line is no longer true of current state. THIS IS NOT A DELIVERY FAILURE AND NOT THE PYCACHE TRAP: both fixes are on the box, resolver.py mtime 02:27:37 carries follow_merge_chain and the DELETE DATA retire, and there is no __pycache__ to be stale. THE MECHANISM, AND THE REPAIR IS WHAT ARMS IT. ~/.ostler/fda-module/ostler_fda/pwg_ingest.py contains ZERO occurrences of mergedInto and asserts a pwg:Person at FIVE sites (iMessage 698, WhatsApp 1070, calendar 1224, faces 1372, email senders 1456). Every one is guarded by _person_exists(uri), which is SELECT ?t WHERE { <uri> a ?t } LIMIT 1: ANY type, not Person. The repair removes the node''s ONLY type triple, so a RETIRED node has no rdf:type at all, _person_exists returns FALSE, and the writer re-creates it: re-asserts Person and appends another createdAt. The enumerated phantom carries THREE createdAt values (13:33, 17:58, 19:04 on 2026-09-17), source imessage_fda, and a uuid5-derived URI, so the URI is deterministic and every run re-mints the same one. STRIPPING THE TYPE IS WHAT MAKES A RETIRED NODE LOOK LIKE A NODE THAT NEVER EXISTED. That is the same class as every trap this board has catalogued: an operation succeeding against the WRONG SUBJECT is indistinguishable from success. THE FIX, one place rather than five: retire by REPLACING the type, a pwg:Person becomes a pwg:RetiredPerson. Then _person_exists returns TRUE and no writer re-creates, without touching any writer; the people count (?p a pwg:Person) still excludes it; mergedInto still resolves to the survivor. A POSITIVE PREDICATE INSTEAD OF AN ABSENCE, which is the rule earned repeatedly tonight. KNOWN RESIDUE, to be filed separately with its mechanism named rather than folded in: a writer that finds the retired node will write last-contact signal onto it rather than onto the survivor, which is signal LOSS rather than a phantom person. WHY THIS BLOCKS THE CUT: the people count is wrong on the v1.0.100 box right now, so a walk today would measure 2598 people of whom 32 do not exist, and people_count_agreement would pass or fail on a number that is not the truth. PROOF REQUIRED, and only this run proves anything: retire-by-replacement lands, an INGEST runs, and a detect-only run AFTER that ingest shows phantoms 0. A detect-only run on a box that has not ingested since the repair cannot distinguish fixed from not-yet-resurrected, which is exactly how the reading at 18:39Z came to be believed. DIAGNOSED 2026-09-18 AFTER THREE MECHANISMS AND TWO SELF-FALSIFICATIONS. THE FIRST MECHANISM, STATED ABOVE, IS THE RIGHT ONE. It was withdrawn in the middle of the night on a TIMEZONE ERROR and then restored when the product''s own counter was read from the correct tick. Read this whole entry before acting on any part of it. THE EVIDENCE, and it is a counter the pipeline already prints. In ~/.ostler/logs/fda-rerun.log the imessage ingest reports people_created 0 on most ticks and EXACTLY 32 on two consecutive ticks. Nothing else in that log ever creates anybody. In the graph: phantoms carrying a createdAt AFTER 2026-09-17T18:39Z, 32; CONTROL, phantoms carrying one BEFORE it, 32, because each node holds THREE createdAt values, the original plus two re-creations, which matches the two ticks of 32 exactly; all 32 carry source imessage_fda. THE MECHANISM, now consistent with every number: the merge repair removes the node''s only rdf:type, leaving it untyped; the iMessage ingest calls _person_exists, which is SELECT ?t WHERE { <uri> a ?t } LIMIT 1, ANY type rather than Person, gets nothing, and takes its CREATE branch; creating re-asserts a pwg:Person and appends another createdAt, while mergedInto was never removed, so the node is simultaneously merged away and counted as a live person; later ticks find it typed and report 0. STRIPPING THE TYPE IS WHAT MAKES A RETIRED NODE LOOK LIKE A NODE THAT NEVER EXISTED. HOW IT WAS WITHDRAWN AND WHY THAT IS THE MORE USEFUL HALF. Both hosts run at +0800. The detect-only reading logged as 02:39 was LOCAL, which is 2026-09-17T18:39Z. The phantoms'' newest createdAt is 2026-09-17T19:04Z, which is TWENTY FIVE MINUTES AFTER that reading, not the day before it. The falsifying question asked was how many phantoms carry a createdAt dated TODAY in UTC, 2026-09-18, and the answer 0 was TRUE AND IRRELEVANT. A UTC instant was compared against a local date and the arithmetic was allowed to choose a mechanism. THE SECOND HALF OF THE SAME ERROR: people_created 0 was read from the TAIL of the log, hours later, when the nodes already existed and there was nothing left to create. The window that mattered was twelve lines up. A ZERO FROM THE WRONG TICK IS NOT A SMALLER MEASUREMENT, IT IS A MEASUREMENT OF SOMETHING ELSE. STILL EXCLUDED, DO NOT RE-OPEN: ostler_fda/repair_overmerged_contact_cards.py acts only on Person nodes holding 2 or more distinct icloud_contact_uid values. Phantoms holding any, 0. CONTROL, icloud_contact_uid values in the graph, 2221. The identifier types the 32 hold are phone 18 and email 14. WHY THE 24 ARE NOT THE CONTROL, and this is a measurement rather than an assumption: the 24 correctly-retired nodes carry NO identifiers and NO source at all. They are bare tombstones, so no ingest can ever match them, which is also why they have sat untyped through dozens of ticks without being revived. A control has to come from the same population as the treatment. THE FIX IS SUFFICIENT FOR THIS PATH: retire by REPLACING the type, pwg:Person becomes pwg:RetiredPerson. _person_exists then gets a row, the writer takes its already-exists branch, people_created stays 0, the people count (?p a pwg:Person) still excludes the node, and mergedInto still resolves to the survivor. A POSITIVE PREDICATE INSTEAD OF AN ABSENCE. It is in CM041 PR #166, SHA 859732d verified at both ends rather than by a push exit code. RESIDUE, filed rather than folded in: a writer whose guard asks for pwg:Person SPECIFICALLY still counts 0 against a RetiredPerson node and would add a Person type alongside it, leaving the node carrying BOTH. repair_overmerged_contact_cards.py is such a writer. It is excluded from THIS population and it is not excluded from the graph, so a both-types detector is owed. That state is at least a detectable contradiction, where an untyped node was indistinguishable from a node that never existed. PROOF REQUIRED, and the design is the point. TWO nodes, both drawn from the 32, because a run on one is unreadable. Node A is retired by REPLACEMENT. Node B is retired by REMOVAL, the old way, and is the POSITIVE CONTROL. Then one ingest tick. PASS is people_created 1 with B typed again and A still only a RetiredPerson, which shows the writer ran, its create branch fired, and the discriminator held. FAIL is people_created 2, or A typed again. people_created 0 is CANNOT-RUN, because the branch never fired and the run measured nothing. THE READING PROTOCOL IS PART OF THE PROOF, because reading the wrong tick is half of what went wrong here: record the log''s line count BEFORE the ingest, run it, and read people_created ONLY from the lines appended after that mark, reporting how many new lines there were. An empty slice is CANNOT-RUN, not 0. Every timestamp in UTC with the zone printed, or in epoch seconds. Reversing statements written down BEFORE either write. Counts only, never identifiers, because that graph is a live data subject. TWO WRITES ARE AUTHORISED FOR THIS RUN AND FOR NOTHING ELSE. METHOD, recorded because a reader who sees only the answer learns nothing: three mechanisms in one night, and the third is the first. The corrections DID NOT CONVERGE. Each was measured from scratch, and anyone reading the trend rather than the evidence would have treated the second correction as progress when it was the one that was wrong. Both falsifications came from the person who made the claim, which is the behaviour to keep. WHY THIS BLOCKS THE CUT, unchanged throughout: the people count on the v1.0.100 box is wrong right now, so a walk today would measure 2598 people of whom 32 do not exist, and people_count_agreement would pass or fail on a number that is not the truth. THIS ROW CLOSES ON THE TWO-NODE RUN ABOVE, NOT ON A MERGE.'
+    gate: >-
+      THIS ROW IS NOT BLOCKING AS OF 2026-09-19: THE TWO-NODE RUN HAPPENED ON THE BOX, THROUGH THE
+      SHIPPED PATH, AND THE MECHANISM IS CONFIRMED. The row's own closing condition was that run and
+      not a merge. B IS RE-CREATED AND A IS NOT. Retiring by REPLACING the type leaves a type behind,
+      the guard binds any type, and the node is protected. Retiring by REMOVAL leaves none, the guard
+      returns false, and the writer re-mints. Stripping the type is what makes a retired node look
+      like one that never existed, exactly as this row states. 🔴 AND THE EXPERIMENT AS I SPECIFIED IT
+      COULD NOT HAVE PRODUCED THAT ANSWER. I asked for two hand-written synthetic nodes. The writer
+      mints a person URI from the normalised IDENTIFIER and iterates participants taken from the
+      SOURCE data; IT NEVER ENUMERATES THE GRAPH. A planted node has no matching source identifier, so
+      nothing would ever visit it and NEITHER A NOR B WOULD BE RE-CREATED. My own brief said that
+      outcome means the tick did not run. SO A PERFECTLY GOOD TICK WOULD HAVE REPORTED CANNOT-RUN, and
+      the only way to make my design work would have been to inject synthetic participants into the
+      real import data, perturbing the specimen row 2202 exists to preserve. The operator refused the
+      brief and used a stricter design instead: THE GRAPH ALREADY CONTAINS BOTH STATES, so the
+      subjects are real and nothing had to be planted. THE PREDICATE WAS DRIVEN RATHER THAN GREPPED,
+      from the SHIPPED module loaded as an object: a merged subject that still carries a type returns
+      TRUE, one whose type was removed returns FALSE, and an absent synthetic URI returns FALSE, which
+      is the control proving it does not say yes to everything. AND THE GAP THAT WOULD HAVE
+      INVALIDATED IT WAS CLOSED RATHER THAN GLOSSED: the surviving type on the real subject is Person,
+      so that pair tests the EQUIVALENCE CLASS and not the fix. One synthetic subject typed
+      RetiredPerson was added, returned TRUE, and was deleted. Person count 2618 before, during and
+      after; total triples 132164 before and after; synthetic subject 0 rows after cleanup. It adds no
+      Person, so no probe input moved. THE TICK IS REAL AND THE ARITHMETIC CLOSES EXACTLY. The shipped
+      LaunchAgent ran, not a checkout and not a hand-run module, with launchd reporting last exit 0.
+      Merged AND still typed Person: 25 before, 58 after, with the completed run's own counter
+      reporting 33 created. 25 plus 33 is 58. THE COUNTER DISCIPLINE HELD: one completed summary was
+      read rather than the file as a total, and the second tick was still in flight when the
+      measurement was taken, which is stated rather than hidden. A CONTROL I DID NOT ASK FOR AND
+      SHOULD HAVE, and it is the best evidence in the whole run: RE-CREATION LEAVES A COUNTABLE SCAR.
+      Across the 58 phantoms the created-at multiplicity runs one node at 19, four at 9, eight at 6,
+      twelve at 5, one at 2 and thirty-two at 1. Across ordinary persons, 2507 of 2521 carry exactly
+      one and only 14 carry two. The populations separate cleanly, and the three-value phantom this
+      row describes is at the LOW end. THE SPECIMEN IS INTACT: no repair was run, no phantom cleared,
+      no real person node touched, mergedInto 82 before and after, merged-with-no-type still 24,
+      RetiredPerson 0 before and 0 after cleanup. 🔴 AND A REGRESSION I INTRODUCED WAS FOUND BY THIS
+      RUN AND IS NOW FIXED, which is recorded here because the row would otherwise read as a clean
+      success. The interval-agent quiesce I added boots the re-run agent out, and its re-registration
+      was gated on a flag set ONLY inside the plist-rewrite block, which does not fire on an upgrade
+      whose plist is already current. So on that path the bootout was PERMANENT and the message
+      promising re-registration was false. Measured: the service could not be found in the user domain
+      and the plist carried a pre-install date. The quiesce now sets that flag itself, the consumer
+      re-registers with three outcomes rather than two, the ordering is correct, and a test covers it.
+      THE HOURLY RE-RUN HAD BEEN SILENTLY DEAD, which is also why the phantom count grew from 25 to 58
+      once it was restored: that is normal suppressed operation resuming, not something the experiment
+      induced. WHAT REMAINS AND WHERE IT LIVES: the repair MODULE is still absent from the shipped
+      artefact, which is row 2202 and still blocking. This row proved the MECHANISM on the shipped
+      WRITER. Those are different claims and only the second one was this row's.  ORIGINAL TEXT
+      FOLLOWS. 🔴 BLOCKING. MEASURED BY TNM ON THE BOX 2026-09-18, read-only, with a live control, and
+      it CONTRADICTS a PROVEN claim made earlier the same night. At 02:39 a detect-only run after a
+      people sync showed still-typed-as-Person 0 and correctly-retired 56. Minutes ago the same box
+      showed live people 2598, merge subjects 56, PHANTOMS (carry mergedInto AND still a Person) 32,
+      correctly retired 24, qdrant points 2597, CONTROL on the dead ostler.ai/ns# namespace 0. So the
+      32 phantoms are BACK and the earlier PROVEN line is no longer true of current state. THIS IS NOT
+      A DELIVERY FAILURE AND NOT THE PYCACHE TRAP: both fixes are on the box, resolver.py mtime
+      02:27:37 carries follow_merge_chain and the DELETE DATA retire, and there is no __pycache__ to
+      be stale. THE MECHANISM, AND THE REPAIR IS WHAT ARMS IT. ~/.ostler/fda-
+      module/ostler_fda/pwg_ingest.py contains ZERO occurrences of mergedInto and asserts a pwg:Person
+      at FIVE sites (iMessage 698, WhatsApp 1070, calendar 1224, faces 1372, email senders 1456).
+      Every one is guarded by _person_exists(uri), which is SELECT ?t WHERE { <uri> a ?t } LIMIT 1:
+      ANY type, not Person. The repair removes the node's ONLY type triple, so a RETIRED node has no
+      rdf:type at all, _person_exists returns FALSE, and the writer re-creates it: re-asserts Person
+      and appends another createdAt. The enumerated phantom carries THREE createdAt values (13:33,
+      17:58, 19:04 on 2026-09-17), source imessage_fda, and a uuid5-derived URI, so the URI is
+      deterministic and every run re-mints the same one. STRIPPING THE TYPE IS WHAT MAKES A RETIRED
+      NODE LOOK LIKE A NODE THAT NEVER EXISTED. That is the same class as every trap this board has
+      catalogued: an operation succeeding against the WRONG SUBJECT is indistinguishable from success.
+      THE FIX, one place rather than five: retire by REPLACING the type, a pwg:Person becomes a
+      pwg:RetiredPerson. Then _person_exists returns TRUE and no writer re-creates, without touching
+      any writer; the people count (?p a pwg:Person) still excludes it; mergedInto still resolves to
+      the survivor. A POSITIVE PREDICATE INSTEAD OF AN ABSENCE, which is the rule earned repeatedly
+      tonight. KNOWN RESIDUE, to be filed separately with its mechanism named rather than folded in: a
+      writer that finds the retired node will write last-contact signal onto it rather than onto the
+      survivor, which is signal LOSS rather than a phantom person. WHY THIS BLOCKS THE CUT: the people
+      count is wrong on the v1.0.100 box right now, so a walk today would measure 2598 people of whom
+      32 do not exist, and people_count_agreement would pass or fail on a number that is not the
+      truth. PROOF REQUIRED, and only this run proves anything: retire-by-replacement lands, an INGEST
+      runs, and a detect-only run AFTER that ingest shows phantoms 0. A detect-only run on a box that
+      has not ingested since the repair cannot distinguish fixed from not-yet-resurrected, which is
+      exactly how the reading at 18:39Z came to be believed. DIAGNOSED 2026-09-18 AFTER THREE
+      MECHANISMS AND TWO SELF-FALSIFICATIONS. THE FIRST MECHANISM, STATED ABOVE, IS THE RIGHT ONE. It
+      was withdrawn in the middle of the night on a TIMEZONE ERROR and then restored when the
+      product's own counter was read from the correct tick. Read this whole entry before acting on any
+      part of it. THE EVIDENCE, and it is a counter the pipeline already prints. In
+      ~/.ostler/logs/fda-rerun.log the imessage ingest reports people_created 0 on most ticks and
+      EXACTLY 32 on two consecutive ticks. Nothing else in that log ever creates anybody. In the
+      graph: phantoms carrying a createdAt AFTER 2026-09-17T18:39Z, 32; CONTROL, phantoms carrying one
+      BEFORE it, 32, because each node holds THREE createdAt values, the original plus two re-
+      creations, which matches the two ticks of 32 exactly; all 32 carry source imessage_fda. THE
+      MECHANISM, now consistent with every number: the merge repair removes the node's only rdf:type,
+      leaving it untyped; the iMessage ingest calls _person_exists, which is SELECT ?t WHERE { <uri> a
+      ?t } LIMIT 1, ANY type rather than Person, gets nothing, and takes its CREATE branch; creating
+      re-asserts a pwg:Person and appends another createdAt, while mergedInto was never removed, so
+      the node is simultaneously merged away and counted as a live person; later ticks find it typed
+      and report 0. STRIPPING THE TYPE IS WHAT MAKES A RETIRED NODE LOOK LIKE A NODE THAT NEVER
+      EXISTED. HOW IT WAS WITHDRAWN AND WHY THAT IS THE MORE USEFUL HALF. Both hosts run at +0800. The
+      detect-only reading logged as 02:39 was LOCAL, which is 2026-09-17T18:39Z. The phantoms' newest
+      createdAt is 2026-09-17T19:04Z, which is TWENTY FIVE MINUTES AFTER that reading, not the day
+      before it. The falsifying question asked was how many phantoms carry a createdAt dated TODAY in
+      UTC, 2026-09-18, and the answer 0 was TRUE AND IRRELEVANT. A UTC instant was compared against a
+      local date and the arithmetic was allowed to choose a mechanism. THE SECOND HALF OF THE SAME
+      ERROR: people_created 0 was read from the TAIL of the log, hours later, when the nodes already
+      existed and there was nothing left to create. The window that mattered was twelve lines up. A
+      ZERO FROM THE WRONG TICK IS NOT A SMALLER MEASUREMENT, IT IS A MEASUREMENT OF SOMETHING ELSE.
+      STILL EXCLUDED, DO NOT RE-OPEN: ostler_fda/repair_overmerged_contact_cards.py acts only on
+      Person nodes holding 2 or more distinct icloud_contact_uid values. Phantoms holding any, 0.
+      CONTROL, icloud_contact_uid values in the graph, 2221. The identifier types the 32 hold are
+      phone 18 and email 14. WHY THE 24 ARE NOT THE CONTROL, and this is a measurement rather than an
+      assumption: the 24 correctly-retired nodes carry NO identifiers and NO source at all. They are
+      bare tombstones, so no ingest can ever match them, which is also why they have sat untyped
+      through dozens of ticks without being revived. A control has to come from the same population as
+      the treatment. THE FIX IS SUFFICIENT FOR THIS PATH: retire by REPLACING the type, pwg:Person
+      becomes pwg:RetiredPerson. _person_exists then gets a row, the writer takes its already-exists
+      branch, people_created stays 0, the people count (?p a pwg:Person) still excludes the node, and
+      mergedInto still resolves to the survivor. A POSITIVE PREDICATE INSTEAD OF AN ABSENCE. It is in
+      CM041 PR #166, SHA 859732d verified at both ends rather than by a push exit code. RESIDUE, filed
+      rather than folded in: a writer whose guard asks for pwg:Person SPECIFICALLY still counts 0
+      against a RetiredPerson node and would add a Person type alongside it, leaving the node carrying
+      BOTH. repair_overmerged_contact_cards.py is such a writer. It is excluded from THIS population
+      and it is not excluded from the graph, so a both-types detector is owed. That state is at least
+      a detectable contradiction, where an untyped node was indistinguishable from a node that never
+      existed. PROOF REQUIRED, and the design is the point. TWO nodes, both drawn from the 32, because
+      a run on one is unreadable. Node A is retired by REPLACEMENT. Node B is retired by REMOVAL, the
+      old way, and is the POSITIVE CONTROL. Then one ingest tick. PASS is people_created 1 with B
+      typed again and A still only a RetiredPerson, which shows the writer ran, its create branch
+      fired, and the discriminator held. FAIL is people_created 2, or A typed again. people_created 0
+      is CANNOT-RUN, because the branch never fired and the run measured nothing. THE READING PROTOCOL
+      IS PART OF THE PROOF, because reading the wrong tick is half of what went wrong here: record the
+      log's line count BEFORE the ingest, run it, and read people_created ONLY from the lines appended
+      after that mark, reporting how many new lines there were. An empty slice is CANNOT-RUN, not 0.
+      Every timestamp in UTC with the zone printed, or in epoch seconds. Reversing statements written
+      down BEFORE either write. Counts only, never identifiers, because that graph is a live data
+      subject. TWO WRITES ARE AUTHORISED FOR THIS RUN AND FOR NOTHING ELSE. METHOD, recorded because a
+      reader who sees only the answer learns nothing: three mechanisms in one night, and the third is
+      the first. The corrections DID NOT CONVERGE. Each was measured from scratch, and anyone reading
+      the trend rather than the evidence would have treated the second correction as progress when it
+      was the one that was wrong. Both falsifications came from the person who made the claim, which
+      is the behaviour to keep. WHY THIS BLOCKS THE CUT, unchanged throughout: the people count on the
+      v1.0.100 box is wrong right now, so a walk today would measure 2598 people of whom 32 do not
+      exist, and people_count_agreement would pass or fail on a number that is not the truth. THIS ROW
+      CLOSES ON THE TWO-NODE RUN ABOVE, NOT ON A MERGE.
   - issue: 2201
     repo: none
     title: 'LAUNCH ITEM: nothing in the graph records which process wrote a triple, so a wrong number cannot be traced to a writer'
