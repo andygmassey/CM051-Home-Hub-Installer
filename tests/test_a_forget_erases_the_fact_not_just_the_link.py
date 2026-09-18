@@ -122,10 +122,20 @@ ns = {}
 exec(compile(ast.Module(body=[node], type_ignores=[]), str(SERVER), "exec"), ns)
 forget_update = ns["_forget_person_update"]
 
+RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+# THE TWO FACT VOCABULARIES, AND THE SECOND ONE IS THE POPULATION THAT MATTERS.
+# ical-server.py:2741 measures it on the real box: `?s a pwg:PersonFact` is 0 in
+# EVERY graph, `?s a <urn:ostler:Fact>` is 990 in the per-user named graph.
+# CM048 -- the pipeline that produces essentially all of a customer's remembered
+# facts -- writes urn:ostler:about / urn:ostler:text / urn:ostler:Fact, NOT the
+# pwg names. A repair scoped to pwg:aboutPerson alone would leave every real
+# fact orphaned while passing a test written in the pwg vocabulary.
+FACT_TYPES = ("urn:ostler:Fact", "https://schema.ostler.ai/ontology#PersonFact")
 PERSON = "http://example.invalid/person/synthetic-subject"
 GRAPH = "urn:ostler:user/synthetic"
 SENTENCE = "SYNTHETIC SENTENCE THE CUSTOMER ASKED TO HAVE ERASED"
 OTHER_SENTENCE = "SYNTHETIC SENTENCE ABOUT SOMEBODY ELSE"
+PWG_SENTENCE = "SYNTHETIC SENTENCE IN THE PWG VOCABULARY"
 OTHER = "http://example.invalid/person/synthetic-bystander"
 ABOUT_P = "http://example.invalid/ns#aboutPerson"
 TEXT_P = "http://example.invalid/ns#factText"
@@ -134,16 +144,42 @@ USER_U = "http://example.invalid/user/synthetic-owner"
 
 
 def build_store(engine):
-    """A dataset shaped like the one on the box: a person, a fact ABOUT them
-    carrying the text, and a bystander's fact that a forget must NOT touch."""
+    """A dataset shaped like the one on the box.
+
+    FOUR SHAPES, and the third is the one my first fixture lacked:
+
+      1. a CM048-shaped fact ABOUT the subject   (the real population)
+      2. a pwg-shaped fact ABOUT the subject     (the vocabulary the code writes)
+      3. a BYSTANDER PERSON WHO REFERENCES THE SUBJECT -- the shape that
+         exposes an over-deleting repair. A bystander whose fact is merely
+         about themselves never matches the clause under test, so it can
+         never catch the defect, which is why my first control did not.
+      4. a fact about the bystander              (must survive untouched)
+    """
     rows = []
-    for subject, fact, text in ((PERSON, "fact-subject", SENTENCE),
-                                (OTHER, "fact-bystander", OTHER_SENTENCE)):
-        f = "http://example.invalid/fact/" + fact
-        rows.append((f, str(ABOUT_P), subject, False))
-        rows.append((f, str(TEXT_P), text, True))
-        rows.append((f, str(OWNER_P), str(USER_U), False))
-        rows.append((subject, "http://example.invalid/ns#name", "Synthetic", True))
+
+    def person(uri, name):
+        rows.append((uri, RDF_TYPE, "https://schema.ostler.ai/ontology#Person", False))
+        rows.append((uri, "https://schema.ostler.ai/ontology#displayName", name, True))
+
+    def fact(uri, ftype, link, about, textpred, text):
+        rows.append((uri, RDF_TYPE, ftype, False))
+        rows.append((uri, link, about, False))
+        rows.append((uri, textpred, text, True))
+        rows.append((uri, str(OWNER_P), str(USER_U), False))
+
+    person(PERSON, "Subject")
+    person(OTHER, "Bystander")
+    fact("urn:ostler:fact/cm048-subject", "urn:ostler:Fact",
+         "urn:ostler:about", PERSON, "urn:ostler:text", SENTENCE)
+    fact("https://schema.ostler.ai/ontology#fact_pwg_subject",
+         "https://schema.ostler.ai/ontology#PersonFact",
+         str(ABOUT_P), PERSON, str(TEXT_P), PWG_SENTENCE)
+    fact("urn:ostler:fact/cm048-bystander", "urn:ostler:Fact",
+         "urn:ostler:about", OTHER, "urn:ostler:text", OTHER_SENTENCE)
+    # 3. THE BYSTANDER REFERENCES THE SUBJECT.
+    rows.append((OTHER, "https://schema.ostler.ai/ontology#knows", PERSON, False))
+
     if ENGINES[engine] == "ox":
         st = _ox.Store()
         for sub, pred, obj, is_lit in rows:
@@ -156,6 +192,12 @@ def build_store(engine):
     for sub, pred, obj, is_lit in rows:
         g.add((_U(sub), _U(pred), _L(obj) if is_lit else _U(obj)))
     return ds
+
+
+def subject_triples(engine, store, uri):
+    """How many triples this node still has as a SUBJECT. A bystander losing
+    all of them is the over-deletion this file exists to refuse."""
+    return sum(1 for sub, _o, _l in _quads(engine, store) if sub == uri)
 
 
 def _quads(engine, store):
@@ -193,14 +235,37 @@ def carries(engine, store, text):
 
 
 def corrected_update(person_uri, graph_uris):
-    """The repair, proposed for CM041. Collects the fact WHILE ITS LINK STILL
-    EXISTS, then does everything the shipped update already does."""
+    """The repair, proposed for CM041.
+
+    🔴 SCOPED BY FACT TYPE, AND THE BROAD FORM I FIRST PROPOSED DESTROYS PEOPLE.
+    The obvious clause is `?s ?p <uri> . ?s ?p2 ?o2` -- delete every triple of
+    anything that references the person. Measured: that erases the sentence AND
+    ERASES AN INNOCENT BYSTANDER ENTIRELY, because a second Person node that
+    merely `knows` the forgotten one matches `?s ?p <uri>` and then loses every
+    triple it has, name and email included. An erasure that takes other people's
+    data with it is a worse defect than the one it fixes, and it would have been
+    landed as the fix for a GDPR row.
+
+    My first MUST-MISS control did not catch it because it had the wrong shape:
+    the bystander's fact was ABOUT the bystander rather than REFERENCING the
+    subject, so it never matched the clause under test. A control has to carry
+    the shape the defect needs.
+
+    So the wholesale delete is scoped to nodes explicitly TYPED as a fact, in
+    BOTH vocabularies. A Person node is never a fact type, so a bystander keeps
+    everything except their own link to the forgotten person, which the existing
+    `?s ?p <uri>` clause correctly removes.
+
+    The ordering still matters: the fact is collected while its link exists.
+    """
     esc = person_uri.replace("\\", "\\\\").replace(">", "%3E")
     clauses = []
     for graph in graph_uris:
-        clauses.append(
-            "DELETE {{ GRAPH <" + graph + "> {{ ?s ?p2 ?o2 }} }} "
-            "WHERE {{ GRAPH <" + graph + "> {{ ?s ?p <{uri}> . ?s ?p2 ?o2 }} }};")
+        for ftype in FACT_TYPES:
+            clauses.append(
+                "DELETE {{ GRAPH <" + graph + "> {{ ?f ?p2 ?o2 }} }} "
+                "WHERE {{ GRAPH <" + graph + "> {{ ?f <" + RDF_TYPE + "> <" + ftype + "> . "
+                "?f ?link <{uri}> . ?f ?p2 ?o2 }} }};")
     clauses.append("DELETE {{ <{uri}> ?p ?o }} WHERE {{ <{uri}> ?p ?o }};")
     clauses.append("DELETE {{ ?s ?p <{uri}> }} WHERE {{ ?s ?p <{uri}> }};")
     for graph in graph_uris:
@@ -248,10 +313,23 @@ def measure(engine):
     r["c_after"] = carries(engine, shipped, SENTENCE)
     r["bystander_after"] = carries(engine, shipped, OTHER_SENTENCE)
 
+    r["bystander_triples_before"] = subject_triples(engine, before, OTHER)
+    r["shipped_bystander_triples"] = subject_triples(engine, shipped, OTHER)
+
     fixed = build_store(engine)
     apply_update(engine, fixed, corrected_update(PERSON, [GRAPH]))
     r["fixed_content"] = carries(engine, fixed, SENTENCE)
+    r["fixed_pwg_content"] = carries(engine, fixed, PWG_SENTENCE)
     r["fixed_bystander"] = carries(engine, fixed, OTHER_SENTENCE)
+    r["fixed_bystander_triples"] = subject_triples(engine, fixed, OTHER)
+
+    # THE BROAD REPAIR I FIRST PROPOSED, kept as a NEGATIVE CONTROL so the arm
+    # below is proved to discriminate rather than merely to pass.
+    broad = build_store(engine)
+    clause = ("DELETE { GRAPH <%s> { ?s ?p2 ?o2 } } WHERE { GRAPH <%s> { ?s ?p <%s> . ?s ?p2 ?o2 } };"
+              % (GRAPH, GRAPH, PERSON))
+    apply_update(engine, broad, clause)
+    r["broad_bystander_triples"] = subject_triples(engine, broad, OTHER)
 
     mis = build_store(engine)
     apply_update(engine, mis, wrong_order(PERSON, [GRAPH]))
@@ -360,6 +438,36 @@ else:
     bad("the corrected pattern erased the bystander's fact too (%d -> %d). An "
         "erasure that takes other people's data with it is a worse defect than "
         "the one it fixes." % (r["c_before"], r["fixed_bystander"]))
+
+# 🔴 THE ARM THAT WOULD HAVE CAUGHT MY OWN REPAIR. A bystander who REFERENCES
+# the forgotten person must keep everything except that reference.
+if r["broad_bystander_triples"] == 0 and r["fixed_bystander_triples"] > 0:
+    ok("MUST-MISS, DISCRIMINATING: the broad clause `?s ?p <uri>` destroys the "
+       "bystander entirely (%d triples to 0) and the type-scoped repair leaves "
+       "them %d of %d, losing only their own link to the forgotten person. So "
+       "this arm can tell a correct erasure from one that takes other people's "
+       "data with it."
+       % (r["bystander_triples_before"], r["fixed_bystander_triples"],
+          r["bystander_triples_before"]))
+elif r["broad_bystander_triples"] != 0:
+    bad("the broad clause did NOT destroy the bystander in this fixture, so this "
+        "arm cannot discriminate and its pass proves nothing. The fixture has "
+        "lost the shape the defect needs: a bystander who REFERENCES the subject.")
+else:
+    bad("THE PROPOSED REPAIR DESTROYS AN INNOCENT BYSTANDER: %d subject triples "
+        "to %d. An erasure that takes other people's data with it is a worse "
+        "defect than the one it fixes, and it must not be handed upstream."
+        % (r["bystander_triples_before"], r["fixed_bystander_triples"]))
+
+# BOTH VOCABULARIES, because the one the code writes is not the one the data uses.
+if r["fixed_pwg_content"] == 0:
+    ok("the repair erases the pwg-shaped fact as well as the CM048-shaped one, "
+       "so it does not close only the vocabulary the writer happens to emit")
+else:
+    bad("the repair left %d pwg-shaped fact triple(s). ical-server.py:2741 "
+        "measures pwg:PersonFact at 0 and urn:ostler:Fact at 990 on the real "
+        "box, so covering one vocabulary is covering the smaller half."
+        % r["fixed_pwg_content"])
 
 if r["wrong_order_content"] == r["c_before"]:
     ok("CONTROL: with the collecting clause moved after the link delete, the "
