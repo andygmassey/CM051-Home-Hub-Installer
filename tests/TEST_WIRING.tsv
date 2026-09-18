@@ -62,6 +62,7 @@ test_a_second_contact_card_cannot_be_written_onto_one_person.py	WIRED	.github/wo
 test_a_second_sync_does_not_unpin_the_first.sh	WIRED	.github/workflows/bom-pin-agreement.yml
 test_a_security_note_cannot_claim_a_flag_is_off.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_a_self_removing_agent_deletes_its_plist_before_it_dies.sh	WIRED	.github/workflows/launchd-plist-paths.yml
+test_a_self_test_denominator_counts_itself.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_a_slow_step_is_not_a_wedged_one.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_staging_copy_is_guarded_on_its_source.py	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_a_status_read_is_guarded.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
@@ -165,6 +166,7 @@ test_conversation_process_metadata_conversation_id.sh	WIRED	.github/workflows/ve
 test_conversations_ingest_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_creation_name_writes.sh	WIRED	.github/workflows/creation-name-writes.yml
 test_credential_generation_does_not_sigpipe.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_customer_copy_keeps_two_locked_rules.sh	WIRED	.github/workflows/rule-09-strings-check.yml
 test_customer_copy_says_ios_app_not_companion.py	WIRED	.github/workflows/consent-registry.yml
 test_customer_download_path_gate.sh	WIRED	.github/workflows/customer-download-path.yml
 test_cut_bom_is_fresh.sh	WIRED	.github/workflows/cut.yml
