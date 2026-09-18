@@ -265,15 +265,6 @@ else:
       elif n < 65536:  h = struct.pack("!BBH", 0x81, 0x80 | 126, n)
       else:            h = struct.pack("!BBQ", 0x81, 0x80 | 127, n)
       s.sendall(h + m + mk)
-      # `global` IS LOAD-BEARING AND WAS ABSENT. Without it this assignment
-      # bound a LOCAL, the module-level _t_sent stayed None, and the TTFT
-      # branch below -- `if _t_first is not None and _t_sent is not None` --
-      # could never be true. Measured 2026-09-17: ten openings, every one
-      # reporting "ttft_s NOT-MEASURED no-content-token-arrived" while a chunk
-      # carrying content had demonstrably arrived. The message named the wrong
-      # cause, which is why it survived: it blamed the daemon for sending
-      # nothing when the clock had simply never started.
-      global _t_sent
       _t_sent = time.time()   # TTFT clock starts at the LAST byte of the request
   def rd(n):
       global rest
@@ -292,73 +283,7 @@ else:
       if n == 126:   n = struct.unpack("!H", rd(2))[0]
       elif n == 127: n = struct.unpack("!Q", rd(8))[0]
       return op, rd(n)
-# 🔴 THE CONNECT FRAME IS NOT OPTIONAL FOR THIS EXPERIMENT, AND OMITTING IT
-# MADE THIS PROBE MEASURE THE WRONG CODE PATH ENTIRELY.
-#
-# ws.rs:420-457 accepts an optional {"type":"connect",...} first frame. If the
-# first frame is a plain {"type":"message"} instead, it is stashed as
-# first_msg_fallback and processed IMMEDIATELY -- the backward-compatible path
-# -- which runs BEFORE the #404 handover block at ws.rs:542 and consumes the
-# opening turn. So a client that opens with the question never gets a handover
-# and always reports no_tool_call.
-#
-# Measured 2026-09-17, same box, same daemon, twenty minutes apart:
-#   first frame {"type":"message"}  -> 10/10 no_tool_call, no handover_begin
-#   first frame {"type":"connect"}  -> handover_begin, then pwg_overview and
-#                                      pwg_commitments called with real data
-#
-# I filed a daemon issue saying #404 never ran, on the strength of the first
-# reading. It was my handshake. The issue is retracted. The real app sends
-# connect, so THIS is the path a customer takes and the one the experiment must
-# use.
-send(json.dumps({"type": "connect",
-                 "session_id": os.environ.get("OSTLER_SESSION") or ("openingturn-%d" % time.time()),
-                 "device_name": "walk-probe",
-                 "capabilities": []}))
-
-# 🔴 AND THE QUESTION MUST WAIT FOR THE HANDOVER TO FINISH.
-#
-# Sending connect makes the daemon run the #404 handover as the FIRST turn: it
-# asks its own opening question ("what should I know right now?"), calls
-# pwg_overview and pwg_commitments, and emits its own done frame. If the seeded
-# question is fired immediately after connect, the frames this parser grades
-# belong to the HANDOVER, not to the question -- and the handover never asks
-# about the seeded person, so every opening scored tool_found_nothing on
-# pwg_overview. Measured 2026-09-17: 3 of 3 that way, with tool=pwg_overview
-# every time, which is the handover's tool and not an answer to anything asked.
-#
-# That is the second time this handshake has made the probe measure the wrong
-# turn, in the opposite direction from the first. So the sequence is stated
-# explicitly and is what a customer actually experiences:
-#   1. app connects
-#   2. the handover briefs them            <- drained here, NOT graded
-#   3. the customer asks something         <- this is what the battery grades
-#
-# The drain is BOUNDED and its outcome is reported. A handover that never
-# finishes is a finding, not a reason to grade its frames as the answer.
-_ho_frames = 0
-_ho_done = False
-_ho_deadline = time.time() + 180
-while time.time() < _ho_deadline:
-    try:
-        _op, _pay = frame()
-    except Exception:
-        break
-    if _op == 8:
-        break
-    try:
-        _ev = json.loads(_pay)
-    except Exception:
-        continue
-    _ho_frames += 1
-    _t = _ev.get("type", "")
-    if _t == "done":
-        _ho_done = True
-        break
-print("FRAME handover_drained %s frames=%d" % ("OK" if _ho_done else "TIMEOUT", _ho_frames))
-
 send(json.dumps({"type": "message", "content": question}))
-_t_sent = time.time()
 # Emit ONLY frame types and tool outcomes. Never the answer prose: it is the
 # operator's personal data and this transcript lands in support bundles. The
 # prose is ACCUMULATED here only so the seeded turn can answer one yes/no
@@ -377,21 +302,9 @@ _t_sent = time.time()
 # on the live path is UNDEFINED under the parser's own tests -- and a NameError
 # in this loop reads downstream as an EMPTY answer, which is how it presented:
 # five arms reporting "read ''" rather than anything mentioning time.
-# 🔴 AND THIS BLOCK RAN *AFTER* THE SEND, SO IT CLOBBERED THE CLOCK.
-# `send(...)` is called above, then these lines execute and put _t_sent back to
-# None. Even with the `global` fix alone the TTFT branch would still never
-# fire. Two independent faults, either one fatal, and both produced the same
-# message. _t_sent is therefore initialised ONLY IF THE SEND DID NOT SET IT,
-# which keeps fixture mode working -- OSTLER_GROUNDED_FRAMES never calls
-# sendall, and a _t_sent that exists only on the live path raises NameError in
-# the loop below, which reads downstream as an EMPTY answer.
-try:
-    _t_sent
-except NameError:
-    _t_sent = None
+_t_sent = None
 _t_first = None
 _t_last = None
-_content_frames = 0
 _tok = 0
 text = ""
 while time.time() < deadline:
@@ -480,7 +393,6 @@ while time.time() < deadline:
             # FIRST CONTENT token, not first frame. Set once.
             if _t_first is None: _t_first = time.time()
             _t_last = time.time()
-            _content_frames += 1
             # Token count approximated by whitespace-delimited words. The
             # gateway does not report token counts on this stream, so this is
             # a WORD rate wearing a token name if reported as tokens. It is
@@ -512,21 +424,12 @@ while time.time() < deadline:
             if _t_first is not None and _t_sent is not None:
                 print("FRAME ttft_s %.3f" % (_t_first - _t_sent))
                 _span = (_t_last - _t_first) if (_t_last and _t_last > _t_first) else 0.0
-                # 🔴 THE GUARD WAS `_span > 0` AND THAT IS NOT THE QUESTION.
-                # This gateway does not stream: measured 2026-09-17, the whole
-                # reply arrives as ONE chunk frame, then chunk_reset, then
-                # done. _t_first and _t_last are then taken microseconds apart
-                # on the SAME frame, so the span is tiny but non-zero and the
-                # division produced tok_per_s=8108987.73 for a 58-token reply.
-                # A number that large is obviously wrong; one merely plausible
-                # would have been believed.
-                #
-                # The real question is HOW MANY CONTENT FRAMES ARRIVED. One
-                # frame carries no rate information at all, whatever its span.
-                if _content_frames > 1 and _span > 0:
+                # A zero span with tokens is a single-frame reply, not an
+                # infinite rate. Report NOT-MEASURED rather than divide.
+                if _span > 0:
                     print("FRAME tok_per_s %.2f" % (_tok / _span))
                 else:
-                    print("FRAME tok_per_s NOT-MEASURED single-frame-reply (%d content frame(s); this gateway delivers the whole reply at once, so a stream rate does not exist)" % _content_frames)
+                    print("FRAME tok_per_s NOT-MEASURED single-frame-reply")
                 print("FRAME tokens %d" % _tok)
             else:
                 print("FRAME ttft_s NOT-MEASURED no-content-token-arrived")
