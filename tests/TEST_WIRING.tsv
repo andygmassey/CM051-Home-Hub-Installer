@@ -254,6 +254,7 @@ test_every_probe_on_disk_is_collected.py	WIRED	.github/workflows/every-probe-is-
 test_every_question_declares_its_persistence.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_every_script_install_sh_reads_is_bundled.py	WIRED	.github/workflows/install-gui-contract.yml
 test_every_terminal_done_is_exit_or_guarded.sh	WIRED	.github/workflows/install-gui-contract.yml
+test_every_workflow_step_can_run.py	WIRED	.github/workflows/declared-gates-reachable.yml
 test_exemption_ref_form.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_expired_deferral_ratchet.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_expiry_needs_a_cut_version.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
@@ -525,6 +526,7 @@ test_the_governor_revendor_guard_is_actually_run.sh	WIRED	.github/workflows/vend
 test_the_installer_downloads_from_the_repo_we_publish_to.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_licence_a_customer_paid_for_is_owner_only.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_the_licence_acknowledgement_reaches_the_customer.sh	WIRED	.github/workflows/consent-registry.yml
+test_the_licence_screen_says_what_we_hash.sh	WIRED	.github/workflows/consent-registry.yml
 test_the_loopback_auth_gate_cannot_be_bypassed.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_the_manifest_selector_survives_v1_0_100.sh	WIRED	.github/workflows/cut-checklist-complete.yml
 test_the_merge_budget_scales_with_the_address_book.sh	WIRED	.github/workflows/killed-converge-gets-its-catchup.yml
