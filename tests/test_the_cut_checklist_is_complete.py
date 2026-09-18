@@ -68,6 +68,119 @@ class _ScopeRefused(Exception):
     """The title scope found nothing, which is a refusal and not an answer."""
 
 
+#: Phrases a row uses to say, in its own words, that the work is not done.
+#: Matched against the NORMALISED gate text. Deliberately short and literal:
+#: every one of these was written by whoever measured the defect, so they are
+#: the author's own verdict rather than an inference drawn from prose.
+_UNFINISHED_MARKERS = (
+    "NOT STARTED",
+    "DECISION REQUIRED",
+    "CANNOT FIX",
+    "NO PR OPENED",
+    "NOTHING WRITES",
+)
+
+#: A row struck for this reason has had its GitHub issue closed. That is a
+#: statement about a ticket, never about a customer.
+_STRUCK_ON_CLOSURE = "IS CLOSED ON GITHUB"
+
+
+#: A row citation immediately before a marker means the marker belongs to the
+#: row being CITED, not to the row doing the citing.
+_CITES_ANOTHER_ROW = re.compile(r"\bROWS? #?\d+[^.]{0,40}$")
+
+
+def _mention_spans(g: str):
+    """Character ranges in which a marker is being QUOTED rather than declared.
+
+    Two shapes, both mechanical, both measured on cut-manifests/v1.0.100.yaml
+    before being written down:
+
+      * a balanced parenthesised span. A verdict is not delivered in brackets.
+      * a double-quoted span. Same reason.
+
+    Nested parentheses are tracked by depth so the OUTERMOST pair wins; a
+    naive non-greedy regex closes at the first `)` and leaves the tail of a
+    nested quotation exposed, which is how this was wrong the first time.
+    """
+    spans = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(g):
+        if ch == "(":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == ")" and depth:
+            depth -= 1
+            if depth == 0:
+                spans.append((start, i + 1))
+    for mo in re.finditer(r'"[^"]{0,400}"', g):
+        spans.append(mo.span())
+    return spans
+
+
+def _verdict_markers(g: str):
+    """The unfinished markers this row DECLARES, never the ones it quotes.
+
+    🔴 WRITING ABOUT A PREDICATE TRIPPED IT, FOR THE FOURTH TIME IN ONE NIGHT.
+    Row 2114 is THE ROW ABOUT THE STRIKE. To describe the defect it has to
+    quote the strike sentence and list the markers, so a plain substring test
+    read it as a struck, unfinished row. It had been miscounted since PR #2115
+    landed, and the discrepancy that exposed it was two careful agents counting
+    the same field and disagreeing by exactly one.
+
+    MEASURED, whole board, before and after, row by row rather than by an
+    aggregate going down:
+
+        ungated before  31
+        ungated after   30
+        moved           [2114], and nothing else in either direction
+
+        verdict markers still found on the five rows that must keep them:
+          947  CANNOT FIX, NO PR OPENED     948  NOT STARTED
+          942  NOT STARTED, NOTHING WRITES  928  NOT STARTED
+          929  NOT STARTED
+          2114 none, and all four of its markers sit inside a parenthetical
+               list or immediately after "ROW 953,"
+
+    Row 2114's own work is done: the strike it reported was reversed, all 41
+    rows are back on this board, and the ten open `[LAUNCH]` issues among them
+    are counted today. Nothing about it is unfinished. That is the
+    justification, and it is about the rows a person has to fix, not about the
+    count.
+
+    🔴 THE BYPASS, STATED SO IT CANNOT BE DISCOVERED LATER AS A SURPRISE:
+    putting a real verdict in brackets hides it from this count. That is
+    deliberate evasion rather than an accident of prose, it is visible in a
+    diff, and the alternative -- counting quotations -- has already produced a
+    wrong number on this board. A row that declares a verdict in running prose
+    is still caught even when the SAME row also quotes one in brackets, which
+    is the shape that actually occurs; `tests/test_a_verdict_is_not_a_mention.py`
+    pins it.
+    """
+    spans = _mention_spans(g)
+    found = []
+    for mk in _UNFINISHED_MARKERS:
+        for mo in re.finditer(re.escape(mk), g):
+            i = mo.start()
+            if any(a <= i < b for a, b in spans):
+                continue
+            if _CITES_ANOTHER_ROW.search(g[max(0, i - 60):i]):
+                continue
+            found.append(mk)
+    return found
+
+
+def _names_proof(g: str) -> bool:
+    """True when a gate points at something a reader can go and check.
+
+    A merged PR number or a named capability entry is checkable. A paragraph
+    saying somebody judged it done is not.
+    """
+    return bool(re.search(r"\bPR #\d+", g)) or "GATED BY ENTRY" in g
+
+
 def _is_ungated(r) -> bool:
     """True when a row carries no proof.
 
@@ -75,8 +188,111 @@ def _is_ungated(r) -> bool:
     tests/test_a_ci_alarm_is_not_a_register_gap.py can import and test it.
     While it was nested inside main() nothing could reach it, which is part of
     why it went eight months without anyone noticing it matched nothing.
+
+    🔴 CLOSING A TICKET IS NOT FIXING A DEFECT, AND FOR TWO CUTS IT COUNTED AS
+    ONE. Measured on cut-manifests/v1.0.100.yaml, parsed rather than grepped:
+    174 rows, of which 41 were struck with "the issue this row names is CLOSED
+    on GitHub", and SEVEN of those 41 still described unfinished work in their
+    own text -- NOT STARTED, CANNOT FIX, DECISION REQUIRED.
+
+    One of the seven was row 953, "NOTHING WRITES PREFERENCE NODES INTO THE
+    GRAPH, so the interest profile can never be non-empty". It was struck on
+    2026-09-16. v1.0.100 was cut and walked on 2026-09-17, and the front page
+    rendered a single card reading "Ostler has spotted 0 interests". The row
+    had predicted that exact sentence, and the walk consequence too:
+    assistant_answers_grounded is the single failed probe on walks/v1.0.95.tsv.
+
+    Every one of the 41 carries this sentence, which is correct and which the
+    arithmetic ignored:
+
+        closure is the register's own signal that someone judged the work
+        done... It is NOT proof that a customer can do the thing; only the
+        walk proves that.
+
+    A caveat that does not change the count is decoration. So the count now
+    reads it:
+
+      * a struck-on-closure row whose own text says NOT STARTED, CANNOT FIX or
+        DECISION REQUIRED is ungated, whatever else the gate says
+      * a struck-on-closure row that names no checkable proof (no merged PR, no
+        capability entry) is ungated
+
+    A struck row that DOES name a merged PR stays counted as gated. Closure
+    plus a PR someone can open is a different claim from closure alone, and
+    making all 41 red would bury the seven that matter in 34 that do not.
     """
-    return "NONE YET" in " ".join(str(r.get("gate", "")).upper().split())
+    g = " ".join(str(r.get("gate", "")).upper().split())
+    if "NONE YET" in g:
+        return True
+    if _STRUCK_ON_CLOSURE in g:
+        if _verdict_markers(g):
+            return True
+        if not _names_proof(g):
+            return True
+    return False
+
+
+# ── "BLOCKING" IS A VERDICT, NOT A WORD THAT APPEARS ────────────────────
+#
+# Andy's call 2026-09-06 made the word load-bearing: NINE rows carried BLOCKING
+# in their gate and nothing in this repo read it, so a tag would have shipped
+# straight past nine self-declared blockers.
+#
+# 🔴 AND THE FIRST READER WAS TOO LOOSE, TWICE OVER. It scanned the whole gate,
+# and a row explaining a DEFER with "NOT gated BLOCKING on purpose" was read as
+# a self-declared blocker: a register CITES its own findings, so the words a
+# gate hunts for arrive inside the rows it reads. The repair took the text
+# before the first colon. That is still too loose, and it was measured on the
+# live board 2026-09-18: seven rows matched and only FOUR declare themselves
+# blockers. The other three are prose whose head happens to contain the word.
+#
+#     1969  "GATED by entry probe-..., WHICH MUST BE MADE BLOCKING. Merged"
+#     1922  "FIXED AND GUARDED, MERGED as #2005, and it was BLOCKING A REAL PR"
+#     1012  "FIXED HERE. I reported doctor_page_renders_for_a_customer ..."
+#
+# All three describe work that is DONE. Over-reporting was harmless while these
+# rows were only noted; it stops being harmless the moment they block a cut,
+# which is what the change below does.
+#
+# THE DISCRIMINATOR IS POSITION, AND THE THRESHOLD IS MEASURED RATHER THAN
+# CHOSEN. A row states its verdict first. On the live board the word sits at
+# index 2 in every true blocker ("🔴 BLOCKING") and at 5 in the documented
+# "FIX (BLOCKING):" form, while the three false ones carry it at 47 and 66. A
+# window of 24 sits in a gap of 42 characters, so it is not a knife edge.
+#
+# THE HEAD ENDS AT THE FIRST COLON **OR THE FIRST FULL STOP**, whichever comes
+# first. Without the full stop, "🔴 BLOCKING. MEASURED BY TNM ..." has no colon
+# for a hundred characters and the whole paragraph becomes the disposition.
+#
+# AND A ROW THAT NAMES THE WORD OUTSIDE THE WINDOW IS REPORTED, NEVER DROPPED.
+# A narrower predicate that says nothing about what it declined to read is how
+# a gate quietly stops covering things.
+_BLOCKING_VERDICT_WINDOW = 24
+
+
+def _disposition(g: str) -> str:
+    """A row's verdict: the head of its gate, upper-cased."""
+    head = str(g).split(":", 1)[0]
+    stop = head.find(".")
+    if stop != -1:
+        head = head[:stop]
+    return head.upper().strip()
+
+
+def _says_blocking(g: str) -> bool:
+    """True only when the row DECLARES itself a blocker, as its verdict."""
+    head = _disposition(g)
+    if "NOT BLOCKING" in head:
+        return False
+    i = head.find("BLOCKING")
+    return 0 <= i <= _BLOCKING_VERDICT_WINDOW
+
+
+def _mentions_blocking_outside_the_verdict(g: str) -> bool:
+    """The word is in the row and is not its verdict. Reported, not counted."""
+    if _says_blocking(g):
+        return False
+    return "BLOCKING" in str(g).upper() and "NOT BLOCKING" not in _disposition(g)
 
 
 def newest_manifest() -> pathlib.Path | None:
@@ -512,27 +728,6 @@ def main() -> int:
     #
     # A row whose issue has CLOSED does not block. That is drift in the
     # register, reported separately above, not an outstanding blocker.
-    def _says_blocking(g: str) -> bool:
-        # THE DISPOSITION IS THE TEXT BEFORE THE FIRST COLON, AND ONLY THAT.
-        #
-        # This first scanned the WHOLE gate string for "BLOCKING", excluding the
-        # literal "NOT BLOCKING". It caught its own tail within the hour: I
-        # registered #1685 with a DEFER whose REASONING said "NOT gated BLOCKING
-        # on purpose, and #1680 makes that word cost something". That is prose
-        # explaining a deferral, and the gate read it as a self-declared
-        # blocker. A register CITES its own findings, so the words a gate hunts
-        # for arrive inside the rows it reads -- the control ends up in its own
-        # subject.
-        #
-        # Rows are written as "<DISPOSITION>: <reasoning>", e.g.
-        #   "FIX (BLOCKING): ..."   "FIX (apparatus, counted per Andy): ..."
-        #   "DEFER: ..."            "NOT BLOCKING (reporting accuracy): ..."
-        # so the disposition is the head, and the reasoning cannot reach it.
-        # A row with no colon at all is treated as all-disposition, which is
-        # the conservative direction: it can only ever over-report.
-        head = g.split(":", 1)[0].upper()
-        return "BLOCKING" in head and "NOT BLOCKING" not in head
-
     blocking_rows = [r for r in rows if _says_blocking(str(r.get("gate", "")))]
     # A row is checked against ITS OWN repo's open list, and a row whose repo
     # was not measured is not silently treated as closed.
@@ -547,9 +742,43 @@ def main() -> int:
         print(f"  [CANNOT-RUN] {len(unmeasured)} BLOCKING row(s) name a repo whose open-issue")
         print("               list was not read, so whether they are still open is")
         print("               UNMEASURED. Not a pass, and NOT treated as closed.")
+    # 🔴 A `repo: none` BLOCKING ROW USED TO BLOCK NOTHING, AND THE PASS LINE
+    # SAID IT HAD BEEN CHECKED. These rows were printed as a note and then
+    # dropped: they were counted in "N BLOCKING row(s) examined, all closed or
+    # none present", which reads as a verdict and was not one. Measured on
+    # v1.0.100, 2026-09-18: 7 rows matched the old predicate, 4 declare
+    # themselves blockers, and every one of the 4 carries `repo: none`. So the
+    # word was load-bearing for exactly the rows that name a tracker issue, and
+    # inert for the ones that carry a measured finding, which is most of them.
+    #
+    # A MEASURED FINDING HAS NO ISSUE TO CLOSE, so its gate text IS the
+    # evidence, and its text says BLOCKING. It clears the same way an ungated
+    # row clears: somebody changes the verdict when the work is done.
     if none_repo:
-        print(f"  [note] {len(none_repo)} BLOCKING row(s) declare `repo: none`, so there is no")
-        print("         issue to be open or closed. They are judged on their gate text alone.")
+        listing = "; ".join(
+            f'#{r["issue"]} {str(r.get("title", ""))[:60]}' for r in none_repo)
+        msg = (f"{len(none_repo)} row(s) declare themselves BLOCKING and name no "
+               f"tracker issue, so their gate text is the only evidence and it "
+               f"says they block: {listing}")
+        if cutting:
+            bad("CUT IS BLOCKED. " + msg +
+                ". Re-gate each to what it truly is, or finish it. A row that "
+                "calls itself a blocker and blocks nothing is the defect this "
+                "property was created for.")
+        else:
+            print(f"  [note] {msg}")
+            print("         Not a failure outside a cut. With OSTLER_CUT_IN_PROGRESS=1 "
+                  "this is a FAIL and the cut stops.")
+    mentions = [r for r in rows
+                if _mentions_blocking_outside_the_verdict(str(r.get("gate", "")))]
+    if mentions:
+        # NEVER SILENTLY NARROWER. The predicate reads a verdict, not a word,
+        # and a gate that says nothing about what it declined to read is how
+        # coverage quietly shrinks. These are reported and NOT counted.
+        print(f"  [note] {len(mentions)} further row(s) contain the word BLOCKING "
+              "somewhere other than their verdict")
+        print("         (prose, history, or a citation). NOT counted as blockers: "
+              f"{[r['issue'] for r in mentions][:14]}")
     if blocking_rows and not checkable and not unmeasured and not none_repo:
         # Only a refusal when there IS something to check and no way to check
         # it. ZERO blocking rows is not an unmeasured state, it is the answer:
@@ -583,8 +812,12 @@ def main() -> int:
                 print(f"         ({stale_blocking} further BLOCKING row(s) name a CLOSED "
                       "issue and are drift, not blockers.)")
         else:
-            ok(f"no row gated BLOCKING names a still-open issue "
-               f"({len(blocking_rows)} BLOCKING row(s) examined, all closed or none present)")
+            # The count is the CHECKABLE rows, not every blocking row. Saying
+            # "8 examined, all closed" while 4 of the 8 were never looked up is
+            # the shape of claim this whole file exists to refuse.
+            ok(f"no row gated BLOCKING against a tracker issue names a still-open "
+               f"one ({len(checkable)} of {len(blocking_rows)} BLOCKING row(s) were "
+               f"checkable against an open-issue list; the rest are reported above)")
 
     print()
     print(f"== {PASS} pass / {FAIL} fail / {CANNOT_RUN} cannot-run / "

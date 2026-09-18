@@ -61,6 +61,10 @@ on:
       - 'scripts/verify_commit_parity.sh'
       - 'scripts/tests/test_verify_commit_parity_gate.sh'
       - 'scripts/tests/test_verify_stapling_gate.sh'
+      # Wired 2026-09-17 after cut run 35187827169 (tag v1.0.99) died at
+      # `make: *** [staple-apps] Error 1`. gui/Makefile is already a path
+      # above; this entry is the GUARD half, so editing the test re-runs it.
+      - 'tests/test_a_bundle_name_with_a_space_survives_the_staple_loops.sh'
       - 'scripts/verify_no_env_trust_anchors.sh'
       - 'scripts/tests/test_no_env_trust_anchors.sh'
       - 'tests/test_pr_age_gate_declares_partial_runs.sh'
@@ -266,6 +270,18 @@ jobs:
         # same job SKIPS this step, and a skipped test reports nothing at all.
         if: always()
         run: /bin/bash scripts/tests/test_verify_stapling_gate.sh
+
+      - name: A bundle name with a space survives the staple loops (v1.0.99)
+        # The cut that died: staple-apps iterated `for app in $NESTED_APPS`,
+        # which splits on IFS, so "Recover Ostler.app" (added by #1970) became
+        # two paths that do not exist. Both were reported as "no ticket issued
+        # for this CDHash" and then as "ticket missing after staple", and the
+        # bundle that needed the ticket was never named. The dry run cannot
+        # reach this code: it does not build, sign or staple.
+        # if: always() -- ci-maskless (#1695): without it a red earlier in the
+        # same job SKIPS this step, and a skipped test reports nothing at all.
+        if: always()
+        run: /bin/bash tests/test_a_bundle_name_with_a_space_survives_the_staple_loops.sh
 
       - name: The cross-language trust-anchor guard FIRES, on the right axis
         # if: always() -- ci-maskless (#1695): without it a red earlier in the

@@ -56,6 +56,7 @@ on:
     paths:
       - 'context-refresh/**'
       - 'tests/test_context_refresh_wired.sh'
+      - 'tests/test_a_brief_cannot_fill_a_gap_it_was_never_shown.sh'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/context-digest-auth.yml'
   push:
@@ -76,6 +77,12 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          # MUTANT A of the #948 suite materialises the PRE-FIX digest module
+          # from origin/main with `git show`. The default shallow checkout has
+          # no such ref, and the suite would then report CANNOT-RUN for the one
+          # mutant that proves it detects the defect at all.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -107,6 +114,29 @@ jobs:
       - name: The full generator-to-CONTEXT.md chain, with the bearer enforced
         if: always()
         run: bash tests/test_context_refresh_wired.sh
+
+      # HR015 #948. The digest is the ONLY context the 09:00 brief is written
+      # from, and the brief is delivered to the customer as a message. A
+      # section that could not be read renders identically to one that was read
+      # and held nothing, so the model fills the void with a plausible example
+      # and the brief presents it as recall. This suite asserts the digest
+      # tells the three states apart.
+      #
+      # if: always() for the same reason as the step above. It needs the full
+      # history, hence fetch-depth: 0 on the checkout, because its own mutant
+      # materialises the PRE-FIX module from origin/main: a guard that cannot
+      # be made to fail is not a guard.
+      - name: A brief cannot fill a gap it was never shown
+        if: always()
+        run: bash tests/test_a_brief_cannot_fill_a_gap_it_was_never_shown.sh
+
+      # Its own predicate, in a separate step so a broken scanner is reported
+      # as a broken scanner rather than as a clean product. MUTANT A must make
+      # the suite RED; MUTANT B blinds the scanner and the suite must REFUSE
+      # (exit 2), never pass.
+      - name: A brief cannot fill a gap it was never shown -- mutants
+        if: always()
+        run: bash tests/test_a_brief_cannot_fill_a_gap_it_was_never_shown.sh --self-test
 
       # The generator is the artefact that ships to a customer Mac; a syntax
       # error in it is a dead LaunchAgent, not a failing import.
