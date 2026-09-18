@@ -236,7 +236,7 @@ def probe_llm() -> dict[str, Any]:
 # ── A SENTINEL IS NOT A DATE, AND THE CUSTOMER WAS BEING SHOWN ONE ──────────
 #
 # MEASURED ON A LIVE BOX 2026-09-18, on the wire, from the endpoint a customer's
-# own Doctor page reads:
+# own Hub status endpoint puts on the wire:
 #
 #     GET http://127.0.0.1:8089/api/v1/box-status
 #     llm.keep_alive = "2318-12-29T02:25:59.162660807+08:00"
@@ -251,7 +251,25 @@ def probe_llm() -> dict[str, Any]:
 # expresses that as an expires_at roughly three centuries out. So the number is
 # not wrong and it is not a bug in Ollama: it is an internal sentinel that this
 # function piped to a customer-facing surface unchanged. A person reading their
-# own Doctor page saw the year 2318.
+# own status endpoint emitted the year 2318.
+#
+# 🔴 CORRECTED 2026-09-18, and the correction matters because it changes what
+# this fix claims. AN EARLIER VERSION OF THIS COMMENT SAID A CUSTOMER'S DOCTOR
+# PAGE SHOWED THEM THE YEAR 2318. No page shows it. The endpoint IS consumed,
+# by the Hub front end in ostler-assistant, and measured there: pct appears in
+# 8 files, resident in 5, vram_gb in 2, keep_alive in 0, and the BoxLlm
+# interface declares exactly four fields, none of them keep_alive.
+#
+# So the accurate statement is narrower and still worth fixing: the value was
+# WRONG ON THE WIRE on every Hub with a resident model, and rendered by
+# nothing. install.sh sets OLLAMA_KEEP_ALIVE=-1 twice, on purpose, so the
+# sentinel was emitted always rather than occasionally.
+#
+# WHY THE WRONG VERSION SURVIVED REVIEW: the question "does a customer see
+# this?" cannot be answered from inside CM051 at all, because the front end
+# that consumes every /api/v1/ surface is not in this repository. A search here
+# returns zero with a working control and is simply about the wrong corpus.
+# A CONTROL PROVES THE PREDICATE, NOT THE CORPUS.
 #
 # WHY A THRESHOLD AND NOT A LITERAL. Pinning the exact string would break the
 # moment Ollama picks a different far date, and would fail silently -- the

@@ -4,7 +4,7 @@
 PROVED-RED-BY: this file, mutation 1 and mutation 2.
 
 THE DEFECT, MEASURED ON A LIVE BOX 2026-09-18, on the wire, from the endpoint
-the customer's own Doctor page reads:
+the Hub status endpoint puts on the wire:
 
     GET http://127.0.0.1:8089/api/v1/box-status
     llm.keep_alive = "2318-12-29T02:25:59.162660807+08:00"
@@ -66,9 +66,39 @@ def load(text):
     ns = {}
     try:
         exec(compile(text, "box_status_candidate", "exec"), ns)
-    except Exception as exc:                      # a mutant that will not import
-        return None, exc
-    return ns.get("_keep_alive_for_a_person"), None
+    except Exception:                             # a mutant that will not import
+        return None, None
+    return ns.get("_keep_alive_for_a_person"), ns
+
+
+def mutate(src, needle, replacement, arm):
+    """Build a mutant, or refuse. Returns the mutated source or None.
+
+    🔴 REFUSES UNLESS THE NEEDLE OCCURS EXACTLY ONCE, and that is the whole
+    point of this function rather than a str.replace at the call site.
+
+    `src.replace(needle, repl, 1)` edits the FIRST occurrence. If anything
+    above the code spells the needle -- a comment documenting the constant, a
+    docstring quoting the line, this test's own prose vendored beside it --
+    the COMMENT is mutated, the code is untouched, and the arm reports
+    SURVIVED. A surviving arm is read as "this value is not load-bearing"
+    when the truth is that the mutant never reached the interpreter.
+
+    Found upstream 2026-09-18 by ORM, on exactly this shape: a comment
+    documenting these constants spelled the assignment verbatim, the replace
+    hit the comment, and M2 reported EXIT=0 10 passed. Measured on THIS file
+    the needle occurs once today, so the arm works and is one comment away
+    from not working.
+
+    A MUTANT THAT EDITED A COMMENT LOOKS EXACTLY LIKE ONE THAT WAS NOT CAUGHT.
+    """
+    n = src.count(needle)
+    if n != 1:
+        bad(f"({arm}) REFUSING TO MUTATE: the needle occurs {n} times, not once. "
+            "A replace would edit an occurrence nobody chose, and an arm that "
+            "mutated prose reports SURVIVED exactly like an arm that was not caught.")
+        return None
+    return src.replace(needle, replacement, 1)
 
 
 def main():
@@ -130,11 +160,11 @@ def main():
     print()
     print("  -- mutation --")
 
-    m1 = src.replace("return _KEEP_ALIVE_INDEFINITE", "return expires_at", 1)
-    if m1 == src:
-        bad("(M1) the mutant could not be built, so nothing was mutation-tested")
+    m1 = mutate(src, "return _KEEP_ALIVE_INDEFINITE", "return expires_at", "M1")
+    if m1 is None:
+        pass                                      # mutate() already recorded the refusal
     else:
-        f1, _ = load(m1)
+        f1, ns1 = load(m1)
         r1 = f1(live) if f1 else "no translator"
         if r1 == live:
             ok("(M1) RED ON THE DEFECT: with the translation removed the customer sees "
@@ -148,11 +178,23 @@ def main():
     # mutant changed nothing and reported assertion (3) as proving nothing when
     # the MUTANT was the thing at fault. A mutant that does not apply looks
     # exactly like one that was not caught.
-    m2 = src.replace("_KEEP_ALIVE_SENTINEL_YEARS = 10", "_KEEP_ALIVE_SENTINEL_YEARS = -1", 1)
-    if m2 == src:
-        bad("(M2) the mutant could not be built, so the over-reach direction was not tested")
+    m2 = mutate(src, "_KEEP_ALIVE_SENTINEL_YEARS = 10",
+                "_KEEP_ALIVE_SENTINEL_YEARS = -1", "M2")
+    if m2 is None:
+        pass                                      # mutate() already recorded the refusal
     else:
-        f2, _ = load(m2)
+        f2, ns2 = load(m2)
+        # PROVE THE MUTANT ARRIVED, by asking the INTERPRETER what it holds
+        # rather than trusting that the edit landed on code. The file can say
+        # one thing and the executed module another, and only this reading is
+        # evidence.
+        arrived = (ns2 or {}).get("_KEEP_ALIVE_SENTINEL_YEARS")
+        if arrived == -1:
+            ok(f"(M2 control) the mutant REACHED the interpreter: threshold={arrived}")
+        else:
+            bad(f"(M2 control) THE MUTANT DID NOT ARRIVE: the interpreter holds "
+                f"threshold={arrived!r}, not -1. Any verdict below is about a "
+                "module that was never mutated.")
         r2 = f2(near) if f2 else "no translator"
         if r2 == "indefinite":
             ok("(M2) RED ON OVER-REACH: a negative threshold swallows a REAL expiry, "
