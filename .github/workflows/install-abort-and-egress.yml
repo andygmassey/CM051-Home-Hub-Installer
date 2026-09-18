@@ -56,6 +56,17 @@ jobs:
         if: always()
         run: /bin/bash scripts/tests/test_egress_probe_attribution.sh
 
+      # #1143. The sibling above drives ATTRIBUTION; this one drives the
+      # DECLARED-HOST RESOLUTION that attribution depends on. Both defects it
+      # covers pointed the same way, towards accusing the product of egress it
+      # never made, on a probe graded BLOCKING and required to PASS by the cut
+      # manifest. Carries two mutation arms, and each mutant proves it RAN
+      # before its assertion is scored: a mutant that died looks exactly like
+      # a mutant that was caught.
+      - name: A declared host we could not resolve is CANNOT-RUN, never a leak
+        if: always()
+        run: /bin/bash scripts/tests/test_egress_declared_host_resolution.sh
+
       - name: An inferred category never authorises egress
         if: always()
         run: python3 tests/test_inferred_category_never_egresses.py
