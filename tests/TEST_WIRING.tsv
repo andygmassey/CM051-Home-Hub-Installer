@@ -57,6 +57,7 @@ test_a_pairing_non_answer_is_not_a_rejection.sh	WIRED	.github/workflows/walk-rec
 test_a_pairing_reader_runs_before_the_pairing_mutator.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_a_plistbuddy_read_takes_its_exit_code.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_promote_before_the_decline_arms_is_gated.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_a_quiesced_interval_agent_is_re_registered.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_ratchet_must_not_name_a_false_cause.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_a_remembered_remote_access_answer_is_not_asked_again.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_remote_url_is_quoted_against_zsh_globbing.sh	WIRED	.github/workflows/walk-record-gate.yml
@@ -330,6 +331,7 @@ test_installer_output_buffer_is_bounded.sh	WIRED	.github/workflows/installer-mem
 test_installer_output_keeps_the_tail.sh	WIRED	.github/workflows/installer-memory-bounds.yml
 test_installer_version_consistency.sh	WIRED	.github/workflows/installer-version-consistency.yml
 test_installer_version_matches_the_cut.sh	WIRED	.github/workflows/cut.yml
+test_interval_agents_are_quiesced_before_their_programs_move.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_invoked_tests_are_watched_gate.sh	WIRED	.github/workflows/invoked-tests-are-watched.yml
 test_killed_converge_leaves_a_record.sh	WIRED	.github/workflows/killed-converge-leaves-a-record.yml
 test_knowledge_repo_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -355,7 +357,6 @@ test_manifest_gate_cannot_run_is_not_a_missing_fix.sh	WIRED	.github/workflows/cu
 test_marker_grep_is_three_state.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_marker_payloads_never_reach_install_log.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_meeting_brief_sender.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
-test_the_forward_calendar_window_survives_the_rerun.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_memory_embeddings_wired.sh	WIRED	.github/workflows/memory-embeddings.yml
 test_mergeable_unknown_is_not_clean.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_migration_marker_guard_fresh_install.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
@@ -526,6 +527,7 @@ test_the_egress_inventory_still_describes_the_software.py	WIRED	.github/workflow
 test_the_egress_proof_can_go_red.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_the_emergency_cut_row_tells_the_truth.sh	WIRED	.github/workflows/cut-manifest.yml
 test_the_failed_to_look_message_can_actually_print.sh	WIRED	.github/workflows/dmg-delivery-gate.yml
+test_the_forward_calendar_window_survives_the_rerun.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_generated_uninstaller_parses.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_the_governor_revendor_guard_is_actually_run.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_the_install_panel_says_it_is_reading_the_transcript.py	WIRED	.github/workflows/consent-data-handling.yml
