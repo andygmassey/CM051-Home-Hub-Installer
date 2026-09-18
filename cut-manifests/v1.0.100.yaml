@@ -1640,3 +1640,51 @@ open_issues:
     repo: none   # measured finding, not a tracker item
     title: "The divergence patch APPLIES CLEANLY and does not reconstruct the tree, so a re-pin deletes shipped work"
     gate: '🔴 BLOCKING (a re-pin of vendor:doctor today deletes a shipped customer surface): MEASURED 2026-09-18 BY DOING THE RECONSTRUCTION, NOT BY READING A PATCH. For each vendored tree whose source_repo is $HR015, git archive the PINNED sha of its source path into a temp tree, apply its divergence_patch with patch -p1 --forward, then diff -rq the result against the tree CM051 actually ships. ELEVEN TREES MEASURED, SEVEN RECONSTRUCT EXACTLY, AND THAT IS THE CONTROL that makes the other four mean something: ostler_fda, legal, email_ingest, imessage_bridge, hub_power, spoken_source and email_source all come back with 0 non-test files differing, so the method works and a mismatch is a fact about the tree rather than about the instrument. THREE DO NOT RECONSTRUCT. doctor: 11 non-test shipped files differ (README.md, agent/box_status.py, agent/dashboard_components.py, agent/diagnostic_copy.py, agent/diagnostic_rules.py, agent/import_notion.py, agent/import_obsidian.py, agent/pair_status.py, agent/web_ui.py, agent/web_ui_copy.py, agent/whatsapp_pair.py). ostler_security: 2, consent_cli.py and passphrase_recovery_cli.py. whatsapp_source: 2, bin/whatsapp-bundle-tick.sh and launchd/com.creativemachines.ostler.whatsapp-bundle.plist. 🔴 AND THE PATCH APPLIES CLEANLY IN EVERY CASE. patch exits 0, no fuzz, no failed hunks, and the reconstruction is still eleven files wrong. That is worse than a patch that fails, because a failure announces itself and this returns success. Two trees exit 1 from patch and reconstruct PERFECTLY (email_source, spoken_source), which is the same lesson from the other side: the exit status is not the verdict, the diff is. THE CONCRETE, CUSTOMER-VISIBLE INSTANCE, and it is the one row 965 was gated on: render_whatsapp_keepalive is present in vendor/doctor/agent/dashboard_components.py:1292 and absent from HR015 at the pin, from HR015 main, and from the patch. CONTROL, a function both trees certainly have: render_system_overview, 1 at the pin and 1 on main. So the WhatsApp keepalive TILE exists only in the vendored copy, and a re-pin regenerating from pin plus patch deletes it, silently, returning the keepalive job to writing its verdict into a file nobody reads, which is the exact defect row 965 names. ostler_security MATTERS FOR A DIFFERENT REASON: passphrase_recovery_cli.py is the recovery-key surface, and the recovery key a customer cannot redeem is one of the two launch blockers this estate already carries. A re-pin dropping a graft there could undo a fix nobody would think to re-check. MY FIRST CONTROL WAS NOT A CONTROL, and the row records it because the mistake is the reusable part: I grepped the patch for read_whatsapp_keepalive as a supposedly-known-present control and got 0, the same as the subject. A uniform zero across subject and control is the tell, and I nearly reported the absence without knowing whether the search worked at all. 🗿 AND MY FIRST STATEMENT OF WHAT THIS MEANS WAS WRONG, CORRECTED BY ARCHIE WITHIN THE HOUR, AND THE CORRECTION MAKES IT WORSE RATHER THAN BETTER. I wrote that the non-empty divergence_patch form has no gate and that the register was silently green over doctor. IT HAS ONE AND IT IS ALREADY RED. Run with the source repositories resolvable, verify_vendor_fresh.sh reports doctor as DIFFERING from source@pinned_sha+patch and as having advanced past its pin, and returns RED. I asserted an absence of verification without running the verifier, which is the same error as reporting an absence without a control. WHAT IS ACTUALLY TRUE IS THE LINE BESIDE IT: 24 trees, 8 fresh, 3 stale or divergent, 10 UNVERIFIABLE, 3 acked. THIRTEEN OF TWENTY-FOUR ARE NOT CHECKED AT ALL, because the gate resolves its sources through environment variables nothing in the login profile sets, so where CI runs it, it checks nothing. The redness is real and INVISIBLE. That is a different defect from an unverified claim and it wants a different fix: make the gate runnable where somebody looks, rather than add a verification it already performs. 20 of the 24 trees carry a non-empty patch. ARCHIE REPRODUCED THE RECONSTRUCTION INDEPENDENTLY, matched the 11 non-test figure exactly, and swept every tree with a non-empty patch rather than only the HR015-sourced ones: FIVE trees apply cleanly and do not reconstruct (doctor 11, cm041/assistant_api 3 differing plus 4 files present ONLY in the vendored copy, ostler_security 2, cm048_pipeline 2, whatsapp_source 2), and cm041/contact_syncer fails to apply at all with 18 differing, which at least announces itself. cm041/assistant_api is the next hazard after doctor, because it is already a re-pin candidate and a re-pin would drop those four files exactly as a doctor re-pin would delete the keepalive tile. The register-level row is his; this one stays the doctor finding and the method. NOT MEASURED, AND NAMED RATHER THAN IMPLIED COVERED: the 12 trees whose source lives in CM019, CM021, CM024, CM040, CM041, CM048 or CM059. They need their own checkouts and this measurement was not run on them. Their reconstruction is unknown, which is not the same as clean. WHAT IS OWED: regenerate the three failing patches BEFORE any re-pin of those trees; add a gate that performs the reconstruction rather than checking that the patch applies; and run the same measurement on the other 12. Owner archie, the vendor register is his.'
+  - issue: 2222
+    repo: none
+    title: >-
+      The release pipeline works end to end and the v1.0.100 DMG still exists
+      unexpired, so the seven walk failures can be re-measured without cutting
+      again
+    gate: >-
+      🟢 NOT BLOCKING, AND FILED BECAUSE IT CORRECTS AN ASSUMPTION THIS
+      BOARD HAS BEEN WORKING UNDER: measured 2026-09-18 end to end, every link
+      checked against the ref rather than a working tree, each with a control.
+      THE CHAIN, MEASURED:
+      tag v1.0.100 pushed, present in the remote tag list alongside 95 to 99.
+      Cut workflow SUCCEEDED, 2026-09-17T10:31. For contrast and as the control
+      that the reading discriminates, the v1.0.99 cut run FAILED.
+      The DMG EXISTS AND HAS NOT EXPIRED: artefact ostler-dmg-v1.0.100, 68 MB,
+      expired=false, one artefact on that run.
+      The BOM exists in OS003 at cuts/v1.0.100/MUST_CONTAIN.tsv with 27 rows,
+      ZERO of them unguarded, and all 27 capability ids resolve in
+      manifest/capability_manifest.tsv, which carries 177. CONTROLS: v1.0.99''s
+      BOM is present with 28 rows, a fabricated version resolves to nothing, and
+      a fabricated capability id is absent from a set that is demonstrably
+      non-empty.
+      Then the walk ran and FAILED on seven probes.
+      WHAT THAT MEANS, AND IT IS THE POINT OF THE ROW. THE CUT MACHINERY IS NOT
+      THE BLOCKER. The launch directive records that two version numbers were
+      burned learning that preparation gates are not ship gates, and that
+      lesson has been read here as "the pipeline is unreliable". For v1.0.100 it
+      was not: tag, build, sign, BOM and artefact all completed. The product
+      failed seven runtime assertions on a real box. Those are different
+      problems with different owners, and conflating them sends effort at the
+      pipeline.
+      AND THE ARTEFACT BEING UNEXPIRED IS THE USEFUL PART. The seven failed
+      probes and the four unmeasured ones can be re-driven against the EXISTING
+      v1.0.100 DMG. No new tag, no new cut, no new version number burned. Any
+      fix that claims to close one of the seven can be checked against the
+      artefact that failed it, which is a far stronger claim than a green test
+      on a branch.
+      WHAT IS NOT ESTABLISHED: whether the capability manifest''s methods
+      actually FIND those 27 capabilities inside the DMG. The BOM and the
+      manifest agree with each other on paper; nobody has run the manifest
+      against the mounted artefact in this session. Two registers agreeing is
+      not a measurement of the thing they describe, which is a defect shape this
+      board already carries under its own number.
+      WHICH HALF-WIRED FAILURE MODE: present in the repo but not in the DMG, and
+      this row is the instrument for answering it rather than an instance of it.
+      The artefact is on disk and unexpired, so that question is answerable
+      today for any of the 27.
+
