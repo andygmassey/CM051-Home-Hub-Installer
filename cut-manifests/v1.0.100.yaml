@@ -2114,35 +2114,69 @@ open_issues:
       ical-server.py exists in three divergent copies and the upstream one is
       1,151 lines behind the copy that ships
     gate: >-
-      🔴 BLOCKING (a re-vendor from upstream would destroy 1,151 lines of
-      shipped customer behaviour, and the defect it would be performed to deliver
-      is present in all three copies anyway): MEASURED 2026-09-18 across all three
-      trees, same filename, by line count and content hash.
-      CM041 main 7,607 lines with 1 graph-scoped clause; the box 8,662 lines with
-      6; the CM051 vendored copy 8,758 lines with 6. Three different files.
-      THE ROW 2213 DEFECT IS IN ALL THREE. The vendored copy's six graph clauses
-      are four in the forget path, one inside a comment and one hygiene reader.
-      None on warmth, none on conversations, none on todos. So the vendored copy
-      being NEWER does not make it fixed: it is 1,151 lines of OTHER work that
-      never went back upstream.
-      THIS IS THE THIRD INSTANCE OF ONE PATTERN AND THE PATTERN IS THE FINDING.
-      Row 2212 measured that the divergence patch does not reconstruct the
-      vendored tree, 11 files out on doctor. Then an exhaustive blob walk over
-      origin/main, 7,356 objects with all three controls behaving, showed the
-      vendored Notion and Obsidian importers are content that has NEVER existed
-      upstream, so a re-pin REVERTS two working files. Now the vendored assistant
-      API is over a thousand lines ahead of its own source. Three trees, three
-      different directions of drift, one cause: the vendor hop has been used as a
-      place to EDIT rather than a place to RECEIVE.
-      WHAT IT COSTS RIGHT NOW: the row 2213 fix is being made UPSTREAM in CM041,
-      which is the correct place for it. Landing it in the artefact needs a vendor
-      hop, and per the measurement above that hop is more expensive and more
-      dangerous than the fix. Nobody should attempt it as part of shipping 2213.
-      NOT ATTEMPTED, ON PURPOSE. No re-vendor has been run and none should be
-      until the order of operations is decided by whoever owns the vendor
-      register. An unplanned re-vendor here destroys shipped behaviour in a way
-      that no test in this repository would notice, because the behaviour exists
-      only in the copy that would be overwritten.
+      GATED 2026-09-19 BY A DECISION FROM THE VENDOR REGISTER OWNER, WHICH IS WHAT THIS ROW ASKED FOR.
+      The row closes by saying no re-vendor should be attempted until the order of operations is
+      decided by whoever owns the vendor register. It is decided here, and it is backed by a
+      measurement taken tonight rather than by a preference. THE MEASUREMENT:
+      regenerate_divergence_patch.sh was run for cm041/assistant_api against a CM041 worktree checked
+      out at EXACTLY the pinned sha 9be482d3, so no upstream work could be folded in. It exited non-
+      zero and wrote nothing. vendor/divergences/cm041_assistant_api.patch is byte-identical before
+      and after, 3,040 lines and 137,506 bytes, zero differing lines, so nothing was published. THE
+      REASON, AND MY FIRST STATEMENT OF IT WAS WRONG IN THE EXACT WAY ROW 2207 WARNS ABOUT. I wrote
+      that upstream carried a personal-contact value the vendored tree had scrubbed. THERE WAS NEVER
+      ANY PII IN CM041 and that wording would send the next reader hunting a breach that does not
+      exist. What is actually true, per row 2207 and confirmed against my own run: upstream
+      assistant_api/API.md carried an ALL-ZEROS NANP placeholder, which CM041's own fixture gate
+      tolerates BY NAME at tests/test_fixtures_have_no_real_contact_detail.py:173 as an obvious
+      placeholder. The vendored copy had changed it, so it landed on the MINUS side and the
+      regeneration tool refused. THE TOOL WAS NOT DETECTING A LEAK. It was refusing to certify an
+      uncertifiable shape, because its allowlist admits only STANDARDS-RESERVED values and a
+      convention is not a standard. My MEASUREMENT stands unchanged and nothing was published; only my
+      reading of why it refused was wrong, and the corrected reading makes this row's remaining work
+      smaller rather than larger. THE DECISION, IN THREE PARTS. ONE: no re-vendor of
+      cm041/assistant_api until the upstream placeholder is a standards-reserved value and the tree is
+      re-pinned. THAT IS ALREADY FIXED UPSTREAM: CM041 #173 moves four occurrences to a NANP 555-01xx
+      value, checked as a PROPERTY rather than a string, with that repo's own PII gate passing. So the
+      constraint retires on a re-pin rather than on new work here, and this row's successor should
+      verify the re-pin rather than hunt a leak. TWO: until then, fixes reach a customer by GRAFT,
+      which is the established and declared practice for this tree rather than an exception invented
+      here: vendor/VENDOR_MANIFEST.toml carries shipping_bugfixes_grafted for it, with CM051 #1724 and
+      #1726 as precedent. CM051 #2220 is the first graft made under this decision, and it is recorded
+      at vendor/divergences/cm041_assistant_api.UNRECORDED.md following the cm041_contact_syncer
+      precedent. THREE: every graft made this way owes the same change UPSTREAM so the two converge,
+      and that debt is named in the record rather than left implicit. WHAT ENFORCES IT, because a
+      decision with no enforcer is a reminder: a sync refusal on this tree is EXPECTED and is declared
+      as such in the manifest, so an unplanned re-vendor stops rather than silently overwriting. The
+      single override that would defeat it is named in the manifest as the thing that must not be
+      used, and CM051 #2222 and #2224 hardened the gate that makes an undescribed vendored edit RED in
+      the first place, including the case where several trees share one record file and touching it
+      for one of them used to mark all of them described. WHAT IS NOT CLAIMED. The 1,151-line
+      divergence is not reduced by this row and the three copies are still three copies. The
+      convergence project this row prices is still owed and still unstarted, and it is larger than any
+      single fix. What changes is that the hop is no longer an open question that the next reader
+      might answer by running a sync: it is decided, refused by measurement, and recorded where the
+      next sync will meet it. ORIGINAL TEXT FOLLOWS. 🔴 BLOCKING (a re-vendor from upstream would
+      destroy 1,151 lines of shipped customer behaviour, and the defect it would be performed to
+      deliver is present in all three copies anyway): MEASURED 2026-09-18 across all three trees, same
+      filename, by line count and content hash. CM041 main 7,607 lines with 1 graph-scoped clause; the
+      box 8,662 lines with 6; the CM051 vendored copy 8,758 lines with 6. Three different files. THE
+      ROW 2213 DEFECT IS IN ALL THREE. The vendored copy's six graph clauses are four in the forget
+      path, one inside a comment and one hygiene reader. None on warmth, none on conversations, none
+      on todos. So the vendored copy being NEWER does not make it fixed: it is 1,151 lines of OTHER
+      work that never went back upstream. THIS IS THE THIRD INSTANCE OF ONE PATTERN AND THE PATTERN IS
+      THE FINDING. Row 2212 measured that the divergence patch does not reconstruct the vendored tree,
+      11 files out on doctor. Then an exhaustive blob walk over origin/main, 7,356 objects with all
+      three controls behaving, showed the vendored Notion and Obsidian importers are content that has
+      NEVER existed upstream, so a re-pin REVERTS two working files. Now the vendored assistant API is
+      over a thousand lines ahead of its own source. Three trees, three different directions of drift,
+      one cause: the vendor hop has been used as a place to EDIT rather than a place to RECEIVE. WHAT
+      IT COSTS RIGHT NOW: the row 2213 fix is being made UPSTREAM in CM041, which is the correct place
+      for it. Landing it in the artefact needs a vendor hop, and per the measurement above that hop is
+      more expensive and more dangerous than the fix. Nobody should attempt it as part of shipping
+      2213. NOT ATTEMPTED, ON PURPOSE. No re-vendor has been run and none should be until the order of
+      operations is decided by whoever owns the vendor register. An unplanned re-vendor here destroys
+      shipped behaviour in a way that no test in this repository would notice, because the behaviour
+      exists only in the copy that would be overwritten.
   - issue: 2219
     repo: none
     title: >-
