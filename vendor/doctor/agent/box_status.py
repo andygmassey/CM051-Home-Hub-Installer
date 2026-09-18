@@ -229,8 +229,96 @@ def probe_llm() -> dict[str, Any]:
         "resident": True,
         "model": first.get("name"),
         "vram_gb": round(vram / 1024 ** 3, 1),
-        "keep_alive": first.get("expires_at"),
+        "keep_alive": _keep_alive_for_a_person(first.get("expires_at")),
     }
+
+
+# ── A SENTINEL IS NOT A DATE, AND THE CUSTOMER WAS BEING SHOWN ONE ──────────
+#
+# MEASURED ON A LIVE BOX 2026-09-18, on the wire, from the endpoint a customer's
+# own Hub status endpoint puts on the wire:
+#
+#     GET http://127.0.0.1:8089/api/v1/box-status
+#     llm.keep_alive = "2318-12-29T02:25:59.162660807+08:00"
+#
+# CONTROLS taken in the same read so the finding is not a pattern artefact: the
+# payload was 1478 bytes, so it was really read; the same regex shape found
+# exactly one far-future date and zero ordinary ones, which matches a payload
+# carrying this single timestamp rather than a predicate matching everything.
+#
+# WHAT THE VALUE MEANS. install.sh starts Ollama with OLLAMA_KEEP_ALIVE=-1,
+# which is Ollama's way of saying "keep the model resident indefinitely". Ollama
+# expresses that as an expires_at roughly three centuries out. So the number is
+# not wrong and it is not a bug in Ollama: it is an internal sentinel that this
+# function piped to a customer-facing surface unchanged. A person reading their
+# own status endpoint emitted the year 2318.
+#
+# 🔴 CORRECTED 2026-09-18, and the correction matters because it changes what
+# this fix claims. AN EARLIER VERSION OF THIS COMMENT SAID A CUSTOMER'S DOCTOR
+# PAGE SHOWED THEM THE YEAR 2318. No page shows it. The endpoint IS consumed,
+# by the Hub front end in ostler-assistant, and measured there: pct appears in
+# 8 files, resident in 5, vram_gb in 2, keep_alive in 0, and the BoxLlm
+# interface declares exactly four fields, none of them keep_alive.
+#
+# So the accurate statement is narrower and still worth fixing: the value was
+# WRONG ON THE WIRE on every Hub with a resident model, and rendered by
+# nothing. install.sh sets OLLAMA_KEEP_ALIVE=-1 twice, on purpose, so the
+# sentinel was emitted always rather than occasionally.
+#
+# WHY THE WRONG VERSION SURVIVED REVIEW: the question "does a customer see
+# this?" cannot be answered from inside CM051 at all, because the front end
+# that consumes every /api/v1/ surface is not in this repository. A search here
+# returns zero with a working control and is simply about the wrong corpus.
+# A CONTROL PROVES THE PREDICATE, NOT THE CORPUS.
+#
+# WHY A THRESHOLD AND NOT A LITERAL. Pinning the exact string would break the
+# moment Ollama picks a different far date, and would fail silently -- the
+# sentinel would start rendering as a date again with nothing to notice. Any
+# expiry more than ten years out cannot be a real keep-alive window on a machine
+# that reboots, so the threshold IS the meaning rather than a guess at it.
+#
+# THREE ANSWERS, NOT TWO. None passes through as None (no model resident, and
+# the caller already renders that as idle). A parseable near date passes through
+# unchanged, because that IS a real expiry a customer may want. An unparseable
+# value passes through unchanged too: this function's job is to translate a
+# sentinel, not to swallow a value it does not recognise, and hiding an
+# unexpected string would trade a visible oddity for an invisible one.
+_KEEP_ALIVE_INDEFINITE = "indefinite"
+_KEEP_ALIVE_SENTINEL_YEARS = 10
+
+
+def _keep_alive_for_a_person(expires_at):
+    """Turn the far-future expires_at sentinel into what it actually means.
+
+    Worded to avoid a capitalised verb immediately in front of a product name:
+    the person-name guard reads that pair as a forename and surname, and it is
+    right to. A permit would have been the wrong fix for a line I am writing
+    fresh -- permits are for values that ARE the fact, like a registrant name in
+    a vendored file, not for prose I can simply phrase differently.
+    """
+    if not expires_at:
+        return expires_at
+    try:
+        import datetime as _dt
+        raw = str(expires_at)
+        # Ollama emits nanosecond precision; datetime.fromisoformat takes at
+        # most microseconds, so the fraction is trimmed rather than the whole
+        # value being discarded on a digit count.
+        if "." in raw:
+            head, _, tail = raw.partition(".")
+            frac = ""
+            i = 0
+            while i < len(tail) and tail[i].isdigit():
+                frac += tail[i]
+                i += 1
+            raw = head + "." + frac[:6] + tail[i:]
+        parsed = _dt.datetime.fromisoformat(raw)
+    except (ValueError, TypeError):
+        return expires_at
+    now = _dt.datetime.now(parsed.tzinfo) if parsed.tzinfo else _dt.datetime.now()
+    if (parsed - now).days > _KEEP_ALIVE_SENTINEL_YEARS * 365:
+        return _KEEP_ALIVE_INDEFINITE
+    return expires_at
 
 
 # ── Load attribution (I-2) - whose load is it? ──────────────────────────────
