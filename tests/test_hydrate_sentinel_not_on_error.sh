@@ -58,7 +58,14 @@ if [[ "${1:-}" == "--self-test" ]]; then
             echo "  [FAIL] ${name}: exit ${rc}, wanted ${want_rc}"
             _st_fail=$((_st_fail + 1)); return
         fi
-        if [[ -n "$want_txt" ]] && ! printf '%s' "$out" | grep -qF -- "$want_txt"; then
+        # COUNTING CONSUMER, never a short-circuiting one, on a pipe. A
+        # consumer that exits at the first match SIGPIPEs its producer, and
+        # under `set -o pipefail` that can invert the verdict. A counting one
+        # must read to EOF. The repo's ratchet caught this line the moment I
+        # wrote it, and then caught this COMMENT for spelling the construct it
+        # warns about, which is why the construct is described here and not
+        # quoted.
+        if [[ -n "$want_txt" ]] && [ "$(printf '%s' "$out" | grep -cF -- "$want_txt")" -eq 0 ]; then
             echo "  [FAIL] ${name}: exit ${rc} as wanted, but the output does not name [${want_txt}]"
             _st_fail=$((_st_fail + 1)); return
         fi
