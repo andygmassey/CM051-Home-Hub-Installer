@@ -41,10 +41,30 @@
 #                                            was not run (a second-account run)
 #  11  OSTLER_PROBE_ARMS=1, bare 200       -> still FAIL
 #  12  OSTLER_PROBE_ARMS=bogus             -> CANNOT-RUN, never a guess
+#  14  the 8144-shaped gate INTACT         -> PASS, and the verdict says arm
+#                                             1b ran
+#  15  the 8144 credential GONE, the       -> FAIL naming the port with
+#      forged identity header alone serves    (200,no-credential-...)
+#  16  CONTROL for 15: the SAME broken     -> a lock-out FAIL, and NO
+#      surface asked WITHOUT arm 1b           served-uncredentialled finding.
+#                                             Without this, 15 proves a red
+#                                             and not WHICH arm produced it
+#  17  no owner bound in the gate conf     -> arm 1b declines OUT LOUD
+#
+# ARMS 14-17 ARE #1618's SECOND HALF, and they exist because arm 1 CANNOT
+# grade 8144. Measured against the pinned nginx (1.27-alpine, the digest
+# install.sh pins) on the conf write_wiki_tailnet_gate generates, with and
+# without the credential include: arm 1 reads 403 in BOTH and arm 2 reads 200
+# in BOTH. Only a request that satisfies the client-written map and carries NO
+# credential separates them -- 401 intact, 200 and the wiki body without it --
+# because nginx answers the two header `if`s in the rewrite phase and runs
+# auth_basic in the access phase, which is later.
 #
 # And one mutant per arm, each proved LANDED by diff before its verdict:
 #   M1  arm 1 stops recording a served bare request   -> arm 1 must go green
 #   M2  arm 2 stops recording a refused credential    -> arm 3 must go green
+#   M5  arm 1b stops recording a forged-identity read -> arm 15 must go green
+#   M6  the wikigate config lines run together again  -> arm 14 must go green
 # A mutant the arm still catches has survived, and the arm was decoration.
 #
 # Arm 1 is the mutation control the launch directive item 5 asked for in so
@@ -103,6 +123,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument('--mode', required=True)
 ap.add_argument('--basic', default='')
 ap.add_argument('--apikey', default='')
+ap.add_argument('--owner', default='')
 ap.add_argument('--portfile', required=True)
 a = ap.parse_args()
 
@@ -122,7 +143,7 @@ want_basic = base64.b64encode(a.basic.encode()).decode() if a.basic else None
 
 def respond(c, code):
     body = b'fake\n'
-    reason = {200: 'OK', 401: 'Unauthorized', 404: 'Not Found', 500: 'Internal Server Error'}[code]
+    reason = {200: 'OK', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not Found', 500: 'Internal Server Error'}[code]
     hdr = 'HTTP/1.1 %d %s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\nConnection: close\r\n' % (code, reason, len(body))
     if code == 401:
         hdr += 'WWW-Authenticate: Basic realm="fake"\r\n'
@@ -157,6 +178,28 @@ while True:
             time.sleep(8)      # longer than the probe's --max-time 6: curl 28
             c.close()
             continue
+        if a.mode.startswith('wikigate'):
+            # The real 8144 block, in order: two `if`s on CLIENT-WRITTEN
+            # headers answer 403 in nginx's rewrite phase, and auth_basic runs
+            # later in the access phase. wikigate_nocred is that block with the
+            # credential include deleted and nothing else changed -- the exact
+            # mutant measured against the pinned nginx image.
+            if headers.get('tailscale-funnel-request'):
+                code = 403
+            elif headers.get('tailscale-user-login') != a.owner:
+                code = 403
+            elif a.mode == 'wikigate_nocred':
+                code = 200
+            elif want_basic and headers.get('authorization') == 'Basic ' + want_basic:
+                code = 200
+            else:
+                code = 401
+            try:
+                respond(c, code)
+            except Exception:
+                pass
+            c.close()
+            continue
         if a.mode == 'bare':
             code = 200
         elif a.mode == 'notfound':
@@ -180,10 +223,10 @@ while True:
 PY
 
 CTRL=""; HTTP=""
-start_server() {   # $1 mode, $2 basic "user:pw" or "", $3 apikey or ""
+start_server() {   # $1 mode, $2 basic "user:pw" or "", $3 apikey or "", $4 forgeable owner or ""
     local pf="$TMP/ports.$$.$RANDOM"
     rm -f "$pf"
-    python3 "$TMP/fake.py" --mode "$1" --basic "$2" --apikey "$3" --portfile "$pf" &
+    python3 "$TMP/fake.py" --mode "$1" --basic "$2" --apikey "$3" --owner "${4:-}" --portfile "$pf" &
     local pid=$!
     SERVER_PIDS="$SERVER_PIDS $pid"
     for _ in $(seq 1 100); do
@@ -225,10 +268,15 @@ count() {   # $1 fixed string, $2 text -> how many lines contain it
 # transport is local (`bash -lc`), unless the caller exports a fake host to
 # exercise the ssh path.
 ARMS=""   # set by an arm to override OSTLER_PROBE_ARMS; empty = the default
+# The wiki tailnet gate conf arm 1b reads the forgeable owner out of. Empty
+# points the probe at a path that does not exist, which is what every arm
+# except the wikigate ones wants: no client-authored pre-auth gate to satisfy.
+GATE=""
 run_probe() {
     local probe="$1" ctrl="$2" surfaces="$3" pwfile="$4" conf="$5"
     env -u OSTLER_BOX_HOST \
         OSTLER_PROBE_ARMS="${ARMS:-both}" \
+        OSTLER_PROBE_WIKI_GATE_CONF="${GATE:-$TMP/no-such-gate.conf}" \
         OSTLER_GATEWAY_PORT="$ctrl" \
         OSTLER_PROBE_MUST_NOT_LISTEN="" \
         OSTLER_PROBE_SURFACES="$surfaces" \
@@ -466,6 +514,103 @@ arm_mixed_kinds_use_their_own_credential() {   # 13
     return 0
 }
 
+# ── #1618 ARM 1b: THE PRE-AUTH GATE THE CLIENT ITSELF WRITES ───────────────
+#
+# THE DEFECT THESE ARMS EXIST FOR, MEASURED against the pinned nginx image
+# (sha256:65645c7b..., 1.27-alpine) on the conf install.sh's
+# write_wiki_tailnet_gate generates, twice: once intact, once with the single
+# `include /etc/nginx/ostler-wiki-auth.conf;` line deleted and nothing else
+# changed.
+#
+#     request                          intact        credential deleted
+#     bare (arm 1)                     403           403          <- identical
+#     forged header, no password       401           200 + BODY
+#     forged header + install password 200           200          <- identical
+#     CONTROL forged header, WRONG pw  401           200
+#     CONTROL funnel header set        403           403
+#
+# Arms 1 and 2 return the SAME PAIR in both columns, because nginx answers the
+# two header `if`s in the rewrite phase and runs auth_basic in the access
+# phase, which is later. So a bare request never reaches the credential. The
+# probe reported PASS on a box whose wiki was served to any local account that
+# typed one header -- and the header is the owner's tailnet login, an email
+# address, in a conf the installer writes 0644.
+#
+# The fixture gate conf is the shape write_wiki_tailnet_gate emits: the owner
+# allowlist line the probe reads with sed. NOT a credential; a world-readable
+# address, and a fictional one.
+FORGE_OWNER="owner@example.invalid"
+printf 'map $http_tailscale_user_login $ostler_wiki_user_ok {\n    default 0;\n    "%s" 1;\n}\n' "$FORGE_OWNER" > "$TMP/wiki-gate.conf"
+# The same conf with no owner bound: the fail-closed placeholder state.
+printf 'map $http_tailscale_user_login $ostler_wiki_user_ok {\n    default 0;\n}\n' > "$TMP/wiki-gate-noowner.conf"
+
+arm_wikigate_intact_is_pass() {           # 14
+    local out rc
+    start_server wikigate "ostler:${GOOD_PW}" "" "$FORGE_OWNER"
+    GATE="$TMP/wiki-gate.conf"
+    out="$(run_probe "$1" "$CTRL" "$HTTP:wikigate:/" "$TMP/wiki_password" "$TMP/store-curl.conf")"; rc=$?
+    GATE=""; LAST_OUT="$out"
+    stop_server
+    [[ "$rc" -eq 0 ]] || return 1
+    [[ "$(count 'VERDICT: PASS' "$out")" -eq 1 ]] || return 1
+    # The arm must SAY it ran. An arm that silently did not run is the failure
+    # this whole file is written against.
+    [[ "$(count 'Arm 1b' "$out")" -ge 1 ]] || return 1
+    return 0
+}
+arm_wikigate_credential_gone_is_fail() {  # 15 -- THE ARM THAT ONLY ARM 1b CAN SEE
+    local out rc
+    start_server wikigate_nocred "" "" "$FORGE_OWNER"
+    GATE="$TMP/wiki-gate.conf"
+    out="$(run_probe "$1" "$CTRL" "$HTTP:wikigate:/" "$TMP/wiki_password" "$TMP/store-curl.conf")"; rc=$?
+    GATE=""; LAST_OUT="$out"
+    stop_server
+    [[ "$rc" -eq 1 ]] || return 1
+    [[ "$(count 'VERDICT: FAIL' "$out")" -eq 1 ]] || return 1
+    [[ "$(count "${HTTP}(200,no-credential-but-the-client-authored-gate-satisfied)" "$out")" -ge 1 ]] || return 1
+    [[ "$(count 'served by these Ostler surfaces' "$out")" -eq 1 ]] || return 1
+    return 0
+}
+arm_wikigate_bare_arm_alone_cannot_see_it() {  # 16 -- THE CONTROL FOR ARM 15
+    # The same defective surface, asked ONLY the way arms 1 and 2 ask it, by
+    # declaring it a plain `wiki` kind so no pre-auth gate is satisfied. It
+    # passes. Without this, arm 15 proves the probe goes red on a broken
+    # surface but not that arm 1b is what saw it -- a red that any arm could
+    # have produced is not evidence for the new one.
+    local out rc
+    start_server wikigate_nocred "" "" "$FORGE_OWNER"
+    out="$(run_probe "$1" "$CTRL" "$HTTP:wiki:/" "$TMP/wiki_password" "$TMP/store-curl.conf")"; rc=$?
+    LAST_OUT="$out"
+    stop_server
+    # Arm 1 sees 403 (the map refusing a bare request) and arm 2 sees 403 too,
+    # because the probe presents a password and no header. That is a lock-out
+    # FAIL, NOT the served-without-a-credential FAIL arm 15 gets -- so the two
+    # reds are distinguishable, which is the point.
+    # POSITIVE first, so this arm cannot pass by measuring nothing: the probe
+    # must have reached the surface and adjudicated it as a lock-out.
+    [[ "$rc" -eq 1 ]] || return 1
+    [[ "$(count "refused the install's OWN credential" "$out")" -eq 1 ]] || return 1
+    [[ "$(count "${HTTP}(403)" "$out")" -ge 1 ]] || return 1
+    # And only then the absence: no served-without-a-credential finding, which
+    # is the one arm 1b produces and no other arm can.
+    [[ "$(count 'served by these Ostler surfaces' "$out")" -eq 0 ]] || return 1
+    [[ "$(count "${HTTP}(200," "$out")" -eq 0 ]] || return 1
+    return 0
+}
+arm_wikigate_no_owner_is_not_applicable() {   # 17
+    # Fail-closed until Tailscale names an owner. Nothing to forge, so arm 1b
+    # must DECLINE and say so, never pass silently and never go red.
+    local out rc
+    start_server refuse "" "" ""
+    GATE="$TMP/wiki-gate-noowner.conf"
+    out="$(run_probe "$1" "$CTRL" "$HTTP:wikigate:/" "$TMP/wiki_password" "$TMP/store-curl.conf")"; rc=$?
+    GATE=""; LAST_OUT="$out"
+    stop_server
+    [[ "$rc" -eq 0 ]] || return 1
+    [[ "$(count 'arm 1b not applicable' "$out")" -eq 1 ]] || return 1
+    return 0
+}
+
 report() {   # $1 name, $2 rc of the arm
     if [[ "$2" -eq 0 ]]; then
         printf '  [pass] %s\n' "$1"; pass=$((pass + 1))
@@ -499,6 +644,10 @@ arm_arm1_only_refuse_all_is_pass "$PROBE";  report "10 OSTLER_PROBE_ARMS=1: refu
 arm_arm1_only_bare_is_fail "$PROBE";        report "11 OSTLER_PROBE_ARMS=1: answers bare -> still FAIL" $?
 arm_unknown_arms_is_cannot_run "$PROBE";    report "12 OSTLER_PROBE_ARMS=bogus -> CANNOT-RUN, never a guess" $?
 arm_mixed_kinds_use_their_own_credential "$PROBE"; report "13 store AND wiki together, each with its OWN credential -> PASS (no cross-kind wiring)" $?
+arm_wikigate_intact_is_pass "$PROBE";       report "14 the 8144-shaped gate intact -> PASS, and the verdict SAYS arm 1b ran" $?
+arm_wikigate_credential_gone_is_fail "$PROBE"; report "15 the 8144 credential GONE, header alone serves -> FAIL naming the forged-identity read (#1618)" $?
+arm_wikigate_bare_arm_alone_cannot_see_it "$PROBE"; report "16 CONTROL: the same broken surface asked WITHOUT arm 1b produces no served-uncredentialled finding" $?
+arm_wikigate_no_owner_is_not_applicable "$PROBE"; report "17 no owner bound -> arm 1b declines out loud, never a silent pass" $?
 
 # ---------------------------------------------------------------------------
 # Mutants. The probe sources ../lib/probe.sh relative to its own directory, so
@@ -550,6 +699,22 @@ run_mutant M3-a-5xx-reads-as-not-serving arm_500_is_cannot_run \
 # shellcheck disable=SC2016
 run_mutant M4-wiki-kind-presents-the-store-credential arm_mixed_kinds_use_their_own_credential \
     's/"\$WIKI_PASSWORD_FILE" ;;/"\$STORE_CURL_CONF" ;;/'
+# M5 blinds ARM 1b specifically: the recording of a forged-identity read. Arm
+# 15 must go green against it -- if it still goes red, something OTHER than
+# arm 1b produced that red and the arm was decoration. Arm 16 is the matching
+# control in the other direction.
+# shellcheck disable=SC2016
+run_mutant M5-arm1b-stops-recording-a-forged-identity-read arm_wikigate_credential_gone_is_fail \
+    's/^                readable)     readable_list="${readable_list} ${p}(${r1b% \*},no-credential-but-the-client-authored-gate-satisfied)"; continue ;;$/                readable)     continue ;;/'
+
+# M6 restores the newline defect: without the `echo` the installer's
+# newline-free wiki_password runs straight into the header line, curl drops
+# the header, the 8144 map answers 403 and the probe calls a healthy gate a
+# lock-out. Arm 14 must go red. `.` stands for the single quote so the sed
+# expression needs no nested quoting.
+# shellcheck disable=SC2016
+run_mutant M6-the-wikigate-config-lines-run-together arm_wikigate_intact_is_pass \
+    's/; echo; printf .header/; printf .header/'
 
 echo ""
 echo "== ${pass} passed, ${fail} failed, ${cannot} cannot-run =="

@@ -3239,11 +3239,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8057) captures the path BY
+    # _ostler_write_store_curl_config (defined :8087) captures the path BY
     # VALUE and never re-reads it:
-    #     :8058   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8103   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8112 and :14525, both of which run
+    #     :8088   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8133   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8142 and :14555, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3234 above has just deleted
     # that tree and :3238 has just rebound OSTLER_DIR to the final one, so
@@ -3261,13 +3261,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15296, where the note reads
+    # WhatsApp Web session path did it again at :15326, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15313 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15343 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3276,13 +3276,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5707 against a definition at :8057. Top-level
+    # writer's own definition: :5707 against a definition at :8087. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8112, :14525) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8142, :14555) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17368 / :17546 / :17703 / :18044 path. There the
+    # :17398 / :17576 / :17733 / :18074 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -7960,9 +7960,39 @@ fi
 #
 # The blast radius is every service WITHOUT its own venv -- cm059-editor,
 # ical-server, ostler_hygiene -- which is why the warn names them.
+# 🔴 #950: THE GUARD USED TO SILENCE ITS OWN FAILURE, WHICH IS WHY NOTHING
+# WENT RED FOR THE WHOLE OF THE #550 STORE-AUTH WORK.
+#
+# The warn sat INSIDE this `if`, beside the call. So when PYTHON3_BIN is not
+# the bundled interpreter the shim was not written AND nothing was logged:
+# the install said the same thing whether the credential wiring had happened
+# or had been skipped entirely.
+#
+# SIX VALUES OF PYTHON3_BIN DO NOT MATCH, and none of them is exotic: the four
+# degrade branches in _ostler_relocate_bundled_python, a plain
+# `command -v python3`, and two Homebrew kegs. On any of those six, every
+# service without its own venv reached the stores bare and the log said
+# nothing at all.
+#
+# WHY THE EXISTING TEST COULD NOT CATCH IT, and this is the part worth
+# keeping: tests/test_store_auth_covers_every_interpreter.sh is STATIC. It
+# asserts the wiring CALL EXISTS at 15 sites against a floor of 15. A call
+# inside a guard that evaluates false still exists. Presence is not
+# execution, and a static test cannot tell them apart.
+#
+# THE WRITE STAYS GUARDED ON PURPOSE. _ostler_wire_store_auth_pth writes a
+# .pth into an interpreter''s site-packages, and doing that to a Homebrew keg
+# or to /usr/bin/python3 would modify software the customer did not install
+# from us and that other things on their Mac depend on. The guard is correct.
+# What was wrong was that its failure was invisible.
 if [[ -n "${PYTHON3_BIN:-}" && "${PYTHON3_BIN}" == "${OSTLER_FINAL_DIR}/python/"* ]]; then
     _ostler_wire_store_auth_pth "$PYTHON3_BIN" "${OSTLER_FINAL_DIR:-${HOME}/.ostler}" \
         || warn "store-auth .pth not wired into the bundled interpreter -- every service WITHOUT its own venv (cm059-editor, ical-server, ostler_hygiene) reaches the data stores with NO credential (#595/#210)"
+else
+    # The else that did not exist. Names the interpreter, the reason, the
+    # blast radius and the number, so a walk or a customer log can be grepped
+    # for it. i18n-exempt: this is an operator diagnostic, not customer copy.
+    warn "store-auth .pth NOT wired: PYTHON3_BIN is [${PYTHON3_BIN:-<unset>}], which is not the bundled interpreter under [${OSTLER_FINAL_DIR}/python/]. The shim is deliberately not written into an interpreter we do not own, so every service WITHOUT its own venv (cm059-editor, ical-server, ostler_hygiene) will reach the data stores with NO credential (#950/#595/#210)."  # i18n-exempt
 fi
 
 # ── and now the half that makes the shim RUN (#550) ───────────────────
@@ -18481,6 +18511,22 @@ if [[ "$PORT_UNMEASURED" == true ]]; then
     fail_with_code "ERR-06-PORT-PREFLIGHT-CANNOT-RUN" "$MSG_ERR_PORT_PREFLIGHT_CANNOT_RUN_ABORT"
 fi
 
+# #979. CREATE THE AI CONVERSATIONS TREE BEFORE COMPOSE CAN BIND IT.
+#
+# The wiki-compiler service below bind-mounts this path read-only. Docker
+# CREATES a missing bind source itself, as a directory owned by root, and a
+# root-owned directory in the customer visible zone is a worse outcome than
+# the empty page this change exists to fix: the hourly writer leg runs as the
+# customer and would then fail to write into it.
+#
+# mkdir -p is idempotent and the path is the same default the mount uses, so
+# an operator who has set OSTLER_AI_CONVERSATIONS_DIR gets their directory
+# and not ours. Non-fatal: a failure here is a degraded wiki page, not a
+# reason to abort an install, and the mount still works if the writer leg
+# creates the tree first.
+mkdir -p "${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/AI Conversations}" 2>/dev/null \
+    || warn "Could not create the AI Conversations folder, so the wiki page for them may stay empty until the next compile."  # i18n-exempt
+
 cat > "${OSTLER_DIR}/docker-compose.yml" <<'DCEOF'
 services:
   qdrant:
@@ -18696,6 +18742,36 @@ services:
       - wiki-docs:/wiki
       - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}:/wiki/obsidian
       - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}/_images:/wiki/obsidian/_images:ro
+      # 🔴 #979 -- THIRD INSTANCE OF #849 AND #482, whose comments are both
+      # below in this same service. Same two repos, same shape, third time:
+      # a mount added and tested on CM044's OWN docker/docker-compose.yml
+      # while the SHIPPING artefact, this heredoc, stayed without it, and
+      # CM044's tests stayed green throughout because they read CM044's
+      # compose. The #849 comment already states the lesson in a line: a
+      # guard on the dev compose says nothing about the artefact.
+      #
+      # MEASURED 2026-09-18 on this heredoc, before this change:
+      #     ai-conversations   -> 0
+      #     AI_CONVERSATIONS   -> 0
+      #     CONTROL: wiki-compiler -> 5 in the SAME span, so the zero is
+      #     real absence and not a false read of the wrong region. My first
+      #     attempt got the heredoc end marker wrong and read 12,000 lines
+      #     instead of 456; the control is what showed the range was wrong.
+      #
+      # WITHOUT THIS LINE THE PAGE IS EMPTY FOR EVER, AND SILENTLY.
+      # compiler/pages/ai_conversation_pages.py falls back to expanduser of
+      # ~/Documents/Ostler/AI Conversations, which inside a container with
+      # no HOME resolves to /root/..., never exists, so it takes its
+      # graceful episodic-store-not-present branch and writes an EMPTY-STATE
+      # page. Meanwhile install.sh's own test_ai_conversations_leg_wired.sh
+      # proves the WRITER leg is wired and default-ON, running hourly and
+      # writing real transcripts. Producer green, consumer blind, no error.
+      #
+      # READ-ONLY, same reasoning as the licence mount below: the compiler
+      # CONSUMES these transcripts and nothing in CM044 writes them, so a
+      # writable mount onto the customer's conversation tree is a foothold
+      # the wiki compiler has no reason to hold.
+      - ${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/AI Conversations}:/ai-conversations:ro
       - oxigraph_data:/app/oxigraph:ro
       - qdrant_data:/app/qdrant:ro
       # Hydration status hand-off (CM044 #624). The compiler writes a
@@ -18804,6 +18880,12 @@ services:
       # fail-closes to pro_none. An explicit env var is also the thing a
       # test can assert lands inside a declared mount target.
       - OSTLER_LICENCE_STATE_FILE=/licence/state.json
+      # #979. The path INSIDE the container, matching the bind mount above.
+      # The renderer reads compiler/config.py::ai_conversations_dir, which
+      # honours this. Without it the mount would be present and unread,
+      # which is the same defect one layer up: a thing that is there and
+      # that nothing looks at.
+      - OSTLER_AI_CONVERSATIONS_DIR=/ai-conversations
       # #482, second half. Names the workspace directory the mount above
       # landed on. resolve_journal_path() branch 2 reads OSTLER_WORKSPACE as
       # a WORKSPACE dir, and because this value's basename is literally
@@ -33586,12 +33668,114 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
         # threshold would let a conversation tick wrongly steal the lock mid
         # compile. We reclaim only when the recorded holder PID is dead.
         # ${OSTLER_INGEST_LOCK} is the identical path the tick wrappers use.
+        # #2112: THIS BLOCK USED TO HAND-ROLL ITS OWN LOCK ON THE SHARED
+        # SLOT DIRECTORY, AND THAT IS WHY THE BACKFILL NEVER RAN.
+        #
+        # MEASURED on the clean v1.0.100 install, three times: the pid file
+        # named a dead process and the log the backfill should write was 0
+        # bytes, because the email-bundle tick took the slot at install and
+        # still held it 25 minutes later. The old loop here did a bare
+        # `mkdir` on ${OSTLER_INGEST_LOCK} and wrote one file into it, `pid`.
+        # Two consequences, and the second is the root cause:
+        #
+        #  1. NOBODY COULD SAY WHO HELD IT. The library records `holder`,
+        #     `acquired_at` and `max_hold` on every acquire and its
+        #     diagnostics print them. A dir carrying only a pid is why the
+        #     box could only ever report holder=?, and why the cause took
+        #     three reproductions to find.
+        #
+        #  2. IT NEVER ENROLLED AS A WAITER, so the holder's bounded-hold
+        #     countdown never armed. That countdown is the entire mechanism
+        #     by which a holder yields: it arms only when another feed is
+        #     ENROLLED AND WAITING. A waiter that spins on `mkdir` instead
+        #     of enrolling is invisible, so email-bundle was not misbehaving
+        #     -- nothing had ever told it somebody wanted the slot. It kept
+        #     it, correctly, and the backfill waited for ever.
+        #
+        # So this now uses the shipped library, the same one every tick
+        # wrapper uses, which is on the box by this point (written and
+        # chmod'd at §3.x, ~install.sh:9372 and :10193).
+        #
+        # DELIBERATELY NOT ostler_slot_run. That wraps the payload in the
+        # max-hold watchdog, and a first-run summary compile legitimately
+        # runs for hours; arming a 180s bound against it would kill the very
+        # thing this block exists to start. Acquire and release directly, and
+        # record WHY no watchdog is attached in the lock dir itself, so the
+        # next person reading it is told rather than left to infer. Nothing
+        # can steal the slot from us meanwhile: a waiter reclaims only when
+        # the holder PID is DEAD (_ostler_slot_reclaim_if_dead), and a waiter
+        # whose patience runs out yields, it does not take.
+        #
+        # AND IT MUST NEVER AGAIN EXIT WITHOUT WRITING A LINE. Every attempt,
+        # every yield, and the final give-up all print, so a 0-byte log is
+        # once more a real symptom rather than the expected output.
         _wiki_slot="${OSTLER_INGEST_LOCK:-${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/ingest-ollama.lock.d}"
+        _wiki_slot_lib="${HOME}/.ostler/lib/ostler-ingest-slot.sh"
         nohup bash -c '
             set -u
-            _slot="$1"; _wd="$2"
+            _slot="$1"; _wd="$2"; _lib="$3"
             cd "$_wd" || exit 1
-            mkdir -p "$(dirname "$_slot")" 2>/dev/null || true
+            printf "%s wiki-summaries: starting, slot %s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_slot"
+
+            # THE SHAPE HERE IS wiki-recompile-tick.sh:410-440, DELIBERATELY.
+            # That site already did this correctly and install.sh did not. Two
+            # launch sites for the same payload that disagree is how one of
+            # them stays broken. tests/test_ingest_offpeak_throttle.sh checks
+            # BOTH sites, and its two requirements are honoured rather than
+            # edited: a BLOCKING acquire, because a yield here means no
+            # summaries at all, and reclaim on a DEAD PID rather than a time
+            # threshold, because a real compile legitimately runs for hours.
+            _slot_lib_active=0
+            if [ -r "$_lib" ]; then
+                # shellcheck source=/dev/null
+                if . "$_lib" 2>/dev/null; then
+                    command -v ostler_slot_acquire >/dev/null 2>&1 && _slot_lib_active=1
+                fi
+            fi
+
+            if [ "$_slot_lib_active" = "1" ]; then
+                # BLOCKING, with no give-up. An earlier draft capped this at
+                # twelve attempts and then exited, which would have skipped
+                # the summaries entirely, and broke the assertion in
+                # test_ingest_offpeak_throttle.sh that says exactly why.
+                # Every pass through ostler_slot_acquire ENROLS as a waiter,
+                # which is the whole of #2112: a holder starts its bounded
+                # hold countdown only when a waiter is enrolled, and the old
+                # mkdir spin was invisible to it.
+                until ostler_slot_acquire wiki-summaries; do
+                    printf "%s wiki-summaries: yielded; holder is %s (pid %s). Enrolled, retrying.\n" \
+                        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                        "$(cat "$_slot/holder" 2>/dev/null || echo "not recorded")" \
+                        "$(cat "$_slot/pid" 2>/dev/null || echo "not recorded")"
+                    sleep 10
+                done
+                # NOT ostler_slot_run, which wiki-recompile-tick.sh does use.
+                # The difference is about WHEN: a preempted tick is retried by
+                # the next tick, and the install-time backfill has no next tick
+                # for a day. A first-run summary compile legitimately runs for
+                # hours, so a 180s bound would kill the thing this block exists
+                # to start. Nothing can take the slot meanwhile: a waiter
+                # reclaims only when the holder PID is dead, and a waiter out
+                # of patience yields rather than takes. The reason is written
+                # into the lock dir so a reader is told, not left to infer.
+                printf "%s\n" "first-run summary compile: no max-hold watchdog, a compile may legitimately run for hours" \
+                    > "$_slot/unbounded_reason" 2>/dev/null || true
+                trap "ostler_slot_release 2>/dev/null || true" EXIT
+                printf "%s wiki-summaries: slot acquired via the shared library, compiling.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                if docker compose --profile compile run --rm -T wiki-compiler </dev/null; then
+                    printf "%s wiki-summaries: compile finished OK.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                    exit 0
+                fi
+                printf "%s wiki-summaries: compile FAILED. The wiki will show pages without summaries until the next daily compile.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                exit 1
+            fi
+
+            # Fail-safe: the library is not on the box yet. Unchanged pre-lib
+            # behaviour, a blocking acquire with PID-liveness reclaim. It is
+            # invisible to the holder, which IS #2112, so say so rather than
+            # let a silent fallback look like the fixed path.
+            printf "%s wiki-summaries: the ingest-slot library is not readable at %s, falling back to the private lock. That lock cannot enrol as a waiter, so a holder will not shorten its hold for it (#2112).\n" \
+                "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_lib"
             while ! mkdir "$_slot" 2>/dev/null; do
                 _h="$(cat "$_slot/pid" 2>/dev/null || true)"
                 if [ -n "${_h:-}" ] && kill -0 "$_h" 2>/dev/null; then
@@ -33602,8 +33786,15 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
             done
             printf "%s\n" "$$" > "$_slot/pid"
             trap "rm -rf \"$_slot\" 2>/dev/null || true" EXIT
-            docker compose --profile compile run --rm -T wiki-compiler </dev/null
-        ' _ "$_wiki_slot" "$OSTLER_DIR" >"$WIKI_BG_LOG" 2>&1 &
+            printf "%s wiki-summaries: slot acquired via the fallback lock, compiling.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            if docker compose --profile compile run --rm -T wiki-compiler </dev/null; then
+                printf "%s wiki-summaries: compile finished OK.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                exit 0
+            fi
+            printf "%s wiki-summaries: compile FAILED. The wiki will show pages without summaries until the next daily compile.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            exit 1
+            exit $_rc
+        ' _ "$_wiki_slot" "$OSTLER_DIR" "$_wiki_slot_lib" >"$WIKI_BG_LOG" 2>&1 &
         disown 2>/dev/null || true
         info "$MSG_INFO_WIKI_BACKGROUND_SUMMARIES_STARTED"
     else
