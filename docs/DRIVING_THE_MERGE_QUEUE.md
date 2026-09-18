@@ -282,3 +282,47 @@ reads the board and sees an unclaimed row. **Claim before you BUILD.** The one
 thing that must NEVER be claimed in advance is a MEASUREMENT: two independent
 measurements of the same quantity is a control, and it is the cheapest one
 there is.
+
+### Two mechanisms, both falsified by their own author, inside one hour
+
+Row 2155 named a writer twice on 2026-09-18 and was wrong twice.
+
+    mechanism 1   the fda ingest re-CREATES the retired node
+    falsified by  createdAt dated today on the phantoms: 0
+                  CONTROL, phantoms carrying any createdAt: 32 of 32
+                  CONTROL, newest createdAt anywhere in the graph: 02:42
+                  a re-create must write a createdAt; none was written
+
+    mechanism 2   repair_overmerged_contact_cards.py re-TYPES it
+    falsified by  phantoms holding any icloud_contact_uid: 0
+                  CONTROL, icloud_contact_uid values in the graph: 2,221
+                  that module acts only on nodes holding two or more of them
+
+Both falsifications came from the person who made the claim, from queries built
+to break it. The second one is the instructive half: **the falsifying query was
+available when the claim was made and was not run first.**
+
+What the second falsification left behind is not a third mechanism. It is this:
+
+> **There is no write provenance in that graph.** Nothing records which process
+> asserted a triple, so "what re-typed 32 nodes three hours ago" is not a
+> question the store can answer.
+
+The honest words are **NOT INSTRUMENTED**, and the tell that you have earned
+them is that you can say which command would have shown the positive and point
+at the fact that it does not exist. "Not observed" and "not reproducible" both
+claim a measurement that was never available.
+
+Two consequences for how a row is written:
+
+- **A named writer on a row is read as a diagnosed writer.** Prose hedging does
+  not survive being skimmed the next day. Either name the query that identified
+  it, or name nothing.
+- **Keep the dead mechanisms in the row, clearly marked dead.** They are the
+  only thing stopping the next person spending an hour re-excluding a module
+  that has already been excluded, with the numbers that excluded it.
+
+And one that is not about this row at all: three corrections in a row narrowed
+what was known, and the temptation each time was to treat the narrowing as
+converging on the answer. It was not. It converged on the admission that the
+instrument does not exist.
