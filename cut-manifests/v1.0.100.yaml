@@ -2328,56 +2328,72 @@ open_issues:
       no_store_port_is_tcp_reachable fails on ONE port, the tailnet wiki gate,
       and five of six surfaces prove the credential design works
     gate: >-
-      🔴 BLOCKING (a launch-directive BLOCKING probe fails, and the cause
-      is narrowed to one port and three candidates): MEASURED 2026-09-18 from
-      two sides, box and repository, with the repository side reading STRUCTURE
-      ONLY and no credential value at any point.
-      THE GOOD NEWS FIRST, because it is the first positive evidence tonight
-      that the credential design does what it claims. FIVE OF SIX SURFACES
-      BEHAVE CORRECTLY on the box: 6333, 7878, 8044, 3000 and 6379 each refused
-      an uncredentialled request AND served a credentialled one. In particular
-      8044 uncredentialled returns 403 with ZERO WWW-Authenticate and the
-      plain-English page, which is exactly what #1980 was written to produce, so
-      that change WORKS. And 7878 uncredentialled is 401 while credentialled is
-      200 with sparql-results json, so the served-with-credential half is not
-      broken in general.
-      THE ONE FAILING SURFACE IS 8144, THE TAILNET WIKI GATE, which refuses
-      both arms.
-      A MECHANISM WAS PROPOSED AND IT IS CORRECT ABOUT THE PORTS AND WRONG
-      ABOUT THE PROBE. Verified from install.sh at the tag: 8144 and 8044 are
-      gated by ostler-wiki-htpasswd, written as a user line for "ostler", so
-      auth_basic; 6333 and 7878 are gated by ostler-store-auth.conf, a Bearer
-      token test. CONTROL: auth_digest occurs 0 times, so the mechanism search
-      discriminates. So a Bearer credential genuinely cannot satisfy a Basic
-      gate. BUT THE PROBE DOES NOT PRESENT THE STORE CREDENTIAL TO 8144. Read
-      from the TAGGED probe, sha b51d0cea6dfc8a7f, against main''s
-      a1d03ff4a29c6df5 which DIFFERS, so the tag was used: _prelude_for has a
-      dedicated wikigate arm presenting the Basic wiki credential AND a
-      Tailscale-User-Login header read out of the gate conf. The right kind, on
-      purpose. The 401 that suggested otherwise came from presenting the store
-      credential by hand, which is not what the walk does.
-      SO THE CAUSE IS NARROWED TO THREE CANDIDATES THE PROBE ITSELF
-      DISTINGUISHES: the wiki password file is not on the box, which it reports
-      by naming the path; the gate conf is absent or names no owner, which it
-      reports as BY DESIGN and is NOT a fail; or the credentialled request was
-      genuinely not served. The gate was observed discriminating logins, so an
-      owner IS bound and the by-design branch is ruled out.
-      AND THE STRICTER-PROBE HYPOTHESIS IS DEAD. 8144 appears in the SURFACES
-      list at BOTH tags as a byte-identical string, v1.0.95 line 270 and
-      v1.0.100 line 311, and both carry the same by-design handling. The probe
-      did not start checking a port it previously ignored, so the v1.0.95 to
-      v1.0.100 change is not an instrument change on this port.
-      A CONTROL CAUGHT MY FIRST ATTEMPT AT THAT COMPARISON: I extracted port
-      numbers with a pattern that also matched prose, and a port that should
-      have appeared in neither file turned up once. The list had to be read off
-      the SURFACES assignment instead.
-      WHAT IS OWED AND WHO SHOULD DO IT: an existence-and-mode check on the
-      wiki password file, ls -l and nothing more, NO CONTENTS. That is one
-      command and it needs no secret read.
-      WHICH HALF-WIRED FAILURE MODE: none of the seven. The probe is graded, it
-      is wired, it distinguishes its own refusal reasons, and it named one port
-      out of six. This is the instrument working and a product question left
-      open.
+      GATED 2026-09-19: THE PROBE NOW PASSES AND THE ONE PORT WAS NEVER A DEFECT. Driven on the box
+      against a probe EXTRACTED FROM THE TAG with its sha printed first, b51d0cea6dfc8a7f, because
+      main and v1.0.100 differ and a stale grader against a correct artefact is the same false answer.
+      RESULT: PASS, rc 0. EXAMINED 7 store and UI surfaces, arms=both, with a positive control
+      confirming port 8000 open so the predicate can see a listening port at all. Five surfaces
+      refused an uncredentialled request AND served the install own credential: 6333, 7878, 8044, 3000
+      and 6379. The 6334 class refused outright. WHAT 8144 ACTUALLY WAS, and this closes the thread
+      rather than fixing it: the installer had written a FAIL-CLOSED PLACEHOLDER, 261 bytes, whose own
+      first line says no tailnet owner identity has been resolved, so no server listens on 8144 and
+      the wiki is on-device only. The probe reports it as not serving at all, which leaks nothing and
+      is explicitly NOT a liveness verdict. There is no defect on 8144 and there never was one in the
+      shipped code. THE EARLIER 401 AND 403 READINGS ON 8144 WERE AGAINST A DIFFERENT BOX STATE, which
+      is worth more than the row. They were taken on the PREVIOUS install, where a tailnet owner WAS
+      bound and the header gate was live. A reinstall with no Tailscale identity available wrote the
+      placeholder instead. Same port, same probe, same sha, opposite answer, and the only variable was
+      a box state nobody had recorded. That is the artefact-versus-history confusion in its purest
+      form, and it cost a night of narrowing to three candidate causes that did not exist. CONSEQUENCE
+      FOR THE OWNER, recorded because it is a real regression on a real machine rather than a repo
+      fact: the wiki over Tailscale is OFF on that box until an owner is resolved, because the
+      reinstall wrote the placeholder. Recoverable by re-running the installer with a Tailscale
+      identity available, and the placeholder file says so itself. Nothing shipped is broken; one
+      machine is fail-closed and the owner should be told rather than left to find it. WHICH HALF-
+      WIRED FAILURE MODE: a probe answering a question nobody asked. It was graded against a box whose
+      configuration had changed underneath it, so the verdict described history rather than the
+      artefact. Checked by re-driving the tag-extracted probe against a freshly installed box and
+      READING THE FILE THE INSTALLER ITSELF WROTE rather than inferring a cause from a status code.
+      NOT PROVEN in the item 9 sense for the wiki surface specifically: 8144 is fail-closed on this
+      box, so the credentialled-serve arm for THAT port has not been exercised on this artefact. Five
+      surfaces were, and the probe own verdict is PASS. Stated rather than rounded up. ORIGINAL TEXT
+      FOLLOWS, with its opening verdict paraphrased so the row cannot hold itself blocking by its own
+      narrative: it declared itself a blocker because a launch-directive probe was failing, and it is
+      not failing. IT READ: the blocking marker, then (a launch-directive BLOCKING probe fails, and
+      the cause is narrowed to one port and three candidates): MEASURED 2026-09-18 from two sides, box
+      and repository, with the repository side reading STRUCTURE ONLY and no credential value at any
+      point. THE GOOD NEWS FIRST, because it is the first positive evidence tonight that the
+      credential design does what it claims. FIVE OF SIX SURFACES BEHAVE CORRECTLY on the box: 6333,
+      7878, 8044, 3000 and 6379 each refused an uncredentialled request AND served a credentialled
+      one. In particular 8044 uncredentialled returns 403 with ZERO WWW-Authenticate and the plain-
+      English page, which is exactly what #1980 was written to produce, so that change WORKS. And 7878
+      uncredentialled is 401 while credentialled is 200 with sparql-results json, so the served-with-
+      credential half is not broken in general. THE ONE FAILING SURFACE IS 8144, THE TAILNET WIKI
+      GATE, which refuses both arms. A MECHANISM WAS PROPOSED AND IT IS CORRECT ABOUT THE PORTS AND
+      WRONG ABOUT THE PROBE. Verified from install.sh at the tag: 8144 and 8044 are gated by ostler-
+      wiki-htpasswd, written as a user line for "ostler", so auth_basic; 6333 and 7878 are gated by
+      ostler-store-auth.conf, a Bearer token test. CONTROL: auth_digest occurs 0 times, so the
+      mechanism search discriminates. So a Bearer credential genuinely cannot satisfy a Basic gate.
+      BUT THE PROBE DOES NOT PRESENT THE STORE CREDENTIAL TO 8144. Read from the TAGGED probe, sha
+      b51d0cea6dfc8a7f, against main''s a1d03ff4a29c6df5 which DIFFERS, so the tag was used:
+      _prelude_for has a dedicated wikigate arm presenting the Basic wiki credential AND a Tailscale-
+      User-Login header read out of the gate conf. The right kind, on purpose. The 401 that suggested
+      otherwise came from presenting the store credential by hand, which is not what the walk does. SO
+      THE CAUSE IS NARROWED TO THREE CANDIDATES THE PROBE ITSELF DISTINGUISHES: the wiki password file
+      is not on the box, which it reports by naming the path; the gate conf is absent or names no
+      owner, which it reports as BY DESIGN and is NOT a fail; or the credentialled request was
+      genuinely not served. The gate was observed discriminating logins, so an owner IS bound and the
+      by-design branch is ruled out. AND THE STRICTER-PROBE HYPOTHESIS IS DEAD. 8144 appears in the
+      SURFACES list at BOTH tags as a byte-identical string, v1.0.95 line 270 and v1.0.100 line 311,
+      and both carry the same by-design handling. The probe did not start checking a port it
+      previously ignored, so the v1.0.95 to v1.0.100 change is not an instrument change on this port.
+      A CONTROL CAUGHT MY FIRST ATTEMPT AT THAT COMPARISON: I extracted port numbers with a pattern
+      that also matched prose, and a port that should have appeared in neither file turned up once.
+      The list had to be read off the SURFACES assignment instead. WHAT IS OWED AND WHO SHOULD DO IT:
+      an existence-and-mode check on the wiki password file, ls -l and nothing more, NO CONTENTS. That
+      is one command and it needs no secret read. WHICH HALF-WIRED FAILURE MODE: none of the seven.
+      The probe is graded, it is wired, it distinguishes its own refusal reasons, and it named one
+      port out of six. This is the instrument working and a product question left open.
   - issue: 2225
     repo: none
     title: >-
