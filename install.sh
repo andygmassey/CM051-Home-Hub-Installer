@@ -29079,7 +29079,42 @@ _hydrate_compute_change() {
         prev_lua="$(grep -m1 '^last_update_at=' "$sentinel" 2>/dev/null | cut -d= -f2-)" || prev_lua=""
     fi
     _HY_ITEM_COUNT="$new_count"
-    if [[ -n "$prev_lua" && "$prev_count" == "$new_count" ]]; then
+    if [[ -z "$new_count" ]]; then
+        # 🔴 AN UNMEASURABLE COUNT HAS NO "LAST CHANGED" ANSWER, AND SAYING
+        # NOTHING IS THE ONLY HONEST ONE.
+        #
+        # The branch below carries the previous timestamp forward when the count
+        # is UNCHANGED. With no count at all, "" == "" compares equal on every
+        # run forever, so the timestamp froze at whatever it first held and
+        # could never advance again -- for the SOURCE'S WHOLE LIFE, no matter
+        # how many times it ran.
+        #
+        # MEASURED on the walk box 2026-09-18T17:18Z. Three of thirteen
+        # sentinels write `payload=ran=1,rc=0`, which carries no count key:
+        #
+        #   sentinel          recorded_at            last_update_at
+        #   places            2026-09-18T17:18:30Z   2026-09-17T12:45:10Z
+        #   privacy_backfill  2026-09-18T17:18:31Z   2026-09-17T12:45:10Z
+        #   dedupe            2026-09-18T17:17:57Z   2026-09-17T12:44:49Z
+        #   calendar (control)2026-09-18T17:16:11Z   2026-09-18T17:16:11Z
+        #
+        # recorded_at moved, so the file WAS rewritten; last_update_at did not.
+        # places had just written 929 places that same minute.
+        #
+        # IT IS CUSTOMER-VISIBLE. The Doctor's source table renders
+        #     when = r.get("last_update_at") or r.get("recorded_at")
+        # so those three show a date a day old, in the column a customer reads
+        # as "when did this last happen", on a box where they ran minutes ago.
+        # The gap widens forever.
+        #
+        # Empty is not a loss of information: the Doctor's own `or` above then
+        # falls back to recorded_at, which is accurate and fresh. This is the
+        # same rule the item_count path already follows one screen up -- "a
+        # fabricated 0 is the exact shape
+        # tests/test_an_unmeasured_count_is_not_a_measured_zero.sh exists to
+        # stop". A frozen timestamp is that fabricated zero wearing a date.
+        _HY_LAST_UPDATE_AT=""
+    elif [[ -n "$prev_lua" && "$prev_count" == "$new_count" ]]; then
         _HY_LAST_UPDATE_AT="$prev_lua"
     else
         _HY_LAST_UPDATE_AT="$now"
