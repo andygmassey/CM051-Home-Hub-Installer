@@ -102,6 +102,32 @@ else:
     bad("CONTROL: a comment naming the flag was counted as a branch. This gate "
         "would demand cut.yml entries for files that do not gate anything.")
 
+# 🔴 MUST-MISS ON THE REAL TREE, NOT ON A FIXTURE. Two files in this repo SET
+# the flag to drive another gate. They are harnesses, not gates with a dead arm,
+# and naming them in cut.yml would be the wrong fix. A substring test gets both
+# of them wrong, which is the same shape as the checklist predicate that has
+# cost this estate six tools: the file that talks ABOUT a marker trips it.
+#
+# These are named rather than seeded because a fixture proves the regex handles
+# a string I wrote, and these prove it handles the strings that actually exist.
+HARNESSES = (
+    "test_a_blocker_with_no_issue_still_blocks.py",   # dict(os.environ, FLAG="1")
+    "test_a_blocking_row_stops_a_cut.sh",             # FLAG="$cutting"
+)
+for name in HARNESSES:
+    candidate = TESTS / name
+    if not candidate.is_file():
+        bad("MUST-MISS: %s is not on disk, so this control measured nothing. It "
+            "was renamed or removed, and the discriminator is now unproven "
+            "against the shape it exists to separate." % name)
+        continue
+    if branches_on_flag(candidate.read_text(encoding="utf-8", errors="replace")):
+        bad("MUST-MISS: %s SETS the flag to drive another gate and was counted as "
+            "a gate with a dead arm. This gate would demand a cut.yml entry for a "
+            "harness, which is the wrong fix." % name)
+    else:
+        ok("MUST-MISS: %s sets the flag rather than reading it, and is not counted" % name)
+
 gates = []
 for path in sorted(TESTS.rglob("*")):
     if not path.is_file() or path.suffix not in (".py", ".sh"):
@@ -114,6 +140,18 @@ for path in sorted(TESTS.rglob("*")):
         continue
     if branches_on_flag(text):
         gates.append(path)
+
+# THE SELF-EXCLUSION MUST BE NARROW. This file names the flag more often than
+# any subject it examines, so it excludes itself. An exclusion that quietly
+# widened would hide real gates behind the same clause.
+_excluded = [p for p in TESTS.rglob("*")
+             if p.is_file() and p.suffix in (".py", ".sh")
+             and p.name == pathlib.Path(__file__).name]
+if len(_excluded) == 1:
+    ok("CONTROL: the self-exclusion covers exactly one file, this one")
+else:
+    bad("CONTROL: the self-exclusion matches %d file(s), so it is not narrow and "
+        "may be hiding a real gate" % len(_excluded))
 
 print("-- subject: every cut gate in tests/ --")
 print("     EXAMINED: %d file(s) under tests/, %d of them branch on %s"
