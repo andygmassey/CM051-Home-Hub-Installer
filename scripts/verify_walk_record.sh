@@ -459,14 +459,51 @@ fi
 # repository keeps finding and removing: a warn bucket is not a safe bucket.
 OS_VERSION="$(field os_version)"
 OS_VERSION_SOURCE="$(field os_version_source)"
-if [[ -z "$OS_VERSION_SOURCE" ]]; then
-    echo "[walk-gate] REFUSED: ${RECORD} carries no os_version_source field." >&2
-    echo "            Written since 2026-09-18. A record without it predates the format;" >&2
-    echo "            which OS produced these results is unknown, and three macOS 27" >&2
-    echo "            failure modes are invisible on 26. CANNOT-RUN." >&2
+
+# 🔴 ABSENCE DOES NOT OVERRIDE A VERDICT THE RECORD ALREADY EARNED, and the
+# first version of this block got that wrong.
+#
+# It refused unconditionally on a missing os_version_source, reasoning that all
+# twenty records in walks/ are verdict=FAILED so none is a promotion candidate
+# and nothing is newly blocked. That reasoning is true and beside the point.
+# tests/test_walk_record_gates_customer_download.sh 931-9 caught it against the
+# LIVE records and named the defect better than I had:
+#
+#     live walks/v1.0.44.tsv now returns rc=2, was 1
+#     a measured failure has been turned into absence of evidence
+#
+# It is right. A FAILED record MEASURED something: real probes ran and real
+# probes failed. rc=1 says "we know this build is bad"; rc=2 says "we know
+# nothing about it". Refusing on a missing OS field converts the first into the
+# second and DESTROYS evidence that exists. That is the CANNOT-RUN distinction
+# this whole suite is built on, broken in the direction nobody watches: the
+# usual error is a cannot-run reported as a pass, and this was a measured
+# failure reported as a cannot-run.
+#
+# So the OS field is required only where it could AUTHORISE something. A record
+# that already refuses on its own evidence keeps refusing on that evidence, with
+# its reason intact. A record that would otherwise let the customer download be
+# repointed must say which OS produced it, because three macOS 27 failures are
+# invisible on 26 and a pass is not attributable without it.
+if [[ "$(lc "$VERDICT")" != "clean" ]]; then
+    if [[ -n "$OS_VERSION_SOURCE" ]]; then
+        echo "[walk-gate] box OS: ${OS_VERSION:-<absent>} (${OS_VERSION_SOURCE})"
+    else
+        echo "[walk-gate] note: no os_version_source, and this record is not CLEAN."
+        echo "            Its verdict stands on its own evidence; the OS field is"
+        echo "            required only where a record could authorise a promote."
+    fi
+else
+  # Only a CLEAN record reaches here: one that could AUTHORISE a promote.
+  if [[ -z "$OS_VERSION_SOURCE" ]]; then
+    echo "[walk-gate] REFUSED: ${RECORD} is CLEAN and carries no os_version_source field." >&2
+    echo "            Written since 2026-09-18. A CLEAN record authorises repointing the" >&2
+    echo "            customer download, and which OS produced it is unknown. Three macOS" >&2
+    echo "            27 failure modes are invisible on 26, so a pass is unattributable" >&2
+    echo "            without it. CANNOT-RUN." >&2
     exit 2
-fi
-case "$OS_VERSION_SOURCE" in
+  fi
+  case "$OS_VERSION_SOURCE" in
     measured\(*)
         if [[ -z "$OS_VERSION" ]]; then
             echo "[walk-gate] REFUSED: ${RECORD} claims os_version_source ${OS_VERSION_SOURCE}" >&2
@@ -488,7 +525,8 @@ case "$OS_VERSION_SOURCE" in
 MSG
         exit 2
         ;;
-esac
+  esac
+fi
 
 # ── SCOPED PROMOTE (Andy's decision, 2026-09-05) ─────────────────────────────
 #

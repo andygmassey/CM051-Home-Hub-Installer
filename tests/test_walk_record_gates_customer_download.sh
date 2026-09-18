@@ -44,6 +44,12 @@ write_record() {
     #              [artefact_sha] [artefact_sha_source] [version_source]
     { printf 'version\t%s\n'    "$2"
       printf 'version_source\t%s\n'          "${10:-$FIXTURE_VERSION_SOURCE}"
+      # os_version / os_version_source: REQUIRED since 2026-09-18. A fixture that
+      # omits a field the format requires is a fixture THINNER THAN THE SUBJECT,
+      # which is the defect this estate keeps finding in fakes. The gate refuses
+      # absence deliberately, so the fixture must carry it like the real writer does.
+      printf 'os_version\t27.0\n'
+      printf 'os_version_source\tmeasured(sw_vers -productVersion over ssh on the walked box)\n'
       printf 'artefact_sha256\t%s\n'         "${8:-$FIXTURE_SHA}"
       printf 'artefact_sha256_source\t%s\n'  "${9:-$FIXTURE_SHA_SOURCE}"
       printf 'walked_at\t%s\n'  "2026-08-23T09:00:00Z"
@@ -261,6 +267,12 @@ write_record_qa() {
       # isolates qa_exit: a fixture that differs in two places cannot say
       # which one the gate reacted to.
       printf 'version_source\t%s\n'         "$FIXTURE_VERSION_SOURCE"
+      # os_version / os_version_source: REQUIRED since 2026-09-18. A fixture that
+      # omits a field the format requires is a fixture THINNER THAN THE SUBJECT,
+      # which is the defect this estate keeps finding in fakes. The gate refuses
+      # absence deliberately, so the fixture must carry it like the real writer does.
+      printf 'os_version\t27.0\n'
+      printf 'os_version_source\tmeasured(sw_vers -productVersion over ssh on the walked box)\n'
       printf 'artefact_sha256\t%s\n'        "$FIXTURE_SHA"
       printf 'artefact_sha256_source\t%s\n' "$FIXTURE_SHA_SOURCE"
       printf 'walked_at\t2026-08-23T09:00:00Z\n'
@@ -480,6 +492,12 @@ echo "=== #931: the record must name the BUILD, not just the version ==="
 write_no_sha() { # a pre-#931 record: version fields present, artefact fields absent
     { printf 'version\t%s\n' "$1"
       printf 'version_source\t%s\n' "$FIXTURE_VERSION_SOURCE"
+      # os_version / os_version_source: REQUIRED since 2026-09-18. A fixture that
+      # omits a field the format requires is a fixture THINNER THAN THE SUBJECT,
+      # which is the defect this estate keeps finding in fakes. The gate refuses
+      # absence deliberately, so the fixture must carry it like the real writer does.
+      printf 'os_version\t27.0\n'
+      printf 'os_version_source\tmeasured(sw_vers -productVersion over ssh on the walked box)\n'
       printf 'walked_at\t2026-08-23T09:00:00Z\n'
       printf 'box_fp\t3f8a1c9d2e4b6071\n'
       # Declared so this arm refuses for the MISSING SHA, which is what it is
