@@ -33,6 +33,7 @@ on:
       - 'tests/test_a_blocking_row_stops_a_cut.sh'
       - 'tests/test_a_ci_alarm_is_not_a_register_gap.py'
       - 'tests/test_a_struck_row_names_an_issue_not_a_pull_request.py'
+      - 'tests/test_a_blocker_with_no_issue_still_blocks.py'
       - 'tests/test_a_verdict_is_not_a_mention.py'
       - '.github/workflows/cut-checklist-complete.yml'
   push:
@@ -160,4 +161,15 @@ jobs:
       # if: always() for the same reason as every step above it.
       - name: a verdict is not a mention
         if: always()
+      # A row that calls itself a blocker and blocks nothing is the defect
+      # Andy's 2026-09-06 call created the BLOCKING property to stop, and it
+      # survived inside the property: every row that declares itself blocking
+      # on this board carries `repo: none`, and those were printed as a note
+      # and dropped. This pins both halves, the predicate and the gate acting
+      # on it, and its own arm 7 caught a mutant that two earlier versions of
+      # itself let through.
+      - name: a blocker with no tracker issue still blocks
+        if: always()
+        run: python3 tests/test_a_blocker_with_no_issue_still_blocks.py
+
         run: python3 tests/test_a_verdict_is_not_a_mention.py
