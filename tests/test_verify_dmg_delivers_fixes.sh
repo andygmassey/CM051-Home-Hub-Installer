@@ -25,6 +25,9 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 INV_1247='sudo already available without a password'
 INV_1249='Install aborted at line'
 INV_563='COUNTS_INCOMPLETE'
+# CM051 #1690. The owner / me-card writer shipped correct and called by nobody,
+# so this row's invariant is the CALL in install.sh rather than a fix body.
+INV_1690_WIRE='contact_syncer.owner_node'
 
 # The PAYLOAD invariants -- everything the check looks for OUTSIDE install.sh.
 # A fixture that carries fewer than the check declares is not a "good DMG",
@@ -48,16 +51,21 @@ INV_145='prefer_real_given_name'
 # vendored copy, which is exactly why the DMG must be read for them.
 INV_1573_VETO='refused_rule2'
 INV_1573_TOMB='mergedInto> <{canonical}>'
+# CM041 #154, carried as CM051 #1690's payload half: the owner node's
+# displayName sits behind an INSERT..WHERE FILTER NOT EXISTS, so the writer can
+# decline and never clobber a better name. The graft is on the vendored copy
+# only, which is exactly why the DMG has to be read for it.
+INV_1690_DECLINE='FILTER NOT EXISTS'
 
 # arm 0: the check still declares exactly these three invariants (a fixture that
 # drifts from the check would make every other arm meaningless).
-for _inv in "$INV_1247" "$INV_1249" "$INV_563"; do
+for _inv in "$INV_1247" "$INV_1249" "$INV_563" "$INV_1690_WIRE"; do
     if [ "$(grep -cF -- "$_inv" "$CHECK")" -eq 0 ]; then
         cant "arm 0: the check no longer declares invariant [${_inv}]; fixtures are stale, refusing to guess"
         echo "== ${PASS}/${FAIL}/$((CANT+1)) =="; exit 2
     fi
 done
-ok "arm 0: the three fixture invariants match the check's declared set"
+ok "arm 0: every install.sh fixture invariant matches the check's declared set"
 
 # arm 0b: THE PAYLOAD SET, ASSERTED IN BOTH DIRECTIONS.
 #
@@ -71,10 +79,11 @@ ok "arm 0: the three fixture invariants match the check's declared set"
 # which is the direction that actually happened. So both, and a mismatch is
 # CANNOT-RUN rather than a fail: the arms below cannot mean anything until the
 # fixture describes a complete artefact again.
-PAYLOAD_INV_FIXTURE=( "$INV_1543" "$INV_755" "$INV_1619" "$INV_142" "$INV_145" "$INV_1573_VETO" "$INV_1573_TOMB" )
+PAYLOAD_INV_FIXTURE=( "$INV_1543" "$INV_755" "$INV_1690_DECLINE" "$INV_142" "$INV_145" "$INV_1573_VETO" "$INV_1573_TOMB" "$INV_1619" )
 # The payload FILES this fixture writes into every "good DMG". Kept beside
 # the invariants so the two cannot drift apart unnoticed.
 PAYLOAD_PATH_FIXTURE=( "contact_syncer/syncer.py"
+                       "contact_syncer/owner_node.py"
                        "identity_resolver/canonical_name.py"
                        "identity_resolver/resolver.py"
                        "identity_resolver/batch_resolver.py"
@@ -144,6 +153,12 @@ build_dmg() {
             printf 'BUNDLE = "%s"\n' "$INV_1619" \
                 >> "${outer_dir}/contact_syncer/syncer.py"
         fi
+        # contact_syncer/owner_node.py is a SEPARATE payload row from the
+        # syncer, so like canonical_name.py below it is present and complete in
+        # BOTH the "with" and "without" cases. Only syncer.py goes stale under
+        # "without", which is what keeps arm 7 a FAIL on exactly one row.
+        printf '# synthetic owner_node fixture\nq = "INSERT { } WHERE { %s { ?s ?p ?o } }"\n' \
+            "$INV_1690_DECLINE" > "${outer_dir}/contact_syncer/owner_node.py"
         # identity_resolver/canonical_name.py is a SEPARATE payload row, so it
         # is present and complete in BOTH the "with" and "without" cases. Only
         # the syncer goes stale under "without", which is what makes arm 7 a
@@ -215,7 +230,10 @@ fi
 run() { /bin/bash "$CHECK" "$1" >/dev/null 2>&1; echo $?; }
 
 # arm 1: GREEN -- both copies carry all three -> PASS (rc 0)
-allthree="${INV_1247}|${INV_1249}|${INV_563}"
+# Named `allthree` when there were three install.sh rows; there are four now.
+# The name is kept so the arms below read unchanged, and the comment is here so
+# nobody re-derives the count from it.
+allthree="${INV_1247}|${INV_1249}|${INV_563}|${INV_1690_WIRE}"
 good="$(build_dmg good "$allthree" "$allthree")"
 rc="$(run "$good")"
 [ "$rc" = "0" ] && ok "arm 1: a DMG carrying all three fixes in both install.sh -> PASS" \

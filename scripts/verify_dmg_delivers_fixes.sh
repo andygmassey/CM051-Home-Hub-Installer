@@ -25,7 +25,7 @@
 #     CANNOT-RUN (2, the mount failed or no install.sh was found -- nothing was
 #     measured, which is not a pass).
 #
-# The next cut must carry these three; add a row when the required set changes.
+# The next cut must carry every row below; add a row when the required set changes.
 # ============================================================================
 set -uo pipefail
 
@@ -38,8 +38,18 @@ fi
 
 # (fix id, invariant). Behaviour-tied strings, validated absent-in-v1.0.50 /
 # present-in-main. NOT a comment, NOT a SHA.
-FIX_IDS=(  "#1247-sudo-gate-passwordless"                 "#1249-abort-speaks-on-terminal"   "#563-uninstall-count-nonfatal" )
-FIX_INV=(  "sudo already available without a password"    "Install aborted at line"          "COUNTS_INCOMPLETE" )
+#
+# 🔴 THE #1690 ROW, ADDED 2026-09-16, AND IT IS AN INVOCATION NOT A FIX BODY.
+# The owner / me-card writer contact_syncer/owner_node.py shipped CORRECT and
+# CALLED BY NOBODY: `contact_syncer.owner_node` appeared 0 times in install.sh
+# against a control of 6 for `--vcf`, a flag install.sh really passes. So the
+# artefact carried a working writer and the customer got no owner node. The
+# invariant here is therefore the CALL, in install.sh, which is the half that
+# was missing; the writer's own body is asserted by the PAYLOAD row below.
+# Validated both ways: absent from every artefact cut before this commit by
+# construction (the string enters install.sh with it), present on main after.
+FIX_IDS=(  "#1247-sudo-gate-passwordless"                 "#1249-abort-speaks-on-terminal"   "#563-uninstall-count-nonfatal"   "#1690-install-mints-the-owner-node" )
+FIX_INV=(  "sudo already available without a password"    "Install aborted at line"          "COUNTS_INCOMPLETE"               "contact_syncer.owner_node" )
 
 # 🔴 THIS CHECK ONLY EVER READ install.sh, AND ITS NAME DOES NOT SAY SO.
 #
@@ -103,6 +113,18 @@ FIX_INV=(  "sudo already available without a password"    "Install aborted at li
 # what make it visible on the mounted DMG. The invariants are the strings
 # each fix introduced into the CODE PATH: the stats key the veto returns, and
 # the f-string of the tombstone update. Not comments, not SHAs.
+# 🔴 THE #1690 PAYLOAD ROW, ADDED 2026-09-16. CM041 #154 moved the owner
+# node's displayName out of the additive INSERT DATA block and behind an
+# `INSERT ... WHERE FILTER NOT EXISTS`, so the writer can DECLINE and never
+# CLOBBER -- the one node whose job is to answer "who is the owner" could
+# otherwise end up carrying two names. That graft lives ONLY on the vendored
+# copy: measured 2026-09-16, `FILTER NOT EXISTS` in
+# vendor/divergences/cm041_contact_syncer.patch was 0 before this change,
+# against a control of 2 for `_read_abcddb_as_vcards` in the same patch, so
+# the zero was real and a re-vendor would have dropped it silently. The
+# invariant is the SPARQL clause the fix introduced into the code path, not a
+# comment and not a SHA. Paired with the install.sh FIX row above, which
+# asserts the other half: that anything calls it at all.
 # 🔴 THE SECOND #755 ROW, ADDED 2026-09-16 (CM051 #1619), AND WHY A SECOND ROW.
 # The row above names the FUNCTION. A function name is not a behaviour: a
 # refactor that keeps `_source_is_the_users_own` and drops the bundle test
@@ -115,29 +137,31 @@ FIX_INV=(  "sudo already available without a password"    "Install aborted at li
 # name proves the name and is blind to the behaviour behind it.
 PAYLOAD_IDS=(  "#1543-rule-2-on-the-write"
                "#755-only-the-users-own-address-book"
-               "#1619-the-discriminator-is-the-owning-bundle"
+               "#1690-the-owner-name-write-can-decline"
                "#142-a-kinship-word-is-never-welded"
                "#145-the-resolver-elects-the-real-given-name"
                "#145-the-batch-path-elects-it-too"
                "#1573-dedupe-merge-vetoes-two-cards"
-               "#1573-dedupe-merge-leaves-a-tombstone" )
+               "#1573-dedupe-merge-leaves-a-tombstone"
+              "#1619-the-discriminator-is-the-owning-bundle" )
 PAYLOAD_PATH=( "contact_syncer/syncer.py"
                "contact_syncer/syncer.py"
-               "contact_syncer/syncer.py"
+               "contact_syncer/owner_node.py"
                "identity_resolver/canonical_name.py"
                "identity_resolver/resolver.py"
                "identity_resolver/batch_resolver.py"
                "ostler_fda/dedupe_merge.py"
-               "ostler_fda/dedupe_merge.py" )
+               "ostler_fda/dedupe_merge.py"
+               "contact_syncer/syncer.py" )
 PAYLOAD_INV=(  "_node_holds_a_different_canonical_key"
                "_source_is_the_users_own"
-               "com.apple.AddressBookSourceSync"
+               "FILTER NOT EXISTS"
                "is_kinship_given_name"
                "prefer_real_given_name"
                "prefer_real_given_name"
                "refused_rule2"
-               "mergedInto> <{canonical}>" )
-
+               "mergedInto> <{canonical}>"
+              "com.apple.AddressBookSourceSync" )
 MP="$(mktemp -d)"
 DEV=""
 ATTACHED=0
