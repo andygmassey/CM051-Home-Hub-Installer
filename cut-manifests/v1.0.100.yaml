@@ -3081,59 +3081,106 @@ open_issues:
     repo: none   # no issue of this number exists in either repo
     title: "ANOTHER SESSION IS MUTATING THE SHARED CHECKOUTS, and it has now cost work twice in one day"
     gate: >-
-      MEASURED 2026-09-19 AND THE ROW IS ENTIRELY CORRECT: THE CHECK IT ASKS FOR DOES NOT EXIST AND
-      THE CONDITION IT WOULD CATCH IS PRESENT ON 18 BRANCHES RIGHT NOW. Nothing in the row is stale
-      except two figures that moved by one. THE ABSENCE, WITH A CONTROL, because an absence measured
-      by a blind search is worthless: filenames matching the worktree vocabulary on main return 0,
-      against a control of 72 for the verification vocabulary on the same predicate. Content search is
-      not blind either -- 19 files DO mention worktrees, and every one of them asks whether THIS
-      checkout is a worktree at cut time. NONE sweeps the registered list, and none runs at session
-      start. There are no session-start hooks configured at all: both user-level settings files report
-      an empty hook list and neither repository-level file exists. THE CONDITION, MEASURED NOW: 37
-      registered worktrees holding 25 named branches. Resolving each branch against the merged-pull-
-      request API gives 18 branches that are merged with no open pull request, which is EXACTLY what
-      the missing check would flag, 3 with an open pull request including this one, and 4 with neither
-      including main. THE INSTRUMENT WAS PROVED IN BOTH DIRECTIONS BEFORE ANY OF THOSE NUMBERS WAS
-      TRUSTED, because this is the procedure that has been wrong three separate times in three
-      different directions: a known-merged head returns a count of 1 and a deliberately bogus head
-      returns 0. Counts were taken with a length query FIRST and never by reading a field off a
-      possibly-empty list, because that reads back the literal string null, survives an emptiness
-      test, and has already reported unmeasured branches as safe to delete. THE SPECIFIC INSTANCE THE
-      ROW NAMES IS CLOSED: that worktree is no longer registered, 0 matches against a control of 1 for
-      this one, and its pull request is merged. The row's account of it is accurate. GATE: NOT A CUT
-      BLOCKER AND NOT DEFERRED EITHER, BECAUSE IT IS THE STANDING ORDER RATHER THAN A FEATURE. This is
-      git hygiene under the project rule that a dirty end is a failed session, and the population has
-      not reduced in the intervening day. The row's own verdict, that a behavioural mitigation is
-      therefore not a mitigation, is confirmed by the measurement. RETIREMENT CONDITION: a check that
-      enumerates registered worktrees, resolves each branch against the merged-pull-request API
-      counting first and never reading a field off an empty list, compares tip against merge in EPOCH
-      SECONDS and never as ISO strings, records the tip sha before any deletion, and fails on merged-
-      with-no-open-pull-request. It would currently flag 18.  ORIGINAL TEXT FOLLOWS, WITH ONE WORD
-      PAIR PARAPHRASED AND THE PARAPHRASE DECLARED. The original opened with the ungated marker as its
-      verdict. That marker is matched by a PLAIN SUBSTRING test over the WHOLE gate value with no
-      position test, so preserving it verbatim anywhere in this row would hold the row ungated for
-      ever no matter what verdict sits above it. Row 939 records that same trap flipping 41 rows at
-      once. So those two words are replaced by the phrase the ungated marker and NOTHING ELSE in the
-      original is altered. IT READ: GATE: the ungated marker, AND THE MITIGATION IN PLACE IS
-      BEHAVIOURAL AND IS THEREFORE NOT A MITIGATION. It cost work twice before tonight. TONIGHT IT
-      PRODUCED TWO WRONG COMMITS, ONE IN EACH DIRECTION, AND ONE COMMIT THAT CAME WITHIN A SINGLE REF
-      OF BEING UNREACHABLE. WHAT HAPPENED, 2026-09-18, two sessions in ~/Developer/CM051-Home-Hub-
-      Installer. First, a session's uncommitted work on four files rode across another session's
-      branch switches and sat on the wrong branch for as long as it took to notice. Second, within ten
-      minutes of that being raised and acknowledged, the other direction: a `git add -A` swept a
-      divergence-patch commit into a pull request about recording the macOS version, so a reviewer
-      reading a 7-file +314 change would have found a 420/793 vendor change inside it. Both were
-      caught by a person reading a diff, not by any instrument. 🔴 THE REASON CARE CANNOT FIX IT, AND
-      THIS IS THE ROW: TWO SESSIONS IN ONE CHECKOUT DO NOT ONLY MIX COMMITS, THEY MIX UNCOMMITTED
-      STATE ACROSS BRANCH SWITCHES, AND NEITHER SESSION'S git status IS WRONG AT ANY POINT. Every
-      instrument told each of them the truth about their own working tree. A file written by one
-      session is carried onto whatever branch the other checks out next, and nothing in either view is
-      inconsistent. That is why both wrong commits were invisible to the person making them. THE NEAR
-      MISS, because nothing-was-lost undersells it. Before force-pushing, the second session checked
-      which refs held the other's commit: 1 local and 1 remote, BOTH ITS OWN. One ref away from
-      unreachable, with no ref anywhere naming it, surviving only until gc. It ran that check because
-      CLAUDE.md says record the tip SHA before deleting anything, NOT because it had reasoned about
-      the risk. The rule made it take a reading it had no reason to think mattered, which is a
+      🔴 CORRECTION 2026-09-19 TO THE NUMBER I FOLDED INTO THIS ROW EARLIER TONIGHT, AND THE WORK IS
+      PARTLY DONE. I wrote that the missing check WOULD CURRENTLY FLAG 18. A second measurement, taken
+      while actually REMOVING worktrees rather than counting them, makes it 11. Recorded here with
+      both figures and the reason they differ, because picking the flattering one is how a register
+      stops being worth reading. WHY THE TWO DISAGREE, AND THE SECOND INSTRUMENT IS THE BETTER ONE: my
+      18 was merged-with-no-open-pull-request and STOPPED THERE. The sweep added the check this
+      project's own rules demand and mine omitted -- comparing the branch TIP against its MERGE, so a
+      branch that was merged and then had MORE commits pushed to it is KEPT rather than swept. A
+      merged head is necessary and NOT sufficient. My number was the candidate set; 11 is the set that
+      survives the sufficiency test. AND THE SWEEP'S OWN INSTRUMENT CHECKS FIRED, WHICH IS WHY ITS
+      NUMBER IS THE ONE RECORDED: count-first with a positive control returning 1 and a fabricated
+      branch returning 0; the tip-newer predicate proved able to fire against a synthetic merge plus
+      or minus one second, so it discriminates at one-second resolution and simply had no subjects;
+      margins ragged from 2,800 to 6.9 million seconds. 🗿 AND THE TIMEZONE TRAP THIS BOARD RECORDS
+      ACTUALLY BIT, IN THE SAFE DIRECTION, WHICH IS THE BEST EVIDENCE THAT RULE IS EARNING ITS PLACE:
+      SIX OF THE ELEVEN MARGINS ARE UNDER 28,800 SECONDS. Without forcing the merge timestamp to UTC
+      the parse is off by exactly that, and all six would have flipped to false KEEPs. The rule was
+      followed, so they did not. AND ONE OF MY OWN EXCLUSIONS WOULD HAVE BLOCKED THE ENTIRE JOB. I
+      said skip any branch with no remote. In these repositories a merge DELETES the branch, so a
+      merged branch has NO REMOTE BECAUSE IT MERGED. Applied literally that exclusion returned 21 no-
+      remote, 7 not-merged and ZERO spent -- a UNIFORM ZERO contradicting a measurement taken an hour
+      earlier, which is the shape that means the predicate is broken rather than the corpus empty. It
+      was caught by proving the mechanism on a known-merged control and re-run oracle-first. WHAT WAS
+      ACTUALLY DONE, and NO BRANCH WAS DELETED, local or remote: 11 worktrees removed, every one with
+      a plain remove and no force, zero refusals; 8 stale registrations pruned in that repository and
+      38 more across 12 others, all pointing at directories that no longer exist. One repository went
+      37 to 18. The estate went 323 to 267. Tip shas for all 28 branches were written down BEFORE
+      anything was removed, and all 11 branches still resolve at their recorded shas afterwards, with
+      a negative control proving that check can detect a missing branch. 🔴 AND THE SWEEP FOUND
+      SOMETHING THAT MATTERS MORE THAN THE COUNT, WHICH IS LIVE RIGHT NOW: SIXTEEN REPOSITORIES HAVE
+      AN iCLOUD-EVICTED GIT CONFIG, INCLUDING A CM051 CHECKOUT. A size query reports 7 to 15 kilobytes
+      from metadata while a read returns ZERO BYTES. That is the false-zero this project already warns
+      about, present in the estate tonight, and any agent grepping those checkouts is receiving
+      absences that are not absences. The five evicted repositories holding worktrees were EXCLUDED
+      from every action rather than swept. I verified the worktree this board is edited from is NOT
+      affected: zero dataless files, and the installer reads 1,909,608 real bytes. GATE: STILL NOT A
+      CUT BLOCKER, AND NOW PARTLY DONE RATHER THAN NOT STARTED. The population moved for the first
+      time. RETIREMENT CONDITION UNCHANGED, and the sweep supplies the procedure it must encode:
+      enumerate registered worktrees, resolve each branch against the merged-pull-request API counting
+      first, compare tip against merge in EPOCH SECONDS with the merge forced to UTC, record the tip
+      sha before any deletion, and REFUSE on an evicted checkout rather than reading it. The remaining
+      debt is roughly 250 worktrees across 24 repositories, none assessed.  ORIGINAL TEXT FOLLOWS,
+      WITH ONE WORD PAIR PARAPHRASED AND THE PARAPHRASE DECLARED. The original opened with the ungated
+      marker as its verdict. That marker is matched by a PLAIN SUBSTRING test over the WHOLE gate
+      value with no position test, so preserving it verbatim anywhere in this row would hold the row
+      ungated for ever no matter what verdict sits above it. Row 939 records that same trap flipping
+      41 rows at once. So those two words are replaced by the phrase the ungated marker and NOTHING
+      ELSE in the original is altered. IT READ: MEASURED 2026-09-19 AND THE ROW IS ENTIRELY CORRECT:
+      THE CHECK IT ASKS FOR DOES NOT EXIST AND THE CONDITION IT WOULD CATCH IS PRESENT ON 18 BRANCHES
+      RIGHT NOW. Nothing in the row is stale except two figures that moved by one. THE ABSENCE, WITH A
+      CONTROL, because an absence measured by a blind search is worthless: filenames matching the
+      worktree vocabulary on main return 0, against a control of 72 for the verification vocabulary on
+      the same predicate. Content search is not blind either -- 19 files DO mention worktrees, and
+      every one of them asks whether THIS checkout is a worktree at cut time. NONE sweeps the
+      registered list, and none runs at session start. There are no session-start hooks configured at
+      all: both user-level settings files report an empty hook list and neither repository-level file
+      exists. THE CONDITION, MEASURED NOW: 37 registered worktrees holding 25 named branches.
+      Resolving each branch against the merged-pull- request API gives 18 branches that are merged
+      with no open pull request, which is EXACTLY what the missing check would flag, 3 with an open
+      pull request including this one, and 4 with neither including main. THE INSTRUMENT WAS PROVED IN
+      BOTH DIRECTIONS BEFORE ANY OF THOSE NUMBERS WAS TRUSTED, because this is the procedure that has
+      been wrong three separate times in three different directions: a known-merged head returns a
+      count of 1 and a deliberately bogus head returns 0. Counts were taken with a length query FIRST
+      and never by reading a field off a possibly-empty list, because that reads back the literal
+      string null, survives an emptiness test, and has already reported unmeasured branches as safe to
+      delete. THE SPECIFIC INSTANCE THE ROW NAMES IS CLOSED: that worktree is no longer registered, 0
+      matches against a control of 1 for this one, and its pull request is merged. The row's account
+      of it is accurate. GATE: NOT A CUT BLOCKER AND NOT DEFERRED EITHER, BECAUSE IT IS THE STANDING
+      ORDER RATHER THAN A FEATURE. This is git hygiene under the project rule that a dirty end is a
+      failed session, and the population has not reduced in the intervening day. The row's own
+      verdict, that a behavioural mitigation is therefore not a mitigation, is confirmed by the
+      measurement. RETIREMENT CONDITION: a check that enumerates registered worktrees, resolves each
+      branch against the merged-pull-request API counting first and never reading a field off an empty
+      list, compares tip against merge in EPOCH SECONDS and never as ISO strings, records the tip sha
+      before any deletion, and fails on merged- with-no-open-pull-request. It would currently flag 18.
+      ORIGINAL TEXT FOLLOWS, WITH ONE WORD PAIR PARAPHRASED AND THE PARAPHRASE DECLARED. The original
+      opened with the ungated marker as its verdict. That marker is matched by a PLAIN SUBSTRING test
+      over the WHOLE gate value with no position test, so preserving it verbatim anywhere in this row
+      would hold the row ungated for ever no matter what verdict sits above it. Row 939 records that
+      same trap flipping 41 rows at once. So those two words are replaced by the phrase the ungated
+      marker and NOTHING ELSE in the original is altered. IT READ: GATE: the ungated marker, AND THE
+      MITIGATION IN PLACE IS BEHAVIOURAL AND IS THEREFORE NOT A MITIGATION. It cost work twice before
+      tonight. TONIGHT IT PRODUCED TWO WRONG COMMITS, ONE IN EACH DIRECTION, AND ONE COMMIT THAT CAME
+      WITHIN A SINGLE REF OF BEING UNREACHABLE. WHAT HAPPENED, 2026-09-18, two sessions in
+      ~/Developer/CM051-Home-Hub- Installer. First, a session's uncommitted work on four files rode
+      across another session's branch switches and sat on the wrong branch for as long as it took to
+      notice. Second, within ten minutes of that being raised and acknowledged, the other direction: a
+      `git add -A` swept a divergence-patch commit into a pull request about recording the macOS
+      version, so a reviewer reading a 7-file +314 change would have found a 420/793 vendor change
+      inside it. Both were caught by a person reading a diff, not by any instrument. 🔴 THE REASON CARE
+      CANNOT FIX IT, AND THIS IS THE ROW: TWO SESSIONS IN ONE CHECKOUT DO NOT ONLY MIX COMMITS, THEY
+      MIX UNCOMMITTED STATE ACROSS BRANCH SWITCHES, AND NEITHER SESSION'S git status IS WRONG AT ANY
+      POINT. Every instrument told each of them the truth about their own working tree. A file written
+      by one session is carried onto whatever branch the other checks out next, and nothing in either
+      view is inconsistent. That is why both wrong commits were invisible to the person making them.
+      THE NEAR MISS, because nothing-was-lost undersells it. Before force-pushing, the second session
+      checked which refs held the other's commit: 1 local and 1 remote, BOTH ITS OWN. One ref away
+      from unreachable, with no ref anywhere naming it, surviving only until gc. It ran that check
+      because CLAUDE.md says record the tip SHA before deleting anything, NOT because it had reasoned
+      about the risk. The rule made it take a reading it had no reason to think mattered, which is a
       stronger argument for rituals than for rules, and the argument against only running checks you
       can justify at the time. WHY THE EXISTING MITIGATION IS NOT ONE. Staging by path rather than
       with -a is a HABIT. It held all night for one session and failed for the other, and the
@@ -3249,7 +3296,6 @@ open_issues:
       branch against 2 in my tree. FIX ADOPTED: every change now goes through its own git worktree
       with a session-prefixed branch name, which is what the five parallel agents were already
       instructed to do and what I was not doing myself.
-
   - issue: 1019
     repo: none   # no issue of this number exists in either repo
     title: "PRODUCTISATION_CHECKLIST.md was UNEDITABLE BY ANYONE, and its own placeholder advice fails our own scanner"
