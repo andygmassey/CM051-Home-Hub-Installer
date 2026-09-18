@@ -59,9 +59,9 @@ printf 'FRAME session_start\nFRAME tool_call pwg_people\nFRAME tool_result pwg_p
 out="$(/bin/bash "$PROBE" --self-test 2>&1)"; rc=$?
 [[ "$rc" -eq 1 ]] || fail arm-1 "--self-test exited ${rc}, expected 1 (a negative control that cannot go red proves nothing): ${out}"
 [[ "$(count 'VERDICT: BROKEN' "$out")" -eq 0 ]] || fail arm-1 "--self-test reported BROKEN: ${out}"
-[[ "$(count 'EXAMINED: 61 ' "$out")" -eq 1 ]] || fail arm-1 "--self-test did not examine the 61 fixtures and cases this change declares: $(printf '%s\n' "$out" | grep '^EXAMINED')"
+[[ "$(count 'EXAMINED: 68 ' "$out")" -eq 1 ]] || fail arm-1 "--self-test did not examine the 68 fixtures and cases this change declares: $(printf '%s\n' "$out" | grep '^EXAMINED')"
 [[ "$(count 'fact_missing' "$out")" -ge 1 ]] || fail arm-1 "--self-test's verdict does not name fact_missing, so the seeded fixture was not what fired: ${out}"
-echo "PASS [arm-1]: the probe's --self-test fires on 61 fixtures and cases and names fact_missing"
+echo "PASS [arm-1]: the probe's --self-test fires on 68 fixtures and cases and names fact_missing"
 
 # ── arm 2: the pre-fix adjudicator is the control ────────────────────────
 # Verbatim from origin/main a340ce91, 2026-09-07. It knows no reply_fact.
