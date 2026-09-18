@@ -351,3 +351,62 @@ query or the counter that identified the writer, or name nothing. And keep the
 dead mechanisms in the row, clearly marked dead, with the numbers that killed
 them: they are the only thing stopping the next person spending an hour
 re-excluding a module that has already been excluded.
+
+### A probe run from the wrong directory exits 127, which reads as a missing tool
+
+Measured 2026-09-18, checking another session's branch without asking them:
+
+    bash /tmp/p2030.sh --self-test     ->  exit 127, no useful output
+    cp into scripts/box_walk_probes/probes/ and run there
+                                       ->  exit 1, EXAMINED: 41
+
+The probe sources its helper library by a path relative to **its own location**,
+so a copy run from anywhere else cannot find it. `127` is "command not found",
+which every reader parses as a missing binary on the runner. It is not. It is a
+correct probe in the wrong place.
+
+The habit that costs nothing: when checking a branch's probe, put the file where
+the probe expects to live, run it, and remove it in the same command. Verify the
+removal in that command too, so a failed run cannot leave a stray probe that the
+"every probe on disk is collected" gate then trips over.
+
+### A capability proven against the tree is not a capability proven against the artefact
+
+The release repo's capability matrix probes non-assistant repos on the **working
+tree**, with a comment saying the working tree is the honest target because it
+is what gets packaged. Measured: 171 of 178 rows use that method and 133 of them
+are CM051.
+
+That comment was falsified by one measurement:
+
+    current install.sh in the tree     36,212 lines, 5 references to the repair
+    shipped payload install.sh         35,510 lines, 0 references
+
+Seven hundred lines apart. A working-tree grep reports the capability PRESENT
+while a customer has none of it, and every gate stays green.
+
+The subject of the assertion has to be the thing the customer receives. Where a
+capability spans two halves that ship separately - a step in a script and the
+module that step invokes - the two must be asserted **as a conjunction against a
+single artefact identity**. Two rows that merely share a version string can be
+satisfied by two different builds.
+
+### The gate written for a failure had no consumer
+
+Worse, and the reason this went unseen: the release repo already contains a gate
+that reconciles a running box against the BOM the cut declared. It refuses when
+nothing was checkable, and it treats an absent BOM on the box as RED rather than
+as nothing to do. Its header records the decision it implements.
+
+    SUBJECT  references outside the file itself
+             0 in scripts, workflows, manifests and documents
+             1 elsewhere, and it is a COMMENT
+    CONTROL  the gate beside it        45
+             the capability matrix     120
+
+The controls are large, so the zero is a real absence. **A gate that is written,
+reviewed, documented and never called is indistinguishable from a gate that was
+never written**, except that its existence stops anyone writing it again.
+
+When you find a missing check, search for it by name before building it, and
+search for its CALLERS before trusting it.
