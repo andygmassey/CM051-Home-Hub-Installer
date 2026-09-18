@@ -48,23 +48,39 @@ It exited non-zero and wrote nothing. `vendor/divergences/cm041_assistant_api.pa
 is byte-identical before and after: 3,040 lines, 137,506 bytes, zero differing
 lines. Nothing was published.
 
-THE REASON IS THE ONE THAT MATTERS, and it is not about this fix at all. The
-tool detected a value of personal-contact shape on the MINUS side of the
-regenerated diff: UPSTREAM still carries it and the vendored tree has it
-scrubbed. Recording the divergence would therefore have copied a scrubbed value
-back into a PUBLIC repo. The pattern name is deliberately not reproduced here,
-for the same reason.
+THE REASON, AND THE FIRST VERSION OF THIS PARAGRAPH WAS WRONG IN A WAY THAT
+MATTERS MORE THAN THE REFUSAL. It said the tool had detected a value of
+personal-contact shape that upstream still carried and the vendored tree had
+scrubbed, and that a re-vendor was blocked until CM041 removed it at source.
 
-The tool's own instruction is followed rather than worked around: do NOT
-re-sync to clear it, because a re-sync deletes the vendored side, which is where
-the scrub lives. `SYNC_ACCEPT_DIVERGENCE_LOSS=1` was not used and must not be.
+**There was never any PII in CM041.** Board row 2207 had already established
+this before the sentence above was written, and states the cost of getting it
+wrong exactly: the wrong wording sends the next reader hunting a breach that
+does not exist.
+
+What is actually true. Upstream `assistant_api/API.md` carried an ALL-ZEROS
+NANP placeholder, which CM041's own fixture gate tolerates BY NAME at
+`tests/test_fixtures_have_no_real_contact_detail.py:173` as an obvious
+placeholder. The vendored copy had changed it, so it landed on the MINUS side
+of the regenerated diff and the tool refused. **The tool was not detecting a
+leak. It was refusing to certify an uncertifiable shape**, because its allowlist
+admits only STANDARDS-RESERVED values, and a convention is not a standard.
+
+The MEASUREMENT above is unchanged and nothing was published. Only the reading
+of why it refused was wrong, and the corrected reading makes the remaining work
+smaller rather than larger.
+
+`SYNC_ACCEPT_DIVERGENCE_LOSS=1` was not used and must not be, which is unchanged
+and is about this graft rather than about the placeholder.
 
 ## What is owed, and by whom
 
-1. Remove the personal-contact value from CM041 at SOURCE, then re-pin, then
-   bring this graft forward. Until that happens this tree can never have its
-   divergence properly recorded, and every future edit to it lands here instead.
-   That is a debt against CM041, not against this repo.
+1. Re-pin, which is a small job rather than a project. Row 2207 measures this
+   tree as ONE commit behind, and CM041 #173 already moves four occurrences of
+   the placeholder to a NANP 555-01xx value, checked as a PROPERTY rather than
+   as a string, with that repo's own PII gate passing. So this constraint
+   retires on a re-pin and needs no new work here.
 2. Push the same erasure fix upstream to CM041 so the two converge.
 
-Neither is done. Recording that plainly is the whole point of this file.
+Neither is done. Recording that plainly, including the part where the first
+account of it was wrong, is the whole point of this file.
