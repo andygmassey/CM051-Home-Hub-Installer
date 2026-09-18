@@ -5020,3 +5020,39 @@ open_issues:
       NOT SEVEN, and two of the four need a cold walk rather than an investigation. WHICH HALF-WIRED
       FAILURE MODE: present in the repo but not in the DMG, for items 1 and 2. Both fixes are on main
       and in no artefact, which is exactly the gap the three words exist to name.
+  - issue: 2230
+    repo: none
+    title: 'CUT BLOCKER: the tag will REFUSE today, because both pinned wiki image digests are unrecorded in the provenance ledger'
+    gate: >-
+      🔴 BLOCKING. MEASURED 2026-09-19, INDEPENDENTLY, AFTER AN AGENT RAISED IT, AND IT IS NOT ON THIS
+      BOARD ANYWHERE ELSE. A tag pushed right now does not produce a DMG. It refuses. THE CHAIN, READ
+      RATHER THAN ASSUMED: cut.yml:1178 runs make -C gui ship; gui/Makefile:2258 makes package depend
+      on check-freshness; :2109 makes check-freshness run scripts/verify_cut_freshness.sh; and that
+      script's wiki limb at :957-963 is FAIL-CLOSED BY DESIGN, adding a RED unrecorded-provenance row
+      and incrementing the stale count when a pinned digest has no recorded source binding. Its own
+      comment gives the reason: a repin that forgot to record provenance is unverifiable. THE
+      MEASUREMENT. Both digests pinned in install.sh, the wiki site at :18734 and the wiki compiler at
+      :18778, return ZERO matching rows in scripts/wiki_image_provenance.tsv, which holds 62 non-
+      comment rows. POSITIVE CONTROL, same predicate, same file: a digest that IS in the ledger
+      returns 1. NEGATIVE CONTROL: a fabricated digest returns 0. So the predicate discriminates in
+      both directions and the two zeros are real absences rather than a broken lookup. Values are
+      quoted by their leading bytes only. THE CAUSE IS A HAND EDIT. A merged pull request changed
+      install.sh by two lines and nothing else, which means the digests were typed rather than written
+      by scripts/repin_wiki_images.sh. That script writes install.sh AND the provenance ledger
+      together, and editing one by hand is what separates them. AND THE PIN IS STALE IN THE WAY THAT
+      MATTERS, WHICH IS THE WORSE HALF. The last wiki image build ran 2026-09-17. CM044 #280, the Pro
+      vault reader fix, merged 2026-09-18 and is the current upstream tip. SO NO PUBLISHED IMAGE
+      CONTAINS IT. Re-recording the provenance of the digests we already have would turn the gate
+      green while shipping an image that still cannot read the receipt, which is row 971's delivery
+      half. That is the tempting wrong fix and it is named here so nobody takes it. WHAT CLOSES IT, IN
+      ORDER, AND IT IS TWO STEPS RATHER THAN A CODE CHANGE: (1) tag CM044 at its current tip so
+      release-images.yml builds and publishes both images, its trigger being a tag push with no manual
+      dispatch available; (2) run scripts/repin_wiki_images.sh in CM051 against that tag, which
+      resolves the commit from a checkout and writes BOTH install.sh and the ledger, so nothing is
+      typed. Run its check mode first. WHY IT IS FILED AS A ROW RATHER THAN JUST FIXED: a cut blocker
+      that lives only in a conversation is the failure this whole register exists to prevent, and this
+      one was found by an agent asked about a different row. It is repo none because it is a MEASURED
+      FINDING and not a tracker item. RETIREMENT CONDITION: verify_cut_freshness.sh reports no RED
+      wiki rows against a freshly published image whose recorded source sha contains CM044 #280. It
+      must NOT retire by recording provenance for the existing digests, which would satisfy the gate
+      and not the customer.
