@@ -15,7 +15,7 @@ Usage:
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Set
 from urllib.parse import urlparse
 
@@ -299,7 +299,21 @@ class ImportanceScorer:
         if not timestamp:
             return 0.0
 
-        now = datetime.now()
+        # LOCAL GRAFT (found while wiring the reminders adapter): the
+        # Evernote adapter's timestamps are naive (enex_parser.py uses
+        # strptime with no tzinfo), but apple_notes.py and reminders.py
+        # (both ostler_fda, both HR015-owned) emit timezone-AWARE UTC
+        # datetimes. A naive `datetime.now()` compared against an aware
+        # `timestamp` raises TypeError, which `convert_cmd` does not catch,
+        # so the whole convert run dies here for ANY apple_notes or
+        # reminders record that has a created/updated timestamp -- which is
+        # effectively every real one. Measured directly: `convert --source
+        # apple_notes` against a synthetic one-note fixture with a real
+        # created/updated pair raised this exact TypeError before this fix,
+        # so the apple_notes install.sh step (this repo's own "positive
+        # control" for the reminders wiring) was silently degrading to its
+        # "convert failed" branch on real data, not succeeding as assumed.
+        now = datetime.now(timezone.utc) if timestamp.tzinfo is not None else datetime.now()
         cutoff = now - timedelta(days=self.recency_years * 365)
 
         if timestamp > cutoff:

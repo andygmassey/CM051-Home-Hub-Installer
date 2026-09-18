@@ -1,8 +1,18 @@
 #!/usr/bin/env bash
 # probes/no_store_port_is_tcp_reachable.sh
 # ============================================================================
-# QUESTION: can anything on this Mac open a TCP connection to an Ostler store
-#           or UI, without presenting any credential?
+# QUESTION: can any local account be SERVED by an Ostler store or UI without a
+#           credential, and does the install's own credential still get in?
+#
+# ⚠️ THIS LINE READ "can anything on this Mac open a TCP CONNECTION to an
+# Ostler store or UI, without presenting any credential?" UNTIL #1595. That is
+# the predicate the probe stopped using at #1618, and it survived here because
+# nothing checks the first paragraph of a file against the code 500 lines down.
+# It is the most-read line in the file and it named the wrong question: a
+# connect SUCCEEDS on every published surface by design, so a reader who
+# believed it would expect a permanent red and stop reading the verdict. The
+# question above is now the same sentence as PROBE_QUESTION below, which is
+# the one the runner prints.
 #
 # THIS IS THE PROBE FOR #550, AND #550 WAS DEMONSTRATED, NOT ARGUED.
 #
@@ -15,15 +25,53 @@
 #
 # The store-proxy in front of it checks the Host header and the Origin header.
 # Both are supplied by the client. They were built against DNS-rebinding and
-# cross-origin form POSTs -- BROWSER threats -- under an assumption written
-# down at install.sh:14674: "a local user on this Mac can already read :8044
-# directly, so it adds no local surface." That assumption is `local == owner`,
-# and it is the root of the whole class.
+# cross-origin form POSTs -- BROWSER threats -- under an assumption once
+# written down in install.sh as "a local user on this Mac can already read
+# :8044 directly, so it adds no local surface". That assumption is
+# `local == owner`, and it is the root of the whole class.
+#
+# ⚠️ THAT QUOTE IS HISTORICAL AND ITS POINTER WAS WRONG (#1595). This line used
+# to cite a line number in install.sh. Measured at d0c207fd: that line is now
+# a bare `fi`,
+# and `grep -n 'adds no local surface' install.sh` returns NOTHING -- control,
+# `grep -c 'ostler-wiki-auth.conf' install.sh` returns 5, so the grep works and
+# the zero is real. The comment was deleted at some point and the pointer was
+# never re-read. The assumption it records is still the root of the class,
+# which is why the sentence stays; the address is gone, so no address is given.
 #
 # ---------------------------------------------------------------------------
-# WHY THIS ASSERTS ABSENCE OF A PORT AND NOT A REFUSED CREDENTIAL
+# WHAT THIS ASSERTS: NOT SERVED WITHOUT A CREDENTIAL. ABSENCE IS ONE WAY.
 #
-# Every credential-based design was defeated on this box:
+# ⚠️ THIS HEADING USED TO READ "WHY THIS ASSERTS ABSENCE OF A PORT AND NOT A
+# REFUSED CREDENTIAL", AND THE CODE BELOW IT HAS NOT MATCHED THAT SINCE THE
+# MAPPER STARTED GRADING 401/403 AS `refused` -> pass. LAUNCH DIRECTIVE item 5
+# then made the rewrite explicit and BLOCKING: assert REFUSED WITHOUT
+# CREDENTIAL. A heading that states the opposite of the predicate underneath it
+# is worse than no heading, because it is the part a reader trusts without
+# running anything -- and the scope file carried the same stale sentence.
+#
+# THE PREDICATE, AS IT ACTUALLY IS: a surface fails when it SERVES an
+# uncredentialled request, or when it refuses the install's OWN credential.
+# It passes when it refuses without one (401 or 403) AND serves with one, and
+# it also passes when nothing answers at all.
+#
+# THAT IS WHY THE TWO DECISIONS DO NOT CONFLICT. DECISION_550:106 makes the
+# 8044 direct publish ABSENT for v1.0; item 5 says a credential gate is the
+# correct shipped shape. Both are passes here, and neither is required for the
+# other to pass -- pinned as self-test cases 25-28. The floor that survives
+# both is the only thing actually asserted: an uncredentialled client is never
+# SERVED.
+#
+# The distinction matters at the customer, not just in the grading. A 401
+# carries `WWW-Authenticate`, which is what makes a browser pop a password box;
+# a 403 does not. Andy met the former on his own walk -- "the wiki via a
+# browser is requesting authentication details I don't have" -- so :8044 now
+# refuses with 403 and no challenge. This probe reads that as refused, which is
+# correct, and the customer reads it as a signpost instead of a wall.
+#
+# The original topological argument, kept because it is still why absence is
+# preferred WHERE IT IS AVAILABLE. Every credential-based design was defeated
+# on this box:
 #   - a shared nonce is presented TO whatever answers the port, so a squatter
 #     receives it on first use
 #   - a token in the URL is harvested from argv, which is READABLE ACROSS
@@ -31,8 +79,20 @@
 #   - a cookie is scoped to HOST and not to PORT (RFC 6265), so any loopback
 #     port the neighbour binds receives it
 #
-# So the assertion is topological: after the fix there is no TCP endpoint to
-# connect to, from ANY account including the owner's.
+# Where absence IS available, it is the strongest form: there is no TCP
+# endpoint to connect to, from ANY account including the owner's.
+#
+# 🔴 IT IS NOT AVAILABLE FOR :8044, AND ASSUMING IT WAS IS HOW THE "JUST
+# DELETE THE PUBLISH" READING OF DECISION_550 SURVIVED THIS LONG. Measured:
+# the Hub's Wiki tab does NOT read :8044 from the browser. It reads the
+# daemon, which proxies (ostler-assistant crates/zeroclaw-gateway/src/wiki_proxy.rs,
+# WIKI_ORIGIN = "http://127.0.0.1:8044", reached from web/src/pages/Wiki.tsx at
+# WIKI_PROXY_PATH = '/wiki'). The daemon is a native LaunchAgent and wiki-site
+# is a container, so that hop can only cross on a published loopback port.
+# Unpublishing 8044 does not deliver absence, it deletes the in-app wiki: the
+# customer trades a password box for an empty tab. So 8044 ships as a
+# credential gate that does not challenge, and this probe passes it on the
+# refused-without-credential arm rather than on the absent one.
 #
 # ⚠️ THE ROUTE THAT WOULD DELIVER THAT STATE IS DEAD, AND THIS BLOCK USED TO
 # NAME IT ANYWAY. It said the owner reaches the stores "over a unix socket in a
@@ -106,8 +166,8 @@ PROBE_QUESTION="can any local account be SERVED by an Ostler store or UI without
 # host-created socket succeeds. Connectability belongs to the kernel that owns
 # the socket, which is the VM's. Every service below runs in that VM, so no
 # UDS route exists for any of them. Measured on mountType=virtiofs / vm-type=vz
-# (colima's default, and install.sh:10116 does not pin it); sshfs and 9p
-# unmeasured.
+# (colima's default, and install.sh's `colima start` invocation does not pin
+# it -- grep `colima start --cpu`); sshfs and 9p unmeasured.
 #
 # The ASSERTION is unchanged and still correct: none of these may answer. Only
 # the stated route to that state was wrong, and a wrong route in the file that
@@ -126,7 +186,27 @@ PROBE_QUESTION="can any local account be SERVED by an Ostler store or UI without
 # at. Every row below now names one. If you are reading this and the tag is old,
 # re-measure before you believe it.
 #
-# SO EACH ROW NOW SAYS WHICH TAG IT WAS VERIFIED AT, and the distinction that
+# ⚠️ AND THE THIRD TIME IT WENT STALE, IT WAS THE POINTERS (#1595). This block
+# used to claim "EACH ROW NOW SAYS WHICH TAG IT WAS VERIFIED AT ... Every row
+# below now names one". MEASURED at d0c207fd: TWO of the seven rows named a
+# verification point. The other five named none, so their claims could not be
+# aged at all, which is the condition that produced both earlier episodes.
+#
+# 🔴 WORSE, AND MEASURED THE SAME WAY: every one of the NINE `install.sh:<line>`
+# pointers in this table was stale. 9 of 9. A reader following them landed on
+# the Gatekeeper quarantine dialog, a launchctl print branch, Safari's
+# History.db path and a plist header -- not one of them on the code its row
+# claimed. install.sh is 27k lines and every merge moves them.
+#
+# SO THIS TABLE CITES A GREP ANCHOR AND NEVER A LINE NUMBER. An anchor is a
+# literal string you can `grep -n` for; it survives every edit that does not
+# delete the thing itself, and when it IS deleted the grep returns nothing,
+# which is a finding rather than a wrong address. Guarded by
+# tests/test_the_store_port_table_cites_anchors_not_line_numbers.sh, which
+# fails on a reintroduced `install.sh:<digits>` and on any port row with no
+# verification point.
+#
+# SO EACH ROW SAYS WHICH TAG OR SHA IT WAS VERIFIED AT, and the distinction that
 # matters is DEFERRED BY DECISION versus DECIDED AND NOT DONE. Per
 # HR015/launch/DECISION_550_what_shut_means_2026-08-28.md:
 #   line 106  8044  "direct publish removed | ABSENT"     <- decided for v1.0
@@ -134,34 +214,51 @@ PROBE_QUESTION="can any local account be SERVED by an Ostler store or UI without
 #   line 108  8144  KNOWN RESIDUAL, v1.0.1                <- deferred
 #
 #   6333  qdrant REST via store-proxy   -> CLOSED. Native api-key, and it is ON
-#                                          BY DEFAULT: OSTLER_STORE_AUTH_ENFORCE
-#                                          defaults to 1 (install.sh:12876,
-#                                          :16223, :16812, :16943). VERIFIED at
-#                                          tag v1.0.71, reading the shipped
-#                                          default rather than a PR title.
+#                                          BY DEFAULT: the shipped default is
+#                                          the `:-1` in install.sh's
+#                                          `${OSTLER_STORE_AUTH_ENFORCE:-1}`
+#                                          branch -- grep the flag name, do not
+#                                          trust a line number. VERIFIED at tag
+#                                          v1.0.71 and re-read at d0c207fd,
+#                                          reading the shipped default rather
+#                                          than a PR title.
 #                                          MUST_STILL_PUBLISH still pins the
 #                                          PORT open -- host clients have no
 #                                          other route -- but an uncredentialled
 #                                          read is refused. Published != readable.
 #   7878  oxigraph SPARQL via store-proxy -> CLOSED. Proxy bearer credential
 #                                          (#1214), also default-ON via the same
-#                                          flag (install.sh:16943). #550 was
+#                                          `${OSTLER_STORE_AUTH_ENFORCE:-1}`
+#                                          flag. VERIFIED at d0c207fd. #550 was
 #                                          demonstrated here, and this is the
 #                                          door it came through.
 #   6334  qdrant gRPC, direct           -> unpublished (#1209; 0 consumers in
-#                                          355 .py, 759 .rs, 144 ts)
+#                                          355 .py, 759 .rs, 144 ts). VERIFIED
+#                                          at d0c207fd: install.sh's compose
+#                                          block carries the comment "THE gRPC
+#                                          PORT (6334) IS NO LONGER PUBLISHED"
+#                                          and no `6334:` publish line.
 #   6379  redis/valkey, direct          -> CLOSED. requirepass, default-ON via
-#                                          OSTLER_REDIS_AUTH_ENFORCE:-1
-#                                          (install.sh:12838). The Doctor probe
-#                                          no longer breaks under auth: it parses
-#                                          the URL with urlsplit and sends AUTH
-#                                          BEFORE PING
-#                                          (vendor/doctor/agent/status_collector.py:572-578).
+#                                          install.sh's
+#                                          `${OSTLER_REDIS_AUTH_ENFORCE:-1}`
+#                                          branch. The Doctor probe no longer
+#                                          breaks under auth: it parses the URL
+#                                          with urlsplit and sends AUTH BEFORE
+#                                          PING -- grep `AUTH before PING` in
+#                                          vendor/doctor/agent/status_collector.py.
 #                                          The old note here said the opposite.
+#                                          VERIFIED at d0c207fd.
 #   8044  wiki-site                     -> CLOSED (refuses). auth_basic on the
-#                                          store-proxy, install.sh:17276-17277,
+#                                          store-proxy: the `listen 8044` server
+#                                          block in install.sh includes
+#                                          /etc/nginx/ostler-wiki-auth.conf,
 #                                          with the 0600-include pattern the
-#                                          oxigraph bearer already used.
+#                                          oxigraph bearer already used. Its
+#                                          location block has NO pre-auth gate,
+#                                          so a bare request reaches auth_basic
+#                                          and arm 1 below grades it honestly --
+#                                          which is NOT true of 8144, see the
+#                                          arm 1b block. VERIFIED at d0c207fd.
 #                                          Guarded by
 #                                          tests/test_the_wiki_port_demands_a_credential.sh
 #                                          and .../survives_the_credential.sh --
@@ -192,17 +289,20 @@ PROBE_QUESTION="can any local account be SERVED by an Ostler store or UI without
 #                                          quoted. #1660 landed the credential
 #                                          the row itself predicted would
 #                                          transfer from 8044. Measured in
-#                                          install.sh rather than recalled:
-#                                          ostler-vane-auth.conf +
-#                                          ostler-vane-htpasswd mounted into the
-#                                          store-proxy (16791-16792), an nginx
-#                                          `server { listen 3000; ... include
-#                                          /etc/nginx/ostler-vane-auth.conf; }`
-#                                          block (17305-17309), and the htpasswd
-#                                          written with the same apr1 + 0600
-#                                          pattern as the wiki (17429). It is
-#                                          published at 127.0.0.1:3000 and it
-#                                          refuses an uncredentialled read.
+#                                          install.sh rather than recalled, and
+#                                          cited by anchor because the three
+#                                          line numbers this row used to give
+#                                          were all stale by d0c207fd: grep
+#                                          `ostler-vane-auth.conf` for the
+#                                          store-proxy bind-mount, the
+#                                          `listen 3000` server block that
+#                                          includes it, and the
+#                                          `ostler-vane-htpasswd` written with
+#                                          the same apr1 + 0600 pattern as the
+#                                          wiki. It is published at
+#                                          127.0.0.1:3000 and it refuses an
+#                                          uncredentialled read. VERIFIED at
+#                                          d0c207fd.
 #   8144  wiki tailnet gate            -> WAS: its identity check is
 #                                        client-supplied over a local
 #                                        connection. CLOSED by #1683, which
@@ -218,6 +318,22 @@ PROBE_QUESTION="can any local account be SERVED by an Ostler store or UI without
 #                                        on the host, so it must stay a TCP
 #                                        port; the UDS alternative is dead per
 #                                        the measurement above.
+#                                        VERIFIED at d0c207fd: grep
+#                                        `ostler-wiki-auth.conf` and take the
+#                                        include INSIDE the `listen 8144`
+#                                        block, which is the #1683 credential.
+#                                        🔴 THIS IS THE ONE ROW ARM 1 CANNOT
+#                                        GRADE. Two `if` guards on
+#                                        client-written headers sit ABOVE that
+#                                        include and answer 403 in nginx's
+#                                        rewrite phase, before auth_basic runs
+#                                        in the access phase. So a bare request
+#                                        is refused by the MAP, not by the
+#                                        credential, and arm 1 reads the same
+#                                        403 whether the credential is there or
+#                                        gone. Arm 1b exists for this row. See
+#                                        the arm 1b block below for the
+#                                        measurement.
 # ── #1618: REACHABILITY IS THE WRONG PREDICATE FOR A CREDENTIALLED PORT ─────
 #
 # The single MUST_BE_CLOSED list below used to hold all seven ports and ask one
@@ -307,19 +423,25 @@ PROBE_ARMS="${OSTLER_PROBE_ARMS:-both}"
 # But it CANNOT be closed the way 6334 and 6379 were, and the reason is
 # measured rather than assumed:
 #
-#     install.sh:21269
+#     install.sh, grep `serve --bg --https=443`:
 #       "$TS_CLI" --socket="$TS_SOCK" serve --bg --https=443 "http://127.0.0.1:8144"
+#     (this line used to give a line number, which by d0c207fd was a comment
+#     about a writer with no reader -- the anchor is the durable form)
 #
 # **tailscaled reaches the gate by connecting to 127.0.0.1:8144 from the host.**
 # So whatever can reach it for tailscaled can be reached by any local account:
 # they are the same loopback. Unpublish the port and `tailscale serve` has
 # nothing to proxy to, and the tailnet wiki path dies silently.
 #
-# So this row is expected RED until the HAND-OFF changes, not until somebody
-# deletes a compose line. The open question that decides the shape of that fix:
-# can `tailscale serve` be pointed at anything other than a host TCP port?
-# If yes, 8144 is a topology fix like the stores. If no, it joins 8044 and
-# 3000 and is solved by whatever solves those.
+# ⚠️ THE NEXT TWO SENTENCES USED TO SAY "so this row is expected RED until the
+# HAND-OFF changes" AND POSE AN OPEN QUESTION THAT WAS ANSWERED IN 2026. Both
+# are struck rather than deleted, because a paragraph that contradicts the one
+# above it teaches the reader to trust neither, and this same block already had
+# to strike one expired conclusion (#1618 changed the sensor). The open
+# question -- can `tailscale serve` be pointed at anything other than a host
+# TCP port -- was answered NO, and 8144 joined 8044 and 3000 and was solved by
+# the credential that solved those (#1683). So the row is expected GREEN, and
+# what a red means is written above.
 #
 # A red that carries its own reason is a gate. A red that invites a wrong fix
 # is a trap. This comment is the difference.
@@ -517,12 +639,98 @@ _prelude_for() {   # $1 kind
             if [ -z "$_owner" ]; then
                 printf 'the wiki gate conf %s names no owner yet, so 8144 refuses everyone BY DESIGN (fail-closed until Tailscale names the owner)\n' "$WIKI_GATE_CONF"; return 3
             fi
-            printf "sed 's/^/user = \"ostler:/; s/\$/\"/' '%s'; printf 'header = \"Tailscale-User-Login: %%s\"\\n' '%s'\n" "$WIKI_PASSWORD_FILE" "$_owner" ;;
+            # 🔴 THE `echo` IS LOAD-BEARING AND ITS ABSENCE WAS A FALSE
+            # LOCK-OUT. _seed_wiki_password writes the file with
+            # `printf '%s'` -- NO trailing newline -- and sed does not add
+            # one, so the two commands' output ran together into ONE line:
+            #     user = "ostler:<pw>"header = "Tailscale-User-Login: <owner>"
+            # curl takes the user and DROPS the header, the 8144 map answers
+            # 403, and the probe reports the gate as refusing the install's
+            # own credential. Measured with od -c on the real fixture shape.
+            # It never showed on a walk because every walk box so far had no
+            # owner bound, so this arm returned 3 and never ran -- it would
+            # have fired on the first customer who actually uses the tailnet
+            # wiki. A blank line in a curl config is ignored, so the echo is
+            # safe whether or not the file ends in a newline.
+            printf "sed 's/^/user = \"ostler:/; s/\$/\"/' '%s'; echo; printf 'header = \"Tailscale-User-Login: %%s\"\\n' '%s'\n" "$WIKI_PASSWORD_FILE" "$_owner" ;;
         redis)
             [ "$(_file_on_box "$REDIS_ENV_FILE")" = yes ] || { printf '%s\n' "$REDIS_ENV_FILE"; return 2; }
             printf '%s\n' "$REDIS_ENV_FILE" ;;
         *)
             printf 'unknown surface kind %s -- the SURFACES table names a credential this probe does not know how to present\n' "$1"; return 3 ;;
+    esac
+}
+
+# ── ARM 1b: THE PRE-AUTH GATE THE CLIENT ITSELF WRITES ──────────────────────
+#
+# 🔴 ARM 1 CANNOT GRADE 8144, AND A GREEN FROM THIS PROBE DID NOT EXCLUDE THE
+# WIKI BEING SERVED TO EVERY ACCOUNT ON THE MAC. The gate install.sh generates
+# (write_wiki_tailnet_gate) is:
+#
+#     location / {
+#         if ($ostler_wiki_not_funnel = 0) { return 403; }
+#         if ($ostler_wiki_user_ok = 0)    { return 403; }
+#         include /etc/nginx/ostler-wiki-auth.conf;   <- the #1683 credential
+#         proxy_pass ...
+#
+# Both `if`s are answered in nginx's REWRITE phase. auth_basic runs in the
+# ACCESS phase, which is later. So a BARE request never reaches the credential:
+# it is refused 403 by a map keyed on a header the CLIENT wrote.
+#
+# MEASURED against the pinned store-proxy image (nginx 1.27-alpine, the
+# sha256:65645c7b... digest install.sh pins) on the conf above, twice: once
+# intact, once with the single `include` line deleted and nothing else changed.
+#
+#     request                          intact        credential deleted
+#     bare (arm 1)                     403           403          <- identical
+#     forged header, no password       401           200 + BODY   <- arm 1b
+#     forged header + install password 200           200          <- identical
+#     CONTROL forged header, WRONG pw  401           200
+#     CONTROL funnel header set        403           403
+#
+# Arm 1 and arm 2 return the SAME PAIR in both columns. The probe reported PASS
+# on the box whose wiki was served to anyone who typed one header. Only the
+# middle row separates them.
+#
+# AND THE HEADER IS NOT A SECRET. It is the owner's tailnet login, an email
+# address, and write_wiki_tailnet_gate ends `chmod 644 "$_wg_file"`, so the
+# allowlisted value is world-readable on the Mac. A second local account reads
+# it out of the conf and sends one curl.
+#
+# So arm 1b asks the question arm 1 cannot: with EVERYTHING THE CLIENT CAN
+# AUTHOR supplied and NO credential, is the request still refused? A served
+# answer here is recorded in the same list as any other uncredentialled read,
+# because that is exactly what it is.
+#
+# It needs no credential, so it runs under OSTLER_PROBE_ARMS=1 as well -- which
+# is the second-account run, the literal #550 demonstration.
+#
+# _forge_config_for is PURE (kind + value in, box command out) so the self-test
+# can pin it without a box. rc 3 and a reason on stdout means this surface has
+# no client-authored pre-auth gate, which is the correct answer for every kind
+# except wikigate: their arm 1 already reaches a credential check.
+_forge_config_for() {   # $1 kind, $2 the value a client would forge ("" = none available)
+    case "$1" in
+        wikigate)
+            if [ -z "$2" ]; then
+                printf 'no owner is bound in the wiki gate conf, so there is nothing for a client to forge and the gate refuses everyone BY DESIGN\n'; return 3
+            fi
+            # ONLY the identity header. No `user =` line, ever: the whole point
+            # of this arm is that it presents NO credential.
+            printf "printf 'header = \"Tailscale-User-Login: %%s\"\\n' '%s'\n" "$2" ;;
+        *)
+            printf '%s has no client-authored pre-auth gate, so arm 1 already reaches its credential check\n' "$1"; return 3 ;;
+    esac
+}
+
+# The forgeable value, read on the box. Split from the pure builder above so a
+# missing owner is reported as "nothing to forge" rather than as a broken arm.
+_forge_value_for() {   # $1 kind
+    case "$1" in
+        wikigate)
+            [ "$(_file_on_box "$WIKI_GATE_CONF")" = yes ] || return 0
+            box_run "sed -n 's/^    \"\(.*\)\" 1;\$/\1/p' '$WIKI_GATE_CONF' | head -n 1" ;;
+        *) ;;
     esac
 }
 
@@ -565,7 +773,7 @@ classify() {
 }
 
 run_probe() {
-    n_checked=0; listening_list=""; readable_list=""; locked_list=""; unmeasured_list=""; served_list=""; refused_list=""; notserving_list=""
+    n_checked=0; listening_list=""; readable_list=""; locked_list=""; unmeasured_list=""; served_list=""; refused_list=""; notserving_list=""; forged_list=""
 
     c_state="$(port_state "$CONTROL_PORT")"
     case "$c_state" in open) c=1 ;; closed) c=0 ;; *) c="" ;; esac
@@ -587,14 +795,22 @@ run_probe() {
             probe_cannot_run "OSTLER_PROBE_ARMS='${PROBE_ARMS}' is not one of both|1. A probe that does not know which arms it was asked for cannot say which it ran."
             ;;
     esac
-    if [ "$PROBE_ARMS" = both ]; then
-        box_home="$(_box_home)"
-        if [ -z "$box_home" ]; then
+    # PATHS are resolved in BOTH modes. Arm 2 needs the credential files; arm
+    # 1b needs only the gate conf's PATH, and that file is world-readable by
+    # design (write_wiki_tailnet_gate ends `chmod 644`), so a second account
+    # running arm-1-only can still read the value it is meant to forge. That
+    # is the whole point of arm 1b: the attacker has it, so the probe must.
+    box_home="$(_box_home)"
+    if [ -z "$box_home" ]; then
+        if [ "$PROBE_ARMS" = both ]; then
             probe_examined 0 "store/UI surfaces"
             probe_cannot_run "could not read \$HOME on the box, so no credential path can be resolved and the second arm cannot run. A probe that cannot present the credential cannot tell a refusal from a lock-out."
         fi
-        _resolve_credential_paths "$box_home"
+        # Arm-1-only: not fatal, but SAY SO. An arm that silently did not run
+        # is the failure this whole file is written against.
+        probe_note "could not read \$HOME on the box, so arm 1b has no gate-conf path and any client-authored pre-auth gate is reported not-applicable rather than passed"
     fi
+    _resolve_credential_paths "${box_home:-/nonexistent/no-box-home}"
 
     # CLASS 1: nothing may answer. A successful connect IS the defect.
     for p in $MUST_NOT_LISTEN; do
@@ -623,6 +839,25 @@ run_probe() {
             notserving)   notserving_list="${notserving_list} ${p}(${r1:-no-answer})"; continue ;;
             unmeasurable) unmeasured_list="${unmeasured_list} ${p}(${r1:-no-reading})"; continue ;;
         esac
+        # ARM 1b. Arm 1 refused -- but for a surface whose refusal is decided
+        # BEFORE its credential, by a value the client writes, that refusal
+        # says nothing about the credential. Ask again with the forgeable half
+        # supplied and still no credential. Needs no credential of its own, so
+        # it runs in arm-1-only mode too.
+        forge_v="$(_forge_value_for "$kind")"
+        forge="$(_forge_config_for "$kind" "$forge_v")"; frc=$?
+        if [ "$frc" -eq 0 ]; then
+            r1b="$(_http_code "http://127.0.0.1:${p}${path}" "$forge")"; v1b="$(_verdict_for_http ${r1b})"
+            case "$v1b" in
+                readable)     readable_list="${readable_list} ${p}(${r1b% *},no-credential-but-the-client-authored-gate-satisfied)"; continue ;;
+                unmeasurable) unmeasured_list="${unmeasured_list} ${p}(client-authored-gate-satisfied:${r1b:-no-reading})"; continue ;;
+                notserving)   notserving_list="${notserving_list} ${p}(${r1b:-no-answer})"; continue ;;
+            esac
+            forged_list="${forged_list} ${p}"
+            probe_note "${p}: refused a request that satisfied its client-authored pre-auth gate and carried no credential, so the refusal is the credential's and not the gate's"
+        elif [ "$frc" -eq 3 ] && [ "$kind" = wikigate ]; then
+            probe_note "${p}: arm 1b not applicable -- ${forge}"
+        fi
         # Arm 1 refused. Declared arm-1-only: stop here, and say so at the end.
         if [ "$PROBE_ARMS" = 1 ]; then refused_list="${refused_list} ${p}"; continue; fi
         # Arm 2: is that refusal a credential check, or a wall?
@@ -643,7 +878,7 @@ run_probe() {
         esac
     done
 
-    probe_examined "$n_checked" "store/UI surfaces, arms=${PROBE_ARMS} (control ${CONTROL_PORT} confirmed open)"
+    probe_examined "$n_checked" "store/UI surfaces, arms=${PROBE_ARMS} (control ${CONTROL_PORT} confirmed open)${forged_list:+; arm 1b also asked the client-authored pre-auth gate on:${forged_list}}"
 
     case "$(classify "$c" "$listening_list" "$readable_list" "$locked_list" "$unmeasured_list")" in
         FAIL)
@@ -659,9 +894,9 @@ run_probe() {
             # gets quoted into a ship note, so WHICH mechanism refused each one
             # is not asserted.
             if [ "$PROBE_ARMS" = 1 ]; then
-                probe_pass "ARM 1 ONLY (OSTLER_PROBE_ARMS=1): none of the ${n_checked} store/UI surfaces served an uncredentialled request. Refused (401/403, or NOAUTH for redis):${refused_list:- none}.${notserving_list:+ Not serving at all, which leaks nothing and is NOT a liveness verdict (fail-closed by design, or down; a separate probe answers that):${notserving_list}.}${MUST_NOT_LISTEN:+ The ${MUST_NOT_LISTEN} class refused a connection outright.} ${CONTROL_PORT} was confirmed open in the same run. Arm 2, the install's own credential must be served, was NOT RUN, so this verdict does NOT exclude a lock-out; run as the install owner with both arms for that"
+                probe_pass "ARM 1 ONLY (OSTLER_PROBE_ARMS=1): none of the ${n_checked} store/UI surfaces served an uncredentialled request. Refused (401/403, or NOAUTH for redis):${refused_list:- none}.${notserving_list:+ Not serving at all, which leaks nothing and is NOT a liveness verdict (fail-closed by design, or down; a separate probe answers that):${notserving_list}.}${MUST_NOT_LISTEN:+ The ${MUST_NOT_LISTEN} class refused a connection outright.} ${CONTROL_PORT} was confirmed open in the same run.${forged_list:+ Arm 1b additionally satisfied the client-authored pre-auth gate on${forged_list} with NO credential and was still refused, so that refusal belongs to the credential.} Arm 2, the install's own credential must be served, was NOT RUN, so this verdict does NOT exclude a lock-out; run as the install owner with both arms for that"
             fi
-            probe_pass "none of the ${n_checked} store/UI surfaces served an uncredentialled request, and every surface that refused one served the install's own credential, read on the box:${served_list:- none}.${notserving_list:+ Not serving at all, which leaks nothing and is NOT a liveness verdict (fail-closed by design, or down; a separate probe answers that):${notserving_list}.}${MUST_NOT_LISTEN:+ The ${MUST_NOT_LISTEN} class refused a connection outright.} ${CONTROL_PORT} was confirmed open in the same run, so this is a measured result and not a blind probe. WHICH mechanism gated each surface is NOT asserted here -- read the per-port table in this file"
+            probe_pass "none of the ${n_checked} store/UI surfaces served an uncredentialled request, and every surface that refused one served the install's own credential, read on the box:${served_list:- none}.${notserving_list:+ Not serving at all, which leaks nothing and is NOT a liveness verdict (fail-closed by design, or down; a separate probe answers that):${notserving_list}.}${MUST_NOT_LISTEN:+ The ${MUST_NOT_LISTEN} class refused a connection outright.} ${forged_list:+ Arm 1b satisfied the client-authored pre-auth gate on${forged_list} with NO credential and was still refused, so 8144-shaped surfaces are graded by their credential and not by a header the caller writes.} ${CONTROL_PORT} was confirmed open in the same run, so this is a measured result and not a blind probe. WHICH mechanism gated each surface is NOT asserted here -- read the per-port table in this file"
             ;;
         *)
             probe_cannot_run "adjudication was inconclusive for control='${c}' listening='${listening_list}' served-without-credential='${readable_list}' refused-the-credential='${locked_list}' unmeasurable='${unmeasured_list}'. A surface that could not be asked, on either arm, has NOT passed."
@@ -674,64 +909,226 @@ self_test() {
     # situation it stands for.
     fails=""
 
+    # ── A RUNTIME COUNTER, BECAUSE SOURCE-SCRAPING WAS THE WRONG INSTRUMENT ──
+    #
+    # #2120 asked for a count that cannot be wrong. The first answer typed 30
+    # while 32 cases ran. The second DERIVED it by grepping this function's own
+    # source, and that was a typed thing one level down: it counted lines
+    # starting with `[ `, which is the shape every case happens to use today.
+    # Archie measured it against the tree with #2030's cases merged in -- 41
+    # assertions exist, 34 match, SEVEN invisible -- and on this tree both give
+    # 32, so it was RIGHT BY COINCIDENCE.
+    #
+    # 🔴 AND WIDENING THE PATTERN BROUGHT BACK A BUG IT HAD ALREADY HAD. A grep
+    # whose literal is the append expression is itself a line containing that
+    # expression, so it counts itself. The first version hit that at 33 and was
+    # fixed by anchoring; the widened version hit it again. Twice in one
+    # function, from two different directions, is not an off-by-one to patch.
+    # It is what source-scraping IS.
+    #
+    # So the number is counted AT RUNTIME. _st_tick cannot miss a syntactic
+    # form because it does not know what a form is: it fires when the line
+    # executes, whatever the line looks like. A case added in any shape counts
+    # itself by running, and a case deleted stops counting by not running.
+    #
+    # The invariant that keeps it honest is below the cases, not here.
+    _st_n=0
+    _st_tick() { _st_n=$(( _st_n + 1 )); }
+
     # 1. THE ORIGINAL DEFECT. Control up, something LISTENING that must not be.
-    [ "$(classify 1 ' 6334' '' '' '')" = "FAIL" ] || fails="${fails} listening-port-not-FAIL"
+    _st_tick; [ "$(classify 1 ' 6334' '' '' '')" = "FAIL" ] || fails="${fails} listening-port-not-FAIL"
 
     # 2. #1618's DEFECT, and the one the old predicate could not see: the port
     #    is published (as it must be) and served an UNCREDENTIALLED request.
-    [ "$(classify 1 '' ' 8044(200)' '' '')" = "FAIL" ] || fails="${fails} uncredentialled-200-not-FAIL"
+    _st_tick; [ "$(classify 1 '' ' 8044(200)' '' '')" = "FAIL" ] || fails="${fails} uncredentialled-200-not-FAIL"
 
     # 3. THE FIX, and the arm that matters most for THIS probe specifically.
     #    It is named in 7 walk records and has passed in NONE, so "it went
     #    green" is unreadable until PASS is shown to be reachable at all.
-    [ "$(classify 1 '' '' '' '')" = "PASS" ] || fails="${fails} clean-box-not-PASS"
+    _st_tick; [ "$(classify 1 '' '' '' '')" = "PASS" ] || fails="${fails} clean-box-not-PASS"
 
     # 4. THE TRAP THIS PROBE EXISTS TO AVOID. Control DOWN, nothing found.
-    [ "$(classify 0 '' '' '' '')" = "CANNOT_RUN" ] || fails="${fails} stopped-stack-read-as-PASS"
+    _st_tick; [ "$(classify 0 '' '' '' '')" = "CANNOT_RUN" ] || fails="${fails} stopped-stack-read-as-PASS"
 
     # 5. Control unreadable -> CANNOT_RUN, not PASS.
-    [ "$(classify '' '' '' '' '')" = "CANNOT_RUN" ] || fails="${fails} unreadable-control-not-CANNOT_RUN"
+    _st_tick; [ "$(classify '' '' '' '' '')" = "CANNOT_RUN" ] || fails="${fails} unreadable-control-not-CANNOT_RUN"
 
     # 6. Control down AND a finding -> still CANNOT_RUN, in either direction.
-    [ "$(classify 0 ' 6333' '' '' '')" = "CANNOT_RUN" ] || fails="${fails} down-control-with-finding-adjudicated"
+    _st_tick; [ "$(classify 0 ' 6333' '' '' '')" = "CANNOT_RUN" ] || fails="${fails} down-control-with-finding-adjudicated"
 
     # 7. A port we COULD NOT ASK has not passed. Three outcomes, three branches.
-    [ "$(classify 1 '' '' '' ' 3000(000)')" = "CANNOT_RUN" ] || fails="${fails} unmeasurable-read-as-PASS"
+    _st_tick; [ "$(classify 1 '' '' '' ' 3000(000)')" = "CANNOT_RUN" ] || fails="${fails} unmeasurable-read-as-PASS"
 
     # 8. FAIL OUTRANKS CANNOT_RUN. A demonstrated uncredentialled read must not
     #    be softened to "inconclusive" because a SIBLING port was unreadable.
-    [ "$(classify 1 '' ' 8044(200)' '' ' 3000(000)')" = "FAIL" ] || fails="${fails} fail-downgraded-by-sibling-unmeasurable"
+    _st_tick; [ "$(classify 1 '' ' 8044(200)' '' ' 3000(000)')" = "FAIL" ] || fails="${fails} fail-downgraded-by-sibling-unmeasurable"
 
     # 9. THE SECOND ARM. Refused without a credential AND refused WITH the
     #    install's own. "Refuses everyone" is not a pass; it is a lock-out.
-    [ "$(classify 1 '' '' ' 8044(401)' '')" = "FAIL" ] || fails="${fails} lock-out-not-FAIL"
+    _st_tick; [ "$(classify 1 '' '' ' 8044(401)' '')" = "FAIL" ] || fails="${fails} lock-out-not-FAIL"
 
     # 10. And a lock-out also outranks an unmeasurable sibling.
-    [ "$(classify 1 '' '' ' 8044(401)' ' 3000(000)')" = "FAIL" ] || fails="${fails} lock-out-downgraded-by-sibling-unmeasurable"
+    _st_tick; [ "$(classify 1 '' '' ' 8044(401)' ' 3000(000)')" = "FAIL" ] || fails="${fails} lock-out-downgraded-by-sibling-unmeasurable"
 
     # 11-24. THE SENSOR MAPPERS. classify() is only as good as what feeds it,
     #    and the mapper is where Aesop's guardrail lives: adjudicate by STATUS
     #    and curl rc, never by the mere presence of an answer.
     #    401 and 403 are both refusals: auth_basic answers 401, the store-proxy's
     #    host check answers 403, and either means the request was not served.
-    [ "$(_verdict_for_http 401 0)" = "refused" ]      || fails="${fails} http-401-not-refused"
-    [ "$(_verdict_for_http 403 0)" = "refused" ]      || fails="${fails} http-403-not-refused"
-    [ "$(_verdict_for_http 200 0)" = "readable" ]     || fails="${fails} http-200-not-readable"
-    [ "$(_verdict_for_http 302 0)" = "readable" ]     || fails="${fails} http-302-not-readable"
-    [ "$(_verdict_for_http 404 0)" = "readable" ]     || fails="${fails} http-404-served-without-a-credential-demand-not-readable"
-    [ "$(_verdict_for_http 000 7)" = "notserving" ]   || fails="${fails} connection-refused-not-notserving"
-    [ "$(_verdict_for_http 000 52)" = "notserving" ]  || fails="${fails} empty-reply-not-notserving"
-    [ "$(_verdict_for_http 000 56)" = "notserving" ]  || fails="${fails} reset-not-notserving"
-    [ "$(_verdict_for_http 000 28)" = "unmeasurable" ] || fails="${fails} timeout-read-as-a-verdict"
-    [ "$(_verdict_for_http 500 0)" = "unmeasurable" ] || fails="${fails} http-500-not-unmeasurable"
-    [ "$(_verdict_for_http 200 18)" = "unmeasurable" ] || fails="${fails} partial-answer-not-unmeasurable"
-    [ "$(_verdict_for_http '' '')" = "unmeasurable" ] || fails="${fails} empty-reading-not-unmeasurable"
-    [ "$(_verdict_for_redis '-NOAUTH Authentication required.')" = "refused" ] || fails="${fails} redis-noauth-not-refused"
-    [ "$(_verdict_for_redis '+PONG')" = "readable" ] || fails="${fails} redis-pong-not-readable"
-    [ "$(_verdict_for_redis '')" = "notserving" ] || fails="${fails} redis-no-answer-not-notserving"
-    [ "$(_verdict_for_redis 'no_client')" = "unmeasurable" ] || fails="${fails} redis-missing-client-not-unmeasurable"
+    _st_tick; [ "$(_verdict_for_http 401 0)" = "refused" ]      || fails="${fails} http-401-not-refused"
+    _st_tick; [ "$(_verdict_for_http 403 0)" = "refused" ]      || fails="${fails} http-403-not-refused"
+    _st_tick; [ "$(_verdict_for_http 200 0)" = "readable" ]     || fails="${fails} http-200-not-readable"
+    _st_tick; [ "$(_verdict_for_http 302 0)" = "readable" ]     || fails="${fails} http-302-not-readable"
+    _st_tick; [ "$(_verdict_for_http 404 0)" = "readable" ]     || fails="${fails} http-404-served-without-a-credential-demand-not-readable"
+    _st_tick; [ "$(_verdict_for_http 000 7)" = "notserving" ]   || fails="${fails} connection-refused-not-notserving"
+    _st_tick; [ "$(_verdict_for_http 000 52)" = "notserving" ]  || fails="${fails} empty-reply-not-notserving"
+    _st_tick; [ "$(_verdict_for_http 000 56)" = "notserving" ]  || fails="${fails} reset-not-notserving"
+    _st_tick; [ "$(_verdict_for_http 000 28)" = "unmeasurable" ] || fails="${fails} timeout-read-as-a-verdict"
+    _st_tick; [ "$(_verdict_for_http 500 0)" = "unmeasurable" ] || fails="${fails} http-500-not-unmeasurable"
+    _st_tick; [ "$(_verdict_for_http 200 18)" = "unmeasurable" ] || fails="${fails} partial-answer-not-unmeasurable"
+    _st_tick; [ "$(_verdict_for_http '' '')" = "unmeasurable" ] || fails="${fails} empty-reading-not-unmeasurable"
+    _st_tick; [ "$(_verdict_for_redis '-NOAUTH Authentication required.')" = "refused" ] || fails="${fails} redis-noauth-not-refused"
+    _st_tick; [ "$(_verdict_for_redis '+PONG')" = "readable" ] || fails="${fails} redis-pong-not-readable"
+    _st_tick; [ "$(_verdict_for_redis '')" = "notserving" ] || fails="${fails} redis-no-answer-not-notserving"
+    _st_tick; [ "$(_verdict_for_redis 'no_client')" = "unmeasurable" ] || fails="${fails} redis-missing-client-not-unmeasurable"
 
-    probe_examined 26 "adjudication cases"
+    # ── 25-28. THE DIRECTIVE'S TWO END-STATES, PINNED ─────────────────────
+    #
+    # LAUNCH DIRECTIVE item 5 makes this probe BLOCKING and says it must
+    # "assert REFUSED WITHOUT CREDENTIAL". DECISION_550:106 says the 8044
+    # direct publish is ABSENT for v1.0. Read carelessly those conflict: one
+    # reads as "a credential demand is the correct behaviour", the other as
+    # "there should be nothing there to demand anything". A customer must
+    # meet neither a password box nor a dead link.
+    #
+    # They do not actually conflict, because BOTH end-states are a pass and
+    # the probe must not require the other to exist. These four cases pin
+    # that, so a future edit cannot quietly make one of them the only way
+    # through.
+
+    # 25. ABSENT IS A PASS. A port that is not published answers nothing; the
+    #     mapper reads connection-refused as `notserving`, and notserving is
+    #     not one of classify's finding arguments at all. Assert it lands in
+    #     NEITHER finding direction -- not "served without a credential", and
+    #     not "refused the install's own". An absent port is not a lock-out.
+    _absent="$(_verdict_for_http 000 7)"
+    _st_tick; [ "$_absent" != "readable" ] || fails="${fails} absent-port-graded-as-readable"
+    _st_tick; [ "$_absent" != "refused" ]  || fails="${fails} absent-port-graded-as-a-credential-gate"
+
+    # 26. AND THE WHOLE-RUN VERDICT FOR IT IS PASS, not CANNOT_RUN. A port
+    #     that is genuinely gone contributes to no list, so a box where the
+    #     directive's end-state has been delivered adjudicates green rather
+    #     than abstaining. Distinct from case 3: that one says a clean box
+    #     passes, this one says the DECIDED end-state is that clean box.
+    _st_tick; [ "$(classify 1 '' '' '' '')" = "PASS" ] || fails="${fails} decided-absent-end-state-not-PASS"
+
+    # 27. A 401 IS NOT REQUIRED IN ORDER TO PASS. This is the shipped shape
+    #     of :8044 after the no-challenge fix: an uncredentialled browser is
+    #     refused with 403 and NO WWW-Authenticate, so it never meets a
+    #     password box, and the daemon's own hop is served 200. Both arms
+    #     behave, nothing reaches a finding list, and the verdict is PASS --
+    #     with no 401 anywhere in the run.
+    _st_tick; [ "$(_verdict_for_http 403 0)" = "refused" ]  || fails="${fails} no-challenge-403-not-refused"
+    _st_tick; [ "$(_verdict_for_http 200 0)" = "readable" ] || fails="${fails} credentialled-arm-200-not-served"
+
+    # 28. THE FLOOR THAT SURVIVES BOTH. Whichever end-state ships, a surface
+    #     that SERVES an uncredentialled request is still the defect. Absence
+    #     and a credential gate are both passes; being readable never is.
+    _st_tick; [ "$(classify 1 '' ' 8044(200)' '' '')" = "FAIL" ] || fails="${fails} uncredentialled-read-excused-by-the-new-cases"
+    # ── 29-34. ARM 1b: THE PRE-AUTH GATE THE CLIENT ITSELF WRITES ─────────
+    #
+    # Measured against the pinned nginx on the conf install.sh generates: with
+    # the 8144 credential include DELETED, arm 1 still reads 403 and arm 2
+    # still reads 200, exactly as with it present. Only a request that
+    # satisfies the client-authored map and carries NO credential separates
+    # them (401 intact, 200 + the wiki body without it). These cases pin the
+    # builder that constructs that request, and pin that its result is graded
+    # as an uncredentialled read rather than excused.
+
+    # 33. IT SUPPLIES THE IDENTITY AND NEVER A CREDENTIAL. If a `user =` line
+    #     ever appears here the arm becomes a second copy of arm 2 and can no
+    #     longer see the defect it was written for.
+    _f="$(_forge_config_for wikigate 'owner@example.invalid')"; _frc=$?
+    _st_tick; [ "$_frc" -eq 0 ] || fails="${fails} forge-config-for-wikigate-not-built"
+    _st_tick; case "$_f" in *Tailscale-User-Login*) ;; *) fails="${fails} forge-config-omits-the-identity-header" ;; esac
+    _st_tick; case "$_f" in *'user = '*) fails="${fails} forge-config-leaked-a-credential-into-arm-1b" ;; esac
+    _st_tick; case "$_f" in *owner@example.invalid*) ;; *) fails="${fails} forge-config-dropped-the-owner-value" ;; esac
+
+    # 34. NO OWNER BOUND -> nothing to forge. The gate is fail-closed until
+    #     Tailscale names an owner, and that is not a defect; it must be
+    #     reported not-applicable rather than passed or failed.
+    _st_tick; _forge_config_for wikigate '' >/dev/null; [ $? -eq 3 ] || fails="${fails} no-owner-bound-not-reported-not-applicable"
+
+    # 31-32. EVERY OTHER KIND HAS NO CLIENT-AUTHORED PRE-AUTH GATE, so arm 1
+    #     already reaches their credential check and arm 1b must decline. A
+    #     version that answered rc 0 here would send a bare request twice and
+    #     report the second as if it proved something.
+    _st_tick; _forge_config_for wiki 'x' >/dev/null;  [ $? -eq 3 ] || fails="${fails} wiki-kind-given-a-nonexistent-pre-auth-gate"
+    _st_tick; _forge_config_for store 'x' >/dev/null; [ $? -eq 3 ] || fails="${fails} store-kind-given-a-nonexistent-pre-auth-gate"
+
+    # 33. THE DEFECT, GRADED. A surface that served a request carrying no
+    #     credential is an uncredentialled read whatever headers it carried,
+    #     so it goes in the same list and FAILS.
+    _st_tick; [ "$(classify 1 '' ' 8144(200,no-credential-but-the-client-authored-gate-satisfied)' '' '')" = "FAIL" ] \
+        || fails="${fails} forged-identity-read-not-FAIL"
+
+    # 34. AND THE HEALTHY SHAPE IS STILL A PASS. Arm 1b refusing contributes
+    #     to no list, so adding this arm must not make a good box red.
+    _st_tick; [ "$(classify 1 '' '' '' '')" = "PASS" ] || fails="${fails} arm-1b-made-a-clean-box-not-PASS"
+
+
+    # ── COUNTED AT RUNTIME, NOT TYPED AND NOT SCRAPED (#2120) ─────────────
+    #
+    # This line used to read `probe_examined 30` while 32 cases ran. Nobody
+    # noticed, which is the row's whole point: a typed denominator is checked by
+    # nothing, so being wrong costs nothing until someone relies on it.
+    #
+    # The row named two NON-fixes explicitly and both were refused: updating the
+    # literal to 32, and adding a test that asserts the literal equals itself.
+    #
+    # 🔴 THE FIRST REAL ATTEMPT WAS A TYPED THING ONE LEVEL DOWN. It counted the
+    # assertions by grepping this function's own source for lines starting with
+    # `[ `, which is the shape every case happens to use TODAY. Archie measured
+    # it against the tree with #2030's cases merged in: 41 assertions exist, 34
+    # match, SEVEN are invisible -- `case ... ) fails=`, `cmd; [ $? -eq 3 ] ||
+    # fails=`, and a continuation line. On this tree both give 32, so it was
+    # RIGHT BY COINCIDENCE, and silently seven short the moment a second form
+    # appeared.
+    #
+    # That is worse than the typed 30 in one respect: `probe_examined 30` is
+    # visibly a claim, so a reader might check it. "counted from the assertions
+    # themselves" invites a trust it has not earned.
+    #
+    # 🔴 AND WIDENING THE PATTERN REINTRODUCED A BUG IT HAD ALREADY HAD. A grep
+    # whose literal is the append expression is itself a line containing that
+    # expression, so it counts itself. The first version hit that at 33 and was
+    # patched by anchoring; the widened version hit it again at 34. Twice in one
+    # function, from two directions, is not an off-by-one. It is what
+    # source-scraping IS.
+    #
+    # SO THE COUNT IS TAKEN AT RUNTIME, by the cases themselves. _st_tick cannot
+    # miss a syntactic form because it does not know what a form is: it fires
+    # when the line executes, whatever the line looks like. A case added in any
+    # shape counts itself by running; a case deleted stops counting by not
+    # running. There is no pattern left to be wrong.
+    _st_cases="$_st_n"
+    if [ "${_st_cases:-0}" -lt 1 ]; then
+        # With a runtime counter a zero can mean only one thing: not a single
+        # case executed. That is not a missing denominator, it is a broken
+        # self-test, and it must never print as a clean count.
+        probe_note "NO ADJUDICATION CASE RAN AT ALL. The counter is incremented by the cases themselves, so zero means the block did not execute rather than that the count was unavailable."  # i18n-exempt
+        probe_examined 0 "adjudication cases (NONE RAN -- see the note above)"
+    else
+        probe_examined "$_st_cases" "adjudication cases, counted AT RUNTIME by the cases themselves (#2120)"
+    fi
+    # Carried past the unset because the verdict sentence below quotes it too,
+    # and that sentence was the SECOND typed number in this function: it said
+    # "30 of 30" while 32 cases ran. One runtime count feeds both, so they
+    # cannot disagree with each other or with what actually executed.
+    _st_behaved="${_st_cases:-0}"
+    unset _st_cases _st_n
+    unset _st_src _st_cases
+
 
     # ── THE RUNNER'S CONTRACT, WHICH THIS FUNCTION USED TO BREAK ──────────
     #
@@ -757,7 +1154,7 @@ self_test() {
             "${PROBE_NAME:-no_store_port_is_tcp_reachable}" "$fails"
         exit 1
     fi
-    probe_fail "NEGATIVE CONTROL DEMONSTRATED (this red is the expected result of --self-test, not a finding): classify() returned FAIL on a port that must not listen, on a published port that served an UNCREDENTIALLED request, and on a surface that refused the install's OWN credential; PASS only with the control up and nothing found; CANNOT_RUN on a stopped or unreadable control and on a surface that could not be asked; and both kinds of FAIL outranked an unmeasurable sibling. The sensor mappers adjudicated by status and curl rc: 401/403 refused; 2xx, 3xx and a 404 with no credential demand readable; connection refused, empty reply and reset not-serving; a timeout, a 5xx, a partial answer and an empty reading unmeasurable; and redis NOAUTH/PONG/no-answer/no-client into the same four. 26 of 26 adjudication cases behaved."
+    probe_fail "NEGATIVE CONTROL DEMONSTRATED (this red is the expected result of --self-test, not a finding): classify() returned FAIL on a port that must not listen, on a published port that served an UNCREDENTIALLED request, and on a surface that refused the install's OWN credential; PASS only with the control up and nothing found; CANNOT_RUN on a stopped or unreadable control and on a surface that could not be asked; and both kinds of FAIL outranked an unmeasurable sibling. The sensor mappers adjudicated by status and curl rc: 401/403 refused; 2xx, 3xx and a 404 with no credential demand readable; connection refused, empty reply and reset not-serving; a timeout, a 5xx, a partial answer and an empty reading unmeasurable; and redis NOAUTH/PONG/no-answer/no-client into the same four. Both of the directive's end-states reached PASS without needing the other to exist: an ABSENT port graded as neither readable nor a credential gate, and a 403-refused / 200-served pair passed with no 401 anywhere in the run; a surface that SERVED an uncredentialled request still failed. Arm 1b built a request that carries the client-authored identity and NO credential (a leaked user= line there is caught), declined for every kind that has no such pre-auth gate and for a gate with no owner bound, graded a served forged-identity request as an uncredentialled read -> FAIL, and left a clean box PASS. ${_st_behaved} of ${_st_behaved} adjudication cases behaved, a number counted AT RUNTIME by the cases themselves (#2120)."
 }
 
 probe_main "$@"

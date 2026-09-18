@@ -846,3 +846,49 @@ SCHEDULED_AGENT_UNKNOWN_FIX = (
 SCHEDULED_AGENT_UNKNOWN_FIX_COMMAND_FMT = (
     "launchctl print gui/$(id -u)/{label}"
 )
+
+# ── check_licence_expiry (HR015 #929) ────────────────────────────────
+#
+# THE WORDS ARE THE FEATURE HERE, not the plumbing. Andy's two rules for
+# a time-limited beta licence are: expiry degrades to READ-ONLY and never
+# destructive, and the customer is warned BEFORE it happens, in the
+# product, not after.
+#
+# So every string below states, in the customer's own reading, that their
+# data stays. "Paused", never "locked". A lapsed tester keeps everything
+# they have and loses the product working; those are different sentences
+# and they feel completely different to the person reading them. Deleting
+# a tester's life because a date passed is unrecoverable reputationally,
+# and a panel that even HINTS at it will be screenshotted.
+#
+# The "ending soon" row is a WARNING and the "ended" row is INFO, which
+# looks backwards and is not. A warning is for something the customer can
+# still act on; once the window has closed the actionable moment has gone
+# and a red row would only be shouting about a state they are already in.
+LICENCE_ENDING_SOON_TITLE_FMT = (
+    "Your {label} access ends {when}"
+)
+LICENCE_ENDING_SOON_DETAIL_FMT = (
+    "Ongoing intelligence pauses after {expires}. Everything already in "
+    "your Hub stays exactly where it is and stays readable. Nothing is "
+    "deleted, now or then."
+)
+LICENCE_ENDING_SOON_FIX = (
+    "Subscribe in the Ostler app on your iPhone to carry on without a "
+    "break. If you are a beta tester, get in touch and we will extend you."
+)
+LICENCE_ENDING_SOON_FIX_COMMAND = None
+
+LICENCE_ENDED_TITLE_FMT = (
+    "Your {label} access ended"
+)
+LICENCE_ENDED_DETAIL_FMT = (
+    "Ongoing intelligence has been paused since {expires}. Everything "
+    "already in your Hub is still here and still readable, and nothing "
+    "has been deleted. New data is not being brought in."
+)
+LICENCE_ENDED_FIX = (
+    "Subscribe in the Ostler app on your iPhone and everything starts "
+    "again within a minute. Nothing needs restoring."
+)
+LICENCE_ENDED_FIX_COMMAND = None

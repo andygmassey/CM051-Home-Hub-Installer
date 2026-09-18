@@ -86,7 +86,7 @@ H="$WORK/home"
 mkdir -p "$H/Library/LaunchAgents" "$H/.ostler/assistant-config" "$H/Documents/Ostler/Wiki" "$H/.ostler/assistant-config/workspace/state"
 # The 13 UNCONDITIONAL (required) launch agents. A complete install has all of
 # them; declaring only these keeps the synthetic install free of UNDECLARED noise.
-REQ_AGENTS="com.ostler.stay-awake com.ostler.engine-supervisor com.ostler.ollama com.ostler.ollama-logrotate com.ostler.export-scan com.ostler.doctor com.ostler.ical-server com.ostler.fda-rerun com.creativemachines.ostler.assistant com.creativemachines.ostler.email-ingest com.creativemachines.ostler.wiki-recompile com.creativemachines.ostler.editor-frontpage com.creativemachines.ostler.context-refresh"
+REQ_AGENTS="com.ostler.stay-awake com.ostler.engine-supervisor com.ostler.ollama com.ostler.ollama-logrotate com.ostler.export-scan com.ostler.doctor com.ostler.ical-server com.ostler.fda-rerun com.ostler.memory-hygiene com.creativemachines.ostler.assistant com.creativemachines.ostler.email-ingest com.creativemachines.ostler.wiki-recompile com.creativemachines.ostler.editor-frontpage com.creativemachines.ostler.context-refresh"
 for L in $REQ_AGENTS; do
     printf '<plist><dict><key>Label</key><string>%s</string></dict></plist>\n' "$L" > "$H/Library/LaunchAgents/$L.plist"
 done
@@ -95,7 +95,13 @@ printf '[[cron.jobs]]\nid = "morning-brief"\n[[cron.jobs]]\nid = "evening-wrap"\
 # The complete qdrant present-set via the test seam, so the box-type runs below
 # (which include qdrant_collection) see a healthy store instead of CANNOT-RUN.
 # The qdrant-specific arm overrides this per-call to inject missing/undeclared.
-export OSTLER_MANIFEST_QDRANT_OVERRIDE="people,conversations,preferences,evernote_knowledge,safari_history"
+# reminders_knowledge joins the complete-install fixture because #1958 creates
+# it unconditionally. The row in install_manifest.tsv is `required`, so a
+# fixture without it is no longer a COMPLETE install and the gate correctly
+# reds it. Adding it here keeps the "a healthy install must PASS" arm honest
+# rather than relaxing the row to conditional, which would stop the gate ever
+# noticing the collection went missing.
+export OSTLER_MANIFEST_QDRANT_OVERRIDE="people,conversations,preferences,evernote_knowledge,reminders_knowledge,safari_history"
 
 _run() { python3 "$VERIFIER" --manifest "$MANIFEST" --home "$H" --config "$CFG" "$@" 2>&1; }
 

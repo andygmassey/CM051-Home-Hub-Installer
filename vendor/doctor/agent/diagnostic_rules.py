@@ -34,6 +34,14 @@ from diagnostic_copy import (
     MEMORY_UNREADABLE_FIX_COMMAND,
     INGEST_EMPTY_DETAIL_FMT,
     INGEST_EMPTY_FIX,
+    LICENCE_ENDED_DETAIL_FMT,
+    LICENCE_ENDED_FIX,
+    LICENCE_ENDED_FIX_COMMAND,
+    LICENCE_ENDED_TITLE_FMT,
+    LICENCE_ENDING_SOON_DETAIL_FMT,
+    LICENCE_ENDING_SOON_FIX,
+    LICENCE_ENDING_SOON_FIX_COMMAND,
+    LICENCE_ENDING_SOON_TITLE_FMT,
     INGEST_EMPTY_FIX_COMMAND,
     INGEST_NO_INPUT_TITLE_FMT,
     INGEST_NO_INPUT_DETAIL_FMT,
@@ -2290,6 +2298,174 @@ def check_scheduled_agents(snapshot: Any) -> list[dict]:
     return findings
 
 
+# ── (HR015 #929) the window closing, told BEFORE it closes ───────────
+#
+# WARN_BEFORE_EXPIRY_DAYS IS A TWIN. The authority is
+# ``subscription_gate.WARN_BEFORE_EXPIRY_DAYS`` in the CM041 assistant_api
+# tree. The Doctor is vendored separately and is staged into its own
+# DOCTOR_DIR by install.sh, NOT beside services/ical-server, so it cannot
+# import that module: there is no sys.path on a customer's Mac that holds
+# both. Copying the number is the honest option and the copy is PINNED
+# EQUAL by tests/test_beta_licence_expiry_warns_before_and_is_read_only.sh,
+# the same way test_licence_gate.sh pins install.sh's public key to the
+# Swift one. If you change one, the guard makes you change both.
+LICENCE_WARN_BEFORE_EXPIRY_DAYS = 7
+
+
+def _ostler_subscription_state_path() -> str:
+    """Returns the canonical ~/.ostler/state/subscription_state.json path.
+
+    Its own helper so tests can point HOME somewhere else without
+    touching the rule body (mirrors :func:`_ostler_preferences_path`).
+
+    🔴 DO NOT derive this from OSTLER_DIR. The WRITERS -- install.sh's
+    activation and the ical-server receipt endpoint -- both resolve it
+    from the home directory, and a reader pointed somewhere else finds no
+    file and reports nothing on a Hub that has one. The same warning sits
+    on ``_state_file`` in subscription_gate.py, where the consequence is
+    worse: there it pauses a paying customer.
+    """
+    import os
+
+    return os.path.join(
+        os.path.expanduser("~"),
+        ".ostler",
+        "state",
+        "subscription_state.json",
+    )
+
+
+def check_licence_expiry(snapshot: Any) -> list[dict]:
+    """Tell the customer their window is closing, BEFORE it closes.
+
+    HR015 #929. A time-limited beta licence is only humane if the tester
+    finds out from the product rather than from three days of nothing
+    happening. This rule is the product surface for that: Doctor already
+    runs every rule in ALL_RULES on every status poll, so the warning
+    needs no new scheduler, and a scheduler is a thing that can fail to
+    be loaded.
+
+    READ-ONLY, ABSOLUTELY. This rule opens one JSON file and never writes
+    anything, anywhere. That is not incidental tidiness: the whole point
+    of #929's first rule is that a window closing must not destroy a
+    single byte, and a diagnostic that "repairs" subscription state would
+    be the first thing to break it.
+
+    QUIET ON EVERYTHING IT CANNOT READ, which is the trap this rule class
+    keeps falling into. A missing file, malformed JSON, a non-object, an
+    absent or unparseable ``expires_at`` -- every one of them returns NO
+    findings rather than a row. Measured reasoning, not caution for its
+    own sake: a fresh install has no state file for the seconds between
+    install.sh starting and the activation step, and an upgrade from a
+    build before this field existed has one without it. A rule that fired
+    on those would tell a brand new customer their access was ending,
+    which is both false and the single worst first impression available.
+
+    Two rows, and they are different events:
+
+      ending_soon  WARNING. Still active, inside the warn window. The
+                   customer can still act, so the row is amber.
+      ended        INFO. Already paused. The actionable moment has gone
+                   and a red row would be shouting about a state they are
+                   already living in. The row exists to explain WHY new
+                   things stopped appearing, and to say plainly that
+                   nothing was deleted.
+    """
+    import json
+    from datetime import datetime, timezone
+
+    findings: list[dict] = []
+
+    try:
+        with open(_ostler_subscription_state_path(), encoding="utf-8") as fh:
+            state = json.load(fh)
+    except OSError:
+        return findings          # no state file yet: say nothing
+    except ValueError:
+        return findings          # malformed: say nothing, never rewrite
+
+    if not isinstance(state, dict):
+        return findings
+
+    raw_expires = state.get("expires_at")
+    if not isinstance(raw_expires, str) or not raw_expires:
+        return findings
+    stamp = raw_expires.strip()
+    if stamp.endswith("Z"):
+        stamp = stamp[:-1] + "+00:00"
+    try:
+        expires = datetime.fromisoformat(stamp)
+    except (ValueError, TypeError):
+        # A date we cannot read is not a date that has passed. Saying
+        # "your access ended" off an unparseable stamp would invent an
+        # event out of our own inability to read one.
+        return findings
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+
+    # The label the customer sees. A recorded tier when there is one, and
+    # the plain product name when there is not -- never a tier we made
+    # up. An install that never verified a licence has no tier, and
+    # printing "hub" there would be a guess wearing the shape of a fact.
+    tier = state.get("licence_tier")
+    tier_state = state.get("licence_tier_state")
+    if isinstance(tier, str) and tier and tier_state in ("known", "absent", "unknown"):
+        label = tier
+    else:
+        label = "Ostler Pro"
+
+    now = datetime.now(timezone.utc)
+    seconds_left = (expires - now).total_seconds()
+    days_left = int(seconds_left // 86400)
+    # NEVER the raw stamp. activate_first_month_free derives expires_at
+    # from datetime.now(), which carries microseconds, so the raw value
+    # reads as "2026-09-13T05:57:41.666985Z" in a panel a customer is
+    # looking at. Mirrors _format_upgrade_applied, which exists in this
+    # file for the same reason.
+    shown = expires.strftime("%d %B %Y").lstrip("0")
+
+    if seconds_left > 0:
+        if days_left > LICENCE_WARN_BEFORE_EXPIRY_DAYS:
+            return findings
+        if days_left <= 0:
+            when = "today"
+        elif days_left == 1:
+            when = "tomorrow"
+        else:
+            when = "in {n} days".format(n=days_left)
+        findings.append({
+            "severity": "warning",
+            "title": LICENCE_ENDING_SOON_TITLE_FMT.format(label=label, when=when),
+            "detail": LICENCE_ENDING_SOON_DETAIL_FMT.format(expires=shown),
+            "fix": LICENCE_ENDING_SOON_FIX,
+            "fix_command": LICENCE_ENDING_SOON_FIX_COMMAND,
+            "risk": "low",
+            "category": "subscription",
+        })
+        return findings
+
+    # Past the window. Only worth a row while the customer is actually
+    # paused. A subscriber whose receipt has since landed has a NEWER
+    # expires_at, so they never reach this branch; a customer inside the
+    # post-lapse grace window does, and telling them their access has
+    # ended while it is still running would be false. `status` is the
+    # gate's own walked verdict and is read here rather than recomputed,
+    # because two implementations of that state machine would drift.
+    if state.get("status") in ("active", "grace"):
+        return findings
+
+    findings.append({
+        "severity": "info",
+        "title": LICENCE_ENDED_TITLE_FMT.format(label=label),
+        "detail": LICENCE_ENDED_DETAIL_FMT.format(expires=shown),
+        "fix": LICENCE_ENDED_FIX,
+        "fix_command": LICENCE_ENDED_FIX_COMMAND,
+        "risk": "low",
+        "category": "subscription",
+    })
+    return findings
+
+
 ALL_RULES = [
     check_scheduled_agents,
     check_hydrate_ingest,
@@ -2315,6 +2491,7 @@ ALL_RULES = [
     check_last_upgrade,
     check_imessage_capture_stalled,
     check_conversation_dispatch_failures,
+    check_licence_expiry,
 ]
 
 
