@@ -4593,20 +4593,57 @@ open_issues:
       Two customer surfaces read zero from a store that holds the data, because
       the reader asks the default graph and the writer writes a named one
     gate: >-
-      🔴 BLOCKING STILL, AND THE ROW UNDERSTATES ITSELF BY HALF. Reviewed 2026-09-19. It says THREE
-      unqualified readers. An independent sweep of origin/main, across all file types rather than the
-      filed list, finds SIX: four in the assistant server at person_context, person_enrichment,
-      person_timeline and commitments_list, and two in the meeting brief at the last-conversation and
-      outstanding-todos readers. The upstream fix covers all six with ZERO unqualified remaining. AND
-      THE FIX DOES NOT CLOSE THIS ROW, WHICH IS THE POINT THAT MATTERS FOR THE CUT. CM041 #175 is
-      CM041-only and says so. This row's subject is the VENDORED copy in CM051. The file exists in
-      THREE copies, upstream main at 7,607 lines, the box at 8,662 and the vendored copy at 8,758,
-      with the defect in ALL THREE, and the vendor hop is deliberately untouched. Under launch
-      directive item 9 that is MERGED at best: never DELIVERED, never PROVEN. So this row closes on
-      merge THEN re-vendor THEN build THEN walk, and none of the four has happened. 🔴 AND THE FIX MUST
-      NOT BE MERGED AS IT STANDS, because it UNBLINDS SIX READERS ONTO A PERSON'S FACTS WITH NO
-      PRIVACY FILTER. The missing filter is PRE-EXISTING code; what the fix changes is that those
-      queries RETURN ROWS FOR THE FIRST TIME. By its own measurements that is 409 relationship
+      🔴 BLOCKING. A FINDING ADDED 2026-09-19 THAT IS WORTH MORE THAN THE CHANGE IT CAME OUT OF, AND IT
+      BEGINS WITH A REMEDIATION I GOT WRONG. TWO PRIVACY PREDICATES EXIST IN ONE STORE, AND A FILTER
+      THAT JOINS THE WRONG ONE PRODUCES A UNIFORM ZERO THAT READS AS CORRECTLY HIDDEN. I TOLD THE
+      AUTHOR THE FIX WAS MECHANICAL: use the same helper the facts path uses, 45 lines up, with the
+      same owner-level argument. THAT JOIN READS pwg:privacyLevel AND THESE NODES CARRY
+      urn:ostler:privacyLevel. Measured on the box: signals 471 total with 0 under the pwg predicate
+      and 471 under the urn one; facts 1,462 total with 0 and 1,462 the same way. So the mechanical
+      fix would have matched NOTHING, every record would have come back untagged, the filter FAILS
+      CLOSED on untagged, and ALL 471 SIGNALS WOULD HAVE DISAPPEARED while the diff looked exactly
+      like a correct privacy fix. A hide produced by a predicate that cannot see its corpus is
+      indistinguishable from a hide produced by policy. THAT IS THE SAME SHAPE AS EVERY OTHER FINDING
+      ON THIS BOARD TONIGHT and it was in the one piece of advice I gave rather than in the code I was
+      reviewing. The correct order was to read a node's actual predicates before naming the join, and
+      I did not: the measurement I did take was of the BACKFILL module, which is a different writer
+      from the one filling these nodes. AND MY SECOND ERROR WOULD HAVE LASTED LONGER THAN THE FIRST. I
+      described L1 as private and owner-pages only, taken from the backfill module's docstring rather
+      than from what the reader enforces. It is STRICTER THAN ANYTHING THAT FILE ENFORCES ANYWHERE.
+      The author's counter is the correct one and is recorded in their words: if that stricter rule
+      really is the product policy then the facts path is ALSO wrong and has been serving L1 facts on
+      person cards all along, which is a far bigger row than this one, and adopting a stricter policy
+      in one reader than its sibling enforces 45 lines above is how two readers on one card come to
+      disagree about the same node. SO THE FIX IS CHEAP FOR A DIFFERENT REASON THAN I GAVE, AND THE
+      REASON MATTERS: not because the tags are already right, but because THE POLICY IS ALREADY
+      L3-ONLY AND THE TAGS ARE ALREADY L1. Signals are 471 of 471 at L1; facts are 1,369 at L0, 88 at
+      L1, 5 at L2 and ZERO AT L3. So adding the filter on the correct predicate hides NOTHING today
+      and closes the class permanently for any future L3 or any untagged node. It costs a customer
+      nothing and removes a failure mode. THE TODOS ARE THE GENUINELY DIFFERENT CASE: 93 total and
+      ZERO tagged under EITHER predicate, so a fail-closed join there would hide the entire
+      commitments wing. That one takes the written-decision route, with the health endpoint's note
+      corrected IN THE SAME CHANGE, because that note currently asserts those counts are hidden by a
+      fail-closed reader and would otherwise keep asserting it while they are served. ONE AXIS NEITHER
+      PARTY HAS EXAMINED AND WHICH IS NOT BEING GUESSED AT: the same nodes carry a visibility
+      predicate alongside the level. If anything reads it, a filter on the level alone answers half
+      the question; if nothing reads it, that is a finding rather than a relief. NOT INSTRUMENTED
+      either way, and flagged before the change is finalised rather than after. PROVENANCE OF THESE
+      NUMBERS: they are BOX measurements taken by the operator with box access, not repository
+      measurements, and they cannot be reproduced from a checkout. Recorded as such.  ORIGINAL TEXT
+      FOLLOWS. 🔴 BLOCKING STILL, AND THE ROW UNDERSTATES ITSELF BY HALF. Reviewed 2026-09-19. It says
+      THREE unqualified readers. An independent sweep of origin/main, across all file types rather
+      than the filed list, finds SIX: four in the assistant server at person_context,
+      person_enrichment, person_timeline and commitments_list, and two in the meeting brief at the
+      last-conversation and outstanding-todos readers. The upstream fix covers all six with ZERO
+      unqualified remaining. AND THE FIX DOES NOT CLOSE THIS ROW, WHICH IS THE POINT THAT MATTERS FOR
+      THE CUT. CM041 #175 is CM041-only and says so. This row's subject is the VENDORED copy in CM051.
+      The file exists in THREE copies, upstream main at 7,607 lines, the box at 8,662 and the vendored
+      copy at 8,758, with the defect in ALL THREE, and the vendor hop is deliberately untouched. Under
+      launch directive item 9 that is MERGED at best: never DELIVERED, never PROVEN. So this row
+      closes on merge THEN re-vendor THEN build THEN walk, and none of the four has happened. 🔴 AND
+      THE FIX MUST NOT BE MERGED AS IT STANDS, because it UNBLINDS SIX READERS ONTO A PERSON'S FACTS
+      WITH NO PRIVACY FILTER. The missing filter is PRE-EXISTING code; what the fix changes is that
+      those queries RETURN ROWS FOR THE FIRST TIME. By its own measurements that is 409 relationship
       signals, 1,353 conversation-linked facts and 76 todos newly reaching customer-facing endpoints.
       A latent gap becomes a live one at merge. THE CONTRAST IS INSIDE THE SAME FUNCTIONS, ABOUT 45
       LINES APART: the facts path drops retired nodes and calls the privacy filter with the owner's
