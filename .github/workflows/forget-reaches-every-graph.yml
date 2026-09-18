@@ -81,6 +81,13 @@ jobs:
         # triples still there.
         run: python3 tests/test_forget_does_not_claim_an_erasure_it_did_not_do.py
 
+      # BOTH ENGINES, DELIBERATELY. The step below runs its measurement under
+      # each and fails if they disagree, because the product speaks SPARQL to
+      # Oxigraph and a verdict taken from rdflib alone is a verdict about
+      # rdflib. Installing only one would silently reduce that arm to a note.
+      - name: Install both SPARQL engines for the erasure gate
+        run: python3 -m pip install --quiet pyoxigraph rdflib
+
       - name: A forget erases the sentence, not only its link to a person
         if: always()
         # The two above mutate the GRAPH CLAUSE and the REPORT. This one mutates
