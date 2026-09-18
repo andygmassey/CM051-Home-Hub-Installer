@@ -1715,6 +1715,37 @@ open_issues:
       v1.0.95 was one probe from a clean thin walk. That is the number worth
       carrying, and it says the recent work moved the product backwards on five
       surfaces that were already working.
+      🔴 PRIME SUSPECT, DATED: COMMIT 5b16bef0, PULL REQUEST #1980,
+      LANDED 2026-09-16, BETWEEN THE PASSING WALK AND THE FAILING ONE.
+      The timeline, and the dates are what make it a suspect rather than a
+      guess:
+      2026-09-06 auth work lands (vane behind a credential).
+      2026-09-13 the v1.0.95 walk PASSES people_count_agreement.
+      2026-09-16 #1980 lands: 159 lines of install.sh rewriting the wiki port so
+      an uncredentialled request gets 403 and a plain-English page with ZERO
+      WWW-Authenticate, instead of 401 with a browser challenge. The SAME commit
+      rewrites probes/no_store_port_is_tcp_reachable.sh by 99 lines.
+      2026-09-17 the v1.0.100 walk FAILS both people_count_agreement and
+      no_store_port_is_tcp_reachable.
+      SO THE EARLIER AUTH CHANGE IS EXONERATED BY A PASSING WALK A WEEK AFTER
+      IT. Any account of these failures that blames the 09-06 credential work
+      has to explain how the probe passed on 09-13, and it cannot.
+      AND THE PROBE ITSELF IS BYTE-IDENTICAL AT BOTH TAGS, blob c430f823e4c0,
+      so whatever moved is in install.sh or on the box, not in the instrument.
+      THE PROBE DOES AUTHENTICATE, CONTRARY TO A READING MADE FROM THE BOX. It
+      resolves the store curl config THROUGH the remote shell, which is why its
+      default carries an escaped HOME that looks like a bug and is not, and it
+      passes -K to curl when the config classifies as HEADERS. It classifies
+      into HEADERS / ABSENT / UNREADABLE / EMPTY with a distinct recorded
+      reason for each, and the UNREADABLE reason says in its own words that a
+      0600 owner-only config unreadable by the probe''s account is NOT evidence
+      the credential is absent. Anyone concluding the probe is keyless must
+      first read which of those four states it recorded.
+      THE CHEAPEST NEXT MEASUREMENT IS TWO CURLS ON A BOX: the store port with
+      no credential, and with the store conf. If uncredentialled is
+      403-without-challenge and credentialled serves, #1980 works and the
+      failures are elsewhere. If the CREDENTIALLED half does not serve, #1980
+      broke the half nobody was watching, and that answers two probes at once.
       THE PROMOTE PATH IS NOT THE COMMON CAUSE, measured rather than assumed:
       _ostler_promote_prelaunch_tree is defined once and OSTLER_PRELAUNCH is
       referenced 31 times at BOTH tags, identical, so the staging mechanism did
