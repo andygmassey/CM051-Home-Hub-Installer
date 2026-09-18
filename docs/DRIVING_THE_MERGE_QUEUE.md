@@ -230,3 +230,55 @@ hardest to receive and the only one that mattered.
 
 **A trend in corrections carries no information about the next correction.**
 Each is measured from scratch, from the artefact, or it is not measured.
+
+### `gh pr diff <n> -- <path>` silently returns an empty diff
+
+Measured 2026-09-18, comparing two pull requests suspected of overlapping:
+
+    gh pr diff 2140 -- install.sh.strings.en-GB.sh | grep -c '^[-+]MSG_'   ->  0
+    gh pr diff 2156 -- install.sh.strings.en-GB.sh | grep -c '^[-+]MSG_'   ->  0
+
+Two zeros in a row, from a filter that looks like `git diff`'s. The control is
+the same command with no path filter:
+
+    gh pr diff 2140 | grep -c '^[-+]MSG_'   ->  22
+    gh pr diff 2156 | grep -c '^[-+]MSG_'   ->  23
+
+Both pull requests changed that file heavily. `gh pr diff` takes no pathspec,
+so the argument is consumed and the output is empty rather than an error. Read
+as written, it says the two pull requests do not touch the same file, which is
+the exact opposite of the truth.
+
+**The tell was the shape of the zero: two independent subjects returning
+exactly 0 on the same predicate.** Real absence is ragged. The no-filter
+control cost one command and inverted the verdict.
+
+There is a second trap in the same line. `grep -c` **exits 1 when it counts
+zero**, so under `&&` the false zero also killed the rest of the chain, and the
+second measurement never ran at all. A count that can be zero belongs in a
+command substitution, never in an `&&` chain.
+
+### Two sessions built the same fix seven hours apart, in different words
+
+Pull request 2140 (20:34) and pull request 2156 (03:46 the next morning) both
+rewrite the same ELEVEN `MSG_` lines in `install.sh.strings.en-GB.sh`: the nine
+that named the wrong product and the two that promised a platform. Same rule,
+same lines, same file. Neither author knew about the other.
+
+They are not textually identical, which is what makes it expensive rather than
+merely wasteful. Three of the eleven are worded differently:
+
+    2140  "Intel Macs are not supported. Ostler needs Apple Silicon (M1, M2, M3 or M4)."
+    2156  "Intel Macs are not supported. Apple Silicon (M1, M2, M3 or M4) is required."
+
+Identical changes merge clean. **Two correct answers to the same question
+conflict**, and the conflict arrives at merge time, in a customer-facing string,
+where resolving it by taking either side silently discards a decision somebody
+made on purpose.
+
+The board is the only place a claim exists. A claim made in a session, in a
+branch name, or in a message to one peer is invisible to the next agent who
+reads the board and sees an unclaimed row. **Claim before you BUILD.** The one
+thing that must NEVER be claimed in advance is a MEASUREMENT: two independent
+measurements of the same quantity is a control, and it is the cheapest one
+there is.
