@@ -5996,92 +5996,114 @@ open_issues:
     repo: none
     title: 'The check rollup renders every non-zero exit as a failure, so a gate reporting CANNOT-RUN is indistinguishable from one reporting a defect'
     gate: >-
-      FIFTH INSTANCE ADDED 2026-09-19, AND IT IS IN A DELETION PROCEDURE, WHICH IS THE WORST PLACE FOR
-      IT. AN EMPTY BRANCH NAME PASSED TO THE PULL-REQUEST LOOKUP IS SILENTLY TREATED AS NO FILTER AT
-      ALL, so it returns THE WHOLE OPEN LIST rather than nothing. Measured: the lookup with an empty
-      head returns the same count as the lookup with no head argument whatsoever, while the same
-      lookup on a REAL branch that has no open pull request returns 0. So the empty query does not
-      fail, does not warn, and does not return empty. It answers a DIFFERENT QUESTION and the answer
-      looks deliberate. HOW IT AROSE, and the first error was mine rather than the tool's: the branch
-      listing produced 55 LINES of which only 43 WERE REAL NAMES. Twelve were blank. Every blank then
-      went to the lookup as an empty name, came back with a non-zero count, and was classified as
-      HAVING AN OPEN PULL REQUEST. So a report of 12 branches with open pull requests was really 12
-      blank lines wearing a safe-looking verdict, and I repeated that 12 as a finding before checking
-      it. IT FAILED IN THE SAFE DIRECTION HERE, AND ONLY BY THE ORDER OF THE CLAUSES. Having an open
-      pull request means SKIP, so the blanks were skipped and nothing wrong was deleted. Had the
-      procedure been written the other way round, so that NO open pull request means safe to delete,
-      every blank line would have returned zero and been deleted. THE PROCEDURE'S CORRECTNESS RESTED
-      ON A CLAUSE ORDER NOBODY CHOSE FOR THAT REASON. WHICH MAKES THIS THE FOURTH SEPARATE TRAP IN ONE
-      BRANCH-SWEEP PROCEDURE. The project's own written version of this sweep has already been wrong
-      three times in three different directions: an unsafe set called safe, a count read off an empty
-      list as the literal string null, and a timezone comparison that called spent branches keepers.
-      This is a fourth, and it is upstream of all three because it corrupts the INPUT rather than the
-      judgement. THE GUARD IS ONE LINE AND IT BELONGS IN THE WRITTEN PROCEDURE: SKIP ANY EMPTY NAME
-      BEFORE THE LOOKUP, and count the real names separately from the lines, so a denominator of 55
-      cannot silently be a denominator of 43. WHAT THE SWEEP ACTUALLY FOUND ONCE THE BLANKS WERE
-      REMOVED: 43 real branches, of which 25 spent and 18 never merged, and ZERO with an open pull
-      request. All 25 were deleted after their tips were recorded, and all 25 tips still resolve as
-      live objects afterwards, so the deletion is reversible. SEVENTEEN OF THE TWENTY-FIVE HAD MARGINS
-      UNDER 28,800 SECONDS, which is exactly where an ISO-string comparison would have flipped them to
-      keepers; they were compared in epoch seconds with the merge time forced to UTC, so they did not
-      flip. That rule has now earned its place twice in one night, on 6 of 11 and then on 17 of 25.
-      ORIGINAL TEXT FOLLOWS. TWO MORE INSTANCES ADDED 2026-09-19, BOTH FOUND WHILE TRIAGING RATHER
-      THAN LOOKED FOR, WHICH IS WHAT KEEPS SUGGESTING THE POPULATION IS LARGER THAN THE FOUR NOW
-      RECORDED. THIRD INSTANCE, AND IT IS THE PUREST ONE ON THIS BOARD. Searching a continuous-
-      integration log case-insensitively for the word RED, to find why a check failed, returned the
-      fetch listing at the top of every such log, because one branch name contains those three letters
-      INSIDE the word predicate. The output looked exactly like data. Twice. The instrument was not
-      broken and the answer was not wrong; the substring matched something TRUE AND IRRELEVANT. The
-      reliable instrument for that question is the jobs interface's steps array, asked for the step
-      whose conclusion is failure BY NAME, which resolved eight checks that the log-grep approach had
-      left as could-not-determine. FOURTH INSTANCE, AND IT IS A STALE INPUT RATHER THAN A STALE
-      READING, so it belongs here by family rather than by mechanism: RE-RUNNING a check REPLAYS THE
-      ORIGINAL EVENT PAYLOAD. A check that reads a pull request BODY therefore re-reads the body AS IT
-      WAS WHEN THE RUN FIRST FIRED, so an edit to that body is COMPLETELY INVISIBLE to a re-run. A
-      gate kept reporting a marker missing while the marker was demonstrably present, because it had
-      been added and then re-run rather than re-triggered. The gate told the truth about the input it
-      was actually given. ANYTHING THAT RE-READS A PULL REQUEST BODY NEEDS A NEW EVENT, NOT A REPLAY:
-      edit the body again, or push. THE COMMON SHAPE ACROSS ALL FOUR, now that there are enough to see
-      it: AN INSTRUMENT ANSWERED CORRECTLY ABOUT SOMETHING OTHER THAN THE QUESTION ASKED. A non-zero
-      that was a refusal rather than a defect, a secret absent by design rather than missing, a
-      substring inside an unrelated word, and a payload from an earlier moment. In every case the
-      output was well formed, and in every case a reader acting on it would have reached a confident
-      wrong conclusion. That is why each of these costs a diagnosis rather than a minute: nothing
-      looks broken.  ORIGINAL TEXT FOLLOWS. MEASURED 2026-09-19 ACROSS TWO REPOSITORIES ON UNRELATED
-      PULL REQUESTS, AND IT ERASES THE ONE DISTINCTION THIS ESTATE IS BUILT ON. NOT BLOCKING: nothing
-      about the artefact changes. Filed because the next person triaging a red backlog will make the
-      same mistake and write off a change that is telling the truth. THE RULE IT BREAKS IS THE FIRST
-      LINE OF THE EVIDENCE DISCIPLINE: CANNOT-RUN is not FAIL and is not PASS, three outcomes and
-      three branches. Gates here are careful about that, exiting 2 with a reason naming the missing
-      prerequisite. THE CHECK LIST COLLAPSES IT TO TWO. Any non-zero renders as a failure, so a gate
-      that honestly refused and a gate that measured a defect look identical to anyone reading the
-      list, and the honest one reads as the more damning because a refusal usually fires at the first
-      arm and reports nothing else. TWO INSTANCES, BOTH FOUND WHILE TRIAGING RATHER THAN LOOKED FOR,
-      WHICH IS WHAT SUGGESTS THERE ARE MORE. FIRST: a pull request adding the rephrasing half of the
-      grounded battery shows a red gate. The step exits 2 and says, in its own words, that a healthy
-      battery produced CANNOT- RUN and the harness is wrong rather than the probe. THAT MESSAGE IS
-      LITERALLY CORRECT: the harness declares three positional turns because the battery had three
-      questions, that change adds a fourth, and the fourth turn gets no synthetic answer. Counted: 12
-      call sites pass exactly three tokens and 0 pass four. CONTROL: the same file is 17 pass and 0
-      fail on a tree that is main plus unrelated work, so the file is healthy and it is the battery
-      size that trips it. A reader of the check list would have concluded the change was broken. IT IS
-      THE FIX FOR A ROW ON THIS BOARD. SECOND, IN A DIFFERENT REPOSITORY: a scan check reports a
-      failure whose log says no inventory is available because a secret and a local file are both
-      absent. Exit 2. That secret is DELIBERATELY UNSTORED and the credential register says so,
-      alongside a warning that it has been mis-called a blocker before. DENOMINATOR, because always-
-      been-like-that needs a number: that check has run TWICE in that repository's entire history and
-      failed both times, on two unrelated branches a fortnight apart. Nothing was ever scanned, so
-      nothing was ever found. WHY THE SECOND IS THE WORSE SHAPE: a workflow that turns an absent-BY-
-      DESIGN prerequisite into a red teaches readers that red means nothing there, which is the
-      precise condition under which a genuine finding gets waved through. A permanent false red is
-      worse than no gate, and this board already records that argument being used to justify leaving
-      three known orphans unwired. WHAT WOULD CLOSE IT, and the small version is enough: the rollup
-      distinguishes 2 from 1, or each gate that can refuse reports the refusal in a form the list can
-      show, so a reader sees COULD NOT RUN rather than FAILED. Until then the triage rule is the
-      workaround and it belongs written down: BEFORE WRITING OFF ANY RED, READ WHETHER IT EXITED 1 OR
-      2. A 1 is a measured defect. A 2 is a gate saying it could not look, and the reason names the
-      missing prerequisite. NOT A DUPLICATE OF ROW 2241: that row is about a gate the cut never runs.
-      This is about how the results of gates that DO run are rendered to a person.
+      A SIXTH INSTANCE ADDED 2026-09-19, AND IT IS A SUB-SHAPE THE EARLIER FIVE DO NOT COVER: FAILING
+      CLOSED IS RIGHT, AND FAILING CLOSED ANONYMOUSLY IS ITS OWN DEFECT. A fix written tonight for the
+      battery-arity problem read the battery size and then defaulted it to ZERO on an unreadable
+      answer. An empty or non-numeric read therefore skipped the padding, reproduced THE ORIGINAL
+      SYMPTOM, and reported it with the file's generic refusal, which says a healthy battery produced
+      a refusal and the harness is wrong rather than the probe. MEASURED BY SIMULATING AN EMPTY READ
+      rather than reasoned about: refusal code 2, the generic message, and NO MENTION of the battery,
+      the file, or the value it got. SO IT FAILED IN THE SAFE DIRECTION AND TOLD NOBODY WHY. A refusal
+      with no cause is not the same as a refusal: it is a correct verdict with no action attached, and
+      the next person meets the message the file was written to argue against, inside the fix for it.
+      The repair names the subject path and the value received, and refuses a ZERO-SIZE battery
+      SEPARATELY, because NOTHING TO MEASURE and COULD NOT READ are different facts and collapsing
+      either into the other is how a zero denominator reads as success. THAT MAKES SIX INSTANCES
+      TONIGHT, AND AT LEAST FIVE OF THEM WERE COMMITTED BY SOMEBODY WHILE DESCRIBING THE SHAPE. The
+      defect is not ignorance of the rule. It is that the rule is invisible at the moment of writing:
+      a default, a substring, a replayed payload and an empty argument all look like ordinary code,
+      and only the output looks wrong, and only if somebody reads it. AND THE SWEEP NUMBER IS WORTH
+      STATING PRECISELY BECAUSE IT IS NOT A THEORETICAL WINDOW: SEVENTEEN OF THE TWENTY-FIVE spent
+      branches had a margin under the offset an ISO-string comparison would ignore. That is most of
+      the set, not an edge case, and it is the second independent sample tonight after 6 of 11. A rule
+      that would have mis-sorted the majority of both samples is not a caution, it is the procedure.
+      ORIGINAL TEXT FOLLOWS. FIFTH INSTANCE ADDED 2026-09-19, AND IT IS IN A DELETION PROCEDURE, WHICH
+      IS THE WORST PLACE FOR IT. AN EMPTY BRANCH NAME PASSED TO THE PULL-REQUEST LOOKUP IS SILENTLY
+      TREATED AS NO FILTER AT ALL, so it returns THE WHOLE OPEN LIST rather than nothing. Measured:
+      the lookup with an empty head returns the same count as the lookup with no head argument
+      whatsoever, while the same lookup on a REAL branch that has no open pull request returns 0. So
+      the empty query does not fail, does not warn, and does not return empty. It answers a DIFFERENT
+      QUESTION and the answer looks deliberate. HOW IT AROSE, and the first error was mine rather than
+      the tool's: the branch listing produced 55 LINES of which only 43 WERE REAL NAMES. Twelve were
+      blank. Every blank then went to the lookup as an empty name, came back with a non-zero count,
+      and was classified as HAVING AN OPEN PULL REQUEST. So a report of 12 branches with open pull
+      requests was really 12 blank lines wearing a safe-looking verdict, and I repeated that 12 as a
+      finding before checking it. IT FAILED IN THE SAFE DIRECTION HERE, AND ONLY BY THE ORDER OF THE
+      CLAUSES. Having an open pull request means SKIP, so the blanks were skipped and nothing wrong
+      was deleted. Had the procedure been written the other way round, so that NO open pull request
+      means safe to delete, every blank line would have returned zero and been deleted. THE
+      PROCEDURE'S CORRECTNESS RESTED ON A CLAUSE ORDER NOBODY CHOSE FOR THAT REASON. WHICH MAKES THIS
+      THE FOURTH SEPARATE TRAP IN ONE BRANCH-SWEEP PROCEDURE. The project's own written version of
+      this sweep has already been wrong three times in three different directions: an unsafe set
+      called safe, a count read off an empty list as the literal string null, and a timezone
+      comparison that called spent branches keepers. This is a fourth, and it is upstream of all three
+      because it corrupts the INPUT rather than the judgement. THE GUARD IS ONE LINE AND IT BELONGS IN
+      THE WRITTEN PROCEDURE: SKIP ANY EMPTY NAME BEFORE THE LOOKUP, and count the real names
+      separately from the lines, so a denominator of 55 cannot silently be a denominator of 43. WHAT
+      THE SWEEP ACTUALLY FOUND ONCE THE BLANKS WERE REMOVED: 43 real branches, of which 25 spent and
+      18 never merged, and ZERO with an open pull request. All 25 were deleted after their tips were
+      recorded, and all 25 tips still resolve as live objects afterwards, so the deletion is
+      reversible. SEVENTEEN OF THE TWENTY-FIVE HAD MARGINS UNDER 28,800 SECONDS, which is exactly
+      where an ISO-string comparison would have flipped them to keepers; they were compared in epoch
+      seconds with the merge time forced to UTC, so they did not flip. That rule has now earned its
+      place twice in one night, on 6 of 11 and then on 17 of 25. ORIGINAL TEXT FOLLOWS. TWO MORE
+      INSTANCES ADDED 2026-09-19, BOTH FOUND WHILE TRIAGING RATHER THAN LOOKED FOR, WHICH IS WHAT
+      KEEPS SUGGESTING THE POPULATION IS LARGER THAN THE FOUR NOW RECORDED. THIRD INSTANCE, AND IT IS
+      THE PUREST ONE ON THIS BOARD. Searching a continuous- integration log case-insensitively for the
+      word RED, to find why a check failed, returned the fetch listing at the top of every such log,
+      because one branch name contains those three letters INSIDE the word predicate. The output
+      looked exactly like data. Twice. The instrument was not broken and the answer was not wrong; the
+      substring matched something TRUE AND IRRELEVANT. The reliable instrument for that question is
+      the jobs interface's steps array, asked for the step whose conclusion is failure BY NAME, which
+      resolved eight checks that the log-grep approach had left as could-not-determine. FOURTH
+      INSTANCE, AND IT IS A STALE INPUT RATHER THAN A STALE READING, so it belongs here by family
+      rather than by mechanism: RE-RUNNING a check REPLAYS THE ORIGINAL EVENT PAYLOAD. A check that
+      reads a pull request BODY therefore re-reads the body AS IT WAS WHEN THE RUN FIRST FIRED, so an
+      edit to that body is COMPLETELY INVISIBLE to a re-run. A gate kept reporting a marker missing
+      while the marker was demonstrably present, because it had been added and then re-run rather than
+      re-triggered. The gate told the truth about the input it was actually given. ANYTHING THAT RE-
+      READS A PULL REQUEST BODY NEEDS A NEW EVENT, NOT A REPLAY: edit the body again, or push. THE
+      COMMON SHAPE ACROSS ALL FOUR, now that there are enough to see it: AN INSTRUMENT ANSWERED
+      CORRECTLY ABOUT SOMETHING OTHER THAN THE QUESTION ASKED. A non-zero that was a refusal rather
+      than a defect, a secret absent by design rather than missing, a substring inside an unrelated
+      word, and a payload from an earlier moment. In every case the output was well formed, and in
+      every case a reader acting on it would have reached a confident wrong conclusion. That is why
+      each of these costs a diagnosis rather than a minute: nothing looks broken.  ORIGINAL TEXT
+      FOLLOWS. MEASURED 2026-09-19 ACROSS TWO REPOSITORIES ON UNRELATED PULL REQUESTS, AND IT ERASES
+      THE ONE DISTINCTION THIS ESTATE IS BUILT ON. NOT BLOCKING: nothing about the artefact changes.
+      Filed because the next person triaging a red backlog will make the same mistake and write off a
+      change that is telling the truth. THE RULE IT BREAKS IS THE FIRST LINE OF THE EVIDENCE
+      DISCIPLINE: CANNOT-RUN is not FAIL and is not PASS, three outcomes and three branches. Gates
+      here are careful about that, exiting 2 with a reason naming the missing prerequisite. THE CHECK
+      LIST COLLAPSES IT TO TWO. Any non-zero renders as a failure, so a gate that honestly refused and
+      a gate that measured a defect look identical to anyone reading the list, and the honest one
+      reads as the more damning because a refusal usually fires at the first arm and reports nothing
+      else. TWO INSTANCES, BOTH FOUND WHILE TRIAGING RATHER THAN LOOKED FOR, WHICH IS WHAT SUGGESTS
+      THERE ARE MORE. FIRST: a pull request adding the rephrasing half of the grounded battery shows a
+      red gate. The step exits 2 and says, in its own words, that a healthy battery produced CANNOT-
+      RUN and the harness is wrong rather than the probe. THAT MESSAGE IS LITERALLY CORRECT: the
+      harness declares three positional turns because the battery had three questions, that change
+      adds a fourth, and the fourth turn gets no synthetic answer. Counted: 12 call sites pass exactly
+      three tokens and 0 pass four. CONTROL: the same file is 17 pass and 0 fail on a tree that is
+      main plus unrelated work, so the file is healthy and it is the battery size that trips it. A
+      reader of the check list would have concluded the change was broken. IT IS THE FIX FOR A ROW ON
+      THIS BOARD. SECOND, IN A DIFFERENT REPOSITORY: a scan check reports a failure whose log says no
+      inventory is available because a secret and a local file are both absent. Exit 2. That secret is
+      DELIBERATELY UNSTORED and the credential register says so, alongside a warning that it has been
+      mis-called a blocker before. DENOMINATOR, because always- been-like-that needs a number: that
+      check has run TWICE in that repository's entire history and failed both times, on two unrelated
+      branches a fortnight apart. Nothing was ever scanned, so nothing was ever found. WHY THE SECOND
+      IS THE WORSE SHAPE: a workflow that turns an absent-BY- DESIGN prerequisite into a red teaches
+      readers that red means nothing there, which is the precise condition under which a genuine
+      finding gets waved through. A permanent false red is worse than no gate, and this board already
+      records that argument being used to justify leaving three known orphans unwired. WHAT WOULD
+      CLOSE IT, and the small version is enough: the rollup distinguishes 2 from 1, or each gate that
+      can refuse reports the refusal in a form the list can show, so a reader sees COULD NOT RUN
+      rather than FAILED. Until then the triage rule is the workaround and it belongs written down:
+      BEFORE WRITING OFF ANY RED, READ WHETHER IT EXITED 1 OR 2. A 1 is a measured defect. A 2 is a
+      gate saying it could not look, and the reason names the missing prerequisite. NOT A DUPLICATE OF
+      ROW 2241: that row is about a gate the cut never runs. This is about how the results of gates
+      that DO run are rendered to a person.
   - issue: 2243
     repo: none
     title: 'Eight self-declared cut-blocking gates run on a pull request and NOT on a tag push, and the register marks all eight UNREVIEWED'
