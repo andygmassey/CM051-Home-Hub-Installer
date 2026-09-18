@@ -1255,7 +1255,71 @@ def _forget_person_update(person_uri, graph_uris):
     than inferred from the handler around it.
     """
     esc_uri = person_uri.replace("\\", "\\\\").replace(">", "%3E")
-    clauses = [
+
+    # THE FACT NODE, COLLECTED WHILE ITS LINK TO THE PERSON STILL EXISTS.
+    #
+    # The two bare clauses below delete every triple where the person is the
+    # SUBJECT and every triple where they are the OBJECT. The second removes a
+    # fact's LINK to the person and leaves the fact NODE: factText, factSource,
+    # belongsToUser, privacyLevel and createdAt all survive, and the reader
+    # lists facts by belongsToUser, so the sentence the customer asked to have
+    # erased is orphaned rather than erased and is still returned. Measured on
+    # the shipped box 2026-09-18: 47 of 48 orphaned facts created within 100ms
+    # of a forget, against a control with the forget times shifted by one hour
+    # matching 0 of 48. GDPR Article 17, which is this function's own citation.
+    #
+    # ORDER IS LOAD-BEARING: these must run BEFORE the link delete. Moved after
+    # it they match nothing and the repair silently does nothing while looking
+    # correct. tests/test_a_forget_erases_the_fact_not_just_the_link.py drives
+    # that case rather than asserting it.
+    #
+    # SCOPED BY TYPE, AND THAT IS THE WHOLE DESIGN. The obvious form -- delete
+    # every triple of any subject that links to the person -- ERASES BYSTANDERS.
+    # Measured before this was written: a node carrying `spouseOf <person>`
+    # loses its entire record including its own name, and a meeting both people
+    # attended loses its notes and its other attendees. CM041 is a people
+    # graph, so a shared node is the normal case and not a corner:
+    # RelationshipSignal 380, fromConversation 1353. Keying on the fact TYPE
+    # plus the fact-to-person predicate bounds the delete to nodes that exist
+    # only to say something about this person. A meeting is not a PersonFact
+    # and neither is a spouse.
+    #
+    # BOTH VOCABULARIES, because there are two and the smaller one looks like
+    # the only one. CM048 writes its own (see the dual-vocabulary reader's note
+    # below): `a <urn:ostler:Fact> ; <urn:ostler:about>`, NOT pwg. On the box
+    # the pwg arm is 48 facts and the CM048 arm is 1,274, so covering only pwg
+    # would erase four per cent of what was asked for.
+    #
+    # FULL IRIs, NOT `pwg:`. This function returns a bare update with no PREFIX
+    # block -- every caller in this file declares its own -- so a prefixed name
+    # here is a parse error at the store. The namespace is written out rather
+    # than taken from PWG_NS because the erasure is lifted and executed on its
+    # own by its test, which asserts the function's free names are its own
+    # locals; a module global would break that lift.
+    #
+    # NOT COVERED, DELIBERATELY: <urn:ostler:about> is also how a
+    # RelationshipSignal links to a person, which is why the type clause is
+    # load-bearing rather than tidy. Whether a signal about a forgotten person
+    # must also be erased is a live question, and a signal naming two people is
+    # the shared-node problem again. It is not settled by guessing here.
+    fact_shapes = (
+        ("<https://schema.ostler.ai/ontology#PersonFact>",
+         "<https://schema.ostler.ai/ontology#aboutPerson>"),
+        ("<urn:ostler:Fact>", "<urn:ostler:about>"),
+    )
+    clauses = []
+    for graph in graph_uris:
+        for fact_type, about in fact_shapes:
+            clauses.append(
+                "DELETE {{ GRAPH <" + graph + "> {{ ?f ?fp ?fo }} }} "
+                "WHERE {{ GRAPH <" + graph + "> {{ ?f a " + fact_type + " ; "
+                + about + " <{uri}> ; ?fp ?fo }} }};")
+    for fact_type, about in fact_shapes:
+        clauses.append(
+            "DELETE {{ ?f ?fp ?fo }} WHERE {{ ?f a " + fact_type + " ; "
+            + about + " <{uri}> ; ?fp ?fo }};")
+
+    clauses += [
         "DELETE {{ <{uri}> ?p ?o }} WHERE {{ <{uri}> ?p ?o }};",
         "DELETE {{ ?s ?p <{uri}> }} WHERE {{ ?s ?p <{uri}> }};",
     ]
