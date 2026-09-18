@@ -715,62 +715,88 @@ self_test() {
     # situation it stands for.
     fails=""
 
+    # ── A RUNTIME COUNTER, BECAUSE SOURCE-SCRAPING WAS THE WRONG INSTRUMENT ──
+    #
+    # #2120 asked for a count that cannot be wrong. The first answer typed 30
+    # while 32 cases ran. The second DERIVED it by grepping this function's own
+    # source, and that was a typed thing one level down: it counted lines
+    # starting with `[ `, which is the shape every case happens to use today.
+    # Archie measured it against the tree with #2030's cases merged in -- 41
+    # assertions exist, 34 match, SEVEN invisible -- and on this tree both give
+    # 32, so it was RIGHT BY COINCIDENCE.
+    #
+    # 🔴 AND WIDENING THE PATTERN BROUGHT BACK A BUG IT HAD ALREADY HAD. A grep
+    # whose literal is the append expression is itself a line containing that
+    # expression, so it counts itself. The first version hit that at 33 and was
+    # fixed by anchoring; the widened version hit it again. Twice in one
+    # function, from two different directions, is not an off-by-one to patch.
+    # It is what source-scraping IS.
+    #
+    # So the number is counted AT RUNTIME. _st_tick cannot miss a syntactic
+    # form because it does not know what a form is: it fires when the line
+    # executes, whatever the line looks like. A case added in any shape counts
+    # itself by running, and a case deleted stops counting by not running.
+    #
+    # The invariant that keeps it honest is below the cases, not here.
+    _st_n=0
+    _st_tick() { _st_n=$(( _st_n + 1 )); }
+
     # 1. THE ORIGINAL DEFECT. Control up, something LISTENING that must not be.
-    [ "$(classify 1 ' 6334' '' '' '')" = "FAIL" ] || fails="${fails} listening-port-not-FAIL"
+    _st_tick; [ "$(classify 1 ' 6334' '' '' '')" = "FAIL" ] || fails="${fails} listening-port-not-FAIL"
 
     # 2. #1618's DEFECT, and the one the old predicate could not see: the port
     #    is published (as it must be) and served an UNCREDENTIALLED request.
-    [ "$(classify 1 '' ' 8044(200)' '' '')" = "FAIL" ] || fails="${fails} uncredentialled-200-not-FAIL"
+    _st_tick; [ "$(classify 1 '' ' 8044(200)' '' '')" = "FAIL" ] || fails="${fails} uncredentialled-200-not-FAIL"
 
     # 3. THE FIX, and the arm that matters most for THIS probe specifically.
     #    It is named in 7 walk records and has passed in NONE, so "it went
     #    green" is unreadable until PASS is shown to be reachable at all.
-    [ "$(classify 1 '' '' '' '')" = "PASS" ] || fails="${fails} clean-box-not-PASS"
+    _st_tick; [ "$(classify 1 '' '' '' '')" = "PASS" ] || fails="${fails} clean-box-not-PASS"
 
     # 4. THE TRAP THIS PROBE EXISTS TO AVOID. Control DOWN, nothing found.
-    [ "$(classify 0 '' '' '' '')" = "CANNOT_RUN" ] || fails="${fails} stopped-stack-read-as-PASS"
+    _st_tick; [ "$(classify 0 '' '' '' '')" = "CANNOT_RUN" ] || fails="${fails} stopped-stack-read-as-PASS"
 
     # 5. Control unreadable -> CANNOT_RUN, not PASS.
-    [ "$(classify '' '' '' '' '')" = "CANNOT_RUN" ] || fails="${fails} unreadable-control-not-CANNOT_RUN"
+    _st_tick; [ "$(classify '' '' '' '' '')" = "CANNOT_RUN" ] || fails="${fails} unreadable-control-not-CANNOT_RUN"
 
     # 6. Control down AND a finding -> still CANNOT_RUN, in either direction.
-    [ "$(classify 0 ' 6333' '' '' '')" = "CANNOT_RUN" ] || fails="${fails} down-control-with-finding-adjudicated"
+    _st_tick; [ "$(classify 0 ' 6333' '' '' '')" = "CANNOT_RUN" ] || fails="${fails} down-control-with-finding-adjudicated"
 
     # 7. A port we COULD NOT ASK has not passed. Three outcomes, three branches.
-    [ "$(classify 1 '' '' '' ' 3000(000)')" = "CANNOT_RUN" ] || fails="${fails} unmeasurable-read-as-PASS"
+    _st_tick; [ "$(classify 1 '' '' '' ' 3000(000)')" = "CANNOT_RUN" ] || fails="${fails} unmeasurable-read-as-PASS"
 
     # 8. FAIL OUTRANKS CANNOT_RUN. A demonstrated uncredentialled read must not
     #    be softened to "inconclusive" because a SIBLING port was unreadable.
-    [ "$(classify 1 '' ' 8044(200)' '' ' 3000(000)')" = "FAIL" ] || fails="${fails} fail-downgraded-by-sibling-unmeasurable"
+    _st_tick; [ "$(classify 1 '' ' 8044(200)' '' ' 3000(000)')" = "FAIL" ] || fails="${fails} fail-downgraded-by-sibling-unmeasurable"
 
     # 9. THE SECOND ARM. Refused without a credential AND refused WITH the
     #    install's own. "Refuses everyone" is not a pass; it is a lock-out.
-    [ "$(classify 1 '' '' ' 8044(401)' '')" = "FAIL" ] || fails="${fails} lock-out-not-FAIL"
+    _st_tick; [ "$(classify 1 '' '' ' 8044(401)' '')" = "FAIL" ] || fails="${fails} lock-out-not-FAIL"
 
     # 10. And a lock-out also outranks an unmeasurable sibling.
-    [ "$(classify 1 '' '' ' 8044(401)' ' 3000(000)')" = "FAIL" ] || fails="${fails} lock-out-downgraded-by-sibling-unmeasurable"
+    _st_tick; [ "$(classify 1 '' '' ' 8044(401)' ' 3000(000)')" = "FAIL" ] || fails="${fails} lock-out-downgraded-by-sibling-unmeasurable"
 
     # 11-24. THE SENSOR MAPPERS. classify() is only as good as what feeds it,
     #    and the mapper is where Aesop's guardrail lives: adjudicate by STATUS
     #    and curl rc, never by the mere presence of an answer.
     #    401 and 403 are both refusals: auth_basic answers 401, the store-proxy's
     #    host check answers 403, and either means the request was not served.
-    [ "$(_verdict_for_http 401 0)" = "refused" ]      || fails="${fails} http-401-not-refused"
-    [ "$(_verdict_for_http 403 0)" = "refused" ]      || fails="${fails} http-403-not-refused"
-    [ "$(_verdict_for_http 200 0)" = "readable" ]     || fails="${fails} http-200-not-readable"
-    [ "$(_verdict_for_http 302 0)" = "readable" ]     || fails="${fails} http-302-not-readable"
-    [ "$(_verdict_for_http 404 0)" = "readable" ]     || fails="${fails} http-404-served-without-a-credential-demand-not-readable"
-    [ "$(_verdict_for_http 000 7)" = "notserving" ]   || fails="${fails} connection-refused-not-notserving"
-    [ "$(_verdict_for_http 000 52)" = "notserving" ]  || fails="${fails} empty-reply-not-notserving"
-    [ "$(_verdict_for_http 000 56)" = "notserving" ]  || fails="${fails} reset-not-notserving"
-    [ "$(_verdict_for_http 000 28)" = "unmeasurable" ] || fails="${fails} timeout-read-as-a-verdict"
-    [ "$(_verdict_for_http 500 0)" = "unmeasurable" ] || fails="${fails} http-500-not-unmeasurable"
-    [ "$(_verdict_for_http 200 18)" = "unmeasurable" ] || fails="${fails} partial-answer-not-unmeasurable"
-    [ "$(_verdict_for_http '' '')" = "unmeasurable" ] || fails="${fails} empty-reading-not-unmeasurable"
-    [ "$(_verdict_for_redis '-NOAUTH Authentication required.')" = "refused" ] || fails="${fails} redis-noauth-not-refused"
-    [ "$(_verdict_for_redis '+PONG')" = "readable" ] || fails="${fails} redis-pong-not-readable"
-    [ "$(_verdict_for_redis '')" = "notserving" ] || fails="${fails} redis-no-answer-not-notserving"
-    [ "$(_verdict_for_redis 'no_client')" = "unmeasurable" ] || fails="${fails} redis-missing-client-not-unmeasurable"
+    _st_tick; [ "$(_verdict_for_http 401 0)" = "refused" ]      || fails="${fails} http-401-not-refused"
+    _st_tick; [ "$(_verdict_for_http 403 0)" = "refused" ]      || fails="${fails} http-403-not-refused"
+    _st_tick; [ "$(_verdict_for_http 200 0)" = "readable" ]     || fails="${fails} http-200-not-readable"
+    _st_tick; [ "$(_verdict_for_http 302 0)" = "readable" ]     || fails="${fails} http-302-not-readable"
+    _st_tick; [ "$(_verdict_for_http 404 0)" = "readable" ]     || fails="${fails} http-404-served-without-a-credential-demand-not-readable"
+    _st_tick; [ "$(_verdict_for_http 000 7)" = "notserving" ]   || fails="${fails} connection-refused-not-notserving"
+    _st_tick; [ "$(_verdict_for_http 000 52)" = "notserving" ]  || fails="${fails} empty-reply-not-notserving"
+    _st_tick; [ "$(_verdict_for_http 000 56)" = "notserving" ]  || fails="${fails} reset-not-notserving"
+    _st_tick; [ "$(_verdict_for_http 000 28)" = "unmeasurable" ] || fails="${fails} timeout-read-as-a-verdict"
+    _st_tick; [ "$(_verdict_for_http 500 0)" = "unmeasurable" ] || fails="${fails} http-500-not-unmeasurable"
+    _st_tick; [ "$(_verdict_for_http 200 18)" = "unmeasurable" ] || fails="${fails} partial-answer-not-unmeasurable"
+    _st_tick; [ "$(_verdict_for_http '' '')" = "unmeasurable" ] || fails="${fails} empty-reading-not-unmeasurable"
+    _st_tick; [ "$(_verdict_for_redis '-NOAUTH Authentication required.')" = "refused" ] || fails="${fails} redis-noauth-not-refused"
+    _st_tick; [ "$(_verdict_for_redis '+PONG')" = "readable" ] || fails="${fails} redis-pong-not-readable"
+    _st_tick; [ "$(_verdict_for_redis '')" = "notserving" ] || fails="${fails} redis-no-answer-not-notserving"
+    _st_tick; [ "$(_verdict_for_redis 'no_client')" = "unmeasurable" ] || fails="${fails} redis-missing-client-not-unmeasurable"
 
     # ── 25-28. THE DIRECTIVE'S TWO END-STATES, PINNED ─────────────────────
     #
@@ -792,15 +818,15 @@ self_test() {
     #     NEITHER finding direction -- not "served without a credential", and
     #     not "refused the install's own". An absent port is not a lock-out.
     _absent="$(_verdict_for_http 000 7)"
-    [ "$_absent" != "readable" ] || fails="${fails} absent-port-graded-as-readable"
-    [ "$_absent" != "refused" ]  || fails="${fails} absent-port-graded-as-a-credential-gate"
+    _st_tick; [ "$_absent" != "readable" ] || fails="${fails} absent-port-graded-as-readable"
+    _st_tick; [ "$_absent" != "refused" ]  || fails="${fails} absent-port-graded-as-a-credential-gate"
 
     # 26. AND THE WHOLE-RUN VERDICT FOR IT IS PASS, not CANNOT_RUN. A port
     #     that is genuinely gone contributes to no list, so a box where the
     #     directive's end-state has been delivered adjudicates green rather
     #     than abstaining. Distinct from case 3: that one says a clean box
     #     passes, this one says the DECIDED end-state is that clean box.
-    [ "$(classify 1 '' '' '' '')" = "PASS" ] || fails="${fails} decided-absent-end-state-not-PASS"
+    _st_tick; [ "$(classify 1 '' '' '' '')" = "PASS" ] || fails="${fails} decided-absent-end-state-not-PASS"
 
     # 27. A 401 IS NOT REQUIRED IN ORDER TO PASS. This is the shipped shape
     #     of :8044 after the no-challenge fix: an uncredentialled browser is
@@ -808,72 +834,64 @@ self_test() {
     #     password box, and the daemon's own hop is served 200. Both arms
     #     behave, nothing reaches a finding list, and the verdict is PASS --
     #     with no 401 anywhere in the run.
-    [ "$(_verdict_for_http 403 0)" = "refused" ]  || fails="${fails} no-challenge-403-not-refused"
-    [ "$(_verdict_for_http 200 0)" = "readable" ] || fails="${fails} credentialled-arm-200-not-served"
+    _st_tick; [ "$(_verdict_for_http 403 0)" = "refused" ]  || fails="${fails} no-challenge-403-not-refused"
+    _st_tick; [ "$(_verdict_for_http 200 0)" = "readable" ] || fails="${fails} credentialled-arm-200-not-served"
 
     # 28. THE FLOOR THAT SURVIVES BOTH. Whichever end-state ships, a surface
     #     that SERVES an uncredentialled request is still the defect. Absence
     #     and a credential gate are both passes; being readable never is.
-    [ "$(classify 1 '' ' 8044(200)' '' '')" = "FAIL" ] || fails="${fails} uncredentialled-read-excused-by-the-new-cases"
+    _st_tick; [ "$(classify 1 '' ' 8044(200)' '' '')" = "FAIL" ] || fails="${fails} uncredentialled-read-excused-by-the-new-cases"
 
-    # ── DERIVED, NOT TYPED (#2120) ────────────────────────────────────────
+    # ── COUNTED AT RUNTIME, NOT TYPED AND NOT SCRAPED (#2120) ─────────────
     #
-    # This line used to read `probe_examined 30`. MEASURED 2026-09-18: the
-    # function contains 32 assertions of the counted shape, so the declared
-    # number was WRONG BY TWO and every check in the repo was green anyway,
-    # because nothing counted the assertions and compared.
+    # This line used to read `probe_examined 30` while 32 cases ran. Nobody
+    # noticed, which is the row's whole point: a typed denominator is checked by
+    # nothing, so being wrong costs nothing until someone relies on it.
     #
-    # The row that filed this named two NON-fixes explicitly and both were
-    # tempting: updating the literal to the right number, and adding a test
-    # that asserts the literal equals itself. Either leaves the next rebase in
-    # exactly the same position -- delete four assertions and the probe still
-    # declares whatever was typed.
+    # The row named two NON-fixes explicitly and both were refused: updating the
+    # literal to 32, and adding a test that asserts the literal equals itself.
     #
-    # So the number is COUNTED FROM THE ASSERTIONS THEMSELVES. Delete one and
-    # this drops by one, with nothing to remember and nothing to update.
+    # 🔴 THE FIRST REAL ATTEMPT WAS A TYPED THING ONE LEVEL DOWN. It counted the
+    # assertions by grepping this function's own source for lines starting with
+    # `[ `, which is the shape every case happens to use TODAY. Archie measured
+    # it against the tree with #2030's cases merged in: 41 assertions exist, 34
+    # match, SEVEN are invisible -- `case ... ) fails=`, `cmd; [ $? -eq 3 ] ||
+    # fails=`, and a continuation line. On this tree both give 32, so it was
+    # RIGHT BY COINCIDENCE, and silently seven short the moment a second form
+    # appeared.
     #
-    # WHY READ ITS OWN SOURCE RATHER THAN INCREMENT A COUNTER. A counter beside
-    # each assertion is 32 more places to forget, which is the same defect with
-    # more surface. Reading the file is one place, and it fails in the SAFE
-    # direction: if the read breaks, the count collapses to 0 and the guard
-    # below turns that into BROKEN rather than into a confident zero.
+    # That is worse than the typed 30 in one respect: `probe_examined 30` is
+    # visibly a claim, so a reader might check it. "counted from the assertions
+    # themselves" invites a trust it has not earned.
     #
-    # 🔴 grep -c EXITS 1 ON ZERO MATCHES while still printing 0, so under the
-    # `set -e` this file runs with, an unguarded substitution here would kill
-    # the self-test before it could report. Hence `|| true`.
+    # 🔴 AND WIDENING THE PATTERN REINTRODUCED A BUG IT HAD ALREADY HAD. A grep
+    # whose literal is the append expression is itself a line containing that
+    # expression, so it counts itself. The first version hit that at 33 and was
+    # patched by anchoring; the widened version hit it again at 34. Twice in one
+    # function, from two directions, is not an off-by-one. It is what
+    # source-scraping IS.
     #
-    # The pattern is matched with grep -F and a SINGLE-quoted argument. A
-    # double-quoted one lets the shell expand ${fails} to empty before grep
-    # ever sees it, which silently matches nothing and reports 0. That is how
-    # the first attempt at this measurement produced a false zero.
-    _st_src="${BASH_SOURCE[0]:-}"
-    _st_cases=0
-    if [ -r "${_st_src}" ]; then
-        # ANCHORED ON THE ASSERTION'S OWN SHAPE, and the anchor is load-bearing.
-        # The first version matched the pattern anywhere in the function and
-        # counted 33 against 32 real assertions, because the grep line BELOW is
-        # itself inside self_test and contains the pattern it searches for. A
-        # counter that counts itself is off by one for a reason nobody would
-        # look for. Every real case begins with `[ ` at indentation; the
-        # machinery does not.
-        _st_cases="$(awk '/^self_test\(\) \{/,/^\}/' "${_st_src}" \
-            | grep -cE '^[[:space:]]*\[ .*\|\| fails=' || true)"
-    fi
+    # SO THE COUNT IS TAKEN AT RUNTIME, by the cases themselves. _st_tick cannot
+    # miss a syntactic form because it does not know what a form is: it fires
+    # when the line executes, whatever the line looks like. A case added in any
+    # shape counts itself by running; a case deleted stops counting by not
+    # running. There is no pattern left to be wrong.
+    _st_cases="$_st_n"
     if [ "${_st_cases:-0}" -lt 1 ]; then
-        # A zero here means the count could not be taken, NOT that there are no
-        # cases -- the 32 assertions above have already run. Saying 0 would be a
-        # confident wrong answer about this probe's own coverage.
-        probe_note "CANNOT COUNT ITS OWN CASES: could not read ${_st_src:-<no source path>} to count assertions. The cases above still ran; the DENOMINATOR is unknown."  # i18n-exempt
-        probe_examined 0 "adjudication cases (COUNT UNAVAILABLE -- see the note above; this is not a claim that none ran)"
+        # With a runtime counter a zero can mean only one thing: not a single
+        # case executed. That is not a missing denominator, it is a broken
+        # self-test, and it must never print as a clean count.
+        probe_note "NO ADJUDICATION CASE RAN AT ALL. The counter is incremented by the cases themselves, so zero means the block did not execute rather than that the count was unavailable."  # i18n-exempt
+        probe_examined 0 "adjudication cases (NONE RAN -- see the note above)"
     else
-        probe_examined "$_st_cases" "adjudication cases, counted from the assertions themselves rather than typed (#2120)"
+        probe_examined "$_st_cases" "adjudication cases, counted AT RUNTIME by the cases themselves (#2120)"
     fi
     # Carried past the unset because the verdict sentence below quotes it too,
     # and that sentence was the SECOND typed number in this function: it said
-    # "30 of 30" while 32 cases ran. One derived count feeds both, so they
-    # cannot disagree with each other or with the file.
+    # "30 of 30" while 32 cases ran. One runtime count feeds both, so they
+    # cannot disagree with each other or with what actually executed.
     _st_behaved="${_st_cases:-0}"
-    unset _st_src _st_cases
+    unset _st_cases _st_n
 
     # ── THE RUNNER'S CONTRACT, WHICH THIS FUNCTION USED TO BREAK ──────────
     #
@@ -899,7 +917,7 @@ self_test() {
             "${PROBE_NAME:-no_store_port_is_tcp_reachable}" "$fails"
         exit 1
     fi
-    probe_fail "NEGATIVE CONTROL DEMONSTRATED (this red is the expected result of --self-test, not a finding): classify() returned FAIL on a port that must not listen, on a published port that served an UNCREDENTIALLED request, and on a surface that refused the install's OWN credential; PASS only with the control up and nothing found; CANNOT_RUN on a stopped or unreadable control and on a surface that could not be asked; and both kinds of FAIL outranked an unmeasurable sibling. The sensor mappers adjudicated by status and curl rc: 401/403 refused; 2xx, 3xx and a 404 with no credential demand readable; connection refused, empty reply and reset not-serving; a timeout, a 5xx, a partial answer and an empty reading unmeasurable; and redis NOAUTH/PONG/no-answer/no-client into the same four. Both of the directive's end-states reached PASS without needing the other to exist: an ABSENT port graded as neither readable nor a credential gate, and a 403-refused / 200-served pair passed with no 401 anywhere in the run; a surface that SERVED an uncredentialled request still failed. ${_st_behaved} of ${_st_behaved} adjudication cases behaved, a number counted from the assertions rather than typed (#2120)."
+    probe_fail "NEGATIVE CONTROL DEMONSTRATED (this red is the expected result of --self-test, not a finding): classify() returned FAIL on a port that must not listen, on a published port that served an UNCREDENTIALLED request, and on a surface that refused the install's OWN credential; PASS only with the control up and nothing found; CANNOT_RUN on a stopped or unreadable control and on a surface that could not be asked; and both kinds of FAIL outranked an unmeasurable sibling. The sensor mappers adjudicated by status and curl rc: 401/403 refused; 2xx, 3xx and a 404 with no credential demand readable; connection refused, empty reply and reset not-serving; a timeout, a 5xx, a partial answer and an empty reading unmeasurable; and redis NOAUTH/PONG/no-answer/no-client into the same four. Both of the directive's end-states reached PASS without needing the other to exist: an ABSENT port graded as neither readable nor a credential gate, and a 403-refused / 200-served pair passed with no 401 anywhere in the run; a surface that SERVED an uncredentialled request still failed. ${_st_behaved} of ${_st_behaved} adjudication cases behaved, a number counted AT RUNTIME by the cases themselves (#2120)."
 }
 
 probe_main "$@"
