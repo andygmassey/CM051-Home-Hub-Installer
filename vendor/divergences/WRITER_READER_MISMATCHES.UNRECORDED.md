@@ -254,3 +254,54 @@ at a time the way they were held, then re-apply this graft on the new base.
 erased somebody it never found. The remedy is to re-pin DELIBERATELY, with the
 held commit adjudicated the way it was held, then re-apply this graft on the
 new base.
+
+---
+
+## Added 2026-09-19, CM051 #2133 -- `doctor`, the year-2318 sentinel
+
+### The refusal, RE-MEASURED rather than inherited
+
+This file's own header says an entry must re-state the refusal it was measured
+against, because inheriting an earlier PR's refusal is inheriting an ack: a debt
+with nobody's name on it. So the tool was run again, today, for this tree:
+
+    scripts/regenerate_divergence_patch.sh doctor
+      exit 1, REFUSED
+      "this is a RE-PIN, not a graft to record"
+      48 upstream commits listed
+      vendor/divergences/doctor.patch: 0 lines of diff, nothing written
+
+It is a DIFFERENT refusal from the three above. Those were a patch that would
+not reconstruct the tree, a pin that could not be materialised, and a scrubbed
+value that must not be copied back. This one is the tool correctly refusing to
+fold 48 upstream commits into the patch and record them as local edits.
+
+The pin is `b0b383109e6e1e6ec296af0b0944df9291356042`. The count was checked
+against the tracker rather than a local cache: an earlier reading of 24 came
+from an `origin/main` this account cannot refresh, and was wrong by exactly
+half. A figure computed against an unfetchable remote is a figure about a
+moment nobody chose.
+
+### What was grafted, location and shape only, never content
+
+`vendor/doctor/agent/box_status.py`:
+
+- `+1` helper that formats an Ollama keep-alive sentinel for a person, and the
+  one call site that used to put `expires_at` on the wire raw.
+- Measured on a live box: the box-status endpoint emitted a `keep_alive` in the
+  year 2318. `install.sh` starts Ollama with `OLLAMA_KEEP_ALIVE=-1`, which
+  Ollama expresses as an `expires_at` roughly three centuries out. The value is
+  correct and it is an internal sentinel; piping it to a customer surface
+  unchanged is the defect.
+
+Shape: +1 helper, +1 changed call site, in one module.
+
+### What a future sync must preserve
+
+A `sync_vendor.sh` refusal on this tree is EXPECTED and correct while the pin is
+48 commits behind. `SYNC_ACCEPT_DIVERGENCE_LOSS=1` would delete this graft and
+put the year 2318 back on a customer's own status page. The remedy is the
+re-pin, which is separately blocked: two vendored importers under this tree hold
+content that exists in NO upstream commit, confirmed by an exhaustive blob walk
+with a control, so a re-pin today reverts two working files while advancing the
+rest.
