@@ -1658,6 +1658,43 @@ open_issues:
       v1.0.95. SIX OF SEVEN ARE REGRESSIONS AGAINST ONE VERSION. That is the
       shape of a change between 95 and 100 rather than seven independent
       defects, and it is the first thing anyone fixing these should look at.
+      🔴 AND THE SEVEN ARE NOT SEVEN REGRESSIONS. I said six of seven
+      and that was two errors in one sentence. Checked against the v1.0.95 walk
+      record AND against which probe files existed at that tag:
+      FIVE ARE GENUINE REGRESSIONS, present at v1.0.95, absent from its
+      failed and not-measured lists, failing now: acceptance_gate_v1013,
+      install_manifest_complete, no_store_port_is_tcp_reachable,
+      no_unexpected_egress, people_count_agreement.
+      ONE IS A CONTINUING FAILURE, NOT A REGRESSION: assistant_answers_grounded
+      is the single failed probe on the v1.0.95 walk as well. It has been red
+      across both.
+      ONE IS A NEW PROBE FINDING A NEW DEFECT: ostler_unlock_reachable_by_name
+      DID NOT EXIST at v1.0.95, 36 probe files then against 38 now, so it did
+      not pass there, it did not run. Its defect was INTRODUCED in the same
+      window by commit 2bb84015, "fix(install): put ostler-unlock on the
+      customer''s PATH (#1969)", which ADDED the line
+      ln -sfn ${OSTLER_VENV}/bin/ostler-unlock while OSTLER_VENV still points at
+      the /tmp prelaunch staging tree. CONTROL: a string that did not change in
+      that window yields zero commits under the same search. So a new probe
+      caught a defect a fix introduced, four days apart, which is the system
+      working rather than failing.
+      AND THE RECORD''S OWN regression_of LINE IS WRONG FOR THAT ONE. It reads
+      "regression_of ostler_unlock_reachable_by_name v1.0.95" for a probe that
+      did not exist at v1.0.95. The field appears to name the previous walk
+      rather than the last walk on which the probe passed, which are different
+      claims and only one of them is what the word means. The other six rows of
+      that field are sound.
+      WHAT THE TWO WALKS SAY SIDE BY SIDE, and this is the headline:
+      v1.0.95 on 2026-09-13, pass 24 fail 1 cannot-run 1 broken 0.
+      v1.0.100 on 2026-09-17, pass 19 fail 6 cannot-run 3 broken 1.
+      FOUR DAYS, 92 COMMITS, AND THE BUILD WENT FROM ONE FAILING PROBE TO SEVEN.
+      v1.0.95 was one probe from a clean thin walk. That is the number worth
+      carrying, and it says the recent work moved the product backwards on five
+      surfaces that were already working.
+      THE PROMOTE PATH IS NOT THE COMMON CAUSE, measured rather than assumed:
+      _ostler_promote_prelaunch_tree is defined once and OSTLER_PRELAUNCH is
+      referenced 31 times at BOTH tags, identical, so the staging mechanism did
+      not move. install.sh did grow 2,766 lines between them.
       FOUR NOT MEASURED: assistant_grounds_the_opening_turn (also the one BROKEN
       probe), doctor_page_renders_for_a_customer, ingest_coverage,
       usage_journal_producers. A probe that could not run has not passed.
