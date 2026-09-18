@@ -91,7 +91,7 @@ You can change your mind any time. You can:
 
 - turn individual connectors (email, calendar, WhatsApp, etc.) off in Settings, which stops Ostler reading that source
 - delete everything Ostler has stored using "Reset Ostler" in the menu
-- completely uninstall Ostler using the uninstaller at ~/Documents/Ostler/Uninstall Ostler.app
+- completely uninstall Ostler by running ostler-uninstall in Terminal
 
 Withdrawing consent stops processing from that point forward. It does not undo work Ostler already did with your earlier consent.
 
