@@ -34,6 +34,11 @@ INV_1690_WIRE='contact_syncer.owner_node'
 # and arm 0b refuses rather than letting the green arms fail misleadingly.
 INV_1543='_node_holds_a_different_canonical_key'
 INV_755='_source_is_the_users_own'
+# CM051 #1619. A SECOND row on the same file, naming the DISCRIMINATOR rather
+# than the function: a refactor that keeps the method name and drops the bundle
+# test leaves the row above green while the artefact ingests another device's
+# address book again.
+INV_1619='com.apple.AddressBookSourceSync'
 INV_142='is_kinship_given_name'
 # CM041 #145. Deliberately asserted on the CALL SITES, not on the
 # definition: resolver.py and batch_resolver.py are divergent twins that
@@ -74,7 +79,7 @@ ok "arm 0: every install.sh fixture invariant matches the check's declared set"
 # which is the direction that actually happened. So both, and a mismatch is
 # CANNOT-RUN rather than a fail: the arms below cannot mean anything until the
 # fixture describes a complete artefact again.
-PAYLOAD_INV_FIXTURE=( "$INV_1543" "$INV_755" "$INV_1690_DECLINE" "$INV_142" "$INV_145" "$INV_1573_VETO" "$INV_1573_TOMB" )
+PAYLOAD_INV_FIXTURE=( "$INV_1543" "$INV_755" "$INV_1690_DECLINE" "$INV_142" "$INV_145" "$INV_1573_VETO" "$INV_1573_TOMB" "$INV_1619" )
 # The payload FILES this fixture writes into every "good DMG". Kept beside
 # the invariants so the two cannot drift apart unnoticed.
 PAYLOAD_PATH_FIXTURE=( "contact_syncer/syncer.py"
@@ -141,6 +146,11 @@ build_dmg() {
             printf 'def %s(self, u, v):\n    return None\n' "$INV_1543" \
                 >> "${outer_dir}/contact_syncer/syncer.py"
             printf 'def %s(self, source_uuid):\n    return True\n' "$INV_755" \
+                >> "${outer_dir}/contact_syncer/syncer.py"
+            # The DISCRIMINATOR, not just the method name. Written only in the
+            # "with" case, so a stale syncer misses BOTH #755 rows and arm 7
+            # still reports a delivery failure rather than a partial one.
+            printf 'BUNDLE = "%s"\n' "$INV_1619" \
                 >> "${outer_dir}/contact_syncer/syncer.py"
         fi
         # contact_syncer/owner_node.py is a SEPARATE payload row from the

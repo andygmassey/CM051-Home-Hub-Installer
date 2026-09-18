@@ -33,6 +33,11 @@ on:
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'vendor/cm019_preferences/services/ingest/src/loaders/qdrant_loader.py'
+      - 'vendor/cm019_preferences/services/ingest/src/pipeline.py'
+      - 'tests/test_a_store_refusal_is_not_an_empty_batch.py'
+      - 'vendor/cm019_preferences/services/ingest/src/parsers/apple.py'
+      - 'vendor/cm041/contact_syncer/privacy_model.py'
+      - 'tests/test_no_parser_labels_sensitive_data_publishable.py'
       - 'vendor/doctor/agent/import_notion.py'
       - 'vendor/doctor/agent/import_obsidian.py'
       - 'vendor/doctor/agent/import_evernote.py'
@@ -41,9 +46,14 @@ on:
       - '.github/workflows/writer-reader-vocabulary.yml'
   pull_request:
     paths:
+      - 'vendor/cm019_preferences/services/ingest/src/parsers/apple.py'
+      - 'vendor/cm041/contact_syncer/privacy_model.py'
+      - 'tests/test_no_parser_labels_sensitive_data_publishable.py'
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'vendor/cm019_preferences/services/ingest/src/loaders/qdrant_loader.py'
+      - 'vendor/cm019_preferences/services/ingest/src/pipeline.py'
+      - 'tests/test_a_store_refusal_is_not_an_empty_batch.py'
       - 'vendor/doctor/agent/import_notion.py'
       - 'vendor/doctor/agent/import_obsidian.py'
       - 'vendor/doctor/agent/import_evernote.py'
@@ -119,11 +129,46 @@ jobs:
           n="$(python -m pytest tests/test_writer_reader_vocabulary_contracts.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 28 ]; then
-            echo "REFUSING: expected at least 28 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 36 ]; then
+            echo "REFUSING: expected at least 36 collected tests, got ${n:-0}." >&2
             echo "A skipped module reports success in any runner that reads" >&2
             echo "'no failures' as 'passed'. Check rdflib, pydantic-settings," >&2
             echo "nameparser, pyyaml and ostler_security all installed." >&2
             exit 1
           fi
           python -m pytest tests/test_writer_reader_vocabulary_contracts.py -v
+
+
+      # A parser must not label the customer's most sensitive data publishable.
+      # apple.py wrote compartment_level=5 at four sites, each commented HIGHEST
+      # PRIVACY, and 5 is L5Commercial which privacy_model.py maps to the
+      # publishable level. The comment stated the intent and the number said the
+      # opposite. `if: always()` so an earlier red cannot delete this.
+      - name: No parser labels private data publishable
+        if: always()
+        run: python3 tests/test_no_parser_labels_sensitive_data_publishable.py
+
+      # A STORE THAT REFUSED A WRITE IS NOT A BATCH WITH NOTHING TO WRITE.
+      #
+      # #953, and it is the same family as the five this workflow was built
+      # for: both sides returned success, nothing went red, and the customer's
+      # front page said "Ostler has spotted 0 interests". Here the WRITER
+      # refused and the caller did not record it, because insert_triples and
+      # upsert_vectors are both declared `-> bool` and both return False rather
+      # than raising, while the caller recorded only in its `except` arm.
+      #
+      # Measured with a control before the fix:
+      #   endpoint 500 -> preferences 3, triples 0, vectors 3, errors []
+      #   endpoint 204 -> preferences 3, triples 3, vectors 3, errors []
+      # The control writes 3, so the 0 means REFUSED rather than "the harness
+      # never works". And vectors is 3 in BOTH arms, so the run reported a
+      # healthy batch over a split brain: Qdrant held the preferences and
+      # Oxigraph did not.
+      #
+      # The mutant for this gate is origin/main's own pre-fix blob, which turns
+      # four arms red while the control arm still passes.
+      #
+      # `if: always()` so an earlier red cannot delete this.
+      - name: A store refusal is recorded, not reported as an empty batch
+        if: always()
+        run: python3 tests/test_a_store_refusal_is_not_an_empty_batch.py

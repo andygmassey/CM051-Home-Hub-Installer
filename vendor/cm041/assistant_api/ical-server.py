@@ -388,6 +388,52 @@ def _wiki_slug(name):
 _NAMELESS_BARE_ID_CHARS = frozenset("0123456789+-(). ")
 
 
+def _is_not_a_person_to_suggest(display_name, user_name=""):
+    """True when this row must not be SUGGESTED as a person to act on.
+
+    Complements ``_is_nameless_name`` rather than widening it. That predicate is
+    the canonical "is this displayable" test and its own docstring says it is
+    "byte-identical to compiler/nameless.py (CM044 wiki) and PersonNameFilter
+    (CM031 iOS); locked to prevent cross-surface drift" -- so extending it in
+    one surface is exactly the drift it exists to stop. This asks a different
+    and stricter question, and only the SUGGESTION surfaces ask it.
+
+    🔴 WHY IT EXISTS. Measured on a v1.0.100 box the moment the front page's
+    signal band started rendering:
+
+        "You and #PayPal have gone quiet. No contact for 17 months.
+         A short message keeps the thread alive."
+        "<an address the operator owns>'s birthday is in two days"
+        "<the operator's own name>'s birthday is in two days"
+
+    PayPal is a notification sender. The second is an address, not a person.
+    The third is the customer being reminded of his own birthday. All three
+    pass _is_nameless_name, which catches WhatsApp JIDs and bare numeric
+    handles and correctly says nothing about any of these.
+
+    Non-suggestable when:
+      1. it starts with "#" -- an SMS shortcode / business sender, and there is
+         no relationship to maintain,
+      2. it is an address rather than a name (contains "@" and no space), so a
+         card written in the product's voice has no name to use,
+      3. it IS the operator, compared case-insensitively against USER_NAME.
+
+    Nothing is deleted and nothing is hidden from the People list, search or
+    the graph. These rows are withheld from SUGGESTIONS only.
+    """
+    s = (display_name or "").strip()
+    if not s:
+        return True
+    if s.startswith("#"):
+        return True
+    if "@" in s and " " not in s:
+        return True
+    un = (user_name or "").strip()
+    if un and s.casefold() == un.casefold():
+        return True
+    return False
+
+
 def _is_nameless_name(display_name):
     """True when ``display_name`` is a raw handle, not a human name.
 
@@ -569,6 +615,18 @@ from identity_resolver.compartment import (
     graph_scoped_select as _graph_scoped_select,
 )
 
+# The operator's own display name, used ONLY to keep them out of their own
+# suggestions (see _is_not_a_person_to_suggest). Absent is the safe state: an
+# empty string makes that clause a no-op rather than matching everyone, so a
+# box whose env predates this field behaves exactly as before.
+#
+# 🔴 I WROTE THE TWO CALL SITES BEFORE DEFINING THIS AND CAUGHT IT ONLY BY
+# GREPPING FOR THE DEFINITION. An undefined global here raises NameError inside
+# the birthdays and stale-contacts builders, which are wrapped, so it would have
+# surfaced as an EMPTY SUGGESTIONS PAYLOAD -- the same silent-empty shape as the
+# privacy-level defect this file was just fixed for, introduced by the fix.
+USER_NAME = os.environ.get("USER_NAME", "").strip()
+
 _raw_user_id = os.environ.get("USER_ID", "").strip()
 USER_ID = _normalise_user_id(_raw_user_id) if _raw_user_id else ""
 USER_URI = (
@@ -633,6 +691,129 @@ RECORDING_VALID_STATES = frozenset({
     "recording", "processing", "transcript_saved", "error",
 })
 RECORDING_VALID_CONSENT = frozenset({"one_party", "all_party"})
+
+# ── Recording-consent jurisdiction: the head and the hands (HR015 #942) ──
+#
+# MEASURED ON CM051 origin/main e0fb21bf, 2026-09-16, from a NON-iCloud
+# checkout, because #942 records the previous scan as CANNOT-RUN after it
+# timed out on an iCloud path:
+#
+#   jurisdiction    6 sites in this file, 2 in API.md, 0 elsewhere in CM051
+#   consent_basis   5 sites in this file, 2 in API.md, 0 elsewhere in CM051
+#   producers       0.  Every site validated the value and echoed it back.
+#   branches        0.  Nothing anywhere behaved differently because of it.
+#
+#   CONTROL, same file and same predicate: RECORDING_ returns 19 sites and
+#   RECORDING_VALID_STATES is read by a real branch four lines below, so the
+#   search can find both a constant and a branch. The zeros above are real.
+#
+# A consent field that round-trips is not a consent mechanism. It looks like
+# compliance from every angle except the one that matters.
+#
+# WHERE THE VALUE COMES FROM, AND WHY NOT FROM LOCATION. #942 decided this:
+# derive the jurisdiction from the DEVICE REGION, never from GPS. Adding
+# always-on location to a privacy product in order to police recording
+# consent would be a self-inflicted wound. The Hub already resolved a region
+# at install time and persisted it to ~/.ostler/posture/region.json
+# (ostler_security.region.save_region), from the operator's own contacts,
+# phone number or locale. No permission was asked for and none is needed.
+# That file is the real input this endpoint now reads.
+#
+# WHAT IS DELIBERATELY NOT DONE HERE. CM042 is the single decider for whether
+# a capture starts; #942's own cut-manifest row says so, and says not to build
+# a second jurisdiction mechanism. This endpoint does not start or stop a
+# capture. It does two things CM042 cannot do from inside a Swift app that
+# never read region.json: supply the jurisdiction when the producer left it
+# null, and refuse to repeat a one-party consent claim in a country whose law
+# does not recognise one.
+#
+# THE TABLE IS SHORT AND COUNTRY-LEVEL ON PURPOSE. #942 asks for short and
+# maintainable rather than exhaustive. Two honest limits, stated rather than
+# papered over:
+#
+#   - It is COUNTRY level. region.json carries an ISO-3166 country, so this
+#     cannot tell California from Texas. US therefore is NOT in the table:
+#     marking the whole US all-party would withhold a truthful basis from the
+#     majority of US operators, and marking it one-party would assert
+#     something false in California, Illinois, Florida, Pennsylvania and
+#     Washington. Sub-national resolution belongs to CM042, which has the
+#     device locale with a region subtag.
+#   - It is not legal advice and this file must not be read as any. It is a
+#     conservative list of countries whose all-party rule is the reason the
+#     spoken-capture consent wording names them; the wording itself lives in
+#     legal/consent_strings.py and is reviewed there, not here.
+RECORDING_ALL_PARTY_ISO = frozenset({
+    "AT",  # Austria
+    "BE",  # Belgium
+    "CH",  # Switzerland
+    "DE",  # Germany, StGB 201
+    "DK",  # Denmark
+    "ES",  # Spain
+    "FI",  # Finland
+    "FR",  # France, penal code article 226-1
+    "GR",  # Greece
+    "IT",  # Italy
+    "NL",  # Netherlands
+    "PL",  # Poland
+    "PT",  # Portugal
+    "SE",  # Sweden
+})
+
+# The persisted device region. Read as JSON rather than by importing
+# ostler_security, because this file runs as a SCRIPT under the Hub venv and
+# an import that is merely usually available is not a dependency this
+# endpoint may acquire. A missing, unreadable or malformed file yields None,
+# which is "we do not know" and never "one party is fine".
+# THE READER HONOURS THE SAME ROOT THE WRITER DOES. ostler_security.region
+# resolves its directory from OSTLER_HOME before falling back to ~/.ostler
+# (region.py:_region_dir). This file's other paths expanduser ~/.ostler
+# directly, which is fine for files this file's own peers write, but region
+# .json is written by a DIFFERENT component: a reader that ignored
+# OSTLER_HOME would silently find nothing on any Hub that sets it, and
+# "nothing" here reads as "we do not know the jurisdiction". Writer and
+# reader resolve the same root or the pair is a contract only by accident.
+RECORDING_REGION_FILE = Path(os.environ.get(
+    "OSTLER_REGION_FILE",
+    os.path.join(
+        os.environ.get("OSTLER_HOME", os.path.expanduser("~/.ostler")),
+        "posture", "region.json",
+    ),
+))
+
+
+def _recording_device_jurisdiction():
+    """ISO-3166 country the Hub itself resolved at install, or None.
+
+    THIS IS THE PRODUCER #942 SAYS HAS NEVER EXISTED. It reads a real input
+    -- the region the installer derived from the operator's own Mac -- and
+    never guesses. Three outcomes collapse to None on purpose: no file, an
+    unreadable file, and a file with no usable iso_country. Not knowing is
+    not the same as knowing it is fine, and only the caller may act on it.
+    """
+    try:
+        raw = RECORDING_REGION_FILE.read_text()
+    except (OSError, ValueError):
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    iso = data.get("iso_country")
+    if not isinstance(iso, str):
+        return None
+    iso = iso.strip().upper()
+    # Two letters, exactly. A longer or shorter value is a malformed file,
+    # not a country, and must not be matched against the table.
+    if len(iso) != 2 or not iso.isalpha():
+        return None
+    return iso
+
+
+def _recording_requires_all_parties(iso):
+    """True only when we KNOW the country requires every party to agree."""
+    return iso is not None and iso in RECORDING_ALL_PARTY_ISO
 
 try:
     from zoneinfo import ZoneInfo
@@ -1599,6 +1780,38 @@ def _queue_wiki_recompile(slug):
         return False
 
 
+def _forget_audit_has(slug):
+    """Has this slug been forgotten before?
+
+    True  -- an audit line for this slug exists, so a previous forget ran
+    False -- the log is readable and holds no line for this slug
+    None  -- the log could not be read, so the question is UNANSWERED
+
+    Three states and not two, deliberately. The caller uses this to decide
+    whether "no matching person" means "already erased" or "never found",
+    and an unreadable log must not be allowed to produce the reassuring
+    answer. See the branch in api_people_forget.
+
+    The writer is _queue_wiki_recompile, a few lines above: it appends
+    ``<utc> forget <slug>`` on every call. Reader and writer are kept
+    adjacent on purpose.
+    """
+    try:
+        audit = _RECOMPILE_QUEUE_DIR / "forget_audit.log"
+        if not audit.exists():
+            # An absent log on a Mac that has never forgotten anyone is a
+            # readable "no", not an error.
+            return False
+        needle = " forget " + slug
+        with audit.open("r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if line.rstrip("\n").endswith(needle):
+                    return True
+        return False
+    except OSError:
+        return None
+
+
 def api_people_forget(slug):
     """Handle POST /api/v1/people/{slug}/forget.
 
@@ -1650,12 +1863,76 @@ def api_people_forget(slug):
             break
 
     if person_uri is None:
-        # No matching person. Idempotent: treat as already-forgotten +
-        # still queue a wiki recompile in case a stale page exists.
+        # ── "I COULD NOT FIND THEM" IS NOT "I ALREADY ERASED THEM" ──
+        #
+        # This branch used to return already_forgotten=True for EVERY
+        # unresolved slug, and the docstring above says why it was written
+        # that way: idempotency, so a second call is benign for the iOS
+        # client. The reasoning is right and the implementation could not
+        # tell the two cases apart, because BOTH produce "no matching
+        # person":
+        #
+        #   a SECOND call, after we really did erase them   -> benign
+        #   a FIRST call whose lookup could not resolve the
+        #     person at all                                 -> NOT benign
+        #
+        # MEASURED ON THE WALK BOX 2026-09-18. A person present in the
+        # graph with five triples, asked to be forgotten, got HTTP 200 and
+        #
+        #   {"forgotten": false, "already_forgotten": true,
+        #    "stores_purged": []}
+        #
+        # and all five triples were still there afterwards. The customer is
+        # told the erasure happened. It did not. That is the same shape as
+        # CM051 #960 -- a deletion request the product ACCEPTS AND DOES NOT
+        # HONOUR -- surviving in the reporting after the SPARQL half was
+        # fixed.
+        #
+        # THE DISCRIMINATOR ALREADY EXISTED AND NOTHING READ IT.
+        # _queue_wiki_recompile appends one audit line per slug to
+        # forget_audit.log on every forget. So a slug that has been
+        # forgotten before HAS a line, and one that has not does not. That
+        # is precisely the fact this branch needed and never consulted.
+        #
+        # An unreadable audit log does NOT become a benign answer. It
+        # becomes "unknown", because a reader that cannot see the evidence
+        # must not rule in the reassuring direction.
+        #
+        # 🔴 THE STATUS CODE STAYS 200 AND THAT IS A DELIBERATE CHOICE, NOT
+        # AN OVERSIGHT. 404 is the more honest transport answer and it is
+        # also a CONTRACT CHANGE to a client that is already in customers'
+        # hands: the iOS Companion's ForgetPersonService was written against
+        # this endpoint returning 200 for both cases, and it cannot be
+        # re-tested from here tonight. Changing the transport could turn a
+        # wrong message into a broken screen.
+        #
+        # The BODY is what lied, so the body is what changes. A client that
+        # reads `forgotten` or `already_forgotten` now sees neither is true
+        # and can say so; one that only checks the HTTP code behaves exactly
+        # as it did yesterday. When the iOS side can be exercised, 404 is
+        # the right end state and this comment is the note to whoever does it.
+        prior = _forget_audit_has(slug)
         queued = _queue_wiki_recompile(slug)
+        if prior is True:
+            return {
+                "forgotten": False,
+                "already_forgotten": True,
+                "wiki_recompile_queued": queued,
+                "stores_purged": [],
+            }, 200
         return {
             "forgotten": False,
-            "already_forgotten": True,
+            "already_forgotten": False,
+            "not_found": True,
+            "audit_readable": prior is not None,
+            "reason": (
+                "no person matching this slug could be found, and there is no "
+                "record of them having been forgotten before"
+                if prior is False else
+                "no person matching this slug could be found, and the forget "
+                "audit log could not be read, so whether they were forgotten "
+                "earlier is unknown"
+            ),
             "wiki_recompile_queued": queued,
             "stores_purged": [],
         }, 200
@@ -4451,7 +4728,10 @@ def commitments_list(owner=None, due_before=None, status="open",
     commitments = commitments[:limit]
     for c in commitments:
         c.pop("_created", None)
-    return {"commitments": commitments, "count": len(commitments)}, 200
+    # Same contract as /api/v1/suggestions above, and the same measurement:
+    # untagged means L3 means dropped, so this payload declares its level.
+    return {"commitments": commitments, "count": len(commitments),
+            "privacy_level": "L2"}, 200
 
 
 # ── Reply debt (CM048 reply-debt detector, JTBD#1) ───────────────────
@@ -4599,6 +4879,10 @@ def api_reply_debt(threshold_hours=None, lookback_days=None,
         }, 200
 
     payload.setdefault("degraded", False)
+    # Same contract as the two payloads above. reply_debt is the "N people are
+    # waiting on you" card, badged L2 on the public front-page design.
+    if isinstance(payload, dict):
+        payload.setdefault("privacy_level", "L2")
     return payload, 200
 
 
@@ -4873,6 +5157,33 @@ def people_stale(months=3, limit=5):
         # Stale / reconnect list. Render-time filter only. Ref #664.
         if _is_nameless_name(name):
             continue
+        # 🔴 AND A SECOND, STRICTER SCREEN, BECAUSE RECONNECT ASKS A HARDER
+        # QUESTION THAN "IS THIS DISPLAYABLE".
+        #
+        # Measured on a v1.0.100 box once the front page's signal band started
+        # rendering at all: 3 of the 5 reconnect entries were raw email
+        # addresses and 2 were SMS shortcodes. The card the customer read was
+        #
+        #     "You and #PayPal have gone quiet. No contact for 17 months.
+        #      A short message keeps the thread alive."
+        #
+        # PayPal is a notification sender. There is no thread to keep alive,
+        # and the card is written in the product's voice about a relationship
+        # that does not exist.
+        #
+        # _is_nameless_name passes both: it catches WhatsApp JIDs and bare
+        # numeric handles, and an address or a #shortcode is neither. IT IS
+        # DELIBERATELY NOT EXTENDED HERE. Its own docstring says it is
+        # "byte-identical to compiler/nameless.py (CM044 wiki) and
+        # PersonNameFilter (CM031 iOS); locked to prevent cross-surface drift",
+        # so widening it in one surface is exactly the drift it exists to stop.
+        #
+        # This is a RECONNECT-ONLY screen at the call site. Nothing is deleted,
+        # nothing is hidden from the People list or the graph, and the person
+        # remains searchable. They are excluded from a suggestion that cannot
+        # be written properly without a human name.
+        if _is_not_a_person_to_suggest(name, USER_NAME):
+            continue
         months_since = int((now - lc_ts) / (30 * 86400))
         contacts.append({
             "name": name,
@@ -4957,6 +5268,10 @@ def people_birthdays(days=7):
         # recent endpoints use. Ref #664. The Qdrant point / graph node is never
         # deleted -- only withheld from this listing.
         if _is_nameless_name(name):
+            continue
+        # Shared suggestion screen: no shortcodes, no bare addresses, and never
+        # the operator's own birthday. See _is_not_a_person_to_suggest.
+        if _is_not_a_person_to_suggest(name, USER_NAME):
             continue
         try:
             # Parse MM-DD or YYYY-MM-DD
@@ -5086,6 +5401,30 @@ def api_suggestions():
     # change. Aliases share the same list reference – cheap, no copy.
     out["reconnect"] = out["stale_contacts"]
     out["follow_up"] = out["recent_meetings"]
+    # 🔴 THE FRONT PAGE'S "NEEDS YOU NOW" BAND WAS EMPTY BECAUSE THIS PAYLOAD
+    # NEVER SAID WHAT IT WAS. CM059's signals.py resolves an item's privacy
+    # level fail-closed: the item's own tag wins, else the enclosing payload's,
+    # else L3 -- "an untagged item cannot prove it is safe". Renderable levels
+    # are {L0, L1, L2}, so an untagged payload is dropped in full and silently.
+    #
+    # Measured on a v1.0.100 box, 2026-09-17, with the service token presented
+    # so a 401 could not be mistaken for the cause:
+    #     /api/v1/suggestions   200, 5 birthdays incl. one TODAY
+    #     /api/v1/commitments   200, 3 open commitments
+    #     _normalise_suggestions -> 0     _normalise_commitments -> 0
+    #     _renderable(item) -> False on every one
+    #     build_signal_cards -> 0 cards      front_page signal_cards: 0
+    # The consumer accepts any of privacy / privacy_level / privacyLevel /
+    # level, on the item OR the payload. This server sent none of them.
+    #
+    # L2 IS NOT A GUESS. ostler.ai's own front-page section badges every card
+    # in this band L2: "People L2", "Dates L2", "Commitments L2", "Prep L2",
+    # "Drafts L2". That is the designed level for exactly this content.
+    #
+    # Stamped on the PAYLOAD rather than each item, which is the inheritance
+    # the consumer implements, so an item carrying its OWN stricter tag still
+    # wins and is still withheld.
+    out["privacy_level"] = "L2"
     return out
 
 
@@ -6330,6 +6669,18 @@ def api_recording_active():
 
     Read-only. Never raises. Returns a JSON-serialisable dict in every
     branch so the handler can wrap it in a 200 unconditionally.
+   
+    TWO FIELDS ARE NOT PURE PASS-THROUGH (HR015 #942), and the key set is
+    unchanged either way:
+
+    - ``jurisdiction``: when the producer writes null, this endpoint
+      supplies the ISO country the Hub itself resolved at install from
+      ``~/.ostler/posture/region.json``. A value the producer DID set is
+      never overwritten.
+    - ``consent_basis``: a basis other than ``all_party`` is WITHHELD
+      (reported as null) when the resolved jurisdiction is one that
+      requires every party to agree. This only ever removes a claim; it
+      cannot add one.
     """
     from datetime import datetime, timezone
 
@@ -6440,6 +6791,41 @@ def api_recording_active():
         not isinstance(jurisdiction, str) or not jurisdiction
     ):
         jurisdiction = None
+
+    # ── THE HEAD (HR015 #942): a jurisdiction derived from a real input ──
+    # The CM042 producer writes null when it could not resolve one. The Hub
+    # can, from the region it persisted at install, so the Live Activity and
+    # the widget -- which already render this field -- stop showing nothing.
+    # A value the producer DID set is never overwritten: CM042 is the single
+    # decider and knows more about the capture than this endpoint does.
+    if jurisdiction is None:
+        jurisdiction = _recording_device_jurisdiction()
+
+    # ── THE HANDS (HR015 #942): behaviour CHANGES on the value ──
+    # A "one_party" basis asserted in a country that requires every party to
+    # agree is a claim this Hub will not repeat to the operator's phone. The
+    # basis is withheld -- set back to null, which the contract already
+    # defines as "not stated" -- so the surface shows no basis rather than a
+    # reassuring and wrong one.
+    #
+    # WITHHOLDING IS THE ONLY SAFE DIRECTION. This never upgrades a basis and
+    # never invents one: it cannot manufacture a consent nobody gave, and the
+    # worst case is that a correctly-obtained all-party consent recorded under
+    # the wrong label shows as unstated. Stopping short of a claim is the
+    # materially better position #942 asks for.
+    if (
+        consent_basis is not None
+        and consent_basis != "all_party"
+        and _recording_requires_all_parties(jurisdiction)
+    ):
+        print(
+            f"WARNING: withholding consent_basis={consent_basis!r} for "
+            f"jurisdiction={jurisdiction!r}: that country requires every "
+            f"party to agree, so a one-party basis is not reported",
+            file=sys.stderr,
+            flush=True,
+        )
+        consent_basis = None
 
     recording = {
         "meeting_id": meeting_id,

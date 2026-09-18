@@ -210,7 +210,7 @@ PYTHON_BUNDLE_TARBALL  := $(BUILD_DIR)/python-bundle.tar.gz
 # DAEMON_VERSION + DAEMON_SHA256 and run `make download-daemon` to
 # verify the fetch + checksum still pass.
 # ---------------------------------------------------------------------------
-DAEMON_VERSION       ?= 0.4.80
+DAEMON_VERSION       ?= 0.4.81
 # SHA-256 of the published hub-v$(DAEMON_VERSION) tarball
 # (ostler-assistant-aarch64-apple-darwin-v$(DAEMON_VERSION).tar.gz). Verified
 # fail-closed in download-daemon: a mismatch deletes the file + aborts the cut,
@@ -304,7 +304,7 @@ DAEMON_VERSION       ?= 0.4.80
 # has been published at ostler-ai/ostler-assistant. Cutting v1.0.91 before
 # that second artefact exists will fail exactly as v1.0.81 did (see the
 # v1.0.81 note above) -- out of scope for this pin, flagged for whoever cuts.
-DAEMON_SHA256        ?= 16fff1a542fa463d9f4c5bb31c720f2873938ea93e75dd22be933e05fe069828
+DAEMON_SHA256        ?= 7eb07a15ce0b69357bd928547c664608a28f71b1af1c390e1b567a0e83a4ff21
 DAEMON_REPO          ?= ostler-ai/ostler-releases
 DAEMON_TARGET        ?= aarch64-apple-darwin
 DAEMON_TARBALL_NAME  := ostler-assistant-$(DAEMON_TARGET)-v$(DAEMON_VERSION).tar.gz
@@ -425,7 +425,7 @@ HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
 # produced is byte-identical (sha256 2b65537ee0...) to the copy already
 # grepped and differentially proven inside the hub-v0.4.80 daemon tarball,
 # and both binaries carry the same *_FRONTEND_COMMIT marker.
-HUB_APP_SHA256       ?= 29f0d6f63d87048d43b6bb43f334f8c0d2d9f7b367af435e178e510b11992238
+HUB_APP_SHA256       ?= ea3e0fb3535ae5d8c737edbb859ef6a1f59054c879f5d7e5faae26a8c03d3445
 
 # ---------------------------------------------------------------------------
 # SAFARI EXTENSION (CM020) -- the third artefact the cut cannot build itself.
@@ -2547,9 +2547,29 @@ staple-apps: guard-local-cut check-tools
 	# outer prefix, any remaining '.app/Contents/Resources/' means this bundle
 	# sits in a nested bundle's resource-sealed subtree.
 	$(STEP) "Round 1: stapling nested .apps (deepest-first) now their CDHashes are final"
+	# THE LIST IS READ A LINE AT A TIME, NEVER `for app in $$LIST`.
+	#
+	# v1.0.99 died on this line. #1970 added "Recover Ostler.app", the first
+	# bundle in this product whose name contains a SPACE, and an unquoted `for`
+	# splits on IFS. The single path
+	#   Contents/Resources/Recover Ostler.app
+	# became the two paths that do not exist
+	#   Contents/Resources/Recover        and        Ostler.app
+	# Each was reported here as "[skip] (no ticket issued for this CDHash)" --
+	# indistinguishable from a bundle Apple legitimately issued no ticket for --
+	# and then "[FAIL] ticket missing after staple" by the verify below, which
+	# failed the cut. The real bundle was never stapled and never named.
+	#
+	# A `find ... | while read` PIPELINE would fix the splitting and break the
+	# verify block instead: its counters would be incremented in a subshell and
+	# lost at the `done`. Both loops therefore read from a FILE, which runs the
+	# loop body in this shell.
 	@FAIL=0; \
-	NESTED_APPS="$$(find "$(APP_PATH)/Contents" -type d -name '*.app' 2>/dev/null | awk '{print length, $$0}' | sort -rn | cut -d' ' -f2-)"; \
-	for app in $$NESTED_APPS; do \
+	NESTED_LIST="$$(mktemp)"; \
+	find "$(APP_PATH)/Contents" -type d -name '*.app' 2>/dev/null \
+	    | awk '{print length, $$0}' | sort -rn | cut -d' ' -f2- > "$$NESTED_LIST"; \
+	while IFS= read -r app; do \
+	    [ -n "$$app" ] || continue; \
 	    REL="$${app#$(APP_PATH)/}"; \
 	    case "$$REL" in \
 	        *.app/Contents/Resources/*) \
@@ -2562,7 +2582,8 @@ staple-apps: guard-local-cut check-tools
 	    else \
 	        printf '  [skip] %s (no ticket issued for this CDHash)\n' "$$REL"; \
 	    fi; \
-	done
+	done < "$$NESTED_LIST"; \
+	rm -f "$$NESTED_LIST"
 	$(STEP) "Round 1: re-sealing the outer .app so it seals the freshly stapled nested bundles"
 	codesign --force --sign "$(CODESIGN_ID)" --options runtime --timestamp --entitlements "OstlerInstaller/OstlerInstaller.entitlements" "$(APP_PATH)"
 	@codesign --verify --deep --strict "$(APP_PATH)" 2>/dev/null || { \
@@ -2600,9 +2621,15 @@ staple-apps: guard-local-cut check-tools
 	# The excluded bundles are COUNTED and NAMED, not skipped quietly: a gate
 	# that can be emptied by an exclusion list has to say how much it excluded.
 	$(STEP) "Verifying every stapled .app in $(APP_PATH)"
+	# Same line-at-a-time read as Round 1, and for the same reason: a bundle
+	# name with a space split into two paths that do not exist, both of which
+	# then failed `stapler validate` and failed the cut.
 	@FAIL=0; EXCLUDED=0; CHECKED=0; \
-	NESTED_APPS="$$(find "$(APP_PATH)/Contents" -type d -name '*.app' 2>/dev/null)"; \
-	for app in "$(APP_PATH)" $$NESTED_APPS; do \
+	VERIFY_LIST="$$(mktemp)"; \
+	printf '%s\n' "$(APP_PATH)" > "$$VERIFY_LIST"; \
+	find "$(APP_PATH)/Contents" -type d -name '*.app' 2>/dev/null >> "$$VERIFY_LIST"; \
+	while IFS= read -r app; do \
+	    [ -n "$$app" ] || continue; \
 	    REL="$${app#$(APP_PATH)/}"; \
 	    case "$$REL" in \
 	        *.app/Contents/Resources/*) \
@@ -2617,7 +2644,8 @@ staple-apps: guard-local-cut check-tools
 	        printf '  [FAIL] %s -- ticket missing after staple\n' "$$REL" >&2; \
 	        FAIL=$$((FAIL+1)); \
 	    fi; \
-	done; \
+	done < "$$VERIFY_LIST"; \
+	rm -f "$$VERIFY_LIST"; \
 	printf '  %s bundle(s) required a ticket, %s deliberately excluded\n' "$$CHECKED" "$$EXCLUDED"; \
 	[ "$$CHECKED" -ge 3 ] || { \
 	    echo "ERROR: only $$CHECKED bundle(s) were ticket-checked -- expected at least 3" >&2; \

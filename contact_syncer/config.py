@@ -75,6 +75,7 @@ DEFAULT_PRIVACY_LEVEL: str = os.environ.get("DEFAULT_PRIVACY_LEVEL", "L2")
 
 # -- User ---------------------------------------------------------------------
 USER_ID: str = os.environ.get("USER_ID", "")
+USER_DISPLAY_NAME: str = os.environ.get("USER_DISPLAY_NAME", "") or os.environ.get("PWG_USER_NAME", "")
 
 
 def validate_required(

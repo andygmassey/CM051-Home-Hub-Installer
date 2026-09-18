@@ -361,6 +361,17 @@
     "illustration": null,
     "needs_fda": true
   },
+  "hydrate_reminders": {
+    "id": "hydrate_reminders",
+    "title": "Reading your Reminders",
+    "subtitle": "Things you told yourself to do",
+    "why": "Reminders often capture intentions nothing else records: errands, follow-ups, things to buy. Ostler reads them locally so they are searchable alongside everything else.",
+    "duration_estimate_s": 60,
+    "long_running_threshold_s": 45,
+    "long_running_copy": null,
+    "illustration": null,
+    "needs_fda": true
+  },
   "hydrate_people": {
     "id": "hydrate_people",
     "title": "Indexing your people for search",
@@ -371,6 +382,17 @@
     "long_running_copy": "Indexing scales with how many people were found.",
     "illustration": null,
     "needs_fda": true
+  },
+  "merge_consistency_repair": {
+    "id": "merge_consistency_repair",
+    "title": "Tidying up duplicate people",
+    "subtitle": "One person, one record",
+    "why": "When Ostler finds the same person twice, it merges them. Until now the merged-away copy could linger in one of the two places Ostler keeps people, so the count you saw was wrong in both. This pass clears those leftovers so a person appears once, and the number of people you know is the number you actually know.",
+    "duration_estimate_s": 45,
+    "long_running_threshold_s": 120,
+    "long_running_copy": "This scales with how many duplicates were merged over the life of your Hub.",
+    "illustration": null,
+    "needs_fda": false
   },
   "cm048_setup": {
     "id": "cm048_setup",
@@ -401,6 +423,17 @@
     "why": "A small service runs on this Mac and answers questions about your calendar, contacts and email on the assistant's behalf. It listens on this machine only.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 45,
+    "long_running_copy": null,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "memory_hygiene_setup": {
+    "id": "memory_hygiene_setup",
+    "title": "Scheduling memory hygiene",
+    "subtitle": "Keeping old facts from crowding out current ones",
+    "why": "As new facts come in, older or superseded ones need to be down-weighted rather than treated as equally current. This step schedules that housekeeping to run automatically in the background.",
+    "duration_estimate_s": 15,
+    "long_running_threshold_s": 30,
     "long_running_copy": null,
     "illustration": null,
     "needs_fda": false

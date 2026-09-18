@@ -57,6 +57,7 @@ on:
       - 'tests/test_case_in_command_substitution_parses_under_bash_32.sh'
       - 'tests/test_vendor_only_survives_sync.sh'
       - 'vendor/doctor/agent/web_ui.py'
+      - 'tests/test_a_launchagent_names_an_absolute_interpreter.py'
       - 'vendor/cm041/identity_resolver/batch_resolver.py'
       - 'vendor/cm041/identity_resolver/resolver.py'
       - 'tests/test_aiconv_agent_not_registered_without_owner_email.sh'
@@ -130,6 +131,15 @@ on:
       # catalogue (also listed above) are all watched, because the reuse
       # arm is only visible to a customer through two MSG_ entries.
       - 'tests/test_a_remembered_remote_access_answer_is_not_asked_again.sh'
+      # #1765: the graph namespace migrator was called against a directory
+      # this installer never creates, so the migration has never run on any
+      # customer box. Three files make that true or false and all three are
+      # watched: the test, the caller (install.sh, already listed above), the
+      # bundling phase that puts the file where the caller now looks, and the
+      # coverage gate that binds the two.
+      - 'tests/test_the_namespace_migrator_is_found_where_it_ships.sh'
+      - 'gui/project.yml'
+      - 'scripts/check_install_sh_script_dir_coverage.py'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/cold-box-source-truth.yml'
   push:
@@ -542,3 +552,36 @@ jobs:
       - name: A remembered remote-access answer is not asked again
         if: always()
         run: bash tests/test_a_remembered_remote_access_answer_is_not_asked_again.sh
+      # #1765: THE MIGRATOR SHIPPED AND THE CALLER LOOKED SOMEWHERE ELSE.
+      #
+      # install.sh read ${OSTLER_DIR}/scripts/migrate_graph_namespace.py. That
+      # directory appears ONCE in install.sh, on the line that reads it,
+      # against 61 uses of ${OSTLER_DIR}/bin, so nothing has ever created it and
+      # the guard was false on every install ever made. gui/project.yml does
+      # bundle the file, into Resources/scripts, which install.sh reads as
+      # ${SCRIPT_DIR}/scripts for the sibling deferred-register-device.sh.
+      #
+      # The test EXECUTES the extracted resolver against a staged payload and a
+      # stub interpreter that records what it was handed, so "the migration ran"
+      # is a witness file and not an inference from prose.
+      #
+      # if: always() so an earlier red cannot mask it.
+      - name: The namespace migrator is found where it actually ships
+        if: always()
+        run: bash tests/test_the_namespace_migrator_is_found_where_it_ships.sh
+
+      # Its other half: the probe added above must stay bound to the bundling
+      # phase. This gate is what turns a deleted cp line red instead of shipping
+      # a caller that can never find its file again.
+      - name: Every ${SCRIPT_DIR} probe is bundled by a build phase
+        if: always()
+        run: python3 scripts/check_install_sh_script_dir_coverage.py --mode ci
+      - name: Every LaunchAgent names an absolute interpreter (#951, #952)
+        if: always()
+        # A LaunchAgent does not inherit the customer's shell PATH; this repo's
+        # own plist comments say so. A bare interpreter is therefore not a style
+        # question: launchd resolves it against a minimal PATH, so the agent
+        # runs the wrong Python or fails to exec and parks with EX_CONFIG, which
+        # is not retried. Both rows are FIXED (23 of 23 agents absolute on the
+        # walk box) and nothing kept them that way until this file.
+        run: python3 tests/test_a_launchagent_names_an_absolute_interpreter.py
