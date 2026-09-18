@@ -23,431 +23,6 @@ index eefc9bba..2247621a 100644
          limit: Maximum number of messages to extract.
  
      Returns:
-diff --git a/apple_mail_mbox.py b/apple_mail_mbox.py
-index e00ea165..d9ae1ce6 100644
---- a/apple_mail_mbox.py
-+++ b/apple_mail_mbox.py
-@@ -82,6 +82,39 @@ discarded and the checkpoint stays put -- no silent partial-state
- leak. Mirrors the no-silent-fallback discipline applied to the
- H4 / H5 audit fixes 2026-05-01.
- 
-+Memory contract
-+---------------
-+Peak memory is bounded by MESSAGE COUNT, not by mailbox SIZE.
-+
-+The tick runs in two passes:
-+
-+1. **Scan** -- ``scan_emlx_metadata`` reads at most
-+   ``HEADER_SCAN_BYTES`` (64 KiB) from the front of each ``.emlx``,
-+   just far enough to read ``Date:``, and retains only an
-+   ``EmlxMeta`` (a path and a datetime). Bodies are never held.
-+2. **Emit** -- only the messages the two sweeps selected are opened,
-+   with ``parse_emlx``, ONE AT A TIME, and streamed straight to the
-+   mbox. Each body is released before the next file is opened.
-+
-+So peak retained bytes are roughly
-+``(messages in mailbox * sizeof(EmlxMeta)) + (largest single message)``
-+-- tens of MB on a mailbox of any size -- rather than the total
-+number of bytes in the mail store.
-+
-+This is load-bearing, not a tidy-up. The previous implementation
-+built a ``list[ParsedEmlx]`` covering the WHOLE mailbox before
-+filtering, so a tick's resident set was the size of the user's mail
-+store: measured at 11.49 GB with 11.21 GB of swap in use on a 16 GB
-+Mac mini, held for a ~14-minute tick every ~70 minutes. That is the
-+same memory precondition that killed the Colima VM and took the wiki
-+down. Worse, it was paid in full even on ticks that emitted NOTHING,
-+because the filtering happened after every body had already been
-+read and retained.
-+
-+If you add a pass over the mailbox here, keep it body-free, and keep
-+``test_apple_mail_mbox_memory.py`` passing -- it is the regression
-+guard on this contract.
-+
- Observability posture
- ---------------------
- Each tick (success or failure) records an observability-posture
-@@ -126,6 +159,15 @@ DEFAULT_INITIAL_BACKFILL_DAYS = 365
- # can correlate the marker with the launchctl entry.
- SERVICE_NAME = "email-ingest"
- 
-+# How much of each .emlx the metadata scan reads to find ``Date:``.
-+# RFC 5322 sets no cap on a header block, but Apple Mail writes Date:
-+# within the first couple of KiB; 64 KiB is generous headroom and
-+# still ~30x smaller than the mean message on a mailbox with
-+# attachments. A header block that overruns this window falls back to
-+# a full parse of that ONE file (see ``scan_emlx_metadata``), so the
-+# window is a performance knob and never a correctness one.
-+HEADER_SCAN_BYTES = 64 * 1024
-+
- 
- def _ostler_home() -> Path:
-     """Return ``$OSTLER_HOME`` or the default ``~/.ostler``.
-@@ -291,18 +333,30 @@ class ParsedEmlx:
-     source_path: Path
- 
- 
--def parse_emlx(path: Path) -> ParsedEmlx:
--    """Read a single ``.emlx`` file and return its RFC 822 body.
-+@dataclass(frozen=True)
-+class EmlxMeta:
-+    """Ordering key for one ``.emlx`` -- WITHOUT its body.
-+
-+    This is the per-message record the scan pass retains for every
-+    file in the mailbox. Holding ``ParsedEmlx`` here instead is what
-+    made peak memory proportional to total mailbox SIZE rather than
-+    to message COUNT: ``ParsedEmlx`` carries ``rfc822_bytes``, so a
-+    list of them is a second copy of the entire mail store in RAM.
-+    See ``emit_mbox`` for the two-pass structure that replaced it.
-+    """
- 
--    The .emlx format prepends a decimal byte count + newline before
--    the RFC 822 portion, then appends an XML plist with internal
--    flags. We strip both wrappers and return the inner message.
-+    path: Path
-+    received_at: Optional[datetime]
- 
--    ``received_at`` comes from the message's ``Date:`` header when
--    present, falling back to file mtime so the caller still has an
--    ordering key for messages with malformed dates.
-+
-+def _split_length_prefix(data: bytes, path: Path) -> tuple[int, int]:
-+    """Return ``(rfc822_start, length)`` for a length-prefixed .emlx.
-+
-+    Raises ``ValueError`` on a malformed prefix. Shared by the full
-+    parse and the metadata scan so both agree on exactly which files
-+    are unreadable -- a file the scan skips must be a file the emit
-+    pass would also have skipped.
-     """
--    data = path.read_bytes()
-     newline = data.find(b"\n")
-     if newline < 0:
-         raise ValueError(f"{path} has no length-prefix newline; malformed .emlx")
-@@ -312,21 +366,26 @@ def parse_emlx(path: Path) -> ParsedEmlx:
-         raise ValueError(
-             f"{path} length prefix is not an integer: {data[:newline]!r}"
-         ) from exc
-+    return newline + 1, length
- 
--    rfc822_start = newline + 1
--    rfc822_end = rfc822_start + length
--    if rfc822_end > len(data):
--        # Some Mail-versions truncate the trailing plist; clip to the
--        # file size and continue rather than dropping the message.
--        rfc822_end = len(data)
--    rfc822 = data[rfc822_start:rfc822_end]
- 
--    # Pull Date and From out of the RFC 822 headers without invoking
--    # the full email parser -- this is the hot path on the LaunchAgent
--    # tick and we touch hundreds of files per run.
-+def _header_fields(rfc822: bytes) -> tuple[Optional[datetime], str, bool]:
-+    """Pull ``Date:`` and ``From:`` out of an RFC 822 header block.
-+
-+    Returns ``(received_at, sender_address, header_block_terminated)``.
-+    ``header_block_terminated`` reports whether a blank line actually
-+    closed the header block inside ``rfc822`` -- the metadata scan
-+    uses it to detect a header block that overran its read window.
-+
-+    Deliberately does not invoke the full ``email`` parser: this is
-+    the hot path on the LaunchAgent tick and we touch every file in
-+    the mailbox on every run.
-+    """
-+    headers_blob = rfc822.split(b"\r\n\r\n", 1)[0].split(b"\n\n", 1)[0]
-+    terminated = b"\r\n\r\n" in rfc822 or b"\n\n" in rfc822
-+
-     received_at: Optional[datetime] = None
-     sender_address = ""
--    headers_blob = rfc822.split(b"\r\n\r\n", 1)[0].split(b"\n\n", 1)[0]
-     for line in headers_blob.splitlines():
-         try:
-             line_s = line.decode("utf-8", errors="replace")
-@@ -347,13 +406,44 @@ def parse_emlx(path: Path) -> ParsedEmlx:
-                 sender_address = value.split("<", 1)[1].split(">", 1)[0].strip()
-             else:
-                 sender_address = value
-+    return received_at, sender_address, terminated
-+
-+
-+def _mtime_utc(path: Path) -> Optional[datetime]:
-+    """File mtime as an aware UTC datetime, or ``None`` if unstattable."""
-+    try:
-+        return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
-+    except OSError:
-+        return None
-+
-+
-+def parse_emlx(path: Path) -> ParsedEmlx:
-+    """Read a single ``.emlx`` file and return its RFC 822 body.
-+
-+    The .emlx format prepends a decimal byte count + newline before
-+    the RFC 822 portion, then appends an XML plist with internal
-+    flags. We strip both wrappers and return the inner message.
-+
-+    ``received_at`` comes from the message's ``Date:`` header when
-+    present, falling back to file mtime so the caller still has an
-+    ordering key for messages with malformed dates.
-+
-+    Reads the whole file. Call it ONE MESSAGE AT A TIME and let the
-+    result fall out of scope before the next -- see ``scan_emlx_metadata``
-+    for the body-free pass used to decide which messages are wanted.
-+    """
-+    data = path.read_bytes()
-+    rfc822_start, length = _split_length_prefix(data, path)
-+    rfc822_end = rfc822_start + length
-+    if rfc822_end > len(data):
-+        # Some Mail-versions truncate the trailing plist; clip to the
-+        # file size and continue rather than dropping the message.
-+        rfc822_end = len(data)
-+    rfc822 = data[rfc822_start:rfc822_end]
-+
-+    received_at, sender_address, _terminated = _header_fields(rfc822)
-     if received_at is None:
--        try:
--            received_at = datetime.fromtimestamp(
--                path.stat().st_mtime, tz=timezone.utc,
--            )
--        except OSError:
--            received_at = None
-+        received_at = _mtime_utc(path)
- 
-     return ParsedEmlx(
-         received_at=received_at,
-@@ -363,6 +453,53 @@ def parse_emlx(path: Path) -> ParsedEmlx:
-     )
- 
- 
-+def scan_emlx_metadata(
-+    path: Path, *, header_bytes: int = HEADER_SCAN_BYTES,
-+) -> EmlxMeta:
-+    """Read just enough of a ``.emlx`` to date it. Never retains the body.
-+
-+    The emit decision needs one field -- ``received_at`` -- and that
-+    field lives in the header block at the very front of the file.
-+    Reading the whole message to obtain it, and then KEEPING the
-+    message so a later pass can filter it, is what put the entire
-+    mail store in RAM.
-+
-+    Reads at most ``header_bytes`` and returns a body-free
-+    ``EmlxMeta``, so the scan pass costs O(number of messages) in
-+    memory instead of O(size of mailbox).
-+
-+    Raises the same ``ValueError`` / ``OSError`` as ``parse_emlx``
-+    for a malformed or unreadable file, so the caller's skip
-+    accounting is identical either way.
-+    """
-+    with path.open("rb") as fh:
-+        head = fh.read(header_bytes)
-+
-+    rfc822_start, length = _split_length_prefix(head, path)
-+    # Never read past the RFC 822 region into the plist trailer: the
-+    # trailer is XML and could otherwise be mistaken for headers.
-+    head_rfc822 = head[rfc822_start:rfc822_start + length]
-+
-+    received_at, _sender, terminated = _header_fields(head_rfc822)
-+
-+    if received_at is None and not terminated and len(head_rfc822) < length:
-+        # The header block did not fit in the read window. Rare (Apple
-+        # Mail puts Date: within the first few KiB), but correctness
-+        # must not depend on the window size, so fall back to a full
-+        # parse of THIS ONE file. Still bounded: one message at a time.
-+        logger.debug(
-+            "Header block of %s overran the %d-byte scan window; "
-+            "falling back to a full parse for this file.",
-+            path, header_bytes,
-+        )
-+        received_at = parse_emlx(path).received_at
-+
-+    if received_at is None:
-+        received_at = _mtime_utc(path)
-+
-+    return EmlxMeta(path=path, received_at=received_at)
-+
-+
- def discover_emlx_files(mail_dir: Path) -> Iterator[Path]:
-     """Yield every ``.emlx`` file under ``mail_dir`` recursively.
- 
-@@ -600,25 +737,35 @@ def emit_mbox(
- 
-     output_path.parent.mkdir(parents=True, exist_ok=True)
- 
--    # Discover everything once. parse_emlx is the hot path and we
--    # already touched every file in v1; the new model adds another
--    # filter pass over the same in-memory list rather than walking
--    # the tree twice.
--    discovered: list[ParsedEmlx] = []
-+    # PASS 1 -- SCAN. Date every message in the mailbox WITHOUT keeping
-+    # any bodies. This pass is what decides which messages the two
-+    # sweeps want; it must therefore touch every file, but it retains
-+    # only a path + a datetime per message.
-+    #
-+    # This used to build a list of ParsedEmlx, i.e. every RFC 822 body
-+    # in the mailbox held in RAM simultaneously, and it did so even on
-+    # a tick that went on to emit nothing at all. On a multi-gigabyte
-+    # mail store that is a multi-gigabyte resident set on a 16 GB box:
-+    # the precondition that took out the Colima VM. Peak memory is now
-+    # O(message count) here plus O(largest single message) in pass 2,
-+    # instead of O(total mailbox bytes).
-+    discovered: list[EmlxMeta] = []
-     skipped_unparseable = 0
-     skipped_no_date = 0
-+    scanned_files = 0
-     try:
-         for emlx_path in discover_emlx_files(mail_dir):
-+            scanned_files += 1
-             try:
--                parsed = parse_emlx(emlx_path)
-+                meta = scan_emlx_metadata(emlx_path)
-             except (OSError, ValueError) as exc:
-                 logger.warning("Skipping unreadable .emlx %s: %s", emlx_path, exc)
-                 skipped_unparseable += 1
-                 continue
--            if parsed.received_at is None:
-+            if meta.received_at is None:
-                 skipped_no_date += 1
-                 continue
--            discovered.append(parsed)
-+            discovered.append(meta)
-     except PermissionError as exc:
-         # Apple Mail's ~/Library/Mail requires Full Disk Access.
-         # Map this to the dedicated posture status so Doctor can
-@@ -644,7 +791,7 @@ def emit_mbox(
-     # oldest_edge); strictly less than the edge so we don't
-     # double-emit a message that happens to land exactly on a
-     # chunk boundary.
--    backward: list[ParsedEmlx] = []
-+    backward: list[EmlxMeta] = []
-     new_oldest_edge = oldest_edge
-     if not backfill_complete and oldest_edge is not None and not is_seeding_tick:
-         chunk_floor = oldest_edge - _days(backfill_chunk_days)
-@@ -703,6 +850,27 @@ def emit_mbox(
-             oldest_edge.isoformat() if oldest_edge else "<none>",
-             backfill_complete,
-         )
-+        # A tick that walked the whole mail store and produced nothing
-+        # is not the same event as an idle tick on an empty mailbox,
-+        # and it must not print like one. The 12:19 tick on 2026-08-23
-+        # emitted zero messages while holding ~11.5 GB, and said only
-+        # "no new messages" -- the cost was invisible in the log, so
-+        # the only evidence it had happened at all was a memory graph.
-+        # State the work done alongside the work produced, every time.
-+        if scanned_files:
-+            logger.warning(
-+                "ZERO-OUTPUT TICK: scanned %d .emlx file(s) and emitted 0 "
-+                "messages (%d dated, %d unparseable, %d undated). The scan "
-+                "pass reads every file in the mail store every tick by "
-+                "design; if this repeats with a large scan count the "
-+                "checkpoint edges are not advancing (forward cutoff=%s, "
-+                "oldest_edge=%s, backfill_complete=%s).",
-+                scanned_files, len(discovered), skipped_unparseable,
-+                skipped_no_date,
-+                forward_cutoff.isoformat() if forward_cutoff else "the dawn of time",
-+                oldest_edge.isoformat() if oldest_edge else "<none>",
-+                backfill_complete,
-+            )
-         # Persist the advanced edges + last_run_at even on a zero-
-         # emit tick: the backward sweep needs to advance one chunk
-         # whether or not it found mail, otherwise an empty 30-day
-@@ -729,21 +897,55 @@ def emit_mbox(
-         )
-         return 0
- 
-+    # PASS 2 -- EMIT. Read the selected messages ONE AT A TIME and
-+    # stream each straight to the mbox. The body of message N is
-+    # released before message N+1 is opened, so this pass costs one
-+    # message in memory regardless of how many are being emitted or
-+    # how large the mailbox is.
-+    #
-+    # `fresh` holds EmlxMeta (path + date), not bodies, so the emit
-+    # set itself is cheap to hold even for a 5-year backfill chunk.
-+    forward_paths = {m.path for m in forward}
-+    emitted_forward_dates: list[datetime] = []
-+    emitted_count = 0
-+    skipped_at_emit = 0
-     try:
-         with output_path.open("ab") as fh:
--            for parsed in fresh:
-+            for meta in fresh:
-+                try:
-+                    parsed = parse_emlx(meta.path)
-+                except (OSError, ValueError) as exc:
-+                    # The file was readable during the scan pass and is
-+                    # not now -- Apple Mail rearranges its tree mid-tick
-+                    # (#197). Skip it and let a later tick pick it up
-+                    # rather than failing the whole run.
-+                    logger.warning(
-+                        "Skipping .emlx that became unreadable between scan "
-+                        "and emit %s: %s", meta.path, exc,
-+                    )
-+                    skipped_at_emit += 1
-+                    continue
-                 fh.write(_format_mbox_record(parsed))
-+                emitted_count += 1
-+                if meta.path in forward_paths and meta.received_at is not None:
-+                    emitted_forward_dates.append(meta.received_at)
-+                # Drop the body before opening the next file. Without
-+                # this the loop variable keeps the last message alive,
-+                # which is harmless at one message but makes the intent
-+                # of the pass unclear to the next reader.
-+                del parsed
-     except OSError as exc:
-         _record("extract_failed", error_message=f"mbox write failed: {exc}")
-         raise
- 
--    # Forward edge advances to the latest received_at we just
--    # emitted (or stays put if we only did backward work).
--    forward_received = [
--        p.received_at for p in forward if p.received_at is not None
--    ]
-+    # Forward edge advances to the latest received_at we actually
-+    # emitted (or stays put if we only did backward work). Using the
-+    # EMITTED dates rather than the candidate dates means a message
-+    # that vanished between the two passes is not silently stepped
-+    # over by the checkpoint.
-     advanced_newest = (
--        max(forward_received) if forward_received else checkpoint.newest_processed
-+        max(emitted_forward_dates) if emitted_forward_dates
-+        else checkpoint.newest_processed
-     )
- 
-     try:
-@@ -753,7 +955,7 @@ def emit_mbox(
-                 oldest_processed=new_oldest_edge,
-                 backfill_complete=new_backfill_complete,
-                 last_run_at=now,
--                last_emit_count=len(fresh),
-+                last_emit_count=emitted_count,
-             ),
-             checkpoint_path,
-         )
-@@ -762,21 +964,22 @@ def emit_mbox(
-         raise
- 
-     logger.info(
--        "Emitted %d messages to %s (forward=%d, backward=%d, latest=%s, "
--        "oldest_edge=%s, backfill_complete=%s, %d unparseable, %d undated skipped).",
--        len(fresh), output_path, len(forward), len(backward),
-+        "Emitted %d messages to %s (scanned=%d, forward=%d, backward=%d, "
-+        "latest=%s, oldest_edge=%s, backfill_complete=%s, %d unparseable, "
-+        "%d undated, %d vanished between scan and emit).",
-+        emitted_count, output_path, scanned_files, len(forward), len(backward),
-         advanced_newest.isoformat() if advanced_newest else "<none>",
-         new_oldest_edge.isoformat() if new_oldest_edge else "<none>",
-         new_backfill_complete,
--        skipped_unparseable, skipped_no_date,
-+        skipped_unparseable, skipped_no_date, skipped_at_emit,
-     )
-     _record(
-         "success",
--        emitted=len(fresh),
-+        emitted=emitted_count,
-         oldest=new_oldest_edge,
-         newest=advanced_newest,
-     )
--    return len(fresh)
-+    return emitted_count
- 
- 
- def _days(n: int) -> "datetime":  # noqa: F821 -- forward ref to timedelta below
 diff --git a/dedupe_merge.py b/dedupe_merge.py
 index 8a352c8e..594a98fc 100644
 --- a/dedupe_merge.py
@@ -849,69 +424,20 @@ index 8396d5d7..8cbfd3c8 100644
          canon = group[0]
          for name in group:
              if name in _AMBIGUOUS:
-diff --git a/identifier_quality.py b/identifier_quality.py
-index c5d3f8d0..6021f8c3 100644
---- a/identifier_quality.py
-+++ b/identifier_quality.py
-@@ -86,7 +86,7 @@ import re
- import unicodedata
- 
- from nameparser import HumanName
--from typing import Iterable, Set
-+from typing import Dict, Iterable, Set
- 
- try:
-     from .role_addresses import is_role_identifier
 diff --git a/pwg_ingest.py b/pwg_ingest.py
-index 9f7339f1..c3e17e9e 100644
+index 0b1e9237..27018a87 100644
 --- a/pwg_ingest.py
 +++ b/pwg_ingest.py
-@@ -33,6 +33,8 @@ import httpx
- 
- from .role_addresses import is_role_identifier  # noqa: F401
- from .identifier_quality import observe as _observe_identifier
-+from .usage_journal import record_usage as _record_usage
-+from .usage_journal import tokens_from_ollama as _tokens_from_ollama
- 
- logger = logging.getLogger(__name__)
- 
-@@ -42,6 +44,35 @@ QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
- OXIGRAPH_URL = os.getenv("OXIGRAPH_URL", "http://localhost:7878")
- OLLAMA_URL = os.getenv("EMBED_OLLAMA_URL", "http://localhost:11434")
- EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
-+
-+# Identifies THIS run in the usage journal -- never the person. One id per
-+# process so the panel can tell "one big import" from "forty small ones".
-+_USAGE_SESSION_ID = f"ostler-fda-ingest-{uuid.uuid4().hex[:12]}"
-+
-+
-+def _record_embed_usage(response: dict) -> None:
-+    """Record one embedding call as `ingesting`, if the runtime measured it.
-+
-+    Embedding a source for the first time is the definition of ingesting, so
-+    this is the purpose regardless of which extractor called us.
-+
-+    Silent when Ollama reported no counts. That is the contract's hard rule
-+    (measured, never estimated) and not an oversight: the legacy
-+    ``/api/embeddings`` endpoint returns the vector alone, so on an install
-+    still pointed at it this stays dark rather than inventing a number.
-+    """
-+    prompt, completion = _tokens_from_ollama(response)
-+    if prompt is None and completion is None:
-+        return
-+    _record_usage(
-+        model=EMBED_MODEL,
-+        input_tokens=prompt,
-+        output_tokens=completion,
-+        purpose="ingesting",
-+        session_id=_USAGE_SESSION_ID,
-+    )
+@@ -71,6 +71,8 @@ def _record_embed_usage(response: dict) -> None:
+         purpose="ingesting",
+         session_id=_USAGE_SESSION_ID,
+     )
 +
 +
  QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "people")
  DEFAULT_PRIVACY = os.getenv("DEFAULT_PRIVACY_LEVEL", "L2")
  
-@@ -96,6 +127,318 @@ def _wiki_slug(name: str) -> str:
+@@ -125,6 +127,318 @@ def _wiki_slug(name: str) -> str:
  
  # ── Shared utilities (same patterns as contact_syncer) ────────────
  
@@ -1230,15 +756,81 @@ index 9f7339f1..c3e17e9e 100644
  def _sparql_update(sparql: str) -> None:
      """Execute a SPARQL UPDATE against Oxigraph."""
      transport = httpx.HTTPTransport(proxy=None)
-@@ -182,6 +525,7 @@ def _embed_text(text: str) -> list[float]:
-         )
-         resp.raise_for_status()
-         data = resp.json()
-+    _record_embed_usage(data)
-     embs = data.get("embeddings") or [data.get("embedding")]
-     return embs[0]
+@@ -238,6 +552,73 @@ def _person_uri(person_id: str) -> str:
+     return f"https://schema.ostler.ai/ontology#person_{person_id}"
  
-@@ -285,13 +629,19 @@ def ingest_imessage(fda_dir: Path) -> dict:
+ 
++# Sentinel for "the store could not answer". Distinct from None, which
++# means "asked, and nobody holds this". Collapsing the two is the
++# manufactured-clean-input failure: a store that refused to answer would
++# read as "no such person" and mint a duplicate, silently.
++_LOOKUP_FAILED = object()
++
++
++def _person_uri_by_identifier_value(value: str):
++    """Return the URI of a person who ALREADY HOLDS ``value``, or None.
++
++    WHY THIS EXISTS. Every writer in this module mints its person URI as
++    ``uuid5(lowercased identifier)`` and then asks only
++    :func:`_person_exists` -- "did *I* already create this URI?". That
++    question is not "does this human already exist?". Contacts, LinkedIn
++    and the CM041 resolver mint URIs by other schemes, so a person the
++    customer already has can never be seen by a self-check, and the
++    writer creates a second record for them.
++
++    This asks the graph the question that actually matters: is there a
++    ``pwg:PersonIdentifier`` anywhere carrying this value, and who owns
++    it? Matching is case-insensitive on the STORED value, because the
++    minting side lowercases and the contact-card side does not.
++
++    RETURNS one of three things, and the three are NOT interchangeable:
++
++    * a URI string -- somebody holds it; link to them, create nothing.
++    * ``None``     -- the store answered, and nobody holds it.
++    * ``_LOOKUP_FAILED`` -- the store could not be asked.
++
++    The third is why this does not simply return None on error. An
++    unreachable store returning "nobody holds it" is a store that causes
++    duplicates rather than reporting that it could not look. Callers
++    count the failures and surface them, so a run that could not check
++    is distinguishable from a run that checked and found nothing.
++    """
++    if not value or not value.strip():
++        return None
++    needle = _escape(value.strip().lower())
++    sparql = (
++        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
++        "SELECT ?p WHERE {\n"
++        "  ?p pwg:hasIdentifier ?id .\n"
++        "  ?id pwg:identifierValue ?iv .\n"
++        f'  FILTER(LCASE(STR(?iv)) = "{needle}")\n'
++        "} LIMIT 1"
++    )
++    try:
++        rows = _sparql_query(sparql)
++    except Exception as exc:  # noqa: BLE001 -- reported, not swallowed
++        # No value in the log line: an identifier IS the PII. Shape only.
++        logger.warning(
++            "identifier lookup could not run (%s); this run cannot tell a "
++            "new person from a known one and may create a duplicate",
++            type(exc).__name__,
++        )
++        return _LOOKUP_FAILED
++    if not rows:
++        return None
++    return (rows[0].get("p") or {}).get("value") or None
++
++
++def _identifier_kind(value: str) -> str:
++    """"phone" or "email" for an identifier, by the shape iMessage uses."""
++    cleaned = value.replace("-", "").replace(" ", "")
++    return "phone" if (value.startswith("+") or cleaned.isdigit()) else "email"
++
++
+ def _whatsapp_display_name(jid: str) -> str:
+     """Placeholder display name for an un-named WhatsApp phone contact.
+ 
+@@ -315,13 +696,19 @@ def ingest_imessage(fda_dir: Path) -> dict:
  
                  triples = [
                      f"<{uri}> a pwg:Person",
@@ -1259,7 +851,7 @@ index 9f7339f1..c3e17e9e 100644
                  # Add identifier
                  id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_imessage"
                  triples.extend([
-@@ -328,6 +678,12 @@ def ingest_imessage(fda_dir: Path) -> dict:
+@@ -358,6 +745,12 @@ def ingest_imessage(fda_dir: Path) -> dict:
                      _sparql_update(sparql)
                      people_enriched += 1
  
@@ -1272,7 +864,7 @@ index 9f7339f1..c3e17e9e 100644
              # Update last_contact if this conversation is more recent
              if last_msg and msg_count > 0:
                  _update_last_contact(uri, last_msg, "imessage")
-@@ -446,6 +802,84 @@ def _update_last_contact(person_uri: str, timestamp: str, source: str) -> None:
+@@ -476,6 +869,84 @@ def _update_last_contact(person_uri: str, timestamp: str, source: str) -> None:
          logger.debug("Could not update last_contact: %s", e)
  
  
@@ -1357,7 +949,7 @@ index 9f7339f1..c3e17e9e 100644
  # ── WhatsApp historical ingestion (CX-85) ─────────────────────────
  #
  # Three-tier model (Andy 2026-05-26 -- see whatsapp_history.py for
-@@ -548,21 +982,34 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
+@@ -578,21 +1049,34 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
              uri = _person_uri(person_id)
              exists = _person_exists(uri)
  
@@ -1399,7 +991,7 @@ index 9f7339f1..c3e17e9e 100644
                  id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_whatsapp"
                  triples.extend([
                      f"<{uri}> pwg:hasIdentifier <{id_uri}>",
-@@ -617,6 +1064,12 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
+@@ -647,6 +1131,12 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                      _sparql_update(sparql)
                      people_enriched += 1
  
@@ -1412,8 +1004,44 @@ index 9f7339f1..c3e17e9e 100644
              # Always upsert lastContactWhatsApp regardless of person
              # existing or not. The DELETE-INSERT-WHERE-FILTER pattern
              # in _update_last_contact ensures older timestamps never
-@@ -687,12 +1140,16 @@ def ingest_calendar(fda_dir: Path) -> dict:
-                 if not _person_exists(uri):
+@@ -688,6 +1178,9 @@ def ingest_calendar(fda_dir: Path) -> dict:
+     people_seen: set[str] = set()
+     events_processed = 0
+     meetings_created = 0
++    people_created = 0
++    people_matched = 0
++    lookup_failed = 0
+ 
+     for event in events:
+         attendees = event.get("attendees", [])
+@@ -707,28 +1200,71 @@ def ingest_calendar(fda_dir: Path) -> dict:
+             if _observe_identifier(attendee, ""):
+                 logger.debug("skipping role address %s", attendee)
+                 continue
++
++            # RESOLVE BEFORE CREATING. Ask who already holds this address
++            # before minting a URI for it. The old order -- mint, then ask
++            # `_person_exists(<the URI I just minted>)` -- can only ever
++            # find records THIS function made, so a calendar attendee the
++            # customer already had in Contacts became a second record.
++            found = _person_uri_by_identifier_value(attendee)
++            if found is _LOOKUP_FAILED:
++                lookup_failed += 1
++                found = None
+             person_id = _person_id_from_identifier(attendee)
+-            uri = _person_uri(person_id)
++            uri = found or _person_uri(person_id)
+             attendee_uris.append(uri)
+ 
+-            if person_id not in people_seen:
+-                people_seen.add(person_id)
++            if uri not in people_seen:
++                people_seen.add(uri)
+ 
+-                if not _person_exists(uri):
++                if found:
++                    people_matched += 1
++                elif not _person_exists(uri):
                      triples = [
                          f"<{uri}> a pwg:Person",
 -                        f'<{uri}> pwg:displayName "{_escape(attendee)}"',
@@ -1427,23 +1055,71 @@ index 9f7339f1..c3e17e9e 100644
 +                    # attendee is very often a bare address. Un-flagged, that
 +                    # address became the person's permanent name.
 +                    triples.extend(_creation_name_triples(uri, attendee))
++
++                    # THE IDENTIFIER, which this writer never emitted.
++                    # Without it the record carries nothing to match on, so
++                    # it is unmergeable FOREVER: every later resolver --
++                    # including the lookup above, and CM041's dedup detector,
++                    # which indexes only non-empty identifier values -- keys
++                    # on identifiers and simply cannot see a person who has
++                    # none. 900 identifier-less people were measured this way.
++                    id_uri = (
++                        "https://schema.ostler.ai/ontology#"
++                        f"id_{person_id}_calendar"
++                    )
++                    triples.extend([
++                        f"<{uri}> pwg:hasIdentifier <{id_uri}>",
++                        f"<{id_uri}> a pwg:PersonIdentifier",
++                        f'<{id_uri}> pwg:identifierType "{_identifier_kind(attendee)}"',
++                        f'<{id_uri}> pwg:identifierValue "{_escape(attendee)}"',
++                        f'<{id_uri}> pwg:identifierLabel "CALENDAR"',
++                    ])
++
                      sparql = (
                          "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
                          "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
-@@ -700,6 +1157,12 @@ def ingest_calendar(fda_dir: Path) -> dict:
+                         "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
                      )
                      _sparql_update(sparql)
- 
++                    people_created += 1
++
 +                # v1018-D658: runs for NEW and EXISTING alike. Every name write
 +                # above sits inside the not-exists guard, so an existing person's
 +                # placeholder was never revisited by any source. Upward-only -- a
 +                # same-tier or lower value is a no-op.
 +                _upsert_display_name(uri, attendee)
-+
+ 
              # Update last contact from meeting date
              if start_date:
-                 _update_last_contact(uri, start_date, "calendar")
-@@ -792,12 +1255,16 @@ def ingest_photos_people(fda_dir: Path) -> dict:
+@@ -780,14 +1316,26 @@ def ingest_calendar(fda_dir: Path) -> dict:
+         events_processed += 1
+ 
+     logger.info(
+-        "Calendar: %d events processed, %d unique attendees, %d meetings",
++        "Calendar: %d events processed, %d unique attendees, %d meetings, "
++        "%d people created, %d matched to an existing person",
+         events_processed, len(people_seen), meetings_created,
++        people_created, people_matched,
+     )
++    if lookup_failed:
++        # NOT folded into the counts above. A run that could not look is
++        # not a run that looked and found nothing.
++        logger.warning(
++            "Calendar: %d identifier lookups could not run; those attendees "
++            "may have been duplicated", lookup_failed,
++        )
+     return {
+         "status": "ok",
+         "events_processed": events_processed,
+         "unique_attendees": len(people_seen),
+         "meetings_created": meetings_created,
++        "people_created": people_created,
++        "people_matched": people_matched,
++        "people_lookup_failed": lookup_failed,
+     }
+ 
+ 
+@@ -822,12 +1370,16 @@ def ingest_photos_people(fda_dir: Path) -> dict:
  
              triples = [
                  f"<{uri}> a pwg:Person",
@@ -1461,7 +1137,7 @@ index 9f7339f1..c3e17e9e 100644
  
              if first_seen:
                  triples.append(
-@@ -816,6 +1283,12 @@ def ingest_photos_people(fda_dir: Path) -> dict:
+@@ -846,6 +1398,12 @@ def ingest_photos_people(fda_dir: Path) -> dict:
              _sparql_update(sparql)
              people_created += 1
  
@@ -1474,8 +1150,35 @@ index 9f7339f1..c3e17e9e 100644
      logger.info("Photos: %d people created from face labels", people_created)
      return {"status": "ok", "people_created": people_created}
  
-@@ -854,11 +1327,14 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
-         if not _person_exists(uri):
+@@ -865,6 +1423,8 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
+ 
+     contacts = json.loads(contacts_file.read_text())
+     people_created = 0
++    people_matched = 0
++    lookup_failed = 0
+ 
+     for email, count in contacts.items():
+         if not email or count < 3:
+@@ -878,17 +1438,30 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
+         if _observe_identifier(email, ""):
+             logger.debug("skipping role address %s", email)
+             continue
++        # RESOLVE BEFORE CREATING -- same rule as ingest_calendar above.
++        # A frequent sender is very often somebody already in Contacts,
++        # minted there under a different URI scheme that _person_exists
++        # cannot see.
++        found = _person_uri_by_identifier_value(email)
++        if found is _LOOKUP_FAILED:
++            lookup_failed += 1
++            found = None
+         person_id = _person_id_from_identifier(email)
+-        uri = _person_uri(person_id)
++        uri = found or _person_uri(person_id)
+ 
+-        if not _person_exists(uri):
++        if found:
++            people_matched += 1
++        elif not _person_exists(uri):
              triples = [
                  f"<{uri}> a pwg:Person",
 -                f'<{uri}> pwg:displayName "{_escape(email)}"',
@@ -1490,34 +1193,37 @@ index 9f7339f1..c3e17e9e 100644
  
              id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_mail"
              triples.extend([
-@@ -877,6 +1353,12 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
+@@ -907,8 +1480,27 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
              _sparql_update(sparql)
              people_created += 1
  
+-    logger.info("Apple Mail: %d contacts created", people_created)
+-    return {"status": "ok", "people_created": people_created}
 +        # v1018-D658: runs for NEW and EXISTING alike. Every name write
 +        # above sits inside the not-exists guard, so an existing person's
 +        # placeholder was never revisited by any source. Upward-only -- a
 +        # same-tier or lower value is a no-op.
 +        _upsert_display_name(uri, email)
 +
-     logger.info("Apple Mail: %d contacts created", people_created)
-     return {"status": "ok", "people_created": people_created}
++    logger.info(
++        "Apple Mail: %d contacts created, %d matched to an existing person",
++        people_created, people_matched,
++    )
++    if lookup_failed:
++        logger.warning(
++            "Apple Mail: %d identifier lookups could not run; those senders "
++            "may have been duplicated", lookup_failed,
++        )
++    return {
++        "status": "ok",
++        "people_created": people_created,
++        "people_matched": people_matched,
++        "people_lookup_failed": lookup_failed,
++    }
  
-@@ -962,7 +1444,12 @@ def _ollama_embed_batch(texts: list[str]) -> list[list[float]]:
-                     json={"model": EMBED_MODEL, "input": chunk},
-                 )
-                 resp.raise_for_status()
--                embs = resp.json().get("embeddings")
-+                payload = resp.json()
-+                # Recorded per CHUNK, because that is per HTTP call and so per
-+                # measurement Ollama returns. The degraded per-text fallback
-+                # below routes through _embed_text, which records its own.
-+                _record_embed_usage(payload)
-+                embs = payload.get("embeddings")
-                 if embs is None or len(embs) != len(chunk):
-                     # Malformed/short batch: degrade to one-at-a-time.
-                     embs = []
-@@ -1069,6 +1556,63 @@ def _qdrant_upsert_points(collection: str, points: list[dict]) -> int:
+ 
+ # ── Browser history ingestion (direct path, v1.0) ─────────────────
+@@ -1104,6 +1696,63 @@ def _qdrant_upsert_points(collection: str, points: list[dict]) -> int:
      return upserted
  
  
@@ -1581,10 +1287,202 @@ index 9f7339f1..c3e17e9e 100644
  def _load_browsing_visits(fda_dir: Path) -> list[dict]:
      """Read safari_history.json + chrome_history.json from ``fda_dir``.
  
-@@ -2113,6 +2657,64 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
+@@ -1916,6 +2565,58 @@ def _load_people_from_oxigraph() -> list[dict]:
+         "}"
+     )
+ 
++    # Third query: the LAST-CONTACT signal, folded to one date per person.
++    #
++    # WHY THIS EXISTS (CM051, 2026-09-16). The Qdrant `people` payload built
++    # below used to stamp a hardcoded `"last_contact": ""` and nothing else.
++    # The reader -- ical-server.py `people_stale()` -- filters on
++    # `last_contact_ts`, so BOTH halves were dead:
++    #
++    #   - `last_contact_ts` was absent from every point. Measured on a live
++    #     box 2026-09-16: is_empty last_contact_ts = 3784 of 3784, IDENTICAL
++    #     to a deliberately fake payload key, while is_empty display_name = 0
++    #     on the same probe, so the predicate discriminates.
++    #   - `last_contact` was present on all 3784 and held the EMPTY STRING on
++    #     all 3784 (exact count, not a sample). So renaming the READER to ask
++    #     for `last_contact` would have swapped one permanently-empty answer
++    #     for another. The name was never the whole defect; the writer simply
++    #     never carried the value.
++    #
++    # The value was not missing from the product, only from this payload:
++    # Oxigraph holds it as the per-source predicates `_update_last_contact`
++    # writes a few hundred lines above. Measured on the same box: 1501 triples
++    # across lastContactEmail / lastContactWhatsApp / lastContactCalendar /
++    # lastContactIMessage, covering 1481 distinct people.
++    #
++    # `last_contact_ts` is the DOCUMENTED CONTRACT, which is why the writer
++    # moves rather than the reader: assistant_api/API.md names it, the four
++    # contact_syncer writers (syncer.py, facebook_friends.py,
++    # linkedin_connections.py, instagram_social.py) and meeting_syncer all
++    # stamp it, identity_resolver merges on it, and the shipped wire-shape
++    # tests assert it. One deviant writer against six conforming ones is a
++    # writer defect.
++    #
++    # MAX() across the four predicates, because "last contact" is the most
++    # recent contact by ANY channel -- an email last week and an iMessage in
++    # 2022 is a person contacted last week. GROUP BY collapses the several
++    # rows a multi-channel person would otherwise produce.
++    last_contact_rows = _sparql_query(
++        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
++        "SELECT ?uri (MAX(?d) AS ?lastContact) WHERE {\n"
++        "  ?uri a pwg:Person .\n"
++        "  { ?uri pwg:lastContactIMessage ?d }\n"
++        "  UNION { ?uri pwg:lastContactWhatsApp ?d }\n"
++        "  UNION { ?uri pwg:lastContactCalendar ?d }\n"
++        "  UNION { ?uri pwg:lastContactEmail ?d }\n"
++        "} GROUP BY ?uri"
++    )
++    last_contact_by_uri: dict[str, str] = {}
++    for row in last_contact_rows:
++        uri = (row.get("uri", {}) or {}).get("value", "")
++        value = (row.get("lastContact", {}) or {}).get("value", "").strip()
++        if uri and value:
++            last_contact_by_uri[uri] = value
++
+     # Second query: identifiers grouped per person.
+     id_rows = _sparql_query(
+         "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
+@@ -1984,10 +2685,48 @@ def _load_people_from_oxigraph() -> list[dict]:
+             # can place this person. Empty -> omitted from those views (no
+             # now() fabrication).
+             "created_at": created_at,
++            # Most recent contact by ANY channel, as an ISO date ("" when the
++            # person has never been contacted through a tracked channel). The
++            # Qdrant payload derives both `last_contact` and `last_contact_ts`
++            # from this; see the query above for why it is read here at all.
++            "last_contact": last_contact_by_uri.get(uri, ""),
+         })
+     return people
+ 
+ 
++def _last_contact_epoch(value: str) -> int:
++    """ISO date (or datetime) -> epoch seconds. 0 when absent or unparseable.
++
++    0 is the DELIBERATE sentinel, not a fallback to now(): the reader's
++    filter is `last_contact_ts > 0`, so a person with no tracked contact
++    stays out of the stale list rather than being reported as "not spoken
++    to since 1970". Fabricating now() would be worse still -- it would
++    silently mark every unknown person as freshly contacted.
++
++    Parsed as a DATE at UTC midnight. The stored predicate is xsd:date
++    (`_update_last_contact` formats %Y-%m-%d), so there is no time-of-day
++    to preserve, and anchoring at midnight keeps the value stable rather
++    than drifting with the hour the ingest happened to run.
++    """
++    if not value:
++        return 0
++    try:
++        text = value.strip().replace("Z", "+00:00")
++        # Date-only is the shipped shape; accept a full datetime too rather
++        # than dropping a value some other writer may have stamped.
++        if len(text) == 10:
++            parsed = datetime.strptime(text, "%Y-%m-%d").replace(
++                tzinfo=timezone.utc
++            )
++        else:
++            parsed = datetime.fromisoformat(text)
++            if parsed.tzinfo is None:
++                parsed = parsed.replace(tzinfo=timezone.utc)
++        return int(parsed.timestamp())
++    except (ValueError, TypeError):
++        return 0
++
++
+ def _person_embed_doc(person: dict) -> str:
+     """Build the descriptive text embedded for semantic people-search.
+ 
+@@ -2024,11 +2763,23 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
+     stably from the person URI so a re-install is idempotent) with a
+     payload matching the reader contract, (5) returns a counts-only
+     dict, (6) fails LOUD (status "error") if Oxigraph held Person nodes
+-    but nothing landed in Qdrant.
++    but nothing landed in Qdrant, OR if only SOME of them landed.
++
++    THE (6) HALF WAS ONCE ALL-OR-NOTHING. ``_qdrant_upsert_points`` drops
++    any point with an empty vector and keeps going after a failed chunk,
++    returning only the count that landed -- so a partial sweep used to
++    come back here as ``sent > 0`` and fall through to the "ok" return,
++    carrying the smaller number as if it were the whole job. Measured on a
++    real customer install: 8679 Person nodes, 8643 points, a gap of 36
++    that a week of daily re-runs never closed, because "ok" told
++    install.sh there was nothing left to retry. ``sent`` is now compared
++    against ``total`` before anything is called a success.
+ 
+     Returns counts only (parity with the other ingesters; install.sh
+     reads ``sent``):
+       ``status``         : "ok" | "no_data" | "error"
++      ``reason``         : present only on a partial landing;
++                           "partial_landing" when 0 < sent < total
+       ``sent``           : points upserted into Qdrant
+       ``points_created`` : alias of ``sent``
+       ``total``          : Person nodes considered (with a display name)
+@@ -2099,7 +2850,23 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
+             # diverges from one that recomputes it (iOS Identifiable id + URL).
+             "slug": _wiki_slug(person["display_name"]),
+             "source": "fda_people_index",
+-            "last_contact": "",
++            # BOTH names are stamped, and they are not redundant.
++            #
++            # `last_contact_ts` (epoch int) is what every read path actually
++            # filters and sorts on: people_stale()'s range filter, the
++            # "recency" sort in people_list(), and _recency_label(). It was
++            # absent from every point until 2026-09-16, which is why the
++            # stale / reconnect lists were permanently empty.
++            #
++            # `last_contact` (ISO date string) is kept because this payload has
++            # always carried the key and a consumer may read it; it now carries
++            # the real date instead of the empty string it used to hold on
++            # every record. Dropping it would be a gratuitous wire-shape change
++            # in a fix whose whole point is that the wire shape was not honoured.
++            "last_contact": person.get("last_contact", ""),
++            "last_contact_ts": _last_contact_epoch(
++                person.get("last_contact", "")
++            ),
+         }
+         # Surface the REAL pwg:createdAt date so the time-ordered wiki
+         # views (year pages, person timeline, "recent people") can place
+@@ -2148,6 +2915,98 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
              "total": len(people),
          }
  
++    # ── A PARTIAL LANDING IS NOT A SUCCESS ──────────────────────────────
++    #
++    # The check above only ever caught the ALL-OR-NOTHING case. Anything
++    # between -- an empty vector dropped by _qdrant_upsert_points, or one
++    # chunk out of several failing while the others land -- fell straight
++    # through to the "ok" return below, carrying whatever count DID make
++    # it. That count is real, but the status calling it "ok" is not: it is
++    # indistinguishable, to every caller, from a complete sweep.
++    #
++    # MEASURED on a real customer install, ten hours after completion: the
++    # graph held 8679 Person nodes, the vector store held 8643 points, a
++    # gap of 36 that never closed on its own. install.sh only reads `sent`
++    # to decide the customer-facing message and reads process rc (which
++    # this function's own internal try/except keeps at 0 for any failure
++    # it already caught) to decide whether to write a success sentinel --
++    # so a shortfall here had no way to reach either decision. Comparing
++    # what was SENT against what was ASKED is the only place that
++    # information still exists once _qdrant_upsert_points returns.
++    if sent < len(people):
++        logger.warning(
++            "People: %d of %d Person nodes landed in Qdrant '%s'; %d did "
++            "not. Reporting error, not ok -- the missing %d would stay "
++            "unsearchable and invisible under a success status.",
++            sent, len(people), PEOPLE_QDRANT_COLLECTION,
++            len(people) - sent, len(people) - sent,
++        )
++        return {
++            "status": "error",
++            "reason": "partial_landing",
++            "sent": sent,
++            "points_created": sent,
++            "total": len(people),
++        }
++
 +    # ── PRUNE: this sweep is a PROJECTION, and a projection must be able to
 +    # ── remove as well as add. (task #273 / the 84-orphan finding, 2026-09-05)
 +    #
@@ -1646,7 +1544,7 @@ index 9f7339f1..c3e17e9e 100644
      logger.info(
          "People: %d of %d Person nodes indexed into Qdrant '%s'.",
          sent, len(people), PEOPLE_QDRANT_COLLECTION,
-@@ -2122,6 +2724,7 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
+@@ -2157,6 +3016,7 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
          "sent": sent,
          "points_created": sent,
          "total": len(people),
@@ -3432,274 +3330,197 @@ index 00000000..03ee46b5
 +    for label in ("Mum", "mum", "  Mum  ", "my mum", "big sis", "Nan"):
 +        assert p_mod._is_relationship_label(label) is True, label
 +        assert p_mod._display_name_tier(label) == p_mod._NAME_TIER_REFUSED, label
-diff --git b/usage_journal.py b/usage_journal.py
-new file mode 100644
-index 00000000..fffc69bd
---- /dev/null
-+++ b/usage_journal.py
-@@ -0,0 +1,265 @@
-+"""Local-model usage journal writer for the "What your Mac did" panel.
-+
-+The daemon shows the customer a monthly breakdown of the work their machine
-+did, split by *purpose*: ingesting, enriching, answering, noticing. The
-+``answering`` row is written by the Rust daemon itself. Everything else
-+happens in short-lived Python processes in other repos, which cannot reach
-+the daemon's ``tokio::task_local``. So the contract between them is a file:
-+
-+    <workspace_dir>/state/costs.jsonl
-+
-+One JSON object per line, append-only. The reader is
-+``zeroclaw-config/src/cost/tracker.rs``; the record shape is
-+``zeroclaw-config/src/cost/types.rs::CostRecord``. The full contract is
-+``HR015/launch/USAGE_JOURNAL_CONTRACT.md``.
-+
-+**The hard rule: MEASURED, NEVER ESTIMATED.** If the runtime does not hand
-+you a token count, write no record. Do not estimate from character length,
-+do not divide by four, do not carry forward the last figure. This number is
-+shown to a paying customer beside a price comparison. A missing record is a
-+gap somebody can close; a guessed record is a fact that cannot be
-+distinguished from a real one once it is in the file.
-+
-+Real counts come only from Ollama's ``prompt_eval_count`` / ``eval_count``,
-+on ``/api/embed``, ``/api/generate`` and ``/api/chat``. NOT the legacy
-+``/api/embeddings``, which returns the vector alone.
-+
-+Invariants enforced here, mirroring :mod:`ostler_fda.settling_progress`:
-+ * An unknown purpose is a **programming error** and raises ``ValueError``.
-+   The Rust side REJECTS an unknown purpose string rather than coercing it,
-+   so ``"enrichment"`` (a plausible typo for ``"enriching"``) would make the
-+   whole line unparseable and silently shrink the customer's totals.
-+ * An I/O failure is an **environment problem** and is swallowed with a
-+   ``logger.warning``. Usage accounting must never abort the work it
-+   measures.
-+
-+No PII is written: model name, token counts, timestamp and a run label.
-+``session_id`` identifies the RUN, never the person.
-+"""
-+from __future__ import annotations
-+
-+import json
-+import logging
-+import os
-+import uuid
-+from datetime import datetime, timezone
-+from pathlib import Path
-+from typing import Optional
-+
-+logger = logging.getLogger(__name__)
-+
-+
-+# ── The five valid purpose strings ────────────────────────────────────────────
+diff --git a/universal_import.py b/universal_import.py
+index f45c91ec..71641aa0 100644
+--- a/universal_import.py
++++ b/universal_import.py
+@@ -1732,14 +1732,118 @@ def _knowledge_bin() -> Optional[str]:
+     return shutil.which(raw)
+ 
+ 
+-def _dispatch_knowledge(detection: Detection, *, output_dir: Optional[Path]) -> dict:
+-    """Convert a knowledge export via the bundled ``ostler-knowledge`` binary.
++# ── Convert is half the job, and the other half was missing ────────────────
 +#
-+# Exact match required by `zeroclaw-config/src/cost/types.rs::Purpose`, which
-+# is `#[serde(rename_all = "snake_case")]` over a closed enum. Serde REJECTS
-+# an unknown variant, so a typo does not degrade to `unattributed` -- it makes
-+# the entire record unparseable and the reader counts it as an unreadable line.
-+PURPOSES = frozenset({
-+    "ingesting",      # reading a source in for the first time
-+    "enriching",      # turning raw material into facts, summaries, pages
-+    "answering",      # work done because a person asked
-+    "noticing",       # work the assistant chose to do unprompted
-+    "unattributed",   # the serde default; the producer genuinely does not know
-+})
++# 🔴 BOARD ROW 976. This dispatcher ran `ostler-knowledge convert` and stopped.
++# Convert writes markdown. It does not index anything: measured in the CM024
++# CLI, the `convert` command contains 0 mentions of qdrant or embed, against a
++# CONTROL of 98 in the sibling `embed` command, over 10 commands examined. So a
++# customer who dropped a Notion or Obsidian export got files on disk that
++# nothing could find. The import reported "ok".
++#
++# THE DOCTOR'S ROUTE FOR THE SAME SOURCES ALREADY DOES IT PROPERLY, which is
++# what makes this a gap rather than a design question: doctor/agent/
++# import_evernote.py forks convert and then embed, and its own comment says the
++# Notion and Obsidian sources reuse that path. There were two reachable ways in
++# and only one of them finished the job.
++#
++# THE CONSTANTS BELOW ARE MIRRORED FROM THAT MODULE, DELIBERATELY AND WITH ITS
++# REASONS, because ostler_fda and doctor are separate vendored trees and one
++# cannot import the other. Copying without the reasons is how two paths drift.
++#
++#   collection    evernote_knowledge, AND THAT IS NOT A TYPO. See the block
++#                 below: a per-source name is what the reader does NOT query.
++#   model         nomic-embed-text. The installer pre-creates the knowledge
++#                 collections at 768 dims, so a different model fails every
++#                 upsert on the dimension check and leaves Knowledge silently
++#                 empty, which is this row's own failure wearing a new hat.
++#   privacy cap   2, so compartment level 3 ("private") is converted to markdown
++#                 and NEVER indexed. The wiki Knowledge reader does not filter
++#                 by level at render time, so excluding L3 at embed is the only
++#                 barrier between a private note and a browsable page.
++#
++# EMBED RUNS ONLY IF CONVERT EXITS 0, and a failed embed is NOT reported as ok.
++# "Converted but not searchable" is the exact state this row is about, so it
++# gets its own error name and carries the staging path, which makes a re-run
++# possible without repeating the conversion.
++# 🔴 THE COLLECTION NAME IS WHERE MY FIRST VERSION OF THIS FIX WOULD HAVE
++# SHIPPED THE SAME DEFECT ONE STEP FURTHER ALONG.
++#
++# I wrote "<source>_knowledge", following the Doctor's own
++# _collection_for_source, because copying the local convention is normally
++# right. Board row 961 item 7 had already measured that the convention IS the
++# defect: "import_notion.py:110 writes <source>_knowledge, readers hardcode
++# evernote_knowledge. Live collections are exactly 5 and no such variant
++# exists."
++#
++# The shipped reader is the assistant at the tag CM051 pins, and it searches
++# exactly two collections:
++#
++#     crates/zeroclaw-tools/src/pwg_knowledge_search.rs:56
++#     pub const KNOWLEDGE_COLLECTIONS: &[&str] =
++#         &["evernote_knowledge", "apple_notes_knowledge"];
++#
++# and CM051's installer creates four, of which one is a knowledge collection:
++# _OSTLER_REQUIRED_QDRANT_COLLECTIONS=(people conversations preferences
++# evernote_knowledge).
++#
++# So embedding into obsidian_knowledge would have written into a collection the
++# installer never creates and the reader never queries. Qdrant answers 404 for
++# an unknown collection, the tool maps 404 to an empty result, and the customer
++# gets "you have no matching notes" -- the SAME sentence they get today,
++# reached by a longer route. CM051's own register says it outright: "A NINTH
++# hydrate collection added here would go dark with every test on both sides
++# green."
++#
++# WHY NOT ADD THE COLLECTION PROPERLY. That is a daemon change and a pin move,
++# and CM051's register has already decided where those belong: it records
++# reminders_knowledge as `excluded`, notes the data is present "the day a
++# reader learns the name", and says such a change "needs a daemon change and a
++# pin move, neither of which belongs beside a cut". Teaching the reader
++# notion_knowledge and obsidian_knowledge is the right end state and is
++# separate work, on row 961 item 7.
++#
++# SO THE IMPORT WRITES WHERE THE READER LOOKS. The collection is an internal
++# name no customer sees, and "unfindable but correctly named" is not a better
++# outcome than "findable". It is a constant rather than a literal so that the
++# day the reader learns another name, this moves in one place.
++_KNOWLEDGE_COLLECTION_DEFAULT = "evernote_knowledge"
++_KNOWLEDGE_EMBED_MODEL_DEFAULT = "nomic-embed-text"
++_KNOWLEDGE_MAX_COMPARTMENT_LEVEL_DEFAULT = 2
 +
 +
-+def _expand(raw: str) -> Path:
-+    """Expand a leading ``~`` the way the daemon's ``expand_tilde_path`` does."""
-+    return Path(os.path.expanduser(raw.strip()))
++def _knowledge_embed_model() -> str:
++    return os.environ.get(
++        "OSTLER_KNOWLEDGE_EMBED_MODEL", _KNOWLEDGE_EMBED_MODEL_DEFAULT)
 +
 +
-+def _default_config_dir() -> Path:
-+    """``$HOME/.ostler``, matching the daemon's ``default_config_dir()``.
++def _knowledge_max_compartment_level() -> str:
++    raw = os.environ.get("OSTLER_KNOWLEDGE_MAX_COMPARTMENT_LEVEL")
++    if raw is not None and raw.strip().lstrip("-").isdigit():
++        return raw.strip()
++    return str(_KNOWLEDGE_MAX_COMPARTMENT_LEVEL_DEFAULT)
+ 
+-    Reuses the exact command the Doctor knowledge import runner forks
+-    (``ostler-knowledge convert --source <kind> <path> --output <dir>``),
+-    run synchronously so a dropped Obsidian vault / Evernote ``.enex`` /
+-    Notion markdown export actually ingests. If the binary is absent we
+-    return the honest ``recognised_no_parser`` result; we never crash.
 +
-+    The daemon prefers the ``HOME`` env var over the passwd database, so we
-+    do the same: a process launched with a different HOME must resolve to the
-+    same tree the daemon is reading.
++def _knowledge_collection_for(source: str) -> str:
++    """The Qdrant collection the SHIPPED READER actually queries.
++
++    Takes the source for signature compatibility and deliberately ignores it;
++    see the block above. A per-source collection is the right end state and is
++    not reachable today.
 +    """
-+    home = os.environ.get("HOME", "").strip()
-+    if home:
-+        return Path(home) / ".ostler"
-+    return Path.home() / ".ostler"
++    return os.environ.get(
++        "OSTLER_KNOWLEDGE_COLLECTION", _KNOWLEDGE_COLLECTION_DEFAULT)
 +
 +
-+def _config_dir_from_marker(default_config_dir: Path) -> Optional[Path]:
-+    """Read ``active_workspace.toml``, mirroring ``load_persisted_workspace_dirs``.
++def _dispatch_knowledge(detection: Detection, *, output_dir: Optional[Path]) -> dict:
++    """Convert AND embed a knowledge export via the bundled binary.
 +
-+    A malformed or empty marker is ignored (the daemon logs and falls
-+    through), and a relative ``config_dir`` is resolved against the default
-+    config dir, exactly as the Rust does.
-+    """
-+    marker = default_config_dir / "active_workspace.toml"
++    Runs the two phases the Doctor knowledge import runner forks
++    (``ostler-knowledge convert --source <kind> <path> --output <dir>`` then
++    ``ostler-knowledge embed <dir> ...``) synchronously, so a dropped Obsidian
++    vault / Evernote ``.enex`` / Notion markdown export is both ingested and
++    searchable. If the binary is absent we return the honest
++    ``recognised_no_parser`` result; we never crash.
+     """
+     import subprocess
+ 
+@@ -1786,10 +1890,62 @@ def _dispatch_knowledge(detection: Detection, *, output_dir: Optional[Path]) ->
+             "error": "import_failed",
+             "exit_code": proc.returncode,
+         }
++
++    # Phase 2. Converted markdown that nobody indexed is markdown nobody can
++    # find, which is the whole of row 976.
++    embed_cmd = [
++        binary, "embed", str(staging),
++        "--collection", _knowledge_collection_for(source),
++        "--embedding-model", _knowledge_embed_model(),
++        "--max-compartment-level", _knowledge_max_compartment_level(),
++    ]
 +    try:
-+        contents = marker.read_text(encoding="utf-8")
-+    except OSError:
-+        return None
-+
-+    raw = ""
-+    for line in contents.splitlines():
-+        line = line.strip()
-+        if not line.startswith("config_dir"):
-+            continue
-+        _, _, value = line.partition("=")
-+        raw = value.strip().strip('"').strip("'").strip()
-+        break
-+
-+    if not raw:
-+        return None
-+
-+    parsed = _expand(raw)
-+    return parsed if parsed.is_absolute() else default_config_dir / parsed
-+
-+
-+def _workspace_for(workspace_env: Path) -> Path:
-+    """Port of ``schema.rs::resolve_config_dir_for_workspace``, workspace half.
-+
-+    The installer sets ``ZEROCLAW_WORKSPACE=$OSTLER_DIR/assistant-config``,
-+    which is a CONFIG dir, not a workspace -- so the daemon appends
-+    ``workspace`` when it finds a ``config.toml`` beside it. Getting this
-+    branch wrong writes the journal to a directory nothing reads, which is
-+    indistinguishable from a producer that was never wired.
-+    """
-+    if (workspace_env / "config.toml").exists():
-+        return workspace_env / "workspace"
-+
-+    legacy = workspace_env.parent / ".zeroclaw"
-+    if (legacy / "config.toml").exists():
-+        return workspace_env
-+    if workspace_env.name == "workspace":
-+        return workspace_env
-+
-+    return workspace_env / "workspace"
-+
-+
-+def resolve_journal_path() -> Path:
-+    """Resolve ``<workspace_dir>/state/costs.jsonl`` the way the daemon does.
-+
-+    Precedence, mirroring ``schema.rs::resolve_runtime_config_dirs``:
-+      1. ``ZEROCLAW_CONFIG_DIR``            -> ``<dir>/workspace``
-+      2. ``OSTLER_WORKSPACE`` / ``ZEROCLAW_WORKSPACE`` -> :func:`_workspace_for`
-+      3. ``~/.ostler/active_workspace.toml`` marker -> ``<config_dir>/workspace``
-+      4. default                            -> ``~/.ostler/workspace``
-+
-+    Resolved PER CALL, never at import. A producer that caches this at import
-+    time and a daemon that resolves it at boot can disagree after an env
-+    change, and the disagreement is silent on both sides.
-+
-+    Deliberately NOT keyed on ``OSTLER_HOME``: that name carries two meanings
-+    in this product (task #325) and neither of them is this one.
-+    """
-+    config_dir_env = os.environ.get("ZEROCLAW_CONFIG_DIR", "").strip()
-+    if config_dir_env:
-+        return _expand(config_dir_env) / "workspace" / "state" / "costs.jsonl"
-+
-+    workspace_env = (
-+        os.environ.get("OSTLER_WORKSPACE", "").strip()
-+        or os.environ.get("ZEROCLAW_WORKSPACE", "").strip()
-+    )
-+    if workspace_env:
-+        return _workspace_for(_expand(workspace_env)) / "state" / "costs.jsonl"
-+
-+    default_config_dir = _default_config_dir()
-+    from_marker = _config_dir_from_marker(default_config_dir)
-+    if from_marker is not None:
-+        return from_marker / "workspace" / "state" / "costs.jsonl"
-+
-+    return default_config_dir / "workspace" / "state" / "costs.jsonl"
-+
-+
-+def record_usage(
-+    model: str,
-+    input_tokens: Optional[int],
-+    output_tokens: Optional[int],
-+    purpose: str,
-+    session_id: str,
-+    *,
-+    journal_path: Optional[Path] = None,
-+) -> bool:
-+    """Append one MEASURED local-model usage record. Returns True if written.
-+
-+    ``input_tokens`` / ``output_tokens`` come straight from the runtime.
-+    Pass ``None`` for a count the runtime did not report -- it is treated as
-+    zero for the total but does NOT on its own suppress the record, so a
-+    pure-embedding call (which reports prompt tokens and no output tokens) is
-+    still recorded. When BOTH are absent or zero there is nothing measured
-+    and no record is written.
-+
-+    Raises ``ValueError`` on an unknown purpose (a programming error).
-+    Never raises on I/O (an environment problem): a full disk must not abort
-+    an ingest run.
-+    """
-+    if purpose not in PURPOSES:
-+        raise ValueError(
-+            f"unknown purpose {purpose!r}; must be one of {sorted(PURPOSES)}. "
-+            "The daemon rejects an unknown purpose and the whole record is lost."
-+        )
-+
-+    prompt = int(input_tokens or 0)
-+    completion = int(output_tokens or 0)
-+    if prompt <= 0 and completion <= 0:
-+        # Nothing measured. Per the contract: write no record rather than
-+        # inventing one. The absence is visible on the panel as a gap.
-+        return False
-+
-+    record = {
-+        "id": str(uuid.uuid4()),
-+        "session_id": session_id,
-+        "usage": {
-+            "model": model,
-+            "input_tokens": prompt,
-+            "output_tokens": completion,
-+            "total_tokens": prompt + completion,
-+            # Zero is not a placeholder: a local model bought nothing. The
-+            # panel prices this against a cloud rate card at render time.
-+            "cost_usd": 0.0,
-+            "timestamp": datetime.now(timezone.utc)
-+            .isoformat(timespec="seconds")
-+            .replace("+00:00", "Z"),
-+            "purpose": purpose,
-+        },
-+    }
-+
-+    path = journal_path or resolve_journal_path()
-+    try:
-+        path.parent.mkdir(parents=True, exist_ok=True)
-+        line = json.dumps(record, separators=(",", ":")) + "\n"
-+        # One open-append-close per record, and one write() per line. Records
-+        # are well under the 4 KB macOS pipe/file atomicity threshold, so
-+        # concurrent producers interleave whole lines rather than corrupting
-+        # each other. An O_APPEND write is positioned by the kernel, so no
-+        # lock is needed and none is taken -- a lock here would put a
-+        # contention point in the path of the work being measured.
-+        with path.open("a", encoding="utf-8") as handle:
-+            handle.write(line)
-+        return True
-+    except OSError as exc:
++        embed_proc = subprocess.run(
++            embed_cmd, check=False, capture_output=True, text=True)
++    except (OSError, ValueError) as exc:
 +        logger.warning(
-+            "usage journal write failed (%s): %s", type(exc).__name__, exc
-+        )
-+        return False
++            "universal_import: ostler-knowledge embed exec failed: %s",
++            type(exc).__name__)
++        return {
++            "status": "error",
++            "dispatched": f"ostler-knowledge({source})",
++            "error": "embed_not_run",
++            "summary": {
++                "source": source,
++                "output_dir": str(staging),
++                "converted": True,
++                "searchable": False,
++            },
++        }
 +
++    if embed_proc.returncode != 0:
++        # NOT ok. The files are on disk and the customer cannot find them,
++        # which is exactly the state this row exists to stop being reported as
++        # success. The staging path is carried so a re-run can embed without
++        # converting again.
++        return {
++            "status": "error",
++            "dispatched": f"ostler-knowledge({source})",
++            "error": "embed_failed",
++            "exit_code": embed_proc.returncode,
++            "summary": {
++                "source": source,
++                "output_dir": str(staging),
++                "converted": True,
++                "searchable": False,
++            },
++        }
 +
-+def tokens_from_ollama(response: dict) -> tuple[Optional[int], Optional[int]]:
-+    """Extract MEASURED token counts from an Ollama JSON response.
-+
-+    Returns ``(prompt_eval_count, eval_count)``, either of which may be
-+    ``None`` when the endpoint did not report it. The legacy
-+    ``/api/embeddings`` endpoint reports neither, which is why callers on
-+    that endpoint record nothing at all rather than guessing.
-+
-+    A non-integer value is treated as absent rather than coerced: a string
-+    or float here means the response shape changed, and a silently coerced
-+    number would enter the customer's total as though it were measured.
-+    """
-+    if not isinstance(response, dict):
-+        return (None, None)
-+
-+    def _count(key: str) -> Optional[int]:
-+        value = response.get(key)
-+        # bool is a subclass of int; True would become 1 tokens.
-+        if isinstance(value, bool) or not isinstance(value, int):
-+            return None
-+        return value if value > 0 else None
-+
-+    return (_count("prompt_eval_count"), _count("eval_count"))
+     return {
+         "status": "ok",
+         "dispatched": f"ostler-knowledge({source})",
+-        "summary": {"source": source, "output_dir": str(staging)},
++        "summary": {
++            "source": source,
++            "output_dir": str(staging),
++            "converted": True,
++            "searchable": True,
++            "collection": _knowledge_collection_for(source),
++        },
+     }
+ 
+ 

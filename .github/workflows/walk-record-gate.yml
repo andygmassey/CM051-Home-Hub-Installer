@@ -127,7 +127,11 @@ on:
       - 'tests/test_walk_pass_requires_zero_failed_steps.sh'
       - 'tests/test_walk_port_probe_matches_install_sh.sh'
       - 'tests/test_a_security_note_cannot_claim_a_flag_is_off.sh'
+      # The same probe's per-port table, guarded for the OTHER way it goes
+      # stale: pointers. Twelve install.sh line numbers, twelve stale (#1595).
+      - 'tests/test_the_store_port_table_cites_anchors_not_line_numbers.sh'
       - 'scripts/box_walk_probes/probes/no_store_port_is_tcp_reachable.sh'
+      - 'tests/test_a_self_test_denominator_counts_itself.sh'
       - 'scripts/box_walk_probes/lib/probe.sh'
       - 'scripts/tests/test_no_store_port_probe_reads_the_credential.sh'
       # Walk-failure classification: the records themselves, the tool that
@@ -142,6 +146,7 @@ on:
       - 'tests/test_a_walk_failure_is_classified.sh'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in the very PR that narrows it.
+      - 'scripts/tests/test_the_walk_record_says_whether_the_box_was_seeded.sh'
       - '.github/workflows/walk-record-gate.yml'
   push:
     branches: [main]
@@ -521,6 +526,22 @@ jobs:
         if: always()
         run: bash tests/test_a_security_note_cannot_claim_a_flag_is_off.sh
 
+      # The third way this table has gone stale, and the only one that fails
+      # SILENTLY. A wrong line number still resolves -- to something else --
+      # so a reader following it is not told anything is wrong. Measured at
+      # d0c207fd: twelve install.sh:<line> pointers in this probe, twelve
+      # stale, landing on the Gatekeeper quarantine dialog, a launchctl print
+      # branch, Safari's History.db path, a bare `fi` and a plist header. Two
+      # of seven port rows named a verification point under a paragraph
+      # claiming every row named one.
+      #
+      # if: always() -- this and the security-note step above guard the same
+      # table against two different kinds of drift. Learning about one but not
+      # the other on a red run is how the second gets forgotten.
+      - name: The store-port table cites grep anchors, not line numbers (#1595)
+        if: always()
+        run: bash tests/test_the_store_port_table_cites_anchors_not_line_numbers.sh
+
       - name: Port probe agrees with install.sh's own two-instrument table
         if: always()
         run: |
@@ -552,6 +573,23 @@ jobs:
         # -> CANNOT-RUN, the runner's --self-test contract, the same PASS under
         # `zsh -c` where zsh exists, and one mutant per arm proved landed.
         run: /bin/bash scripts/tests/test_no_store_port_probe_reads_the_credential.sh
+
+      - name: A self-test denominator is COUNTED, never TYPED
+        if: always()
+        # #2120 and #2138. run_box_walk.sh phase 1 puts each probe's self-test
+        # line into walks/v1.0.NN.tsv, so "behaved correctly on all N cases" is
+        # a number a person reads to decide whether a build is shippable.
+        #
+        # MEASURED on origin/main: people_stores_reconcile, one of the five
+        # BLOCKING probes, declared 32 while FORTY ONE distinct assertions
+        # fired, and 0 files named the number. Wrong by nine, checked by
+        # nothing.
+        #
+        # This asserts the declared count against a SECOND reading of the same
+        # run -- the outcome lines it printed -- because that is what catches
+        # an arm added without its tick, which is #2138. A mutant restoring the
+        # typed 32 turns three arms red.
+        run: bash tests/test_a_self_test_denominator_counts_itself.sh
 
       - name: The grounded probe asserts the fact, not the frame shape
         if: always()
@@ -602,6 +640,25 @@ jobs:
       - name: run_box_walk.sh records phase 1 verdicts for the manifest replay
         if: always()
         run: /bin/bash scripts/tests/test_run_box_walk_records_phase1_verdicts.sh
+
+      - name: The walk record says whether the box was SEEDED before the grounded probe asked
+        # `if: always()` REQUIRED, same reason as every sibling here: a red in an
+        # earlier step would otherwise SKIP this one, and a skipped gate reads
+        # as a passing gate in the check list.
+        if: always()
+        # 🔴 assistant_answers_grounded is red on 17 of the 21 committed walk
+        # records, and an UNSEEDED box and a BROKEN product produce THE SAME
+        # RED. grounding_seed.sh has always computed the state -- seeded,
+        # skipped, absent, failed, unrun -- and NOTHING consumed it, while
+        # run_box_walk.sh threw away the exit code with `|| true` on top. So
+        # every one of those 17 reds has been ambiguous and the record looked
+        # complete either way.
+        #
+        # This asserts the READER, because a field written and never
+        # interpreted is the same defect one layer along. Its MUST-MISS arm
+        # requires seeded and skipped to produce DIFFERENT sentences, so a
+        # reader that echoed the value instead of grading it would fail.
+        run: /bin/bash scripts/tests/test_the_walk_record_says_whether_the_box_was_seeded.sh
 
       # THE OTHER HALF OF THAT PROBE. The step above proves the probe can tell
       # a carried fact from a missing one. It cannot see whether the walk ever

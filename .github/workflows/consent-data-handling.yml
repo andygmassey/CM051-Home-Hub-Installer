@@ -83,6 +83,19 @@ jobs:
         if: always()
         run: bash tests/test_cx18_q20_consent_install_body_shape.sh
 
+      # BOARD ROW 1589. Every service row on the success screen is grepped out
+      # of the installer's own transcript, so the customer is shown what the
+      # installer BELIEVES it did. The panel must SAY so on screen.
+      #
+      # The defect this guards is not the grep, it is that the file CLAIMED the
+      # mitigation and had not made it: the phrase "as reported during install"
+      # existed only in a comment above serviceChecks, with zero rendered
+      # strings saying anything of the kind. So the test's discriminator is
+      # RENDERED versus MENTIONED, controlled in both directions.
+      - name: the end-of-install panel says its rows are the transcript
+        if: always()
+        run: python3 tests/test_the_install_panel_says_it_is_reading_the_transcript.py
+
       - name: FDA assist fires before the extractor, on an honest probe
         if: always()
         run: bash tests/test_fda_assist_ordering.sh

@@ -127,9 +127,30 @@ for g in GRAPHS:
           "DELETE { GRAPH <%s> { <%s> ?p ?o } }" % (g, PERSON) in upd)
     check("named graph %s gets a scoped object DELETE" % g,
           "DELETE { GRAPH <%s> { ?s ?p <%s> } }" % (g, PERSON) in upd)
+# THE ARITHMETIC, SPELLED OUT, because this number moved on 2026-09-18 and a
+# bare literal would have read as a regression rather than as the fix it is.
+#   person pairs : subject + object, once for the default graph and once per
+#                  named graph                      -> 2 + 2 * len(GRAPHS)
+#   fact nodes   : one collecting clause per FACT SHAPE (pwg:PersonFact and
+#                  urn:ostler:Fact), for the default graph and each named one
+#                                                    -> SHAPES * (1 + len(GRAPHS))
+# The fact clauses are what erase the SENTENCE rather than merely its link to
+# the person; see tests/test_a_forget_erases_the_fact_not_just_the_link.py and
+# board rows 960 and 2217.
+FACT_SHAPES_IN_ERASURE = 2
+expected_deletes = (2 + 2 * len(GRAPHS)
+                    + FACT_SHAPES_IN_ERASURE * (1 + len(GRAPHS)))
 check("no graph is left unscoped (clause count matches)",
-      upd.count("DELETE") == 2 + 2 * len(GRAPHS),
-      "counted %d" % upd.count("DELETE"))
+      upd.count("DELETE") == expected_deletes,
+      "counted %d, expected %d" % (upd.count("DELETE"), expected_deletes))
+
+# The fact-collecting clauses must come BEFORE the clause that deletes links
+# into the person. After it they match nothing. This is a cheap positional
+# check of a property the other file drives end-to-end.
+_link_delete = "DELETE { ?s ?p <%s> } WHERE" % PERSON
+check("the fact-collecting clauses precede the link delete",
+      upd.index("?f a ") < upd.index(_link_delete)
+      if ("?f a " in upd and _link_delete in upd) else False)
 
 print("== the reader rewriter spans default AND named ==")
 Q = "SELECT (COUNT(*) AS ?n) WHERE { ?s a <urn:ostler:OutstandingTodo> }"

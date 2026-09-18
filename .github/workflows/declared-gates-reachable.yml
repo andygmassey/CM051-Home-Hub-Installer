@@ -308,3 +308,24 @@ jobs:
         # tag-triggered workflow is not. Asserting only the first would pass
         # on the pre-#1167 behaviour, where every workflow counted.
         run: ./tests/test_cut_trigger_reachability_axis.sh
+      # 🔴 A STEP WITH NO COMMAND VOIDS THE WHOLE WORKFLOW AND NOTHING RUNS.
+      # #2182 inserted a new step INSIDE an existing one, orphaning that step's
+      # `run:` below it. The file stayed valid YAML, GitHub refused the entire
+      # workflow at startup, and the run reported ZERO JOBS, so there was no job
+      # log and no failing step to name. Main was red for an hour across six
+      # pushes and the first instrument anybody reaches for had nothing in it.
+      # This belongs in THIS workflow because a step that cannot run is an
+      # unreachable gate, which is what this file exists to refuse.
+      - name: every workflow step carries a command
+        if: always()
+        run: python3 tests/test_every_workflow_step_can_run.py
+
+      # A CUT GATE'S REFUSAL ARM MUST BE REACHABLE. Sibling of the step above
+      # and the same failure shape: a defect that deletes the evidence of
+      # itself. A test that exits 1 only under OSTLER_CUT_IN_PROGRESS, and that
+      # cut.yml never runs, produces no output, no failure and no log line, so
+      # nothing but a comparison of the two files can see it. Two gates shipped
+      # in that state in one batch, both recorded WIRED, both green on every PR.
+      - name: Every cut gate's refusal arm is reachable from cut.yml
+        if: always()
+        run: python3 tests/test_a_cut_gate_is_reachable_in_the_cut.py

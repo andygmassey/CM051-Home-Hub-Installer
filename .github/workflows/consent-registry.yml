@@ -16,6 +16,8 @@ on:
   pull_request:
     paths:
       - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_customer_copy_says_ios_app_not_companion.py'
       - 'vendor/legal/consent_strings.py'
       - 'vendor/ostler_security/consent_cli.py'
       - 'tests/test_consent_tickbox_registry.sh'
@@ -30,6 +32,9 @@ on:
       # exported there stops being checkable without touching either of the
       # other two.
       - 'tests/test_the_licence_acknowledgement_reaches_the_customer.sh'
+      - 'tests/test_the_licence_screen_says_what_we_hash.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'vendor/legal/consent_strings.py'
       - 'vendor/doctor/agent/dashboard_components.py'
       - 'vendor/legal/__init__.py'
       - '.github/workflows/consent-registry.yml'
@@ -106,3 +111,23 @@ jobs:
       - name: the licence acknowledgement reaches the customer, end to end
         if: always()
         run: bash tests/test_the_licence_acknowledgement_reaches_the_customer.sh
+
+      - name: The licence screen says what we hash
+        if: always()
+        # The test above proves the screen RENDERS and that the stored hash is
+        # this build's bundled wording. It stubs every MSG_* with a placeholder,
+        # which is right for asking "does the slot render" and says nothing
+        # about the words in it. This one compares the words: every sentence the
+        # customer reads must appear verbatim in the text whose hash goes into
+        # the consent registry. A record naming wording the person never saw is
+        # worse than no record, because it looks like evidence.
+        run: bash tests/test_the_licence_screen_says_what_we_hash.sh
+      - name: Customer copy says the app, not the repository (#1008)
+        if: always()
+        # MEASURED on main 2026-09-18: the strings file the installer PRINTS
+        # carried "iOS Companion" ten times, nine of them live customer strings,
+        # two on the subscription path a person reads while deciding to pay.
+        # "Companion" is an internal project word; to a customer it names a
+        # thing they cannot find in the App Store. The rule was locked and
+        # nothing was checking it.
+        run: python3 tests/test_customer_copy_says_ios_app_not_companion.py

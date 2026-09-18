@@ -317,6 +317,78 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 tests/test_the_cut_checklist_is_complete.py
 
+      # 🔴 strict_required_status_checks_policy WAS TURNED OFF ON 2026-09-18,
+      # deliberately, and board row 2208 says in its own words that the row is
+      # THE ONLY RECORD THAT IT WAS TURNED OFF. A setting whose only trace is a
+      # line of prose on a 200-row board gets shipped in that state, not because
+      # anyone decides to but because nobody is holding the thread on cut day.
+      # This is that thread. It PASSES outside a cut, because turning it off
+      # during the merge queue is the decision that was taken and this does not
+      # relitigate it; it FAILS here, because a cut branch has to come from a
+      # main whose required check was confirmed against the tip it merged into.
+      # It refuses rather than passing if it cannot read the setting.
+      - name: strict required checks are back on before the cut
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OSTLER_CUT_IN_PROGRESS: '1'
+        run: python3 tests/test_strict_checks_are_back_on_before_a_cut.py
+
+      # 🔴 THE DOCTOR PAGE IS THE ONE A CUSTOMER IS SENT TO WHEN SOMETHING IS
+      # WRONG, and board row 2141 measured it rendering unconditionally dark
+      # with the banned bright reds rather than oxblood #7A1F1F. The fix exists
+      # UPSTREAM in HR015 doctor/agent; what ships from here is the vendored
+      # copy, 48 commits behind its pin, and the re-pin is blocked on two
+      # vendored importers whose content exists in no upstream repository. So
+      # CM051 cannot patch its way out and what it owes is a REFUSAL.
+      #
+      # It PASSES outside a cut, because the state is known and tracked rather
+      # than unnoticed, and FAILS here. Without this step that refusal arm runs
+      # NOWHERE: the gate is invoked by vendor-integrity.yml, which never sets
+      # the flag, so the rc-1 branch was unreachable and the PR body claiming
+      # it was a cut gate asserted a pipeline that did not exist.
+      #
+      # It renders the page and reads the delivered bytes, so it needs the
+      # Doctor's runtime dependencies; without them it exits 2 (CANNOT-RUN),
+      # which is a refusal and not a pass.
+      - name: The Doctor page a customer is sent to is on brand
+        if: always()
+        env:
+          OSTLER_CUT_IN_PROGRESS: '1'
+        run: |
+          python3 -m pip install --quiet -r vendor/doctor/agent/requirements.txt
+          python3 tests/test_the_doctor_page_is_on_brand.py
+
+      # 🔴 THE ERASURE REFUSAL, WIRED SO IT ACTUALLY RUNS DURING A CUT.
+      #
+      # tests/test_a_forget_erases_the_fact_not_just_the_link.py (PR #2215)
+      # exits 0 outside a cut and 1 under OSTLER_CUT_IN_PROGRESS=1. It was
+      # wired into forget-reaches-every-graph.yml, which is a PR check and
+      # sets no such flag, so the refusal arm -- the half the PR leads with --
+      # executed nowhere. cut.yml names every test it runs, one `run:` per
+      # line, and it did not name this one. Measured on the merge commit:
+      # 0 occurrences in cut.yml, against a control of 1 for the checklist
+      # gate, which IS run here.
+      #
+      # THIS CHANGES NOTHING TODAY AND THAT IS THE POINT. A cut is already
+      # refused by the checklist gate, which counts rows 960 and 2217 among
+      # 15 that declare themselves BLOCKING. But that refusal rests on the
+      # ROW'S OWN PROSE. The day the upstream CM041 fix lands and the row is
+      # re-gated, that refusal stops, and without this line the only
+      # instrument that can actually SEE the defect would not be running at
+      # the moment it is needed -- a fix would be accepted on the strength of
+      # the same person-keyed predicate that closed row 960 the first time.
+      #
+      # It self-clears: when the erasure is genuinely fixed the test goes
+      # 9 pass / 0 fail and this step passes with no edit here.
+      - name: A forget erases the sentence, not only its link to a person
+        if: always()
+        env:
+          OSTLER_CUT_IN_PROGRESS: '1'
+        run: |
+          python3 -m pip install --quiet rdflib pyoxigraph
+          python3 tests/test_a_forget_erases_the_fact_not_just_the_link.py
+
       - name: Cut BOM freshness gate self-test
         if: always()
         run: ./tests/test_cut_bom_is_fresh.sh --self-test
@@ -774,7 +846,38 @@ jobs:
 
   cut:
     needs: preflight
-    if: github.event_name == 'push'
+    # 🔴 THE ORDER WAS BUILD-THEN-SHIP-THEN-FIND-OUT, AND IT IS WHY EVERY CUT
+    # BURNS.
+    #
+    # Measured 2026-09-17 on the v1.0.100 walk: six probes failed, and every
+    # one of them can ONLY run against an installed Ostler. A GitHub runner has
+    # none, so CI -- 80+ checks, all green before the tag -- measured the
+    # instruments and nothing about the product. The walk that found the six
+    # ran AFTER the tag, because until this commit a tag was the only thing
+    # that produced a DMG: this job was `push` only, and the dry-run job's own
+    # header says it has "no credential step, and no upload-artifact step".
+    #
+    # So a candidate could not be walked before it became the ship. Four of the
+    # six were introduced between v1.0.95 and v1.0.100 and would have been
+    # caught by one walk of a candidate:
+    #   install_manifest_complete       2da78644 added a launch agent and a
+    #                                   Qdrant collection, declared neither
+    #   ostler_unlock_reachable_by_name 2bb84015 added a symlink that captured
+    #                                   the /tmp staging path by value
+    #   no_unexpected_egress            passed on v1.0.95 four days earlier
+    #   acceptance_gate_v1013           passed on every prior walk
+    #
+    # THE FIX IS THE ORDER, NOT MORE GATES. This job now also runs on
+    # workflow_dispatch, so a real signed, notarised, stapled candidate can be
+    # built and WALKED before any tag exists. Everything that PUBLISHES stays
+    # `push` only and is marked below, so a dispatch can never reach a
+    # customer: no release object, no appcast, no tag-content assertion.
+    #
+    # The cost is honest and stated: a dispatch consumes the signing identity
+    # and a notarisation round trip. That is the price of finding out before
+    # shipping rather than after, and it is smaller than a burnt version
+    # number, of which two have already been spent learning this.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     # macos-26, NOT macos-14. macos-14 carries Xcode 15.4 and gui/.xcode-version
     # pins 26.6 (17F113), so check-pbxproj-sync could only ever report
     # UNAVAILABLE on that image -- measured on the v1.0.26 cut. The DMG should
@@ -1243,7 +1346,10 @@ jobs:
 
       - name: The artefact's content IS the tag being cut
         id: artefact_content
-        if: always()
+        # PUSH ONLY: a dispatch has no tag for the artefact's content to equal.
+        # Skipped rather than relaxed -- this assertion must never be taught to
+        # pass on a missing tag.
+        if: always() && github.event_name == 'push'
         env:
           CUT_VERSION: ${{ github.ref_name }}
         run: |
@@ -1315,7 +1421,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ostler-dmg-${{ github.ref_name }}
+          # A dispatch build is a CANDIDATE and is named so. Nobody should be
+          # able to mistake one for a released artefact in the artefact list.
+          name: ostler-dmg-${{ github.event_name == 'push' && github.ref_name || format('candidate-{0}-{1}', github.ref_name, github.run_number) }}
           path: |
             dist/*.dmg
             dist/SHA256SUMS
@@ -1420,7 +1528,9 @@ jobs:
       # A build that never produced a DMG makes the gate exit 2, so this
       # correctly skips rather than repeating the failure as "No DMG found".
       - name: Publish the release object, then prove the customer url serves it
-        if: always() && steps.artefact_content.outcome == 'success'
+        # PUBLISHES. Push only, so a walked candidate cannot reach a customer
+        # by accident.
+        if: always() && github.event_name == 'push' && steps.artefact_content.outcome == 'success'
         env:
           # Pairs with CM051_RELEASES_READ, which is already wired at four
           # sites in this file and reads FROM ostler-ai releases. A matching
@@ -1450,7 +1560,8 @@ jobs:
           /bin/bash scripts/publish_release.sh "${GITHUB_REF_NAME}" "$DMG"
 
       - name: AU-1 appcast publish (post-upload, cannot destroy the artefact)
-        if: always()
+        # PUBLISHES to the update feed. Push only.
+        if: always() && github.event_name == 'push'
         env:
           OSTLER_SPARKLE_SIGNING_KEY: ${{ secrets.OSTLER_SPARKLE_SIGNING_KEY }}
         run: |

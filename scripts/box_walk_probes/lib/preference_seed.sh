@@ -188,8 +188,7 @@ _ps_find_seed_dir() {
     for _ps_c in \
         "${_ps_repo}/../OS003-Ostler-Release/gates/seed" \
         "${_ps_repo}/../OS003 - Ostler Release/gates/seed" \
-        "${HOME}/Developer/OS003-Ostler-Release/gates/seed" \
-        "${HOME}/Documents/Projects/OS003 - Ostler Release/gates/seed"
+        "${HOME}/Developer/OS003-Ostler-Release/gates/seed"
     do
         if _ps_ok "${_ps_c}"; then
             if _ps_loader_is_current "${_ps_c}/load_preference_seed.py"; then

@@ -14,6 +14,8 @@ name: vendor-integrity
 on:
   pull_request:
     paths:
+      - 'tests/test_an_identifier_is_not_a_taste.py'
+      - 'vendor/cm059_editor/compiler/interest_profile.py'
       - 'vendor/**'
       # context-refresh/ holds a grafted (divergent) vendored copy of
       # ostler-assistant's generate_pwg_context.py. It lives outside vendor/
@@ -64,12 +66,22 @@ on:
       # makes the workflow trigger, and a run with no path entry is a gate that
       # never fires on a change to itself.
       - 'tests/test_doctor_credential_routes_refuse_cross_site.sh'
+      - 'tests/test_every_conversation_produces_all_four_artefacts.py'
+      - 'vendor/cm048_pipeline/src/conversation_writer.py'
       - 'tests/test_the_doctor_status_poll_has_a_fork_budget.py'
       - 'vendor/doctor/agent/box_status.py'
       - 'vendor/doctor/agent/pair_status.py'
       - 'tests/test_the_pairing_qr_refuses_an_address_the_phone_cannot_open.py'
       - 'tests/test_editor_feedback_accepts_the_add_verb.sh'
       - 'tests/test_the_doctor_dashboard_actually_renders.sh'
+      - 'tests/test_the_doctor_page_is_on_brand.py'
+      # The four files that carry the Doctor's palette. The brand gate reads all
+      # four, so all four must re-trigger it; the page was off-brand in three of
+      # them at once and a filter naming only web_ui.py would have missed two.
+      - 'vendor/doctor/agent/web_ui.py'
+      - 'vendor/doctor/agent/dashboard_components.py'
+      - 'vendor/doctor/agent/first_run.py'
+      - 'vendor/doctor/agent/apple_style.css'
       # Watched because the step below RUNS it. Its tile half is the only place
       # the keepalive's five customer-facing verdicts are actually rendered
       # with the Doctor's real deps present.
@@ -213,6 +225,19 @@ jobs:
         if: success() || failure()
         run: python3 tests/test_the_pii_scan_reads_every_file_in_the_tree.py
 
+      # AN IDENTIFIER IS NOT A TASTE (#959). interest_profile.subject_is_identifier
+      # refuses a subject that IS an email address or a phone number, because
+      # with the unreachable 0.28 floor lowered the v1.0.100 box's front page
+      # rendered four interest cards and every one was a contact identifier.
+      # The refusal was correct and WIRED, and NOTHING NAMED IT: 0 files across
+      # tests/, scripts/ and workflows against a control of 7 naming
+      # interest_profile. So the call site could be deleted and every gate here
+      # would stay green while the page filled with the customer's own phone
+      # numbers again.
+      - name: an identifier is not a taste, and the refusal is guarded
+        if: always()
+        run: python3 tests/test_an_identifier_is_not_a_taste.py
+
       # A client that cannot authenticate is refused in production and usually
       # says nothing about it. The front page rendered interest cards only for
       # roughly two dozen walks because its signal fetch 401'd and the failure
@@ -310,6 +335,11 @@ jobs:
         if: always()
         run: python3 tests/test_vendor_entrypoint_resolution.py
 
+      - name: every conversation produces all four artefacts
+        # always(), so an earlier red cannot hide a locked directive going
+        # unenforced. The rule it guards is non-negotiable for launch.
+        if: always()
+        run: python3 tests/test_every_conversation_produces_all_four_artefacts.py
       - name: the Doctor status poll has a fork budget
         # `always()` because a test step that only runs on success can be
         # MASKED by an earlier red, and a fork budget that silently stops
@@ -542,6 +572,14 @@ jobs:
         # nobody notices is a zero-denominator pass. Wired anywhere without the
         # requirements it would prove nothing while reading green.
         run: bash tests/test_the_doctor_dashboard_actually_renders.sh
+
+      - name: The Doctor page is on brand, measured on the rendered page
+        if: always()
+        # SAME JOB AS THE RENDER TEST, AND FOR THE SAME REASON: it renders the
+        # page, so it needs vendor/doctor/agent/requirements.txt, which this job
+        # installs above. It exits 2 when it cannot render, so a missing dep is
+        # a refusal rather than a quiet pass.
+        run: python3 tests/test_the_doctor_page_is_on_brand.py
 
       # THE WHATSAPP KEEPALIVE TILE, wired here for the reason the step above
       # states about itself. This file's script half runs on macOS in

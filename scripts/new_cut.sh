@@ -168,8 +168,7 @@ run_gate "rollforward pin"      bash tests/test_rollforward_registry_pin.sh
 OS003_DIR="${OSTLER_OS003_DIR:-}"
 if [ -z "$OS003_DIR" ]; then
   for _c in "$REPO/../OS003-Ostler-Release" \
-            "$HOME/Developer/OS003-Ostler-Release" \
-            "$HOME/Documents/Projects/OS003 - Ostler Release"; do
+            "$HOME/Developer/OS003-Ostler-Release"; do
     [ -d "$_c/gates" ] && { OS003_DIR="$_c"; break; }
   done
 fi

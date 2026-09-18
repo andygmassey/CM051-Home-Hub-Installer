@@ -36,10 +36,19 @@ on:
   pull_request:
     paths:
       - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'tests/test_forget_does_not_claim_an_erasure_it_did_not_do.py'
       - 'vendor/cm041/identity_resolver/compartment.py'
       - 'vendor/cm041/meeting_syncer/brief.py'
       - 'vendor/cm048_pipeline/src/candidates.py'
       - 'tests/test_a_forget_must_reach_every_named_graph.py'
+      # THE THIRD HALF, and the one the other two cannot see. They test the
+      # graph SCOPE of the delete and the honesty of its REPORT; both take the
+      # delete PATTERN as given, and the pattern is where rows 960 and 2217 live.
+      - 'tests/test_a_forget_erases_the_fact_not_just_the_link.py'
+      # THE FOURTH HALF: the three above all take the GRAFT'S PRESENCE as given.
+      # They mutate its graph clause, its report and its delete pattern, and
+      # every one of them is silent if a re-vendor deletes the graft outright.
+      - 'tests/test_the_erasure_graft_survives_a_revendor.py'
       - '.github/workflows/forget-reaches-every-graph.yml'
   push:
     branches: [main]
@@ -65,3 +74,58 @@ jobs:
       # not passed.
       - name: A forget reaches every named graph, and readers span them
         run: python3 tests/test_a_forget_must_reach_every_named_graph.py
+      - name: A forget that found nobody must not report that it erased them
+        if: always()
+        # The workflow above proves the DELETE reaches every graph (#960's
+        # SPARQL half). This proves the REPORTING half, which survived that
+        # fix: a lookup miss used to return already_forgotten=true, so a
+        # customer exercising a right the product advertises was told it was
+        # done on a person still fully present. Measured on the box
+        # 2026-09-18: five triples, HTTP 200, "already_forgotten": true, five
+        # triples still there.
+        run: python3 tests/test_forget_does_not_claim_an_erasure_it_did_not_do.py
+
+      # BOTH ENGINES, DELIBERATELY. The step below runs its measurement under
+      # each and fails if they disagree, because the product speaks SPARQL to
+      # Oxigraph and a verdict taken from rdflib alone is a verdict about
+      # rdflib. Installing only one would silently reduce that arm to a note.
+      - name: Install both SPARQL engines for the erasure gate
+        run: python3 -m pip install --quiet pyoxigraph rdflib
+
+      - name: A forget erases the sentence, not only its link to a person
+        if: always()
+        # The two above mutate the GRAPH CLAUSE and the REPORT. This one mutates
+        # the DELETE PATTERN, which is the surface rows 960 and 2217 name and the
+        # one surface neither of the others touches. It lifts the shipped
+        # _forget_person_update by AST and runs it against a synthetic store.
+        #
+        # It keeps BOTH predicates on purpose. A person-keyed count reads 0 in
+        # the broken world AND the fixed one, because the second clause removes
+        # every mention; that is why this defect was reported closed. Only a
+        # content-keyed count can tell them apart, and this asserts they disagree.
+        #
+        # It exits 0 outside a cut and FAILS under OSTLER_CUT_IN_PROGRESS=1. The
+        # fix belongs upstream in CM041 (row 2218: the vendored copy is 1,151
+        # lines ahead of CM041 main, so a re-vendor destroys shipped behaviour),
+        # so CM051 owes a refusal rather than a graft.
+        run: python3 tests/test_a_forget_erases_the_fact_not_just_the_link.py
+
+      - name: The erasure graft is still in the vendored tree, not only in a record
+        if: always()
+        # The three steps above assert what the erasure DOES. None of them
+        # asserts that it is STILL THERE, so a sync_vendor.sh that replaces the
+        # tree wholesale would take the graft out and leave all three green:
+        # each one lifts the function and reports CANNOT-RUN or simply finds
+        # less to mutate. Rows 960 and 2217 stopped declaring themselves cut
+        # blockers on the strength of that graft being present, so its presence
+        # is now load-bearing for the board and nothing was measuring it.
+        #
+        # 🔴 AND THIS GATE'S FIRST VERSION WAS GREEN AGAINST A REAL MUTATION.
+        # It read the function's SOURCE TEXT, and the CM048 vocabulary sits
+        # there twice: once in the executable tuple and once in the comment
+        # above it. Deleting the graft from the CODE left the comment, the
+        # substring was still found, and the gate passed. It now reads string
+        # constants lifted from the AST with the docstring excluded, so a
+        # comment cannot satisfy it by construction rather than by a rule, and
+        # two MUST-MISS arms pin exactly that.
+        run: python3 tests/test_the_erasure_graft_survives_a_revendor.py

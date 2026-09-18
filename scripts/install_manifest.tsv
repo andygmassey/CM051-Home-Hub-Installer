@@ -75,6 +75,7 @@ launch_agent	com.creativemachines.ostler-remotecapture	conditional	com.creativem
 launch_agent	com.ostler.meeting-brief-sender	excluded	com.ostler.meeting-brief-sender	v1.0.1	skip at 18384; "v1.0.1 feature; endpoints not yet shipped" (strings:215)
 launch_agent	com.ostler.imessage-bridge	excluded	com.ostler.imessage-bridge	baseline	actively removed 20762-20771; "disabled in v1.0 single-machine mode"
 launch_agent	com.ostler.colima	excluded	com.ostler.colima	baseline	legacy; teardown-only (10940-10962), no heredoc ever writes it fresh
+launch_agent	com.ostler.memory-hygiene	required	com.ostler.memory-hygiene	#1958	written by 2da78644 "wire reminders to knowledge search, schedule memory hygiene"; PRESENT on the v1.0.100 walk and declared NOWHERE, which is what reddened install_manifest_complete
 
 # ---- cron_job (enumerable; both directions enforced) --------------------------
 # Denominator = 2, BOTH gated on a resolved brief channel (install.sh:12785).
@@ -129,6 +130,7 @@ qdrant_collection	people	required	people	baseline	install.sh:16586 creation loop
 qdrant_collection	conversations	required	conversations	#615	install.sh:16586 creation loop; ABSENT on the v1.0.60 walk
 qdrant_collection	preferences	required	preferences	baseline	install.sh:16586 creation loop; CM019 preference vectors
 qdrant_collection	evernote_knowledge	required	evernote_knowledge	#615	install.sh:16586 creation loop; ABSENT on the v1.0.60 walk
+qdrant_collection	reminders_knowledge	required	reminders_knowledge	#1958	created by 2da78644 so Reminders reach knowledge search; PRESENT on the v1.0.100 walk and declared NOWHERE
 # safari_history is created by an INGEST writer (the Safari extension path), not
 # the install.sh creation loop, so it is present only when browsing was ingested.
 # Declared conditional so its existence is a DECIDED fact (not an UNDECLARED

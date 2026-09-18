@@ -47,6 +47,16 @@ on:
   pull_request:
     paths:
       - 'tests/test_no_program_dodges_the_promote.sh'
+      # The class gate AND its subject. install.sh is already listed below; this
+      # names the gate itself so editing it re-triggers the workflow that runs
+      # it, rather than leaving it dark on self-edit.
+      - 'tests/test_no_path_is_frozen_across_the_promote.sh'
+      - 'tests/test_the_store_proxy_rereads_the_credential_it_enforces.sh'
+      # The gate AND its subject. A `run:` step with no matching path entry is
+      # a gate you have read, not a gate you have run: editing the test, or the
+      # install.sh ordering it asserts, would not re-trigger it.
+      - 'tests/test_interval_agents_are_quiesced_before_their_programs_move.sh'
+      - 'tests/test_a_quiesced_interval_agent_is_re_registered.sh'
       - 'tests/test_a_taken_port_is_named_not_abstracted.sh'
       - 'tests/test_a_keepalive_agent_that_cannot_bind_is_not_reported_green.sh'
       - 'install.sh'
@@ -57,12 +67,16 @@ on:
       - 'tests/test_case_in_command_substitution_parses_under_bash_32.sh'
       - 'tests/test_vendor_only_survives_sync.sh'
       - 'vendor/doctor/agent/web_ui.py'
+      - 'tests/test_a_launchagent_names_an_absolute_interpreter.py'
+      - 'vendor/doctor/agent/box_status.py'
+      - 'tests/test_a_sentinel_is_not_a_date_on_a_customer_surface.py'
       - 'vendor/cm041/identity_resolver/batch_resolver.py'
       - 'vendor/cm041/identity_resolver/resolver.py'
       - 'tests/test_aiconv_agent_not_registered_without_owner_email.sh'
       - 'tests/test_aiconv_without_owner_email_does_not_redden_health_check.sh'
       - 'tests/test_aiconv_hydrate_honesty.sh'
       - 'tests/test_source_status_reports_ongoing_not_just_install.sh'
+      - 'tests/test_a_failed_source_recorder_is_not_silent.sh'
       # Both halves again, and a third: this gate reads install.sh's source
       # picker, the vendored Doctor's row register AND the shipped extractor's
       # own vocabulary, so a change to any of the three can break the
@@ -130,6 +144,15 @@ on:
       # catalogue (also listed above) are all watched, because the reuse
       # arm is only visible to a customer through two MSG_ entries.
       - 'tests/test_a_remembered_remote_access_answer_is_not_asked_again.sh'
+      # #1765: the graph namespace migrator was called against a directory
+      # this installer never creates, so the migration has never run on any
+      # customer box. Three files make that true or false and all three are
+      # watched: the test, the caller (install.sh, already listed above), the
+      # bundling phase that puts the file where the caller now looks, and the
+      # coverage gate that binds the two.
+      - 'tests/test_the_namespace_migrator_is_found_where_it_ships.sh'
+      - 'gui/project.yml'
+      - 'scripts/check_install_sh_script_dir_coverage.py'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/cold-box-source-truth.yml'
   push:
@@ -542,3 +565,131 @@ jobs:
       - name: A remembered remote-access answer is not asked again
         if: always()
         run: bash tests/test_a_remembered_remote_access_answer_is_not_asked_again.sh
+      # #1765: THE MIGRATOR SHIPPED AND THE CALLER LOOKED SOMEWHERE ELSE.
+      #
+      # install.sh read ${OSTLER_DIR}/scripts/migrate_graph_namespace.py. That
+      # directory appears ONCE in install.sh, on the line that reads it,
+      # against 61 uses of ${OSTLER_DIR}/bin, so nothing has ever created it and
+      # the guard was false on every install ever made. gui/project.yml does
+      # bundle the file, into Resources/scripts, which install.sh reads as
+      # ${SCRIPT_DIR}/scripts for the sibling deferred-register-device.sh.
+      #
+      # The test EXECUTES the extracted resolver against a staged payload and a
+      # stub interpreter that records what it was handed, so "the migration ran"
+      # is a witness file and not an inference from prose.
+      #
+      # if: always() so an earlier red cannot mask it.
+      - name: The namespace migrator is found where it actually ships
+        if: always()
+        run: bash tests/test_the_namespace_migrator_is_found_where_it_ships.sh
+
+      # Its other half: the probe added above must stay bound to the bundling
+      # phase. This gate is what turns a deleted cp line red instead of shipping
+      # a caller that can never find its file again.
+      - name: Every ${SCRIPT_DIR} probe is bundled by a build phase
+        if: always()
+        run: python3 scripts/check_install_sh_script_dir_coverage.py --mode ci
+      - name: Every LaunchAgent names an absolute interpreter (#951, #952)
+        if: always()
+        # A LaunchAgent does not inherit the customer's shell PATH; this repo's
+        # own plist comments say so. A bare interpreter is therefore not a style
+        # question: launchd resolves it against a minimal PATH, so the agent
+        # runs the wrong Python or fails to exec and parks with EX_CONFIG, which
+        # is not retried. Both rows are FIXED (23 of 23 agents absolute on the
+        # walk box) and nothing kept them that way until this file.
+        run: python3 tests/test_a_launchagent_names_an_absolute_interpreter.py
+
+
+
+      # 🔴 INSTANCE SIX OF THE STAGING-PATH FAMILY, AND THE FIRST TO GET A GATE.
+      # install.sh:353 already records "THIRD OCCURRENCE OF THIS CLASS"; every
+      # prior instance was fixed as an instance. A path derived from OSTLER_DIR
+      # but captured at TOP LEVEL is frozen at whatever the value then was, and
+      # the promote rebinds OSTLER_DIR underneath it. Used after the promote it
+      # names a directory that has been deleted.
+      #
+      # Found on a cold walk that reported PASS: the recovery-key delivery
+      # marker was never written and the install said it succeeded. The only
+      # tell was a Python traceback count of 1 in a 1,537-line log, which the
+      # walk adjudicator counts and prints but does not grade.
+      #
+      # The predicate is POSITIONAL on purpose. 67 top-level derivations exist
+      # and 66 are correct because they sit after the promote; a presence test
+      # would report 67 and be ignored.
+      - name: no path is frozen across the prelaunch promote
+        if: always()
+        run: bash tests/test_no_path_is_frozen_across_the_promote.sh
+
+      # 🔴 THIRD INSTANCE OF ONE SHAPE IN ONE NIGHT: a consumer brought up
+      # before the thing it consumes is in place. LaunchAgents started before
+      # their binaries, the recovery-key marker captured before the promote,
+      # and a proxy started 55 seconds before its auth config.
+      #
+      # nginx reads its config at START, and `docker compose up -d` does not
+      # restart an unchanged container, so on a box where the proxy already
+      # exists the freshly minted store token is written and NEVER enforced.
+      # Measured: privacy backfill and places-ingest both 401 against 7878 and
+      # the install says readers stay fail-closed. A first-time customer
+      # install always mints fresh.
+      - name: the store proxy re-reads the credential it enforces
+        if: always()
+        run: bash tests/test_the_store_proxy_rereads_the_credential_it_enforces.sh
+
+      # acceptance_gate_v1013 arm A8 is "LaunchAgents exit clean" and it FAILS
+      # deterministically on any walk run shortly after an install, because two
+      # StartInterval agents tick against programs that are being rewritten
+      # underneath them and launchctl holds the non-zero last-exit for one hour
+      # (fda-rerun) to FOUR (export-scan). Measured on the Mini 2026-09-18:
+      # both .err files predate their own program by about 110 seconds.
+      #
+      # The existing guards cover the FRESH install only. Neither touches a job
+      # already registered by a previous install, which is the upgrade path and
+      # the box this was measured on.
+      - name: interval agents are quiesced before their programs move
+        if: always()
+        run: bash tests/test_interval_agents_are_quiesced_before_their_programs_move.sh
+
+      # The sibling above proves the quiesce is ORDERED correctly and NAMES both
+      # agents. Both were true on the install that booted com.ostler.fda-rerun
+      # out and never brought it back (walk box, 2026-09-18T17:20Z). Ordering is
+      # not debt: a bootout owes a re-registration, and only export-scan already
+      # had one. This gate RUNS the quiesce with launchctl stubbed and reads the
+      # flag it leaves behind, so it fails on the tree the sibling passed.
+      - name: a quiesced interval agent is re-registered
+        if: always()
+        run: bash tests/test_a_quiesced_interval_agent_is_re_registered.sh
+
+
+      - name: A source recorder that DIED is not a source that never ran
+        if: always()
+        # 🔴 The recorder is called with `|| true`. Keeping the install alive
+        # when BOOKKEEPING dies is correct and is kept. Discarding the fact
+        # that it died was not: a failed recorder leaves NO row, and this
+        # panel renders a missing row exactly like a source never asked to
+        # run. Two states, one appearance, and only one is a real absence.
+        #
+        # Measured before the fix: 0 occurrences anywhere in install.sh of any
+        # record of a recorder failure, against a control of 10 for the
+        # honest-record helpers the function already calls on its known-bad
+        # paths. So the zero was real.
+        #
+        # The test LIFTS THE REAL BLOCK from install.sh by its own markers
+        # rather than re-typing it, and reports CANNOT-RUN, not a pass, if the
+        # markers are gone. Its mutation arm pins the pre-fix `|| true` form as
+        # SILENT on the same failure, so the fixture cannot quietly stop
+        # reproducing the defect. Its fourth arm is a control that the block
+        # still exits 0, because turning a bookkeeping failure into an aborted
+        # install would be a worse defect than the one this closes.
+        run: /bin/bash tests/test_a_failed_source_recorder_is_not_silent.sh
+
+
+
+      - name: A sentinel is not a date on a customer surface
+        if: always()
+        # MEASURED ON A LIVE BOX 2026-09-18, on the wire, from the endpoint the
+        # customer's own Doctor page reads: llm.keep_alive =
+        # "2318-12-29T02:25:59...". install.sh starts Ollama with
+        # OLLAMA_KEEP_ALIVE=-1 and Ollama expresses that as an expires_at three
+        # centuries out. The number is not wrong; box_status piped an internal
+        # sentinel to a customer-facing surface unchanged.
+        run: python3 tests/test_a_sentinel_is_not_a_date_on_a_customer_surface.py

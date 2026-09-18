@@ -388,6 +388,52 @@ def _wiki_slug(name):
 _NAMELESS_BARE_ID_CHARS = frozenset("0123456789+-(). ")
 
 
+def _is_not_a_person_to_suggest(display_name, user_name=""):
+    """True when this row must not be SUGGESTED as a person to act on.
+
+    Complements ``_is_nameless_name`` rather than widening it. That predicate is
+    the canonical "is this displayable" test and its own docstring says it is
+    "byte-identical to compiler/nameless.py (CM044 wiki) and PersonNameFilter
+    (CM031 iOS); locked to prevent cross-surface drift" -- so extending it in
+    one surface is exactly the drift it exists to stop. This asks a different
+    and stricter question, and only the SUGGESTION surfaces ask it.
+
+    🔴 WHY IT EXISTS. Measured on a v1.0.100 box the moment the front page's
+    signal band started rendering:
+
+        "You and #PayPal have gone quiet. No contact for 17 months.
+         A short message keeps the thread alive."
+        "<an address the operator owns>'s birthday is in two days"
+        "<the operator's own name>'s birthday is in two days"
+
+    PayPal is a notification sender. The second is an address, not a person.
+    The third is the customer being reminded of his own birthday. All three
+    pass _is_nameless_name, which catches WhatsApp JIDs and bare numeric
+    handles and correctly says nothing about any of these.
+
+    Non-suggestable when:
+      1. it starts with "#" -- an SMS shortcode / business sender, and there is
+         no relationship to maintain,
+      2. it is an address rather than a name (contains "@" and no space), so a
+         card written in the product's voice has no name to use,
+      3. it IS the operator, compared case-insensitively against USER_NAME.
+
+    Nothing is deleted and nothing is hidden from the People list, search or
+    the graph. These rows are withheld from SUGGESTIONS only.
+    """
+    s = (display_name or "").strip()
+    if not s:
+        return True
+    if s.startswith("#"):
+        return True
+    if "@" in s and " " not in s:
+        return True
+    un = (user_name or "").strip()
+    if un and s.casefold() == un.casefold():
+        return True
+    return False
+
+
 def _is_nameless_name(display_name):
     """True when ``display_name`` is a raw handle, not a human name.
 
@@ -568,6 +614,18 @@ from identity_resolver.compartment import (
     cm048_user_graph_uris as _cm048_user_graph_uris,
     graph_scoped_select as _graph_scoped_select,
 )
+
+# The operator's own display name, used ONLY to keep them out of their own
+# suggestions (see _is_not_a_person_to_suggest). Absent is the safe state: an
+# empty string makes that clause a no-op rather than matching everyone, so a
+# box whose env predates this field behaves exactly as before.
+#
+# 🔴 I WROTE THE TWO CALL SITES BEFORE DEFINING THIS AND CAUGHT IT ONLY BY
+# GREPPING FOR THE DEFINITION. An undefined global here raises NameError inside
+# the birthdays and stale-contacts builders, which are wrapped, so it would have
+# surfaced as an EMPTY SUGGESTIONS PAYLOAD -- the same silent-empty shape as the
+# privacy-level defect this file was just fixed for, introduced by the fix.
+USER_NAME = os.environ.get("USER_NAME", "").strip()
 
 _raw_user_id = os.environ.get("USER_ID", "").strip()
 USER_ID = _normalise_user_id(_raw_user_id) if _raw_user_id else ""
@@ -1197,7 +1255,71 @@ def _forget_person_update(person_uri, graph_uris):
     than inferred from the handler around it.
     """
     esc_uri = person_uri.replace("\\", "\\\\").replace(">", "%3E")
-    clauses = [
+
+    # THE FACT NODE, COLLECTED WHILE ITS LINK TO THE PERSON STILL EXISTS.
+    #
+    # The two bare clauses below delete every triple where the person is the
+    # SUBJECT and every triple where they are the OBJECT. The second removes a
+    # fact's LINK to the person and leaves the fact NODE: factText, factSource,
+    # belongsToUser, privacyLevel and createdAt all survive, and the reader
+    # lists facts by belongsToUser, so the sentence the customer asked to have
+    # erased is orphaned rather than erased and is still returned. Measured on
+    # the shipped box 2026-09-18: 47 of 48 orphaned facts created within 100ms
+    # of a forget, against a control with the forget times shifted by one hour
+    # matching 0 of 48. GDPR Article 17, which is this function's own citation.
+    #
+    # ORDER IS LOAD-BEARING: these must run BEFORE the link delete. Moved after
+    # it they match nothing and the repair silently does nothing while looking
+    # correct. tests/test_a_forget_erases_the_fact_not_just_the_link.py drives
+    # that case rather than asserting it.
+    #
+    # SCOPED BY TYPE, AND THAT IS THE WHOLE DESIGN. The obvious form -- delete
+    # every triple of any subject that links to the person -- ERASES BYSTANDERS.
+    # Measured before this was written: a node carrying `spouseOf <person>`
+    # loses its entire record including its own name, and a meeting both people
+    # attended loses its notes and its other attendees. CM041 is a people
+    # graph, so a shared node is the normal case and not a corner:
+    # RelationshipSignal 380, fromConversation 1353. Keying on the fact TYPE
+    # plus the fact-to-person predicate bounds the delete to nodes that exist
+    # only to say something about this person. A meeting is not a PersonFact
+    # and neither is a spouse.
+    #
+    # BOTH VOCABULARIES, because there are two and the smaller one looks like
+    # the only one. CM048 writes its own (see the dual-vocabulary reader's note
+    # below): `a <urn:ostler:Fact> ; <urn:ostler:about>`, NOT pwg. On the box
+    # the pwg arm is 48 facts and the CM048 arm is 1,274, so covering only pwg
+    # would erase four per cent of what was asked for.
+    #
+    # FULL IRIs, NOT `pwg:`. This function returns a bare update with no PREFIX
+    # block -- every caller in this file declares its own -- so a prefixed name
+    # here is a parse error at the store. The namespace is written out rather
+    # than taken from PWG_NS because the erasure is lifted and executed on its
+    # own by its test, which asserts the function's free names are its own
+    # locals; a module global would break that lift.
+    #
+    # NOT COVERED, DELIBERATELY: <urn:ostler:about> is also how a
+    # RelationshipSignal links to a person, which is why the type clause is
+    # load-bearing rather than tidy. Whether a signal about a forgotten person
+    # must also be erased is a live question, and a signal naming two people is
+    # the shared-node problem again. It is not settled by guessing here.
+    fact_shapes = (
+        ("<https://schema.ostler.ai/ontology#PersonFact>",
+         "<https://schema.ostler.ai/ontology#aboutPerson>"),
+        ("<urn:ostler:Fact>", "<urn:ostler:about>"),
+    )
+    clauses = []
+    for graph in graph_uris:
+        for fact_type, about in fact_shapes:
+            clauses.append(
+                "DELETE {{ GRAPH <" + graph + "> {{ ?f ?fp ?fo }} }} "
+                "WHERE {{ GRAPH <" + graph + "> {{ ?f a " + fact_type + " ; "
+                + about + " <{uri}> ; ?fp ?fo }} }};")
+    for fact_type, about in fact_shapes:
+        clauses.append(
+            "DELETE {{ ?f ?fp ?fo }} WHERE {{ ?f a " + fact_type + " ; "
+            + about + " <{uri}> ; ?fp ?fo }};")
+
+    clauses += [
         "DELETE {{ <{uri}> ?p ?o }} WHERE {{ <{uri}> ?p ?o }};",
         "DELETE {{ ?s ?p <{uri}> }} WHERE {{ ?s ?p <{uri}> }};",
     ]
@@ -1722,6 +1844,38 @@ def _queue_wiki_recompile(slug):
         return False
 
 
+def _forget_audit_has(slug):
+    """Has this slug been forgotten before?
+
+    True  -- an audit line for this slug exists, so a previous forget ran
+    False -- the log is readable and holds no line for this slug
+    None  -- the log could not be read, so the question is UNANSWERED
+
+    Three states and not two, deliberately. The caller uses this to decide
+    whether "no matching person" means "already erased" or "never found",
+    and an unreadable log must not be allowed to produce the reassuring
+    answer. See the branch in api_people_forget.
+
+    The writer is _queue_wiki_recompile, a few lines above: it appends
+    ``<utc> forget <slug>`` on every call. Reader and writer are kept
+    adjacent on purpose.
+    """
+    try:
+        audit = _RECOMPILE_QUEUE_DIR / "forget_audit.log"
+        if not audit.exists():
+            # An absent log on a Mac that has never forgotten anyone is a
+            # readable "no", not an error.
+            return False
+        needle = " forget " + slug
+        with audit.open("r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if line.rstrip("\n").endswith(needle):
+                    return True
+        return False
+    except OSError:
+        return None
+
+
 def api_people_forget(slug):
     """Handle POST /api/v1/people/{slug}/forget.
 
@@ -1773,12 +1927,76 @@ def api_people_forget(slug):
             break
 
     if person_uri is None:
-        # No matching person. Idempotent: treat as already-forgotten +
-        # still queue a wiki recompile in case a stale page exists.
+        # ── "I COULD NOT FIND THEM" IS NOT "I ALREADY ERASED THEM" ──
+        #
+        # This branch used to return already_forgotten=True for EVERY
+        # unresolved slug, and the docstring above says why it was written
+        # that way: idempotency, so a second call is benign for the iOS
+        # client. The reasoning is right and the implementation could not
+        # tell the two cases apart, because BOTH produce "no matching
+        # person":
+        #
+        #   a SECOND call, after we really did erase them   -> benign
+        #   a FIRST call whose lookup could not resolve the
+        #     person at all                                 -> NOT benign
+        #
+        # MEASURED ON THE WALK BOX 2026-09-18. A person present in the
+        # graph with five triples, asked to be forgotten, got HTTP 200 and
+        #
+        #   {"forgotten": false, "already_forgotten": true,
+        #    "stores_purged": []}
+        #
+        # and all five triples were still there afterwards. The customer is
+        # told the erasure happened. It did not. That is the same shape as
+        # CM051 #960 -- a deletion request the product ACCEPTS AND DOES NOT
+        # HONOUR -- surviving in the reporting after the SPARQL half was
+        # fixed.
+        #
+        # THE DISCRIMINATOR ALREADY EXISTED AND NOTHING READ IT.
+        # _queue_wiki_recompile appends one audit line per slug to
+        # forget_audit.log on every forget. So a slug that has been
+        # forgotten before HAS a line, and one that has not does not. That
+        # is precisely the fact this branch needed and never consulted.
+        #
+        # An unreadable audit log does NOT become a benign answer. It
+        # becomes "unknown", because a reader that cannot see the evidence
+        # must not rule in the reassuring direction.
+        #
+        # 🔴 THE STATUS CODE STAYS 200 AND THAT IS A DELIBERATE CHOICE, NOT
+        # AN OVERSIGHT. 404 is the more honest transport answer and it is
+        # also a CONTRACT CHANGE to a client that is already in customers'
+        # hands: the iOS Companion's ForgetPersonService was written against
+        # this endpoint returning 200 for both cases, and it cannot be
+        # re-tested from here tonight. Changing the transport could turn a
+        # wrong message into a broken screen.
+        #
+        # The BODY is what lied, so the body is what changes. A client that
+        # reads `forgotten` or `already_forgotten` now sees neither is true
+        # and can say so; one that only checks the HTTP code behaves exactly
+        # as it did yesterday. When the iOS side can be exercised, 404 is
+        # the right end state and this comment is the note to whoever does it.
+        prior = _forget_audit_has(slug)
         queued = _queue_wiki_recompile(slug)
+        if prior is True:
+            return {
+                "forgotten": False,
+                "already_forgotten": True,
+                "wiki_recompile_queued": queued,
+                "stores_purged": [],
+            }, 200
         return {
             "forgotten": False,
-            "already_forgotten": True,
+            "already_forgotten": False,
+            "not_found": True,
+            "audit_readable": prior is not None,
+            "reason": (
+                "no person matching this slug could be found, and there is no "
+                "record of them having been forgotten before"
+                if prior is False else
+                "no person matching this slug could be found, and the forget "
+                "audit log could not be read, so whether they were forgotten "
+                "earlier is unknown"
+            ),
             "wiki_recompile_queued": queued,
             "stores_purged": [],
         }, 200
@@ -4574,7 +4792,10 @@ def commitments_list(owner=None, due_before=None, status="open",
     commitments = commitments[:limit]
     for c in commitments:
         c.pop("_created", None)
-    return {"commitments": commitments, "count": len(commitments)}, 200
+    # Same contract as /api/v1/suggestions above, and the same measurement:
+    # untagged means L3 means dropped, so this payload declares its level.
+    return {"commitments": commitments, "count": len(commitments),
+            "privacy_level": "L2"}, 200
 
 
 # ── Reply debt (CM048 reply-debt detector, JTBD#1) ───────────────────
@@ -4722,6 +4943,10 @@ def api_reply_debt(threshold_hours=None, lookback_days=None,
         }, 200
 
     payload.setdefault("degraded", False)
+    # Same contract as the two payloads above. reply_debt is the "N people are
+    # waiting on you" card, badged L2 on the public front-page design.
+    if isinstance(payload, dict):
+        payload.setdefault("privacy_level", "L2")
     return payload, 200
 
 
@@ -4996,6 +5221,33 @@ def people_stale(months=3, limit=5):
         # Stale / reconnect list. Render-time filter only. Ref #664.
         if _is_nameless_name(name):
             continue
+        # 🔴 AND A SECOND, STRICTER SCREEN, BECAUSE RECONNECT ASKS A HARDER
+        # QUESTION THAN "IS THIS DISPLAYABLE".
+        #
+        # Measured on a v1.0.100 box once the front page's signal band started
+        # rendering at all: 3 of the 5 reconnect entries were raw email
+        # addresses and 2 were SMS shortcodes. The card the customer read was
+        #
+        #     "You and #PayPal have gone quiet. No contact for 17 months.
+        #      A short message keeps the thread alive."
+        #
+        # PayPal is a notification sender. There is no thread to keep alive,
+        # and the card is written in the product's voice about a relationship
+        # that does not exist.
+        #
+        # _is_nameless_name passes both: it catches WhatsApp JIDs and bare
+        # numeric handles, and an address or a #shortcode is neither. IT IS
+        # DELIBERATELY NOT EXTENDED HERE. Its own docstring says it is
+        # "byte-identical to compiler/nameless.py (CM044 wiki) and
+        # PersonNameFilter (CM031 iOS); locked to prevent cross-surface drift",
+        # so widening it in one surface is exactly the drift it exists to stop.
+        #
+        # This is a RECONNECT-ONLY screen at the call site. Nothing is deleted,
+        # nothing is hidden from the People list or the graph, and the person
+        # remains searchable. They are excluded from a suggestion that cannot
+        # be written properly without a human name.
+        if _is_not_a_person_to_suggest(name, USER_NAME):
+            continue
         months_since = int((now - lc_ts) / (30 * 86400))
         contacts.append({
             "name": name,
@@ -5080,6 +5332,10 @@ def people_birthdays(days=7):
         # recent endpoints use. Ref #664. The Qdrant point / graph node is never
         # deleted -- only withheld from this listing.
         if _is_nameless_name(name):
+            continue
+        # Shared suggestion screen: no shortcodes, no bare addresses, and never
+        # the operator's own birthday. See _is_not_a_person_to_suggest.
+        if _is_not_a_person_to_suggest(name, USER_NAME):
             continue
         try:
             # Parse MM-DD or YYYY-MM-DD
@@ -5209,6 +5465,30 @@ def api_suggestions():
     # change. Aliases share the same list reference – cheap, no copy.
     out["reconnect"] = out["stale_contacts"]
     out["follow_up"] = out["recent_meetings"]
+    # 🔴 THE FRONT PAGE'S "NEEDS YOU NOW" BAND WAS EMPTY BECAUSE THIS PAYLOAD
+    # NEVER SAID WHAT IT WAS. CM059's signals.py resolves an item's privacy
+    # level fail-closed: the item's own tag wins, else the enclosing payload's,
+    # else L3 -- "an untagged item cannot prove it is safe". Renderable levels
+    # are {L0, L1, L2}, so an untagged payload is dropped in full and silently.
+    #
+    # Measured on a v1.0.100 box, 2026-09-17, with the service token presented
+    # so a 401 could not be mistaken for the cause:
+    #     /api/v1/suggestions   200, 5 birthdays incl. one TODAY
+    #     /api/v1/commitments   200, 3 open commitments
+    #     _normalise_suggestions -> 0     _normalise_commitments -> 0
+    #     _renderable(item) -> False on every one
+    #     build_signal_cards -> 0 cards      front_page signal_cards: 0
+    # The consumer accepts any of privacy / privacy_level / privacyLevel /
+    # level, on the item OR the payload. This server sent none of them.
+    #
+    # L2 IS NOT A GUESS. ostler.ai's own front-page section badges every card
+    # in this band L2: "People L2", "Dates L2", "Commitments L2", "Prep L2",
+    # "Drafts L2". That is the designed level for exactly this content.
+    #
+    # Stamped on the PAYLOAD rather than each item, which is the inheritance
+    # the consumer implements, so an item carrying its OWN stricter tag still
+    # wins and is still withheld.
+    out["privacy_level"] = "L2"
     return out
 
 
