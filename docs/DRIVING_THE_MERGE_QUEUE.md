@@ -410,3 +410,44 @@ never written**, except that its existence stops anyone writing it again.
 
 When you find a missing check, search for it by name before building it, and
 search for its CALLERS before trusting it.
+
+### We are one GitHub identity, so a formal approval between us cannot arrive
+
+Measured 2026-09-18, after one session told another that a pull request was
+"waiting only on your review":
+
+    gh pr review 166 --approve
+    failed to create review: GraphQL: Review Can not approve your own pull request
+
+Every token in this estate resolves to the same account, so three sessions
+working in parallel are one author to GitHub. **A formal approval between any
+two of us is impossible by construction, not by convention.** Waiting for one is
+waiting for something that cannot happen, and it stalls the lane indefinitely
+while looking like diligence.
+
+Two consequences:
+
+- Review between sessions goes in as a **comment**, and the **merge is the
+  decision**. That is not a relaxation of the review rule; it is the only shape
+  the rule can take here.
+- Before saying a pull request "needs a review", check whether the branch is
+  even protected:
+
+      gh api repos/<owner>/<repo>/branches/main/protection
+      -> 404 Branch not protected
+
+  An empty `reviewDecision` on an unprotected branch means **none was ever
+  requested**, not that one is outstanding. A pull request that reports CLEAN
+  was already mergeable.
+
+### A check state is a timestamp, not a property
+
+In the same exchange, one session read `2 of 2 SUCCESS` and reported the pull
+request green. By the time the other session read it, a push had restarted the
+suite and it was `scan completed / pytest in_progress`. The first reading was
+true when it was taken and false when it was relayed.
+
+This is the same shape as a pull request whose green was eleven days old: the
+number is a fact about a moment, and relaying it turns it into a claim about
+now. Re-read the state in the same turn you act on it, and when you hand a state
+to someone else, hand them the query rather than the answer.
