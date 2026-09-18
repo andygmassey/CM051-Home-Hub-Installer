@@ -44,12 +44,14 @@ on:
       - 'install.sh'
       - '**/*.sh'
       - 'scripts/verify_no_broken_line_continuation.py'
+      - 'scripts/repair_rearm_citations.py'
       - '.github/workflows/broken-line-continuation.yml'
   pull_request:
     paths:
       - 'install.sh'
       - '**/*.sh'
       - 'scripts/verify_no_broken_line_continuation.py'
+      - 'scripts/repair_rearm_citations.py'
       - '.github/workflows/broken-line-continuation.yml'
 
 concurrency:
@@ -78,3 +80,28 @@ jobs:
 
       - name: no broken line continuations
         run: python3 scripts/verify_no_broken_line_continuation.py
+
+      # THE RE-ARM COMMENT'S LINE CITATIONS MUST STILL LAND ON THEIR ANCHORS.
+      #
+      # Board row 2152: every install.sh change moves the lines the re-arm
+      # comment cites, and the repair was done BY HAND each time. The tool to do
+      # it properly already exists -- scripts/repair_rearm_citations.py, which
+      # ALIGNS against a base revision rather than offsetting, mirrors this
+      # repo's own accept predicate rather than inventing a second one, and
+      # REFUSES rather than guessing when the citation count changes or an
+      # anchor is deleted.
+      #
+      # MEASURED 2026-09-18, and this is why the step exists rather than a note:
+      # the tool appeared in ZERO workflows, against a control of TWO for
+      # verify_test_wiring, a script of the same kind in the same directory. So
+      # it was BUILT WITH NO CONSUMER, on the tool written to close that row.
+      #
+      # --check writes nothing and exits non-zero when a citation would move, so
+      # a pull request that shifts install.sh without repairing the comment goes
+      # red HERE instead of the comment quietly becoming fiction. On main today
+      # it reports 18 of 18 citations already correct.
+      #
+      # if: always() so an earlier red cannot delete this.
+      - name: the re-arm comment's line citations still land
+        if: always()
+        run: python3 scripts/repair_rearm_citations.py --check
