@@ -128,6 +128,7 @@ on:
       - 'tests/test_walk_port_probe_matches_install_sh.sh'
       - 'tests/test_a_security_note_cannot_claim_a_flag_is_off.sh'
       - 'scripts/box_walk_probes/probes/no_store_port_is_tcp_reachable.sh'
+      - 'tests/test_a_self_test_denominator_counts_itself.sh'
       - 'scripts/box_walk_probes/lib/probe.sh'
       - 'scripts/tests/test_no_store_port_probe_reads_the_credential.sh'
       # Walk-failure classification: the records themselves, the tool that
@@ -552,6 +553,23 @@ jobs:
         # -> CANNOT-RUN, the runner's --self-test contract, the same PASS under
         # `zsh -c` where zsh exists, and one mutant per arm proved landed.
         run: /bin/bash scripts/tests/test_no_store_port_probe_reads_the_credential.sh
+
+      - name: A self-test denominator is COUNTED, never TYPED
+        if: always()
+        # #2120 and #2138. run_box_walk.sh phase 1 puts each probe's self-test
+        # line into walks/v1.0.NN.tsv, so "behaved correctly on all N cases" is
+        # a number a person reads to decide whether a build is shippable.
+        #
+        # MEASURED on origin/main: people_stores_reconcile, one of the five
+        # BLOCKING probes, declared 32 while FORTY ONE distinct assertions
+        # fired, and 0 files named the number. Wrong by nine, checked by
+        # nothing.
+        #
+        # This asserts the declared count against a SECOND reading of the same
+        # run -- the outcome lines it printed -- because that is what catches
+        # an arm added without its tick, which is #2138. A mutant restoring the
+        # typed 32 turns three arms red.
+        run: bash tests/test_a_self_test_denominator_counts_itself.sh
 
       - name: The grounded probe asserts the fact, not the frame shape
         if: always()
