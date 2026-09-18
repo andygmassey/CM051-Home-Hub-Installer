@@ -1,0 +1,105 @@
+# Two registers must not answer one question twice.
+#
+# CM051 #1772, part 2. scripts/walk_promote_scope.tsv says which box-walk
+# probes can refuse a PROMOTE. cut-manifests/*.yaml declare rows titled
+# "box-walk probe must PASS", graded by verify_cut_manifest.py where a
+# non-PASS blocks the CUT. Measured on origin/main 923c5067, FOUR probes are
+# graded `advisory` by the first and must-PASS by the second:
+#
+#   converge_kill_is_recorded
+#   ingest_coverage
+#   no_store_port_is_tcp_reachable
+#   usage_journal_producers
+#
+# Neither register knows the other exists. The grep proving the escape really
+# is absent from the cut gate resolves: `advisory` and `promote_scope` both
+# return 0 in verify_cut_manifest.py, against controls of 39 `box_walk_probe`
+# and 3 `blocking` in the same file.
+#
+# WHAT THIS GATE DOES NOT DO. It does not decide which register wins. That is
+# a policy decision about what stops a cut. It refuses to let the
+# disagreement be held SILENTLY, and it refuses to let it be held FOREVER:
+# every acknowledged pair carries an `until_cut` and dies there.
+#
+# NO `paths:` FILTER ON PUSH, and the pull_request list is deliberately wide.
+# Which files the registers live in is the thing being measured, and a skipped
+# job renders as a grey tick that reads like a pass.
+
+name: register-agreement
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/verify_register_agreement.py'
+      - 'scripts/walk_promote_scope.tsv'
+      - 'scripts/verify_walk_record.sh'
+      - 'scripts/verify_cut_manifest.py'
+      - 'cut-manifests/**'
+      - 'scripts/box_walk_probes/probes/**'
+      - 'tests/test_registers_cannot_disagree.sh'
+      - '.github/workflows/register-agreement.yml'
+  push:
+    branches: [main]
+    # AND ON A CUT TAG. An acknowledgement carries an `until_cut`, and the
+    # cut is the moment it is supposed to die. A gate that expires a row and
+    # never runs when that row expires has written a reminder, not an
+    # enforcer. scripts/verify_declared_gates_reachable.sh caught this
+    # workflow as an orphan on axis three and was right to.
+    tags:
+      - 'v1.*'
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  register-agreement:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # LOAD-BEARING, not housekeeping. The gate returns CANNOT-RUN (2) when
+      # PyYAML is not importable, which is correct and is also a run that
+      # measured nothing. Installing it is what makes the CANNOT-RUN arm a
+      # safety net rather than the normal outcome.
+      - name: Install the one dependency the gate refuses to run without
+        run: |
+          python -m pip install --quiet --upgrade pip
+          python -m pip install --quiet pyyaml
+
+      # THE NEGATIVE CONTROL RUNS FIRST AND IS NOT OPTIONAL.
+      #
+      # 14 arms, each proving one refusal fires: an unacknowledged
+      # disagreement, an expired acknowledgement, a malformed one, a stale one
+      # on a probe that agrees, an unknown scope word, a missing register, an
+      # empty register. Plus positive controls so the refusals are not a stuck
+      # needle. A gate nobody has watched refuse is a gate nobody can trust to
+      # refuse.
+      - name: The gate can refuse, proven before its verdict is read
+        run: python3 scripts/verify_register_agreement.py --self-test
+
+      # `if: always()`, so a red negative control above cannot hide the real
+      # verdict behind it. Both numbers are wanted: a gate that cannot refuse
+      # AND a tree whose registers disagree are two findings, not one.
+      - name: The registers in this tree agree, or the disagreement is dated and owned
+        if: always()
+        run: python3 scripts/verify_register_agreement.py
+
+      # The arms that drive the gate over COPIES of the real registers with
+      # one field changed, and the two wiring assertions. Kept separate from
+      # the gate's own --self-test because that one builds synthetic
+      # registers: a gate that works on fixtures and not on the tree it ships
+      # in is the shape this repo keeps rediscovering.
+      - name: The gate discriminates on the REAL registers, not only on fixtures
+        if: always()
+        run: bash tests/test_registers_cannot_disagree.sh
