@@ -22750,16 +22750,48 @@ if [[ -z "${RESPONSE}" ]]; then
     exit 0
 fi
 
-# Degraded short-circuit. The hub returns degraded=true when the
-# People Graph is unreachable; we do not want to ship a brief with
-# missing attendee facts.
-DEGRADED=$(printf '%s' "${RESPONSE}" | python3 -c \
+# Degraded short-circuit, with THREE outcomes rather than two.
+# The hub returns degraded=true when the People Graph is unreachable; we do
+# not want to ship a brief with missing attendee facts.
+#
+# 🔴 BOARD ROW 2211. This previously collapsed EVERY failure of the pipeline
+# into DEGRADED="False", which is the single answer that ships the brief:
+#
+#     ... 2>>"${LOG_FILE}") || DEGRADED="False"
+#
+# Malformed JSON, a truncated response, an unwritable LOG_FILE, or python3
+# resolving to the Apple stub on a box without Command Line Tools each read
+# as "the People Graph is healthy". The comment above stated the intent
+# exactly and the code inverted it on every error path. A guard that cannot
+# tell its own failure from a clean result is not a guard, and this one was
+# confidently wrong in the precise direction the comment says must not
+# happen, on a schedule, unattended, with its own log recording nothing
+# because the failure was consumed by the ||.
+#
+# A brief NOT sent is recoverable. A brief sent with missing attendee facts
+# is not. So COULD-NOT-DETERMINE skips, and says why.
+DEGRADED_RC=0
+DEGRADED_RAW=$(printf '%s' "${RESPONSE}" | python3 -c \
     'import json,sys; print(json.load(sys.stdin).get("degraded", False))' \
-    2>>"${LOG_FILE}") || DEGRADED="False"
-if [[ "${DEGRADED}" == "True" ]]; then
-    echo "$(date -u +%FT%TZ) skip: hub degraded" >> "${LOG_FILE}"
+    2>>"${LOG_FILE}") || DEGRADED_RC=$?
+if [[ "${DEGRADED_RC}" -ne 0 ]]; then
+    echo "$(date -u +%FT%TZ) skip: CANNOT-RUN, could not read degraded state (rc=${DEGRADED_RC}); not sending rather than sending a brief that may be missing attendee facts" >> "${LOG_FILE}"
     exit 0
 fi
+DEGRADED=$(printf '%s' "${DEGRADED_RAW}" | tr -d '[:space:]')
+case "${DEGRADED}" in
+    True)
+        echo "$(date -u +%FT%TZ) skip: hub degraded" >> "${LOG_FILE}"
+        exit 0
+        ;;
+    False)
+        : # the only path that sends
+        ;;
+    *)
+        echo "$(date -u +%FT%TZ) skip: CANNOT-RUN, unrecognised degraded value; not sending rather than guessing" >> "${LOG_FILE}"
+        exit 0
+        ;;
+esac
 
 # Iterate meetings. Each meeting's idempotency key is UID + start;
 # the assistant's announcement endpoint is the WhatsApp arm.

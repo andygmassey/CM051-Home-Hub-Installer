@@ -64,6 +64,7 @@ jobs:
             tests/test_mail_onboarding_259_260.sh \
             tests/test_mailbox_ingest_leg_wired.sh \
             tests/test_meeting_brief_sender.sh \
+            tests/test_the_brief_guard_can_tell_its_own_failure_from_a_clean_result.sh \
             tests/test_model_fit.sh \
             tests/test_ostler_gui_sudo_gates.sh \
             tests/test_placeholder_strip.sh \

@@ -355,6 +355,7 @@ test_manifest_gate_cannot_run_is_not_a_missing_fix.sh	WIRED	.github/workflows/cu
 test_marker_grep_is_three_state.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_marker_payloads_never_reach_install_log.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_meeting_brief_sender.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_the_brief_guard_can_tell_its_own_failure_from_a_clean_result.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_memory_embeddings_wired.sh	WIRED	.github/workflows/memory-embeddings.yml
 test_mergeable_unknown_is_not_clean.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_migration_marker_guard_fresh_install.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
