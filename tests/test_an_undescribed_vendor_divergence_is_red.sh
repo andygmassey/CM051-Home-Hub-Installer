@@ -216,6 +216,24 @@ printf '  unrecorded_divergence = "vendor/divergences/NOT_THERE.md"\n' \
 commit_on_branch "$D" work "dangling record"
 expect_gate "B5 MUST-MISS a dangling unrecorded_divergence pointer" "$D" 1 "does not exist at head"
 
+# B5b ROUTE (c) EXTENDED IN PLACE: the pointer VALUE does not move and the file
+# it names is edited in the same diff. This is what the shared record's own
+# header instructs later PRs to do, and the gate used to refuse it while naming
+# none of that. A gate that rejects its own documented practice sends the
+# reader to argue with it.
+D="$(mkdir_repo)"
+printf '  unrecorded_divergence = "vendor/divergences/DEMO.UNRECORDED.md"\n' \
+    >> "$D/vendor/VENDOR_MANIFEST.toml"
+mkdir -p "$D/vendor/divergences"
+printf 'demo tree: first refusal recorded here.\n' > "$D/vendor/divergences/DEMO.UNRECORDED.md"
+git -C "$D" add -A >/dev/null 2>&1
+git -C "$D" commit -qm "base: pointer and record already present" >/dev/null 2>&1
+printf 'x\n' >> "$D/vendor/demo/file.txt"
+printf 'demo tree: SECOND refusal appended by this PR.\n' >> "$D/vendor/divergences/DEMO.UNRECORDED.md"
+git -C "$D" add -A >/dev/null 2>&1
+git -C "$D" commit -qm "head: extend the record in place" >/dev/null 2>&1
+expect_gate "B5b route (c) a record EXTENDED IN PLACE is accepted" "$D" 0 "unrecorded_divergence record"
+
 # B6 ROUTE (c) MUST-MISS: the record exists but never mentions this tree, so it
 # is somebody else's divergence borrowed as cover.
 D="${WORK}/b6"; mkfix "$D" || cannot_run "could not build fixture b6"
