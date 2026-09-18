@@ -3239,11 +3239,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8097) captures the path BY
+    # _ostler_write_store_curl_config (defined :8127) captures the path BY
     # VALUE and never re-reads it:
-    #     :8098   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8143   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8152 and :14519, both of which run
+    #     :8128   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8173   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8182 and :14595, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3234 above has just deleted
     # that tree and :3238 has just rebound OSTLER_DIR to the final one, so
@@ -3261,13 +3261,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15290, where the note reads
+    # WhatsApp Web session path did it again at :15366, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15307 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15383 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3276,13 +3276,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5747 against a definition at :8097. Top-level
+    # writer's own definition: :5747 against a definition at :8127. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8152, :14519) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8182, :14595) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17362 / :17540 / :17697 / :18038 path. There the
+    # :17438 / :17616 / :17773 / :18114 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -8000,9 +8000,39 @@ fi
 #
 # The blast radius is every service WITHOUT its own venv -- cm059-editor,
 # ical-server, ostler_hygiene -- which is why the warn names them.
+# 🔴 #950: THE GUARD USED TO SILENCE ITS OWN FAILURE, WHICH IS WHY NOTHING
+# WENT RED FOR THE WHOLE OF THE #550 STORE-AUTH WORK.
+#
+# The warn sat INSIDE this `if`, beside the call. So when PYTHON3_BIN is not
+# the bundled interpreter the shim was not written AND nothing was logged:
+# the install said the same thing whether the credential wiring had happened
+# or had been skipped entirely.
+#
+# SIX VALUES OF PYTHON3_BIN DO NOT MATCH, and none of them is exotic: the four
+# degrade branches in _ostler_relocate_bundled_python, a plain
+# `command -v python3`, and two Homebrew kegs. On any of those six, every
+# service without its own venv reached the stores bare and the log said
+# nothing at all.
+#
+# WHY THE EXISTING TEST COULD NOT CATCH IT, and this is the part worth
+# keeping: tests/test_store_auth_covers_every_interpreter.sh is STATIC. It
+# asserts the wiring CALL EXISTS at 15 sites against a floor of 15. A call
+# inside a guard that evaluates false still exists. Presence is not
+# execution, and a static test cannot tell them apart.
+#
+# THE WRITE STAYS GUARDED ON PURPOSE. _ostler_wire_store_auth_pth writes a
+# .pth into an interpreter''s site-packages, and doing that to a Homebrew keg
+# or to /usr/bin/python3 would modify software the customer did not install
+# from us and that other things on their Mac depend on. The guard is correct.
+# What was wrong was that its failure was invisible.
 if [[ -n "${PYTHON3_BIN:-}" && "${PYTHON3_BIN}" == "${OSTLER_FINAL_DIR}/python/"* ]]; then
     _ostler_wire_store_auth_pth "$PYTHON3_BIN" "${OSTLER_FINAL_DIR:-${HOME}/.ostler}" \
         || warn "store-auth .pth not wired into the bundled interpreter -- every service WITHOUT its own venv (cm059-editor, ical-server, ostler_hygiene) reaches the data stores with NO credential (#595/#210)"
+else
+    # The else that did not exist. Names the interpreter, the reason, the
+    # blast radius and the number, so a walk or a customer log can be grepped
+    # for it. i18n-exempt: this is an operator diagnostic, not customer copy.
+    warn "store-auth .pth NOT wired: PYTHON3_BIN is [${PYTHON3_BIN:-<unset>}], which is not the bundled interpreter under [${OSTLER_FINAL_DIR}/python/]. The shim is deliberately not written into an interpreter we do not own, so every service WITHOUT its own venv (cm059-editor, ical-server, ostler_hygiene) will reach the data stores with NO credential (#950/#595/#210)."  # i18n-exempt
 fi
 
 # ── and now the half that makes the shim RUN (#550) ───────────────────
@@ -8661,6 +8691,35 @@ if [[ "$SKIP_PHASE2" == false ]]; then
 
 EXPORTS_DIR=""
 DETECTED_EXPORTS=()
+# ── EVERY DETECTED ROOT, NOT JUST THE FIRST ──────────────────────────
+#
+# CM051 #957. EXPORTS_DIR is assigned five times with ${EXPORTS_DIR:-...},
+# which is FIRST-WRITE-WINS. DETECTED_EXPORTS collects every platform found
+# and is read in exactly three places: a length test, the count printed to
+# the customer, and the display loop. It never reaches the importer.
+#
+# So the install FINDS the exports, TELLS the person how many it found, and
+# then imports only the ones under whichever root happened to be detected
+# first, while the final summary says "GDPR import: Processed from <that one
+# dir>". A customer who keeps their Facebook export in Downloads and their
+# Instagram export on the Desktop gets one of the two, silently.
+#
+# This array carries the same value each of those five sites computes, with
+# no :- guard, so the importer can be given all of them. EXPORTS_DIR keeps
+# its first-write-wins behaviour untouched: it is the value the summary and
+# the step-count logic print, and changing what it means would ripple into
+# both for no gain.
+DETECTED_EXPORT_ROOTS=()
+# CONSENT IS A FACT ABOUT THE PERSON, NOT A SHAPE OF A PATH VARIABLE.
+# The first draft of #957 inferred "they declined" from EXPORTS_DIR being
+# empty at the point of import. Archie traced the actual path: the decline
+# empties EXPORTS_DIR, and the iCloud-contacts block below REFILLS it to
+# ${OSTLER_DIR}/imports whenever icloud-contacts.vcf exists, so by the time
+# the importer is fed, EXPORTS_DIR is non-empty again and the inference is
+# simply false. Its real firing condition had become "this customer has no
+# icloud-contacts.vcf", which has no relationship to consent at all.
+# So the answer is RECORDED here rather than reconstructed later.
+IMPORT_DECLINED=0
 # #619 (2026-06-06): folders the scan could not read (TCC or POSIX
 # permission denied). Recorded so a denied folder is surfaced as an
 # actionable message rather than masquerading as an empty one.
@@ -10324,6 +10383,7 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("LinkedIn: $(dirname "$f")")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$(dirname "$f")")}"
+        DETECTED_EXPORT_ROOTS+=("$(dirname "$(dirname "$f")")")
     done < <(find "$search_dir" -maxdepth 3 -name "Connections.csv" 2>/dev/null || true)
 
     # Facebook: folder containing your_friends.json (2026 export name) or
@@ -10336,12 +10396,14 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("Facebook: $(dirname "$f")")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$(dirname "$f")")}"
+        DETECTED_EXPORT_ROOTS+=("$(dirname "$(dirname "$f")")")
     done < <(find "$search_dir" -maxdepth 5 \( -name "your_friends.json" -o -name "friends.json" \) 2>/dev/null || true)
 
     # Instagram: followers_and_following directory
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("Instagram: $f")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$f")}"
+        DETECTED_EXPORT_ROOTS+=("$(dirname "$f")")
     done < <(find "$search_dir" -maxdepth 3 -type d -name "followers_and_following" 2>/dev/null || true)
 
     # Calendar exports: .ics files, at the depth they are actually shipped.
@@ -10411,6 +10473,7 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("Calendar: $f")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$f")}"
+        DETECTED_EXPORT_ROOTS+=("$(dirname "$f")")
     done < <(find "$search_dir" -maxdepth 6 -xdev \
                   \( -name 'node_modules' -o -name '.git' -o -name '.Trash' \
                      -o -name '*.app' -o -name '*.bundle' -o -name '*.framework' \
@@ -10428,6 +10491,7 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("Twitter/X: $(dirname "$f")")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$(dirname "$f")")}"
+        DETECTED_EXPORT_ROOTS+=("$(dirname "$(dirname "$f")")")
     done < <(find "$search_dir" -maxdepth 4 \( -name "tweets.js" -o -name "tweet.js" \) -path "*/data/*" 2>/dev/null || true)
 
     # Google Takeout zip: takeout-YYYYMMDDTHHMMSSZ-N-NNN.zip
@@ -10465,7 +10529,14 @@ if [[ ${#DETECTED_EXPORTS[@]} -gt 0 ]]; then
     echo ""
     IMPORT_CONFIRM="$(gui_read "$MSG_PROMPT_IMPORT_CONFIRM_TITLE" yesno "" "$MSG_PROMPT_IMPORT_CONFIRM_HELP" "" "import_confirm")"
     if [[ "${IMPORT_CONFIRM:-y}" == "n" || "${IMPORT_CONFIRM:-y}" == "N" ]]; then
+        # THIS IS THE ONLY PLACE THE PERSON SAYS NO, so it is the only place
+        # that can record it. Clearing EXPORTS_DIR alone used to be enough
+        # because it was the only thing the importer was given; #957 added
+        # DETECTED_EXPORT_ROOTS, so a decline that emptied EXPORTS_DIR and
+        # left the roots array full would import everything just refused.
+        IMPORT_DECLINED=1
         EXPORTS_DIR=""
+        DETECTED_EXPORT_ROOTS=()
     fi
 else
     echo ""
@@ -10865,7 +10936,7 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     echo ""
     echo -e "  ${BOLD}You can change your mind any time.${NC} Turn individual connectors"
     echo "  off in Settings, delete everything via \"Reset Ostler\", or"
-    echo "  fully uninstall via ~/Documents/Ostler/Uninstall Ostler.app."
+    echo "  fully uninstall by running ostler-uninstall in Terminal."
     echo ""
     echo "  Withdrawing consent stops processing from that point forward. It"
     echo "  does not undo work Ostler already did with your earlier consent."
@@ -12025,7 +12096,12 @@ if ! [[ "$TOTAL_STEPS" =~ ^[0-9]+$ ]] || [[ "$TOTAL_STEPS" -le 0 ]]; then
     #
     # tests/test_total_steps_dynamic.sh exercises this path (BASH_SOURCE is
     # unresolvable under `bash -c`) and fails if this constant drifts.
-    TOTAL_STEPS=42
+    # 42 -> 43 on 2026-09-18: the merge-consistency repair (CM041 #162) added
+    # a progress call. Bumped because tests/test_total_steps_dynamic.sh failed
+    # on it, which is the arm working as designed; a customer on the
+    # `curl | bash` path would otherwise have divided by 42 while 43 steps ran
+    # and watched the bar finish at 102%.
+    TOTAL_STEPS=43
     [[ -n "$EXPORTS_DIR" ]] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 fi
 CURRENT_STEP=0
@@ -18475,6 +18551,22 @@ if [[ "$PORT_UNMEASURED" == true ]]; then
     fail_with_code "ERR-06-PORT-PREFLIGHT-CANNOT-RUN" "$MSG_ERR_PORT_PREFLIGHT_CANNOT_RUN_ABORT"
 fi
 
+# #979. CREATE THE AI CONVERSATIONS TREE BEFORE COMPOSE CAN BIND IT.
+#
+# The wiki-compiler service below bind-mounts this path read-only. Docker
+# CREATES a missing bind source itself, as a directory owned by root, and a
+# root-owned directory in the customer visible zone is a worse outcome than
+# the empty page this change exists to fix: the hourly writer leg runs as the
+# customer and would then fail to write into it.
+#
+# mkdir -p is idempotent and the path is the same default the mount uses, so
+# an operator who has set OSTLER_AI_CONVERSATIONS_DIR gets their directory
+# and not ours. Non-fatal: a failure here is a degraded wiki page, not a
+# reason to abort an install, and the mount still works if the writer leg
+# creates the tree first.
+mkdir -p "${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/AI Conversations}" 2>/dev/null \
+    || warn "Could not create the AI Conversations folder, so the wiki page for them may stay empty until the next compile."  # i18n-exempt
+
 cat > "${OSTLER_DIR}/docker-compose.yml" <<'DCEOF'
 services:
   qdrant:
@@ -18690,6 +18782,36 @@ services:
       - wiki-docs:/wiki
       - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}:/wiki/obsidian
       - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}/_images:/wiki/obsidian/_images:ro
+      # 🔴 #979 -- THIRD INSTANCE OF #849 AND #482, whose comments are both
+      # below in this same service. Same two repos, same shape, third time:
+      # a mount added and tested on CM044's OWN docker/docker-compose.yml
+      # while the SHIPPING artefact, this heredoc, stayed without it, and
+      # CM044's tests stayed green throughout because they read CM044's
+      # compose. The #849 comment already states the lesson in a line: a
+      # guard on the dev compose says nothing about the artefact.
+      #
+      # MEASURED 2026-09-18 on this heredoc, before this change:
+      #     ai-conversations   -> 0
+      #     AI_CONVERSATIONS   -> 0
+      #     CONTROL: wiki-compiler -> 5 in the SAME span, so the zero is
+      #     real absence and not a false read of the wrong region. My first
+      #     attempt got the heredoc end marker wrong and read 12,000 lines
+      #     instead of 456; the control is what showed the range was wrong.
+      #
+      # WITHOUT THIS LINE THE PAGE IS EMPTY FOR EVER, AND SILENTLY.
+      # compiler/pages/ai_conversation_pages.py falls back to expanduser of
+      # ~/Documents/Ostler/AI Conversations, which inside a container with
+      # no HOME resolves to /root/..., never exists, so it takes its
+      # graceful episodic-store-not-present branch and writes an EMPTY-STATE
+      # page. Meanwhile install.sh's own test_ai_conversations_leg_wired.sh
+      # proves the WRITER leg is wired and default-ON, running hourly and
+      # writing real transcripts. Producer green, consumer blind, no error.
+      #
+      # READ-ONLY, same reasoning as the licence mount below: the compiler
+      # CONSUMES these transcripts and nothing in CM044 writes them, so a
+      # writable mount onto the customer's conversation tree is a foothold
+      # the wiki compiler has no reason to hold.
+      - ${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/AI Conversations}:/ai-conversations:ro
       - oxigraph_data:/app/oxigraph:ro
       - qdrant_data:/app/qdrant:ro
       # Hydration status hand-off (CM044 #624). The compiler writes a
@@ -18701,32 +18823,37 @@ services:
       # (WIKI_HYDRATION_STATUS_FILE below); that lands at ~/.ostler/state
       # on the host where the endpoint reads it.
       - ${HOME}/.ostler/state:/state
-      # 🔴 #849 -- THE PRO OBSIDIAN VAULT WRITER COULD NOT RUN ON ANY
-      # INSTALL. compiler/vault_licence.py gates it on the Pro licence
-      # state. Before this line, NOTHING under ${HOME}/.ostler except
-      # state/ was mounted here, so the reader resolved
-      # ~/.ostler/licence/state.json to /root/.ostler/licence/state.json
-      # INSIDE the container -- a path that has never existed on any
-      # install -- and fail-closed to pro_none on every compile pass.
-      # Every Pro customer silently got no vault, forever.
+      # 🗿 THE ${HOME}/.ostler/licence MOUNT USED TO BE HERE AND IS GONE ON
+      # PURPOSE. Board row 971, and it is the sharper half of #849.
       #
-      # ⚠️ IT WAS ALREADY FIXED IN CM044's docker/docker-compose.yml AND
-      # TESTED THERE, AND THAT TEST WAS GREEN WHILE THIS FILE WAS BROKEN.
-      # CM044's test_licence_dir_is_bind_mounted reads CM044's OWN dev
-      # compose. The customer runs THIS compose, generated here. Measured
-      # 2026-08-23, control on both sides:
-      #     CM044 docker/docker-compose.yml   .ostler/licence -> 5
-      #     CM051 install.sh                  .ostler/licence -> 0
-      #     control: wiki-compiler present in both (5 and 15), so neither
-      #     count is a false zero from reading the wrong file.
-      # A guard on the dev compose says nothing about the artefact.
+      # #849 was real and its diagnosis was right as far as it went:
+      # compiler/vault_licence.py resolved ~/.ostler/licence/state.json,
+      # which inside a container that declares no USER and no ENV HOME lands
+      # at /root/..., a path no install has ever had, so the Pro vault write
+      # fail-closed to pro_none on every compile pass. The mount and the env
+      # var below made that path reachable.
       #
-      # READ-ONLY: the compiler CONSUMES licence state, nothing in CM044
-      # writes it, and a writable mount onto the licence tree is a foothold
-      # the wiki compiler has no reason to hold. Scoped to licence/ alone,
-      # not all of ~/.ostler, which also holds daemon config and store
-      # credentials.
-      - ${HOME}/.ostler/licence:/licence:ro
+      # THE PATH THEY MADE REACHABLE WAS FICTION. Nothing in this estate has
+      # ever written ~/.ostler/licence/state.json. CM044's own module said so
+      # in its docstring on 2026-07-30 and asked for confirmation before
+      # v1.0.13 merged; nobody answered for seven weeks. So the mount was
+      # correct plumbing to an address that does not exist, and a Pro
+      # customer's vault stayed shut whether or not it was there.
+      #
+      # WHERE THE ENTITLEMENT ACTUALLY LIVES: the phone pushes the StoreKit
+      # receipt to /api/v1/subscription/receipt, subscription_gate writes
+      # ~/.ostler/state/subscription_state.json, and every pipeline calls
+      # is_active_or_grace() on it. Andy decided 2026-09-18 that the Apple
+      # receipt is the truth, so CM044's reader moved to that file
+      # (CM044 #280) and this mount serves nobody.
+      #
+      # AND NO NEW MOUNT REPLACES IT. ${HOME}/.ostler/state:/state is already
+      # bind-mounted above, for the hydration status file, so the Hub's
+      # subscription state has been inside this container the whole time, one
+      # directory away from a reader looking in the wrong place. Leaving the
+      # dead mount would keep a second entitlement address alive in the
+      # shipped compose for the next person to wire something to, which is
+      # the defect row 971 exists to close rather than to relocate.
       # 🔴 #482 -- THE BURSAR SAID "You're not on the meter. Nothing recorded
       # yet this month." ON A BOX THAT HAD DONE A FULL INSTALL AND COMPILED A
       # WIKI, AND THIS MISSING MOUNT IS WHY.
@@ -18787,17 +18914,28 @@ services:
       # host-side CM041 ical-server hydration endpoint reads the same
       # file the compiler writes. See compiler/hydration.py::status_path.
       - WIKI_HYDRATION_STATUS_FILE=/state/wiki_hydration.json
-      # #849, second half. Absolute in-container path of the Pro licence
-      # state file, matching the ${HOME}/.ostler/licence:/licence:ro mount
-      # above. Set EXPLICITLY rather than letting the mount land at the
-      # container's ~/.ostler/licence: the image declares no USER and no
-      # ENV HOME, so "~" is /root ONLY by inheritance from the base image.
-      # The day anyone adds a USER line, a HOME-relative resolution would
-      # silently stop matching and the Pro vault writer would go quiet
-      # again in exactly the #849 way -- with no error, because the reader
-      # fail-closes to pro_none. An explicit env var is also the thing a
-      # test can assert lands inside a declared mount target.
-      - OSTLER_LICENCE_STATE_FILE=/licence/state.json
+      # #849's second half, re-aimed by board row 971. Absolute in-container
+      # path of the Hub's OWN subscription state, inside the
+      # ${HOME}/.ostler/state:/state mount declared above.
+      #
+      # THE NAME IS THE HUB'S, not a second one for the same fact. A box that
+      # relocates this file relocates it for every reader at once; a private
+      # variable here is how the two addresses diverged in the first place.
+      #
+      # Set EXPLICITLY rather than letting a HOME-relative path resolve: the
+      # image declares no USER and no ENV HOME, so "~" is /root ONLY by
+      # inheritance from the base image. The day anyone adds a USER line, a
+      # HOME-relative read would silently stop matching and the Pro vault
+      # writer would go quiet again in exactly the #849 way, with no error,
+      # because the reader fail-closes to pro_none. An explicit env var is
+      # also the thing a test can assert lands inside a declared mount.
+      - OSTLER_SUBSCRIPTION_STATE=/state/subscription_state.json
+      # #979. The path INSIDE the container, matching the bind mount above.
+      # The renderer reads compiler/config.py::ai_conversations_dir, which
+      # honours this. Without it the mount would be present and unread,
+      # which is the same defect one layer up: a thing that is there and
+      # that nothing looks at.
+      - OSTLER_AI_CONVERSATIONS_DIR=/ai-conversations
       # #482, second half. Names the workspace directory the mount above
       # landed on. resolve_journal_path() branch 2 reads OSTLER_WORKSPACE as
       # a WORKSPACE dir, and because this value's basename is literally
@@ -18810,7 +18948,7 @@ services:
       # mount-source note above). An earlier version of this comment named
       # ${HOME}/.ostler/workspace, which the daemon does NOT read.
       #
-      # Set EXPLICITLY, for the identical reason OSTLER_LICENCE_STATE_FILE
+      # Set EXPLICITLY, for the identical reason OSTLER_SUBSCRIPTION_STATE
       # is: the image declares no USER and no ENV HOME, so "~" is /root only
       # by inheritance from the base image. A HOME-relative resolution would
       # silently stop matching the day anyone adds a USER line, and the
@@ -20555,6 +20693,35 @@ if [[ -d "${SCRIPT_DIR}/contact_syncer" ]]; then
     # raise ImportError at install time.
     [[ -d "${SCRIPT_DIR}/meeting_syncer" ]] && cp -R "${SCRIPT_DIR}/meeting_syncer" "$PIPELINE_DIR/"
     [[ -d "${SCRIPT_DIR}/identity_resolver" ]] && cp -R "${SCRIPT_DIR}/identity_resolver" "$PIPELINE_DIR/"
+
+    # ── AN UPGRADE CAN LEAVE NEW SOURCE RUNNING OLD BEHAVIOUR ──────
+    #
+    # MEASURED ON THE WALK BOX 2026-09-18, and it cost twenty minutes
+    # before it was believed. New module copied in, then:
+    #
+    #   ImportError: cannot import name
+    #   sweep_qdrant_orphans_of_merged_people from
+    #   identity_resolver.batch_resolver
+    #
+    # while grep showed the symbol PRESENT in the file on the box, with
+    # a control proving the grep could speak. CPython had loaded the
+    # stale bytecode left by the previous install. Removing the
+    # directory's cache fixed it with no other change.
+    #
+    # THE COPY ABOVE REFRESHES THE SOURCE AND NOT THE CACHE. cp -R
+    # writes the .py files and leaves whatever pyc were there, so an
+    # UPGRADING customer -- the only kind who has an old cache -- can
+    # get the new code and the old behaviour, silently, with every
+    # version check reporting the new version because the SOURCE really
+    # is new. A fresh install never shows it, which is why it survived.
+    #
+    # Removing a cache can only cost one recompilation. Leaving a stale
+    # one costs a customer running code we do not ship.
+    for _pd in contact_syncer meeting_syncer identity_resolver; do
+        [[ -d "$PIPELINE_DIR/$_pd" ]] || continue
+        find "$PIPELINE_DIR/$_pd" -type d -name '__pycache__' -prune -exec rm -rf {} + 2>/dev/null || true
+    done
+    unset _pd
     # CM041 v1.0.9 (2026-07-15): pwg_privacy.py is the canonical
     # fail-closed L3 privacy helper at the CM041 repo root.
     # meeting_syncer/brief.py hard-imports it (top-level, unguarded)
@@ -21512,7 +21679,51 @@ chmod +x "$IMPORT_SCRIPT"
 
 _PREFS_DROPZONE="${OSTLER_DIR}/imports/preferences"
 _IMPORT_DIRS=()
+# #957: EVERY detected root, deduplicated, not just the first one.
+# EXPORTS_DIR is first-write-wins by design (the summary prints it), so
+# feeding only that value here imported one root and silently dropped the
+# rest, after telling the customer how many had been found.
+#
+# EXPORTS_DIR is added FIRST so the existing behaviour is a strict subset:
+# if the roots array is ever empty, this line does exactly what it did
+# before. The dedupe is a plain loop rather than sort -u because ORDER
+# matters to the importer and sorting would silently reorder the roots.
+#
+# CX-126 IS HONOURED, NOT RE-OPENED. The three scan roots are ~/Downloads,
+# ~/Desktop and ~/Documents (line 10280), and a LinkedIn or Twitter export
+# unzipped one level below one of them makes dirname-of-dirname the scan
+# root ITSELF. CX-126 measured a multi-minute install stall when such a
+# tree was handed to the importer to rglob, so an EXTRA root equal to a
+# scan root is refused here and SAID OUT LOUD, never dropped in silence.
+# EXPORTS_DIR is exempt from that refusal on purpose: it is added above
+# with its existing value, so this change cannot alter what main already
+# imports. It can only ADD bounded export directories main was dropping.
+#
+# CONSENT, BELT AND BRACES, ON THE RECORDED ANSWER. IMPORT_DECLINED is set
+# at the prompt and nothing else writes it, so this fires on the decline path
+# whatever the iCloud-contacts block has since done to EXPORTS_DIR. An
+# earlier draft tested `EXPORTS_DIR is empty` here instead and was WRONG:
+# that block refills EXPORTS_DIR to ${OSTLER_DIR}/imports when the customer
+# has an icloud-contacts.vcf, so the guard could not fire on the very path
+# it was written for, and the clear at the prompt was carrying it alone.
+# (Caught in review by Archie, before the walk, on the traced path.)
+[[ "${IMPORT_DECLINED:-0}" == "1" ]] && DETECTED_EXPORT_ROOTS=()
 [[ -n "${EXPORTS_DIR:-}" && -d "${EXPORTS_DIR}" ]] && _IMPORT_DIRS+=("$EXPORTS_DIR")
+for _root in "${DETECTED_EXPORT_ROOTS[@]:-}"; do
+    [[ -n "$_root" && -d "$_root" ]] || continue
+    if [[ "$_root" == "${HOME}/Downloads" || "$_root" == "${HOME}/Desktop" \
+          || "$_root" == "${HOME}/Documents" || "$_root" == "${HOME}" ]]; then
+        [[ "$_root" == "${EXPORTS_DIR:-}" ]] || \
+            info "Not importing the whole of ${_root}: an export unpacked straight into it, so only the folders below it are read."  # i18n-exempt
+        continue
+    fi
+    _seen=false
+    for _known in "${_IMPORT_DIRS[@]:-}"; do
+        [[ "$_known" == "$_root" ]] && { _seen=true; break; }
+    done
+    [[ "$_seen" == true ]] || _IMPORT_DIRS+=("$_root")
+done
+unset _root _known _seen
 # CX-126: the install-time detector (line ~3554) now matches the current
 # 2026 export filenames (your_friends.json, tweets.js), so it seeds
 # EXPORTS_DIR to the actual export directory for every platform -- which
@@ -22954,9 +23165,9 @@ echo "    - Ostler directory (~/.ostler, except power.conf and your licence)"
 echo "    - Doctor, export watcher, hub power, email-ingest, conversation feeds"
 echo "      (whatsapp-bundle, email-bundle, spoken-bundle, imessage-bundle),"
 echo "      wiki-recompile, assistant, and RemoteCapture launchd services"
-echo "    - /Applications/Ostler RemoteCapture.app"
 echo "    - /Applications/Ostler.app"
-echo "    - /Applications/Ostler Safari Extension.app"
+echo "    - the /Applications/Ostler folder and everything the installer put"
+echo "      in it (RemoteCapture, the Safari extension, Recover Ostler)"
 echo "    - Ostler commands from PATH"
 echo ""
 echo "  This will NOT remove:"
@@ -23423,14 +23634,22 @@ _u_emit UNINSTALL_PHASE "name=remotecapture"
 # Application Support directory. Transcripts written under
 # ~/Documents/Ostler/Transcripts/ are user-facing content and are
 # handled by the keep-content decision higher up.
-if [[ -d "/Applications/Ostler RemoteCapture.app" ]]; then
-    # Stop it before unlinking it: see _u_quit_bundle_processes.
-    _u_quit_bundle_processes "/Applications/Ostler RemoteCapture.app"
-    echo "  Removing /Applications/Ostler RemoteCapture.app..."
-    rm -rf "/Applications/Ostler RemoteCapture.app" 2>/dev/null || \
-        sudo rm -rf "/Applications/Ostler RemoteCapture.app" 2>/dev/null || \
-        echo "  (warning: could not remove /Applications/Ostler RemoteCapture.app; remove manually)"
-fi
+# BOTH LOCATIONS, AND THE ORDER IS NOT ARBITRARY. The app moved into
+# /Applications/Ostler on 2026-09-18. An uninstaller that knows only the
+# new path leaves the old bundle on every box that never upgraded, and
+# one that knows only the old path leaves the new bundle on every box
+# that did. Neither is visible to the person running the uninstaller,
+# who is told it is gone.
+for _u_app in "/Applications/Ostler/Ostler RemoteCapture.app" "/Applications/Ostler RemoteCapture.app"; do
+    if [[ -d "$_u_app" ]]; then
+        # Stop it before unlinking it: see _u_quit_bundle_processes.
+        _u_quit_bundle_processes "$_u_app"
+        echo "  Removing ${_u_app}..."
+        rm -rf "$_u_app" 2>/dev/null || \
+            sudo rm -rf "$_u_app" 2>/dev/null || \
+            echo "  (warning: could not remove ${_u_app}; remove manually)"
+    fi
+done
 rm -rf "${HOME}/Library/Application Support/Ostler RemoteCapture" 2>/dev/null || true
 
 # ── Ostler.app (Tauri Hub desktop) ─────────────────────────────
@@ -23457,13 +23676,22 @@ _u_emit UNINSTALL_PHASE "name=safari_extension"
 # NOT remove" -- so an uninstall left a branded app in /Applications and
 # said nothing about it. Its process was found running on the walk box
 # alongside the hub, which is why it is stopped first like the others.
-if [[ -d "/Applications/Ostler Safari Extension.app" ]]; then
-    _u_quit_bundle_processes "/Applications/Ostler Safari Extension.app"
-    echo "  Removing /Applications/Ostler Safari Extension.app..."
-    rm -rf "/Applications/Ostler Safari Extension.app" 2>/dev/null || \
-        sudo rm -rf "/Applications/Ostler Safari Extension.app" 2>/dev/null || \
-        echo "  (warning: could not remove /Applications/Ostler Safari Extension.app; remove manually)"
-fi
+# Both locations, for the reason given at the RemoteCapture block above.
+for _u_app in "/Applications/Ostler/Ostler Safari Extension.app" "/Applications/Ostler Safari Extension.app"; do
+    if [[ -d "$_u_app" ]]; then
+        _u_quit_bundle_processes "$_u_app"
+        echo "  Removing ${_u_app}..."
+        rm -rf "$_u_app" 2>/dev/null || \
+            sudo rm -rf "$_u_app" 2>/dev/null || \
+            echo "  (warning: could not remove ${_u_app}; remove manually)"
+    fi
+done
+
+# The folder itself, once its contents are gone. rmdir and not rm -rf:
+# if anything is still in there it is something the uninstaller did not
+# put there and did not account for, and silently deleting a customer's
+# file to tidy a directory is not a trade this script gets to make.
+rmdir "/Applications/Ostler" 2>/dev/null || sudo rmdir "/Applications/Ostler" 2>/dev/null || true
 
 echo "  Restoring sleep settings..."
 sudo pmset -a sleep 1 2>/dev/null || true
@@ -26999,7 +27227,92 @@ progress "Setting up Ostler RemoteCapture (call + meeting transcripts)" "ostler_
 
 OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.3}"
 OSTLER_REMOTECAPTURE_REPO="${OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-releases}"
-REMOTECAPTURE_APP_PATH="/Applications/Ostler RemoteCapture.app"
+# ── ONE OSTLER FOLDER IN /Applications, NOT FOUR LOOSE BUNDLES ────
+#
+# Andy, 2026-09-18: the Uninstaller, RemoteCapture, the Safari
+# extension and the rest belong in an Ostler sub-folder rather than
+# scattered beside the main app.
+#
+# MEASURED ON THE WALK BOX THE SAME NIGHT, and it is the shape that
+# keeps recurring: the folder ALREADY EXISTED and held exactly one
+# app, Recover Ostler.app, while "Ostler RemoteCapture.app" and
+# "Ostler Safari Extension.app" sat loose next to it. Both halves
+# built, the wire between them absent.
+#
+# OSTLER.APP ITSELF STAYS AT THE TOP LEVEL. It is the thing a person
+# opens. Burying the app you launch inside a folder in order to tidy
+# the folder is the tidy winning over the customer.
+#
+# THE MIGRATION IS THE LOAD-BEARING HALF, NOT THE NEW PATH. An
+# upgrade that only writes the new location leaves the old bundle
+# where it was, so the customer ends up with two RemoteCaptures, two
+# menubar items, and a Screen Recording grant attached to the copy
+# that no longer runs. _ostler_relocate_app MOVES, and only when the
+# destination is absent, so a re-run is a no-op rather than a second
+# move. Where both exist the new one is the live one, so the old is
+# the leftover and removing it is the entire point of the exercise.
+#
+# The bundle NAMES are deliberately unchanged. Renaming a signed
+# bundle is how a TCC grant gets silently dropped, and RemoteCapture
+# holds the Screen Recording grant that makes it work at all.
+#
+# 🔴 WHETHER THE MOVE ITSELF KEEPS THAT GRANT IS NOT INSTRUMENTED, and
+# that is the honest word for it rather than "not affected". Measured on
+# the walk box 2026-09-18: the relocation runs, all three bundles still
+# pass codesign --verify --strict afterwards, and a second run is a
+# no-op. The TCC query returned EMPTY BOTH BEFORE AND AFTER, which is a
+# uniform zero across subject and control and therefore says the reader
+# lacked Full Disk Access, not that no grant exists. So the seal is
+# measured and the grant is not.
+#
+# WHAT MAKES THAT ACCEPTABLE RATHER THAN IGNORED: if the grant does not
+# survive, the failure is LOUD and already handled. The install's own
+# Screen Recording step prompts for it, and RemoteCapture cannot
+# silently half-work without it -- it captures nothing and says so. A
+# dropped grant costs the customer one prompt they have seen before. It
+# is not a silent regression, which is the only kind worth blocking a
+# tidy-up for.
+OSTLER_APPS_DIR="/Applications/Ostler"
+
+_ostler_apps_dir_ready() {
+    if [[ -d "$OSTLER_APPS_DIR" ]]; then
+        return 0
+    fi
+    mkdir -p "$OSTLER_APPS_DIR" 2>/dev/null \
+        || sudo mkdir -p "$OSTLER_APPS_DIR" 2>/dev/null || true
+    if [[ -d "$OSTLER_APPS_DIR" ]]; then
+        return 0
+    fi
+    return 1
+}
+
+# $1 = the old absolute path, $2 = the new one. Never fatal: a Mac
+# where the move cannot be made keeps a working app at the old path,
+# which is untidy and not broken. Tidiness must not be able to take
+# the install down.
+_ostler_relocate_app() {
+    local from="$1" to="$2"
+    if [[ ! -d "$from" ]]; then
+        return 0
+    fi
+    if [[ "$from" == "$to" ]]; then
+        return 0
+    fi
+    if [[ -d "$to" ]]; then
+        pkill -f "${from}/Contents/MacOS" 2>/dev/null || true
+        rm -rf "$from" 2>/dev/null || sudo rm -rf "$from" 2>/dev/null || true
+        return 0
+    fi
+    if ! _ostler_apps_dir_ready; then
+        return 0
+    fi
+    pkill -f "${from}/Contents/MacOS" 2>/dev/null || true
+    mv "$from" "$to" 2>/dev/null || sudo mv "$from" "$to" 2>/dev/null || true
+    return 0
+}
+
+REMOTECAPTURE_APP_PATH="${OSTLER_APPS_DIR}/Ostler RemoteCapture.app"
+_ostler_relocate_app "/Applications/Ostler RemoteCapture.app" "$REMOTECAPTURE_APP_PATH"
 REMOTECAPTURE_LAUNCHAGENT_LABEL="com.creativemachines.ostler-remotecapture"
 REMOTECAPTURE_LAUNCHAGENT_PLIST="${HOME}/Library/LaunchAgents/${REMOTECAPTURE_LAUNCHAGENT_LABEL}.plist"
 REMOTECAPTURE_BINARY_INSIDE_APP="${REMOTECAPTURE_APP_PATH}/Contents/MacOS/RemoteCapture"
@@ -27400,7 +27713,7 @@ fi
 # signature the way the nested Uninstaller app does), non-fatal when
 # absent so a dev run of raw install.sh (which does not bundle it) is a
 # silent no-op rather than a false warning.
-RECOVERY_APP_DEST="/Applications/Ostler/Recover Ostler.app"
+RECOVERY_APP_DEST="${OSTLER_APPS_DIR}/Recover Ostler.app"
 RECOVERY_APP_SOURCE=""
 if [[ -d "${SCRIPT_DIR}/Recover Ostler.app" ]]; then
     RECOVERY_APP_SOURCE="${SCRIPT_DIR}/Recover Ostler.app"
@@ -27414,10 +27727,7 @@ if [[ -n "$RECOVERY_APP_SOURCE" ]]; then
     # cp -R fail into the warn branch, which reports "could not stage" and
     # installs nothing. Create it first, with the same unprivileged-then-sudo
     # ladder the copy below uses.
-    if [[ ! -d "/Applications/Ostler" ]]; then
-        mkdir -p "/Applications/Ostler" 2>/dev/null \
-            || sudo mkdir -p "/Applications/Ostler" 2>/dev/null || true
-    fi
+    _ostler_apps_dir_ready || true
     if [[ -d "$RECOVERY_APP_DEST" ]]; then
         pkill -f "${RECOVERY_APP_DEST}/Contents/MacOS" 2>/dev/null || true
         sleep 0.5
@@ -31778,6 +32088,212 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
     unset _DEDUPE_TIMED_OUT _DEDUPE_DONE_MARKER _DEDUPE_KILLED_MARKER
 fi
 
+# ── A MERGED PERSON MUST LEAVE BOTH STORES (CM041 #162) ───────────────
+#
+# THE DEFECT, root-caused on the live box 2026-09-18. The two stores
+# disagreed about how many people the customer knows, and the walk probe
+# people_count_agreement has failed on it walk after walk:
+#
+#     oxigraph distinct Person subjects   2596
+#     qdrant  people points_count         2620
+#     the true number                     about 2564
+#
+# NEITHER SURFACE WAS RIGHT, and they were wrong in opposite directions.
+# There are two merge paths and they disagreed, and neither touched the
+# vector store at all:
+#
+#   batch_resolver step 7  DELETE DATA { <discard> a <Person> }  retires it
+#   resolver.py            had no equivalent step                leaves it typed
+#   either path            zero qdrant point deletions
+#
+# So a batch-merged person went untyped and kept a stale vector point (24
+# of those), and a resolver-merged person stayed typed and was counted as
+# live when they are not (32 of those). It also explains the older
+# people_stores_reconcile finding, where a named person was unsearchable
+# in one store and present in the other: a merged-away person still
+# answers from the vector store after the graph has retired them.
+#
+# 🔴 NOT NEW, AND THAT IS THE DAMNING PART. resolver.py step 5b already
+# carried a dated comment naming "the single largest contributor to the
+# people_count_agreement gap" and fixed the SURVIVOR half of it. The
+# DISCARD half and the vector half were left. The probe has been failing
+# walk to walk because each visit fixed a third of one defect.
+#
+# WHY THE REPAIR RUNS HERE AND NOT BY HAND. The two code fixes in CM041
+# stop NEW divergence; they do not repair the records already on a
+# customer's Mac. A repair run by hand fixes exactly one machine and
+# leaves every existing customer carrying the wrong number with nobody to
+# run it for them, and it would make the walk probe pass for a reason the
+# shipped artefact does not contain. This block is what makes the probe
+# moving evidence about the PRODUCT.
+#
+# AND IT RUNS ON UPGRADE, NOT ONLY ON A FRESH INSTALL. That is the half
+# that matters: the 24 and the 32 are on an EXISTING box. The guard below
+# is the same one the converge pass above uses, which is true in both
+# cases.
+# THE STEP COUNT HAS TO AGREE WITH WHAT ACTUALLY RUNS. This progress call
+# is CONDITIONAL, so TOTAL_STEPS (seeded by counting progress calls) counts
+# a step that may never fire, and the customer watches "step N of M" stop
+# one short of M for ever. tests/test_total_steps_dynamic.sh caught exactly
+# that on the first push of this block, at 8 conditional calls against 7
+# subtract entries.
+#
+# The predicate below is the WHOLE guard, both halves, because the step is
+# skipped when the module is absent as well as when the pipeline is. A
+# subtract that matched only the outer guard would be wrong on precisely
+# the boxes running a build older than CM041 #162, which are the ones that
+# take the skip.
+[[ -d "$PIPELINE_DIR/identity_resolver" \
+   && -x "$PIPELINE_DIR/.venv/bin/python3" \
+   && -f "$PIPELINE_DIR/identity_resolver/repair_merge_consistency.py" ]] \
+   || TOTAL_STEPS=$((TOTAL_STEPS - 1))
+
+if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python3" ]]; then
+    if [[ ! -f "$PIPELINE_DIR/identity_resolver/repair_merge_consistency.py" ]]; then
+        # A vendored tree older than CM041 #162. SAY SO rather than skip
+        # silently: "the module is not here" and "there was nothing to
+        # repair" print identically otherwise, and one of them is a
+        # customer whose two stores still disagree.
+        mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || true
+        {
+            printf 'ran_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            printf 'rc\t\n'
+            printf 'verdict\tNOT-SHIPPED\n'
+            printf 'reason\tthis build vendors an identity_resolver without repair_merge_consistency, so no repair was attempted\n'
+            printf 'log\t\n'
+        } > "${OSTLER_DIR}/state/merge_consistency_repair.tsv" 2>/dev/null || true
+        warn "Merge-consistency repair skipped: this build vendors an identity_resolver without repair_merge_consistency"  # i18n-exempt
+    else
+        progress "Reconciling merged people across both stores" "merge_consistency_repair"
+        _MCR_LOG="${OSTLER_DIR}/logs/merge-consistency-repair.log"
+        mkdir -p "$(dirname "$_MCR_LOG")" 2>/dev/null || true
+
+        # ── THE OUTCOME HAS TO BE WALK-VISIBLE, NOT A LINE IN A LOG ──
+        #
+        # A warn() the customer scrolls past and a log nobody opens is the
+        # same disease this repair exists to cure: the lint that reported
+        # "0 errors" while examining no pages, and the merge that recorded
+        # executed=true after its vector half failed. So every outcome,
+        # including the good one, is written to a state file a probe can
+        # grade, with the RC BESIDE the reason.
+        #
+        # people_count_agreement is already the walk probe that fails when
+        # the two counts disagree. What it could never say is WHY. This
+        # file is what lets the answer be "the repair could not read the
+        # vector store" instead of another unexplained gap carried for
+        # three weeks, which is exactly what the egress finding cost us.
+        _MCR_STATE="${OSTLER_DIR}/state/merge_consistency_repair.tsv"
+        mkdir -p "$(dirname "$_MCR_STATE")" 2>/dev/null || true
+        _mcr_record() {   # _mcr_record <rc> <verdict> <reason>
+            {
+                printf 'ran_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                printf 'rc\t%s\n' "$1"
+                printf 'verdict\t%s\n' "$2"
+                printf 'reason\t%s\n' "$3"
+                printf 'log\t%s\n' "$_MCR_LOG"
+            } > "$_MCR_STATE" 2>/dev/null || true
+        }
+        # WRITTEN BEFORE THE RUN, NOT ONLY AFTER IT. A pass that is killed,
+        # or an install that dies at the next step, would otherwise leave no
+        # row at all -- and "no row" reads as "this build predates the
+        # repair", which is a different and much more forgiving fact.
+        _mcr_record "" "DID-NOT-FINISH" "the repair started and no outcome was recorded, so it was interrupted"
+
+        # FOREGROUND, AND DELIBERATELY NOT BACKGROUNDED WITH A CAP the way
+        # the converge pass above is. That cap kills the pass mid-merge,
+        # and the long comment above it is an account of the torn state a
+        # kill between step 1 and step 6 leaves behind. A REPAIR that can
+        # be killed halfway can invent a new inconsistent state, which is
+        # the exact opposite of its job. It gets a bound, and if it
+        # exceeds the bound it says so instead of being capped silently.
+        _MCR_BUDGET_S="${OSTLER_MERGE_REPAIR_BUDGET_S:-600}"
+        (
+            cd "$PIPELINE_DIR" && \
+            OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
+            QDRANT_URL="${QDRANT_URL:-http://localhost:6333}" \
+            .venv/bin/python3 -m identity_resolver.repair_merge_consistency \
+                --oxigraph-url "${OXIGRAPH_URL:-http://localhost:7878}" \
+                --qdrant-url "${QDRANT_URL:-http://localhost:6333}" \
+                --apply
+        ) >>"$_MCR_LOG" 2>&1 &
+        _MCR_PID=$!
+        _MCR_WAITED=0
+        _MCR_OVERRAN=false
+        while kill -0 "$_MCR_PID" 2>/dev/null; do
+            sleep 10
+            _MCR_WAITED=$(( _MCR_WAITED + 10 ))
+            if [[ "$_MCR_WAITED" -ge "$_MCR_BUDGET_S" ]]; then
+                _MCR_OVERRAN=true
+                break
+            fi
+        done
+        if [[ "$_MCR_OVERRAN" == true ]]; then
+            # NOT killed. A half-applied repair is worse than a slow one,
+            # so it is left to finish in the background and the customer
+            # is told the install stopped waiting, not that it stopped.
+            _mcr_record "" OVERRAN "still running after the install-time budget; NOT killed, because a half-applied repair invents a state worse than the one it was sent to fix"
+            warn "Merge-consistency repair is still running after ${_MCR_BUDGET_S}s; leaving it to finish in the background (${_MCR_LOG})"  # i18n-exempt
+        else
+            # `cmd; rc=$?` on its own line is the shape the appcast-ship-wiring
+            # ratchet refuses, and the reason is not style. A standalone read of
+            # $? is one inserted line away from reporting the status of
+            # something else entirely, and this value decides which of four
+            # outcomes the customer is told. Seed it and let the failure arm
+            # overwrite it, so the variable is never undefined and never holds
+            # a status it did not come from.
+            _MCR_RC=0
+            wait "$_MCR_PID" 2>/dev/null || _MCR_RC=$?
+            # FOUR OUTCOMES, FOUR BRANCHES. Exit 1 is the pass REFUSING on
+            # a broken predicate and changing nothing, exit 2 is a store it
+            # could not read, exit 3 is HALF REPAIRED. Folding any of them
+            # into "done" is how a repair that never ran reads as a repair
+            # that found nothing, and folding 3 into 0 is how a customer
+            # keeps a half-fixed graph nobody re-runs.
+            case "$_MCR_RC" in
+                0)
+                    _mcr_record 0 OK "the repair completed; see the log for what it examined beside what it changed"
+                    ok "$(printf 'Merged people reconciled across both stores (%s)' "$_MCR_LOG")"  # i18n-exempt
+                    ;;
+                1)
+                    # Its negative control is an address RFC 6761 reserves
+                    # so it can never resolve. If the retirement predicate
+                    # ever claims that address the query is broken, and the
+                    # pass refuses rather than repairing on counts it
+                    # cannot trust. Non-fatal here, and loud.
+                    _mcr_record 1 REFUSED "the negative control was matched, so the retirement predicate is broken and nothing was changed"
+                    warn "Merge-consistency repair REFUSED and changed nothing: its own negative control was matched, so the predicate is broken. See ${_MCR_LOG}"  # i18n-exempt
+                    ;;
+                2)
+                    # CANNOT-RUN is not a pass. A vector store reporting
+                    # zero points prints identically to one with nothing
+                    # to repair, which is why the pass treats that as
+                    # unreadable rather than clean.
+                    _mcr_record 2 CANNOT-RUN "a store could not be read; a vector store reporting zero points is treated as unreadable, not as clean"
+                    warn "Merge-consistency repair CANNOT-RUN: a store could not be read, so the two people counts may still disagree. See ${_MCR_LOG}"  # i18n-exempt
+                    ;;
+                3)
+                    # EXIT_PARTIAL. Added after Archie blocked CM041 #162: a
+                    # half-finished repair used to print "Nothing was repaired"
+                    # after ten successful retirements, which is a lie in the
+                    # direction that makes an operator investigate the wrong
+                    # thing. HALF REPAIRED is neither REFUSED nor CANNOT-RUN,
+                    # and the right action is to RE-RUN, not to dig. The pass
+                    # is safe to re-run by construction, so say that here
+                    # rather than leaving the reader to work it out.
+                    _mcr_record 3 PARTIAL "the repair completed some of its work and not all of it; it is idempotent, so re-running is the correct action and not an investigation"
+                    warn "Merge-consistency repair completed PARTIALLY. It is safe to re-run and that is the fix. See ${_MCR_LOG}"  # i18n-exempt
+                    ;;
+                *)
+                    _mcr_record "$_MCR_RC" UNDOCUMENTED-EXIT "the pass exited with a code it does not document, so no outcome can be inferred from it"
+                    warn "Merge-consistency repair exited ${_MCR_RC}, which it does not document. Treating as not completed. See ${_MCR_LOG}"  # i18n-exempt
+                    ;;
+            esac
+            unset _MCR_RC
+        fi
+        unset _MCR_LOG _MCR_PID _MCR_WAITED _MCR_BUDGET_S _MCR_OVERRAN _MCR_STATE
+    fi
+fi
+
 # Apple Notes knowledge hydration (CM024 §7 / apple_notes adapter) ---
 #
 # Reads apple_notes.json (written by the Phase 3 fda_extract step when
@@ -33202,12 +33718,114 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
         # threshold would let a conversation tick wrongly steal the lock mid
         # compile. We reclaim only when the recorded holder PID is dead.
         # ${OSTLER_INGEST_LOCK} is the identical path the tick wrappers use.
+        # #2112: THIS BLOCK USED TO HAND-ROLL ITS OWN LOCK ON THE SHARED
+        # SLOT DIRECTORY, AND THAT IS WHY THE BACKFILL NEVER RAN.
+        #
+        # MEASURED on the clean v1.0.100 install, three times: the pid file
+        # named a dead process and the log the backfill should write was 0
+        # bytes, because the email-bundle tick took the slot at install and
+        # still held it 25 minutes later. The old loop here did a bare
+        # `mkdir` on ${OSTLER_INGEST_LOCK} and wrote one file into it, `pid`.
+        # Two consequences, and the second is the root cause:
+        #
+        #  1. NOBODY COULD SAY WHO HELD IT. The library records `holder`,
+        #     `acquired_at` and `max_hold` on every acquire and its
+        #     diagnostics print them. A dir carrying only a pid is why the
+        #     box could only ever report holder=?, and why the cause took
+        #     three reproductions to find.
+        #
+        #  2. IT NEVER ENROLLED AS A WAITER, so the holder's bounded-hold
+        #     countdown never armed. That countdown is the entire mechanism
+        #     by which a holder yields: it arms only when another feed is
+        #     ENROLLED AND WAITING. A waiter that spins on `mkdir` instead
+        #     of enrolling is invisible, so email-bundle was not misbehaving
+        #     -- nothing had ever told it somebody wanted the slot. It kept
+        #     it, correctly, and the backfill waited for ever.
+        #
+        # So this now uses the shipped library, the same one every tick
+        # wrapper uses, which is on the box by this point (written and
+        # chmod'd at §3.x, ~install.sh:9372 and :10193).
+        #
+        # DELIBERATELY NOT ostler_slot_run. That wraps the payload in the
+        # max-hold watchdog, and a first-run summary compile legitimately
+        # runs for hours; arming a 180s bound against it would kill the very
+        # thing this block exists to start. Acquire and release directly, and
+        # record WHY no watchdog is attached in the lock dir itself, so the
+        # next person reading it is told rather than left to infer. Nothing
+        # can steal the slot from us meanwhile: a waiter reclaims only when
+        # the holder PID is DEAD (_ostler_slot_reclaim_if_dead), and a waiter
+        # whose patience runs out yields, it does not take.
+        #
+        # AND IT MUST NEVER AGAIN EXIT WITHOUT WRITING A LINE. Every attempt,
+        # every yield, and the final give-up all print, so a 0-byte log is
+        # once more a real symptom rather than the expected output.
         _wiki_slot="${OSTLER_INGEST_LOCK:-${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/ingest-ollama.lock.d}"
+        _wiki_slot_lib="${HOME}/.ostler/lib/ostler-ingest-slot.sh"
         nohup bash -c '
             set -u
-            _slot="$1"; _wd="$2"
+            _slot="$1"; _wd="$2"; _lib="$3"
             cd "$_wd" || exit 1
-            mkdir -p "$(dirname "$_slot")" 2>/dev/null || true
+            printf "%s wiki-summaries: starting, slot %s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_slot"
+
+            # THE SHAPE HERE IS wiki-recompile-tick.sh:410-440, DELIBERATELY.
+            # That site already did this correctly and install.sh did not. Two
+            # launch sites for the same payload that disagree is how one of
+            # them stays broken. tests/test_ingest_offpeak_throttle.sh checks
+            # BOTH sites, and its two requirements are honoured rather than
+            # edited: a BLOCKING acquire, because a yield here means no
+            # summaries at all, and reclaim on a DEAD PID rather than a time
+            # threshold, because a real compile legitimately runs for hours.
+            _slot_lib_active=0
+            if [ -r "$_lib" ]; then
+                # shellcheck source=/dev/null
+                if . "$_lib" 2>/dev/null; then
+                    command -v ostler_slot_acquire >/dev/null 2>&1 && _slot_lib_active=1
+                fi
+            fi
+
+            if [ "$_slot_lib_active" = "1" ]; then
+                # BLOCKING, with no give-up. An earlier draft capped this at
+                # twelve attempts and then exited, which would have skipped
+                # the summaries entirely, and broke the assertion in
+                # test_ingest_offpeak_throttle.sh that says exactly why.
+                # Every pass through ostler_slot_acquire ENROLS as a waiter,
+                # which is the whole of #2112: a holder starts its bounded
+                # hold countdown only when a waiter is enrolled, and the old
+                # mkdir spin was invisible to it.
+                until ostler_slot_acquire wiki-summaries; do
+                    printf "%s wiki-summaries: yielded; holder is %s (pid %s). Enrolled, retrying.\n" \
+                        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                        "$(cat "$_slot/holder" 2>/dev/null || echo "not recorded")" \
+                        "$(cat "$_slot/pid" 2>/dev/null || echo "not recorded")"
+                    sleep 10
+                done
+                # NOT ostler_slot_run, which wiki-recompile-tick.sh does use.
+                # The difference is about WHEN: a preempted tick is retried by
+                # the next tick, and the install-time backfill has no next tick
+                # for a day. A first-run summary compile legitimately runs for
+                # hours, so a 180s bound would kill the thing this block exists
+                # to start. Nothing can take the slot meanwhile: a waiter
+                # reclaims only when the holder PID is dead, and a waiter out
+                # of patience yields rather than takes. The reason is written
+                # into the lock dir so a reader is told, not left to infer.
+                printf "%s\n" "first-run summary compile: no max-hold watchdog, a compile may legitimately run for hours" \
+                    > "$_slot/unbounded_reason" 2>/dev/null || true
+                trap "ostler_slot_release 2>/dev/null || true" EXIT
+                printf "%s wiki-summaries: slot acquired via the shared library, compiling.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                if docker compose --profile compile run --rm -T wiki-compiler </dev/null; then
+                    printf "%s wiki-summaries: compile finished OK.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                    exit 0
+                fi
+                printf "%s wiki-summaries: compile FAILED. The wiki will show pages without summaries until the next daily compile.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                exit 1
+            fi
+
+            # Fail-safe: the library is not on the box yet. Unchanged pre-lib
+            # behaviour, a blocking acquire with PID-liveness reclaim. It is
+            # invisible to the holder, which IS #2112, so say so rather than
+            # let a silent fallback look like the fixed path.
+            printf "%s wiki-summaries: the ingest-slot library is not readable at %s, falling back to the private lock. That lock cannot enrol as a waiter, so a holder will not shorten its hold for it (#2112).\n" \
+                "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_lib"
             while ! mkdir "$_slot" 2>/dev/null; do
                 _h="$(cat "$_slot/pid" 2>/dev/null || true)"
                 if [ -n "${_h:-}" ] && kill -0 "$_h" 2>/dev/null; then
@@ -33218,8 +33836,15 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
             done
             printf "%s\n" "$$" > "$_slot/pid"
             trap "rm -rf \"$_slot\" 2>/dev/null || true" EXIT
-            docker compose --profile compile run --rm -T wiki-compiler </dev/null
-        ' _ "$_wiki_slot" "$OSTLER_DIR" >"$WIKI_BG_LOG" 2>&1 &
+            printf "%s wiki-summaries: slot acquired via the fallback lock, compiling.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            if docker compose --profile compile run --rm -T wiki-compiler </dev/null; then
+                printf "%s wiki-summaries: compile finished OK.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                exit 0
+            fi
+            printf "%s wiki-summaries: compile FAILED. The wiki will show pages without summaries until the next daily compile.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            exit 1
+            exit $_rc
+        ' _ "$_wiki_slot" "$OSTLER_DIR" "$_wiki_slot_lib" >"$WIKI_BG_LOG" 2>&1 &
         disown 2>/dev/null || true
         info "$MSG_INFO_WIKI_BACKGROUND_SUMMARIES_STARTED"
     else
@@ -34239,7 +34864,8 @@ if [[ "$NO_EXTENSIONS" == true ]]; then
     info "$MSG_INFO_BROWSER_EXTENSIONS_SKIPPED_NO_EXTENSIONS"
 else
     EXTENSIONS_BUNDLE="${SCRIPT_DIR}/extensions/OstlerSafariExtension.app.zip"
-    SAFARI_APP_INSTALL_PATH="/Applications/Ostler Safari Extension.app"
+    SAFARI_APP_INSTALL_PATH="${OSTLER_APPS_DIR}/Ostler Safari Extension.app"
+    _ostler_relocate_app "/Applications/Ostler Safari Extension.app" "$SAFARI_APP_INSTALL_PATH"
 
     if [[ -f "$EXTENSIONS_BUNDLE" ]]; then
         info "$MSG_INFO_INSTALLING_SAFARI_EXTENSION_APPLICATIONS"
@@ -34253,6 +34879,7 @@ else
             # (SafariHistoryExt.app); rename to the user-visible name
             # if needed so Safari Settings displays "Ostler Safari Extension".
             if [[ -d "/Applications/SafariHistoryExt.app" && ! -d "$SAFARI_APP_INSTALL_PATH" ]]; then
+                _ostler_apps_dir_ready || true
                 mv "/Applications/SafariHistoryExt.app" "$SAFARI_APP_INSTALL_PATH" 2>/dev/null || true
             fi
             ok "$(printf "$MSG_OK_SAFARI_EXTENSION_INSTALLED" "${SAFARI_APP_INSTALL_PATH}")"

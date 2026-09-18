@@ -20,6 +20,8 @@ from .normalise import _jaro_winkler, normalise_email, normalise_phone
 
 logger = logging.getLogger(__name__)
 
+from . import retirement
+
 PWG = "https://schema.ostler.ai/ontology#"
 
 # Store URLs proven this process to NOT be in --union-default-graph mode
@@ -545,6 +547,31 @@ class IdentityResolver:
             f"INSERT DATA {{ <{keep_uri}> a <{PWG}Person> }}"
         )
 
+        # 5c. RETIRE THE DISCARD. It is no longer a live Person.
+        #
+        # batch_resolver.py's merge does this at its step 7:
+        #     DELETE DATA { <discard_uri> a pwg:Person }
+        # This path never did. So the same logical operation left the graph in
+        # two different states depending on which merge path ran, and a person
+        # merged HERE went on being counted as a separate live Person forever.
+        #
+        # MEASURED on the live 16GB box 2026-09-18: 56 subjects carry
+        # pwg:mergedInto. 24 are correctly untyped (the batch path). THE OTHER
+        # 32 ARE STILL TYPED pwg:Person, carrying ~10 triples each, and every
+        # one of them inflates `SELECT (COUNT(DISTINCT ?p)) WHERE { ?p a
+        # pwg:Person }` -- the number the product reports as "people you know".
+        #
+        # Zero merge chains, so this is not an artefact of merging a merged
+        # node: it is one code path doing half of what the other one does.
+        # REPLACE the type, never merely remove it. Removal left the node with
+        # no rdf:type at all, and every ingest writer's existence check asks
+        # `SELECT ?t WHERE { <uri> a ?t }` -- ANY type -- so an untyped node
+        # reads as NEVER CREATED and the next ingest re-created the person we
+        # had just merged away. See identity_resolver/retirement.py for the
+        # measurement: this exact removal set the phantom count to 0 and one
+        # ingest put it back to 32.
+        self._sparql_update(retirement.retire_update(discard_uri))
+
         # 6. Collapse any accumulated displayName values on the kept node to a
         #    single canonical value. Step 4 copies every displayName from the
         #    discard when keep has none, so a merge can leave the node with
@@ -603,6 +630,47 @@ class IdentityResolver:
         return canonical
 
     def find_by_identifier(self, id_type: str, id_value: str) -> Optional[str]:
+        """Resolve an identifier to a LIVE person, following merge tombstones.
+
+        MEASURED on the live 16GB box 2026-09-18, and this is why the FOLLOW
+        matters rather than a filter. 32 subjects carried pwg:mergedInto AND
+        pwg:Person AND pwg:hasIdentifier AND pwg:contactType. They had been
+        merged away, and a later contact sync typed them again:
+
+            contact_syncer._resolve_and_write_person
+              -> resolver.resolve(use_fuzzy=False)
+                -> find_by_identifier            <- this, with no guard at all
+                  -> returns the DISCARD
+                    -> INSERT DATA { <discard> a pwg:Person ; ... }
+
+        So a repair pass that retires them is undone by the next sync, on every
+        customer, for ever. That was watched happen live rather than inferred:
+        0 still-typed after a repair, 32 again after one walk.
+
+        THE FIX IS TO FOLLOW THE TOMBSTONE, NOT TO RETURN None. Returning None
+        would send the caller off to create_person(), which mints a fresh uuid
+        and writes a SECOND node for a person the graph had just finished
+        merging into one. That trades a resurrected duplicate for a brand new
+        one, which is worse: the tombstone at least records the relationship.
+
+        The chain is walked to its terminus, so a merge of a merge resolves to
+        the surviving node, and a cycle cannot spin because each hop must not
+        already have been seen.
+
+        TWO THINGS THIS ALSO FIXES, found by Archie reviewing it rather than by
+        me writing it, and worth stating because neither is obvious:
+
+          * IT KILLS A SPURIOUS RE-MERGE. resolve() builds found_uris keyed by
+            URI. An identity carrying two identifiers, one landing on discard D
+            and one on survivor S, previously gave len(found_uris) == 2 and
+            fell into the RULE 1 collapse branch, re-merging an already-merged
+            pair on EVERY sync. Both now resolve to S, len == 1, clean return.
+
+          * IT MAKES THE OUTCOME DETERMINISTIC WHERE THE QUERY IS NOT. The
+            SELECT has no ORDER BY, so when both the discard and the survivor
+            carry the identifier, bindings[0] is arbitrary. Following the chain
+            makes the RESULT the same either way.
+        """
         sparql = (
             f"SELECT ?person WHERE {{ "
             f"  ?person <{PWG}hasIdentifier> ?id . "
@@ -612,9 +680,40 @@ class IdentityResolver:
         )
         results = self._sparql_query(sparql)
         bindings = results.get("results", {}).get("bindings", [])
-        if bindings:
-            return bindings[0]["person"]["value"]
-        return None
+        if not bindings:
+            return None
+        return self.follow_merge_chain(bindings[0]["person"]["value"])
+
+    def follow_merge_chain(self, person_uri: str, max_hops: int = 16) -> str:
+        """Follow pwg:mergedInto to the surviving node. Returns the terminus.
+
+        Returns the input unchanged when it carries no tombstone, which is the
+        overwhelmingly common case and costs one query.
+        """
+        seen = {person_uri}
+        current = person_uri
+        for _ in range(max_hops):
+            rows = self._sparql_query(
+                f"SELECT ?t WHERE {{ <{current}> <{PWG}mergedInto> ?t }} LIMIT 1"
+            )
+            found = rows.get("results", {}).get("bindings", [])
+            if not found:
+                return current
+            nxt = found[0]["t"]["value"]
+            if nxt in seen:
+                # A cycle is a data fault, not something to spin on. Stop at
+                # the last node outside the loop and say so.
+                logger.warning(
+                    "merge chain from %s cycles at %s; stopping", person_uri, nxt
+                )
+                return current
+            seen.add(nxt)
+            current = nxt
+        logger.warning(
+            "merge chain from %s exceeded %d hops; stopping at %s",
+            person_uri, max_hops, current,
+        )
+        return current
 
     # Identifier types that a different person can legitimately also carry:
     # a reused family email address, a shared office switchboard number. A
