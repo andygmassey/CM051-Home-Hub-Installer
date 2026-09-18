@@ -829,3 +829,261 @@ def test_the_memory_endpoint_reports_zero_when_there_is_genuinely_nothing():
         out = ical_server.api_memory_list()
     assert out["count"] == 0
     assert out["facts"] == []
+
+
+# ===========================================================================
+# ITEM 6. THE COMPARTMENT ARM'S DIRECTION, PINNED IN BOTH DIRECTIONS.
+#
+# CM051 #1583. The shipped docstring said "max compartment level" and the code
+# sent `gte`, which selects the complement. The direction itself is a product
+# and privacy decision that is NOT settled here, so these tests do not assert
+# that one direction is correct. They assert three things that hold whichever
+# direction is eventually chosen:
+#
+#   1. the DEFAULT is unchanged, so this PR moves no customer's data;
+#   2. each direction selects the half it says it does, and EXCLUDES the other
+#      half, so neither is a pass-through;
+#   3. the string arm and the numeric arm always describe the SAME set, in
+#      both directions. The old hand-written range(level, 7) agreed with `gte`
+#      by construction and would silently have disagreed with `lte`.
+#
+# A single-direction mutation cannot catch a fix that closes one hole and
+# opens a wider one, which is why every arm below has its mirror.
+#
+# WHICH SCALE. parsers/base.py::_compartment_uri maps 0 L0Personal .. 6
+# L6Broadcast, so LOW IS PRIVATE on this field in this collection. The other
+# shipped reading is vendor/cm024_knowledge, which caps the same field name
+# with `lte` and whose own comments say cap=2 keeps L3 notes OUT, i.e. HIGH IS
+# PRIVATE. Same name, opposite directions, both in this DMG.
+# ===========================================================================
+
+_AT_OR_ABOVE = _qdrant_loader_mod.COMPARTMENT_AT_OR_ABOVE
+_AT_OR_BELOW = _qdrant_loader_mod.COMPARTMENT_AT_OR_BELOW
+
+
+def _compartment_clause(flt):
+    """The compartment `should` group out of a captured filter body."""
+    assert flt is not None, "no filter was built at all"
+    for clause in flt["must"]:
+        arms = clause.get("should", [])
+        if arms and arms[0].get("key") == "compartment_level":
+            return arms
+    raise AssertionError(f"no compartment arm in {flt}")
+
+
+def test_the_default_direction_is_unchanged_by_this_change(monkeypatch):
+    """The point of the whole exercise: no privacy-scoped read moves.
+
+    This pins the exact body origin/main put on the wire for the default
+    call, so "made the direction expressible" cannot quietly become "changed
+    which half of the store a customer's search returns".
+    """
+    for level in range(0, 7):
+        arms = _compartment_clause(
+            _captured_search_filter(monkeypatch, compartment_level=level)
+        )
+        assert arms[0] == {
+            "key": "compartment_level", "range": {"gte": level}
+        }, f"the numeric arm moved at level {level}: {arms[0]}"
+        expected_tokens = [f"L{n}" for n in range(level, 7)]
+        if expected_tokens:
+            assert arms[1] == {
+                "key": "compartment_level", "match": {"any": expected_tokens}
+            }, f"the string arm moved at level {level}: {arms[1]}"
+        else:
+            assert len(arms) == 1
+
+
+def test_each_direction_selects_the_half_it_names(monkeypatch):
+    """Both directions, both payload shapes, in one place.
+
+    L1 is more private than L4 on this collection's scale. `at_or_above` must
+    admit L4 and refuse L1; `at_or_below` must do exactly the reverse. Run for
+    the STRING shape the live store holds and the INT shape the contract
+    declares, because a direction that works for one and not the other is the
+    2026-09-16 defect with a new sign.
+    """
+    private = 1
+    public = 4
+    threshold = 3
+    for shape, base in (("string", LIVE_SHAPED_POINT),
+                        ("numeric", CONTRACT_SHAPED_POINT)):
+        def point(level):
+            value = f"L{level}" if shape == "string" else level
+            return dict(base, compartment_level=value)
+
+        above = _captured_search_filter(
+            monkeypatch,
+            compartment_level=threshold,
+            compartment_direction=_AT_OR_ABOVE,
+        )
+        below = _captured_search_filter(
+            monkeypatch,
+            compartment_level=threshold,
+            compartment_direction=_AT_OR_BELOW,
+        )
+        assert _matches(point(public), above), f"{shape}: L4 lost at_or_above"
+        assert not _matches(point(private), above), (
+            f"{shape}: L1 matched at_or_above 3, so the scoping is gone"
+        )
+        assert _matches(point(private), below), f"{shape}: L1 lost at_or_below"
+        assert not _matches(point(public), below), (
+            f"{shape}: L4 matched at_or_below 3, so the scoping is gone"
+        )
+
+
+def test_the_two_directions_are_not_the_same_filter(monkeypatch):
+    """Anti-vacuity for the pair above.
+
+    If `at_or_below` were silently ignored and fell through to the default,
+    every assertion that names it would still be evaluated against `gte` and
+    half of them would fail. But a future refactor that made BOTH arms a
+    pass-through would satisfy the "matches" half of each pair. This asserts
+    the bodies actually differ.
+    """
+    above = _captured_search_filter(
+        monkeypatch, compartment_level=3, compartment_direction=_AT_OR_ABOVE
+    )
+    below = _captured_search_filter(
+        monkeypatch, compartment_level=3, compartment_direction=_AT_OR_BELOW
+    )
+    assert above != below, "the direction argument changed nothing"
+    assert "gte" in str(_compartment_clause(above))
+    assert "lte" in str(_compartment_clause(below))
+
+
+def test_the_string_arm_and_the_numeric_arm_agree_in_both_directions(
+    monkeypatch,
+):
+    """The invariant that survives whichever direction Andy picks.
+
+    For every threshold in the 0..6 domain and both directions, the set of
+    string tokens the filter enumerates must be exactly the set of levels the
+    numeric range admits. A hand-written token list agrees with one operator
+    and not the other; deriving it from the predicate is what makes this hold,
+    and this test is what stops someone writing it out by hand again.
+    """
+    domain = range(0, 7)
+    for direction, predicate in (
+        (_AT_OR_ABOVE, lambda n, t: n >= t),
+        (_AT_OR_BELOW, lambda n, t: n <= t),
+    ):
+        for threshold in domain:
+            arms = _compartment_clause(
+                _captured_search_filter(
+                    monkeypatch,
+                    compartment_level=threshold,
+                    compartment_direction=direction,
+                )
+            )
+            numeric_admits = {n for n in domain
+                              if _matches({"compartment_level": n}, arms[0])}
+            tokens = set()
+            for arm in arms[1:]:
+                tokens |= set(arm["match"]["any"])
+            string_admits = {n for n in domain if f"L{n}" in tokens}
+            assert numeric_admits == string_admits, (
+                f"{direction} threshold {threshold}: the numeric arm admits "
+                f"{sorted(numeric_admits)} but the string arm admits "
+                f"{sorted(string_admits)}. Two payload types, two answers."
+            )
+            expected = {n for n in domain if predicate(n, threshold)}
+            assert numeric_admits == expected, (
+                f"{direction} threshold {threshold}: admits "
+                f"{sorted(numeric_admits)}, expected {sorted(expected)}"
+            )
+
+
+def test_an_unknown_direction_raises_rather_than_choosing_one(monkeypatch):
+    """Fail closed on the unknown.
+
+    A default branch here would pick a direction for a caller who typo'd one,
+    and the wrong direction returns the most sensitive material on the box
+    while every other test in this file stays green.
+    """
+    with pytest.raises(ValueError):
+        _captured_search_filter(
+            monkeypatch, compartment_level=2, compartment_direction="max"
+        )
+    with pytest.raises(ValueError):
+        _captured_search_filter(
+            monkeypatch, compartment_level=2, compartment_direction=""
+        )
+    # Control: the two declared values do NOT raise, so the two above are a
+    # measurement of the guard rather than of a broken call.
+    for good in (_AT_OR_ABOVE, _AT_OR_BELOW):
+        assert _captured_search_filter(
+            monkeypatch, compartment_level=2, compartment_direction=good
+        ) is not None
+
+
+def test_an_out_of_domain_threshold_sends_no_empty_match_any(monkeypatch):
+    """`match: {any: []}` is rejected by Qdrant, not treated as "matches none".
+
+    A threshold outside 0..6 enumerates no string levels. Sending the empty
+    arm turns a fail-closed filter into a failed REQUEST, and a failed request
+    is logged and returns [], which reads to the customer exactly like "you
+    own nothing", which is the shape this whole suite exists for.
+    """
+    for level, direction in ((7, _AT_OR_ABOVE), (-1, _AT_OR_BELOW)):
+        arms = _compartment_clause(
+            _captured_search_filter(
+                monkeypatch,
+                compartment_level=level,
+                compartment_direction=direction,
+            )
+        )
+        for arm in arms:
+            if "match" in arm:
+                assert arm["match"]["any"], (
+                    f"level {level} {direction} sent an empty match/any: {arm}"
+                )
+        # and it still selects nothing from the domain, which is the point
+        assert not any(
+            _matches({"compartment_level": n}, {"should": arms})
+            for n in range(0, 7)
+        )
+
+
+def test_the_pipeline_passes_the_direction_through_unchanged():
+    """The loader can express both; the caller must not drop it on the floor.
+
+    Read from source rather than executed: IngestPipeline.__init__ builds a
+    live QdrantLoader and a vectorizer, neither of which exists in CI. The
+    assertion is on the call site's text, which is the thing that would rot.
+    """
+    source = (
+        REPO / "vendor/cm019_preferences/services/ingest/src/pipeline.py"
+    ).read_text(encoding="utf-8")
+    start = source.index("async def search_similar")
+    end = source.index("def get_stats", start)
+    body = source[start:end]
+    assert "compartment_direction=compartment_direction" in body, (
+        "search_similar no longer forwards the direction, so the loader's "
+        "argument is unreachable from the only caller that has one"
+    )
+    assert "Maximum compartment level to include" not in body, (
+        "the docstring that says 'Maximum' is back, and the code still sends "
+        "the complement of a maximum"
+    )
+
+
+def test_the_http_surface_does_not_expose_the_direction():
+    """Deliberately NOT a per-request option.
+
+    Flipping the direction is the privacy decision itself. A caller able to
+    send it chooses, per request, which half of the customer's store a
+    service token can read. This test fails if someone "completes the API".
+    """
+    source = (
+        REPO / "vendor/cm019_preferences/services/ingest/src/api.py"
+    ).read_text(encoding="utf-8")
+    start = source.index("class SearchRequest")
+    end = source.index("class SearchResult", start)
+    assert "compartment_direction" not in source[start:end], (
+        "SearchRequest now carries compartment_direction; a service token "
+        "can select the private half of the store per request"
+    )
+    # Control: the field the request DOES carry is found by the same read, so
+    # the absence above is a measurement and not a failed index.
+    assert "compartment_level" in source[start:end]
