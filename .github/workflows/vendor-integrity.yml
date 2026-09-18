@@ -14,6 +14,8 @@ name: vendor-integrity
 on:
   pull_request:
     paths:
+      - 'tests/test_an_identifier_is_not_a_taste.py'
+      - 'vendor/cm059_editor/compiler/interest_profile.py'
       - 'vendor/**'
       # context-refresh/ holds a grafted (divergent) vendored copy of
       # ostler-assistant's generate_pwg_context.py. It lives outside vendor/
@@ -212,6 +214,19 @@ jobs:
       - name: The operator-PII scan reads every file in the tree
         if: success() || failure()
         run: python3 tests/test_the_pii_scan_reads_every_file_in_the_tree.py
+
+      # AN IDENTIFIER IS NOT A TASTE (#959). interest_profile.subject_is_identifier
+      # refuses a subject that IS an email address or a phone number, because
+      # with the unreachable 0.28 floor lowered the v1.0.100 box's front page
+      # rendered four interest cards and every one was a contact identifier.
+      # The refusal was correct and WIRED, and NOTHING NAMED IT: 0 files across
+      # tests/, scripts/ and workflows against a control of 7 naming
+      # interest_profile. So the call site could be deleted and every gate here
+      # would stay green while the page filled with the customer's own phone
+      # numbers again.
+      - name: an identifier is not a taste, and the refusal is guarded
+        if: always()
+        run: python3 tests/test_an_identifier_is_not_a_taste.py
 
       # A client that cannot authenticate is refused in production and usually
       # says nothing about it. The front page rendered interest cards only for
