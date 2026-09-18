@@ -234,7 +234,13 @@ else:
         ok("the unscoped collecting clause is absent, so a bystander who references "
            "the forgotten person keeps everything but that reference")
 
-# ── PROVED-RED-BY: this file (declared self-test, mutation on the REAL subject)
+# PROVED-RED-BY: tests/test_the_erasure_graft_survives_a_revendor.py
+#
+# Registered as a SELF-TEST because the red control is a mutation this gate
+# applies to the shipped source in memory, which no textual rule outside the
+# file could infer. The registration is checked, not taken on trust: the arm
+# below asserts a NON-ZERO count of missing vocabularies as its PASS, which is
+# the red-as-pass shape the sweep requires.
 #
 # The controls above run on synthetic functions. This arm mutates THE SHIPPED
 # FUNCTION ITSELF, in memory, and asserts the subject predicate reports the loss.
@@ -268,7 +274,7 @@ if body is not None:
         bad("MUTATION ARM: the mutation removed EVERY textual occurrence, so this "
             "arm no longer distinguishes a source-text predicate from a code "
             "predicate and cannot pin the defect it exists to pin.")
-    elif still_missing:
+    elif len(still_missing) != 0:
         ok("MUTATION ARM: deleting the CM048 pair FROM THE CODE is caught, while %d "
            "occurrence(s) survive in prose. The first version of this gate read "
            "that prose and passed." % raw_after)

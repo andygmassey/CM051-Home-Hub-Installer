@@ -33502,7 +33502,29 @@ fi
 # the thing run", and the whole point of #1587 is that a source nobody
 # recorded is invisible rather than red. If the extract never happened this
 # writes CANNOT-RUN, which is the honest answer and the one that shows up.
-_hydrate_record_fda_extract || true
+#
+# 🔴 THE `|| true` IS RIGHT AND ITS SILENCE IS NOT. Keeping the install alive
+# when the RECORDER dies is correct: a bookkeeping failure must not abort a
+# customer's install. But `|| true` also threw away the fact that it died, and
+# a recorder that failed leaves NO row at all -- which the Doctor source table
+# renders exactly like a source that was never asked to run. The two states
+# print identically, and only one of them is a customer whose sources are
+# genuinely absent.
+#
+# That is the same shape as the walk's seed marker: an outcome computed, then
+# discarded on the line that produced it. Measured: nothing anywhere in this
+# file recorded a recorder failure, 0 occurrences, against a control of 10 for
+# the honest-record helpers this function already calls on its known-bad paths.
+#
+# So the behaviour is UNCHANGED -- still never fatal -- and the failure is now
+# said out loud. warn is used rather than a silent log because the one person
+# who can act on it is reading this transcript.
+_hydrate_fda_extract_record_rc=0
+_hydrate_record_fda_extract || _hydrate_fda_extract_record_rc=$?
+if [[ "${_hydrate_fda_extract_record_rc}" -ne 0 ]]; then
+    warn "The data-source recorder exited ${_hydrate_fda_extract_record_rc}, so some rows on the Doctor's \"Where your data came from\" panel may be MISSING rather than reporting a state. A missing row and a source that never ran look the same there, and this one is the former."
+fi
+unset _hydrate_fda_extract_record_rc
 
 info "$MSG_HYDRATE_WIKI_RECOMPILE"
 
