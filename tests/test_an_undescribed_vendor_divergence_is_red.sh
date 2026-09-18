@@ -125,6 +125,19 @@ verify           = "full"
 note             = "a synthetic tree for tests/test_an_undescribed_vendor_divergence_is_red.sh"
 '
 
+SECOND_TREE_BODY='
+[[tree]]
+name             = "demo/beta"
+vendor_path      = "vendor/demo/beta"
+source_repo      = "$DEMO"
+source_path      = "beta"
+pinned_sha       = "PINSHA"
+divergence_patch = "vendor/divergences/demo_beta.patch"
+exclude          = ["tests/"]
+verify           = "full"
+note             = "a SECOND synthetic tree, so a shared unrecorded_divergence record has two claimants"
+'
+
 mkfix() {   # mkfix <dir>
     local d="$1"
     rm -rf "$d"; mkdir -p "$d/vendor/demo/alpha" "$d/vendor/divergences"
@@ -249,6 +262,69 @@ git -C "$D" commit -q -m "base: pointer and record already present" >/dev/null 2
 printf 'print("two")\n' > "$D/vendor/demo/alpha/mod.py"
 commit_on_branch "$D" work "a new divergence, described by nothing new"
 expect_gate "B5c MUST-MISS an untouched record does not excuse a new divergence" "$D" 1 "no divergence patch change"
+
+# B5d MUST-MISS, THE SHARED-RECORD HOLE. Two trees point at ONE record. The
+# whole-file "does it mention this tree" test cannot separate them, because a
+# shared record mentions every tree that shares it. So once the record is
+# touched for ONE tree it would read as a description for ALL of them in the
+# same diff, and the second tree's divergence is written down nowhere.
+#
+# NOT HYPOTHETICAL. Measured on the real repo the day the extend-in-place
+# relaxation landed: three trees shared
+# WRITER_READER_MISMATCHES.UNRECORDED.md, and a diff touching vendored files
+# in BOTH doctor and ostler_fda while appending a line "for the doctor tree
+# only" returned GATE GREEN. The rule is therefore: when the POINTER did not
+# move, the record must have GAINED A LINE NAMING THIS TREE.
+D="${WORK}/b5d"; mkfix "$D" || cannot_run "could not build fixture b5d"
+mkdir -p "$D/vendor/demo/beta"
+# ORDER MATTERS: a bare `unrecorded_divergence` line belongs to whichever
+# [[tree]] block it currently sits under, so alpha's pointer is appended while
+# alpha is still the last block, and beta's after beta's block exists.
+printf '  unrecorded_divergence = "vendor/divergences/SHARED.UNRECORDED.md"\n' \
+    >> "$D/vendor/VENDOR_MANIFEST.toml"
+printf '%s' "${SECOND_TREE_BODY//PINSHA/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}" \
+    >> "$D/vendor/VENDOR_MANIFEST.toml"
+printf '  unrecorded_divergence = "vendor/divergences/SHARED.UNRECORDED.md"\n' \
+    >> "$D/vendor/VENDOR_MANIFEST.toml"
+printf 'print("one")\n' > "$D/vendor/demo/beta/mod.py"
+printf 'demo/alpha and demo/beta both record their refusals here.\n' \
+    > "$D/vendor/divergences/SHARED.UNRECORDED.md"
+git -C "$D" add -A >/dev/null 2>&1
+git -C "$D" commit -q -m "base: two trees sharing one record" >/dev/null 2>&1
+printf 'print("two")\n' > "$D/vendor/demo/alpha/mod.py"
+printf 'print("two")\n' > "$D/vendor/demo/beta/mod.py"
+printf 'demo/alpha: a new refusal, recorded for ALPHA ONLY.\n' \
+    >> "$D/vendor/divergences/SHARED.UNRECORDED.md"
+commit_on_branch "$D" work "two trees changed, record extended for one"
+expect_gate "B5d MUST-MISS a record touched for one tree does not describe another" \
+    "$D" 1 "gained no line mentioning"
+
+# B5e THE SAME DIFF, DONE RIGHT: the record names BOTH trees, so both pass.
+# Without this arm B5d could be satisfied by a gate that simply refuses every
+# shared record, which would break the practice the relaxation exists to allow.
+D="${WORK}/b5e"; mkfix "$D" || cannot_run "could not build fixture b5e"
+mkdir -p "$D/vendor/demo/beta"
+# ORDER MATTERS: a bare `unrecorded_divergence` line belongs to whichever
+# [[tree]] block it currently sits under, so alpha's pointer is appended while
+# alpha is still the last block, and beta's after beta's block exists.
+printf '  unrecorded_divergence = "vendor/divergences/SHARED.UNRECORDED.md"\n' \
+    >> "$D/vendor/VENDOR_MANIFEST.toml"
+printf '%s' "${SECOND_TREE_BODY//PINSHA/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}" \
+    >> "$D/vendor/VENDOR_MANIFEST.toml"
+printf '  unrecorded_divergence = "vendor/divergences/SHARED.UNRECORDED.md"\n' \
+    >> "$D/vendor/VENDOR_MANIFEST.toml"
+printf 'print("one")\n' > "$D/vendor/demo/beta/mod.py"
+printf 'demo/alpha and demo/beta both record their refusals here.\n' \
+    > "$D/vendor/divergences/SHARED.UNRECORDED.md"
+git -C "$D" add -A >/dev/null 2>&1
+git -C "$D" commit -q -m "base: two trees sharing one record" >/dev/null 2>&1
+printf 'print("two")\n' > "$D/vendor/demo/alpha/mod.py"
+printf 'print("two")\n' > "$D/vendor/demo/beta/mod.py"
+printf 'demo/alpha: a new refusal.\ndemo/beta: a new refusal.\n' \
+    >> "$D/vendor/divergences/SHARED.UNRECORDED.md"
+commit_on_branch "$D" work "two trees changed, record names both"
+expect_gate "B5e a shared record naming BOTH trees describes both" \
+    "$D" 0 "unrecorded_divergence record"
 
 # B6 ROUTE (c) MUST-MISS: the record exists but never mentions this tree, so it
 # is somebody else's divergence borrowed as cover.
