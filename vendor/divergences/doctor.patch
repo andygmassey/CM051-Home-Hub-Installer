@@ -1,6 +1,6 @@
 --- a/agent/box_status.py
 +++ b/agent/box_status.py
-@@ -29,18 +29,94 @@
+@@ -29,11 +29,17 @@
  from __future__ import annotations
  
  import json
@@ -8,153 +8,33 @@
  import os
  import re
  import subprocess
-+import time
-+import threading
  import urllib.request
  from typing import Any, Optional
- 
++
 +# Fail-soft probes must still be able to SAY they failed. The Doctor is started
 +# by launchd with StandardErrorPath -> ~/.ostler/logs/doctor.err, so anything
 +# logged here lands in the support bundle.
 +logger = logging.getLogger(__name__)
-+
+ 
  # Ollama endpoint - same env var the rest of the Doctor uses.
  OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
- 
- # ── Load (primary - drives the chip colour) ─────────────────────────────────
-+
-+
-+# ── FORK BUDGET ────────────────────────────────────────────────────────────
-+#
-+# THE DEFECT THIS EXISTS TO FIX. Every status poll ran FIVE subprocesses, and
-+# the Hub WebView polls this route about once a second. Measured on a live box:
-+# 58,914 forks in about 40 hours, against a control of 0 to 44 for every
-+# comparable daemon on the same machine. macOS classifies that as inefficient
-+# and SIGTERMs the process (launchctl: "immediate reason = inefficient",
-+# "last terminating signal = Terminated: 15"), KeepAlive respawns it, and every
-+# open Doctor tab is dropped mid-session.
-+#
-+# It was invisible for two reasons worth remembering. The exit code stays 0, so
-+# no health check we own could see it. And a respawn is indistinguishable from
-+# a daemon that was simply always running, unless you count forks.
-+#
-+# The heaviest offender is `top -l 2`, which BLOCKS FOR ABOUT A SECOND taking
-+# its second sample. At a one-second poll interval that guarantees overlapping
-+# invocations, which is the state macOS is actually objecting to.
-+#
-+# WHY A CACHE AND NOT A SLOWER POLL. The poll interval is set by the native
-+# WebView, not by this file. A fix that lives in the caller protects one caller;
-+# a fork budget here holds no matter who calls, how often, or how many tabs are
-+# open. Freshness is chosen per probe by how fast the underlying number can
-+# actually move, so nothing shown to the customer becomes misleading:
-+#
-+#   hw.memsize      never, for the life of the machine -> cached permanently
-+#   vm_stat         moves continuously, but not usefully inside 10s
-+#   ps              process list, 10s
-+#   top -l 2        the expensive one, and CPU attribution is a trend, 30s
-+#   resource tier   derived from hardware, effectively static, 60s
-+#
-+# A cached value is returned on a miss ONLY if the refresh raises, so a
-+# transient failure shows the last known reading rather than a hole, which is
-+# the same fail-soft contract the callers already have.
-+_CACHE: dict[str, tuple[float, Any]] = {}
-+_CACHE_LOCK = threading.Lock()
- 
- 
-+def _cached(key: str, ttl: float, produce):
-+    """Return ``produce()``, at most once per ``ttl`` seconds.
-+
-+    ``ttl`` of ``None`` means cache for the life of the process.
-+    """
-+    now = time.monotonic()
-+    with _CACHE_LOCK:
-+        hit = _CACHE.get(key)
-+        if hit is not None:
-+            stamp, value = hit
-+            if ttl is None or (now - stamp) < ttl:
-+                return value
-+    try:
-+        value = produce()
-+    except Exception:
-+        with _CACHE_LOCK:
-+            hit = _CACHE.get(key)
-+        if hit is not None:
-+            return hit[1]
-+        raise
-+    with _CACHE_LOCK:
-+        _CACHE[key] = (time.monotonic(), value)
-+    return value
-+
-+
-+def _cache_clear() -> None:
-+    """Drop every cached probe. For tests, and for a forced refresh."""
-+    with _CACHE_LOCK:
-+        _CACHE.clear()
-+
-+
- def probe_load() -> Optional[dict[str, Any]]:
-     """1-minute loadavg normalised by core count.
- 
-@@ -71,7 +147,7 @@
- # ── Memory ──────────────────────────────────────────────────────────────────
- 
- 
--def _total_ram_bytes() -> Optional[int]:
-+def _uncached__total_ram_bytes() -> Optional[int]:
-     try:
-         out = subprocess.run(
-             ["sysctl", "-n", "hw.memsize"],
-@@ -82,7 +158,7 @@
-         return None
- 
- 
--def probe_memory() -> Optional[dict[str, Any]]:
-+def _uncached_probe_memory() -> Optional[dict[str, Any]]:
-     """Used / total RAM via ``hw.memsize`` + ``vm_stat`` (macOS, stdlib only).
- 
-     "Used" excludes the purgeable/free pages; we treat (active + wired +
-@@ -244,7 +320,7 @@
- _TOP_ROW = re.compile(r"^\s*(\d+)\s+([\d.]+)\s+(.+?)\s*$")
- 
- 
--def _ps_user_map() -> dict[int, tuple[str, str]]:
-+def _uncached__ps_user_map() -> dict[int, tuple[str, str]]:
-     """pid → (user, argv) via a single `ps` call.
- 
-     The authoritative process name is the basename of argv's first token -
-@@ -310,7 +386,7 @@
-     return rows
- 
- 
--def probe_attribution() -> Optional[dict[str, Any]]:
-+def _uncached_probe_attribution() -> Optional[dict[str, Any]]:
-     """Top CPU contributors bucketed by owner. ``None`` if the probe fails."""
-     try:
-         out = subprocess.run(
-@@ -412,7 +488,7 @@
- # ── Top-level aggregator ────────────────────────────────────────────────────
- 
- 
--def _governor() -> dict[str, Any]:
-+def _uncached__governor() -> dict[str, Any]:
-     """Re-read the live governor tier the same way the governor-status route
-     does, fail-soft to a minimal unknown payload."""
-     enabled = True
-@@ -454,14 +530,64 @@
+@@ -452,16 +458,66 @@
+         except Exception:
+             pass
      return {"enabled": enabled, "tier": tier, "deferring": deferring}
- 
- 
++
++
 +# A guard that swallows its own failure is a defect in its own right, so this
 +# module records whether the pause backend has ever failed to load. The
 +# box-status poll runs every few seconds; logging on every call would bury the
 +# report in its own noise, so each distinct failure is reported ONCE per
 +# process and the fallback payload carries the admission from then on.
 +_PAUSE_BACKEND_REPORTED: set[str] = set()
-+
+ 
 +
 +def _report_pause_backend_failure(exc: BaseException) -> str:
 +    """Log a pause-backend failure the first time each distinct one is seen.
-+
+ 
 +    Returns the short reason string that goes into the payload.
 +    """
 +    if isinstance(exc, ImportError):
@@ -207,7 +87,7 @@
  
  
  def _derive_state(load: Optional[dict], memory: Optional[dict],
-@@ -529,6 +655,9 @@
+@@ -529,6 +585,9 @@
              "paused": paused,
              "expiry_human": pause.get("expiry_human", ""),
              "indefinite": bool(pause.get("indefinite")),
@@ -217,44 +97,6 @@
          },
          "settling": settling,
          "running": _running(governor, settling),
-@@ -536,5 +665,37 @@
-     }
- 
- 
-+# ── THE FORK-BUDGETED WRAPPERS ─────────────────────────────────────────────
-+# ABOVE the __main__ guard ON PURPOSE. They were appended to the end of the
-+# file, which put them AFTER it, so `python3 box_status.py` raised NameError
-+# while every test that IMPORTS the module passed. A vendor gate caught it and
-+# said the thing worth keeping: tests that import the module cannot catch this.
-+# It is the same shape as everything else found this week, a fix that exists
-+# and cannot be reached, so it is written down here rather than just moved.
-+def _total_ram_bytes() -> Optional[int]:
-+    """Fork-budgeted wrapper. See FORK BUDGET above."""
-+    return _cached('ram', None, _uncached__total_ram_bytes)
-+
-+
-+def probe_memory() -> Optional[dict[str, Any]]:
-+    """Fork-budgeted wrapper. See FORK BUDGET above."""
-+    return _cached('memory', 10.0, _uncached_probe_memory)
-+
-+
-+def _ps_user_map() -> dict[int, tuple[str, str]]:
-+    """Fork-budgeted wrapper. See FORK BUDGET above."""
-+    return _cached('ps', 10.0, _uncached__ps_user_map)
-+
-+
-+def probe_attribution() -> Optional[dict[str, Any]]:
-+    """Fork-budgeted wrapper. See FORK BUDGET above."""
-+    return _cached('attribution', 30.0, _uncached_probe_attribution)
-+
-+
-+def _governor() -> dict[str, Any]:
-+    """Fork-budgeted wrapper. See FORK BUDGET above."""
-+    return _cached('governor', 60.0, _uncached__governor)
-+
-+
- if __name__ == "__main__":  # function-verification entrypoint
-     print(json.dumps(box_status(), indent=2))
 --- a/agent/config_panel.py
 +++ b/agent/config_panel.py
 @@ -67,6 +67,24 @@
@@ -838,20 +680,7 @@
 +    }
 --- a/agent/dashboard_components.py
 +++ b/agent/dashboard_components.py
-@@ -58,6 +58,12 @@
-     STATE_PERMISSION_DENIED,
-     read_reminders_runtime,
- )
-+# The WhatsApp keepalive verdict. Same in-package, always-importable shape as
-+# the readers above, so no soft fall-through is needed. It lives in
-+# whatsapp_pair rather than a module of its own because a brand-new vendored
-+# file with no upstream counterpart would need a VENDOR_ONLY.tsv row, and that
-+# file's header calls a new row a last resort.
-+from whatsapp_pair import read_whatsapp_keepalive
- 
- # A7+A8: consent registry. Same soft-fall-through rule as posture –
- # Doctor must keep rendering even when ostler_security is missing.
-@@ -66,31 +72,169 @@
+@@ -66,11 +66,73 @@
  try:
      from ostler_security.consent import all_consents  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
      _HAS_CONSENT = True
@@ -923,86 +752,34 @@
 +    _CONSENT_IMPORT_ERROR = ""
 +    return True, "", resolved
 +
+ try:
+     from legal import (  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
+         ARTICLE_9_EU_CONSENT,
+@@ -91,6 +153,58 @@
+     _BUNDLED_CONSENTS = {}
+ 
+ 
 +def _import_bundled_consents() -> dict:
 +    """Build the tickbox_id -> ConsentString map. Isolated for the same
 +    reason _import_consent_registry is: a test needs to force the failure.
-+
-+    DERIVED FROM THE `legal` PACKAGE, NOT LISTED BY HAND, and the reason is
-+    measured rather than tidiness. This used to name five constants
-+    explicitly. install.sh records SIX tickbox ids and
-+    ostler_security.consent_cli.TICKBOX_REGISTRY knows all six, so the
-+    sixth - personal_use_only, the licence term a customer acknowledges on
-+    every install including the "use previous answers" re-install - landed
-+    in ~/.ostler/posture/consent.json and reached this tile as grey
-+    "unknown wording" with a "?". Measured 2026-09-16 by recording the real
-+    decision through the real CLI and rendering this real tile: 6 in the
-+    CLI registry, 6 ConsentStrings exported by `legal`, 5 here.
-+
-+    That grey state is the one _resolve_bundled_consents' docstring calls
-+    "an honest-looking state that happens to be exactly what a genuinely
-+    unrecognised tickbox_id renders". So the customer's licence
-+    acknowledgement was indistinguishable from a bogus record, and the
-+    drift check that install.sh's own screen comment says the record exists
-+    to enable ("so the Doctor can flag drift between what the customer
-+    agreed to and what the Hub currently bundles") could never run on it.
-+
-+    A hand-kept list cannot be right for longer than the next consent
-+    string. The `legal` package is the single source of truth the installer,
-+    the CLI and this tile already share, so enumerate it: a new
-+    ConsentString exported there is checkable here the day it is added,
-+    with nobody having to remember this file.
 +    """
-+    import legal  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
-+    from legal import ConsentString  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
-+
-+    bundled = {}
-+    for name in getattr(legal, "__all__", ()):
-+        candidate = getattr(legal, name, None)
-+        if isinstance(candidate, ConsentString):
-+            bundled[candidate.tickbox_id] = candidate
-+
-+    if not bundled:
-+        # FAIL THE WAY A MISSING PACKAGE FAILS, rather than returning an
-+        # empty map. _resolve_bundled_consents caches whatever it gets, and
-+        # an empty dict renders every record "unknown wording" for the life
-+        # of the process while looking like a successful import. The two
-+        # facts must not share one output - the same rule the consent tile
-+        # itself was fixed under in task #429.
-+        raise ImportError(
-+            "legal package exported no ConsentString constants; "
-+            "the consent tile cannot check wording drift",
++    from legal import (  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
++        ARTICLE_9_EU_CONSENT,
++        EU_VOICE_SPEAKER_ID_CONSENT,
++        SPOKEN_CAPTURE_RECORDING_CONSENT,
++        THIRD_PARTY_DATA_NOTICE,
++        WHATSAPP_UNOFFICIAL_RISK_CONSENT,
++    )
++    return {
++        c.tickbox_id: c
++        for c in (
++            ARTICLE_9_EU_CONSENT,
++            WHATSAPP_UNOFFICIAL_RISK_CONSENT,
++            EU_VOICE_SPEAKER_ID_CONSENT,
++            THIRD_PARTY_DATA_NOTICE,
++            SPOKEN_CAPTURE_RECORDING_CONSENT,
 +        )
-+    return bundled
-+
-+
-+# ONE PRODUCER, AND IT USED TO BE TWO. This module-level block held its own
-+# hand-written copy of the same five-constant map, and _resolve_bundled_consents
-+# returns that cache whenever it is truthy - so on every install where `legal`
-+# imports (that is, every working install) _import_bundled_consents below was
-+# never called. The function was reachable only on the degraded path, which
-+# means a test asserting on the function could go green while the tile the
-+# customer looks at still read the stale copy: the instrument and the defect on
-+# different surfaces. Calling the function here leaves one definition to keep
-+# right.
- try:
--    from legal import (  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
--        ARTICLE_9_EU_CONSENT,
--        EU_VOICE_SPEAKER_ID_CONSENT,
--        SPOKEN_CAPTURE_RECORDING_CONSENT,
--        THIRD_PARTY_DATA_NOTICE,
--        WHATSAPP_UNOFFICIAL_RISK_CONSENT,
--    )
--    # tickbox_id -> ConsentString. Drives the bundled-hash check.
--    _BUNDLED_CONSENTS = {
--        ARTICLE_9_EU_CONSENT.tickbox_id: ARTICLE_9_EU_CONSENT,
--        WHATSAPP_UNOFFICIAL_RISK_CONSENT.tickbox_id: WHATSAPP_UNOFFICIAL_RISK_CONSENT,
--        EU_VOICE_SPEAKER_ID_CONSENT.tickbox_id: EU_VOICE_SPEAKER_ID_CONSENT,
--        THIRD_PARTY_DATA_NOTICE.tickbox_id: THIRD_PARTY_DATA_NOTICE,
--        SPOKEN_CAPTURE_RECORDING_CONSENT.tickbox_id: SPOKEN_CAPTURE_RECORDING_CONSENT,
--    }
-+    _BUNDLED_CONSENTS = _import_bundled_consents()
- except ImportError:  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
-     _BUNDLED_CONSENTS = {}
++    }
 +
 +
 +def _resolve_bundled_consents() -> dict:
@@ -1022,10 +799,10 @@
 +    customer as merely uncheckable rather than as needing renewal.
 +    """
 +    global _BUNDLED_CONSENTS
- 
++
 +    if _BUNDLED_CONSENTS:
 +        return _BUNDLED_CONSENTS
- 
++
 +    try:
 +        _BUNDLED_CONSENTS = _import_bundled_consents()
 +    except ImportError:
@@ -1037,7 +814,7 @@
  def _any_ostler_container_running(snapshot: SystemSnapshot) -> bool:
      return any(
          is_ostler_container(c) and c.state == "running"
-@@ -500,12 +644,43 @@
+@@ -500,12 +614,43 @@
      user; the bridges decide whether they need it. Doctor's job is
      to surface drift, not to enforce policy.
      """
@@ -1084,7 +861,7 @@
  
      tiles = ""
      for tickbox_id in sorted(records.keys()):
-@@ -516,7 +691,7 @@
+@@ -516,7 +661,7 @@
          timestamp = rec.get("timestamp")
          relative = _format_relative_time(timestamp)
  
@@ -1093,195 +870,6 @@
          if decision == "declined":
              colour = "#d96666"
              icon = "&#9888;"
-@@ -1084,5 +1259,188 @@
-     return f"""
-     <div class="section" id="remindersRuntimeSection">
-         <div class="section-title">{_html_escape(REMINDERS_RUNTIME_SECTION_TITLE)}</div>
-+        <div class="status-grid">{tile}</div>
-+    </div>"""
-+
-+
-+# ── WhatsApp keepalive tile ──────────────────────────────────────────
-+#
-+# GRAFTED (CM051, board item 965). Colour by verdict, on the palette the
-+# sibling tiles already use. healthy = green; recovered = green, because the
-+# channel IS up and a customer should not be alarmed, with the repair count
-+# carried as a detail line so a box repairing itself daily is still visible;
-+# needs_customer = amber, the one verdict that asks something of them;
-+# still_unhealthy = red, because messages are being missed right now;
-+# cannot_run = grey, because "we could not tell" is not evidence of failure
-+# and must not be painted as one.
-+_WHATSAPP_KEEPALIVE_COLOURS = {
-+    "healthy": "#5cb579",
-+    "recovered": "#5cb579",
-+    "needs_customer": "#d4a052",
-+    "still_unhealthy": "#d96666",
-+    "cannot_run": "rgba(236,232,221,0.40)",
-+}
-+_WHATSAPP_KEEPALIVE_ICONS = {
-+    "healthy": "&#10003;",
-+    "recovered": "&#10003;",
-+    "needs_customer": "&#9888;",
-+    "still_unhealthy": "&#10007;",
-+    "cannot_run": "&#8211;",
-+}
-+
-+
-+def render_whatsapp_keepalive(now_dt=None) -> str:
-+    """Render the WhatsApp keepalive verdict tile.
-+
-+    Reads ``~/.ostler/state/whatsapp_keepalive.json``, written by the
-+    com.creativemachines.ostler.whatsapp-keepalive LaunchAgent at 08:50 and
-+    17:50. Returns:
-+
-+    - Empty string when there is no verdict. That covers an install where
-+      WhatsApp was never enabled and one where the keepalive has not fired
-+      yet, neither of which is a finding. A permanent empty header asking an
-+      unanswered question is worse than no tile.
-+    - A single status card otherwise.
-+
-+    WHY THIS TILE EXISTS. The keepalive used to write "WhatsApp unhealthy"
-+    into a log file and exit 0. Three consecutive unhealthy runs read as
-+    ``last exit code = 0`` in launchctl and nobody knew the channel was
-+    degraded. The job can now repair the channel, which means it can also fail
-+    to repair it -- and a remediation nobody can observe failing is the same
-+    defect one layer along. So the verdict gets a surface on the page the
-+    customer already opens.
-+
-+    THE TILE NEVER OFFERS TO RE-LINK ON THEIR BEHALF. Where the session is
-+    gone it says, in as many words, that only they can do it and that Ostler
-+    has stopped retrying. Quietly re-pairing a customer's WhatsApp account
-+    would be a much worse defect than the one being reported.
-+
-+    Server-side static HTML; the expand-collapse is the native ``<details>``
-+    element, so no JS. Mirrors ``render_reminders_runtime`` -- same shape,
-+    same failure class: a daemon-side outcome the customer would otherwise
-+    only discover by noticing messages had stopped.
-+    """
-+    from web_ui_copy import (
-+        WHATSAPP_KEEPALIVE_CHECKED_AT_PREFIX_FMT,
-+        WHATSAPP_KEEPALIVE_DETAIL_CANNOT_RUN,
-+        WHATSAPP_KEEPALIVE_DETAIL_HEALTHY,
-+        WHATSAPP_KEEPALIVE_DETAIL_NEEDS_CUSTOMER,
-+        WHATSAPP_KEEPALIVE_DETAIL_RECOVERED,
-+        WHATSAPP_KEEPALIVE_DETAIL_STILL_UNHEALTHY,
-+        WHATSAPP_KEEPALIVE_HOW_TO_FIX_LABEL,
-+        WHATSAPP_KEEPALIVE_LINK_LABEL,
-+        WHATSAPP_KEEPALIVE_REMEDIATION_CANNOT_RUN,
-+        WHATSAPP_KEEPALIVE_REMEDIATION_NEEDS_CUSTOMER,
-+        WHATSAPP_KEEPALIVE_REMEDIATION_STILL_UNHEALTHY,
-+        WHATSAPP_KEEPALIVE_REPAIRS_FMT,
-+        WHATSAPP_KEEPALIVE_SECTION_TITLE,
-+        WHATSAPP_KEEPALIVE_STATUS_CANNOT_RUN,
-+        WHATSAPP_KEEPALIVE_STATUS_HEALTHY,
-+        WHATSAPP_KEEPALIVE_STATUS_NEEDS_CUSTOMER,
-+        WHATSAPP_KEEPALIVE_STATUS_RECOVERED,
-+        WHATSAPP_KEEPALIVE_STATUS_STILL_UNHEALTHY,
-+    )
-+
-+    status = read_whatsapp_keepalive()
-+    if status is None:
-+        return ""
-+
-+    verdict = status.verdict
-+    if verdict not in _WHATSAPP_KEEPALIVE_COLOURS:
-+        # The reader already rejects an unrecognised verdict, so this cannot
-+        # normally fire. Kept because a KeyError here blanks the whole
-+        # dashboard, and the reader and this map are two lists that a future
-+        # edit can move apart.
-+        return ""
-+    colour = _WHATSAPP_KEEPALIVE_COLOURS[verdict]
-+    icon = _WHATSAPP_KEEPALIVE_ICONS[verdict]
-+
-+    status_label = {
-+        "healthy": WHATSAPP_KEEPALIVE_STATUS_HEALTHY,
-+        "recovered": WHATSAPP_KEEPALIVE_STATUS_RECOVERED,
-+        "needs_customer": WHATSAPP_KEEPALIVE_STATUS_NEEDS_CUSTOMER,
-+        "still_unhealthy": WHATSAPP_KEEPALIVE_STATUS_STILL_UNHEALTHY,
-+        "cannot_run": WHATSAPP_KEEPALIVE_STATUS_CANNOT_RUN,
-+    }[verdict]
-+
-+    detail = {
-+        "healthy": WHATSAPP_KEEPALIVE_DETAIL_HEALTHY,
-+        "recovered": WHATSAPP_KEEPALIVE_DETAIL_RECOVERED,
-+        "needs_customer": WHATSAPP_KEEPALIVE_DETAIL_NEEDS_CUSTOMER,
-+        "still_unhealthy": WHATSAPP_KEEPALIVE_DETAIL_STILL_UNHEALTHY,
-+        "cannot_run": WHATSAPP_KEEPALIVE_DETAIL_CANNOT_RUN,
-+    }[verdict]
-+
-+    remediation = {
-+        "needs_customer": WHATSAPP_KEEPALIVE_REMEDIATION_NEEDS_CUSTOMER,
-+        "still_unhealthy": WHATSAPP_KEEPALIVE_REMEDIATION_STILL_UNHEALTHY,
-+        "cannot_run": WHATSAPP_KEEPALIVE_REMEDIATION_CANNOT_RUN,
-+    }.get(verdict)
-+
-+    extra_lines = ""
-+
-+    # A box that repairs itself every day is a fault report, not a success
-+    # story, so the count is shown on the two verdicts where a repair happened
-+    # or was attempted. Silence on a healthy box keeps the tile quiet.
-+    if status.repairs_last_24h > 0 and verdict in ("recovered", "still_unhealthy"):
-+        extra_lines += (
-+            f'<div class="status-detail">'
-+            f'{_html_escape(WHATSAPP_KEEPALIVE_REPAIRS_FMT.format(count=status.repairs_last_24h))}'
-+            f'</div>'
-+        )
-+
-+    if status.checked_at:
-+        # The writer records unix seconds; _format_relative_time speaks
-+        # ISO-8601. Convert here rather than teaching the shared helper a
-+        # second input format.
-+        try:
-+            from datetime import datetime, timezone
-+            checked_iso = datetime.fromtimestamp(
-+                status.checked_at, tz=timezone.utc,
-+            ).isoformat()
-+        except (OverflowError, OSError, ValueError):
-+            checked_iso = None
-+        if checked_iso:
-+            relative = _format_relative_time(checked_iso, now_dt=now_dt)
-+            extra_lines += (
-+                f'<div class="status-detail">'
-+                f'{_html_escape(WHATSAPP_KEEPALIVE_CHECKED_AT_PREFIX_FMT.format(relative=relative))}'
-+                f'</div>'
-+            )
-+
-+    how_to_fix = ""
-+    if remediation:
-+        link = ""
-+        if verdict in ("needs_customer", "still_unhealthy"):
-+            # The page that already exists for this, rather than a second
-+            # pairing surface invented here.
-+            link = (
-+                f'<div class="status-detail">'
-+                f'<a href="/whatsapp-pair">{_html_escape(WHATSAPP_KEEPALIVE_LINK_LABEL)}</a>'
-+                f'</div>'
-+            )
-+        how_to_fix = f"""
-+                <details style="margin-top:8px">
-+                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
-+                        {_html_escape(WHATSAPP_KEEPALIVE_HOW_TO_FIX_LABEL)}
-+                    </summary>
-+                    <div class="status-detail">{_html_escape(remediation)}</div>
-+                    {link}
-+                </details>"""
-+
-+    tile = f"""
-+        <div class="status-card">
-+            <div class="status-indicator" style="background:{colour}">{icon}</div>
-+            <div class="status-info">
-+                <div class="status-name">{_html_escape(status_label)}</div>
-+                <div class="status-detail">{_html_escape(detail)}</div>
-+                {extra_lines}
-+                {how_to_fix}
-+            </div>
-+        </div>"""
-+
-+    return f"""
-+    <div class="section" id="whatsappKeepaliveSection">
-+        <div class="section-title">{_html_escape(WHATSAPP_KEEPALIVE_SECTION_TITLE)}</div>
-         <div class="status-grid">{tile}</div>
-     </div>"""
 --- a/agent/diagnostic_copy.py
 +++ b/agent/diagnostic_copy.py
 @@ -99,7 +99,36 @@
@@ -1321,12 +909,10 @@
  # ── check_qdrant_health ──────────────────────────────────────────────
  
  
-@@ -124,8 +153,137 @@
- )
- OXIGRAPH_INTERNAL_ERROR_FIX = "Check Oxigraph logs"
+@@ -126,6 +155,135 @@
  OXIGRAPH_INTERNAL_ERROR_FIX_COMMAND_FMT = "docker logs --tail=30 {prefix}oxigraph"
-+
-+
+ 
+ 
 +# ── check_wiki_health ────────────────────────────────────────────────
 +#
 +# v1.0.42 upgrade walk, 2026-08-23. The wiki was dead for about a day and
@@ -1431,7 +1017,7 @@
 +ENGINE_RECOVERY_EXHAUSTED_FIX_COMMAND = (
 +    "/opt/homebrew/bin/colima start && /opt/homebrew/bin/docker ps"
 +)
- 
++
 +ENGINE_ABSENT_TITLE = "No container runtime is installed"
 +ENGINE_ABSENT_DETAIL_FMT = (
 +    "Ostler needs a container runtime for your wiki, knowledge graph and "
@@ -1440,7 +1026,7 @@
 +)
 +ENGINE_ABSENT_FIX = "Re-run the Ostler installer, which installs one for you"
 +ENGINE_ABSENT_FIX_COMMAND = "brew install colima docker docker-compose"
- 
++
 +ENGINE_SUPERVISOR_MISSING_TITLE = (
 +    "Nothing is watching the container runtime"
 +)
@@ -1459,12 +1045,10 @@
  # ── check_import_readiness ───────────────────────────────────────────
  
  
-@@ -306,7 +464,42 @@
- LOW_RAM_DETAIL = (
-     "Ostler works best with 16 GB or more. With less RAM, you are "
+@@ -308,7 +466,42 @@
      "limited to smaller models and may experience slower inference."
-+)
-+
+ )
+ 
 +# Memory that could not be READ is not memory that is FINE (#419).
 +#
 +# The rule below used to raise AttributeError when the collector set no RAM
@@ -1496,13 +1080,15 @@
 +    "currently free, so it could not check whether memory is under "
 +    "pressure. This is not a report that memory is fine: that particular "
 +    "check did not complete. Every other check on this page ran normally."
- )
++)
 +MEMORY_UNREADABLE_FIX = "Send this report so we can fix the check"
 +MEMORY_UNREADABLE_FIX_COMMAND = "vm_stat | head -10"
  
- 
++
  # ── check_gdpr_export_age ────────────────────────────────────────────
-@@ -383,4 +576,319 @@
+ 
+ 
+@@ -383,4 +576,273 @@
      "After granting access, restart the assistant: "
      "launchctl kickstart -k gui/$(id -u)/"
      "com.creativemachines.ostler.assistant"
@@ -1550,7 +1136,7 @@
 +LAST_UPGRADE_SUCCESS_DETAIL_FMT = (
 +    "Last update applied {applied}. "
 +    "Assistant and services have been reconciled and are running normally."
-+)
+ )
 +# Shown when the recorded timestamp cannot be parsed, so the applied-time
 +# clause is omitted rather than printing a half-formed value.
 +LAST_UPGRADE_SUCCESS_DETAIL_NO_TIME = (
@@ -1572,7 +1158,7 @@
 +LAST_UPGRADE_ROLLED_BACK_DETAIL_FMT = (
 +    "Your previous Ostler is running. Version {version} did not install, so "
 +    "the working version was restored automatically. Nothing was lost."
- )
++)
 +LAST_UPGRADE_ROLLED_BACK_FIX = (
 +    "No action is needed. You can try updating again later from Settings."
 +)
@@ -1776,55 +1362,9 @@
 +SCHEDULED_AGENT_UNKNOWN_FIX_COMMAND_FMT = (
 +    "launchctl print gui/$(id -u)/{label}"
 +)
-+
-+# ── check_licence_expiry (HR015 #929) ────────────────────────────────
-+#
-+# THE WORDS ARE THE FEATURE HERE, not the plumbing. Andy's two rules for
-+# a time-limited beta licence are: expiry degrades to READ-ONLY and never
-+# destructive, and the customer is warned BEFORE it happens, in the
-+# product, not after.
-+#
-+# So every string below states, in the customer's own reading, that their
-+# data stays. "Paused", never "locked". A lapsed tester keeps everything
-+# they have and loses the product working; those are different sentences
-+# and they feel completely different to the person reading them. Deleting
-+# a tester's life because a date passed is unrecoverable reputationally,
-+# and a panel that even HINTS at it will be screenshotted.
-+#
-+# The "ending soon" row is a WARNING and the "ended" row is INFO, which
-+# looks backwards and is not. A warning is for something the customer can
-+# still act on; once the window has closed the actionable moment has gone
-+# and a red row would only be shouting about a state they are already in.
-+LICENCE_ENDING_SOON_TITLE_FMT = (
-+    "Your {label} access ends {when}"
-+)
-+LICENCE_ENDING_SOON_DETAIL_FMT = (
-+    "Ongoing intelligence pauses after {expires}. Everything already in "
-+    "your Hub stays exactly where it is and stays readable. Nothing is "
-+    "deleted, now or then."
-+)
-+LICENCE_ENDING_SOON_FIX = (
-+    "Subscribe in the Ostler app on your iPhone to carry on without a "
-+    "break. If you are a beta tester, get in touch and we will extend you."
-+)
-+LICENCE_ENDING_SOON_FIX_COMMAND = None
-+
-+LICENCE_ENDED_TITLE_FMT = (
-+    "Your {label} access ended"
-+)
-+LICENCE_ENDED_DETAIL_FMT = (
-+    "Ongoing intelligence has been paused since {expires}. Everything "
-+    "already in your Hub is still here and still readable, and nothing "
-+    "has been deleted. New data is not being brought in."
-+)
-+LICENCE_ENDED_FIX = (
-+    "Subscribe in the Ostler app on your iPhone and everything starts "
-+    "again within a minute. Nothing needs restoring."
-+)
-+LICENCE_ENDED_FIX_COMMAND = None
 --- a/agent/diagnostic_rules.py
 +++ b/agent/diagnostic_rules.py
-@@ -18,11 +18,61 @@
+@@ -18,11 +18,53 @@
  
  from __future__ import annotations
  
@@ -1844,14 +1384,6 @@
 +    MEMORY_UNREADABLE_FIX_COMMAND,
 +    INGEST_EMPTY_DETAIL_FMT,
 +    INGEST_EMPTY_FIX,
-+    LICENCE_ENDED_DETAIL_FMT,
-+    LICENCE_ENDED_FIX,
-+    LICENCE_ENDED_FIX_COMMAND,
-+    LICENCE_ENDED_TITLE_FMT,
-+    LICENCE_ENDING_SOON_DETAIL_FMT,
-+    LICENCE_ENDING_SOON_FIX,
-+    LICENCE_ENDING_SOON_FIX_COMMAND,
-+    LICENCE_ENDING_SOON_TITLE_FMT,
 +    INGEST_EMPTY_FIX_COMMAND,
 +    INGEST_NO_INPUT_TITLE_FMT,
 +    INGEST_NO_INPUT_DETAIL_FMT,
@@ -1886,7 +1418,7 @@
      ALL_UNREACHABLE_DETAIL,
      ALL_UNREACHABLE_FIX,
      ALL_UNREACHABLE_FIX_COMMAND,
-@@ -38,6 +88,10 @@
+@@ -38,6 +80,10 @@
      CONTAINER_CRASHED_DETAIL_FMT,
      CONTAINER_CRASHED_FIX,
      CONTAINER_CRASHED_FIX_COMMAND_FMT,
@@ -1897,7 +1429,7 @@
      CONTAINER_CRASHED_TITLE_FMT,
      CONTAINER_NEVER_STARTED_DETAIL,
      CONTAINER_NEVER_STARTED_FIX,
-@@ -79,6 +133,14 @@
+@@ -79,6 +125,14 @@
      HIGH_MEM_CONTAINER_FIX,
      HIGH_MEM_CONTAINER_FIX_COMMAND_FMT,
      HIGH_MEM_CONTAINER_TITLE_FMT,
@@ -1912,7 +1444,7 @@
      IMESSAGE_FDA_DETAIL,
      IMESSAGE_FDA_FIX,
      IMESSAGE_FDA_FIX_COMMAND,
-@@ -95,6 +157,15 @@
+@@ -95,6 +149,15 @@
      IMPORT_READY_DETAIL,
      IMPORT_READY_FIX_COMMAND,
      IMPORT_READY_TITLE,
@@ -1928,7 +1460,7 @@
      LOW_RAM_DETAIL,
      LOW_RAM_TITLE_FMT,
      MANY_MODELS_DETAIL,
-@@ -145,14 +216,53 @@
+@@ -145,14 +208,53 @@
      STALE_IMPORT_FIX,
      STALE_IMPORT_FIX_COMMAND,
      STALE_IMPORT_TITLE_FMT,
@@ -1982,7 +1514,7 @@
  def check_first_install(snapshot: Any) -> list[dict]:
      """Detect common first-install problems."""
      findings = []
-@@ -228,9 +338,39 @@
+@@ -228,9 +330,39 @@
  
  
  def check_container_health(snapshot: Any) -> list[dict]:
@@ -2023,7 +1555,7 @@
      for c in snapshot.docker_containers:
          # Container restarting (crash loop)
          if "Restarting" in c.status:
-@@ -314,13 +454,359 @@
+@@ -314,11 +446,357 @@
              "detail": OXIGRAPH_INTERNAL_ERROR_DETAIL,
              "fix": OXIGRAPH_INTERNAL_ERROR_FIX,
              "fix_command": OXIGRAPH_INTERNAL_ERROR_FIX_COMMAND_FMT.format(prefix=prefix),
@@ -2097,7 +1629,7 @@
              "risk": "low",
              "category": "runtime",
          })
- 
++
 +    wiki_svc = next((s for s in snapshot.services if s.name == "wiki"), None)
 +    if not wiki_svc:
 +        # No probe result at all. Silence here is correct: an older
@@ -2169,9 +1701,9 @@
 +        "risk": "low",
 +        "category": "runtime",
 +    })
-     return findings
- 
- 
++    return findings
++
++
 +def check_engine_supervisor_present(snapshot: Any) -> list[dict]:
 +    """Is anything actually WATCHING the runtime?
 +
@@ -2250,7 +1782,7 @@
 +    attempts = int(data.get("consecutive_failures", 0) or 0)
 +    action = str(data.get("last_action", "none"))
 +    first_seen = str(data.get("first_seen", "an unknown time"))
-+
+ 
 +    if state == "absent":
 +        findings.append({
 +            "severity": "critical",
@@ -2286,7 +1818,7 @@
 +                "risk": "low",
 +                "category": "runtime",
 +            })
-+    return findings
+     return findings
 +
 +
 +def _engine_supervisor_is_scheduled() -> bool | None:
@@ -2378,12 +1910,10 @@
 +        if "wiki-site" in c.name and c.state != "running":
 +            return c
 +    return None
-+
-+
+ 
+ 
  def check_import_readiness(snapshot: Any) -> list[dict]:
-     """Check whether the system is ready to run the import pipeline."""
-     findings = []
-@@ -572,8 +1058,44 @@
+@@ -572,9 +1050,45 @@
  
  
  def check_memory_pressure(snapshot: Any) -> list[dict]:
@@ -2396,7 +1926,7 @@
 +    v1.0.36 box while /api/v1/box-status reported 91% used (#419).
 +    """
      findings = []
-+
+ 
 +    total = getattr(snapshot, "ram_total_gb", None)
 +    available = getattr(snapshot, "ram_available_gb", None)
 +
@@ -2426,22 +1956,19 @@
 +            "category": "diagnostics",
 +        })
 +        # The total IS readable, so the low-RAM check below can still run.
- 
++
      if snapshot.ram_total_gb and snapshot.ram_available_gb is not None:
          used_pct = (1 - snapshot.ram_available_gb / snapshot.ram_total_gb) * 100
-@@ -942,6 +1464,241 @@
-         "detail": detail,
-         "fix": IMESSAGE_FDA_FIX,
-         "fix_command": IMESSAGE_FDA_FIX_COMMAND,
-+        "risk": "low",
-+        "category": "installation",
-+    })
-+    return findings
+         if used_pct > 90:
+@@ -946,16 +1460,845 @@
+         "category": "installation",
+     })
+     return findings
 +
 +
 +# ── (B-lite) upgrade audit-trail row ─────────────────────────────────
-+
-+
+ 
+ 
 +def _ostler_preferences_path() -> str:
 +    """Returns the canonical ~/.ostler/preferences.json path.
 +
@@ -2668,12 +2195,12 @@
 +        "detail": IMESSAGE_CAPTURE_STALLED_DETAIL,
 +        "fix": IMESSAGE_CAPTURE_STALLED_FIX,
 +        "fix_command": IMESSAGE_CAPTURE_STALLED_FIX_COMMAND,
-         "risk": "low",
-         "category": "installation",
-     })
-@@ -949,13 +1706,775 @@
- 
- 
++        "risk": "low",
++        "category": "installation",
++    })
++    return findings
++
++
  # ── Rule registry ────────────────────────────────────────────────────
 +
 +
@@ -2970,12 +2497,12 @@
 +    ("com.ostler.export-scan", "exports you have dropped in", "export-scan", 14400),
 +    ("com.ostler.aiconv-resume", "AI chat transcripts", "aiconv-resume", 3600),
 +)
-+
+ 
 +# How many consecutive failed ticks before the card goes critical. One bad
 +# tick can be a transient (a locked DB, a sleeping Mac). Two consecutive is a
 +# pattern, and on the .228 box it was hundreds.
 +_SCHEDULED_AGENT_CRITICAL_AFTER = 2
-+
+ 
 +# Multiplier on the expected interval before "runs = 0" is worth reporting.
 +# A job legitimately shows runs = 0 in the minutes after install; it does not
 +# legitimately show runs = 0 two full windows later. Matches the 2x posture
@@ -3092,10 +2619,10 @@
 +            prev = json.loads(path.read_text()) or {}
 +    except (OSError, ValueError):
 +        prev = {}
- 
++
 +    obs["first_observed_at"] = prev.get("first_observed_at") or now_iso
 +    obs["observed_at"] = now_iso
- 
++
 +    if obs["state"] == "failing":
 +        if prev.get("state") == "failing" and prev.get("failing_since"):
 +            obs["failing_since"] = prev["failing_since"]
@@ -3267,174 +2794,6 @@
 +    return findings
 +
 +
-+# ── (HR015 #929) the window closing, told BEFORE it closes ───────────
-+#
-+# WARN_BEFORE_EXPIRY_DAYS IS A TWIN. The authority is
-+# ``subscription_gate.WARN_BEFORE_EXPIRY_DAYS`` in the CM041 assistant_api
-+# tree. The Doctor is vendored separately and is staged into its own
-+# DOCTOR_DIR by install.sh, NOT beside services/ical-server, so it cannot
-+# import that module: there is no sys.path on a customer's Mac that holds
-+# both. Copying the number is the honest option and the copy is PINNED
-+# EQUAL by tests/test_beta_licence_expiry_warns_before_and_is_read_only.sh,
-+# the same way test_licence_gate.sh pins install.sh's public key to the
-+# Swift one. If you change one, the guard makes you change both.
-+LICENCE_WARN_BEFORE_EXPIRY_DAYS = 7
-+
-+
-+def _ostler_subscription_state_path() -> str:
-+    """Returns the canonical ~/.ostler/state/subscription_state.json path.
-+
-+    Its own helper so tests can point HOME somewhere else without
-+    touching the rule body (mirrors :func:`_ostler_preferences_path`).
-+
-+    🔴 DO NOT derive this from OSTLER_DIR. The WRITERS -- install.sh's
-+    activation and the ical-server receipt endpoint -- both resolve it
-+    from the home directory, and a reader pointed somewhere else finds no
-+    file and reports nothing on a Hub that has one. The same warning sits
-+    on ``_state_file`` in subscription_gate.py, where the consequence is
-+    worse: there it pauses a paying customer.
-+    """
-+    import os
-+
-+    return os.path.join(
-+        os.path.expanduser("~"),
-+        ".ostler",
-+        "state",
-+        "subscription_state.json",
-+    )
-+
-+
-+def check_licence_expiry(snapshot: Any) -> list[dict]:
-+    """Tell the customer their window is closing, BEFORE it closes.
-+
-+    HR015 #929. A time-limited beta licence is only humane if the tester
-+    finds out from the product rather than from three days of nothing
-+    happening. This rule is the product surface for that: Doctor already
-+    runs every rule in ALL_RULES on every status poll, so the warning
-+    needs no new scheduler, and a scheduler is a thing that can fail to
-+    be loaded.
-+
-+    READ-ONLY, ABSOLUTELY. This rule opens one JSON file and never writes
-+    anything, anywhere. That is not incidental tidiness: the whole point
-+    of #929's first rule is that a window closing must not destroy a
-+    single byte, and a diagnostic that "repairs" subscription state would
-+    be the first thing to break it.
-+
-+    QUIET ON EVERYTHING IT CANNOT READ, which is the trap this rule class
-+    keeps falling into. A missing file, malformed JSON, a non-object, an
-+    absent or unparseable ``expires_at`` -- every one of them returns NO
-+    findings rather than a row. Measured reasoning, not caution for its
-+    own sake: a fresh install has no state file for the seconds between
-+    install.sh starting and the activation step, and an upgrade from a
-+    build before this field existed has one without it. A rule that fired
-+    on those would tell a brand new customer their access was ending,
-+    which is both false and the single worst first impression available.
-+
-+    Two rows, and they are different events:
-+
-+      ending_soon  WARNING. Still active, inside the warn window. The
-+                   customer can still act, so the row is amber.
-+      ended        INFO. Already paused. The actionable moment has gone
-+                   and a red row would be shouting about a state they are
-+                   already living in. The row exists to explain WHY new
-+                   things stopped appearing, and to say plainly that
-+                   nothing was deleted.
-+    """
-+    import json
-+    from datetime import datetime, timezone
-+
-+    findings: list[dict] = []
-+
-+    try:
-+        with open(_ostler_subscription_state_path(), encoding="utf-8") as fh:
-+            state = json.load(fh)
-+    except OSError:
-+        return findings          # no state file yet: say nothing
-+    except ValueError:
-+        return findings          # malformed: say nothing, never rewrite
-+
-+    if not isinstance(state, dict):
-+        return findings
-+
-+    raw_expires = state.get("expires_at")
-+    if not isinstance(raw_expires, str) or not raw_expires:
-+        return findings
-+    stamp = raw_expires.strip()
-+    if stamp.endswith("Z"):
-+        stamp = stamp[:-1] + "+00:00"
-+    try:
-+        expires = datetime.fromisoformat(stamp)
-+    except (ValueError, TypeError):
-+        # A date we cannot read is not a date that has passed. Saying
-+        # "your access ended" off an unparseable stamp would invent an
-+        # event out of our own inability to read one.
-+        return findings
-+    if expires.tzinfo is None:
-+        expires = expires.replace(tzinfo=timezone.utc)
-+
-+    # The label the customer sees. A recorded tier when there is one, and
-+    # the plain product name when there is not -- never a tier we made
-+    # up. An install that never verified a licence has no tier, and
-+    # printing "hub" there would be a guess wearing the shape of a fact.
-+    tier = state.get("licence_tier")
-+    tier_state = state.get("licence_tier_state")
-+    if isinstance(tier, str) and tier and tier_state in ("known", "absent", "unknown"):
-+        label = tier
-+    else:
-+        label = "Ostler Pro"
-+
-+    now = datetime.now(timezone.utc)
-+    seconds_left = (expires - now).total_seconds()
-+    days_left = int(seconds_left // 86400)
-+    # NEVER the raw stamp. activate_first_month_free derives expires_at
-+    # from datetime.now(), which carries microseconds, so the raw value
-+    # reads as "2026-09-13T05:57:41.666985Z" in a panel a customer is
-+    # looking at. Mirrors _format_upgrade_applied, which exists in this
-+    # file for the same reason.
-+    shown = expires.strftime("%d %B %Y").lstrip("0")
-+
-+    if seconds_left > 0:
-+        if days_left > LICENCE_WARN_BEFORE_EXPIRY_DAYS:
-+            return findings
-+        if days_left <= 0:
-+            when = "today"
-+        elif days_left == 1:
-+            when = "tomorrow"
-+        else:
-+            when = "in {n} days".format(n=days_left)
-+        findings.append({
-+            "severity": "warning",
-+            "title": LICENCE_ENDING_SOON_TITLE_FMT.format(label=label, when=when),
-+            "detail": LICENCE_ENDING_SOON_DETAIL_FMT.format(expires=shown),
-+            "fix": LICENCE_ENDING_SOON_FIX,
-+            "fix_command": LICENCE_ENDING_SOON_FIX_COMMAND,
-+            "risk": "low",
-+            "category": "subscription",
-+        })
-+        return findings
-+
-+    # Past the window. Only worth a row while the customer is actually
-+    # paused. A subscriber whose receipt has since landed has a NEWER
-+    # expires_at, so they never reach this branch; a customer inside the
-+    # post-lapse grace window does, and telling them their access has
-+    # ended while it is still running would be false. `status` is the
-+    # gate's own walked verdict and is read here rather than recomputed,
-+    # because two implementations of that state machine would drift.
-+    if state.get("status") in ("active", "grace"):
-+        return findings
-+
-+    findings.append({
-+        "severity": "info",
-+        "title": LICENCE_ENDED_TITLE_FMT.format(label=label),
-+        "detail": LICENCE_ENDED_DETAIL_FMT.format(expires=shown),
-+        "fix": LICENCE_ENDED_FIX,
-+        "fix_command": LICENCE_ENDED_FIX_COMMAND,
-+        "risk": "low",
-+        "category": "subscription",
-+    })
-+    return findings
-+
-+
  ALL_RULES = [
 +    check_scheduled_agents,
 +    check_hydrate_ingest,
@@ -3447,18 +2806,17 @@
      check_redis_health,
      check_gateway_health,
      check_import_readiness,
-@@ -969,6 +2488,10 @@
+@@ -969,6 +2312,9 @@
      check_mail_content,
      check_backfill_progress,
      check_imessage_fda,
 +    check_last_upgrade,
 +    check_imessage_capture_stalled,
 +    check_conversation_dispatch_failures,
-+    check_licence_expiry,
  ]
  
  
-@@ -978,8 +2501,43 @@
+@@ -978,8 +2324,43 @@
      for rule in ALL_RULES:
          try:
              findings.extend(rule(snapshot))
@@ -4347,240 +3705,6 @@
                          "--",
                          *convert_phase,
                          "--and-then",
---- a/agent/import_notion.py
-+++ b/agent/import_notion.py
-@@ -107,11 +107,72 @@
-     return os.environ.get("OSTLER_KNOWLEDGE_EMBED_MODEL", DEFAULT_EMBED_MODEL)
- 
- 
-+# The collection the SHIPPED reader actually reads.
-+#
-+# THE DEFECT (CM051, 2026-09-16). This helper used to return
-+# f"{source}_knowledge", so a Notion import embedded into
-+# "notion_knowledge" and an Obsidian import into "obsidian_knowledge".
-+# Nothing reads either name. Measured:
-+#
-+#   - live box, the complete collection list: safari_history,
-+#     evernote_knowledge, preferences, conversations, people. Five, and no
-+#     other *_knowledge among them.
-+#   - the shipped assistant binary (assistant-agent/OstlerAssistant.app)
-+#     carries exactly two knowledge collection literals in its string pool,
-+#     "evernote_knowledge" and "apple_notes_knowledge", with no env
-+#     override for either. Its own tool description advertises "their
-+#     Evernote, Obsidian and Notion notes" while reading neither of the
-+#     latter two.
-+#   - "notion_knowledge" and "obsidian_knowledge" appear NOWHERE else in
-+#     this repository: not in code, comment, doc, test, manifest or cut
-+#     record.
-+#
-+# And it fails silently at both ends. QdrantStore.initialize() creates a
-+# missing collection rather than refusing, so the import reports success
-+# and really does populate a real collection; the reader maps Qdrant's 404
-+# for an unknown collection to an empty result rather than an error. The
-+# customer imports Notion, is told it worked, and finds nothing.
-+#
-+# THE WRITER MOVES, NOT THE READER, and here that is forced rather than
-+# preferred: the reader is a compiled Rust tool whose source is not in this
-+# repository, so there is no reader here to change. Everything else agrees
-+# with it -- install.sh pre-creates exactly "evernote_knowledge" at 768
-+# dims, scripts/install_manifest.tsv lists it as required, and
-+# tests/test_vendor_knowledge_embed_contract.py pins it as the embed
-+# default. Against all of that, one importer generating a name nobody
-+# knows is the writer defect.
-+#
-+# Nothing is orphaned by the change: the live box holds 0 points in
-+# evernote_knowledge and no notion_knowledge or obsidian_knowledge
-+# collection exists to migrate.
-+#
-+# THE NAME IS A LEGACY MISNOMER AND IT IS NOT MINE TO FIX HERE. A neutral
-+# "knowledge" collection read by every consumer is the right end state; it
-+# needs a change to the external assistant crate plus a migration of any
-+# existing evernote_knowledge data, so it is deliberately out of scope for
-+# a mismatch fix. Until then this is the collection that is read.
-+KNOWLEDGE_COLLECTION = "evernote_knowledge"
-+
-+
- def _collection_for_source(source: str) -> str:
--    """The Qdrant collection the wiki + MCP read for a given source."""
--    return f"{source}_knowledge"
-+    """The Qdrant collection the shipped reader queries for knowledge.
- 
-+    The ``source`` argument is retained for call-site compatibility and is
-+    deliberately ignored: every knowledge source shares one collection
-+    because that is the only name the reader knows.
- 
-+    KNOWN GAP, stated rather than papered over: the Qdrant payload written
-+    by cm024_knowledge carries no source field (qdrant_store.py ~L240), so
-+    once several sources share this collection their chunks are no longer
-+    separable at read time. The markdown frontmatter DOES carry ``source``
-+    (ingestion/markdown_writer.py) and the embed path parses that
-+    frontmatter for six other fields while dropping this one, so closing
-+    the gap is small -- but it is a change to a different vendored tree and
-+    does not belong in this commit. Filed alongside it.
-+    """
-+    return KNOWLEDGE_COLLECTION
-+
-+
- # Privacy cap: the highest compartment level (sensitivity) that may be
- # embedded into the searchable collection. Default 2 keeps L3
- # (compartment_level 3, "private") notes OUT of search. They are still
---- a/agent/import_obsidian.py
-+++ b/agent/import_obsidian.py
-@@ -107,11 +107,72 @@
-     return os.environ.get("OSTLER_KNOWLEDGE_EMBED_MODEL", DEFAULT_EMBED_MODEL)
- 
- 
-+# The collection the SHIPPED reader actually reads.
-+#
-+# THE DEFECT (CM051, 2026-09-16). This helper used to return
-+# f"{source}_knowledge", so a Notion import embedded into
-+# "notion_knowledge" and an Obsidian import into "obsidian_knowledge".
-+# Nothing reads either name. Measured:
-+#
-+#   - live box, the complete collection list: safari_history,
-+#     evernote_knowledge, preferences, conversations, people. Five, and no
-+#     other *_knowledge among them.
-+#   - the shipped assistant binary (assistant-agent/OstlerAssistant.app)
-+#     carries exactly two knowledge collection literals in its string pool,
-+#     "evernote_knowledge" and "apple_notes_knowledge", with no env
-+#     override for either. Its own tool description advertises "their
-+#     Evernote, Obsidian and Notion notes" while reading neither of the
-+#     latter two.
-+#   - "notion_knowledge" and "obsidian_knowledge" appear NOWHERE else in
-+#     this repository: not in code, comment, doc, test, manifest or cut
-+#     record.
-+#
-+# And it fails silently at both ends. QdrantStore.initialize() creates a
-+# missing collection rather than refusing, so the import reports success
-+# and really does populate a real collection; the reader maps Qdrant's 404
-+# for an unknown collection to an empty result rather than an error. The
-+# customer imports Notion, is told it worked, and finds nothing.
-+#
-+# THE WRITER MOVES, NOT THE READER, and here that is forced rather than
-+# preferred: the reader is a compiled Rust tool whose source is not in this
-+# repository, so there is no reader here to change. Everything else agrees
-+# with it -- install.sh pre-creates exactly "evernote_knowledge" at 768
-+# dims, scripts/install_manifest.tsv lists it as required, and
-+# tests/test_vendor_knowledge_embed_contract.py pins it as the embed
-+# default. Against all of that, one importer generating a name nobody
-+# knows is the writer defect.
-+#
-+# Nothing is orphaned by the change: the live box holds 0 points in
-+# evernote_knowledge and no notion_knowledge or obsidian_knowledge
-+# collection exists to migrate.
-+#
-+# THE NAME IS A LEGACY MISNOMER AND IT IS NOT MINE TO FIX HERE. A neutral
-+# "knowledge" collection read by every consumer is the right end state; it
-+# needs a change to the external assistant crate plus a migration of any
-+# existing evernote_knowledge data, so it is deliberately out of scope for
-+# a mismatch fix. Until then this is the collection that is read.
-+KNOWLEDGE_COLLECTION = "evernote_knowledge"
-+
-+
- def _collection_for_source(source: str) -> str:
--    """The Qdrant collection the wiki + MCP read for a given source."""
--    return f"{source}_knowledge"
-+    """The Qdrant collection the shipped reader queries for knowledge.
- 
-+    The ``source`` argument is retained for call-site compatibility and is
-+    deliberately ignored: every knowledge source shares one collection
-+    because that is the only name the reader knows.
- 
-+    KNOWN GAP, stated rather than papered over: the Qdrant payload written
-+    by cm024_knowledge carries no source field (qdrant_store.py ~L240), so
-+    once several sources share this collection their chunks are no longer
-+    separable at read time. The markdown frontmatter DOES carry ``source``
-+    (ingestion/markdown_writer.py) and the embed path parses that
-+    frontmatter for six other fields while dropping this one, so closing
-+    the gap is small -- but it is a change to a different vendored tree and
-+    does not belong in this commit. Filed alongside it.
-+    """
-+    return KNOWLEDGE_COLLECTION
-+
-+
- # Privacy cap: the highest compartment level (sensitivity) that may be
- # embedded into the searchable collection. Default 2 keeps L3
- # (compartment_level 3, "private") notes OUT of search. They are still
---- a/agent/pair_status.py
-+++ b/agent/pair_status.py
-@@ -26,6 +26,7 @@
- 
- from __future__ import annotations
- 
-+import ipaddress
- import json
- import logging
- import os
-@@ -158,6 +159,9 @@
-         return f"qr_payload rp_id is wrong: {envelope.get('rp_id')!r}"
-     if not isinstance(envelope.get("hub_addr"), str) or not envelope["hub_addr"]:
-         return "qr_payload hub_addr is not a non-empty string"
-+    _addr_problem = _hub_addr_is_not_reachable_from_a_phone(envelope["hub_addr"])
-+    if _addr_problem:
-+        return f"qr_payload hub_addr {_addr_problem}"
-     if not isinstance(envelope.get("pairing_token"), str):
-         return "qr_payload pairing_token is not a string"
-     if not isinstance(envelope.get("expires_at"), int):
-@@ -165,6 +169,59 @@
-     return None
- 
- 
-+def _hub_addr_is_not_reachable_from_a_phone(hub_addr: str) -> Optional[str]:
-+    """Return a reason string when ``hub_addr`` cannot work on the phone, else None.
-+
-+    #947. The envelope used to validate this field as "a non-empty string" and
-+    then encode it verbatim into the QR. Non-empty is not the property that
-+    matters: the phone has to OPEN it.
-+
-+    The case that put thirteen refused connections on :8443 in the issue is an
-+    IPv6 LINK-LOCAL address with a zone index, ``fe80::1%en0``. That address is
-+    only meaningful on the interface named by the zone, and ``en0`` on the Hub
-+    is not ``en0`` on the phone: the scope travels with the string while the
-+    thing it scopes does not. The QR scans perfectly and the connection cannot
-+    succeed, which is the worst failure shape available, because nothing looks
-+    broken.
-+
-+    Loopback is the same class from the other direction: ``127.0.0.1`` resolves
-+    on the phone, to the phone.
-+
-+    A HOSTNAME IS LEFT ALONE. ``ostler.local`` is how a Mac is normally found on
-+    a LAN and mDNS is the intended path, so only strings that PARSE as an IP
-+    address are judged. Anything else is passed through untouched, because this
-+    function must not become a second, weaker name resolver.
-+    """
-+    raw = hub_addr.strip()
-+    for scheme in ("https://", "http://"):
-+        if raw.lower().startswith(scheme):
-+            raw = raw[len(scheme):]
-+    raw = raw.split("/", 1)[0]
-+    if raw.startswith("["):                      # [v6]:port
-+        host = raw[1:].split("]", 1)[0]
-+    elif raw.count(":") == 1:                    # v4:port or host:port
-+        host = raw.split(":", 1)[0]
-+    else:                                        # bare v6, or bare host
-+        host = raw
-+    if not host:
-+        return "is empty once the port is removed"
-+    try:
-+        ip = ipaddress.ip_address(host.split("%", 1)[0])
-+    except ValueError:
-+        return None                              # a hostname: not ours to judge
-+    if ip.is_link_local:
-+        return (f"is the link-local address {host}, which is only valid on the "
-+                f"interface it names and cannot be opened from another device")
-+    if ip.is_loopback:
-+        return (f"is the loopback address {host}, which on the phone means the "
-+                f"phone itself")
-+    if ip.is_unspecified:
-+        return (f"is the unspecified address {host}, a listen-on-everything "
-+                f"wildcard and not somewhere to connect to")
-+    if ip.is_multicast:
-+        return f"is a multicast address {host}, which is not a host to connect to"
-+    return None
-+
- def _build_status_from_envelope(envelope: dict) -> PairStatus:
-     qr_json = envelope_to_qr_payload(envelope)
-     try:
 --- /dev/null
 +++ b/agent/pause_control.py
 @@ -0,0 +1,468 @@
@@ -5719,10 +4843,12 @@
  )
  
  DASHBOARD_LAST_CHECKED_JUST_NOW = "Last checked: just now"
-@@ -266,6 +271,18 @@
-     ' &ndash; <a href="/config">Configuration</a>'
- )
+@@ -264,6 +269,18 @@
  
+ DASHBOARD_CONFIG_LINK = (
+     ' &ndash; <a href="/config">Configuration</a>'
++)
++
 +# The daemon generates a WhatsApp pair code on EVERY install where
 +# `session_path` is set, and install.sh does set it. The code is written to
 +# ~/.ostler/state/whatsapp_pair.json and /whatsapp-pair renders it. That page
@@ -5733,12 +4859,10 @@
 +# had already been fixed.
 +DASHBOARD_WHATSAPP_PAIR_LINK = (
 +    ' &ndash; <a href="/whatsapp-pair">Link WhatsApp</a>'
-+)
-+
- DASHBOARD_ALERT_REPORT_FAIL = (
-     "Could not prepare report. Please try again."
  )
-@@ -306,7 +323,20 @@
+ 
+ DASHBOARD_ALERT_REPORT_FAIL = (
+@@ -306,6 +323,19 @@
  # Placeholder swapped in for each redacted token.
  REPORT_REDACTED_PLACEHOLDER = "[redacted]"
  
@@ -5754,166 +4878,14 @@
 +    "contact support and mention that redaction failed; do not send the "
 +    "unredacted diagnostics.]"
 +)
- 
 +
+ 
  # ── render_history (/doctor/history page) ────────────────────────────
  
- 
-@@ -389,6 +419,74 @@
- EVERNOTE_STATUS_STARTED_FMT = "started {ts}Z"
- EVERNOTE_STATUS_FINISHED_FMT = "finished {ts}Z"
- EVERNOTE_STATUS_EXIT_FMT = "exit {code}"
-+"""The four status-meta strings above are composed JS-side inside the
-+``renderStatus(state)`` function via direct string concatenation
-+(``'job ' + state.job_id``, etc). They are catalogued here as the
-+canonical English reference but the JS source still owns the runtime
-+composition. Future cleanup can lift the JS side to a
-+window-injected constants block at the top of the rendered template."""
-+
-+
-+# ── _render_import_notion_page (/import-notion) ──────────────────────
-+
-+
-+NOTION_TITLE_TAG = "Ostler Doctor &ndash; Import Notion"
-+NOTION_HEADING = "Import Notion"
-+NOTION_SUBTITLE = (
-+    "CM024 Knowledge import &ndash; "
-+    "<a href=\"/doctor\">Back to dashboard</a>"
-+)
-+
-+NOTION_SECTION_SOURCE = "Source"
-+NOTION_INTRO_HTML = (
-+    "Paste the path to a Notion export "
-+    "<code style=\"font-family:var(--font-mono);font-size:0.82rem;"
-+    "background:var(--ostler-ink-deep);padding:0.05rem 0.3rem;"
-+    "border-radius:3px;color:var(--ostler-accent-warm)\">.zip</code> "
-+    "(or an already-unzipped export folder). Ostler converts the pages "
-+    "into searchable knowledge stored in the personal wiki. The import "
-+    "runs in the background and survives closing this tab."
-+)
-+NOTION_LABEL_PATH = "Path to Notion export"
-+NOTION_PLACEHOLDER_PATH = "/Users/you/Downloads/Notion-Export.zip"
-+NOTION_HELP_TIP_HTML = (
-+    "Tip: drag the file (or the unzipped folder) from Finder into a "
-+    "Terminal window to get the absolute path. Or use "
-+    "<code>~/Downloads/export.zip</code> &mdash; the tilde is expanded "
-+    "for you. From Notion: Settings &amp; members &rarr; Export all "
-+    "workspace content &rarr; Markdown &amp; CSV."
-+)
-+NOTION_BTN_START = "Start import"
-+NOTION_BTN_STARTING = "Starting…"
-+
-+NOTION_SECTION_STATUS = "Import status"
-+NOTION_SECTION_LOG_TAIL = "Log tail"
-+NOTION_PILL_STARTING = "starting"
-+NOTION_WAITING_FIRST_LOG = "Waiting for first log output&hellip;"
-+NOTION_BTN_IMPORT_ANOTHER = "Import another"
-+
-+NOTION_META_FOOTER_HTML = (
-+    "Imports land in <code style=\"font-family:var(--font-mono);"
-+    "font-size:0.7rem\">~/.ostler/data/knowledge-staging/</code> "
-+    "&ndash; the wiki compiler picks them up on the next rebuild."
-+)
-+
-+NOTION_ERROR_NO_PATH = "Please paste the path to a Notion export (.zip or folder)."
-+NOTION_ERROR_JOB_NOT_FOUND = "Job not found. Reload the page."
-+NOTION_ERROR_STATUS_FAIL_PREFIX = "Status check failed: "
-+NOTION_ERROR_NETWORK_PREFIX = "Network error: "
-+NOTION_ERROR_IMPORT_FAIL_FMT = "Import failed to start (HTTP {status})"
-+"""Used JS-side: kept here as the canonical reference for the
-+``'Import failed to start (HTTP ' + status + ')'`` JS concatenation
-+at the ``showError(body.error || ...)`` call site. Not imported by
-+Python directly -- the JS source still composes the string at run
-+time. Future cleanup can lift the JS side to a window-injected
-+constant."""
-+
-+NOTION_STATUS_JOB_FMT = "job {job_id}"
-+NOTION_STATUS_STARTED_FMT = "started {ts}Z"
-+NOTION_STATUS_FINISHED_FMT = "finished {ts}Z"
-+NOTION_STATUS_EXIT_FMT = "exit {code}"
- """The four status-meta strings above are composed JS-side inside the
- ``renderStatus(state)`` function via direct string concatenation
- (``'job ' + state.job_id``, etc). They are catalogued here as the
-@@ -397,6 +495,74 @@
- window-injected constants block at the top of the rendered template."""
- 
- 
-+# ── _render_import_obsidian_page (/import-obsidian) ──────────────────
-+
-+
-+OBSIDIAN_TITLE_TAG = "Ostler Doctor &ndash; Import Obsidian"
-+OBSIDIAN_HEADING = "Import Obsidian"
-+OBSIDIAN_SUBTITLE = (
-+    "CM024 Knowledge import &ndash; "
-+    "<a href=\"/doctor\">Back to dashboard</a>"
-+)
-+
-+OBSIDIAN_SECTION_SOURCE = "Source"
-+OBSIDIAN_INTRO_HTML = (
-+    "Paste the path to an Obsidian vault "
-+    "<code style=\"font-family:var(--font-mono);font-size:0.82rem;"
-+    "background:var(--ostler-ink-deep);padding:0.05rem 0.3rem;"
-+    "border-radius:3px;color:var(--ostler-accent-warm)\">folder</code> "
-+    "(must contain a <code>.obsidian/</code> subfolder). Ostler "
-+    "converts the notes into searchable knowledge stored in the "
-+    "personal wiki. The import runs in the background and survives "
-+    "closing this tab."
-+)
-+OBSIDIAN_LABEL_PATH = "Path to Obsidian vault folder"
-+OBSIDIAN_PLACEHOLDER_PATH = "/Users/you/Documents/MyVault"
-+OBSIDIAN_HELP_TIP_HTML = (
-+    "Tip: drag the vault folder from Finder into a Terminal window to "
-+    "get the absolute path. Or use <code>~/Documents/MyVault</code> "
-+    "&mdash; the tilde is expanded for you. The folder must contain a "
-+    "<code>.obsidian/</code> subfolder."
-+)
-+OBSIDIAN_BTN_START = "Start import"
-+OBSIDIAN_BTN_STARTING = "Starting…"
-+
-+OBSIDIAN_SECTION_STATUS = "Import status"
-+OBSIDIAN_SECTION_LOG_TAIL = "Log tail"
-+OBSIDIAN_PILL_STARTING = "starting"
-+OBSIDIAN_WAITING_FIRST_LOG = "Waiting for first log output&hellip;"
-+OBSIDIAN_BTN_IMPORT_ANOTHER = "Import another"
-+
-+OBSIDIAN_META_FOOTER_HTML = (
-+    "Imports land in <code style=\"font-family:var(--font-mono);"
-+    "font-size:0.7rem\">~/.ostler/data/knowledge-staging/</code> "
-+    "&ndash; the wiki compiler picks them up on the next rebuild."
-+)
-+
-+OBSIDIAN_ERROR_NO_PATH = "Please paste the path to an Obsidian vault folder."
-+OBSIDIAN_ERROR_JOB_NOT_FOUND = "Job not found. Reload the page."
-+OBSIDIAN_ERROR_STATUS_FAIL_PREFIX = "Status check failed: "
-+OBSIDIAN_ERROR_NETWORK_PREFIX = "Network error: "
-+OBSIDIAN_ERROR_IMPORT_FAIL_FMT = "Import failed to start (HTTP {status})"
-+"""Used JS-side: kept here as the canonical reference for the
-+``'Import failed to start (HTTP ' + status + ')'`` JS concatenation
-+at the ``showError(body.error || ...)`` call site. Not imported by
-+Python directly -- the JS source still composes the string at run
-+time. Future cleanup can lift the JS side to a window-injected
-+constant."""
-+
-+OBSIDIAN_STATUS_JOB_FMT = "job {job_id}"
-+OBSIDIAN_STATUS_STARTED_FMT = "started {ts}Z"
-+OBSIDIAN_STATUS_FINISHED_FMT = "finished {ts}Z"
-+OBSIDIAN_STATUS_EXIT_FMT = "exit {code}"
-+"""The four status-meta strings above are composed JS-side inside the
-+``renderStatus(state)`` function via direct string concatenation
-+(``'job ' + state.job_id``, etc). They are catalogued here as the
-+canonical English reference but the JS source still owns the runtime
-+composition. Future cleanup can lift the JS side to a
-+window-injected constants block at the top of the rendered template."""
-+
-+
- # ── _render_pair_ios_page (/pair-ios) ────────────────────────────────
- 
- 
-@@ -691,5 +857,249 @@
-     "enable the tick for Ostler (or for the assistant process). Once granted, "
+@@ -692,4 +722,173 @@
      "Ostler retries the blocked commitments on its next run and they appear "
      "in the Reminders app."
-+)
+ )
 +
 +
 +
@@ -5930,7 +4902,7 @@
 +# means one is coming; "unreadable" is a fault to report. Collapsing
 +# them into one "no code available" tells a stuck customer nothing and
 +# tells support less.
-+
+ 
 +WHATSAPP_PAIR_TITLE_TAG = "Ostler Doctor &ndash; Link WhatsApp"
 +WHATSAPP_PAIR_HEADING = "Link WhatsApp"
 +WHATSAPP_PAIR_LEDE = (
@@ -5959,8 +4931,8 @@
 +    "Ostler asks WhatsApp for a code when the WhatsApp connector starts. "
 +    "If you turned WhatsApp on during setup, give it a minute. If you "
 +    "did not, WhatsApp is switched off and there is nothing to link."
- )
- 
++)
++
 +WHATSAPP_PAIR_EXPIRED_TITLE = "That code has expired."
 +WHATSAPP_PAIR_EXPIRED_HELP = (
 +    "Pairing codes last about three minutes. Ostler requests a fresh one "
@@ -6084,92 +5056,9 @@
 +# page has to notice one without the customer reloading. Slower than the
 +# WhatsApp panel because nothing here is short-lived.
 +EXTENSION_SETUP_POLL_MS = 8000
-+
-+
-+# ── WhatsApp keepalive tile ──────────────────────────────────────────
-+#
-+# GRAFTED (CM051, board item 965). The keepalive LaunchAgent used to run
-+# `ostler-assistant channel doctor`, which builds its own never-connected
-+# WhatsApp channel object, so it reported unhealthy on every run on every
-+# box and then exited 0 anyway. Nobody knew, because the only trace was a
-+# log file and a zero exit code. The keepalive now asks the running daemon,
-+# repairs what it can, and its verdict lands here so a person sees it.
-+#
-+# Apple Restraint voice: say what is true and what to do, in one breath,
-+# without alarming a customer whose channel is working.
-+
-+WHATSAPP_KEEPALIVE_SECTION_TITLE = "WhatsApp connection"
-+
-+WHATSAPP_KEEPALIVE_STATUS_HEALTHY = "WhatsApp is connected"
-+WHATSAPP_KEEPALIVE_STATUS_RECOVERED = "WhatsApp was reconnected"
-+WHATSAPP_KEEPALIVE_STATUS_NEEDS_CUSTOMER = "WhatsApp needs linking again"
-+WHATSAPP_KEEPALIVE_STATUS_STILL_UNHEALTHY = "WhatsApp is not connected"
-+WHATSAPP_KEEPALIVE_STATUS_CANNOT_RUN = "WhatsApp connection not checked"
-+
-+WHATSAPP_KEEPALIVE_DETAIL_HEALTHY = (
-+    "Ostler checks the WhatsApp connection twice a day, before your morning "
-+    "brief and your evening wrap. It was connected at the last check."
-+)
-+WHATSAPP_KEEPALIVE_DETAIL_RECOVERED = (
-+    "The WhatsApp connection had dropped and Ostler reconnected it for you. "
-+    "Nothing is needed from you. If this keeps happening it is worth a look, "
-+    "so the count of recent repairs is shown below."
-+)
-+# The only verdict that asks the customer for anything, so it is the only one
-+# that says what to do and where. It never says "re-scan" without saying that
-+# Ostler will not do it for them: silently re-pairing a customer's WhatsApp
-+# account would be a far worse defect than the one this tile reports.
-+WHATSAPP_KEEPALIVE_DETAIL_NEEDS_CUSTOMER = (
-+    "WhatsApp is no longer linked to Ostler, so messages are not arriving. "
-+    "Only you can link it again, from your phone. Ostler will not do this on "
-+    "your behalf and has stopped retrying, because retrying cannot fix it."
-+)
-+WHATSAPP_KEEPALIVE_DETAIL_STILL_UNHEALTHY = (
-+    "The WhatsApp connection is down. Ostler restarted itself to try to bring "
-+    "it back and that did not work, so messages are not arriving and your "
-+    "briefs will not be delivered over WhatsApp."
-+)
-+# Deliberately NOT phrased as a failure. A check that could not run has not
-+# passed, and it has not failed either. Telling a customer their WhatsApp is
-+# broken because the daemon was asleep would be a false alarm.
-+WHATSAPP_KEEPALIVE_DETAIL_CANNOT_RUN = (
-+    "Ostler could not check the WhatsApp connection at the last attempt, "
-+    "usually because the assistant was not running at the time. This is not a "
-+    "report that WhatsApp is down. The next check is at 08:50 or 17:50."
-+)
-+
-+WHATSAPP_KEEPALIVE_HOW_TO_FIX_LABEL = "What to do"
-+WHATSAPP_KEEPALIVE_REMEDIATION_NEEDS_CUSTOMER = (
-+    "Open the Link WhatsApp page from the link below, then on your phone open "
-+    "WhatsApp, go to Settings, then Linked Devices, then Link a Device, and "
-+    "enter the code shown. Your messages and chats are not affected by "
-+    "linking again."
-+)
-+WHATSAPP_KEEPALIVE_REMEDIATION_STILL_UNHEALTHY = (
-+    "Quit and reopen Ostler. If WhatsApp is still not connected after the "
-+    "next check, use the Link WhatsApp page below to link it again."
-+)
-+WHATSAPP_KEEPALIVE_REMEDIATION_CANNOT_RUN = (
-+    "Make sure Ostler is running. The connection is checked again at 08:50 "
-+    "and 17:50."
-+)
-+
-+WHATSAPP_KEEPALIVE_LINK_LABEL = "Link WhatsApp"
-+WHATSAPP_KEEPALIVE_CHECKED_AT_PREFIX_FMT = "Last checked {relative}."
-+WHATSAPP_KEEPALIVE_REPAIRS_FMT = (
-+    "Ostler has reconnected WhatsApp {count} time(s) in the last 24 hours."
-+)
 --- a/agent/web_ui.py
 +++ b/agent/web_ui.py
-@@ -23,6 +23,7 @@
- from __future__ import annotations
- 
- import getpass
-+import html
- import json
- import os
- import re
-@@ -32,9 +33,15 @@
+@@ -32,9 +32,15 @@
  from datetime import datetime, timezone
  from pathlib import Path
  
@@ -6187,15 +5076,7 @@
  
  from status_collector import (
      collect_full_snapshot,
-@@ -54,6 +61,7 @@
-     render_reminders_posture,
-     render_reminders_runtime,
-     render_security_posture,
-+    render_whatsapp_keepalive,
- )
- from web_ui_copy import (
-     ALL_HEALTHY_DETAIL,
-@@ -82,6 +90,8 @@
+@@ -82,6 +88,8 @@
      DASHBOARD_BTN_EMAIL_PREPARING,
      DASHBOARD_BTN_EMAIL_TITLE,
      DASHBOARD_BTN_REFRESH,
@@ -6204,7 +5085,7 @@
      DASHBOARD_FIX_LABEL_FMT,
      DASHBOARD_FIX_NOTE,
      DASHBOARD_HEADING,
-@@ -106,6 +116,7 @@
+@@ -106,6 +114,7 @@
      DASHBOARD_CONFIG_LINK,
      DASHBOARD_IMPORT_EVERNOTE_LINK,
      DASHBOARD_PAIR_IOS_LINK,
@@ -6212,7 +5093,7 @@
      DASHBOARD_LAST_CHECKED_JUST_NOW,
      DASHBOARD_LAST_CHECKED_PREFIX,
      DASHBOARD_LAST_CHECKED_SUFFIX,
-@@ -215,6 +226,41 @@
+@@ -215,6 +224,41 @@
      PAIR_IOS_SECTION_CODE,
      PAIR_IOS_SUBTITLE,
      PAIR_IOS_TITLE_TAG,
@@ -6254,7 +5135,7 @@
      PORT_CONFLICT_DETAIL_FMT,
      PORT_CONFLICT_FIX,
      PORT_CONFLICT_FIX_COMMAND_FMT,
-@@ -232,6 +278,7 @@
+@@ -232,6 +276,7 @@
      REPORT_OLLAMA_LABEL,
      REPORT_REDACTED_BANNER,
      REPORT_REDACTED_PLACEHOLDER,
@@ -6262,7 +5143,7 @@
      REPORT_SECTION_CONTAINERS,
      REPORT_SECTION_DISK,
      REPORT_SECTION_FINDINGS,
-@@ -260,7 +307,175 @@
+@@ -260,7 +305,175 @@
  )
  
  SUPPORT_EMAIL = os.getenv("DOCTOR_SUPPORT_EMAIL", "support@creativemachines.ai")
@@ -6374,7 +5255,7 @@
 +    "127.0.0.1", "localhost", "[::1]", "::1",
 +    "[::ffff:127.0.0.1]", "::ffff:127.0.0.1",
 +)
- 
++
 +HUB_SCREEN_ONLY_DETAIL = (
 +    "refused: the pairing panel is served to the Hub's own screen only"
 +)
@@ -6433,12 +5314,12 @@
 +            status_code=403,
 +        )
 +    return None
-+
+ 
 +
  # ── Snapshot history (in-memory, last 10) ─────────────────────────
  
  _history: deque[dict] = deque(maxlen=10)
-@@ -386,6 +601,18 @@
+@@ -386,6 +599,18 @@
  
      # Check services
      for svc in snapshot.services:
@@ -6457,7 +5338,7 @@
          if svc.status == "unreachable":
              findings.append({
                  "severity": "critical",
-@@ -547,17 +774,45 @@
+@@ -547,17 +772,45 @@
          # On macOS, check if we're on Apple Silicon
          pass  # RAM check is done in install.sh, not here
  
@@ -6484,14 +5365,14 @@
 +    # A whole-report verdict has to be decided where the whole report
 +    # exists. See _append_all_clear(), which every caller now uses.
 +    return findings
-+
+ 
 +
 +def _append_all_clear(
 +    findings: list[dict],
 +    errors: dict[str, str] | None = None,
 +) -> list[dict]:
 +    """Append the all-clear banner only when NOTHING else is being reported.
- 
++
 +    The banner is a statement about the entire report, so it must be decided
 +    after every source of findings has been combined -- the rules engine, the
 +    local checks, and any per-stage ``errors`` recorded by the caller.
@@ -6513,7 +5394,7 @@
      return findings
  
  
-@@ -669,7 +924,114 @@
+@@ -669,7 +922,114 @@
      r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
  )
  
@@ -6628,13 +5509,13 @@
  def _home_username() -> str | None:
      """Best-effort current username for home-path redaction.
  
-@@ -717,8 +1079,22 @@
+@@ -717,7 +1077,21 @@
      )
  
      redacted = _EMAIL_RE.sub(placeholder, redacted)
 +    redacted = _SLUG_EMAIL_RE.sub(placeholder, redacted)
      redacted = _IPV4_RE.sub(placeholder, redacted)
- 
++
 +    # Shape-matched secrets BEFORE the label pass, because the bare occurrence
 +    # has no label to anchor on and would otherwise survive untouched.
 +    redacted = _RECOVERY_KEY_RE.sub(placeholder, redacted)
@@ -6647,11 +5528,10 @@
 +    redacted = _SECRET_LABEL_RE.sub(
 +        lambda m: f"{m.group(1)}: {placeholder}", redacted
 +    )
-+
+ 
      return f"{REPORT_REDACTED_BANNER}\n\n{redacted}"
  
- 
-@@ -822,6 +1198,8 @@
+@@ -822,6 +1196,8 @@
              f for f in findings
              if f.get("title") not in seen and not seen.add(f.get("title"))
          ]
@@ -6660,7 +5540,7 @@
      except Exception as exc:
          errors["findings"] = f"{type(exc).__name__}: {exc}"
          findings = []
-@@ -845,15 +1223,27 @@
+@@ -845,15 +1221,27 @@
      except Exception as exc:
          errors["report"] = f"{type(exc).__name__}: {exc}"
          report = REPORT_HEADER
@@ -6690,7 +5570,7 @@
      except Exception as exc:
          errors["mailto"] = f"{type(exc).__name__}: {exc}"
          mailto = f"mailto:{SUPPORT_EMAIL}"
-@@ -898,6 +1288,102 @@
+@@ -898,6 +1286,74 @@
  # ── HTML template ────────────────────────────────────────────────────
  
  
@@ -6726,46 +5606,18 @@
 +            "<p class=\"muted\">No ingest record yet. On a fresh install this "
 +            "fills in as each source reads in.</p></div>"
 +        )
-+    # ── EVERY STATUS THE WRITER CAN EMIT HAS A WORD HERE (CM051 #1587) ──
-+    #
-+    # install.sh declares its vocabulary in OSTLER_SENTINEL_STATUSES:
-+    # ok / error / timeout / no_data / cannot_run. Two of those five had no
-+    # entry in this table, so the cell fell through to the raw identifier and
-+    # a customer with Full Disk Access ungranted read the word "cannot_run"
-+    # in their own panel, in amber, with no explanation. It is not a rare
-+    # branch: the contacts arm records cannot_run on exactly that box, and
-+    # the Photos and Reminders arms added by #1587 record it too.
-+    #
-+    # "could not look" rather than "failed" is the substantive half. A
-+    # CANNOT-RUN is not a failure and it is not a zero -- nothing looked, so
-+    # nothing was found OR not found, and the Items cell beside it stays
-+    # blank rather than saying 0.
 +    _LABEL = {"ok": "read in", "no_data": "nothing to read",
 +              "not_run": "not run yet", "unreadable": "record unreadable",
-+              "error": "failed", "cannot_run": "could not look",
-+              "timeout": "ran out of time"}
++              "error": "failed"}
 +    _COLOUR = {"ok": "#5cb579", "no_data": "rgba(236,232,225,0.55)",
 +               "not_run": "#d4a052", "unreadable": "#d96666",
-+               "error": "#d96666", "cannot_run": "#d4a052",
-+               "timeout": "#d4a052"}
++               "error": "#d96666"}
 +    body = []
 +    for r in rows:
 +        st = (r.get("status") or "not_run")
 +        when = r.get("last_update_at") or r.get("recorded_at")
 +        n = r.get("item_count")
 +        # None and 0 are different answers and must not print the same.
-+        #
-+        # AND A STATE THAT TOOK NO MEASUREMENT MUST NOT PRINT ONE (#1587).
-+        # _hydrate_sentinel_record_cannot_run writes `item_count=0`, because
-+        # the change-detection helper it shares with the other recorders
-+        # needs a number to compare against the previous record. That 0 is
-+        # bookkeeping, not a count: the whole meaning of cannot_run is that
-+        # nothing looked. Printing it beside "could not look" would put a
-+        # fabricated zero in the one column a customer reads as "how much of
-+        # mine did you find", which is the same shape as the return code
-+        # that used to print there (#946).
-+        if st in ("cannot_run", "not_run", "unreadable"):
-+            n = None
 +        count = "&mdash;" if n is None else f"{n:,}"
 +        body.append(
 +            '<tr>'
@@ -6793,28 +5645,15 @@
  def render_dashboard(
      snapshot: SystemSnapshot,
      findings: list[dict],
-@@ -1020,6 +1506,20 @@
+@@ -1019,6 +1475,7 @@
+     # when no commitments have been pushed yet. Catches the case the
      # install-time tile cannot: access granted at install, later revoked.
      reminders_runtime_section = render_reminders_runtime()
- 
-+    # WhatsApp keepalive verdict (CM051 board item 965). The twice-daily
-+    # keepalive LaunchAgent used to run `channel doctor`, which builds its own
-+    # never-connected WhatsApp channel object: it reported unhealthy on every
-+    # run on every box and exited 0 anyway, so three consecutive unhealthy
-+    # runs read as `last exit code = 0` and nobody knew. The job now asks the
-+    # running daemon, repairs what it can, and writes its verdict where a
-+    # person will see it. Empty string when WhatsApp was never enabled or the
-+    # keepalive has not fired yet. A remediation nobody can observe failing is
-+    # the same defect one layer along, which is why this tile is part of the
-+    # fix and not a decoration on it.
-+    whatsapp_keepalive_section = render_whatsapp_keepalive()
-+
 +    source_status_section = render_source_status()
-+
+ 
      # Build findings
      findings_html = ""
-     for f in findings:
-@@ -1149,6 +1649,7 @@
+@@ -1149,6 +1606,7 @@
              display: inline-flex;
              align-items: center;
              gap: 6px;
@@ -6822,7 +5661,7 @@
          }}
          .refresh-btn:hover, .auto-refresh-btn:hover {{
              border-color: var(--ostler-accent);
-@@ -1543,6 +2044,7 @@
+@@ -1543,6 +2001,7 @@
              </div>
              <div>
                  <div class="header-controls">
@@ -6830,17 +5669,15 @@
                      <button class="refresh-btn" onclick="manualRefresh()">{DASHBOARD_BTN_REFRESH}</button>
                      <button class="auto-refresh-btn active" id="autoRefreshBtn" onclick="toggleAutoRefresh()">{DASHBOARD_BTN_AUTO_ON}</button>
                      <button class="refresh-btn" id="emailReportBtn" onclick="sendByEmail()" title="{DASHBOARD_BTN_EMAIL_TITLE}">{DASHBOARD_BTN_EMAIL}</button>
-@@ -1577,6 +2079,9 @@
+@@ -1577,6 +2036,7 @@
          {reminders_section}
  
          {reminders_runtime_section}
-+
-+        {whatsapp_keepalive_section}
 +        {source_status_section}
  
          <div class="section">
              <div class="section-title">{DASHBOARD_SECTION_MODELS}</div>
-@@ -1611,7 +2116,7 @@
+@@ -1611,7 +2071,7 @@
          </div>
  
          <div class="meta" id="metaInfo">
@@ -6849,12 +5686,12 @@
          </div>
      </div>
  
-@@ -2002,8 +2507,34 @@
+@@ -2002,8 +2462,34 @@
  
  
  # ── Endpoints ────────────────────────────────────────────────────────
 +
-+
+ 
 +@app.get("/")
 +async def front_door():
 +    """Send the bare root to the dashboard. v1018-D023.
@@ -6863,7 +5700,7 @@
 +    served `/` at all, so the front door returned 404. A customer who opens the
 +    Doctor at its host and port -- the only address they have been given -- gets
 +    a 404 from a service that is running perfectly.
- 
++
 +    302 rather than 307 or 301, deliberately:
 +      * 307 is FastAPI's RedirectResponse default and preserves the method,
 +        meaningless for a browser hitting the root, and the D023 gate accepts
@@ -6884,7 +5721,7 @@
  @app.get("/doctor", response_class=HTMLResponse)
  async def dashboard():
      """Serve the diagnostic dashboard or first-run wizard."""
-@@ -2025,6 +2556,10 @@
+@@ -2025,6 +2511,10 @@
      # Deduplicate by title
      seen = set()
      findings = [f for f in findings if f["title"] not in seen and not seen.add(f["title"])]
@@ -6895,7 +5732,7 @@
      _record_snapshot(snapshot, findings)
      # CM024 Block 3.4: surface the Evernote import nav link only when
      # the feature flag is on. Read here (not inside the renderer) so
-@@ -2112,8 +2647,298 @@
+@@ -2112,8 +2602,260 @@
              },
          )
      return {"status": "healthy", "service": "ostler-doctor"}
@@ -6931,29 +5768,6 @@
 +    "whatsapp": "source",
 +    "dedupe": "operation",
 +    "privacy_backfill": "operation",
-+}
-+
-+# ── THE FDA EXTRACT FAMILY (CM051 #1587) ────────────────────────────────
-+#
-+# Every name in _SOURCE_KINDS above is a source the installer ALWAYS attempts,
-+# so a missing sentinel there genuinely means "not run yet" and the row is
-+# printed whether or not the file exists. These are different: the customer
-+# chooses them in the picker, and Photos defaults to OFF. Printing an
-+# unconditional "not run yet" row in amber for a source somebody declined
-+# would invent a failure, which is the mirror of the defect this closes.
-+#
-+# So the row appears exactly when install.sh has written a record for it.
-+# _hydrate_record_fda_extract writes one for every state the extractor can
-+# report EXCEPT disabled_by_user -- ok, no_data, cannot_run and error all land
-+# on disk -- so the only way to have no sentinel is to have declined the
-+# source or to be on a build older than that writer.
-+#
-+# A DECLARED SET, NOT A DIRECTORY GLOB. The row register stays a fixed list;
-+# this widens it by two known names when their file is present. An arbitrary
-+# file dropped into the hydrate directory still cannot invent a row.
-+_FDA_EXTRACT_KINDS = {
-+    "photos": "source",
-+    "reminders": "source",
 +}
 +_SOURCE_STATUS_INT_FIELDS = {"item_count", "rc"}
 +
@@ -7031,8 +5845,8 @@
 +    "browsing": ("browser_history", "bookmarks"),
 +    "people": ("people_index",),
 +}
-+
-+
+ 
+ 
 +def _read_source_activity(name: str, activity_dir: Path | None = None) -> dict:
 +    """The ongoing-activity record for one source, or {} when absent.
 +
@@ -7090,24 +5904,9 @@
 +    to ``"unreadable"``; it is never silently treated as absent.
 +    """
 +    base = hydrate_dir if hydrate_dir is not None else _source_hydrate_dir()
-+
-+    # The FDA extract family joins the register only when its record exists.
-+    # See _FDA_EXTRACT_KINDS for why these two are conditional and the rest
-+    # are not.
-+    kinds = dict(_SOURCE_KINDS)
-+    for _fda_name, _fda_kind in _FDA_EXTRACT_KINDS.items():
-+        if _fda_name in kinds:
-+            continue
-+        try:
-+            present = (base / (_fda_name + ".done")).is_file()
-+        except OSError:
-+            present = False
-+        if present:
-+            kinds[_fda_name] = _fda_kind
-+
 +    rows = []
-+    for name in sorted(kinds):
-+        kind = kinds[name]
++    for name in sorted(_SOURCE_KINDS):
++        kind = _SOURCE_KINDS[name]
 +        sentinel = base / (name + ".done")
 +        if not sentinel.is_file():
 +            rows.append({"source": name, "kind": kind, "status": "not_run",
@@ -7131,7 +5930,7 @@
 +            "last_update_at": rec.get("last_update_at"),
 +            "detail": rec.get("detail") or rec.get("payload"),
 +        })
- 
++
 +    # ── ONGOING STATUS, MERGED IN (#W018) ────────────────────────────────
 +    #
 +    # MEASURED on the Mini 16, 2026-09-04. Every row above comes from a
@@ -7173,7 +5972,7 @@
 +        row["last_success_at"] = act.get("last_success_at") or None
 +        row["ongoing_detail"] = act.get("last_detail") or None
 +    return rows
- 
++
 +
 +@app.get("/api/v1/sources", response_class=JSONResponse)
 +async def api_sources():
@@ -7194,7 +5993,7 @@
  @app.get("/api/v1/box-status", response_class=JSONResponse)
  async def api_box_status():
      """Aggregated live box status for the Hub header chip + Governor page.
-@@ -2248,6 +3073,59 @@
+@@ -2248,6 +2990,59 @@
      return result
  
  
@@ -7254,7 +6053,7 @@
  @app.post("/api/v1/auth/chat-token", response_class=JSONResponse)
  async def api_chat_token(request: Request):
      """Mint a fresh ZeroClaw bearer token for the iOS chat tab.
-@@ -2261,7 +3139,18 @@
+@@ -2261,7 +3056,18 @@
      See ``chat_token.py`` for the end-to-end logic, the admin-token
      seed convention, and the public-URL resolution rules. This
      handler only owns the HTTP plumbing.
@@ -7273,19 +6072,14 @@
      from chat_token import (
          TokenIssueError as _ChatTokenError,
          issue_chat_token as _issue,
-@@ -2294,64 +3183,278 @@
+@@ -2292,8 +3098,222 @@
+     breaking-change must roll a /api/v2 instead of mutating this.
+     """
      return all_observability_postures()
- 
- 
--# ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────
++
++
 +# ── Wiki hydration status: UNAUTHENTICATED passthrough (#178) ─────────
- #
--# Forwards iOS-initiated CM019 paths to the local gateway over
--# loopback so iOS only ever talks to one auth boundary: the
--# Doctor on :8089. The CM019 gateway is bound to 127.0.0.1 per
--# design doc Section 4. Configurable via DOCTOR_PROXY_PATHS (env
--# var, comma-separated) so future iOS paths land as a config
--# change rather than a code change. See doctor/agent/proxy.py.
++#
 +# The wiki homepage's first-run "still settling" panel (CM044
 +# ``compiler/hydration.py`` bakes it into the page HTML; a small JS
 +# poller then auto-hides it once hydration completes) fetches
@@ -7311,23 +6105,19 @@
 +# so an explicit ``/api/v1/hydration/status`` registered first takes
 +# precedence over the same path the proxy would otherwise register from
 +# ``DOCTOR_PROXY_PATHS``.
- 
--from proxy import register_proxy_routes
++
 +_HYDRATION_STATUS_PATH = "/api/v1/hydration/status"
 +# Loopback round-trip to the upstream composite; a few seconds is generous
 +# and a wedged upstream must fail fast rather than hang the panel poll.
 +_HYDRATION_UPSTREAM_TIMEOUT_SECONDS = 5.0
- 
--_registered_proxy_paths = register_proxy_routes(app)
- 
++
++
 +async def _fetch_hydration_status(
 +    gateway_url: "str | None" = None,
 +    client: "httpx.AsyncClient | None" = None,
 +) -> httpx.Response:
 +    """Fetch the composite hydration status from the upstream ical-server.
- 
--def _config_section_order() -> tuple[str, ...]:
--    """Section display order for the Configuration panel.
++
 +    The per-phase hydration feed is owned by the upstream (it combines the
 +    wiki compiler's progress file with live Qdrant / Oxigraph / conversation
 +    counts), so the Doctor cannot synthesise it from a local file -- it
@@ -7336,16 +6126,12 @@
 +    paired bearer. Reuses ``proxy._gateway_base_url`` so the upstream base is
 +    read from one place (``DOCTOR_GATEWAY_URL``; the customer install points
 +    it at the loopback ical-server on :8090).
- 
--    Imported lazily from ``config_panel`` so the panel's renderer and
--    its backend share one source of truth for section ordering.
++
 +    ``gateway_url`` / ``client`` exist for tests that inject a destination or
 +    a mocked transport; production callers pass neither.
-     """
--    from config_panel import SECTION_ORDER
++    """
 +    from proxy import _gateway_base_url  # single source of the upstream base
- 
--    return SECTION_ORDER
++
 +    base = (gateway_url or _gateway_base_url()).rstrip("/")
 +    url = base + _HYDRATION_STATUS_PATH
 +    if client is not None:
@@ -7356,44 +6142,12 @@
 +        timeout=_HYDRATION_UPSTREAM_TIMEOUT_SECONDS
 +    ) as new_client:
 +        return await new_client.get(url)
- 
- 
--# ── CM024 Evernote import (feature-flagged, launch-scope brief 2026-05-13) ──
--#
--# Four routes back the Doctor "Import Evernote" surface. All four
--# 404 when ``features.evernote_import`` is off in
--# ``~/.ostler/config/features.yaml`` -- the installer always deploys
--# ``ostler-knowledge`` (CM051 PR #70's 3.13b section) but the
--# customer-visible surface stays hidden until the operator flips
--# the flag. Block 3.3 wires the routes + lockfile + state machine;
--# Block 3.4 fills in the UI page body.
++
++
 +@app.get(_HYDRATION_STATUS_PATH)
 +async def api_hydration_status() -> Response:
 +    """Unauthenticated passthrough for the first-run wiki hydration panel.
- 
--
--def _render_import_evernote_page(active_job_id=None) -> str:
--    """Render the Evernote import page (CM024 Block 3.4).
--
--    ``active_job_id`` is the output of
--    ``import_evernote.current_running_job_id()``. When non-None the
--    page boots straight into the polling-status panel so the operator
--    who closed and reopened the tab mid-import reattaches without
--    having to re-enter the path.
--
--    Vanilla HTML + JS, no framework. Matches Doctor's chassis tokens
--    (Outfit / Plex Sans / Plex Mono, ostler-ink palette) so it sits
--    visually next to ``/doctor`` rather than feeling bolted on.
--
--    Polling cadence per the launch-scope brief:
--        - ``GET /status`` every 5 seconds
--        - ``GET /tail``  every 10 seconds
--    On a terminal status (succeeded / failed) both timers stop.
--    """
--    initial_job_id_js = json.dumps(active_job_id)
--    return f"""<!DOCTYPE html>
--<html lang="en">
--<head>
++
 +    Returns the upstream hydration JSON with a 200 whenever the upstream is
 +    reachable, regardless of any inbound Authorization header -- there is no
 +    bearer gate on this route (that is the #178 fix). On an upstream network
@@ -7483,11 +6237,11 @@
 +        return {"paused": False, "expiry": None, "indefinite": False,
 +                "expiry_human": "", "scope": None}
 +
-+
+ 
 +@app.post("/api/v1/pause", response_class=JSONResponse)
 +async def api_pause_post(request: Request):
 +    """Pause background work for a scope.
-+
+ 
 +    Body: ``{"scope": "hour" | "tonight" | "indefinite"}`` (a missing/blank
 +    body defaults to an indefinite pause). Same cross-site guard as
 +    ``/api/v1/config``: reject a POST whose ``Sec-Fetch-Site`` is present and
@@ -7538,1309 +6292,10 @@
 +    return JSONResponse(state, status_code=200)
 +
 +
-+# ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────
-+#
-+# Forwards iOS-initiated CM019 paths to the local gateway over
-+# loopback so iOS only ever talks to one auth boundary: the
-+# Doctor on :8089. The CM019 gateway is bound to 127.0.0.1 per
-+# design doc Section 4. Configurable via DOCTOR_PROXY_PATHS (env
-+# var, comma-separated) so future iOS paths land as a config
-+# change rather than a code change. See doctor/agent/proxy.py.
-+
-+from proxy import register_proxy_routes
-+
-+_registered_proxy_paths = register_proxy_routes(app)
-+
-+
-+def _config_section_order() -> tuple[str, ...]:
-+    """Section display order for the Configuration panel.
-+
-+    Imported lazily from ``config_panel`` so the panel's renderer and
-+    its backend share one source of truth for section ordering.
-+    """
-+    from config_panel import SECTION_ORDER
-+
-+    return SECTION_ORDER
-+
-+
-+# ── CM024 Evernote import (feature-flagged, launch-scope brief 2026-05-13) ──
-+#
-+# Four routes back the Doctor "Import Evernote" surface. All four
-+# 404 when ``features.evernote_import`` is off in
-+# ``~/.ostler/config/features.yaml`` -- the installer always deploys
-+# ``ostler-knowledge`` (CM051 PR #70's 3.13b section) but the
-+# customer-visible surface stays hidden until the operator flips
-+# the flag. Block 3.3 wires the routes + lockfile + state machine;
-+# Block 3.4 fills in the UI page body.
-+
-+
-+def _render_import_evernote_page(active_job_id=None) -> str:
-+    """Render the Evernote import page (CM024 Block 3.4).
-+
-+    ``active_job_id`` is the output of
-+    ``import_evernote.current_running_job_id()``. When non-None the
-+    page boots straight into the polling-status panel so the operator
-+    who closed and reopened the tab mid-import reattaches without
-+    having to re-enter the path.
-+
-+    Vanilla HTML + JS, no framework. Matches Doctor's chassis tokens
-+    (Outfit / Plex Sans / Plex Mono, ostler-ink palette) so it sits
-+    visually next to ``/doctor`` rather than feeling bolted on.
-+
-+    Polling cadence per the launch-scope brief:
-+        - ``GET /status`` every 5 seconds
-+        - ``GET /tail``  every 10 seconds
-+    On a terminal status (succeeded / failed) both timers stop.
-+    """
-+    initial_job_id_js = json.dumps(active_job_id)
-+    return f"""<!DOCTYPE html>
-+<html lang="en">
-+<head>
-     <meta charset="UTF-8">
-     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-     <title>{EVERNOTE_TITLE_TAG}</title>
-@@ -2818,6 +3921,519 @@
-             logPane.classList.add('empty');
-             logPane.textContent = 'Waiting for first log output\\u2026';
-             statusPill.textContent = '{EVERNOTE_PILL_STARTING}';
-+            statusPill.className = 'status-pill';
-+            statusMeta.textContent = '';
-+            showForm();
-+        }}
-+
-+        importForm.addEventListener('submit', handleSubmit);
-+        resetBtn.addEventListener('click', handleReset);
-+
-+        if (INITIAL_JOB_ID) {{
-+            // Reattach to an in-flight job whose POST was issued from
-+            // an earlier tab. The server discovered the live lockfile
-+            // and rendered the job_id into the page; we go straight to
-+            // the polling state without showing the form.
-+            currentJobId = INITIAL_JOB_ID;
-+            showJobPanel();
-+            startPolling();
-+        }} else {{
-+            showForm();
-+        }}
-+    }})();
-+    </script>
-+</body>
-+</html>"""
-+
-+
-+def _render_import_notion_page(active_job_id=None) -> str:
-+    """Render the Notion import page (CM024 Notion/Obsidian consumer-half fix, 2026-09-13).
-+
-+    ``active_job_id`` is the output of
-+    ``import_notion.current_running_job_id()``. When non-None the
-+    page boots straight into the polling-status panel so the operator
-+    who closed and reopened the tab mid-import reattaches without
-+    having to re-enter the path.
-+
-+    Vanilla HTML + JS, no framework. Matches Doctor's chassis tokens
-+    (Outfit / Plex Sans / Plex Mono, ostler-ink palette) so it sits
-+    visually next to ``/doctor`` rather than feeling bolted on.
-+
-+    Polling cadence per the launch-scope brief:
-+        - ``GET /status`` every 5 seconds
-+        - ``GET /tail``  every 10 seconds
-+    On a terminal status (succeeded / failed) both timers stop.
-+    """
-+    initial_job_id_js = json.dumps(active_job_id)
-+    return f"""<!DOCTYPE html>
-+<html lang="en">
-+<head>
-+    <meta charset="UTF-8">
-+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-+    <title>{NOTION_TITLE_TAG}</title>
-+    <style>
-+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
-+        :root {{
-+            --ostler-ink: #0d0b08;
-+            --ostler-ink-deep: #07060a;
-+            --ostler-panel: #1a1612;
-+            --ostler-panel-elev: #221c16;
-+            --ostler-chassis: #ECE8DD;
-+            --ostler-accent: #C84545;
-+            --ostler-accent-hover: #D76060;
-+            --ostler-accent-warm: #E26A6A;
-+            --ostler-accent-glow: rgba(200, 69, 69, 0.18);
-+            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
-+            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
-+            --text: var(--ostler-chassis);
-+            --text-secondary: rgba(236, 232, 221, 0.74);
-+            --text-muted: rgba(236, 232, 221, 0.50);
-+            --text-faint: rgba(236, 232, 221, 0.32);
-+            --green: #5cb579;
-+            --yellow: #d4a052;
-+            --red: #d96666;
-+            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
-+            --shadow-card: 0 1px 2px rgba(0,0,0,0.45), 0 8px 24px rgba(0,0,0,0.35);
-+            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-+            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-+            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
-+        }}
-+        * {{ margin:0; padding:0; box-sizing:border-box; }}
-+        body {{
-+            font-family: var(--font-body);
-+            font-size: 15px;
-+            line-height: 1.5;
-+            background: var(--ostler-ink);
-+            color: var(--text);
-+            min-height: 100vh;
-+            padding: 2.5rem 1.75rem;
-+            -webkit-font-smoothing: antialiased;
-+            -moz-osx-font-smoothing: grayscale;
-+        }}
-+        a {{ color: var(--ostler-accent); text-decoration: none; }}
-+        a:hover {{ color: var(--ostler-accent-hover); }}
-+        .container {{ max-width: 760px; margin: 0 auto; }}
-+        h1 {{
-+            font-family: var(--font-display);
-+            font-size: 1.7rem;
-+            font-weight: 600;
-+            letter-spacing: -0.02em;
-+            margin-bottom: 0.3rem;
-+        }}
-+        .subtitle {{
-+            font-family: var(--font-mono);
-+            font-size: 0.78rem;
-+            letter-spacing: 0.04em;
-+            color: var(--text-muted);
-+            margin-bottom: 2rem;
-+        }}
-+        .subtitle a {{ color: var(--text-muted); }}
-+        .subtitle a:hover {{ color: var(--ostler-accent-warm); text-decoration: underline; }}
-+        .section-title {{
-+            font-family: var(--font-display);
-+            font-size: 0.72rem;
-+            text-transform: uppercase;
-+            letter-spacing: 0.18em;
-+            color: var(--text-muted);
-+            margin-bottom: 0.85rem;
-+            font-weight: 500;
-+        }}
-+        .panel {{
-+            background: var(--ostler-panel);
-+            border: 1px solid var(--ostler-hairline-faint);
-+            border-radius: 12px;
-+            padding: 1.4rem 1.5rem;
-+            box-shadow: var(--shadow-soft);
-+            margin-bottom: 1.4rem;
-+        }}
-+        .panel p {{ color: var(--text-secondary); margin-bottom: 0.85rem; }}
-+        .help {{
-+            font-size: 0.82rem;
-+            color: var(--text-muted);
-+            margin-top: 0.55rem;
-+            line-height: 1.55;
-+        }}
-+        .help code {{
-+            font-family: var(--font-mono);
-+            font-size: 0.78rem;
-+            background: var(--ostler-ink-deep);
-+            border: 1px solid var(--ostler-hairline-faint);
-+            border-radius: 4px;
-+            padding: 0.1rem 0.35rem;
-+            color: var(--ostler-accent-warm);
-+        }}
-+        label {{
-+            display: block;
-+            font-family: var(--font-display);
-+            font-size: 0.78rem;
-+            text-transform: uppercase;
-+            letter-spacing: 0.16em;
-+            color: var(--text-muted);
-+            margin-bottom: 0.45rem;
-+            font-weight: 500;
-+        }}
-+        input[type="text"] {{
-+            display: block;
-+            width: 100%;
-+            background: var(--ostler-ink-deep);
-+            color: var(--text);
-+            border: 1px solid var(--ostler-hairline-soft);
-+            border-radius: 8px;
-+            padding: 0.75rem 0.95rem;
-+            font-family: var(--font-mono);
-+            font-size: 0.86rem;
-+            letter-spacing: 0.01em;
-+            outline: none;
-+            transition: border-color 0.18s, box-shadow 0.18s;
-+        }}
-+        input[type="text"]:focus {{
-+            border-color: var(--ostler-accent);
-+            box-shadow: 0 0 0 3px var(--ostler-accent-glow);
-+        }}
-+        input[type="text"]::placeholder {{ color: var(--text-faint); }}
-+        .button-row {{
-+            display: flex;
-+            gap: 0.6rem;
-+            align-items: center;
-+            margin-top: 1rem;
-+            flex-wrap: wrap;
-+        }}
-+        button.primary, button.secondary {{
-+            font-family: var(--font-display);
-+            font-weight: 500;
-+            font-size: 0.85rem;
-+            padding: 0.65rem 1.4rem;
-+            border-radius: 999px;
-+            cursor: pointer;
-+            border: 1px solid transparent;
-+            transition: background 0.18s, transform 0.18s, box-shadow 0.18s, border-color 0.18s, color 0.18s;
-+        }}
-+        button.primary {{
-+            background: var(--ostler-accent);
-+            color: white;
-+        }}
-+        button.primary:hover {{
-+            background: var(--ostler-accent-hover);
-+            transform: translateY(-1px);
-+            box-shadow: var(--shadow-soft);
-+        }}
-+        button.primary:disabled {{
-+            background: var(--ostler-panel-elev);
-+            color: var(--text-muted);
-+            cursor: not-allowed;
-+            transform: none;
-+            box-shadow: none;
-+        }}
-+        button.secondary {{
-+            background: var(--ostler-panel);
-+            color: var(--text-secondary);
-+            border-color: var(--ostler-hairline-soft);
-+        }}
-+        button.secondary:hover {{
-+            border-color: var(--ostler-accent);
-+            color: var(--text);
-+            background: var(--ostler-panel-elev);
-+            transform: translateY(-1px);
-+        }}
-+        .banner {{
-+            padding: 0.75rem 1rem;
-+            border-radius: 8px;
-+            font-size: 0.86rem;
-+            margin-bottom: 1.2rem;
-+            border-left: 3px solid var(--red);
-+            background: rgba(217, 102, 102, 0.10);
-+            color: var(--text);
-+            display: none;
-+        }}
-+        .banner.visible {{ display: block; }}
-+        .status-row {{
-+            display: flex;
-+            align-items: center;
-+            gap: 0.85rem;
-+            margin-bottom: 1rem;
-+            flex-wrap: wrap;
-+        }}
-+        .status-pill {{
-+            font-family: var(--font-display);
-+            font-size: 0.7rem;
-+            text-transform: uppercase;
-+            letter-spacing: 0.18em;
-+            padding: 0.3rem 0.85rem;
-+            border-radius: 999px;
-+            font-weight: 600;
-+            color: white;
-+            background: var(--text-faint);
-+        }}
-+        .status-pill.running {{ background: var(--yellow); }}
-+        .status-pill.succeeded {{ background: var(--green); }}
-+        .status-pill.partial {{ background: #d4a052; }}
-+        .status-pill.failed {{ background: var(--red); }}
-+        .status-meta {{
-+            font-family: var(--font-mono);
-+            font-size: 0.76rem;
-+            letter-spacing: 0.02em;
-+            color: var(--text-muted);
-+        }}
-+        .log-pane {{
-+            background: var(--ostler-ink-deep);
-+            border: 1px solid var(--ostler-hairline-soft);
-+            border-radius: 8px;
-+            padding: 0.85rem 1rem;
-+            font-family: var(--font-mono);
-+            font-size: 0.78rem;
-+            line-height: 1.5;
-+            color: var(--text-secondary);
-+            max-height: 360px;
-+            overflow-y: auto;
-+            white-space: pre-wrap;
-+            word-break: break-word;
-+        }}
-+        .log-pane.empty {{
-+            color: var(--text-faint);
-+            font-style: italic;
-+        }}
-+        .meta-bottom {{
-+            font-family: var(--font-mono);
-+            font-size: 0.72rem;
-+            letter-spacing: 0.04em;
-+            color: var(--text-faint);
-+            margin-top: 2rem;
-+            padding-top: 1.1rem;
-+            border-top: 1px solid var(--ostler-hairline-faint);
-+        }}
-+        button:focus-visible {{
-+            outline: 2px solid var(--ostler-accent);
-+            outline-offset: 2px;
-+        }}
-+        @media (max-width: 720px) {{
-+            body {{ padding: 1.4rem 1rem; }}
-+            h1 {{ font-size: 1.4rem; }}
-+        }}
-+    </style>
-+</head>
-+<body>
-+    <div class="container">
-+        <h1>{NOTION_HEADING}</h1>
-+        <div class="subtitle">
-+            {NOTION_SUBTITLE}
-+        </div>
-+
-+        <div id="errorBanner" class="banner"></div>
-+
-+        <div id="formPanel" class="panel" style="display:none">
-+            <div class="section-title">{NOTION_SECTION_SOURCE}</div>
-+            <p>
-+                {NOTION_INTRO_HTML}
-+            </p>
-+            <form id="importForm" autocomplete="off">
-+                <label for="sourcePath">{NOTION_LABEL_PATH}</label>
-+                <input type="text" id="sourcePath" name="path"
-+                    placeholder="{NOTION_PLACEHOLDER_PATH}"
-+                    spellcheck="false" autocapitalize="off">
-+                <div class="help">
-+                    {NOTION_HELP_TIP_HTML}
-+                </div>
-+                <div class="button-row">
-+                    <button type="submit" class="primary" id="submitBtn">{NOTION_BTN_START}</button>
-+                </div>
-+            </form>
-+        </div>
-+
-+        <div id="jobPanel" class="panel" style="display:none">
-+            <div class="section-title">{NOTION_SECTION_STATUS}</div>
-+            <div class="status-row">
-+                <span class="status-pill" id="statusPill">{NOTION_PILL_STARTING}</span>
-+                <span class="status-meta" id="statusMeta"></span>
-+            </div>
-+            <div class="section-title" style="margin-top:1.2rem">{NOTION_SECTION_LOG_TAIL}</div>
-+            <div class="log-pane empty" id="logPane">{NOTION_WAITING_FIRST_LOG}</div>
-+            <div class="button-row" id="resetRow" style="display:none">
-+                <button type="button" class="secondary" id="resetBtn">{NOTION_BTN_IMPORT_ANOTHER}</button>
-+            </div>
-+        </div>
-+
-+        <div class="meta-bottom">
-+            {NOTION_META_FOOTER_HTML}
-+        </div>
-+    </div>
-+
-+    <script>
-+    (function() {{
-+        const STATUS_POLL_MS = 5000;
-+        const TAIL_POLL_MS = 10000;
-+        const INITIAL_JOB_ID = {initial_job_id_js};
-+
-+        const formPanel = document.getElementById('formPanel');
-+        const jobPanel = document.getElementById('jobPanel');
-+        const importForm = document.getElementById('importForm');
-+        const submitBtn = document.getElementById('submitBtn');
-+        const sourceInput = document.getElementById('sourcePath');
-+        const statusPill = document.getElementById('statusPill');
-+        const statusMeta = document.getElementById('statusMeta');
-+        const logPane = document.getElementById('logPane');
-+        const resetRow = document.getElementById('resetRow');
-+        const resetBtn = document.getElementById('resetBtn');
-+        const errorBanner = document.getElementById('errorBanner');
-+
-+        let currentJobId = null;
-+        let statusTimer = null;
-+        let tailTimer = null;
-+
-+        function showError(msg) {{
-+            errorBanner.textContent = msg;
-+            errorBanner.classList.add('visible');
-+        }}
-+
-+        function clearError() {{
-+            errorBanner.classList.remove('visible');
-+            errorBanner.textContent = '';
-+        }}
-+
-+        function showForm() {{
-+            formPanel.style.display = '';
-+            jobPanel.style.display = 'none';
-+            sourceInput.value = '';
-+            sourceInput.focus();
-+        }}
-+
-+        function showJobPanel() {{
-+            formPanel.style.display = 'none';
-+            jobPanel.style.display = '';
-+        }}
-+
-+        function renderStatus(state) {{
-+            const status = state.status || 'unknown';
-+            statusPill.textContent = status;
-+            statusPill.className = 'status-pill ' + status;
-+
-+            const bits = [];
-+            if (state.job_id) bits.push('job ' + state.job_id);
-+            if (state.started_at) bits.push('started ' + state.started_at.substring(0, 19) + 'Z');
-+            if (state.completed_at) bits.push('finished ' + state.completed_at.substring(0, 19) + 'Z');
-+            if (state.exit_code !== null && state.exit_code !== undefined) {{
-+                bits.push('exit ' + state.exit_code);
-+            }}
-+            // A degraded ('partial') import carries a human-facing note
-+            // explaining what landed and what is pending; surface it.
-+            if (state.note) bits.push(state.note);
-+            statusMeta.textContent = bits.join(' \\u00b7 ');
-+
-+            if (status === 'succeeded' || status === 'failed' || status === 'partial') {{
-+                resetRow.style.display = '';
-+                stopPolling();
-+                // One last tail fetch to make sure the final output is shown.
-+                fetchTail();
-+            }} else {{
-+                resetRow.style.display = 'none';
-+            }}
-+        }}
-+
-+        function fetchStatus() {{
-+            if (!currentJobId) return;
-+            fetch('/api/v1/import/notion/' + encodeURIComponent(currentJobId) + '/status')
-+                .then(function(r) {{
-+                    if (r.status === 404) {{
-+                        // Either feature flipped off mid-session, or the
-+                        // job_id has been reaped. Either way the page is
-+                        // out of sync; force a reload.
-+                        stopPolling();
-+                        showError('{NOTION_ERROR_JOB_NOT_FOUND}');
-+                        return null;
-+                    }}
-+                    return r.json();
-+                }})
-+                .then(function(state) {{
-+                    if (state) renderStatus(state);
-+                }})
-+                .catch(function(err) {{
-+                    showError('{NOTION_ERROR_STATUS_FAIL_PREFIX}' + err);
-+                }});
-+        }}
-+
-+        function fetchTail() {{
-+            if (!currentJobId) return;
-+            fetch('/api/v1/import/notion/' + encodeURIComponent(currentJobId) + '/tail')
-+                .then(function(r) {{
-+                    if (!r.ok) return null;
-+                    return r.text();
-+                }})
-+                .then(function(text) {{
-+                    if (text === null) return;
-+                    if (!text || text.trim() === '') {{
-+                        logPane.classList.add('empty');
-+                        logPane.textContent = 'Waiting for first log output\\u2026';
-+                    }} else {{
-+                        logPane.classList.remove('empty');
-+                        logPane.textContent = text;
-+                        // Auto-scroll to the bottom so the latest line is
-+                        // always visible without manual scrolling.
-+                        logPane.scrollTop = logPane.scrollHeight;
-+                    }}
-+                }})
-+                .catch(function(err) {{
-+                    // Don't surface tail failures as errors - the status
-+                    // pane is the source of truth.
-+                }});
-+        }}
-+
-+        function startPolling() {{
-+            stopPolling();
-+            fetchStatus();
-+            fetchTail();
-+            statusTimer = setInterval(fetchStatus, STATUS_POLL_MS);
-+            tailTimer = setInterval(fetchTail, TAIL_POLL_MS);
-+        }}
-+
-+        function stopPolling() {{
-+            if (statusTimer) {{ clearInterval(statusTimer); statusTimer = null; }}
-+            if (tailTimer) {{ clearInterval(tailTimer); tailTimer = null; }}
-+        }}
-+
-+        function handleSubmit(event) {{
-+            event.preventDefault();
-+            clearError();
-+            const path = sourceInput.value.trim();
-+            if (!path) {{
-+                showError('{NOTION_ERROR_NO_PATH}');
-+                return;
-+            }}
-+            submitBtn.disabled = true;
-+            submitBtn.textContent = '{NOTION_BTN_STARTING}';
-+            fetch('/api/v1/import/notion', {{
-+                method: 'POST',
-+                headers: {{'Content-Type': 'application/json'}},
-+                body: JSON.stringify({{path: path}}),
-+            }})
-+                .then(function(r) {{
-+                    return r.json().then(function(body) {{ return [r.status, body]; }});
-+                }})
-+                .then(function(pair) {{
-+                    const status = pair[0], body = pair[1];
-+                    if (status === 200 && body.job_id) {{
-+                        currentJobId = body.job_id;
-+                        showJobPanel();
-+                        startPolling();
-+                    }} else {{
-+                        showError(body.error || ('Import failed to start (HTTP ' + status + ')'));
-+                    }}
-+                }})
-+                .catch(function(err) {{
-+                    showError('{NOTION_ERROR_NETWORK_PREFIX}' + err);
-+                }})
-+                .finally(function() {{
-+                    submitBtn.disabled = false;
-+                    submitBtn.textContent = '{NOTION_BTN_START}';
-+                }});
-+        }}
-+
-+        function handleReset() {{
-+            stopPolling();
-+            currentJobId = null;
-+            clearError();
-+            resetRow.style.display = 'none';
-+            logPane.classList.add('empty');
-+            logPane.textContent = 'Waiting for first log output\\u2026';
-+            statusPill.textContent = '{NOTION_PILL_STARTING}';
-             statusPill.className = 'status-pill';
-             statusMeta.textContent = '';
-             showForm();
-@@ -2843,6 +4459,519 @@
- </html>"""
- 
- 
-+def _render_import_obsidian_page(active_job_id=None) -> str:
-+    """Render the Obsidian import page (CM024 Notion/Obsidian consumer-half fix, 2026-09-13).
-+
-+    ``active_job_id`` is the output of
-+    ``import_obsidian.current_running_job_id()``. When non-None the
-+    page boots straight into the polling-status panel so the operator
-+    who closed and reopened the tab mid-import reattaches without
-+    having to re-enter the path.
-+
-+    Vanilla HTML + JS, no framework. Matches Doctor's chassis tokens
-+    (Outfit / Plex Sans / Plex Mono, ostler-ink palette) so it sits
-+    visually next to ``/doctor`` rather than feeling bolted on.
-+
-+    Polling cadence per the launch-scope brief:
-+        - ``GET /status`` every 5 seconds
-+        - ``GET /tail``  every 10 seconds
-+    On a terminal status (succeeded / failed) both timers stop.
-+    """
-+    initial_job_id_js = json.dumps(active_job_id)
-+    return f"""<!DOCTYPE html>
-+<html lang="en">
-+<head>
-+    <meta charset="UTF-8">
-+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-+    <title>{OBSIDIAN_TITLE_TAG}</title>
-+    <style>
-+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
-+        :root {{
-+            --ostler-ink: #0d0b08;
-+            --ostler-ink-deep: #07060a;
-+            --ostler-panel: #1a1612;
-+            --ostler-panel-elev: #221c16;
-+            --ostler-chassis: #ECE8DD;
-+            --ostler-accent: #C84545;
-+            --ostler-accent-hover: #D76060;
-+            --ostler-accent-warm: #E26A6A;
-+            --ostler-accent-glow: rgba(200, 69, 69, 0.18);
-+            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
-+            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
-+            --text: var(--ostler-chassis);
-+            --text-secondary: rgba(236, 232, 221, 0.74);
-+            --text-muted: rgba(236, 232, 221, 0.50);
-+            --text-faint: rgba(236, 232, 221, 0.32);
-+            --green: #5cb579;
-+            --yellow: #d4a052;
-+            --red: #d96666;
-+            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
-+            --shadow-card: 0 1px 2px rgba(0,0,0,0.45), 0 8px 24px rgba(0,0,0,0.35);
-+            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-+            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-+            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
-+        }}
-+        * {{ margin:0; padding:0; box-sizing:border-box; }}
-+        body {{
-+            font-family: var(--font-body);
-+            font-size: 15px;
-+            line-height: 1.5;
-+            background: var(--ostler-ink);
-+            color: var(--text);
-+            min-height: 100vh;
-+            padding: 2.5rem 1.75rem;
-+            -webkit-font-smoothing: antialiased;
-+            -moz-osx-font-smoothing: grayscale;
-+        }}
-+        a {{ color: var(--ostler-accent); text-decoration: none; }}
-+        a:hover {{ color: var(--ostler-accent-hover); }}
-+        .container {{ max-width: 760px; margin: 0 auto; }}
-+        h1 {{
-+            font-family: var(--font-display);
-+            font-size: 1.7rem;
-+            font-weight: 600;
-+            letter-spacing: -0.02em;
-+            margin-bottom: 0.3rem;
-+        }}
-+        .subtitle {{
-+            font-family: var(--font-mono);
-+            font-size: 0.78rem;
-+            letter-spacing: 0.04em;
-+            color: var(--text-muted);
-+            margin-bottom: 2rem;
-+        }}
-+        .subtitle a {{ color: var(--text-muted); }}
-+        .subtitle a:hover {{ color: var(--ostler-accent-warm); text-decoration: underline; }}
-+        .section-title {{
-+            font-family: var(--font-display);
-+            font-size: 0.72rem;
-+            text-transform: uppercase;
-+            letter-spacing: 0.18em;
-+            color: var(--text-muted);
-+            margin-bottom: 0.85rem;
-+            font-weight: 500;
-+        }}
-+        .panel {{
-+            background: var(--ostler-panel);
-+            border: 1px solid var(--ostler-hairline-faint);
-+            border-radius: 12px;
-+            padding: 1.4rem 1.5rem;
-+            box-shadow: var(--shadow-soft);
-+            margin-bottom: 1.4rem;
-+        }}
-+        .panel p {{ color: var(--text-secondary); margin-bottom: 0.85rem; }}
-+        .help {{
-+            font-size: 0.82rem;
-+            color: var(--text-muted);
-+            margin-top: 0.55rem;
-+            line-height: 1.55;
-+        }}
-+        .help code {{
-+            font-family: var(--font-mono);
-+            font-size: 0.78rem;
-+            background: var(--ostler-ink-deep);
-+            border: 1px solid var(--ostler-hairline-faint);
-+            border-radius: 4px;
-+            padding: 0.1rem 0.35rem;
-+            color: var(--ostler-accent-warm);
-+        }}
-+        label {{
-+            display: block;
-+            font-family: var(--font-display);
-+            font-size: 0.78rem;
-+            text-transform: uppercase;
-+            letter-spacing: 0.16em;
-+            color: var(--text-muted);
-+            margin-bottom: 0.45rem;
-+            font-weight: 500;
-+        }}
-+        input[type="text"] {{
-+            display: block;
-+            width: 100%;
-+            background: var(--ostler-ink-deep);
-+            color: var(--text);
-+            border: 1px solid var(--ostler-hairline-soft);
-+            border-radius: 8px;
-+            padding: 0.75rem 0.95rem;
-+            font-family: var(--font-mono);
-+            font-size: 0.86rem;
-+            letter-spacing: 0.01em;
-+            outline: none;
-+            transition: border-color 0.18s, box-shadow 0.18s;
-+        }}
-+        input[type="text"]:focus {{
-+            border-color: var(--ostler-accent);
-+            box-shadow: 0 0 0 3px var(--ostler-accent-glow);
-+        }}
-+        input[type="text"]::placeholder {{ color: var(--text-faint); }}
-+        .button-row {{
-+            display: flex;
-+            gap: 0.6rem;
-+            align-items: center;
-+            margin-top: 1rem;
-+            flex-wrap: wrap;
-+        }}
-+        button.primary, button.secondary {{
-+            font-family: var(--font-display);
-+            font-weight: 500;
-+            font-size: 0.85rem;
-+            padding: 0.65rem 1.4rem;
-+            border-radius: 999px;
-+            cursor: pointer;
-+            border: 1px solid transparent;
-+            transition: background 0.18s, transform 0.18s, box-shadow 0.18s, border-color 0.18s, color 0.18s;
-+        }}
-+        button.primary {{
-+            background: var(--ostler-accent);
-+            color: white;
-+        }}
-+        button.primary:hover {{
-+            background: var(--ostler-accent-hover);
-+            transform: translateY(-1px);
-+            box-shadow: var(--shadow-soft);
-+        }}
-+        button.primary:disabled {{
-+            background: var(--ostler-panel-elev);
-+            color: var(--text-muted);
-+            cursor: not-allowed;
-+            transform: none;
-+            box-shadow: none;
-+        }}
-+        button.secondary {{
-+            background: var(--ostler-panel);
-+            color: var(--text-secondary);
-+            border-color: var(--ostler-hairline-soft);
-+        }}
-+        button.secondary:hover {{
-+            border-color: var(--ostler-accent);
-+            color: var(--text);
-+            background: var(--ostler-panel-elev);
-+            transform: translateY(-1px);
-+        }}
-+        .banner {{
-+            padding: 0.75rem 1rem;
-+            border-radius: 8px;
-+            font-size: 0.86rem;
-+            margin-bottom: 1.2rem;
-+            border-left: 3px solid var(--red);
-+            background: rgba(217, 102, 102, 0.10);
-+            color: var(--text);
-+            display: none;
-+        }}
-+        .banner.visible {{ display: block; }}
-+        .status-row {{
-+            display: flex;
-+            align-items: center;
-+            gap: 0.85rem;
-+            margin-bottom: 1rem;
-+            flex-wrap: wrap;
-+        }}
-+        .status-pill {{
-+            font-family: var(--font-display);
-+            font-size: 0.7rem;
-+            text-transform: uppercase;
-+            letter-spacing: 0.18em;
-+            padding: 0.3rem 0.85rem;
-+            border-radius: 999px;
-+            font-weight: 600;
-+            color: white;
-+            background: var(--text-faint);
-+        }}
-+        .status-pill.running {{ background: var(--yellow); }}
-+        .status-pill.succeeded {{ background: var(--green); }}
-+        .status-pill.partial {{ background: #d4a052; }}
-+        .status-pill.failed {{ background: var(--red); }}
-+        .status-meta {{
-+            font-family: var(--font-mono);
-+            font-size: 0.76rem;
-+            letter-spacing: 0.02em;
-+            color: var(--text-muted);
-+        }}
-+        .log-pane {{
-+            background: var(--ostler-ink-deep);
-+            border: 1px solid var(--ostler-hairline-soft);
-+            border-radius: 8px;
-+            padding: 0.85rem 1rem;
-+            font-family: var(--font-mono);
-+            font-size: 0.78rem;
-+            line-height: 1.5;
-+            color: var(--text-secondary);
-+            max-height: 360px;
-+            overflow-y: auto;
-+            white-space: pre-wrap;
-+            word-break: break-word;
-+        }}
-+        .log-pane.empty {{
-+            color: var(--text-faint);
-+            font-style: italic;
-+        }}
-+        .meta-bottom {{
-+            font-family: var(--font-mono);
-+            font-size: 0.72rem;
-+            letter-spacing: 0.04em;
-+            color: var(--text-faint);
-+            margin-top: 2rem;
-+            padding-top: 1.1rem;
-+            border-top: 1px solid var(--ostler-hairline-faint);
-+        }}
-+        button:focus-visible {{
-+            outline: 2px solid var(--ostler-accent);
-+            outline-offset: 2px;
-+        }}
-+        @media (max-width: 720px) {{
-+            body {{ padding: 1.4rem 1rem; }}
-+            h1 {{ font-size: 1.4rem; }}
-+        }}
-+    </style>
-+</head>
-+<body>
-+    <div class="container">
-+        <h1>{OBSIDIAN_HEADING}</h1>
-+        <div class="subtitle">
-+            {OBSIDIAN_SUBTITLE}
-+        </div>
-+
-+        <div id="errorBanner" class="banner"></div>
-+
-+        <div id="formPanel" class="panel" style="display:none">
-+            <div class="section-title">{OBSIDIAN_SECTION_SOURCE}</div>
-+            <p>
-+                {OBSIDIAN_INTRO_HTML}
-+            </p>
-+            <form id="importForm" autocomplete="off">
-+                <label for="sourcePath">{OBSIDIAN_LABEL_PATH}</label>
-+                <input type="text" id="sourcePath" name="path"
-+                    placeholder="{OBSIDIAN_PLACEHOLDER_PATH}"
-+                    spellcheck="false" autocapitalize="off">
-+                <div class="help">
-+                    {OBSIDIAN_HELP_TIP_HTML}
-+                </div>
-+                <div class="button-row">
-+                    <button type="submit" class="primary" id="submitBtn">{OBSIDIAN_BTN_START}</button>
-+                </div>
-+            </form>
-+        </div>
-+
-+        <div id="jobPanel" class="panel" style="display:none">
-+            <div class="section-title">{OBSIDIAN_SECTION_STATUS}</div>
-+            <div class="status-row">
-+                <span class="status-pill" id="statusPill">{OBSIDIAN_PILL_STARTING}</span>
-+                <span class="status-meta" id="statusMeta"></span>
-+            </div>
-+            <div class="section-title" style="margin-top:1.2rem">{OBSIDIAN_SECTION_LOG_TAIL}</div>
-+            <div class="log-pane empty" id="logPane">{OBSIDIAN_WAITING_FIRST_LOG}</div>
-+            <div class="button-row" id="resetRow" style="display:none">
-+                <button type="button" class="secondary" id="resetBtn">{OBSIDIAN_BTN_IMPORT_ANOTHER}</button>
-+            </div>
-+        </div>
-+
-+        <div class="meta-bottom">
-+            {OBSIDIAN_META_FOOTER_HTML}
-+        </div>
-+    </div>
-+
-+    <script>
-+    (function() {{
-+        const STATUS_POLL_MS = 5000;
-+        const TAIL_POLL_MS = 10000;
-+        const INITIAL_JOB_ID = {initial_job_id_js};
-+
-+        const formPanel = document.getElementById('formPanel');
-+        const jobPanel = document.getElementById('jobPanel');
-+        const importForm = document.getElementById('importForm');
-+        const submitBtn = document.getElementById('submitBtn');
-+        const sourceInput = document.getElementById('sourcePath');
-+        const statusPill = document.getElementById('statusPill');
-+        const statusMeta = document.getElementById('statusMeta');
-+        const logPane = document.getElementById('logPane');
-+        const resetRow = document.getElementById('resetRow');
-+        const resetBtn = document.getElementById('resetBtn');
-+        const errorBanner = document.getElementById('errorBanner');
-+
-+        let currentJobId = null;
-+        let statusTimer = null;
-+        let tailTimer = null;
-+
-+        function showError(msg) {{
-+            errorBanner.textContent = msg;
-+            errorBanner.classList.add('visible');
-+        }}
-+
-+        function clearError() {{
-+            errorBanner.classList.remove('visible');
-+            errorBanner.textContent = '';
-+        }}
-+
-+        function showForm() {{
-+            formPanel.style.display = '';
-+            jobPanel.style.display = 'none';
-+            sourceInput.value = '';
-+            sourceInput.focus();
-+        }}
-+
-+        function showJobPanel() {{
-+            formPanel.style.display = 'none';
-+            jobPanel.style.display = '';
-+        }}
-+
-+        function renderStatus(state) {{
-+            const status = state.status || 'unknown';
-+            statusPill.textContent = status;
-+            statusPill.className = 'status-pill ' + status;
-+
-+            const bits = [];
-+            if (state.job_id) bits.push('job ' + state.job_id);
-+            if (state.started_at) bits.push('started ' + state.started_at.substring(0, 19) + 'Z');
-+            if (state.completed_at) bits.push('finished ' + state.completed_at.substring(0, 19) + 'Z');
-+            if (state.exit_code !== null && state.exit_code !== undefined) {{
-+                bits.push('exit ' + state.exit_code);
-+            }}
-+            // A degraded ('partial') import carries a human-facing note
-+            // explaining what landed and what is pending; surface it.
-+            if (state.note) bits.push(state.note);
-+            statusMeta.textContent = bits.join(' \\u00b7 ');
-+
-+            if (status === 'succeeded' || status === 'failed' || status === 'partial') {{
-+                resetRow.style.display = '';
-+                stopPolling();
-+                // One last tail fetch to make sure the final output is shown.
-+                fetchTail();
-+            }} else {{
-+                resetRow.style.display = 'none';
-+            }}
-+        }}
-+
-+        function fetchStatus() {{
-+            if (!currentJobId) return;
-+            fetch('/api/v1/import/obsidian/' + encodeURIComponent(currentJobId) + '/status')
-+                .then(function(r) {{
-+                    if (r.status === 404) {{
-+                        // Either feature flipped off mid-session, or the
-+                        // job_id has been reaped. Either way the page is
-+                        // out of sync; force a reload.
-+                        stopPolling();
-+                        showError('{OBSIDIAN_ERROR_JOB_NOT_FOUND}');
-+                        return null;
-+                    }}
-+                    return r.json();
-+                }})
-+                .then(function(state) {{
-+                    if (state) renderStatus(state);
-+                }})
-+                .catch(function(err) {{
-+                    showError('{OBSIDIAN_ERROR_STATUS_FAIL_PREFIX}' + err);
-+                }});
-+        }}
-+
-+        function fetchTail() {{
-+            if (!currentJobId) return;
-+            fetch('/api/v1/import/obsidian/' + encodeURIComponent(currentJobId) + '/tail')
-+                .then(function(r) {{
-+                    if (!r.ok) return null;
-+                    return r.text();
-+                }})
-+                .then(function(text) {{
-+                    if (text === null) return;
-+                    if (!text || text.trim() === '') {{
-+                        logPane.classList.add('empty');
-+                        logPane.textContent = 'Waiting for first log output\\u2026';
-+                    }} else {{
-+                        logPane.classList.remove('empty');
-+                        logPane.textContent = text;
-+                        // Auto-scroll to the bottom so the latest line is
-+                        // always visible without manual scrolling.
-+                        logPane.scrollTop = logPane.scrollHeight;
-+                    }}
-+                }})
-+                .catch(function(err) {{
-+                    // Don't surface tail failures as errors - the status
-+                    // pane is the source of truth.
-+                }});
-+        }}
-+
-+        function startPolling() {{
-+            stopPolling();
-+            fetchStatus();
-+            fetchTail();
-+            statusTimer = setInterval(fetchStatus, STATUS_POLL_MS);
-+            tailTimer = setInterval(fetchTail, TAIL_POLL_MS);
-+        }}
-+
-+        function stopPolling() {{
-+            if (statusTimer) {{ clearInterval(statusTimer); statusTimer = null; }}
-+            if (tailTimer) {{ clearInterval(tailTimer); tailTimer = null; }}
-+        }}
-+
-+        function handleSubmit(event) {{
-+            event.preventDefault();
-+            clearError();
-+            const path = sourceInput.value.trim();
-+            if (!path) {{
-+                showError('{OBSIDIAN_ERROR_NO_PATH}');
-+                return;
-+            }}
-+            submitBtn.disabled = true;
-+            submitBtn.textContent = '{OBSIDIAN_BTN_STARTING}';
-+            fetch('/api/v1/import/obsidian', {{
-+                method: 'POST',
-+                headers: {{'Content-Type': 'application/json'}},
-+                body: JSON.stringify({{path: path}}),
-+            }})
-+                .then(function(r) {{
-+                    return r.json().then(function(body) {{ return [r.status, body]; }});
-+                }})
-+                .then(function(pair) {{
-+                    const status = pair[0], body = pair[1];
-+                    if (status === 200 && body.job_id) {{
-+                        currentJobId = body.job_id;
-+                        showJobPanel();
-+                        startPolling();
-+                    }} else {{
-+                        showError(body.error || ('Import failed to start (HTTP ' + status + ')'));
-+                    }}
-+                }})
-+                .catch(function(err) {{
-+                    showError('{OBSIDIAN_ERROR_NETWORK_PREFIX}' + err);
-+                }})
-+                .finally(function() {{
-+                    submitBtn.disabled = false;
-+                    submitBtn.textContent = '{OBSIDIAN_BTN_START}';
-+                }});
-+        }}
-+
-+        function handleReset() {{
-+            stopPolling();
-+            currentJobId = null;
-+            clearError();
-+            resetRow.style.display = 'none';
-+            logPane.classList.add('empty');
-+            logPane.textContent = 'Waiting for first log output\\u2026';
-+            statusPill.textContent = '{OBSIDIAN_PILL_STARTING}';
-+            statusPill.className = 'status-pill';
-+            statusMeta.textContent = '';
-+            showForm();
-+        }}
-+
-+        importForm.addEventListener('submit', handleSubmit);
-+        resetBtn.addEventListener('click', handleReset);
-+
-+        if (INITIAL_JOB_ID) {{
-+            // Reattach to an in-flight job whose POST was issued from
-+            // an earlier tab. The server discovered the live lockfile
-+            // and rendered the job_id into the page; we go straight to
-+            // the polling state without showing the form.
-+            currentJobId = INITIAL_JOB_ID;
-+            showJobPanel();
-+            startPolling();
-+        }} else {{
-+            showForm();
-+        }}
-+    }})();
-+    </script>
-+</body>
-+</html>"""
-+
-+
- @app.get("/import-evernote", response_class=HTMLResponse)
- async def import_evernote_page():
-     """Render the Evernote import page. 404 when the feature flag is off."""
-@@ -2940,6 +5069,200 @@
-         return JSONResponse({"error": exc.detail}, status_code=exc.status)
- 
- 
-+@app.get("/import-notion", response_class=HTMLResponse)
-+async def import_notion_page():
-+    """Render the Notion import page. 404 when the feature flag is off."""
-+    from import_notion import current_running_job_id, is_feature_enabled
-+
-+    if not is_feature_enabled():
-+        return JSONResponse(
-+            {"error": "feature_disabled"}, status_code=404,
-+        )
-+    return HTMLResponse(_render_import_notion_page(
-+        active_job_id=current_running_job_id(),
-+    ))
-+
-+
-+@app.post("/api/v1/import/notion", response_class=JSONResponse)
-+async def api_import_notion_start(request: Request):
-+    """Start a new Notion import job.
-+
-+    Body: ``{"path": "/Users/you/Downloads/Notion-Export.zip"}``. On success returns
-+    ``{"job_id": "...", "status": "started"}`` with 200. Validation
-+    failures surface as 400 / 404 / 409 / 500 per
-+    ``import_notion.NotionImportError``. Returns 404
-+    ``{"error": "feature_disabled"}`` when the flag is off.
-+    """
-+    from import_notion import (
-+        NotionImportError as _Err,
-+        is_feature_enabled as _flag,
-+        start_import as _start,
-+        validate_notion_path as _validate,
-+    )
-+
-+    if not _flag():
-+        return JSONResponse(
-+            {"error": "feature_disabled"}, status_code=404,
-+        )
-+
-+    try:
-+        body = await request.json()
-+    except Exception as exc:
-+        return JSONResponse(
-+            {"error": f"invalid JSON: {exc}"}, status_code=400,
-+        )
-+
-+    if not isinstance(body, dict):
-+        return JSONResponse(
-+            {"error": "body must be a JSON object"}, status_code=400,
-+        )
-+
-+    try:
-+        source_path = _validate(body.get("path"))
-+        result = _start(source_path)
-+    except _Err as exc:
-+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
-+
-+    return JSONResponse(result, status_code=200)
-+
-+
-+@app.get("/api/v1/import/notion/{job_id}/status", response_class=JSONResponse)
-+async def api_import_notion_status(job_id: str):
-+    """Return the state of a Notion import job."""
-+    from import_notion import (
-+        NotionImportError as _Err,
-+        is_feature_enabled as _flag,
-+        read_status as _status,
-+    )
-+
-+    if not _flag():
-+        return JSONResponse(
-+            {"error": "feature_disabled"}, status_code=404,
-+        )
-+
-+    try:
-+        return JSONResponse(_status(job_id), status_code=200)
-+    except _Err as exc:
-+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
-+
-+
-+@app.get("/api/v1/import/notion/{job_id}/tail", response_class=PlainTextResponse)
-+async def api_import_notion_tail(job_id: str):
-+    """Return the last 100 lines of the job's import log as text/plain."""
-+    from import_notion import (
-+        NotionImportError as _Err,
-+        is_feature_enabled as _flag,
-+        read_tail as _tail,
-+    )
-+
-+    if not _flag():
-+        return JSONResponse(
-+            {"error": "feature_disabled"}, status_code=404,
-+        )
-+
-+    try:
-+        return PlainTextResponse(_tail(job_id), status_code=200)
-+    except _Err as exc:
-+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
-+
-+
-+@app.get("/import-obsidian", response_class=HTMLResponse)
-+async def import_obsidian_page():
-+    """Render the Obsidian import page. 404 when the feature flag is off."""
-+    from import_obsidian import current_running_job_id, is_feature_enabled
-+
-+    if not is_feature_enabled():
-+        return JSONResponse(
-+            {"error": "feature_disabled"}, status_code=404,
-+        )
-+    return HTMLResponse(_render_import_obsidian_page(
-+        active_job_id=current_running_job_id(),
-+    ))
-+
-+
-+@app.post("/api/v1/import/obsidian", response_class=JSONResponse)
-+async def api_import_obsidian_start(request: Request):
-+    """Start a new Obsidian import job.
-+
-+    Body: ``{"path": "/Users/you/Documents/MyVault"}``. On success returns
-+    ``{"job_id": "...", "status": "started"}`` with 200. Validation
-+    failures surface as 400 / 404 / 409 / 500 per
-+    ``import_obsidian.ObsidianImportError``. Returns 404
-+    ``{"error": "feature_disabled"}`` when the flag is off.
-+    """
-+    from import_obsidian import (
-+        ObsidianImportError as _Err,
-+        is_feature_enabled as _flag,
-+        start_import as _start,
-+        validate_obsidian_path as _validate,
-+    )
-+
-+    if not _flag():
-+        return JSONResponse(
-+            {"error": "feature_disabled"}, status_code=404,
-+        )
-+
-+    try:
-+        body = await request.json()
-+    except Exception as exc:
-+        return JSONResponse(
-+            {"error": f"invalid JSON: {exc}"}, status_code=400,
-+        )
-+
-+    if not isinstance(body, dict):
-+        return JSONResponse(
-+            {"error": "body must be a JSON object"}, status_code=400,
-+        )
-+
-+    try:
-+        source_path = _validate(body.get("path"))
-+        result = _start(source_path)
-+    except _Err as exc:
-+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
-+
-+    return JSONResponse(result, status_code=200)
-+
-+
-+@app.get("/api/v1/import/obsidian/{job_id}/status", response_class=JSONResponse)
-+async def api_import_obsidian_status(job_id: str):
-+    """Return the state of an Obsidian import job."""
-+    from import_obsidian import (
-+        ObsidianImportError as _Err,
-+        is_feature_enabled as _flag,
-+        read_status as _status,
-+    )
-+
-+    if not _flag():
-+        return JSONResponse(
-+            {"error": "feature_disabled"}, status_code=404,
-+        )
-+
-+    try:
-+        return JSONResponse(_status(job_id), status_code=200)
-+    except _Err as exc:
-+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
-+
-+
-+@app.get("/api/v1/import/obsidian/{job_id}/tail", response_class=PlainTextResponse)
-+async def api_import_obsidian_tail(job_id: str):
-+    """Return the last 100 lines of the job's import log as text/plain."""
-+    from import_obsidian import (
-+        ObsidianImportError as _Err,
-+        is_feature_enabled as _flag,
-+        read_tail as _tail,
-+    )
-+
-+    if not _flag():
-+        return JSONResponse(
-+            {"error": "feature_disabled"}, status_code=404,
-+        )
-+
-+    try:
-+        return PlainTextResponse(_tail(job_id), status_code=200)
-+    except _Err as exc:
-+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
-+
-+
- # ── Pair iOS device panel (DFA-002) ──────────────────────────────────
- 
- 
-@@ -3329,10 +5652,486 @@
+ # ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────
+ #
+ # Forwards iOS-initiated CM019 paths to the local gateway over
+@@ -3329,10 +4349,486 @@
          setInterval(fetchStatus, STATUS_POLL_MS);
      }})();
      </script>
@@ -9030,10 +6485,10 @@
 +    setInterval(tick, POLL_MS);
 +  }})();
 +  </script>
-+</body>
-+</html>"""
-+
-+
+ </body>
+ </html>"""
+ 
+ 
 +@app.get("/whatsapp-pair", response_class=HTMLResponse)
 +async def whatsapp_pair_page():
 +    """Render the WhatsApp pairing panel."""
@@ -9293,10 +6748,10 @@
 +    setInterval(tick, POLL_MS);
 +  }})();
 +  </script>
- </body>
- </html>"""
- 
- 
++</body>
++</html>"""
++
++
 +@app.get("/extension-setup", response_class=HTMLResponse)
 +async def extension_setup_page():
 +    """Render the browser-extension setup panel."""
@@ -9327,7 +6782,7 @@
  @app.get("/pair-ios", response_class=HTMLResponse)
  async def pair_ios_page():
      """Render the Pair iOS device panel (DFA-002)."""
-@@ -3340,8 +6139,20 @@
+@@ -3340,8 +4836,20 @@
  
  
  @app.get("/api/v1/pair/status", response_class=JSONResponse)
@@ -9350,7 +6805,7 @@
      from pair_status import fetch_pair_status
      return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
  
-@@ -3353,18 +6164,17 @@
+@@ -3353,18 +4861,17 @@
      Cross-origin POSTs from a malicious local browser tab can DOS the
      pair code (rotate it under the customer's feet) even though the
      same-origin policy blocks the attacker from reading the new code.
@@ -9379,7 +6834,7 @@
      from pair_status import fetch_pair_status
      return JSONResponse(
          fetch_pair_status(fresh=True).to_dict(), status_code=200,
-@@ -3867,12 +6677,22 @@
+@@ -3867,12 +5374,22 @@
  
  
  @app.get("/api/v1/config", response_class=JSONResponse)
@@ -9403,7 +6858,7 @@
      from config_panel import ConfigError as _ConfigError, read_config_view
  
      try:
-@@ -3885,18 +6705,16 @@
+@@ -3885,18 +5402,16 @@
  async def api_config_post(request: Request):
      """Validate + persist a whitelist of safe config edits.
  
@@ -9431,7 +6886,7 @@
  
 --- /dev/null
 +++ b/agent/whatsapp_pair.py
-@@ -0,0 +1,357 @@
+@@ -0,0 +1,192 @@
 +"""Read the WhatsApp Web pair code the daemon publishes, for Doctor.
 +
 +WHY THIS MODULE EXISTS
@@ -9624,171 +7079,6 @@
 +        error=None,
 +        error_kind=None,
 +    )
-+
-+
-+# ---------------------------------------------------------------------------
-+# The keepalive verdict
-+# ---------------------------------------------------------------------------
-+#
-+# GRAFTED INTO THE VENDORED TREE (CM051, board item 965). vendor/doctor is held
-+# at pin b0b3831 for the life of v1.0, so everything this tree gains arrives as
-+# a hand-spliced graft. It lives in THIS module rather than a new one because a
-+# brand-new vendored file with no upstream counterpart needs a VENDOR_ONLY.tsv
-+# row, and that file's own header calls a new row a last resort. The reader
-+# belongs here on merit anyway: same state directory, same product surface,
-+# same explicit error taxonomy.
-+#
-+# WHAT IT READS, AND WHY IT EXISTS AT ALL
-+#
-+# com.creativemachines.ostler.whatsapp-keepalive runs twice a day. It used to
-+# run `ostler-assistant channel doctor`, which constructs a fresh, never
-+# connected WhatsApp channel object and therefore reported UNHEALTHY on every
-+# run on every box, then exited 0 regardless. Three consecutive unhealthy runs
-+# showed up in launchctl as `last exit code = 0` and the verdict went into a
-+# log file nobody opens.
-+#
-+# The keepalive now asks the running daemon's own health registry, repairs what
-+# it can, and writes its verdict here:
-+#
-+#     ${OSTLER_HOME}/state/whatsapp_keepalive.json     file 0600, dir 0700
-+#     {
-+#       "verdict":           one of the five below,
-+#       "detail":            one sentence of customer-facing English,
-+#       "checked_at":        unix seconds,
-+#       "repairs_last_24h":  integer
-+#     }
-+#
-+# Written temp-then-rename, so a half-written file cannot be read.
-+#
-+# THE POINT OF THE TILE. A remediation nobody can observe failing is the same
-+# defect one layer along. The keepalive can now repair the channel, and it can
-+# also fail to repair it; if the only trace of either is a log file and an exit
-+# code, the next person to be surprised by a dead WhatsApp channel finds out
-+# the same way as the last one. So the verdict gets a surface a customer sees
-+# without being told where to look.
-+#
-+# THE FIVE VERDICTS ARE NOT COLLAPSIBLE. They carry different next actions:
-+#
-+#     healthy          the channel is connected. Nothing to do.
-+#     recovered        it dropped out and Ostler put it back. Nothing to do,
-+#                      but say so, because self-repair that happens every day
-+#                      is a fault report, not a success story.
-+#     needs_customer   the link to their phone is gone. ONLY the customer can
-+#                      fix this, from their phone. Ostler deliberately does not
-+#                      retry, because retrying cannot work.
-+#     still_unhealthy  down, Ostler tried to fix it, it is still down.
-+#     cannot_run       no verdict could be reached (the daemon was not
-+#                      answering, most often because it is not running). NOT a
-+#                      report that WhatsApp is down, and must never be shown as
-+#                      one.
-+
-+_KEEPALIVE_STATE_FILENAME = "whatsapp_keepalive.json"
-+
-+# The verdicts the writer may emit. Anything else is treated as unreadable
-+# rather than rendered verbatim: a tile that prints whatever string it finds in
-+# a file is a tile that can be made to say anything.
-+KEEPALIVE_VERDICTS = (
-+    "healthy",
-+    "recovered",
-+    "needs_customer",
-+    "still_unhealthy",
-+    "cannot_run",
-+)
-+
-+
-+@dataclass
-+class WhatsAppKeepaliveStatus:
-+    """Structured keepalive verdict a Doctor renderer can use directly."""
-+
-+    verdict: str
-+    detail: Optional[str]
-+    checked_at: Optional[int]
-+    repairs_last_24h: int
-+
-+    def to_dict(self) -> dict:
-+        return {
-+            "verdict": self.verdict,
-+            "detail": self.detail,
-+            "checked_at": self.checked_at,
-+            "repairs_last_24h": self.repairs_last_24h,
-+        }
-+
-+
-+def keepalive_state_path() -> Path:
-+    """Resolve the keepalive verdict file.
-+
-+    Same root resolution as ``state_path`` so the pair panel and the keepalive
-+    tile cannot end up reading two different engine zones.
-+    """
-+    base = os.environ.get("OSTLER_HOME") or os.environ.get("OSTLER_DIR")
-+    root = Path(base) if base else Path.home() / ".ostler"
-+    return root / "state" / _KEEPALIVE_STATE_FILENAME
-+
-+
-+def read_whatsapp_keepalive(
-+    path: Optional[Path] = None,
-+) -> Optional[WhatsAppKeepaliveStatus]:
-+    """Read the last keepalive verdict, or ``None`` when there is not one.
-+
-+    ``None`` means "no tile", and it covers the two cases that are not a
-+    finding: an install where WhatsApp was never enabled, and one where the
-+    keepalive has not fired yet. Rendering an empty header for either would put
-+    a permanent unanswered question on the dashboard.
-+
-+    Never raises. This runs on the dashboard render path, where an exception
-+    blanks the whole page -- the exact failure class
-+    tests/test_the_doctor_dashboard_actually_renders.sh exists to catch.
-+    """
-+    target = path if path is not None else keepalive_state_path()
-+
-+    try:
-+        if not target.is_file():
-+            return None
-+        raw = target.read_text(encoding="utf-8")
-+    except OSError as exc:
-+        log.warning("whatsapp keepalive state unreadable at %s: %s", target, exc)
-+        return None
-+
-+    try:
-+        payload = json.loads(raw)
-+    except (ValueError, TypeError) as exc:
-+        log.warning(
-+            "whatsapp keepalive state is not valid JSON at %s: %s", target, exc,
-+        )
-+        return None
-+
-+    if not isinstance(payload, dict):
-+        return None
-+
-+    verdict = payload.get("verdict")
-+    if not isinstance(verdict, str) or verdict not in KEEPALIVE_VERDICTS:
-+        # An unrecognised verdict is a writer/reader mismatch, which is the
-+        # failure this tree has been bitten by before. Say so in the log and
-+        # show nothing, rather than inventing a state.
-+        log.warning(
-+            "whatsapp keepalive state at %s carries an unrecognised verdict",
-+            target,
-+        )
-+        return None
-+
-+    detail = payload.get("detail")
-+    if not isinstance(detail, str) or not detail.strip():
-+        detail = None
-+
-+    checked_at = payload.get("checked_at")
-+    if isinstance(checked_at, bool) or not isinstance(checked_at, int):
-+        checked_at = None
-+
-+    repairs = payload.get("repairs_last_24h")
-+    if isinstance(repairs, bool) or not isinstance(repairs, int) or repairs < 0:
-+        repairs = 0
-+
-+    return WhatsAppKeepaliveStatus(
-+        verdict=verdict,
-+        detail=detail.strip() if detail else None,
-+        checked_at=checked_at,
-+        repairs_last_24h=repairs,
-+    )
 --- a/agent/wiki_correct.py
 +++ b/agent/wiki_correct.py
 @@ -17,7 +17,7 @@
@@ -9818,3 +7108,13 @@
          "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
          "INSERT DATA {\n"
          f"  {body}\n"
+--- a/agent/web_ui.py
++++ b/agent/web_ui.py
+@@ -2463,6 +2463,7 @@ _SOURCE_KINDS = {
+     "imessage": "source",
+     "people": "source",
+     "places": "source",
++    "reminders": "source",
+     "whatsapp": "source",
+     "dedupe": "operation",
+     "privacy_backfill": "operation",
