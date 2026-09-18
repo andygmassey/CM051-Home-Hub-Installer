@@ -528,6 +528,7 @@ test_the_emergency_cut_row_tells_the_truth.sh	WIRED	.github/workflows/cut-manife
 test_the_failed_to_look_message_can_actually_print.sh	WIRED	.github/workflows/dmg-delivery-gate.yml
 test_the_generated_uninstaller_parses.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_the_governor_revendor_guard_is_actually_run.sh	WIRED	.github/workflows/vendor-integrity.yml
+test_the_install_panel_says_it_is_reading_the_transcript.py	WIRED	.github/workflows/consent-data-handling.yml
 test_the_installer_downloads_from_the_repo_we_publish_to.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_licence_a_customer_paid_for_is_owner_only.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_the_licence_acknowledgement_reaches_the_customer.sh	WIRED	.github/workflows/consent-registry.yml
@@ -560,6 +561,7 @@ test_the_source_table_covers_the_fda_extract_family.sh	WIRED	.github/workflows/c
 test_the_source_table_items_column_is_the_number_it_claims.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_the_store_auth_guard_says_when_it_skips.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_the_store_port_table_cites_anchors_not_line_numbers.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_the_store_proxy_rereads_the_credential_it_enforces.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_success_screen_names_the_wiki_credential.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_summary_never_claims_a_recovery_path_that_was_not_handed_over.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_trial_must_actually_end.sh	WIRED	.github/workflows/the-trial-must-actually-end.yml

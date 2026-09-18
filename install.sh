@@ -19407,6 +19407,55 @@ SAEOF
     chmod 600 "${OSTLER_DIR}/ostler-store-auth.conf"
 fi
 
+# ── MAKE A RUNNING PROXY READ THE CREDENTIAL WE JUST WROTE ────────
+#
+# 🔴 nginx READS ITS CONFIG AT START. The file above is a :ro bind-mount, so the
+# host copy is live, but a proxy that is ALREADY RUNNING keeps enforcing the
+# credential it read when it started. `docker compose up -d` further down does
+# not restart a container whose spec has not changed, so on any box where the
+# proxy already exists the new token is written and never enforced.
+#
+# MEASURED ON THE MINI, 2026-09-18, and it was an accidental controlled
+# experiment: same artefact, same box, same installer sha, twice.
+#
+#   install 1   store secrets REUSED    privacy-backfill 401s: 0
+#   install 2   store token FRESH       privacy-backfill 401s: 1
+#
+#   ostler-store-proxy started      16:23:30Z
+#   ostler-store-auth.conf written  16:24:25Z   55s LATER
+#
+# Source, client and server token were all 64 chars and all EQUAL, and the file
+# inside the container matched the host byte for byte. Nothing was mismatched.
+# nginx simply had not re-read it. The consequence is not cosmetic: privacy
+# backfill and places-ingest both 401 against 7878, and the install says
+# "Privacy backfill did not complete (rc=1); readers stay fail-closed."
+#
+# A FIRST-TIME CUSTOMER INSTALL ALWAYS MINTS FRESH, so this is the common path
+# rather than an upgrade edge case.
+#
+# THIRD INSTANCE OF ONE SHAPE in a single night: LaunchAgents started before
+# their binaries, the recovery-key marker captured before the promote, and now a
+# proxy started before its auth config. A consumer brought up before the thing
+# it consumes is in place.
+#
+# Guarded on the container actually running, so a first install -- where the
+# proxy starts later and reads this file correctly -- does nothing here. Docker
+# may not even be up yet at this point, which the same guard covers.
+_ostler_reload_store_proxy_if_running() {
+    docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'ostler-store-proxy' || return 0
+    if docker exec ostler-store-proxy nginx -t >/dev/null 2>&1 \
+       && docker exec ostler-store-proxy nginx -s reload >/dev/null 2>&1; then
+        ok "Store proxy reloaded, so the credential just written is the one it enforces."
+        return 0
+    fi
+    # NOT fatal, and NOT silent. Aborting a working install over a recoverable
+    # condition is worse; leaving it unsaid is how this went unnoticed.
+    warn "The store proxy is running and could not be reloaded, so it may still be enforcing the PREVIOUS store credential."
+    warn "  Readers will receive 401 from 7878 until it restarts. Re-running the installer, or restarting the proxy container, clears it."
+    return 0
+}
+_ostler_reload_store_proxy_if_running
+
 # ── Wiki browser credential (#1594) ───────────────────────────────
 #
 # Same 0600 / must-exist-first rules as the Oxigraph credential above:
