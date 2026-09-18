@@ -41,6 +41,10 @@ on:
       - 'vendor/cm041/meeting_syncer/brief.py'
       - 'vendor/cm048_pipeline/src/candidates.py'
       - 'tests/test_a_forget_must_reach_every_named_graph.py'
+      # THE THIRD HALF, and the one the other two cannot see. They test the
+      # graph SCOPE of the delete and the honesty of its REPORT; both take the
+      # delete PATTERN as given, and the pattern is where rows 960 and 2217 live.
+      - 'tests/test_a_forget_erases_the_fact_not_just_the_link.py'
       - '.github/workflows/forget-reaches-every-graph.yml'
   push:
     branches: [main]
@@ -76,3 +80,28 @@ jobs:
         # 2026-09-18: five triples, HTTP 200, "already_forgotten": true, five
         # triples still there.
         run: python3 tests/test_forget_does_not_claim_an_erasure_it_did_not_do.py
+
+      # BOTH ENGINES, DELIBERATELY. The step below runs its measurement under
+      # each and fails if they disagree, because the product speaks SPARQL to
+      # Oxigraph and a verdict taken from rdflib alone is a verdict about
+      # rdflib. Installing only one would silently reduce that arm to a note.
+      - name: Install both SPARQL engines for the erasure gate
+        run: python3 -m pip install --quiet pyoxigraph rdflib
+
+      - name: A forget erases the sentence, not only its link to a person
+        if: always()
+        # The two above mutate the GRAPH CLAUSE and the REPORT. This one mutates
+        # the DELETE PATTERN, which is the surface rows 960 and 2217 name and the
+        # one surface neither of the others touches. It lifts the shipped
+        # _forget_person_update by AST and runs it against a synthetic store.
+        #
+        # It keeps BOTH predicates on purpose. A person-keyed count reads 0 in
+        # the broken world AND the fixed one, because the second clause removes
+        # every mention; that is why this defect was reported closed. Only a
+        # content-keyed count can tell them apart, and this asserts they disagree.
+        #
+        # It exits 0 outside a cut and FAILS under OSTLER_CUT_IN_PROGRESS=1. The
+        # fix belongs upstream in CM041 (row 2218: the vendored copy is 1,151
+        # lines ahead of CM041 main, so a re-vendor destroys shipped behaviour),
+        # so CM051 owes a refusal rather than a graft.
+        run: python3 tests/test_a_forget_erases_the_fact_not_just_the_link.py
