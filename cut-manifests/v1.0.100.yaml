@@ -5464,3 +5464,42 @@ open_issues:
       working tree, because those are 702 lines apart and row 2202 measured exactly that gap. RELATED
       AND NOT A DUPLICATE: row 2223 is about whether individual patterns CAN be verified; this row is
       about whether anything ASKS.
+  - issue: 2242
+    repo: none
+    title: 'The check rollup renders every non-zero exit as a failure, so a gate reporting CANNOT-RUN is indistinguishable from one reporting a defect'
+    gate: >-
+      MEASURED 2026-09-19 ACROSS TWO REPOSITORIES ON UNRELATED PULL REQUESTS, AND IT ERASES THE ONE
+      DISTINCTION THIS ESTATE IS BUILT ON. NOT BLOCKING: nothing about the artefact changes. Filed
+      because the next person triaging a red backlog will make the same mistake and write off a change
+      that is telling the truth. THE RULE IT BREAKS IS THE FIRST LINE OF THE EVIDENCE DISCIPLINE:
+      CANNOT-RUN is not FAIL and is not PASS, three outcomes and three branches. Gates here are
+      careful about that, exiting 2 with a reason naming the missing prerequisite. THE CHECK LIST
+      COLLAPSES IT TO TWO. Any non-zero renders as a failure, so a gate that honestly refused and a
+      gate that measured a defect look identical to anyone reading the list, and the honest one reads
+      as the more damning because a refusal usually fires at the first arm and reports nothing else.
+      TWO INSTANCES, BOTH FOUND WHILE TRIAGING RATHER THAN LOOKED FOR, WHICH IS WHAT SUGGESTS THERE
+      ARE MORE. FIRST: a pull request adding the rephrasing half of the grounded battery shows a red
+      gate. The step exits 2 and says, in its own words, that a healthy battery produced CANNOT-RUN
+      and the harness is wrong rather than the probe. THAT MESSAGE IS LITERALLY CORRECT: the harness
+      declares three positional turns because the battery had three questions, that change adds a
+      fourth, and the fourth turn gets no synthetic answer. Counted: 12 call sites pass exactly three
+      tokens and 0 pass four. CONTROL: the same file is 17 pass and 0 fail on a tree that is main plus
+      unrelated work, so the file is healthy and it is the battery size that trips it. A reader of the
+      check list would have concluded the change was broken. IT IS THE FIX FOR A ROW ON THIS BOARD.
+      SECOND, IN A DIFFERENT REPOSITORY: a scan check reports a failure whose log says no inventory is
+      available because a secret and a local file are both absent. Exit 2. That secret is DELIBERATELY
+      UNSTORED and the credential register says so, alongside a warning that it has been mis-called a
+      blocker before. DENOMINATOR, because always-been-like-that needs a number: that check has run
+      TWICE in that repository's entire history and failed both times, on two unrelated branches a
+      fortnight apart. Nothing was ever scanned, so nothing was ever found. WHY THE SECOND IS THE
+      WORSE SHAPE: a workflow that turns an absent-BY-DESIGN prerequisite into a red teaches readers
+      that red means nothing there, which is the precise condition under which a genuine finding gets
+      waved through. A permanent false red is worse than no gate, and this board already records that
+      argument being used to justify leaving three known orphans unwired. WHAT WOULD CLOSE IT, and the
+      small version is enough: the rollup distinguishes 2 from 1, or each gate that can refuse reports
+      the refusal in a form the list can show, so a reader sees COULD NOT RUN rather than FAILED.
+      Until then the triage rule is the workaround and it belongs written down: BEFORE WRITING OFF ANY
+      RED, READ WHETHER IT EXITED 1 OR 2. A 1 is a measured defect. A 2 is a gate saying it could not
+      look, and the reason names the missing prerequisite. NOT A DUPLICATE OF ROW 2241: that row is
+      about a gate the cut never runs. This is about how the results of gates that DO run are rendered
+      to a person.
