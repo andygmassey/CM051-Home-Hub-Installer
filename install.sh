@@ -2754,6 +2754,20 @@ _ostler_set_paths() {
     fi
     SECURITY_DIR="${OSTLER_DIR}/security-module"
     SECURITY_CONFIG_DIR="${OSTLER_DIR}/security"
+    # 🔴 REBOUND HERE, NOT CAPTURED ONCE AT TOP LEVEL. This used to be assigned
+    # once near the recovery-key block, which runs BEFORE the promote, so it
+    # froze the prelaunch path while SECURITY_CONFIG_DIR beside it was rebound
+    # to the real tree. The writer then mkstemp'd into the live directory and
+    # os.replace()d onto a path in a tree that had already been deleted:
+    #
+    #   FileNotFoundError: '/Users/<user>/.ostler/security/tmp*.tmp'
+    #     -> '/tmp/ostler-prelaunch-<pid>/security/recovery_key_delivered.json'
+    #
+    # The install reported success. The marker was never written, and the two
+    # branches that read it could not fire on any install that promotes, which
+    # is every install. Found on a cold walk that PASSED: the only tell was a
+    # traceback count of 1.
+    RECOVERY_DELIVERY_MARKER="${SECURITY_CONFIG_DIR}/recovery_key_delivered.json"
     PIPELINE_DIR="${OSTLER_DIR}/import-pipeline"
     USER_TREE_SENTINEL="${OSTLER_DIR}/.installer-tree-created"
     # CX-87 (DMG #48g): derived path vars assigned BEFORE the FDA
@@ -8429,7 +8443,6 @@ SECURITY_PREEXISTED=false
 # is scoped to THIS PROCESS ONLY and answers nothing about a previous run;
 # this file is what a later run reads instead of inferring delivery from
 # keychain.json's mere presence. It never holds the key or any part of it.
-RECOVERY_DELIVERY_MARKER="${SECURITY_CONFIG_DIR}/recovery_key_delivered.json"
 
 # Check if security is already configured (re-run detection)
 #
