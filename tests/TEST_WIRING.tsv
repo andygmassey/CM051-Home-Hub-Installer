@@ -66,6 +66,7 @@ test_a_self_test_denominator_counts_itself.sh	WIRED	.github/workflows/walk-recor
 test_a_slow_step_is_not_a_wedged_one.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_staging_copy_is_guarded_on_its_source.py	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_a_status_read_is_guarded.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
+test_a_store_refusal_is_not_an_empty_batch.py	WIRED	.github/workflows/writer-reader-vocabulary.yml
 test_a_stored_secret_says_so_where_it_is_typed.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_a_struck_row_names_an_issue_not_a_pull_request.py	WIRED	.github/workflows/cut-checklist-complete.yml
 test_a_subshell_cannot_emit_a_terminal_done.sh	WIRED	.github/workflows/step-end-status-honesty.yml
@@ -96,6 +97,7 @@ test_an_absent_launchd_domain_is_not_a_service_that_is_down.sh	WIRED	.github/wor
 test_an_identifier_is_not_a_taste.py	WIRED	.github/workflows/vendor-integrity.yml
 test_an_old_format_sentinel_does_not_abort_the_install.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_an_unconfirmed_calendar_is_not_buried_forever.py	WIRED	.github/workflows/privacy-spine.yml
+test_an_undescribed_vendor_divergence_is_red.sh	WIRED	.github/workflows/vendor-divergence-described.yml
 test_an_uninstall_does_not_consume_the_purchase.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_an_uninstall_that_cannot_ask_removes_nothing.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_an_unmeasured_count_is_not_a_measured_zero.sh	WIRED	.github/workflows/hydrate-sentinel.yml
@@ -382,6 +384,7 @@ test_ollama_install_path_contract.sh	WIRED	.github/workflows/consent-data-handli
 test_ollama_user_active.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_one_slow_route_cannot_wedge_the_hub_api.py	WIRED	.github/workflows/one-slow-route-cannot-wedge-the-api.yml
 test_one_store_does_not_get_two_budgets.sh	WIRED	.github/workflows/rule-09-strings-check.yml
+test_only_the_users_own_address_book_is_read.sh	WIRED	.github/workflows/address-book-source-guard.yml
 test_open_prs_are_reported_not_counted.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_operator_pii_scan_sees_all_text_kinds.sh	WIRED	.github/workflows/operator-pii-scan.yml
 test_orphan_gate_cannot_verify.sh	WIRED	.github/workflows/cut.yml
@@ -544,6 +547,7 @@ test_the_shipped_vendor_manifest_names_no_operator.py	WIRED	.github/workflows/ve
 test_the_source_table_covers_the_fda_extract_family.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_source_table_items_column_is_the_number_it_claims.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_the_store_auth_guard_says_when_it_skips.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
+test_the_store_port_table_cites_anchors_not_line_numbers.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_success_screen_names_the_wiki_credential.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_summary_never_claims_a_recovery_path_that_was_not_handed_over.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_trial_must_actually_end.sh	WIRED	.github/workflows/the-trial-must-actually-end.yml
@@ -701,6 +705,7 @@ scripts/tests/test_an_unreachable_box_is_not_a_defect.sh	WIRED	.github/workflows
 scripts/tests/test_artefact_version_read_is_shaped.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 scripts/tests/test_comment_strip_is_quote_aware.sh	WIRED	.github/workflows/new-tests-must-be-wired.yml
 scripts/tests/test_daemon_fda_case6_controls.sh	WIRED	.github/workflows/consent-data-handling.yml
+scripts/tests/test_egress_declared_host_resolution.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 scripts/tests/test_egress_probe_attribution.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 scripts/tests/test_email_channel_toml.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
 scripts/tests/test_enforce_ledger_write.sh	WIRED	.github/workflows/enforce-ledger-write.yml
