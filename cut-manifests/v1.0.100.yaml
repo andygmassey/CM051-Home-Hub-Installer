@@ -1640,3 +1640,53 @@ open_issues:
     repo: none   # measured finding, not a tracker item
     title: "The divergence patch APPLIES CLEANLY and does not reconstruct the tree, so a re-pin deletes shipped work"
     gate: '🔴 BLOCKING (a re-pin of vendor:doctor today deletes a shipped customer surface): MEASURED 2026-09-18 BY DOING THE RECONSTRUCTION, NOT BY READING A PATCH. For each vendored tree whose source_repo is $HR015, git archive the PINNED sha of its source path into a temp tree, apply its divergence_patch with patch -p1 --forward, then diff -rq the result against the tree CM051 actually ships. ELEVEN TREES MEASURED, SEVEN RECONSTRUCT EXACTLY, AND THAT IS THE CONTROL that makes the other four mean something: ostler_fda, legal, email_ingest, imessage_bridge, hub_power, spoken_source and email_source all come back with 0 non-test files differing, so the method works and a mismatch is a fact about the tree rather than about the instrument. THREE DO NOT RECONSTRUCT. doctor: 11 non-test shipped files differ (README.md, agent/box_status.py, agent/dashboard_components.py, agent/diagnostic_copy.py, agent/diagnostic_rules.py, agent/import_notion.py, agent/import_obsidian.py, agent/pair_status.py, agent/web_ui.py, agent/web_ui_copy.py, agent/whatsapp_pair.py). ostler_security: 2, consent_cli.py and passphrase_recovery_cli.py. whatsapp_source: 2, bin/whatsapp-bundle-tick.sh and launchd/com.creativemachines.ostler.whatsapp-bundle.plist. 🔴 AND THE PATCH APPLIES CLEANLY IN EVERY CASE. patch exits 0, no fuzz, no failed hunks, and the reconstruction is still eleven files wrong. That is worse than a patch that fails, because a failure announces itself and this returns success. Two trees exit 1 from patch and reconstruct PERFECTLY (email_source, spoken_source), which is the same lesson from the other side: the exit status is not the verdict, the diff is. THE CONCRETE, CUSTOMER-VISIBLE INSTANCE, and it is the one row 965 was gated on: render_whatsapp_keepalive is present in vendor/doctor/agent/dashboard_components.py:1292 and absent from HR015 at the pin, from HR015 main, and from the patch. CONTROL, a function both trees certainly have: render_system_overview, 1 at the pin and 1 on main. So the WhatsApp keepalive TILE exists only in the vendored copy, and a re-pin regenerating from pin plus patch deletes it, silently, returning the keepalive job to writing its verdict into a file nobody reads, which is the exact defect row 965 names. ostler_security MATTERS FOR A DIFFERENT REASON: passphrase_recovery_cli.py is the recovery-key surface, and the recovery key a customer cannot redeem is one of the two launch blockers this estate already carries. A re-pin dropping a graft there could undo a fix nobody would think to re-check. MY FIRST CONTROL WAS NOT A CONTROL, and the row records it because the mistake is the reusable part: I grepped the patch for read_whatsapp_keepalive as a supposedly-known-present control and got 0, the same as the subject. A uniform zero across subject and control is the tell, and I nearly reported the absence without knowing whether the search worked at all. 🗿 AND MY FIRST STATEMENT OF WHAT THIS MEANS WAS WRONG, CORRECTED BY ARCHIE WITHIN THE HOUR, AND THE CORRECTION MAKES IT WORSE RATHER THAN BETTER. I wrote that the non-empty divergence_patch form has no gate and that the register was silently green over doctor. IT HAS ONE AND IT IS ALREADY RED. Run with the source repositories resolvable, verify_vendor_fresh.sh reports doctor as DIFFERING from source@pinned_sha+patch and as having advanced past its pin, and returns RED. I asserted an absence of verification without running the verifier, which is the same error as reporting an absence without a control. WHAT IS ACTUALLY TRUE IS THE LINE BESIDE IT: 24 trees, 8 fresh, 3 stale or divergent, 10 UNVERIFIABLE, 3 acked. THIRTEEN OF TWENTY-FOUR ARE NOT CHECKED AT ALL, because the gate resolves its sources through environment variables nothing in the login profile sets, so where CI runs it, it checks nothing. The redness is real and INVISIBLE. That is a different defect from an unverified claim and it wants a different fix: make the gate runnable where somebody looks, rather than add a verification it already performs. 20 of the 24 trees carry a non-empty patch. ARCHIE REPRODUCED THE RECONSTRUCTION INDEPENDENTLY, matched the 11 non-test figure exactly, and swept every tree with a non-empty patch rather than only the HR015-sourced ones: FIVE trees apply cleanly and do not reconstruct (doctor 11, cm041/assistant_api 3 differing plus 4 files present ONLY in the vendored copy, ostler_security 2, cm048_pipeline 2, whatsapp_source 2), and cm041/contact_syncer fails to apply at all with 18 differing, which at least announces itself. cm041/assistant_api is the next hazard after doctor, because it is already a re-pin candidate and a re-pin would drop those four files exactly as a doctor re-pin would delete the keepalive tile. The register-level row is his; this one stays the doctor finding and the method. NOT MEASURED, AND NAMED RATHER THAN IMPLIED COVERED: the 12 trees whose source lives in CM019, CM021, CM024, CM040, CM041, CM048 or CM059. They need their own checkouts and this measurement was not run on them. Their reconstruction is unknown, which is not the same as clean. WHAT IS OWED: regenerate the three failing patches BEFORE any re-pin of those trees; add a gate that performs the reconstruction rather than checking that the patch applies; and run the same measurement on the other 12. Owner archie, the vendor register is his.'
+  - issue: 2221
+    repo: none
+    title: >-
+      The acceptance gate neither measures nor refuses when no ssh target is
+      set: it prints SKIP and exits 0, which is a PASS, on every cut
+    gate: >-
+      🔴 BLOCKING (a launch-critical gate registered in permanent.yaml
+      scores GREEN without measuring anything, on the suite''s own supported
+      run-on-the-box mode): MEASURED 2026-09-18, and THE FIRST VERSION OF THIS
+      ROW WAS WRONG IN A WAY WORTH RECORDING, because the error is the more
+      common one.
+      WHAT I CLAIMED FIRST AND WITHDREW: that six of twenty nine probes
+      "silently fall back to the local machine" when OSTLER_BOX_HOST is unset,
+      and that this was an accident. IT IS THE DOCUMENTED CONTRACT. The suite''s
+      own README says "OSTLER_BOX_HOST unset now means THIS MACHINE rather than
+      refuse to report, which is what the rest of the suite means by it";
+      run_box_walk.sh prints "TARGET: this machine (OSTLER_BOX_HOST unset)" on
+      that path; and the environment table gives the default as "unset (this
+      machine)". box_run() executing locally and box_reachable() returning true
+      with no host are BY DESIGN. Running the whole suite ON the Hub is a
+      supported mode, and the probes that then report pass or fail against that
+      machine are behaving correctly. I read the guard''s scope after judging it
+      instead of before.
+      WHAT SURVIVES, AND IT IS REAL. Under that contract every probe does one of
+      two honest things: it measures the machine it is pointed at, or it refuses
+      with 78 when a prerequisite is absent. Measured across all 29 with no ssh
+      target: 23 exit 78, three exit 0 having measured this machine, three exit
+      1 having measured this machine. ACCEPTANCE_GATE_v1013 DOES NEITHER. It
+      prints SKIP and exits 0 without reading anything at all, and the harness
+      records 0 as a PASS. Its own comment says "unset host -> never fail" and
+      reached for the wrong code: 0 does not mean did not fail, it means passed.
+      WHY THAT MATTERS: the gate is registered in cut-manifests/permanent.yaml,
+      so it is adjudicated on EVERY cut, and on the supported on-box mode it
+      contributes a green having measured nothing. The file''s own CANNOT-RUN
+      exit already states the principle it breaks here: "This is NOT a pass and
+      NOT a defect in the artefact. Nothing was measured there."
+      AND THE TEST WRITTEN FOR EXACTLY THIS CANNOT SEE IT. scripts/tests/
+      test_an_unreachable_box_is_not_a_defect.sh has nine arms and every one
+      sets OSTLER_BOX_HOST to an unreachable value, so the file measures an
+      UNREACHABLE target and never an ABSENT one. Two different branches, one
+      covered. That gap is real whatever the right exit code turns out to be.
+      RETIRE BY: making the gate RUN on the unset-host path like every other
+      probe, which needs a box to validate because its assertions are about
+      launchd agents and daemon endpoints, plus the missing test arm. NOT by
+      making it exit 78, which was my first fix and is withdrawn: refusing
+      would move it further from its siblings, not closer, because they measure.
+      WHICH HALF-WIRED FAILURE MODE: CANNOT-RUN passing on a zero denominator,
+      and it is the purest instance on this board. The denominator is not small
+      or unrepresentative. It is zero, and the verdict is green.
+
