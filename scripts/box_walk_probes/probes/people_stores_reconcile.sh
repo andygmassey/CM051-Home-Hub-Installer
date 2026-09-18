@@ -648,20 +648,49 @@ self_test() {
     # and phase 1 treats that as BROKEN. So probe_pass below is the failure
     # path, not the success path.
     SELF_TEST_LOCAL=1
-    probe_examined 32 "synthetic reconciliation results (negative control)"
     local rc out fails=0 firstbad=""
+
+    # ── THE DENOMINATOR COUNTS ITSELF (#2120, #2138) ──────────────────────
+    #
+    # This line used to read `probe_examined 32` BEFORE a single case had run,
+    # and the two verdict sentences below said "32 cases" as well. MEASURED on
+    # origin/main by a second instrument, counting the outcome lines the run
+    # actually prints: 41 distinct assertions fire, every label unique. The
+    # typed number was wrong by NINE on a BLOCKING probe, and the walk record a
+    # person reads said "all 32 cases behaved" while 41 ran.
+    #
+    # Nothing asserted the 32. Measured: 0 files in tests/ or scripts/ name it.
+    # That is #2120 exactly -- a probe that declares its own case count, checked
+    # by nothing, so being wrong costs nothing until somebody relies on it.
+    #
+    # TWO NON-FIXES, both refused, both named in #2120: typing 41 instead, and
+    # adding a test that asserts the literal equals 41. The second pins a claim
+    # to another claim and they drift together.
+    #
+    # So the count is taken AT RUNTIME, by the cases themselves. Every assertion
+    # in this function ends by printing exactly one outcome line, and every
+    # outcome line ticks. A case added in any shape counts itself by running.
+    #
+    # 🔴 THE RESIDUAL RISK, STATED RATHER THAN LEFT TO BE FOUND: a new arm that
+    # prints an outcome without ticking would under-count again, which is #2138.
+    # That is why the tick is not trusted alone. The block below cross-checks it
+    # against a SECOND instrument, the outcome lines the run printed, and goes
+    # BROKEN if the two disagree. One instrument can be wrong silently; two that
+    # must agree cannot.
+    _st_n=0
+    _st_tick() { _st_n=$(( _st_n + 1 )); }
 
     _case() {
         # _case <label> <FAKE value> <expected exit code>
         local label="$1" fake="$2" want="$3"
         out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="$fake" run_probe 2>&1)"; rc=$?
         if [ "$rc" -ne "$want" ]; then
-            printf '  SELF-TEST FAIL [%s]: expected exit %s, got %s\n' "$label" "$want" "$rc"
+            _st_tick; printf '  SELF-TEST FAIL [%s]: expected exit %s, got %s\n' "$label" "$want" "$rc"
             printf '    output: %s\n' "$(printf '%s' "$out" | tail -1)"
             fails=$((fails + 1))
             [ -z "$firstbad" ] && firstbad="$label"
         else
-            printf '  ok [%s] exit %s\n' "$label" "$rc"
+            _st_tick; printf '  ok [%s] exit %s\n' "$label" "$rc"
         fi
     }
 
@@ -670,12 +699,12 @@ self_test() {
         local label="$1" seq="$2" want="$3"
         out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE_SEQ="$seq" run_probe 2>&1)"; rc=$?
         if [ "$rc" -ne "$want" ]; then
-            printf '  SELF-TEST FAIL [%s]: expected exit %s, got %s\n' "$label" "$want" "$rc"
+            _st_tick; printf '  SELF-TEST FAIL [%s]: expected exit %s, got %s\n' "$label" "$want" "$rc"
             printf '    output: %s\n' "$(printf '%s' "$out" | tail -1)"
             fails=$((fails + 1))
             [ -z "$firstbad" ] && firstbad="$label"
         else
-            printf '  ok [%s] exit %s\n' "$label" "$rc"
+            _st_tick; printf '  ok [%s] exit %s\n' "$label" "$rc"
         fi
     }
 
@@ -685,12 +714,12 @@ self_test() {
         local label="$1" fake="$2" tile="$3" want="$4"
         out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="$fake" FAKE_TILE="$tile" run_probe 2>&1)"; rc=$?
         if [ "$rc" -ne "$want" ]; then
-            printf '  SELF-TEST FAIL [%s]: expected exit %s, got %s\n' "$label" "$want" "$rc"
+            _st_tick; printf '  SELF-TEST FAIL [%s]: expected exit %s, got %s\n' "$label" "$want" "$rc"
             printf '    output: %s\n' "$(printf '%s' "$out" | tail -1)"
             fails=$((fails + 1))
             [ -z "$firstbad" ] && firstbad="$label"
         else
-            printf '  ok [%s] exit %s\n' "$label" "$rc"
+            _st_tick; printf '  ok [%s] exit %s\n' "$label" "$rc"
         fi
     }
 
@@ -709,14 +738,14 @@ self_test() {
     out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7111 7284 106 0 0 30 7081" \
            FAKE_TILE="7111" run_probe 2>&1)"; rc=$?
     if [ "$rc" -ne "$PROBE_EX_FAIL" ]; then
-        printf '  SELF-TEST FAIL [D suppressed]: expected exit %s, got %s\n' "$PROBE_EX_FAIL" "$rc"
+        _st_tick; printf '  SELF-TEST FAIL [D suppressed]: expected exit %s, got %s\n' "$PROBE_EX_FAIL" "$rc"
         fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="D suppressed exit"
     else
         case "$out" in
             *"D=wiki tile"*)
-                printf '  SELF-TEST FAIL [D suppressed]: the verdict names D even though A=106 explains it.\n'
+                _st_tick; printf '  SELF-TEST FAIL [D suppressed]: the verdict names D even though A=106 explains it.\n'
                 fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="D suppressed message" ;;
-            *) printf '  ok [D suppressed while A non-zero -- verdict names A, not D]\n' ;;
+            *) _st_tick; printf '  ok [D suppressed while A non-zero -- verdict names A, not D]\n' ;;
         esac
     fi
     # an unreadable tile must never read as "the customer is shown zero people"
@@ -747,8 +776,8 @@ self_test() {
     # alone cannot test this -- both branches pass -- so assert the MESSAGE.
     out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7187 0 0 0 0 7187" run_probe 2>&1)"; rc=$?
     case "$out" in
-        *"NOT MEASURED"*) printf '  ok [eight-field line says NOT MEASURED, not zero]\n' ;;
-        *) printf '  SELF-TEST FAIL [fixture attribution]: an unmeasured attribution did not say so.\n'
+        *"NOT MEASURED"*) _st_tick; printf '  ok [eight-field line says NOT MEASURED, not zero]\n' ;;
+        *) _st_tick; printf '  SELF-TEST FAIL [fixture attribution]: an unmeasured attribution did not say so.\n'
            fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="fixture attribution unmeasured" ;;
     esac
 
@@ -805,12 +834,12 @@ self_test() {
                       FAKE_RECONCILE="$_CLEAN" OSTLER_PROBE_TICK_WAIT_S="$_KBUDGET" \
                       run_probe 2>&1)"; rc=$?
         if [ "$rc" -ne "$want" ]; then
-            printf '  SELF-TEST FAIL [%s]: expected exit %s, got %s\n' "$label" "$want" "$rc"
+            _st_tick; printf '  SELF-TEST FAIL [%s]: expected exit %s, got %s\n' "$label" "$want" "$rc"
             printf '    output: %s\n' "$(printf '%s' "$_KLAST_OUT" | tail -1)"
             fails=$((fails + 1))
             [ -z "$firstbad" ] && firstbad="$label"
         else
-            printf '  ok [%s] exit %s\n' "$label" "$rc"
+            _st_tick; printf '  ok [%s] exit %s\n' "$label" "$rc"
         fi
     }
 
@@ -819,8 +848,8 @@ self_test() {
     _kcase "tick running twice then quiet -> the probe proceeds" "running|running|quiet" 0 "$PROBE_EX_PASS"
     # A ZERO-LENGTH WAIT AND A WAIT THAT HAPPENED MUST NOT SHARE A SILENCE.
     case "$_KLAST_OUT" in
-        *'read "not running" after 30s'*) printf '  ok [the note names the 30s waited]\n' ;;
-        *) printf '  SELF-TEST FAIL [the note names the seconds waited]: absent from the output\n'
+        *'read "not running" after 30s'*) _st_tick; printf '  ok [the note names the 30s waited]\n' ;;
+        *) _st_tick; printf '  SELF-TEST FAIL [the note names the seconds waited]: absent from the output\n'
            fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="tick note" ;;
     esac
 
@@ -842,8 +871,8 @@ self_test() {
     _KBUDGET=900
     _kcase "the job is not loaded here -> the probe proceeds" "notloaded" 0 "$PROBE_EX_PASS"
     case "$_KLAST_OUT" in
-        *'not loaded on this host'*) printf '  ok [the note says "not loaded" verbatim, with the label]\n' ;;
-        *) printf '  SELF-TEST FAIL [the not-loaded note]: absent from the output\n'
+        *'not loaded on this host'*) _st_tick; printf '  ok [the note says "not loaded" verbatim, with the label]\n' ;;
+        *) _st_tick; printf '  SELF-TEST FAIL [the not-loaded note]: absent from the output\n'
            fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="notloaded note" ;;
     esac
 
@@ -855,8 +884,8 @@ self_test() {
     _KBUDGET=900
     _kcase "no launchctl on the host -> the probe proceeds" "noplatform" 0 "$PROBE_EX_PASS"
     case "$_KLAST_OUT" in
-        *'is not present on this host'*) printf '  ok [the note says why the hold did not apply]\n' ;;
-        *) printf '  SELF-TEST FAIL [the note says why the hold did not apply]: absent from the output\n'
+        *'is not present on this host'*) _st_tick; printf '  ok [the note says why the hold did not apply]\n' ;;
+        *) _st_tick; printf '  SELF-TEST FAIL [the note says why the hold did not apply]: absent from the output\n'
            fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="noplatform note" ;;
     esac
 
@@ -867,7 +896,7 @@ self_test() {
     #    a mutant that did not land returns the green you hoped for.
     _real_hold="$(declare -f box_wait_ingest_quiet)"
     if [ -z "$_real_hold" ]; then
-        printf '  SELF-TEST FAIL [CONTROL]: box_wait_ingest_quiet is not defined, so arms 1 to 3 prove nothing\n'
+        _st_tick; printf '  SELF-TEST FAIL [CONTROL]: box_wait_ingest_quiet is not defined, so arms 1 to 3 prove nothing\n'
         fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="CONTROL"
     else
         box_wait_ingest_quiet() { return 0; }
@@ -877,9 +906,9 @@ self_test() {
                  FAKE_RECONCILE="$_CLEAN" OSTLER_PROBE_TICK_WAIT_S=1 run_probe 2>&1)" || _mrc=$?
         eval "$_real_hold"
         if [ "$_mrc" -eq "$PROBE_EX_PASS" ]; then
-            printf '  ok [CONTROL: without the hold a running tick no longer refuses] exit %s\n' "$_mrc"
+            _st_tick; printf '  ok [CONTROL: without the hold a running tick no longer refuses] exit %s\n' "$_mrc"
         else
-            printf '  SELF-TEST FAIL [CONTROL]: the no-op mutant exited %s, so arms 2 and 3 measure something else\n' "$_mrc"
+            _st_tick; printf '  SELF-TEST FAIL [CONTROL]: the no-op mutant exited %s, so arms 2 and 3 measure something else\n' "$_mrc"
             printf '    output: %s\n' "$(printf '%s' "$_mout" | tail -1)"
             fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="CONTROL"
         fi
@@ -902,20 +931,20 @@ self_test() {
     # measured identity and found a persistent miss.
     out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7200 7187 0 0 13 0 7187" run_probe 2>&1)"; rc=$?
     if [ "$rc" -ne "$PROBE_EX_FAIL" ]; then
-        printf '  SELF-TEST FAIL [single-reading shape]: expected the old exit %s, got %s\n' "$PROBE_EX_FAIL" "$rc"
+        _st_tick; printf '  SELF-TEST FAIL [single-reading shape]: expected the old exit %s, got %s\n' "$PROBE_EX_FAIL" "$rc"
         fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="single-reading exit"
     else
         case "$out" in
             *"C=13 named persons unsearchable"*)
                 case "$out" in
                     *"URI identity"*"NOT MEASURED"*)
-                        printf '  ok [a digest-less reading keeps the old verdict AND says identity was not measured]\n' ;;
+                        _st_tick; printf '  ok [a digest-less reading keeps the old verdict AND says identity was not measured]\n' ;;
                     *)
-                        printf '  SELF-TEST FAIL [single-reading shape]: it kept the strict verdict without saying identity was unmeasured.\n'
+                        _st_tick; printf '  SELF-TEST FAIL [single-reading shape]: it kept the strict verdict without saying identity was unmeasured.\n'
                         fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="single-reading unexplained" ;;
                 esac ;;
             *)
-                printf '  SELF-TEST FAIL [single-reading shape]: the old C verdict did not survive.\n'
+                _st_tick; printf '  SELF-TEST FAIL [single-reading shape]: the old C verdict did not survive.\n'
                 fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="single-reading verdict" ;;
         esac
     fi
@@ -926,8 +955,8 @@ self_test() {
     out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE_SEQ="OK 7200 7187 0 0 2 0 7187 0 - aaaaaaaaaaa1,bbbbbbbbbbb2|OK 7201 7195 0 0 2 0 7195 0 - bbbbbbbbbbb2,ccccccccccc3|OK 7202 7201 0 0 2 0 7201 0 - ccccccccccc3,ddddddddddd4" run_probe 2>&1)"
     case "$out" in
         *"ingestion is still in flight"*)
-            printf '  ok [a changing set is reported as ingestion in flight, not as a disagreement]\n' ;;
-        *) printf '  SELF-TEST FAIL [in-flight wording]: a changing set passed without saying why.\n'
+            _st_tick; printf '  ok [a changing set is reported as ingestion in flight, not as a disagreement]\n' ;;
+        *) _st_tick; printf '  SELF-TEST FAIL [in-flight wording]: a changing set passed without saying why.\n'
            fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="in-flight wording" ;;
     esac
 
@@ -940,22 +969,42 @@ self_test() {
     _case "worked but EMPTY -> CANNOT-RUN" "CANNOTRUN graph-empty settling=4 wiki=present" "$PROBE_EX_CANNOT_RUN"
     out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="CANNOTRUN graph-empty settling=4 wiki=present" run_probe 2>&1)"
     case "$out" in
-        *settling=4*wiki=present*) printf '  ok [the evidence reaches the verdict text]\n' ;;
-        *) printf '  SELF-TEST FAIL [work evidence]: the verdict does not carry the signals it was given.\n'
+        *settling=4*wiki=present*) _st_tick; printf '  ok [the evidence reaches the verdict text]\n' ;;
+        *) _st_tick; printf '  SELF-TEST FAIL [work evidence]: the verdict does not carry the signals it was given.\n'
            fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="work evidence dropped" ;;
     esac
     case "$out" in
-        *"has not ingested yet"*|*"HAS done work"*) printf '  ok [the verdict explains which of the two states this is]\n' ;;
-        *) printf '  SELF-TEST FAIL [work evidence]: the verdict names no way to tell a fresh box from a worked one.\n'
+        *"has not ingested yet"*|*"HAS done work"*) _st_tick; printf '  ok [the verdict explains which of the two states this is]\n' ;;
+        *) _st_tick; printf '  SELF-TEST FAIL [work evidence]: the verdict names no way to tell a fresh box from a worked one.\n'
            fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="work evidence unexplained" ;;
     esac
     _case "empty output -> CANNOT-RUN"        ""                            "$PROBE_EX_CANNOT_RUN"
     _case "garbage output -> CANNOT-RUN"      "totally unexpected"          "$PROBE_EX_CANNOT_RUN"
 
-    if [ "$fails" -ne 0 ]; then
-        probe_pass "NEGATIVE CONTROL DID NOT BEHAVE: ${fails} of 32 self-test cases returned the wrong outcome (first: ${firstbad}). This probe cannot be trusted to distinguish PASS from FAIL from CANNOT-RUN, so its verdicts mean nothing."
+    # ── THE COUNT IS CROSS-CHECKED FROM OUTSIDE ──────────────────────────
+    #
+    # _st_n is incremented by the arms themselves. That is one instrument and
+    # it can still be wrong in one way: an arm added without a tick (#2138).
+    # So a SECOND instrument checks it from outside this process --
+    # tests/test_a_self_test_denominator_counts_itself.sh runs this probe and
+    # counts the outcome lines it printed, which cannot miss an untick'd arm.
+    # The two must agree, and that test goes red if they do not. One instrument
+    # can be wrong silently; two that must agree cannot.
+    _st_behaved="${_st_n:-0}"
+    if [ "${_st_behaved:-0}" -lt 1 ]; then
+        # With a runtime counter a zero means one thing only: not a single arm
+        # executed. That is a broken self-test, not a missing denominator, and
+        # it must never print as a clean count.
+        probe_note "NO SELF-TEST ARM RAN AT ALL. The counter is incremented by the arms themselves, so zero means the block did not execute rather than that the count was unavailable."  # i18n-exempt
+        probe_examined 0 "synthetic reconciliation results (NONE RAN -- see the note above)"
+    else
+        probe_examined "$_st_behaved" "synthetic reconciliation results, counted AT RUNTIME by the cases themselves (negative control) (#2120)"
     fi
-    probe_fail "negative control behaved correctly on all 32 cases: three residuals each drive FAIL independently, unnamed stubs alone do NOT fail, a leaked walk fixture is reported but does not refuse the promote while a real orphan beside it still does, an unmeasured fixture attribution says NOT MEASURED rather than zero, unreadable/empty/garbage input all return CANNOT-RUN rather than collapsing into a pass, and across readings a residual whose URIs do not move still FAILS while a set that changes every reading is reported as ingestion in flight -- including the case where one URI stays missing while the rest churn, which is the false green the re-read could otherwise buy"
+
+    if [ "$fails" -ne 0 ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT BEHAVE: ${fails} of ${_st_behaved} self-test cases returned the wrong outcome (first: ${firstbad}). This probe cannot be trusted to distinguish PASS from FAIL from CANNOT-RUN, so its verdicts mean nothing."
+    fi
+    probe_fail "negative control behaved correctly on all ${_st_behaved} cases: three residuals each drive FAIL independently, unnamed stubs alone do NOT fail, a leaked walk fixture is reported but does not refuse the promote while a real orphan beside it still does, an unmeasured fixture attribution says NOT MEASURED rather than zero, unreadable/empty/garbage input all return CANNOT-RUN rather than collapsing into a pass, and across readings a residual whose URIs do not move still FAILS while a set that changes every reading is reported as ingestion in flight -- including the case where one URI stays missing while the rest churn, which is the false green the re-read could otherwise buy"
 }
 
 probe_main "$@"
