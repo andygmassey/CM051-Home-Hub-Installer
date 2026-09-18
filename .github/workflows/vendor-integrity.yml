@@ -74,6 +74,14 @@ on:
       - 'tests/test_the_pairing_qr_refuses_an_address_the_phone_cannot_open.py'
       - 'tests/test_editor_feedback_accepts_the_add_verb.sh'
       - 'tests/test_the_doctor_dashboard_actually_renders.sh'
+      - 'tests/test_the_doctor_page_is_on_brand.py'
+      # The four files that carry the Doctor's palette. The brand gate reads all
+      # four, so all four must re-trigger it; the page was off-brand in three of
+      # them at once and a filter naming only web_ui.py would have missed two.
+      - 'vendor/doctor/agent/web_ui.py'
+      - 'vendor/doctor/agent/dashboard_components.py'
+      - 'vendor/doctor/agent/first_run.py'
+      - 'vendor/doctor/agent/apple_style.css'
       # Watched because the step below RUNS it. Its tile half is the only place
       # the keepalive's five customer-facing verdicts are actually rendered
       # with the Doctor's real deps present.
@@ -564,6 +572,14 @@ jobs:
         # nobody notices is a zero-denominator pass. Wired anywhere without the
         # requirements it would prove nothing while reading green.
         run: bash tests/test_the_doctor_dashboard_actually_renders.sh
+
+      - name: The Doctor page is on brand, measured on the rendered page
+        if: always()
+        # SAME JOB AS THE RENDER TEST, AND FOR THE SAME REASON: it renders the
+        # page, so it needs vendor/doctor/agent/requirements.txt, which this job
+        # installs above. It exits 2 when it cannot render, so a missing dep is
+        # a refusal rather than a quiet pass.
+        run: python3 tests/test_the_doctor_page_is_on_brand.py
 
       # THE WHATSAPP KEEPALIVE TILE, wired here for the reason the step above
       # states about itself. This file's script half runs on macOS in
