@@ -154,6 +154,20 @@ jobs:
         if: always()
         run: bash tests/test_the_success_screen_names_the_wiki_credential.sh
 
+      # BOARD ROW 997. Its own step with an execution verb, because
+      # verify_new_tests_are_wired.sh scores a path WIRED only on a line that
+      # also carries one, and an entry in the batch list above carries none.
+      # Placed last so it can mask nothing; it carries `if: always()` so
+      # nothing masks it.
+      - name: The forward calendar window survives the hourly re-run
+        if: always()
+        # extract_all.py reads OSTLER_CALENDAR_FUTURE_DAYS, default 30. The
+        # installer hydrates 365 through a DIFFERENTLY NAMED variable, so the
+        # reader's name was never set and the com.ostler.fda-rerun agent, which
+        # inherits nothing, rewrote calendar_events.json with 30 days on the
+        # first tick after installing and every tick after.
+        run: /bin/bash tests/test_the_forward_calendar_window_survives_the_rerun.sh
+
   python-ubuntu:
     # Vendored-logic tests (parsers, identity resolver, migration guard,
     # tailnet parser, knowledge embed-contract). OS-independent, so they run on
