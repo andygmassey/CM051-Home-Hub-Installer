@@ -153,6 +153,39 @@ run_gate() {
     printf '%s' "$?"
 }
 
+echo "== NO BOX AT ALL is CANNOT-RUN, not a pass =="
+# 🔴 THE GAP THIS FILE HAD. Every arm below sets OSTLER_BOX_HOST=fake.invalid,
+# so the whole file measured an UNREACHABLE box and never an ABSENT one. The
+# gate handled unreachable correctly (78) and exited 0 when the variable was
+# not set at all, which the harness records as a PASS. So it was stricter about
+# a box it could not reach than about no box, and a walk run without a box
+# collected one green from here while its siblings refused.
+#
+# Driven on the REAL gate, not the stubbed copy, because the branch under test
+# runs before any ssh and the stub is irrelevant to it.
+rc_nobox="$(env -u OSTLER_BOX_HOST bash "${GATE}" > "${WORK}/nobox.txt" 2>&1; printf '%s' "$?")"
+if [ "${rc_nobox}" = "78" ]; then
+    ok "an unset OSTLER_BOX_HOST exits 78, so nothing is recorded as measured"
+elif [ "${rc_nobox}" = "0" ]; then
+    bad "an unset OSTLER_BOX_HOST still exits 0 -- a walk with no box scores this launch-critical gate GREEN while every sibling probe refuses"
+else
+    bad "an unset OSTLER_BOX_HOST exits ${rc_nobox}, expected 78"
+fi
+if grep -q 'VERDICT: CANNOT-RUN --' "${WORK}/nobox.txt"; then
+    ok "and it names the prerequisite, so the reason is not recorded as UNRECORDED"
+else
+    bad "no 'VERDICT: CANNOT-RUN --' line on the no-box path"
+fi
+# CONTROL, so the arm above cannot pass on a gate that refuses everything: with
+# the host SET, this same gate must get past the no-box branch and reach its
+# own ssh handling, which is what the arms below then measure.
+rc_set="$(STUB_MODE="${STUB_MODE}" OSTLER_BOX_HOST="fake.invalid" bash "${GATE}" >/dev/null 2>&1; printf '%s' "$?")"
+if [ "${rc_set}" != "0" ]; then
+    ok "CONTROL: with a host set the gate still runs and refuses on its own terms (exit ${rc_set}), so the arm above is not passing on a gate that refuses unconditionally"
+else
+    bad "CONTROL: with a host set the gate exits 0, so the no-box arm proves nothing"
+fi
+
 echo "== an unreachable box exits 78 (CANNOT-RUN), not 2 and not 1 =="
 rc="$(run_gate dead)"
 if [ "${rc}" = "78" ]; then

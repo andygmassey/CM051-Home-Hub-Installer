@@ -58,10 +58,32 @@
 # ============================================================================
 set -uo pipefail
 
-# --- skip convention: match check_box_walk_probe (unset host -> never fail) --
+# --- no box is CANNOT-RUN, not a pass -------------------------------------
+# 🔴 THIS EXITED 0. The comment said "unset host -> never fail" and reached for
+# the wrong code: 0 does not mean "did not fail", it means PASSED. Measured
+# 2026-09-18, this gate against its siblings with OSTLER_BOX_HOST unset:
+#
+#     acceptance_gate_v1013             exit 0    <- recorded as a PASS
+#     probes/people_count_agreement     exit 78   CANNOT-RUN
+#     probes/ostler_unlock_reachable    exit 78   CANNOT-RUN
+#
+# and this same gate with the host SET but unreachable already exits 78. So it
+# was stricter about a box it could not reach than about no box at all, and a
+# walk run without a box collected one green from here while everything around
+# it correctly refused. run_box_walk.sh:33 states the grading: "EXIT: 0 only
+# when FAIL=0 and BROKEN=0. CANNOT-RUN does not fail the run", so 78 satisfies
+# "never fail" AND stops this counting as evidence. The file's own CANNOT-RUN
+# exit already says it: "This is NOT a pass and NOT a defect in the artefact.
+# Nothing was measured there."
+#
+# The header above explains that the 25 probes under probes/ refuse through
+# lib/probe.sh's probe_cannot_run(), and that this gate "sits one directory up
+# and sources nothing, so it never inherited the convention". The unreachable
+# branch was brought into line; this branch was not, and that is the residue.
 if [ -z "${OSTLER_BOX_HOST:-}" ]; then
-    echo "acceptance_gate_v1013: SKIP -- OSTLER_BOX_HOST not set (runtime probe requires a reachable box)"
-    exit 0
+    echo "acceptance_gate_v1013: CANNOT-RUN -- OSTLER_BOX_HOST not set, so NOTHING about the artefact was measured"
+    echo "VERDICT: CANNOT-RUN -- OSTLER_BOX_HOST not set, so this runtime gate read nothing"
+    exit 78
 fi
 
 HOST="${OSTLER_BOX_HOST}"
