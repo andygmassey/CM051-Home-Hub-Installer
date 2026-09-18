@@ -161,6 +161,8 @@ jobs:
       # if: always() for the same reason as every step above it.
       - name: a verdict is not a mention
         if: always()
+        run: python3 tests/test_a_verdict_is_not_a_mention.py
+
       # A row that calls itself a blocker and blocks nothing is the defect
       # Andy's 2026-09-06 call created the BLOCKING property to stop, and it
       # survived inside the property: every row that declares itself blocking
@@ -171,5 +173,3 @@ jobs:
       - name: a blocker with no tracker issue still blocks
         if: always()
         run: python3 tests/test_a_blocker_with_no_issue_still_blocks.py
-
-        run: python3 tests/test_a_verdict_is_not_a_mention.py
