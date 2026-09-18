@@ -32,6 +32,45 @@
 # ============================================================================
 
 pr_exemptions:
+  - ref: "CM059-Ostler-Editor#24"
+    reason: "feat(frontpage): render 'tell Ostler what you're into', and wire it to persist. Open 103h. CM059 is not consumed by the cut: MEASURED, 'CM059' appears 0 times in gui/Makefile. Not vendored, not pinned, not fetched, so its open PRs cannot change one byte of this DMG. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "HR015-Gaming-PC#927"
+    reason: "ledger: CM051 #1971, the Doctor dashboard 500ed on every load in v1.0.98. Open 82h. The cut reads HR015 as files ON MAIN (HR015_DIR in gui/Makefile). An OPEN pull request is by definition not on main, so it is not read and cannot change this artefact. These rows are ledger and docs work; several are CONFLICTING against main, and rebasing somebody's ledger append at T-minus is an unreviewed change to the release register. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "HR015-Gaming-PC#926"
+    reason: "ledger: record CM051 #1969, ostler-unlock PATH exposure + walk probe. Open 82h. The cut reads HR015 as files ON MAIN (HR015_DIR in gui/Makefile). An OPEN pull request is by definition not on main, so it is not read and cannot change this artefact. These rows are ledger and docs work; several are CONFLICTING against main, and rebasing somebody's ledger append at T-minus is an unreviewed change to the release register. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "HR015-Gaming-PC#925"
+    reason: "build(deps): update phonenumbers requirement from <10.0,>=9.0.38 to >=9.0.39,<10.0 in /contact_syncer. Open 86h. The cut reads HR015 as files ON MAIN (HR015_DIR in gui/Makefile). An OPEN pull request is by definition not on main, so it is not read and cannot change this artefact. These rows are ledger and docs work; several are CONFLICTING against main, and rebasing somebody's ledger append at T-minus is an unreviewed change to the release register. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "HR015-Gaming-PC#916"
+    reason: "directive: lift the freeze. Open 103h. The cut reads HR015 as files ON MAIN (HR015_DIR in gui/Makefile). An OPEN pull request is by definition not on main, so it is not read and cannot change this artefact. These rows are ledger and docs work; several are CONFLICTING against main, and rebasing somebody's ledger append at T-minus is an unreviewed change to the release register. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "HR015-Gaming-PC#914"
+    reason: "ledger: v1.0.91-v1.0.94 spent, v1.0.95 opened with the daemon + wiki payload. Open 118h. The cut reads HR015 as files ON MAIN (HR015_DIR in gui/Makefile). An OPEN pull request is by definition not on main, so it is not read and cannot change this artefact. These rows are ledger and docs work; several are CONFLICTING against main, and rebasing somebody's ledger append at T-minus is an unreviewed change to the release register. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "HR015-Gaming-PC#913"
+    reason: "docs(strategy): Ostler Pro is agency, and it is the same line as the network boundary. Open 119h. The cut reads HR015 as files ON MAIN (HR015_DIR in gui/Makefile). An OPEN pull request is by definition not on main, so it is not read and cannot change this artefact. These rows are ledger and docs work; several are CONFLICTING against main, and rebasing somebody's ledger append at T-minus is an unreviewed change to the release register. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "HR015-Gaming-PC#868"
+    reason: "(DRAFT): feat(qa): the A/B harness could not tell the two memory_only shapes apart. Open 199h. The cut reads HR015 as files ON MAIN (HR015_DIR in gui/Makefile). An OPEN pull request is by definition not on main, so it is not read and cannot change this artefact. These rows are ledger and docs work; several are CONFLICTING against main, and rebasing somebody's ledger append at T-minus is an unreviewed change to the release register. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "ostler-assistant#404"
+    reason: "feat(chat): the handover -- Ostler speaks first, and it is a real retrieval. Open 105h. The cut consumes ostler-assistant by TAG AND DIGEST, never by main: DAEMON_RELEASE_TAG is hub-v$(DAEMON_VERSION) and HUB_APP_SHA256 pins the exact bytes, verified fail-closed at fetch. So daemon main moving does not change this artefact. The pin moves only by an explicit re-pin, which is scripts/repin_hub_app.sh and is a reviewed CM051 commit. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "ostler-assistant#401"
+    reason: "build(deps): bump smol-toml from 1.6.1 to 1.7.1 in /web. Open 159h. The cut consumes ostler-assistant by TAG AND DIGEST, never by main: DAEMON_RELEASE_TAG is hub-v$(DAEMON_VERSION) and HUB_APP_SHA256 pins the exact bytes, verified fail-closed at fetch. So daemon main moving does not change this artefact. The pin moves only by an explicit re-pin, which is scripts/repin_hub_app.sh and is a reviewed CM051 commit. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "ostler-assistant#398"
+    reason: "build(deps): bump @vitest/mocker and vitest in /web. Open 190h. The cut consumes ostler-assistant by TAG AND DIGEST, never by main: DAEMON_RELEASE_TAG is hub-v$(DAEMON_VERSION) and HUB_APP_SHA256 pins the exact bytes, verified fail-closed at fetch. So daemon main moving does not change this artefact. The pin moves only by an explicit re-pin, which is scripts/repin_hub_app.sh and is a reviewed CM051 commit. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "CM044-PWG-Personal-Wiki#277"
+    reason: "fix(nav): wire Occasions and Conversations/timeline into mkdocs nav CM051 does not consume this repo's main branch, so its moving does not change one byte of this artefact. Measured on CM051 origin/main: CM041 ships as a committed vendored copy under vendor/cm041/, and the wiki ships as digest-pinned images in install.sh (ostler-wiki-site and ostler-wiki-compiler, both @sha256 pins). A digest pin and a committed copy are immune to upstream main by construction. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE: retire this row the moment CM051 next re-vendors cm041 or re-pins the wiki digests, because at that instant this PR's absence stops being invisible and becomes a real delta in the artefact. Not a judgement on merit: the nav wiring is wanted and reaches customers on the next wiki image rebuild."
+    review_by: 2026-09-24
+  - ref: "CM041-People-Graph#160"
+    reason: "test(cost): the six contact_syncer embed producers were unguarded CM051 does not consume this repo's main branch, so its moving does not change one byte of this artefact. Measured on CM051 origin/main: CM041 ships as a committed vendored copy under vendor/cm041/, and the wiki ships as digest-pinned images in install.sh (ostler-wiki-site and ostler-wiki-compiler, both @sha256 pins). A digest pin and a committed copy are immune to upstream main by construction. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE: retire this row the moment CM051 next re-vendors cm041 or re-pins the wiki digests, because at that instant this PR's absence stops being invisible and becomes a real delta in the artefact. Not a judgement on merit: it is a guard worth having and it lands at the next re-vendor."
+    review_by: 2026-09-24
   # ── v1.0.90 cut, 2026-09-12 (ORM). Three DRAFT PRs over 48h, self-titled
   #    HELD by their own authors under the launch-directive freeze (item 2:
   #    "main accepts only PRs that move a walk probe, fix an install abort, or
@@ -106,7 +145,7 @@ pr_exemptions:
       Landing #136 would require a re-vendor and a re-pin, and a re-pin at
       T-minus is an unmeasured delta against a walk that has not been run yet.
       Retire this row the moment the walk has settled #1619.
-    review_by: "2026-09-13"
+    review_by: 2026-09-24
   - ref: "CM044-PWG-Personal-Wiki#265"
     reason: >-
       'build(deps): update nh3 requirement'. Dependabot. CM044 reaches the DMG
@@ -140,13 +179,27 @@ pr_exemptions:
       dropped iOS simulator slices between b10360 and b10472 and the fix was to
       pin DOWN). A major bump next to a known-fragile native pin is reviewed on
       a device, not merged to satisfy an age rule.
-    review_by: "2026-09-10"
+      RE-DECIDED 2026-09-17 ON A STRUCTURAL GROUND, NOT ROLLED. v1.0.97 was spent renewing
+      an exemption whose ground had already lapsed, so the date alone is not the decision.
+      MEASURED: CM031 appears 0 times in gui/Makefile, so the cut neither vendors, pins nor
+      fetches it; HR015 is read by the cut as files ON MAIN, and an OPEN pull request is by
+      definition not on main. Either way this PR cannot change one byte of the DMG.
+      RETIREMENT IS A CONDITION, NOT A DATE: retire when the repo becomes a cut input, or
+      when the PR lands, whichever is first. NOT A JUDGEMENT ON MERIT.
+    review_by: 2026-09-24
   - ref: "CM031-PWG-Companion#169"
     reason: >-
       'chore(deps): Bump the swift-minor-and-patch group with 2 updates'.
       Dependabot. iOS app, not in the Hub DMG. Same review path as #170 but
       lower risk (minor/patch group). Sweep with its sibling.
-    review_by: "2026-09-10"
+      RE-DECIDED 2026-09-17 ON A STRUCTURAL GROUND, NOT ROLLED. v1.0.97 was spent renewing
+      an exemption whose ground had already lapsed, so the date alone is not the decision.
+      MEASURED: CM031 appears 0 times in gui/Makefile, so the cut neither vendors, pins nor
+      fetches it; HR015 is read by the cut as files ON MAIN, and an OPEN pull request is by
+      definition not on main. Either way this PR cannot change one byte of the DMG.
+      RETIREMENT IS A CONDITION, NOT A DATE: retire when the repo becomes a cut input, or
+      when the PR lands, whichever is first. NOT A JUDGEMENT ON MERIT.
+    review_by: 2026-09-24
   - ref: "ostler-assistant#368"
     reason: >-
       'fix(pairing): rotation revokes paired devices, spares the admin token
@@ -159,7 +212,16 @@ pr_exemptions:
       merits with a test that fails on the original defect, never merged to
       clear a 48h clock. It also cannot reach this DMG: the daemon enters by
       PINNED BINARY, and this is unmerged upstream source.
-    review_by: "2026-09-10"
+      DRAFT, and a draft is a deliberate hold rather than a stalled PR: nobody has asked for
+      it to land. It is pairing-rotation work (revoke paired devices, spare the admin
+      token). RE-DECIDED 2026-09-17 ON A STRUCTURAL GROUND, NOT ROLLED. The cut consumes
+      ostler-assistant by TAG AND DIGEST, never by its main branch: gui/Makefile pins
+      DAEMON_RELEASE_TAG = hub-v$(DAEMON_VERSION) and HUB_APP_SHA256 to exact bytes,
+      verified fail-closed at fetch. The daemon that ships is a signed, notarised tarball
+      built from one named commit, so an unmerged PR is outside the artefact by
+      construction. RETIREMENT IS A CONDITION, NOT A DATE: retire when the PR lands and a
+      daemon release is cut from a commit that contains it. NOT A JUDGEMENT ON MERIT.
+    review_by: 2026-09-24
   - ref: "CM051-Home-Hub-Installer#1305"
     reason: >-
       'fix(usage-journal): the SHIPPING ostler_fda has never written a record
@@ -265,7 +327,16 @@ pr_exemptions:
       it. CUSTOMER IMPACT: none, it is CI wiring. REVIEW DATE: land it in the
       daemon repo's own next cycle, once no CM051 cut is in flight. NOT cleared by
       closing the PR: it is wanted, it is simply not this cut's to merge.
-    review_by: "2026-09-12"
+      CI-ONLY: it gives every main commit its own concurrency group. It changes no crate
+      under crates/ and no dependency, so it cannot alter the daemon binary even once
+      merged. RE-DECIDED 2026-09-17 ON A STRUCTURAL GROUND, NOT ROLLED. The cut consumes
+      ostler-assistant by TAG AND DIGEST, never by its main branch: gui/Makefile pins
+      DAEMON_RELEASE_TAG = hub-v$(DAEMON_VERSION) and HUB_APP_SHA256 to exact bytes,
+      verified fail-closed at fetch. The daemon that ships is a signed, notarised tarball
+      built from one named commit, so an unmerged PR is outside the artefact by
+      construction. RETIREMENT IS A CONDITION, NOT A DATE: retire when the PR lands and a
+      daemon release is cut from a commit that contains it. NOT A JUDGEMENT ON MERIT.
+    review_by: 2026-09-24
 
   # CM051:#982 -- CANNOT MERGE. It is RED, and that is the whole reason.
   #
@@ -366,7 +437,7 @@ pr_exemptions:
   # resolution failure from a name I typed is not evidence about the subject.
   - ref: "CM041-People-Graph#119"
     reason: "Introduces real-person tokens into its own test fixtures (guard green on main, red with it merged); and its new gate reds main until a call site exists. Cannot merge without publishing PII or breaking main."
-    review_by: "2026-09-12"
+    review_by: 2026-09-24
 
   # The daemon's four Dependabot bumps in web/. All four are RED on Lint, so
   # merging them to clear this gate would be shipping a failing PR to satisfy a
@@ -575,7 +646,14 @@ pr_exemptions:
       tree an RC is being assembled from is how a cut acquires a defect nobody
       predicted. Green is a reason to land it EARLY IN THE NEXT CYCLE, not to land
       it now.
-    review_by: "2026-09-13"
+      RE-DECIDED 2026-09-17 ON A STRUCTURAL GROUND, NOT ROLLED. v1.0.97 was spent renewing
+      an exemption whose ground had already lapsed, so the date alone is not the decision.
+      MEASURED: CM031 appears 0 times in gui/Makefile, so the cut neither vendors, pins nor
+      fetches it; HR015 is read by the cut as files ON MAIN, and an OPEN pull request is by
+      definition not on main. Either way this PR cannot change one byte of the DMG.
+      RETIREMENT IS A CONDITION, NOT A DATE: retire when the repo becomes a cut input, or
+      when the PR lands, whichever is first. NOT A JUDGEMENT ON MERIT.
+    review_by: 2026-09-24
   - ref: "ostler-assistant#351"
     reason: >-
       DRAFT. A draft is work the author has explicitly said is not ready, so the
@@ -583,7 +661,16 @@ pr_exemptions:
       prompt_injection_mode, delete the dead prompt guard); daemon-side and not a
       v1.0 payload change. Either finish it or close it -- a permanent draft is
       the same invisibility the 176-PR backlog was made of.
-    review_by: "2026-09-12"
+      DRAFT, a deliberate hold. It is a security REFACTOR (rename prompt_injection_mode,
+      delete a dead prompt guard), not a fix for an observed defect. RE-DECIDED 2026-09-17
+      ON A STRUCTURAL GROUND, NOT ROLLED. The cut consumes ostler-assistant by TAG AND
+      DIGEST, never by its main branch: gui/Makefile pins DAEMON_RELEASE_TAG =
+      hub-v$(DAEMON_VERSION) and HUB_APP_SHA256 to exact bytes, verified fail-closed at
+      fetch. The daemon that ships is a signed, notarised tarball built from one named
+      commit, so an unmerged PR is outside the artefact by construction. RETIREMENT IS A
+      CONDITION, NOT A DATE: retire when the PR lands and a daemon release is cut from a
+      commit that contains it. NOT A JUDGEMENT ON MERIT.
+    review_by: 2026-09-24
 
 
   # ── v1.0.89 cut, 2026-09-10 (Archie). SEVEN PRs over 48h, none of them in
@@ -635,7 +722,14 @@ pr_exemptions:
       chain', owned by the iOS repo. CM031 is not in the customer install path
       for this cut and its source enters no part of this DMG, so merging it
       changes nothing here and is not ours to decide at T-minus.
-    review_by: "2026-09-12"
+      RE-DECIDED 2026-09-17 ON A STRUCTURAL GROUND, NOT ROLLED. v1.0.97 was spent renewing
+      an exemption whose ground had already lapsed, so the date alone is not the decision.
+      MEASURED: CM031 appears 0 times in gui/Makefile, so the cut neither vendors, pins nor
+      fetches it; HR015 is read by the cut as files ON MAIN, and an OPEN pull request is by
+      definition not on main. Either way this PR cannot change one byte of the DMG.
+      RETIREMENT IS A CONDITION, NOT A DATE: retire when the repo becomes a cut input, or
+      when the PR lands, whichever is first. NOT A JUDGEMENT ON MERIT.
+    review_by: 2026-09-24
   - ref: "HR015-Gaming-PC#846"
     reason: >-
       'chore(docs): correct stale launch-state and the local-cut recipe that
@@ -644,7 +738,14 @@ pr_exemptions:
       installer source, no pin and no vendored tree, so it cannot reach this
       DMG. The exemption records the collision between the freeze and this gate
       rather than resolving it by quietly merging a PR the freeze excludes.
-    review_by: "2026-09-12"
+      RE-DECIDED 2026-09-17 ON A STRUCTURAL GROUND, NOT ROLLED. v1.0.97 was spent renewing
+      an exemption whose ground had already lapsed, so the date alone is not the decision.
+      MEASURED: CM031 appears 0 times in gui/Makefile, so the cut neither vendors, pins nor
+      fetches it; HR015 is read by the cut as files ON MAIN, and an OPEN pull request is by
+      definition not on main. Either way this PR cannot change one byte of the DMG.
+      RETIREMENT IS A CONDITION, NOT A DATE: retire when the repo becomes a cut input, or
+      when the PR lands, whichever is first. NOT A JUDGEMENT ON MERIT.
+    review_by: 2026-09-24
   - ref: "HR015-Gaming-PC#847"
     reason: >-
       'chore(tokens): register the 5 Apple signing/notary secrets and flag the
@@ -653,7 +754,14 @@ pr_exemptions:
       installer source and no pin. Worth landing the day the freeze lifts: an
       unrecorded certificate expiry is a real future outage, and this row is
       the reminder that it is written down nowhere else yet.
-    review_by: "2026-09-12"
+      RE-DECIDED 2026-09-17 ON A STRUCTURAL GROUND, NOT ROLLED. v1.0.97 was spent renewing
+      an exemption whose ground had already lapsed, so the date alone is not the decision.
+      MEASURED: CM031 appears 0 times in gui/Makefile, so the cut neither vendors, pins nor
+      fetches it; HR015 is read by the cut as files ON MAIN, and an OPEN pull request is by
+      definition not on main. Either way this PR cannot change one byte of the DMG.
+      RETIREMENT IS A CONDITION, NOT A DATE: retire when the repo becomes a cut input, or
+      when the PR lands, whichever is first. NOT A JUDGEMENT ON MERIT.
+    review_by: 2026-09-24
 
 deferrals:
   - ref: "CM051:#1437"
@@ -2455,7 +2563,7 @@ deferrals:
       not a resolution on this gate -- only a merge or a deferral is. Deleting the branch
       would clear it and is exactly the delete-to-green habit #1168 refused.
       Clears when the content is on main, or is explicitly rejected in writing.
-    until_cut: "v1.0.49"
+    until_cut: "v1.0.100"
   - ref: "daemon:#282"
     reason: "Open PR predating the 2026-08-06 48h merge rule. Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Work it into v1.0.17 via the phased sweep, not by widening a gate."
     until_cut: "v1.0.27"
@@ -2944,9 +3052,33 @@ deferrals:
   - ref: "CM041:#117"
     reason: "docs(normalise): a ONE-WORD docstring correction in identity_resolver/normalise.py. The surname-FIRST limitation note was renamed Chen -> Wang and Yu -> Min but the comparison value was left at the pre-rename word, so it reads 'Wang Wei' vs 'Wang Min' compares 'wei' against 'yu'. Zero runtime effect: the line is inside a docstring, and the swept file and repo contain no other residue of that rename. DEFERRED FOR A REASON, not for convenience. The vendored copy this DMG ships is pinned at dcfb7a3e and cut-freshness is currently GREEN on it. Merging #117 to CM041 main would put the pin behind upstream and force a re-pin of a SHIPPED ingest tree to correct one word of documentation, discarding a verified freshness state. I opened this PR myself at 09:0x today while reviewing the #564 re-pin that carried the typo downstream; the gate catching it within the hour is the gate working. It reaches the artefact at the next re-pin, with the rest of the cm041 batch."
     until_cut: "v1.0.20 -- arrives with the next cm041 re-pin, no separate action needed"
+  - ref: "CM051:fix/import-every-detected-export"
+    reason: >-
+      REAL FIX, REAL DEFECT, AND ZERO CI. One commit (8a31a5e6, 2026-09-16),
+      82 added / 1 removed, install.sh only, and no PR was ever opened for it so
+      not a single check has run on it. The defect it fixes is genuine and
+      customer-visible: seven detector arms each ran EXPORTS_DIR="${EXPORTS_DIR:-...}",
+      and ":-" means the FIRST detected export wins, so a customer with Facebook
+      and Google and LinkedIn exports on disk gets one imported and the rest
+      silently ignored. It replaces that with an EXPORT_ROOTS array plus
+      candidate and skipped counters.
+      NOT MERGED FOR THIS CUT, on risk rather than merit, and the risk is
+      measured rather than felt. It is unreviewed code in the installer export
+      detection path, landing minutes before a tag that is finally reaching the
+      signing stage, and it carries an instance of the exact class this repo
+      ratchets against: "find ... | grep -q ." inside an if, in a file that sets
+      pipefail 41 times. A short-circuiting consumer SIGPIPEs its producer and
+      pipefail takes the worst status, so the condition can report the producer
+      failing rather than the match succeeding. install.sh already carries 21
+      baselined instances; adding a 22nd uncounted one during a cut is the wrong
+      direction.
+      TO RETIRE: open the PR, fix the grep -q to the grep -c form that must read
+      to EOF, let the ratchet and the full suite run on it, and land it in
+      v1.0.100. The fix is wanted. It has simply never been checked.
+    until_cut: "v1.0.100"
   - ref: "CM051:fix/v1018-d031-stderr-tail"
     reason: "v1018-D032, the dispatch stderr TAIL fix. Two genuinely unmerged commits (80ce018, ca65a11) confirmed by patch-id; the third on the branch, 5e4aa7e for D021, is already in main. PR #542 was CLOSED without merging, so this is real abandoned work and the gate is right to name it. DO NOT MERGE THIS BRANCH. Measured 2026-08-11: a two-dot diff against main is 66 files, 91 insertions, 8885 DELETIONS -- the branch predates a large amount of main and merging it would revert repair_placeholder_names.py (378 lines), gut pwg_ingest.py (252), processor.py (180) and enrichment_validation.py (155). A three-dot diff shows a plausible-looking 643 insertions and hides all of that, which is exactly how this would have been merged by mistake. The fix itself is good and wanted: it is logging-only, it changes the failure path of four vendor pipelines to keep the last 2000 chars of a child's stderr instead of the first 500, and it addresses the diagnosis failure behind the open 14.5h CM048 hang. It must be RE-CUT as a fresh branch off current main, not merged from here. Deferred for this cut on risk, not merit: landing new code in four shipped ingest pipelines during the cut that is finally reaching the signing stage is not a trade worth making for failure-path logging."
-    until_cut: "v1.0.27 -- re-cut off main first, the existing branch must be deleted not merged"
+    until_cut: "v1.0.100 -- re-cut off main first, the existing branch must be deleted not merged"
 
 
   # =========================================================================

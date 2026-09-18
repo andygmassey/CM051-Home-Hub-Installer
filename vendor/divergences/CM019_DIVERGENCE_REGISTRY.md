@@ -124,6 +124,45 @@ being the real producer for this collection, which upstream does not have).
 The compartment-type half is owed upstream, and upstream would more likely fix
 its writer than its reader.
 
+### CM051 #1583: the compartment filter could not express its own docstring
+
+`services/ingest/src/loaders/qdrant_loader.py`,
+`services/ingest/src/pipeline.py`, `services/ingest/src/api.py`.
+
+The row above records, correctly, that `gte` was preserved on purpose and that
+the direction question was left open. What it did not record is that the
+method had no way to say the other thing. `QdrantLoader.search()` documented
+`compartment_level` as a "max compartment level", `IngestPipeline.search_similar()`
+documented it as "Maximum compartment level to include", and both sent a
+`gte`, which selects the complement of a maximum. A caller who believed either
+docstring got the opposite half of the store and nothing anywhere said so.
+
+WHAT CHANGED. `search()` takes `compartment_direction`, defaulting to
+`COMPARTMENT_AT_OR_ABOVE`, which emits byte-identical filter bodies to the
+ones this file emitted before for every threshold in the 0..6 domain. The
+docstrings now say what the code does. `COMPARTMENT_AT_OR_BELOW` is the other
+direction. An unrecognised value raises rather than defaulting.
+
+WHAT DID NOT CHANGE. The direction. No customer's privacy-scoped read returns
+anything different because of this change, and the `at_or_below` arm is
+reachable from Python only, never from `POST /search`, because choosing it is
+the privacy decision this registry says is still open.
+
+TWO SMALLER THINGS FIXED IN PASSING. The string arm is now DERIVED from the
+numeric predicate instead of hand-written as `range(level, 7)`, which agreed
+with `gte` by construction and would silently have disagreed with `lte`. And a
+threshold outside the 0..6 domain no longer sends `match: {any: []}`, which
+Qdrant rejects: a rejected request is logged and returns `[]`, which reads to
+the customer exactly like owning nothing.
+
+RECORDED, NOT FIXED. `parsers/base.py::_compartment_uri` maps an unrecognised
+level to `L2Trusted`, so a level nobody can place is labelled in the middle of
+the scale rather than at either end. Which end is fail-closed depends on the
+direction question, so it is left alone here.
+
+**Upstream status:** not ported. Owed upstream, and upstream has the same
+ambiguity.
+
 ## How to add a row
 
 When you change anything under `vendor/cm019_preferences`, add a row here in
