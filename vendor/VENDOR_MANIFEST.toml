@@ -276,6 +276,8 @@ note             = "2026-07-15: re-synced to CM041 main 11ad1246 (v1.0.9: calend
 [[tree]]
 name             = "cm041/assistant_api"
   unrecorded_divergence = "vendor/divergences/WRITER_READER_MISMATCHES.UNRECORDED.md"  # CM051 #1974: this tree carries writer/reader vocabulary fixes that the divergence patch does NOT record, because regeneration was run and could not produce one here. A grep of the patch for them returns nothing and that means NOT RECORDED, not NOT DIVERGED. A sync refusal on this tree is EXPECTED; SYNC_ACCEPT_DIVERGENCE_LOSS=1 would silently restore the defects. See that file for the per-tree outcome and the location+shape of every edit.
+  unrecorded_divergence_reason = "CANNOT-RUN, exit 2, measured 2026-09-16 by running scripts/regenerate_divergence_patch.sh cm041/assistant_api --write with CM041 exported to the local checkout: pinned_sha 9be482d3 is NOT PRESENT in that checkout, so the pin cannot be materialised and there is nothing to diff the vendored tree against. RETIRE BY: fetching a CM041 checkout that contains 9be482d3, then re-running the regeneration and deleting these three fields. The refusal is the tool working correctly and declining to write a patch that would be a lie."
+  unrecorded_divergence_owner  = "ORM, with the CM041 source-repo owner (andygmassey/CM041-PWG-People-Graph)"
 db_key_warning    = "🔴 DO NOT OVERRIDE A sync_vendor.sh REFUSAL ON THIS TREE. ical-server.py here carries the DB-KEY CONSUMER (CM051 #1956): it resolves the database key through ostler_security.resolve_db_key instead of a bare env var that nothing ever set. That delta IS described in cm041_assistant_api.patch, regenerated 2026-09-13, and the tree reconstructs (gate: OK, vendor == source@9be482d3 +patch). If a future sync REFUSES, that refusal is EXPECTED and correct. SYNC_ACCEPT_DIVERGENCE_LOSS=1 would delete this and the customer's databases go back to being readable with NOTHING FAILING and no test going red, which is exactly the launch blocker #1956 closed. Regenerate the patch instead; the CM041 source is required to do it."
 vendor_path      = "vendor/cm041/assistant_api"
 source_repo      = "$CM041"
@@ -390,6 +392,8 @@ note             = "Vendored as a DELIBERATE MINIMAL SUBSET (cli.py + filters.py
 [[tree]]
 name             = "ostler_fda"
   unrecorded_divergence = "vendor/divergences/WRITER_READER_MISMATCHES.UNRECORDED.md"  # CM051 #1974: this tree carries writer/reader vocabulary fixes that the divergence patch does NOT record, because regeneration was run and could not produce one here. A grep of the patch for them returns nothing and that means NOT RECORDED, not NOT DIVERGED. A sync refusal on this tree is EXPECTED; SYNC_ACCEPT_DIVERGENCE_LOSS=1 would silently restore the defects. See that file for the per-tree outcome and the location+shape of every edit.
+  unrecorded_divergence_reason = "REFUSED, exit 1, measured 2026-09-16: the regeneration tool wrote a patch, ran its own round-trip check, found that 'the written patch does not reconstruct the vendored tree', and RESTORED the previous patch so nothing was left broken. The source was fit for the comparison: the local HR015 checkout is 81 commits ahead of this pin and ZERO of those 81 touch ostler_fda, so the subtree at HEAD equals the subtree at the pin. The failure is in the patch round-trip, not in the source. RETIRE BY: establishing why the round-trip fails, then re-running the regeneration and deleting these three fields."
+  unrecorded_divergence_owner  = "ORM, with the HR015 source-repo owner (andygmassey/HR015-Gaming-PC)"
 expires = "2026-09-30"
 owner = "archie"
 vendor_path      = "vendor/ostler_fda"
@@ -517,6 +521,8 @@ note             = "2026-07-25 v1.0.10 recut re-pin to 8acf2b4c (HR015 #256 BW3-
 [[tree]]
 name             = "doctor"
   unrecorded_divergence = "vendor/divergences/WRITER_READER_MISMATCHES.UNRECORDED.md"  # CM051 #1974: this tree carries writer/reader vocabulary fixes that the divergence patch does NOT record, because regeneration was run and could not produce one here. A grep of the patch for them returns nothing and that means NOT RECORDED, not NOT DIVERGED. A sync refusal on this tree is EXPECTED; SYNC_ACCEPT_DIVERGENCE_LOSS=1 would silently restore the defects. See that file for the per-tree outcome and the location+shape of every edit.
+  unrecorded_divergence_reason = "REFUSED, exit 1, measured 2026-09-16, on the ADVANCE limb: the source has moved past pin b0b3831, and the tool declined because 'this is a RE-PIN, not a graft to record. Regenerating here would fold those upstream commits into the divergence patch and record them as local edits to this repo.' RETIRE BY: doing the re-pin reconciliation the note field below already prices (doctor.patch fails on 9 of 11 files against source@origin-main), not by forcing a regeneration. The refusal is correct."
+  unrecorded_divergence_owner  = "ORM, with the HR015 source-repo owner (andygmassey/HR015-Gaming-PC)"
 expires = "2026-09-30"
 owner = "archie"
 vendor_path      = "vendor/doctor"

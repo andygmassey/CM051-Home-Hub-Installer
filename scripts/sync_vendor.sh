@@ -64,6 +64,90 @@ abs_patch="$VLIB_REPO_ROOT/$patch_rel"
 # Checked BEFORE resolve_source_repo so no source is touched on a banned tree.
 vlib_refuse_if_regenerate_forbidden "$TREE" || exit 1
 
+# Checked here for the SAME reason the ban above is: before resolve_source_repo,
+# so a tree whose loss is unreconstructible refuses without the operator needing
+# a source checkout at all. A refusal that only fires once the source resolves
+# is a refusal that never fires on the machines most likely to need it.
+# ---------------------------------------------------------------------------
+# THE OVERRIDE IS REFUSED ON A TREE WITH AN UNRECORDED DIVERGENCE.  CM051 #977.
+#
+# THE WOUND, IN ONE SENTENCE FROM THE ROW ITSELF: "sync_vendor.sh will refuse on
+# these trees, and the next person who wants the refusal to go away reaches for
+# SYNC_ACCEPT_DIVERGENCE_LOSS=1 and deletes the fixes."
+#
+# Everything below this point, including both refusals and the whole
+# reconstruct-and-diff precondition, lives inside `if SYNC_ACCEPT_DIVERGENCE_LOSS
+# != 1`. So the variable does not soften the check, it SKIPS IT ENTIRELY. The
+# paragraph a few lines down says "Do NOT reach for SYNC_ACCEPT_DIVERGENCE_LOSS=1
+# to make this go away" and nothing enforced it. Prose is not a guard.
+#
+# For MOST trees that escape hatch is defensible: the operator can reconstruct
+# source@pin+patch by hand and satisfy themselves nothing is lost. For a tree
+# carrying a declared unrecorded_divergence it is not defensible at ALL, and the
+# reason is structural rather than a matter of care. Those trees hold edits that
+# NO PATCH EXPRESSES, recorded by hand precisely because regeneration was run and
+# REFUSED. There is nothing to reconstruct them from. "I checked by hand that
+# nothing is lost" cannot be true of content whose only description is prose.
+#
+# So this refusal sits OUTSIDE the override, it has no escape hatch of its own,
+# and it is deliberately the ONE hard RED that #977 asks for. The freshness gate
+# reports the same state as a counted, named debt rather than a permanent red,
+# because a gate that is red on the day it lands is a gate people route around.
+# The place to be fatal is the destructive moment, and this is it.
+#
+# An INCOMPLETE declaration refuses too. A half-written record is the state where
+# the reader has least idea what an override would destroy, so treating it as
+# "not declared" would put the escape hatch back exactly where it does most harm.
+_unrec_path="$(vlib_field "$TREE" unrecorded_divergence)"
+if [ -n "$_unrec_path" ]; then
+    _unrec_reason="$(vlib_field "$TREE" unrecorded_divergence_reason)"
+    _unrec_owner="$(vlib_field "$TREE" unrecorded_divergence_owner)"
+    if [ "${SYNC_ACCEPT_DIVERGENCE_LOSS:-0}" = "1" ]; then
+        cat >&2 <<UNREC
+REFUSING TO SYNC $TREE, AND SYNC_ACCEPT_DIVERGENCE_LOSS=1 DOES NOT LIFT THIS.
+
+This tree carries divergence that NO DIVERGENCE PATCH EXPRESSES. It is recorded
+by hand, in:
+
+    $_unrec_path
+
+because regeneration was RUN against this tree and REFUSED:
+
+    ${_unrec_reason:-<no reason recorded, which is itself a defect>}
+
+owner: ${_unrec_owner:-<none recorded, which is itself a defect>}
+
+WHY THERE IS NO OVERRIDE HERE, when there is one for every other tree. The
+override exists so an operator who has reconstructed source@pin+patch BY HAND
+can say "I have checked, nothing is lost". That sentence cannot be true of this
+tree: the content at risk has no machine-readable description to check against.
+A grep of this tree's patch for those edits returns NOTHING, and that means NOT
+RECORDED, not NOT DIVERGED.
+
+The swap would delete them, the patch would then be regenerated from the lossy
+result, and the freshness gate would go GREEN over the deletion. That is the
+same shape that once removed the kinship-word guard and the display-name tier
+ladder from a shipped ingest module, under a command that reported success.
+
+WHAT TO DO INSTEAD, in order:
+
+  1. Clear the blocker named in the reason above, then
+         scripts/regenerate_divergence_patch.sh $TREE --write
+     and delete the three unrecorded_divergence* fields from this tree's block
+     in vendor/VENDOR_MANIFEST.toml. The refusal disappears on its own.
+  2. Or land the edits in the SOURCE repo and re-pin, which is the same thing
+     from the other end.
+
+Read $_unrec_path first. It lists, by location and shape, exactly what an
+override would destroy.
+UNREC
+        exit 1
+    fi
+    echo "NOTE: $TREE carries an unrecorded divergence recorded in $_unrec_path." >&2
+    echo "      SYNC_ACCEPT_DIVERGENCE_LOSS=1 is REFUSED on this tree, with no override." >&2
+fi
+
+
 repo="$(resolve_source_repo "$TREE")"
 if [ -z "$repo" ] || [ ! -d "$repo" ]; then
     echo "source repo for $TREE not found: $repo" >&2
