@@ -23,9 +23,16 @@ src = pathlib.Path("vendor/doctor/agent/web_ui.py").read_text(encoding="utf-8")
 ns = {"__name__": "web_ui_probe"}
 try:
     exec(compile(src, "web_ui.py", "exec"), ns)
-except Exception as exc:            # import-time deps may be absent in CI
+except Exception as exc:
+    # EXIT 2, NOT 0. This used to exit 0, so a runner without the Doctor's
+    # runtime deps reported "CANNOT-RUN" and scored as a PASS, and the one gate
+    # that renders the page went quietly blind. That is the exact shape of the
+    # defect this file was written for: the dashboard 500ed on every load while
+    # every gate was green. The workflow that runs this installs
+    # vendor/doctor/agent/requirements.txt first, so a CANNOT-RUN here means
+    # that install did not happen and the page is UNMEASURED, not fine.
     print(f"CANNOT-RUN: module would not load ({type(exc).__name__}: {exc})")
-    sys.exit(0)
+    sys.exit(2)
 TILES = ("render_source_status", "render_whatsapp_keepalive")
 
 failures = 0

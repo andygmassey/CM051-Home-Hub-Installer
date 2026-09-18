@@ -180,6 +180,17 @@ on:
       - 'scripts/sync_cut_bom.sh'
       - 'scripts/sync_rollforward_registry.sh'
       - 'tests/test_os003_sync_defaults_agree.sh'
+      # THE OTHER THREE RESOLVERS THE GUARD NOW READS. It used to compare only
+      # the two `:-` defaults above, so these could diverge in silence. It now
+      # follows the declared pointer and reads the discovery lists, which means
+      # a change to any of them can flip the verdict -- and an unwatched subject
+      # is a gate that is dark on the very edit that breaks it.
+      - 'scripts/verify_os003_pointer.sh'
+      - 'scripts/box_walk_probes/lib/grounding_seed.sh'
+      - 'scripts/box_walk_probes/lib/preference_seed.sh'
+      # The pointer itself. The rule file is the value one resolver defaults to,
+      # so editing the rule changes where that script looks.
+      - 'CLAUDE.md'
       - 'tests/test_rollforward_pin_is_watched_on_prs.sh'
       - '.github/workflows/cut-gate-wrappers.yml'
   push:

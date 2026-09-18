@@ -367,7 +367,19 @@ def main():
         pin_changed = (head_block.get("pinned_sha") != base_block.get("pinned_sha"))
         decl_head = (head_block.get("unrecorded_divergence") or "").strip()
         decl_base = (base_block.get("unrecorded_divergence") or "").strip()
-        decl_changed = bool(decl_head) and decl_head != decl_base
+        # 🔴 A RECORD EXTENDED IN PLACE IS STILL A RECORD WRITTEN IN THIS DIFF.
+        # This used to accept only a changed POINTER VALUE. The shared record's
+        # own header instructs the opposite -- "extended in place by later PRs
+        # that hit the same refusals" -- so anyone following the documented
+        # practice left decl_head == decl_base, the gate refused, and the
+        # message named none of that. The gate rejected its own instructions.
+        #
+        # The intent is "prove you wrote something new in THIS diff", not "prove
+        # you made a new file", and `changed` already answers the former: it is
+        # the same test the divergence-patch limb above uses. The existing
+        # checks still apply to whichever file is named, so a pointer at a
+        # missing file, or at one that never mentions this tree, still fails.
+        decl_changed = bool(decl_head) and (decl_head != decl_base or decl_head in changed)
 
         decl_ok = False
         decl_problem = ""

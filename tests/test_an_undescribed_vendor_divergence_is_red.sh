@@ -216,6 +216,40 @@ printf '  unrecorded_divergence = "vendor/divergences/NOT_THERE.md"\n' \
 commit_on_branch "$D" work "dangling record"
 expect_gate "B5 MUST-MISS a dangling unrecorded_divergence pointer" "$D" 1 "does not exist at head"
 
+# B5b ROUTE (c) EXTENDED IN PLACE: the pointer VALUE does not move and the file
+# it names is edited in the same diff. This is exactly what the shared record's
+# own header instructs later PRs to do -- "extended in place by later PRs that
+# hit the same refusals" -- and the gate used to refuse it, naming none of that.
+# A gate that rejects its own documented practice sends the reader to argue
+# with it, and the workaround is a new file per tree that nobody wanted.
+D="${WORK}/b5b"; mkfix "$D" || cannot_run "could not build fixture b5b"
+printf '  unrecorded_divergence = "vendor/divergences/DEMO.UNRECORDED.md"\n' \
+    >> "$D/vendor/VENDOR_MANIFEST.toml"
+printf 'demo/alpha: the first refusal was recorded here.\n' \
+    > "$D/vendor/divergences/DEMO.UNRECORDED.md"
+git -C "$D" add -A >/dev/null 2>&1
+git -C "$D" commit -q -m "base: pointer and record already present" >/dev/null 2>&1
+printf 'print("two")\n' > "$D/vendor/demo/alpha/mod.py"
+printf 'demo/alpha: a SECOND refusal, appended in place by this change.\n' \
+    >> "$D/vendor/divergences/DEMO.UNRECORDED.md"
+commit_on_branch "$D" work "extend the record in place"
+expect_gate "B5b route (c) a record EXTENDED IN PLACE is accepted" "$D" 0 "unrecorded_divergence record"
+
+# B5c MUST-MISS: the pointer does not move AND the record is untouched. An
+# unchanged record describes the PREVIOUS divergence, not this one, so the
+# relaxation above must not become "a pointer once written excuses everything
+# after it".
+D="${WORK}/b5c"; mkfix "$D" || cannot_run "could not build fixture b5c"
+printf '  unrecorded_divergence = "vendor/divergences/DEMO.UNRECORDED.md"\n' \
+    >> "$D/vendor/VENDOR_MANIFEST.toml"
+printf 'demo/alpha: the first refusal was recorded here.\n' \
+    > "$D/vendor/divergences/DEMO.UNRECORDED.md"
+git -C "$D" add -A >/dev/null 2>&1
+git -C "$D" commit -q -m "base: pointer and record already present" >/dev/null 2>&1
+printf 'print("two")\n' > "$D/vendor/demo/alpha/mod.py"
+commit_on_branch "$D" work "a new divergence, described by nothing new"
+expect_gate "B5c MUST-MISS an untouched record does not excuse a new divergence" "$D" 1 "no divergence patch change"
+
 # B6 ROUTE (c) MUST-MISS: the record exists but never mentions this tree, so it
 # is somebody else's divergence borrowed as cover.
 D="${WORK}/b6"; mkfix "$D" || cannot_run "could not build fixture b6"
