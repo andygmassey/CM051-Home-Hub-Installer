@@ -349,6 +349,18 @@ wiki_summaries_wait || true
 . "$HERE/lib/converge_wait.sh"
 _CONVERGE_WAIT_DONE=0
 
+# THE OPPORTUNITY SIGNAL FOR oa_daemon_chat (#1634). assistant_answers_grounded
+# runs earlier in the same walk (probes are collected in sorted order, and
+# "assistant_" sorts before "usage_"), asks the daemon real questions over
+# /ws/chat and counts them. usage_journal_producers matches oa_daemon_chat on
+# `purpose=answering`, which the daemon writes only when somebody sends it a
+# message -- so that count is the difference between "the daemon broke" and
+# "nobody asked it", and without it the walk reported the first for both.
+#
+# EMPTY means UNKNOWN, never zero. Unknown excuses nothing downstream.
+. "$HERE/lib/assistant_asked.sh"
+ASSISTANT_ASKED=""
+
 # -------------------------------------------------------------------------
 # PHASE 2 -- the real measurements.
 # -------------------------------------------------------------------------
@@ -465,6 +477,12 @@ for p in $PROBES; do
         fi
         export OSTLER_WIKI_WAIT_STATE="${WIKI_WAIT_STATE:-unrun}"
         export OSTLER_WIKI_WAIT_DETAIL="${WIKI_WAIT_DETAIL:-}"
+        # #1634. Captured from assistant_answers_grounded's own output further
+        # down this loop. EMPTY when that probe did not run, was filtered out,
+        # or refused before it could count -- and empty means UNKNOWN to the
+        # probe, which excuses nothing. A signal that goes missing can only
+        # leave a red on, never turn one off.
+        export OSTLER_ASSISTANT_ASKED="${ASSISTANT_ASKED:-}"
     fi
 
     # PASS ONLY ON "stable". Every other value, including unrun, means the
@@ -491,6 +509,21 @@ for p in $PROBES; do
     out="$(bash "$p" 2>&1)"
     rc=$?
     printf '%s\n' "$out" | sed 's/^/  /'
+
+    # #1634. Capture the number of questions this walk actually put to the
+    # daemon, whatever verdict the grounded probe reached: a FAIL there (the
+    # answers did not reach the graph) still means the daemon WAS asked, which
+    # is the only thing usage_journal_producers needs from it. The extractor is
+    # lib/assistant_asked.sh, shared with the test that drives it over lines it
+    # must refuse, so the phrase it matches cannot be reworded in silence.
+    if [ "$b" = "assistant_answers_grounded" ]; then
+        ASSISTANT_ASKED="$(printf '%s\n' "$out" | assistant_asked_from_output)"
+        if [ -n "$ASSISTANT_ASKED" ]; then
+            printf '  (opportunity signal: the daemon was asked %s question(s) this walk)\n' "$ASSISTANT_ASKED"
+        else
+            printf '  (opportunity signal: UNRECORDED -- no asked-count in this probe output, so usage_journal_producers will excuse nothing)\n'
+        fi
+    fi
 
     if [ "$rc" -eq 0 ]; then
         PASS=$((PASS + 1))

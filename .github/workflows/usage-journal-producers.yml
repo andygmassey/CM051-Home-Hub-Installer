@@ -60,10 +60,18 @@ on:
       # is not matched by a paths: entry is a check that is blind to a change
       # to the very thing it checks.
       - 'scripts/verify_usage_journal_producers.py'
+      - 'tests/test_the_adjudicator_refuses_a_staging_journal.sh'
       - 'scripts/usage_journal_producers.tsv'
       - 'scripts/usage_journal_producer_floor.tsv'
       - 'scripts/box_walk_probes/probes/usage_journal_producers.sh'
       - 'scripts/box_walk_probes/lib/probe.sh'
+      # The opportunity signal for oa_daemon_chat (#1634): one extractor,
+      # read by run_box_walk.sh on a walk and driven by arm 20 here.
+      - 'scripts/box_walk_probes/lib/assistant_asked.sh'
+      # The probe that EMITS that signal. Arm 20 asserts its EXAMINED phrase
+      # is still there, so a reword must trigger this workflow or the
+      # assertion is one nobody runs on the PR that breaks it.
+      - 'scripts/box_walk_probes/probes/assistant_answers_grounded.sh'
       # The macOS job asserts the runner COLLECTS this probe. run_box_walk.sh
       # globs probes/ and a change to that glob can silently drop it, so the
       # runner itself is watched: a run: step without a matching path entry is
@@ -72,7 +80,11 @@ on:
       - 'tests/test_usage_journal_producer_gate.sh'
       - 'tests/test_usage_journal_readers_resolve_like_the_daemon.sh'
       - 'tests/test_the_workspace_marker_survives_the_promote.sh'
-      - 'tests/fixtures/usage_journal/costs_full.jsonl'
+      # Every fixture the harness reads, not just the one it started with:
+      # costs_unattributed_chat.jsonl (#1163) is a whole arm's input, and a
+      # paths list that names one fixture and not the other is a gate blind
+      # to a change in the very thing it checks.
+      - 'tests/fixtures/usage_journal/**'
       # The SHIPPING producer itself. The roster names cm051_ostler_fda_ingest
       # as its one MEASURED row -- measured on HR015 source, which is not what
       # ships. The vendored copy carried no writer at all until 2026-09-01, so
@@ -118,7 +130,7 @@ jobs:
       # journal are each CANNOT-RUN rather than PASS or FAIL; a roster shrunk
       # below its pinned floor is refused over a COMPLETE journal; both path
       # resolvers are pinned against the contract and against each other.
-      - name: Every declared producer, or a red -- 15 mutation arms
+      - name: Every declared producer, or a red -- 23 mutation arms
         run: /bin/bash tests/test_usage_journal_producer_gate.sh
 
       # The vendored ostler_fda cannot be imported without its third-party
@@ -272,9 +284,13 @@ jobs:
           cp scripts/usage_journal_producers.tsv \
              scripts/usage_journal_producer_floor.tsv "${FAKE}/scripts/"
           cp tests/fixtures/usage_journal/costs_full.jsonl \
+             tests/fixtures/usage_journal/costs_unattributed_chat.jsonl \
              "${FAKE}/tests/fixtures/usage_journal/"
-          cp scripts/box_walk_probes/lib/probe.sh "${FAKE}/scripts/box_walk_probes/lib/"
+          cp scripts/box_walk_probes/lib/probe.sh \
+             scripts/box_walk_probes/lib/assistant_asked.sh \
+             "${FAKE}/scripts/box_walk_probes/lib/"
           cp scripts/box_walk_probes/probes/usage_journal_producers.sh \
+             scripts/box_walk_probes/probes/assistant_answers_grounded.sh \
              "${FAKE}/scripts/box_walk_probes/probes/"
           printf '#!/usr/bin/env python3\nimport sys\nprint("VERDICT: PASS -- nothing examined")\nsys.exit(0)\n' \
              > "${FAKE}/scripts/verify_usage_journal_producers.py"
@@ -345,6 +361,8 @@ jobs:
         run: |
           /bin/bash -n tests/test_usage_journal_producer_gate.sh
           /bin/bash -n scripts/box_walk_probes/probes/usage_journal_producers.sh
+          /bin/bash -n scripts/box_walk_probes/lib/assistant_asked.sh
+          /bin/bash -n scripts/box_walk_probes/run_box_walk.sh
           python3 -m py_compile scripts/verify_usage_journal_producers.py
 
   # ==========================================================================
@@ -352,13 +370,24 @@ jobs:
   # 3.2.57 with BSD userland. A gate that is only ever executed on ubuntu can
   # be inert on the machine it ships to and nothing would say so.
   # ==========================================================================
+      # Row #1774, the half the probe wrapper does not cover. The wrapper
+      # refuses a staging journal path; the ADJUDICATOR did not, and this
+      # workflow calls the adjudicator DIRECTLY. A guard living in one of
+      # several callers guards one of several callers.
+      #
+      # always(), because a guard that runs only when everything else is green
+      # stops being measured exactly when something is wrong.
+      - name: The adjudicator refuses a staging journal, not just the probe
+        if: always()
+        run: /bin/bash tests/test_the_adjudicator_refuses_a_staging_journal.sh
+
   producer-gate-macos:
     runs-on: macos-14
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
-      - name: Same 15 arms, on bash 3.2 + BSD userland
+      - name: Same 23 arms, on bash 3.2 + BSD userland
         run: /bin/bash tests/test_usage_journal_producer_gate.sh
 
       # The vendored ostler_fda cannot be imported without its third-party
