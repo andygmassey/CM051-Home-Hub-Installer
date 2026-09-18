@@ -4827,7 +4827,52 @@ open_issues:
       other 5 cannot be proven against any artefact because their method reads
       source that is compiled away
     gate: >-
-      🔴 BLOCKING, AND IT IS CLOSEABLE MORE CHEAPLY THAN THE ROW STATES, WITHOUT A BUILD. Re-measured
+      🔴 BLOCKING. CORRECTION 2026-09-19 TO TEXT I FOLDED INTO THIS ROW MYSELF EARLIER TONIGHT, AND IT
+      WAS WRONG IN THE DIRECTION THAT WOULD HAVE MADE THINGS WORSE. I wrote that four rows need
+      REPOINTING to the binary method and that nothing needs inventing. THE REPOINT REGRESSES THE GATE
+      AND WAS NOT COMMITTED. MEASURED AGAINST THE REAL v1.0.100 DMG, downloaded, SHA256 verified,
+      mounted, 21,468 strings in the universal binary, NOT a local debug build: BEFORE, gate GREEN, 27
+      of 27 examined, rc 0. AFTER the prescribed repoint, 23 verified plus 4 CANNOT-RUN, rc 2. THE
+      COUNT GOES DOWN AND rc 2 BLOCKS A CUT. A repoint that cannot verify is worse than an honest gap,
+      so nothing was changed. THE PER-PATTERN RESULT, which is the part worth keeping: three of the
+      four Swift patterns SURVIVE into the shipped binary and one does not. The three that survive are
+      an enum case and two view-state properties. The one that does NOT is a COMPUTED PROPERTY, which
+      emits no field metadata, and the binary is stripped. Controls 330, 26, 6 and 6, negative control
+      0, so the result is RAGGED and not a uniform zero. A second instrument was tried and DISCARDED:
+      its positive control returned 0 for a symbol the first instrument finds 6 times, so it is a
+      broken predicate on a stripped binary and its answers were not used. AND THE STANDING CAVEAT
+      APPLIES: a string extraction is a FILTER, not a READER. A pattern present proves the literal is
+      in the string table, never that the behaviour is there; a pattern absent proves only the literal
+      is missing. WHY THE REPOINT FAILS, AND IT IS THE SAME FAILURE MODE THIS BOARD KEEPS FINDING: the
+      binary method is BUILT WITH NO CONSUMER. Measured: 0 of 177 manifest rows use it. It is dead
+      code, and because nothing exercised it, it never received the artefact-path fallback that the
+      frontend method was given when this identical bug bit that method. The cut hands the gate a sha
+      rather than a path, so the file test is false and every repointed row goes blind. Driven by hand
+      with the binary path supplied, the method DOES work and returns green on three rows against the
+      real DMG, which is what proves the method is sound and its WIRING is not. AND THE FIFTH ROW IS
+      NOT A PATH BUG EITHER, WHICH IS MY SECOND CORRECTION. I wrote that its declared path is
+      repository-relative while the artefact puts the tree under the resources directory, and called
+      it one cell. The manifest resolves that path relative to the repository BY DESIGN, so it is
+      already correct, and the row's own name column states that keying to a directory rather than a
+      file is DELIBERATE, because a row keyed to a file reports UNKNOWN when that file is deleted and
+      a deletion is the regression it exists to catch. Rewriting it to the bundle-relative path was
+      tried and produced CANNOT-RUN. Measured, not argued. AND THE MEASUREMENT THAT NEARLY WENT WRONG,
+      recorded because it is the same trap row 2210 fell into: the first pass at this read the release
+      register's WORKING TREE, 45 commits and 9 days behind, and returned 0 of 27 backed with a self-
+      intersection control that returned a large number and appeared to prove the pipeline worked.
+      THAT CONTROL WAS IN THE WRONG COMPARTMENT: it could not detect staleness. Against the fetched
+      tree the intersection is 27 of 27. Both numbers were reproduced deliberately, so the predicate
+      is sound and only the corpus was wrong. WHAT ACTUALLY CLOSES IT: a GATE CODE change giving the
+      binary method the artefact-path fallback the frontend method already has, after which three of
+      the five become artefact-grade DELIVERED proof instead of source-grade MERGED proof. That is a
+      reviewed change and is not being made unilaterally overnight. THE FOURTH CAN NEVER BE WITNESSED
+      BY A STRING EXTRACTION AS CURRENTLY KEYED, and the candidate replacement marker asserts a
+      DIFFERENT THING, so swapping it is a decision about what the gate promises rather than a repair.
+      That one is Andy's. RETIREMENT CONDITION UNCHANGED AND NOW REACHABLE: every required capability
+      verifiable against the artefact by a method that can actually read it, with the per-pattern
+      evidence recorded. It must NOT retire by marking the unverifiable ones not-required, and it must
+      not retire on a repoint that trades verified rows for CANNOT-RUN ones.  ORIGINAL TEXT FOLLOWS. 🔴
+      BLOCKING, AND IT IS CLOSEABLE MORE CHEAPLY THAN THE ROW STATES, WITHOUT A BUILD. Re-measured
       2026-09-19 against a FRESHLY FETCHED release register, which matters because the first attempt
       at this measurement read an eight-day-old checkout and returned 0 of 27 with a control that
       could not detect staleness. Against the current tree the intersection is 27 OF 27. That false
