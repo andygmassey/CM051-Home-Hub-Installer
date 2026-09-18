@@ -304,3 +304,68 @@ hardest to receive and the only one that mattered.
 
 **A trend in corrections carries no information about the next correction.**
 Each is measured from scratch, from the artefact, or it is not measured.
+
+### Overlap is not conflict, and reporting one as the other cost a wrong plan
+
+Facing eleven conflicted pull requests, the cheap measurement is which files each
+one touches that main has also touched since its base. That is an **overlap
+set**, and it is a superset of the conflict set, because git auto-merges most
+overlapping files.
+
+Measured both ways on the same eleven:
+
+    predicted from overlap   TEST_WIRING.tsv in SIX of eleven
+    actual, by merging       TEST_WIRING.tsv in ONE of eleven
+
+The prediction produced a plan - "six of these are one command run six times" -
+that was reported to another session as a finding. It was an honest measurement
+of the wrong thing. **If the question is "what will conflict", the only
+instrument is a merge.**
+
+### Four kinds of conflict, and only two can be resolved mechanically
+
+Measured across eleven pull requests in one repository on one night:
+
+**APPEND.** Both sides add at the end, or add a sibling entry: two workflow steps
+in one job, two method notes at the end of a file, two rows at the end of a
+register. **Keep both.** It is the only resolution that loses nothing, and the
+danger is that taking one side leaves a file that parses and reads perfectly
+while a gate has silently vanished.
+
+**GENERATED.** The file is produced by a tool that forbids hand-editing -
+`TEST_WIRING.tsv`, a divergence patch. **Regenerate, never resolve.** The
+conflict markers are noise; the file's content is not a human artefact.
+
+**REWRITE.** Two independently written versions of one document, differing from
+the title down. One was 135 lines against 133, the same document twice. **Cannot
+be batched**, needs somebody to choose or to merge the content by hand.
+
+**SAME-SUBJECT EDIT, and this is the one that bites.** Both sides changed the
+same rows or the same function, each correctly, for different reasons. Keeping
+both produced **five duplicated register rows** - and the file still parsed, the
+gate still passed, and the count was silently wrong. In a source file the same
+shape was a two-line helper call on one side and a twenty-five-line explicit
+implementation on the other, both correct, both about privacy-level comparison
+direction.
+
+> **A mechanical resolution is safe exactly when the two sides are about
+> different things. The moment they are about the same thing, keeping both is
+> as wrong as keeping one - and it is wrong in the direction that looks fine.**
+
+So classify before resolving. The classification costs one merge per branch and
+it decides whether the work is a command, a judgement, or a conversation.
+
+### Every error tonight had one shape
+
+    a 404 from classic protection      for the ruleset that was enforcing
+    HEAD ahead-behind of a checkout    for whether a pin was current
+    files that overlap                 for files that conflict
+    a path passed to a scanner         where the scanner wanted the list itself
+    a log's tail                       for the tick that mattered
+    a UTC instant against a local date  for an ordering
+
+**In every case the instrument was honest and the question was the wrong one.**
+None of these was a broken tool or a careless reading; each was a true answer to
+something adjacent to the subject. The defence is not more care, it is naming the
+subject out loud before taking the reading, and pairing the reading with a
+control that would fail if the instrument had drifted onto the neighbour.
