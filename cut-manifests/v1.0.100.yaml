@@ -1640,3 +1640,60 @@ open_issues:
     repo: none   # measured finding, not a tracker item
     title: "The divergence patch APPLIES CLEANLY and does not reconstruct the tree, so a re-pin deletes shipped work"
     gate: '🔴 BLOCKING (a re-pin of vendor:doctor today deletes a shipped customer surface): MEASURED 2026-09-18 BY DOING THE RECONSTRUCTION, NOT BY READING A PATCH. For each vendored tree whose source_repo is $HR015, git archive the PINNED sha of its source path into a temp tree, apply its divergence_patch with patch -p1 --forward, then diff -rq the result against the tree CM051 actually ships. ELEVEN TREES MEASURED, SEVEN RECONSTRUCT EXACTLY, AND THAT IS THE CONTROL that makes the other four mean something: ostler_fda, legal, email_ingest, imessage_bridge, hub_power, spoken_source and email_source all come back with 0 non-test files differing, so the method works and a mismatch is a fact about the tree rather than about the instrument. THREE DO NOT RECONSTRUCT. doctor: 11 non-test shipped files differ (README.md, agent/box_status.py, agent/dashboard_components.py, agent/diagnostic_copy.py, agent/diagnostic_rules.py, agent/import_notion.py, agent/import_obsidian.py, agent/pair_status.py, agent/web_ui.py, agent/web_ui_copy.py, agent/whatsapp_pair.py). ostler_security: 2, consent_cli.py and passphrase_recovery_cli.py. whatsapp_source: 2, bin/whatsapp-bundle-tick.sh and launchd/com.creativemachines.ostler.whatsapp-bundle.plist. 🔴 AND THE PATCH APPLIES CLEANLY IN EVERY CASE. patch exits 0, no fuzz, no failed hunks, and the reconstruction is still eleven files wrong. That is worse than a patch that fails, because a failure announces itself and this returns success. Two trees exit 1 from patch and reconstruct PERFECTLY (email_source, spoken_source), which is the same lesson from the other side: the exit status is not the verdict, the diff is. THE CONCRETE, CUSTOMER-VISIBLE INSTANCE, and it is the one row 965 was gated on: render_whatsapp_keepalive is present in vendor/doctor/agent/dashboard_components.py:1292 and absent from HR015 at the pin, from HR015 main, and from the patch. CONTROL, a function both trees certainly have: render_system_overview, 1 at the pin and 1 on main. So the WhatsApp keepalive TILE exists only in the vendored copy, and a re-pin regenerating from pin plus patch deletes it, silently, returning the keepalive job to writing its verdict into a file nobody reads, which is the exact defect row 965 names. ostler_security MATTERS FOR A DIFFERENT REASON: passphrase_recovery_cli.py is the recovery-key surface, and the recovery key a customer cannot redeem is one of the two launch blockers this estate already carries. A re-pin dropping a graft there could undo a fix nobody would think to re-check. MY FIRST CONTROL WAS NOT A CONTROL, and the row records it because the mistake is the reusable part: I grepped the patch for read_whatsapp_keepalive as a supposedly-known-present control and got 0, the same as the subject. A uniform zero across subject and control is the tell, and I nearly reported the absence without knowing whether the search worked at all. 🗿 AND MY FIRST STATEMENT OF WHAT THIS MEANS WAS WRONG, CORRECTED BY ARCHIE WITHIN THE HOUR, AND THE CORRECTION MAKES IT WORSE RATHER THAN BETTER. I wrote that the non-empty divergence_patch form has no gate and that the register was silently green over doctor. IT HAS ONE AND IT IS ALREADY RED. Run with the source repositories resolvable, verify_vendor_fresh.sh reports doctor as DIFFERING from source@pinned_sha+patch and as having advanced past its pin, and returns RED. I asserted an absence of verification without running the verifier, which is the same error as reporting an absence without a control. WHAT IS ACTUALLY TRUE IS THE LINE BESIDE IT: 24 trees, 8 fresh, 3 stale or divergent, 10 UNVERIFIABLE, 3 acked. THIRTEEN OF TWENTY-FOUR ARE NOT CHECKED AT ALL, because the gate resolves its sources through environment variables nothing in the login profile sets, so where CI runs it, it checks nothing. The redness is real and INVISIBLE. That is a different defect from an unverified claim and it wants a different fix: make the gate runnable where somebody looks, rather than add a verification it already performs. 20 of the 24 trees carry a non-empty patch. ARCHIE REPRODUCED THE RECONSTRUCTION INDEPENDENTLY, matched the 11 non-test figure exactly, and swept every tree with a non-empty patch rather than only the HR015-sourced ones: FIVE trees apply cleanly and do not reconstruct (doctor 11, cm041/assistant_api 3 differing plus 4 files present ONLY in the vendored copy, ostler_security 2, cm048_pipeline 2, whatsapp_source 2), and cm041/contact_syncer fails to apply at all with 18 differing, which at least announces itself. cm041/assistant_api is the next hazard after doctor, because it is already a re-pin candidate and a re-pin would drop those four files exactly as a doctor re-pin would delete the keepalive tile. The register-level row is his; this one stays the doctor finding and the method. NOT MEASURED, AND NAMED RATHER THAN IMPLIED COVERED: the 12 trees whose source lives in CM019, CM021, CM024, CM040, CM041, CM048 or CM059. They need their own checkouts and this measurement was not run on them. Their reconstruction is unknown, which is not the same as clean. WHAT IS OWED: regenerate the three failing patches BEFORE any re-pin of those trees; add a gate that performs the reconstruction rather than checking that the patch applies; and run the same measurement on the other 12. Owner archie, the vendor register is his.'
+  - issue: 2224
+    repo: none
+    title: >-
+      no_store_port_is_tcp_reachable fails on ONE port, the tailnet wiki gate,
+      and five of six surfaces prove the credential design works
+    gate: >-
+      🔴 BLOCKING (a launch-directive BLOCKING probe fails, and the cause
+      is narrowed to one port and three candidates): MEASURED 2026-09-18 from
+      two sides, box and repository, with the repository side reading STRUCTURE
+      ONLY and no credential value at any point.
+      THE GOOD NEWS FIRST, because it is the first positive evidence tonight
+      that the credential design does what it claims. FIVE OF SIX SURFACES
+      BEHAVE CORRECTLY on the box: 6333, 7878, 8044, 3000 and 6379 each refused
+      an uncredentialled request AND served a credentialled one. In particular
+      8044 uncredentialled returns 403 with ZERO WWW-Authenticate and the
+      plain-English page, which is exactly what #1980 was written to produce, so
+      that change WORKS. And 7878 uncredentialled is 401 while credentialled is
+      200 with sparql-results json, so the served-with-credential half is not
+      broken in general.
+      THE ONE FAILING SURFACE IS 8144, THE TAILNET WIKI GATE, which refuses
+      both arms.
+      A MECHANISM WAS PROPOSED AND IT IS CORRECT ABOUT THE PORTS AND WRONG
+      ABOUT THE PROBE. Verified from install.sh at the tag: 8144 and 8044 are
+      gated by ostler-wiki-htpasswd, written as a user line for "ostler", so
+      auth_basic; 6333 and 7878 are gated by ostler-store-auth.conf, a Bearer
+      token test. CONTROL: auth_digest occurs 0 times, so the mechanism search
+      discriminates. So a Bearer credential genuinely cannot satisfy a Basic
+      gate. BUT THE PROBE DOES NOT PRESENT THE STORE CREDENTIAL TO 8144. Read
+      from the TAGGED probe, sha b51d0cea6dfc8a7f, against main''s
+      a1d03ff4a29c6df5 which DIFFERS, so the tag was used: _prelude_for has a
+      dedicated wikigate arm presenting the Basic wiki credential AND a
+      Tailscale-User-Login header read out of the gate conf. The right kind, on
+      purpose. The 401 that suggested otherwise came from presenting the store
+      credential by hand, which is not what the walk does.
+      SO THE CAUSE IS NARROWED TO THREE CANDIDATES THE PROBE ITSELF
+      DISTINGUISHES: the wiki password file is not on the box, which it reports
+      by naming the path; the gate conf is absent or names no owner, which it
+      reports as BY DESIGN and is NOT a fail; or the credentialled request was
+      genuinely not served. The gate was observed discriminating logins, so an
+      owner IS bound and the by-design branch is ruled out.
+      AND THE STRICTER-PROBE HYPOTHESIS IS DEAD. 8144 appears in the SURFACES
+      list at BOTH tags as a byte-identical string, v1.0.95 line 270 and
+      v1.0.100 line 311, and both carry the same by-design handling. The probe
+      did not start checking a port it previously ignored, so the v1.0.95 to
+      v1.0.100 change is not an instrument change on this port.
+      A CONTROL CAUGHT MY FIRST ATTEMPT AT THAT COMPARISON: I extracted port
+      numbers with a pattern that also matched prose, and a port that should
+      have appeared in neither file turned up once. The list had to be read off
+      the SURFACES assignment instead.
+      WHAT IS OWED AND WHO SHOULD DO IT: an existence-and-mode check on the
+      wiki password file, ls -l and nothing more, NO CONTENTS. That is one
+      command and it needs no secret read.
+      WHICH HALF-WIRED FAILURE MODE: none of the seven. The probe is graded, it
+      is wired, it distinguishes its own refusal reasons, and it named one port
+      out of six. This is the instrument working and a product question left
+      open.
+
