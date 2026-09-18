@@ -1853,7 +1853,7 @@ open_issues:
       OWNER: Archie registered it; the OS003 side is ORM to write, agreed 2026-09-18. NOT FIXED, and
       deliberately not fixed at speed while three PRs are merging and the cut is held on 30 ungated rows.'
   - issue: 2211
-    repo: CM051
+    repo: none
     title: 'The meeting brief ships with missing attendee facts whenever its own degraded check FAILS'
     gate: 'GATE: NONE YET. A GUARD THAT CANNOT DISTINGUISH ITS OWN FAILURE FROM A CLEAN RESULT IS NOT A
       GUARD, and this one asserts the NEGATIVE of what it guards. Found 2026-09-18 by Archie while
