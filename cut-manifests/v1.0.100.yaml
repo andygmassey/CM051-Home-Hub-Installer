@@ -1741,6 +1741,25 @@ open_issues:
       0600 owner-only config unreadable by the probe''s account is NOT evidence
       the credential is absent. Anyone concluding the probe is keyless must
       first read which of those four states it recorded.
+      🔴 AND THAT AUTHENTICATION CLAIM WAS FIRST MADE AGAINST THE WRONG
+      COPY, WHICH IS WORTH RECORDING BECAUSE THE CONCLUSION SURVIVED BY LUCK. I
+      read the probe from origin/main to establish that it presents a
+      credential. Main''s copy is sha256 65b3bd88 and the copy at the v1.0.100
+      tag is 761ad75f: different files, and 29 probe files on main against 28 at
+      the tag. RE-CHECKED AGAINST THE TAG: the tagged probe carries the same
+      twelve credential-shaped lines at the same line numbers, so the claim is
+      true of the file that shipped. It is true by luck. The credential block
+      happened to be identical between the two copies and my method could not
+      have told me if it had not been.
+      CONFIRMING THE INVOCATION IS NOT CONFIRMING THE ARTEFACT, and it runs in
+      both directions: a stale grader against a correct artefact is the same
+      false answer as a correct grader against a stale artefact. Re-driving the
+      seven against the unexpired v1.0.100 DMG therefore needs the PROBES AS
+      TAGGED as well as the artefact as tagged. Anyone doing it should extract
+      with git show or git archive at the tag and PRINT THE SHA of what they
+      read beside the sha at the tag, before the finding rather than after.
+      The byte-identical-at-both-tags claim above is unaffected: that came from
+      git rev-parse against the two tags, not from a working tree.
       THE CHEAPEST NEXT MEASUREMENT IS TWO CURLS ON A BOX: the store port with
       no credential, and with the store conf. If uncredentialled is
       403-without-challenge and credentialled serves, #1980 works and the
