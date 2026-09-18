@@ -95,6 +95,57 @@ _resolve_instrument_rev
 BOX="${1:-}"
 CUT_VERSION="${2:-}"
 
+# ── WHO WAS AT THE BOX. THIS RECORD AUTHORISES THE CUSTOMER DOWNLOAD ──────
+#
+# scripts/verify_walk_record.sh gates the repoint of ostler.ai/install.dmg, and
+# its own header states the intended chain as "the cut publishes; A HUMAN WALKS;
+# the walk writes evidence". Nothing in the record has ever said whether a human
+# did, so the gate has been asserting a fact it could not read.
+#
+# THE ASSUMPTION THAT CARRIED IT, AND THE MEASUREMENT THAT KILLS IT. The belief
+# was that a CLEAN verdict implies a console walk, because the TCC and GUI
+# probes cannot run over ssh, would land in cannot_run, and any cannot_run makes
+# the verdict PARTIAL rather than CLEAN. Measured 2026-09-17 across every
+# committed record, denominator first -- 20 records, 20 FAILED, 0 CLEAN:
+#
+#   walks/v1.0.88.tsv   pass=25 fail=1 cannot_run=0
+#   walks/v1.0.89.tsv   pass=25 fail=1 cannot_run=0
+#
+# Both were ssh thin walks. Both reached cannot_run=0. Had that single FAIL
+# passed, a walk no human ever saw would have read CLEAN and would have
+# authorised repointing the public customer download. The gate is also reachable
+# on a FAILED or PARTIAL record whose every non-pass is advisory, so the belief
+# was not even load-bearing only at CLEAN.
+#
+# THEREFORE THE KIND IS DECLARED, NEVER INFERRED, AND IT FAILS CLOSED. No
+# declaration means `thin`. Console needs a SENTENCE and not a boolean, for the
+# same reason PUBLISH_RELEASE_ALLOW_UNWALKED does: "=1" tells a reader a year
+# later nothing at all, and this sentence is copied verbatim into the record.
+WALK_KIND=thin
+WALK_KIND_SOURCE='default (no OSTLER_CONSOLE_WALK declared) -- an ssh walk; this record does NOT authorise repointing the customer download'
+if [[ -n "${OSTLER_CONSOLE_WALK:-}" ]]; then
+    # Tabs and newlines would forge extra fields in a TSV record, so they are
+    # flattened here rather than trusted.
+    _console_decl="$(printf '%s' "$OSTLER_CONSOLE_WALK" | tr '\t\n\r' '   ')"
+    if [[ "${#_console_decl}" -lt 20 ]]; then
+        cat >&2 <<DECL
+post_walk_qa: OSTLER_CONSOLE_WALK is set to '${_console_decl}', which is too short to be a declaration.
+
+  It must be a SENTENCE naming who was at the console and what they did there,
+  because it is written into walks/<version>.tsv verbatim and is the only
+  evidence that a human granted the TCC and GUI permissions this walk graded.
+
+  e.g. OSTLER_CONSOLE_WALK="Andy walked v1.0.100 at the console on 2026-09-17, granted Full Disk Access and Screen Recording, and completed the GUI install."
+
+  Refusing rather than defaulting to console: a promote authorised by an
+  unreadable declaration is the same as one authorised by nothing.
+DECL
+        exit 3
+    fi
+    WALK_KIND=console
+    WALK_KIND_SOURCE="declared(OSTLER_CONSOLE_WALK): ${_console_decl}"
+fi
+
 if [[ -z "$BOX" ]]; then
     cat >&2 <<'USAGE'
 usage: scripts/post_walk_qa.sh <box-host> [cut-version]
@@ -752,6 +803,12 @@ if [[ -n "$CUT_VERSION" ]]; then
         printf 'artefact_sha256_source\t%s\n' "$ARTEFACT_SHA_SOURCE"
         printf 'walked_at\t%s\n'   "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         printf 'box_fp\t%s\n'      "$BOX_FP"
+        # walk_kind is the field scripts/verify_walk_record.sh reads before it will
+        # authorise a promote. `thin` is what an ssh walk writes and it is the
+        # default, so a record that predates this field, or one written by a
+        # walk that declared nothing, can never read as console.
+        printf 'walk_kind\t%s\n'        "$WALK_KIND"
+        printf 'walk_kind_source\t%s\n' "$WALK_KIND_SOURCE"
         printf '#\n'
         printf '# instrument_rev answers the question this record has never\n'
         printf '# answered: WHICH PROBES graded that artefact. The subject is\n'

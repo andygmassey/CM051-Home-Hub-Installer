@@ -56,6 +56,12 @@ on:
       - 'scripts/box_walk_probes/probes/pair_state_agreement.sh'
       - 'scripts/box_walk_probes/probes/assistant_answers_grounded.sh'
       - 'scripts/tests/test_grounded_probe_asserts_the_fact.sh'
+      # #1125 / #1597 / #1113: the store map, the unobserved turn, and the
+      # tools-offered discriminator. The sibling probe is listed too because
+      # this test cross-reads its REQUIRED_TOOLS line as the runtime registry,
+      # so an edit there that renamed or narrowed it would be dark otherwise.
+      - 'scripts/tests/test_grounded_probe_names_the_store_and_refuses_a_blind_turn.sh'
+      - 'scripts/box_walk_probes/probes/assistant_prompt_names_every_pwg_tool.sh'
       # The parser grades full_response, the answer, not the chunk draft.
       - 'scripts/tests/test_grounded_probe_grades_the_answer.sh'
       - 'scripts/tests/test_run_box_walk_records_phase1_verdicts.sh'
@@ -121,7 +127,11 @@ on:
       - 'tests/test_walk_pass_requires_zero_failed_steps.sh'
       - 'tests/test_walk_port_probe_matches_install_sh.sh'
       - 'tests/test_a_security_note_cannot_claim_a_flag_is_off.sh'
+      # The same probe's per-port table, guarded for the OTHER way it goes
+      # stale: pointers. Twelve install.sh line numbers, twelve stale (#1595).
+      - 'tests/test_the_store_port_table_cites_anchors_not_line_numbers.sh'
       - 'scripts/box_walk_probes/probes/no_store_port_is_tcp_reachable.sh'
+      - 'tests/test_a_self_test_denominator_counts_itself.sh'
       - 'scripts/box_walk_probes/lib/probe.sh'
       - 'scripts/tests/test_no_store_port_probe_reads_the_credential.sh'
       # Walk-failure classification: the records themselves, the tool that
@@ -515,6 +525,22 @@ jobs:
         if: always()
         run: bash tests/test_a_security_note_cannot_claim_a_flag_is_off.sh
 
+      # The third way this table has gone stale, and the only one that fails
+      # SILENTLY. A wrong line number still resolves -- to something else --
+      # so a reader following it is not told anything is wrong. Measured at
+      # d0c207fd: twelve install.sh:<line> pointers in this probe, twelve
+      # stale, landing on the Gatekeeper quarantine dialog, a launchctl print
+      # branch, Safari's History.db path, a bare `fi` and a plist header. Two
+      # of seven port rows named a verification point under a paragraph
+      # claiming every row named one.
+      #
+      # if: always() -- this and the security-note step above guard the same
+      # table against two different kinds of drift. Learning about one but not
+      # the other on a red run is how the second gets forgotten.
+      - name: The store-port table cites grep anchors, not line numbers (#1595)
+        if: always()
+        run: bash tests/test_the_store_port_table_cites_anchors_not_line_numbers.sh
+
       - name: Port probe agrees with install.sh's own two-instrument table
         if: always()
         run: |
@@ -547,6 +573,23 @@ jobs:
         # `zsh -c` where zsh exists, and one mutant per arm proved landed.
         run: /bin/bash scripts/tests/test_no_store_port_probe_reads_the_credential.sh
 
+      - name: A self-test denominator is COUNTED, never TYPED
+        if: always()
+        # #2120 and #2138. run_box_walk.sh phase 1 puts each probe's self-test
+        # line into walks/v1.0.NN.tsv, so "behaved correctly on all N cases" is
+        # a number a person reads to decide whether a build is shippable.
+        #
+        # MEASURED on origin/main: people_stores_reconcile, one of the five
+        # BLOCKING probes, declared 32 while FORTY ONE distinct assertions
+        # fired, and 0 files named the number. Wrong by nine, checked by
+        # nothing.
+        #
+        # This asserts the declared count against a SECOND reading of the same
+        # run -- the outcome lines it printed -- because that is what catches
+        # an arm added without its tick, which is #2138. A mutant restoring the
+        # typed 32 turns three arms red.
+        run: bash tests/test_a_self_test_denominator_counts_itself.sh
+
       - name: The grounded probe asserts the fact, not the frame shape
         if: always()
         # assistant_answers_grounded is BLOCKING and scored a wrong answer
@@ -564,6 +607,35 @@ jobs:
       - name: the grounded probe grades the answer, not the draft
         if: always()
         run: /bin/bash scripts/tests/test_grounded_probe_grades_the_answer.sh
+
+      # #1125, #1597 and the probe-side half of #1113, all three the same class:
+      # the BLOCKING grounding probe grading something it could not see and
+      # calling the result `grounded`.
+      #
+      #   #1125  any pwg_ tool satisfied the success arm, so pwg_overview -- a
+      #          COUNT of how many preferences the graph holds -- scored 10/10
+      #          grounded on "what are my interests?", identically to the cell
+      #          that called pwg_preferences 10/10.
+      #   #1597  that arm's FALLTHROUGH was `echo "grounded"`. Measured on
+      #          origin/main e0fb21bf: three transcripts with a pwg tool called
+      #          and NO pwg tool_result frame anywhere each read grounded. Zero
+      #          successes observed, reported as the customer's data reached.
+      #   #1113  `no_tool_call` was printed both for a model that held eight
+      #          graph tools and declined them and for one the daemon offered
+      #          none (`tools=` empty in its own telemetry). Two owners, one
+      #          word.
+      #
+      # Seven arms: the probe's own control fires and its declared denominator
+      # is recounted from the file; the pre-fix adjudicator returns grounded on
+      # all four fixtures the fixed one now names or refuses; the fixed one
+      # narrows without reddening the must-misses; the battery's store map is
+      # cross-read against the runtime tool registry in both directions; ten
+      # mutants are each caught; the map scanner REFUSES when blinded and goes
+      # quiet when restored; and the tools-offered discriminator is driven
+      # through the real run_probe with its counter frozen as the mutant.
+      - name: the grounded probe names the store, and refuses a turn it never observed
+        if: always()
+        run: /bin/bash scripts/tests/test_grounded_probe_names_the_store_and_refuses_a_blind_turn.sh
       - name: run_box_walk.sh records phase 1 verdicts for the manifest replay
         if: always()
         run: /bin/bash scripts/tests/test_run_box_walk_records_phase1_verdicts.sh
@@ -755,6 +827,12 @@ jobs:
           printf 'artefact_sha256_source\tmeasured(shasum -a 256 of the citest artefact)\n' >> walks/v0.0.0-citest.tsv
           printf 'walked_at\t2026-01-01T00:00:00Z\n' >> walks/v0.0.0-citest.tsv
           printf 'box_fp\tcitestcitest0000\n'    >> walks/v0.0.0-citest.tsv
+          # walk_kind: verify_walk_record.sh refuses any record that does not
+          # declare a CONSOLE walk, and it refuses at the exit-0 door. Without
+          # this the POSITIVE CONTROL below scores rc=2 and every refusal this
+          # job asserts afterwards would prove nothing.
+          printf 'walk_kind\tconsole\n'          >> walks/v0.0.0-citest.tsv
+          printf 'walk_kind_source\tdeclared: synthetic CI control record\n' >> walks/v0.0.0-citest.tsv
           printf 'pass\t14\n'                    >> walks/v0.0.0-citest.tsv
           printf 'fail\t0\n'                     >> walks/v0.0.0-citest.tsv
           printf 'cannot_run\t0\n'               >> walks/v0.0.0-citest.tsv

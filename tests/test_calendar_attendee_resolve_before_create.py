@@ -193,6 +193,54 @@ m._person_uri_by_identifier_value(evil)
 check(esc.queries and '\\"' in esc.queries[-1],
       "the resolver escapes a quote in the identifier value")
 
+# ── 6. A store that could not be ASKED is not a store that said no ────
+#
+# Added 2026-09-16 after a mutation test: replacing the CANNOT-RUN return
+# with a bare None left every check above GREEN. "The lookup failed" and
+# "nobody holds this identifier" are different facts with different
+# consequences -- the first means this run may have created duplicates and
+# cannot know, the second means it correctly created one -- and collapsing
+# them is the manufactured-clean-input failure that produced the 900.
+
+
+class DeadStore(FakeStore):
+    def query(self, sparql: str) -> list:
+        self.queries.append(sparql)
+        raise RuntimeError("oxigraph refused the connection")
+
+
+dead = DeadStore({})
+install(dead)
+check(m._person_uri_by_identifier_value(ADDR) is m._LOOKUP_FAILED,
+      "an unreachable store returns CANNOT-RUN, not 'nobody holds it'")
+
+# CONTROL for the arm above: the SAME call against a store that answers
+# must NOT report CANNOT-RUN. Without it, a predicate that returned the
+# sentinel unconditionally would pass.
+alive = FakeStore({})
+install(alive)
+check(m._person_uri_by_identifier_value(ADDR) is None,
+      "CONTROL: a store that answers 'no match' returns None, not CANNOT-RUN")
+
+tmp6 = Path(tempfile.mkdtemp())
+write_calendar(tmp6, [ADDR])
+dead2 = DeadStore({})
+install(dead2)
+res6 = m.ingest_calendar(tmp6)
+check(res6.get("people_lookup_failed") == 1,
+      "the run REPORTS that a lookup could not run")
+check(res6.get("people_created") == 1 and res6.get("people_matched") == 0,
+      "and still creates the person rather than dropping them silently")
+
+# The counts must stay honest in the ordinary case too, or the field above
+# is noise that nobody can act on.
+tmp7 = Path(tempfile.mkdtemp())
+write_calendar(tmp7, [ADDR])
+fine = FakeStore({ADDR: MUM})
+install(fine)
+check(m.ingest_calendar(tmp7).get("people_lookup_failed") == 0,
+      "CONTROL: a healthy run reports ZERO failed lookups")
+
 print()
 if FAILURES:
     print(f"FAILED: {len(FAILURES)} check(s)", file=sys.stderr)

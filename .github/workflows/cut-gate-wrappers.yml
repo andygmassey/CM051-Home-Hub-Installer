@@ -55,6 +55,10 @@ on:
       - 'scripts/verify_commit_parity.sh'
       - 'scripts/tests/test_verify_commit_parity_gate.sh'
       - 'scripts/tests/test_verify_stapling_gate.sh'
+      # Wired 2026-09-17 after cut run 35187827169 (tag v1.0.99) died at
+      # `make: *** [staple-apps] Error 1`. gui/Makefile is already a path
+      # above; this entry is the GUARD half, so editing the test re-runs it.
+      - 'tests/test_a_bundle_name_with_a_space_survives_the_staple_loops.sh'
       - 'scripts/verify_no_env_trust_anchors.sh'
       - 'scripts/tests/test_no_env_trust_anchors.sh'
       - 'tests/test_pr_age_gate_declares_partial_runs.sh'
@@ -116,6 +120,14 @@ on:
       # which is how a test rots while reporting green on every unrelated push.
       - 'tests/test_pinned_wiki_images_are_arm64_only.sh'
       - 'tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh'
+      # #1167. The run-at-commit gate, its wiring test, and the baseline both
+      # of them read. All three are triggers: the gate is the defect surface,
+      # the test is the instrument, and a `run:` with no matching paths entry
+      # is dark on self-edit. cut.yml is already listed above, which is the
+      # fourth surface this test reads.
+      - 'scripts/verify_declared_gates_ran_at_commit.sh'
+      - 'tests/test_the_run_at_commit_gate_is_wired_into_the_cut.sh'
+      - 'scripts/cut_trigger_reachability_baseline.tsv'
       - 'scripts/cut_hygiene_gate.sh'
       - 'tests/test_mergeable_unknown_is_not_clean.sh'
       # Without this line the step that runs it below is DARK ON SELF-EDIT:
@@ -253,6 +265,18 @@ jobs:
         if: always()
         run: /bin/bash scripts/tests/test_verify_stapling_gate.sh
 
+      - name: A bundle name with a space survives the staple loops (v1.0.99)
+        # The cut that died: staple-apps iterated `for app in $NESTED_APPS`,
+        # which splits on IFS, so "Recover Ostler.app" (added by #1970) became
+        # two paths that do not exist. Both were reported as "no ticket issued
+        # for this CDHash" and then as "ticket missing after staple", and the
+        # bundle that needed the ticket was never named. The dry run cannot
+        # reach this code: it does not build, sign or staple.
+        # if: always() -- ci-maskless (#1695): without it a red earlier in the
+        # same job SKIPS this step, and a skipped test reports nothing at all.
+        if: always()
+        run: /bin/bash tests/test_a_bundle_name_with_a_space_survives_the_staple_loops.sh
+
       - name: The cross-language trust-anchor guard FIRES, on the right axis
         # if: always() -- ci-maskless (#1695): without it a red earlier in the
         # same job SKIPS this step, and a skipped test reports nothing at all.
@@ -262,6 +286,45 @@ jobs:
       - name: run() cannot report a gate that died as a pass
         if: always()
         run: /bin/bash tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh
+
+      # #1167. The gate's own --self-test proves it can discriminate and runs in
+      # declared-gates-reachable.yml. This proves it is ASKED, on the cut, and
+      # can answer when it is: invoked by cut.yml, if: always(), GH_TOKEN
+      # passed, and the job granted `actions: read`.
+      #
+      # That last one is the reason this exists as a separate file. The first
+      # v1.0.43 tag was refused by verify_tagged_commit_is_green.sh because an
+      # explicit `permissions:` block sets every UNLISTED scope to none and it
+      # had no `checks: read`. The new gate reads the ACTIONS namespace, which
+      # `checks: read` does not cover -- the identical defect, one scope over,
+      # and it would have failed closed on every cut forever.
+      # 🔴 PyYAML IS NOT ON THE RUNNER BY DEFAULT, AND THE TEST REFUSES WITHOUT
+      # IT. Measured on this very PR: the step below exited 2 "CANNOT-RUN: no
+      # PyYAML; a regex over YAML is not a parse". That refusal is correct --
+      # the permissions question CANNOT be answered by text, because an absent
+      # scope and a scope set to none read differently and mean the same thing
+      # -- but a gate that reports CANNOT-RUN on every run is a gate nobody
+      # reads, which is the #1167 shape wearing a different hat.
+      #
+      # THE VERIFY LINE IS NOT DECORATION. An install that quietly does nothing
+      # reproduces the same defect one layer up, so the import is proved AFTER
+      # the install and the step dies if it is still missing. No `|| true` on
+      # the verification.
+      - name: PyYAML must be present, or the wiring assertion cannot run
+        if: always()
+        run: |
+          set -uo pipefail
+          if ! python3 -c 'import yaml' 2>/dev/null; then
+            python3 -m pip install --quiet --break-system-packages --ignore-installed pyyaml \
+              || python3 -m pip install --quiet --ignore-installed pyyaml \
+              || pip3 install --quiet pyyaml \
+              || true
+          fi
+          python3 -c 'import yaml, sys; sys.stdout.write("PyYAML %s on %s\n" % (yaml.__version__, sys.version.split()[0]))'
+
+      - name: The run-at-commit gate is wired into the cut and can answer
+        if: always()
+        run: /bin/bash tests/test_the_run_at_commit_gate_is_wired_into_the_cut.sh
 
       - name: Test parses under /bin/bash 3.2 (the cut host's shell)
         if: always()

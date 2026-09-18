@@ -1,13 +1,15 @@
+diff --git a/__init__.py b/__init__.py
+index 2534729b..a4e90157 100644
 --- a/__init__.py
 +++ b/__init__.py
-@@ -1,9 +1,22 @@
+@@ -1,8 +1,21 @@
  from __future__ import annotations
  
 -from .models import MatchResult, PersonIdentity
 -from .normalise import normalise_email, normalise_phone
 -from .resolver import IdentityResolver
 +from typing import TYPE_CHECKING
- 
++
 +# Lazy re-exports (PEP 562).
 +#
 +# Importing a stdlib-only submodule such as ``identity_resolver.compartment``
@@ -22,11 +24,10 @@
 +# The public names below therefore resolve on first attribute access via
 +# ``__getattr__`` instead of at package-import time. ``from identity_resolver
 +# import IdentityResolver`` (and friends) keep working unchanged.
-+
+ 
  __all__ = [
      "IdentityResolver",
-     "MatchResult",
-@@ -11,3 +24,28 @@
+@@ -11,3 +24,28 @@ __all__ = [
      "normalise_email",
      "normalise_phone",
  ]
@@ -55,6 +56,8 @@
 +
 +def __dir__():
 +    return sorted(__all__)
+diff --git a/batch_resolver.py b/batch_resolver.py
+index 000ee382..541baf02 100644
 --- a/batch_resolver.py
 +++ b/batch_resolver.py
 @@ -1,4 +1,4 @@
@@ -63,20 +66,24 @@
  
  Scans all person nodes in Oxigraph (and optionally Qdrant), applies multiple
  detection strategies with confidence scoring, and merges confirmed duplicates.
-@@ -40,7 +40,10 @@
-     normalise_phone,
- )
- from identity_resolver.decisions import apply_user_decisions, load_duplicate_decisions
--from identity_resolver.canonical_name import choose_canonical_display_name
-+from identity_resolver.canonical_name import (
-+    choose_canonical_display_name,
-+    prefer_real_given_name,
-+)
- 
- logger = logging.getLogger(__name__)
- 
-@@ -92,7 +95,7 @@
+@@ -22,6 +22,7 @@ import os
+ import sys
+ import uuid
+ from collections import defaultdict
++import time
+ from dataclasses import dataclass, field
+ from datetime import datetime, timezone
+ from typing import Any, Dict, List, Optional, Set, Tuple
+@@ -92,9 +93,15 @@ DEFAULT_CONFIG: Dict[str, Any] = {
+     # Fuzzy thresholds
+     "fuzzy_jaro_winkler_threshold": 0.85,
      "fuzzy_levenshtein_max_distance": 2,
++    # Wall-clock backstop for the quadratic duplicate scan. Measured on the
++    # founder graph after the eager-edit-distance fix: 3,604 contacts /
++    # 6,492,606 pairs in 11.8s, so 60s is roughly a 5x headroom on today's
++    # shape rather than a limit anybody normally meets. Exceeding it yields a
++    # PARTIAL report that says so. Set to 0 to disable the bound.
++    "fuzzy_match_max_seconds": 60.0,
      # Phone normalisation
      "default_country_code": 852,
 -    # Common free email domains – too generic to count as a signal for fuzzy matching
@@ -84,7 +91,7 @@
      "common_email_domains": {
          "gmail.com", "googlemail.com", "hotmail.com", "hotmail.co.uk",
          "outlook.com", "live.com", "yahoo.com", "yahoo.co.uk",
-@@ -100,10 +103,10 @@
+@@ -102,10 +109,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
          "protonmail.com", "proton.me", "163.com", "qq.com",
      },
      # Minimum Jaro-Winkler score between names for phone match to be high-confidence.
@@ -97,7 +104,55 @@
      "email_name_similarity_threshold": 0.7,
      # BW-2 correction loop: operator merge/distinct decisions live here as
      # duplicates.yaml. distinct pairs are a permanent never-merge block;
-@@ -270,7 +273,7 @@
+@@ -196,6 +203,47 @@ def _levenshtein(s1: str, s2: str) -> int:
+     return prev[-1]
+ 
+ 
++def _levenshtein_within(s1: str, s2: str, max_dist: int) -> int:
++    """Levenshtein distance, ABANDONED as soon as it provably exceeds max_dist.
++
++    🔴 THE RETURN VALUE IS ONLY VALID FOR A ``> max_dist`` TEST. When the true
++    distance is <= max_dist this returns it exactly; when it is greater this
++    returns SOME value greater than max_dist, not necessarily the true one.
++    Never print this number or put it in evidence -- call :func:`_levenshtein`
++    for that, and only for the few pairs that actually survive the gate.
++
++    Why this exists: :func:`detect_fuzzy_name_matches` is O(n^2) over the whole
++    address book, and it used to run a FULL edit-distance DP on every pair. On
++    the founder graph that is 3,604 contacts = 6,492,606 pairs, and the endpoint
++    that calls it (GET /api/v1/contacts/diff) did not return inside 90 seconds.
++    Two cut-offs make the same answer cheap:
++
++      * a length delta above max_dist already PROVES the distance exceeds it,
++        so the DP never starts (max_dist is 2, so most pairs die here);
++      * within the DP, once an entire row's minimum exceeds max_dist, every
++        later row's minimum is >= it, so no completion can come back under the
++        bound.
++    """
++    if len(s1) < len(s2):
++        s1, s2 = s2, s1
++    # A length difference alone forces at least that many edits.
++    if len(s1) - len(s2) > max_dist:
++        return max_dist + 1
++    if len(s2) == 0:
++        return len(s1)
++    prev = list(range(len(s2) + 1))
++    for i, c1 in enumerate(s1):
++        curr = [i + 1]
++        for j, c2 in enumerate(s2):
++            curr.append(min(curr[j] + 1, prev[j + 1] + 1, prev[j] + (c1 != c2)))
++        # Rows are non-decreasing in their minimum, so this is a real proof,
++        # not a heuristic.
++        if min(curr) > max_dist:
++            return max_dist + 1
++        prev = curr
++    return prev[-1]
++
++
+ def has_hard_conflict(
+     a: PersonRecord, b: PersonRecord, config: Dict[str, Any]
+ ) -> Optional[str]:
+@@ -272,7 +320,7 @@ def detect_email_matches(
  
      If the display names are very different (JW < threshold), this may be an
      inherited or shared email account (e.g. deceased spouse's email used by
@@ -106,7 +161,7 @@
      auto-merge.
      """
      email_index: Dict[str, List[str]] = defaultdict(list)
-@@ -325,7 +328,7 @@
+@@ -327,7 +375,7 @@ def detect_phone_matches(
      """Strategy 3: Shared phone number after normalisation (confidence 0.95).
  
      If the names are very different (JW < threshold), this is likely a shared
@@ -115,21 +170,115 @@
      of auto-merge.
      """
      phone_index: Dict[str, List[str]] = defaultdict(list)
-@@ -816,7 +819,7 @@
-     before creating new person nodes.
-     """
-     cfg = {**DEFAULT_CONFIG, **(config or {})}
--    client = httpx.Client(timeout=30.0)
-+    client = httpx.Client(timeout=30.0, trust_env=False)
+@@ -537,7 +585,9 @@ def detect_linkedin_url_matches(
  
-     # Fetch all persons
-     persons = _fetch_all_persons(oxigraph_url, client, cfg)
-@@ -1009,6 +1012,83 @@
-     with open(output_path, "w", encoding="utf-8") as f:
-         f.write("\n".join(lines))
+ 
+ def detect_fuzzy_name_matches(
+-    persons: Dict[str, PersonRecord], config: Dict[str, Any]
++    persons: Dict[str, PersonRecord],
++    config: Dict[str, Any],
++    stats: Optional[Dict[str, Any]] = None,
+ ) -> List[DuplicateMatch]:
+     """Strategy 4: Fuzzy name match via Jaro-Winkler + Levenshtein (confidence 0.6-0.8).
+ 
+@@ -547,6 +597,12 @@ def detect_fuzzy_name_matches(
+     = 0.852 due to 4-char prefix bonus), we require either:
+     - Very high similarity (JW >= 0.93) for standalone matches, OR
+     - Corroboration (same org or shared corporate email domain) for JW 0.85-0.93
++
++    ``stats`` is an optional caller-owned dict. When the scan stops early on the
++    ``fuzzy_match_max_seconds`` budget it is populated with ``truncated=True``
++    plus how far it got, so the caller can tell the customer the report is
++    partial instead of quietly serving a short one. The dict is caller-owned so
++    this stays safe to call from more than one request thread at a time.
+     """
+     uris = list(persons.keys())
+     matches = []
+@@ -566,14 +622,36 @@ def detect_fuzzy_name_matches(
+     rare_max_holders = config.get("rare_surname_max_holders", 2)
+     rare_min_len = config.get("rare_surname_min_length", 3)
+ 
++    # HOISTED OUT OF THE INNER LOOP. _normalise_name(b.display_name) used to be
++    # recomputed once per PAIR, i.e. 6,492,606 times on the founder graph for
++    # 3,604 distinct values. Normalise once per person instead.
++    norms = [_normalise_name(persons[u].display_name) for u in uris]
++
++    # Wall-clock backstop. The cause of the v1.0.98 wedge is fixed below, but
++    # this loop is still quadratic, so an address book an order of magnitude
++    # larger would walk back into the same shape. Budget exhausted = a PARTIAL
++    # report that says so, never an unbounded scan.
++    budget = config.get("fuzzy_match_max_seconds", 60.0)
++    deadline = (time.monotonic() + budget) if budget and budget > 0 else None
++
+     for i in range(len(uris)):
+-        a = persons[uris[i]]
+-        norm_a = _normalise_name(a.display_name)
++        norm_a = norms[i]
+         if not norm_a:
+             continue
++        if deadline is not None and time.monotonic() > deadline:
++            if stats is not None:
++                stats["truncated"] = True
++                stats["truncated_reason"] = (
++                    f"duplicate scan stopped after {budget:.0f}s "
++                    f"({i} of {len(uris)} contacts compared)"
++                )
++                stats["compared"] = i
++                stats["total"] = len(uris)
++            break
++        a = persons[uris[i]]
++        len_a = len(norm_a)
+         for j in range(i + 1, len(uris)):
+-            b = persons[uris[j]]
+-            norm_b = _normalise_name(b.display_name)
++            norm_b = norms[j]
+             if not norm_b:
+                 continue
+ 
+@@ -582,10 +660,21 @@ def detect_fuzzy_name_matches(
+                 continue
+ 
+             jw_score = _jaro_winkler(norm_a, norm_b)
+-            lev_dist = _levenshtein(norm_a, norm_b)
+ 
+-            if jw_score < jw_threshold and lev_dist > lev_max:
+-                continue
++            # 🔴 DO NOT HOIST THE EDIT DISTANCE BACK OUT OF THIS BRANCH.
++            # The gate below is "jw bad AND lev bad -> skip", so the edit
++            # distance only DECIDES anything when jw has already failed its
++            # threshold. It used to be computed eagerly for all 6.49M pairs,
++            # which is why GET /api/v1/contacts/diff did not return inside 90
++            # seconds, and -- the server being single-threaded -- took every
++            # other route down with it while it ran.
++            if jw_score < jw_threshold:
++                if abs(len_a - len(norm_b)) > lev_max:
++                    continue
++                if _levenshtein_within(norm_a, norm_b, lev_max) > lev_max:
++                    continue
++
++            b = persons[uris[j]]
+ 
+             # Hard-conflict veto (spec §3b): different LinkedIn / phone /
+             # corporate email = different people, never merge.
+@@ -664,6 +753,14 @@ def detect_fuzzy_name_matches(
+                     f"{surname_holder_counts.get(surname_a, 0)})"
+                 )
+ 
++            # THE EXACT DISTANCE, AND THIS IS THE ONLY PLACE IT IS NEEDED.
++            # Deliberately computed AFTER the last `continue` above, so the
++            # full DP is paid for only by pairs that actually become matches
++            # (91 of 6,492,606 on the founder graph). The bounded
++            # _levenshtein_within used by the gate cannot be reused here: its
++            # answer is only valid for a "> lev_max" test, never to print.
++            lev_dist = _levenshtein(norm_a, norm_b)
++
+             detail_parts = [
+                 f"Jaro-Winkler={jw_score:.3f}",
+                 f"Levenshtein={lev_dist}",
+@@ -1013,6 +1110,83 @@ def _backup_triples(
      logger.info("Backup written to %s", output_path)
-+
-+
+ 
+ 
 +# ── RULE 2 ON THE CONVERGE PATH (#659) ───────────────────────────────────
 +#
 +# WHY THIS IS HERE AND NOT ONLY IN resolver.py. MEASURED on the Mini 16,
@@ -205,10 +354,12 @@
 +        if values_b and not (values_a & values_b):
 +            return id_type
 +    return None
- 
- 
++
++
  def _merge_oxigraph(
-@@ -1046,7 +1126,7 @@
+     url: str, client: httpx.Client, keep_uri: str, discard_uri: str,
+ ) -> None:
+@@ -1048,7 +1222,7 @@ def _merge_oxigraph(
          f"  ?entry <{PWG}aboutPerson> <{discard_uri}> }}"
      )
  
@@ -217,98 +368,16 @@
      scalar_props = [
          "displayName", "givenName", "familyName", "organization",
          "jobTitle", "relationship", "howWeMet", "notes", "birthday",
-@@ -1069,6 +1149,15 @@
-         f"}}"
-     )
- 
-+    # 6b. The SURVIVOR must be a live Person. See the long note at the
-+    #     matching site in resolver.py: nothing in either merge path ever
-+    #     asserts this, only step 7 below deletes it, so a merge into an
-+    #     untyped keep produced a person-shaped node with no rdf:type.
-+    #     Idempotent -- INSERT DATA of an existing triple is a no-op.
-+    _sparql_update(url, client,
-+        f"INSERT DATA {{ <{keep_uri}> a <{PWG}Person> }}"
-+    )
-+
-     # 7. Remove discard's type triple (no longer a live Person)
-     _sparql_update(url, client,
-         f"DELETE DATA {{ <{discard_uri}> a <{PWG}Person> }}"
-@@ -1103,7 +1192,9 @@
-         return rows[0].get("name") if rows else None
+@@ -1116,7 +1290,7 @@ def _canonicalise_display_name_oxigraph(
  
      candidates = [r["name"] for r in rows if r.get("name")]
--    given = next((r["given"] for r in rows if r.get("given")), None)
-+    # ALL of them, not the first in arbitrary SPARQL order -- see
+     # ALL of them, not the first in arbitrary SPARQL order -- see
+-    # prefer_real_given_name. The batch path had the identical defect.
 +    # prefer_real_given_name. The batch path had the identical defect. (CM041 #145)
-+    given = prefer_real_given_name(r["given"] for r in rows if r.get("given"))
+     given = prefer_real_given_name(r["given"] for r in rows if r.get("given"))
      family = next((r["family"] for r in rows if r.get("family")), None)
  
-     canonical = choose_canonical_display_name(
-@@ -1126,13 +1217,37 @@
- 
- def _merge_qdrant(
-     qdrant_url: str, collection: str, keep_uri: str, discard_uri: str,
--) -> None:
--    """Merge Qdrant points: update canonical payload, delete duplicate point."""
-+) -> bool:
-+    """Merge Qdrant points: update canonical payload, delete duplicate point.
-+
-+    Returns True when the vector side is consistent with the graph side after
-+    this call -- either because the merge happened, or because there was
-+    genuinely nothing to merge. Returns False when it COULD NOT be done.
-+
-+    IT USED TO RETURN None AND THE CALLER COULD NOT TELL THE DIFFERENCE.
-+    The graph half is merged by _merge_oxigraph immediately above the call site,
-+    and `action.executed = True` was set unconditionally after it. So when this
-+    function bailed, the person was deleted from Oxigraph, kept in Qdrant, and
-+    the action recorded itself as done. The two stores then diverge by exactly
-+    one person per merge, permanently, with nothing reporting a fault.
-+
-+    MEASURED on a live box 2026-08-26: Qdrant people points 7284, Oxigraph
-+    Person nodes 7111 -- a 173 gap. people/search reads Qdrant, so an orphan
-+    point means search can return a person who no longer exists as a node.
-+
-+    "Skipping" is not a neutral word here. Returning False makes the skip
-+    VISIBLE to the caller instead of indistinguishable from success.
-+    """
-     try:
-         from qdrant_client import QdrantClient
-     except ImportError:
--        logger.warning("qdrant-client not installed – skipping Qdrant merge")
--        return
-+        logger.warning(
-+            "qdrant-client not installed: CANNOT reconcile Qdrant for %s -> %s. "
-+            "The graph merge has already happened, so the two stores are now "
-+            "out of step by one person until a reconcile runs.",
-+            discard_uri, keep_uri,
-+        )
-+        return False
- 
-     client = QdrantClient(url=qdrant_url, timeout=30)
-     keep_point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, keep_uri))
-@@ -1146,12 +1261,18 @@
-             collection_name=collection, ids=[discard_point_id], with_payload=True,
-         )
-     except Exception as exc:
--        logger.warning("Qdrant retrieve failed: %s", exc)
--        return
-+        logger.warning(
-+            "Qdrant retrieve failed for %s -> %s: %s. CANNOT reconcile; the "
-+            "graph merge has already happened.", discard_uri, keep_uri, exc,
-+        )
-+        return False
- 
-     if not discard_points:
-+        # Legitimately consistent: there is no vector for the discarded person,
-+        # so nothing is left orphaned. This is the one early return that is NOT
-+        # a failure, and it returns True for exactly that reason.
-         logger.info("Qdrant: discard point %s not found, nothing to merge", discard_point_id)
--        return
-+        return True
- 
-     discard_payload = discard_points[0].payload or {}
- 
-@@ -1185,6 +1306,23 @@
+@@ -1229,6 +1403,23 @@ def _merge_qdrant(
          points_selector=[discard_point_id],
      )
      logger.info("Qdrant merge: %s → %s (deleted %s)", discard_point_id, keep_point_id, discard_point_id)
@@ -332,16 +401,7 @@
  
  
  # ── Same-person_uri reconcile (collapse over-split vectors) ───────────────────
-@@ -1429,7 +1567,7 @@
-         self.qdrant_url = qdrant_url.rstrip("/")
-         self.qdrant_collection = qdrant_collection
-         self.config = {**DEFAULT_CONFIG, **(config or {})}
--        self._client = httpx.Client(timeout=60.0)
-+        self._client = httpx.Client(timeout=60.0, trust_env=False)
- 
-     def detect(self) -> ResolverReport:
-         """Run all detection strategies and return a report."""
-@@ -1504,7 +1642,26 @@
+@@ -1730,7 +1921,26 @@ class BatchResolver:
          backup_path = os.path.join(backup_dir, f"merge_backup_{timestamp}.trig")
          _backup_triples(self.oxigraph_url, self._client, all_uris, backup_path)
  
@@ -368,33 +428,7 @@
              logger.info(
                  "Merging: %s (%s) → %s (%s) [%s, conf=%.2f]",
                  action.discard_name, action.discard_uri,
-@@ -1515,11 +1672,24 @@
-                 self.oxigraph_url, self._client,
-                 action.keep_uri, action.discard_uri,
-             )
--            _merge_qdrant(
-+            _qdrant_ok = _merge_qdrant(
-                 self.qdrant_url, self.qdrant_collection,
-                 action.keep_uri, action.discard_uri,
-             )
-+            # executed stays True: the GRAPH merge above really did happen and
-+            # is not undone by a vector-side failure. What must not happen is
-+            # that failure passing silently -- an unreconciled merge is a
-+            # permanent one-person divergence between the two stores, and the
-+            # only previous evidence was a warning nobody aggregates.
-             action.executed = True
-+            if not _qdrant_ok:
-+                self._qdrant_unreconciled = getattr(self, "_qdrant_unreconciled", 0) + 1
-+                logger.warning(
-+                    "UNRECONCILED MERGE %s -> %s: Oxigraph updated, Qdrant NOT. "
-+                    "Running total this pass: %d",
-+                    action.discard_uri, action.keep_uri,
-+                    self._qdrant_unreconciled,
-+                )
- 
-         # Safety-net sweep: a node merge can leave the Qdrant collection with
-         # more than one point carrying the surviving person_uri (see
-@@ -1527,6 +1697,19 @@
+@@ -1766,6 +1976,19 @@ class BatchResolver:
          # never reports a phantom duplicate for a node we just merged.
          self.reconcile_qdrant(apply=True, backup_dir=backup_dir)
  
@@ -414,11 +448,10 @@
      def reconcile_qdrant(
          self, *, apply: bool = False, backup_dir: str = "./backups",
      ) -> QdrantReconcileReport:
-@@ -1539,7 +1722,63 @@
-             self.qdrant_url, self.qdrant_collection,
+@@ -1779,6 +2002,62 @@ class BatchResolver:
              apply=apply, backup_dir=backup_dir,
          )
-+
+ 
 +    def converge(
 +        self,
 +        max_rounds: int = 10,
@@ -441,7 +474,7 @@
 +        surviving node inherits their identifiers (step 1 of the merge), so the
 +        next round picks up the transitive matches. The loop terminates when a
 +        round yields zero auto-merges -- the fixpoint.
- 
++
 +        This is PURE ORCHESTRATION over the existing detect/execute. It adds NO
 +        new rule, threshold, or flag and changes no individual merge decision
 +        (the BW-2 hard-conflict veto and duplicates.yaml decisions still apply
@@ -478,7 +511,7 @@
      def close(self) -> None:
          self._client.close()
  
-@@ -1549,7 +1788,7 @@
+@@ -1788,7 +2067,7 @@ class BatchResolver:
  def format_report_yaml(report: ResolverReport) -> str:
      """Format the report as YAML-like text for human review."""
      lines = [
@@ -487,7 +520,7 @@
          f"# Generated: {datetime.now(timezone.utc).isoformat()}",
          "",
          f"total_persons: {report.total_persons}",
-@@ -1601,7 +1840,7 @@
+@@ -1840,7 +2119,7 @@ def format_report_yaml(report: ResolverReport) -> str:
  
  def main() -> None:
      parser = argparse.ArgumentParser(
@@ -496,10 +529,11 @@
      )
      parser.add_argument(
          "--dry-run", action="store_true", default=True,
-@@ -1640,6 +1879,17 @@
+@@ -1878,6 +2157,17 @@ def main() -> None:
+         "--exclude", type=str, default="",
          help="Comma-separated list of 1-based indices to exclude from execution (e.g. '12,13,15')",
      )
-     parser.add_argument(
++    parser.add_argument(
 +        "--converge", action="store_true",
 +        help="Whole-graph consolidation: loop detect+merge to a fixpoint so "
 +             "transitive 3+ node clusters fully collapse (run once after all "
@@ -510,11 +544,10 @@
 +        "--max-rounds", type=int, default=10,
 +        help="Safety cap on --converge rounds (default 10)",
 +    )
-+    parser.add_argument(
+     parser.add_argument(
          "--reconcile-qdrant", action="store_true",
          help="Collapse Qdrant people-points that share a person_uri "
-              "(over-split vectors). Detect-only unless --execute is also set.",
-@@ -1668,6 +1918,29 @@
+@@ -1907,6 +2197,29 @@ def main() -> None:
      )
  
      try:
@@ -544,7 +577,7 @@
          if args.reconcile_qdrant:
              # Standalone Qdrant collapse sweep -- does NOT touch person nodes.
              qreport = resolver.reconcile_qdrant(
-@@ -1755,7 +2028,7 @@
+@@ -1994,7 +2307,7 @@ def main() -> None:
              with open(args.output, "w", encoding="utf-8") as f:
                  f.write(yaml_report)
          else:
@@ -553,252 +586,11 @@
  
      finally:
          resolver.close()
---- a/canonical_name.py
-+++ b/canonical_name.py
-@@ -20,6 +20,8 @@
- 
- from __future__ import annotations
- 
-+import json
-+import os
- import re
- from typing import Iterable, Optional
- 
-@@ -108,6 +110,168 @@
-     return True
- 
- 
-+# ---------------------------------------------------------------------------
-+# A KINSHIP WORD MUST NEVER BECOME A GIVEN NAME.
-+# ---------------------------------------------------------------------------
-+# MEASURED 2026-09-06 on Andy's own graph. His WIFE was carried as
-+# "Mum <Surname>". The string existed in no source: a literal search of the
-+# graph dump found ZERO occurrences of it. It was MANUFACTURED here.
-+#
-+# The chain: a second address book syncs into Contacts (44 cards, registered
-+# as com.apple.AddressBookSourceSync, and plainly a child's phone book --
-+# Mum, Dad, Granny <Surname>, Uncle <Name>). One card is first-named "Mum"
-+# with two phones and two emails that match his wife's real card exactly.
-+# Identity resolution merges them on those shared identifiers, so ONE node
-+# ends up holding TWO givenName values, the real one and the kinship word,
-+# alongside one familyName. Then precedence rule 1 below welds given +
-+# family and returns it AHEAD of every real candidate.
-+#
-+# WHY IT KEPT COMING BACK FOR WEEKS. This function runs LAST, after ingest,
-+# and install.sh installs a recurring launchd catch-up agent that re-runs the
-+# resolver. Every fix applied at an ingest site was overwritten on the next
-+# tick. His own node already shows the endpoint: it holds givenName "Andrew"
-+# AND givenName "Dad", and there the composed form was PERSISTED.
-+#
-+# THE QUESTION ASKED HERE IS NOT "is 'Mum <Surname>' a name?" -- it is
-+# "should I CONSTRUCT that from givenName='Mum'?". So the test is on the
-+# given name ALONE, whole-label, which is unambiguous. contact_syncer's
-+# relationship_labels.py makes exactly this distinction in its docstring and
-+# deliberately leaves "Mum Zhang" alone, because a false positive there
-+# erases a real person's name.
-+#
-+# WHY THAT MODULE IS NOT IMPORTED, having checked rather than assumed: CM051
-+# vendors 11 identity_resolver files and does NOT vendor
-+# relationship_labels.py at all (0 of 27 vendored contact_syncer files). An
-+# import would raise on every customer box, and a try/except around it would
-+# delete the guard precisely where it ships. The list is duplicated here
-+# deliberately and both honour OSTLER_KINSHIP_WORDS_FILE so one file can
-+# drive both. Unifying them means adding that module to the vendor set, which
-+# is follow-up work and not a blocker for this defect.
-+#
-+# REFUSING THE WELD DOES NOT DROP THE PERSON. It falls through to precedence
-+# rule 2, the source-provided candidates -- which is a name a source actually
-+# asserted, and therefore better evidence than one this function assembled.
-+# Measured: with candidates ['Jane Smith','Jane','jane@example.com'] and
-+# given='Mum', the weld returns 'Mum Smith'; refusing it returns 'Jane Smith'.
-+_KINSHIP_GIVEN_NAMES = {
-+    "mum", "mummy", "mom", "mommy", "mother", "ma", "mam", "mama",
-+    "dad", "daddy", "father", "pa", "papa", "pop",
-+    "nan", "nana", "nanny", "gran", "granny", "grandma", "grandmother",
-+    "grandad", "granddad", "grandpa", "grandfather", "gramps",
-+    "bro", "brother", "sis", "sister", "auntie", "aunty", "aunt", "uncle",
-+    "cousin", "nephew", "niece", "godmother", "godfather", "godson",
-+    "goddaughter", "stepmum", "stepmom", "stepdad", "stepfather",
-+    "stepmother", "stepbrother", "stepsister",
-+    "hubby", "husband", "wife", "wifey", "partner", "spouse",
-+    "missus", "hubbie", "fiance", "fiancee",
-+    "son", "daughter", "kid", "bairn",
-+    "home", "house", "work", "office", "landline",
-+}
-+
-+
-+def _load_kinship_given_names() -> set:
-+    """Same override contact_syncer.relationship_labels honours, so one file
-+    can drive both lists until they are unified."""
-+    path = os.environ.get("OSTLER_KINSHIP_WORDS_FILE")
-+    if not path:
-+        return set(_KINSHIP_GIVEN_NAMES)
-+    try:
-+        with open(path, encoding="utf-8") as fh:
-+            data = json.load(fh)
-+        if isinstance(data, list):
-+            return {str(w).strip().lower() for w in data if str(w).strip()}
-+    except (OSError, ValueError):
-+        pass
-+    return set(_KINSHIP_GIVEN_NAMES)
-+
-+
-+_KINSHIP_GIVEN = _load_kinship_given_names()
-+
-+
-+def is_kinship_given_name(given: Optional[str]) -> bool:
-+    """True when a GIVEN NAME is really a kinship term, whole-label.
-+
-+    Deliberately NOT applied to the composed form: "Nan Goldin" is a real
-+    person and must survive. This asks only whether the given-name FIELD is a
-+    relationship word, which is the thing that must never be welded into a
-+    display name.
-+    """
-+    if not given:
-+        return False
-+    n = " ".join(str(given).strip().lower().split())
-+    if not n:
-+        return False
-+    if n in _KINSHIP_GIVEN:
-+        return True
-+    parts = n.split()
-+    if len(parts) == 2 and parts[0] in {"my", "our", "the", "big", "little", "wee"}:
-+        return parts[1] in _KINSHIP_GIVEN
-+    return False
-+
-+
-+def prefer_real_given_name(givens: Iterable[Optional[str]]) -> Optional[str]:
-+    """Pick a given name that is a NAME, from the several a merged node holds.
-+
-+    THE NODE ALREADY CARRIES THE ANSWER AND THE CALLERS THREW IT AWAY. Identity
-+    resolution merges a card first-named with a kinship word onto a real
-+    person's node on shared phones and emails, so ONE node ends up holding two
-+    ``givenName`` values -- the real one and the kinship word. Both callers then
-+    did ``next(b["given"] for b in bindings if b.get("given"))``, taking the
-+    FIRST in arbitrary SPARQL result order and discarding the rest. Which name a
-+    person is shown under was decided by a coin flip.
-+
-+    So this is not a new guess: it is using evidence that was already on the
-+    node. A real given name outranks a kinship word; order decides only among
-+    names of the same kind, so two real given names are never reordered.
-+
-+    Returns None only when there is no usable given name at all.
-+    """
-+    cleaned = [str(g).strip() for g in givens if g and str(g).strip()]
-+    if not cleaned:
-+        return None
-+    for g in cleaned:
-+        if not is_kinship_given_name(g):
-+            return g
-+    # Every one of them is a kinship word. Hand back the first so the caller
-+    # keeps its existing behaviour and the guard downstream still refuses the
-+    # weld -- an incomplete name, not a wrong one.
-+    return cleaned[0]
-+
-+
-+def _is_manufactured_kinship_candidate(
-+    value: str, given: Optional[str], family: Optional[str]
-+) -> bool:
-+    """True for a candidate that IS the weld this module refuses to build.
-+
-+    Guarding the given-name FIELD is not enough. The offending card contributes
-+    its own display name to ``candidates``, and once a composed form has been
-+    written to the graph it comes back as a candidate on the next pass, so
-+    precedence rule 2 hands the defect straight back unexamined. Measured on the
-+    shipped code: candidates ``['Mum Smith', 'Jane Smith']`` with given ``Mum``
-+    returned ``'Mum Smith'``.
-+
-+    DELIBERATELY NARROW, because a false positive here erases a real person:
-+
-+    * the candidate is exactly a kinship word (``Mum``) -- never a display name
-+    * OR the candidate is EXACTLY this node's own kinship given name followed by
-+      EXACTLY this node's own family name, which is the string ``_full_name``
-+      would have assembled and the guard above just refused to return
-+
-+    "Nan Goldin" survives unless the node itself carries given ``Nan`` AND family
-+    ``Goldin``, in which case a source did assert that pair and rule 1 is where
-+    that belongs, not here.
-+    """
-+    v = " ".join(value.strip().split())
-+    if not v:
-+        return False
-+    if is_kinship_given_name(v):
-+        return True
-+    if not given or not is_kinship_given_name(given):
-+        return False
-+    welded = _full_name(given, family)
-+    return bool(welded) and v.casefold() == welded.casefold()
-+
-+
- def _full_name(given: Optional[str], family: Optional[str]) -> Optional[str]:
-     parts = [p.strip() for p in (given, family) if p and p.strip()]
-     if not parts:
-@@ -137,19 +301,58 @@
-     Returns ``None`` only when there is no usable input at all.
-     """
-     structured = _full_name(given_name, family_name)
--    if structured and is_acceptable_display_name(structured):
-+    if structured and is_acceptable_display_name(structured) and not is_kinship_given_name(given_name):
-         return structured
- 
-     cleaned = [c.strip() for c in candidates if c and c.strip()]
- 
--    for cand in cleaned:
--        if is_acceptable_display_name(cand):
--            return cand
-+    # Among the acceptable candidates, DEMOTE a run-together social handle
-+    # (e.g. "delganycolm") below a real name. A bare username passes
-+    # is_acceptable_display_name -- it is not junk -- so without this the FIRST
-+    # acceptable candidate wins by ingest order, and a handle that arrived first
-+    # became the name a person is shown under (Andy's .231 walk: a person shown
-+    # as "delganycolm" not "Colm O'Neill"). A handle is recognised narrowly, by
-+    # the exact shape the social sources leave: instagram_social sets
-+    # display_name = username, and _username_to_display_name keeps a
-+    # separator-less username lowercase and un-title-cased -- one all-lowercase
-+    # alphabetic token. This deliberately does NOT touch an all-caps brand
-+    # ("TLDR"), a spaced name ("Colm O'Neill", "TLDR AI"), or a capitalised
-+    # mononym. Stable, so order still decides among same-shape values and two
-+    # real names are never reordered. Display selection only; identity matching
-+    # is untouched. #659 RULE 2 / handle-over-name.
-+    def _looks_like_social_handle(v):
-+        return v.isalpha() and v == v.lower() and " " not in v
- 
-+    acceptable = [
-+        c for c in cleaned
-+        if is_acceptable_display_name(c)
-+        and not _is_manufactured_kinship_candidate(c, given_name, family_name)
-+    ]
-+    if acceptable:
-+        acceptable.sort(key=lambda v: 1 if _looks_like_social_handle(v) else 0)
-+        return acceptable[0]
-+
-     # Nothing acceptable -- avoid a nameless node. Prefer the structured name
-     # even if it tripped the guard (unlikely), else the first raw candidate.
-     if structured:
-+        # LAST RESORT, AND THE GUARD STILL APPLIES. With no acceptable
-+        # candidate the only inputs are given+family, so refusing outright
-+        # would leave the node nameless -- which this branch exists to avoid.
-+        # But welding a kinship given name here reinstates the exact defect,
-+        # so drop the kinship half and keep the family name. Incomplete beats
-+        # wrong: "<Surname>" is not a name anyone objects to, "Mum <Surname>"
-+        # is the thing that put a man's WIFE in his graph as his mother.
-+        if is_kinship_given_name(given_name):
-+            fam = (family_name or "").strip()
-+            return fam or None
-         return structured
-+    # NOT guarded here, and that is measured rather than assumed. This limb is
-+    # reachable only when `structured` is falsy AND nothing was acceptable, and
-+    # 0 of the 67 kinship words are rejected by is_acceptable_display_name (with
-+    # root / a bare email / a phone number rejected in the same run as the
-+    # control), so no kinship candidate can ever arrive here. A guard on this
-+    # line survived its own mutation test because it is unreachable, which is
-+    # protection that only looks like protection.
-     if cleaned:
-         return cleaned[0]
-     return None
+diff --git a/compartment.py b/compartment.py
+index 50470062..d543400e 100644
 --- a/compartment.py
 +++ b/compartment.py
-@@ -99,11 +99,22 @@
+@@ -99,11 +99,22 @@ __all__ = [
      "normalise_user_id",
      "multiuser_enabled",
      "assert_default_graph_isolated",
@@ -821,7 +613,7 @@
  #: Env var that gates the DEFERRED multiuser paths. The groundwork ships
  #: OFF: unless this is exactly ``"1"``, resolving any SECONDARY (named)
  #: compartment fails closed, so no stray ``resolve_compartment("priya")``
-@@ -536,3 +547,134 @@
+@@ -536,3 +547,134 @@ def assert_default_graph_isolated(
              "without --union-default-graph. "
              "See CM061 PRO_ENGINES_AUDIT_4_multiuser.md HIGH-1."
          )
@@ -956,17 +748,703 @@
 +        "}}{tail}"
 +    ).format(head=head, body=body, tail=tail,
 +             var=_GRAPH_SCOPE_VAR, in_list=in_list)
---- a/pre_ingest_hook.py
-+++ b/pre_ingest_hook.py
-@@ -71,7 +71,7 @@
-     url = oxigraph_url or os.environ.get("OXIGRAPH_URL", "http://localhost:7878")
-     cfg = {**DEFAULT_CONFIG, **(config or {})}
- 
--    client = httpx.Client(timeout=30.0)
-+    client = httpx.Client(timeout=30.0, trust_env=False)
-     try:
-         persons = _fetch_all_persons(url, client, cfg)
-     finally:
+diff --git a/reconcile_people_stores.py a/reconcile_people_stores.py
+deleted file mode 100644
+index 2f8f1269..00000000
+--- a/reconcile_people_stores.py
++++ /dev/null
+@@ -1,343 +0,0 @@
+-#!/usr/bin/env python3
+-"""Repair the two residuals that make the graph and the vector store disagree.
+-
+-WHY (2026-08-26)
+-================
+-The people count differs between Oxigraph and Qdrant. Measured on a real box:
+-
+-    qdrant distinct person_uri   7284      (0 duplicate points per uri)
+-    graph  distinct Person       7111
+-    in QDRANT not in GRAPH        203
+-    in GRAPH not in QDRANT         30      203 - 30 = 173
+-
+-The familiar "gap of 173" is a NET figure hiding two defects of opposite sign
+-that partially cancel. Fixing "173 orphans" would delete 173 of the 203 and
+-never touch the 30. Set arithmetic, not subtraction.
+-
+-RESIDUAL A -- 106 nodes, and the repair is PURELY ADDITIVE
+-----------------------------------------------------------
+-A merge DELETES the discard's rdf:type and never ASSERTS the survivor's, while
+-copying displayName / givenName / organization onto it. Merging into a URI that
+-was not already a live Person therefore yields a node that acquires every person
+-property and never acquires the type: person-shaped, untyped, and invisible to
+-every ``?p a pwg:Person`` count.
+-
+-The repair adds one triple per node. Nothing is deleted, nothing is overwritten,
+-and ``--undo-a`` removes exactly the triples this tool added. A CHAINED merge
+-(A->B, B->C) strips B's type legitimately, so chained survivors are excluded --
+-35 of them on the box measured, and typing those would RESURRECT records that
+-were deliberately retired.
+-
+-RESIDUAL B -- 97 vectors, and this one DESTROYS DATA
+------------------------------------------------------
+-``merge_persons`` is graph-only, so an absorbed node keeps its Qdrant vector.
+-Those vectors inflate every people count the customer sees and can surface a
+-person who was merged away.
+-
+-Deleting a vector is irreversible in Qdrant, so B writes a full backup of every
+-point it will remove -- id, payload AND vector -- before removing anything, and
+-``--restore-b`` upserts them back. A backup that omits the vector is not a
+-backup: the point would come back searchable-by-payload only, which looks
+-restored and is not.
+-
+-RESIDUAL C IS NOT REPAIRED HERE, ON PURPOSE
+---------------------------------------------
+-30 graph persons have no vector. All 30 carry prefLabel identical to their email
+-address and no human name; 9 are provably role/robot addresses. Embedding them
+-would push raw email addresses into the customer's People tab as if they were
+-contacts. Whether an unnamed, identifier-less correspondent should be a Person
+-node at all is a product question, not a repair. This tool reports them and
+-stops.
+-
+-SAFETY
+-======
+-Dry run by default; ``--apply`` is required to write anything. Every candidate
+-must satisfy ALL of its predicates, and the predicates are checked again at
+-apply time against a freshly re-read graph -- not against the dry run's list --
+-so a concurrent ingest cannot let a stale candidate through.
+-
+-    A candidate must:  have an incoming pwg:mergedInto
+-                       have NO outgoing pwg:mergedInto  (not chained)
+-                       NOT already be a pwg:Person
+-    B candidate must:  have a vector in the people collection
+-                       have ZERO presence in the graph in ANY position
+-                       -- so nothing references it and no edge is orphaned
+-
+-Usage:
+-    python3 -m identity_resolver.reconcile_people_stores              # dry run
+-    python3 -m identity_resolver.reconcile_people_stores --apply
+-    python3 -m identity_resolver.reconcile_people_stores --apply --only a
+-    python3 -m identity_resolver.reconcile_people_stores --undo-a <manifest.json>
+-    python3 -m identity_resolver.reconcile_people_stores --restore-b <backup.json>
+-"""
+-from __future__ import annotations
+-
+-import argparse
+-import json
+-import os
+-import sys
+-import urllib.request
+-from typing import Any, Dict, List, Set, Tuple
+-
+-NS = "https://schema.ostler.ai/ontology#"
+-OXIGRAPH = os.environ.get("OXIGRAPH_URL", "http://127.0.0.1:7878")
+-QDRANT = os.environ.get("QDRANT_URL", "http://127.0.0.1:6333")
+-COLLECTION = os.environ.get("QDRANT_PEOPLE_COLLECTION", "people")
+-
+-
+-# ---------------------------------------------------------------------------
+-# transport
+-# ---------------------------------------------------------------------------
+-
+-def _sparql_query(q: str) -> List[Dict[str, Any]]:
+-    req = urllib.request.Request(
+-        OXIGRAPH + "/query", data=q.encode(),
+-        headers={"Content-Type": "application/sparql-query",
+-                 "Accept": "application/sparql-results+json"})
+-    with urllib.request.urlopen(req, timeout=180) as r:
+-        return json.load(r)["results"]["bindings"]
+-
+-
+-def _sparql_update(q: str) -> None:
+-    req = urllib.request.Request(
+-        OXIGRAPH + "/update", data=q.encode(),
+-        headers={"Content-Type": "application/sparql-update"})
+-    urllib.request.urlopen(req, timeout=180).read()
+-
+-
+-def _qdrant(path: str, body: Any = None, method: str = "POST") -> Dict[str, Any]:
+-    data = json.dumps(body).encode() if body is not None else None
+-    req = urllib.request.Request(QDRANT + path, data=data, method=method,
+-                                 headers={"Content-Type": "application/json"})
+-    with urllib.request.urlopen(req, timeout=120) as r:
+-        return json.load(r)
+-
+-
+-# ---------------------------------------------------------------------------
+-# reading
+-# ---------------------------------------------------------------------------
+-
+-def graph_person_uris() -> Set[str]:
+-    return {b["p"]["value"]
+-            for b in _sparql_query("SELECT ?p WHERE { ?p a <%sPerson> }" % NS)}
+-
+-
+-def vector_points() -> List[Dict[str, Any]]:
+-    """Every point in the people collection, WITH its vector.
+-
+-    with_vector=True is not optional. A backup without the vector restores a
+-    point that looks present and cannot be found by similarity search.
+-    """
+-    out: List[Dict[str, Any]] = []
+-    nxt = None
+-    while True:
+-        body: Dict[str, Any] = {"limit": 500, "with_payload": True, "with_vector": True}
+-        if nxt is not None:
+-            body["offset"] = nxt
+-        r = _qdrant("/collections/%s/points/scroll" % COLLECTION, body)["result"]
+-        out.extend(r["points"])
+-        nxt = r.get("next_page_offset")
+-        if nxt is None:
+-            return out
+-
+-
+-def _uri_has_any_presence(uri: str) -> bool:
+-    n_s = int(_sparql_query(
+-        "SELECT (COUNT(*) AS ?n) WHERE { <%s> ?p ?o }" % uri)[0]["n"]["value"])
+-    n_o = int(_sparql_query(
+-        "SELECT (COUNT(*) AS ?n) WHERE { ?s ?p <%s> }" % uri)[0]["n"]["value"])
+-    return (n_s + n_o) > 0
+-
+-
+-def candidates_a() -> List[str]:
+-    """Terminal, untyped merge survivors."""
+-    rows = _sparql_query(
+-        "SELECT DISTINCT ?o WHERE { "
+-        "  ?s <%smergedInto> ?o . "
+-        "  FILTER NOT EXISTS { ?o a <%sPerson> } "
+-        "  FILTER NOT EXISTS { ?o <%smergedInto> ?z } }" % (NS, NS, NS))
+-    return sorted(b["o"]["value"] for b in rows)
+-
+-
+-def candidates_b(points: List[Dict[str, Any]], graph: Set[str]) -> List[Dict[str, Any]]:
+-    """Points whose URI has no presence in the graph in ANY position."""
+-    out = []
+-    for p in points:
+-        uri = (p.get("payload") or {}).get("person_uri")
+-        if not uri or uri in graph:
+-            continue
+-        if not _uri_has_any_presence(uri):
+-            out.append(p)
+-    return out
+-
+-
+-# ---------------------------------------------------------------------------
+-# preflight
+-# ---------------------------------------------------------------------------
+-
+-def preflight() -> Tuple[int, int]:
+-    """Refuse to act on a store we cannot read.
+-
+-    A repair driven by an empty read is a repair that does nothing and reports
+-    success, or -- for B -- deletes nothing while claiming the orphans are gone.
+-    """
+-    triples = int(_sparql_query(
+-        "SELECT (COUNT(*) AS ?n) WHERE { ?s ?p ?o }")[0]["n"]["value"])
+-    if triples == 0:
+-        raise SystemExit("REFUSING: the graph reports 0 triples. That is a "
+-                         "store we cannot read, not an empty store.")
+-    info = _qdrant("/collections/%s" % COLLECTION, method="GET")["result"]
+-    pts = info.get("points_count") or 0
+-    if pts == 0:
+-        raise SystemExit("REFUSING: the '%s' collection reports 0 points."
+-                         % COLLECTION)
+-    return triples, pts
+-
+-
+-# ---------------------------------------------------------------------------
+-# repairs
+-# ---------------------------------------------------------------------------
+-
+-def apply_a(uris: List[str], out_manifest: str) -> int:
+-    """Assert `a pwg:Person`. Purely additive; re-checked per URI at apply time."""
+-    written: List[str] = []
+-    for uri in uris:
+-        # Re-check against a FRESH read, not the dry run's list. A concurrent
+-        # ingest between listing and applying could have typed this node, or
+-        # merged it onward -- and typing a node that has since been absorbed
+-        # resurrects a record the merge retired.
+-        still = _sparql_query(
+-            "SELECT (COUNT(*) AS ?n) WHERE { ?s <%smergedInto> <%s> . "
+-            "  FILTER NOT EXISTS { <%s> a <%sPerson> } "
+-            "  FILTER NOT EXISTS { <%s> <%smergedInto> ?z } }"
+-            % (NS, uri, uri, NS, uri, NS))
+-        if int(still[0]["n"]["value"]) == 0:
+-            print("  skip (no longer a candidate): %s" % _opaque(uri))
+-            continue
+-        _sparql_update("INSERT DATA { <%s> a <%sPerson> }" % (uri, NS))
+-        written.append(uri)
+-    with open(out_manifest, "w", encoding="utf-8") as fh:
+-        json.dump({"residual": "A", "asserted_type_on": written}, fh, indent=2)
+-    return len(written)
+-
+-
+-def undo_a(manifest_path: str) -> int:
+-    with open(manifest_path, encoding="utf-8") as fh:
+-        m = json.load(fh)
+-    if m.get("residual") != "A":
+-        raise SystemExit("REFUSING: %s is not an A manifest." % manifest_path)
+-    for uri in m["asserted_type_on"]:
+-        # RETIREMENT-EXEMPT: undo_a reverses an INSERT of the Person type on a live merge SURVIVOR. It is a rollback of an assertion, not a retirement: the subject carries no mergedInto of its own.
+-        #
+-        # Everywhere else in this package, removing the Person type is a bug:
+-        # it leaves a node with no rdf:type, which every ingest writer reads
+-        # as "this person does not exist" (their check is `SELECT ?t WHERE {
+-        # <uri> a ?t }`, ANY type), so the node is re-created. See
+-        # identity_resolver/retirement.py.
+-        #
+-        # This call is the exception because its subjects are the TARGETS of
+-        # mergedInto, not the sources: candidates_a() requires
+-        # `FILTER NOT EXISTS { ?o mergedInto ?z }`, so they are terminal
+-        # survivors -- live people that apply_a typed because they had no
+-        # type. Undoing that restores the pre-existing untyped state, and a
+-        # producer re-creating such a node re-asserts exactly the triple this
+-        # removes. Retiring them would be WRONG: they are not merged away.
+-        _sparql_update("DELETE DATA { <%s> a <%sPerson> }" % (uri, NS))
+-    return len(m["asserted_type_on"])
+-
+-
+-def apply_b(points: List[Dict[str, Any]], backup_path: str) -> int:
+-    """Back up id + payload + VECTOR, then delete. Backup written FIRST."""
+-    with open(backup_path, "w", encoding="utf-8") as fh:
+-        json.dump({"residual": "B", "collection": COLLECTION, "points": points},
+-                  fh, indent=2)
+-    # Re-read the backup before deleting anything. A backup that did not land
+-    # is worse than no backup, because it authorises the delete.
+-    with open(backup_path, encoding="utf-8") as fh:
+-        check = json.load(fh)
+-    if len(check["points"]) != len(points):
+-        raise SystemExit("REFUSING: backup holds %d points, expected %d."
+-                         % (len(check["points"]), len(points)))
+-    for p in check["points"]:
+-        if p.get("vector") in (None, [], {}):
+-            raise SystemExit("REFUSING: a backed-up point carries no vector. "
+-                             "Restoring it would give a point that looks "
+-                             "present and cannot be found by search.")
+-    ids = [p["id"] for p in points]
+-    _qdrant("/collections/%s/points/delete" % COLLECTION, {"points": ids})
+-    return len(ids)
+-
+-
+-def restore_b(backup_path: str) -> int:
+-    with open(backup_path, encoding="utf-8") as fh:
+-        m = json.load(fh)
+-    if m.get("residual") != "B":
+-        raise SystemExit("REFUSING: %s is not a B backup." % backup_path)
+-    pts = [{"id": p["id"], "vector": p["vector"], "payload": p.get("payload") or {}}
+-           for p in m["points"]]
+-    _qdrant("/collections/%s/points?wait=true" % m["collection"],
+-            {"points": pts}, method="PUT")
+-    return len(pts)
+-
+-
+-def _opaque(uri: str) -> str:
+-    import hashlib
+-    return hashlib.sha256(uri.encode()).hexdigest()[:10]
+-
+-
+-# ---------------------------------------------------------------------------
+-
+-def main(argv: List[str]) -> int:
+-    ap = argparse.ArgumentParser(description=__doc__)
+-    ap.add_argument("--apply", action="store_true",
+-                    help="actually write. Without it this is a dry run.")
+-    ap.add_argument("--only", choices=["a", "b"], help="repair one residual only")
+-    ap.add_argument("--manifest", default="reconcile_a_manifest.json")
+-    ap.add_argument("--backup", default="reconcile_b_backup.json")
+-    ap.add_argument("--undo-a", metavar="MANIFEST")
+-    ap.add_argument("--restore-b", metavar="BACKUP")
+-    args = ap.parse_args(argv)
+-
+-    if args.undo_a:
+-        print("undid A on %d nodes" % undo_a(args.undo_a)); return 0
+-    if args.restore_b:
+-        print("restored %d points" % restore_b(args.restore_b)); return 0
+-
+-    triples, pts = preflight()
+-    print("PREFLIGHT  graph triples=%d  qdrant points=%d" % (triples, pts))
+-
+-    graph = graph_person_uris()
+-    points = vector_points()
+-    print("EXAMINED   graph Person=%d  vector points=%d" % (len(graph), len(points)))
+-
+-    a = candidates_a() if args.only != "b" else []
+-    b = candidates_b(points, graph) if args.only != "a" else []
+-    print("RESIDUAL A untyped terminal merge survivors : %d" % len(a))
+-    print("RESIDUAL B orphan vectors (no graph presence): %d" % len(b))
+-    print("           (identifiers shown as opaque hashes; this tool never "
+-          "prints a name, address or number)")
+-    for u in a[:5]:
+-        print("    A sample %s" % _opaque(u))
+-    for p in b[:5]:
+-        print("    B sample %s" % _opaque((p.get("payload") or {}).get("person_uri", "")))
+-
+-    if not args.apply:
+-        print("\nDRY RUN. Nothing was written. Re-run with --apply to act.")
+-        print("  A is purely additive and reversible with --undo-a %s" % args.manifest)
+-        print("  B DELETES vectors; it writes %s first and --restore-b puts them back"
+-              % args.backup)
+-        return 0
+-
+-    if a:
+-        print("\napplying A ...")
+-        print("  asserted a pwg:Person on %d nodes (manifest: %s)"
+-              % (apply_a(a, args.manifest), args.manifest))
+-    if b:
+-        print("\napplying B ...")
+-        print("  backed up and deleted %d orphan vectors (backup: %s)"
+-              % (apply_b(b, args.backup), args.backup))
+-    return 0
+-
+-
+-if __name__ == "__main__":
+-    raise SystemExit(main(sys.argv[1:]))
+diff --git a/repair_kinship_display_names.py a/repair_kinship_display_names.py
+deleted file mode 100644
+index 2fac3487..00000000
+--- a/repair_kinship_display_names.py
++++ /dev/null
+@@ -1,340 +0,0 @@
+-#!/usr/bin/env python3
+-"""Repair person nodes already carrying a manufactured kinship display name.
+-
+-#142 stopped the weld being MANUFACTURED. #145 stopped it being SELECTED. Neither
+-repairs a node whose composed form is ALREADY PERSISTED, and that is the state
+-the operator's own graph is in: his wife has been carried under a kinship word
+-belonging to his mother, who died the year before.
+-
+-WHY THE GUARDS CANNOT REACH THOSE NODES. Both canonicalisers open with
+-
+-    if len(bindings) <= 1: return ...
+-
+-and both END by collapsing the node to exactly one displayName. So the steady
+-state the resolver itself produces is the one state in which the guard is never
+-called. A node repaired by ingest alone would need a second displayName to
+-appear first, which is exactly what #145 now prevents.
+-
+-Hence a one-off, operator-run repair. It is deliberately NOT wired into any
+-pipeline and NOT vendored, the same disposition as reconcile_people_stores.py:
+-it touches real contact data and the decision to run it is a person's.
+-
+-WHAT IT CHANGES, AND WHAT IT WILL NOT
+-  - It rewrites `pwg:displayName` and nothing else.
+-  - It never DELETEs a triple other than the displayName it is replacing, and
+-    never removes a node, an identifier or a givenName.
+-  - A node is a candidate ONLY when its stored displayName is exactly the
+-    string `_full_name(kinship_given, family)` would assemble -- the compound
+-    this codebase manufactures. A name that merely starts with a kinship-shaped
+-    token is not touched: "Nan Goldin" is safe unless the node itself asserts
+-    given "Nan" AND family "Goldin", and even then only if a better name exists.
+-  - If the repair cannot find a BETTER name, it leaves the node alone and says
+-    so. Rewriting to something no more correct is churn on real data.
+-
+-TWO KINDS OF REPAIR, AND THEY ARE NOT APPROVED TOGETHER
+-  full name   the node also holds a real given name, so the repair RECOVERS
+-              information already on the node: "Mum Smith" -> "Jane Smith".
+-              Done by --apply.
+-  mononym     the only given name IS the kinship word, so the only available
+-              replacement is the family name alone: "Mum Smith" -> "Smith".
+-              That is #142's deliberate "incomplete beats wrong" trade, right
+-              for a name being CONSTRUCTED and a visible downgrade when applied
+-              to a record a person already reads. HELD BACK unless you pass
+-              --include-mononym, and counted in the report either way.
+-
+-USAGE
+-    python3 -m identity_resolver.repair_kinship_display_names            # dry run
+-    python3 -m identity_resolver.repair_kinship_display_names --apply
+-    python3 -m identity_resolver.repair_kinship_display_names --apply --include-mononym
+-    python3 -m identity_resolver.repair_kinship_display_names --limit 20
+-    python3 -m identity_resolver.repair_kinship_display_names --namespace ...
+-
+-The namespace defaults to the migrated one and is PRINTED on every run. A zero
+-from the wrong namespace and a zero from a clean graph are the same three words
+-otherwise, which is precisely how #158 hid.
+-
+-EXIT CODES
+-  0  ran, and reported (dry run) or applied (with --apply)
+-  1  at least one candidate could not be repaired at apply time
+-  2  CANNOT-RUN -- the store did not answer, or answered unusably. Never a
+-     pass: "no candidates" and "could not look" must not print the same.
+-"""
+-from __future__ import annotations
+-
+-import argparse
+-import os
+-import sys
+-from typing import Dict, List, Optional, Tuple
+-
+-from identity_resolver.canonical_name import (
+-    _full_name,
+-    choose_canonical_display_name,
+-    is_kinship_given_name,
+-    prefer_real_given_name,
+-)
+-
+-# THE MIGRATED NAMESPACE, and it must stay in step with its siblings. #124
+-# (b6ae1f9, 2026-08-21) moved every identifier off `ostler.ai/pwg#`. This file
+-# was written on 2026-09-06, sixteen days later, still pointing at the drained
+-# domain, so it found zero Person nodes on any correctly migrated store and
+-# refused -- blaming the store for its own constant (#158).
+-#
+-# Sixteen of this repo's seventeen `PWG` constants already hold this value,
+-# including `resolver.py` and `batch_resolver.py` in this very package. The
+-# override exists for parity with `contact_syncer/name_election.py`, so an
+-# operator on a differently-namespaced store has a flag rather than a fork.
+-PWG = "https://schema.ostler.ai/ontology#"
+-
+-
+-def _escape(value: str) -> str:
+-    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+-
+-
+-# ── the store ───────────────────────────────────────────────────────────────
+-class Store:
+-    """Minimal SPARQL client. Separated so the tests can drive a stub."""
+-
+-    def __init__(self, url: str, timeout: float = 30.0) -> None:
+-        self.url = url.rstrip("/")
+-        self.timeout = timeout
+-
+-    def query(self, sparql: str) -> dict:
+-        import httpx
+-
+-        r = httpx.post(
+-            f"{self.url}/query",
+-            content=sparql.encode("utf-8"),
+-            headers={
+-                "Content-Type": "application/sparql-query",
+-                "Accept": "application/sparql-results+json",
+-            },
+-            timeout=self.timeout,
+-            trust_env=False,
+-        )
+-        r.raise_for_status()
+-        return r.json()
+-
+-    def update(self, sparql: str) -> None:
+-        import httpx
+-
+-        r = httpx.post(
+-            f"{self.url}/update",
+-            content=sparql.encode("utf-8"),
+-            headers={"Content-Type": "application/sparql-update"},
+-            timeout=self.timeout,
+-            trust_env=False,
+-        )
+-        r.raise_for_status()
+-
+-
+-# ── the decision, kept pure so it can be driven without a store ─────────────
+-def decide(display: str, givens: List[str], families: List[str]) -> Tuple[bool, Optional[str], str]:
+-    """Return (is_candidate, replacement, reason).
+-
+-    A candidate is a node whose stored displayName is EXACTLY the compound this
+-    codebase assembles from a kinship given name plus the family name.
+-    """
+-    display = " ".join((display or "").split())
+-    givens = [g for g in (x.strip() for x in givens) if g]
+-    families = [f for f in (x.strip() for x in families) if f]
+-    if not display:
+-        return False, None, "no displayName"
+-
+-    kin = [g for g in givens if is_kinship_given_name(g)]
+-    if not kin:
+-        return False, None, "no kinship givenName on the node"
+-
+-    welded = {
+-        w.casefold()
+-        for g in kin
+-        for f in (families or [None])
+-        for w in ([_full_name(g, f)] if _full_name(g, f) else [])
+-    }
+-    if display.casefold() not in welded:
+-        return False, None, "displayName is not the manufactured compound"
+-
+-    # It IS the compound. Is there anything better to put there?
+-    better = choose_canonical_display_name(
+-        [],
+-        given_name=prefer_real_given_name(givens),
+-        family_name=families[0] if families else None,
+-    )
+-    if not better:
+-        return True, None, "compound, but no better name available -- LEFT ALONE"
+-    if better.casefold() == display.casefold():
+-        return True, None, "compound, and the repair would not change it -- LEFT ALONE"
+-
+-    # TWO KINDS OF REPAIR, AND AN OPERATOR SHOULD NOT BE ASKED TO APPROVE THEM
+-    # AS ONE. Promoting to a real full name recovers information the node
+-    # already holds. Promoting to the family name ALONE discards the given name
+-    # and leaves a mononym -- which is #142's deliberate "incomplete beats
+-    # wrong" trade, correct for a name being CONSTRUCTED, but a visible
+-    # downgrade when applied to a record a person already reads. Gated behind
+-    # --include-mononym so it is chosen, not absorbed.
+-    if not [f for f in families if better.casefold() == f.casefold()]:
+-        return True, better, "compound, repairable to a full name"
+-    return True, better, "compound, repairable only to the family name (mononym)"
+-
+-
+-_SELECT_BODY_TEMPLATE = """  ?p a <%(pwg)sPerson> ;
+-     <%(pwg)sdisplayName> ?name .
+-  OPTIONAL { ?p <%(pwg)sgivenName> ?given }
+-  OPTIONAL { ?p <%(pwg)sfamilyName> ?family }
+-"""
+-
+-
+-def _select_body(ns: str = PWG) -> str:
+-    return _SELECT_BODY_TEMPLATE % {"pwg": ns}
+-
+-
+-def _select(uri: Optional[str] = None, ns: str = PWG) -> str:
+-    """The scan query, optionally narrowed to ONE node.
+-
+-    NARROWED WITH `VALUES`, NOT BY REWRITING `?p` INTO AN IRI. The first
+-    version of this tool did the latter:
+-
+-        _SELECT.replace("?p a <", f"<{uri}> a <").replace("?p <", f"<{uri}> <")
+-
+-    which produced valid SPARQL that returned the right ROWS with `?p`
+-    NEVER BOUND -- it no longer appears anywhere in the WHERE clause. `_group`
+-    skips any row without a `p` value, so `fresh` came back empty, every
+-    candidate was reported "gone or unreadable on the fresh read", and the
+-    tool repaired NOTHING. Measured against a real Oxigraph (the shipped
+-    0.4.6 image, by digest): the rewritten query returned 2 rows whose keys
+-    were `family, given, name`, against a control of 6 rows where `p` WAS
+-    bound.
+-
+-    `VALUES` binds the variable instead of deleting it, and it needs no
+-    string surgery on the pattern.
+-    """
+-    values = f"  VALUES ?p {{ <{uri}> }}\n" if uri else ""
+-    return "SELECT ?p ?name ?given ?family WHERE {\n" + values + _select_body(ns) + "}"
+-
+-
+-# Kept as a module-level name because the tests and any caller referring to
+-# the whole-graph query should not need to know about the narrowing.
+-_SELECT = _select()
+-
+-
+-def _group(bindings: List[dict]) -> Dict[str, Dict[str, List[str]]]:
+-    out: Dict[str, Dict[str, List[str]]] = {}
+-    for b in bindings:
+-        uri = (b.get("p") or {}).get("value")
+-        if not uri:
+-            continue
+-        rec = out.setdefault(uri, {"name": [], "given": [], "family": []})
+-        for k in ("name", "given", "family"):
+-            v = (b.get(k) or {}).get("value")
+-            if v and v not in rec[k]:
+-                rec[k].append(v)
+-    return out
+-
+-
+-def scan(store: Store, ns: str = PWG) -> Dict[str, Dict[str, List[str]]]:
+-    res = store.query(_select(ns=ns))
+-    bindings = (res or {}).get("results", {}).get("bindings")
+-    if bindings is None:
+-        raise RuntimeError("the store answered without a results.bindings array")
+-    return _group(bindings)
+-
+-
+-def main(argv: Optional[List[str]] = None) -> int:
+-    ap = argparse.ArgumentParser(description="Repair manufactured kinship display names.")
+-    ap.add_argument("--apply", action="store_true", help="write; omit for a dry run")
+-    ap.add_argument("--limit", type=int, default=0, help="stop after N repairs (0 = no limit)")
+-    ap.add_argument(
+-        "--include-mononym",
+-        action="store_true",
+-        help="also repair nodes whose only available replacement is the family "
+-             "name alone, leaving a mononym",
+-    )
+-    ap.add_argument("--store", default=os.environ.get("OXIGRAPH_URL", "http://127.0.0.1:7878"))
+-    ap.add_argument("--namespace", default=os.environ.get("PWG_NS", PWG))
+-    args = ap.parse_args(argv)
+-
+-    store = Store(args.store)
+-    print(f"=== kinship display-name repair ===\n  store   : {args.store}")
+-    # PRINT THE NAMESPACE. A zero from the wrong namespace and a zero from a
+-    # clean graph read identically, and #158 was exactly that: the operator
+-    # would have been sent to look at their store.
+-    print(f"  namespace: {args.namespace}")
+-    print(f"  mode    : {'APPLY' if args.apply else 'dry run'}\n")
+-
+-    try:
+-        nodes = scan(store, args.namespace)
+-    except Exception as exc:  # noqa: BLE001 -- any failure to read is CANNOT-RUN
+-        print(f"  CANNOT-RUN  the store did not answer usably: {type(exc).__name__}: {exc}")
+-        print("  A store this tool could not read has not been checked. That is not")
+-        print("  the same as a graph with nothing to repair.")
+-        return 2
+-
+-    print(f"  person nodes with a displayName : {len(nodes)}")
+-    if not nodes:
+-        print("  CANNOT-RUN  zero person nodes came back. An empty graph and a broken")
+-        print("  query print identically, so this refuses rather than reporting clean.")
+-        return 2
+-
+-    candidates, repairable, failures = [], [], 0
+-    for uri, rec in sorted(nodes.items()):
+-        for name in rec["name"]:
+-            is_cand, better, reason = decide(name, rec["given"], rec["family"])
+-            if is_cand:
+-                candidates.append((uri, name, better, reason))
+-                if better and ("mononym" not in reason or args.include_mononym):
+-                    repairable.append((uri, name, better))
+-
+-    mononyms = sum(1 for _u, _n, b, r in candidates if b and "mononym" in r)
+-    print(f"  manufactured compounds found    : {len(candidates)}")
+-    print(f"  of those, repairable now        : {len(repairable)}")
+-    if mononyms and not args.include_mononym:
+-        print(f"  held back (mononym only)        : {mononyms}"
+-              "   -- pass --include-mononym to repair these too")
+-    print()
+-    for uri, name, better, reason in candidates:
+-        arrow = f"-> {better!r}" if better else "-> (left alone)"
+-        print(f"    {uri.rsplit('/', 1)[-1]:<28} {name!r} {arrow}   [{reason}]")
+-
+-    if not args.apply:
+-        print("\n  DRY RUN. Nothing was written. Re-run with --apply.")
+-        return 0
+-
+-    print()
+-    done = 0
+-    for uri, name, better in repairable:
+-        if args.limit and done >= args.limit:
+-            print(f"  stopping at --limit {args.limit}")
+-            break
+-        # RE-READ, and decide again against what is there NOW. The dry run's
+-        # list is a description of the past; a concurrent resolver tick may have
+-        # changed the node since. Same discipline as reconcile_people_stores.
+-        try:
+-            fresh = _group(
+-                store.query(_select(uri, args.namespace)).get("results", {}).get("bindings", [])
+-            )
+-        except Exception as exc:  # noqa: BLE001
+-            print(f"    SKIP {uri}: re-read failed: {type(exc).__name__}: {exc}")
+-            failures += 1
+-            continue
+-        rec = fresh.get(uri)
+-        if not rec:
+-            print(f"    SKIP {uri}: gone or unreadable on the fresh read")
+-            failures += 1
+-            continue
+-        still, again, _reason = decide(name, rec["given"], rec["family"])
+-        if not (still and again == better and name in rec["name"]):
+-            print(f"    SKIP {uri}: changed since the scan, not rewriting")
+-            failures += 1
+-            continue
+-        store.update(
+-            f'DELETE DATA {{ <{uri}> <{args.namespace}displayName> "{_escape(name)}" }} ; '
+-            f'INSERT DATA {{ <{uri}> <{args.namespace}displayName> "{_escape(better)}" }}'
+-        )
+-        print(f"    REPAIRED {uri.rsplit('/', 1)[-1]}: {name!r} -> {better!r}")
+-        done += 1
+-
+-    print(f"\n  repaired {done}, skipped {failures}")
+-    return 1 if failures else 0
+-
+-
+-if __name__ == "__main__":
+-    sys.exit(main())
+diff --git a/requirements.txt b/requirements.txt
+index f5c2b5b9..77f1b40c 100644
 --- a/requirements.txt
 +++ b/requirements.txt
 @@ -9,4 +9,23 @@
@@ -993,9 +1471,11 @@
 +httpx>=0.24,<1.0
 +phonenumbers>=8.13
  rapidfuzz>=3.0,<4.0
+diff --git a/resolver.py b/resolver.py
+index 48622b34..4805708c 100644
 --- a/resolver.py
 +++ b/resolver.py
-@@ -4,11 +4,11 @@
+@@ -4,7 +4,7 @@ import hashlib
  import logging
  import uuid
  from datetime import datetime, timezone
@@ -1004,12 +1484,7 @@
  
  import httpx
  
--from .canonical_name import choose_canonical_display_name
-+from .canonical_name import choose_canonical_display_name, prefer_real_given_name
- from .compartment import (
-     UserCompartment,
-     assert_default_graph_isolated,
-@@ -36,6 +36,7 @@
+@@ -38,6 +38,7 @@ class IdentityResolver:
          self,
          oxigraph_url: str,
          default_country_code: int = 852,
@@ -1017,11 +1492,11 @@
          compartment: Optional[UserCompartment] = None,
      ):
          self.oxigraph_url = oxigraph_url.rstrip("/")
-@@ -48,88 +49,64 @@
+@@ -50,88 +51,64 @@ class IdentityResolver:
          self.compartment = (
              compartment if compartment is not None else resolve_compartment()
          )
--        self._client = httpx.Client(timeout=30.0)
+-        self._client = httpx.Client(timeout=30.0, trust_env=False)
 -        # Bulk fuzzy-candidate cache. OFF by default so single-shot callers
 -        # keep their existing live-query behaviour. ``begin_bulk()`` loads a
 -        # ONE-TIME snapshot of every Person's (uri, name, org, linkedin_url)
@@ -1140,7 +1615,7 @@
      # -- Public API -----------------------------------------------------------
  
      def resolve(
-@@ -155,7 +132,50 @@
+@@ -157,7 +134,50 @@ class IdentityResolver:
                  identifier match short-circuited and a second identifier
                  pointing at a different node was never noticed. Set False to
                  get pure read-only matching with no graph writes.
@@ -1191,7 +1666,7 @@
          # Tier 1: Exact match on any single identifier.
          #
          # Collect EVERY node any incoming exact identifier points at, not just
-@@ -168,7 +188,11 @@
+@@ -170,7 +190,11 @@ class IdentityResolver:
          found_uris: dict[str, tuple[str, str]] = {}
          for id_type, id_value in self._iter_identifiers(identity):
              uri = self.find_by_identifier(id_type, id_value)
@@ -1204,55 +1679,16 @@
                  found_uris[uri] = (id_type, id_value)
  
          if len(found_uris) == 1:
-@@ -191,20 +215,42 @@
-                 # same identity finds a single node and falls into the branch
-                 # above.
-                 keep_uri = uris[0]
-+                merged = 0
-+                refused = 0
-                 for discard_uri in uris[1:]:
-+                    # RULE 2 veto, applied per PAIR. Checked before every
-+                    # merge_persons() call, because the conflict can sit on a
-+                    # different identifier from the one that produced the match.
+@@ -199,6 +223,8 @@ class IdentityResolver:
+                     # RULE 2 veto, applied per PAIR. Checked before every
+                     # merge_persons() call, because the conflict can sit on a
+                     # different identifier from the one that produced the match.
 +                    # The record-vs-node guard in _identifier_match_trustworthy
 +                    # cannot catch this case -- see _canonical_keys_conflict.
-+                    conflict = self._canonical_keys_conflict(keep_uri, discard_uri)
-+                    if conflict is not None:
-+                        refused += 1
-+                        # Log the TYPE and the nodes, never the values:
-+                        # canonical keys are per-person identifiers and this
-+                        # line reaches install logs and support bundles.
-+                        logger.info(
-+                            "RULE 2: refusing to merge %s into %s -- they carry "
-+                            "different %s (canonical keys must not merge)",
-+                            discard_uri, keep_uri, conflict,
-+                        )
-+                        continue
-                     self.merge_persons(keep_uri, discard_uri)
-+                    merged += 1
-                 logger.info(
--                    "Ingest-time merge: collapsed %d nodes sharing exact "
--                    "identifiers into %s",
--                    len(uris), keep_uri,
-+                    "Ingest-time merge: collapsed %d of %d nodes sharing exact "
-+                    "identifiers into %s (%d refused by RULE 2)",
-+                    merged, len(uris) - 1, keep_uri, refused,
-                 )
-                 return MatchResult(
-                     person_uri=keep_uri,
-                     match_type="exact_identifier_merged",
-                     confidence=1.0,
-                     details=(
--                        f"Merged {len(uris)} nodes sharing exact identifiers "
--                        f"into {keep_uri}"
-+                        f"Merged {merged + 1} of {len(uris)} nodes sharing "
-+                        f"exact identifiers into {keep_uri}"
-+                        + (f"; {refused} refused by RULE 2 (different "
-+                           f"canonical keys)" if refused else "")
-                     ),
-                 )
-             # Read-only mode: surface the conflict without mutating the graph.
-@@ -229,7 +275,7 @@
+                     conflict = self._canonical_keys_conflict(keep_uri, discard_uri)
+                     if conflict is not None:
+                         refused += 1
+@@ -251,7 +277,7 @@ class IdentityResolver:
              if fuzzy:
                  return fuzzy
  
@@ -1261,7 +1697,7 @@
          return MatchResult(
              person_uri=None,
              match_type="new",
-@@ -237,6 +283,38 @@
+@@ -259,6 +285,38 @@ class IdentityResolver:
              details="No matching person found",
          )
  
@@ -1300,18 +1736,19 @@
      def create_person(
          self,
          identity: PersonIdentity,
-@@ -341,22 +419,18 @@
+@@ -363,22 +421,18 @@ class IdentityResolver:
          self, person_uri: str, name: Optional[str],
          org: Optional[str] = None, linkedin: Optional[str] = None,
      ) -> None:
 -        """Append a newly-minted person to the in-memory fuzzy snapshot.
-+        """Append a newly-minted person to the in-memory fuzzy index.
- 
+-
 -        No-op unless bulk mode is active. Callers that mint Person URIs
 -        OUTSIDE ``create_person`` (e.g. the linkedin_messages path) should
 -        call this after their INSERT so intra-run fuzzy matching sees the
 -        new node. Safe to over-call: a duplicate snapshot row only costs a
 -        redundant Jaro-Winkler comparison, it cannot cause an over-merge.
++        """Append a newly-minted person to the in-memory fuzzy index.
++
 +        Upstream API kept for its callers (e.g. the linkedin_messages
 +        path); in this vendored copy it is a thin delegate onto
 +        ``register_person`` -- the twin's single always-on candidate
@@ -1332,50 +1769,18 @@
  
      def add_identifier(
          self, person_uri: str, id_type: str, id_value: str, label: Optional[str] = None
-@@ -451,6 +525,26 @@
-             f"}}"
-         )
- 
-+        # 5b. The SURVIVOR must be a live Person.
-+        #
-+        # Nothing else in either merge path ever ASSERTS this type -- step 7 of
-+        # the batch path deletes the discard's, and the scalar_props copy above
-+        # moves displayName/givenName/organization onto keep but never rdf:type.
-+        # So merging into a URI that was not already a live Person produced a
-+        # node that ACQUIRED every person property and never acquired the type:
-+        # person-shaped, untyped, and invisible to every `?p a pwg:Person` count.
-+        #
-+        # Measured on the live graph 2026-08-26: 106 terminal merge survivors in
-+        # exactly that state -- 102 of them carrying displayName, 0 typed as
-+        # anything else -- which is the single largest contributor to the
-+        # people_count_agreement gap.
-+        #
-+        # INSERT DATA of an existing triple is a no-op, so this is idempotent and
-+        # cannot corrupt a healthy merge.
-+        self._sparql_update(
-+            f"INSERT DATA {{ <{keep_uri}> a <{PWG}Person> }}"
-+        )
-+
-         # 6. Collapse any accumulated displayName values on the kept node to a
-         #    single canonical value. Step 4 copies every displayName from the
-         #    discard when keep has none, so a merge can leave the node with
-@@ -481,8 +575,11 @@
-             return bindings[0]["name"]["value"] if bindings else None
- 
+@@ -550,7 +604,7 @@ class IdentityResolver:
          candidates = [b["name"]["value"] for b in bindings if b.get("name")]
--        given = next(
--            (b["given"]["value"] for b in bindings if b.get("given")), None
-+        # ALL of them, not the first in arbitrary SPARQL order. A merged node
-+        # holds the real given name AND the kinship word; taking next() made
+         # ALL of them, not the first in arbitrary SPARQL order. A merged node
+         # holds the real given name AND the kinship word; taking next() made
+-        # which one a person is shown under a coin flip.
 +        # which one a person is shown under a coin flip. (CM041 #145)
-+        given = prefer_real_given_name(
-+            b["given"]["value"] for b in bindings if b.get("given")
+         given = prefer_real_given_name(
+             b["given"]["value"] for b in bindings if b.get("given")
          )
-         family = next(
-             (b["family"]["value"] for b in bindings if b.get("family")), None
-@@ -519,99 +616,292 @@
-             return bindings[0]["person"]["value"]
-         return None
+@@ -661,99 +715,292 @@ class IdentityResolver:
+         )
+         return current
  
 +    # Identifier types that a different person can legitimately also carry:
 +    # a reused family email address, a shared office switchboard number. A
@@ -1609,12 +2014,13 @@
          best_score: float = 0.0
          best_name: str = ""
 -        org_confirmed = False
-+        best_org_conflict = False
- 
+-
 -        name_lower = name.lower()
 -        for row in candidates:
 -            candidate_name = row["name"]
 -            score = _jaro_winkler(name_lower, candidate_name.lower())
++        best_org_conflict = False
++
 +        # Best candidate that ALSO shares the organisation, tracked separately.
 +        # A same-name+same-org match is the strongest signal and is preferred
 +        # over a higher-scoring but org-conflicting candidate (two real people
@@ -1622,12 +2028,12 @@
 +        conf_uri: Optional[str] = None
 +        conf_score: float = 0.0
 +        conf_name: str = ""
- 
++
 +        for row in self._fuzzy_candidates:
 +            candidate_name = row.get("name") or ""
 +            if not candidate_name:
 +                continue
-+
+ 
              # Hard blocker: if BOTH the incoming identity and the candidate
              # have LinkedIn URLs and they are DIFFERENT, this is definitely
              # not the same person. Two different LinkedIn profiles = two
@@ -1667,8 +2073,7 @@
 -                    and candidate_org is not None
 -                    and org.lower() == candidate_org.lower()
 -                )
-+                best_org_conflict = diff_org
- 
+-
 -        # Threshold tiers:
 -        # - 0.85 + org confirmed → high-confidence match
 -        # - 0.93 no org → still reliable (typos, stylised variants, etc.)
@@ -1679,6 +2084,8 @@
 -        #   these as candidates so they can be reviewed, but we don't
 -        #   return a match. See CM043/TODO.md follow-ups for context.
 -        if best_score > 0.85 and org_confirmed:
++                best_org_conflict = diff_org
++
 +        # Threshold tiers (org-conflict-guarded):
 +        # 1. >0.85 + same org -> high-confidence match (strongest signal).
 +        # 2. >=0.93 + no org CONFLICT -> reliable (typos, stylised variants,
@@ -1725,10 +2132,49 @@
          if best_score > 0.85:
              # Log-only: shared-prefix first-name collisions live here
              logger.info(
-@@ -623,6 +913,97 @@
+@@ -765,71 +1012,96 @@ class IdentityResolver:
  
          return None
  
+-    # ── RULE 2: DIFFERENT CANONICAL KEYS MUST NOT MERGE ──────────────────
+-    #
+-    # RULE 1 above is right that a shared exact identifier always merges. It
+-    # says nothing about the INVERSE, and the inverse is RULE 2 of the ratified
+-    # dedupe ruleset (Andy + TNM, 2026-06-09):
+-    #
+-    #     MUST NOT MERGE: different canonical keys, even if identical display
+-    #     name. A shared name alone is never a merge signal.
+-    #
+-    # An `icloud_contact_uid` is canonical: exactly one macOS Contacts card, for
+-    # ever. Two distinct ones on a single Person node is not a judgement call or
+-    # a fuzzy score -- it is the ruleset's own stated violation.
+-    #
+-    # MEASURED on the live graph 2026-08-26:
+-    #
+-    #     icloud_contact_uid identifiers examined   2259
+-    #     over-merged Person nodes                   130
+-    #     Contacts cards swallowed                   268
+-    #     worst single node                            5   distinct cards
+-    #
+-    # HOW IT HAPPENS, and it is the collapse below, not a fuzzy tier. An
+-    # incoming record carries a SHAREABLE identifier (a reused family email, a
+-    # switchboard number) that matches node A, and another identifier that
+-    # matches node B. found_uris then holds two nodes and RULE 1 folds B into A
+-    # -- even when A and B carry different Contacts cards. The merge is
+-    # irreversible in practice: two people's facts end up interleaved on one
+-    # node. A duplicate is recoverable; an over-merge is not. When the two rules
+-    # disagree the safe direction is always "do not merge".
+-    _CANONICAL_ID_TYPES = frozenset(
+-        {"icloud_contact_uid", "linkedin_url", "whatsapp_lid"}
+-    )
+-
+-    def _person_identifier_values(self, person_uri: str, id_type: str) -> set[str]:
+-        """Every value of one identifier type already on a person node."""
+-        sparql = (
+-            f"SELECT ?v WHERE {{ "
+-            f"  <{person_uri}> <{PWG}hasIdentifier> ?id . "
+-            f'  ?id <{PWG}identifierType> "{id_type}" ; '
+-            f"      <{PWG}identifierValue> ?v . "
 +    def _load_fuzzy_candidates(self) -> None:
 +        """Load all person nodes into the in-memory fuzzy-candidate index ONCE.
 +
@@ -1763,9 +2209,16 @@
 +            f"  ?person <{PWG}hasIdentifier> ?lid . "
 +            f'  ?lid <{PWG}identifierType> "linkedin_url" ; '
 +            f"       <{PWG}identifierValue> ?linkedinUrl . "
-+            f"}}"
-+        )
-+
+             f"}}"
+         )
+-        results = self._sparql_query(sparql)
+-        bindings = results.get("results", {}).get("bindings", [])
+-        return {b["v"]["value"] for b in bindings if "v" in b}
+ 
+-    def _canonical_keys_conflict(
+-        self, uri_a: str, uri_b: str
+-    ) -> Optional[str]:
+-        """The id_type on which two nodes provably describe different people.
 +        linkedin_by_person: Dict[str, str] = {}
 +        for row in (
 +            self._sparql_query(sparql_linkedin)
@@ -1793,7 +2246,9 @@
 +                }
 +            )
 +        self._fuzzy_candidates = candidates
-+
+ 
+-        Returns the conflicting canonical id_type, or None when there is no
+-        conflict.
 +    def register_person(
 +        self,
 +        person_uri: str,
@@ -1802,13 +2257,24 @@
 +        linkedin_url: Optional[str] = None,
 +    ) -> None:
 +        """Append a newly-created person to the in-memory fuzzy index.
-+
+ 
+-        ABSENCE IS NOT A CONFLICT. A node with no Contacts card yet is the
+-        ordinary case of enrichment and must still merge -- that is what keeps
+-        RULE 1 working. Only two PRESENT and DISJOINT value sets refuse.
 +        A caller that creates a NEW person after resolve() returns no match
 +        must call this so later contacts in the same run dedupe against it --
 +        parity with the old query-Oxigraph-every-time behaviour. No-op when the
 +        index has not been loaded yet (a later first load will include the
 +        person anyway).
-+        """
+         """
+-        for id_type in sorted(self._CANONICAL_ID_TYPES):
+-            values_a = self._person_identifier_values(uri_a, id_type)
+-            if not values_a:
+-                continue
+-            values_b = self._person_identifier_values(uri_b, id_type)
+-            if values_b and not (values_a & values_b):
+-                return id_type
+-        return None
 +        if self._fuzzy_candidates is None or not name:
 +            return
 +        self._fuzzy_candidates.append(
@@ -1819,7 +2285,82 @@
 +                "linkedinUrl": linkedin_url,
 +            }
 +        )
-+
+ 
      def _iter_identifiers(
          self, identity: PersonIdentity
-     ) -> list[tuple[str, str]]:
+diff --git a/tidy.py b/tidy.py
+index 53247c43..1d506118 100644
+--- a/tidy.py
++++ b/tidy.py
+@@ -265,6 +265,11 @@ class TidyReport:
+ 
+     items: List[TidyItem] = field(default_factory=list)
+     total_persons: int = 0
++    # Set when the duplicate scan hit its wall-clock budget. A short report
++    # that does not say it is short is indistinguishable from a clean one, and
++    # the user would read "no duplicates left" off a scan that never finished.
++    truncated: bool = False
++    truncated_reason: str = ""
+ 
+     def counts(self) -> Dict[str, int]:
+         out: Dict[str, int] = {
+@@ -277,18 +282,24 @@ class TidyReport:
+         return out
+ 
+     def to_dict(self) -> Dict[str, Any]:
+-        return {
++        out: Dict[str, Any] = {
+             "schema_version": 1,
+             "total_persons": self.total_persons,
+             "counts": self.counts(),
+             "items": [it.to_dict() for it in self.items],
+         }
++        if self.truncated:
++            out["truncated"] = True
++            out["truncated_reason"] = self.truncated_reason
++        return out
+ 
+ 
+ # ── Duplicate-cluster -> proposed-merge items ────────────────────────────────
+ 
+ def _duplicate_items(
+-    persons: Dict[str, PersonRecord], config: Dict[str, Any]
++    persons: Dict[str, PersonRecord],
++    config: Dict[str, Any],
++    stats: Optional[Dict[str, Any]] = None,
+ ) -> List[TidyItem]:
+     """Run the resolver's duplicate detection and turn every candidate pair into
+     a PROPOSED merge item.
+@@ -303,7 +314,7 @@ def _duplicate_items(
+     all_matches.extend(detect_exact_name_matches(persons, config))
+     all_matches.extend(detect_email_matches(persons, config))
+     all_matches.extend(detect_phone_matches(persons, config))
+-    all_matches.extend(detect_fuzzy_name_matches(persons, config))
++    all_matches.extend(detect_fuzzy_name_matches(persons, config, stats=stats))
+     all_matches.extend(detect_name_subset_matches(persons, config))
+ 
+     auto, review = consolidate_matches(all_matches, config)
+@@ -382,12 +393,21 @@ class TidyEngine:
+                 self.resolver.oxigraph_url, self.resolver._client, self.config
+             )
+ 
++        # Caller-owned, so two request threads building a report at the same
++        # time never share it.
++        stats: Dict[str, Any] = {}
++
+         items: List[TidyItem] = []
+-        items.extend(_duplicate_items(persons, self.config))
++        items.extend(_duplicate_items(persons, self.config, stats=stats))
+         items.extend(detect_low_quality(persons, self.config))
+         items.extend(detect_incomplete(persons, self.config))
+ 
+-        return TidyReport(items=items, total_persons=len(persons))
++        return TidyReport(
++            items=items,
++            total_persons=len(persons),
++            truncated=bool(stats.get("truncated")),
++            truncated_reason=str(stats.get("truncated_reason", "")),
++        )
+ 
+     # -- apply ---------------------------------------------------------------
+ 
