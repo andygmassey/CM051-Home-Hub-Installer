@@ -141,8 +141,7 @@ _gs_find_seed_dir() {
     for _gs_c in \
         "${_gs_repo}/../OS003-Ostler-Release/gates/seed" \
         "${_gs_repo}/../OS003 - Ostler Release/gates/seed" \
-        "${HOME}/Developer/OS003-Ostler-Release/gates/seed" \
-        "${HOME}/Documents/Projects/OS003 - Ostler Release/gates/seed"
+        "${HOME}/Developer/OS003-Ostler-Release/gates/seed"
     do
         if [ -f "${_gs_c}/load_seed.py" ] && [ -f "${_gs_c}/seed_fixture.json" ]; then
             if _gs_loader_is_current "${_gs_c}/load_seed.py"; then
