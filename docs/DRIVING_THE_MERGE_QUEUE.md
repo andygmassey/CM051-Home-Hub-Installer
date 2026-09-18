@@ -159,6 +159,63 @@ own took the repo-wide queue to 0 and that PR merged within the minute. The
 cancelled runs are re-run afterwards by editing the PR body -- NEVER with
 `gh run rerun`, which replays the ORIGINAL event payload and restores the
 stale result.
+
+### The trap that cost the most: a driver that rewrites branches on a poll
+
+**Measured 2026-09-18.** An automated merge loop called `gh pr update-branch` on
+every BEHIND branch, every cycle. In one night it produced **33 merge-from-main
+commits across 12 branches**:
+
+```
+#2116  9      #2128  4      #2131  2      #2136  2
+#2123  7      #2130  2      #2132  2      #2137  1
+#2133  1      #2134  1      #2052  1      #2065  1
+```
+
+At ~140 checks per push that is roughly **4,600 check-runs of pure churn**, and
+the `CI Required Gate` on those same PRs then has to wait for all of them.
+
+**The shape is worse than the total.** Merge one PR, main moves, eleven branches
+go BEHIND, update eleven, 1,540 checks, merge one more. *The more it worked, the
+more work it made.* A poll side effect that costs 140 checks is not a poll side
+effect, it is a push.
+
+The branches open longest take the worst of it, because they are BEHIND after
+*every* merge. That is why #2116 and #2123 carried 9 and 7 while branches opened
+an hour earlier carried 1.
+
+**A BEHIND branch is not a problem until it is otherwise ready.** Update it once,
+deliberately, at the moment it would otherwise merge. Never on a timer.
+
+#### And the half that is a data-loss shape, not a cost
+
+**Never let an automated driver rewrite a branch a human has checked out.**
+
+The same loop twice pushed its own merge onto a branch while a person was
+resolving that branch's conflict locally: once on a divergence record, once on
+`install.sh` line citations. Both of GitHub's resolutions happened to be
+correct. That is the luckiest available outcome, not evidence the design was
+safe, and the next one lands silently on top of work nobody kept a copy of.
+
+The recovery that worked, and the order matters: **verify the remote's
+resolution against the gate that owns it BEFORE discarding your own.** For the
+citation conflict that was
+`tests/test_store_curl_config_survives_the_promote.sh` at 16 pass / 0 fail. The
+tempting order -- discard the redundant local work first, because the remote
+"obviously" already has it -- destroys the only thing that could have caught a
+bad merge.
+
+#### A citation conflict cannot be resolved by picking a side
+
+When both sides of a conflict are the same comment with different line numbers,
+**neither side is right after the merge**. The branch shifted the file; so did
+main. Picking either leaves every number wrong.
+
+Let the gate name the stale ones, then re-point each by **locating its
+construct** in the merged file. Do not apply the offset, even when the offset is
+uniform and correct: an offset holds until one hunk lands somewhere else, and
+then it is silently wrong for every citation after that point. Locating the
+construct cannot drift. It is a known cost paid to avoid an unbounded one.
 **AND THE BODY-EDIT HALF OF THAT IS WRONG FOR MOST WORKFLOWS IN THIS REPO.**
 Measured 2026-09-18, after editing #2133's body to re-trigger its starved
 aggregator and watching nothing happen: `on: pull_request:` with no `types:`
@@ -304,3 +361,470 @@ hardest to receive and the only one that mattered.
 
 **A trend in corrections carries no information about the next correction.**
 Each is measured from scratch, from the artefact, or it is not measured.
+
+### `gh pr diff <n> -- <path>` silently returns an empty diff
+
+Measured 2026-09-18, comparing two pull requests suspected of overlapping:
+
+    gh pr diff 2140 -- install.sh.strings.en-GB.sh | grep -c '^[-+]MSG_'   ->  0
+    gh pr diff 2156 -- install.sh.strings.en-GB.sh | grep -c '^[-+]MSG_'   ->  0
+
+Two zeros in a row, from a filter that looks like `git diff`'s. The control is
+the same command with no path filter:
+
+    gh pr diff 2140 | grep -c '^[-+]MSG_'   ->  22
+    gh pr diff 2156 | grep -c '^[-+]MSG_'   ->  23
+
+Both pull requests changed that file heavily. `gh pr diff` takes no pathspec,
+so the argument is consumed and the output is empty rather than an error. Read
+as written, it says the two pull requests do not touch the same file, which is
+the exact opposite of the truth.
+
+**The tell was the shape of the zero: two independent subjects returning
+exactly 0 on the same predicate.** Real absence is ragged. The no-filter
+control cost one command and inverted the verdict.
+
+There is a second trap in the same line. `grep -c` **exits 1 when it counts
+zero**, so under `&&` the false zero also killed the rest of the chain, and the
+second measurement never ran at all. A count that can be zero belongs in a
+command substitution, never in an `&&` chain.
+
+### Two sessions built the same fix seven hours apart, in different words
+
+Pull request 2140 (20:34) and pull request 2156 (03:46 the next morning) both
+rewrite the same ELEVEN `MSG_` lines in `install.sh.strings.en-GB.sh`: the nine
+that named the wrong product and the two that promised a platform. Same rule,
+same lines, same file. Neither author knew about the other.
+
+They are not textually identical, which is what makes it expensive rather than
+merely wasteful. Three of the eleven are worded differently:
+
+    2140  "Intel Macs are not supported. Ostler needs Apple Silicon (M1, M2, M3 or M4)."
+    2156  "Intel Macs are not supported. Apple Silicon (M1, M2, M3 or M4) is required."
+
+Identical changes merge clean. **Two correct answers to the same question
+conflict**, and the conflict arrives at merge time, in a customer-facing string,
+where resolving it by taking either side silently discards a decision somebody
+made on purpose.
+
+The board is the only place a claim exists. A claim made in a session, in a
+branch name, or in a message to one peer is invisible to the next agent who
+reads the board and sees an unclaimed row. **Claim before you BUILD.** The one
+thing that must NEVER be claimed in advance is a MEASUREMENT: two independent
+measurements of the same quantity is a control, and it is the cheapest one
+there is.
+
+### Three mechanisms in one night, and the third was the first
+
+Row 2155 named a writer, withdrew it, named another, withdrew that, and ended
+back on the original. Every step was measured. The corrections did not converge
+on anything; the middle one was simply wrong.
+
+    mechanism 1   the fda iMessage ingest re-CREATES the retired node     <- correct
+    mechanism 2   repair_overmerged_contact_cards.py re-TYPES it          <- excluded
+    mechanism 3   nobody can tell, there is no write provenance           <- premature
+    back to 1     the pipeline's own people_created counter names it
+
+**A trend in corrections carries no information about the next correction.**
+Anyone reading the direction of travel rather than the evidence would have
+treated the second withdrawal as progress. It was the one that was wrong.
+
+What withdrew a correct mechanism was two errors of the same family, and both
+are cheap to make again.
+
+**A UTC instant compared against a local date.** Both hosts run at +0800. A
+detect-only reading logged as `02:39` was LOCAL, which is `2026-09-17T18:39Z`.
+The phantoms' newest `createdAt` is `19:04Z`, twenty five minutes AFTER that
+reading. The falsifying question asked how many phantoms carried a `createdAt`
+dated *today* in UTC. The answer, 0, was **true and irrelevant**, and the
+arithmetic was allowed to choose a mechanism.
+
+Quote every timestamp in UTC with the zone printed, or in epoch seconds. A `Z`
+on a value that was never converted is worse than no suffix at all.
+
+**A zero from the wrong tick.** The same investigation read `people_created: 0`
+from the TAIL of a log, hours after the event, when the nodes already existed
+and there was nothing left to create. Twelve lines further up, two consecutive
+ticks each report `people_created: 32`.
+
+> **A zero from the wrong tick is not a smaller measurement. It is a
+> measurement of something else.**
+
+The remedy is mechanical and belongs in any run that reads an append-only log
+for the effect of an action it just took:
+
+    record the log's line count BEFORE the action
+    take the action
+    read ONLY the lines appended after that mark, and say how many there were
+    an empty slice is CANNOT-RUN, never 0
+
+### What survived all three, and it is the part that generalises
+
+**A control has to come from the same population as the treatment.** The
+obvious control for "does retiring by replacement stop the revival" was the 24
+nodes already correctly retired. Measured, they carry no identifiers and no
+source at all, so no ingest can ever match them. They had sat untyped through
+dozens of ticks precisely because nothing could see them. A control that cannot
+be acted on by the mechanism under test proves the mechanism is off, not that
+the fix is on.
+
+**NOT INSTRUMENTED is still the right word when it is true, and it was not
+true here.** The store genuinely records no write provenance, and that is now a
+registered launch item. But one pipeline happened to print a counter, and the
+answer was in it. The lesson is not that the honest absence was wrong to say;
+it is that saying it is a claim about where you looked, so it has to name the
+places, and a log a product writes on every tick is one of them.
+
+### A named writer on a row is read as a diagnosed writer
+
+Prose hedging does not survive being skimmed the next day. Either name the
+query or the counter that identified the writer, or name nothing. And keep the
+dead mechanisms in the row, clearly marked dead, with the numbers that killed
+them: they are the only thing stopping the next person spending an hour
+re-excluding a module that has already been excluded.
+
+### A probe run from the wrong directory exits 127, which reads as a missing tool
+
+Measured 2026-09-18, checking another session's branch without asking them:
+
+    bash /tmp/p2030.sh --self-test     ->  exit 127, no useful output
+    cp into scripts/box_walk_probes/probes/ and run there
+                                       ->  exit 1, EXAMINED: 41
+
+The probe sources its helper library by a path relative to **its own location**,
+so a copy run from anywhere else cannot find it. `127` is "command not found",
+which every reader parses as a missing binary on the runner. It is not. It is a
+correct probe in the wrong place.
+
+The habit that costs nothing: when checking a branch's probe, put the file where
+the probe expects to live, run it, and remove it in the same command. Verify the
+removal in that command too, so a failed run cannot leave a stray probe that the
+"every probe on disk is collected" gate then trips over.
+
+### A capability proven against the tree is not a capability proven against the artefact
+
+The release repo's capability matrix probes non-assistant repos on the **working
+tree**, with a comment saying the working tree is the honest target because it
+is what gets packaged. Measured: 171 of 178 rows use that method and 133 of them
+are CM051.
+
+That comment was falsified by one measurement:
+
+    current install.sh in the tree     36,212 lines, 5 references to the repair
+    shipped payload install.sh         35,510 lines, 0 references
+
+Seven hundred lines apart. A working-tree grep reports the capability PRESENT
+while a customer has none of it, and every gate stays green.
+
+The subject of the assertion has to be the thing the customer receives. Where a
+capability spans two halves that ship separately - a step in a script and the
+module that step invokes - the two must be asserted **as a conjunction against a
+single artefact identity**. Two rows that merely share a version string can be
+satisfied by two different builds.
+
+### The gate written for a failure had no consumer
+
+Worse, and the reason this went unseen: the release repo already contains a gate
+that reconciles a running box against the BOM the cut declared. It refuses when
+nothing was checkable, and it treats an absent BOM on the box as RED rather than
+as nothing to do. Its header records the decision it implements.
+
+    SUBJECT  references outside the file itself
+             0 in scripts, workflows, manifests and documents
+             1 elsewhere, and it is a COMMENT
+    CONTROL  the gate beside it        45
+             the capability matrix     120
+
+The controls are large, so the zero is a real absence. **A gate that is written,
+reviewed, documented and never called is indistinguishable from a gate that was
+never written**, except that its existence stops anyone writing it again.
+
+When you find a missing check, search for it by name before building it, and
+search for its CALLERS before trusting it.
+
+### We are one GitHub identity, so a formal approval between us cannot arrive
+
+Measured 2026-09-18, after one session told another that a pull request was
+"waiting only on your review":
+
+    gh pr review 166 --approve
+    failed to create review: GraphQL: Review Can not approve your own pull request
+
+Every token in this estate resolves to the same account, so three sessions
+working in parallel are one author to GitHub. **A formal approval between any
+two of us is impossible by construction, not by convention.** Waiting for one is
+waiting for something that cannot happen, and it stalls the lane indefinitely
+while looking like diligence.
+
+Two consequences:
+
+- Review between sessions goes in as a **comment**, and the **merge is the
+  decision**. That is not a relaxation of the review rule; it is the only shape
+  the rule can take here.
+- Before saying a pull request "needs a review", check whether the branch is
+  even protected:
+
+      gh api repos/<owner>/<repo>/branches/main/protection
+      -> 404 Branch not protected
+
+  An empty `reviewDecision` on an unprotected branch means **none was ever
+  requested**, not that one is outstanding. A pull request that reports CLEAN
+  was already mergeable.
+
+### A check state is a timestamp, not a property
+
+In the same exchange, one session read `2 of 2 SUCCESS` and reported the pull
+request green. By the time the other session read it, a push had restarted the
+suite and it was `scan completed / pytest in_progress`. The first reading was
+true when it was taken and false when it was relayed.
+
+This is the same shape as a pull request whose green was eleven days old: the
+number is a fact about a moment, and relaying it turns it into a claim about
+now. Re-read the state in the same turn you act on it, and when you hand a state
+to someone else, hand them the query rather than the answer.
+
+### BSD awk has no `\s`, and the zero it returns looks like a clean file
+
+Re-measuring a known data-loss defect, the first reading said the swallow was
+gone from all three files:
+
+    awk '/except Exception/{getline; if ($0 ~ /^\s*pass\s*$/) n++} END{print n+0}'
+      facebook_friends.py      0
+      linkedin_connections.py  0
+      instagram_social.py      0
+
+Three zeros, one per file, on a pattern that reads correctly. The truth is 1, 2
+and 1. **`\s` is a GNU extension and BSD awk does not implement it**, so the
+alternation never matched and every file reported clean.
+
+The control is one line and it is the only reason this was caught:
+
+    echo "  pass" | awk '/^\s*pass\s*$/{print "matched"}'              -> nothing
+    echo "  pass" | awk '/^[[:space:]]*pass[[:space:]]*$/{print "ok"}' -> ok
+
+**Put a must-match line through the pattern before trusting what the pattern
+says is absent.** Not through the subject - through the *pattern*. A predicate
+that cannot match a line built to match it has not measured the subject at all.
+
+This is the second false negative on the same defect category, in two different
+tools, for two unrelated reasons: an earlier sweep reported it clean with a
+single-line regex while the real code uses the standard two-line idiom. A
+category that has produced a false negative twice should never be measured again
+without a must-match control in the same command.
+
+### The collision the owner warned about, caused by the person who was warned
+
+The register owner said the specific risk in a shared repo is two sessions
+appending a row for the same thing. Hours later, with a cut-blocking pull
+request stalled on a missing register entry, the other session asked the owner
+to write it, judged the block too important to wait, and wrote it anyway.
+
+    feature_prs entries       186
+    duplicate row for PR A      2
+    duplicate row for PR B      2
+
+Both sets in the working tree, neither pushed. No data lost, because the tip
+SHAs were recorded and the owner had not committed - but the file briefly said
+two different things about the same two changes.
+
+**The reasoning that produced it is the reasoning that produces every
+collision**: the person who breaks the rule always has a reason, and the reason
+is usually true. The block was real. The correct move was to say the pull
+request is blocked and work on something else, which is what the operating
+instruction already says to do, and there was other work available.
+
+A shared register is not a queue you can jump when your item is urgent. It is a
+queue *because* items are urgent.
+
+### A duplicate check keyed on a field that is in dispute cannot see the duplicate
+
+Two sessions appended a row for the same two pull requests to the same register.
+The owner's duplicate check was a `Counter` keyed on `(repo, pr)` and it reported
+one row each.
+
+It could not have reported anything else. The two sessions spelled the `repo`
+field differently - one owner-qualified, one bare - so **the key built to detect
+the collision contained the field the collision was in**. A plain textual count
+of the identifying line said 2, with a control line that said 1.
+
+    Counter keyed on (repo, pr)      ->  1 each   (wrong)
+    grep -c '^  pr: 2160$'           ->  2        (right, control row 1)
+
+> **A duplicate check must key on the field that IDENTIFIES the thing, never on
+> a composite containing a field whose spelling is in dispute.**
+
+That generalises past this register. Every composite key in this estate has a
+field that two people could spell differently, and the check is silent in
+exactly the case it exists for.
+
+The convention question underneath it was settled by counting rather than by
+argument: 107 rows owner-qualify the repo and 4 use the bare form, and the row
+the owner had copied was one of the 4. **A sample of one is not a convention**,
+and copying the last row you read reproduces whatever that row got wrong.
+
+### A head SHA in a permanent register is a timestamp, not a property
+
+One of the duplicate rows recorded `head_sha: 9b3f5a6e`. That was the head at
+04:40:39Z; the branch moved at 05:17:20Z. Both SHAs exist, so it is staleness and
+not a typo - the value was true when it was read and false by the time the row
+was committed.
+
+Same shape as relaying `2 of 2 SUCCESS` as "the PR is green" while a push was
+restarting the suite. The answer is not to stop recording the SHA. It is that a
+row recording a moving value must also record **the instant it was read**, or the
+reader cannot tell a stale value from a wrong one.
+
+### `branches/main/protection` returning 404 is not evidence that main is unprotected
+
+One session measured it and reported main unprotected, so a pull request with a
+clean rollup could be merged directly. The merge was refused:
+
+    X Pull request #2161 is not mergeable: the head branch is not up to date
+      with the base branch.
+
+    gh api repos/<owner>/<repo>/branches/main/protection   ->  404 Not protected
+    gh api repos/<owner>/<repo>/rules/branches/main        ->  required_status_checks: 1
+      .parameters.strict_required_status_checks_policy     ->  true
+
+**Classic branch protection and repository rulesets are different APIs, and a
+404 from the first says nothing about the second.** The reading was honest about
+what it measured; it was not the surface that binds.
+
+Ask `rules/branches/<branch>` before concluding a branch is unprotected. It
+returns the rules that actually apply, from every ruleset, which is the question
+anyone asking about protection actually means.
+
+### What survives of the intersection rule under a strict policy
+
+The intersection is still the right thing to measure - it just cannot authorise
+a direct merge any more. What it authorises is a decision about what the re-run
+is **for**:
+
+    intersection non-empty  ->  update-branch, and READ the run: it can
+                                discover something a clean textual merge hid
+    intersection empty      ->  update-branch anyway, because the policy
+                                requires it, but the run is a formality
+
+That still collapses the *attention* cost of a large backlog even though it
+cannot collapse the wall-clock. Stating it the other way round - "merge
+directly" - sends the next reader hunting for a different reason the queue is
+stuck.
+
+### A PII bar can be on the order of operations rather than on the operation
+
+A vendored tree was pinned two months behind, and the gap contained an upstream
+commit that scrubbed personal data from a comment. The register forbade
+regenerating its divergence patch, on the correct observation that the PII bar
+is discharged for a re-pin and not for a regeneration.
+
+That is true only while the two are **sequential**:
+
+    regenerate, then advance the pin   ->  minus side of the patch is PRE-scrub
+    advance the pin, then regenerate   ->  minus side is scrubbed
+
+So the bar was never on the regeneration. It was on doing it in the wrong order,
+and the prohibition had hardened around the example rather than the mechanism. A
+rule that names its example gets read as a rule about that example - which this
+file has already recorded once, from the other direction.
+
+### Overlap is not conflict, and reporting one as the other cost a wrong plan
+
+Facing eleven conflicted pull requests, the cheap measurement is which files each
+one touches that main has also touched since its base. That is an **overlap
+set**, and it is a superset of the conflict set, because git auto-merges most
+overlapping files.
+
+Measured both ways on the same eleven:
+
+    predicted from overlap   TEST_WIRING.tsv in SIX of eleven
+    actual, by merging       TEST_WIRING.tsv in ONE of eleven
+
+The prediction produced a plan - "six of these are one command run six times" -
+that was reported to another session as a finding. It was an honest measurement
+of the wrong thing. **If the question is "what will conflict", the only
+instrument is a merge.**
+
+### Four kinds of conflict, and only two can be resolved mechanically
+
+Measured across eleven pull requests in one repository on one night:
+
+**APPEND.** Both sides add at the end, or add a sibling entry: two workflow steps
+in one job, two method notes at the end of a file, two rows at the end of a
+register. **Keep both.** It is the only resolution that loses nothing, and the
+danger is that taking one side leaves a file that parses and reads perfectly
+while a gate has silently vanished.
+
+**GENERATED.** The file is produced by a tool that forbids hand-editing -
+`TEST_WIRING.tsv`, a divergence patch. **Regenerate, never resolve.** The
+conflict markers are noise; the file's content is not a human artefact.
+
+**REWRITE.** Two independently written versions of one document, differing from
+the title down. One was 135 lines against 133, the same document twice. **Cannot
+be batched**, needs somebody to choose or to merge the content by hand.
+
+**SAME-SUBJECT EDIT, and this is the one that bites.** Both sides changed the
+same rows or the same function, each correctly, for different reasons. Keeping
+both produced **five duplicated register rows** - and the file still parsed, the
+gate still passed, and the count was silently wrong. In a source file the same
+shape was a two-line helper call on one side and a twenty-five-line explicit
+implementation on the other, both correct, both about privacy-level comparison
+direction.
+
+> **A mechanical resolution is safe exactly when the two sides are about
+> different things. The moment they are about the same thing, keeping both is
+> as wrong as keeping one - and it is wrong in the direction that looks fine.**
+
+So classify before resolving. The classification costs one merge per branch and
+it decides whether the work is a command, a judgement, or a conversation.
+
+### Every error tonight had one shape
+
+    a 404 from classic protection      for the ruleset that was enforcing
+    HEAD ahead-behind of a checkout    for whether a pin was current
+    files that overlap                 for files that conflict
+    a path passed to a scanner         where the scanner wanted the list itself
+    a log's tail                       for the tick that mattered
+    a UTC instant against a local date  for an ordering
+
+**In every case the instrument was honest and the question was the wrong one.**
+None of these was a broken tool or a careless reading; each was a true answer to
+something adjacent to the subject.
+
+### The sharpened form, and why it is the actionable one
+
+That rule was tested against a third session's own seven faults from the same
+night rather than agreed with. It held on six. The seventh did not fit, and the
+exception is what makes the rule usable:
+
+    six faults   an honest tool answering the wrong question
+    one fault    a NameError on a scan's success path -- a real code defect
+
+> **The wrong-question faults are the dangerous ones precisely because the tool
+> does not misbehave. A broken tool announces itself. An honest tool answering
+> the wrong question hands you a confident, checkable-looking result.**
+
+The cost difference is the evidence, measured on one night: the fault that
+crashed cost ten minutes. The faults that answered honestly cost hours, and two
+of them reached the board as findings before being withdrawn.
+
+So this is not advice to distrust your tools. It is advice about **where to spend
+scepticism**: on the readings that come back clean.
+
+### The drill, when a measurement surprises you
+
+Do **not** first suspect the tool.
+
+1. Write down, in words, the question you believe you asked.
+2. Read the command and write down the question it **actually** asks.
+3. The gap is the bug.
+
+And state the units every time, because every one of these faults was a missing
+unit: **which clock, which corpus, whose exit status, which tick, which ref.**
+
+The same pair of sessions each hit the overlap-versus-conflict version of this
+within an hour of each other, in opposite directions. One reported an overlap set
+as a conflict set and had to withdraw a plan built on it. The other measured that
+two branches both *touch* the same file, then **actually merged both orders
+before saying they conflict** - they did, in both orders, but the overlap alone
+would not have shown it. Same trap, one step apart, and only the second reading
+was evidence.

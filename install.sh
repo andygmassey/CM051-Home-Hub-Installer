@@ -3239,11 +3239,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8087) captures the path BY
+    # _ostler_write_store_curl_config (defined :8127) captures the path BY
     # VALUE and never re-reads it:
-    #     :8088   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8133   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8142 and :14555, both of which run
+    #     :8128   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8173   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8182 and :14595, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3234 above has just deleted
     # that tree and :3238 has just rebound OSTLER_DIR to the final one, so
@@ -3261,13 +3261,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15326, where the note reads
+    # WhatsApp Web session path did it again at :15366, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15343 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15383 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3276,13 +3276,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5707 against a definition at :8087. Top-level
+    # writer's own definition: :5747 against a definition at :8127. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8142, :14555) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8182, :14595) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17398 / :17576 / :17733 / :18074 path. There the
+    # :17438 / :17616 / :17773 / :18114 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -3353,6 +3353,46 @@ _ostler_promote_prelaunch_tree() {
     # line was never reached for a non-zero return: under `set -e` the
     # assignment itself aborted. The case below distinguishes not-ready
     # from could-not-look, and could only ever see 0.
+    # ── INSTANCE SEVEN OF THE STAGING-PATH-BY-VALUE CLASS, AND IT IS THE ONE
+    # THAT KILLS THE RECOVERY KEY ────────────────────────────────────────────
+    #
+    # A SYMLINK STORES ITS TARGET AS TEXT. ${OSTLER_DIR}/bin/ostler-unlock is
+    # created at install.sh:8168 as
+    #     ln -sfn "${OSTLER_VENV}/bin/ostler-unlock" ...
+    # and when that runs before this promote, OSTLER_VENV is still
+    # ${OSTLER_PRELAUNCH_DIR}/.venv. The mv relocates the LINK FILE and cannot
+    # touch the text inside it, so the customer is left with a link in its
+    # final home pointing into a directory macOS deletes.
+    #
+    # MEASURED ON THE v1.0.100 WALK BOX, about two hours after a clean install:
+    #     ~/.ostler/bin/ostler-unlock -> /tmp/ostler-prelaunch-71922/.venv/bin/ostler-unlock
+    #     target IS GONE
+    #     ~/.ostler/.venv/bin/ostler-unlock  -rwxr-xr-x  262 bytes  (the real one)
+    # and the walk probe ostler_unlock_reachable_by_name returned rc=127,
+    # "command not found", for the exact command a customer is told to type
+    # with their recovery key.
+    #
+    # DENOMINATOR: 1 of the 21 entries in ~/.ostler/bin pointed into /tmp. The
+    # other 20 were correct, so this is specific to this link and not a
+    # wholesale relocation failure -- which is why it survived six previous
+    # repairs of the same class in this very function.
+    #
+    # Re-pointed here rather than at the creation site because the creation
+    # site legitimately runs before the promote; this is the first moment the
+    # final path is known to be real.
+    if [[ -x "${OSTLER_DIR}/.venv/bin/ostler-unlock" ]]; then
+        ln -sfn "${OSTLER_DIR}/.venv/bin/ostler-unlock" "${OSTLER_DIR}/bin/ostler-unlock"
+        # ASSERT, do not assume. A dangling symlink is exactly what this block
+        # exists to remove, so it must never leave one behind.
+        if [[ -e "${OSTLER_DIR}/bin/ostler-unlock" ]]; then
+            _ostler_promote_venv_note "ostler-unlock re-pointed at ${OSTLER_DIR}/.venv/bin/ostler-unlock and RESOLVES"
+        else
+            _ostler_promote_venv_note "ostler-unlock re-point FAILED -- the link still does not resolve; the recovery key cannot be redeemed by name"
+        fi
+    else
+        _ostler_promote_venv_note "ostler-unlock NOT FOUND at ${OSTLER_DIR}/.venv/bin -- recovery-key redemption will not be reachable by name"
+    fi
+
     _rr_out=""; _rr_rc=0
     _rr_out="$(_ostler_verify_runtime_ready \
         "${OSTLER_DIR}/.venv/bin/python3" \
@@ -18783,32 +18823,37 @@ services:
       # (WIKI_HYDRATION_STATUS_FILE below); that lands at ~/.ostler/state
       # on the host where the endpoint reads it.
       - ${HOME}/.ostler/state:/state
-      # 🔴 #849 -- THE PRO OBSIDIAN VAULT WRITER COULD NOT RUN ON ANY
-      # INSTALL. compiler/vault_licence.py gates it on the Pro licence
-      # state. Before this line, NOTHING under ${HOME}/.ostler except
-      # state/ was mounted here, so the reader resolved
-      # ~/.ostler/licence/state.json to /root/.ostler/licence/state.json
-      # INSIDE the container -- a path that has never existed on any
-      # install -- and fail-closed to pro_none on every compile pass.
-      # Every Pro customer silently got no vault, forever.
+      # 🗿 THE ${HOME}/.ostler/licence MOUNT USED TO BE HERE AND IS GONE ON
+      # PURPOSE. Board row 971, and it is the sharper half of #849.
       #
-      # ⚠️ IT WAS ALREADY FIXED IN CM044's docker/docker-compose.yml AND
-      # TESTED THERE, AND THAT TEST WAS GREEN WHILE THIS FILE WAS BROKEN.
-      # CM044's test_licence_dir_is_bind_mounted reads CM044's OWN dev
-      # compose. The customer runs THIS compose, generated here. Measured
-      # 2026-08-23, control on both sides:
-      #     CM044 docker/docker-compose.yml   .ostler/licence -> 5
-      #     CM051 install.sh                  .ostler/licence -> 0
-      #     control: wiki-compiler present in both (5 and 15), so neither
-      #     count is a false zero from reading the wrong file.
-      # A guard on the dev compose says nothing about the artefact.
+      # #849 was real and its diagnosis was right as far as it went:
+      # compiler/vault_licence.py resolved ~/.ostler/licence/state.json,
+      # which inside a container that declares no USER and no ENV HOME lands
+      # at /root/..., a path no install has ever had, so the Pro vault write
+      # fail-closed to pro_none on every compile pass. The mount and the env
+      # var below made that path reachable.
       #
-      # READ-ONLY: the compiler CONSUMES licence state, nothing in CM044
-      # writes it, and a writable mount onto the licence tree is a foothold
-      # the wiki compiler has no reason to hold. Scoped to licence/ alone,
-      # not all of ~/.ostler, which also holds daemon config and store
-      # credentials.
-      - ${HOME}/.ostler/licence:/licence:ro
+      # THE PATH THEY MADE REACHABLE WAS FICTION. Nothing in this estate has
+      # ever written ~/.ostler/licence/state.json. CM044's own module said so
+      # in its docstring on 2026-07-30 and asked for confirmation before
+      # v1.0.13 merged; nobody answered for seven weeks. So the mount was
+      # correct plumbing to an address that does not exist, and a Pro
+      # customer's vault stayed shut whether or not it was there.
+      #
+      # WHERE THE ENTITLEMENT ACTUALLY LIVES: the phone pushes the StoreKit
+      # receipt to /api/v1/subscription/receipt, subscription_gate writes
+      # ~/.ostler/state/subscription_state.json, and every pipeline calls
+      # is_active_or_grace() on it. Andy decided 2026-09-18 that the Apple
+      # receipt is the truth, so CM044's reader moved to that file
+      # (CM044 #280) and this mount serves nobody.
+      #
+      # AND NO NEW MOUNT REPLACES IT. ${HOME}/.ostler/state:/state is already
+      # bind-mounted above, for the hydration status file, so the Hub's
+      # subscription state has been inside this container the whole time, one
+      # directory away from a reader looking in the wrong place. Leaving the
+      # dead mount would keep a second entitlement address alive in the
+      # shipped compose for the next person to wire something to, which is
+      # the defect row 971 exists to close rather than to relocate.
       # 🔴 #482 -- THE BURSAR SAID "You're not on the meter. Nothing recorded
       # yet this month." ON A BOX THAT HAD DONE A FULL INSTALL AND COMPILED A
       # WIKI, AND THIS MISSING MOUNT IS WHY.
@@ -18869,17 +18914,22 @@ services:
       # host-side CM041 ical-server hydration endpoint reads the same
       # file the compiler writes. See compiler/hydration.py::status_path.
       - WIKI_HYDRATION_STATUS_FILE=/state/wiki_hydration.json
-      # #849, second half. Absolute in-container path of the Pro licence
-      # state file, matching the ${HOME}/.ostler/licence:/licence:ro mount
-      # above. Set EXPLICITLY rather than letting the mount land at the
-      # container's ~/.ostler/licence: the image declares no USER and no
-      # ENV HOME, so "~" is /root ONLY by inheritance from the base image.
-      # The day anyone adds a USER line, a HOME-relative resolution would
-      # silently stop matching and the Pro vault writer would go quiet
-      # again in exactly the #849 way -- with no error, because the reader
-      # fail-closes to pro_none. An explicit env var is also the thing a
-      # test can assert lands inside a declared mount target.
-      - OSTLER_LICENCE_STATE_FILE=/licence/state.json
+      # #849's second half, re-aimed by board row 971. Absolute in-container
+      # path of the Hub's OWN subscription state, inside the
+      # ${HOME}/.ostler/state:/state mount declared above.
+      #
+      # THE NAME IS THE HUB'S, not a second one for the same fact. A box that
+      # relocates this file relocates it for every reader at once; a private
+      # variable here is how the two addresses diverged in the first place.
+      #
+      # Set EXPLICITLY rather than letting a HOME-relative path resolve: the
+      # image declares no USER and no ENV HOME, so "~" is /root ONLY by
+      # inheritance from the base image. The day anyone adds a USER line, a
+      # HOME-relative read would silently stop matching and the Pro vault
+      # writer would go quiet again in exactly the #849 way, with no error,
+      # because the reader fail-closes to pro_none. An explicit env var is
+      # also the thing a test can assert lands inside a declared mount.
+      - OSTLER_SUBSCRIPTION_STATE=/state/subscription_state.json
       # #979. The path INSIDE the container, matching the bind mount above.
       # The renderer reads compiler/config.py::ai_conversations_dir, which
       # honours this. Without it the mount would be present and unread,
@@ -18898,7 +18948,7 @@ services:
       # mount-source note above). An earlier version of this comment named
       # ${HOME}/.ostler/workspace, which the daemon does NOT read.
       #
-      # Set EXPLICITLY, for the identical reason OSTLER_LICENCE_STATE_FILE
+      # Set EXPLICITLY, for the identical reason OSTLER_SUBSCRIPTION_STATE
       # is: the image declares no USER and no ENV HOME, so "~" is /root only
       # by inheritance from the base image. A HOME-relative resolution would
       # silently stop matching the day anyone adds a USER line, and the

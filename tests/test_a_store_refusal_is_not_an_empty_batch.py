@@ -94,22 +94,81 @@ _STUB_SRC = (
     "    def __init__(self, *a, **k): pass\n"
     "    def __call__(self, *a, **k): return _Any()\n"
     "    def __getattr__(self, n): return _Any()\n"
+    "    def __iter__(self): return iter(())\n"
+    "    def __getitem__(self, k): return _Any()\n"
+    "    def __contains__(self, k): return False\n"
+    "    def __bool__(self): return False\n"
     "def __getattr__(name): return _Any()\n"
 )
+
+PKG = "_cm019_ingest_src"
+SUBJECT_MODULE = f"{PKG}.pipeline"
+FABRICATED: list[str] = []
+
+
+class _StubLoader:
+    """Every stub module is also a PACKAGE, and that is the repair.
+
+    The first version of this file listed six sibling names and built a plain
+    module for each. A plain module has no ``__path__``, so the import
+    machinery asks the module-level ``__getattr__`` for one, gets a stand-in
+    object, and tries to ITERATE it. ``__path__ = []`` makes each stub a
+    package whose children this finder then answers for.
+    """
+
+    def create_module(self, spec):
+        return None
+
+    def exec_module(self, module):
+        module.__path__ = []
+        exec(compile(_STUB_SRC, f"<stub {module.__name__}>", "exec"),
+             module.__dict__)
+        FABRICATED.append(module.__name__)
+
+
+class _StubFinder:
+    """Fabricate a stub for ANY module under the stub package.
+
+    🔴 WHY A FINDER AND NOT A LIST OF NAMES, measured rather than preferred.
+    This test named its six siblings explicitly. CM051 #2052 then added one
+    line to the SHIPPED pipeline.py:
+
+        from .loaders.qdrant_loader import COMPARTMENT_AT_OR_ABOVE as ...
+
+    a SUBMODULE of a stubbed sibling, which no name in that list covered. The
+    test went CANNOT-RUN, exit 2, on every pull request AND on main, and main
+    stayed red because the only workflow that runs it is path-filtered and
+    nothing else reported. A stub list is a second copy of the subject's import
+    graph, and it goes stale the first time the subject gains an import.
+
+    🗿 AND THE SCOPE IS THE POINT, because a stub that answers for everything
+    hides exactly the defect this file exists to catch. It answers ONLY for
+    names under this package's prefix, and never for the subject itself. An
+    import of something real and genuinely missing still raises, and there are
+    two arms below that prove the finder refuses rather than fabricating.
+
+    WHAT THE STUBS CANNOT DO, said plainly: a stubbed constant is not the real
+    constant. The arms in this file assert how a REFUSAL is recorded, and no
+    arm depends on a value a sibling would have supplied, so a stand-in is
+    honest here. An arm that started depending on one would be measuring the
+    stub.
+    """
+
+    def find_spec(self, name, path=None, target=None):
+        if name == SUBJECT_MODULE or not name.startswith(PKG + "."):
+            return None
+        return importlib.util.spec_from_loader(name, _StubLoader())
 
 
 def _load_subject():
     """Import the SHIPPED pipeline.py with its siblings stubbed."""
-    pkg = types.ModuleType("_cm019_ingest_src")
+    pkg = types.ModuleType(PKG)
     pkg.__path__ = [str(SUBJECT.parent)]
-    sys.modules["_cm019_ingest_src"] = pkg
-    for sib in ("config", "vectorizer", "loaders", "filters", "parsers", "rml"):
-        m = types.ModuleType(f"_cm019_ingest_src.{sib}")
-        exec(compile(_STUB_SRC, f"<stub {sib}>", "exec"), m.__dict__)
-        sys.modules[f"_cm019_ingest_src.{sib}"] = m
-    spec = importlib.util.spec_from_file_location("_cm019_ingest_src.pipeline", SUBJECT)
+    sys.modules[PKG] = pkg
+    sys.meta_path.insert(0, _StubFinder())
+    spec = importlib.util.spec_from_file_location(SUBJECT_MODULE, SUBJECT)
     mod = importlib.util.module_from_spec(spec)
-    sys.modules["_cm019_ingest_src.pipeline"] = mod
+    sys.modules[SUBJECT_MODULE] = mod
     spec.loader.exec_module(mod)
     return mod
 
@@ -226,6 +285,35 @@ def main() -> int:
         ok("(5) nothing to write is still a clean zero, so the guard did not turn empty into failed")
     else:
         bad("(5) an empty batch now reports an error it should not", repr(empty))
+
+    print()
+    print("ARM 6: THE STUB MACHINERY ITSELF. A stub that answers for everything")
+    print("       would hide the very defect the arms above measure.")
+    print(f"       EXAMINED: {len(FABRICATED)} sibling module(s) fabricated: "
+          f"{', '.join(sorted(FABRICATED)) or '<none>'}")
+    if FABRICATED:
+        ok(f"(6a) the finder fabricated {len(FABRICATED)} sibling(s), so it was reached at all")
+    else:
+        bad("(6a) NO sibling was fabricated, so arms 1 to 5 ran against something "
+            "other than the shipped file's import graph and prove nothing")
+
+    # 🔴 THE CONTROL. Outside the package prefix the finder must REFUSE. If it
+    # fabricated anything asked of it, an import of something real and missing
+    # would succeed and the subject would be tested with a phantom in place of
+    # a dependency that has genuinely gone.
+    import importlib
+    for absent in ("no_such_top_level_xyzzy", "_cm019_ingest_src_not_this_one.thing"):
+        try:
+            importlib.import_module(absent)
+        except ModuleNotFoundError:
+            ok(f"(6b) the finder refuses {absent!r}, so its scope is real")
+        except Exception as exc:  # pragma: no cover - a surprise is not a pass
+            bad(f"(6b) importing {absent!r} raised {type(exc).__name__}, not "
+                "ModuleNotFoundError", str(exc))
+        else:
+            bad(f"(6b) the finder FABRICATED {absent!r}. It answers for names "
+                "outside its package, so every arm above may be measuring a "
+                "stand-in rather than the shipped file's real dependencies.")
 
     print()
     print(f"=== {PASS} passed / {FAIL} failed ===")

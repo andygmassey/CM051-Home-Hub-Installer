@@ -110,25 +110,53 @@ def main() -> int:
             control)
 
     print()
-    print("ARM 2: five real rows that MUST keep their verdicts, from the board itself")
-    must_keep = {
-        "947": ["CANNOT FIX", "NO PR OPENED"],
-        "948": ["NOT STARTED"],
-        "942": ["NOT STARTED", "NOTHING WRITES"],
-        "928": ["NOT STARTED"],
-        "929": ["NOT STARTED"],
-    }
-    for issue, expected in must_keep.items():
-        row = by_issue.get(issue)
-        if row is None:
-            bad(f"(2) row {issue} is not on {board.name}, so this arm measured nothing")
-            continue
-        found = subject._verdict_markers(_norm(row))
-        if sorted(set(found)) == sorted(set(expected)):
-            ok(f"(2) row {issue} still declares {sorted(set(found))}")
-        else:
-            bad(f"(2) row {issue} declares {sorted(set(found))}, expected {sorted(set(expected))}",
-                "a row that says its own work is unfinished must stay ungated")
+    print("ARM 2: the real board declares verdicts, and every one survives the")
+    print("       mention-stripping. A PROPERTY, not a snapshot.")
+    #
+    # 🔴 THIS ARM USED TO NAME FIVE ROWS AND THEIR EXPECTED MARKERS, and it went
+    # red the first time a row was legitimately RESOLVED. 928 and 929 were
+    # measured closed on 2026-09-18 -- the licence tier reaches the Hub, the
+    # beta window degrades to read-only with a warning, both run rather than
+    # read -- and their stale present-tense verdicts were corrected because they
+    # had become false. The arm then reported "row 928 declares [], expected
+    # ['NOT STARTED']" and the failure looked like the fixer's fault.
+    #
+    # A TEST THAT PINS THE BOARD'S CONTENT FAILS EVERY TIME THE BOARD IS RIGHT.
+    # The property this file exists for is about the PREDICATE: a marker
+    # declared in running prose is found, and a marker merely quoted is not.
+    # Which rows happen to declare one today is the board's business, and the
+    # ungated count already makes a silent removal visible in every board PR.
+    #
+    # What is kept is the DENOMINATOR. Zero declaring rows would make arms 3
+    # onwards a sweep over nothing, and that must fail rather than read clean.
+    declaring = {i: sorted(set(subject._verdict_markers(_norm(r))))
+                 for i, r in by_issue.items()
+                 if subject._verdict_markers(_norm(r))}
+    if declaring:
+        ok(f"(2) {len(declaring)} row(s) on {board.name} declare a verdict, so the "
+           f"arms below have a real corpus: {sorted(declaring)[:10]}"
+           + (" ..." if len(declaring) > 10 else ""))
+    else:
+        bad(f"(2) NO row on {board.name} declares a verdict. Either the board is "
+            "finished or the finder is dead, and this file cannot tell the two "
+            "apart, so it refuses rather than reporting a clean sweep")
+
+    # And every declaration must be a real one: the marker has to occur in the
+    # gate OUTSIDE every quotation span, or the finder has contradicted itself.
+    contradictions = []
+    for issue, markers in declaring.items():
+        g = _norm(by_issue[issue])
+        spans = subject._mention_spans(g)
+        for mk in markers:
+            hits = [i for i in range(len(g)) if g.startswith(mk, i)]
+            if all(any(a <= i < b for a, b in spans) for i in hits):
+                contradictions.append((issue, mk))
+    if not contradictions:
+        ok("(2b) every declared marker occurs outside a quotation span, so no "
+           "declaration is an artefact of the finder disagreeing with itself")
+    else:
+        bad(f"(2b) {len(contradictions)} declaration(s) occur ONLY inside a "
+            "quotation span", str(contradictions[:6]))
 
     print()
     print("ARM 3: row 2114 quotes all four markers and declares none of them")
@@ -177,14 +205,27 @@ def main() -> int:
             both)
 
     print()
-    print("ARM 6: the whole-board diff against the SHIPPED predicate on origin/main")
+    print("ARM 6: the whole-board diff against the predicate as it was BEFORE")
+    #
+    # 🔴 THIS ARM READ origin/main AND WAS DOOMED TO STOP RUNNING. The moment
+    # the fix merged, both sides carried it, the comparison became a thing
+    # against itself, and the arm reported CANNOT-RUN for ever. On a CI runner
+    # it was worse: actions/checkout leaves a depth-1 clone of the PR merge ref
+    # with no origin/main at all, so the arm reported "blob unreachable" and
+    # nobody could tell a missing ref from a superseded comparison.
+    #
+    # A MOVING REF IS NOT A BEFORE. The before is a specific revision: the
+    # parent of the commit that introduced _verdict_markers, pinned here so the
+    # comparison is reproducible on any clone, on any runner, for ever.
+    BEFORE_SHA = "621ca86db4e8"   # parent of 9b78eea3, CM051 #2158
     try:
         src = subprocess.run(
             ["git", "-C", str(ROOT), "show",
-             "origin/main:tests/test_the_cut_checklist_is_complete.py"],
+             f"{BEFORE_SHA}:tests/test_the_cut_checklist_is_complete.py"],
             capture_output=True, text=True, check=True).stdout
     except Exception as exc:
-        print(f"  CANNOT-RUN (6) origin/main blob unreachable: {exc}")
+        print(f"  CANNOT-RUN (6) the pinned before-revision {BEFORE_SHA} is "
+              f"unreachable in this clone: {exc}")
         print("        | not counted as a pass; the arm did not run")
         src = None
     if src is not None:
@@ -196,24 +237,41 @@ def main() -> int:
             bad(f"(6) origin/main's predicate does not execute: {exc}")
             shipped = None
         if shipped is not None:
-            if hasattr(shipped, "_verdict_markers") and hasattr(subject, "_verdict_markers"):
-                # Both sides carry the fix, so the comparison is a thing
-                # against itself and cannot fail. Say so rather than pass.
-                print("  CANNOT-RUN (6) origin/main already carries the fix, so the")
-                print("        | before/after diff has no before. Re-point the arm")
-                print("        | at the last revision without it, or retire it.")
+            if hasattr(shipped, "_verdict_markers"):
+                bad("(6) the pinned before-revision ALREADY carries the fix, so "
+                    "the comparison is a thing against itself and cannot fail. "
+                    f"Re-point BEFORE_SHA at a revision without it.")
             else:
                 before = {str(r["issue"]) for r in rows if shipped._is_ungated(r)}
                 after = {str(r["issue"]) for r in rows if subject._is_ungated(r)}
                 out = sorted(before - after, key=int)
                 into = sorted(after - before, key=int)
-                if out == ["2114"] and not into:
-                    ok(f"(6) exactly one row moves: {len(before)} ungated to {len(after)}, "
-                       f"out={out}, in={into}")
+                #
+                # 🔴 THE ASSERTION USED TO BE `out == ["2114"] and not into`, a
+                # SNAPSHOT of the board on the night the fix landed. It was the
+                # right thing to check that night and it is a time bomb: every
+                # row gated or registered afterwards moves the number, and the
+                # arm then reports "the diff is not the one that was justified"
+                # about work that is entirely correct. The same defect as the
+                # five hardcoded rows in arm 2, in a different arm of the same
+                # file.
+                #
+                # THE DURABLE PROPERTY IS THAT THE FIX IS LOAD-BEARING: the two
+                # predicates must DISAGREE about at least one row. If they ever
+                # agree on every row, the change this file exists to guard has
+                # been undone, or the board no longer contains a row of the
+                # shape it was written for, and either way a silent pass is the
+                # wrong answer. Which rows move is reported, never asserted.
+                moved = sorted(set(out) | set(into), key=int)
+                if moved:
+                    ok(f"(6) the predicates disagree on {len(moved)} row(s), so the "
+                       f"fix is load-bearing: {len(before)} ungated before, "
+                       f"{len(after)} after; out={out[:8]}, in={into[:8]}")
                 else:
-                    bad(f"(6) the diff is not the one that was justified: "
-                        f"{len(before)} to {len(after)}, out={out}, in={into}",
-                        "every moved row needs a person's justification, not an aggregate")
+                    bad("(6) the before and after predicates agree on EVERY row, so "
+                        "either the fix has been undone or the board no longer "
+                        "carries a row of the shape it was written for",
+                        f"{len(before)} ungated under both")
 
     print()
     print(f"=== {PASS} passed / {FAIL} failed ===")
