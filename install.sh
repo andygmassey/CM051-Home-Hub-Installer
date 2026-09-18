@@ -18511,6 +18511,22 @@ if [[ "$PORT_UNMEASURED" == true ]]; then
     fail_with_code "ERR-06-PORT-PREFLIGHT-CANNOT-RUN" "$MSG_ERR_PORT_PREFLIGHT_CANNOT_RUN_ABORT"
 fi
 
+# #979. CREATE THE AI CONVERSATIONS TREE BEFORE COMPOSE CAN BIND IT.
+#
+# The wiki-compiler service below bind-mounts this path read-only. Docker
+# CREATES a missing bind source itself, as a directory owned by root, and a
+# root-owned directory in the customer visible zone is a worse outcome than
+# the empty page this change exists to fix: the hourly writer leg runs as the
+# customer and would then fail to write into it.
+#
+# mkdir -p is idempotent and the path is the same default the mount uses, so
+# an operator who has set OSTLER_AI_CONVERSATIONS_DIR gets their directory
+# and not ours. Non-fatal: a failure here is a degraded wiki page, not a
+# reason to abort an install, and the mount still works if the writer leg
+# creates the tree first.
+mkdir -p "${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/AI Conversations}" 2>/dev/null \
+    || warn "Could not create the AI Conversations folder, so the wiki page for them may stay empty until the next compile."  # i18n-exempt
+
 cat > "${OSTLER_DIR}/docker-compose.yml" <<'DCEOF'
 services:
   qdrant:
@@ -18726,6 +18742,36 @@ services:
       - wiki-docs:/wiki
       - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}:/wiki/obsidian
       - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}/_images:/wiki/obsidian/_images:ro
+      # 🔴 #979 -- THIRD INSTANCE OF #849 AND #482, whose comments are both
+      # below in this same service. Same two repos, same shape, third time:
+      # a mount added and tested on CM044's OWN docker/docker-compose.yml
+      # while the SHIPPING artefact, this heredoc, stayed without it, and
+      # CM044's tests stayed green throughout because they read CM044's
+      # compose. The #849 comment already states the lesson in a line: a
+      # guard on the dev compose says nothing about the artefact.
+      #
+      # MEASURED 2026-09-18 on this heredoc, before this change:
+      #     ai-conversations   -> 0
+      #     AI_CONVERSATIONS   -> 0
+      #     CONTROL: wiki-compiler -> 5 in the SAME span, so the zero is
+      #     real absence and not a false read of the wrong region. My first
+      #     attempt got the heredoc end marker wrong and read 12,000 lines
+      #     instead of 456; the control is what showed the range was wrong.
+      #
+      # WITHOUT THIS LINE THE PAGE IS EMPTY FOR EVER, AND SILENTLY.
+      # compiler/pages/ai_conversation_pages.py falls back to expanduser of
+      # ~/Documents/Ostler/AI Conversations, which inside a container with
+      # no HOME resolves to /root/..., never exists, so it takes its
+      # graceful episodic-store-not-present branch and writes an EMPTY-STATE
+      # page. Meanwhile install.sh's own test_ai_conversations_leg_wired.sh
+      # proves the WRITER leg is wired and default-ON, running hourly and
+      # writing real transcripts. Producer green, consumer blind, no error.
+      #
+      # READ-ONLY, same reasoning as the licence mount below: the compiler
+      # CONSUMES these transcripts and nothing in CM044 writes them, so a
+      # writable mount onto the customer's conversation tree is a foothold
+      # the wiki compiler has no reason to hold.
+      - ${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/AI Conversations}:/ai-conversations:ro
       - oxigraph_data:/app/oxigraph:ro
       - qdrant_data:/app/qdrant:ro
       # Hydration status hand-off (CM044 #624). The compiler writes a
@@ -18834,6 +18880,12 @@ services:
       # fail-closes to pro_none. An explicit env var is also the thing a
       # test can assert lands inside a declared mount target.
       - OSTLER_LICENCE_STATE_FILE=/licence/state.json
+      # #979. The path INSIDE the container, matching the bind mount above.
+      # The renderer reads compiler/config.py::ai_conversations_dir, which
+      # honours this. Without it the mount would be present and unread,
+      # which is the same defect one layer up: a thing that is there and
+      # that nothing looks at.
+      - OSTLER_AI_CONVERSATIONS_DIR=/ai-conversations
       # #482, second half. Names the workspace directory the mount above
       # landed on. resolve_journal_path() branch 2 reads OSTLER_WORKSPACE as
       # a WORKSPACE dir, and because this value's basename is literally
