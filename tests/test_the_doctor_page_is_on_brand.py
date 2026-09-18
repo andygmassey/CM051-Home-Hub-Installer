@@ -154,9 +154,9 @@ def _synthetic_snapshot():
             _sc.DockerContainerInfo(name="example-cache", image="example/cache:1", state="paused", status="Paused"),
         ]),
         ("services", [
-            _sc.ServiceHealthInfo(name="Example Healthy", status="healthy", status_code=200),
-            _sc.ServiceHealthInfo(name="Example Degraded", status="unhealthy", status_code=503),
-            _sc.ServiceHealthInfo(name="Example Down", status="unreachable"),
+            _sc.ServiceHealthInfo(name="example-service-healthy", status="healthy", status_code=200),
+            _sc.ServiceHealthInfo(name="example-service-degraded", status="unhealthy", status_code=503),
+            _sc.ServiceHealthInfo(name="example-service-unreachable", status="unreachable"),
         ]),
         ("disk_usage", [
             _sc.DiskUsageInfo(mount_point="/", total_gb=500.0, used_gb=100.0, free_gb=400.0, percent_used=20.0),
