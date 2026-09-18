@@ -1636,3 +1636,62 @@ open_issues:
     repo: none
     title: 'The cut preflight REFUSES today, by design, and the 30 ungated rows are the path to gate 3 rather than an obstacle beside it'
     gate: 'GATE: NONE YET. MEASURED 2026-09-18 rather than reasoned about, because the question of whether to cut now was live and the repository answers it.   OSTLER_CUT_IN_PROGRESS=1 python3 tests/test_the_cut_checklist_is_complete.py   -> EXIT 1   [FAIL] CUT IS BLOCKED. 30 row(s) still carry the ungated marker.   CONTROL, the same gate without the flag -> EXIT 0. So the gate is not broken and it is not indifferent: it refuses only during a cut, which is the design, and it names the rows. WHY THIS ROW EXISTS RATHER THAN THE OBSERVATION BEING LEFT IN A MESSAGE. The argument was made, reasonably, that a build moves the position further than clearing twenty pull requests, because gate 3 of row 2202 is a build and nothing carrying the merge-consistency repair exists anywhere a customer can reach. That is true AND the cut cannot be opened while 30 rows are ungated. Both halves are facts and only one of them was being acted on. WHAT THE CUT WOULD NEED, measured tonight so nobody re-derives it: the version sites are CONSISTENT but they agree on 1.0.100, the number already cut and never walked, so a new cut is a bump to 1.0.101 across Info.plist, project.yml and pbxproj with the build number DERIVED rather than typed. walks/v1.0.100.tsv DOES NOT EXIST and the newest walk record is v1.0.95, so five consecutive versions were cut without one. cuts/v1.0.101 does not exist in CM051 or in OS003. scripts/new_cut.sh is the sanctioned one-command opener and its inputs are version, daemon sha and CM051 sha; the daemon has not moved from 1fce5e2c. Its own guidance says a workflow_dispatch runs preflight AND the dry-run job while the cut job stays gated, so the dry run is reachable before any tag. THE SEQUENCE THIS IMPLIES, and it is the launch directive''s own order rather than a new one: clear the ungated rows, then bump the version sites, then open the cut with new_cut.sh, then the BOM, then the workflow_dispatch DRY RUN, then ONE tag. The preparation gates are not the ship gates and two version numbers were burned learning that. NOT A BLOCKER ON ITS OWN. This row carries no defect. It exists so that the next person who asks why we are not just cutting gets the repository''s own answer with the command that produced it.'
+  - issue: 2211
+    repo: CM051
+    title: 'The meeting brief ships with missing attendee facts whenever its own degraded check FAILS'
+    gate: 'GATE: NONE YET. A GUARD THAT CANNOT DISTINGUISH ITS OWN FAILURE FROM A CLEAN RESULT IS NOT A
+      GUARD, and this one asserts the NEGATIVE of what it guards. Found 2026-09-18 by Archie while
+      partitioning the bare python3 invocations in install.sh, and it is not what that partition was
+      looking for.
+
+      THE CODE, install.sh, inside the heredoc that writes ${OSTLER_DIR}/bin/ostler-meeting-brief-sender:
+
+        # Degraded short-circuit. The hub returns degraded=true when the
+        # People Graph is unreachable; we do not want to ship a brief with
+        # missing attendee facts.
+        DEGRADED=$(printf %s "${RESPONSE}" | python3 -c
+            import json,sys; print(json.load(sys.stdin).get("degraded", False))
+            2>>"${LOG_FILE}") || DEGRADED="False"
+        if [[ "${DEGRADED}" == "True" ]]; then ... exit 0
+
+      ANY failure of that pipeline sets DEGRADED="False" and the brief ships. Malformed JSON, a truncated
+      response, an unwritable LOG_FILE, python3 resolving to the Apple stub on a box without Command Line
+      Tools: every one of them reads as "the People Graph is healthy". The comment states the intent
+      exactly and the code inverts it on every error path.
+
+      WHY THIS IS WORSE THAN A SWALLOWED ERROR, and the distinction is ORM''s: a swallowed error leaves you
+      uninformed; this leaves you CONFIDENTLY WRONG in the precise direction the comment says must not
+      happen. It runs under com.ostler.meeting-brief-sender.plist (install.sh:22815), on a schedule,
+      unattended, and its own LOG_FILE records nothing because the failure is consumed by the ||.
+
+      HOW IT WAS FOUND, because the method is the reusable part and reading would never have found it.
+      ORM read 56 bare python3 invocations for benignness and concluded installer-time. That conclusion was
+      correct about every line read. The class is defined STRUCTURALLY, so it was partitioned instead:
+
+        bare python3 on main cd8efc58            54
+          installer-time only                    41
+          inside a file the installer WRITES     13
+          of those, in a launchd agent            3
+
+        ostler-fda                   PATH set 0  venv resolved 7  bare 1  BENIGN, the
+                                     one bare call IS the deliberate command -v fallback
+        ostler-contact-resync        PATH set 0  venv resolved 1  bare 1  NOT ASSERTED
+        ostler-meeting-brief-sender  PATH set 0  venv resolved 0  bare 2  THIS ROW
+
+      AND THE PARTITION ITSELF WAS WRONG FIRST TIME, caught by its own control: a heredoc mapper that
+      CONSUMED lines to each terminator found 18 heredocs; a non-consuming scan finds 49, including 19
+      plists and nine bin/ostler-* agents, because the consuming loop skipped openers nested inside other
+      heredocs. The instrument answered honestly about a corpus that excluded the subject.
+
+      THE DEFECT IS NOT THE INTERPRETER. It does not depend on PATH and would remain if every python3 in
+      that file were absolute. Fixing the interpreter alone would close the row''s appearance and not the
+      row.
+
+      WHAT WOULD CLOSE IT: the check must have THREE outcomes, not two. degraded true, degraded false, and
+      COULD NOT DETERMINE, with the third skipping the brief and saying so in LOG_FILE, because a brief not
+      sent is recoverable and a brief sent with missing attendee facts is not. Gated when a customer-visible
+      proof exists, not when the code changes.
+
+      NOT CLAIMED: ostler-contact-resync has the same bare shape at its own count="$(... | python3 -c ...)"
+      with no resolution, but an empty count is a different fact from a wrong one and the consequence lives
+      in whatever reads it. That trace is NOT done and is recorded here rather than asserted.'
