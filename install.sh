@@ -3201,6 +3201,59 @@ _ostler_drop_venvs_anchored_in_an_app() {
     return 0
 }
 
+# Defined HERE, above _ostler_promote_prelaunch_tree, because the promote is
+# what makes the interval agents' programs vanish and the promote is called as
+# early as the payload staging step. A definition further down the file is not
+# in scope at that point and the call would die on "command not found".
+_ostler_quiesce_interval_agents() {
+    local _label _domain
+    _domain="gui/$(id -u)"
+    for _label in com.ostler.export-scan com.ostler.fda-rerun; do
+        if launchctl print "${_domain}/${_label}" >/dev/null 2>&1; then
+            launchctl bootout "${_domain}/${_label}" 2>/dev/null || true
+            info "Quiesced ${_label} while its program is replaced; it is re-registered below."
+            # 🔴 A BOOTOUT OWES A RE-REGISTRATION, AND ONLY ONE OF THESE TWO
+            # ALREADY HAD ONE. Without the line below, the sentence this
+            # function just printed is false for fda-rerun.
+            #
+            # export-scan is re-registered unconditionally further down: its
+            # plist is rewritten and bootstrapped on every single run. fda-rerun
+            # is not. Its load is gated on _OSTLER_FDA_RERUN_LOAD_PENDING, set
+            # at exactly ONE site -- inside the plist-rewrite block, which fires
+            # only when the plist is ABSENT, carries the legacy
+            # StartCalendarInterval, or lacks the homebrew PATH.
+            #
+            # On an UPGRADE whose plist is already current all three triggers are
+            # false, so the flag is never set and this bootout is PERMANENT: the
+            # hourly FDA re-run is gone until the customer next logs in.
+            #
+            # MEASURED, walk box, 2026-09-18T17:20Z, install that printed
+            # "Quiesced com.ostler.fda-rerun ... it is re-registered below":
+            #   launchctl print gui/501/com.ostler.fda-rerun -> rc=113
+            #   "Could not find service com.ostler.fda-rerun in domain for user"
+            #   com.ostler.fda-rerun.plist mtime  2026-09-14 (pre-install)
+            #   com.ostler.export-scan  last exit code = 0, runs = 1
+            # A fresh install was never affected: its plist is absent, so the
+            # rewrite fires and sets the flag. Only upgrades lose the agent,
+            # which is why the fresh-install probes stayed green.
+            #
+            # The window this destroys is exactly the window the agent exists
+            # for: iCloud syncs that land in the HOURS AFTER the install.
+            if [ "${_label}" = "com.ostler.fda-rerun" ]; then
+                # Belt and braces: the deferred load dereferences this path, and
+                # a quiesce that ran without the assignment above would abort the
+                # install under `set -u` rather than merely skip the load.
+                : "${FDA_RERUN_PLIST:=${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist}"
+                _OSTLER_FDA_RERUN_LOAD_PENDING=1
+            fi
+        fi
+    done
+    # An `if` whose condition is false returns 0, but the loop's last command on
+    # the export-scan iteration is that `if`. Be explicit rather than rely on it:
+    # this function is called at top level under `set -e`.
+    return 0
+}
+
 _ostler_promote_prelaunch_tree() {
     if [[ "$OSTLER_PRELAUNCH_PROMOTED" == "true" ]]; then
         return 0
@@ -3215,6 +3268,30 @@ _ostler_promote_prelaunch_tree() {
         OSTLER_PRELAUNCH_PROMOTED=true
         return 0
     fi
+
+    # 🔴 QUIESCE BEFORE THE TREE MOVES, NOT BEFORE THE PAYLOAD WRITE.
+    #
+    # The loop below does `rm -rf "${OSTLER_FINAL_DIR}/${name}"` then `mv` for
+    # every top-level entry, and one of those entries is bin/. For the whole of
+    # that window ~/.ostler/bin does not exist, so a StartInterval tick from
+    # com.ostler.export-scan or com.ostler.fda-rerun finds no program and writes
+    # "re-run the installer to repair" into the customer's error log -- naming
+    # the installer that is running at that moment.
+    #
+    # MEASURED on the walk box 2026-09-18, on an install that reported
+    # status=ok failed_steps=0 errors=0:
+    #     ~/.ostler/logs/fda-rerun.err      written 01:09:05
+    #     ~/.ostler/logs/export-scan.err    written 01:09:05
+    #     ~/.ostler/bin/ostler-fda          placed  01:10:57
+    #     ~/.ostler/bin/ostler-scan-exports placed  01:10:57
+    # Both errors predate their own program by 112 seconds.
+    #
+    # The quiesce added lower down guards the `cat > bin/ostler-fda` payload
+    # write, which is a sub-second window, and every promote call site precedes
+    # it. So it was ordered correctly against the wrong event: the gate asserting
+    # "the quiesce precedes every interval-agent program write" was true, and the
+    # agents still ticked into a bin/ that had been rm -rf'd 112s earlier.
+    _ostler_quiesce_interval_agents
 
     mkdir -p "$OSTLER_FINAL_DIR"
     chmod 700 "$OSTLER_FINAL_DIR" 2>/dev/null || true
@@ -3253,14 +3330,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8141) captures the path BY
+    # _ostler_write_store_curl_config (defined :8218) captures the path BY
     # VALUE and never re-reads it:
-    #     :8142   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8187   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8196 and :14608, both of which run
+    #     :8219   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8264   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8273 and :14685, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :3248 above has just deleted
-    # that tree and :3252 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :3325 above has just deleted
+    # that tree and :3329 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -3275,13 +3352,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15379, where the note reads
+    # WhatsApp Web session path did it again at :15456, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15396 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15473 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3290,13 +3367,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5761 against a definition at :8141. Top-level
+    # writer's own definition: :5838 against a definition at :8218. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8196, :14608) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8273, :14685) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17451 / :17629 / :17786 / :18127 path. There the
+    # :17528 / :17706 / :17863 / :18204 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -22139,6 +22216,39 @@ unset _PREFS_DROPZONE _IMPORT_DIRS
 
 # Create a ostler-fda command for re-running FDA extraction
 # (e.g. after granting Full Disk Access post-install)
+# ── QUIESCE THE INTERVAL AGENTS BEFORE THE PAYLOAD IS REPLACED ───────────
+#
+# 🔴 AN UPGRADE LEAVES THE PREVIOUS INSTALL'S AGENTS RUNNING WHILE THEIR
+# PROGRAMS ARE REWRITTEN UNDER THEM. Both of these are StartInterval jobs, so
+# launchd fires them on its own schedule regardless of what this script is
+# doing. During the window where bin/ is being replaced their program is
+# transiently absent, the tick exits non-zero, and launchctl keeps that
+# last-exit until the next interval: one hour for fda-rerun, FOUR for
+# export-scan. A customer's freshly upgraded box therefore carries two agents
+# in a failed state for up to four hours, on an install that succeeded.
+#
+# MEASURED on the Mini, 2026-09-18, on a fresh v1.0.100 install:
+#
+#   export-scan.err written    23:43:47   ostler-scan-exports placed  23:45:33
+#   fda-rerun.err  written     23:43:37   ostler-fda placed           23:45:33
+#
+# so both errors predate their own program by roughly 110 seconds, and the
+# text they wrote tells the customer to "re-run the installer to repair" the
+# installer that is running.
+#
+# WHY THE EXISTING GUARDS DO NOT COVER THIS. The deferred fda-rerun load below
+# correctly refuses to REGISTER the job before its program exists, and
+# export-scan is bootstrapped after its program is written. Both fix the FRESH
+# install. Neither touches a job that is ALREADY registered from a previous
+# install: the fda-rerun bootout is gated on the old plist being legacy or
+# pathless, and export-scan has no bootout at all, so an upgrade from a
+# current-form install quiesces nothing.
+#
+# A bootout of a label that is not loaded is a no-op, so this is safe on a
+# first install. The jobs are re-registered further down, after their programs
+# exist, by the code that already does it.
+_ostler_quiesce_interval_agents
+
 cat > "${OSTLER_DIR}/bin/ostler-fda" <<'FDAEOF'
 #!/usr/bin/env bash
 set -euo pipefail

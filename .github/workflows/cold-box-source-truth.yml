@@ -52,6 +52,11 @@ on:
       # it, rather than leaving it dark on self-edit.
       - 'tests/test_no_path_is_frozen_across_the_promote.sh'
       - 'tests/test_the_store_proxy_rereads_the_credential_it_enforces.sh'
+      # The gate AND its subject. A `run:` step with no matching path entry is
+      # a gate you have read, not a gate you have run: editing the test, or the
+      # install.sh ordering it asserts, would not re-trigger it.
+      - 'tests/test_interval_agents_are_quiesced_before_their_programs_move.sh'
+      - 'tests/test_a_quiesced_interval_agent_is_re_registered.sh'
       - 'tests/test_a_taken_port_is_named_not_abstracted.sh'
       - 'tests/test_a_keepalive_agent_that_cannot_bind_is_not_reported_green.sh'
       - 'install.sh'
@@ -627,6 +632,31 @@ jobs:
       - name: the store proxy re-reads the credential it enforces
         if: always()
         run: bash tests/test_the_store_proxy_rereads_the_credential_it_enforces.sh
+
+      # acceptance_gate_v1013 arm A8 is "LaunchAgents exit clean" and it FAILS
+      # deterministically on any walk run shortly after an install, because two
+      # StartInterval agents tick against programs that are being rewritten
+      # underneath them and launchctl holds the non-zero last-exit for one hour
+      # (fda-rerun) to FOUR (export-scan). Measured on the Mini 2026-09-18:
+      # both .err files predate their own program by about 110 seconds.
+      #
+      # The existing guards cover the FRESH install only. Neither touches a job
+      # already registered by a previous install, which is the upgrade path and
+      # the box this was measured on.
+      - name: interval agents are quiesced before their programs move
+        if: always()
+        run: bash tests/test_interval_agents_are_quiesced_before_their_programs_move.sh
+
+      # The sibling above proves the quiesce is ORDERED correctly and NAMES both
+      # agents. Both were true on the install that booted com.ostler.fda-rerun
+      # out and never brought it back (walk box, 2026-09-18T17:20Z). Ordering is
+      # not debt: a bootout owes a re-registration, and only export-scan already
+      # had one. This gate RUNS the quiesce with launchctl stubbed and reads the
+      # flag it leaves behind, so it fails on the tree the sibling passed.
+      - name: a quiesced interval agent is re-registered
+        if: always()
+        run: bash tests/test_a_quiesced_interval_agent_is_re_registered.sh
+
 
 
       - name: A sentinel is not a date on a customer surface
