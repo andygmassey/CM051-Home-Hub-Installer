@@ -516,6 +516,7 @@ test_the_doctor_dashboard_actually_renders.sh	WIRED	.github/workflows/vendor-int
 test_the_doctor_status_poll_has_a_fork_budget.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_downloads_watcher_survives_a_real_export.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
 test_the_dry_run_can_still_go_green.sh	WIRED	.github/workflows/version-gate-not-tautological.yml
+test_the_dry_run_job_is_reachable.py	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_the_egress_inventory_still_describes_the_software.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_the_egress_proof_can_go_red.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_the_emergency_cut_row_tells_the_truth.sh	WIRED	.github/workflows/cut-manifest.yml

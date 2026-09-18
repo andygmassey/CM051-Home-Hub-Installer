@@ -44,6 +44,12 @@ on:
       - 'tests/test_store_port_first_install_stale_store.sh'
       - 'install.sh'
       - '.github/workflows/cut.yml'
+      # The dry-run reachability gate (#1519). BOTH the subject and the
+      # instrument are triggers: cut.yml is listed on the line above, and the
+      # test itself is listed here, because a run: step with no matching
+      # paths: entry is dark on self-edit -- editing the test would never
+      # re-run the test.
+      - 'tests/test_the_dry_run_job_is_reachable.py'
       - 'scripts/verify_cut_provenance.sh'
       - 'scripts/verify_no_orphaned_fixes.sh'
       - 'scripts/verify_pr_age.sh'
@@ -325,6 +331,21 @@ jobs:
       - name: The run-at-commit gate is wired into the cut and can answer
         if: always()
         run: /bin/bash tests/test_the_run_at_commit_gate_is_wired_into_the_cut.sh
+
+      # THE OTHER DIRECTION FROM THE DISPATCH-CANNOT-SHIP GATE (#1519).
+      #
+      # That gate proves a dispatch cannot ship. Nothing proved a dispatch can
+      # still REACH the dry run, which is the only thing that runs the cut
+      # path's checks before a tag exists. A workflow can satisfy the safety
+      # gate perfectly by making the dry run unreachable, and the result reads
+      # as a clean bill of health.
+      #
+      # Placed after the PyYAML step deliberately: this parses the workflow
+      # with yaml and refuses as CANNOT-RUN without it, so it must run where
+      # the import is guaranteed rather than where it is likely.
+      - name: A workflow_dispatch still reaches the cut dry run
+        if: always()
+        run: python3 tests/test_the_dry_run_job_is_reachable.py
 
       - name: Test parses under /bin/bash 3.2 (the cut host's shell)
         if: always()
