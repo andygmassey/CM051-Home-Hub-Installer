@@ -4593,11 +4593,54 @@ open_issues:
       Two customer surfaces read zero from a store that holds the data, because
       the reader asks the default graph and the writer writes a named one
     gate: >-
-      🔴 BLOCKING. A FINDING ADDED 2026-09-19 THAT IS WORTH MORE THAN THE CHANGE IT CAME OUT OF, AND IT
-      BEGINS WITH A REMEDIATION I GOT WRONG. TWO PRIVACY PREDICATES EXIST IN ONE STORE, AND A FILTER
-      THAT JOINS THE WRONG ONE PRODUCES A UNIFORM ZERO THAT READS AS CORRECTLY HIDDEN. I TOLD THE
-      AUTHOR THE FIX WAS MECHANICAL: use the same helper the facts path uses, 45 lines up, with the
-      same owner-level argument. THAT JOIN READS pwg:privacyLevel AND THESE NODES CARRY
+      🔴 BLOCKING. THE FIX IS PUSHED AND GREEN AND THE TWO-NAMESPACE FINDING HAS NOW APPEARED A THIRD
+      TIME, IN THE SURFACE BUILT TO DETECT IT. Updated 2026-09-19. WHAT LANDED UPSTREAM: the two
+      signal readers and the timeline conversation reader now join the CORRECT privacy predicate and
+      pass through the SAME helper and the SAME L3-only policy the facts path 45 lines above enforces.
+      1,702 tests pass, 0 fail, run under CI's own invocation rather than a local one because that
+      invocation's import mode has caught the author before. Hides nothing today, closes the class
+      permanently. 🔴 THE HEALTH COUNTER IS BLIND IN THREE INDEPENDENT WAYS, EACH SUFFICIENT ALONE, AND
+      IT IS THE OBSERVABILITY SURFACE BUILT TO CATCH EXACTLY THIS DEFECT. Measured: by TYPE, the pwg-
+      namespaced class returns 0 while the urn one returns 471. By PREDICATE, the pwg level returns 0
+      while the urn one returns 471. By GRAPH, the default graph returns 0 while the named one returns
+      471. So the endpoint prints that all fact and signal nodes carry a privacy level, FROM A QUERY
+      THAT CANNOT REACH THE CORPUS IT CLAIMS TO HAVE CHECKED. Three wrong namespaces stacked on one
+      query, any one of which produces the same confident zero. The note has been corrected so nothing
+      false ships, and repairing the counter itself is deliberately a separate change with its own
+      control and blast radius rather than smuggled into a privacy fix. AND THE SECOND AXIS IS A DEAD
+      END, WHICH IS ITSELF THE FINDING. The visibility predicate is written as the literal string
+      private on ALL 471 signals, ALL 93 todos and ALL 1,462 facts, INCLUDING the 1,369 that are
+      tagged at the most permissive level. ONE VALUE ACROSS AN ENTIRE CORPUS CARRIES NO INFORMATION: a
+      filter on it hides everything or nothing. And nothing reads it. Measured from the repository,
+      which makes this one reproducible from a checkout unlike the box counts: 3 occurrences whole-
+      tree across every file type, ALL THREE WRITES in one pipeline file, ZERO reads, against a
+      CONTROL of 77 occurrences for the level predicate of which 18 sit in a SELECT or OPTIONAL. So
+      the search finds reads where reads exist. A PRIVACY-SHAPED PREDICATE THAT NO CONSUMER READS AND
+      THAT CANNOT DISCRIMINATE. THE TRAP IS NOW A TEST, which is the durable part: an arm writes the
+      level under the WRONG namespace while the reader asks the right one and asserts the record
+      DISAPPEARS. If anyone ever corrects the join back to the sibling's predicate, that test goes red
+      instead of 471 records going quietly missing. AND THE TEST SET WAS WATCHED FAILING RATHER THAN
+      ASSUMED: three arms failed against the unfiltered reader and TWO PASSED IN BOTH STATES. The two
+      staying green is the point, not an oversight. A set where everything goes red proves the harness
+      broke rather than that the gate discriminates. TWO PRE-EXISTING TESTS ALSO FAILED and their
+      FIXTURES were corrected rather than the filter, which is the right direction: they carried
+      untagged canned rows, so fail-closed hid them, which is the filter working across the suite
+      rather than only in the file it was written in. ONE PRODUCT CHANGE INSIDE IT, REVIEWED
+      SEPARATELY: the row limit on the signal queries went from 1 to 10, because the filter runs AFTER
+      the query and with a limit of 1 a single hidden row would report no signal while a visible older
+      one existed. Reviewed and correct. Filtering in the query instead would be WRONG here, because
+      the policy takes the owner's level as an argument and encoding it in the query would create a
+      second private copy of the policy, which is the exact failure this row was held for. The
+      residual is honest: if every returned row is hidden the field is OMITTED rather than asserted
+      empty, so the surface states an absence rather than a false claim. It remains a heuristic and
+      the number is a magic one. STILL BLOCKING, UNCHANGED, AND FOR THE REASON THIS ROW ALWAYS GAVE:
+      this is upstream. The row's subject is the VENDORED copy. Merge, then re-vendor, then build,
+      then walk. Under item 9 it is MERGED at best and none of the four has happened.  ORIGINAL TEXT
+      FOLLOWS. 🔴 BLOCKING. A FINDING ADDED 2026-09-19 THAT IS WORTH MORE THAN THE CHANGE IT CAME OUT
+      OF, AND IT BEGINS WITH A REMEDIATION I GOT WRONG. TWO PRIVACY PREDICATES EXIST IN ONE STORE, AND
+      A FILTER THAT JOINS THE WRONG ONE PRODUCES A UNIFORM ZERO THAT READS AS CORRECTLY HIDDEN. I TOLD
+      THE AUTHOR THE FIX WAS MECHANICAL: use the same helper the facts path uses, 45 lines up, with
+      the same owner-level argument. THAT JOIN READS pwg:privacyLevel AND THESE NODES CARRY
       urn:ostler:privacyLevel. Measured on the box: signals 471 total with 0 under the pwg predicate
       and 471 under the urn one; facts 1,462 total with 0 and 1,462 the same way. So the mechanical
       fix would have matched NOTHING, every record would have come back untagged, the filter FAILS
