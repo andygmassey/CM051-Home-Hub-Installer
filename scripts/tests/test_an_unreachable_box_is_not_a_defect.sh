@@ -213,6 +213,62 @@ else
     bad "A8 reported '$(grep -E 'A8' "${WORK}/out.txt" | head -1 | tr -s ' ')' for a reply that never arrived"
 fi
 
+# ── 🔴 THE ABSENT-HOST BRANCH, WHICH THIS FILE NEVER EXERCISED ─────────────
+#
+# Board row 2221. Every arm above sets OSTLER_BOX_HOST to an unreachable value,
+# which tests the UNREACHABLE path. Measured on this file before these arms
+# existed: 219 lines, ONE assignment of that variable, and ZERO occurrences of
+# `unset OSTLER_BOX_HOST` or an empty assignment. So the branch that runs when
+# nobody names a box at all had no coverage, and that branch exited 0 --
+# announcing SHIPPABLE for a registered cut blocker that had measured nothing.
+#
+# A zero denominator reading as success is the failure this whole suite exists
+# to catch, and it was sitting in the suite's own subject.
+echo
+echo "-- the ABSENT-host branch: no box named at all --"
+
+_ag="${SCRIPTS_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/box_walk_probes/acceptance_gate_v1013.sh"
+if [ ! -f "${_ag}" ]; then
+    bad "CANNOT LOCATE acceptance_gate_v1013.sh at ${_ag}, so the absent-host branch was NOT tested. That is CANNOT-RUN for these arms, not a pass."
+else
+    _out="$(env -u OSTLER_BOX_HOST /bin/bash "${_ag}" 2>&1)"; _rc=$?
+
+    # (1) THE EXIT CODE. 78 is CANNOT-RUN; 0 would claim the gate passed.
+    if [ "${_rc}" -eq 78 ]; then
+        ok "an UNSET box host exits 78 (CANNOT-RUN), not 0 (SHIPPABLE)"
+    else
+        bad "an UNSET box host exited ${_rc}. 0 would announce SHIPPABLE for a registered cut blocker that contacted no box and evaluated no assertion."
+    fi
+
+    # (2) THE MARKER LINE, which is half the contract and is easy to forget.
+    # run_box_walk.sh records a bare 78 as "UNRECORDED ... bypassed
+    # probe_cannot_run and named no prerequisite" and calls that a contract
+    # breach, so the code alone is not enough.
+    if printf '%s' "${_out}" | grep -q '^VERDICT: CANNOT-RUN -- '; then
+        ok "it emits the VERDICT: CANNOT-RUN marker the walk runner parses"
+    else
+        bad "it exited 78 with no 'VERDICT: CANNOT-RUN --' line, which the runner records as UNRECORDED and names a contract breach. Output was: ${_out}"
+    fi
+
+    # (3) IT MUST NAME THE MISSING PREREQUISITE. probe_cannot_run's own comment
+    # says a reason that does not name it leaves the operator guessing.
+    if printf '%s' "${_out}" | grep -q 'OSTLER_BOX_HOST'; then
+        ok "the reason names the missing prerequisite by name"
+    else
+        bad "the CANNOT-RUN reason does not name the missing prerequisite, so an operator cannot act on it"
+    fi
+
+    # (4) CONTROL, AND WITHOUT IT ARM (1) IS MEANINGLESS. If the gate returned
+    # 78 for every input, arm (1) would pass while the gate discriminated
+    # nothing. A host that IS set must NOT take the absent-host branch.
+    _out2="$(OSTLER_BOX_HOST="unreachable.invalid" /bin/bash "${_ag}" 2>&1)"; _rc2=$?
+    if [ "${_rc2}" -ne 78 ] || ! printf '%s' "${_out2}" | grep -q 'is not set'; then
+        ok "CONTROL: a host that IS set does not take the absent-host branch (rc ${_rc2}), so arm (1) is about the branch and not a constant"
+    else
+        bad "CONTROL: a host that IS set produced the same absent-host refusal, so this gate returns CANNOT-RUN regardless of input and arm (1) proves nothing"
+    fi
+fi
+
 echo
 echo "== ${pass} pass / ${fail} fail / $((pass+fail)) total =="
 [ "${fail}" -eq 0 ] || exit 1

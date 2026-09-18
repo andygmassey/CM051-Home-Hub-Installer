@@ -40,7 +40,8 @@
 #   OSTLER_BOX_OLLAMA_URL    ollama base (default http://localhost:11434)
 #   OSTLER_BOX_EXPECT_PAIRED 1 -> A4 requires pairing COMPLETE (default: unpaired-consistency)
 #
-# Exit: 0 = SHIPPABLE / SKIP.  1 = BLOCKED (a launch-critical assertion failed).
+# Exit: 0 = SHIPPABLE (measured, and every assertion held).  1 = BLOCKED (a
+#       launch-critical assertion failed).
 #       78 = CANNOT-RUN (box unreachable, or its logs could not be read).
 #
 # 🔴 THIS SAID 2, AND 2 IS NOT THE PROTOCOL. run_box_walk.sh:44 declares
@@ -58,10 +59,33 @@
 # ============================================================================
 set -uo pipefail
 
-# --- skip convention: match check_box_walk_probe (unset host -> never fail) --
+# 🔴 AN UNSET HOST IS CANNOT-RUN, NOT A PASS, AND THIS EXITED 0 FOR BOTH.
+#
+# The header above declares "Exit: 0 = SHIPPABLE / SKIP", and that slash is the
+# defect written down. This gate is registered as a cut blocker in
+# cut-manifests/permanent.yaml, so on any runner without a box it announced
+# SHIPPABLE for a launch-critical gate that had measured NOTHING. A zero
+# denominator read as success.
+#
+# The block twenty lines up already diagnosed the mirror of this and fixed only
+# half: it corrected the UNREACHABLE case from 2 to 78, and left the UNSET case
+# at 0. Same file, same shape, one branch repaired and its neighbour not.
+#
+# THE CONTRACT IS NOT JUST THE EXIT CODE. run_box_walk.sh:537-539 records a
+# probe that exits 78 WITHOUT a "VERDICT: CANNOT-RUN --" line as "UNRECORDED
+# ... bypassed probe_cannot_run and named no prerequisite", and calls that a
+# contract breach in those words. So the marker line is emitted here in the
+# exact form lib/probe.sh's probe_cannot_run() prints it. This gate sits one
+# directory up and deliberately sources nothing, which is precisely why it
+# never inherited the convention, so the line is written out rather than
+# borrowed.
+#
+# CANNOT-RUN DOES NOT FAIL THE WALK -- run_box_walk.sh:33 says so explicitly --
+# so this makes the gate honest without making a boxless runner red.
 if [ -z "${OSTLER_BOX_HOST:-}" ]; then
-    echo "acceptance_gate_v1013: SKIP -- OSTLER_BOX_HOST not set (runtime probe requires a reachable box)"
-    exit 0
+    printf 'VERDICT: CANNOT-RUN -- %s\n' \
+        "OSTLER_BOX_HOST is not set, so no box was contacted and none of this gate's assertions were evaluated. Set OSTLER_BOX_HOST to a reachable Hub and run again."
+    exit 78
 fi
 
 HOST="${OSTLER_BOX_HOST}"
