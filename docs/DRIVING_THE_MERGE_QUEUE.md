@@ -542,3 +542,56 @@ Same shape as relaying `2 of 2 SUCCESS` as "the PR is green" while a push was
 restarting the suite. The answer is not to stop recording the SHA. It is that a
 row recording a moving value must also record **the instant it was read**, or the
 reader cannot tell a stale value from a wrong one.
+
+### `branches/main/protection` returning 404 is not evidence that main is unprotected
+
+One session measured it and reported main unprotected, so a pull request with a
+clean rollup could be merged directly. The merge was refused:
+
+    X Pull request #2161 is not mergeable: the head branch is not up to date
+      with the base branch.
+
+    gh api repos/<owner>/<repo>/branches/main/protection   ->  404 Not protected
+    gh api repos/<owner>/<repo>/rules/branches/main        ->  required_status_checks: 1
+      .parameters.strict_required_status_checks_policy     ->  true
+
+**Classic branch protection and repository rulesets are different APIs, and a
+404 from the first says nothing about the second.** The reading was honest about
+what it measured; it was not the surface that binds.
+
+Ask `rules/branches/<branch>` before concluding a branch is unprotected. It
+returns the rules that actually apply, from every ruleset, which is the question
+anyone asking about protection actually means.
+
+### What survives of the intersection rule under a strict policy
+
+The intersection is still the right thing to measure - it just cannot authorise
+a direct merge any more. What it authorises is a decision about what the re-run
+is **for**:
+
+    intersection non-empty  ->  update-branch, and READ the run: it can
+                                discover something a clean textual merge hid
+    intersection empty      ->  update-branch anyway, because the policy
+                                requires it, but the run is a formality
+
+That still collapses the *attention* cost of a large backlog even though it
+cannot collapse the wall-clock. Stating it the other way round - "merge
+directly" - sends the next reader hunting for a different reason the queue is
+stuck.
+
+### A PII bar can be on the order of operations rather than on the operation
+
+A vendored tree was pinned two months behind, and the gap contained an upstream
+commit that scrubbed personal data from a comment. The register forbade
+regenerating its divergence patch, on the correct observation that the PII bar
+is discharged for a re-pin and not for a regeneration.
+
+That is true only while the two are **sequential**:
+
+    regenerate, then advance the pin   ->  minus side of the patch is PRE-scrub
+    advance the pin, then regenerate   ->  minus side is scrubbed
+
+So the bar was never on the regeneration. It was on doing it in the wrong order,
+and the prohibition had hardened around the example rather than the mechanism. A
+rule that names its example gets read as a rule about that example - which this
+file has already recorded once, from the other direction.
