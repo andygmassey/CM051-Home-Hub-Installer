@@ -4143,25 +4143,63 @@ open_issues:
       The conversation counter walks one directory level and the conversations
       are three levels down, so it reports 15 per cent of the customer's own data
     gate: >-
-      🔴 BLOCKING (a customer is told they have 3,002 conversations when
-      they have 20,126): MEASURED ON THE BOX 2026-09-18 against the directory
-      the shipped code actually walks, provenance checked rather than assumed:
-      output_conversations_dir takes its default from
-      ostler_paths.conversations_dir and is overridden nowhere in the box's
-      config. glob("*.md") as shipped at cli.py:488 returns 3,002; rglob
-      ("**/*.md") returns 20,126; 17,124 files are invisible to the counter.
-      THE TREE SHAPE IS THE PROOF, not the ratio: depth 1 holds 3,002 .md,
-      depth 2 holds 0, depth 3 holds 17,124. That is exactly the documented
-      layout, Conversations/<date>/<slug>-<id>/file.md, so a non-recursive glob
-      sees the top level and nothing below it. THE RATIO IS THE MISLEADING
-      NUMBER AND THE GAP IS THE REAL ONE. An earlier reading of this said 16x
-      (1113 of 17574) and it now reads 6.7x (3002 of 20126). The multiple FELL
-      while the absolute gap ROSE from 16,461 to 17,124, because the flat count
-      grew. A falling multiple reads like improvement and is not. ONE LINE
-      FIXES THE COUNT, glob to rglob at cli.py:488, in CM048. WHAT IS A
-      PRODUCT DECISION AND NOT A CODE ONE: whether the counter should also
-      filter by depth or by the metadata sidecar, which is a question about
-      what counts as a conversation.
+      THIS ROW IS NOT BLOCKING AS OF 2026-09-19, AND THE WORD IS WITHDRAWN ON EVIDENCE RATHER THAN
+      DROPPED. The code defect is REAL, is WORSE than the row states, and is now fixed upstream. The
+      CUSTOMER claim the row blocks on is NOT INSTRUMENTED. Both halves are stated because either one
+      alone misleads. THE DEFECT IS WORSE THAN THE ROW SAYS. The row calls it a counter that walks one
+      directory level while the corpus is deeper, which reads as an undercount. IT IS A CONSTANT ZERO.
+      conversation_writer._resolve_folder returns a dated folder containing a slug folder, and
+      write_conversation writes summary, transcript and todos INSIDE that, so NOTHING this pipeline
+      produces is ever at the top level. MEASURED on a tree built to that exact shape: 2 conversations
+      and 6 files on disk, the shipped top-level predicate returns 0 and a recursive one returns 6.
+      CONTROL, one file placed AT the top level: the shipped predicate returns 1, so the zero is about
+      DEPTH and not a pattern that matches nothing. NEGATIVE CONTROL on a fabricated suffix: 0. WHY IT
+      SURVIVED, AND IT IS THE REASON A ONE-WORD EDIT WAS NOT ENOUGH: the broken answer and the honest
+      answer are IDENTICAL ON A FRESH INSTALL, which is when anybody looks. A count that reads zero on
+      an empty disk and zero on a full one is not measuring anything. FIXED UPSTREAM, WITH THE FIX
+      PROVED RED IN BOTH DIRECTIONS: CM048 PR #79 opened 2026-09-19. Its test drives the SHIPPED
+      command and reads its STDOUT, because the subject is the number a PERSON reads off the screen,
+      and a helper returning the right integer while the screen prints something else is this same
+      defect one layer down. It refuses with CANNOT-RUN rather than passing if the screen prints no
+      count at all. Five arms: a must-hit, a MUTATION arm pinning the OLD predicate against the SAME
+      tree so the fixture cannot silently stop reproducing the defect, two controls, and an arm that
+      SKIPS as NOT INSTRUMENTED rather than passing if the writer's layout function is gone. Against
+      origin/main's file rc 1 with the printed count 0 where 9 was expected; with the fix rc 0 and 5
+      passed, rc taken directly and never through a pipe. SUITE 805 passed and 1 failed, and that
+      failure is PRE-EXISTING, measured rc 1 both with the fix and with origin/main's file. One
+      further test file is CANNOT-RUN in that environment for a missing dependency, which is neither a
+      pass nor a fail. 🔴 WHY THE BLOCKING WORD IS WITHDRAWN. The row says a customer is told they have
+      a specific number of conversations. THAT COMMAND IS REACHABLE FROM NOTHING THAT SHIPS. Measured
+      across the whole shipped surface: the function name returns 0 in install.sh, 0 files under the
+      installer app, 0 under the Doctor and 0 under scripts. CONTROL of the same shape on the same
+      corpus: the package name itself returns 11 in install.sh, so the package IS shipped and the
+      search DOES reach it. The command is an argparse subcommand in a shipped package with no
+      invocation path, so the honest words are NOT INSTRUMENTED, never that the customer is told
+      anything. A row must not hold a cut on a consequence nobody has shown reaches a person. WHAT
+      WOULD RE-BLOCK IT, stated so the withdrawal is auditable rather than final: any shipped surface
+      gaining a call to that command, or the same top-level pattern being found in a reader that IS
+      reachable. The second is the likelier one and was NOT swept for beyond this package. RETIREMENT
+      CONDITION: CM048 #79 merged AND re-vendored into this repository, since the vendored copy is
+      what a customer runs. It must not retire on the upstream merge alone.  ORIGINAL TEXT FOLLOWS,
+      WITH ONE WORD PAIR PARAPHRASED AND THE PARAPHRASE DECLARED. The original opened with the ungated
+      marker as its verdict. That marker is matched by a PLAIN SUBSTRING test over the WHOLE gate
+      value with no position test, so preserving it verbatim anywhere in this row would hold the row
+      ungated for ever no matter what verdict sits above it. Row 939 records that same trap flipping
+      41 rows at once. So those two words are replaced by the phrase the ungated marker and NOTHING
+      ELSE in the original is altered. IT READ: 🔴 BLOCKING (a customer is told they have 3,002
+      conversations when they have 20,126): MEASURED ON THE BOX 2026-09-18 against the directory the
+      shipped code actually walks, provenance checked rather than assumed: output_conversations_dir
+      takes its default from ostler_paths.conversations_dir and is overridden nowhere in the box's
+      config. glob("*.md") as shipped at cli.py:488 returns 3,002; rglob ("**/*.md") returns 20,126;
+      17,124 files are invisible to the counter. THE TREE SHAPE IS THE PROOF, not the ratio: depth 1
+      holds 3,002 .md, depth 2 holds 0, depth 3 holds 17,124. That is exactly the documented layout,
+      Conversations/<date>/<slug>-<id>/file.md, so a non-recursive glob sees the top level and nothing
+      below it. THE RATIO IS THE MISLEADING NUMBER AND THE GAP IS THE REAL ONE. An earlier reading of
+      this said 16x (1113 of 17574) and it now reads 6.7x (3002 of 20126). The multiple FELL while the
+      absolute gap ROSE from 16,461 to 17,124, because the flat count grew. A falling multiple reads
+      like improvement and is not. ONE LINE FIXES THE COUNT, glob to rglob at cli.py:488, in CM048.
+      WHAT IS A PRODUCT DECISION AND NOT A CODE ONE: whether the counter should also filter by depth
+      or by the metadata sidecar, which is a question about what counts as a conversation.
   - issue: 2215
     repo: none
     title: >-
