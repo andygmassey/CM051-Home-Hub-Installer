@@ -16,11 +16,24 @@ on:
   pull_request:
     paths:
       - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_customer_copy_says_ios_app_not_companion.py'
       - 'vendor/legal/consent_strings.py'
       - 'vendor/ostler_security/consent_cli.py'
       - 'tests/test_consent_tickbox_registry.sh'
       - 'tests/test_every_consent_decision_is_recorded.sh'
       - 'tests/test_the_reuse_path_still_asks_the_licence_terms.sh'
+      # Row 969's consumer-side half. The test drives the reuse path into the
+      # REAL consent registry and then renders the REAL Doctor consent tile, so
+      # its subject spans three files and all three have to be watched or the
+      # gate is dark on the edit that breaks it. dashboard_components.py holds
+      # the wording-drift map the tile checks against, and legal/__init__.py is
+      # what that map is now derived from, so a ConsentString that stops being
+      # exported there stops being checkable without touching either of the
+      # other two.
+      - 'tests/test_the_licence_acknowledgement_reaches_the_customer.sh'
+      - 'vendor/doctor/agent/dashboard_components.py'
+      - 'vendor/legal/__init__.py'
       - '.github/workflows/consent-registry.yml'
   push:
     branches: [main]
@@ -64,3 +77,43 @@ jobs:
         # it into a green.
         if: always()
         run: bash tests/test_the_reuse_path_still_asks_the_licence_terms.sh
+
+      # The step below drives the REAL vendored consent CLI and renders the REAL
+      # vendored Doctor tile, so it needs the two packages those import:
+      # cryptography (ostler_security/__init__) and httpx (the Doctor agent's
+      # status_collector). Without them the test reports CANNOT-RUN and EXITS
+      # NON-ZERO rather than passing on an empty subject, so a failed install
+      # here is a red gate and not a silent skip. Kept to the two modules the
+      # test actually needs rather than the whole Doctor requirements file: a
+      # dependency this job does not exercise is a minute per run for nothing.
+      - name: Dependencies for the end-to-end consent proof
+        if: always()
+        run: |
+          python3 -m pip install --quiet --break-system-packages --ignore-installed cryptography httpx \
+            || python3 -m pip install --quiet --ignore-installed cryptography httpx
+
+      # Row 969's consumer-side half, and the subject of every assertion is a
+      # PERSON: a customer re-installing with "use previous answers" and no
+      # prior record is ASKED, their answer LANDS in the real consent registry,
+      # and it is VISIBLE AND CHECKABLE in the real Doctor consent tile. The
+      # third was false until this PR: the tile's wording-drift map was a
+      # hand-written list of five while install.sh records six, so the licence
+      # acknowledgement rendered grey "unknown wording", indistinguishable from
+      # a record Doctor does not recognise at all.
+      #
+      # Same `always()` reasoning as the steps above. It carries three mutants,
+      # each APPLIED to a copy and asserted present in the mutated text before
+      # being driven: the terms back inside the SKIP_PHASE2 guard, an unknown
+      # record upgraded to accepted, and the drift map reverted to five names.
+      - name: the licence acknowledgement reaches the customer, end to end
+        if: always()
+        run: bash tests/test_the_licence_acknowledgement_reaches_the_customer.sh
+      - name: Customer copy says the app, not the repository (#1008)
+        if: always()
+        # MEASURED on main 2026-09-18: the strings file the installer PRINTS
+        # carried "iOS Companion" ten times, nine of them live customer strings,
+        # two on the subscription path a person reads while deciding to pay.
+        # "Companion" is an internal project word; to a customer it names a
+        # thing they cannot find in the App Store. The rule was locked and
+        # nothing was checking it.
+        run: python3 tests/test_customer_copy_says_ios_app_not_companion.py

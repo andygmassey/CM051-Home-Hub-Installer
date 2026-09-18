@@ -111,7 +111,7 @@ MSG_INFO_EXISTING_CHECKOUT_UPDATING="  Existing checkout at %s; updating..."
 MSG_INFO_EXTRACTING_GMAIL_MBOX_FROM_TAKEOUT_ZIP="Extracting Gmail mbox from Takeout zip (this can take a minute for large archives)..."
 MSG_INFO_FDA_EXTRACTION_MODULE_NOT_BUNDLED_SKIPPING="FDA extraction module not bundled. Skipping instant data extraction."
 MSG_INFO_FIRST_MONTH_FREE_ACTIVATING="Activating your first 30 days of Ostler Pro..."
-MSG_INFO_SUBSCRIPTION_PRICING_HINT="Ostler Pro is \$9.99 USD per month after the trial. Subscribe via the iOS Companion app."
+MSG_INFO_SUBSCRIPTION_PRICING_HINT="Ostler Pro is \$9.99 USD per month after the trial. Subscribe in the Ostler app on your iPhone."
 MSG_INFO_FOUND_GMAIL_MBOX_MB="Found Gmail mbox at %s (%s MB)"
 MSG_INFO_FOUND_GOOGLE_TAKEOUT_ZIP_MB="Found Google Takeout zip at %s (%s MB)"
 MSG_INFO_FULL_DISK_ACCESS_DETECTED_FULL_EXTRACTION="Full Disk Access detected – full extraction available."
@@ -152,7 +152,7 @@ MSG_INFO_HUB_RECAP_LAPTOP_PAUSES="Docker and Ollama pause on battery and resume 
 MSG_INFO_HUB_RECAP_FILEVAULT_LOGIN="After a restart, FileVault holds this Mac at the login screen."
 MSG_INFO_HUB_RECAP_FILEVAULT_STARTS="Ostler starts once you sign in."
 MSG_INFO_ICAL_SERVER_BUNDLED_WITH_INSTALLER="Assistant API bundled with installer; using vendored source."
-MSG_INFO_ICAL_SERVER_SOURCE_NOT_BUNDLED="Assistant API source not bundled; iOS Companion endpoints will be limited."
+MSG_INFO_ICAL_SERVER_SOURCE_NOT_BUNDLED="Assistant API source not bundled; the Ostler app on your iPhone will have limited access."
 MSG_INFO_ICAL_SERVER_DEPS_INSTALLING="Installing Assistant API runtime dependencies (phonenumbers, httpx)..."
 MSG_WARN_ICAL_SERVER_DEPS_FAILED="Could not install Assistant API runtime dependencies (phonenumbers/httpx); People and Timeline may stay empty until the next install run."
 MSG_INFO_IF_TAILSCALE_WINDOW_APPEARS_SIGN_WITH="When the Tailscale window appears, sign in with Apple / Google / Microsoft."
@@ -166,7 +166,7 @@ MSG_INFO_OPENING_TAILSCALE_FOR_SIGNIN="Opening Tailscale so you can sign in..."
 # named only that step, while Full Disk Access and the developer-tools dialog
 # were the two that actually surprised him.
 MSG_INFO_TAILSCALE_SIGNIN_LATER_PREANNOUNCE="Noted – Ostler mostly installs on its own from here. Near the end it will want you back for about two minutes: switching on Full Disk Access, then signing in to Tailscale so your iPhone and Watch can reach this Mac from anywhere. We will open your browser for the sign-in."
-MSG_INFO_TAILSCALE_SKIPPED="Tailscale skipped – iOS Companion will only work on your home Wi-Fi. You can set this up later from Settings."
+MSG_INFO_TAILSCALE_SKIPPED="Tailscale skipped – the Ostler app on your iPhone will only work on your home Wi-Fi. You can set this up later from Settings."
 MSG_INFO_TAILSCALE_STILL_WAITING="Still waiting for Tailscale sign-in (%ss elapsed) – please complete sign-in in the Tailscale window."
 MSG_INFO_IMESSAGE_FDA_ASSIST_GRANTED="Full Disk Access granted; restarting the assistant to pick up the new permission."
 MSG_INFO_IMESSAGE_FDA_ASSIST_OPENING="Opening System Settings + Finder to walk you through granting Full Disk Access to the assistant..."
@@ -232,6 +232,7 @@ MSG_INFO_MAC_SIDE_DATA_IMESSAGE_SAFARI_ETC="Mac-side data (iMessage, Safari, etc
 MSG_INFO_MANUAL_RESTART_LAUNCHCTL_KICKSTART_K_GUI="Manual restart: launchctl kickstart -k gui/\$(id -u)/com.creativemachines.ostler.assistant"
 MSG_INFO_MANUAL_RUN_BASH_BIN_EMAIL_INGEST="Manual run: bash %s/bin/email-ingest-tick.sh"
 MSG_INFO_MEETING_BRIEF_AGENT_SKIPPED="Skipping com.ostler.meeting-brief-sender install (v1.0.1 feature; endpoints not yet shipped)."
+MSG_INFO_MEMORY_HYGIENE_SKIPPED_NOT_STAGED="Skipping the memory-hygiene pass (not bundled with this installer); nothing is down-weighted automatically until it is."
 MSG_INFO_MESSAGE_WHEN_FEATURE_FLAG_LATER_FLIPPED="message when the feature flag is later flipped on."
 MSG_INFO_NEED_HELP_EMAIL_SUPPORT_OSTLER_AI="Need help? Email support@ostler.ai. We aim to reply within 2 working days."
 MSG_INFO_MKDIR_P_CP_R_TMP_HUB="  mkdir -p %s && cp -R /tmp/hub-power-src/hub-power/* %s/"
@@ -328,8 +329,10 @@ MSG_INFO_VANE_NOT_RESPONDING_OPTIONAL_SEE_PHASE="Vane not responding (optional; 
 MSG_INFO_VIEW_ANY_TIME_WITH_BASH_INSTALL="View any time with: bash install.sh --licenses"
 MSG_INFO_VOICE_RECOGNITION_WILL_STAY_OFF_YOU="Voice recognition will stay off. You can enable later in Settings."
 MSG_INFO_WAITING_YOU_SIGN_TAILSCALE_UP_3="Waiting for you to sign in to Tailscale (up to 3 minutes)..."
-MSG_INFO_TAILSCALE_SETUP_LATER_FROM_SETTINGS="Tailscale remote access was not set up. Your iOS Companion will work on your home Wi-Fi; you can set up remote access later from Settings."
+MSG_INFO_TAILSCALE_SETUP_LATER_FROM_SETTINGS="Tailscale remote access was not set up. The Ostler app on your iPhone will work on your home Wi-Fi; you can set up remote access later from Settings."
 MSG_INFO_TAILSCALE_ALREADY_CONFIGURED="This Mac is already connected to your Tailscale network, so there is nothing to set up. Keeping your existing connection."
+MSG_INFO_TAILSCALE_REUSED_ANSWER_SKIP="Remote access: keeping the answer you gave last time, which was to skip it. Your iOS app will work on your home Wi-Fi, and you can set up remote access later from Settings."
+MSG_INFO_TAILSCALE_REUSED_ANSWER_SETUP="Remote access: keeping the answer you gave last time, which was to set it up."
 MSG_INFO_WHATSAPP_CONNECTOR_LEFT_OFF_YOU_CAN="WhatsApp connector left off. You can enable it later via Settings."
 MSG_INFO_WHATSAPP_KEEPALIVE_SCHEDULED_08_50_17="WhatsApp keepalive scheduled at 08:50 + 17:50 (label com.creativemachines.ostler.whatsapp-keepalive)"
 MSG_INFO_WIKI_RECOMPILE_CATCHUP_SKIPPED_NO_TICK="Skipping first-day wiki catch-up: the wiki-recompile tick is not installed. The daily wiki rebuild, if installed, still runs."
@@ -388,6 +391,7 @@ MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED="The background top-up helper could not be sch
 MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED="%s not set up: Ostler has no record of your answer to the question that governs it, so it did not assume one."
 MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED_WHY="  Re-run Ostler and choose to answer the questions again to turn it on. (consent record: %s)"
 MSG_WARN_MEETING_BRIEF_SENDER_NOT_LOADED="The daily brief could not be scheduled, so you will not receive the morning summary. Everything else works; re-run the installer to restore it."
+MSG_WARN_MEMORY_HYGIENE_NOT_LOADED="The memory-hygiene pass could not be scheduled, so stale or superseded facts will not be down-weighted automatically. Everything else works; re-run the installer to restore it."
 MSG_WARN_EXPORT_SCAN_NOT_LOADED="The Downloads watcher could not be started, so files you drop into Downloads will not be picked up automatically. Everything already imported is unaffected, and you can still add files from inside the app. Re-run the installer to restore it."
 MSG_WARN_DEFERRED_DEVICE_REGISTRATION_NOT_LOADED="The retry helper for device registration could not be scheduled. If your iPhone registered during setup this changes nothing; if it did not, you will need to pair again from the app rather than it completing on its own."
 # v1.0.38 walk (2026-08-23): a green install finished on a Mac with the
@@ -478,11 +482,12 @@ MSG_OK_EXPORT_WATCHER_INSTALLED_SCANS_DOWNLOADS_EVERY="Export watcher installed 
 # install log does not send the reader hunting for what was missing.
 MSG_WARN_EXPORT_SCAN_DAEMON_BINARY_MISSING="  Export watcher not started yet: the assistant program it runs is not on disk. Looked for: %s"
 MSG_OK_MEETING_BRIEF_SENDER_INSTALLED="Pre-meeting brief sender installed (polls every 10 minutes during waking hours)"
+MSG_OK_MEMORY_HYGIENE_INSTALLED="Memory-hygiene pass scheduled (runs daily to keep stale facts from crowding out current ones)"
 MSG_OK_STAY_AWAKE_AGENT_INSTALLED="Your Mac will stay awake on mains power so Ostler keeps working (it still sleeps on battery)"
 MSG_OK_EXTRACTED="Extracted to %s"
 MSG_OK_EXTRACTED_FROM_SOURCE_S_DATA_SAVED="Extracted from %s source(s). Data saved to %s/imports/fda/"
 MSG_OK_FDA_RE_RUN_SCHEDULED_RECURRING="FDA re-run scheduled every %s minutes (catches slow iCloud syncs and finishes the calendar backfill)"
-MSG_OK_FIRST_MONTH_FREE_ACTIVATED="Ostler Pro active for 30 days. Subscribe via the iOS Companion app to extend after the trial."
+MSG_OK_FIRST_MONTH_FREE_ACTIVATED="Ostler Pro active for 30 days. Subscribe in the Ostler app on your iPhone to extend after the trial."
 MSG_OK_FOUND="Found: %s"
 MSG_OK_FOUND_EXPORTS="Found exports at %s"
 MSG_OK_FOUND_GDPR_EXPORT_S="Found %s GDPR export(s):"
@@ -573,7 +578,7 @@ MSG_OK_SLEEP_DISABLED_AC_BATTERY_SLEEP_PRESERVED="Sleep disabled on AC, battery 
 MSG_OK_SLEEP_DISABLED_WAKE_NETWORK_ENABLED="Sleep disabled, wake-on-network enabled"
 MSG_OK_TAILSCALE_ALREADY_INSTALLED="Tailscale already installed"
 MSG_OK_TAILSCALE_INSTALLED="Tailscale installed"
-MSG_OK_TAILSCALE_ENV_PERSISTED="Tailscale IP saved to .env – iOS Companion will use it on first launch."
+MSG_OK_TAILSCALE_ENV_PERSISTED="Tailscale IP saved to .env – the Ostler app on your iPhone will use it on first launch."
 MSG_OK_TAILSCALE_IP="Tailscale IP: %s"
 # ── Tailscale userspace formula path (#604) ──
 MSG_OK_TAILSCALED_USERSPACE_STARTED="Tailscale background service started (userspace mode, no system extension)"
@@ -584,10 +589,16 @@ MSG_WARN_TAILSCALE_SERVE_PORT_FAILED="Could not expose Hub port %s on your tailn
 # ── Wiki on the tailnet, owner-gated (v1.0.17) ──
 MSG_OK_WIKI_TAILNET_SERVED="Your wiki is now readable from your own devices at %s – signed in as you, and only you."
 MSG_INFO_WIKI_TAILNET_OWNER="Wiki access is restricted to your Tailscale account (%s). Other people on your tailnet get a 403."
-MSG_INFO_WIKI_TAILNET_LOCAL_ONLY="Your wiki stays on this Mac only – browse it at http://localhost:8044"
-MSG_INFO_WIKI_TAILNET_BANNER="%s  (from your own devices, over Tailscale)"
-MSG_INFO_WIKI_SIGN_IN="Sign in as %s with the password %s – your browser will offer to remember it, so you only type it once."
-MSG_INFO_WIKI_PORT_LAST_STATUS="Last HTTP status from the wiki port: %s (000 means nothing answered; 401 means it answered and refused the credential)."
+MSG_INFO_WIKI_TAILNET_LOCAL_ONLY="Your wiki stays on this Mac only. Open Ostler and choose Wiki in the sidebar to read it."
+MSG_INFO_WIKI_TAILNET_BANNER="%s  (from your own devices, over Tailscale. This is the one route that asks you for the sign-in above.)"
+# CM051 #1980. Where the wiki actually opens. :8044 answers an
+# uncredentialled browser with a signpost and no challenge (see the
+# `listen 8044` server block in install.sh), so the address is named for
+# what it is rather than offered as a destination.
+MSG_INFO_WIKI_IN_THE_APP="in the Ostler app. Open Ostler and choose Wiki in the sidebar; your pages are there, already signed in."
+MSG_INFO_WIKI_INTERNAL_ADDRESS="Ostler fetches those pages from http://localhost:8044 on this Mac. That address is internal and has nothing on it for you to sign in to."
+MSG_INFO_WIKI_SIGN_IN="Your wiki sign-in is %s with the password %s. Ostler presents it for you, so there is nothing to type on this Mac; you need it in your own hands only when you open the wiki from another of your devices over Tailscale."
+MSG_INFO_WIKI_PORT_LAST_STATUS="Last HTTP status from the wiki port: %s (000 means nothing answered; 403 means it answered and refused the credential)."
 # HR015 #943. The four lines below are the readiness half of the wiki handover.
 # They exist because the credential half is no longer gated on them: a customer
 # whose first build is merely slow still gets their address and sign-in, and
@@ -595,11 +606,11 @@ MSG_INFO_WIKI_PORT_LAST_STATUS="Last HTTP status from the wiki port: %s (000 mea
 # measure, which is what "first compile failed" did on every one of the three
 # non-failure paths into that branch.
 MSG_INFO_WIKI_PASSWORD_ON_DISK="Your password is also kept at %s, so the clipboard is not the only copy."
-MSG_INFO_WIKI_STILL_BUILDING="Still building. %s pages are on disk already, and the last reply from the wiki address was HTTP %s. It will appear at the address above with the same sign-in. Nothing for you to do."
-MSG_WARN_WIKI_FIRST_COMPILE_PRODUCED_NO_PAGES="The first build has produced no pages yet (see the warnings above). The address and sign-in above are still yours and will work once it has built."
-MSG_INFO_WIKI_READINESS_NOT_MEASURED="This run did not measure whether the wiki is serving yet, so it is not claiming either way. The address and sign-in above are yours regardless."
-MSG_WARN_WIKI_TAILNET_OWNER_UNRESOLVED="Could not confirm which Tailscale account owns this Mac, so the wiki has NOT been exposed on your tailnet. It is still available on this Mac at http://localhost:8044"
-MSG_WARN_WIKI_TAILNET_SERVE_FAILED="Could not publish the wiki on your tailnet; it is still available on this Mac at http://localhost:8044"
+MSG_INFO_WIKI_STILL_BUILDING="Still building. %s pages are on disk already, and the last reply from the wiki address was HTTP %s. It will appear in the Ostler app on its own. Nothing for you to do."
+MSG_WARN_WIKI_FIRST_COMPILE_PRODUCED_NO_PAGES="The first build has produced no pages yet (see the warnings above). Your wiki still opens in the Ostler app once it has built, and the sign-in above stays yours."
+MSG_INFO_WIKI_READINESS_NOT_MEASURED="This run did not measure whether the wiki is serving yet, so it is not claiming either way. Your wiki opens in the Ostler app regardless, and the sign-in above stays yours."
+MSG_WARN_WIKI_TAILNET_OWNER_UNRESOLVED="Could not confirm which Tailscale account owns this Mac, so the wiki has NOT been exposed on your tailnet. It is still available on this Mac, in the Ostler app under Wiki."
+MSG_WARN_WIKI_TAILNET_SERVE_FAILED="Could not publish the wiki on your tailnet; it is still available on this Mac, in the Ostler app under Wiki."
 MSG_WARN_WIKI_TAILNET_GATE_RELOAD_FAILED="Could not reload the wiki access gate, so the wiki has NOT been exposed on your tailnet."
 MSG_WARN_WIKI_TAILNET_FUNNEL_ON="Tailscale Funnel is switched on for %s. Funnel publishes to the open internet. Ostler never switches Funnel on and your wiki refuses Funnel traffic, so nothing of Ostler's is public – but if you did not mean to enable it, turn it off in the Tailscale admin console for this machine."
 MSG_OK_THIRD_PARTY_ATTRIBUTIONS_INSTALLED_SOURCE="Third-party attributions installed (source: %s)"
@@ -737,7 +748,7 @@ MSG_WARN_FDA_MODULE_NOT_BUNDLED_PLAINTEXT="FDA extraction module not bundled. Co
 MSG_WARN_FDA_DEPENDENCIES_NOT_IMPORTABLE="The data-extraction module is on disk but its dependencies did not install, so it cannot be loaded:"
 MSG_WARN_FDA_DEPENDENCIES_CONTINUING_PLAINTEXT="Continuing because --allow-plaintext was passed – the scheduled data refresh will fail on every run."
 MSG_WARN_FILEVAULT_NOT_ENABLED="FileVault is NOT enabled."
-MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL="Could not activate the first month free at this time; install will continue. Open the iOS Companion app once paired to resolve."
+MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL="Could not activate the first month free at this time; install will continue. Open the Ostler app on your iPhone once paired to resolve."
 MSG_WARN_FULL_DISK_ACCESS_NOT_GRANTED_TERMINAL="Full Disk Access not granted to Terminal."
 MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS="%s GB RAM detected. You'll get the compact assistant (gemma4:e2b) – reliable, accurate, sub-second on short questions, with tool calls and an honest 'I don't know' when it doesn't. For richer answers on longer questions, 24 GB or more unlocks the standard assistant (qwen3.5:9b). You can change Macs later by reinstalling."
 MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN="GDPR import had errors. You can re-run with:"
@@ -758,7 +769,7 @@ MSG_WARN_HUB_POWER_LAUNCHAGENT_INSTALL_FAILED_SEE="Hub power LaunchAgent install
 MSG_WARN_HUB_POWER_SCRIPTS_MISSING_FROM_APP_BUNDLE="Hub power scripts not found at the expected bundle path."
 MSG_WARN_HUB_POWER_SCRIPTS_MISSING_FROM_APP_BUNDLE_2="  The installer .app appears to be missing vendor/hub_power/"
 MSG_WARN_HUB_POWER_SCRIPTS_MISSING_FROM_APP_BUNDLE_3="  in Contents/Resources/hub-power/. Battery-aware throttling will not be installed; the rest of the install will continue."
-MSG_WARN_ICAL_SERVER_FAILED="Could not start Assistant API; iOS Companion endpoints will be limited until the next install run."
+MSG_WARN_ICAL_SERVER_FAILED="Could not start Assistant API; the Ostler app on your iPhone will have limited access until the next install run."
 MSG_WARN_IMAGE_PULL_FAILED_NETWORK_DISK_SPACE="  - Image pull failed (network, disk space, or registry timeout)"
 MSG_WARN_IMESSAGE_FDA_PROBE_SIGNAL_WRITE_FAILED="Could not write iMessage FDA signal to pipeline_signals.json. The Doctor dashboard may not auto-show the Full Disk Access card."
 MSG_WARN_IMAP_HOST_EMPTY_TRY_AGAIN="IMAP host is empty – try again."
@@ -891,7 +902,8 @@ MSG_ERR_PORT_PREFLIGHT_CANNOT_RUN_ABORT="Ostler could not confirm those ports ar
 MSG_WARN_STALE_COLIMA_LAUNCHAGENT_NOT_REMOVED="Could not remove a stale Colima start-up item. Your wiki may not load after a restart; contact support."
 MSG_WARN_STOP_CONFLICTING_SERVICES_CHANGE_PORTS_DOCKER="Stop the conflicting services or change the ports in docker-compose.yml"
 MSG_WARN_TAILSCALE_DIDN_T_SIGN_WITHIN_3MIN="Tailscale didn't sign in within 3 minutes. You can come back to this later from Settings."
-MSG_WARN_TAILSCALE_ENV_PERSIST_VERIFY_FAILED="Tailscale IP was written to .env but a follow-up read could not see it. iOS Companion may not pick it up – re-run install.sh --repair if that happens."
+MSG_WARN_TAILSCALE_ENV_PERSIST_VERIFY_FAILED="Tailscale IP was written to .env but a follow-up read could not see it. the Ostler app on your iPhone may not pick it up – re-run install.sh --repair if that happens."
+MSG_WARN_TAILSCALE_ANSWER_NOT_REMEMBERED="Could not save your remote-access answer, so the next re-install will ask you again. Everything else is unaffected."
 MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL="Tailscale install failed – you can install it later from tailscale.com"
 MSG_WARN_TAILSCALE_STATE_UNREADABLE="This Mac has existing Tailscale settings that could not be read, so we cannot tell whether it is still connected to your network. Please choose below – if it is already connected, setting it up again does no harm."
 MSG_WARN_THE_DEPLOYED_SERVICES_REFUSE_START_WITHOUT="the deployed services refuse to start without them."
@@ -941,7 +953,7 @@ MSG_ERR_URL="  url:      %s"
 
 # ── Fail messages (terminal -- the installer exits after) ──
 
-MSG_FAIL_ARCH_INTEL_NOT_SUPPORTED_V1_0="Intel Macs are not supported in v1.0. Apple Silicon (M1, M2, M3 or M4) is required. Intel support is coming in v1.0.1."
+MSG_FAIL_ARCH_INTEL_NOT_SUPPORTED_V1_0="Intel Macs are not supported. Ostler needs Apple Silicon (M1, M2, M3 or M4)."
 MSG_FAIL_AT_LEAST_16_GB_RAM_REQUIRED="At least 16 GB RAM required. You have %s GB. 24 GB recommended."
 MSG_FAIL_CM042_SIGNATURE_FAILED="Ostler RemoteCapture install aborted: signature or notarisation check failed. The bundle was left in /Applications for support. Email support@ostler.ai and re-run the installer."
 MSG_FAIL_COULD_NOT_PULL_AFTER_3_ATTEMPTS="Could not pull %s after 3 attempts. Check your network and re-run the installer."
@@ -970,7 +982,7 @@ MSG_FAIL_DAEMON_RUN_SOURCE_UNSUPPORTED_SKEW="The bundled Ostler daemon (v%s at %
 MSG_FAIL_OSTLER_SECURITY_INSTALL_FAILED_RE_RUN="ostler_security install failed. Re-run with --allow-plaintext for dev/CI, or fix the pip error above and retry."
 MSG_FAIL_PASSKEY_SETUP_FAILED_RE_RUN_WITH="Passkey setup failed. Re-run with --allow-plaintext for dev/CI, or fix the error above and retry."
 MSG_FAIL_PYSQLCIPHER3_REQUIRED_ENCRYPTED_DATABASES_RE_RUN="sqlcipher3 is required for encrypted databases. Re-run with --allow-plaintext for dev/CI, or fix the pip error above and retry."
-MSG_FAIL_THIS_INSTALLER_MACOS_ONLY_LINUX_SUPPORT="This installer is for macOS only. Linux support coming soon."
+MSG_FAIL_THIS_INSTALLER_MACOS_ONLY_LINUX_SUPPORT="This installer is for macOS only."
 MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID="Xcode Command Line Tools install did not complete in 15 minutes. Open Terminal and run 'xcode-select --install', click Install on the macOS dialog and wait for it to finish, then re-run this installer."
 
 # ── DMG #48 (2026-05-27) silent-bail hardening (PR 2 of TNM brief
@@ -1551,6 +1563,17 @@ MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA="No Apple Notes to read. You can re-run 
 MSG_HYDRATE_APPLE_NOTES_SKIPPED_PIPELINE_PENDING="Knowledge importer not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_APPLE_NOTES_BACKGROUND_CONTINUES="Apple Notes are still loading in the background. Your knowledge base fills in as it goes, and shows you where it is up to."
 MSG_HYDRATE_APPLE_NOTES_HEARTBEAT="  Still reading your Apple Notes (%ss so far). A large notes library can take a few minutes."
+
+# Reminders knowledge hydration (CM024 reminders adapter, same pattern as
+# Apple Notes above). Reminders are converted to markdown + embedded
+# locally; only reminder-count totals are shown to the customer -- no
+# reminder titles or notes leave the process.
+MSG_HYDRATE_REMINDERS_STARTED="Reading your Reminders - they stay on this Mac"
+MSG_HYDRATE_REMINDERS_DONE="Added %s reminders to your knowledge base"
+MSG_HYDRATE_REMINDERS_SKIPPED_NO_DATA="No Reminders to read. You can re-run later from Settings."
+MSG_HYDRATE_REMINDERS_SKIPPED_PIPELINE_PENDING="Knowledge importer not ready yet. You can re-run later from Settings."
+MSG_HYDRATE_REMINDERS_BACKGROUND_CONTINUES="Reminders are still loading in the background. Your knowledge base fills in as it goes, and shows you where it is up to."
+MSG_HYDRATE_REMINDERS_HEARTBEAT="  Still reading your Reminders (%ss so far). A large reminders list can take a few minutes."
 
 # People search index (#600)
 MSG_HYDRATE_PEOPLE_STARTED="Indexing your people for search"

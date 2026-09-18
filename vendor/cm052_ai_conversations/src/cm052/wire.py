@@ -147,20 +147,40 @@ _VALID_LEVELS = ("L0", "L1", "L2", "L3")
 # search + assistant answers, whose level drives the CM048 embed gate). Privacy
 # is per-artefact so the v1.0.1 -> Option-B move is a config flip, not a
 # re-plumb:
-#   - Option A (v1.0.1, default): transcript=L2, gist=L2. AI conversations
-#     behave like every other v1.0 source -- searchable, assistant-answerable,
-#     rendered in the wiki. On a single-Mac product all L2 data is local-only.
-#   - Option B (next): set transcript=L3 (file-only, body withheld in the wiki)
-#     while gist stays L2 (a conservative extract stays searchable; the
-#     assistant links to the private transcript). Flip the two env defaults
-#     below -- no write-plumbing change.
+#   - Option A (shipped until 2026-09-16): transcript=L2, gist=L2.
+#   - Option B (THE DEFAULT AS OF 2026-09-16): transcript=L3 (file-only, body
+#     withheld in the wiki) while gist stays L2 (a conservative extract stays
+#     searchable; the assistant links to the private transcript).
+#
+# WHY OPTION B IS NOW THE DEFAULT. The product contract in CLAUDE.md locks AI
+# conversations to ``privacy_level: L3`` -- "private by default" -- and Option A
+# shipped the opposite for both artefacts. A third party's words pasted into a
+# chat with an assistant are not a social fact; L2 is the PUBLISHABLE level
+# (the only member of ``privacy_model.PUBLISHABLE_LEVELS``), and defaulting an
+# AI transcript into it inverts the locked decision. Nothing asserted the old
+# value: flipping it broke zero tests, in either direction, which is why it
+# survived.
+#
+# 🔴 THE TRANSCRIPT LIMB IS DECLARED HERE AND ENFORCED NOWHERE IN THE DMG.
+# The gist limb IS enforced -- ``_wire`` below short-circuits the CM048 POST on
+# gist L3, in this file, in the shipped payload. The transcript limb is not:
+# the level lands in the markdown frontmatter and NOTHING in the cut reads it
+# back. Measured 2026-09-16: no CM044 wiki renderer under ``vendor/``, no
+# ``services/mcp`` path and no ``server.py`` anywhere in the repo, so the
+# read-side ``get_conversation`` withholding that CLAUDE.md pairs with this
+# default lives only in CM019, which the DMG does not carry. Positive control,
+# same command shape: ``vendor/cm019_preferences`` resolves to 84 files.
+# The stamp is still worth being right -- frontmatter is the durable record and
+# a conversation written today keeps its level when the reader ships -- but do
+# NOT read this default as proof a customer's AI transcripts are withheld from
+# anything. See PRIVACY_ENFORCEMENT_GAPS.md.
 #
 # A per-conversation override (``privacy_level`` in metadata) is the user's
 # escape hatch and applies to BOTH artefacts: marking a conversation L3 makes
 # the transcript file-only AND short-circuits the gist, so it is invisible to
 # search/assistant/wiki body while remaining a file on disk.
 _ARTEFACT_DEFAULT_ENV = {
-    "transcript": ("OSTLER_AI_CONV_TRANSCRIPT_PRIVACY", "L2"),
+    "transcript": ("OSTLER_AI_CONV_TRANSCRIPT_PRIVACY", "L3"),
     "gist": ("OSTLER_AI_CONV_GIST_PRIVACY", "L2"),
 }
 
