@@ -9,6 +9,46 @@ from ..config import settings
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# WHICH SCALE THIS FILTER IS ON. Written down here because getting it wrong is
+# invisible: both directions look like a working filter and every test stays
+# green either way.
+#
+# `compartment_level` on THIS collection is CM019's own 0..6 map, defined in
+# parsers/base.py::_compartment_uri and emitted into the graph by to_turtle():
+#
+#     0 L0Personal  1 L1Family  2 L2Trusted  3 L3Community
+#     4 L4Public    5 L5Commercial          6 L6Broadcast
+#
+# so on this scale LOW IS PRIVATE. The 0..6 domain below is that map's domain,
+# not a magic number.
+#
+# IT IS NOT THE ONLY SCALE IN THE SHIPPED PRODUCT, AND THE OTHER ONE RUNS THE
+# OTHER WAY. vendor/cm024_knowledge calls its field `compartment_level` too,
+# caps it with `lte` (storage/qdrant_store.py:299, cli.py:518) and its own
+# comments say cap=2 exists to keep L3 notes OUT, i.e. on that scale HIGH IS
+# PRIVATE. Same field name, opposite direction, both in this DMG. So a reader
+# who arrives here from that code and "makes the two consistent" inverts a
+# privacy filter. Establish the scale first; this block is the answer for this
+# module and nothing else.
+#
+# THE DIRECTION IS NOT DECIDED HERE EITHER. See the note in search().
+# ---------------------------------------------------------------------------
+
+#: CM019's compartment map domain (parsers/base.py::_compartment_uri).
+COMPARTMENT_DOMAIN = tuple(range(0, 7))
+
+#: Select records AT OR ABOVE the given level. On the 0..6 map above that is
+#: the MORE PUBLIC half. This is what this module has always done.
+COMPARTMENT_AT_OR_ABOVE = "at_or_above"
+
+#: Select records AT OR BELOW the given level, the MORE PRIVATE half on the
+#: 0..6 map, and what the word "maximum" in the old docstring meant. Reachable
+#: from Python only; see search().
+COMPARTMENT_AT_OR_BELOW = "at_or_below"
+
+COMPARTMENT_DIRECTIONS = (COMPARTMENT_AT_OR_ABOVE, COMPARTMENT_AT_OR_BELOW)
+
 
 class QdrantLoader:
     """Handles loading vectors into Qdrant."""
@@ -155,7 +195,8 @@ class QdrantLoader:
         limit: int = 10,
         compartment_level: Optional[int] = None,
         user_id: Optional[str] = None,
-        filters: Optional[Dict[str, Any]] = None
+        filters: Optional[Dict[str, Any]] = None,
+        compartment_direction: str = COMPARTMENT_AT_OR_ABOVE,
     ) -> List[Dict[str, Any]]:
         """
         Search for similar vectors.
@@ -163,9 +204,18 @@ class QdrantLoader:
         Args:
             vector: Query vector
             limit: Max results to return
-            compartment_level: Filter by max compartment level
+            compartment_level: The threshold the compartment arm is built
+                around. NOT a maximum: see ``compartment_direction``, and read
+                the module header for which scale this field is on.
             user_id: Filter by user ID
             filters: Additional Qdrant filters
+            compartment_direction: ``COMPARTMENT_AT_OR_ABOVE`` (default, and
+                what this method has always done) selects records at or ABOVE
+                ``compartment_level``, the more PUBLIC half of CM019's 0..6
+                map. ``COMPARTMENT_AT_OR_BELOW`` selects at or below it, the
+                more PRIVATE half. Any other value raises: an unrecognised
+                direction must never fall through to a default, because both
+                defaults are wrong half the time and neither looks wrong.
 
         Returns:
             List of search results with scores
@@ -198,16 +248,49 @@ class QdrantLoader:
             # one of them unsearchable until a full re-ingest. Accepting the
             # stored vocabulary costs nothing and orphans nothing.
             #
-            # THE COMPARISON DIRECTION IS PRESERVED EXACTLY. `gte` is kept
-            # because this commit is about a type mismatch, not about what
-            # the cap means. (Levels run L0 Personal ... L6 Broadcast, so
-            # whether a "max compartment level" should be gte or lte is a
-            # real question -- it is NOT this commit's question, and
-            # answering it by accident while fixing the type would be a
-            # silent privacy change.) The string arm enumerates exactly the
-            # tokens that satisfy the same gte, so both arms agree.
+            # THE COMPARISON DIRECTION IS STILL NOT DECIDED HERE, AND THE
+            # DEFAULT IS UNCHANGED. `gte` was kept by the vocabulary fix
+            # because that commit was about a type mismatch, and answering
+            # the direction question by accident while fixing the type would
+            # have been a silent privacy change. That was right, and it left
+            # the method unable to EXPRESS the other direction, so the
+            # docstring's word "max" was simply false and a caller who read
+            # it got the complement of what it promised.
+            #
+            # What changes here is expressiveness, not behaviour: the default
+            # is COMPARTMENT_AT_OR_ABOVE, which emits byte-identical filter
+            # bodies to the ones this method emitted before, for every value
+            # of compartment_level in the 0..6 domain. Choosing the other
+            # direction is the privacy decision, it is still not an agent's
+            # to make, and it is now one argument rather than a rewrite.
+            #
+            # THE STRING ARM IS DERIVED FROM THE NUMERIC PREDICATE rather
+            # than written out by hand, so the two arms cannot drift apart in
+            # either direction. The old hand-written range(level, 7) agreed
+            # with `gte` by construction and would NOT have agreed with
+            # `lte`; deriving it removes that trap before anyone falls in.
+            if compartment_direction == COMPARTMENT_AT_OR_ABOVE:
+                numeric_range = {"gte": compartment_level}
+
+                def _in_scope(n: int) -> bool:
+                    return n >= compartment_level
+            elif compartment_direction == COMPARTMENT_AT_OR_BELOW:
+                numeric_range = {"lte": compartment_level}
+
+                def _in_scope(n: int) -> bool:
+                    return n <= compartment_level
+            else:
+                # FAIL CLOSED ON THE UNKNOWN. No default branch: a typo in a
+                # caller must not silently pick a direction, because the
+                # wrong one exposes the most sensitive material on the box
+                # while every test stays green.
+                raise ValueError(
+                    "compartment_direction must be one of %r, got %r"
+                    % (list(COMPARTMENT_DIRECTIONS), compartment_direction)
+                )
+
             level_tokens = [
-                f"L{n}" for n in range(compartment_level, 7)
+                f"L{n}" for n in COMPARTMENT_DOMAIN if _in_scope(n)
             ]
             # ── THE THIRD CASE: A POINT WITH NO compartment_level AT ALL ──────
             #
@@ -234,12 +317,21 @@ class QdrantLoader:
             )
 
             # One nested one-of clause: numeric payload OR string payload.
-            must_conditions.append({"should": [
-                {"key": "compartment_level",
-                 "range": {"gte": compartment_level}},
-                {"key": "compartment_level",
-                 "match": {"any": level_tokens}},
-            ]})
+            compartment_arms = [
+                {"key": "compartment_level", "range": numeric_range},
+            ]
+            if level_tokens:
+                compartment_arms.append(
+                    {"key": "compartment_level",
+                     "match": {"any": level_tokens}}
+                )
+            # An EMPTY `match: {any: []}` is not sent. A threshold outside the
+            # 0..6 domain selects no string levels, and Qdrant rejects an
+            # empty `any` rather than matching nothing, which would turn a
+            # fail-closed filter into a failed request. Dropping the arm keeps
+            # the same result (the numeric arm alone, matching nothing)
+            # with a body the store will accept.
+            must_conditions.append({"should": compartment_arms})
 
         if user_id:
             # `should`, NOT `must`. The field is never written.

@@ -35,6 +35,30 @@ struct InstallCompleteView: View {
     @State private var pairFetchInFlight: Bool = false
     @State private var pairFetchError: String? = nil
 
+    // #944. THE BUTTON BELOW USED TO BE UNCONDITIONAL, and this screen is the
+    // last thing a customer sees. install.sh already knows the answer: its
+    // "Next steps" banner prints the wiki URL only when WIKI_FIRST_COMPILE_OK
+    // is true, and prints "not yet available" otherwise. The GUI printed
+    // neither guard. So on a box where the first compile did not finish, the
+    // terminal path went quiet and the GUI actively sent the customer to a
+    // page that would not load, with a sign-in hint for a server that was not
+    // listening. The richer surface was the more misleading one.
+    //
+    // THREE STATES, THREE BRANCHES. "Not checked yet" is not "not serving",
+    // and "not serving" is not "broken for ever". A two-state flag here would
+    // read the first render as a failure and flash a false warning on every
+    // healthy install.
+    private enum WikiReachability { case checking, serving, notServing }
+    @State private var wikiReachability: WikiReachability = .checking
+
+    /// Starts at `.checking`, NOT at `.notResponding`.
+    ///
+    /// The initial value is the answer shown for the fraction of a second
+    /// before the probe returns, so it has to be the honest one: we have not
+    /// asked yet. Defaulting to `.notResponding` would put "Hub not
+    /// responding" on the screen of every healthy install on first paint.
+    @State private var hubReachability: HubReachability = .checking
+
     private let gatewayClient = GatewayClient()
 
     // The health probes install.sh runs at the tail of Phase 4. We
@@ -49,6 +73,39 @@ struct InstallCompleteView: View {
         let status: StepStatus
     }
 
+    // ── WHAT THIS PANEL CAN AND CANNOT HONESTLY SAY (#1589) ───────────────
+    //
+    // Every row below is derived by GREPPING THE INSTALLER'S OWN TRANSCRIPT.
+    // That is what the installer BELIEVES it did, not what is running. The
+    // issue asks for the panel to be built from surfaces the box can evidence,
+    // and that is right.
+    //
+    // WHY IT IS NOT SIMPLY REPOINTED AT A HEALTH ENDPOINT, measured rather
+    // than assumed: the gateway DOES expose a real per-service check at
+    // `/health?detailed`, which genuinely connects to Qdrant, Oxigraph and
+    // Ollama. But `ical-server.py:7198` requires the service token for the
+    // detailed form and returns 401 without it. The installer would have to
+    // read that token off disk first. That is the right fix and it is more
+    // than a repoint.
+    //
+    // AND THE STORE PORTS MUST NOT BE PROBED DIRECTLY. Ports plus auth is the
+    // shipped design, and a separate blocking probe exists precisely to assert
+    // those ports are NOT reachable without a credential. A panel that
+    // connected to 6333 to prove health would be asserting the opposite of the
+    // security property.
+    //
+    // WHAT CHANGES HERE, and it is the half that can be done honestly today:
+    //
+    // 1. THREE STATES, NOT TWO. `ok` and `warn` meant "the log line matched"
+    //    and "it did not". A service that is fine but logged differently, and
+    //    a service that is genuinely down, rendered IDENTICALLY. They are now
+    //    separable, and a row nobody could check says so.
+    // 2. ONE REAL CHECK. The gateway's UNAUTHENTICATED `/health` needs no
+    //    token and answers whether the Hub is actually serving. That is one
+    //    genuine observation of the box rather than of the transcript.
+    // 3. THE LOG-DERIVED ROWS SAY SO. They are labelled as the installer's own
+    //    report. A customer reading "as reported during install" knows what
+    //    they are being told; a green tick implies a check that did not happen.
     private var serviceChecks: [ServiceCheck] {
         let lines = coordinator.logLines.map { $0.text }
         func ok(_ probe: String) -> Bool {
@@ -67,7 +124,71 @@ struct InstallCompleteView: View {
                          status: ok("Vane healthy") ? .ok : .warn),
             ServiceCheck(id: "imessage", label: "iMessage automation",
                          status: ok("iMessage Automation permission: granted") ? .ok : .warn),
+            // THE ONLY ROW HERE THAT ASKED THE BOX. Everything above it is the
+            // installer quoting itself; this one connected.
+            ServiceCheck(id: "hub", label: "Hub responding",
+                         status: hubReachability.asStatus),
         ]
+    }
+
+    /// Did the Hub answer, could it not, or have we not asked yet?
+    ///
+    /// Three states because two cannot carry the difference. "Not asked yet"
+    /// rendering as a warning would put a red mark on every healthy install
+    /// for the first second of the screen, and "could not ask" rendering as
+    /// "not running" tells a customer their Hub is broken when what actually
+    /// happened is that we did not find out.
+    enum HubReachability {
+        case checking, responding, notResponding
+
+        /// Mapped onto the vocabulary the panel already has, rather than a
+        /// new one. `StepStatus` carries `timeout`, whose own definition says
+        /// it means "we gave up waiting, NOT it failed" and that the record
+        /// must no longer claim the step succeeded. That is exactly what an
+        /// unanswered health check is, so it is used rather than `fail`:
+        /// telling a customer their Hub FAILED when what happened is that we
+        /// stopped waiting is the same overstatement this row is about.
+        var asStatus: StepStatus {
+            switch self {
+            case .responding:    return .ok
+            case .checking:      return .warn
+            case .notResponding: return .timeout
+            }
+        }
+    }
+
+    /// Ask the gateway's UNAUTHENTICATED health route.
+    ///
+    /// `/health` without `detailed` needs no service token (the detailed form
+    /// does, and returns 401 without it). It answers one question honestly:
+    /// is the Hub serving. Any HTTP answer counts, including an error status,
+    /// because something replying is the thing being asked about.
+    private func probeHubReachability() async {
+        guard let url = URL(string: "http://localhost:8089/health") else {
+            hubReachability = .notResponding
+            return
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 4
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        for attempt in 1...20 {
+            if Task.isCancelled { return }
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                if response is HTTPURLResponse {
+                    hubReachability = .responding
+                    return
+                }
+            } catch {
+                if attempt == 20 {
+                    NSLog("install_complete: the Hub did not answer :8089/health in 20 attempts: %@",
+                          error.localizedDescription)
+                }
+            }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        hubReachability = .notResponding
     }
 
     var body: some View {
@@ -189,6 +310,11 @@ struct InstallCompleteView: View {
                 .padding(.vertical, 6)
             }
             .buttonStyle(.bordered)
+            // #944: off while checking and while not serving. A button that
+            // opens a dead page is worse than a button that is plainly not
+            // ready yet, because the customer blames the product for the
+            // blank tab and has no way to tell the two apart.
+            .disabled(wikiReachability != .serving)
 
             Spacer()
         }
@@ -211,10 +337,32 @@ struct InstallCompleteView: View {
         // actually succeeded, and this view cannot observe that. A promise the
         // GUI cannot verify is the failure mode install.sh's own comment warns
         // about: claiming a clipboard we could not write is worse than silence.
-        Text(ViewCopy.shared.string(for: "install_complete.wiki_signin_hint"))
-            .font(.ostlerCaption)
-            .foregroundStyle(Color.ostlerInkSubdued)
-            .fixedSize(horizontal: false, vertical: true)
+        // #944: the sign-in hint is a promise about a server that is
+        // answering. It only belongs under a wiki that is actually serving;
+        // under one that is not, it reads as "here is the password for the
+        // blank page", which is how a customer decides the install failed.
+        switch wikiReachability {
+        case .serving:
+            Text(ViewCopy.shared.string(for: "install_complete.wiki_signin_hint"))
+                .font(.ostlerCaption)
+                .foregroundStyle(Color.ostlerInkSubdued)
+                .fixedSize(horizontal: false, vertical: true)
+        case .checking:
+            Text(ViewCopy.shared.string(for: "install_complete.wiki_checking"))
+                .font(.ostlerCaption)
+                .foregroundStyle(Color.ostlerInkSubdued)
+                .fixedSize(horizontal: false, vertical: true)
+        case .notServing:
+            VStack(alignment: .leading, spacing: 2) {
+                Text(ViewCopy.shared.string(for: "install_complete.wiki_not_serving_label"))
+                    .font(.ostlerCaption)
+                    .foregroundStyle(Color.ostlerInk)
+                Text(ViewCopy.shared.string(for: "install_complete.wiki_not_serving_body"))
+                    .font(.ostlerCaption)
+                    .foregroundStyle(Color.ostlerInkSubdued)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
         }
         .padding(.horizontal, CGFloat.ostlerSpace4)
         .padding(.vertical, CGFloat.ostlerSpace2)
@@ -238,6 +386,17 @@ struct InstallCompleteView: View {
             // then the gateway was up). autoShowPairCode retries with
             // a short backoff so the QR appears on its own.
             await autoShowPairCode()
+            await probeWikiReachability()
+        }
+        // A SECOND .task, deliberately, rather than a line inside the one
+        // above. autoShowPairCode retries the gateway with a backoff and can
+        // run for many seconds; sequencing the health probe behind it would
+        // leave the "Hub responding" row sitting on `.checking` for that whole
+        // time and report a warning about the Hub that is really a statement
+        // about the pair-code fetch. Separate .task modifiers run
+        // concurrently and are each cancelled on disappear.
+        .task {
+            await probeHubReachability()
         }
     }
 
@@ -593,9 +752,83 @@ struct InstallCompleteView: View {
         }
     }
 
+    // 🔴 THIS USED TO OPEN http://localhost:8044 IN THE BROWSER, AND THAT IS
+    // THE BUTTON ANDY PRESSED. His words on his own console walk: "The wiki
+    // via a browser is requesting authentication details I don't have."
+    //
+    // :8044 is nginx, and until this change it answered an uncredentialled
+    // request with `401 + WWW-Authenticate: Basic`. That header is what makes
+    // a browser pop a password box. The password was the customer's own and
+    // sat 0600 on their disk, but this screen is the LAST thing they see and
+    // the box cannot be filled from it.
+    //
+    // install.sh no longer challenges a browser on that port, so this button
+    // would now open a tab saying "your wiki is in the Ostler app". Opening a
+    // browser to be told to close it is not a fix. The wiki is a tab INSIDE
+    // Ostler.app -- the Hub fetches it through the daemon's own proxy, which
+    // presents the credential on the customer's behalf (ostler-assistant
+    // crates/zeroclaw-gateway/src/wiki_proxy.rs, reached from
+    // web/src/pages/Wiki.tsx at WIKI_PROXY_PATH) -- so this button opens the
+    // place the wiki actually is.
+    //
+    // No deep link: the Hub registers no URL scheme (measured, zero
+    // CFBundleURLSchemes in the hub app tree), so this opens the app and the
+    // customer picks Wiki in the sidebar. The hint copy beside the button
+    // says exactly that.
     private func openWiki() {
-        if let url = URL(string: "http://localhost:8044") {
+        if let url = URL(string: "file:///Applications/Ostler.app") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    // #944. THE INSTRUMENT AND THE DEFECT MUST SHARE A SURFACE. The claim this
+    // button makes is "your wiki is at this URL", so the evidence has to be
+    // that URL, not a line in the installer's own transcript saying it started
+    // a container. A log line is what the installer BELIEVES it did.
+    //
+    // 401 COUNTS AS SERVING, AND THIS IS THE TRAP. The wiki has sat behind
+    // auth_basic since #1609, so a correctly protected wiki answers an
+    // unauthenticated request with 401. install.sh learned this the hard way
+    // at its own poll loop: #1594 used `curl -sf`, whose -f fails on any 4xx,
+    // and a properly secured wiki then read as a dead one. That inversion
+    // would have SUPPRESSED the banner carrying the customer's password, so
+    // the fix would have hidden its own credential. Any HTTP answer at all
+    // means something is listening and serving; only a transport failure
+    // means it is not.
+    //
+    // The budget is deliberately longer than install.sh's own 60 seconds. The
+    // success screen can render the instant start-services fires, and a wiki
+    // that is still compiling on a cold box is the ordinary case this row was
+    // filed about, not an error.
+    private func probeWikiReachability() async {
+        guard let url = URL(string: "http://localhost:8044/") else {
+            wikiReachability = .notServing
+            return
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = 4
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+
+        for attempt in 1...45 {
+            if Task.isCancelled { return }
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                if response is HTTPURLResponse {
+                    wikiReachability = .serving
+                    return
+                }
+            } catch {
+                // A transport failure is the only evidence of "not serving".
+                // Swallowing it silently is what this row is about, so it is
+                // recorded once, on the last attempt, rather than never.
+                if attempt == 45 {
+                    NSLog("install_complete: wiki at :8044 did not answer in 45 attempts: %@",
+                          error.localizedDescription)
+                }
+            }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        wikiReachability = .notServing
     }
 }

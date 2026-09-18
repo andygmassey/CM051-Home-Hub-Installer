@@ -597,6 +597,73 @@ def _person_uri(person_id: str) -> str:
     return f"https://schema.ostler.ai/ontology#person_{person_id}"
 
 
+# Sentinel for "the store could not answer". Distinct from None, which
+# means "asked, and nobody holds this". Collapsing the two is the
+# manufactured-clean-input failure: a store that refused to answer would
+# read as "no such person" and mint a duplicate, silently.
+_LOOKUP_FAILED = object()
+
+
+def _person_uri_by_identifier_value(value: str):
+    """Return the URI of a person who ALREADY HOLDS ``value``, or None.
+
+    WHY THIS EXISTS. Every writer in this module mints its person URI as
+    ``uuid5(lowercased identifier)`` and then asks only
+    :func:`_person_exists` -- "did *I* already create this URI?". That
+    question is not "does this human already exist?". Contacts, LinkedIn
+    and the CM041 resolver mint URIs by other schemes, so a person the
+    customer already has can never be seen by a self-check, and the
+    writer creates a second record for them.
+
+    This asks the graph the question that actually matters: is there a
+    ``pwg:PersonIdentifier`` anywhere carrying this value, and who owns
+    it? Matching is case-insensitive on the STORED value, because the
+    minting side lowercases and the contact-card side does not.
+
+    RETURNS one of three things, and the three are NOT interchangeable:
+
+    * a URI string -- somebody holds it; link to them, create nothing.
+    * ``None``     -- the store answered, and nobody holds it.
+    * ``_LOOKUP_FAILED`` -- the store could not be asked.
+
+    The third is why this does not simply return None on error. An
+    unreachable store returning "nobody holds it" is a store that causes
+    duplicates rather than reporting that it could not look. Callers
+    count the failures and surface them, so a run that could not check
+    is distinguishable from a run that checked and found nothing.
+    """
+    if not value or not value.strip():
+        return None
+    needle = _escape(value.strip().lower())
+    sparql = (
+        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
+        "SELECT ?p WHERE {\n"
+        "  ?p pwg:hasIdentifier ?id .\n"
+        "  ?id pwg:identifierValue ?iv .\n"
+        f'  FILTER(LCASE(STR(?iv)) = "{needle}")\n'
+        "} LIMIT 1"
+    )
+    try:
+        rows = _sparql_query(sparql)
+    except Exception as exc:  # noqa: BLE001 -- reported, not swallowed
+        # No value in the log line: an identifier IS the PII. Shape only.
+        logger.warning(
+            "identifier lookup could not run (%s); this run cannot tell a "
+            "new person from a known one and may create a duplicate",
+            type(exc).__name__,
+        )
+        return _LOOKUP_FAILED
+    if not rows:
+        return None
+    return (rows[0].get("p") or {}).get("value") or None
+
+
+def _identifier_kind(value: str) -> str:
+    """"phone" or "email" for an identifier, by the shape iMessage uses."""
+    cleaned = value.replace("-", "").replace(" ", "")
+    return "phone" if (value.startswith("+") or cleaned.isdigit()) else "email"
+
+
 def _whatsapp_display_name(jid: str) -> str:
     """Placeholder display name for an un-named WhatsApp phone contact.
 
@@ -1156,6 +1223,9 @@ def ingest_calendar(fda_dir: Path) -> dict:
     people_seen: set[str] = set()
     events_processed = 0
     meetings_created = 0
+    people_created = 0
+    people_matched = 0
+    lookup_failed = 0
 
     for event in events:
         attendees = event.get("attendees", [])
@@ -1175,14 +1245,26 @@ def ingest_calendar(fda_dir: Path) -> dict:
             if _observe_identifier(attendee, ""):
                 logger.debug("skipping role address %s", attendee)
                 continue
+
+            # RESOLVE BEFORE CREATING. Ask who already holds this address
+            # before minting a URI for it. The old order -- mint, then ask
+            # `_person_exists(<the URI I just minted>)` -- can only ever
+            # find records THIS function made, so a calendar attendee the
+            # customer already had in Contacts became a second record.
+            found = _person_uri_by_identifier_value(attendee)
+            if found is _LOOKUP_FAILED:
+                lookup_failed += 1
+                found = None
             person_id = _person_id_from_identifier(attendee)
-            uri = _person_uri(person_id)
+            uri = found or _person_uri(person_id)
             attendee_uris.append(uri)
 
-            if person_id not in people_seen:
-                people_seen.add(person_id)
+            if uri not in people_seen:
+                people_seen.add(uri)
 
-                if not _person_exists(uri):
+                if found:
+                    people_matched += 1
+                elif not _person_exists(uri):
                     triples = [
                         f"<{uri}> a pwg:Person",
                         f'<{uri}> pwg:contactType "person"',
@@ -1195,12 +1277,33 @@ def ingest_calendar(fda_dir: Path) -> dict:
                     # attendee is very often a bare address. Un-flagged, that
                     # address became the person's permanent name.
                     triples.extend(_creation_name_triples(uri, attendee))
+
+                    # THE IDENTIFIER, which this writer never emitted.
+                    # Without it the record carries nothing to match on, so
+                    # it is unmergeable FOREVER: every later resolver --
+                    # including the lookup above, and CM041's dedup detector,
+                    # which indexes only non-empty identifier values -- keys
+                    # on identifiers and simply cannot see a person who has
+                    # none. 900 identifier-less people were measured this way.
+                    id_uri = (
+                        "https://schema.ostler.ai/ontology#"
+                        f"id_{person_id}_calendar"
+                    )
+                    triples.extend([
+                        f"<{uri}> pwg:hasIdentifier <{id_uri}>",
+                        f"<{id_uri}> a pwg:PersonIdentifier",
+                        f'<{id_uri}> pwg:identifierType "{_identifier_kind(attendee)}"',
+                        f'<{id_uri}> pwg:identifierValue "{_escape(attendee)}"',
+                        f'<{id_uri}> pwg:identifierLabel "CALENDAR"',
+                    ])
+
                     sparql = (
                         "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
                         "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
                         "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
                     )
                     _sparql_update(sparql)
+                    people_created += 1
 
                 # v1018-D658: runs for NEW and EXISTING alike. Every name write
                 # above sits inside the not-exists guard, so an existing person's
@@ -1258,14 +1361,26 @@ def ingest_calendar(fda_dir: Path) -> dict:
         events_processed += 1
 
     logger.info(
-        "Calendar: %d events processed, %d unique attendees, %d meetings",
+        "Calendar: %d events processed, %d unique attendees, %d meetings, "
+        "%d people created, %d matched to an existing person",
         events_processed, len(people_seen), meetings_created,
+        people_created, people_matched,
     )
+    if lookup_failed:
+        # NOT folded into the counts above. A run that could not look is
+        # not a run that looked and found nothing.
+        logger.warning(
+            "Calendar: %d identifier lookups could not run; those attendees "
+            "may have been duplicated", lookup_failed,
+        )
     return {
         "status": "ok",
         "events_processed": events_processed,
         "unique_attendees": len(people_seen),
         "meetings_created": meetings_created,
+        "people_created": people_created,
+        "people_matched": people_matched,
+        "people_lookup_failed": lookup_failed,
     }
 
 
@@ -1353,6 +1468,8 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
 
     contacts = json.loads(contacts_file.read_text())
     people_created = 0
+    people_matched = 0
+    lookup_failed = 0
 
     for email, count in contacts.items():
         if not email or count < 3:
@@ -1366,10 +1483,20 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
         if _observe_identifier(email, ""):
             logger.debug("skipping role address %s", email)
             continue
+        # RESOLVE BEFORE CREATING -- same rule as ingest_calendar above.
+        # A frequent sender is very often somebody already in Contacts,
+        # minted there under a different URI scheme that _person_exists
+        # cannot see.
+        found = _person_uri_by_identifier_value(email)
+        if found is _LOOKUP_FAILED:
+            lookup_failed += 1
+            found = None
         person_id = _person_id_from_identifier(email)
-        uri = _person_uri(person_id)
+        uri = found or _person_uri(person_id)
 
-        if not _person_exists(uri):
+        if found:
+            people_matched += 1
+        elif not _person_exists(uri):
             triples = [
                 f"<{uri}> a pwg:Person",
                 f'<{uri}> pwg:contactType "person"',
@@ -1404,8 +1531,21 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
         # same-tier or lower value is a no-op.
         _upsert_display_name(uri, email)
 
-    logger.info("Apple Mail: %d contacts created", people_created)
-    return {"status": "ok", "people_created": people_created}
+    logger.info(
+        "Apple Mail: %d contacts created, %d matched to an existing person",
+        people_created, people_matched,
+    )
+    if lookup_failed:
+        logger.warning(
+            "Apple Mail: %d identifier lookups could not run; those senders "
+            "may have been duplicated", lookup_failed,
+        )
+    return {
+        "status": "ok",
+        "people_created": people_created,
+        "people_matched": people_matched,
+        "people_lookup_failed": lookup_failed,
+    }
 
 
 # ── Browser history ingestion (direct path, v1.0) ─────────────────
