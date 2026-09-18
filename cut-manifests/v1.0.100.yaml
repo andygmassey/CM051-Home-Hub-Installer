@@ -4940,36 +4940,60 @@ open_issues:
       The v1.0.100 walk FAILED and six of its seven failures are REGRESSIONS
       against v1.0.95, which the record says and nobody had read
     gate: >-
-      🔴 BLOCKING, AND IT HAS CONVERTED FROM A FIX GATE INTO A BUILD-AND-REWALK GATE. Re-measured
-      2026-09-19 against the record line by line, and every forensic claim in this row checks out
-      exactly. THE ONE FACT THAT REORGANISES THIS WHOLE BOARD: NOTHING HAS BEEN BUILT SINCE v1.0.100.
-      The newest tag is v1.0.100, the last cut run was 2026-09-17, and main carries 82 commits since.
-      So every fix on main is MERGED, none is DELIVERED and none is PROVEN, and no amount of further
-      merging can close this row. PER FAILURE, WHICH IS WHAT THE ROW OWES AND DID NOT GIVE: five of
-      the seven have something on main and two have nothing. Fixed on main: the unlock probe by a
-      merged pull request whose timestamp the row quotes exactly; the manifest completeness, by two
-      register rows plus gate hardening. Partly: the people count, where the CM051 half merged and the
-      upstream half is merged AND NOT VENDORED. Probe only, meaning the instrument changed and the
-      measurement has not been retaken: the store port and the egress probe. NOTHING AT ALL: the
-      acceptance gate, which is row 2221, and the grounded-answer probe, which was red on v1.0.95 as
-      well and whose only change added the sibling probe that is now the single BROKEN one. ZERO OF
-      SEVEN ARE IN ANY ARTEFACT. EVERY FORENSIC NUMBER VERIFIED: probe files 36 to 38 across the tags,
-      the probes directory 28 at the tag and 29 on main, which is two denominators used correctly;
-      three probes byte-identical across the tags including the blob the row names; the egress probe
-      920 to 1,131 lines; install.sh 32,744 to 35,510, a growth of 2,766; the promote helper defined
-      once and identical at both tags. The row's claim that one regression attribution in the record
-      is itself wrong is CORRECT. ONE THING TO FIX IN THE ROW AND IT IS A TRAP FOR THE NEXT READER:
-      its three line citations are DATA-RECORD numbers, not physical lines. All three are right once
-      comments are stripped and all three mislead anyone reading with line numbers on. One clause
-      would fix it. GATE: STILL BLOCKING, AND IT IS NOW THE ROW THE OTHERS FUNNEL INTO. It closes on a
-      cut followed by a walk, and on nothing else. Do NOT read any merge as closing it.  ORIGINAL TEXT
-      FOLLOWS, WITH ONE WORD PAIR PARAPHRASED AND THE PARAPHRASE DECLARED. The original opened with
-      the ungated marker as its verdict. That marker is matched by a PLAIN SUBSTRING test over the
-      WHOLE gate value with no position test, so preserving it verbatim anywhere in this row would
-      hold the row ungated for ever no matter what verdict sits above it. Row 939 records that same
-      trap flipping 41 rows at once. So those two words are replaced by the phrase the ungated marker
-      and NOTHING ELSE in the original is altered. IT READ: 🔴 BLOCKING (seven probes failed a real
-      walk of the shipped artefact and six of them passed on v1.0.95): MEASURED 2026-09-18 by reading
+      🔴 BLOCKING. TWO CLAUSES ADDED 2026-09-19, ONE FIXING A TRAP IN THIS ROW'S OWN CITATIONS AND ONE
+      RECORDING AN INSTRUMENT THAT DID NOT EXIST WHEN THE ROW WAS WRITTEN. THE CITATION TRAP, AND IT
+      IS THIS ROW'S ALONE: the three line numbers it quotes into the walk record are DATA-RECORD
+      positions, counted with comment lines stripped, NOT physical file lines. All three are correct
+      read that way and all three mislead anyone reading the file with line numbers on, which is how
+      anybody actually opens it. The physical positions are roughly sixty lines further down in each
+      case. THE ROW IS NOT WRONG AND IT IS UNUSABLE AS WRITTEN, which is the worse of the two failures
+      because the reader has no signal that they are looking at the wrong line. Cited positions are
+      record-relative unless a row says otherwise. AND THE RE-WALK THIS ROW GATES NOW HAS AN
+      INSTRUMENT IT LACKED. The row's own list has assistant_answers_grounded red with NOTHING on
+      main, and it is red on 17 of the 21 committed records. Until now NOT ONE of those 17 could say
+      whether the box had been SEEDED before the probe asked, because an unseeded box and a broken
+      product produce THE SAME RED. The seed state was computed at five distinct values and consumed
+      by nothing, and the walk discarded its exit code on the line that produced it. The record now
+      carries a grounding_seed field, written on the box, read back, and GRADED into a different
+      sentence per state, so the NEXT walk's grounded-answer result is interpretable whichever way it
+      falls. That does not fix the probe and it is not claimed to: it means a red will finally say
+      WHICH KIND of red it is. ONE LIMIT OF THAT INSTRUMENT, MEASURED AND RECORDED RATHER THAN
+      DISCOVERED LATER: the promote-scope refusal exits at verify_walk_record.sh:545 and BOTH advisory
+      blocks, the existing provenance one and the new seed one, live at :583 and :604. So a record
+      carrying an undeclared non-passing probe reaches NEITHER. The context is withheld from exactly
+      the records that most need it, until every undeclared probe is declared. That ordering is pre-
+      existing, it is the same shape as the three consumer-after-an-exit defects found on this board,
+      and it was deliberately NOT changed under a cut.  ORIGINAL TEXT FOLLOWS. 🔴 BLOCKING, AND IT HAS
+      CONVERTED FROM A FIX GATE INTO A BUILD-AND-REWALK GATE. Re-measured 2026-09-19 against the
+      record line by line, and every forensic claim in this row checks out exactly. THE ONE FACT THAT
+      REORGANISES THIS WHOLE BOARD: NOTHING HAS BEEN BUILT SINCE v1.0.100. The newest tag is v1.0.100,
+      the last cut run was 2026-09-17, and main carries 82 commits since. So every fix on main is
+      MERGED, none is DELIVERED and none is PROVEN, and no amount of further merging can close this
+      row. PER FAILURE, WHICH IS WHAT THE ROW OWES AND DID NOT GIVE: five of the seven have something
+      on main and two have nothing. Fixed on main: the unlock probe by a merged pull request whose
+      timestamp the row quotes exactly; the manifest completeness, by two register rows plus gate
+      hardening. Partly: the people count, where the CM051 half merged and the upstream half is merged
+      AND NOT VENDORED. Probe only, meaning the instrument changed and the measurement has not been
+      retaken: the store port and the egress probe. NOTHING AT ALL: the acceptance gate, which is row
+      2221, and the grounded-answer probe, which was red on v1.0.95 as well and whose only change
+      added the sibling probe that is now the single BROKEN one. ZERO OF SEVEN ARE IN ANY ARTEFACT.
+      EVERY FORENSIC NUMBER VERIFIED: probe files 36 to 38 across the tags, the probes directory 28 at
+      the tag and 29 on main, which is two denominators used correctly; three probes byte-identical
+      across the tags including the blob the row names; the egress probe 920 to 1,131 lines;
+      install.sh 32,744 to 35,510, a growth of 2,766; the promote helper defined once and identical at
+      both tags. The row's claim that one regression attribution in the record is itself wrong is
+      CORRECT. ONE THING TO FIX IN THE ROW AND IT IS A TRAP FOR THE NEXT READER: its three line
+      citations are DATA-RECORD numbers, not physical lines. All three are right once comments are
+      stripped and all three mislead anyone reading with line numbers on. One clause would fix it.
+      GATE: STILL BLOCKING, AND IT IS NOW THE ROW THE OTHERS FUNNEL INTO. It closes on a cut followed
+      by a walk, and on nothing else. Do NOT read any merge as closing it.  ORIGINAL TEXT FOLLOWS,
+      WITH ONE WORD PAIR PARAPHRASED AND THE PARAPHRASE DECLARED. The original opened with the ungated
+      marker as its verdict. That marker is matched by a PLAIN SUBSTRING test over the WHOLE gate
+      value with no position test, so preserving it verbatim anywhere in this row would hold the row
+      ungated for ever no matter what verdict sits above it. Row 939 records that same trap flipping
+      41 rows at once. So those two words are replaced by the phrase the ungated marker and NOTHING
+      ELSE in the original is altered. IT READ: 🔴 BLOCKING (seven probes failed a real walk of the
+      shipped artefact and six of them passed on v1.0.95): MEASURED 2026-09-18 by reading
       walks/v1.0.100.tsv, which is now on main after CM051 #2116 merged. A thin ssh walk started
       2026-09-17T14:10:01Z, verdict FAILED, qa_exit 1. THE SEVEN FAILED PROBES, AND WHEN EACH LAST
       PASSED, from the record''s own regression_of lines: acceptance_gate_v1013 regressed since
