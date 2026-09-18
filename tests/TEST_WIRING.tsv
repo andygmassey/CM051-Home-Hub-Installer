@@ -76,6 +76,7 @@ test_a_timed_out_turn_is_not_a_broken_assistant.sh	WIRED	.github/workflows/walk-
 test_a_timeout_is_not_a_hit_count_of_zero.py	WIRED	.github/workflows/cut-manifest.yml
 test_a_timeout_is_not_a_stale_pin.sh	WIRED	.github/workflows/cut-manifest.yml
 test_a_truncated_category_is_not_reported_complete.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
+test_a_verdict_is_not_a_mention.py	WIRED	.github/workflows/cut-checklist-complete.yml
 test_a_volume_count_is_not_a_wiped_box.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_a_walk_can_ask_for_a_fresh_graph.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
 test_a_walk_failure_is_classified.sh	WIRED	.github/workflows/walk-record-gate.yml
@@ -165,6 +166,8 @@ test_conversation_process_metadata_conversation_id.sh	WIRED	.github/workflows/ve
 test_conversations_ingest_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_creation_name_writes.sh	WIRED	.github/workflows/creation-name-writes.yml
 test_credential_generation_does_not_sigpipe.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_customer_copy_keeps_two_locked_rules.sh	WIRED	.github/workflows/rule-09-strings-check.yml
+test_customer_copy_says_ios_app_not_companion.py	WIRED	.github/workflows/consent-registry.yml
 test_customer_download_path_gate.sh	WIRED	.github/workflows/customer-download-path.yml
 test_cut_bom_is_fresh.sh	WIRED	.github/workflows/cut.yml
 test_cut_deferrals_no_duplicate_keys.sh	WIRED	.github/workflows/cut-manifest.yml
