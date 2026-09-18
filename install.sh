@@ -22139,6 +22139,49 @@ unset _PREFS_DROPZONE _IMPORT_DIRS
 
 # Create a ostler-fda command for re-running FDA extraction
 # (e.g. after granting Full Disk Access post-install)
+# ── QUIESCE THE INTERVAL AGENTS BEFORE THE PAYLOAD IS REPLACED ───────────
+#
+# 🔴 AN UPGRADE LEAVES THE PREVIOUS INSTALL'S AGENTS RUNNING WHILE THEIR
+# PROGRAMS ARE REWRITTEN UNDER THEM. Both of these are StartInterval jobs, so
+# launchd fires them on its own schedule regardless of what this script is
+# doing. During the window where bin/ is being replaced their program is
+# transiently absent, the tick exits non-zero, and launchctl keeps that
+# last-exit until the next interval: one hour for fda-rerun, FOUR for
+# export-scan. A customer's freshly upgraded box therefore carries two agents
+# in a failed state for up to four hours, on an install that succeeded.
+#
+# MEASURED on the Mini, 2026-09-18, on a fresh v1.0.100 install:
+#
+#   export-scan.err written    23:43:47   ostler-scan-exports placed  23:45:33
+#   fda-rerun.err  written     23:43:37   ostler-fda placed           23:45:33
+#
+# so both errors predate their own program by roughly 110 seconds, and the
+# text they wrote tells the customer to "re-run the installer to repair" the
+# installer that is running.
+#
+# WHY THE EXISTING GUARDS DO NOT COVER THIS. The deferred fda-rerun load below
+# correctly refuses to REGISTER the job before its program exists, and
+# export-scan is bootstrapped after its program is written. Both fix the FRESH
+# install. Neither touches a job that is ALREADY registered from a previous
+# install: the fda-rerun bootout is gated on the old plist being legacy or
+# pathless, and export-scan has no bootout at all, so an upgrade from a
+# current-form install quiesces nothing.
+#
+# A bootout of a label that is not loaded is a no-op, so this is safe on a
+# first install. The jobs are re-registered further down, after their programs
+# exist, by the code that already does it.
+_ostler_quiesce_interval_agents() {
+    local _label _domain
+    _domain="gui/$(id -u)"
+    for _label in com.ostler.export-scan com.ostler.fda-rerun; do
+        if launchctl print "${_domain}/${_label}" >/dev/null 2>&1; then
+            launchctl bootout "${_domain}/${_label}" 2>/dev/null || true
+            info "Quiesced ${_label} while its program is replaced; it is re-registered below."
+        fi
+    done
+}
+_ostler_quiesce_interval_agents
+
 cat > "${OSTLER_DIR}/bin/ostler-fda" <<'FDAEOF'
 #!/usr/bin/env bash
 set -euo pipefail

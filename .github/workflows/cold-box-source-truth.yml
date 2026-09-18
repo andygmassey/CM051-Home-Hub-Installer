@@ -624,3 +624,16 @@ jobs:
       - name: the store proxy re-reads the credential it enforces
         if: always()
         run: bash tests/test_the_store_proxy_rereads_the_credential_it_enforces.sh
+      # acceptance_gate_v1013 arm A8 is "LaunchAgents exit clean" and it FAILS
+      # deterministically on any walk run shortly after an install, because two
+      # StartInterval agents tick against programs that are being rewritten
+      # underneath them and launchctl holds the non-zero last-exit for one hour
+      # (fda-rerun) to FOUR (export-scan). Measured on the Mini 2026-09-18:
+      # both .err files predate their own program by about 110 seconds.
+      #
+      # The existing guards cover the FRESH install only. Neither touches a job
+      # already registered by a previous install, which is the upgrade path and
+      # the box this was measured on.
+      - name: interval agents are quiesced before their programs move
+        if: always()
+        run: bash tests/test_interval_agents_are_quiesced_before_their_programs_move.sh
