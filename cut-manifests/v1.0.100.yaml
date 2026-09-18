@@ -1629,6 +1629,57 @@ open_issues:
     repo: none   # no issue of this number exists in either repo
     title: "Swallowed exception silently destroys richer contact data, last write wins"
     gate: >-
+      SEVERITY RE-EXAMINED 2026-09-19 AFTER THE VENDOR REGISTER OWNER CONFIRMED THE DEFECT IS LIVE. IT
+      STAYS NOT BLOCKING, ON A MEASURED TRIGGER, AND THE LOSS IS PERMANENT RATHER THAN TRANSIENT. Re-
+      opened deliberately, because a second person measuring the same thing and calling it live is a
+      reason to re-derive rather than to restate. THE GUARD IS ABSENT, RE-VERIFIED INDEPENDENTLY: the
+      both-fields read returns 0 in all three shipped files against a control of the same shape on the
+      same three files returning 1, 1 and 1. So the zero is real and richer contact data CAN be
+      overwritten by poorer. THE TRIGGER IS NARROWER THAN THE ROW IMPLIES, AND THAT IS WHAT DECIDES
+      THE WORD. The preservation sits inside a try, the recovery is a bare pass, and the write is
+      UNCONDITIONAL and outside the handler, so there are exactly TWO ways in. ONE, the retrieve
+      itself fails on a transient store or network error. TWO, the bare index raises, which needs a
+      stored record carrying the timestamp WITHOUT the value, since that branch is guarded on the
+      timestamp being present and greater. THE SECOND PATH IS NOT LIVE, AND THE DENOMINATOR FOR THAT
+      CLAIM WAS WIDENED BY THE REGISTER OWNER AFTER I SCOPED IT TOO NARROWLY. My survey covered CM041
+      writers only -- which is the SAME FAILURE SHAPE as my own finding that a CM041-derived inventory
+      cannot see other repositories writing into the same store. Re-measured across ALL twelve
+      vendored writers, one of which is NOT CM041, every one constructs both fields together, and that
+      non-CM041 writer's only asymmetry is the REVERSE one, which is not the trigger. Controls on two
+      known-good writers returned 1 and 1. So NO CURRENT WRITER CAN PRODUCE THE SHAPE THE BARE INDEX
+      NEEDS. A record written by an OLDER build could, and whether any customer holds one is NOT
+      INSTRUMENTED from this repository: it needs a payload query on an upgraded box, and the command
+      that would show it does not exist here. Not not-observed, not not-reproducible. NOT
+      INSTRUMENTED. 🔴 AND THE DOWNGRADE DOES NOT SELF-HEAL, WHICH I HAD WRONG AND WHICH CHANGES WHAT
+      THE ROW MEANS. I first wrote that a later successful sync restores the richer value. IT CANNOT.
+      Traced through the condition: preservation only fires when the STORED timestamp is GREATER than
+      the incoming one. After a failed read the stored value IS the incoming one, so on the next sync
+      the two are equal, the condition is false, and the incoming value is written again. THE RICHER
+      VALUE'S ONLY HOME WAS THE STORE AND IT HAS BEEN OVERWRITTEN. Nothing can bring it back. So a
+      transient error causes a PERMANENT loss, and the sentence THE SYNCER RUNS AGAIN reads like
+      recovery and is not. WHY IT IS STILL NOT BLOCKING, stated so the verdict is auditable rather
+      than comfortable: the trigger is a transient store failure, the blast radius is ONE contact's
+      last-contact value and source attribution, and the affected population is NOT INSTRUMENTED,
+      which this row says rather than implying a number. It does not abort an install, it does not
+      stop a walk, and it is not the shape of the two named launch blockers. NOT BLOCKING MEANS IT
+      DOES NOT HOLD THE TAG. IT DOES NOT MEAN IT WAITS: the standing rule is that every register row
+      gets a fix, and the earlier upstream commit's guard is being grafted into the three vendored
+      files regardless. AND THE WORK IS BIGGER THAN THE RE-PIN THIS ROW ASSUMES, which argues for care
+      rather than speed. It is NOT a clean swap: each of the three vendored files already diverges
+      from its pin by 30 to 47 lines, so a wholesale copy would DESTROY existing local grafts. And the
+      later upstream commit relocates the logic into a file THIS TREE DOES NOT VENDOR AT ALL, so
+      taking it whole would mean adding a file to the vendored file-set. The earlier commit's guard is
+      the customer-facing half and is graftable surgically. That is the shape of the remaining work
+      and it is why the re-pin framing in rows 2204 and 2207 is too simple for this one. WHAT WOULD
+      RAISE THIS TO BLOCKING: any evidence of a stored record carrying the timestamp without the
+      value, which makes the bare index fire on EVERY sync for that record and turns one permanent
+      loss into a compounding one. That is a payload query on an upgraded box, and it is the one
+      measurement nobody has taken.  ORIGINAL TEXT FOLLOWS, WITH ONE WORD PAIR PARAPHRASED AND THE
+      PARAPHRASE DECLARED. The original opened with the ungated marker as its verdict. That marker is
+      matched by a PLAIN SUBSTRING test over the WHOLE gate value with no position test, so preserving
+      it verbatim anywhere in this row would hold the row ungated for ever no matter what verdict sits
+      above it. Row 939 records that same trap flipping 41 rows at once. So those two words are
+      replaced by the phrase the ungated marker and NOTHING ELSE in the original is altered. IT READ:
       MEASURED 2026-09-19 AND THE ROW IS CORRECT: THE DEFECT IS IN THE COPY THE CUSTOMER RUNS, AND THE
       FIX EXISTS UPSTREAM AND IS NOT VENDORED. WHICH COPY SHIPS WAS MEASURED, NOT ASSUMED, because
       there are TWO on origin/main and the row's own line citations resolve to the wrong one.
@@ -1813,7 +1864,6 @@ open_issues:
       THAN THE BUG: an earlier fork reported this category CLEAN on a single-line regex. The real code
       uses the standard TWO-LINE idiom, so the zero was a probe-shape false negative caught only by
       cross-checking another fork.
-
   - issue: 964
     repo: none   # no issue of this number exists in either repo
     title: "The Doctor daemon is killed by launchd about once a minute and silently respawns"
