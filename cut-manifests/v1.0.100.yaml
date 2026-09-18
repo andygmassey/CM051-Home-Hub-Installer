@@ -5051,7 +5051,41 @@ open_issues:
       other 5 cannot be proven against any artefact because their method reads
       source that is compiled away
     gate: >-
-      🔴 BLOCKING. ONE CORRECTION ADDED 2026-09-19 AT THE REGISTER OWNER'S REQUEST, AND IT CHANGES HOW
+      🔴 BLOCKING. THIRD AND FINAL CORRECTION TO THIS ROW 2026-09-19, AND IT RETIRES THE FIX DIRECTION
+      ENTIRELY RATHER THAN REFINING IT. THE REGISTER ALREADY RECORDS WHY THE BINARY METHOD IS WRONG
+      FOR THESE ROWS, IN ONE OF THE FOUR ROWS' OWN DESCRIPTIONS, AND NEITHER THIS ROW NOR I HAD READ
+      IT. It says, verbatim: NOT method=binary, Swift enum case names are not reliably reachable by
+      strings in a signed app, AND A CONTROL IN THAT COMPARTMENT DIES THE SAME WAY. THAT SECOND CLAUSE
+      IS THE WHOLE ARGUMENT AND IT IS THIS ESTATE'S OWN RULE: a control that fails for the SAME REASON
+      as its subject is not a control. If a Swift symbol cannot be reliably found in a signed binary,
+      then neither can the control you would pair with it, so the method cannot distinguish a
+      capability that is present from one that is absent. It is not that binary is harder here. IT IS
+      THAT BINARY CANNOT BE MADE TO DISCRIMINATE HERE. AND THE HAND MEASUREMENT AGREES WITH THAT WORD
+      FOR WORD. Against the real artefact, three of the four Swift patterns survived into the string
+      table and the fourth did not, the survivor being an enum case and two view-state properties and
+      the absentee a COMPUTED PROPERTY. NOT RELIABLY is exactly what three-of-four means. I read that
+      as an encouraging result and the register had already read it as a disqualifying one. SO THE FIX
+      I DESCRIBED WOULD NOT HAVE HELPED AND I AM WITHDRAWING IT. I wrote that the real fix is a gate-
+      code change giving the binary method the artefact-path fallback the frontend method already has.
+      Read at source, that fallback resolves the HUB binary by name. These four capabilities live in
+      the INSTALLER binary, which is a different artefact entirely, so a copy of it would have
+      resolved the wrong file and produced a confident answer about a binary that never contained the
+      symbol. A fallback is only as good as the artefact it picks. WHAT THIS LEAVES, stated plainly
+      rather than tidied: FOUR CAPABILITIES ARE SOURCE-VERIFIABLE ONLY, by a decision already taken
+      and recorded, and no method available in that gate can raise them to artefact-grade. That is not
+      a gap to close by repointing a column. It is a limit of what a string extraction can see in a
+      signed Swift binary, and it should be stated in the row rather than carried as outstanding work.
+      THE FIFTH is a path-resolution question already answered: the declared path is repository-
+      relative BY DESIGN and keying to a directory rather than a file is DELIBERATE, because a row
+      keyed to a file reports unknown when that file is deleted and a deletion is the regression it
+      exists to catch. RETIREMENT CONDITION, RESTATED AND NOW REACHABLE: this row retires when the
+      register RECORDS, per capability, which are artefact-verifiable and which are source-only WITH
+      THE REASON, so that 22 of 27 stops reading as a shortfall and starts reading as a measured
+      boundary. It must NOT retire by repointing rows to a method whose own control cannot survive the
+      compartment, and it must NOT retire by marking the five not-required. AND THE COUNT ITSELF NEEDS
+      THE WORD THIS ROW NOW CARRIES: 22 of 27 IS A HAND RUN, not gate output, because nothing on the
+      shipping path evaluates a capability at all. That is row 2241.  ORIGINAL TEXT FOLLOWS. 🔴
+      BLOCKING. ONE CORRECTION ADDED 2026-09-19 AT THE REGISTER OWNER'S REQUEST, AND IT CHANGES HOW
       EVERY NUMBER BELOW SHOULD BE READ: THE 22 OF 27, AND THE PER-PATTERN RESULTS, ARE A HAND RUN.
       They are a real measurement against a downloaded, digest-verified, mounted artefact, and they
       are NOT the output of any gate. Nothing on the shipping path evaluates a capability at all,
