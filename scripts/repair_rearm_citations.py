@@ -223,8 +223,59 @@ def align_and_report(base, cur, base_label, check, write_path):
     return 1
 
 
+def _fixture():
+    """An install.sh-shaped text whose citations are correct BY CONSTRUCTION.
+
+    🔴 THE FIXTURE MUST NOT BE THE WORKING TREE, AND THIS FUNCTION EXISTS
+    BECAUSE IT WAS. The first version of this self-test read the real
+    install.sh and passed it as BOTH base and current to arm 1, then demanded
+    exit 0 on the grounds that an unchanged tree is clean. That conflates two
+    different properties: "no citation MOVED" is a fact about the checker, and
+    "every citation lands on its anchor" is a fact about the FILE. Any branch
+    part-way through an install.sh change fails the second while satisfying
+    the first, so the self-test went red on exactly the trees the tool exists
+    to repair, and it reported the tool broken rather than the citations
+    stale. Measured 2026-09-18 on a branch with 40 lines of real drift: arm 1
+    got exit 2 wanting 0, arm 2 got 2 wanting 1, and arms 3 and 4 PASSED FOR
+    THE WRONG REASON, because they demand exit 2 and a refusal is exit 2
+    whatever caused it. Two arms silently stopped testing anything.
+
+    Same shape as the mutant whose baseline was a moving ref: a fixture that
+    moves under the test it anchors is not a fixture.
+
+    The line numbers below are COMPUTED, never written down, because a
+    hand-written citation in a test about hand-written citations going stale
+    would be the defect wearing the costume of its own guard.
+    """
+    body = ["# filler %d" % i for i in range(1, 120)]
+
+    def place(text):
+        body.append(text)
+        return len(body)          # 1-indexed line number of what was just added
+
+    n_def = place("_ostler_write_store_curl_config() {")
+    n_conf = place('    local _conf="${OSTLER_DIR}/secrets/store-curl.conf"')
+    body.extend(["# filler %d" % i for i in range(120, 150)])
+    n_args = place('    _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )')
+    body.extend(["# filler %d" % i for i in range(150, 180)])
+    n_prom = place("_ostler_promote_prelaunch_tree() {")
+
+    body += [
+        START,
+        "    # the writer captures the path by value:",
+        "    #     :%d   the writer's definition" % n_def,
+        "    #     :%d   the config path it captures" % n_conf,
+        "    #     :%d   the array it arms" % n_args,
+        "    #     :%d   the promote that invalidates it" % n_prom,
+        END + " >/dev/null 2>&1; then",
+        "        _ostler_write_store_curl_config || true",
+        "    fi",
+    ]
+    return "\n".join(body), [n_def, n_conf, n_args, n_prom]
+
+
 def self_test():
-    """Prove this checker can still go red, and can still refuse.
+    """Prove this checker can still go red, can still refuse, and can pass.
 
     🔴 A GATE THAT CANNOT FAIL IS NOT A GATE, and this one is at particular
     risk of becoming one: on most pull requests install.sh is untouched, so
@@ -233,65 +284,93 @@ def self_test():
     resolved. It says NOTHING about whether the checker would notice a moved
     citation, so CI watches it notice one on every run.
 
-    Four arms, over the real install.sh text, mutated in memory. Nothing is
-    written. Each arm names the exit code it demands, and all three codes are
-    represented, because CANNOT-RUN is not FAIL and is not PASS.
+    Four hermetic arms over a fixture that is clean by construction, plus two
+    arms over the REAL install.sh that assert only what is true whatever the
+    state of that file's citations. The real-file arms are what stops the
+    fixture encoding the shape the code handles rather than the shape the
+    repository has; the hermetic arms are what stops the tree's own staleness
+    being read as a broken checker. Nothing is written by any arm.
     """
-    if not INSTALL.is_file():
-        print("SELF-TEST CANNOT-RUN: install.sh not found at %s" % INSTALL)
-        return 2
-    real = INSTALL.read_text(encoding="utf-8")
-    if block_of(real) is None:
-        print("SELF-TEST CANNOT-RUN: the re-arm comment's anchors are absent"
-              " from install.sh, so there is nothing to mutate.")
-        return 2
-    lines = real.split("\n")
-    block, _, _ = block_of(real)
-    cites = [int(x) for x in CITE.findall(block)]
+    fixture, cited = _fixture()
+    lines = fixture.split("\n")
 
     failures = []
 
     def arm(name, base, cur, want):
         print("\n--- SELF-TEST ARM: %s (demands exit %d) ---" % (name, want))
-        got = align_and_report(base, cur, "self-test base", True, None)
+        got = align_and_report(base, cur, "self-test fixture", True, None)
         print("    exit %d, wanted %d" % (got, want))
         if got != want:
             failures.append("%s: exit %d, wanted %d" % (name, got, want))
 
-    # 1. A clean tree reads clean. Without this arm the other three could all
-    #    pass on a checker that returns non-zero unconditionally.
-    arm("an untouched tree is clean", real, real, 0)
+    # 1. A fixture whose citations are right reads clean. Without this arm the
+    #    others could all pass on a checker that never returns zero.
+    arm("a fixture with correct citations is clean", fixture, fixture, 0)
 
     # 2. THE ARM THAT MATTERS. Three lines inserted at the top shift every
     #    citation, and none of the inserted text goes anywhere near the
     #    comment, so a checker that compared only the comment block would see
     #    nothing and pass.
     shifted = "\n".join(["# self-test insertion"] * 3 + lines)
-    arm("three lines inserted above everything", real, shifted, 1)
+    arm("three lines inserted above everything", fixture, shifted, 1)
 
     # 3. A refusal, not a guess: the anchors gone means the block cannot be
     #    located at all.
     arm("the comment's start anchor is deleted",
-        real, real.replace(START, "    # (anchor removed by the self-test)", 1), 2)
+        fixture, fixture.replace(START, "    # (anchor removed)", 1), 2)
 
     # 4. A refusal of the other kind: a CITED line is deleted, so the
     #    alignment has no image for it. Re-pointing that citation at whatever
     #    sits at the same number afterwards is exactly the silent damage this
     #    tool refuses to do.
-    if cites:
-        n = cites[0]
-        gutted = "\n".join(lines[:n - 1] + lines[n:])
-        arm("a cited line is deleted (citation :%d)" % n, real, gutted, 2)
+    n = cited[0]
+    gutted = "\n".join(lines[:n - 1] + lines[n:])
+    arm("a cited line is deleted (citation :%d)" % n, fixture, gutted, 2)
+
+    # 5 and 6 keep the checker in contact with the REAL file. Neither asserts
+    #   that the tree's citations are correct, because on a branch mid-change
+    #   they are not, and that is the tool's input rather than its verdict.
+    if not INSTALL.is_file():
+        print("\nREAL-FILE ARMS CANNOT-RUN: install.sh not found at %s"
+              % INSTALL)
+        failures.append("real-file arms could not be built")
+    elif block_of(INSTALL.read_text(encoding="utf-8")) is None:
+        print("\nREAL-FILE ARMS CANNOT-RUN: the re-arm comment's anchors are"
+              " absent from install.sh, so there is nothing to align.")
+        failures.append("real-file arms could not be built")
     else:
-        failures.append("no citations found, so arm 4 could not be built")
+        real = INSTALL.read_text(encoding="utf-8")
+
+        # 5. Identity in, no movement out. True however stale the citations
+        #    are, because nothing can have moved when nothing changed. A 1
+        #    here means the aligner invented a move.
+        print("\n--- SELF-TEST ARM: the real install.sh against itself"
+              " (demands anything but 1) ---")
+        got = align_and_report(real, real, "install.sh itself", True, None)
+        print("    exit %d, wanted 0 or 2, never 1" % got)
+        if got == 1:
+            failures.append("real file against itself reported a move: the"
+                            " alignment is not the identity map")
+
+        # 6. And it must never call a shifted real file clean. This is the
+        #    real-file half of arm 2, weakened to the one claim that survives
+        #    a tree whose citations are already stale.
+        print("\n--- SELF-TEST ARM: the real install.sh shifted by three"
+              " lines (demands anything but 0) ---")
+        got = align_and_report(
+            real, "\n".join(["# self-test insertion"] * 3
+                            + real.split("\n")), "install.sh itself", True, None)
+        print("    exit %d, wanted 1 or 2, never 0" % got)
+        if got == 0:
+            failures.append("a shifted real file was reported clean")
 
     print()
     if failures:
-        print("SELF-TEST FAIL: %d of 4 arm(s) did not behave" % len(failures))
+        print("SELF-TEST FAIL: %d arm(s) did not behave" % len(failures))
         for f in failures:
             print("    %s" % f)
         return 1
-    print("SELF-TEST PASS: 4 of 4 arms behaved, exits 0/1/2 all represented.")
+    print("SELF-TEST PASS: 6 of 6 arms behaved, exits 0/1/2 all represented.")
     return 0
 
 
