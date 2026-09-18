@@ -57,6 +57,7 @@ on:
       - 'tests/test_case_in_command_substitution_parses_under_bash_32.sh'
       - 'tests/test_vendor_only_survives_sync.sh'
       - 'vendor/doctor/agent/web_ui.py'
+      - 'tests/test_a_launchagent_names_an_absolute_interpreter.py'
       - 'vendor/cm041/identity_resolver/batch_resolver.py'
       - 'vendor/cm041/identity_resolver/resolver.py'
       - 'tests/test_aiconv_agent_not_registered_without_owner_email.sh'
@@ -575,3 +576,12 @@ jobs:
       - name: Every ${SCRIPT_DIR} probe is bundled by a build phase
         if: always()
         run: python3 scripts/check_install_sh_script_dir_coverage.py --mode ci
+      - name: Every LaunchAgent names an absolute interpreter (#951, #952)
+        if: always()
+        # A LaunchAgent does not inherit the customer's shell PATH; this repo's
+        # own plist comments say so. A bare interpreter is therefore not a style
+        # question: launchd resolves it against a minimal PATH, so the agent
+        # runs the wrong Python or fails to exec and parks with EX_CONFIG, which
+        # is not retried. Both rows are FIXED (23 of 23 agents absolute on the
+        # walk box) and nothing kept them that way until this file.
+        run: python3 tests/test_a_launchagent_names_an_absolute_interpreter.py
