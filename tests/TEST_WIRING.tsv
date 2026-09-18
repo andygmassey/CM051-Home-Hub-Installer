@@ -514,6 +514,7 @@ test_the_cut_checklist_is_complete.py	WIRED	.github/workflows/cut-checklist-comp
 test_the_daemon_freshness_row_decides_on_the_scoped_count.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_db_key_reaches_the_services_and_the_disk.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_the_doctor_dashboard_actually_renders.sh	WIRED	.github/workflows/vendor-integrity.yml
+test_the_doctor_page_is_on_brand.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_doctor_status_poll_has_a_fork_budget.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_downloads_watcher_survives_a_real_export.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
 test_the_dry_run_can_still_go_green.sh	WIRED	.github/workflows/version-gate-not-tautological.yml
