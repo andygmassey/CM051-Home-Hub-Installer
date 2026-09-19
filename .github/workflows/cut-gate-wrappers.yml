@@ -37,6 +37,9 @@ on:
       - 'tests/test_new_cut_checks_what_preflight_checks.sh'
       - 'tests/test_new_cut_covers_every_pretag_gate.sh'
       - 'scripts/verify_bom_rows_are_in_the_pin.sh'
+      # Both the guard AND its subject, same rule as new_cut.sh above.
+      - 'scripts/pre_tag_live_checks.sh'
+      - 'tests/test_the_wiki_deferral_is_computed_not_asserted.sh'
       # Wired 2026-09-09: a staging copy guarded on its DESTINATION leaves the
       # previous DMG's vendored code on any box that already has the tree, so a
       # v1.0.82 vendored fix never reaches the walk box that must demonstrate it.
@@ -288,6 +291,13 @@ jobs:
       # this suite drives python mutations whose quoting differs under 5.
       #
       # if: always() so an earlier red in this job cannot mask it.
+      # scripts/pre_tag_live_checks.sh decides whether a tag may be pushed and,
+      # measured 2026-09-19, was referenced by ZERO of this repo's 154 workflow
+      # files (control: verify_cut_freshness is referenced by cut-freshness.yml).
+      # So the script that gates the tag had no CI at all. This is the first.
+      - name: The wiki-provenance deferral is computed, not asserted
+        run: /bin/bash tests/test_the_wiki_deferral_is_computed_not_asserted.sh
+
       - name: A workflow_dispatch cannot publish
         if: always()
         run: /bin/bash tests/test_cut_dispatch_is_dry.sh

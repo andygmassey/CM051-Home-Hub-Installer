@@ -378,22 +378,55 @@ _pf "pf: appcast debt collected"     ./tests/test_appcast_debt_is_collected.sh
 _pf "pf: installer version == cut"   bash tests/test_installer_version_matches_the_cut.sh "${CUTV}"
 
 # THE TWO THAT CANNOT BE ANSWERED HERE, NAMED RATHER THAN OMITTED.
-# Both inspect the wiki container images and need docker. They are deferred to
-# the cut, and that is acceptable for THIS cut for a measured reason rather than
-# a hopeful one: the wiki image pins are IDENTICAL between the v1.0.74 tag and
-# the tree being cut --
-#     wiki-compiler@sha256:64debb2e2209
-#     wiki-site@sha256:77eee04f13b1
-# -- so they will be answering about images that already passed at v1.0.74. If a
-# future cut moves either pin, this row is a lie and the deferral must be
-# revisited.
+# Both inspect the wiki container images and need docker, so they are deferred
+# to the cut, which runs them and must pass them before it ships anything.
+#
+# 🔴 THE REASON USED TO BE A HARDCODED STRING AND IT WENT FALSE. It read "safe
+# to defer because the wiki image pins are byte-identical to v1.0.74 (compiler
+# 64debb2e2209, site 77eee04f13b1)", and it ended with its own escape clause:
+# "if a future cut moves either pin, this row is a lie and the deferral must be
+# revisited". v1.0.101 moved BOTH pins, to the v0.1.34 images carrying the Pro
+# vault fix. Measured on origin/main at the time of this change: 64debb2e and
+# 77eee04f each score 0 in install.sh, against the live compiler pin 7cd2dd8b
+# scoring 1. So the row was asserting prior passage for two images no previous
+# cut has ever seen.
+#
+# A VERDICT PRINTED FROM A STRING LITERAL CANNOT GO RED. That is the defect
+# underneath the stale text, and it is the more important half: the condition
+# was written down in a comment for a human to re-check by hand, and no human
+# re-checked it across twenty-seven cuts. The condition is now COMPUTED from
+# install.sh on every run, so the row cannot claim prior passage it does not
+# have.
+#
+# It stays DEFERRED and non-blocking in BOTH branches, because that part was
+# right: coverage is RELOCATED to the cut, not lost, and making it CANNOT-RUN
+# would make this script exit 2 forever and become a gate that can only say no.
+# What changes is that the DETAIL now tells the truth about which case you are
+# in, so a reader deciding whether to spend a tag knows whether these images
+# have ever been verified by anything.
 # DEFERRED, NOT CANNOT-RUN, and the difference is the whole point. These two are
 # not unmeasured -- they are measured by the cut itself, which must pass them
 # before it ships anything. Coverage is RELOCATED, not lost, so this row is
 # reported and does NOT block the verdict. Marking it CANNOT-RUN would make this
 # script exit 2 forever and never be able to clear a tag, which would be a gate
 # that can only ever say no.
-row "pf: wiki provenance (2 steps)" "DEFERRED" "needs docker; RUN BY THE CUT, not skipped. Safe to defer for THIS cut because the wiki image pins are byte-identical to v1.0.74 (compiler 64debb2e2209, site 77eee04f13b1) -- revisit if a cut ever moves them."
+# The digests that a previous cut (v1.0.74) actually verified. A pin still
+# equal to one of these is answering about an image that already passed.
+_wiki_verified_compiler="64debb2e2209"
+_wiki_verified_site="77eee04f13b1"
+_wiki_pinned_compiler="$(sed -n 's/.*ostler-wiki-compiler@sha256:\([0-9a-f]*\).*/\1/p' install.sh | head -1)"
+_wiki_pinned_site="$(sed -n 's/.*ostler-wiki-site@sha256:\([0-9a-f]*\).*/\1/p' install.sh | head -1)"
+if [ -z "${_wiki_pinned_compiler}" ] || [ -z "${_wiki_pinned_site}" ]; then
+	# Read nothing rather than read a match. An empty pin is not "unchanged";
+	# it means this check could not look, and saying DEFERRED here would be
+	# the same class of lie the hardcoded string was.
+	row "pf: wiki provenance (2 steps)" "CANNOT-RUN" "could not read either wiki image pin out of install.sh (compiler='${_wiki_pinned_compiler}' site='${_wiki_pinned_site}'). Not a pass and not a defer: the deferral's whole basis is a comparison that did not happen."
+elif [ "${_wiki_pinned_compiler#${_wiki_verified_compiler}}" != "${_wiki_pinned_compiler}" ] \
+  && [ "${_wiki_pinned_site#${_wiki_verified_site}}" != "${_wiki_pinned_site}" ]; then
+	row "pf: wiki provenance (2 steps)" "DEFERRED" "needs docker; RUN BY THE CUT, not skipped. Both pins are still the digests v1.0.74 verified (compiler ${_wiki_verified_compiler}, site ${_wiki_verified_site}), so the cut will be re-checking images that already passed."
+else
+	row "pf: wiki provenance (2 steps)" "DEFERRED" "needs docker; RUN BY THE CUT, not skipped. 🔴 THE PINS HAVE MOVED since the last cut that verified them: compiler ${_wiki_pinned_compiler:0:12} (v1.0.74 verified ${_wiki_verified_compiler}), site ${_wiki_pinned_site:0:12} (verified ${_wiki_verified_site}). NO PREVIOUS CUT HAS SEEN THESE IMAGES, so the cut is the FIRST check of them, not a re-check. Still non-blocking here because the cut enforces it, but do not read this row as prior assurance."
+fi
 
 # ── report ─────────────────────────────────────────────────────────────────
 printf '  %-30s  %-12s  %s\n' "CHECK" "VERDICT" "DETAIL"
