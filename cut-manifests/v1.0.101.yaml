@@ -4415,13 +4415,44 @@ open_issues:
       Two customer surfaces read zero from a store that holds the data, because
       the reader asks the default graph and the writer writes a named one
     gate: >-
-      🔴 BLOCKING. THE GRAFT WAS ATTEMPTED AND IT IS NOT MECHANICAL, MEASURED RATHER THAN ASSUMED.
-      Having established above that the pin is NOT held on CM041 #178, the gate's first option is to
-      graft e01dff3297ce into the three vendored trees. I built the patch from the commit, rewrote its
-      paths to vendor/cm041/ and ran git apply --check per file. THE COMMIT TOUCHES 13 FILES AND ONLY
-      4 ARE VENDORED: the other 9 are tests, which VENDOR_MANIFEST.toml excludes by design. Of those
-      4, TWO APPLY CLEANLY, identity_resolver/resolver.py at 3 hunks and meeting_syncer/brief.py at 4,
-      and TWO REJECT, assistant_api/ical-server.py failing at :494 of 6 hunks and
+      🔴 BLOCKING, AND THE REMAINING WORK IS FOUR READERS RATHER THAN NINE HUNKS. MEASURED 2026-09-19
+      BY READING THE VENDORED TREE INSTEAD OF THE UPSTREAM PATCH, WHICH CHANGES WHAT SHOULD BE DONE.
+      The row says the defect is in all three copies and the fix is to graft CM041 e01dff32. The first
+      half is CORRECT for the vendored copy and I confirmed it below. The second half would import a
+      SECOND mechanism into a tree that already has one. THE VENDORED TREE ALREADY SOLVES NAMED-GRAPH
+      READING, BY ITS OWN MEANS, AND IT IS WIRED. compartment.py defines CM048_USER_GRAPH_BASE at :116
+      and cm048_user_graph_uris at :580; ical-server.py imports it at :614, builds _USER_GRAPH_URIS at
+      :1236 and wraps queries through _graph_scoped at :1239. Upstream instead adds
+      read_across_graphs. MEASURED, with SELECT counts as the control so the two files are comparably
+      readable, 45 and 44: the vendored copy has 4 _USER_GRAPH_URIS references and 0
+      read_across_graphs; upstream main has 8 read_across_graphs and 0 _USER_GRAPH_URIS. Two
+      mechanisms, both wired, ZERO overlap in the functions they cover. SO THE GRAFT WOULD DUPLICATE
+      RATHER THAN FIX, and the right change uses the helper this file already proves. I FOLLOWED THE
+      CALL GRAPH RATHER THAN COUNTING MARKERS, because a helper would have made the function-level
+      count meaningless: _graph_scoped has 5 references and exactly ONE call site outside its own
+      definition, inside _is_personal_admin_event. THE FOUR CUSTOMER-FACING READERS ALL EXIST IN THE
+      VENDORED COPY AND NONE IS SCOPED. person_context, person_enrichment, person_timeline and
+      commitments_list each score 0 for _graph_scoped, 0 for _USER_GRAPH_URIS and 0 for a GRAPH
+      clause. So this row's central claim about the SHIPPED copy stands, measured directly rather than
+      inherited from the upstream diff. AND THE WORK SPLITS IN TWO, WHICH IS THE PART THAT MAKES IT
+      DOABLE. person_context and person_enrichment ALREADY FILTER PRIVACY, 3 privacyLevel joins and 2
+      filter calls each, so they need the graph scoping ALONE and that is one wrapped query apiece.
+      person_timeline and commitments_list have NEITHER, 0 and 0, so scoping them without adding a
+      filter would unblind them, which is exactly the harm this row already refuses. CONTROL for the
+      filter probe, same file: _qdrant_fact_is_explicit_l3 scores 2, so the detector finds filters
+      where they exist. AND commitments_list IS THE TODOS READER, so the fail-closed finding on row
+      2242 applies to it directly: 93 of 93 todo nodes carry no privacy level under either namespace,
+      and a filter joined onto them hides all 93. It needs the writer fixed first, not a join.
+      RETIREMENT IS UNCHANGED and still needs merge THEN re-vendor THEN build THEN walk; what changes
+      is that the middle step is now two low-risk edits and two that wait on a decision, rather than a
+      nine-hunk hand merge into a file that diverges by a thousand lines. ORIGINAL TEXT FOLLOWS. 🔴
+      BLOCKING. THE GRAFT WAS ATTEMPTED AND IT IS NOT MECHANICAL, MEASURED RATHER THAN ASSUMED. Having
+      established above that the pin is NOT held on CM041 #178, the gate's first option is to graft
+      e01dff3297ce into the three vendored trees. I built the patch from the commit, rewrote its paths
+      to vendor/cm041/ and ran git apply --check per file. THE COMMIT TOUCHES 13 FILES AND ONLY 4 ARE
+      VENDORED: the other 9 are tests, which VENDOR_MANIFEST.toml excludes by design. Of those 4, TWO
+      APPLY CLEANLY, identity_resolver/resolver.py at 3 hunks and meeting_syncer/brief.py at 4, and
+      TWO REJECT, assistant_api/ical-server.py failing at :494 of 6 hunks and
       identity_resolver/compartment.py failing at :99 of 3. So 7 of 16 hunks apply and the other 9
       need a human merge. A THREE-WAY MERGE IS NOT AVAILABLE AND THAT IS STRUCTURAL, NOT A SETTING:
       git reports it lacks the necessary blob, because CM051 holds none of CM041's objects, so there
