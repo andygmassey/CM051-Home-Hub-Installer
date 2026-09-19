@@ -28,6 +28,16 @@ on:
       # purpose ("so the probe cannot half-exist on a box"). This guard is
       # the GUARD half, listed so editing the test re-runs the test.
       - 'tests/test_the_two_ws_clients_are_identical.sh'
+      # The register is half the subject of the second gate below: it compares
+      # cut-manifests/permanent.yaml against the collector, so a PR that edits
+      # only the register must still run it. Without this line a row can be
+      # added, renamed or deleted and the cross-check never fires.
+      - 'cut-manifests/permanent.yaml'
+      # Arm 7 reads post_walk_qa.sh's own section parser, so a change to that
+      # parser has to re-run the arm that proves the new block does not leak
+      # into a walk record.
+      - 'scripts/post_walk_qa.sh'
+      - 'tests/test_a_registered_probe_is_never_silently_uncollected.sh'
       - '.github/workflows/every-probe-is-collected.yml'
   push:
     branches: [main]
@@ -66,3 +76,18 @@ jobs:
         # same job SKIPS this step, and a skipped test reports nothing at all.
         if: always()
         run: /bin/bash tests/test_the_two_ws_clients_are_identical.sh
+      # THE OTHER DIRECTION, AND THE ONE THAT WAS UNMEASURED.
+      #
+      # The step above asks whether every probe ON DISK is collected. It cannot
+      # see a probe that is REGISTERED in cut-manifests/permanent.yaml and
+      # collected by nothing, because it starts from the directory. Measured on
+      # origin/main at 923c5067: registered 29, collected 28, and the one
+      # difference (acceptance_gate_v1013) appeared in no walk record, in none
+      # of the four numbers, and in no line of the runner's output.
+      #
+      # `if: always()` because the step above is also a test step: without it a
+      # failure there turns this one grey, and a gate that only runs on a clean
+      # run is not a gate. Enforced by scripts/verify_ci_steps_are_maskless.py.
+      - name: A registered probe is never silently uncollected
+        if: always()
+        run: bash tests/test_a_registered_probe_is_never_silently_uncollected.sh

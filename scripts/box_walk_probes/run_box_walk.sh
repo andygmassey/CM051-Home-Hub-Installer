@@ -87,6 +87,24 @@ for f in "$PROBE_DIR"/*.sh; do
     fi
     PROBES="$PROBES $f"
 done
+
+# EVERY basename the glob sees, INDEPENDENT of --only. The register cross-check
+# further down asks "is this registered probe on disk where the runner looks?",
+# which is a question about the directory rather than about this run's
+# selection, so it must not be answered through a filtered list.
+#
+# A SECOND PASS RATHER THAN ONE LINE INSIDE THE LOOP ABOVE, and that is not a
+# style preference. tests/test_the_walk_seeds_the_usage_producer.sh and three
+# sibling suites pin lines 42, 44 and 83 of this file BY EXACT TEXT, because
+# comments elsewhere cite them by number. Adding a line above the glob moves
+# :83 off `for f in "$PROBE_DIR"/*.sh; do` and all four go red. They did, on
+# the first push of this change, which is the citation gate working exactly as
+# designed. Everything this needs is available after the loop, so it goes
+# after the loop.
+COLLECTED_ALL=""
+for f in "$PROBE_DIR"/*.sh; do
+    COLLECTED_ALL="$COLLECTED_ALL $(basename "$f" .sh)"
+done
 shopt -u nullglob
 
 # DETERMINISTIC ORDER, PINNED TO C. A glob sorts by LC_COLLATE, so the order this
@@ -116,8 +134,116 @@ if [ "$PROBE_COUNT" -eq 0 ]; then
     exit 2
 fi
 
+# ── THE SUITE IS THE GLOB. THE REGISTER IS NOT THE GLOB. ─────────────────
+#
+# The glob above decides what this runner measures. cut-manifests/permanent.yaml
+# decides what the CUT believes is measured. Nothing compared the two, and the
+# glob is silent about files it does not see. Its own note twelve lines up says
+# so: "nothing anywhere prints the names of files it skipped".
+#
+# MEASURED on origin/main at 923c5067, by parsing the YAML rather than grepping it:
+#
+#     registered as box_walk_probe in permanent.yaml   29
+#     collected by this glob                           28
+#     registered and NOT collected                      1   acceptance_gate_v1013
+#     collected and NOT registered                      0
+#
+# THE FIRST PREDICATE I WROTE FOR THAT WAS WRONG AND ITS CONTROL CAUGHT IT.
+# `grep 'probe: "'` reported doctor_page_renders_for_a_customer as collected but
+# unregistered. It is registered, at permanent.yaml:1024, UNQUOTED. A
+# quote-bearing pattern reads a false absence off a file that is free to omit
+# the quotes, so the extraction below accepts both forms.
+#
+# WHAT THE ONE UNCOLLECTED PROBE ACTUALLY IS, because "registered and not
+# collected" has two very different endings and they must not print alike:
+#
+#   DELEGATED       the file exists beside this runner rather than inside
+#                   probes/, so this glob cannot take it, but the phase-2
+#                   resolver in scripts/verify_cut_manifest.py searches
+#                   probes/ FIRST and then this flat directory, so the
+#                   manifest row DOES run it and DOES grade it. Coverage is
+#                   not lost. It is taken by a different instrument, and the
+#                   only defect is that nobody was told.
+#   NOWHERE         the file is not in probes/ and not beside this runner
+#                   either. No instrument can resolve it. The manifest row
+#                   will report "not registered. Searched: ..." and the walk
+#                   measured nothing. THAT is CANNOT-RUN, and it is counted
+#                   in the four numbers below.
+#
+# Recording a DELEGATED probe as CANNOT-RUN would be the mirror of the defect
+# this block exists to fix: a false not-measured about something phase 2
+# measures minutes later in the same suite. So it is named, counted and
+# printed under its own heading, and it is not laundered into a pass either.
+#
+# AND THE CROSS-CHECK REFUSES RATHER THAN RETURNS ZERO. An absent register, an
+# unreadable one, or one this extraction reads ZERO names out of are all
+# CANNOT-RUN, stated in the header on every run. A missing-probe check that
+# silently matches nothing reports "nothing missing" in the same words as
+# "nothing registered", which is the shape this suite exists to distrust.
+# OSTLER_BOX_WALK_REGISTRY exists so the three refusal states below can be
+# driven by tests/test_a_registered_probe_is_never_silently_uncollected.sh
+# against a planted register. It is VISIBLE, never silent: the path is printed
+# in the REGISTER line on every run and in the RESULT block, so a run pointed at
+# a friendlier register says so in the output an operator reads and in the log
+# scripts/post_walk_qa.sh keeps. A gate whose corpus can be swapped without the
+# swap appearing in its own report is not a gate.
+REGISTRY="${OSTLER_BOX_WALK_REGISTRY:-$HERE/../../cut-manifests/permanent.yaml}"
+REGISTRY_DETAIL=""
+REGISTERED_COUNT=0
+DELEGATED=""
+DELEGATED_COUNT=0
+UNCOLLECTED_NOWHERE=""
+UNCOLLECTED_NOWHERE_COUNT=0
+
+if [ ! -f "$REGISTRY" ]; then
+    REGISTRY_DETAIL="CANNOT-RUN, no register at ${REGISTRY}. This run cannot tell whether a registered probe went uncollected, so the probe total below describes this glob and nothing wider."
+elif [ ! -r "$REGISTRY" ]; then
+    REGISTRY_DETAIL="CANNOT-RUN, the register at ${REGISTRY} exists and is not readable by this user. Nothing was cross-checked."
+else
+    # Accepts quoted and unquoted scalars; anchored so a probe name mentioned
+    # in prose or in a comment cannot enter the register.
+    _registered="$(sed -n 's/^[[:space:]]*probe:[[:space:]]*"\{0,1\}\([A-Za-z0-9._-][A-Za-z0-9._-]*\)"\{0,1\}[[:space:]]*$/\1/p' "$REGISTRY" | LC_ALL=C sort -u)"
+    for _r in $_registered; do REGISTERED_COUNT=$((REGISTERED_COUNT + 1)); done
+    if [ "$REGISTERED_COUNT" -eq 0 ]; then
+        REGISTRY_DETAIL="CANNOT-RUN, read ${REGISTRY} and extracted ZERO probe names from it. A register with no rows and an extraction that matches nothing are the same string here, so this is refused rather than reported as nothing missing."
+    else
+        for _r in $_registered; do
+            case " $COLLECTED_ALL " in *" $_r "*) continue ;; esac
+            if [ -f "$HERE/$_r.sh" ]; then
+                DELEGATED="$DELEGATED $_r"
+                DELEGATED_COUNT=$((DELEGATED_COUNT + 1))
+            else
+                # Only this bucket enters the four numbers, so only this
+                # bucket honours --only, which scopes the run.
+                if [ -n "$ONLY" ]; then
+                    case "$_r" in *"$ONLY"*) ;; *) continue ;; esac
+                fi
+                UNCOLLECTED_NOWHERE="$UNCOLLECTED_NOWHERE $_r"
+                UNCOLLECTED_NOWHERE_COUNT=$((UNCOLLECTED_NOWHERE_COUNT + 1))
+            fi
+        done
+        REGISTRY_DETAIL="read ${REGISTERED_COUNT} registered probe(s) from ${REGISTRY}; ${DELEGATED_COUNT} graded by the cut manifest instead of by this glob, ${UNCOLLECTED_NOWHERE_COUNT} resolvable by neither"
+    fi
+fi
+
+# A probe no instrument can resolve is coverage this walk lost, so it belongs
+# in the denominator. Without this the four numbers would still partition a
+# suite that quietly excluded it, which is the claim walks/<version>.tsv makes
+# in its own `measured N of N ... buckets partition the suite` line.
+PROBE_COUNT=$((PROBE_COUNT + UNCOLLECTED_NOWHERE_COUNT))
+
 if [ "$LIST_ONLY" -eq 1 ]; then
-    printf 'BOX WALK PROBES (%s)\n\n' "$PROBE_COUNT"
+    printf 'BOX WALK PROBES (%s)\n' "$PROBE_COUNT"
+    # --list answers "what will this suite ask?", so it has to answer it about
+    # the register too. Listing only what the glob found is how a registered
+    # probe stays invisible to the person checking coverage before a walk.
+    printf 'REGISTER: %s\n\n' "$REGISTRY_DETAIL"
+    for b in $DELEGATED; do
+        printf '%s: registered, NOT collected here; graded by its cut-manifest row instead\n' "$b"
+    done
+    for b in $UNCOLLECTED_NOWHERE; do
+        printf '%s: registered, resolvable by NOTHING; it will be recorded CANNOT-RUN\n' "$b"
+    done
     for p in $PROBES; do
         bash "$p" --describe 2>/dev/null || printf '%s: (no --describe)\n' "$(basename "$p" .sh)"
     done
@@ -126,6 +252,10 @@ fi
 
 printf '============================================================\n'
 printf 'BOX WALK -- %s probes\n' "$PROBE_COUNT"
+# PRINTED ON EVERY RUN, in all three states. The one thing this line may never
+# do is be absent, because an absent cross-check and a clean one would then read
+# identically to whoever is looking at the console.
+printf 'REGISTER: %s\n' "$REGISTRY_DETAIL"
 if [ -n "${OSTLER_BOX_HOST:-}" ]; then
     printf 'TARGET: %s\n' "$OSTLER_BOX_HOST"
 else
@@ -556,6 +686,28 @@ for p in $PROBES; do
     fi
 done
 
+# ── REGISTERED, AND RESOLVABLE BY NOTHING ───────────────────────────────────
+#
+# These have a permanent.yaml row and no file in probes/ and no file beside
+# this runner, so neither this glob nor scripts/verify_cut_manifest.py's
+# resolver can reach them. The cut believes they grade the artefact; nothing
+# runs them. That is coverage lost, which is CANNOT-RUN, and it is counted and
+# named exactly like every other one so that scripts/post_walk_qa.sh writes a
+# not_measured_probe row for it into walks/<version>.tsv.
+#
+# It reaches _record_verdict with fixture=live, so verify_cut_manifest.py's
+# _phase1_verdict returns None for it and the manifest row still measures
+# independently. A row recorded here must never be able to REPLACE the only
+# run a probe gets.
+for b in $UNCOLLECTED_NOWHERE; do
+    printf '\n[%s]\n' "$b"
+    _why="registered as a box_walk_probe in cut-manifests/permanent.yaml, but there is no probes/${b}.sh and no ${b}.sh beside the runner, so neither this glob nor the cut manifest resolver can reach it: NOTHING ran and nothing was measured"
+    printf '  VERDICT: CANNOT-RUN -- %s\n' "$_why"
+    CANNOT=$((CANNOT + 1)); CANNOT_LIST="$CANNOT_LIST $b"
+    printf '%s\t%s\n' "$b" "$_why" >> "$CANNOT_REASONS"
+    _record_verdict "$b" CANNOT-RUN "$_why"
+done
+
 printf '\n'
 # Every measurement is taken by here, so removing the synthetic person cannot
 # change a verdict in THIS run. It never fails the walk.
@@ -582,6 +734,13 @@ printf '  CANNOT-RUN  %s\n' "$CANNOT"
 printf '  BROKEN      %s\n' "$BROKEN"
 printf '  ----------------\n'
 printf '  of          %s probes\n' "$PROBE_COUNT"
+# THE REGISTER'S DENOMINATOR, BESIDE THE GLOB'S.
+#
+# Two fields, and the second is NOT a bare number, deliberately: the parser in
+# scripts/post_walk_qa.sh lifts a count with `$1 == k && NF == 2 && $2 ~ /^[0-9]+$/`
+# and the probe total with `$1 == "of" && NF == 3 && $3 == "probes"`. This line
+# is for a person and must not be mistaken for either.
+printf '  register    %s\n' "${REGISTRY_DETAIL}"
 printf '============================================================\n'
 
 if [ -n "$FAIL_LIST" ]; then
@@ -638,6 +797,36 @@ if [ -n "$CANNOT_LIST" ]; then
         [ -n "$_b" ] || continue
         printf '  %s\n      %s\n' "$_b" "$_why"
     done < "$CANNOT_REASONS"
+fi
+
+# NAMED, NEVER OMITTED. These are registered probes this glob cannot collect
+# because they do not live in probes/, but which the cut manifest's own
+# resolver CAN reach and DOES run in phase 2. Their coverage is real and it is
+# not this runner's; saying nothing was how one of them spent thirteen months
+# absent from every walk record without once being missed.
+#
+# This header must not begin with "FAILED:", "NOT MEASURED" or "BROKEN (":
+# scripts/post_walk_qa.sh's section_names() keys on those three with
+# index($0, hdr) == 1 and would publish these names into the wrong row.
+if [ -n "$DELEGATED" ]; then
+    printf '\nREGISTERED HERE, GRADED BY THE CUT MANIFEST (%s of %s registered; not in the four numbers above):\n' \
+        "$DELEGATED_COUNT" "$REGISTERED_COUNT"
+    for b in $DELEGATED; do
+        printf '  %s: no probes/%s.sh, so this glob cannot take it; %s.sh sits beside this runner and scripts/verify_cut_manifest.py resolves it there, so its permanent.yaml row runs it after this suite exits\n' "$b" "$b" "$b"
+    done
+    # MACHINE-READABLE, for scripts/post_walk_qa.sh, which turns each of these
+    # into a registered_not_collected row in walks/<version>.tsv. The prose
+    # above is for the operator at the console; the record is what survives, and
+    # a console line nobody keeps is how this probe stayed invisible across 20
+    # walk records.
+    #
+    # A DISTINCT PREFIX, not a bare name. section_names() publishes only lines
+    # matching ^  [A-Za-z0-9._-]+$ under three specific headers, so this form
+    # can never be mistaken for a failed_probe or a not_measured_probe, and
+    # count_of() skips it because its second field is not a number.
+    for b in $DELEGATED; do
+        printf 'DELEGATED-PROBE %s\n' "$b"
+    done
 fi
 
 if [ -n "$BROKEN_LIST" ]; then
