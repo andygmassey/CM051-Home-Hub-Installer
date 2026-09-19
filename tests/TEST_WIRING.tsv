@@ -261,6 +261,7 @@ test_every_script_install_sh_reads_is_bundled.py	WIRED	.github/workflows/install
 test_every_terminal_done_is_exit_or_guarded.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_every_workflow_step_can_run.py	WIRED	.github/workflows/declared-gates-reachable.yml
 test_exemption_ref_form.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_exit_1_is_a_crash_or_a_refusal_and_not_always_the_same_one.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_expired_deferral_ratchet.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_expiry_needs_a_cut_version.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_export_detect_large_zip_behaviour.sh	WIRED	.github/workflows/gdpr-export-detect.yml

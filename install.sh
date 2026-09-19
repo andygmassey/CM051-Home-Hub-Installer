@@ -32521,13 +32521,53 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
                     ok "$(printf 'Merged people reconciled across both stores (%s)' "$_MCR_LOG")"  # i18n-exempt
                     ;;
                 1)
-                    # Its negative control is an address RFC 6761 reserves
-                    # so it can never resolve. If the retirement predicate
-                    # ever claims that address the query is broken, and the
-                    # pass refuses rather than repairing on counts it
-                    # cannot trust. Non-fatal here, and loud.
-                    _mcr_record 1 REFUSED "the negative control was matched, so the retirement predicate is broken and nothing was changed"
-                    warn "Merge-consistency repair REFUSED and changed nothing: its own negative control was matched, so the predicate is broken. See ${_MCR_LOG}"  # i18n-exempt
+                    # 🔴 EXIT 1 IS TWO DIFFERENT FACTS AND THIS BRANCH USED TO
+                    # ASSERT ONLY ONE OF THEM.
+                    #
+                    # The pass documents EXIT_BROKEN_PREDICATE = 1, and PYTHON
+                    # ALSO EXITS 1 ON ANY UNCAUGHT EXCEPTION. So a module that
+                    # dies before main() runs is indistinguishable, by exit code
+                    # alone, from one that ran its negative control and refused.
+                    # This branch claimed the second, always.
+                    #
+                    # MEASURED on the walk box 2026-09-18T17:17:56Z. One run,
+                    # two accounts of it. The state file recorded:
+                    #     verdict REFUSED
+                    #     reason  the negative control was matched, so the
+                    #             retirement predicate is broken
+                    # and the log for that same run recorded:
+                    #     ImportError: cannot import name
+                    #     'sweep_qdrant_orphans_of_merged_people'
+                    #     from 'identity_resolver.batch_resolver'
+                    #
+                    # The module never imported, so it never built a query and
+                    # never evaluated a control. The real cause was a VENDOR
+                    # SKEW -- a new repair_merge_consistency.py vendored against
+                    # an older batch_resolver.py -- and the installer sent every
+                    # reader to look at a SPARQL predicate instead. That is the
+                    # direction of wrongness that costs most: a confident,
+                    # specific diagnosis pointing away from the fault.
+                    #
+                    # NOT COSMETIC. This repair is the only thing that types
+                    # merged-away people as RetiredPerson. While it dies on
+                    # every install, RetiredPerson stays 0, the phantoms
+                    # persist, and people_count_agreement keeps failing with
+                    # nobody looking at the vendor tree.
+                    #
+                    # So: READ THE LOG BEFORE NAMING A CAUSE. The pass prints
+                    # "REFUSING: the negative control" when it genuinely
+                    # refuses. Absent that line, exit 1 is a crash: say so and
+                    # quote it rather than inventing a diagnosis.
+                    if grep -q 'REFUSING: the negative control' "$_MCR_LOG" 2>/dev/null; then
+                        _mcr_record 1 REFUSED "the negative control was matched, so the retirement predicate is broken and nothing was changed"
+                        warn "Merge-consistency repair REFUSED and changed nothing: its own negative control was matched, so the predicate is broken. See ${_MCR_LOG}"  # i18n-exempt
+                    else
+                        _MCR_LAST="$(grep -E '^[A-Za-z_.]*(Error|Exception):' "$_MCR_LOG" 2>/dev/null | tail -1)"
+                        : "${_MCR_LAST:=no exception line found; read the log}"
+                        _mcr_record 1 CRASHED "exit 1 with no refusal line in the log, so the pass died before it could evaluate anything: ${_MCR_LAST}"
+                        warn "Merge-consistency repair CRASHED and changed nothing: ${_MCR_LAST}. This is NOT its negative control firing -- the pass did not get that far. See ${_MCR_LOG}"  # i18n-exempt
+                        unset _MCR_LAST
+                    fi
                     ;;
                 2)
                     # CANNOT-RUN is not a pass. A vector store reporting
