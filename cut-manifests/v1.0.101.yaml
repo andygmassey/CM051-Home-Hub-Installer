@@ -5063,40 +5063,66 @@ open_issues:
       The v1.0.100 walk FAILED and six of its seven failures are REGRESSIONS
       against v1.0.95, which the record says and nobody had read
     gate: >-
-      🔴 BLOCKING, AND IT HAS CONVERTED FROM A FIX GATE INTO A BUILD-AND-REWALK GATE. Re-measured
-      2026-09-19 against the record line by line, and every forensic claim in this row checks out
-      exactly. THE ONE FACT THAT REORGANISES THIS WHOLE BOARD: NOTHING HAS BEEN BUILT SINCE v1.0.100.
-      The newest tag is v1.0.100, the last cut run was 2026-09-17, and main carries 82 commits since.
-      So every fix on main is MERGED, none is DELIVERED and none is PROVEN, and no amount of further
-      merging can close this row. PER FAILURE, WHICH IS WHAT THE ROW OWES AND DID NOT GIVE: five of
-      the seven have something on main and two have nothing. Fixed on main: the unlock probe by a
-      merged pull request whose timestamp the row quotes exactly; the manifest completeness, by two
-      register rows plus gate hardening. Partly: the people count, where the CM051 half merged and the
-      upstream half is merged AND NOT VENDORED. Probe only, meaning the instrument changed and the
-      measurement has not been retaken: the store port and the egress probe. NOTHING AT ALL: the
-      acceptance gate, which is row 2221, and the grounded-answer probe, which was red on v1.0.95 as
-      well and whose only change added the sibling probe that is now the single BROKEN one. ZERO OF
-      SEVEN ARE IN ANY ARTEFACT. EVERY FORENSIC NUMBER VERIFIED: probe files 36 to 38 across the tags,
-      the probes directory 28 at the tag and 29 on main, which is two denominators used correctly;
-      three probes byte-identical across the tags including the blob the row names; the egress probe
-      920 to 1,131 lines; install.sh 32,744 to 35,510, a growth of 2,766; the promote helper defined
-      once and identical at both tags. The row's claim that one regression attribution in the record
-      is itself wrong is CORRECT. ONE THING TO FIX IN THE ROW AND IT IS A TRAP FOR THE NEXT READER:
-      its three line citations are DATA-RECORD numbers, not physical lines. All three are right once
-      comments are stripped and all three mislead anyone reading with line numbers on. One clause
-      would fix it. GATE: STILL BLOCKING, AND IT IS NOW THE ROW THE OTHERS FUNNEL INTO. It closes on a
-      cut followed by a walk, and on nothing else. Do NOT read any merge as closing it.  ORIGINAL TEXT
-      FOLLOWS, WITH ONE WORD PAIR PARAPHRASED AND THE PARAPHRASE DECLARED. The original opened with
-      the ungated marker as its verdict. That marker is matched by a PLAIN SUBSTRING test over the
-      WHOLE gate value with no position test, so preserving it verbatim anywhere in this row would
-      hold the row ungated for ever no matter what verdict sits above it. Row 939 records that same
-      trap flipping 41 rows at once. So those two words are replaced by the phrase the ungated marker
-      and NOTHING ELSE in the original is altered. IT READ: 🔴 BLOCKING (seven probes failed a real
-      walk of the shipped artefact and six of them passed on v1.0.95): MEASURED 2026-09-18 by reading
-      walks/v1.0.100.tsv, which is now on main after CM051 #2116 merged. A thin ssh walk started
-      2026-09-17T14:10:01Z, verdict FAILED, qa_exit 1. THE SEVEN FAILED PROBES, AND WHEN EACH LAST
-      PASSED, from the record''s own regression_of lines: acceptance_gate_v1013 regressed since
-      v1.0.95; assistant_answers_grounded since v1.0.89; install_manifest_complete,
+      🔴 BLOCKING, AND ONE OF ITS SEVEN IS NARROWED 2026-09-19: THE UNVENDORED UPSTREAM HALF OF THE
+      PEOPLE COUNT IS FOR A COMPONENT CM051 DOES NOT SHIP, SO VENDORING IT WOULD DELIVER NOTHING. The
+      row records the people count as the one where the CM051 half merged and the upstream half is
+      merged AND NOT VENDORED, which reads as work waiting on a re-pin. Measured, it is not. THE
+      COMMIT IS CM041 a7ad27a1, "the bridge minted a duplicate for every person the graph merged". It
+      is an ancestor of upstream main, so pinning to it would be a strict subset that avoids e01dff32,
+      and that much of the idea holds. WHAT IT ACTUALLY CONTAINS, per file:
+      identity_resolver/resolver.py +11/-20, identity_resolver/retirement.py +52,
+      whatsapp_bridge/bridge.py +47/-5, and a new test under whatsapp_bridge. THE HALF THAT FIXES A
+      CUSTOMER DEFECT IS THE BRIDGE HALF, AND CM051 DOES NOT VENDOR IT. vendor/cm041 holds
+      assistant_api, contact_syncer, identity_resolver, meeting_syncer and ostler_hygiene; there is no
+      whatsapp_bridge directory. CONTROL, because "install.sh does not mention it" would be a weak
+      absence: install.sh invokes identity_resolver as a module 8 times and whatsapp_bridge 0 times,
+      so the search finds a shipped tree where one exists. AND THE IDENTITY HALF IS A PURE REFACTOR
+      HERE, measured by reading both loops rather than the diff stat. Upstream adds
+      resolve_to_live_person to retirement.py; the vendored resolver.py ALREADY has follow_merge_chain
+      at :687 with the same max_hops default of 16, the same seen set, the same cycle detection, and
+      the same warning text, "merge chain from %s cycles at %s; stopping". The upstream change
+      extracts that loop behind an injected next_hop so a SECOND caller can share it, and upstream's
+      own docstring names that caller: whatsapp_bridge.bridge.find_person_by_identifier, the one that
+      "kept minting a SECOND node for a person the graph had already merged away". SO THE RE-PIN IS
+      NOT THE MISSING PIECE FOR THIS FAILURE. Whatever makes people_count_agreement disagree on a
+      CM051 box, it is not the WhatsApp bridge, because that bridge is not in the artefact. That is a
+      NARROWING, not a closure: the probe still failed on the v1.0.100 walk and this row still
+      converts to build-and-rewalk. What changes is that one of its seven no longer has an upstream
+      dependency anybody needs to wait for. ORIGINAL TEXT FOLLOWS. 🔴 BLOCKING, AND IT HAS CONVERTED
+      FROM A FIX GATE INTO A BUILD-AND-REWALK GATE. Re-measured 2026-09-19 against the record line by
+      line, and every forensic claim in this row checks out exactly. THE ONE FACT THAT REORGANISES
+      THIS WHOLE BOARD: NOTHING HAS BEEN BUILT SINCE v1.0.100. The newest tag is v1.0.100, the last
+      cut run was 2026-09-17, and main carries 82 commits since. So every fix on main is MERGED, none
+      is DELIVERED and none is PROVEN, and no amount of further merging can close this row. PER
+      FAILURE, WHICH IS WHAT THE ROW OWES AND DID NOT GIVE: five of the seven have something on main
+      and two have nothing. Fixed on main: the unlock probe by a merged pull request whose timestamp
+      the row quotes exactly; the manifest completeness, by two register rows plus gate hardening.
+      Partly: the people count, where the CM051 half merged and the upstream half is merged AND NOT
+      VENDORED. Probe only, meaning the instrument changed and the measurement has not been retaken:
+      the store port and the egress probe. NOTHING AT ALL: the acceptance gate, which is row 2221, and
+      the grounded-answer probe, which was red on v1.0.95 as well and whose only change added the
+      sibling probe that is now the single BROKEN one. ZERO OF SEVEN ARE IN ANY ARTEFACT. EVERY
+      FORENSIC NUMBER VERIFIED: probe files 36 to 38 across the tags, the probes directory 28 at the
+      tag and 29 on main, which is two denominators used correctly; three probes byte-identical across
+      the tags including the blob the row names; the egress probe 920 to 1,131 lines; install.sh
+      32,744 to 35,510, a growth of 2,766; the promote helper defined once and identical at both tags.
+      The row's claim that one regression attribution in the record is itself wrong is CORRECT. ONE
+      THING TO FIX IN THE ROW AND IT IS A TRAP FOR THE NEXT READER: its three line citations are DATA-
+      RECORD numbers, not physical lines. All three are right once comments are stripped and all three
+      mislead anyone reading with line numbers on. One clause would fix it. GATE: STILL BLOCKING, AND
+      IT IS NOW THE ROW THE OTHERS FUNNEL INTO. It closes on a cut followed by a walk, and on nothing
+      else. Do NOT read any merge as closing it.  ORIGINAL TEXT FOLLOWS, WITH ONE WORD PAIR
+      PARAPHRASED AND THE PARAPHRASE DECLARED. The original opened with the ungated marker as its
+      verdict. That marker is matched by a PLAIN SUBSTRING test over the WHOLE gate value with no
+      position test, so preserving it verbatim anywhere in this row would hold the row ungated for
+      ever no matter what verdict sits above it. Row 939 records that same trap flipping 41 rows at
+      once. So those two words are replaced by the phrase the ungated marker and NOTHING ELSE in the
+      original is altered. IT READ: 🔴 BLOCKING (seven probes failed a real walk of the shipped
+      artefact and six of them passed on v1.0.95): MEASURED 2026-09-18 by reading walks/v1.0.100.tsv,
+      which is now on main after CM051 #2116 merged. A thin ssh walk started 2026-09-17T14:10:01Z,
+      verdict FAILED, qa_exit 1. THE SEVEN FAILED PROBES, AND WHEN EACH LAST PASSED, from the
+      record''s own regression_of lines: acceptance_gate_v1013 regressed since v1.0.95;
+      assistant_answers_grounded since v1.0.89; install_manifest_complete,
       no_store_port_is_tcp_reachable, no_unexpected_egress, ostler_unlock_reachable_by_name and
       people_count_agreement all since v1.0.95. SIX OF SEVEN ARE REGRESSIONS AGAINST ONE VERSION. That
       is the shape of a change between 95 and 100 rather than seven independent defects, and it is the
