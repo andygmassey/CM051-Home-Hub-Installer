@@ -5154,3 +5154,9 @@ deferrals:
       tests/test_uninstall_stops_what_it_deletes.sh, and resolving a multi-file
       install.sh conflict mid-cut is the trade this file exists to refuse.
     until_cut: "v1.0.75"
+  - ref: "CM051:fix/1587-photos-and-reminders-can-never-reach-the-doctor-table"
+    reason: "fix(sources): Photos and Reminders could never appear in the Doctor source table, and the gate for it was blind to that (#1587). RECOVERED, NOT NEW: this had no remote until 2026-09-19, so it was one rm -rf from gone and invisible to every sweep. Pushed rather than deleted because it carries real unlanded work, MEASURED: tests/test_a_photos_row_reaches_the_doctor_source_table.sh is ABSENT from main and its sibling sentinel-vocabulary test exits 1 against main's tree, so the defect it names is still there. DEFERRED rather than merged because the branch is 128 commits behind main and git merge-tree reports 4 conflict markers, all in install.sh, which is the highest-risk file in the repo and not one to resolve unreviewed. Needs a rebase and a reviewer who knows the Doctor source table, which is also row 2219's subject."
+    review_by: 2026-09-26
+  - ref: "CM051:fix/a-green-install-must-not-leave-a-crash-looping-agent"
+    reason: "fix(install): a green Ollama step must mean OUR Ollama, not any listener on 11434 (#1574). RECOVERED, NOT NEW: no remote until 2026-09-19. Carries real unlanded work, MEASURED: tests/test_a_green_install_never_leaves_a_crash_looping_ollama.sh is ABSENT from main and exits 2 CANNOT-RUN against main's tree because the helper it probes does not exist there, which is itself the evidence that the fix has not landed. DEFERRED rather than merged because the branch is 127 commits behind main and git merge-tree reports 8 conflict markers in install.sh. Needs a rebase and review."
+    review_by: 2026-09-26
