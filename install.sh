@@ -32574,8 +32574,29 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
                     # zero points prints identically to one with nothing
                     # to repair, which is why the pass treats that as
                     # unreadable rather than clean.
-                    _mcr_record 2 CANNOT-RUN "a store could not be read; a vector store reporting zero points is treated as unreadable, not as clean"
-                    warn "Merge-consistency repair CANNOT-RUN: a store could not be read, so the two people counts may still disagree. See ${_MCR_LOG}"  # i18n-exempt
+                    #
+                    # 🔴 EXIT 2 IS TWO FACTS AND THEY ARE OPPOSITE. This is the
+                    # sibling of the exit-1 collision fixed one arm above.
+                    # repair_merge_consistency returns EXIT_CANNOT_RUN from TWO
+                    # places: :152, the graph could not be READ and the Qdrant
+                    # sweep NEVER RAN; and after :206, where the sweep DID run
+                    # and the vector store reported 0 points. The difference is
+                    # whether the half that closes people_count_agreement
+                    # executed at all, and the exit code cannot say.
+                    #
+                    # THE SWEEP ANNOUNCES ITSELF. It prints "vector points
+                    # examined" on the success path and "reported 0 points" on
+                    # the zero path, and NEITHER line is reachable without
+                    # calling it. So the log answers what the code cannot. The
+                    # old sentence covered both causes and committed to neither,
+                    # which reads as thorough and tells an operator nothing.
+                    if grep -qE 'vector points examined|reported 0 points' "$_MCR_LOG" 2>/dev/null; then
+                        _mcr_record 2 CANNOT-RUN-VECTOR "the graph phase completed and the Qdrant sweep RAN, but the vector store reported 0 points, which is treated as unreadable rather than clean"
+                        warn "Merge-consistency repair CANNOT-RUN: the graph phase completed and the vector sweep ran, but the vector store reported 0 points. See ${_MCR_LOG}"  # i18n-exempt
+                    else
+                        _mcr_record 2 CANNOT-RUN-GRAPH "the graph could not be read, so the pass stopped before the Qdrant sweep; the vector half did NOT run"
+                        warn "Merge-consistency repair CANNOT-RUN: the graph could not be read, so the Qdrant sweep never ran and the two people counts may still disagree. See ${_MCR_LOG}"  # i18n-exempt
+                    fi
                     ;;
                 3)
                     # EXIT_PARTIAL. Added after Archie blocked CM041 #162: a
