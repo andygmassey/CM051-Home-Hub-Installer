@@ -4,6 +4,11 @@
 #
 #     scripts/run_all_cut_gates.sh                 # gate (exit 1 on any red)
 #     scripts/run_all_cut_gates.sh --report        # run all, always exit 0
+#     scripts/run_all_cut_gates.sh --print-checkout-guard
+#                                                  # resolve every checkout the
+#                                                  # gates read, print its
+#                                                  # verdict and which gates it
+#                                                  # blocks, run nothing
 #
 # WHY THIS EXISTS (2026-08-07)
 # ---------------------------------------------------------------------------
@@ -30,10 +35,22 @@
 # is what shipped stale wiki images for three months.
 #
 # ENVIRONMENT
-#   CM044_DIR   path to the CM044 checkout   (wiki namespace + content gates)
-#   BOM         path to the cut's MUST_CONTAIN.tsv
-# Both are REQUIRED. There is no default -- see the header of
-# scripts/verify_must_contain.sh for why a default manifest is a bug.
+#   CM044_DIR             path to the CM044 checkout (wiki namespace + content)
+#   OSTLER_ASSISTANT_DIR  path to the ostler-assistant checkout (cut provenance,
+#                         content provenance, vendor pair drift). Defaulted to
+#                         ../ostler-assistant ONLY when that directory exists,
+#                         so a missing checkout still reaches the gates as
+#                         "not set" and they still refuse for that reason.
+#   HR015_ROOT            path to the HR015 checkout, when the pair registry
+#                         names it
+#   BOM                   path to the cut's MUST_CONTAIN.tsv
+# CM044_DIR and BOM are REQUIRED. There is no default for BOM -- see the header
+# of scripts/verify_must_contain.sh for why a default manifest is a bug.
+#
+# EVERY ONE OF THOSE CHECKOUTS IS GUARDED BEFORE IT IS READ. See
+# scripts/lib/checkout_guard.sh: a checkout that is not at the tip of its
+# default branch makes the gates that read it CANNOT-RUN, never RED and never
+# PASS.
 
 set -uo pipefail
 
@@ -44,6 +61,28 @@ MODE="${1:-gate}"
 
 CM044_DIR="${CM044_DIR:-$HOME/Developer/CM044-PWG-Personal-Wiki}"
 BOM="${BOM:-}"
+
+. "$HERE/scripts/lib/checkout_guard.sh"
+
+# ---------------------------------------------------------------------------
+# THE ASSISTANT CHECKOUT IS RESOLVED HERE SO THE GUARD AND THE GATES READ THE
+# SAME PATH.
+#
+# scripts/provenance_gate.sh and scripts/verify_cut_provenance.sh each default
+# OSTLER_ASSISTANT_DIR to <CM051 root>/../ostler-assistant independently. A
+# guard that checked a different path from the one the gate reads is not a
+# guard, so the default is resolved once, here, and exported.
+#
+# 🔴 ONLY WHEN THE DIRECTORY EXISTS. Exporting a path that is not there would
+# turn tests/test_vendor_pair_drift.py's honest "OSTLER_ASSISTANT_DIR is not
+# set" into "no file matched <path>" -- both refuse, but the first names the
+# missing input and the second reads like a glob that needs fixing. The
+# existing refusal is correct behaviour and is left alone.
+# ---------------------------------------------------------------------------
+if [[ -z "${OSTLER_ASSISTANT_DIR:-}" && -d "$HERE/../ostler-assistant" ]]; then
+    OSTLER_ASSISTANT_DIR="$(cd "$HERE/../ostler-assistant" && pwd)"
+    export OSTLER_ASSISTANT_DIR
+fi
 
 RED=0; GREEN=0; SKIPPED=0
 declare -a RESULTS=()
@@ -117,6 +156,84 @@ unavailable() {
     RESULTS+=("RED|$label|could not run: $why")
 }
 
+# gate_or_unavailable <why-not-or-empty> <label> <proves> <cmd...>
+# One place decides whether a gate runs or refuses, so a new gate reading a
+# guarded checkout cannot be wired in bare by omission -- which is exactly how
+# the three ostler-assistant gates ended up unguarded.
+gate_or_unavailable() {
+    local why="$1" label="$2"; shift 2
+    if [[ -n "$why" ]]; then
+        unavailable "$label" "$why"
+    else
+        run "$label" "$@"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# EVERY CHECKOUT THE GATES READ, MEASURED ONCE, BEFORE ANY GATE RUNS (#1550).
+#
+# Computed here rather than beside each gate so that --print-checkout-guard
+# below prints the SAME VALUES the gates consume. A mode that recomputed them
+# would be a second implementation agreeing with itself, which is the shape of
+# proof this repo keeps paying for.
+# ---------------------------------------------------------------------------
+# _state_of <path> -- the guard verdict, or why it was not asked for one.
+# not-set and absent are recorded rather than collapsed into "ok": "there is no
+# checkout here" and "the checkout is the reviewed tree" are different facts and
+# must not print the same word in the report below.
+_state_of() {
+    local p="${1:-}"
+    if [[ -z "$p" ]];    then printf 'not-set\n'; return 0; fi
+    if [[ ! -d "$p" ]];  then printf 'absent\n';  return 0; fi
+    if [[ -f "$p/.git" ]]; then printf 'worktree\n'; return 0; fi
+    _checkout_tip_state "$p"
+}
+
+# _blocks <state> -- true when this state means a gate reading the checkout
+# must NOT run. not-set and absent do not block HERE: the gates themselves
+# already refuse for those, by name, with a better message than this file could
+# write (see tests/test_vendor_pair_drift.py's "OSTLER_ASSISTANT_DIR is not
+# set", quoted approvingly in #1550 as the behaviour the wiki gate should copy).
+_blocks() {
+    case "$1" in
+        ok|not-set|absent) return 1 ;;
+        *)                 return 0 ;;
+    esac
+}
+
+_cm044_state="$(_state_of "$CM044_DIR")"
+_assistant_state="$(_state_of "${OSTLER_ASSISTANT_DIR:-}")"
+_hr015_state="$(_state_of "${HR015_ROOT:-}")"
+
+# The reason the three vendor/provenance gates must not run, or empty when they
+# may. FIRST offender wins: naming one wrong checkout is actionable, naming two
+# in one line is a paragraph nobody reads.
+_vendor_block=""
+if _blocks "$_assistant_state"; then
+    _vendor_block="$(_checkout_explain OSTLER_ASSISTANT_DIR "${OSTLER_ASSISTANT_DIR:-}" "$_assistant_state")"
+elif _blocks "$_hr015_state"; then
+    _vendor_block="$(_checkout_explain HR015_ROOT "${HR015_ROOT:-}" "$_hr015_state")"
+fi
+
+if [[ "$MODE" == "--print-checkout-guard" ]]; then
+    # Machine-readable, and it prints the variables the gates below read rather
+    # than re-deriving them. Consumed by
+    # tests/test_every_checkout_a_cut_gate_reads_is_guarded.sh.
+    printf 'CHECKOUT\t%s\t%s\t%s\n' CM044_DIR "${CM044_DIR:-}" "$_cm044_state"
+    printf 'CHECKOUT\t%s\t%s\t%s\n' OSTLER_ASSISTANT_DIR "${OSTLER_ASSISTANT_DIR:-}" "$_assistant_state"
+    printf 'CHECKOUT\t%s\t%s\t%s\n' HR015_ROOT "${HR015_ROOT:-}" "$_hr015_state"
+    for _lbl in "cut provenance" "content provenance" "vendor pair drift"; do
+        printf 'GATEBLOCK\t%s\t%s\n' "$_lbl" "${_vendor_block:--}"
+    done
+    if _blocks "$_cm044_state"; then
+        printf 'GATEBLOCK\t%s\t%s\n' "wiki image CONTENT" \
+            "$(_checkout_explain CM044_DIR "$CM044_DIR" "$_cm044_state")"
+    else
+        printf 'GATEBLOCK\t%s\t%s\n' "wiki image CONTENT" '-'
+    fi
+    exit 0
+fi
+
 echo "=================================================================="
 echo " PRE-CUT GATES"
 echo "   repo     : $HERE  ($(git rev-parse --abbrev-ref HEAD 2>/dev/null))"
@@ -186,12 +303,22 @@ echo "-- Wiki images: provenance AND content ---------------------------"
 # CANNOT-RUN rather than RED, deliberately: the cut is still blocked (see the
 # `run` note below -- unavailable counts as red in the tally), but the operator is
 # told the checkout is wrong rather than being told the artefact is.
-_cm044_branch_ok() {
-    local d="$1"
-    git -C "$d" rev-parse --verify --quiet refs/remotes/origin/main >/dev/null 2>&1 || return 2
-    [[ "$(git -C "$d" rev-parse HEAD 2>/dev/null)" == "$(git -C "$d" rev-parse origin/main 2>/dev/null)" ]]
-}
-
+# 🔴 AND IT WAS ONLY EVER APPLIED TO CM044 (#1550, measured 2026-09-16).
+#
+# The guard below used to be a local _cm044_branch_ok(). Two things were wrong
+# with that and only one of them was about CM044:
+#
+#   1. It compared against refs/remotes/origin/main WITHOUT FETCHING. A cached
+#      remote ref from days ago is the same staleness one level up, and it
+#      reads as a clean comparison.
+#   2. OSTLER_ASSISTANT_DIR appeared ZERO times in this file (control:
+#      CM044_DIR, 20 times in the same file, so the zero was real). Three gates
+#      read that checkout and all three were invoked bare. That side fails
+#      towards a false GREEN, which is worse than the false RED this paragraph
+#      was written about.
+#
+# Both are now in scripts/lib/checkout_guard.sh, applied to every checkout, and
+# the state is computed once near the top of this file.
 if [[ -n "$CM044_DIR" && -f "$CM044_DIR/.git" ]]; then
     unavailable "wiki image namespace" \
         "CM044_DIR is a git WORKTREE, not the canonical checkout: $CM044_DIR"
@@ -199,17 +326,15 @@ if [[ -n "$CM044_DIR" && -f "$CM044_DIR/.git" ]]; then
         "CM044_DIR is a git WORKTREE -- it sits on whoever's branch was left
                     checked out, so a mismatch here would say nothing about the cut.
                     Use the canonical clone (\$HOME/Developer/CM044-PWG-Personal-Wiki)."
-elif [[ -d "$CM044_DIR" ]] && ! _cm044_branch_ok "$CM044_DIR"; then
-    _cm044_at="$(git -C "$CM044_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
-    _cm044_behind="$(git -C "$CM044_DIR" rev-list --count HEAD..origin/main 2>/dev/null || echo '?')"
-    unavailable "wiki image namespace" \
-        "CM044_DIR is on '${_cm044_at}', not origin/main (behind by ${_cm044_behind})"
+elif [[ -d "$CM044_DIR" ]] && _blocks "$_cm044_state"; then
+    _cm044_why="$(_checkout_explain CM044_DIR "$CM044_DIR" "$_cm044_state")"
+    unavailable "wiki image namespace" "$_cm044_why"
     unavailable "wiki image CONTENT" \
-        "CM044_DIR is on '${_cm044_at}', ${_cm044_behind} commit(s) behind origin/main.
-                    Comparing the pinned image against a stale tree produces a RED that
-                    says nothing about the image -- exactly the 2026-08-07 failure, via a
-                    canonical clone instead of a worktree. git -C \"\$CM044_DIR\" fetch
-                    origin main && git -C \"\$CM044_DIR\" checkout main, then re-run."
+        "${_cm044_why}
+                    Comparing the pinned image against a tree that is not the reviewed
+                    one produces a RED that says nothing about the image -- exactly the
+                    2026-08-07 failure, and again on 2026-09-05 via a canonical clone
+                    instead of a worktree."
 elif [[ -d "$CM044_DIR" ]]; then
     run "wiki image namespace" \
         "CI publishes where install.sh reads" \
@@ -266,13 +391,27 @@ run "no defs after __main__ guard" \
     "shipped .py files run as scripts, not just import" \
     python3 scripts/verify_no_defs_after_main_guard.py
 run "cut freshness"   "vendored inputs match live upstream"  bash scripts/verify_cut_freshness.sh
-run "cut provenance"  "components are the intended builds"   bash scripts/verify_cut_provenance.sh
-run "content provenance" "artefacts contain the required fixes" bash scripts/provenance_gate.sh
+
+# THE THREE GATES THAT READ THE ostler-assistant CHECKOUT (#1550). Each one
+# compares something in the cut against that working tree, so each one is only
+# as true as the branch someone left it on. All three ran bare until this
+# guard; $_vendor_block is computed once near the top of this file from
+# scripts/lib/checkout_guard.sh.
+#
+# The vendor-pair gate is the reason this matters more than the CM044 case:
+# it compares the run-source enum in ostler-assistant against the array in the
+# CM051 wrapper, so a feature-branch enum against a main wrapper can agree by
+# accident and report GREEN on a comparison that was never valid.
+gate_or_unavailable "$_vendor_block" \
+    "cut provenance"  "components are the intended builds"   bash scripts/verify_cut_provenance.sh
+gate_or_unavailable "$_vendor_block" \
+    "content provenance" "artefacts contain the required fixes" bash scripts/provenance_gate.sh
 # --require-full is LOAD-BEARING. Without it the gate runs in CI mode and
 # reports an unresolvable enforced pair as a gap while exiting 0. At cut time
 # the app bundle exists, so an enforced pair it cannot resolve means the
 # resolution has rotted, and a gate that cannot see what it enforces must fail.
-run "vendor pair drift" "the copy that RUNS matches the copy that was reviewed" \
+gate_or_unavailable "$_vendor_block" \
+    "vendor pair drift" "the copy that RUNS matches the copy that was reviewed" \
     python3 tests/test_vendor_pair_drift.py --require-full
 
 echo
