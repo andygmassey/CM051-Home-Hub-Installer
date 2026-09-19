@@ -5786,3 +5786,35 @@ open_issues:
       and not just a pull request: a contract and its enforcer are two files, and changing the first
       without the second produces a gate that is red for a reason nobody intended, on a surface nobody
       reads, discovered by the next person who tries to ship.
+  - issue: 2245
+    repo: none
+    title: 'The orphan gate''s fix half is now clean and its expiry half still fails the cut, on 47 deferrals that mostly expired at v1.0.27'
+    gate: >-
+      🔴 BLOCKING, AND IT IS THE LAST THING STANDING IN scripts/verify_no_orphaned_fixes.sh. MEASURED
+      2026-09-19 UNDER OSTLER_CUT_VERSION=v1.0.101, which is the only condition in which this gate
+      says anything at all about expiry: without a cut version the ratchet is NOT EVALUATED and the
+      file says so in its own words, so every earlier run of it was silent on this by construction.
+      THE FIX HALF IS CLEAN. RED refs went 36 to 0 across this session: 29 branches deleted as
+      provably spent with every tip sha recorded first, 2 recovered into pull requests, 1 pushed and
+      attached to the open pull request that should carry it, and 4 deferred with reasons. CONTROL ON
+      THE ZERO, because an empty scan reads exactly like a clean one: the same run graded 225 ok rows
+      and 231 warn rows, so the gate was reading and grading rather than finding nothing to look at.
+      THE EXPIRY HALF FAILS, AND IT IS NOT MINE. The verdict is FAIL: no orphaned work, but the
+      expired-deferral set GREW. The same growth message appears in the FIRST run of this gate today,
+      taken before any deferral of mine existed, so it predates this session's edits. THE TOTAL DID
+      NOT GROW, WHICH IS THE PART THAT MAKES IT CONFUSING: 216 expired against 424 baselined, and the
+      run before my four deferrals read 217. The ratchet is SET-BASED, not count-based, so a ref that
+      expires now and is absent from the baseline is growth even while the total shrinks. WHAT THE 47
+      ACTUALLY ARE, sampled 40 of 47 and stated as a sample: 24 carry NO until_cut at all and are held
+      on a review_by date, 14 name v1.0.27, one names v1.0.46 and one v1.0.51. NONE names v1.0.101. So
+      this is not the cut version advancing past a horizon somebody set; it is ancient debt the
+      baseline does not cover. THE REMEDY THE TOOL OFFERS IS THE ONE THIS REPO FORBIDS TAKING QUIETLY.
+      It says to re-run with --regenerate-expired-baseline and say in the commit why the debt grew.
+      That raises the ceiling on 47 refs at once, and the walk-closure register a few files away
+      states the principle in as many words: do not raise the horizon to make this pass. NOT DONE,
+      DELIBERATELY, and this row exists so the decision is made by someone rather than inherited from
+      a flag. RETIREMENT: each of the 47 is worked, re-deferred to a version that has not been cut, or
+      the baseline is regenerated with a reason that names them. A further measurement worth taking
+      first: DEFERRAL REACHABILITY reports 486 of 781 declared deferrals consulted and 550 not, and a
+      deferral nothing asks about holds nothing, so some of the 47 may be unreachable rather than
+      owed.
