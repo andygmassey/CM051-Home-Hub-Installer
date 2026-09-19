@@ -202,6 +202,45 @@ while IFS=$'\t' read -r what repo ref landed cap verify ticket; do
             continue
         fi
     fi
+    # A LINE TOO LONG IS AS MEASURABLE AS ONE THE RIGHT LENGTH, AND THIS GATE
+    # COULD NOT SEE ONE. The mirror of the removal case above, at the other
+    # bound, and it cost a cut the same way.
+    #
+    # MEASURED 2026-09-19 on the v1.0.101 BOM: CM051 #2151 scored UNMEASURABLE,
+    # which is CANNOT-RUN, which refuses the cut. Its install.sh change adds 39
+    # lines, 37 of them comments. The two that are not are `else`, 4 characters
+    # and below the 40 floor, and the warn that carries the entire substance of
+    # the fix, 386 characters and above the 200 ceiling. Its deletions are all
+    # comments: 0 non-comment removals, so the removal fallback above cannot
+    # fire either.
+    #
+    # THE CEILING WAS PROTECTING THE WRONG THING. Its stated purpose is "short
+    # enough to be a single line in the blob", and a 386-character warn IS a
+    # single line in the blob. What a very long key actually risks is being
+    # brittle to a later reflow, not being unfindable. A bounded PREFIX keeps
+    # the specificity and drops the brittleness: 160 characters of a unique
+    # warn message is not going to collide with anything in install.sh.
+    #
+    # Tried only after the in-window search and the removal fallback, so no row
+    # that either of those can key changes its answer.
+    if [ -z "$LINE" ]; then
+        LONGKEY="$(git -C "$HERE" show "$ref" -- install.sh 2>/dev/null \
+            | grep '^+' | grep -vE '^\+\+\+|^\+[[:space:]]*#|^\+[[:space:]]*$' \
+            | sed 's/^+//' \
+            | awk '{ if (length($0)>=200) print length($0)"\t"$0 }' \
+            | sort -rn | head -1 | cut -f2- | cut -c1-160)"
+        if [ -n "$LONGKEY" ]; then
+            if [ "$(grep -cF -- "$LONGKEY" "$PINNED" || true)" -gt 0 ]; then
+                IN=$((IN+1))
+                echo "  IN THE PIN    ${ticket}  by a 160-char PREFIX of a ${#LONGKEY}+ char added line"
+                continue
+            fi
+            OUT=$((OUT+1))
+            echo "  ABSENT        ${ticket}  its long added line is not in the pinned install.sh"
+            MISSING="${MISSING}\n    ${ticket}  ${ref}  $(printf '%s' "$what" | cut -c1-64)"
+            continue
+        fi
+    fi
     if [ -z "$LINE" ]; then
         # The commit changed no install.sh line we can key on. That is NOT a
         # pass: say which bucket it is in and why.
