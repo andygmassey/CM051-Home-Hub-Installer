@@ -37,6 +37,9 @@ on:
       - 'tests/test_new_cut_checks_what_preflight_checks.sh'
       - 'tests/test_new_cut_covers_every_pretag_gate.sh'
       - 'scripts/verify_bom_rows_are_in_the_pin.sh'
+      # Both the guard AND its subject, same rule as new_cut.sh above.
+      - '.github/workflows/cut.yml'
+      - 'tests/test_the_dispatch_relaxation_is_tied_to_no_publish.sh'
       # Wired 2026-09-09: a staging copy guarded on its DESTINATION leaves the
       # previous DMG's vendored code on any box that already has the tree, so a
       # v1.0.82 vendored fix never reaches the walk box that must demonstrate it.
@@ -288,6 +291,15 @@ jobs:
       # this suite drives python mutations whose quoting differs under 5.
       #
       # if: always() so an earlier red in this job cannot mask it.
+      - name: The dispatch relaxation is tied to the no-publish property
+        # always() because a gate its own job can switch off is not a gate.
+        # Without this the step is SKIPPED when an earlier test in the same
+        # job fails, and this one exists to hold a RELAXED cut gate: the one
+        # run where other things are already red is exactly the run where it
+        # most needs to speak. ci-maskless caught the omission.
+        if: always()
+        run: /bin/bash tests/test_the_dispatch_relaxation_is_tied_to_no_publish.sh
+
       - name: A workflow_dispatch cannot publish
         if: always()
         run: /bin/bash tests/test_cut_dispatch_is_dry.sh

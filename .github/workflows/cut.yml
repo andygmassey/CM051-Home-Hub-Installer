@@ -362,7 +362,27 @@ jobs:
         # without it, and main was green before this step was added.
         if: always()
         env:
-          OSTLER_CUT_IN_PROGRESS: '1'
+          # A DISPATCH IS NOT A SHIP, so it must not be held to a ship's
+          # standard. This flag is what turns a self-declared BLOCKING row into
+          # a FAIL. On a TAG PUSH that is exactly right and is UNCHANGED here.
+          # On a dispatch it was a DEADLOCK BY CONSTRUCTION: all 8 rows blocking
+          # v1.0.101 close only on a built artefact and a walk, and the build
+          # that would produce that artefact refused because those rows were
+          # open. The rows needed a candidate; the candidate needed the rows shut.
+          #
+          # SAFE ONLY BECAUSE A DISPATCH CANNOT REACH A CUSTOMER, and that is
+          # enforced rather than asserted: every publishing step in this file is
+          # guarded on event_name == 'push', the artifact is named
+          # candidate-<ref>-<run>, and scripts/verify_dispatch_cannot_ship.py
+          # plus tests/test_cut_dispatch_is_dry.sh run in this workflow to keep
+          # it that way. IF A DISPATCH EVER GAINS A PUBLISHING PATH THIS LINE
+          # BECOMES A HOLE, which is why the relaxation is tied to that
+          # enforcement by a test rather than by this comment.
+          #
+          # The check still RUNS on a dispatch and still PRINTS every blocking
+          # row. It reports instead of refusing, so a candidate can be built and
+          # walked and the rows can finally close.
+          OSTLER_CUT_IN_PROGRESS: ${{ github.event_name == 'push' && '1' || '0' }}
           GH_TOKEN: ${{ github.token }}
         run: python3 tests/test_the_cut_checklist_is_complete.py
 
@@ -380,7 +400,27 @@ jobs:
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
-          OSTLER_CUT_IN_PROGRESS: '1'
+          # A DISPATCH IS NOT A SHIP, so it must not be held to a ship's
+          # standard. This flag is what turns a self-declared BLOCKING row into
+          # a FAIL. On a TAG PUSH that is exactly right and is UNCHANGED here.
+          # On a dispatch it was a DEADLOCK BY CONSTRUCTION: all 8 rows blocking
+          # v1.0.101 close only on a built artefact and a walk, and the build
+          # that would produce that artefact refused because those rows were
+          # open. The rows needed a candidate; the candidate needed the rows shut.
+          #
+          # SAFE ONLY BECAUSE A DISPATCH CANNOT REACH A CUSTOMER, and that is
+          # enforced rather than asserted: every publishing step in this file is
+          # guarded on event_name == 'push', the artifact is named
+          # candidate-<ref>-<run>, and scripts/verify_dispatch_cannot_ship.py
+          # plus tests/test_cut_dispatch_is_dry.sh run in this workflow to keep
+          # it that way. IF A DISPATCH EVER GAINS A PUBLISHING PATH THIS LINE
+          # BECOMES A HOLE, which is why the relaxation is tied to that
+          # enforcement by a test rather than by this comment.
+          #
+          # The check still RUNS on a dispatch and still PRINTS every blocking
+          # row. It reports instead of refusing, so a candidate can be built and
+          # walked and the rows can finally close.
+          OSTLER_CUT_IN_PROGRESS: ${{ github.event_name == 'push' && '1' || '0' }}
         run: python3 tests/test_strict_checks_are_back_on_before_a_cut.py
 
       # 🔴 THE DOCTOR PAGE IS THE ONE A CUSTOMER IS SENT TO WHEN SOMETHING IS
@@ -403,7 +443,27 @@ jobs:
       - name: The Doctor page a customer is sent to is on brand
         if: always()
         env:
-          OSTLER_CUT_IN_PROGRESS: '1'
+          # A DISPATCH IS NOT A SHIP, so it must not be held to a ship's
+          # standard. This flag is what turns a self-declared BLOCKING row into
+          # a FAIL. On a TAG PUSH that is exactly right and is UNCHANGED here.
+          # On a dispatch it was a DEADLOCK BY CONSTRUCTION: all 8 rows blocking
+          # v1.0.101 close only on a built artefact and a walk, and the build
+          # that would produce that artefact refused because those rows were
+          # open. The rows needed a candidate; the candidate needed the rows shut.
+          #
+          # SAFE ONLY BECAUSE A DISPATCH CANNOT REACH A CUSTOMER, and that is
+          # enforced rather than asserted: every publishing step in this file is
+          # guarded on event_name == 'push', the artifact is named
+          # candidate-<ref>-<run>, and scripts/verify_dispatch_cannot_ship.py
+          # plus tests/test_cut_dispatch_is_dry.sh run in this workflow to keep
+          # it that way. IF A DISPATCH EVER GAINS A PUBLISHING PATH THIS LINE
+          # BECOMES A HOLE, which is why the relaxation is tied to that
+          # enforcement by a test rather than by this comment.
+          #
+          # The check still RUNS on a dispatch and still PRINTS every blocking
+          # row. It reports instead of refusing, so a candidate can be built and
+          # walked and the rows can finally close.
+          OSTLER_CUT_IN_PROGRESS: ${{ github.event_name == 'push' && '1' || '0' }}
         run: |
           python3 -m pip install --quiet -r vendor/doctor/agent/requirements.txt
           python3 tests/test_the_doctor_page_is_on_brand.py
@@ -433,7 +493,27 @@ jobs:
       - name: A forget erases the sentence, not only its link to a person
         if: always()
         env:
-          OSTLER_CUT_IN_PROGRESS: '1'
+          # A DISPATCH IS NOT A SHIP, so it must not be held to a ship's
+          # standard. This flag is what turns a self-declared BLOCKING row into
+          # a FAIL. On a TAG PUSH that is exactly right and is UNCHANGED here.
+          # On a dispatch it was a DEADLOCK BY CONSTRUCTION: all 8 rows blocking
+          # v1.0.101 close only on a built artefact and a walk, and the build
+          # that would produce that artefact refused because those rows were
+          # open. The rows needed a candidate; the candidate needed the rows shut.
+          #
+          # SAFE ONLY BECAUSE A DISPATCH CANNOT REACH A CUSTOMER, and that is
+          # enforced rather than asserted: every publishing step in this file is
+          # guarded on event_name == 'push', the artifact is named
+          # candidate-<ref>-<run>, and scripts/verify_dispatch_cannot_ship.py
+          # plus tests/test_cut_dispatch_is_dry.sh run in this workflow to keep
+          # it that way. IF A DISPATCH EVER GAINS A PUBLISHING PATH THIS LINE
+          # BECOMES A HOLE, which is why the relaxation is tied to that
+          # enforcement by a test rather than by this comment.
+          #
+          # The check still RUNS on a dispatch and still PRINTS every blocking
+          # row. It reports instead of refusing, so a candidate can be built and
+          # walked and the rows can finally close.
+          OSTLER_CUT_IN_PROGRESS: ${{ github.event_name == 'push' && '1' || '0' }}
         run: |
           python3 -m pip install --quiet rdflib pyoxigraph
           python3 tests/test_a_forget_erases_the_fact_not_just_the_link.py
