@@ -47,6 +47,8 @@ on:
       - 'tests/test_fda_listed_has_one_writer.sh'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/fda-listed.yml'
+      - 'tests/test_every_privacy_label_has_a_compartment_label.py'
+      - 'vendor/ostler_fda/**'
   push:
     branches: [main]
 
@@ -61,6 +63,16 @@ jobs:
       # file, it exits 2 CANNOT-RUN rather than reporting a green zero.
       - name: FDA listed-ness must have exactly one writer, and it must be the probe (#571)
         run: bash tests/test_fda_listed_has_one_writer.sh
+
+      # TWO PRIVACY SCALES RUN IN OPPOSITE DIRECTIONS HERE, and a payload that
+      # carries one label and not the other becomes a record the customer can
+      # never find. Five of the six FDA writers stamped a privacy level and no
+      # compartment level at all; 934 of 9,948 points on a real box had the
+      # field absent, and nothing reported it because a search returning less
+      # and a search working correctly print the same thing.
+      - name: Every privacy label carries a compartment label, and it is an int
+        if: always()
+        run: python3 tests/test_every_privacy_label_has_a_compartment_label.py
 
       # The shell install.sh actually ships under.
       - name: The test parses under bash 3.2, the customer's shell

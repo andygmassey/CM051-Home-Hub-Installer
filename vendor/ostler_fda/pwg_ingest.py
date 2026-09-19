@@ -76,6 +76,51 @@ def _record_embed_usage(response: dict) -> None:
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "people")
 DEFAULT_PRIVACY = os.getenv("DEFAULT_PRIVACY_LEVEL", "L2")
 
+# ── TWO SCALES, TWO CONSTANTS. THEY ARE NOT INTERCHANGEABLE. ────────────────
+#
+# This file used to write DEFAULT_PRIVACY into BOTH `pwg:privacyLevel` and
+# `compartment_level`. They are different scales that run in OPPOSITE
+# directions, and one environment variable was moving both:
+#
+#   privacy_level      L0..L3, a STRING, HIGHER is more private, L3 hidden
+#                      (vendor/cm041/pwg_privacy.py, fail-closed)
+#   compartment_level  0..6,   an INT,    LOWER  is more private, 0 Personal
+#                      (cm019 parsers/base.py, a sharing-AUDIENCE scale)
+#
+# So "L2" is the second-least-private of four on one scale, and 2 is
+# L2Trusted, third-most-private of seven, on the other. One value cannot be
+# both statements. See docs/PRIVACY_LEVELS.md.
+#
+# AND THE TYPE WAS WRONG. compartment_level is declared `int` in cm019's
+# base.py and indexed as "integer" in qdrant_loader.py, and all 23 cm019
+# parsers pass ints. Writing the string "L2" here meant Qdrant's range
+# operator never matched: 4,804 points carried the string form and a
+# `range gte 0` query returned 0 of them, against a control on another field
+# returning 5,733. Compartment-scoped search was dead for every one of them.
+def _default_compartment_level() -> int:
+    """The compartment level to stamp when no classifier has decided one.
+
+    Validated rather than trusted: an out-of-range or unparseable override
+    falls back to the documented default instead of writing a value no reader
+    can interpret. A privacy field with junk in it is worse than one with the
+    default, because the junk looks deliberate.
+    """
+    raw = os.getenv("DEFAULT_COMPARTMENT_LEVEL", "2")
+    try:
+        level = int(str(raw).strip())
+    except (TypeError, ValueError):
+        logger.warning(
+            "DEFAULT_COMPARTMENT_LEVEL=%r is not an integer; using 2 (L2Trusted)", raw)
+        return 2
+    if not 0 <= level <= 6:
+        logger.warning(
+            "DEFAULT_COMPARTMENT_LEVEL=%d is outside 0..6; using 2 (L2Trusted)", level)
+        return 2
+    return level
+
+
+DEFAULT_COMPARTMENT = _default_compartment_level()
+
 
 # ── Wiki slug (CM041 reader-contract parity) ──────────────────────
 #
@@ -1663,6 +1708,39 @@ def _qdrant_upsert_points(collection: str, points: list[dict]) -> int:
     chunks; logs and continues on a chunk failure. Returns the count
     the server acknowledged.
     """
+    # ── EVERY POINT LEAVES HERE LABELLED. THIS IS THE ONLY DOOR. ──────────
+    #
+    # Stamping at each construction site is necessary and not sufficient:
+    # payloads are also built indirectly and carried through, and a static
+    # check cannot follow all of them. Measured on this file: of eight dicts
+    # carrying a `payload` key, three are inline literals and five reference a
+    # payload built elsewhere.
+    #
+    # So the label is applied at the boundary instead, where nothing can get
+    # past it. A point with no compartment_level matches NEITHER arm of the
+    # compartment search filter, so it exists on the customer's disk and can
+    # never be found. That is the defect, and "there should not be any
+    # unlabelled records" is the requirement.
+    #
+    # It only ever ADDS a missing field. A payload that already carries one,
+    # from a classifier that actually decided, is never overwritten: a default
+    # silently replacing a real decision would be a privacy change wearing the
+    # clothes of a tidy-up.
+    stamped = 0
+    for _p in points:
+        _pay = _p.get("payload")
+        if isinstance(_pay, dict) and "compartment_level" not in _pay:
+            _pay["compartment_level"] = DEFAULT_COMPARTMENT
+            stamped += 1
+    if stamped:
+        # Said out loud, because a silent backfill and a correct writer print
+        # the same thing, and the next person needs to know which they have.
+        logger.info(
+            "Stamped compartment_level=%d on %d of %d point(s) that reached the "
+            "upsert without one. The writer that built them should set it.",
+            DEFAULT_COMPARTMENT, stamped, len(points),
+        )
+
     valid = [p for p in points if p.get("vector")]
     dropped = len(points) - len(valid)
     if dropped:
@@ -1851,6 +1929,9 @@ def ingest_browser_history(fda_dir: Path) -> dict:
                 "visit_count": visit_count,
                 "source": source,
                 "type": "web_visit",
+                # STAMPED, because a payload without it matches neither arm of
+                # the compartment filter and the customer can never find it.
+                "compartment_level": DEFAULT_COMPARTMENT,
                 "privacy_level": DEFAULT_PRIVACY,
             },
         })
@@ -2085,7 +2166,7 @@ def ingest_bookmarks(fda_dir: Path) -> dict:
                 "source": "safari_bookmarks",
                 "context": folder or None,
                 "size": "Medium",
-                "compartment_level": DEFAULT_PRIVACY,
+                "compartment_level": DEFAULT_COMPARTMENT,
                 "privacy_level": DEFAULT_PRIVACY,
                 "created_at": now_iso,
                 "observed_at": now_iso,
@@ -2389,7 +2470,7 @@ def ingest_social(fda_dir: Path) -> dict:
                 "strength": strength,
                 "source": "imessage",
                 "size": "Medium",
-                "compartment_level": DEFAULT_PRIVACY,
+                "compartment_level": DEFAULT_COMPARTMENT,
                 "privacy_level": DEFAULT_PRIVACY,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "observed_at": datetime.now(timezone.utc).isoformat(),
@@ -2845,6 +2926,12 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
             # searchable; an unstamped person would predate the default and is
             # still searchable, but stamping keeps the writer/reader explicit.
             "privacy_level": DEFAULT_PRIVACY,
+            # STAMPED, same reason as the browsing payload: a person record
+            # with no compartment level matches neither arm of the compartment
+            # filter, so the customer's own contact becomes unfindable by that
+            # path. Measured before this change: 934 of 9,948 points carried no
+            # compartment_level at all.
+            "compartment_level": DEFAULT_COMPARTMENT,
             # Wiki slug the CM041 read paths RECOMPUTE from display_name. Stamp
             # the same derivation so a consumer trusting the stored slug never
             # diverges from one that recomputes it (iOS Identifiable id + URL).

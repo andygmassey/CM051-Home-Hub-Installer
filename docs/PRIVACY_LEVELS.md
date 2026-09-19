@@ -120,6 +120,15 @@ cannot silently diverge.
 4. **A guard on `compartment_level` must derive its sets from
    `privacy_model.py`**, never type them, because that file is where the
    conversion lives.
+5. **`privacy_level` fails closed and must stay that way.** Absent means
+   hidden. That was a deliberate correction to a leak, not a default to tidy
+   away.
+6. **`compartment_level` should never be absent.** A writer that emits a point
+   without one has produced a record nobody can find. Fix the writer rather
+   than widening the reader.
+7. **Do not "fix" the direction of either scale in isolation.** Each has
+   readers that assume its current direction. Changing one end without the
+   other is a silent disclosure change, which is the worst kind.
 
 ---
 
@@ -131,3 +140,66 @@ recorded for re-examination **immediately after a launch DMG ships**, tracked as
 HR015 issue #960. It is not being restructured before the cut, because
 re-scoping every privacy-filtered read in the product is not a launch-week
 change, and both directions look like a working filter from the outside.
+
+---
+
+## What is measurably wrong today
+
+Four findings, each measured on `origin/main` on 2026-09-16. They are listed
+here rather than in an issue because this file is what a reader opens when
+they are about to touch one of these fields.
+
+**1. One constant feeds both scales.** `vendor/ostler_fda/pwg_ingest.py:77`:
+
+```python
+DEFAULT_PRIVACY = os.getenv("DEFAULT_PRIVACY_LEVEL", "L2")
+```
+
+That single string is written to `pwg:privacyLevel` (the L0 to L3 scale) at six
+sites AND to `compartment_level` (the 0 to 6 integer scale) at lines 1948 and
+2252. One environment variable therefore moves a value on two scales that mean
+different things and point in opposite directions. On the L0 to L3 scale `"L2"`
+is the second-least private of four; on the 0 to 6 scale `2` is L2Trusted,
+third-most-private of seven. One constant cannot be both statements.
+
+**2. The type is wrong on one of them.** `compartment_level` is declared `int`
+in `base.py:67`, indexed as `"integer"` in `qdrant_loader.py:74`, and all 23
+parsers pass integers. The FDA writer puts the string `"L2"` there. Qdrant's
+range operator does not match a string, so for a long time every
+compartment-scoped search returned nothing. Measured on a live box: 4,804
+points carried the string form and a `range gte 0` query matched 0 of them,
+with a control query on a different field matching 5,733.
+
+The reader now accepts both forms. The writer has not been changed, so the two
+forms coexist on disk. **Re-measured on the shipped tree 2026-09-18: the
+reader's L3 decisions route through `pwg_privacy.filter_l3_facts`, which is
+string-based throughout, and a search for numeric comparisons on any privacy
+field in the shipped tree returns none.** So the live artefact is consistent
+string-to-string; this finding describes the writer's type, not a live break.
+
+**3. Some records get no label at all.** In `pwg_ingest.py`, four payload sites
+set `privacy_level` and only two of them also set `compartment_level`. Lines
+1714 and 2707 write a privacy level and no compartment level. On the box that
+was measured, 934 of 9,948 points had the field absent, and those points match
+neither filter arm and never appear in results.
+
+**That is the root cause worth fixing.** Everything downstream of it is an
+argument about what to do with data that should never have been unlabelled.
+
+**4. A third naming, in a third place.**
+`vendor/cm024_knowledge/.../markdown_writer.py:78` documents the parameter as
+"Privacy level (0-4), default 2 (personal)". A different range again, and it
+calls `2` "personal" where `base.py` calls `0` "Personal" and `2` "Trusted".
+
+---
+
+## What is not settled
+
+**Whether the two scales should be merged.** They answer different questions,
+"is this secret" and "who may see this", so having two is defensible. Having
+two that are both spelled `L<n>` and run in opposite directions is not.
+
+**What an absent `compartment_level` should mean**, once the writers are fixed
+and it can only happen to legacy records. Excluding is the current behaviour
+and the safe one. Including would return a customer their own data and is the
+kinder one. That is a product decision and it is Andy's.

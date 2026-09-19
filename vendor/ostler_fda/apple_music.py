@@ -66,6 +66,36 @@ _ALT_LIBRARY_XML = (
 _ENV_OVERRIDE = "OSTLER_MUSIC_LIBRARY_XML"
 
 
+# ── TWO SCALES, TWO CONSTANTS. SEE docs/PRIVACY_LEVELS.md ───────────────────
+#
+# `privacy_level` is L0..L3, a STRING, and HIGHER is more private (L3 hidden).
+# `compartment_level` is 0..6, an INT, and LOWER is more private (0 Personal).
+# They run in opposite directions and are not interchangeable.
+#
+# A payload carrying a privacy_level and NO compartment_level matches neither
+# arm of the compartment search filter, so the record exists on the customer's
+# disk and can never be found. Measured before this change: 934 of 9,948 points
+# had no compartment_level at all.
+def _default_compartment_level() -> int:
+    """Compartment level to stamp when no classifier has decided one.
+
+    Validated rather than trusted: an out-of-range or unparseable override
+    falls back to the documented default instead of writing a value no reader
+    can interpret.
+    """
+    raw = os.getenv("DEFAULT_COMPARTMENT_LEVEL", "2")
+    try:
+        level = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return 2
+    return level if 0 <= level <= 6 else 2
+
+
+DEFAULT_COMPARTMENT = _default_compartment_level()
+
+
+
+
 @dataclass
 class Track:
     """A single track from the library with taste-relevant metadata."""
@@ -361,6 +391,7 @@ def to_records(library: MusicLibrary) -> List[dict]:
             "total_plays": a.total_plays,
             "track_count": a.track_count,
             "source": SOURCE,
+            "compartment_level": DEFAULT_COMPARTMENT,
             "privacy_level": PRIVACY_LEVEL,
         })
 
@@ -372,6 +403,7 @@ def to_records(library: MusicLibrary) -> List[dict]:
             "total_plays": g.total_plays,
             "track_count": g.track_count,
             "source": SOURCE,
+            "compartment_level": DEFAULT_COMPARTMENT,
             "privacy_level": PRIVACY_LEVEL,
         })
 
@@ -382,6 +414,7 @@ def to_records(library: MusicLibrary) -> List[dict]:
             "name": p.name,
             "track_count": len(p.track_ids),
             "source": SOURCE,
+            "compartment_level": DEFAULT_COMPARTMENT,
             "privacy_level": PRIVACY_LEVEL,
         })
 
