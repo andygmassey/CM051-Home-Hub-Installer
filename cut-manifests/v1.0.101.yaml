@@ -5885,18 +5885,35 @@ open_issues:
     repo: none
     title: 'The check rollup renders every non-zero exit as a failure, so a gate reporting CANNOT-RUN is indistinguishable from one reporting a defect'
     gate: >-
-      A SEVENTH INSTANCE, ADDED 2026-09-19, AND IT FIRED TWICE IN ONE HOUR ON TWO DIFFERENT AGENTS'
-      WORK. MERGING A PULL REQUEST WITH --delete-branch SILENTLY CLOSES ANY PULL REQUEST STACKED ON
-      IT, AND THE CHILD READS CLOSED / merged:never WHILE ITS WORK IS STILL ON ORIGIN UNDER THE BRANCH
-      NAME. GitHub closes a pull request whose BASE branch is deleted. It does not merge it, does not
-      warn, and the only visible trace is a state change on a pull request nobody is looking at,
-      because the person merging is watching the parent. FIRST: #2250 was merged with --delete-branch
-      and took #2252 with it, a board fold carrying the 2223 retirement and this row's own privacy
-      line. Archie caught it because row 2223 still read BLOCKING afterwards, which is a CONSUMER-SIDE
-      check rather than a git one: the register disagreed with the merge. SECOND, twenty minutes
-      later, on mine: #2251 merged with --delete-branch and closed #2253, the fix that stops a
-      cancelled workflow run counting as a failed one. I caught it the same way, by measuring the tree
-      rather than reading the pull request list: the cancelled bucket scored 0 occurrences on
+      THE MITIGATION THIS ROW RECOMMENDED DOES NOT WORK, CORRECTED 2026-09-19 ON ARCHIE'S MEASUREMENT,
+      AND THE WRONG VERSION IS THE DANGEROUS ONE BECAUSE THE NEXT READER WILL RELY ON IT EXACTLY AS HE
+      DID. This row said to avoid --delete-branch when a pull request is stacked.
+      andygmassey/CM051-Home-Hub-Installer HAS delete_branch_on_merge SET AT THE REPOSITORY LEVEL, so
+      the head branch is deleted on EVERY merge whether or not anyone passes the flag. The flag was
+      never the mechanism and avoiding it could not have prevented #2252 or #2253. THE PROOF IS AN
+      OBSERVED OUTCOME, NOT A SETTING: Archie merged seven pull requests WITHOUT --delete-branch and
+      then queried each head branch, and all seven were already deleted. Seven of seven against a flag
+      he never passed. I checked the API field myself and it reads true on all six repositories I
+      could query, which means the field proves NOTHING on its own: a uniform non-zero across six
+      inputs is as damning as a uniform zero, and I cannot show that reading discriminates. The
+      outcome measurement is the evidence; the field is only corroboration. WHAT SURVIVES, AND IT IS
+      THE HALF THAT WAS ALWAYS DOING THE WORK: after merging a parent, check every pull request based
+      on it by measuring whether its CONTENT reached main, never by reading its state. Both instances
+      were caught that way and neither was caught from the flag. THE REAL OPTIONS, since a reader
+      needs one: stop stacking in this repository, or turn delete_branch_on_merge off, or rebase the
+      child onto main BEFORE merging the parent, which is the only one that costs nothing. ORIGINAL
+      TEXT FOLLOWS. A SEVENTH INSTANCE, ADDED 2026-09-19, AND IT FIRED TWICE IN ONE HOUR ON TWO
+      DIFFERENT AGENTS' WORK. MERGING A PULL REQUEST WITH --delete-branch SILENTLY CLOSES ANY PULL
+      REQUEST STACKED ON IT, AND THE CHILD READS CLOSED / merged:never WHILE ITS WORK IS STILL ON
+      ORIGIN UNDER THE BRANCH NAME. GitHub closes a pull request whose BASE branch is deleted. It does
+      not merge it, does not warn, and the only visible trace is a state change on a pull request
+      nobody is looking at, because the person merging is watching the parent. FIRST: #2250 was merged
+      with --delete-branch and took #2252 with it, a board fold carrying the 2223 retirement and this
+      row's own privacy line. Archie caught it because row 2223 still read BLOCKING afterwards, which
+      is a CONSUMER-SIDE check rather than a git one: the register disagreed with the merge. SECOND,
+      twenty minutes later, on mine: #2251 merged with --delete-branch and closed #2253, the fix that
+      stops a cancelled workflow run counting as a failed one. I caught it the same way, by measuring
+      the tree rather than reading the pull request list: the cancelled bucket scored 0 occurrences on
       origin/main against a CONTROL of #2251's own change scoring 1 in the same file. Re-opened as
       #2257 from the surviving branch, because gh pr reopen REFUSES once the base is gone. WHY
       STACKING WAS STILL RIGHT, so nobody reads this as an argument against it: the alternative was
@@ -6052,31 +6069,56 @@ open_issues:
     repo: none
     title: 'The orphan gate''s fix half is now clean and its expiry half still fails the cut, on 47 deferrals that mostly expired at v1.0.27'
     gate: >-
-      🔴 BLOCKING, AND IT IS THE LAST THING STANDING IN scripts/verify_no_orphaned_fixes.sh. MEASURED
-      2026-09-19 UNDER OSTLER_CUT_VERSION=v1.0.101, which is the only condition in which this gate
-      says anything at all about expiry: without a cut version the ratchet is NOT EVALUATED and the
-      file says so in its own words, so every earlier run of it was silent on this by construction.
-      THE FIX HALF IS CLEAN. RED refs went 36 to 0 across this session: 29 branches deleted as
-      provably spent with every tip sha recorded first, 2 recovered into pull requests, 1 pushed and
-      attached to the open pull request that should carry it, and 4 deferred with reasons. CONTROL ON
-      THE ZERO, because an empty scan reads exactly like a clean one: the same run graded 225 ok rows
-      and 231 warn rows, so the gate was reading and grading rather than finding nothing to look at.
-      THE EXPIRY HALF FAILS, AND IT IS NOT MINE. The verdict is FAIL: no orphaned work, but the
-      expired-deferral set GREW. The same growth message appears in the FIRST run of this gate today,
-      taken before any deferral of mine existed, so it predates this session's edits. THE TOTAL DID
-      NOT GROW, WHICH IS THE PART THAT MAKES IT CONFUSING: 216 expired against 424 baselined, and the
-      run before my four deferrals read 217. The ratchet is SET-BASED, not count-based, so a ref that
-      expires now and is absent from the baseline is growth even while the total shrinks. WHAT THE 47
-      ACTUALLY ARE, sampled 40 of 47 and stated as a sample: 24 carry NO until_cut at all and are held
-      on a review_by date, 14 name v1.0.27, one names v1.0.46 and one v1.0.51. NONE names v1.0.101. So
-      this is not the cut version advancing past a horizon somebody set; it is ancient debt the
-      baseline does not cover. THE REMEDY THE TOOL OFFERS IS THE ONE THIS REPO FORBIDS TAKING QUIETLY.
-      It says to re-run with --regenerate-expired-baseline and say in the commit why the debt grew.
-      That raises the ceiling on 47 refs at once, and the walk-closure register a few files away
-      states the principle in as many words: do not raise the horizon to make this pass. NOT DONE,
-      DELIBERATELY, and this row exists so the decision is made by someone rather than inherited from
-      a flag. RETIREMENT: each of the 47 is worked, re-deferred to a version that has not been cut, or
-      the baseline is regenerated with a reason that names them. A further measurement worth taking
-      first: DEFERRAL REACHABILITY reports 486 of 781 declared deferrals consulted and 550 not, and a
-      deferral nothing asks about holds nothing, so some of the 47 may be unreachable rather than
-      owed.
+      🔴 BLOCKING. THE TAIL IS NOW SETTLED AND THE ROW IS NOT YET CLOSED, UPDATED 2026-09-19. Eight
+      more deferrals removed, 773 entries to 765, each proven individually rather than as a batch: six
+      CM031 branches, CM041:fix/one-person-one-name and CM041:#109. THE DATE METHOD I STARTED WITH WAS
+      WRONG AND WOULD HAVE INVERTED THE ANSWER. BSD date -j -f with a trailing Z matches the Z as a
+      LITERAL and interprets the string in the local zone, +0800 here, so every mergedAt came out
+      28800 seconds early and any branch whose tip landed within eight hours before its merge read
+      KEEP. Run that way 13 of 24 came back KEEP, with the deltas clustered between +15,000 and
+      +28,500 seconds, all just inside the artefact window; run with date -ju all 24 are SPENT. The
+      cluster was the tell, because a real distribution of tip-to-merge gaps does not pile up just
+      inside one window. SO THE DATES ARE NOT THE PROOF. A SECOND ORACLE THAT IS NOT A CLOCK: for all
+      six CM031 branches the local tip sha is byte-identical to the headRefOid GitHub merged, so there
+      is no lineage question to answer. Across the wider set of 24 that comparison is 23 identical and
+      1 differing, which is what shows it discriminates rather than agreeing by construction. CM041
+      WAS CHECKED AGAINST THE CUT, NOT AGAINST ITS OWN REPO, because a deferral asks whether the work
+      is in the ARTEFACT: the construct is on CM041 main (2 hits, positive control 10) AND in CM051's
+      own vendored copy at vendor/cm041/identity_resolver/normalise.py (2 hits, same control), and the
+      vendored copy is the one that ships. TWO THAT LOOK IDENTICAL AND STAY, WHICH IS THE REUSABLE
+      PART: a deferral entry can exist to SUPPRESS A GATE THAT CANNOT MEASURE rather than to defer
+      work, and removing it re-arms a false RED. daemon:fix/log-the-401-that-gates-every-api-call
+      shipped as oa #345, but CM051 CI holds no ostler-ai token so the PR query fails and the gate
+      falls back to an ancestry test that is permanently false for a squash-merge; its branch is live
+      on the remote at 1061c79d. CM031:nomerge/cm031-prewalk-tests-v1.0.4 has the same SPENT proof and
+      a live remote at 501b56b7. Both stay until their remote branches go. ORPHAN GATE AFTER THE
+      REMOVAL: 0 RED, 23 ok, 4 pre-existing DEFERRED warns, measured because the previous deferral
+      removal exposed 4 orphan REDs. WHAT KEEPS THIS ROW OPEN: the expiry ratchet is set-based and
+      still fails, and that half predates this session's edits. ORIGINAL TEXT FOLLOWS. 🔴 BLOCKING, AND
+      IT IS THE LAST THING STANDING IN scripts/verify_no_orphaned_fixes.sh. MEASURED 2026-09-19 UNDER
+      OSTLER_CUT_VERSION=v1.0.101, which is the only condition in which this gate says anything at all
+      about expiry: without a cut version the ratchet is NOT EVALUATED and the file says so in its own
+      words, so every earlier run of it was silent on this by construction. THE FIX HALF IS CLEAN. RED
+      refs went 36 to 0 across this session: 29 branches deleted as provably spent with every tip sha
+      recorded first, 2 recovered into pull requests, 1 pushed and attached to the open pull request
+      that should carry it, and 4 deferred with reasons. CONTROL ON THE ZERO, because an empty scan
+      reads exactly like a clean one: the same run graded 225 ok rows and 231 warn rows, so the gate
+      was reading and grading rather than finding nothing to look at. THE EXPIRY HALF FAILS, AND IT IS
+      NOT MINE. The verdict is FAIL: no orphaned work, but the expired-deferral set GREW. The same
+      growth message appears in the FIRST run of this gate today, taken before any deferral of mine
+      existed, so it predates this session's edits. THE TOTAL DID NOT GROW, WHICH IS THE PART THAT
+      MAKES IT CONFUSING: 216 expired against 424 baselined, and the run before my four deferrals read
+      217. The ratchet is SET-BASED, not count-based, so a ref that expires now and is absent from the
+      baseline is growth even while the total shrinks. WHAT THE 47 ACTUALLY ARE, sampled 40 of 47 and
+      stated as a sample: 24 carry NO until_cut at all and are held on a review_by date, 14 name
+      v1.0.27, one names v1.0.46 and one v1.0.51. NONE names v1.0.101. So this is not the cut version
+      advancing past a horizon somebody set; it is ancient debt the baseline does not cover. THE
+      REMEDY THE TOOL OFFERS IS THE ONE THIS REPO FORBIDS TAKING QUIETLY. It says to re-run with
+      --regenerate-expired-baseline and say in the commit why the debt grew. That raises the ceiling
+      on 47 refs at once, and the walk-closure register a few files away states the principle in as
+      many words: do not raise the horizon to make this pass. NOT DONE, DELIBERATELY, and this row
+      exists so the decision is made by someone rather than inherited from a flag. RETIREMENT: each of
+      the 47 is worked, re-deferred to a version that has not been cut, or the baseline is regenerated
+      with a reason that names them. A further measurement worth taking first: DEFERRAL REACHABILITY
+      reports 486 of 781 declared deferrals consulted and 550 not, and a deferral nothing asks about
+      holds nothing, so some of the 47 may be unreachable rather than owed.
