@@ -4941,77 +4941,104 @@ open_issues:
       vendored copy, so a re-pin deletes it, and two of its rows already break
       the promise the panel makes
     gate: >-
-      🔴 BLOCKING STILL, AND ONE OF ITS TWO FINDINGS IS NARROWED WHILE THE OTHER IS PARTLY CLOSED
-      2026-09-19. FINDING ONE IS REAL AND ITS CONSEQUENCE WAS OVERSTATED. The row says a re-pin
-      deletes the panel and there is nowhere for it to come back from. The divergence patch DOES carry
-      the panel: the kinds constant, the reader and the renderer all appear in it, and so does the
-      customer-facing promise sentence. A first search for that sentence returned zero because IT IS
-      SPLIT ACROSS SOURCE LINES, which is the same trap the row itself fell into when it counted that
-      text elsewhere. THE REAL GAP IS NARROWER AND IT IS REAL: the patch does NOT carry the extract-
-      kinds delta from a merged PR of 2026-09-17, because that PR added 74 lines to the vendored file
-      and never touched the patch. So a re-pin loses THAT DELTA, not the panel. FINDING TWO IS
-      SUBSTANTIALLY A MISREADING OF A DOCUMENTED DESIGN, and the row should not carry it as filed. The
-      vendored file states the behaviour outright: the customer CHOOSES sources in the picker and one
-      defaults to OFF, so printing an unconditional not-run-yet row in amber for a source somebody
-      DECLINED would invent a failure, which is the mirror of the defect this panel closes. The
-      recorder writes a row for every state EXCEPT declined-by-user. READ THE SCOPE BEFORE JUDGING THE
-      INSTRUMENT. THE RESIDUAL OF FINDING TWO WAS REAL AND IS NOW FIXED. The recorder is called with a
-      swallow, so a recorder that DIED left NO row, and this panel renders a missing row EXACTLY like
-      a source that was never asked to run. Two states, one appearance, and only one is a real
-      absence. Measured: ZERO records anywhere in the installer of a recorder failure, against a
-      control of 10 for the honest-record helpers the function already calls on its own known-bad
-      paths. Now reported, with the exit code and with what it COSTS the customer, and the install is
-      still never aborted, which has its own control arm because turning a bookkeeping failure into an
-      aborted install would be a worse defect than the one it closes. Its mutation arm pins the pre-
-      fix swallow as SILENT on the same failure. Proved rc 2 CANNOT-RUN against origin/main, which is
-      the correct refusal rather than a pass, and rc 0 with 5 passing on the fix. AND A WIRED TEST FOR
-      THIS PANEL ALREADY EXISTED BEFORE THE ROW WAS WRITTEN, added by that same 2026-09-17 PR and
-      invoked by the cold-box workflow, which the row does not mention. WHAT STILL BLOCKS: the patch
-      regeneration that would capture the extract-kinds delta. It is gated on permit rows for FOUR
-      PAIR-ARM FALSE POSITIVES, which are UI COPY pairing the verb Import with two third-party product
-      names on their own importer pages. The guard has a CLOSED three-value class set and one of them
-      is PRODUCT, defined as a third-party product named in customer copy where naming it wrongly
-      would make the copy false. That is this case exactly, and it is established practice rather than
-      a new exemption: the registry already carries 99 such permits across 6 path patterns, clearing
-      127 pairs. A permit is BOUND TO A PATH GLOB and is a digest, never a name. NO RENAME IS POSSIBLE
-      UPSTREAM: those four strings exist only in the vendored copy.  ORIGINAL TEXT FOLLOWS, WITH ONE
-      WORD PAIR PARAPHRASED AND THE PARAPHRASE DECLARED. The original opened with the ungated marker
-      as its verdict. That marker is matched by a PLAIN SUBSTRING test over the WHOLE gate value with
-      no position test, so preserving it verbatim anywhere in this row would hold the row ungated for
-      ever no matter what verdict sits above it. Row 939 records that same trap flipping 41 rows at
-      once. So those two words are replaced by the phrase the ungated marker and NOTHING ELSE in the
-      original is altered. IT READ: 🔴 BLOCKING (a doctor re-pin removes a customer-facing panel that
-      has no upstream to come back from, and the panel already fails its own stated promise for two
-      sources): MEASURED 2026-09-18 by RENDERING the shipped code rather than reading it, with HOME
-      and OSTLER_DIR pointed at a temp directory and never at the real dot-ostler, which is a live
-      data subject. FINDING ONE, THE PANEL HAS NO UPSTREAM. HR015 doctor/agent/web_ui.py is 4,992
-      lines; CM051 vendor/doctor/agent/web_ui.py is 6,745. Swept the whole HR015 tracked tree rather
-      than the one file anyone would think of, and independently against the origin/main REF as well
-      as the working tree, with both sweeps agreeing: read_source_status 0 files, _SOURCE_KINDS 0,
-      _FDA_EXTRACT_KINDS 0, render_source_status 0, and the panel's own promise text 0. CONTROL, a
-      doctor symbol that MUST be found, collect_licence_state, 2 files. CONTROL, a symbol that must be
-      found nowhere, 0 files. The predicate discriminates in both directions, so the zero is real. The
-      entire panel is vendor-only, and the promise text appears twice in CM051 and never in HR015.
-      WHAT THAT DOES TO ROW 2212. The known cost of a doctor re-pin was the WhatsApp keepalive tile
-      plus two reverted importers. It is larger: a re-pin from HR015 deletes the source-status panel
-      outright, and there is nowhere for it to come back from because it has never existed upstream.
-      Fourth instance of the pattern row 2218 names, and the largest. FINDING TWO, LIVE TODAY ON MAIN.
-      The panel's copy reads "Every source Ostler reads, whether it has run, how much it found and
-      when it last looked. A source that has never run says so rather than being left out." Driven on
-      the shipped vendored code: ARM 1, no sentinel on disk, 13 rows render, reminders ABSENT, photos
-      ABSENT, CONTROL imessage PRESENT. ARM 2, after reminders.done is written, reminders PRESENT. The
-      row CAN appear, so the predicate discriminates; photos and reminders are simply left out until
-      they have run. Thirteen sources honour the promise and these two do not, which is the exact
-      complaint the earlier source-table work was opened to close. The cause is visible in
-      read_source_status: _SOURCE_KINDS entries are added unconditionally, while _FDA_EXTRACT_KINDS
-      entries join only when their sentinel already exists. A CUSTOMER WHO TICKS REMINDERS AND WHOSE
-      EXTRACTOR NEVER RUNS IS TOLD NOTHING AT ALL, which is the state the panel's own copy promises
-      not to produce. WHERE THE FIX GOES, AND IT IS NOT OBVIOUS. There is no upstream file to fix, so
-      the rule of never editing a vendored copy has nothing to point at. Either the panel is lifted
-      into HR015 first and fixed there, or this is the one tree where a vendor-side edit is the only
-      option, and that must be a recorded decision rather than a habit. The call belongs to whoever
-      owns the vendor register. WHICH HALF-WIRED FAILURE MODE: present in the repo but not in the DMG,
-      inverted. It is in the DMG and absent from the repository that is supposed to be its source.
+      🔴 BLOCKING, AND THE ROW'S REAL GAP IS FIVE TIMES WIDER THAN IT SAYS. RE-MEASURED 2026-09-19. The
+      row narrows its own first finding to one missing delta: a merged pull request of 2026-09-17
+      added lines to the vendored file and never touched the divergence patch, so a re-pin loses THAT
+      delta. Correct, and incomplete. EIGHT commits have touched vendor/doctor since 2026-09-16, and
+      ALL EIGHT are absent from vendor/divergences/doctor.patch. METHOD, because a zero needs its
+      shape: each commit was probed with up to five of its own added lines, longer than 45 characters,
+      neither blank nor comment, and the patch was searched for them. Every commit scored 0 of 5.
+      CONTROLS BOTH DIRECTIONS: a line lifted from the patch itself scores 1, a fabricated line scores
+      0, so the probe discriminates and the zeros are real absences rather than a broken search. OF
+      THE EIGHT, THREE ARE ALREADY RECORDED and five are recorded NOWHERE. Two are in
+      WRITER_READER_MISMATCHES.UNRECORDED.md by pull request number and one by description. THE SEARCH
+      WAS WIDENED BEFORE THE CLAIM WAS MADE, which is how that third one was found and correctly
+      excluded: a pull-request-number probe cannot see a delta recorded in prose, so each candidate
+      was searched again by description, against a control term from the register scoring 1 and a
+      fabricated term scoring 0. THE FIVE, location and shape only: dashboard_components +60/-36;
+      diagnostic_copy +46 with diagnostic_rules +177; pair_status +57; a four-module keepalive graft
+      at +189/+16/+75/+165; box_status +107/-5. 892 added lines across seven modules. CONSUMER SIDE,
+      SUBJECT IS A PERSON: a sync that accepts divergence loss gives the customer back a Doctor that
+      cannot check the licence acknowledgement, no beta entitlement window, a pairing QR their phone
+      cannot open, a keepalive reporting on an object nobody runs, and a status daemon that forks
+      until macOS kills it and the Doctor goes quiet. AND THE MECHANISM CANNOT FIX THIS, WHICH IS THE
+      PART WORTH CARRYING FORWARD. scripts/regenerate_divergence_patch.sh doctor was RE-RUN today
+      rather than its earlier refusal being inherited, and it exits 1 REFUSED, the source has advanced
+      past the pin, 48 upstream commits listed, nothing written. So the tool that would record a graft
+      is unavailable EXACTLY while the pin is held, and a held pin is this tree's normal state: every
+      edit between re-pins is unrecordable by construction and has to reach the register by hand.
+      Recorded there in CM051 #2244. ORIGINAL TEXT FOLLOWS. 🔴 BLOCKING STILL, AND ONE OF ITS TWO
+      FINDINGS IS NARROWED WHILE THE OTHER IS PARTLY CLOSED 2026-09-19. FINDING ONE IS REAL AND ITS
+      CONSEQUENCE WAS OVERSTATED. The row says a re-pin deletes the panel and there is nowhere for it
+      to come back from. The divergence patch DOES carry the panel: the kinds constant, the reader and
+      the renderer all appear in it, and so does the customer-facing promise sentence. A first search
+      for that sentence returned zero because IT IS SPLIT ACROSS SOURCE LINES, which is the same trap
+      the row itself fell into when it counted that text elsewhere. THE REAL GAP IS NARROWER AND IT IS
+      REAL: the patch does NOT carry the extract- kinds delta from a merged PR of 2026-09-17, because
+      that PR added 74 lines to the vendored file and never touched the patch. So a re-pin loses THAT
+      DELTA, not the panel. FINDING TWO IS SUBSTANTIALLY A MISREADING OF A DOCUMENTED DESIGN, and the
+      row should not carry it as filed. The vendored file states the behaviour outright: the customer
+      CHOOSES sources in the picker and one defaults to OFF, so printing an unconditional not-run-yet
+      row in amber for a source somebody DECLINED would invent a failure, which is the mirror of the
+      defect this panel closes. The recorder writes a row for every state EXCEPT declined-by-user.
+      READ THE SCOPE BEFORE JUDGING THE INSTRUMENT. THE RESIDUAL OF FINDING TWO WAS REAL AND IS NOW
+      FIXED. The recorder is called with a swallow, so a recorder that DIED left NO row, and this
+      panel renders a missing row EXACTLY like a source that was never asked to run. Two states, one
+      appearance, and only one is a real absence. Measured: ZERO records anywhere in the installer of
+      a recorder failure, against a control of 10 for the honest-record helpers the function already
+      calls on its own known-bad paths. Now reported, with the exit code and with what it COSTS the
+      customer, and the install is still never aborted, which has its own control arm because turning
+      a bookkeeping failure into an aborted install would be a worse defect than the one it closes.
+      Its mutation arm pins the pre- fix swallow as SILENT on the same failure. Proved rc 2 CANNOT-RUN
+      against origin/main, which is the correct refusal rather than a pass, and rc 0 with 5 passing on
+      the fix. AND A WIRED TEST FOR THIS PANEL ALREADY EXISTED BEFORE THE ROW WAS WRITTEN, added by
+      that same 2026-09-17 PR and invoked by the cold-box workflow, which the row does not mention.
+      WHAT STILL BLOCKS: the patch regeneration that would capture the extract-kinds delta. It is
+      gated on permit rows for FOUR PAIR-ARM FALSE POSITIVES, which are UI COPY pairing the verb
+      Import with two third-party product names on their own importer pages. The guard has a CLOSED
+      three-value class set and one of them is PRODUCT, defined as a third-party product named in
+      customer copy where naming it wrongly would make the copy false. That is this case exactly, and
+      it is established practice rather than a new exemption: the registry already carries 99 such
+      permits across 6 path patterns, clearing 127 pairs. A permit is BOUND TO A PATH GLOB and is a
+      digest, never a name. NO RENAME IS POSSIBLE UPSTREAM: those four strings exist only in the
+      vendored copy.  ORIGINAL TEXT FOLLOWS, WITH ONE WORD PAIR PARAPHRASED AND THE PARAPHRASE
+      DECLARED. The original opened with the ungated marker as its verdict. That marker is matched by
+      a PLAIN SUBSTRING test over the WHOLE gate value with no position test, so preserving it
+      verbatim anywhere in this row would hold the row ungated for ever no matter what verdict sits
+      above it. Row 939 records that same trap flipping 41 rows at once. So those two words are
+      replaced by the phrase the ungated marker and NOTHING ELSE in the original is altered. IT READ:
+      🔴 BLOCKING (a doctor re-pin removes a customer-facing panel that has no upstream to come back
+      from, and the panel already fails its own stated promise for two sources): MEASURED 2026-09-18
+      by RENDERING the shipped code rather than reading it, with HOME and OSTLER_DIR pointed at a temp
+      directory and never at the real dot-ostler, which is a live data subject. FINDING ONE, THE PANEL
+      HAS NO UPSTREAM. HR015 doctor/agent/web_ui.py is 4,992 lines; CM051
+      vendor/doctor/agent/web_ui.py is 6,745. Swept the whole HR015 tracked tree rather than the one
+      file anyone would think of, and independently against the origin/main REF as well as the working
+      tree, with both sweeps agreeing: read_source_status 0 files, _SOURCE_KINDS 0, _FDA_EXTRACT_KINDS
+      0, render_source_status 0, and the panel's own promise text 0. CONTROL, a doctor symbol that
+      MUST be found, collect_licence_state, 2 files. CONTROL, a symbol that must be found nowhere, 0
+      files. The predicate discriminates in both directions, so the zero is real. The entire panel is
+      vendor-only, and the promise text appears twice in CM051 and never in HR015. WHAT THAT DOES TO
+      ROW 2212. The known cost of a doctor re-pin was the WhatsApp keepalive tile plus two reverted
+      importers. It is larger: a re-pin from HR015 deletes the source-status panel outright, and there
+      is nowhere for it to come back from because it has never existed upstream. Fourth instance of
+      the pattern row 2218 names, and the largest. FINDING TWO, LIVE TODAY ON MAIN. The panel's copy
+      reads "Every source Ostler reads, whether it has run, how much it found and when it last looked.
+      A source that has never run says so rather than being left out." Driven on the shipped vendored
+      code: ARM 1, no sentinel on disk, 13 rows render, reminders ABSENT, photos ABSENT, CONTROL
+      imessage PRESENT. ARM 2, after reminders.done is written, reminders PRESENT. The row CAN appear,
+      so the predicate discriminates; photos and reminders are simply left out until they have run.
+      Thirteen sources honour the promise and these two do not, which is the exact complaint the
+      earlier source-table work was opened to close. The cause is visible in read_source_status:
+      _SOURCE_KINDS entries are added unconditionally, while _FDA_EXTRACT_KINDS entries join only when
+      their sentinel already exists. A CUSTOMER WHO TICKS REMINDERS AND WHOSE EXTRACTOR NEVER RUNS IS
+      TOLD NOTHING AT ALL, which is the state the panel's own copy promises not to produce. WHERE THE
+      FIX GOES, AND IT IS NOT OBVIOUS. There is no upstream file to fix, so the rule of never editing
+      a vendored copy has nothing to point at. Either the panel is lifted into HR015 first and fixed
+      there, or this is the one tree where a vendor-side edit is the only option, and that must be a
+      recorded decision rather than a habit. The call belongs to whoever owns the vendor register.
+      WHICH HALF-WIRED FAILURE MODE: present in the repo but not in the DMG, inverted. It is in the
+      DMG and absent from the repository that is supposed to be its source.
   - issue: 2220
     repo: none
     title: >-
