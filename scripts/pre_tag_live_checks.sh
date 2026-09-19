@@ -101,8 +101,34 @@ if [ -f "$_defs" ]; then
             grep -q "CM051:#${n}\"" "$_defs" || grep -q "CM051-Home-Hub-Installer#${n}\"" "$_defs" || _undeclared="${_undeclared} #${n}"
         done
         _n_open="$(printf '%s\n' $_open | grep -c . || true)"
+        _n_undeclared="$(printf '%s\n' $_undeclared | grep -c '#' || true)"
+        # 🔴 THIS WAS RED AND IT REDDED ON A REASON THAT STOPPED BEING TRUE ON
+        # 2026-09-07. It said "check-orphans will red the cut on these". It does
+        # not. verify_no_orphaned_fixes.sh's own header, in its numbered list of
+        # what it does: "OPEN PRs (INCLUDING DRAFTS) whose head is not an
+        # ancestor -> REPORTED, NOT COUNTED ... and none of them fails the cut",
+        # citing launch directive item 4. Its live output says the same thing in
+        # the run: "OPEN PRs: 38 reported above, NOT counted."
+        #
+        # WHY THAT MATTERS MORE THAN A WRONG SENTENCE. The remedy this row
+        # printed was to deferral-declare or merge every open PR, and that is
+        # the EXACT behaviour that burned four tag pushes. The orphan gate's
+        # header records it: "four v1.0.74 tag pushes died on it with 8 open PRs
+        # and 0 orphaned branches; the only way past it was to merge every open
+        # PR, which put two new gates on main under the item 2 freeze." That arm
+        # was changed for that reason. This row kept the old verdict and pointed
+        # at the gate that had abandoned it.
+        #
+        # MEASURED 2026-09-19 with 25 open PRs: this was the ONLY blocking row
+        # left in the whole pre-tag sweep whose cause was not a real defect, and
+        # the sweep printed VERDICT: RED, do not tag, on the strength of it.
+        #
+        # STILL REPORTED, NEVER SILENT, because the orphan gate's other half is
+        # about exactly that: "What this arm still guards is SILENCE." An
+        # undeclared open PR is worth seeing before a tag. It is not worth
+        # refusing one.
         if [ -n "$_undeclared" ]; then
-            RED=1; row "open PRs vs deferrals" "RED" "${_n_open} open, NOT deferred:${_undeclared} -- check-orphans will red the cut on these"
+            row "open PRs vs deferrals" "INFO" "${_n_open} open, ${_n_undeclared} not deferral-declared:${_undeclared} -- REPORTED, NOT BLOCKING (launch directive item 4: open PRs on main do not block a cut made from a frozen branch)"
         else
             row "open PRs vs deferrals" "GREEN" "${_n_open} open, all deferred"
         fi
