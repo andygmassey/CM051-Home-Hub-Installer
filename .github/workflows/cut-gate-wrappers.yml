@@ -54,6 +54,12 @@ on:
       # self-edit note above.
       - 'scripts/verify_dispatch_cannot_ship.py'
       - 'tests/test_cut_dispatch_is_dry.sh'
+      # Wired 2026-09-19. Row 1519 asks whether the dry run is reachable at
+      # all, and said the decisive proof was to FIRE a dispatch. Arm 3 answers
+      # it structurally, for free, on every PR: it walks the dry-run job's
+      # transitive `needs` closure and requires every job in it to admit a
+      # dispatch. Recovered from a local-only branch the orphan gate found.
+      - 'tests/test_the_dry_run_is_reachable_on_a_dispatch.py'
       - 'scripts/verify_cut_provenance.sh'
       - 'scripts/verify_no_orphaned_fixes.sh'
       - 'scripts/verify_pr_age.sh'
@@ -285,6 +291,18 @@ jobs:
       - name: A workflow_dispatch cannot publish
         if: always()
         run: /bin/bash tests/test_cut_dispatch_is_dry.sh
+
+      # THE OTHER HALF OF THE SAME QUESTION, AND IT IS NOT THE SAME TEST.
+      # The suite above asks whether a dispatch can SHIP. This one asks whether
+      # a dispatch can RUN AT ALL: arm 3 walks the dry-run job's transitive
+      # `needs` closure and requires every job in it to admit a dispatch, and
+      # arm 4 requires that no step in that closure reads the tag
+      # unconditionally, because a dispatch has no tag to read.
+      #
+      # if: always() so an earlier red in this job cannot mask it.
+      - name: The dry run is structurally reachable on a dispatch
+        if: always()
+        run: python3 tests/test_the_dry_run_is_reachable_on_a_dispatch.py
 
       # Wired 2026-09-06 (#1694). See the paths note above: three gate
       # self-tests that ran nowhere. Each proves its gate REJECTS a violation,
