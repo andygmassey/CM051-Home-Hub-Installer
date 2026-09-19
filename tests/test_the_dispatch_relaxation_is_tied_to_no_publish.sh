@@ -29,13 +29,33 @@ bad() { printf '  [FAIL] %s\n' "$1"; fail=$((fail+1)); }
 # The shapes THIS repo actually publishes through, per verify_dispatch_cannot_ship.py.
 PUBLISH_RE='scripts/publish_release\.sh|make[^#]*publish-appcast'
 
-# Non-comment invocation lines only. A comment naming a publisher is not a publisher.
-mapfile -t PUB_LINES < <(/usr/bin/grep -nE "$PUBLISH_RE" "$W" | /usr/bin/awk -F: '{n=$1; $1=""; sub(/^:/,""); t=$0; sub(/^[ \t]+/,"",t); if (substr(t,1,1) != "#") print n}')
+# 🔴 AND THE THIRD DEFECT IN THIS FILE WAS THAT IT COULD NOT RUN ON THE MACHINE
+# THAT RUNS IT. This used `mapfile`, a bash 4 builtin. macOS ships bash 3.2 at
+# /bin/bash, cut-gate-wrappers runs on macos-latest, and the step invokes
+# /bin/bash explicitly. My "8 pass / 0 fail" was taken under the bash 5 on PATH,
+# not the shell the step uses. THE THING MEASURED WAS NOT THE THING THAT RUNS,
+# which is the identical shape to the probe keyed to a pattern its subject does
+# not use. Measured on /bin/bash 3.2: "mapfile: command not found", then
+# "PUB_LINES: unbound variable" under set -u, rc=1.
+#
+# AND rc=1 IS THE WRONG ANSWER EVEN WHEN IT DIES, which is the worse half. A FAIL
+# from this test means "a publisher is reachable on a dispatch". A dead script
+# exiting 1 is indistinguishable from that, so the gate holding a RELAXED cut gate
+# would look identical whether it found a real hole or could not look at all.
+# CANNOT-RUN is rc 2 here, never rc 1, and never a pass.
+PUB_LINES=""
+while IFS= read -r _ln; do
+	[ -n "$_ln" ] && PUB_LINES="${PUB_LINES}${_ln} "
+done <<EOT
+$(/usr/bin/grep -nE "$PUBLISH_RE" "$W" | /usr/bin/awk -F: '{n=$1; $1=""; sub(/^:/,""); t=$0; sub(/^[ \t]+/,"",t); if (substr(t,1,1) != "#") print n}')
+EOT
+_pubcount=0
+for _x in $PUB_LINES; do _pubcount=$((_pubcount+1)); done
 
-if [ "${#PUB_LINES[@]}" -eq 0 ]; then
+if [ "$_pubcount" -eq 0 ]; then
 	bad "found 0 publisher invocations. A zero here means the probe stopped matching, NOT that publishing vanished -- which is exactly how the previous version of this test passed while blind."
 else
-	ok "found ${#PUB_LINES[@]} real publisher invocation(s), comments excluded"
+	ok "found ${_pubcount} real publisher invocation(s), comments excluded"
 fi
 
 # PER STEP: each publisher's own nearest preceding `if:` must carry the push gate.
@@ -44,7 +64,7 @@ fi
 # whatever step came before -- so an injected unguarded publisher inherited its
 # NEIGHBOUR's push gate and reported "push-gated". The guard search must be
 # bounded to the publisher's OWN step, from its `- name:` line forward.
-for L in "${PUB_LINES[@]}"; do
+for L in $PUB_LINES; do
 	start="$(/usr/bin/grep -nE '^      - name:' "$W" | /usr/bin/awk -F: -v l="$L" '$1 < l {n=$1} END {print n+0}')"
 	if [ "$start" -eq 0 ]; then
 		bad "line ${L} has no enclosing step; cannot attribute a guard to it"
