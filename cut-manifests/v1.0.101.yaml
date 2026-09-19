@@ -5830,24 +5830,45 @@ open_issues:
     repo: none
     title: 'The check rollup renders every non-zero exit as a failure, so a gate reporting CANNOT-RUN is indistinguishable from one reporting a defect'
     gate: >-
-      A SIXTH INSTANCE, AND IT IS A DIFFERENT SHAPE FROM THE FIVE BELOW, SO IT IS NAMED AS ITS OWN
-      PATTERN RATHER THAN APPENDED TO THEM. A PRIVACY JOIN ONTO A CORPUS THAT CARRIES NO LEVEL DELETES
-      THE CORPUS, AND FAIL-CLOSED IS WHAT MAKES IT SILENT. Three instances in one night, 2026-09-18
-      into 2026-09-19, found independently by two agents. FIRST, 471 relationship signals: the obvious
-      remediation joined pwg:privacyLevel while the nodes carry urn:ostler:privacyLevel, so the join
-      matched 0 of 471 and every signal would have vanished while the diff looked correct. SECOND, the
-      erasure scoping, caught by Archie before it landed. THIRD, and it is the cleanest specimen: 93
-      OutstandingTodo nodes carry NO privacyLevel under EITHER namespace, 0 with each, so joining
-      filter_l3_facts onto them would hide all 93 and delete the meeting brief's commitments wing
-      outright. I filed that absence as a defect in CM041 #178 and retracted the headline publicly
-      within the hour, having read the sibling reader that records the decision next to its own query.
-      urn:ostler:visibility was checked as a substitute and rejected WITH A CONTROL: all 93 todos
-      carry it, always the literal private, and so does everything else, 471 of 471 signals and 1462
-      of 1462 facts INCLUDING the 1369 tagged L0, so a predicate with one value across a whole corpus
-      carries no information. WHAT MAKES THIS DANGEROUS RATHER THAN MERELY WRONG IS THE FAIL-CLOSED
-      HALF. A privacy filter that fails closed on an untagged record is correct policy and it is also
-      what makes the failure silent: the remediation reads correctly in the diff, the tests that
-      exercise TAGGED records pass, and the corpus disappears at runtime with no error and no log
+      A SEVENTH INSTANCE, ADDED 2026-09-19, AND IT FIRED TWICE IN ONE HOUR ON TWO DIFFERENT AGENTS'
+      WORK. MERGING A PULL REQUEST WITH --delete-branch SILENTLY CLOSES ANY PULL REQUEST STACKED ON
+      IT, AND THE CHILD READS CLOSED / merged:never WHILE ITS WORK IS STILL ON ORIGIN UNDER THE BRANCH
+      NAME. GitHub closes a pull request whose BASE branch is deleted. It does not merge it, does not
+      warn, and the only visible trace is a state change on a pull request nobody is looking at,
+      because the person merging is watching the parent. FIRST: #2250 was merged with --delete-branch
+      and took #2252 with it, a board fold carrying the 2223 retirement and this row's own privacy
+      line. Archie caught it because row 2223 still read BLOCKING afterwards, which is a CONSUMER-SIDE
+      check rather than a git one: the register disagreed with the merge. SECOND, twenty minutes
+      later, on mine: #2251 merged with --delete-branch and closed #2253, the fix that stops a
+      cancelled workflow run counting as a failed one. I caught it the same way, by measuring the tree
+      rather than reading the pull request list: the cancelled bucket scored 0 occurrences on
+      origin/main against a CONTROL of #2251's own change scoring 1 in the same file. Re-opened as
+      #2257 from the surviving branch, because gh pr reopen REFUSES once the base is gone. WHY
+      STACKING WAS STILL RIGHT, so nobody reads this as an argument against it: the alternative was
+      editing cut-manifests/v1.0.100.yaml while v1.0.101.yaml was becoming the board, which would have
+      stranded three sets of folds in a file that is no longer read. Both orderings have a failure
+      mode. This one is INVISIBLE UNLESS YOU CHECK THE CHILD AFTERWARDS, and the other is invisible
+      for ever. THE RULE: after merging a parent, check every pull request that was based on it, and
+      check it by measuring whether its CONTENT reached main rather than by reading its state, because
+      CLOSED and MERGED are both terminal and only one of them shipped anything. ORIGINAL TEXT
+      FOLLOWS. A SIXTH INSTANCE, AND IT IS A DIFFERENT SHAPE FROM THE FIVE BELOW, SO IT IS NAMED AS
+      ITS OWN PATTERN RATHER THAN APPENDED TO THEM. A PRIVACY JOIN ONTO A CORPUS THAT CARRIES NO LEVEL
+      DELETES THE CORPUS, AND FAIL-CLOSED IS WHAT MAKES IT SILENT. Three instances in one night,
+      2026-09-18 into 2026-09-19, found independently by two agents. FIRST, 471 relationship signals:
+      the obvious remediation joined pwg:privacyLevel while the nodes carry urn:ostler:privacyLevel,
+      so the join matched 0 of 471 and every signal would have vanished while the diff looked correct.
+      SECOND, the erasure scoping, caught by Archie before it landed. THIRD, and it is the cleanest
+      specimen: 93 OutstandingTodo nodes carry NO privacyLevel under EITHER namespace, 0 with each, so
+      joining filter_l3_facts onto them would hide all 93 and delete the meeting brief's commitments
+      wing outright. I filed that absence as a defect in CM041 #178 and retracted the headline
+      publicly within the hour, having read the sibling reader that records the decision next to its
+      own query. urn:ostler:visibility was checked as a substitute and rejected WITH A CONTROL: all 93
+      todos carry it, always the literal private, and so does everything else, 471 of 471 signals and
+      1462 of 1462 facts INCLUDING the 1369 tagged L0, so a predicate with one value across a whole
+      corpus carries no information. WHAT MAKES THIS DANGEROUS RATHER THAN MERELY WRONG IS THE FAIL-
+      CLOSED HALF. A privacy filter that fails closed on an untagged record is correct policy and it
+      is also what makes the failure silent: the remediation reads correctly in the diff, the tests
+      that exercise TAGGED records pass, and the corpus disappears at runtime with no error and no log
       line. The customer sees an empty panel, which is the same thing they saw before the fix and for
       the opposite reason. THE RULE, so the next person does not have to find it three times: before
       adding a privacy join, COUNT how many nodes in the target corpus carry the level, and pair it
