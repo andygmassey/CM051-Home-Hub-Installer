@@ -1352,11 +1352,37 @@ deferral_reachability_report() {
             if [[ "$n_unconsulted" -gt 0 ]]; then
                 say "   A deferral nothing asks about holds nothing. Either the ref is in the"
                 say "   wrong key shape, or the work has landed and the row should go."
-                printf '%s\n' "$unconsulted" | head -20 | while IFS= read -r _r; do
-                    [[ -n "$_r" ]] && say "     UNCONSULTED  ${_r}"
-                done
-                if [[ "$n_unconsulted" -gt 20 ]]; then
-                    say "     ... and $((n_unconsulted - 20)) more (showing 20 of ${n_unconsulted})"
+                # 🔴 THE CAP WAS 20 OF 550 AND THE LIST IS THE ONLY WAY TO ACT
+                # ON THIS ROW. Measured 2026-09-19: 486 of 781 consulted, 550
+                # not, and the reader was shown 20 names. The three causes this
+                # block's own header names -- wrong key shape, work has landed,
+                # repo not checked -- can only be told apart PER REF, so a
+                # reader who wants to clear the backlog needs every name and
+                # there was no way to ask for one.
+                #
+                # It bit a real decision the same day. Row 2245 asks whether 47
+                # newly-expired deferrals are owed or merely unreachable, and
+                # its own next step is to compare the two lists. Against 20 of
+                # 550 that comparison returns a confident answer computed from
+                # 4% of the data, which is worse than no answer.
+                #
+                # THE DEFAULT IS UNCHANGED, deliberately: 550 names in an
+                # advisory block would bury the verdict for every reader who did
+                # not ask. OSTLER_ORPHAN_LIST_ALL=1 prints them all, and the
+                # capped message now says how to ask rather than only that
+                # something was withheld.
+                if [[ "${OSTLER_ORPHAN_LIST_ALL:-0}" == "1" ]]; then
+                    printf '%s\n' "$unconsulted" | while IFS= read -r _r; do
+                        [[ -n "$_r" ]] && say "     UNCONSULTED  ${_r}"
+                    done
+                    say "     (all ${n_unconsulted} listed: OSTLER_ORPHAN_LIST_ALL=1)"
+                else
+                    printf '%s\n' "$unconsulted" | head -20 | while IFS= read -r _r; do
+                        [[ -n "$_r" ]] && say "     UNCONSULTED  ${_r}"
+                    done
+                    if [[ "$n_unconsulted" -gt 20 ]]; then
+                        say "     ... and $((n_unconsulted - 20)) more (showing 20 of ${n_unconsulted}). Re-run with OSTLER_ORPHAN_LIST_ALL=1 to see every one; the three causes above can only be told apart per ref."
+                    fi
                 fi
             fi
         fi
