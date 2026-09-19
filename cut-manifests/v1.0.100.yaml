@@ -4397,14 +4397,34 @@ open_issues:
       Two customer surfaces read zero from a store that holds the data, because
       the reader asks the default graph and the writer writes a named one
     gate: >-
-      🔴 BLOCKING, AND I AM CORRECTING MY OWN CORRECTION FROM EARLIER TODAY BECAUSE IT WOULD HAVE HELD
-      A VENDOR PIN FOR NO REASON AND CAUSED AN OUTAGE IF ACTED ON. The paragraph below concluded that
-      meeting_syncer/brief.py's two readers lack a privacy filter, that this is a defect, that it was
-      filed as CM041 #178, and that the cm041 vendor pin is therefore HELD until #178 is resolved. THE
-      FIRST CLAIM IS A FACT AND THE REST IS WRONG. I read the two brief functions and did not read the
-      sibling reader in assistant_api/ical-server.py, which records the decision next to its own
-      query. MEASURED UPSTREAM AND QUOTED RATHER THAN PARAPHRASED: 93 OutstandingTodo nodes on the box
-      and ZERO carry a privacyLevel under either namespace, 0 with pwg:privacyLevel and 0 with
+      🔴 BLOCKING. THE GRAFT WAS ATTEMPTED AND IT IS NOT MECHANICAL, MEASURED RATHER THAN ASSUMED.
+      Having established above that the pin is NOT held on CM041 #178, the gate's first option is to
+      graft e01dff3297ce into the three vendored trees. I built the patch from the commit, rewrote its
+      paths to vendor/cm041/ and ran git apply --check per file. THE COMMIT TOUCHES 13 FILES AND ONLY
+      4 ARE VENDORED: the other 9 are tests, which VENDOR_MANIFEST.toml excludes by design. Of those
+      4, TWO APPLY CLEANLY, identity_resolver/resolver.py at 3 hunks and meeting_syncer/brief.py at 4,
+      and TWO REJECT, assistant_api/ical-server.py failing at :494 of 6 hunks and
+      identity_resolver/compartment.py failing at :99 of 3. So 7 of 16 hunks apply and the other 9
+      need a human merge. A THREE-WAY MERGE IS NOT AVAILABLE AND THAT IS STRUCTURAL, NOT A SETTING:
+      git reports it lacks the necessary blob, because CM051 holds none of CM041's objects, so there
+      is no common ancestor to merge against. THE REASON IS ROW 2218'S REASON. The vendored ical-
+      server.py is 8,822 lines against upstream's 7,820 and the vendored compartment.py is 680 against
+      782, so the two files that reject are the two that diverge most, and row 2218 already records
+      that the vendored copy carries about 1,151 lines that never went upstream. A PARTIAL GRAFT WOULD
+      BE WORSE THAN NONE and was not applied: landing brief.py's named-graph read without ical-
+      server.py's would leave the readers half-migrated, some asking the named graph and some not,
+      which is harder to diagnose than the uniform defect. NOTHING WAS APPLIED AND NOTHING WAS ACKED.
+      The three trees stay RED honestly, and what this row now carries is the SHAPE of the work rather
+      than a verdict on it: 9 hunks in 2 named files, both of them the divergent ones, against a copy
+      that cannot be three-way merged. ORIGINAL TEXT FOLLOWS. 🔴 BLOCKING, AND I AM CORRECTING MY OWN
+      CORRECTION FROM EARLIER TODAY BECAUSE IT WOULD HAVE HELD A VENDOR PIN FOR NO REASON AND CAUSED
+      AN OUTAGE IF ACTED ON. The paragraph below concluded that meeting_syncer/brief.py's two readers
+      lack a privacy filter, that this is a defect, that it was filed as CM041 #178, and that the
+      cm041 vendor pin is therefore HELD until #178 is resolved. THE FIRST CLAIM IS A FACT AND THE
+      REST IS WRONG. I read the two brief functions and did not read the sibling reader in
+      assistant_api/ical-server.py, which records the decision next to its own query. MEASURED
+      UPSTREAM AND QUOTED RATHER THAN PARAPHRASED: 93 OutstandingTodo nodes on the box and ZERO carry
+      a privacyLevel under either namespace, 0 with pwg:privacyLevel and 0 with
       urn:ostler:privacyLevel. filter_l3_facts fails closed on an untagged record, so joining it would
       hide all 93 and delete the commitments wing outright. urn:ostler:visibility was checked as a
       substitute and rejected WITH A CONTROL: all 93 todos carry it, always the literal private, and
