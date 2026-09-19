@@ -149,13 +149,48 @@ _ci="$(gh run list --repo andygmassey/CM051-Home-Hub-Installer --branch main --l
 if [ -z "$_ci" ]; then
     CANT=1; row "main CI (latest per workflow)" "CANNOT-RUN" "no runs returned; scanning nothing is not a green main"
 else
+    # 🔴 A CANCELLED RUN IS NOT A FAILED RUN, AND COUNTING IT AS ONE SENDS THE
+    # OPERATOR TO DEBUG A WORKFLOW THAT NEVER FAILED.
+    #
+    # `cancelled` used to fall into _bad, because _bad was everything that was
+    # not success, not RUNNING and not skipped. Every workflow in this repo sets
+    # `cancel-in-progress` on a concurrency group, deliberately, so a merge
+    # arriving while runs are in flight CANCELS the superseded ones. During a
+    # normal merge loop that is most of them.
+    #
+    # MEASURED 2026-09-19 during exactly such a loop: this row printed
+    # "2 red of 116" and NAMED two workflows, "A licence cap on the deferred
+    # path is not silent" and "The store-auth .pth points at the final tree".
+    # Neither had failed. The first read success on the newest main sha minutes
+    # later and the second was still running; what the row had counted were
+    # their cancelled predecessors on three superseded shas.
+    #
+    # IT IS STILL BLOCKING, AND THAT IS THE POINT OF THE FIX RATHER THAN AN
+    # EXCEPTION TO IT. A cancelled latest run means this workflow has NO verdict
+    # on this sha, which is the same epistemic state as one still running: not a
+    # defect, and not a pass either. So it joins the NOT SETTLED branch, which
+    # already refuses a tag. Calling it green would be the real weakening, and a
+    # human cancelling a run to hide a red would land in exactly this bucket.
+    #
+    # FOUR BUCKETS NOW, AND THEY ARE ALL PRINTED, because the comment above this
+    # block already demanded it: the buckets must sum to the total so a fourth
+    # state cannot hide. Adding one without printing it would have recreated the
+    # defect that comment exists to prevent.
     _tot="$(printf '%s\n' "$_ci" | grep -c .)"
-    _ok="$(printf '%s\n' "$_ci"  | awk -F'\t' '$3=="success"'  | grep -c . || true)"
-    _run="$(printf '%s\n' "$_ci" | awk -F'\t' '$3=="RUNNING"'  | grep -c . || true)"
-    _bad="$(printf '%s\n' "$_ci" | awk -F'\t' '$3!="success" && $3!="RUNNING" && $3!="skipped"' | grep -c . || true)"
-    _names="$(printf '%s\n' "$_ci" | awk -F'\t' '$3!="success" && $3!="RUNNING" && $3!="skipped" {printf "%s ", $1}')"
-    if [ "$_bad" -gt 0 ]; then
-        RED=1; row "main CI (latest per workflow)" "RED" "${_ok} green / ${_run} running / ${_bad} red of ${_tot} -- ${_names}"
+    _ok="$(printf '%s\n' "$_ci"  | awk -F'\t' '$3=="success"'   | grep -c . || true)"
+    _run="$(printf '%s\n' "$_ci" | awk -F'\t' '$3=="RUNNING"'   | grep -c . || true)"
+    _can="$(printf '%s\n' "$_ci" | awk -F'\t' '$3=="cancelled"' | grep -c . || true)"
+    _skp="$(printf '%s\n' "$_ci" | awk -F'\t' '$3=="skipped"'   | grep -c . || true)"
+    _bad="$(printf '%s\n' "$_ci" | awk -F'\t' '$3!="success" && $3!="RUNNING" && $3!="skipped" && $3!="cancelled"' | grep -c . || true)"
+    _names="$(printf '%s\n' "$_ci" | awk -F'\t' '$3!="success" && $3!="RUNNING" && $3!="skipped" && $3!="cancelled" {printf "%s ", $1}')"
+    _cnames="$(printf '%s\n' "$_ci" | awk -F'\t' '$3=="cancelled" {printf "%s ", $1}')"
+    _sum=$((_ok + _run + _can + _skp + _bad))
+    if [ "$_sum" -ne "$_tot" ]; then
+        CANT=1; row "main CI (latest per workflow)" "CANNOT-RUN" "buckets sum to ${_sum} and the total is ${_tot}: a state this check cannot name is hiding in the difference"
+    elif [ "$_bad" -gt 0 ]; then
+        RED=1; row "main CI (latest per workflow)" "RED" "${_ok} green / ${_run} running / ${_can} cancelled / ${_skp} skipped / ${_bad} RED of ${_tot} -- ${_names}"
+    elif [ "$_can" -gt 0 ]; then
+        RED=1; row "main CI (latest per workflow)" "NOT SETTLED" "${_ok} green / ${_run} running / ${_can} CANCELLED / ${_skp} skipped / 0 red of ${_tot}. A cancelled latest run has no verdict on this sha, which is not a pass: ${_cnames}"
     elif [ "$_run" -gt 0 ]; then
         RED=1; row "main CI (latest per workflow)" "NOT SETTLED" "${_ok} green / ${_run} STILL RUNNING / 0 red of ${_tot}. A tag now spends a version on an unfinished answer."
     else
