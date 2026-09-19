@@ -4397,15 +4397,43 @@ open_issues:
       Two customer surfaces read zero from a store that holds the data, because
       the reader asks the default graph and the writer writes a named one
     gate: >-
-      🔴 STILL BLOCKING, AND RE-MEASURED 2026-09-19 AGAINST THE MERGED UPSTREAM FIX RATHER THAN THE
-      PROPOSAL. THE ROW'S CENTRAL OBJECTION WAS ADDRESSED BEFORE MERGE, AND NARROWS FROM SIX READERS
-      TO TWO. This row said the fix MUST NOT BE MERGED AS IT STANDS because it would unblind six
-      readers onto a person's facts with no privacy filter. It merged as CM041 e01dff3297ce (#175),
-      and it carries the privacy half for the four readers in assistant_api/ical-server.py: 8 filter
-      calls added, joined on urn:ostler:privacyLevel, with a comment in the commit recording that
-      copying the facts path's pwg:privacyLevel would match nothing. That is exactly the correction
-      this board supplied, and it was taken. Measured on upstream main: 11 filter_l3_facts call sites
-      and 11 urn:ostler:privacyLevel joins in that file, against 17 pwg:privacyLevel joins on the pre-
+      🔴 BLOCKING, AND I AM CORRECTING MY OWN CORRECTION FROM EARLIER TODAY BECAUSE IT WOULD HAVE HELD
+      A VENDOR PIN FOR NO REASON AND CAUSED AN OUTAGE IF ACTED ON. The paragraph below concluded that
+      meeting_syncer/brief.py's two readers lack a privacy filter, that this is a defect, that it was
+      filed as CM041 #178, and that the cm041 vendor pin is therefore HELD until #178 is resolved. THE
+      FIRST CLAIM IS A FACT AND THE REST IS WRONG. I read the two brief functions and did not read the
+      sibling reader in assistant_api/ical-server.py, which records the decision next to its own
+      query. MEASURED UPSTREAM AND QUOTED RATHER THAN PARAPHRASED: 93 OutstandingTodo nodes on the box
+      and ZERO carry a privacyLevel under either namespace, 0 with pwg:privacyLevel and 0 with
+      urn:ostler:privacyLevel. filter_l3_facts fails closed on an untagged record, so joining it would
+      hide all 93 and delete the commitments wing outright. urn:ostler:visibility was checked as a
+      substitute and rejected WITH A CONTROL: all 93 todos carry it, always the literal private, and
+      so does everything else, 471 of 471 signals and 1462 of 1462 facts INCLUDING the 1369 tagged L0,
+      so a predicate with one value across the whole corpus carries no information. SO THE ABSENCE IS
+      EXPLAINED BY THE DATA, NOT BY AN OMISSION: facts are tagged and todos are not, and the fix I was
+      about to write would have emptied the brief's todo list on every box. The branch was deleted
+      unwritten and CM041 #178 carries the retraction. WHAT SURVIVES, NARROWLY: the decision is
+      documented in ical-server.py and nowhere in brief.py, so the next reader rediscovers it or
+      repeats my mistake; and the two readers are scoped differently, the commitments reader by the
+      operator's own ownership and the brief's by aboutPerson equals the meeting attendee, while
+      MEASURED neither puts a FILTER on the owner variable, both only SELECT it. The real remedy is on
+      the CM048 WRITER tagging todos as it already tags facts and signals. AND THE CONSEQUENCE FOR THE
+      CUT REVERSES: the cm041 pin is NOT held on #178. The three RED trees, assistant_api,
+      identity_resolver and meeting_syncer, all carry e01dff3297ce as their single unacknowledged
+      delta, that commit is a genuine customer-facing bugfix for this row, and the objection that
+      would have justified holding it does not stand. The correct action is to GRAFT it and re-run the
+      freshness gate, which is what the gate itself offers first. NOTHING ABOUT THIS ROW'S BLOCKING
+      STATUS CHANGES: the subject is still the VENDORED copy, and merge THEN re-vendor THEN build THEN
+      walk has still not happened. ORIGINAL TEXT FOLLOWS. 🔴 STILL BLOCKING, AND RE-MEASURED 2026-09-19
+      AGAINST THE MERGED UPSTREAM FIX RATHER THAN THE PROPOSAL. THE ROW'S CENTRAL OBJECTION WAS
+      ADDRESSED BEFORE MERGE, AND NARROWS FROM SIX READERS TO TWO. This row said the fix MUST NOT BE
+      MERGED AS IT STANDS because it would unblind six readers onto a person's facts with no privacy
+      filter. It merged as CM041 e01dff3297ce (#175), and it carries the privacy half for the four
+      readers in assistant_api/ical-server.py: 8 filter calls added, joined on
+      urn:ostler:privacyLevel, with a comment in the commit recording that copying the facts path's
+      pwg:privacyLevel would match nothing. That is exactly the correction this board supplied, and it
+      was taken. Measured on upstream main: 11 filter_l3_facts call sites and 11
+      urn:ostler:privacyLevel joins in that file, against 17 pwg:privacyLevel joins on the pre-
       existing facts path. THE OBJECTION SURVIVES FOR THE OTHER TWO, AND THEY ARE IN THE MEETING
       BRIEF. meeting_syncer/brief.py received the named-graph half and NOT the privacy half: 0
       privacy-filter calls added. Per function, with the control in the same file so this is not a
