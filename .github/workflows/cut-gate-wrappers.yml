@@ -292,6 +292,12 @@ jobs:
       #
       # if: always() so an earlier red in this job cannot mask it.
       - name: The dispatch relaxation is tied to the no-publish property
+        # always() because a gate its own job can switch off is not a gate.
+        # Without this the step is SKIPPED when an earlier test in the same
+        # job fails, and this one exists to hold a RELAXED cut gate: the one
+        # run where other things are already red is exactly the run where it
+        # most needs to speak. ci-maskless caught the omission.
+        if: always()
         run: /bin/bash tests/test_the_dispatch_relaxation_is_tied_to_no_publish.sh
 
       - name: A workflow_dispatch cannot publish
