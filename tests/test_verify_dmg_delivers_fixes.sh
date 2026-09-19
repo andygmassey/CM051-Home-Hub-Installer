@@ -25,6 +25,12 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 INV_1247='sudo already available without a password'
 INV_1249='Install aborted at line'
 INV_563='COUNTS_INCOMPLETE'
+# CM051 #2202, added 2026-09-19. THE HALF THAT LIVES IN install.sh. Row 2202
+# measured the v1.0.100 artefact on the box and found the entire
+# merge-consistency repair absent from what a customer installs: the invocation
+# scored 0 in the shipped payload install.sh against three non-zero controls.
+# This is the module invocation itself, not a comment.
+INV_2202_CALL='identity_resolver.repair_merge_consistency'
 
 # The PAYLOAD invariants -- everything the check looks for OUTSIDE install.sh.
 # A fixture that carries fewer than the check declares is not a "good DMG",
@@ -48,16 +54,24 @@ INV_145='prefer_real_given_name'
 # vendored copy, which is exactly why the DMG must be read for them.
 INV_1573_VETO='refused_rule2'
 INV_1573_TOMB='mergedInto> <{canonical}>'
+# CM051 #2202's OTHER half, and the pair is the point. The invocation above and
+# this module are in DIFFERENT files, so no single row and no single capability
+# can span both, and row 2202 says in as many words that two separate patterns
+# can both be green while the feature is dead. Every row in the check must pass
+# for the check to pass, so declaring both is the conjunction. Keyed on a
+# function the module defines rather than on its filename: a file that exists
+# and is empty must not read as delivered.
+INV_2202_MODULE='_resurrectable_subjects'
 
 # arm 0: the check still declares exactly these three invariants (a fixture that
 # drifts from the check would make every other arm meaningless).
-for _inv in "$INV_1247" "$INV_1249" "$INV_563"; do
+for _inv in "$INV_1247" "$INV_1249" "$INV_563" "$INV_2202_CALL"; do
     if [ "$(grep -cF -- "$_inv" "$CHECK")" -eq 0 ]; then
         cant "arm 0: the check no longer declares invariant [${_inv}]; fixtures are stale, refusing to guess"
         echo "== ${PASS}/${FAIL}/$((CANT+1)) =="; exit 2
     fi
 done
-ok "arm 0: the three fixture invariants match the check's declared set"
+ok "arm 0: the four fixture invariants match the check's declared set"
 
 # arm 0b: THE PAYLOAD SET, ASSERTED IN BOTH DIRECTIONS.
 #
@@ -71,13 +85,14 @@ ok "arm 0: the three fixture invariants match the check's declared set"
 # which is the direction that actually happened. So both, and a mismatch is
 # CANNOT-RUN rather than a fail: the arms below cannot mean anything until the
 # fixture describes a complete artefact again.
-PAYLOAD_INV_FIXTURE=( "$INV_1543" "$INV_755" "$INV_1619" "$INV_142" "$INV_145" "$INV_1573_VETO" "$INV_1573_TOMB" )
+PAYLOAD_INV_FIXTURE=( "$INV_1543" "$INV_755" "$INV_1619" "$INV_142" "$INV_145" "$INV_1573_VETO" "$INV_1573_TOMB" "$INV_2202_MODULE" )
 # The payload FILES this fixture writes into every "good DMG". Kept beside
 # the invariants so the two cannot drift apart unnoticed.
 PAYLOAD_PATH_FIXTURE=( "contact_syncer/syncer.py"
                        "identity_resolver/canonical_name.py"
                        "identity_resolver/resolver.py"
                        "identity_resolver/batch_resolver.py"
+                       "identity_resolver/repair_merge_consistency.py"
                        "ostler_fda/dedupe_merge.py" )
 # `sort -u`, not `sort`. TWO PAYLOAD ROWS MAY SHARE ONE INVARIANT: #145 names
 # `prefer_real_given_name` in BOTH resolver.py and batch_resolver.py, because
@@ -159,6 +174,12 @@ build_dmg() {
             > "${outer_dir}/identity_resolver/resolver.py"
         printf '# synthetic batch_resolver fixture\ngiven = %s(x)\n' "$INV_145" \
             > "${outer_dir}/identity_resolver/batch_resolver.py"
+        # CM051 #2202: the repair module a customer's install invokes. Built in
+        # the SAME directory as the two above so the path suffix has to do real
+        # work, and defined as a function so an empty file cannot pass.
+        printf '# synthetic repair_merge_consistency fixture\ndef %s(url, client):\n    return []\n' \
+            "$INV_2202_MODULE" \
+            > "${outer_dir}/identity_resolver/repair_merge_consistency.py"
         # A DECOY the path-suffix match must NOT accept. `-name syncer.py` alone
         # would find this and call the payload delivered.
         # ostler_fda/dedupe_merge.py: fresh carries the veto's stats key and the
@@ -215,8 +236,11 @@ fi
 run() { /bin/bash "$CHECK" "$1" >/dev/null 2>&1; echo $?; }
 
 # arm 1: GREEN -- both copies carry all three -> PASS (rc 0)
-allthree="${INV_1247}|${INV_1249}|${INV_563}"
-good="$(build_dmg good "$allthree" "$allthree")"
+# WAS `allthree`, AND THE NAME WENT STALE THE MOMENT A FOURTH ROW LANDED. A
+# variable that counts its own contents in its name is a comment that cannot be
+# checked, and this file already refuses fixtures that drift from the check.
+allinstall="${INV_1247}|${INV_1249}|${INV_563}|${INV_2202_CALL}"
+good="$(build_dmg good "$allinstall" "$allinstall")"
 rc="$(run "$good")"
 [ "$rc" = "0" ] && ok "arm 1: a DMG carrying all three fixes in both install.sh -> PASS" \
                  || bad "arm 1: a good DMG did not pass (rc=${rc}) -- the gate cannot recognise a delivered fix"
@@ -228,7 +252,7 @@ rc="$(run "$missing")"
                  || bad "arm 2: a DMG missing a fix did not fail (rc=${rc})"
 
 # arm 3: PARTIAL -- present in the outer copy, absent in the payload -> FAIL
-partial="$(build_dmg partial "$allthree" "${INV_1247}|${INV_1249}")"
+partial="$(build_dmg partial "$allinstall" "${INV_1247}|${INV_1249}")"
 rc="$(run "$partial")"
 [ "$rc" = "1" ] && ok "arm 3: a fix in 1 of 2 install.sh (partial delivery) -> FAIL (both copies run)" \
                  || bad "arm 3: a partial delivery passed (rc=${rc}) -- a fix in one copy is not delivered"
@@ -238,25 +262,25 @@ empty_stage="${TMP}/empty-stage"; mkdir -p "${empty_stage}/x"; printf 'hi\n' > "
 # ── arms 6-8: the payload limb, added with it ──────────────────────────────
 # arm 6: the guard is in the payload -> PASS, and the meeting_syncer decoy in
 # every fixture proves the suffix match is not satisfied by any syncer.py.
-rc="$(run "$(build_dmg pay_ok "$allthree" "$allthree" with)")"
+rc="$(run "$(build_dmg pay_ok "$allinstall" "$allinstall" with)")"
 [ "$rc" = "0" ] && ok "arm 6: contact_syncer/syncer.py carrying the #1543 guard -> PASS, and the meeting_syncer decoy did not satisfy it" \
                  || bad "arm 6: a DMG delivering the payload fix returned rc=${rc}"
 
 # arm 7: the file ships but WITHOUT the guard -> FAIL. This is the case the
 # whole limb exists for: install.sh is perfect and the vendored package is stale.
-rc="$(run "$(build_dmg pay_stale "$allthree" "$allthree" without)")"
+rc="$(run "$(build_dmg pay_stale "$allinstall" "$allinstall" without)")"
 [ "$rc" = "1" ] && ok "arm 7: a stale contact_syncer/syncer.py -> FAIL, even with all three install.sh fixes present" \
                  || bad "arm 7: a DMG shipping a stale payload returned rc=${rc}, expected 1"
 
 # arm 8: no contact_syncer at all -> CANNOT-RUN, never a pass. An absent file
 # and a present-but-stale one must not report the same.
-rc="$(run "$(build_dmg pay_dedupestale "$allthree" "$allthree" with without)")"
+rc="$(run "$(build_dmg pay_dedupestale "$allinstall" "$allinstall" with without)")"
 if [ "$rc" = "1" ]; then
     ok "arm 7b: a stale ostler_fda/dedupe_merge.py beside a fresh contact_syncer -> FAIL; the dedupe rows are load-bearing on their own"
 else
     bad "arm 7b: a DMG shipping the pre-graft dedupe_merge.py returned rc=${rc}, expected 1 -- the veto and tombstone could ship dark"
 fi
-rc="$(run "$(build_dmg pay_absent "$allthree" "$allthree" absent)")"
+rc="$(run "$(build_dmg pay_absent "$allinstall" "$allinstall" absent)")"
 [ "$rc" = "2" ] && ok "arm 8: no contact_syncer/syncer.py in the DMG -> CANNOT-RUN (rc 2), not a pass" \
                  || bad "arm 8: a DMG with no payload file returned rc=${rc}, expected 2"
 

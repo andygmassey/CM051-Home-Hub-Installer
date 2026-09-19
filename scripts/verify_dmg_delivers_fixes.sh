@@ -38,8 +38,43 @@ fi
 
 # (fix id, invariant). Behaviour-tied strings, validated absent-in-v1.0.50 /
 # present-in-main. NOT a comment, NOT a SHA.
-FIX_IDS=(  "#1247-sudo-gate-passwordless"                 "#1249-abort-speaks-on-terminal"   "#563-uninstall-count-nonfatal" )
-FIX_INV=(  "sudo already available without a password"    "Install aborted at line"          "COUNTS_INCOMPLETE" )
+#
+# 🔴 THE #2202 PAIR, ADDED 2026-09-19, AND IT IS A PAIR ON PURPOSE.
+#
+# Row 2202 measured the v1.0.100 artefact on the box: the ENTIRE merge-
+# consistency repair and the orphan sweep are absent from what a customer
+# installs. In the shipped payload install.sh, 35510 lines,
+# repair_merge_consistency scored 0, against controls identity_resolver 24,
+# batch_resolver 3 and imessage_fda 39, so the zero was a real absence and not
+# a broken search. The module was not in the payload either.
+#
+# TWO ROWS, NOT ONE, AND NEITHER IS SUFFICIENT ALONE. The invocation lives in
+# install.sh and the module it invokes lives in the vendored tree, so no single
+# row here and no single capability_manifest entry can span both. Row 2202 said
+# it in as many words: two separate patterns can BOTH be green while the feature
+# is dead. In THIS file every row must pass for the gate to pass, so the pair is
+# the conjunction that row asked for, enforced at cut time against the mounted
+# DMG rather than against main.
+#
+# WHY IT COULD NOT HAVE BEEN ADDED BEFORE TODAY. Row 2202 names three gates.
+# Gate 1 was CM041 #166, merged 2026-09-18. Gate 2 was the re-vendor, and it has
+# landed: vendor/cm041/identity_resolver/repair_merge_consistency.py is present,
+# with resolver.py in the same directory as the control proving the directory
+# reads. Gate 3 is a BUILD, and these two rows are what make gate 3 checkable
+# instead of asserted.
+#
+# INVARIANTS VALIDATED, both, with controls:
+#   install.sh  "identity_resolver.repair_merge_consistency", 1 occurrence, at
+#               :32480, and it is the invocation line itself rather than a
+#               comment, which this file forbids keying on.
+#   module      "_resurrectable_subjects", 3 in the module and 0 anywhere else
+#               under vendor/, so the path suffix is not doing the work on its
+#               own. CONTROL: "prefer_real_given_name" appears in 5 files, so
+#               the search finds names where they exist and the 0 is real.
+FIX_IDS=(  "#1247-sudo-gate-passwordless"                 "#1249-abort-speaks-on-terminal"   "#563-uninstall-count-nonfatal"
+           "#2202-the-merge-consistency-repair-is-invoked" )
+FIX_INV=(  "sudo already available without a password"    "Install aborted at line"          "COUNTS_INCOMPLETE"
+           "identity_resolver.repair_merge_consistency" )
 
 # 🔴 THIS CHECK ONLY EVER READ install.sh, AND ITS NAME DOES NOT SAY SO.
 #
@@ -120,7 +155,8 @@ PAYLOAD_IDS=(  "#1543-rule-2-on-the-write"
                "#145-the-resolver-elects-the-real-given-name"
                "#145-the-batch-path-elects-it-too"
                "#1573-dedupe-merge-vetoes-two-cards"
-               "#1573-dedupe-merge-leaves-a-tombstone" )
+               "#1573-dedupe-merge-leaves-a-tombstone"
+               "#2202-the-repair-module-is-in-the-payload" )
 PAYLOAD_PATH=( "contact_syncer/syncer.py"
                "contact_syncer/syncer.py"
                "contact_syncer/syncer.py"
@@ -128,7 +164,8 @@ PAYLOAD_PATH=( "contact_syncer/syncer.py"
                "identity_resolver/resolver.py"
                "identity_resolver/batch_resolver.py"
                "ostler_fda/dedupe_merge.py"
-               "ostler_fda/dedupe_merge.py" )
+               "ostler_fda/dedupe_merge.py"
+               "identity_resolver/repair_merge_consistency.py" )
 PAYLOAD_INV=(  "_node_holds_a_different_canonical_key"
                "_source_is_the_users_own"
                "com.apple.AddressBookSourceSync"
@@ -136,7 +173,8 @@ PAYLOAD_INV=(  "_node_holds_a_different_canonical_key"
                "prefer_real_given_name"
                "prefer_real_given_name"
                "refused_rule2"
-               "mergedInto> <{canonical}>" )
+               "mergedInto> <{canonical}>"
+               "_resurrectable_subjects" )
 
 MP="$(mktemp -d)"
 DEV=""
