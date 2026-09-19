@@ -305,3 +305,79 @@ re-pin, which is separately blocked: two vendored importers under this tree hold
 content that exists in NO upstream commit, confirmed by an exhaustive blob walk
 with a control, so a re-pin today reverts two working files while advancing the
 rest.
+
+## Added 2026-09-19, CM051. `doctor`, FIVE grafts recorded NOWHERE
+
+Found while working row 2219, which names ONE unrecorded delta in this tree.
+There are more, and this entry is the rest of them.
+
+### The refusal, RE-MEASURED rather than inherited
+
+Per this file's own rule, the tool was run again today rather than the earlier
+refusal being reused:
+
+    HR015=<the HR015 checkout> scripts/regenerate_divergence_patch.sh doctor
+      exit 1, REFUSED
+      "The SOURCE has advanced past the pin. Unshipped commits touching this tree:"
+      48 upstream commits listed
+      nothing written
+
+It is the same refusal the #2133 entry above measured, and that is the point
+worth stating: the mechanism that would record a graft is unavailable EXACTLY
+while the pin is held, and a held pin is this tree's normal state. So every
+edit made to this tree between re-pins is unrecordable by the tool, by
+construction, and has to arrive here by hand or not at all.
+
+### How these five were found, and what the search could not see
+
+Eight commits have touched `vendor/doctor/` since 2026-09-16. Each was probed
+by taking up to five of its own added lines, longer than 45 characters and
+neither blank nor a comment, and searching `vendor/divergences/doctor.patch`
+for them.
+
+  * ALL EIGHT scored 0 of 5. None is in the patch.
+  * CONTROLS, both directions: a line lifted from the patch itself scores 1,
+    and a fabricated line scores 0. The probe discriminates.
+
+Of the eight, two are already recorded in this file by PR number (#2133, #2027)
+and one by description (the Notion and Obsidian importers, in the section
+above). The remaining FIVE are recorded in neither the patch nor this file.
+
+  * THE SEARCH WAS WIDENED BEFORE THE CLAIM WAS MADE, because a PR-number probe
+    would miss anything recorded by prose. Each of the five was searched for
+    again by description: keepalive, fork budget, forked, pairing QR, beta,
+    licence acknowledgement. All zero, against a control term from this file
+    that scores 1 and a fabricated term that scores 0. That is how the Notion
+    and Obsidian entry was found and excluded.
+
+### What was grafted, location and shape only, never content
+
+`c56ddecb` (#2061), `vendor/doctor/agent/dashboard_components.py`: +60 / -36.
+The licence acknowledgement panel, and a map that existed in two places.
+
+`b3c80daa` (#2019), `diagnostic_copy.py` +46, `diagnostic_rules.py` +177.
+The beta window as the entitlement, with the tester warned first.
+
+`4fbb5d3e` (#2042), `pair_status.py`: +57. The pairing QR could carry an
+address the phone cannot open.
+
+`1828fc9d` (#1984), four modules: `dashboard_components.py` +189,
+`web_ui.py` +16, `web_ui_copy.py` +75, `whatsapp_pair.py` +165. The keepalive
+that diagnosed the wrong object, fixed nothing and exited 0.
+
+`c7a961cd` (#1979), `box_status.py`: +107 / -5. The status daemon fork budget,
+after 58,914 forks in 40 hours got it killed by macOS.
+
+Shape: five grafts, 892 added lines, across seven modules in one tree.
+
+### What a future sync must preserve
+
+A `sync_vendor.sh` refusal on this tree is EXPECTED and correct while the pin
+is 48 commits behind. `SYNC_ACCEPT_DIVERGENCE_LOSS=1` would delete all five.
+What a customer would get back, in the order above: a Doctor that cannot check
+the licence acknowledgement, no beta entitlement window, a pairing QR their
+phone cannot open, a keepalive that reports on an object nobody runs, and a
+status daemon that forks until macOS kills it and the Doctor goes quiet.
+
+None of the five is a candidate for the patch until the pin moves, and the
+re-pin is separately blocked for the reason the #2133 entry records.
