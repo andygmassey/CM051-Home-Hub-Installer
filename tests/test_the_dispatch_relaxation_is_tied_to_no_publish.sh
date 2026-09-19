@@ -72,6 +72,25 @@ for L in $PUB_LINES; do
 	fi
 	guard="$(/usr/bin/sed -n "${start},${L}p" "$W" | /usr/bin/grep -E '^        if:' | /usr/bin/tail -1)"
 	name="$(/usr/bin/sed -n "${start}p" "$W" | /usr/bin/sed 's/^ *- name: //')"
+	# 🔴 WHAT THIS ARM DOES NOT CATCH, so nobody mistakes its PASS for the whole
+	# guarantee. It tests that the guard CONTAINS the push substring. A guard
+	# widened to (github.event_name == 'push' || github.event_name ==
+	# 'workflow_dispatch') still contains it, so this arm passes while a
+	# dispatch CAN publish. Archie mutated exactly that and confirmed: this test
+	# 8/8, and scripts/verify_dispatch_cannot_ship.py rc 1, "job `cut` step
+	# `AU-1 appcast publish` can PUBLISH and is reachable by a workflow_dispatch".
+	# THE ENFORCER IS THE ONE THAT DECIDES on OR-widening; it runs in the same
+	# workflow and its verdict is the guarantee. This test covers the case the
+	# enforcer does not: a publisher with NO guard at all, which is what an
+	# added step looks like.
+	#
+	# He nearly filed the opposite finding, and the reason he did not is the
+	# rule: HIS FIRST RUN OF THAT MUTANT SHOWED BOTH GATES PASSING because the
+	# mutation had not applied, an anchor missed a comment line between the
+	# step's name: and its if:. A MUTANT THAT DID NOT APPLY LOOKS EXACTLY LIKE
+	# ONE THAT WAS NOT CAUGHT. He asserted the mutation LANDED rather than
+	# inferring it from a count, and the count he would have trusted was the
+	# baseline.
 	case "$guard" in
 		*"github.event_name == 'push'"*) ok "push-gated: ${name:0:58}" ;;
 		*) bad "NOT push-gated, reachable on a dispatch: line ${L}, step '${name:0:48}', guard '${guard}'" ;;
