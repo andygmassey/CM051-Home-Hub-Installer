@@ -50,6 +50,52 @@ COMPARTMENT_AT_OR_BELOW = "at_or_below"
 COMPARTMENT_DIRECTIONS = (COMPARTMENT_AT_OR_ABOVE, COMPARTMENT_AT_OR_BELOW)
 
 
+# What a record with NO compartment_level is read as. Declared by BOTH writers:
+# parsers/base.py has `compartment_level: int = 2  # Default to L2 (Trusted)`,
+# and ostler_fda/pwg_ingest.py stamps DEFAULT_PRIVACY = "L2". Named so the
+# value is stated once and a change to it shows up in a diff.
+ABSENT_COMPARTMENT_MEANS = 2
+
+
+def compartment_should_clauses(compartment_level: int) -> list:
+    """The one-of clauses selecting points at or above a compartment floor.
+
+    Lifted out of ``search`` so the arm selection can be exercised directly. A
+    filter reachable only through an async HTTP call is one whose behaviour is
+    asserted by READING it, and reading is what missed the absent case for as
+    long as it was missed.
+
+    THE THIRD ARM: A POINT WITH NO compartment_level AT ALL. Two arms match a
+    number and a string. A point carrying NEITHER matched neither and was
+    silently dropped. Measured on a live box: 934 of 9,948 points, about one in
+    eleven. So a customer with nearly ten thousand preferences was shown the
+    subset that happened to carry the field, and nothing told them or us that
+    the rest had been removed before the question was asked. Being shown less
+    than you own, with no error, is worse than an error.
+
+    THE DECISIVE CASE IS A FLOOR OF 0. There the caller is asking for
+    EVERYTHING and unlabelled points were still dropped. That is not a privacy
+    stance, it is a filter that does not do what it says.
+
+    AN ABSENT LABEL IS READ AS THE DOCUMENTED DEFAULT, which is consistency
+    rather than a new privacy decision: an unstamped record predates the
+    stamping, so it is read as what the writer would have written.
+
+    THE ARM IS CONDITIONAL. It is added only when that default satisfies the
+    caller's floor. Admitting unlabelled points into a request STRICTER than
+    the default would widen a privacy-scoped read, which is the direction this
+    file must never move by accident.
+    """
+    level_tokens = [f"L{n}" for n in range(compartment_level, 7)]
+    should_clauses = [
+        {"key": "compartment_level", "range": {"gte": compartment_level}},
+        {"key": "compartment_level", "match": {"any": level_tokens}},
+    ]
+    if compartment_level <= ABSENT_COMPARTMENT_MEANS:
+        should_clauses.append({"is_empty": {"key": "compartment_level"}})
+    return should_clauses
+
+
 class QdrantLoader:
     """Handles loading vectors into Qdrant."""
 
