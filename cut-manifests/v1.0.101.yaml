@@ -6113,8 +6113,26 @@ open_issues:
     repo: none
     title: 'The orphan gate''s fix half is now clean and its expiry half still fails the cut, on 47 deferrals that mostly expired at v1.0.27'
     gate: >-
-      🔴 BLOCKING. THE TAIL IS NOW SETTLED AND THE ROW IS NOT YET CLOSED, UPDATED 2026-09-19. Eight
-      more deferrals removed, 773 entries to 765, each proven individually rather than as a batch: six
+      🔴 BLOCKING. THE EXPIRY HALF IS NOW CLEAR TOO, UPDATED 2026-09-19, AND THE ROW STAYS OPEN ONLY
+      BECAUSE NOTHING HAS BEEN BUILT. The four rows the gate reported as EXPIRED, said v1.0.51 while
+      cutting v1.0.101, are removed with their branches, 765 entries to 761. Orphan gate after: 0 RED,
+      97 ok, 8 pre-existing DEFERRED warns, 105 rows graded, so it was reading and grading rather than
+      finding nothing to look at, and the four EXPIRED rows are gone. THE REUSABLE FINDING IS NOT THE
+      COUNT. Every one of those four rows said 'Bundled for recovery' AND THAT WAS FALSE: the only
+      CM051 bundle on this machine carries 141 refs, ZERO of the four tips and ZERO occurrences of the
+      branch-name stem, against a positive control proving it does list real refs, and it predates the
+      archiving by four days. So four rows held a cut against branches whose stated recovery path
+      never existed, which is a pin naming a sha nobody can resolve. TNM flagged the claim as worth
+      one check and it failed. The claim was MADE TRUE BEFORE IT WAS ACTED ON: a bundle was created,
+      verified as recording a complete history, and RECOVERABILITY WAS PROVEN RATHER THAN ASSERTED by
+      fetching it into a fresh EMPTY repo where all four restore to shas identical to the local ones,
+      with main ABSENT as the control that the bundle is scoped to the four and not a whole-repo copy.
+      AND THE ROWS AND THE BRANCHES ARE ONE ACTION: removing the rows alone exposed FOUR ORPHAN REDS
+      naming those same four branches, exactly as the previous deferral removal did, because the rows
+      were suppressing the gate's complaint about the branches. WHAT KEEPS THIS ROW OPEN: nothing
+      about deferrals. It closes on the same build and walk as the other six. ORIGINAL TEXT FOLLOWS. 🔴
+      BLOCKING. THE TAIL IS NOW SETTLED AND THE ROW IS NOT YET CLOSED, UPDATED 2026-09-19. Eight more
+      deferrals removed, 773 entries to 765, each proven individually rather than as a batch: six
       CM031 branches, CM041:fix/one-person-one-name and CM041:#109. THE DATE METHOD I STARTED WITH WAS
       WRONG AND WOULD HAVE INVERTED THE ANSWER. BSD date -j -f with a trailing Z matches the Z as a
       LITERAL and interprets the string in the local zone, +0800 here, so every mergedAt came out
