@@ -3764,13 +3764,45 @@ def person_context(name):
         # Relationship signal (CM048 tier 2 — warmth/trust from conversations)
         person_slug = _wiki_slug(pname)
         signals = _sparql_select(
-            'SELECT ?warmth ?trust ?observedAt WHERE {{\n'
+            'SELECT ?warmth ?trust ?observedAt ?spriv WHERE {{\n'
             '  ?signal <urn:ostler:about> ?person .\n'
             '  ?signal <urn:ostler:warmth> ?warmth .\n'
             '  ?signal <urn:ostler:trust> ?trust .\n'
             '  ?signal <urn:ostler:observedAt> ?observedAt .\n'
+            '  OPTIONAL {{{{ ?signal <urn:ostler:privacyLevel> ?spriv }}}}\n'
             '  FILTER(CONTAINS(STR(?person), "{slug}"))\n'
-            '}} ORDER BY DESC(?observedAt) LIMIT 1'.format(slug=person_slug)
+            '}} ORDER BY DESC(?observedAt) LIMIT 10'.format(slug=person_slug)
+        )
+        # 🔴 L3 FILTER, CM041 #175 / board row 2213. Facts were filtered here
+        # and signals were not, so a person marked L3 had their facts withheld
+        # while their warmth and trust scores were served. The gap was OPENED
+        # by our own graph fix: before it these queries returned 0 rows, so
+        # there was nothing to leak, and making them return rows made the
+        # missing filter reachable.
+        #
+        # THE PREDICATE IS urn:ostler:privacyLevel AND NOT pwg:privacyLevel.
+        # Copying the facts path's predicate would match NOTHING here: in the
+        # CM041 files pwg: expands to https://schema.ostler.ai/ontology# while
+        # CM048, which WRITES these nodes, stamps <urn:ostler:privacyLevel>
+        # directly on the RelationshipSignal (vendor/cm048_pipeline/src/
+        # ingest.py:799) with an L1 default. A join on the wrong predicate
+        # leaves ?spriv unbound, is_l3 fails closed on no parseable level, and
+        # EVERY signal disappears with nothing reporting it.
+        #
+        # OPTIONAL, not a required join, for the same reason: an unlabelled
+        # node must reach the filter and be judged, not be dropped by the
+        # pattern before the policy is ever consulted.
+        #
+        # LIMIT is 10 rather than 1 because the filter runs AFTER the query:
+        # with LIMIT 1 a single hidden row reports "no signal" while a visible
+        # older one exists. 10 is a BOUND, not a proof, and every constant has
+        # that property; the true fix is query-side and is deliberately not
+        # written, because filter_l3_facts is most-restrictive-wins across the
+        # record and its owner, and a second private copy of a shared policy
+        # is the defect this is being fixed to avoid.
+        signals = pwg_privacy.filter_l3_facts(
+            [dict(_s, privacy_level=_s.get("spriv")) for _s in signals],
+            owner_level=person.get("priv"),
         )
         if signals:
             sig = signals[0]
@@ -4078,13 +4110,45 @@ def person_enrichment(slug):
             } for m in meetings]
 
         signals = _sparql_select(
-            'SELECT ?warmth ?trust ?observedAt WHERE {{\n'
+            'SELECT ?warmth ?trust ?observedAt ?spriv WHERE {{\n'
             '  ?signal <urn:ostler:about> ?person .\n'
             '  ?signal <urn:ostler:warmth> ?warmth .\n'
             '  ?signal <urn:ostler:trust> ?trust .\n'
             '  ?signal <urn:ostler:observedAt> ?observedAt .\n'
+            '  OPTIONAL {{{{ ?signal <urn:ostler:privacyLevel> ?spriv }}}}\n'
             '  FILTER(CONTAINS(STR(?person), "{slug}"))\n'
-            '}} ORDER BY DESC(?observedAt) LIMIT 1'.format(slug=slug)
+            '}} ORDER BY DESC(?observedAt) LIMIT 10'.format(slug=slug)
+        )
+        # 🔴 L3 FILTER, CM041 #175 / board row 2213. Facts were filtered here
+        # and signals were not, so a person marked L3 had their facts withheld
+        # while their warmth and trust scores were served. The gap was OPENED
+        # by our own graph fix: before it these queries returned 0 rows, so
+        # there was nothing to leak, and making them return rows made the
+        # missing filter reachable.
+        #
+        # THE PREDICATE IS urn:ostler:privacyLevel AND NOT pwg:privacyLevel.
+        # Copying the facts path's predicate would match NOTHING here: in the
+        # CM041 files pwg: expands to https://schema.ostler.ai/ontology# while
+        # CM048, which WRITES these nodes, stamps <urn:ostler:privacyLevel>
+        # directly on the RelationshipSignal (vendor/cm048_pipeline/src/
+        # ingest.py:799) with an L1 default. A join on the wrong predicate
+        # leaves ?spriv unbound, is_l3 fails closed on no parseable level, and
+        # EVERY signal disappears with nothing reporting it.
+        #
+        # OPTIONAL, not a required join, for the same reason: an unlabelled
+        # node must reach the filter and be judged, not be dropped by the
+        # pattern before the policy is ever consulted.
+        #
+        # LIMIT is 10 rather than 1 because the filter runs AFTER the query:
+        # with LIMIT 1 a single hidden row reports "no signal" while a visible
+        # older one exists. 10 is a BOUND, not a proof, and every constant has
+        # that property; the true fix is query-side and is deliberately not
+        # written, because filter_l3_facts is most-restrictive-wins across the
+        # record and its owner, and a second private copy of a shared policy
+        # is the defect this is being fixed to avoid.
+        signals = pwg_privacy.filter_l3_facts(
+            [dict(_s, privacy_level=_s.get("spriv")) for _s in signals],
+            owner_level=row.get("priv"),
         )
         if signals:
             sig = signals[0]
