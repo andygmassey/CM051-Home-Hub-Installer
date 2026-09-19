@@ -4415,30 +4415,59 @@ open_issues:
       Two customer surfaces read zero from a store that holds the data, because
       the reader asks the default graph and the writer writes a named one
     gate: >-
-      🔴 BLOCKING. THE GRAFT WAS ATTEMPTED AND IT IS NOT MECHANICAL, MEASURED RATHER THAN ASSUMED.
-      Having established above that the pin is NOT held on CM041 #178, the gate's first option is to
-      graft e01dff3297ce into the three vendored trees. I built the patch from the commit, rewrote its
-      paths to vendor/cm041/ and ran git apply --check per file. THE COMMIT TOUCHES 13 FILES AND ONLY
-      4 ARE VENDORED: the other 9 are tests, which VENDOR_MANIFEST.toml excludes by design. Of those
-      4, TWO APPLY CLEANLY, identity_resolver/resolver.py at 3 hunks and meeting_syncer/brief.py at 4,
-      and TWO REJECT, assistant_api/ical-server.py failing at :494 of 6 hunks and
-      identity_resolver/compartment.py failing at :99 of 3. So 7 of 16 hunks apply and the other 9
-      need a human merge. A THREE-WAY MERGE IS NOT AVAILABLE AND THAT IS STRUCTURAL, NOT A SETTING:
-      git reports it lacks the necessary blob, because CM051 holds none of CM041's objects, so there
-      is no common ancestor to merge against. THE REASON IS ROW 2218'S REASON. The vendored ical-
-      server.py is 8,822 lines against upstream's 7,820 and the vendored compartment.py is 680 against
-      782, so the two files that reject are the two that diverge most, and row 2218 already records
-      that the vendored copy carries about 1,151 lines that never went upstream. A PARTIAL GRAFT WOULD
-      BE WORSE THAN NONE and was not applied: landing brief.py's named-graph read without ical-
-      server.py's would leave the readers half-migrated, some asking the named graph and some not,
-      which is harder to diagnose than the uniform defect. NOTHING WAS APPLIED AND NOTHING WAS ACKED.
-      The three trees stay RED honestly, and what this row now carries is the SHAPE of the work rather
-      than a verdict on it: 9 hunks in 2 named files, both of them the divergent ones, against a copy
-      that cannot be three-way merged. ORIGINAL TEXT FOLLOWS. 🔴 BLOCKING, AND I AM CORRECTING MY OWN
-      CORRECTION FROM EARLIER TODAY BECAUSE IT WOULD HAVE HELD A VENDOR PIN FOR NO REASON AND CAUSED
-      AN OUTAGE IF ACTED ON. The paragraph below concluded that meeting_syncer/brief.py's two readers
-      lack a privacy filter, that this is a defect, that it was filed as CM041 #178, and that the
-      cm041 vendor pin is therefore HELD until #178 is resolved. THE FIRST CLAIM IS A FACT AND THE
+      🔴 BLOCKING, AND THE VENDORED COPY IS NOT THE PLACE THE DEFECT LIVES. MEASURED 2026-09-19, AFTER
+      FOUR OF MY OWN WRONG ANSWERS ON THIS ROW IN ONE SITTING, EACH CAUGHT BY THE NEXT MEASUREMENT.
+      The row says the defect is in all three copies and the fix is to graft CM041 e01dff32 into the
+      vendored tree. THE VENDORED TREE ALREADY SCOPES ITS READS TO CM048's NAMED GRAPHS, CENTRALLY,
+      AND THE SCOPING ENGAGES. THE EVIDENCE, IN THE ORDER THAT CORRECTED ME. ONE: the scoping is not
+      per-reader, so counting markers inside each reader gives 0 and means nothing. _graph_scoped is
+      called ONCE, inside _sparql_select at :1347, which is the SHARED QUERY DISPATCHER, and its own
+      docstring says the query is graph-scoped first so CM048's named-graph triples are on the read
+      path. All four readers go through it, 5, 6, 4 and 1 calls. TWO: my claim that its one call site
+      was inside _is_personal_admin_event was a parser fault of mine; that line is an IMPORT at :615
+      and there are 15 defs between :492 and :1347. THREE: the helper cm048_user_graph_uris does
+      return [] for an empty USER_ID, and its docstring says a Hub without one keeps default-graph-
+      only behaviour, so I expected a silent fail-open on a customer box. The com.ostler.ical-server
+      plist EXPORTS USER_ID and USER_NAME in its EnvironmentVariables, so the list is populated and
+      the scoping engages. FOUR: I then found one query that appeared to fail open at :3153. It uses
+      doubled braces for .format(), and I had tested the PRE-FORMAT literal. Formatted, which is what
+      the dispatcher receives, sparql_where_span finds the span and graph_scoped_select rewrites it.
+      CONTROLS HELD THROUGHOUT and are why the errors surfaced: a plain SELECT is scoped, an empty
+      graph list returns unchanged, and SELECT counts of 45 against 44 show the two files are
+      comparably readable. WHAT THIS MEANS FOR THE GRAFT, and it is the one conclusion that survives
+      unchanged: grafting e01dff32 into vendor/cm041 would import a SECOND mechanism on top of a
+      working one. The reason is not that the vendored copy is broken; it is that the vendored copy
+      solves it another way, and arguably the better way, because a new reader added to CM051 is
+      scoped by construction while upstream's per-reader approach needs remembering. WHAT THIS ROW
+      STILL OWNS, UNTOUCHED BY ANY OF THE ABOVE: the upstream merge, the re-vendor decision, the build
+      and the walk. And the privacy half is unaffected, because it was never about graph scoping:
+      person_timeline and commitments_list carry no privacy join in either copy, and commitments_list
+      is the todos reader that row 2242 shows cannot take one until the WRITER tags todos. I am NOT
+      retiring this row on my own measurement, having been wrong about it four times in one sitting.
+      ORIGINAL TEXT FOLLOWS. 🔴 BLOCKING. THE GRAFT WAS ATTEMPTED AND IT IS NOT MECHANICAL, MEASURED
+      RATHER THAN ASSUMED. Having established above that the pin is NOT held on CM041 #178, the gate's
+      first option is to graft e01dff3297ce into the three vendored trees. I built the patch from the
+      commit, rewrote its paths to vendor/cm041/ and ran git apply --check per file. THE COMMIT
+      TOUCHES 13 FILES AND ONLY 4 ARE VENDORED: the other 9 are tests, which VENDOR_MANIFEST.toml
+      excludes by design. Of those 4, TWO APPLY CLEANLY, identity_resolver/resolver.py at 3 hunks and
+      meeting_syncer/brief.py at 4, and TWO REJECT, assistant_api/ical-server.py failing at :494 of 6
+      hunks and identity_resolver/compartment.py failing at :99 of 3. So 7 of 16 hunks apply and the
+      other 9 need a human merge. A THREE-WAY MERGE IS NOT AVAILABLE AND THAT IS STRUCTURAL, NOT A
+      SETTING: git reports it lacks the necessary blob, because CM051 holds none of CM041's objects,
+      so there is no common ancestor to merge against. THE REASON IS ROW 2218'S REASON. The vendored
+      ical- server.py is 8,822 lines against upstream's 7,820 and the vendored compartment.py is 680
+      against 782, so the two files that reject are the two that diverge most, and row 2218 already
+      records that the vendored copy carries about 1,151 lines that never went upstream. A PARTIAL
+      GRAFT WOULD BE WORSE THAN NONE and was not applied: landing brief.py's named-graph read without
+      ical- server.py's would leave the readers half-migrated, some asking the named graph and some
+      not, which is harder to diagnose than the uniform defect. NOTHING WAS APPLIED AND NOTHING WAS
+      ACKED. The three trees stay RED honestly, and what this row now carries is the SHAPE of the work
+      rather than a verdict on it: 9 hunks in 2 named files, both of them the divergent ones, against
+      a copy that cannot be three-way merged. ORIGINAL TEXT FOLLOWS. 🔴 BLOCKING, AND I AM CORRECTING
+      MY OWN CORRECTION FROM EARLIER TODAY BECAUSE IT WOULD HAVE HELD A VENDOR PIN FOR NO REASON AND
+      CAUSED AN OUTAGE IF ACTED ON. The paragraph below concluded that meeting_syncer/brief.py's two
+      readers lack a privacy filter, that this is a defect, that it was filed as CM041 #178, and that
+      the cm041 vendor pin is therefore HELD until #178 is resolved. THE FIRST CLAIM IS A FACT AND THE
       REST IS WRONG. I read the two brief functions and did not read the sibling reader in
       assistant_api/ical-server.py, which records the decision next to its own query. MEASURED
       UPSTREAM AND QUOTED RATHER THAN PARAPHRASED: 93 OutstandingTodo nodes on the box and ZERO carry
