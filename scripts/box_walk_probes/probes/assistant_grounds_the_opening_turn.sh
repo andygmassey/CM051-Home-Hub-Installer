@@ -739,7 +739,15 @@ probe_main() {
         # recorded in the verdict rather than quietly assumed, because
         # precondition 4 depends on it.
         _out="$(box_run "printf '%s' '${_client}' | base64 -d | python3 - ${DAEMON_PORT} \"\$HOME/.ostler/secrets/zeroclaw_admin_token\" $(_shq "$SEEDED_QUESTION") 120 $(_shq "$EXPECT_FACT") 2>&1")"
-        if [ -z "$_out" ] || printf '%s' "$_out" | grep -q '^PROBE_FATAL\|Traceback'; then
+        # Counted, NOT short-circuited. Under `set -o pipefail` a consumer that
+        # exits at the first match SIGPIPEs its producer, so a PRESENT needle
+        # can report FAILURE and this branch would skip a fatal transport error
+        # as though the client had succeeded. A herestring is the other remedy
+        # and is a BASHISM: this file runs its client through box_run over ssh,
+        # where the remote shell is not ours to choose, so the POSIX form is the
+        # only one safe here. `|| true` is load-bearing: the counting form exits 1
+        # on a count of zero, which would abort the test it is inside.
+        if [ -z "$_out" ] || [ "$(printf '%s' "$_out" | grep -c '^PROBE_FATAL\|Traceback' || true)" -gt 0 ]; then
             _incomplete=$((_incomplete + 1))
             _why="$(printf '%s' "$_out" | grep -m1 '^PROBE_FATAL\|Error' | head -c 160)"
             probe_note "opening ${_i}: NO FRAMES (transport, not a model result) -- excluded from the denominator. ${_why:-client produced no output at all}"
