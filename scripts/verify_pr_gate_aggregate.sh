@@ -105,7 +105,33 @@
 #
 # ENV (all optional; defaults are the safe, live-computing ones)
 #   OSTLER_GATE_OWN_JOB_NAMES        comma-separated check-run name(s) to
-#                                    exclude as self. Default: "CI Required Gate"
+#                                    exclude as self. Default now also carries
+#                                    cut,preflight,dry-run -- see below.
+#
+# 🔴 WHY THE CUT'S OWN JOBS ARE EXCLUDED, added 2026-09-19 after a CIRCULAR
+# REFUSAL that no amount of fixing the other reds could ever clear.
+#   the cut's preflight fails
+#   -> this aggregate sees preflight=failure and goes RED on that commit
+#   -> the cut's own verify_tagged_commit_is_green sees a red check-run and
+#      refuses to cut the commit
+#   -> which is the preflight failing
+# The cut gate ALREADY excludes cut,preflight,dry-run by name and printed
+# "excluded 4 of the cut's own job(s)", correctly. It could not see them
+# leaking back in through a DIFFERENTLY-NAMED AGGREGATE. An exclusion by name
+# does not survive being re-reported under another name.
+#
+# THIS IS NOT A WEAKENING, and the measurement is the reason rather than the
+# assurance: cut.yml triggers ONLY on `push: tags: v1.0.*` and
+# `workflow_dispatch`, never on pull_request. Measured on an ordinary PR head:
+# ZERO check-runs named cut, preflight or dry-run, against a control of 46
+# total check-runs on the same commit. So on every normal pull request this
+# changes NOTHING because there is nothing to exclude. It bites only on a
+# frozen cut branch that also carries a PR for its CI surface, which is
+# precisely where the loop was.
+#
+# The cut's jobs remain graded, by the cut's own gate and by the run itself.
+# What stops is a PR-level aggregate grading a workflow that is not part of
+# the pull request, and then feeding that verdict back into it.
 #   OSTLER_GATE_FLOOR                override the computed floor (testing only;
 #                                    the real run computes it from the tree)
 #   OSTLER_GATE_WORKFLOWS_DIR        default: <repo-root>/.github/workflows
@@ -271,7 +297,7 @@ BLOCKING = {"failure", "cancelled", "timed_out", "action_required", "stale"}
 GOOD = {"success", "skipped", "neutral"}
 
 f = sys.argv[1]
-own = {n.strip() for n in os.environ.get("OSTLER_GATE_OWN_JOB_NAMES", "CI Required Gate").split(",") if n.strip()}
+own = {n.strip() for n in os.environ.get("OSTLER_GATE_OWN_JOB_NAMES", "CI Required Gate,cut,preflight,dry-run").split(",") if n.strip()}
 try:
     floor = int(os.environ["OSTLER_GATE_FLOOR_RESOLVED"])
 except Exception:
@@ -443,7 +469,7 @@ PY
 poll_and_decide() {
     local sha="$1" repo="$2"
     local own interval max_wait floor
-    own="${OSTLER_GATE_OWN_JOB_NAMES:-CI Required Gate}"
+    own="${OSTLER_GATE_OWN_JOB_NAMES:-CI Required Gate,cut,preflight,dry-run}"
     interval="${OSTLER_GATE_POLL_INTERVAL_SECONDS:-20}"
     max_wait="${OSTLER_GATE_MAX_WAIT_SECONDS:-2700}"
 
@@ -580,6 +606,23 @@ if [ "${1:-}" = "--self-test" ]; then
         {"name":"b","status":"in_progress","conclusion":null},
         {"name":"c","status":"completed","conclusion":"success"}]}'
 
+    # THE CIRCULAR CASE, added 2026-09-19. Only the CUT's own preflight failed.
+    # Before the cut jobs were excluded here, this aggregate went RED on it, the
+    # cut's own green-commit gate then saw a red check-run and refused, and that
+    # refusal WAS the preflight failure. A loop no other fix could break.
+    printf '%s' '{"check_runs":[
+        {"name":"preflight","status":"completed","conclusion":"failure"},
+        {"name":"cut","status":"completed","conclusion":"skipped"},
+        {"name":"dry-run","status":"completed","conclusion":"skipped"},
+        {"name":"gates","status":"completed","conclusion":"success"},
+        {"name":"shell-macos","status":"completed","conclusion":"success"}]}' > "$TMP/cutonly.json"
+    # ITS CONTROL: a NON-cut job failing must STILL refuse. Without this arm the
+    # exclusion could be widened to everything and the suite would stay green.
+    printf '%s' '{"check_runs":[
+        {"name":"preflight","status":"completed","conclusion":"failure"},
+        {"name":"gates","status":"completed","conclusion":"failure"},
+        {"name":"shell-macos","status":"completed","conclusion":"success"}]}' > "$TMP/cutplusreal.json"
+
     # A subshell can't just prefix env vars before a function call the way it
     # can before a binary, so wrap it.
     run_case2() {  # run_case2 <want-rc> <label> <fixture-file> [floor, default 3]
@@ -599,6 +642,8 @@ if [ "${1:-}" = "--self-test" ]; then
     run_case2 0 "POSITIVE CONTROL: all-clean 3-of-3 (floor 3) -> GREEN" green3
     run_case2 1 "one FAILURE among 3 refuses (this is the guard: GREEN here would be the bug)" red3
     run_case2 1 "one CANCELLED among 3 refuses" cancelled3
+    run_case2 0 "CIRCULAR: only the cut's OWN preflight failed -> GREEN, the loop is broken" cutonly 2
+    run_case2 1 "ITS CONTROL: a non-cut job failing alongside it STILL refuses" cutplusreal 2
     run_case2 1 "an unrecognised conclusion refuses -- cannot establish it was a legitimate skip" unknown3
 
     echo "=== guard: aggregate must not report success having enumerated nothing ==="
