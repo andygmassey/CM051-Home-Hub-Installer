@@ -5723,3 +5723,66 @@ open_issues:
       gate saying it could not look, and the reason names the missing prerequisite. NOT A DUPLICATE OF
       ROW 2241: that row is about a gate the cut never runs. This is about how the results of gates
       that DO run are rendered to a person.
+  - issue: 2243
+    repo: none
+    title: 'Ten gates the cut runs have no pull_request surface at all, so their first real execution is the tag, and one of them was already red'
+    gate: >-
+      MEASURED 2026-09-19, AND THE MEASUREMENT ITSELF WAS WRONG TWICE BEFORE IT WAS RIGHT, WHICH IS
+      worth recording because both wrong answers looked like answers. First reading said 12, capped at
+      12 printed lines with the total never printed, so the denominator was never measured. Second
+      reading said 37 of 37, a uniform result, and a uniform non-zero is as damning as a uniform zero:
+      zsh does not word-split an unquoted parameter expansion, so the list of 152 workflow paths was
+      handed to grep as a SINGLE FILENAME, which exited 2 every time and scored every gate as
+      uncovered. Re-run under bash with a positive control (workflows containing runs-on, must exceed
+      zero) and a negative control (an absent token, must equal zero): THE ANSWER IS 10. cut.yml
+      invokes 37 script or test paths; 27 are named by at least one of the 152 pull_request-triggered
+      workflows and 10 are named by none. THE TEN: scripts/verify_tagged_commit_is_green.sh,
+      tests/test_appcast_debt_is_collected.sh, tests/test_artefact_content_matches_the_tag.sh,
+      tests/test_cut_bom_is_fresh.sh, tests/test_cut_dispatch_is_dry.sh,
+      tests/test_doctor_secret_scrub.py, tests/test_no_local_cuts.sh,
+      tests/test_strict_checks_are_back_on_before_a_cut.py, tests/test_tagged_commit_is_green.sh,
+      tests/test_vendor_src_placeholder_unset.sh. NAMED BY A WORKFLOW IS A WEAKER PREDICATE THAN RUN
+      BY ONE, and the difference is not academic: scripts/verify_no_orphaned_fixes.sh falls in the
+      covered 27 because orphan-gate-proofs.yml names it, and that workflow checks the gate is present
+      and parses under bash 3.2 and runs its self-test. It never executes the gate against the tree.
+      So the covered 27 is an upper bound on coverage, not a count of it. THE CLASS IS NOT
+      HYPOTHETICAL AND ONE INSTANCE WAS ALREADY RED. Running the nine runnable members against the
+      current tree found tests/test_cut_dispatch_is_dry.sh failing its live assertion on this repo's
+      own cut.yml, and it runs in the preflight job with no continue-on-error, which the cut job
+      needs. It had been red since 2026-09-17 and nothing could have reported it. Fixed and wired onto
+      a pull_request surface in CM051 #2236. Two of the other nine reported CANNOT-RUN for want of an
+      argument or a mounted artefact, which is the correct behaviour and is not a pass. RETIREMENT
+      CONDITION: each of the remaining nine either gains a pull_request surface, or carries a recorded
+      reason why it can only be meaningful at cut time, which is true of at least
+      tests/test_artefact_content_matches_the_tag.sh because its subject is a mounted DMG.
+  - issue: 2244
+    repo: none
+    title: 'The cut job was widened to run on a dispatch and its enforcer, and four comment blocks, were left asserting the old contract'
+    gate: >-
+      FIXED IN CM051 #2236, RECORDED HERE BECAUSE THE SHAPE WILL RECUR. CM051 #2118 changed the cut
+      job from a push-only guard to push OR workflow_dispatch, deliberately and for a good reason
+      stated in the file: a dispatch can then build a real signed, notarised, stapled CANDIDATE, so a
+      build can be WALKED before a tag exists, which the v1.0.100 walk argues for in six failed probes
+      that only an installed Ostler can exercise. What #2118 did not move was the gate that enforces
+      the old contract, or the four comment blocks that describe it. The result was a gate red against
+      its own repository for two days on a surface nothing reads. TWO THINGS WERE FOUND WHILE FIXING
+      IT THAT ARE WORSE THAN THE ORIGINAL. FIRST, THE TWO SHAPES THE CUT ACTUALLY PUBLISHES THROUGH
+      WERE NEVER ON THE GATE'S CAPABILITY LIST AT ALL. The list caught gh release create and action-
+      gh-release; cut.yml uses neither, publishing instead by running scripts/publish_release.sh and
+      moving the update feed with make publish-appcast. So for the whole life of that gate the two
+      steps that reach a customer went ungraded while it spent its attention refusing the job the
+      right to run codesign. SECOND, THE WORKFLOW HELD A WRITE SCOPE WHOSE STATED CONSUMER DOES NOT
+      EXIST. The permissions block read contents write with the comment create the release. Nothing
+      creates a release with that token: publish_release.sh refuses without its own fine-grained token
+      and says in its own error that the workflow token cannot reach the release, the appcast step
+      publishes nothing from CI, and a search of the cut job for git push, gh release write verbs, api
+      write methods, attestation and action-gh-release returns zero with comments excluded. Once #2118
+      made that job dispatch-reachable, an unused write scope was a publisher waiting for its first
+      line of code. AND THE GATE COULD BE DECIDED BY A COMMENT, found by tripping it: the permissions
+      block was matched as raw text, so prose inside it naming the write scope reported a grant the
+      job did not hold. It fails closed, so nothing unsafe was ever passed, and it is still the shape
+      that gets an enforcer deleted, because it reds on the person who has just made the file safer
+      and names a cause the file no longer contains. THE GENERAL LESSON, which is why this is a row
+      and not just a pull request: a contract and its enforcer are two files, and changing the first
+      without the second produces a gate that is red for a reason nobody intended, on a surface nobody
+      reads, discovered by the next person who tries to ship.
