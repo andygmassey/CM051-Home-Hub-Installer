@@ -5338,78 +5338,101 @@ open_issues:
       other 5 cannot be proven against any artefact because their method reads
       source that is compiled away
     gate: >-
-      🔴 BLOCKING. THIRD AND FINAL CORRECTION TO THIS ROW 2026-09-19, AND IT RETIRES THE FIX DIRECTION
-      ENTIRELY RATHER THAN REFINING IT. THE REGISTER ALREADY RECORDS WHY THE BINARY METHOD IS WRONG
-      FOR THESE ROWS, IN ONE OF THE FOUR ROWS' OWN DESCRIPTIONS, AND NEITHER THIS ROW NOR I HAD READ
-      IT. It says, verbatim: NOT method=binary, Swift enum case names are not reliably reachable by
-      strings in a signed app, AND A CONTROL IN THAT COMPARTMENT DIES THE SAME WAY. THAT SECOND CLAUSE
-      IS THE WHOLE ARGUMENT AND IT IS THIS ESTATE'S OWN RULE: a control that fails for the SAME REASON
-      as its subject is not a control. If a Swift symbol cannot be reliably found in a signed binary,
-      then neither can the control you would pair with it, so the method cannot distinguish a
-      capability that is present from one that is absent. It is not that binary is harder here. IT IS
-      THAT BINARY CANNOT BE MADE TO DISCRIMINATE HERE. AND THE HAND MEASUREMENT AGREES WITH THAT WORD
-      FOR WORD. Against the real artefact, three of the four Swift patterns survived into the string
-      table and the fourth did not, the survivor being an enum case and two view-state properties and
-      the absentee a COMPUTED PROPERTY. NOT RELIABLY is exactly what three-of-four means. I read that
-      as an encouraging result and the register had already read it as a disqualifying one. SO THE FIX
-      I DESCRIBED WOULD NOT HAVE HELPED AND I AM WITHDRAWING IT. I wrote that the real fix is a gate-
-      code change giving the binary method the artefact-path fallback the frontend method already has.
-      Read at source, that fallback resolves the HUB binary by name. These four capabilities live in
-      the INSTALLER binary, which is a different artefact entirely, so a copy of it would have
-      resolved the wrong file and produced a confident answer about a binary that never contained the
-      symbol. A fallback is only as good as the artefact it picks. WHAT THIS LEAVES, stated plainly
-      rather than tidied: FOUR CAPABILITIES ARE SOURCE-VERIFIABLE ONLY, by a decision already taken
-      and recorded, and no method available in that gate can raise them to artefact-grade. That is not
-      a gap to close by repointing a column. It is a limit of what a string extraction can see in a
-      signed Swift binary, and it should be stated in the row rather than carried as outstanding work.
-      THE FIFTH is a path-resolution question already answered: the declared path is repository-
-      relative BY DESIGN and keying to a directory rather than a file is DELIBERATE, because a row
-      keyed to a file reports unknown when that file is deleted and a deletion is the regression it
-      exists to catch. RETIREMENT CONDITION, RESTATED AND NOW REACHABLE: this row retires when the
+      RETIREMENT CONDITION MET 2026-09-19, MEASURED AGAINST THE REGISTER RATHER THAN AGAINST THE PULL
+      REQUEST TITLE THAT CLAIMS IT. This row's own condition, restated in the text below, is that the
       register RECORDS, per capability, which are artefact-verifiable and which are source-only WITH
       THE REASON, so that 22 of 27 stops reading as a shortfall and starts reading as a measured
-      boundary. It must NOT retire by repointing rows to a method whose own control cannot survive the
-      compartment, and it must NOT retire by marking the five not-required. AND THE COUNT ITSELF NEEDS
-      THE WORD THIS ROW NOW CARRIES: 22 of 27 IS A HAND RUN, not gate output, because nothing on the
-      shipping path evaluates a capability at all. That is row 2241.  ORIGINAL TEXT FOLLOWS. 🔴
-      BLOCKING. ONE CORRECTION ADDED 2026-09-19 AT THE REGISTER OWNER'S REQUEST, AND IT CHANGES HOW
-      EVERY NUMBER BELOW SHOULD BE READ: THE 22 OF 27, AND THE PER-PATTERN RESULTS, ARE A HAND RUN.
-      They are a real measurement against a downloaded, digest-verified, mounted artefact, and they
-      are NOT the output of any gate. Nothing on the shipping path evaluates a capability at all,
-      which is row 2241, measured with controls both ways. A reader who counts these as gate output
-      will believe the cut checked something it never checked.  ORIGINAL TEXT FOLLOWS. 🔴 BLOCKING.
-      CORRECTION 2026-09-19 TO TEXT I FOLDED INTO THIS ROW MYSELF EARLIER TONIGHT, AND IT WAS WRONG IN
-      THE DIRECTION THAT WOULD HAVE MADE THINGS WORSE. I wrote that four rows need REPOINTING to the
-      binary method and that nothing needs inventing. THE REPOINT REGRESSES THE GATE AND WAS NOT
-      COMMITTED. MEASURED AGAINST THE REAL v1.0.100 DMG, downloaded, SHA256 verified, mounted, 21,468
-      strings in the universal binary, NOT a local debug build: BEFORE, gate GREEN, 27 of 27 examined,
-      rc 0. AFTER the prescribed repoint, 23 verified plus 4 CANNOT-RUN, rc 2. THE COUNT GOES DOWN AND
-      rc 2 BLOCKS A CUT. A repoint that cannot verify is worse than an honest gap, so nothing was
-      changed. THE PER-PATTERN RESULT, which is the part worth keeping: three of the four Swift
-      patterns SURVIVE into the shipped binary and one does not. The three that survive are an enum
-      case and two view-state properties. The one that does NOT is a COMPUTED PROPERTY, which emits no
-      field metadata, and the binary is stripped. Controls 330, 26, 6 and 6, negative control 0, so
-      the result is RAGGED and not a uniform zero. A second instrument was tried and DISCARDED: its
-      positive control returned 0 for a symbol the first instrument finds 6 times, so it is a broken
-      predicate on a stripped binary and its answers were not used. AND THE STANDING CAVEAT APPLIES: a
-      string extraction is a FILTER, not a READER. A pattern present proves the literal is in the
-      string table, never that the behaviour is there; a pattern absent proves only the literal is
-      missing. WHY THE REPOINT FAILS, AND IT IS THE SAME FAILURE MODE THIS BOARD KEEPS FINDING: the
-      binary method is BUILT WITH NO CONSUMER. Measured: 0 of 177 manifest rows use it. It is dead
-      code, and because nothing exercised it, it never received the artefact-path fallback that the
-      frontend method was given when this identical bug bit that method. The cut hands the gate a sha
-      rather than a path, so the file test is false and every repointed row goes blind. Driven by hand
-      with the binary path supplied, the method DOES work and returns green on three rows against the
-      real DMG, which is what proves the method is sound and its WIRING is not. AND THE FIFTH ROW IS
-      NOT A PATH BUG EITHER, WHICH IS MY SECOND CORRECTION. I wrote that its declared path is
-      repository-relative while the artefact puts the tree under the resources directory, and called
-      it one cell. The manifest resolves that path relative to the repository BY DESIGN, so it is
-      already correct, and the row's own name column states that keying to a directory rather than a
-      file is DELIBERATE, because a row keyed to a file reports UNKNOWN when that file is deleted and
-      a deletion is the regression it exists to catch. Rewriting it to the bundle-relative path was
-      tried and produced CANNOT-RUN. Measured, not argued. AND THE MEASUREMENT THAT NEARLY WENT WRONG,
-      recorded because it is the same trap row 2210 fell into: the first pass at this read the release
-      register's WORKING TREE, 45 commits and 9 days behind, and returned 0 of 27 backed with a self-
+      boundary. It also forbids two escapes: retiring by repointing rows to a method whose own control
+      cannot survive the compartment, and retiring by marking the five not-required. NEITHER WAS USED,
+      AND THAT WAS CHECKED FIRST: all five still read method=source and required=yes. THE FIVE ARE
+      ANNOTATED. OS003 #306 is merged at dad4097 and its diff touches exactly four capability rows,
+      editor_refusal_is_not_an_empty_interest_list, recovery_key_presents_on_a_failed_install,
+      hub_row_does_not_claim_not_responding_before_it_asks and
+      wiki_button_is_not_offered_before_the_wiki_serves. The fifth,
+      licence_file_mode_is_verified_after_the_swap, already carried the clause this row quotes: NOT
+      method=binary, Swift enum case names are not reliably reachable by strings in a signed app, and
+      a control in that compartment dies the same way. Four plus one is the five. EACH STATES WHY, not
+      merely what, and the difference is measurable: the name fields of the five run 751, 978, 955,
+      1054 and 1034 characters, against a CONTROL row nobody annotated, frontpage_cards_route, whose
+      name is 43. A row that only described its capability would not be twenty times longer than its
+      neighbours. WHAT DOES NOT RETIRE WITH IT, and it is this row's own sentence: the 22 of 27 is a
+      HAND RUN, not gate output, because nothing on the shipping path evaluates a capability at all.
+      That is row 2241 and it is untouched by this. THE HONEST WORD FOR THIS ROW IS THEREFORE CLOSED-
+      AS-BOUNDED rather than FIXED: four capabilities remain source-verifiable only, by a decision
+      taken and now recorded with its reason, and no method available in that gate can raise them to
+      artefact-grade. ORIGINAL TEXT FOLLOWS. 🔴 BLOCKING. THIRD AND FINAL CORRECTION TO THIS ROW
+      2026-09-19, AND IT RETIRES THE FIX DIRECTION ENTIRELY RATHER THAN REFINING IT. THE REGISTER
+      ALREADY RECORDS WHY THE BINARY METHOD IS WRONG FOR THESE ROWS, IN ONE OF THE FOUR ROWS' OWN
+      DESCRIPTIONS, AND NEITHER THIS ROW NOR I HAD READ IT. It says, verbatim: NOT method=binary,
+      Swift enum case names are not reliably reachable by strings in a signed app, AND A CONTROL IN
+      THAT COMPARTMENT DIES THE SAME WAY. THAT SECOND CLAUSE IS THE WHOLE ARGUMENT AND IT IS THIS
+      ESTATE'S OWN RULE: a control that fails for the SAME REASON as its subject is not a control. If
+      a Swift symbol cannot be reliably found in a signed binary, then neither can the control you
+      would pair with it, so the method cannot distinguish a capability that is present from one that
+      is absent. It is not that binary is harder here. IT IS THAT BINARY CANNOT BE MADE TO
+      DISCRIMINATE HERE. AND THE HAND MEASUREMENT AGREES WITH THAT WORD FOR WORD. Against the real
+      artefact, three of the four Swift patterns survived into the string table and the fourth did
+      not, the survivor being an enum case and two view-state properties and the absentee a COMPUTED
+      PROPERTY. NOT RELIABLY is exactly what three-of-four means. I read that as an encouraging result
+      and the register had already read it as a disqualifying one. SO THE FIX I DESCRIBED WOULD NOT
+      HAVE HELPED AND I AM WITHDRAWING IT. I wrote that the real fix is a gate- code change giving the
+      binary method the artefact-path fallback the frontend method already has. Read at source, that
+      fallback resolves the HUB binary by name. These four capabilities live in the INSTALLER binary,
+      which is a different artefact entirely, so a copy of it would have resolved the wrong file and
+      produced a confident answer about a binary that never contained the symbol. A fallback is only
+      as good as the artefact it picks. WHAT THIS LEAVES, stated plainly rather than tidied: FOUR
+      CAPABILITIES ARE SOURCE-VERIFIABLE ONLY, by a decision already taken and recorded, and no method
+      available in that gate can raise them to artefact-grade. That is not a gap to close by
+      repointing a column. It is a limit of what a string extraction can see in a signed Swift binary,
+      and it should be stated in the row rather than carried as outstanding work. THE FIFTH is a path-
+      resolution question already answered: the declared path is repository- relative BY DESIGN and
+      keying to a directory rather than a file is DELIBERATE, because a row keyed to a file reports
+      unknown when that file is deleted and a deletion is the regression it exists to catch.
+      RETIREMENT CONDITION, RESTATED AND NOW REACHABLE: this row retires when the register RECORDS,
+      per capability, which are artefact-verifiable and which are source-only WITH THE REASON, so that
+      22 of 27 stops reading as a shortfall and starts reading as a measured boundary. It must NOT
+      retire by repointing rows to a method whose own control cannot survive the compartment, and it
+      must NOT retire by marking the five not-required. AND THE COUNT ITSELF NEEDS THE WORD THIS ROW
+      NOW CARRIES: 22 of 27 IS A HAND RUN, not gate output, because nothing on the shipping path
+      evaluates a capability at all. That is row 2241.  ORIGINAL TEXT FOLLOWS. 🔴 BLOCKING. ONE
+      CORRECTION ADDED 2026-09-19 AT THE REGISTER OWNER'S REQUEST, AND IT CHANGES HOW EVERY NUMBER
+      BELOW SHOULD BE READ: THE 22 OF 27, AND THE PER-PATTERN RESULTS, ARE A HAND RUN. They are a real
+      measurement against a downloaded, digest-verified, mounted artefact, and they are NOT the output
+      of any gate. Nothing on the shipping path evaluates a capability at all, which is row 2241,
+      measured with controls both ways. A reader who counts these as gate output will believe the cut
+      checked something it never checked.  ORIGINAL TEXT FOLLOWS. 🔴 BLOCKING. CORRECTION 2026-09-19 TO
+      TEXT I FOLDED INTO THIS ROW MYSELF EARLIER TONIGHT, AND IT WAS WRONG IN THE DIRECTION THAT WOULD
+      HAVE MADE THINGS WORSE. I wrote that four rows need REPOINTING to the binary method and that
+      nothing needs inventing. THE REPOINT REGRESSES THE GATE AND WAS NOT COMMITTED. MEASURED AGAINST
+      THE REAL v1.0.100 DMG, downloaded, SHA256 verified, mounted, 21,468 strings in the universal
+      binary, NOT a local debug build: BEFORE, gate GREEN, 27 of 27 examined, rc 0. AFTER the
+      prescribed repoint, 23 verified plus 4 CANNOT-RUN, rc 2. THE COUNT GOES DOWN AND rc 2 BLOCKS A
+      CUT. A repoint that cannot verify is worse than an honest gap, so nothing was changed. THE PER-
+      PATTERN RESULT, which is the part worth keeping: three of the four Swift patterns SURVIVE into
+      the shipped binary and one does not. The three that survive are an enum case and two view-state
+      properties. The one that does NOT is a COMPUTED PROPERTY, which emits no field metadata, and the
+      binary is stripped. Controls 330, 26, 6 and 6, negative control 0, so the result is RAGGED and
+      not a uniform zero. A second instrument was tried and DISCARDED: its positive control returned 0
+      for a symbol the first instrument finds 6 times, so it is a broken predicate on a stripped
+      binary and its answers were not used. AND THE STANDING CAVEAT APPLIES: a string extraction is a
+      FILTER, not a READER. A pattern present proves the literal is in the string table, never that
+      the behaviour is there; a pattern absent proves only the literal is missing. WHY THE REPOINT
+      FAILS, AND IT IS THE SAME FAILURE MODE THIS BOARD KEEPS FINDING: the binary method is BUILT WITH
+      NO CONSUMER. Measured: 0 of 177 manifest rows use it. It is dead code, and because nothing
+      exercised it, it never received the artefact-path fallback that the frontend method was given
+      when this identical bug bit that method. The cut hands the gate a sha rather than a path, so the
+      file test is false and every repointed row goes blind. Driven by hand with the binary path
+      supplied, the method DOES work and returns green on three rows against the real DMG, which is
+      what proves the method is sound and its WIRING is not. AND THE FIFTH ROW IS NOT A PATH BUG
+      EITHER, WHICH IS MY SECOND CORRECTION. I wrote that its declared path is repository-relative
+      while the artefact puts the tree under the resources directory, and called it one cell. The
+      manifest resolves that path relative to the repository BY DESIGN, so it is already correct, and
+      the row's own name column states that keying to a directory rather than a file is DELIBERATE,
+      because a row keyed to a file reports UNKNOWN when that file is deleted and a deletion is the
+      regression it exists to catch. Rewriting it to the bundle-relative path was tried and produced
+      CANNOT-RUN. Measured, not argued. AND THE MEASUREMENT THAT NEARLY WENT WRONG, recorded because
+      it is the same trap row 2210 fell into: the first pass at this read the release register's
+      WORKING TREE, 45 commits and 9 days behind, and returned 0 of 27 backed with a self-
       intersection control that returned a large number and appeared to prove the pipeline worked.
       THAT CONTROL WAS IN THE WRONG COMPARTMENT: it could not detect staleness. Against the fetched
       tree the intersection is 27 of 27. Both numbers were reproduced deliberately, so the predicate
@@ -5807,63 +5830,85 @@ open_issues:
     repo: none
     title: 'The check rollup renders every non-zero exit as a failure, so a gate reporting CANNOT-RUN is indistinguishable from one reporting a defect'
     gate: >-
-      TWO MORE INSTANCES ADDED 2026-09-19, BOTH FOUND WHILE TRIAGING RATHER THAN LOOKED FOR, WHICH IS
-      WHAT KEEPS SUGGESTING THE POPULATION IS LARGER THAN THE FOUR NOW RECORDED. THIRD INSTANCE, AND
-      IT IS THE PUREST ONE ON THIS BOARD. Searching a continuous-integration log case-insensitively
-      for the word RED, to find why a check failed, returned the fetch listing at the top of every
-      such log, because one branch name contains those three letters INSIDE the word predicate. The
-      output looked exactly like data. Twice. The instrument was not broken and the answer was not
-      wrong; the substring matched something TRUE AND IRRELEVANT. The reliable instrument for that
-      question is the jobs interface's steps array, asked for the step whose conclusion is failure BY
-      NAME, which resolved eight checks that the log-grep approach had left as could-not-determine.
-      FOURTH INSTANCE, AND IT IS A STALE INPUT RATHER THAN A STALE READING, so it belongs here by
-      family rather than by mechanism: RE-RUNNING a check REPLAYS THE ORIGINAL EVENT PAYLOAD. A check
-      that reads a pull request BODY therefore re-reads the body AS IT WAS WHEN THE RUN FIRST FIRED,
-      so an edit to that body is COMPLETELY INVISIBLE to a re-run. A gate kept reporting a marker
-      missing while the marker was demonstrably present, because it had been added and then re-run
-      rather than re-triggered. The gate told the truth about the input it was actually given.
-      ANYTHING THAT RE-READS A PULL REQUEST BODY NEEDS A NEW EVENT, NOT A REPLAY: edit the body again,
-      or push. THE COMMON SHAPE ACROSS ALL FOUR, now that there are enough to see it: AN INSTRUMENT
-      ANSWERED CORRECTLY ABOUT SOMETHING OTHER THAN THE QUESTION ASKED. A non-zero that was a refusal
-      rather than a defect, a secret absent by design rather than missing, a substring inside an
-      unrelated word, and a payload from an earlier moment. In every case the output was well formed,
-      and in every case a reader acting on it would have reached a confident wrong conclusion. That is
-      why each of these costs a diagnosis rather than a minute: nothing looks broken.  ORIGINAL TEXT
-      FOLLOWS. MEASURED 2026-09-19 ACROSS TWO REPOSITORIES ON UNRELATED PULL REQUESTS, AND IT ERASES
-      THE ONE DISTINCTION THIS ESTATE IS BUILT ON. NOT BLOCKING: nothing about the artefact changes.
-      Filed because the next person triaging a red backlog will make the same mistake and write off a
-      change that is telling the truth. THE RULE IT BREAKS IS THE FIRST LINE OF THE EVIDENCE
-      DISCIPLINE: CANNOT-RUN is not FAIL and is not PASS, three outcomes and three branches. Gates
-      here are careful about that, exiting 2 with a reason naming the missing prerequisite. THE CHECK
-      LIST COLLAPSES IT TO TWO. Any non-zero renders as a failure, so a gate that honestly refused and
-      a gate that measured a defect look identical to anyone reading the list, and the honest one
-      reads as the more damning because a refusal usually fires at the first arm and reports nothing
-      else. TWO INSTANCES, BOTH FOUND WHILE TRIAGING RATHER THAN LOOKED FOR, WHICH IS WHAT SUGGESTS
-      THERE ARE MORE. FIRST: a pull request adding the rephrasing half of the grounded battery shows a
-      red gate. The step exits 2 and says, in its own words, that a healthy battery produced CANNOT-
-      RUN and the harness is wrong rather than the probe. THAT MESSAGE IS LITERALLY CORRECT: the
-      harness declares three positional turns because the battery had three questions, that change
-      adds a fourth, and the fourth turn gets no synthetic answer. Counted: 12 call sites pass exactly
-      three tokens and 0 pass four. CONTROL: the same file is 17 pass and 0 fail on a tree that is
-      main plus unrelated work, so the file is healthy and it is the battery size that trips it. A
-      reader of the check list would have concluded the change was broken. IT IS THE FIX FOR A ROW ON
-      THIS BOARD. SECOND, IN A DIFFERENT REPOSITORY: a scan check reports a failure whose log says no
-      inventory is available because a secret and a local file are both absent. Exit 2. That secret is
-      DELIBERATELY UNSTORED and the credential register says so, alongside a warning that it has been
-      mis-called a blocker before. DENOMINATOR, because always-been-like-that needs a number: that
-      check has run TWICE in that repository's entire history and failed both times, on two unrelated
-      branches a fortnight apart. Nothing was ever scanned, so nothing was ever found. WHY THE SECOND
-      IS THE WORSE SHAPE: a workflow that turns an absent-BY-DESIGN prerequisite into a red teaches
-      readers that red means nothing there, which is the precise condition under which a genuine
-      finding gets waved through. A permanent false red is worse than no gate, and this board already
-      records that argument being used to justify leaving three known orphans unwired. WHAT WOULD
-      CLOSE IT, and the small version is enough: the rollup distinguishes 2 from 1, or each gate that
-      can refuse reports the refusal in a form the list can show, so a reader sees COULD NOT RUN
-      rather than FAILED. Until then the triage rule is the workaround and it belongs written down:
-      BEFORE WRITING OFF ANY RED, READ WHETHER IT EXITED 1 OR 2. A 1 is a measured defect. A 2 is a
-      gate saying it could not look, and the reason names the missing prerequisite. NOT A DUPLICATE OF
-      ROW 2241: that row is about a gate the cut never runs. This is about how the results of gates
-      that DO run are rendered to a person.
+      A SIXTH INSTANCE, AND IT IS A DIFFERENT SHAPE FROM THE FIVE BELOW, SO IT IS NAMED AS ITS OWN
+      PATTERN RATHER THAN APPENDED TO THEM. A PRIVACY JOIN ONTO A CORPUS THAT CARRIES NO LEVEL DELETES
+      THE CORPUS, AND FAIL-CLOSED IS WHAT MAKES IT SILENT. Three instances in one night, 2026-09-18
+      into 2026-09-19, found independently by two agents. FIRST, 471 relationship signals: the obvious
+      remediation joined pwg:privacyLevel while the nodes carry urn:ostler:privacyLevel, so the join
+      matched 0 of 471 and every signal would have vanished while the diff looked correct. SECOND, the
+      erasure scoping, caught by Archie before it landed. THIRD, and it is the cleanest specimen: 93
+      OutstandingTodo nodes carry NO privacyLevel under EITHER namespace, 0 with each, so joining
+      filter_l3_facts onto them would hide all 93 and delete the meeting brief's commitments wing
+      outright. I filed that absence as a defect in CM041 #178 and retracted the headline publicly
+      within the hour, having read the sibling reader that records the decision next to its own query.
+      urn:ostler:visibility was checked as a substitute and rejected WITH A CONTROL: all 93 todos
+      carry it, always the literal private, and so does everything else, 471 of 471 signals and 1462
+      of 1462 facts INCLUDING the 1369 tagged L0, so a predicate with one value across a whole corpus
+      carries no information. WHAT MAKES THIS DANGEROUS RATHER THAN MERELY WRONG IS THE FAIL-CLOSED
+      HALF. A privacy filter that fails closed on an untagged record is correct policy and it is also
+      what makes the failure silent: the remediation reads correctly in the diff, the tests that
+      exercise TAGGED records pass, and the corpus disappears at runtime with no error and no log
+      line. The customer sees an empty panel, which is the same thing they saw before the fix and for
+      the opposite reason. THE RULE, so the next person does not have to find it three times: before
+      adding a privacy join, COUNT how many nodes in the target corpus carry the level, and pair it
+      with a control corpus that does. A join onto zero is not a privacy control, it is an outage with
+      a good name. ORIGINAL TEXT FOLLOWS. TWO MORE INSTANCES ADDED 2026-09-19, BOTH FOUND WHILE
+      TRIAGING RATHER THAN LOOKED FOR, WHICH IS WHAT KEEPS SUGGESTING THE POPULATION IS LARGER THAN
+      THE FOUR NOW RECORDED. THIRD INSTANCE, AND IT IS THE PUREST ONE ON THIS BOARD. Searching a
+      continuous-integration log case-insensitively for the word RED, to find why a check failed,
+      returned the fetch listing at the top of every such log, because one branch name contains those
+      three letters INSIDE the word predicate. The output looked exactly like data. Twice. The
+      instrument was not broken and the answer was not wrong; the substring matched something TRUE AND
+      IRRELEVANT. The reliable instrument for that question is the jobs interface's steps array, asked
+      for the step whose conclusion is failure BY NAME, which resolved eight checks that the log-grep
+      approach had left as could-not-determine. FOURTH INSTANCE, AND IT IS A STALE INPUT RATHER THAN A
+      STALE READING, so it belongs here by family rather than by mechanism: RE-RUNNING a check REPLAYS
+      THE ORIGINAL EVENT PAYLOAD. A check that reads a pull request BODY therefore re-reads the body
+      AS IT WAS WHEN THE RUN FIRST FIRED, so an edit to that body is COMPLETELY INVISIBLE to a re-run.
+      A gate kept reporting a marker missing while the marker was demonstrably present, because it had
+      been added and then re-run rather than re-triggered. The gate told the truth about the input it
+      was actually given. ANYTHING THAT RE-READS A PULL REQUEST BODY NEEDS A NEW EVENT, NOT A REPLAY:
+      edit the body again, or push. THE COMMON SHAPE ACROSS ALL FOUR, now that there are enough to see
+      it: AN INSTRUMENT ANSWERED CORRECTLY ABOUT SOMETHING OTHER THAN THE QUESTION ASKED. A non-zero
+      that was a refusal rather than a defect, a secret absent by design rather than missing, a
+      substring inside an unrelated word, and a payload from an earlier moment. In every case the
+      output was well formed, and in every case a reader acting on it would have reached a confident
+      wrong conclusion. That is why each of these costs a diagnosis rather than a minute: nothing
+      looks broken.  ORIGINAL TEXT FOLLOWS. MEASURED 2026-09-19 ACROSS TWO REPOSITORIES ON UNRELATED
+      PULL REQUESTS, AND IT ERASES THE ONE DISTINCTION THIS ESTATE IS BUILT ON. NOT BLOCKING: nothing
+      about the artefact changes. Filed because the next person triaging a red backlog will make the
+      same mistake and write off a change that is telling the truth. THE RULE IT BREAKS IS THE FIRST
+      LINE OF THE EVIDENCE DISCIPLINE: CANNOT-RUN is not FAIL and is not PASS, three outcomes and
+      three branches. Gates here are careful about that, exiting 2 with a reason naming the missing
+      prerequisite. THE CHECK LIST COLLAPSES IT TO TWO. Any non-zero renders as a failure, so a gate
+      that honestly refused and a gate that measured a defect look identical to anyone reading the
+      list, and the honest one reads as the more damning because a refusal usually fires at the first
+      arm and reports nothing else. TWO INSTANCES, BOTH FOUND WHILE TRIAGING RATHER THAN LOOKED FOR,
+      WHICH IS WHAT SUGGESTS THERE ARE MORE. FIRST: a pull request adding the rephrasing half of the
+      grounded battery shows a red gate. The step exits 2 and says, in its own words, that a healthy
+      battery produced CANNOT- RUN and the harness is wrong rather than the probe. THAT MESSAGE IS
+      LITERALLY CORRECT: the harness declares three positional turns because the battery had three
+      questions, that change adds a fourth, and the fourth turn gets no synthetic answer. Counted: 12
+      call sites pass exactly three tokens and 0 pass four. CONTROL: the same file is 17 pass and 0
+      fail on a tree that is main plus unrelated work, so the file is healthy and it is the battery
+      size that trips it. A reader of the check list would have concluded the change was broken. IT IS
+      THE FIX FOR A ROW ON THIS BOARD. SECOND, IN A DIFFERENT REPOSITORY: a scan check reports a
+      failure whose log says no inventory is available because a secret and a local file are both
+      absent. Exit 2. That secret is DELIBERATELY UNSTORED and the credential register says so,
+      alongside a warning that it has been mis-called a blocker before. DENOMINATOR, because always-
+      been-like-that needs a number: that check has run TWICE in that repository's entire history and
+      failed both times, on two unrelated branches a fortnight apart. Nothing was ever scanned, so
+      nothing was ever found. WHY THE SECOND IS THE WORSE SHAPE: a workflow that turns an absent-BY-
+      DESIGN prerequisite into a red teaches readers that red means nothing there, which is the
+      precise condition under which a genuine finding gets waved through. A permanent false red is
+      worse than no gate, and this board already records that argument being used to justify leaving
+      three known orphans unwired. WHAT WOULD CLOSE IT, and the small version is enough: the rollup
+      distinguishes 2 from 1, or each gate that can refuse reports the refusal in a form the list can
+      show, so a reader sees COULD NOT RUN rather than FAILED. Until then the triage rule is the
+      workaround and it belongs written down: BEFORE WRITING OFF ANY RED, READ WHETHER IT EXITED 1 OR
+      2. A 1 is a measured defect. A 2 is a gate saying it could not look, and the reason names the
+      missing prerequisite. NOT A DUPLICATE OF ROW 2241: that row is about a gate the cut never runs.
+      This is about how the results of gates that DO run are rendered to a person.
   - issue: 2243
     repo: none
     title: 'Ten gates the cut runs have no pull_request surface at all, so their first real execution is the tag, and one of them was already red'
