@@ -3785,9 +3785,21 @@ def person_context(name):
         # CM041 files pwg: expands to https://schema.ostler.ai/ontology# while
         # CM048, which WRITES these nodes, stamps <urn:ostler:privacyLevel>
         # directly on the RelationshipSignal (vendor/cm048_pipeline/src/
-        # ingest.py:799) with an L1 default. A join on the wrong predicate
-        # leaves ?spriv unbound, is_l3 fails closed on no parseable level, and
-        # EVERY signal disappears with nothing reporting it.
+        # ingest.py:799) with an L1 default.
+        #
+        # 🔴 WHAT THE WRONG PREDICATE ACTUALLY DOES IS LEAK, NOT HIDE, AND THIS
+        # COMMENT SAID THE OPPOSITE UNTIL ARCHIE MEASURED IT. It left ?spriv
+        # unbound, so is_l3 falls back to owner_level alone, and the outcome
+        # depends on the OWNER, across five states:
+        #     owner L0/L1/L2  correct predicate serves 1 of 2, wrong serves 2 of 2
+        #     owner L3        both serve 0
+        #     owner unset     correct serves 1, wrong serves 0
+        # So in three of five states the wrong predicate serves MORE, and the
+        # extra row it serves is exactly the L3 signal this filter exists to
+        # withhold. Only when the owner level is ALSO unparseable does it fail
+        # closed and hide everything. The dominant failure is a DISCLOSURE.
+        # This matters because this comment is the thing standing between the
+        # next reader and "simplifying" it to match the facts path two lines up.
         #
         # OPTIONAL, not a required join, for the same reason: an unlabelled
         # node must reach the filter and be judged, not be dropped by the
@@ -4131,9 +4143,21 @@ def person_enrichment(slug):
         # CM041 files pwg: expands to https://schema.ostler.ai/ontology# while
         # CM048, which WRITES these nodes, stamps <urn:ostler:privacyLevel>
         # directly on the RelationshipSignal (vendor/cm048_pipeline/src/
-        # ingest.py:799) with an L1 default. A join on the wrong predicate
-        # leaves ?spriv unbound, is_l3 fails closed on no parseable level, and
-        # EVERY signal disappears with nothing reporting it.
+        # ingest.py:799) with an L1 default.
+        #
+        # 🔴 WHAT THE WRONG PREDICATE ACTUALLY DOES IS LEAK, NOT HIDE, AND THIS
+        # COMMENT SAID THE OPPOSITE UNTIL ARCHIE MEASURED IT. It left ?spriv
+        # unbound, so is_l3 falls back to owner_level alone, and the outcome
+        # depends on the OWNER, across five states:
+        #     owner L0/L1/L2  correct predicate serves 1 of 2, wrong serves 2 of 2
+        #     owner L3        both serve 0
+        #     owner unset     correct serves 1, wrong serves 0
+        # So in three of five states the wrong predicate serves MORE, and the
+        # extra row it serves is exactly the L3 signal this filter exists to
+        # withhold. Only when the owner level is ALSO unparseable does it fail
+        # closed and hide everything. The dominant failure is a DISCLOSURE.
+        # This matters because this comment is the thing standing between the
+        # next reader and "simplifying" it to match the facts path two lines up.
         #
         # OPTIONAL, not a required join, for the same reason: an unlabelled
         # node must reach the filter and be judged, not be dropped by the
