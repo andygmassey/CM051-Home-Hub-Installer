@@ -1878,18 +1878,6 @@ deferrals:
   - ref: "CM059:#7"
     reason: "Pre-rule open PR from the 2026-08-06 sweep backlog (the 48h merge rule took effect that day). Not a v1.0.15 walk defect and not on the v1.0.16 must-ship list. Work into v1.0.17 via the phased sweep, not by widening a gate."
     until_cut: "v1.0.27"
-  - ref: "CM031:agent/cm031-ios-widgets-v01"
-    reason: "Legacy backlog from the 2026-08-06 sweep; tip preserved as an archive tag."
-    until_cut: "v1.0.27"
-  - ref: "CM031:agent/cm031-overnight-quality"
-    reason: "Legacy backlog from the 2026-08-06 sweep; tip preserved as an archive tag."
-    until_cut: "v1.0.27"
-  - ref: "CM031:agent/ios-keychain-test-fix"
-    reason: "Legacy backlog from the 2026-08-06 sweep; tip preserved as an archive tag."
-    until_cut: "v1.0.27"
-  - ref: "CM031:chore/ios-reskin-compliance-2026-05-09"
-    reason: "Legacy backlog from the 2026-08-06 sweep; tip preserved as an archive tag."
-    until_cut: "v1.0.27"
   - ref: "CM031:feat/brand-light-fix-2026-05-14"
     reason: "Legacy backlog from the 2026-08-06 sweep; tip preserved as an archive tag."
     until_cut: "v1.0.27"
@@ -2031,13 +2019,7 @@ deferrals:
   - ref: "CM031:fix/watch-transcript-durability-p0-1"
     reason: "Legacy backlog from the 2026-08-06 sweep; tip preserved as an archive tag."
     until_cut: "v1.0.27"
-  - ref: "CM031:ios-lane/iphone-direct-transcript-upload-v1.0.1"
-    reason: "Legacy backlog from the 2026-08-06 sweep; tip preserved as an archive tag."
-    until_cut: "v1.0.27"
   - ref: "CM031:nomerge/cm031-prewalk-tests-v1.0.4"
-    reason: "Legacy backlog from the 2026-08-06 sweep; tip preserved as an archive tag."
-    until_cut: "v1.0.27"
-  - ref: "CM031:speaker-id/cm031-consumer-v1.0.1"
     reason: "Legacy backlog from the 2026-08-06 sweep; tip preserved as an archive tag."
     until_cut: "v1.0.27"
   - ref: "CM031:working-tree"
@@ -3078,27 +3060,6 @@ deferrals:
   # 1291 lines) to show the check discriminates. The five below are real work
   # that is genuinely not in this cut.
   # -------------------------------------------------------------------------
-
-  - ref: "CM041:fix/one-person-one-name"
-    reason: >-
-      Real, unmerged identity work -- one canonical displayName per person,
-      kinship labels dropped rather than stored as alternateName. VERIFIED not
-      landed: rapidfuzz appears in identity_resolver/normalise.py on the branch
-      and in zero files on origin/main; 17 files, +1206/-1062. It is a genuine
-      improvement and it is NOT a v1.0.18 must-ship item: the cut's scope is the
-      .208 box-walk MUST list (A-E), and Andy's instruction for this cut was "no
-      new scope, push through". Landing a 17-file identity change into a launch
-      DMG hours before a box-walk is how the last two cuts went wrong. It also
-      needs Archie's review, which it has not had.
-    until_cut: "v1.0.27"
-
-  - ref: "CM041:#109"
-    reason: >-
-      Same work as CM041:fix/one-person-one-name (that branch is its head).
-      Deferred for the same reason; kept open, not closed, because the work is
-      wanted -- it is the fix for the "raw phone/email stays as a person's name
-      forever" defect on the board.
-    until_cut: "v1.0.27"
 
   - ref: "CM051:fix/cut-freshness-selftest-release-mock"
     reason: >-
