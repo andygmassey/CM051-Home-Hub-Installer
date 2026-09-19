@@ -4397,37 +4397,67 @@ open_issues:
       Two customer surfaces read zero from a store that holds the data, because
       the reader asks the default graph and the writer writes a named one
     gate: >-
-      🔴 BLOCKING STILL, AND THE ROW UNDERSTATES ITSELF BY HALF. Reviewed 2026-09-19. It says THREE
-      unqualified readers. An independent sweep of origin/main, across all file types rather than the
-      filed list, finds SIX: four in the assistant server at person_context, person_enrichment,
-      person_timeline and commitments_list, and two in the meeting brief at the last-conversation and
-      outstanding-todos readers. The upstream fix covers all six with ZERO unqualified remaining. AND
-      THE FIX DOES NOT CLOSE THIS ROW, WHICH IS THE POINT THAT MATTERS FOR THE CUT. CM041 #175 is
-      CM041-only and says so. This row's subject is the VENDORED copy in CM051. The file exists in
-      THREE copies, upstream main at 7,607 lines, the box at 8,662 and the vendored copy at 8,758,
-      with the defect in ALL THREE, and the vendor hop is deliberately untouched. Under launch
-      directive item 9 that is MERGED at best: never DELIVERED, never PROVEN. So this row closes on
-      merge THEN re-vendor THEN build THEN walk, and none of the four has happened. 🔴 AND THE FIX MUST
-      NOT BE MERGED AS IT STANDS, because it UNBLINDS SIX READERS ONTO A PERSON'S FACTS WITH NO
-      PRIVACY FILTER. The missing filter is PRE-EXISTING code; what the fix changes is that those
-      queries RETURN ROWS FOR THE FIRST TIME. By its own measurements that is 409 relationship
-      signals, 1,353 conversation-linked facts and 76 todos newly reaching customer-facing endpoints.
-      A latent gap becomes a live one at merge. THE CONTRAST IS INSIDE THE SAME FUNCTIONS, ABOUT 45
-      LINES APART: the facts path drops retired nodes and calls the privacy filter with the owner's
-      level; the signal path selects no privacy level, calls nothing, and emits. The same pairing
-      appears in the enrichment reader and in the brief, and two endpoints have no privacy join at
-      all. THE SERVER'S OWN HEALTH ENDPOINT WILL START CONTRADICTING ITSELF: it reports untagged fact
-      and signal counts with the note that they ARE HIDDEN BY THE FAIL-CLOSED READER, and names the
-      CM048 signal residual specifically. After that merge they are not hidden, they are served. The
-      privacy model in the same tree states the doctrine in writing -- unknown source fails closed, an
-      untagged node of unknown provenance must not broadcast -- and the backfill records roughly 4,208
-      fact-bearing nodes, most of them signals, carrying no privacy level. AI conversations default to
-      the private level. WHAT WOULD MAKE IT MERGEABLE: either the privacy join at the six sites, or
-      the DECISION WRITTEN DOWN with the health endpoint's note corrected. That change documents four
-      other decisions in detail; this one is undocumented, which reads as oversight rather than
-      choice. AND THERE IS NO SCHEDULE COST TO SETTLING IT FIRST, because of the paragraph above: the
-      fix cannot reach a customer this cut anyway. A SECOND, NON-BLOCKING FINDING RECORDED SO IT IS
-      NOT REDISCOVERED: the accompanying deny-list fails open across repository boundaries. Its audit
+      🔴 STILL BLOCKING, AND RE-MEASURED 2026-09-19 AGAINST THE MERGED UPSTREAM FIX RATHER THAN THE
+      PROPOSAL. THE ROW'S CENTRAL OBJECTION WAS ADDRESSED BEFORE MERGE, AND NARROWS FROM SIX READERS
+      TO TWO. This row said the fix MUST NOT BE MERGED AS IT STANDS because it would unblind six
+      readers onto a person's facts with no privacy filter. It merged as CM041 e01dff3297ce (#175),
+      and it carries the privacy half for the four readers in assistant_api/ical-server.py: 8 filter
+      calls added, joined on urn:ostler:privacyLevel, with a comment in the commit recording that
+      copying the facts path's pwg:privacyLevel would match nothing. That is exactly the correction
+      this board supplied, and it was taken. Measured on upstream main: 11 filter_l3_facts call sites
+      and 11 urn:ostler:privacyLevel joins in that file, against 17 pwg:privacyLevel joins on the pre-
+      existing facts path. THE OBJECTION SURVIVES FOR THE OTHER TWO, AND THEY ARE IN THE MEETING
+      BRIEF. meeting_syncer/brief.py received the named-graph half and NOT the privacy half: 0
+      privacy-filter calls added. Per function, with the control in the same file so this is not a
+      detector that cannot see a filter: _get_person_facts reads no named graph and DOES filter,
+      selecting both the fact's level and the owner's; _get_last_conversation_id now reads across
+      graphs and does NOT filter; _get_outstanding_todos now reads across graphs and does NOT filter,
+      selecting the todo, its text, owner, ownerDisplay, deadline and priority, and no privacy level
+      of any namespace. CONSUMER SIDE, AND THE SUBJECT IS A PERSON: the pre-meeting brief is delivered
+      to the customer, so the TEXT of an outstanding todo about a person is now eligible to appear in
+      it whatever its privacy level. Before the fix those queries asked the default graph, CM048's
+      todos are not there, so they returned nothing and the missing filter was latent; the fix makes
+      the rows arrive and the absent filter load-bearing. WHAT WAS NOT MEASURED, stated rather than
+      implied: no count of how many stored todos carry a restricted level, so no number of exposed
+      rows is claimed. The structural claim is measured; the volume is not. FILED UPSTREAM AS CM041
+      #178. AND THIS IS NOW A CUT-PATH FACT, NOT ONLY A PRIVACY ONE: verify_cut_freshness.sh is RED on
+      cm041/assistant_api, cm041/identity_resolver and cm041/meeting_syncer with e01dff3297ce as the
+      single unacknowledged delta commit on all three. So the choice the gate offers, graft the bugfix
+      or hold_ack it with a reason, is decided by the two brief readers: grafting as it stands carries
+      them into a shipping artefact, so the pin is HELD until CM041 #178 is resolved. The row's
+      original conclusion is unchanged and now has a route: merge THEN re-vendor THEN build THEN walk,
+      and none of the four has happened. ORIGINAL TEXT FOLLOWS. 🔴 BLOCKING STILL, AND THE ROW
+      UNDERSTATES ITSELF BY HALF. Reviewed 2026-09-19. It says THREE unqualified readers. An
+      independent sweep of origin/main, across all file types rather than the filed list, finds SIX:
+      four in the assistant server at person_context, person_enrichment, person_timeline and
+      commitments_list, and two in the meeting brief at the last-conversation and outstanding-todos
+      readers. The upstream fix covers all six with ZERO unqualified remaining. AND THE FIX DOES NOT
+      CLOSE THIS ROW, WHICH IS THE POINT THAT MATTERS FOR THE CUT. CM041 #175 is CM041-only and says
+      so. This row's subject is the VENDORED copy in CM051. The file exists in THREE copies, upstream
+      main at 7,607 lines, the box at 8,662 and the vendored copy at 8,758, with the defect in ALL
+      THREE, and the vendor hop is deliberately untouched. Under launch directive item 9 that is
+      MERGED at best: never DELIVERED, never PROVEN. So this row closes on merge THEN re-vendor THEN
+      build THEN walk, and none of the four has happened. 🔴 AND THE FIX MUST NOT BE MERGED AS IT
+      STANDS, because it UNBLINDS SIX READERS ONTO A PERSON'S FACTS WITH NO PRIVACY FILTER. The
+      missing filter is PRE-EXISTING code; what the fix changes is that those queries RETURN ROWS FOR
+      THE FIRST TIME. By its own measurements that is 409 relationship signals, 1,353 conversation-
+      linked facts and 76 todos newly reaching customer-facing endpoints. A latent gap becomes a live
+      one at merge. THE CONTRAST IS INSIDE THE SAME FUNCTIONS, ABOUT 45 LINES APART: the facts path
+      drops retired nodes and calls the privacy filter with the owner's level; the signal path selects
+      no privacy level, calls nothing, and emits. The same pairing appears in the enrichment reader
+      and in the brief, and two endpoints have no privacy join at all. THE SERVER'S OWN HEALTH
+      ENDPOINT WILL START CONTRADICTING ITSELF: it reports untagged fact and signal counts with the
+      note that they ARE HIDDEN BY THE FAIL-CLOSED READER, and names the CM048 signal residual
+      specifically. After that merge they are not hidden, they are served. The privacy model in the
+      same tree states the doctrine in writing -- unknown source fails closed, an untagged node of
+      unknown provenance must not broadcast -- and the backfill records roughly 4,208 fact-bearing
+      nodes, most of them signals, carrying no privacy level. AI conversations default to the private
+      level. WHAT WOULD MAKE IT MERGEABLE: either the privacy join at the six sites, or the DECISION
+      WRITTEN DOWN with the health endpoint's note corrected. That change documents four other
+      decisions in detail; this one is undocumented, which reads as oversight rather than choice. AND
+      THERE IS NO SCHEDULE COST TO SETTLING IT FIRST, because of the paragraph above: the fix cannot
+      reach a customer this cut anyway. A SECOND, NON-BLOCKING FINDING RECORDED SO IT IS NOT
+      REDISCOVERED: the accompanying deny-list fails open across repository boundaries. Its audit
       derives its inventory from constants declared in CM041, while three other repositories write
       into the same store under graph names those constants cannot see, so it stays green when one of
       them adds a graph. The trade is stated honestly in the change; the mitigation simply covers one
@@ -5535,38 +5565,56 @@ open_issues:
     repo: none
     title: 'CUT BLOCKER: the tag will REFUSE today, because both pinned wiki image digests are unrecorded in the provenance ledger'
     gate: >-
-      🔴 BLOCKING. MEASURED 2026-09-19, INDEPENDENTLY, AFTER AN AGENT RAISED IT, AND IT IS NOT ON THIS
-      BOARD ANYWHERE ELSE. A tag pushed right now does not produce a DMG. It refuses. THE CHAIN, READ
-      RATHER THAN ASSUMED: cut.yml:1178 runs make -C gui ship; gui/Makefile:2258 makes package depend
-      on check-freshness; :2109 makes check-freshness run scripts/verify_cut_freshness.sh; and that
-      script's wiki limb at :957-963 is FAIL-CLOSED BY DESIGN, adding a RED unrecorded-provenance row
-      and incrementing the stale count when a pinned digest has no recorded source binding. Its own
-      comment gives the reason: a repin that forgot to record provenance is unverifiable. THE
-      MEASUREMENT. Both digests pinned in install.sh, the wiki site at :18734 and the wiki compiler at
-      :18778, return ZERO matching rows in scripts/wiki_image_provenance.tsv, which holds 62 non-
-      comment rows. POSITIVE CONTROL, same predicate, same file: a digest that IS in the ledger
-      returns 1. NEGATIVE CONTROL: a fabricated digest returns 0. So the predicate discriminates in
-      both directions and the two zeros are real absences rather than a broken lookup. Values are
-      quoted by their leading bytes only. THE CAUSE IS A HAND EDIT. A merged pull request changed
-      install.sh by two lines and nothing else, which means the digests were typed rather than written
-      by scripts/repin_wiki_images.sh. That script writes install.sh AND the provenance ledger
-      together, and editing one by hand is what separates them. AND THE PIN IS STALE IN THE WAY THAT
-      MATTERS, WHICH IS THE WORSE HALF. The last wiki image build ran 2026-09-17. CM044 #280, the Pro
-      vault reader fix, merged 2026-09-18 and is the current upstream tip. SO NO PUBLISHED IMAGE
-      CONTAINS IT. Re-recording the provenance of the digests we already have would turn the gate
-      green while shipping an image that still cannot read the receipt, which is row 971's delivery
-      half. That is the tempting wrong fix and it is named here so nobody takes it. WHAT CLOSES IT, IN
-      ORDER, AND IT IS TWO STEPS RATHER THAN A CODE CHANGE: (1) tag CM044 at its current tip so
-      release-images.yml builds and publishes both images, its trigger being a tag push with no manual
-      dispatch available; (2) run scripts/repin_wiki_images.sh in CM051 against that tag, which
-      resolves the commit from a checkout and writes BOTH install.sh and the ledger, so nothing is
-      typed. Run its check mode first. WHY IT IS FILED AS A ROW RATHER THAN JUST FIXED: a cut blocker
-      that lives only in a conversation is the failure this whole register exists to prevent, and this
-      one was found by an agent asked about a different row. It is repo none because it is a MEASURED
-      FINDING and not a tracker item. RETIREMENT CONDITION: verify_cut_freshness.sh reports no RED
-      wiki rows against a freshly published image whose recorded source sha contains CM044 #280. It
-      must NOT retire by recording provenance for the existing digests, which would satisfy the gate
-      and not the customer.
+      🔴 BLOCKING, AND THE RECORDED CAUSE IS NO LONGER TRUE WHILE THE GATE IS STILL RED, WHICH IS THE
+      WORST COMBINATION TO LEAVE ON A BOARD. RE-MEASURED 2026-09-19 BY RUNNING THE GATE RATHER THAN
+      READING THE ROW. This row says the tag refuses because both pinned wiki image digests are
+      unrecorded in scripts/wiki_image_provenance.tsv. THEY ARE NOW RECORDED: each pinned digest
+      returns exactly 1 matching row, with a positive control (a digest known to be in the ledger
+      returns 1) and a negative control (a fabricated digest returns 0), so the predicate
+      discriminates in both directions and the ones are real. Acting on this row as written would have
+      produced a fix for a defect that no longer exists while the cut went on refusing. THE GATE IS
+      STILL RED, FOR A DIFFERENT AND BIGGER REASON. Both wiki rows now resolve to CM044 source sha
+      7f3893fa and report RED STALE:+3 against CM044 main at 84fbb2bf. The three commits the published
+      images do not contain are bd544de9 (a lint gate), b1e6a639 and 84fbb2bf. THAT MIDDLE ONE IS ROW
+      971. b1e6a639 is the Pro vault fix, and 971 is blocked on precisely this: no published image
+      carries it. THE THIRD IS ROW 2213's OTHER HALF, a wiki reader asking the default graph for
+      CM048's facts. SO THREE BLOCKING ROWS SHARE ONE ACTION. A CM044 image rebuild and re-pin clears
+      971, clears this row's real cause, and carries 2213's wiki-side reader. AND THE ACTION IS ANDY'S
+      ALONE, MEASURED NOT ASSUMED: CM044's release-images.yml triggers on push of a v* TAG and
+      declares no workflow_dispatch, so there is no route to rebuild those images without a tag push,
+      and a tag push is a human decision by launch directive item 4. Nothing an agent can do advances
+      these three rows past this point. ORIGINAL TEXT FOLLOWS. 🔴 BLOCKING. MEASURED 2026-09-19,
+      INDEPENDENTLY, AFTER AN AGENT RAISED IT, AND IT IS NOT ON THIS BOARD ANYWHERE ELSE. A tag pushed
+      right now does not produce a DMG. It refuses. THE CHAIN, READ RATHER THAN ASSUMED: cut.yml:1178
+      runs make -C gui ship; gui/Makefile:2258 makes package depend on check-freshness; :2109 makes
+      check-freshness run scripts/verify_cut_freshness.sh; and that script's wiki limb at :957-963 is
+      FAIL-CLOSED BY DESIGN, adding a RED unrecorded-provenance row and incrementing the stale count
+      when a pinned digest has no recorded source binding. Its own comment gives the reason: a repin
+      that forgot to record provenance is unverifiable. THE MEASUREMENT. Both digests pinned in
+      install.sh, the wiki site at :18734 and the wiki compiler at :18778, return ZERO matching rows
+      in scripts/wiki_image_provenance.tsv, which holds 62 non- comment rows. POSITIVE CONTROL, same
+      predicate, same file: a digest that IS in the ledger returns 1. NEGATIVE CONTROL: a fabricated
+      digest returns 0. So the predicate discriminates in both directions and the two zeros are real
+      absences rather than a broken lookup. Values are quoted by their leading bytes only. THE CAUSE
+      IS A HAND EDIT. A merged pull request changed install.sh by two lines and nothing else, which
+      means the digests were typed rather than written by scripts/repin_wiki_images.sh. That script
+      writes install.sh AND the provenance ledger together, and editing one by hand is what separates
+      them. AND THE PIN IS STALE IN THE WAY THAT MATTERS, WHICH IS THE WORSE HALF. The last wiki image
+      build ran 2026-09-17. CM044 #280, the Pro vault reader fix, merged 2026-09-18 and is the current
+      upstream tip. SO NO PUBLISHED IMAGE CONTAINS IT. Re-recording the provenance of the digests we
+      already have would turn the gate green while shipping an image that still cannot read the
+      receipt, which is row 971's delivery half. That is the tempting wrong fix and it is named here
+      so nobody takes it. WHAT CLOSES IT, IN ORDER, AND IT IS TWO STEPS RATHER THAN A CODE CHANGE: (1)
+      tag CM044 at its current tip so release-images.yml builds and publishes both images, its trigger
+      being a tag push with no manual dispatch available; (2) run scripts/repin_wiki_images.sh in
+      CM051 against that tag, which resolves the commit from a checkout and writes BOTH install.sh and
+      the ledger, so nothing is typed. Run its check mode first. WHY IT IS FILED AS A ROW RATHER THAN
+      JUST FIXED: a cut blocker that lives only in a conversation is the failure this whole register
+      exists to prevent, and this one was found by an agent asked about a different row. It is repo
+      none because it is a MEASURED FINDING and not a tracker item. RETIREMENT CONDITION:
+      verify_cut_freshness.sh reports no RED wiki rows against a freshly published image whose
+      recorded source sha contains CM044 #280. It must NOT retire by recording provenance for the
+      existing digests, which would satisfy the gate and not the customer.
   - issue: 2240
     repo: none
     title: 'The ungated predicate contradicts its own docstring inside the struck branch, and three rows were ungated for quoting their own history'
