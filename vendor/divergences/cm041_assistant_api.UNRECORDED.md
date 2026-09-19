@@ -84,3 +84,40 @@ and is about this graft rather than about the placeholder.
 
 Neither is done. Recording that plainly, including the part where the first
 account of it was wrong, is the whole point of this file.
+
+## 2026-09-19 -- L3 filter on the two relationship-signal readers (CM051 #2266, board row 2213)
+
+WHAT: `?spriv` added to both signals SELECTs, `OPTIONAL {{ ?signal
+<urn:ostler:privacyLevel> ?spriv }}` added to both WHERE clauses, `LIMIT 1`
+raised to `LIMIT 10`, and `pwg_privacy.filter_l3_facts(...)` applied to the
+result at both sites (person_context, owner `person.get("priv")`;
+person_enrichment, owner `row.get("priv")`).
+
+WHY IT IS HERE AND NOT IN THE PATCH. `scripts/regenerate_divergence_patch.sh
+cm041/assistant_api --write` was RUN, not assumed, and twice:
+
+  against the CM041 checkout as found (HEAD 82f4537)
+      REFUSED -- the source has advanced past the pin. Correct: regenerating
+      there would fold upstream #137 into the patch and record it as a local
+      edit to this repo.
+
+  against a worktree detached at EXACTLY the pin 9be482d3, so no upstream
+  commit could be folded in
+      REFUSED -- the patch it would record carries PII-shaped content. Pattern
+      name only, value deliberately not reproduced. The tool names the MINUS
+      side as the likely location: upstream still carries a value the vendored
+      tree has scrubbed, so recording the divergence would publish it back into
+      this PUBLIC repo.
+
+That second refusal is the tool working, not a bug, and it is the same refusal
+already recorded on this tree. It is NOT clearable by re-syncing: a re-sync
+deletes the vendored side, which is where the scrub lives. It clears by removing
+the value from the SOURCE, re-pinning, and bringing the graft forward. CM041 #173
+is the upstream half of that and is already cited on this tree's hold_ack.
+
+CONSEQUENCE, STATED PLAINLY: `verify = "full"` on this tree cannot reconstruct
+while this graft is unrecorded, and a `sync_vendor.sh` that accepts divergence
+loss would DELETE this privacy fix silently. A sync refusal on this tree is
+EXPECTED and correct. Do not pass SYNC_ACCEPT_DIVERGENCE_LOSS=1.
+
+RE-APPLY AFTER ANY sync_vendor.sh OF THIS TREE.
