@@ -6065,6 +6065,31 @@ open_issues:
       and not just a pull request: a contract and its enforcer are two files, and changing the first
       without the second produces a gate that is red for a reason nobody intended, on a surface nobody
       reads, discovered by the next person who tries to ship.
+  - issue: 2268
+    repo: CM051
+    title: >-
+      A SIGPIPE inside a cut gate decides its verdict, and the habit it trains is re-running until
+      green
+    gate: >-
+      NOT BLOCKING for v1.0.101, and the reason is a denominator rather than a shrug: this fires in a
+      CUT GATE's test, tests/test_cut_pin_binds_authoritative_source.sh, and the gate it guards,
+      verify_cut_pin_is_current, was run directly and reports PIN IS CURRENT with install.sh blob
+      d47b9e1f identical at pin and at ref. So the thing being protected is measured good by another
+      instrument; what is unreliable is one test's ability to REPORT. FOUND BY ARCHIE on OS003 #311,
+      whose diff touches only manifest/capability_manifest.tsv and cannot have caused it, and the
+      gates workflow is green on main so it is not pre-existing there. THE EVIDENCE IS A RE-RUN: the
+      same job, unchanged, passed on the second attempt after failing with 'printf: write error:
+      Broken pipe' immediately before 'the mixed case did not report one bound and one absent'. Same
+      code, opposite verdict. WHY IT IS WORSE THAN AN ORDINARY FLAKE, and this is the part that earns
+      a row: a verdict decided by a race can MASK a real failure exactly as easily as invent one, and
+      nothing in the output distinguishes the two. The behaviour it trains is re-running until green,
+      which is the habit that lets a genuine red through. The mechanism is the one already recorded in
+      this repo: a pipeline's exit status belongs to its LAST command, so a printf that dies of
+      SIGPIPE when its reader exits first hands its own status to the assertion downstream, decided by
+      scheduling. WHAT CLOSES IT: capture the value before any pipe so the verdict cannot be the
+      pipeline's status, and add an arm that reproduces the broken pipe DELIBERATELY and requires
+      CANNOT-RUN rather than a pass or a fail. A gate that cannot tell 'I could not measure' from 'it
+      passed' is the defect underneath this one.
   - issue: 2245
     repo: none
     title: 'The orphan gate''s fix half is now clean and its expiry half still fails the cut, on 47 deferrals that mostly expired at v1.0.27'
