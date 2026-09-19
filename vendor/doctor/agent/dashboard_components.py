@@ -255,15 +255,15 @@ def render_system_overview(snapshot: SystemSnapshot) -> str:
     if healthy == total_services and total_services > 0:
         overall = "healthy"
         overall_text = "All systems operational"
-        overall_color = "#5cb579"
+        overall_color = "#2C4A2C"
     elif healthy > 0:
         overall = "degraded"
         overall_text = f"{healthy}/{total_services} services healthy"
-        overall_color = "#d4a052"
+        overall_color = "#5C4611"
     else:
         overall = "down"
         overall_text = "Services not responding"
-        overall_color = "#d96666"
+        overall_color = "#7A1F1F"
 
     # Disk summary
     disk_text = ""
@@ -323,7 +323,7 @@ def render_quick_actions(snapshot: SystemSnapshot) -> str:
     buttons = ""
     for a in actions:
         buttons += f"""
-        <button onclick="navigator.clipboard.writeText('{a['command']}').then(()=>this.style.borderColor='#5cb579')"
+        <button onclick="navigator.clipboard.writeText('{a['command']}').then(()=>this.style.borderColor='#2C4A2C')"
                 style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-secondary);font-size:0.82rem;cursor:pointer;font-family:inherit;transition:border-color 0.2s;"
                 title="Click to copy: {a['command']}">
             <span>{a['icon']}</span> {a['label']}
@@ -357,11 +357,11 @@ def render_security_posture() -> str:
         p = postures[service]
         encryption = p.get("encryption", "unknown")
         if encryption == "enabled":
-            colour = "#5cb579"
+            colour = "#2C4A2C"
             icon = "&#10003;"
             detail = f"{p.get('backend', 'sqlcipher')} via {p.get('key_source', 'OSTLER_DB_KEY')}"
         elif encryption == "disabled":
-            colour = "#d96666"
+            colour = "#7A1F1F"
             icon = "&#9888;"
             reason = p.get("reason") or "unknown"
             detail = f"plaintext &ndash; reason: {reason}"
@@ -467,11 +467,11 @@ def _is_stale(marker: dict, now_dt=None) -> bool:
 # grey rather than green; a silent death is more dangerous than a
 # loud failure.
 _STATUS_COLOURS = {
-    "success": "#5cb579",
-    "fda_denied": "#d96666",
-    "extract_failed": "#d96666",
-    "mailbox_unreadable": "#d96666",
-    "other": "#d4a052",
+    "success": "#2C4A2C",
+    "fda_denied": "#7A1F1F",
+    "extract_failed": "#7A1F1F",
+    "mailbox_unreadable": "#7A1F1F",
+    "other": "#5C4611",
     "stale": "rgba(236,232,221,0.40)",
     "unknown": "rgba(236,232,221,0.40)",
 }
@@ -594,7 +594,7 @@ def render_observability_posture(now_dt=None) -> str:
                     <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
                         Full marker JSON
                     </summary>
-                    <pre style="font-size:11px;background:#07060a;color:rgba(236,232,221,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(236,232,221,0.08);overflow:auto;margin-top:6px">{full_json}</pre>
+                    <pre style="font-size:11px;background:#ECEBE5;color:rgba(236,232,221,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(236,232,221,0.08);overflow:auto;margin-top:6px">{full_json}</pre>
                 </details>
             </div>
         </div>"""
@@ -667,7 +667,7 @@ def render_consent_status() -> str:
         <div class="section-title">Consent (A7+A8 records)</div>
         <div class="status-grid">
         <div class="status-card">
-            <div class="status-indicator" style="background:#d96666">&#9888;</div>
+            <div class="status-indicator" style="background:#7A1F1F">&#9888;</div>
             <div class="status-info">
                 <div class="status-name">{_html_escape(CONSENT_UNREADABLE_TITLE)}</div>
                 <div class="status-detail">{_html_escape(detail)}</div>
@@ -693,7 +693,7 @@ def render_consent_status() -> str:
 
         bundled = bundled_consents.get(tickbox_id)
         if decision == "declined":
-            colour = "#d96666"
+            colour = "#7A1F1F"
             icon = "&#9888;"
             state = "declined"
         elif bundled is None:
@@ -704,11 +704,11 @@ def render_consent_status() -> str:
             icon = "?"
             state = "unknown wording"
         elif rec.get("wording_hash") != bundled.sha256():
-            colour = "#d4a052"
+            colour = "#5C4611"
             icon = "&#9888;"
             state = f"renewal needed ({wording_version} -> {bundled.version})"
         else:
-            colour = "#5cb579"
+            colour = "#2C4A2C"
             icon = "&#10003;"
             state = f"current ({wording_version})"
 
@@ -747,9 +747,9 @@ def render_consent_status() -> str:
 # ``unknown`` matches the other tiles' grey fallback for an
 # unrecognised status field.
 _IMESSAGE_TCC_COLOURS = {
-    "granted-and-working": "#5cb579",
-    "tcc-denied": "#d4a052",
-    "check-failed": "#d96666",
+    "granted-and-working": "#2C4A2C",
+    "tcc-denied": "#5C4611",
+    "check-failed": "#7A1F1F",
     "unknown": "rgba(236,232,221,0.40)",
 }
 _IMESSAGE_TCC_ICONS = {
@@ -872,7 +872,7 @@ def render_imessage_tcc_posture(now_dt=None) -> str:
             )
         if in_marker_remediation:
             fix_bits.append(
-                '<pre style="font-size:12px;background:#07060a;'
+                '<pre style="font-size:12px;background:#ECEBE5;'
                 'color:rgba(236,232,221,0.74);font-family:'
                 '\'IBM Plex Mono\',\'SF Mono\',Menlo,monospace;padding:10px;'
                 'border-radius:6px;border:1px solid rgba(236,232,221,0.08);'
@@ -883,7 +883,7 @@ def render_imessage_tcc_posture(now_dt=None) -> str:
             fix_bits.append(
                 f'<div class="status-detail" style="margin-top:8px">'
                 f'<strong>{_html_escape(IMESSAGE_TCC_STDERR_LABEL)}:</strong></div>'
-                '<pre style="font-size:11px;background:#07060a;'
+                '<pre style="font-size:11px;background:#ECEBE5;'
                 'color:rgba(236,232,221,0.74);font-family:'
                 '\'IBM Plex Mono\',\'SF Mono\',Menlo,monospace;padding:10px;'
                 'border-radius:6px;border:1px solid rgba(236,232,221,0.08);'
@@ -909,7 +909,7 @@ def render_imessage_tcc_posture(now_dt=None) -> str:
                     <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
                         {_html_escape(IMESSAGE_TCC_FULL_MARKER_LABEL)}
                     </summary>
-                    <pre style="font-size:11px;background:#07060a;color:rgba(236,232,221,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(236,232,221,0.08);overflow:auto;margin-top:6px;white-space:pre-wrap">{_html_escape(raw_text)}</pre>
+                    <pre style="font-size:11px;background:#ECEBE5;color:rgba(236,232,221,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(236,232,221,0.08);overflow:auto;margin-top:6px;white-space:pre-wrap">{_html_escape(raw_text)}</pre>
                 </details>"""
 
     tile = f"""
@@ -939,11 +939,11 @@ def render_imessage_tcc_posture(now_dt=None) -> str:
 # the customer cannot straightforwardly remedy). ``unknown`` matches the
 # other tiles' grey fallback.
 _REMINDERS_COLOURS = {
-    "granted": "#5cb579",
-    "denied": "#d4a052",
-    "not-determined": "#d4a052",
-    "restricted": "#d96666",
-    "check-failed": "#d96666",
+    "granted": "#2C4A2C",
+    "denied": "#5C4611",
+    "not-determined": "#5C4611",
+    "restricted": "#7A1F1F",
+    "check-failed": "#7A1F1F",
     "unknown": "rgba(236,232,221,0.40)",
 }
 _REMINDERS_ICONS = {
@@ -1071,7 +1071,7 @@ def render_reminders_posture(now_dt=None) -> str:
             )
         if in_marker_remediation:
             fix_bits.append(
-                '<pre style="font-size:12px;background:#07060a;'
+                '<pre style="font-size:12px;background:#ECEBE5;'
                 'color:rgba(236,232,221,0.74);font-family:'
                 '\'IBM Plex Mono\',\'SF Mono\',Menlo,monospace;padding:10px;'
                 'border-radius:6px;border:1px solid rgba(236,232,221,0.08);'
@@ -1082,7 +1082,7 @@ def render_reminders_posture(now_dt=None) -> str:
             fix_bits.append(
                 f'<div class="status-detail" style="margin-top:8px">'
                 f'<strong>{_html_escape(REMINDERS_STDERR_LABEL)}:</strong></div>'
-                '<pre style="font-size:11px;background:#07060a;'
+                '<pre style="font-size:11px;background:#ECEBE5;'
                 'color:rgba(236,232,221,0.74);font-family:'
                 '\'IBM Plex Mono\',\'SF Mono\',Menlo,monospace;padding:10px;'
                 'border-radius:6px;border:1px solid rgba(236,232,221,0.08);'
@@ -1106,7 +1106,7 @@ def render_reminders_posture(now_dt=None) -> str:
                     <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
                         {_html_escape(REMINDERS_FULL_MARKER_LABEL)}
                     </summary>
-                    <pre style="font-size:11px;background:#07060a;color:rgba(236,232,221,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(236,232,221,0.08);overflow:auto;margin-top:6px;white-space:pre-wrap">{_html_escape(raw_text)}</pre>
+                    <pre style="font-size:11px;background:#ECEBE5;color:rgba(236,232,221,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(236,232,221,0.08);overflow:auto;margin-top:6px;white-space:pre-wrap">{_html_escape(raw_text)}</pre>
                 </details>"""
 
     tile = f"""
@@ -1133,8 +1133,8 @@ def render_reminders_posture(now_dt=None) -> str:
 # (operator-fixable, same colour as the install-time denied tile),
 # no-data=grey neutral.
 _REMINDERS_RUNTIME_COLOURS = {
-    STATE_OK: "#5cb579",
-    STATE_PERMISSION_DENIED: "#d4a052",
+    STATE_OK: "#2C4A2C",
+    STATE_PERMISSION_DENIED: "#5C4611",
     STATE_NO_DATA: "rgba(236,232,221,0.40)",
 }
 _REMINDERS_RUNTIME_ICONS = {
@@ -1274,10 +1274,10 @@ def render_reminders_runtime(now_dt=None) -> str:
 # cannot_run = grey, because "we could not tell" is not evidence of failure
 # and must not be painted as one.
 _WHATSAPP_KEEPALIVE_COLOURS = {
-    "healthy": "#5cb579",
-    "recovered": "#5cb579",
-    "needs_customer": "#d4a052",
-    "still_unhealthy": "#d96666",
+    "healthy": "#2C4A2C",
+    "recovered": "#2C4A2C",
+    "needs_customer": "#5C4611",
+    "still_unhealthy": "#7A1F1F",
     "cannot_run": "rgba(236,232,221,0.40)",
 }
 _WHATSAPP_KEEPALIVE_ICONS = {

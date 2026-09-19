@@ -1338,10 +1338,10 @@ def render_source_status() -> str:
               "not_run": "not run yet", "unreadable": "record unreadable",
               "error": "failed", "cannot_run": "could not look",
               "timeout": "ran out of time"}
-    _COLOUR = {"ok": "#5cb579", "no_data": "rgba(236,232,225,0.55)",
-               "not_run": "#d4a052", "unreadable": "#d96666",
-               "error": "#d96666", "cannot_run": "#d4a052",
-               "timeout": "#d4a052"}
+    _COLOUR = {"ok": "#2C4A2C", "no_data": "rgba(236,232,225,0.55)",
+               "not_run": "#5C4611", "unreadable": "#7A1F1F",
+               "error": "#7A1F1F", "cannot_run": "#5C4611",
+               "timeout": "#5C4611"}
     body = []
     for r in rows:
         st = (r.get("status") or "not_run")
@@ -1364,7 +1364,7 @@ def render_source_status() -> str:
         body.append(
             '<tr>'
             f'<td>{html.escape(str(r.get("source", "?")).replace("_", " "))}</td>'
-            f'<td><span style="color:{_COLOUR.get(st, "#d4a052")}">'
+            f'<td><span style="color:{_COLOUR.get(st, "#5C4611")}">'
             f'{html.escape(_LABEL.get(st, st))}</span></td>'
             f'<td style="text-align:right">{count}</td>'
             f'<td>{html.escape(str(when)) if when else "never"}</td>'
@@ -1407,7 +1407,7 @@ def render_dashboard(
     # Build service status cards
     service_cards = ""
     for svc in snapshot.services:
-        color = {"healthy": "#5cb579", "unhealthy": "#d4a052", "unreachable": "#d96666"}.get(svc.status, "rgba(236,232,221,0.40)")
+        color = {"healthy": "#2C4A2C", "unhealthy": "#5C4611", "unreachable": "#7A1F1F"}.get(svc.status, "rgba(236,232,221,0.40)")
         icon = {"healthy": "&#10003;", "unhealthy": "&#9888;", "unreachable": "&#10007;"}.get(svc.status, "?")
         service_cards += f"""
         <div class="status-card">
@@ -1432,7 +1432,7 @@ def render_dashboard(
     )
     container_cards = ""
     for c in snapshot.docker_containers:
-        color = {"running": "#5cb579", "exited": "#d96666", "paused": "#d4a052"}.get(c.state, "rgba(236,232,221,0.40)")
+        color = {"running": "#2C4A2C", "exited": "#7A1F1F", "paused": "#5C4611"}.get(c.state, "rgba(236,232,221,0.40)")
         container_cards += f"""
         <div class="status-card">
             <div class="status-indicator" style="background:{color}">&#9632;</div>
@@ -1453,7 +1453,7 @@ def render_dashboard(
     # Build disk usage
     disk_items = ""
     for d in snapshot.disk_usage:
-        bar_color = "#5cb579" if d.percent_used < 80 else "#d4a052" if d.percent_used < 95 else "#d96666"
+        bar_color = "#2C4A2C" if d.percent_used < 80 else "#5C4611" if d.percent_used < 95 else "#7A1F1F"
         disk_items += f"""
         <div class="disk-item">
             <div class="disk-label">{d.mount_point}</div>
@@ -1523,7 +1523,7 @@ def render_dashboard(
     # Build findings
     findings_html = ""
     for f in findings:
-        sev_color = {"critical": "#d96666", "warning": "#d4a052", "info": "#5cb579"}.get(f["severity"], "rgba(236,232,221,0.40)")
+        sev_color = {"critical": "#7A1F1F", "warning": "#5C4611", "info": "#2C4A2C"}.get(f["severity"], "rgba(236,232,221,0.40)")
         sev_icon = {"critical": "&#9888;", "warning": "&#9888;", "info": "&#10003;"}.get(f["severity"], "?")
         fix_html = ""
         if f.get("fix_command"):
@@ -1572,24 +1572,24 @@ def render_dashboard(
         :root {{
             --ostler-ink: #0d0b08;
             --ostler-ink-deep: #07060a;
-            --ostler-panel: #1a1612;
-            --ostler-panel-elev: #221c16;
+            --ostler-panel: #FFFFFF;
+            --ostler-panel-elev: #FFFFFF;
             --ostler-chassis: #ECE8DD;
-            --ostler-accent: #C84545;
-            --ostler-accent-hover: #D76060;
-            --ostler-accent-warm: #E26A6A;
-            --ostler-accent-glow: rgba(200, 69, 69, 0.18);
-            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
-            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
+            --ostler-accent: #7A1F1F;
+            --ostler-accent-hover: #6E1717;
+            --ostler-accent-warm: #7A1F1F;
+            --ostler-accent-glow: rgba(122, 31, 31, 0.18);
+            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
+            --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
             --text: var(--ostler-chassis);
-            --text-secondary: rgba(236, 232, 221, 0.74);
-            --text-muted: rgba(236, 232, 221, 0.50);
-            --text-faint: rgba(236, 232, 221, 0.32);
-            --green: #5cb579;
-            --red: #d96666;
-            --yellow: #d4a052;
-            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
-            --shadow-card: 0 1px 2px rgba(0,0,0,0.45), 0 8px 24px rgba(0,0,0,0.35);
+            --text-secondary: rgba(20, 18, 14, 0.74);
+            --text-muted: rgba(20, 18, 14, 0.50);
+            --text-faint: rgba(20, 18, 14, 0.32);
+            --green: #2C4A2C;
+            --red: #7A1F1F;
+            --yellow: #5C4611;
+            --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
+            --shadow-card: 0 1px 2px rgba(20,18,14,0.11), 0 8px 24px rgba(20,18,14,0.08);
             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
@@ -2095,7 +2095,7 @@ def render_dashboard(
 
         <div class="section" id="supportSection">
             <div class="section-title">{SUPPORT_SECTION_TITLE}</div>
-            <p style="color:#94a3b8; line-height:1.6; margin-bottom:1rem;">
+            <p style="color:#4A463F; line-height:1.6; margin-bottom:1rem;">
                 {SUPPORT_SECTION_INTRO}
             </p>
             <div class="header-controls" style="flex-wrap:wrap; gap:0.5rem;">
@@ -2107,10 +2107,10 @@ def render_dashboard(
 
         <div class="chat-section">
             <div class="section-title">{DASHBOARD_SECTION_HELP}</div>
-            <p style="color:#94a3b8; line-height:1.6; margin-bottom:1rem;">
+            <p style="color:#4A463F; line-height:1.6; margin-bottom:1rem;">
                 {DASHBOARD_HELP_PARAGRAPH_1}
             </p>
-            <p style="color:#94a3b8; line-height:1.6; font-size:0.85rem;">
+            <p style="color:#4A463F; line-height:1.6; font-size:0.85rem;">
                 {DASHBOARD_HELP_PARAGRAPH_2}
             </p>
         </div>
@@ -2162,7 +2162,7 @@ def render_dashboard(
             // Update findings
             let fhtml = '';
             findings.forEach(f => {{
-                const sevColors = {{critical:'#d96666',warning:'#d4a052',info:'#5cb579'}};
+                const sevColors = {{critical:'#7A1F1F',warning:'#5C4611',info:'#2C4A2C'}};
                 const sevIcons = {{critical:'&#9888;',warning:'&#9888;',info:'&#10003;'}};
                 const sc = sevColors[f.severity]||'rgba(236,232,221,0.40)';
                 const si = sevIcons[f.severity]||'?';
@@ -2195,7 +2195,7 @@ def render_dashboard(
             // Update services
             let shtml = '';
             snap.services.forEach(s => {{
-                const colors = {{healthy:'#5cb579',unhealthy:'#d4a052',unreachable:'#d96666'}};
+                const colors = {{healthy:'#2C4A2C',unhealthy:'#5C4611',unreachable:'#7A1F1F'}};
                 const icons = {{healthy:'&#10003;',unhealthy:'&#9888;',unreachable:'&#10007;'}};
                 shtml += '<div class="status-card">'
                     + '<div class="status-indicator" style="background:' + (colors[s.status]||'rgba(236,232,221,0.40)') + '">' + (icons[s.status]||'?') + '</div>'
@@ -2207,7 +2207,7 @@ def render_dashboard(
             // Update containers
             let chtml = '';
             snap.containers.forEach(c => {{
-                const colors = {{running:'#5cb579',exited:'#d96666',paused:'#d4a052'}};
+                const colors = {{running:'#2C4A2C',exited:'#7A1F1F',paused:'#5C4611'}};
                 chtml += '<div class="status-card">'
                     + '<div class="status-indicator" style="background:' + (colors[c.state]||'rgba(236,232,221,0.40)') + '">&#9632;</div>'
                     + '<div class="status-info"><div class="status-name">' + c.name + '</div>'
@@ -2228,7 +2228,7 @@ def render_dashboard(
             // Update disk
             let dhtml = '';
             snap.disk.forEach(d => {{
-                const bc = d.percent_used < 80 ? '#5cb579' : d.percent_used < 95 ? '#d4a052' : '#d96666';
+                const bc = d.percent_used < 80 ? '#2C4A2C' : d.percent_used < 95 ? '#5C4611' : '#7A1F1F';
                 dhtml += '<div class="disk-item"><div class="disk-label">' + d.mount + '</div>'
                     + '<div class="disk-bar-bg"><div class="disk-bar" style="width:' + d.percent_used + '%;background:' + bc + '"></div></div>'
                     + '<div class="disk-detail">' + Math.round(d.free_gb) + ' GB free of ' + Math.round(d.total_gb) + ' GB (' + d.percent_used + '%)</div></div>';
@@ -2371,10 +2371,10 @@ def render_history(history_entries: list[dict]) -> str:
                 name = s["name"]
                 status = s["status"]
                 prev = prev_services.get(name)
-                color = {"healthy": "#5cb579", "unhealthy": "#d4a052", "unreachable": "#d96666"}.get(status, "rgba(236,232,221,0.50)")
+                color = {"healthy": "#2C4A2C", "unhealthy": "#5C4611", "unreachable": "#7A1F1F"}.get(status, "rgba(236,232,221,0.50)")
                 changed = ""
                 if prev and prev != status:
-                    changed = f' <span style="color:#d4a052;font-size:0.7rem">{HISTORY_WAS_FMT.format(prev=prev)}</span>'
+                    changed = f' <span style="color:#5C4611;font-size:0.7rem">{HISTORY_WAS_FMT.format(prev=prev)}</span>'
                 svc_parts.append(f'<span style="color:{color}">{name}: {status}</span>{changed}')
                 prev_services[name] = status
 
@@ -2389,11 +2389,11 @@ def render_history(history_entries: list[dict]) -> str:
             warn = sum(1 for f in findings if f.get("severity") == "warning")
             finding_parts = []
             if crit:
-                finding_parts.append(f'<span style="color:#d96666">{HISTORY_CRITICAL_FMT.format(count=crit)}</span>')
+                finding_parts.append(f'<span style="color:#7A1F1F">{HISTORY_CRITICAL_FMT.format(count=crit)}</span>')
             if warn:
-                finding_parts.append(f'<span style="color:#d4a052">{HISTORY_WARNING_FMT.format(count=warn)}</span>')
+                finding_parts.append(f'<span style="color:#5C4611">{HISTORY_WARNING_FMT.format(count=warn)}</span>')
             if not finding_parts:
-                finding_parts.append(f'<span style="color:#5cb579">{HISTORY_ALL_CLEAR}</span>')
+                finding_parts.append(f'<span style="color:#2C4A2C">{HISTORY_ALL_CLEAR}</span>')
 
             rows += f"""<tr>
                 <td>{ts}</td>
@@ -2412,15 +2412,15 @@ def render_history(history_entries: list[dict]) -> str:
         /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
         :root {{
             --ostler-ink: #0d0b08;
-            --ostler-panel: #1a1612;
-            --ostler-panel-elev: #221c16;
+            --ostler-panel: #FFFFFF;
+            --ostler-panel-elev: #FFFFFF;
             --ostler-chassis: #ECE8DD;
-            --ostler-accent: #C84545;
-            --ostler-accent-warm: #E26A6A;
-            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
-            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
+            --ostler-accent: #7A1F1F;
+            --ostler-accent-warm: #7A1F1F;
+            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
+            --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
             --text: var(--ostler-chassis);
-            --text-muted: rgba(236, 232, 221, 0.50);
+            --text-muted: rgba(20, 18, 14, 0.50);
             --font-display: 'Outfit', system-ui, sans-serif;
             --font-body: 'IBM Plex Sans', system-ui, sans-serif;
             --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
@@ -3463,24 +3463,24 @@ def _render_import_evernote_page(active_job_id=None) -> str:
         :root {{
             --ostler-ink: #0d0b08;
             --ostler-ink-deep: #07060a;
-            --ostler-panel: #1a1612;
-            --ostler-panel-elev: #221c16;
+            --ostler-panel: #FFFFFF;
+            --ostler-panel-elev: #FFFFFF;
             --ostler-chassis: #ECE8DD;
-            --ostler-accent: #C84545;
-            --ostler-accent-hover: #D76060;
-            --ostler-accent-warm: #E26A6A;
-            --ostler-accent-glow: rgba(200, 69, 69, 0.18);
-            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
-            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
+            --ostler-accent: #7A1F1F;
+            --ostler-accent-hover: #6E1717;
+            --ostler-accent-warm: #7A1F1F;
+            --ostler-accent-glow: rgba(122, 31, 31, 0.18);
+            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
+            --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
             --text: var(--ostler-chassis);
-            --text-secondary: rgba(236, 232, 221, 0.74);
-            --text-muted: rgba(236, 232, 221, 0.50);
-            --text-faint: rgba(236, 232, 221, 0.32);
-            --green: #5cb579;
-            --yellow: #d4a052;
-            --red: #d96666;
-            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
-            --shadow-card: 0 1px 2px rgba(0,0,0,0.45), 0 8px 24px rgba(0,0,0,0.35);
+            --text-secondary: rgba(20, 18, 14, 0.74);
+            --text-muted: rgba(20, 18, 14, 0.50);
+            --text-faint: rgba(20, 18, 14, 0.32);
+            --green: #2C4A2C;
+            --yellow: #5C4611;
+            --red: #7A1F1F;
+            --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
+            --shadow-card: 0 1px 2px rgba(20,18,14,0.11), 0 8px 24px rgba(20,18,14,0.08);
             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
@@ -3653,7 +3653,7 @@ def _render_import_evernote_page(active_job_id=None) -> str:
         }}
         .status-pill.running {{ background: var(--yellow); }}
         .status-pill.succeeded {{ background: var(--green); }}
-        .status-pill.partial {{ background: #d4a052; }}
+        .status-pill.partial {{ background: #5C4611; }}
         .status-pill.failed {{ background: var(--red); }}
         .status-meta {{
             font-family: var(--font-mono);
@@ -3976,24 +3976,24 @@ def _render_import_notion_page(active_job_id=None) -> str:
         :root {{
             --ostler-ink: #0d0b08;
             --ostler-ink-deep: #07060a;
-            --ostler-panel: #1a1612;
-            --ostler-panel-elev: #221c16;
+            --ostler-panel: #FFFFFF;
+            --ostler-panel-elev: #FFFFFF;
             --ostler-chassis: #ECE8DD;
-            --ostler-accent: #C84545;
-            --ostler-accent-hover: #D76060;
-            --ostler-accent-warm: #E26A6A;
-            --ostler-accent-glow: rgba(200, 69, 69, 0.18);
-            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
-            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
+            --ostler-accent: #7A1F1F;
+            --ostler-accent-hover: #6E1717;
+            --ostler-accent-warm: #7A1F1F;
+            --ostler-accent-glow: rgba(122, 31, 31, 0.18);
+            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
+            --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
             --text: var(--ostler-chassis);
-            --text-secondary: rgba(236, 232, 221, 0.74);
-            --text-muted: rgba(236, 232, 221, 0.50);
-            --text-faint: rgba(236, 232, 221, 0.32);
-            --green: #5cb579;
-            --yellow: #d4a052;
-            --red: #d96666;
-            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
-            --shadow-card: 0 1px 2px rgba(0,0,0,0.45), 0 8px 24px rgba(0,0,0,0.35);
+            --text-secondary: rgba(20, 18, 14, 0.74);
+            --text-muted: rgba(20, 18, 14, 0.50);
+            --text-faint: rgba(20, 18, 14, 0.32);
+            --green: #2C4A2C;
+            --yellow: #5C4611;
+            --red: #7A1F1F;
+            --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
+            --shadow-card: 0 1px 2px rgba(20,18,14,0.11), 0 8px 24px rgba(20,18,14,0.08);
             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
@@ -4166,7 +4166,7 @@ def _render_import_notion_page(active_job_id=None) -> str:
         }}
         .status-pill.running {{ background: var(--yellow); }}
         .status-pill.succeeded {{ background: var(--green); }}
-        .status-pill.partial {{ background: #d4a052; }}
+        .status-pill.partial {{ background: #5C4611; }}
         .status-pill.failed {{ background: var(--red); }}
         .status-meta {{
             font-family: var(--font-mono);
@@ -4489,24 +4489,24 @@ def _render_import_obsidian_page(active_job_id=None) -> str:
         :root {{
             --ostler-ink: #0d0b08;
             --ostler-ink-deep: #07060a;
-            --ostler-panel: #1a1612;
-            --ostler-panel-elev: #221c16;
+            --ostler-panel: #FFFFFF;
+            --ostler-panel-elev: #FFFFFF;
             --ostler-chassis: #ECE8DD;
-            --ostler-accent: #C84545;
-            --ostler-accent-hover: #D76060;
-            --ostler-accent-warm: #E26A6A;
-            --ostler-accent-glow: rgba(200, 69, 69, 0.18);
-            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
-            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
+            --ostler-accent: #7A1F1F;
+            --ostler-accent-hover: #6E1717;
+            --ostler-accent-warm: #7A1F1F;
+            --ostler-accent-glow: rgba(122, 31, 31, 0.18);
+            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
+            --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
             --text: var(--ostler-chassis);
-            --text-secondary: rgba(236, 232, 221, 0.74);
-            --text-muted: rgba(236, 232, 221, 0.50);
-            --text-faint: rgba(236, 232, 221, 0.32);
-            --green: #5cb579;
-            --yellow: #d4a052;
-            --red: #d96666;
-            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
-            --shadow-card: 0 1px 2px rgba(0,0,0,0.45), 0 8px 24px rgba(0,0,0,0.35);
+            --text-secondary: rgba(20, 18, 14, 0.74);
+            --text-muted: rgba(20, 18, 14, 0.50);
+            --text-faint: rgba(20, 18, 14, 0.32);
+            --green: #2C4A2C;
+            --yellow: #5C4611;
+            --red: #7A1F1F;
+            --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
+            --shadow-card: 0 1px 2px rgba(20,18,14,0.11), 0 8px 24px rgba(20,18,14,0.08);
             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
@@ -4679,7 +4679,7 @@ def _render_import_obsidian_page(active_job_id=None) -> str:
         }}
         .status-pill.running {{ background: var(--yellow); }}
         .status-pill.succeeded {{ background: var(--green); }}
-        .status-pill.partial {{ background: #d4a052; }}
+        .status-pill.partial {{ background: #5C4611; }}
         .status-pill.failed {{ background: var(--red); }}
         .status-meta {{
             font-family: var(--font-mono);
@@ -5288,21 +5288,21 @@ def _render_pair_ios_page() -> str:
         :root {{
             --ostler-ink: #0d0b08;
             --ostler-ink-deep: #07060a;
-            --ostler-panel: #1a1612;
-            --ostler-panel-elev: #221c16;
+            --ostler-panel: #FFFFFF;
+            --ostler-panel-elev: #FFFFFF;
             --ostler-chassis: #ECE8DD;
-            --ostler-accent: #C84545;
-            --ostler-accent-hover: #D76060;
-            --ostler-accent-warm: #E26A6A;
-            --ostler-accent-glow: rgba(200, 69, 69, 0.18);
-            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
-            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
+            --ostler-accent: #7A1F1F;
+            --ostler-accent-hover: #6E1717;
+            --ostler-accent-warm: #7A1F1F;
+            --ostler-accent-glow: rgba(122, 31, 31, 0.18);
+            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
+            --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
             --text: var(--ostler-chassis);
-            --text-secondary: rgba(236, 232, 221, 0.74);
-            --text-muted: rgba(236, 232, 221, 0.50);
-            --text-faint: rgba(236, 232, 221, 0.32);
-            --red: #d96666;
-            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+            --text-secondary: rgba(20, 18, 14, 0.74);
+            --text-muted: rgba(20, 18, 14, 0.50);
+            --text-faint: rgba(20, 18, 14, 0.32);
+            --red: #7A1F1F;
+            --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
@@ -5688,13 +5688,13 @@ def _render_whatsapp_pair_page() -> str:
             --ostler-ink: #0d0b08;
             --ostler-ink-deep: #07060a;
             --ostler-chassis: #ECE8DD;
-            --ostler-accent: #C84545;
-            --ostler-accent-hover: #D76060;
-            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
+            --ostler-accent: #7A1F1F;
+            --ostler-accent-hover: #6E1717;
+            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
             --text: var(--ostler-chassis);
-            --text-secondary: rgba(236, 232, 221, 0.74);
-            --text-muted: rgba(236, 232, 221, 0.50);
-            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+            --text-secondary: rgba(20, 18, 14, 0.74);
+            --text-muted: rgba(20, 18, 14, 0.50);
+            --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
@@ -5891,13 +5891,13 @@ def _render_extension_setup_page() -> str:
             --ostler-ink: #0d0b08;
             --ostler-ink-deep: #07060a;
             --ostler-chassis: #ECE8DD;
-            --ostler-accent: #C84545;
-            --ostler-accent-hover: #D76060;
-            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
+            --ostler-accent: #7A1F1F;
+            --ostler-accent-hover: #6E1717;
+            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
             --text: var(--ostler-chassis);
-            --text-secondary: rgba(236, 232, 221, 0.74);
-            --text-muted: rgba(236, 232, 221, 0.50);
-            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+            --text-secondary: rgba(20, 18, 14, 0.74);
+            --text-muted: rgba(20, 18, 14, 0.50);
+            --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
@@ -6214,21 +6214,21 @@ def _render_config_page() -> str:
         :root {{
             --ostler-ink: #0d0b08;
             --ostler-ink-deep: #07060a;
-            --ostler-panel: #1a1612;
-            --ostler-panel-elev: #221c16;
+            --ostler-panel: #FFFFFF;
+            --ostler-panel-elev: #FFFFFF;
             --ostler-chassis: #ECE8DD;
-            --ostler-accent: #C84545;
-            --ostler-accent-hover: #D76060;
-            --ostler-accent-warm: #E26A6A;
-            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
-            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
+            --ostler-accent: #7A1F1F;
+            --ostler-accent-hover: #6E1717;
+            --ostler-accent-warm: #7A1F1F;
+            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
+            --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
             --text: var(--ostler-chassis);
-            --text-secondary: rgba(236, 232, 221, 0.74);
-            --text-muted: rgba(236, 232, 221, 0.50);
-            --text-faint: rgba(236, 232, 221, 0.32);
-            --green: #5cb579;
-            --red: #d96666;
-            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+            --text-secondary: rgba(20, 18, 14, 0.74);
+            --text-muted: rgba(20, 18, 14, 0.50);
+            --text-faint: rgba(20, 18, 14, 0.32);
+            --green: #2C4A2C;
+            --red: #7A1F1F;
+            --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
