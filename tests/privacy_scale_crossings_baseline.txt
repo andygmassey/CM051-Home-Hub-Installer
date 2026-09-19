@@ -1,0 +1,88 @@
+# FILES ALLOWED TO NAME BOTH PRIVACY SCALES.
+#
+# Checked by tests/test_privacy_scale_crossings_are_ratcheted.sh, which reads
+# the full account. In short: privacy_level runs L0 to L3 with HIGHER meaning
+# more private and L3 hidden, and it is fail-closed; compartment_level runs 0 to
+# 6 with LOWER meaning more private and 0 the most private, and it has no
+# fail-closed default. They are converted into one another in
+# vendor/cm041/contact_syncer/privacy_model.py, whose own comment calls it "the
+# inverted sense". A file holding BOTH names is the only place a number can be
+# copied from a scale where it is nearly private onto one where it is
+# publishable. That is how a customer's Apple Health and Apple Notes came to be
+# labelled one step from Broadcast. See docs/PRIVACY_LEVELS.md.
+#
+# THIS IS A RATCHET. The count may only DECREASE. Adding a row is a reviewed
+# decision about a deliberate conversion; it is not a way to clear a red.
+# Removing a crossing means deleting its row in the same commit, or the slack
+# just earned silently permits the count to grow back into it.
+#
+# ---------------------------------------------------------------------------
+# THE POPULATION, AND WHAT IS OUTSIDE IT
+# ---------------------------------------------------------------------------
+# Every file in the tree except .git and these four, each of which has a
+# seeded discriminator in the test so the exclusion is proved rather than
+# merely written down:
+#
+#   tests/ and */tests/   a test that compares the two scales is the REMEDY.
+#                         tests/test_writer_reader_vocabulary_contracts.py names
+#                         both on purpose, and so does the checking test itself.
+#                         Counting a test would mean the only route to green is
+#                         to stop testing the thing.
+#
+#   docs/ and */docs/     prose cannot convert a number, and
+#                         docs/PRIVACY_LEVELS.md exists precisely to name both
+#                         scales and warn about them. Counting it would demand
+#                         deleting the only document that carries the warning.
+#
+#   cut-manifests/        release-review registers. 27 of them mention a scale,
+#                         inside gate narratives QUOTING this defect. They are a
+#                         record of the finding, not a site of it.
+#
+# NOT excluded, deliberately: .github/, *.yml, *.md outside docs/, and the
+# vendored LLM prompts under vendor/cm048_pipeline/prompts/. A prompt is a
+# functional artefact and a workflow can carry an inline heredoc; neither gets a
+# pass for its file extension.
+#
+# ---------------------------------------------------------------------------
+# WHY THE ROWS CARRY NO COUNT, WHEN THE SIBLING RATCHET'S ROWS DO
+# ---------------------------------------------------------------------------
+# tests/pipefail_shortcircuit_baseline.txt stores 'path<TAB>count' because the
+# thing it counts ACCUMULATES: a listed file can gain a twenty-second banned
+# pipeline while the row stays true, and that was proved by mutation.
+#
+# Crossing a pair of scales does not accumulate. A file either knows about both
+# or it does not, so a per-file count here would be the number of times two
+# ordinary field names appear, which moves on any unrelated vendor sync. That
+# is churn with no signal, and a ratchet that cries wolf is a ratchet that gets
+# raised. The countable unit for this gate is the SET SIZE, printed on every
+# run and recorded below.
+#
+# ---------------------------------------------------------------------------
+# MEASURED 2026-09-16 on origin/main f8462ef1, BEFORE this commit
+# (/usr/bin/grep -rlI --exclude-dir=.git):
+#     82 files name compartment_level
+#     65 files name privacy_level
+#      5 name both; 2 of those 5 are excluded
+#        (tests/test_writer_reader_vocabulary_contracts.py, cut-manifests/v1.0.99.yaml)
+#
+# ON THE COMMITTED TREE the gate prints, and this is the run a reader can
+# reproduce:
+#   1996 files in the tree
+#     87 name compartment_level
+#     68 name privacy_level
+#      3 CROSSING POINTS after exclusions
+#
+# The difference is five files added by this commit, every one of which names a
+# scale in order to hunt for it: this gate, this baseline, the sibling comment
+# gate, its baseline, and the workflow that runs them. Four live under tests/
+# and are excluded. The fifth, .github/workflows/privacy-scale-gates.yml, is
+# NOT excluded, and it names ONE scale only: its mutation payload assembles the
+# other field name from two fragments precisely so that the workflow cannot
+# become a crossing point itself. None of the five can raise the count below.
+#
+# TOTAL CROSSING POINTS AT THIS BASELINE: 3
+# ---------------------------------------------------------------------------
+#
+vendor/cm024_knowledge/ostler_knowledge/cli.py
+vendor/cm059_editor/compiler/project_preferences.py
+vendor/ostler_fda/pwg_ingest.py
