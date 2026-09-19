@@ -977,34 +977,6 @@ deferrals:
   # spelling the gate printed AND the branch spelling a human searching will
   # reach for.
   # ------------------------------------------------------------------------
-  - ref: "CM051:#982"
-    reason: >-
-      Fixes a real defect I filed: tests/test_pinned_wiki_image_has_design_system.sh
-      printed "Skipping is NOT a pass" and then exited 0 without CM044_DIR, so a
-      green run measured nothing. TNM's fix works, verified by execution: rc=2
-      CANNOT-RUN where it was rc=0, rc=0 with the checkout, --presence-only
-      states what it does NOT assert, and run_all_cut_gates.sh:139 still invokes
-      the FULL gate so the byte half is not dark. DEFERRED because the PR is RED
-      twice on its own CI and neither failure is cosmetic. (1) the presence step
-      sits in a job that is runs-on macos-latest, which has no docker, so the
-      gate correctly reports CANNOT-RUN and fails the job -- the wiring chose a
-      runner that cannot satisfy it. (2) its own new test file trips the
-      pipefail-shortcircuit ratchet, 71 against a baseline of 70, with a
-      printf-into-grep-q under pipefail. Shipping a wiki-content gate whose CI
-      cannot go green is worse than shipping v1.0.42 with the gate as it stands,
-      which is what v1.0.41 shipped with. No customer behaviour is withheld.
-    until_cut: "v1.0.46"
-    redeferred: >-
-      2026-08-24 ORM. Was v1.0.43, which is cut, as is v1.0.44. RE-MEASURED:
-      still RED, on appcast-ship-wiring and cut-gate-wrappers. The original
-      reason therefore stands unchanged, and the irony is worth recording rather
-      than smoothing over: this PR fixes a gate that passed when it could not
-      look, which is the same defect class fixed today in the marker arms
-      (#1020), the OS003 capability probe (#143) and the expiry ratchet (#1023).
-      It is the one instance of it still sitting unmerged.
-      UNBLOCKING STEP: move the presence step off runs-on macos-latest, which has
-      no docker and makes the gate correctly report CANNOT-RUN, and replace the
-      printf-into-grep-q under pipefail that trips the SIGPIPE ratchet.
   - ref: "CM051:fix/false-wired-design-system-gate"
     reason: >-
       Branch spelling of CM051:#982. Same deferral, recorded twice on purpose:
@@ -1017,43 +989,6 @@ deferrals:
       RESOLVE EVERY IDENTIFIER. NEVER TYPE ONE.
     until_cut: "v1.0.46"
     redeferred: "2026-08-24 ORM. Moved with CM051:#982; see that entry."
-  - ref: "CM051:#975"
-    reason: >-
-      Widens the ingest quiet window from 01:00-06:00 to 23:00-07:00 per Andy's
-      #789 call. The change itself is correct and the wrap-midnight trap is
-      handled: the old predicate reused with 23/7 would be true at every hour and
-      the window would have got SMALLER, and both arms are asserted. DEFERRED for
-      a reason the PR's own CI cannot see. It edits four VENDORED trees
-      (email/imessage/whatsapp/spoken_source) and touches no divergence patch,
-      and all four patches ADD the old predicate verbatim -- e.g.
-      vendor/divergences/email_source.patch:90 carries
-      `if [ "$_ostler_hour" -lt 1 ] || [ "$_ostler_hour" -ge 6 ]`. Those trees are
-      verify=full, so after this merges `source@pin + patch` no longer
-      reconstructs the vendored tree, and the freshness gate's own exemption
-      reason -- "Its CONTENT is verified: verify=full reconstructs the vendored
-      tree from source@X + patch" -- becomes false. Invisible on this box:
-      verify_vendor_fresh.sh reports "could not verify ... source repo not found"
-      for all four, so they land in the WARN bucket, and a warn bucket is not a
-      safe bucket. Retire this deferral by regenerating the four divergence
-      patches in the same PR. Customer impact of deferring: the quiet window
-      stays as v1.0.41 shipped it, which is the status quo, not a regression.
-    until_cut: "v1.0.46"
-    redeferred: >-
-      2026-08-24 ORM. Was v1.0.43, which is cut, as is v1.0.44. RE-MEASURED: its
-      own CI is GREEN, 26 checks and none failing, and it is STILL deferred,
-      because the blocker was never its CI. It edits four verify=full vendored
-      trees and touches no divergence patch, so merging it stops
-      source@pin + patch reconstructing those trees, and the freshness gate's own
-      exemption reason becomes false. A green PR whose reason for deferral its CI
-      cannot see is exactly the case where moving the date on autopilot would be
-      wrong.
-      UNBLOCKING STEP unchanged: regenerate the four divergence patches in the
-      same PR, then it merges on its own merits.
-  - ref: "CM051:feat/ingest-quiet-window-789"
-    reason: >-
-      Branch spelling of CM051:#975. Same deferral, recorded twice on purpose.
-    until_cut: "v1.0.46"
-    redeferred: "2026-08-24 ORM. Moved with CM051:#975; see that entry."
   - ref: daemon:fix/vault-state-default-status-none
     reason: >-
       The ONLY RED in check-orphans for v1.0.33. It is a real fix with a real test (1da772e5
@@ -4121,26 +4056,6 @@ deferrals:
       rides the next daemon build with #336/#337.
     until_cut: "v1.0.46"
 
-  - ref: CM051:#977
-    reason: >-
-      'fix(#849): mount the licence dir in the SHIPPED compose'. PR is CLOSED;
-      the branch survives, which is why the gate still sees it. The underlying
-      defect is board #849 (the Pro Obsidian vault writer cannot run on any
-      install because ~/.ostler is never mounted into the compiler container).
-      That is a Pro-tier feature, not a v1.0.44 walk finding, and re-opening a
-      closed PR to land a compose change hours before a cut is the wrong
-      order. Re-open, review, land in v1.0.46.
-    until_cut: "v1.0.46"
-
-  - ref: CM051:#992
-    reason: >-
-      'fix(install): the runtime guard asked for a CLIENT and...'. PR is CLOSED
-      AND CONFLICTING with main, so it cannot merge as it stands -- a conflicted
-      PR also produces zero CI runs, so nothing here has been judged by today's
-      gate set. Needs a rebase before it can even be reviewed. Test-harness
-      scope; not a walk fix.
-    until_cut: "v1.0.46"
-
   - ref: CM051:fix/849-shipped-compose-licence-mount
     reason: >-
       Branch-name spelling of CM051 #977 above, which the gate reports
@@ -4412,18 +4327,6 @@ deferrals:
       the #550 fix. Not in v1.0.49 because v1.0.49 is frozen under the hold.
     until_cut: "v1.0.50"
 
-  - ref: "CM051:#1214"
-    reason: >-
-      'feat(security): Oxigraph proxy credential -- the store with no native
-      auth (#550)'. Oxigraph 0.4.6 has no API key, so its credential can only
-      live in the store-proxy; this adds a 0600 include so the token never
-      enters the world-readable 644 nginx conf. DEMONSTRATED on live containers
-      2026-08-28: Andy's exact attack curl returns 401 while an authenticated
-      SPARQL query returns 200. Default-OFF behind OSTLER_STORE_AUTH_ENFORCE,
-      so it changes nothing until that flag is flipped -- and the flag must not
-      be flipped until every store's client half is demonstrated.
-    until_cut: "v1.0.50"
-
   - ref: "CM051:#1213"
     reason: >-
       'gate(ci): a guard the pipeline calls must actually be in the repo'.
@@ -4432,17 +4335,6 @@ deferrals:
       fire on injected mutations. One non-blocking finding recorded on the PR:
       its population is the REGISTER, not the workflows, so the failure mode its
       title names is not covered -- scope, not a defect.
-    until_cut: "v1.0.50"
-
-  - ref: "CM051:#1211"
-    reason: >-
-      'fix(install): port preflight decides by a real bind, not an owner-scoped
-      report (#1208)'. Fixes the lsof blindness that let every port preflight
-      GREEN on a two-account Mac -- the same class as #550 and the mitigation
-      the Oxigraph and Qdrant credentials both rely on for first-use safety.
-      Touches install.sh, so it is shipping behaviour. Reviewed 2026-08-28:
-      16/16 arms, and the coverage assertion caught an injected published port
-      absent from the preflight list.
     until_cut: "v1.0.50"
 
   - ref: "CM051:#1207"
@@ -4603,64 +4495,6 @@ deferrals:
       preservation/2026-08-29/archie-write-actions-actor-family-219 (tip 40dec17b),
       verified by ls-remote with a negative control. Retire together with the 219-v2 row.
     until_cut: "v1.0.52"
-  - ref: "CM051:#1654"
-    reason: >-
-      TNM's fix for #1153: the install.sh script-dir coverage gate matches a MENTION
-      rather than the copy, so deleting the `cp` line for a probe asset stays green.
-      Re-measured by TNM today and still reproducing, nine days old. DEFERRED FOR
-      v1.0.72 ONLY, ON TWO MEASUREMENTS, NEITHER OF THEM ABOUT ITS MERIT.
-      FIRST, IT CANNOT REACH THIS ARTEFACT. It changes exactly one file,
-      scripts/check_install_sh_script_dir_coverage.py, which cut.yml does not invoke:
-      grep for that name in .github/workflows/cut.yml returns 0, against a positive
-      control of 2 for `rollforward_gate` in the same file, so the zero is the
-      instrument working rather than the instrument dead. It runs from
-      install-gui-contract.yml and scripts/run_all_cut_gates.sh, neither of which is
-      on the cut path.
-      SECOND, IT IS RED, AND THE RED IS NOT ITS OWN. enforce-ledger-write's SELF-TEST
-      fails 8 of 34 cases (10, 11, 12, 13: a quoted TEMPLATE must not bypass, a
-      non-URL marker must BLOCK). Those cases got rc=0 where they expect rc=1,
-      because the gate short-circuited on "no shipping-adjacent path in the 2 changed
-      file(s)" before reaching the marker logic. THE SAME BRANCH PASSED THE SAME
-      SELF-TEST THREE MINUTES EARLIER: run 34013378352 at sha 6d22291f PASSED with
-      "shipping-adjacent changes detected"; run 34013517202 at sha d39c63be FAILED
-      with "no shipping-adjacent path", and `git diff --name-only` against the merge
-      base returns THE SAME SINGLE FILE at both shas. Same subject, same fixture size
-      (2 files, the self-test's own synthetic pair), opposite classification. That is
-      non-determinism inside the self-test, not a defect in #1654, and a
-      non-deterministic gate cannot adjudicate anything. Merging past it would be the
-      bypass this file exists to stop; blocking the cut on someone else's flaky
-      self-test would be worse. Recorded here so the hold is auditable, raised with
-      TNM on the board in the same turn.
-    until_cut: "v1.0.73"
-
-
-# ============================================================================
-# 2026-09-06 WALK-ONLY CUT OF v1.0.73. Recorded by Archie, in the same turn as
-# the cut that was blocked by them.
-#
-# READ THIS BEFORE TREATING ANY ROW BELOW AS SETTLED.
-#
-# These are NOT judgements that the work is unwanted. Every one of the local
-# branches below carries AUTHORED, non-merge commits. I measured that
-# specifically, because "it is only a merge of main" was the convenient story
-# and it is false: the smallest carries one authored commit and the largest
-# six, and `git diff --name-only origin/main...<branch>` is non-empty for all
-# seventeen.
-#
-# I could not prove any of them landed. `git merge-base --is-ancestor` returned
-# FALSE for all seventeen, and under squash-merge that proves NOTHING -- squash
-# gives the merge commit a new patch identity, so ancestry is valid in one
-# direction only (TRUE proves landed; FALSE proves nothing). So each of these
-# needs a per-branch triage against the merged-PR list, which is the only
-# oracle, and that is a job in its own right rather than a line in a cut.
-#
-# WHAT I DID INSTEAD OF DELETING OR GUESSING. Every tip below is preserved as a
-# pushed annotated ref under `archive/2026-09-06/<branch with / as ->`, verified
-# present on the remote with `git ls-remote --tags`, seventeen of seventeen.
-# They are no longer single-copy and no longer one `rm -rf` from gone, which is
-# the actual danger this gate exists to name. Deleting them was never on the
-# table: superseded work is not a reason to destroy the only copy.
-# ============================================================================
   - ref: "CM051:archie/rebase-1415"
     reason: >-
       NOT FOR THIS CUT, and not a judgement that it is unwanted. This is the
