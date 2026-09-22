@@ -52,4 +52,26 @@
 # 20 behind before this branch touched it. The PR's own swift-tests run is the
 # CI confirmation; if it prints a different number, this line is what to correct
 # and 374 is the number to argue with.
-374
+
+# Raised to 382 on 2026-09-16 (#2011, the pairing-failure copy). The 6 new
+# cases are PairingFailureMessageTests: that a refused pairing request never
+# renders the "still starting up" copy (the defect), that fetch_failed is real
+# copy and not a missing-key echo (the control that makes the first assertion
+# mean anything), that a transport failure KEEPS the starting-up wording
+# because nothing answering is the one case where waiting is the right advice,
+# that no case renders an unresolved catalogue key or an unsubstituted
+# placeholder, that a seeded response body never reaches the customer-facing
+# string, and that a non-gateway error still falls back to sane copy.
+#
+# MEASURED, not estimated, and measured IN CI rather than locally: the
+# swift-tests run on PR #2040 (run 35091098234) printed
+#     swift-tests: executed=382 failures=0 declared-floor=374
+# The six names were then read back out of the swift-test-log ARTEFACT, not
+# out of the run log, because per-test names never appear in the run log and
+# grepping it for them returns zero, which reads exactly like tests that never
+# ran. All six are present and passed.
+#
+# Leaving the floor at 374 would have let all six be deleted with the gate
+# still green, which is the same shape of defect this PR fixes: a signal that
+# exists, is not read, and whose absence looks identical to success.
+382
