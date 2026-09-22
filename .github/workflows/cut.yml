@@ -1557,12 +1557,46 @@ jobs:
       # ever existed there is nothing to capture, and that is not this step's
       # failure to report -- the job is already red from the real cause, and an
       # error here would bury it under a second, misleading one.
+      # An artefact NAME may not contain a forward slash, and a cut branch is
+      # named `cut/v1.0.NN`, so `github.ref_name` cannot be used raw here. That
+      # is not cosmetic: on v1.0.101 it discarded a DMG that had already been
+      # built, signed, notarised, stapled, verified against the build log, and
+      # passed by BOTH the delivery gate (#565) and the eight-arm DMG walk.
+      # upload-artifact ran last, failed name validation, and the runner took
+      # the only copy with it. Directive item 4: the cut machinery was the bug.
+      #
+      # GitHub's expression language has no replace(), so the substitution is
+      # done in shell. `if: always()` matches the upload step below it, so a
+      # red build still names and keeps whatever it did manage to produce.
+      #
+      # ONLY THE DISPATCH PATH CHANGES. On a push, ref_name is a TAG (v1.0.101),
+      # has never contained a slash, and is passed through untouched -- the
+      # released artefact's name is not this fix's business.
+      - name: Name the artefact without the branch's slash
+        if: always()
+        run: |
+          set -euo pipefail
+          _safe="${GITHUB_REF_NAME//\//-}"
+          # REFUSE rather than trust the substitution. upload-artifact rejects
+          # ten characters and the slash is only the one a cut branch always
+          # has; a ref carrying any other would fail identically, at the same
+          # last step, after the same forty minutes of building and notarising.
+          # A sanitiser nobody checks is the next version of this bug.
+          case "$_safe" in
+            *[/\\:\"\<\>\|\*\?]*)
+              echo "REFUSING: ref name still holds a character upload-artifact rejects: ${_safe}" >&2
+              exit 1
+              ;;
+          esac
+          echo "safe ref: ${_safe}"
+          echo "OSTLER_SAFE_REF=${_safe}" >> "$GITHUB_ENV"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           # A dispatch build is a CANDIDATE and is named so. Nobody should be
           # able to mistake one for a released artefact in the artefact list.
-          name: ostler-dmg-${{ github.event_name == 'push' && github.ref_name || format('candidate-{0}-{1}', github.ref_name, github.run_number) }}
+          name: ostler-dmg-${{ github.event_name == 'push' && github.ref_name || format('candidate-{0}-{1}', env.OSTLER_SAFE_REF, github.run_number) }}
           path: |
             dist/*.dmg
             dist/SHA256SUMS
