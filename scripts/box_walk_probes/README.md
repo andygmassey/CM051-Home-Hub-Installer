@@ -274,7 +274,31 @@ and both mistakes are worth knowing before you write your own:
 A probe stricter than the system it models invents defects. A probe looser than
 the system it models misses them. Both cost the same amount of trust.
 
-## Current probes
+## Some of the probes, and how to list all of them
+
+**This table is not the register and never was.** Measured 2026-09-17: it names
+8 probes; `probes/` holds 28, and `cut-manifests/permanent.yaml` registers 29.
+So 20 collected probes and one registered-but-uncollected probe
+(`acceptance_gate_v1013`) were absent from it, and a reader checking coverage
+here was reading a sample as if it were a census. Row 1152 was opened on exactly
+that: "the README never lists acceptance_gate_v1013" is true, and so is the same
+sentence about twenty others.
+
+A hand-maintained list of a moving set drifts, which is how this happened, so the
+enumerating command is the answer rather than a longer table:
+
+```sh
+./run_box_walk.sh --list      # every collected probe, plus every REGISTERED
+                              # probe this glob cannot collect, and why
+```
+
+`--list` prints the register's denominator on its own `REGISTER:` line in all
+three states: read, unreadable, and read-but-empty. The last two are
+`CANNOT-RUN`, because a cross-check that silently matches nothing reports
+"nothing missing" in the same words as "nothing registered".
+
+The rows below are kept as EXAMPLES of the shape a probe takes, not as an
+inventory:
 
 | probe | question | defect it exists for |
 |---|---|---|
