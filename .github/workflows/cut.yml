@@ -119,9 +119,16 @@ on:
   push:
     tags:
       - 'v1.0.*'
-  # GATES ONLY. NO INPUTS, ON PURPOSE -- see the block above. There is
-  # deliberately no `dry_run: false`, no `really_ship`, no `skip_gates`. A real
-  # cut still requires a tag.
+  # NO INPUTS, ON PURPOSE -- see the block above. There is deliberately no
+  # `dry_run: false`, no `really_ship`, no `skip_gates`. A real cut still
+  # requires a tag.
+  #
+  # THIS SAID "GATES ONLY" UNTIL 2026-09-19 AND THAT HALF WAS FALSE. #2118
+  # widened the dispatch to run the `cut` job, so a dispatch now BUILDS a real
+  # signed, notarised, stapled candidate. It still cannot publish: every
+  # publishing step is guarded on event_name == 'push' and the artifact is named
+  # candidate-<ref>-<run>. The NO INPUTS half was and remains true. Found by TNM,
+  # and it is the same shape as a header that outlived the change it described.
   workflow_dispatch:
 
 permissions:
