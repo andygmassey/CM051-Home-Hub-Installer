@@ -2754,6 +2754,20 @@ _ostler_set_paths() {
     fi
     SECURITY_DIR="${OSTLER_DIR}/security-module"
     SECURITY_CONFIG_DIR="${OSTLER_DIR}/security"
+    # 🔴 REBOUND HERE, NOT CAPTURED ONCE AT TOP LEVEL. This used to be assigned
+    # once near the recovery-key block, which runs BEFORE the promote, so it
+    # froze the prelaunch path while SECURITY_CONFIG_DIR beside it was rebound
+    # to the real tree. The writer then mkstemp'd into the live directory and
+    # os.replace()d onto a path in a tree that had already been deleted:
+    #
+    #   FileNotFoundError: '/Users/<user>/.ostler/security/tmp*.tmp'
+    #     -> '/tmp/ostler-prelaunch-<pid>/security/recovery_key_delivered.json'
+    #
+    # The install reported success. The marker was never written, and the two
+    # branches that read it could not fire on any install that promotes, which
+    # is every install. Found on a cold walk that PASSED: the only tell was a
+    # traceback count of 1.
+    RECOVERY_DELIVERY_MARKER="${SECURITY_CONFIG_DIR}/recovery_key_delivered.json"
     PIPELINE_DIR="${OSTLER_DIR}/import-pipeline"
     USER_TREE_SENTINEL="${OSTLER_DIR}/.installer-tree-created"
     # CX-87 (DMG #48g): derived path vars assigned BEFORE the FDA
@@ -3187,6 +3201,59 @@ _ostler_drop_venvs_anchored_in_an_app() {
     return 0
 }
 
+# Defined HERE, above _ostler_promote_prelaunch_tree, because the promote is
+# what makes the interval agents' programs vanish and the promote is called as
+# early as the payload staging step. A definition further down the file is not
+# in scope at that point and the call would die on "command not found".
+_ostler_quiesce_interval_agents() {
+    local _label _domain
+    _domain="gui/$(id -u)"
+    for _label in com.ostler.export-scan com.ostler.fda-rerun; do
+        if launchctl print "${_domain}/${_label}" >/dev/null 2>&1; then
+            launchctl bootout "${_domain}/${_label}" 2>/dev/null || true
+            info "Quiesced ${_label} while its program is replaced; it is re-registered below."
+            # 🔴 A BOOTOUT OWES A RE-REGISTRATION, AND ONLY ONE OF THESE TWO
+            # ALREADY HAD ONE. Without the line below, the sentence this
+            # function just printed is false for fda-rerun.
+            #
+            # export-scan is re-registered unconditionally further down: its
+            # plist is rewritten and bootstrapped on every single run. fda-rerun
+            # is not. Its load is gated on _OSTLER_FDA_RERUN_LOAD_PENDING, set
+            # at exactly ONE site -- inside the plist-rewrite block, which fires
+            # only when the plist is ABSENT, carries the legacy
+            # StartCalendarInterval, or lacks the homebrew PATH.
+            #
+            # On an UPGRADE whose plist is already current all three triggers are
+            # false, so the flag is never set and this bootout is PERMANENT: the
+            # hourly FDA re-run is gone until the customer next logs in.
+            #
+            # MEASURED, walk box, 2026-09-18T17:20Z, install that printed
+            # "Quiesced com.ostler.fda-rerun ... it is re-registered below":
+            #   launchctl print gui/501/com.ostler.fda-rerun -> rc=113
+            #   "Could not find service com.ostler.fda-rerun in domain for user"
+            #   com.ostler.fda-rerun.plist mtime  2026-09-14 (pre-install)
+            #   com.ostler.export-scan  last exit code = 0, runs = 1
+            # A fresh install was never affected: its plist is absent, so the
+            # rewrite fires and sets the flag. Only upgrades lose the agent,
+            # which is why the fresh-install probes stayed green.
+            #
+            # The window this destroys is exactly the window the agent exists
+            # for: iCloud syncs that land in the HOURS AFTER the install.
+            if [ "${_label}" = "com.ostler.fda-rerun" ]; then
+                # Belt and braces: the deferred load dereferences this path, and
+                # a quiesce that ran without the assignment above would abort the
+                # install under `set -u` rather than merely skip the load.
+                : "${FDA_RERUN_PLIST:=${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist}"
+                _OSTLER_FDA_RERUN_LOAD_PENDING=1
+            fi
+        fi
+    done
+    # An `if` whose condition is false returns 0, but the loop's last command on
+    # the export-scan iteration is that `if`. Be explicit rather than rely on it:
+    # this function is called at top level under `set -e`.
+    return 0
+}
+
 _ostler_promote_prelaunch_tree() {
     if [[ "$OSTLER_PRELAUNCH_PROMOTED" == "true" ]]; then
         return 0
@@ -3201,6 +3268,30 @@ _ostler_promote_prelaunch_tree() {
         OSTLER_PRELAUNCH_PROMOTED=true
         return 0
     fi
+
+    # 🔴 QUIESCE BEFORE THE TREE MOVES, NOT BEFORE THE PAYLOAD WRITE.
+    #
+    # The loop below does `rm -rf "${OSTLER_FINAL_DIR}/${name}"` then `mv` for
+    # every top-level entry, and one of those entries is bin/. For the whole of
+    # that window ~/.ostler/bin does not exist, so a StartInterval tick from
+    # com.ostler.export-scan or com.ostler.fda-rerun finds no program and writes
+    # "re-run the installer to repair" into the customer's error log -- naming
+    # the installer that is running at that moment.
+    #
+    # MEASURED on the walk box 2026-09-18, on an install that reported
+    # status=ok failed_steps=0 errors=0:
+    #     ~/.ostler/logs/fda-rerun.err      written 01:09:05
+    #     ~/.ostler/logs/export-scan.err    written 01:09:05
+    #     ~/.ostler/bin/ostler-fda          placed  01:10:57
+    #     ~/.ostler/bin/ostler-scan-exports placed  01:10:57
+    # Both errors predate their own program by 112 seconds.
+    #
+    # The quiesce added lower down guards the `cat > bin/ostler-fda` payload
+    # write, which is a sub-second window, and every promote call site precedes
+    # it. So it was ordered correctly against the wrong event: the gate asserting
+    # "the quiesce precedes every interval-agent program write" was true, and the
+    # agents still ticked into a bin/ that had been rm -rf'd 112s earlier.
+    _ostler_quiesce_interval_agents
 
     mkdir -p "$OSTLER_FINAL_DIR"
     chmod 700 "$OSTLER_FINAL_DIR" 2>/dev/null || true
@@ -3239,14 +3330,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8127) captures the path BY
+    # _ostler_write_store_curl_config (defined :8218) captures the path BY
     # VALUE and never re-reads it:
-    #     :8128   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8173   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8182 and :14595, both of which run
+    #     :8219   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8264   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8273 and :14685, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :3234 above has just deleted
-    # that tree and :3238 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :3325 above has just deleted
+    # that tree and :3329 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -3261,13 +3352,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15366, where the note reads
+    # WhatsApp Web session path did it again at :15456, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15383 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15473 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3276,13 +3367,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5747 against a definition at :8127. Top-level
+    # writer's own definition: :5838 against a definition at :8218. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8182, :14595) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8273, :14685) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17438 / :17616 / :17773 / :18114 path. There the
+    # :17528 / :17706 / :17863 / :18205 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -8429,7 +8520,6 @@ SECURITY_PREEXISTED=false
 # is scoped to THIS PROCESS ONLY and answers nothing about a previous run;
 # this file is what a later run reads instead of inferring delivery from
 # keychain.json's mere presence. It never holds the key or any part of it.
-RECOVERY_DELIVERY_MARKER="${SECURITY_CONFIG_DIR}/recovery_key_delivered.json"
 
 # Check if security is already configured (re-run detection)
 #
@@ -17888,6 +17978,7 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
                  OSTLER_SAFARI_BACKFILL_DAYS="${OSTLER_SAFARI_BACKFILL_DAYS}" \
                  OSTLER_WHATSAPP_BACKFILL_DAYS="${OSTLER_WHATSAPP_BACKFILL_DAYS}" \
                  OSTLER_MAIL_BACKFILL_DAYS="${OSTLER_MAIL_BACKFILL_DAYS}" \
+                 OSTLER_CALENDAR_FUTURE_DAYS="${OSTLER_HYDRATE_CALENDAR_FUTURE_DAYS:-365}" \
                  "$OSTLER_PYTHON" -c "
 import sys, json
 sys.path.insert(0, '${FDA_DIR}')
@@ -18731,7 +18822,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:0af536c4cd1285fd82217bec8f19357101c9fdebb4fb94a1b8e55f8ee0f65eba
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:52bd37a1bbfc11e49007eeb0a553636d2881dd043bf744ede4a0e77516711671
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #
@@ -18775,7 +18866,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:92da7310513c2be372ee72ca1e0a8035ba41857cdc0a171bba75e4312a05b929
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:7cd2dd8b73f2ab6a18ef569c2a510547eb7512879842c9ca5f3dffedbf99fe09
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -19393,6 +19484,55 @@ else
 SAEOF
     chmod 600 "${OSTLER_DIR}/ostler-store-auth.conf"
 fi
+
+# ── MAKE A RUNNING PROXY READ THE CREDENTIAL WE JUST WROTE ────────
+#
+# 🔴 nginx READS ITS CONFIG AT START. The file above is a :ro bind-mount, so the
+# host copy is live, but a proxy that is ALREADY RUNNING keeps enforcing the
+# credential it read when it started. `docker compose up -d` further down does
+# not restart a container whose spec has not changed, so on any box where the
+# proxy already exists the new token is written and never enforced.
+#
+# MEASURED ON THE MINI, 2026-09-18, and it was an accidental controlled
+# experiment: same artefact, same box, same installer sha, twice.
+#
+#   install 1   store secrets REUSED    privacy-backfill 401s: 0
+#   install 2   store token FRESH       privacy-backfill 401s: 1
+#
+#   ostler-store-proxy started      16:23:30Z
+#   ostler-store-auth.conf written  16:24:25Z   55s LATER
+#
+# Source, client and server token were all 64 chars and all EQUAL, and the file
+# inside the container matched the host byte for byte. Nothing was mismatched.
+# nginx simply had not re-read it. The consequence is not cosmetic: privacy
+# backfill and places-ingest both 401 against 7878, and the install says
+# "Privacy backfill did not complete (rc=1); readers stay fail-closed."
+#
+# A FIRST-TIME CUSTOMER INSTALL ALWAYS MINTS FRESH, so this is the common path
+# rather than an upgrade edge case.
+#
+# THIRD INSTANCE OF ONE SHAPE in a single night: LaunchAgents started before
+# their binaries, the recovery-key marker captured before the promote, and now a
+# proxy started before its auth config. A consumer brought up before the thing
+# it consumes is in place.
+#
+# Guarded on the container actually running, so a first install -- where the
+# proxy starts later and reads this file correctly -- does nothing here. Docker
+# may not even be up yet at this point, which the same guard covers.
+_ostler_reload_store_proxy_if_running() {
+    docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'ostler-store-proxy' || return 0
+    if docker exec ostler-store-proxy nginx -t >/dev/null 2>&1 \
+       && docker exec ostler-store-proxy nginx -s reload >/dev/null 2>&1; then
+        ok "Store proxy reloaded, so the credential just written is the one it enforces."
+        return 0
+    fi
+    # NOT fatal, and NOT silent. Aborting a working install over a recoverable
+    # condition is worse; leaving it unsaid is how this went unnoticed.
+    warn "The store proxy is running and could not be reloaded, so it may still be enforcing the PREVIOUS store credential."
+    warn "  Readers will receive 401 from 7878 until it restarts. Re-running the installer, or restarting the proxy container, clears it."
+    return 0
+}
+_ostler_reload_store_proxy_if_running
 
 # ── Wiki browser credential (#1594) ───────────────────────────────
 #
@@ -22077,6 +22217,39 @@ unset _PREFS_DROPZONE _IMPORT_DIRS
 
 # Create a ostler-fda command for re-running FDA extraction
 # (e.g. after granting Full Disk Access post-install)
+# ── QUIESCE THE INTERVAL AGENTS BEFORE THE PAYLOAD IS REPLACED ───────────
+#
+# 🔴 AN UPGRADE LEAVES THE PREVIOUS INSTALL'S AGENTS RUNNING WHILE THEIR
+# PROGRAMS ARE REWRITTEN UNDER THEM. Both of these are StartInterval jobs, so
+# launchd fires them on its own schedule regardless of what this script is
+# doing. During the window where bin/ is being replaced their program is
+# transiently absent, the tick exits non-zero, and launchctl keeps that
+# last-exit until the next interval: one hour for fda-rerun, FOUR for
+# export-scan. A customer's freshly upgraded box therefore carries two agents
+# in a failed state for up to four hours, on an install that succeeded.
+#
+# MEASURED on the Mini, 2026-09-18, on a fresh v1.0.100 install:
+#
+#   export-scan.err written    23:43:47   ostler-scan-exports placed  23:45:33
+#   fda-rerun.err  written     23:43:37   ostler-fda placed           23:45:33
+#
+# so both errors predate their own program by roughly 110 seconds, and the
+# text they wrote tells the customer to "re-run the installer to repair" the
+# installer that is running.
+#
+# WHY THE EXISTING GUARDS DO NOT COVER THIS. The deferred fda-rerun load below
+# correctly refuses to REGISTER the job before its program exists, and
+# export-scan is bootstrapped after its program is written. Both fix the FRESH
+# install. Neither touches a job that is ALREADY registered from a previous
+# install: the fda-rerun bootout is gated on the old plist being legacy or
+# pathless, and export-scan has no bootout at all, so an upgrade from a
+# current-form install quiesces nothing.
+#
+# A bootout of a label that is not loaded is a no-op, so this is safe on a
+# first install. The jobs are re-registered further down, after their programs
+# exist, by the code that already does it.
+_ostler_quiesce_interval_agents
+
 cat > "${OSTLER_DIR}/bin/ostler-fda" <<'FDAEOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -22095,6 +22268,32 @@ OSTLER_PYTHON="${OSTLER_PYTHON:-${OSTLER_DIR}/.venv/bin/python3}"
 if [[ ! -x "$OSTLER_PYTHON" ]]; then
     OSTLER_PYTHON="$(command -v python3 || true)"
 fi
+
+# 🔴 BOARD ROW 997: THE FORWARD CALENDAR WINDOW WAS CLAWED BACK WITHIN THE HOUR.
+#
+# extract_all.py reads OSTLER_CALENDAR_FUTURE_DAYS and defaults it to 30. The
+# installer's own calendar hydrate uses 365, but it reaches that value by
+# interpolating a DIFFERENTLY NAMED variable, OSTLER_HYDRATE_CALENDAR_FUTURE_DAYS,
+# straight into its own heredoc. The reader's name appears nowhere else in
+# install.sh, so nothing ever set it.
+#
+# This script is driven by the com.ostler.fda-rerun LaunchAgent, whose
+# environment inherits nothing from the installer shell, as the comment above
+# already records for OSTLER_PYTHON. It calls run_all(), which rewrites
+# calendar_events.json. So the customer's 365-day forward window was replaced
+# by a 30-day one on the first tick after installing, and on every tick after
+# that, for ever. A writer/reader contract mismatch, not a missing export:
+# measured on origin/main, NO sibling window variable is exported either, they
+# are passed as an env prefix on the invocation.
+#
+# THE LIBRARY DEFAULT IS DELIBERATELY NOT MOVED, and extract_all.py says why in
+# its own words: a library default that changes underneath a shipped install is
+# a migration rather than a fix, and install.sh is what supplies the product
+# value. This is install.sh supplying it.
+#
+# The `:-` form means an operator who exports their own value still wins, and
+# it keeps this safe under `set -u` like everything else in this wrapper.
+export OSTLER_CALENDAR_FUTURE_DAYS="${OSTLER_CALENDAR_FUTURE_DAYS:-365}"
 
 if [[ ! -d "$FDA_DIR/ostler_fda" ]]; then
     echo "Error: FDA extraction module not installed."
@@ -22737,16 +22936,48 @@ if [[ -z "${RESPONSE}" ]]; then
     exit 0
 fi
 
-# Degraded short-circuit. The hub returns degraded=true when the
-# People Graph is unreachable; we do not want to ship a brief with
-# missing attendee facts.
-DEGRADED=$(printf '%s' "${RESPONSE}" | python3 -c \
+# Degraded short-circuit, with THREE outcomes rather than two.
+# The hub returns degraded=true when the People Graph is unreachable; we do
+# not want to ship a brief with missing attendee facts.
+#
+# 🔴 BOARD ROW 2211. This previously collapsed EVERY failure of the pipeline
+# into DEGRADED="False", which is the single answer that ships the brief:
+#
+#     ... 2>>"${LOG_FILE}") || DEGRADED="False"
+#
+# Malformed JSON, a truncated response, an unwritable LOG_FILE, or python3
+# resolving to the Apple stub on a box without Command Line Tools each read
+# as "the People Graph is healthy". The comment above stated the intent
+# exactly and the code inverted it on every error path. A guard that cannot
+# tell its own failure from a clean result is not a guard, and this one was
+# confidently wrong in the precise direction the comment says must not
+# happen, on a schedule, unattended, with its own log recording nothing
+# because the failure was consumed by the ||.
+#
+# A brief NOT sent is recoverable. A brief sent with missing attendee facts
+# is not. So COULD-NOT-DETERMINE skips, and says why.
+DEGRADED_RC=0
+DEGRADED_RAW=$(printf '%s' "${RESPONSE}" | python3 -c \
     'import json,sys; print(json.load(sys.stdin).get("degraded", False))' \
-    2>>"${LOG_FILE}") || DEGRADED="False"
-if [[ "${DEGRADED}" == "True" ]]; then
-    echo "$(date -u +%FT%TZ) skip: hub degraded" >> "${LOG_FILE}"
+    2>>"${LOG_FILE}") || DEGRADED_RC=$?
+if [[ "${DEGRADED_RC}" -ne 0 ]]; then
+    echo "$(date -u +%FT%TZ) skip: CANNOT-RUN, could not read degraded state (rc=${DEGRADED_RC}); not sending rather than sending a brief that may be missing attendee facts" >> "${LOG_FILE}"
     exit 0
 fi
+DEGRADED=$(printf '%s' "${DEGRADED_RAW}" | tr -d '[:space:]')
+case "${DEGRADED}" in
+    True)
+        echo "$(date -u +%FT%TZ) skip: hub degraded" >> "${LOG_FILE}"
+        exit 0
+        ;;
+    False)
+        : # the only path that sends
+        ;;
+    *)
+        echo "$(date -u +%FT%TZ) skip: CANNOT-RUN, unrecognised degraded value; not sending rather than guessing" >> "${LOG_FILE}"
+        exit 0
+        ;;
+esac
 
 # Iterate meetings. Each meeting's idempotency key is UID + start;
 # the assistant's announcement endpoint is the WhatsApp arm.
@@ -28907,7 +29138,42 @@ _hydrate_compute_change() {
         prev_lua="$(grep -m1 '^last_update_at=' "$sentinel" 2>/dev/null | cut -d= -f2-)" || prev_lua=""
     fi
     _HY_ITEM_COUNT="$new_count"
-    if [[ -n "$prev_lua" && "$prev_count" == "$new_count" ]]; then
+    if [[ -z "$new_count" ]]; then
+        # 🔴 AN UNMEASURABLE COUNT HAS NO "LAST CHANGED" ANSWER, AND SAYING
+        # NOTHING IS THE ONLY HONEST ONE.
+        #
+        # The branch below carries the previous timestamp forward when the count
+        # is UNCHANGED. With no count at all, "" == "" compares equal on every
+        # run forever, so the timestamp froze at whatever it first held and
+        # could never advance again -- for the SOURCE'S WHOLE LIFE, no matter
+        # how many times it ran.
+        #
+        # MEASURED on the walk box 2026-09-18T17:18Z. Three of thirteen
+        # sentinels write `payload=ran=1,rc=0`, which carries no count key:
+        #
+        #   sentinel          recorded_at            last_update_at
+        #   places            2026-09-18T17:18:30Z   2026-09-17T12:45:10Z
+        #   privacy_backfill  2026-09-18T17:18:31Z   2026-09-17T12:45:10Z
+        #   dedupe            2026-09-18T17:17:57Z   2026-09-17T12:44:49Z
+        #   calendar (control)2026-09-18T17:16:11Z   2026-09-18T17:16:11Z
+        #
+        # recorded_at moved, so the file WAS rewritten; last_update_at did not.
+        # places had just written 929 places that same minute.
+        #
+        # IT IS CUSTOMER-VISIBLE. The Doctor's source table renders
+        #     when = r.get("last_update_at") or r.get("recorded_at")
+        # so those three show a date a day old, in the column a customer reads
+        # as "when did this last happen", on a box where they ran minutes ago.
+        # The gap widens forever.
+        #
+        # Empty is not a loss of information: the Doctor's own `or` above then
+        # falls back to recorded_at, which is accurate and fresh. This is the
+        # same rule the item_count path already follows one screen up -- "a
+        # fabricated 0 is the exact shape
+        # tests/test_an_unmeasured_count_is_not_a_measured_zero.sh exists to
+        # stop". A frozen timestamp is that fabricated zero wearing a date.
+        _HY_LAST_UPDATE_AT=""
+    elif [[ -n "$prev_lua" && "$prev_count" == "$new_count" ]]; then
         _HY_LAST_UPDATE_AT="$prev_lua"
     else
         _HY_LAST_UPDATE_AT="$now"
@@ -32255,21 +32521,82 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
                     ok "$(printf 'Merged people reconciled across both stores (%s)' "$_MCR_LOG")"  # i18n-exempt
                     ;;
                 1)
-                    # Its negative control is an address RFC 6761 reserves
-                    # so it can never resolve. If the retirement predicate
-                    # ever claims that address the query is broken, and the
-                    # pass refuses rather than repairing on counts it
-                    # cannot trust. Non-fatal here, and loud.
-                    _mcr_record 1 REFUSED "the negative control was matched, so the retirement predicate is broken and nothing was changed"
-                    warn "Merge-consistency repair REFUSED and changed nothing: its own negative control was matched, so the predicate is broken. See ${_MCR_LOG}"  # i18n-exempt
+                    # 🔴 EXIT 1 IS TWO DIFFERENT FACTS AND THIS BRANCH USED TO
+                    # ASSERT ONLY ONE OF THEM.
+                    #
+                    # The pass documents EXIT_BROKEN_PREDICATE = 1, and PYTHON
+                    # ALSO EXITS 1 ON ANY UNCAUGHT EXCEPTION. So a module that
+                    # dies before main() runs is indistinguishable, by exit code
+                    # alone, from one that ran its negative control and refused.
+                    # This branch claimed the second, always.
+                    #
+                    # MEASURED on the walk box 2026-09-18T17:17:56Z. One run,
+                    # two accounts of it. The state file recorded:
+                    #     verdict REFUSED
+                    #     reason  the negative control was matched, so the
+                    #             retirement predicate is broken
+                    # and the log for that same run recorded:
+                    #     ImportError: cannot import name
+                    #     'sweep_qdrant_orphans_of_merged_people'
+                    #     from 'identity_resolver.batch_resolver'
+                    #
+                    # The module never imported, so it never built a query and
+                    # never evaluated a control. The real cause was a VENDOR
+                    # SKEW -- a new repair_merge_consistency.py vendored against
+                    # an older batch_resolver.py -- and the installer sent every
+                    # reader to look at a SPARQL predicate instead. That is the
+                    # direction of wrongness that costs most: a confident,
+                    # specific diagnosis pointing away from the fault.
+                    #
+                    # NOT COSMETIC. This repair is the only thing that types
+                    # merged-away people as RetiredPerson. While it dies on
+                    # every install, RetiredPerson stays 0, the phantoms
+                    # persist, and people_count_agreement keeps failing with
+                    # nobody looking at the vendor tree.
+                    #
+                    # So: READ THE LOG BEFORE NAMING A CAUSE. The pass prints
+                    # "REFUSING: the negative control" when it genuinely
+                    # refuses. Absent that line, exit 1 is a crash: say so and
+                    # quote it rather than inventing a diagnosis.
+                    if grep -q 'REFUSING: the negative control' "$_MCR_LOG" 2>/dev/null; then
+                        _mcr_record 1 REFUSED "the negative control was matched, so the retirement predicate is broken and nothing was changed"
+                        warn "Merge-consistency repair REFUSED and changed nothing: its own negative control was matched, so the predicate is broken. See ${_MCR_LOG}"  # i18n-exempt
+                    else
+                        _MCR_LAST="$(grep -E '^[A-Za-z_.]*(Error|Exception):' "$_MCR_LOG" 2>/dev/null | tail -1)"
+                        : "${_MCR_LAST:=no exception line found; read the log}"
+                        _mcr_record 1 CRASHED "exit 1 with no refusal line in the log, so the pass died before it could evaluate anything: ${_MCR_LAST}"
+                        warn "Merge-consistency repair CRASHED and changed nothing: ${_MCR_LAST}. This is NOT its negative control firing -- the pass did not get that far. See ${_MCR_LOG}"  # i18n-exempt
+                        unset _MCR_LAST
+                    fi
                     ;;
                 2)
                     # CANNOT-RUN is not a pass. A vector store reporting
                     # zero points prints identically to one with nothing
                     # to repair, which is why the pass treats that as
                     # unreadable rather than clean.
-                    _mcr_record 2 CANNOT-RUN "a store could not be read; a vector store reporting zero points is treated as unreadable, not as clean"
-                    warn "Merge-consistency repair CANNOT-RUN: a store could not be read, so the two people counts may still disagree. See ${_MCR_LOG}"  # i18n-exempt
+                    #
+                    # 🔴 EXIT 2 IS TWO FACTS AND THEY ARE OPPOSITE. This is the
+                    # sibling of the exit-1 collision fixed one arm above.
+                    # repair_merge_consistency returns EXIT_CANNOT_RUN from TWO
+                    # places: :152, the graph could not be READ and the Qdrant
+                    # sweep NEVER RAN; and after :206, where the sweep DID run
+                    # and the vector store reported 0 points. The difference is
+                    # whether the half that closes people_count_agreement
+                    # executed at all, and the exit code cannot say.
+                    #
+                    # THE SWEEP ANNOUNCES ITSELF. It prints "vector points
+                    # examined" on the success path and "reported 0 points" on
+                    # the zero path, and NEITHER line is reachable without
+                    # calling it. So the log answers what the code cannot. The
+                    # old sentence covered both causes and committed to neither,
+                    # which reads as thorough and tells an operator nothing.
+                    if grep -qE 'vector points examined|reported 0 points' "$_MCR_LOG" 2>/dev/null; then
+                        _mcr_record 2 CANNOT-RUN-VECTOR "the graph phase completed and the Qdrant sweep RAN, but the vector store reported 0 points, which is treated as unreadable rather than clean"
+                        warn "Merge-consistency repair CANNOT-RUN: the graph phase completed and the vector sweep ran, but the vector store reported 0 points. See ${_MCR_LOG}"  # i18n-exempt
+                    else
+                        _mcr_record 2 CANNOT-RUN-GRAPH "the graph could not be read, so the pass stopped before the Qdrant sweep; the vector half did NOT run"
+                        warn "Merge-consistency repair CANNOT-RUN: the graph could not be read, so the Qdrant sweep never ran and the two people counts may still disagree. See ${_MCR_LOG}"  # i18n-exempt
+                    fi
                     ;;
                 3)
                     # EXIT_PARTIAL. Added after Archie blocked CM041 #162: a
@@ -33502,7 +33829,29 @@ fi
 # the thing run", and the whole point of #1587 is that a source nobody
 # recorded is invisible rather than red. If the extract never happened this
 # writes CANNOT-RUN, which is the honest answer and the one that shows up.
-_hydrate_record_fda_extract || true
+#
+# 🔴 THE `|| true` IS RIGHT AND ITS SILENCE IS NOT. Keeping the install alive
+# when the RECORDER dies is correct: a bookkeeping failure must not abort a
+# customer's install. But `|| true` also threw away the fact that it died, and
+# a recorder that failed leaves NO row at all -- which the Doctor source table
+# renders exactly like a source that was never asked to run. The two states
+# print identically, and only one of them is a customer whose sources are
+# genuinely absent.
+#
+# That is the same shape as the walk's seed marker: an outcome computed, then
+# discarded on the line that produced it. Measured: nothing anywhere in this
+# file recorded a recorder failure, 0 occurrences, against a control of 10 for
+# the honest-record helpers this function already calls on its known-bad paths.
+#
+# So the behaviour is UNCHANGED -- still never fatal -- and the failure is now
+# said out loud. warn is used rather than a silent log because the one person
+# who can act on it is reading this transcript.
+_hydrate_fda_extract_record_rc=0
+_hydrate_record_fda_extract || _hydrate_fda_extract_record_rc=$?
+if [[ "${_hydrate_fda_extract_record_rc}" -ne 0 ]]; then
+    warn "The data-source recorder exited ${_hydrate_fda_extract_record_rc}, so some rows on the Doctor's \"Where your data came from\" panel may be MISSING rather than reporting a state. A missing row and a source that never ran look the same there, and this one is the former."
+fi
+unset _hydrate_fda_extract_record_rc
 
 info "$MSG_HYDRATE_WIKI_RECOMPILE"
 

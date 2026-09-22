@@ -1732,14 +1732,118 @@ def _knowledge_bin() -> Optional[str]:
     return shutil.which(raw)
 
 
-def _dispatch_knowledge(detection: Detection, *, output_dir: Optional[Path]) -> dict:
-    """Convert a knowledge export via the bundled ``ostler-knowledge`` binary.
+# ── Convert is half the job, and the other half was missing ────────────────
+#
+# 🔴 BOARD ROW 976. This dispatcher ran `ostler-knowledge convert` and stopped.
+# Convert writes markdown. It does not index anything: measured in the CM024
+# CLI, the `convert` command contains 0 mentions of qdrant or embed, against a
+# CONTROL of 98 in the sibling `embed` command, over 10 commands examined. So a
+# customer who dropped a Notion or Obsidian export got files on disk that
+# nothing could find. The import reported "ok".
+#
+# THE DOCTOR'S ROUTE FOR THE SAME SOURCES ALREADY DOES IT PROPERLY, which is
+# what makes this a gap rather than a design question: doctor/agent/
+# import_evernote.py forks convert and then embed, and its own comment says the
+# Notion and Obsidian sources reuse that path. There were two reachable ways in
+# and only one of them finished the job.
+#
+# THE CONSTANTS BELOW ARE MIRRORED FROM THAT MODULE, DELIBERATELY AND WITH ITS
+# REASONS, because ostler_fda and doctor are separate vendored trees and one
+# cannot import the other. Copying without the reasons is how two paths drift.
+#
+#   collection    evernote_knowledge, AND THAT IS NOT A TYPO. See the block
+#                 below: a per-source name is what the reader does NOT query.
+#   model         nomic-embed-text. The installer pre-creates the knowledge
+#                 collections at 768 dims, so a different model fails every
+#                 upsert on the dimension check and leaves Knowledge silently
+#                 empty, which is this row's own failure wearing a new hat.
+#   privacy cap   2, so compartment level 3 ("private") is converted to markdown
+#                 and NEVER indexed. The wiki Knowledge reader does not filter
+#                 by level at render time, so excluding L3 at embed is the only
+#                 barrier between a private note and a browsable page.
+#
+# EMBED RUNS ONLY IF CONVERT EXITS 0, and a failed embed is NOT reported as ok.
+# "Converted but not searchable" is the exact state this row is about, so it
+# gets its own error name and carries the staging path, which makes a re-run
+# possible without repeating the conversion.
+# 🔴 THE COLLECTION NAME IS WHERE MY FIRST VERSION OF THIS FIX WOULD HAVE
+# SHIPPED THE SAME DEFECT ONE STEP FURTHER ALONG.
+#
+# I wrote "<source>_knowledge", following the Doctor's own
+# _collection_for_source, because copying the local convention is normally
+# right. Board row 961 item 7 had already measured that the convention IS the
+# defect: "import_notion.py:110 writes <source>_knowledge, readers hardcode
+# evernote_knowledge. Live collections are exactly 5 and no such variant
+# exists."
+#
+# The shipped reader is the assistant at the tag CM051 pins, and it searches
+# exactly two collections:
+#
+#     crates/zeroclaw-tools/src/pwg_knowledge_search.rs:56
+#     pub const KNOWLEDGE_COLLECTIONS: &[&str] =
+#         &["evernote_knowledge", "apple_notes_knowledge"];
+#
+# and CM051's installer creates four, of which one is a knowledge collection:
+# _OSTLER_REQUIRED_QDRANT_COLLECTIONS=(people conversations preferences
+# evernote_knowledge).
+#
+# So embedding into obsidian_knowledge would have written into a collection the
+# installer never creates and the reader never queries. Qdrant answers 404 for
+# an unknown collection, the tool maps 404 to an empty result, and the customer
+# gets "you have no matching notes" -- the SAME sentence they get today,
+# reached by a longer route. CM051's own register says it outright: "A NINTH
+# hydrate collection added here would go dark with every test on both sides
+# green."
+#
+# WHY NOT ADD THE COLLECTION PROPERLY. That is a daemon change and a pin move,
+# and CM051's register has already decided where those belong: it records
+# reminders_knowledge as `excluded`, notes the data is present "the day a
+# reader learns the name", and says such a change "needs a daemon change and a
+# pin move, neither of which belongs beside a cut". Teaching the reader
+# notion_knowledge and obsidian_knowledge is the right end state and is
+# separate work, on row 961 item 7.
+#
+# SO THE IMPORT WRITES WHERE THE READER LOOKS. The collection is an internal
+# name no customer sees, and "unfindable but correctly named" is not a better
+# outcome than "findable". It is a constant rather than a literal so that the
+# day the reader learns another name, this moves in one place.
+_KNOWLEDGE_COLLECTION_DEFAULT = "evernote_knowledge"
+_KNOWLEDGE_EMBED_MODEL_DEFAULT = "nomic-embed-text"
+_KNOWLEDGE_MAX_COMPARTMENT_LEVEL_DEFAULT = 2
 
-    Reuses the exact command the Doctor knowledge import runner forks
-    (``ostler-knowledge convert --source <kind> <path> --output <dir>``),
-    run synchronously so a dropped Obsidian vault / Evernote ``.enex`` /
-    Notion markdown export actually ingests. If the binary is absent we
-    return the honest ``recognised_no_parser`` result; we never crash.
+
+def _knowledge_embed_model() -> str:
+    return os.environ.get(
+        "OSTLER_KNOWLEDGE_EMBED_MODEL", _KNOWLEDGE_EMBED_MODEL_DEFAULT)
+
+
+def _knowledge_max_compartment_level() -> str:
+    raw = os.environ.get("OSTLER_KNOWLEDGE_MAX_COMPARTMENT_LEVEL")
+    if raw is not None and raw.strip().lstrip("-").isdigit():
+        return raw.strip()
+    return str(_KNOWLEDGE_MAX_COMPARTMENT_LEVEL_DEFAULT)
+
+
+def _knowledge_collection_for(source: str) -> str:
+    """The Qdrant collection the SHIPPED READER actually queries.
+
+    Takes the source for signature compatibility and deliberately ignores it;
+    see the block above. A per-source collection is the right end state and is
+    not reachable today.
+    """
+    return os.environ.get(
+        "OSTLER_KNOWLEDGE_COLLECTION", _KNOWLEDGE_COLLECTION_DEFAULT)
+
+
+def _dispatch_knowledge(detection: Detection, *, output_dir: Optional[Path]) -> dict:
+    """Convert AND embed a knowledge export via the bundled binary.
+
+    Runs the two phases the Doctor knowledge import runner forks
+    (``ostler-knowledge convert --source <kind> <path> --output <dir>`` then
+    ``ostler-knowledge embed <dir> ...``) synchronously, so a dropped Obsidian
+    vault / Evernote ``.enex`` / Notion markdown export is both ingested and
+    searchable. If the binary is absent we return the honest
+    ``recognised_no_parser`` result; we never crash.
     """
     import subprocess
 
@@ -1786,10 +1890,62 @@ def _dispatch_knowledge(detection: Detection, *, output_dir: Optional[Path]) -> 
             "error": "import_failed",
             "exit_code": proc.returncode,
         }
+
+    # Phase 2. Converted markdown that nobody indexed is markdown nobody can
+    # find, which is the whole of row 976.
+    embed_cmd = [
+        binary, "embed", str(staging),
+        "--collection", _knowledge_collection_for(source),
+        "--embedding-model", _knowledge_embed_model(),
+        "--max-compartment-level", _knowledge_max_compartment_level(),
+    ]
+    try:
+        embed_proc = subprocess.run(
+            embed_cmd, check=False, capture_output=True, text=True)
+    except (OSError, ValueError) as exc:
+        logger.warning(
+            "universal_import: ostler-knowledge embed exec failed: %s",
+            type(exc).__name__)
+        return {
+            "status": "error",
+            "dispatched": f"ostler-knowledge({source})",
+            "error": "embed_not_run",
+            "summary": {
+                "source": source,
+                "output_dir": str(staging),
+                "converted": True,
+                "searchable": False,
+            },
+        }
+
+    if embed_proc.returncode != 0:
+        # NOT ok. The files are on disk and the customer cannot find them,
+        # which is exactly the state this row exists to stop being reported as
+        # success. The staging path is carried so a re-run can embed without
+        # converting again.
+        return {
+            "status": "error",
+            "dispatched": f"ostler-knowledge({source})",
+            "error": "embed_failed",
+            "exit_code": embed_proc.returncode,
+            "summary": {
+                "source": source,
+                "output_dir": str(staging),
+                "converted": True,
+                "searchable": False,
+            },
+        }
+
     return {
         "status": "ok",
         "dispatched": f"ostler-knowledge({source})",
-        "summary": {"source": source, "output_dir": str(staging)},
+        "summary": {
+            "source": source,
+            "output_dir": str(staging),
+            "converted": True,
+            "searchable": True,
+            "collection": _knowledge_collection_for(source),
+        },
     }
 
 

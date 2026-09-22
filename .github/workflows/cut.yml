@@ -22,8 +22,19 @@
 #     cut:                if: github.event_name == 'push'
 #     dry-run:            if: github.event_name == 'workflow_dispatch'
 #
-# So a dispatch runs the CHECKS and stops. It cannot produce an artefact and
-# cannot bypass the tag that pins what was cut. That is exactly the argument
+# 🔴 RE-MEASURED 2026-09-19, AND THE `cut:` LINE ABOVE IS NO LONGER WHAT THE
+# FILE SAYS. #2118 widened it to `push || workflow_dispatch` on purpose, so a
+# candidate could be BUILT and WALKED before a tag existed. The reading below
+# was written against the old guard and survived the change unedited, which is
+# the same defect this very block was added to correct, one version later.
+#
+#     cut:                if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+#
+# So a dispatch now runs the checks AND builds a real signed, notarised,
+# stapled CANDIDATE. It still cannot bypass the tag that pins what was cut:
+# every step that publishes carries its own `if: github.event_name == 'push'`,
+# no job holds `contents: write`, and the candidate is uploaded under a
+# `candidate-<ref>-<run>` name with no release object behind it. That is exactly the argument
 # the comment ~40 lines above already makes, and it is the right one: reading
 # the trigger list alone gives the wrong answer in BOTH directions -- it calls
 # this file unsafe when it is safe, and it would call a file safe that
@@ -67,14 +78,26 @@
 #
 #   1. `workflow_dispatch:` DECLARES NO INPUTS. There is nothing to set, so
 #      there is nothing to set wrongly. Adding one would be the violation.
-#   2. Everything that signs, notarises, staples, packages, releases, archives
-#      or uploads lives in the `cut` job, and that job carries
-#      `if: github.event_name == 'push'`. A dispatch cannot make its own event
-#      name be `push`, and the only push this workflow answers to is a
-#      `v1.0.*` TAG push. The gate is on the EVENT, not on a variable.
-#   3. The dry-run job holds `permissions: contents: read` -- strictly less
-#      than the `cut` job's `contents: write`. A job that cannot write contents
-#      cannot create a release, whatever its steps say.
+#   2. PUBLISHING is gated on the EVENT, at the step. Everything that puts an
+#      artefact, or a pointer to one, where a CUSTOMER can fetch it carries its
+#      own `if: github.event_name == 'push'`: the release publish and the
+#      appcast publish. A dispatch cannot make its own event name be `push`,
+#      and the only push this workflow answers to is a `v1.0.*` TAG push.
+#
+#      🔴 THIS POINT USED TO SAY THE GATE WAS ON THE `cut` JOB AS A WHOLE, and
+#      that stopped being true at #2118. BUILDING is deliberately NOT gated any
+#      more: a dispatch produces a real signed, notarised, stapled candidate,
+#      because the v1.0.100 walk failed six probes that only an installed
+#      Ostler can exercise, and a candidate that cannot be built cannot be
+#      walked. The guarantee did not weaken, it got more precise: produce on a
+#      dispatch, publish only on a tag.
+#   3. NO job holds `contents: write`. The workflow-level block is
+#      `contents: read`, so the `cut` job, which declares none of its own,
+#      inherits read. A job that cannot write contents cannot create a release,
+#      whatever its steps say. This used to read "the dry-run job holds
+#      contents: read, strictly less than the cut job's contents: write" -- and
+#      once the cut job became dispatch-reachable, that write scope was a
+#      publisher waiting for its first line of code.
 #   4. The dry-run job contains no signing-credential step, no notary
 #      credential step, and no upload-artifact step. They are not disabled
 #      there; they are ABSENT, because they only exist in `cut`.
@@ -96,13 +119,46 @@ on:
   push:
     tags:
       - 'v1.0.*'
-  # GATES ONLY. NO INPUTS, ON PURPOSE -- see the block above. There is
-  # deliberately no `dry_run: false`, no `really_ship`, no `skip_gates`. A real
-  # cut still requires a tag.
+  # NO INPUTS, ON PURPOSE -- see the block above. There is deliberately no
+  # `dry_run: false`, no `really_ship`, no `skip_gates`. A real cut still
+  # requires a tag.
+  #
+  # THIS SAID "GATES ONLY" UNTIL 2026-09-19 AND THAT HALF WAS FALSE. #2118
+  # widened the dispatch to run the `cut` job, so a dispatch now BUILDS a real
+  # signed, notarised, stapled candidate. It still cannot publish: every
+  # publishing step is guarded on event_name == 'push' and the artifact is named
+  # candidate-<ref>-<run>. The NO INPUTS half was and remains true. Found by TNM,
+  # and it is the same shape as a header that outlived the change it described.
   workflow_dispatch:
 
 permissions:
-  contents: write     # create the release
+  # 🔴 READ, NOT WRITE. THE COMMENT THAT USED TO SIT ON THIS LINE NAMED A
+  # CONSUMER THAT DOES NOT EXIST.
+  #
+  # It said `contents: write     # create the release`. Nothing in this file
+  # creates a release with this token, and that is not an inference:
+  #   * scripts/publish_release.sh REFUSES to run unless PUBLISH_RELEASE_TOKEN
+  #     is set, and its own error says why in as many words, that
+  #     secrets.GITHUB_TOKEN cannot reach the release because it lives under a
+  #     different owner. Every gh call in it is `GH_TOKEN="$PUBLISH_RELEASE_TOKEN"`.
+  #   * the appcast step runs `make publish-appcast PUBLISH_APPCAST=onbox`,
+  #     which publishes nothing from CI by Andy's 2026-08-19 decision.
+  #   * the `cut` job was searched, comments excluded, for `git push`,
+  #     `gh release create|edit|upload`, `gh api` with a write method,
+  #     attestation and action-gh-release. Zero.
+  #
+  # So the scope had no consumer, and it was the only thing standing between a
+  # workflow_dispatch and a published release. #2118 made the `cut` job
+  # dispatch-reachable on purpose, so a candidate could be WALKED before a tag
+  # existed, and it correctly push-gated every step that publishes. It left
+  # this line alone. A dispatch-reachable job holding `contents: write` is a
+  # publisher waiting for its first line of code, which is exactly what
+  # scripts/verify_dispatch_cannot_ship.py exists to refuse.
+  #
+  # If a step ever does need to write contents, it belongs in a job of its own
+  # gated on `github.event_name == 'push'`, not in this block, where every job
+  # that declares no `permissions:` inherits it silently.
+  contents: read
   id-token: write     # keyless signing / attestation later
 
 concurrency:
@@ -313,9 +369,161 @@ jobs:
         # without it, and main was green before this step was added.
         if: always()
         env:
-          OSTLER_CUT_IN_PROGRESS: '1'
+          # A DISPATCH IS NOT A SHIP, so it must not be held to a ship's
+          # standard. This flag is what turns a self-declared BLOCKING row into
+          # a FAIL. On a TAG PUSH that is exactly right and is UNCHANGED here.
+          # On a dispatch it was a DEADLOCK BY CONSTRUCTION: all 8 rows blocking
+          # v1.0.101 close only on a built artefact and a walk, and the build
+          # that would produce that artefact refused because those rows were
+          # open. The rows needed a candidate; the candidate needed the rows shut.
+          #
+          # SAFE ONLY BECAUSE A DISPATCH CANNOT REACH A CUSTOMER, and that is
+          # enforced rather than asserted: every publishing step in this file is
+          # guarded on event_name == 'push', the artifact is named
+          # candidate-<ref>-<run>, and scripts/verify_dispatch_cannot_ship.py
+          # plus tests/test_cut_dispatch_is_dry.sh run in this workflow to keep
+          # it that way. IF A DISPATCH EVER GAINS A PUBLISHING PATH THIS LINE
+          # BECOMES A HOLE, which is why the relaxation is tied to that
+          # enforcement by a test rather than by this comment.
+          #
+          # The check still RUNS on a dispatch and still PRINTS every blocking
+          # row. It reports instead of refusing, so a candidate can be built and
+          # walked and the rows can finally close.
+          OSTLER_CUT_IN_PROGRESS: ${{ github.event_name == 'push' && '1' || '0' }}
           GH_TOKEN: ${{ github.token }}
         run: python3 tests/test_the_cut_checklist_is_complete.py
+
+      # 🔴 strict_required_status_checks_policy WAS TURNED OFF ON 2026-09-18,
+      # deliberately, and board row 2208 says in its own words that the row is
+      # THE ONLY RECORD THAT IT WAS TURNED OFF. A setting whose only trace is a
+      # line of prose on a 200-row board gets shipped in that state, not because
+      # anyone decides to but because nobody is holding the thread on cut day.
+      # This is that thread. It PASSES outside a cut, because turning it off
+      # during the merge queue is the decision that was taken and this does not
+      # relitigate it; it FAILS here, because a cut branch has to come from a
+      # main whose required check was confirmed against the tip it merged into.
+      # It refuses rather than passing if it cannot read the setting.
+      - name: strict required checks are back on before the cut
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # A DISPATCH IS NOT A SHIP, so it must not be held to a ship's
+          # standard. This flag is what turns a self-declared BLOCKING row into
+          # a FAIL. On a TAG PUSH that is exactly right and is UNCHANGED here.
+          # On a dispatch it was a DEADLOCK BY CONSTRUCTION: all 8 rows blocking
+          # v1.0.101 close only on a built artefact and a walk, and the build
+          # that would produce that artefact refused because those rows were
+          # open. The rows needed a candidate; the candidate needed the rows shut.
+          #
+          # SAFE ONLY BECAUSE A DISPATCH CANNOT REACH A CUSTOMER, and that is
+          # enforced rather than asserted: every publishing step in this file is
+          # guarded on event_name == 'push', the artifact is named
+          # candidate-<ref>-<run>, and scripts/verify_dispatch_cannot_ship.py
+          # plus tests/test_cut_dispatch_is_dry.sh run in this workflow to keep
+          # it that way. IF A DISPATCH EVER GAINS A PUBLISHING PATH THIS LINE
+          # BECOMES A HOLE, which is why the relaxation is tied to that
+          # enforcement by a test rather than by this comment.
+          #
+          # The check still RUNS on a dispatch and still PRINTS every blocking
+          # row. It reports instead of refusing, so a candidate can be built and
+          # walked and the rows can finally close.
+          OSTLER_CUT_IN_PROGRESS: ${{ github.event_name == 'push' && '1' || '0' }}
+        run: python3 tests/test_strict_checks_are_back_on_before_a_cut.py
+
+      # 🔴 THE DOCTOR PAGE IS THE ONE A CUSTOMER IS SENT TO WHEN SOMETHING IS
+      # WRONG, and board row 2141 measured it rendering unconditionally dark
+      # with the banned bright reds rather than oxblood #7A1F1F. The fix exists
+      # UPSTREAM in HR015 doctor/agent; what ships from here is the vendored
+      # copy, 48 commits behind its pin, and the re-pin is blocked on two
+      # vendored importers whose content exists in no upstream repository. So
+      # CM051 cannot patch its way out and what it owes is a REFUSAL.
+      #
+      # It PASSES outside a cut, because the state is known and tracked rather
+      # than unnoticed, and FAILS here. Without this step that refusal arm runs
+      # NOWHERE: the gate is invoked by vendor-integrity.yml, which never sets
+      # the flag, so the rc-1 branch was unreachable and the PR body claiming
+      # it was a cut gate asserted a pipeline that did not exist.
+      #
+      # It renders the page and reads the delivered bytes, so it needs the
+      # Doctor's runtime dependencies; without them it exits 2 (CANNOT-RUN),
+      # which is a refusal and not a pass.
+      - name: The Doctor page a customer is sent to is on brand
+        if: always()
+        env:
+          # A DISPATCH IS NOT A SHIP, so it must not be held to a ship's
+          # standard. This flag is what turns a self-declared BLOCKING row into
+          # a FAIL. On a TAG PUSH that is exactly right and is UNCHANGED here.
+          # On a dispatch it was a DEADLOCK BY CONSTRUCTION: all 8 rows blocking
+          # v1.0.101 close only on a built artefact and a walk, and the build
+          # that would produce that artefact refused because those rows were
+          # open. The rows needed a candidate; the candidate needed the rows shut.
+          #
+          # SAFE ONLY BECAUSE A DISPATCH CANNOT REACH A CUSTOMER, and that is
+          # enforced rather than asserted: every publishing step in this file is
+          # guarded on event_name == 'push', the artifact is named
+          # candidate-<ref>-<run>, and scripts/verify_dispatch_cannot_ship.py
+          # plus tests/test_cut_dispatch_is_dry.sh run in this workflow to keep
+          # it that way. IF A DISPATCH EVER GAINS A PUBLISHING PATH THIS LINE
+          # BECOMES A HOLE, which is why the relaxation is tied to that
+          # enforcement by a test rather than by this comment.
+          #
+          # The check still RUNS on a dispatch and still PRINTS every blocking
+          # row. It reports instead of refusing, so a candidate can be built and
+          # walked and the rows can finally close.
+          OSTLER_CUT_IN_PROGRESS: ${{ github.event_name == 'push' && '1' || '0' }}
+        run: |
+          python3 -m pip install --quiet -r vendor/doctor/agent/requirements.txt
+          python3 tests/test_the_doctor_page_is_on_brand.py
+
+      # 🔴 THE ERASURE REFUSAL, WIRED SO IT ACTUALLY RUNS DURING A CUT.
+      #
+      # tests/test_a_forget_erases_the_fact_not_just_the_link.py (PR #2215)
+      # exits 0 outside a cut and 1 under OSTLER_CUT_IN_PROGRESS=1. It was
+      # wired into forget-reaches-every-graph.yml, which is a PR check and
+      # sets no such flag, so the refusal arm -- the half the PR leads with --
+      # executed nowhere. cut.yml names every test it runs, one `run:` per
+      # line, and it did not name this one. Measured on the merge commit:
+      # 0 occurrences in cut.yml, against a control of 1 for the checklist
+      # gate, which IS run here.
+      #
+      # THIS CHANGES NOTHING TODAY AND THAT IS THE POINT. A cut is already
+      # refused by the checklist gate, which counts rows 960 and 2217 among
+      # 15 that declare themselves BLOCKING. But that refusal rests on the
+      # ROW'S OWN PROSE. The day the upstream CM041 fix lands and the row is
+      # re-gated, that refusal stops, and without this line the only
+      # instrument that can actually SEE the defect would not be running at
+      # the moment it is needed -- a fix would be accepted on the strength of
+      # the same person-keyed predicate that closed row 960 the first time.
+      #
+      # It self-clears: when the erasure is genuinely fixed the test goes
+      # 9 pass / 0 fail and this step passes with no edit here.
+      - name: A forget erases the sentence, not only its link to a person
+        if: always()
+        env:
+          # A DISPATCH IS NOT A SHIP, so it must not be held to a ship's
+          # standard. This flag is what turns a self-declared BLOCKING row into
+          # a FAIL. On a TAG PUSH that is exactly right and is UNCHANGED here.
+          # On a dispatch it was a DEADLOCK BY CONSTRUCTION: all 8 rows blocking
+          # v1.0.101 close only on a built artefact and a walk, and the build
+          # that would produce that artefact refused because those rows were
+          # open. The rows needed a candidate; the candidate needed the rows shut.
+          #
+          # SAFE ONLY BECAUSE A DISPATCH CANNOT REACH A CUSTOMER, and that is
+          # enforced rather than asserted: every publishing step in this file is
+          # guarded on event_name == 'push', the artifact is named
+          # candidate-<ref>-<run>, and scripts/verify_dispatch_cannot_ship.py
+          # plus tests/test_cut_dispatch_is_dry.sh run in this workflow to keep
+          # it that way. IF A DISPATCH EVER GAINS A PUBLISHING PATH THIS LINE
+          # BECOMES A HOLE, which is why the relaxation is tied to that
+          # enforcement by a test rather than by this comment.
+          #
+          # The check still RUNS on a dispatch and still PRINTS every blocking
+          # row. It reports instead of refusing, so a candidate can be built and
+          # walked and the rows can finally close.
+          OSTLER_CUT_IN_PROGRESS: ${{ github.event_name == 'push' && '1' || '0' }}
+        run: |
+          python3 -m pip install --quiet rdflib pyoxigraph
+          python3 tests/test_a_forget_erases_the_fact_not_just_the_link.py
 
       - name: Cut BOM freshness gate self-test
         if: always()
@@ -704,12 +912,15 @@ jobs:
   # 2. CUT. macOS runner; the only place signing credentials exist.
   #    $CI is set by GitHub, which is what satisfies guard-local-cut.
   #
-  #    TAG PUSHES ONLY. `if: github.event_name == 'push'` is the whole
-  #    enforcement of the header's guarantee: every step that signs,
-  #    notarises, staples, packages, releases, archives or uploads lives in
-  #    THIS job, and a workflow_dispatch cannot make its event name be
-  #    `push`. The only push this workflow answers to is a v1.0.* tag push,
-  #    so "the cut job ran" and "a tag was written down" are the same fact.
+  #    🔴 NOT TAG PUSHES ONLY, NOT SINCE #2118, AND THIS COMMENT SAID
+  #    OTHERWISE FOR TWO DAYS. It read: "TAG PUSHES ONLY. `if:
+  #    github.event_name == 'push'` is the whole enforcement of the header's
+  #    guarantee", while the job below it already ran on a dispatch as well.
+  #
+  #    What is true: a dispatch reaches this job and BUILDS a candidate, and
+  #    every step in it that PUBLISHES carries its own push gate. So "the cut
+  #    job ran" no longer means "a tag was written down"; "the release was
+  #    published" still does, which is the fact that matters to a customer.
   # ---------------------------------------------------------------------
 
       # v1.0.39 SHIPPED REPORTING ITSELF AS 1.0.38. The DMG was signed,

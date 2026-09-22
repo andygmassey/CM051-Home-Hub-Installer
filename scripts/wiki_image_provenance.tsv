@@ -177,3 +177,47 @@ wiki-site	sha256:2287c37e9e74651576fd1e505cc7e2a5aef5352bbd66139fe323ae10a104961
 # and also matched exactly, confirming the extraction method itself.
 wiki-compiler	sha256:d9b005cd5046dc194d088a2a90ead3586773aeee48a3328feacb66b8cfeead43	67fe40540cea040d41fa750455fafcba35cfdc55
 wiki-site	sha256:81a4bde3bacf33c2f7a92174b8e2051ca73ea62d1d23300766f6e8b96e0e6c1c	67fe40540cea040d41fa750455fafcba35cfdc55
+
+# ----------------------------------------------------------------------------
+# ADDED 2026-09-19, CM051 #2230. RESOLVED FROM THE ARTEFACT, NOT TYPED.
+#
+# The two digests below were pinned into install.sh by PR #2125, which changed
+# install.sh by two lines and nothing else, so they were HAND EDITED rather than
+# written by scripts/repin_wiki_images.sh, which writes install.sh and this file
+# together. No row was appended, and scripts/verify_cut_freshness.sh:957 treats a
+# pinned digest with no recorded binding as RED unrecorded-provenance and
+# fail-closed. That is on the CUT PATH -- cut.yml runs `make -C gui ship`, ship
+# includes package, package depends on check-freshness -- so a tag push produced
+# no DMG at all. Board row 2230.
+#
+# THE BINDING WAS NOT GUESSED. Both published images carry it, and it was read
+# back off them with an anonymous GHCR pull token:
+#
+#     ai.ostler.wiki.source_revision     7f3893fa...
+#     org.opencontainers.image.revision  7f3893fa...
+#     org.opencontainers.image.version   0.1.33
+#
+# FOUR CORROBORATIONS, because a label is metadata and can be wrong:
+#   1. CM044 tag v0.1.33 resolves to exactly 7f3893fa.
+#   2. The commit is dated 2026-09-17T15:25:22Z; the image was created
+#      2026-09-17T15:26:49Z, 87 seconds later.
+#   3. CM044's release-images.yml stamps these labels from workflow ARGs and
+#      then VERIFIES them on the pushed artefact, added by CM044 #760 after the
+#      images were found carrying the BASE image's revision -- a real 40-char
+#      SHA that resolves in somebody else's repo, so a provenance check appeared
+#      to succeed. That is the precise failure this resolution had to rule out.
+#   4. CONTROL for exactly that: the base image's own commit
+#      51b87149d227... does NOT resolve in CM044 (HTTP 422), while 7f3893fa
+#      does; and ai.ostler.wiki.source_revision is a label of ours that a base
+#      image cannot carry, and it is present.
+#
+# WHAT THIS DOES NOT CLAIM. It does not deliver CM044 #280, the Pro vault reader
+# fix, which merged AFTER v0.1.33. The artefact still ships v0.1.33 wiki images,
+# so row 971's delivery half stays open. Recording a true binding is not the
+# same as shipping a current image, and publishing a newer one is a separate,
+# deliberate decision rather than a side effect of unblocking the cut.
+# ----------------------------------------------------------------------------
+wiki-site	sha256:0af536c4cd1285fd82217bec8f19357101c9fdebb4fb94a1b8e55f8ee0f65eba	7f3893fa6f83af5f0874a073dbec56143714046e
+wiki-compiler	sha256:92da7310513c2be372ee72ca1e0a8035ba41857cdc0a171bba75e4312a05b929	7f3893fa6f83af5f0874a073dbec56143714046e
+wiki-compiler	sha256:7cd2dd8b73f2ab6a18ef569c2a510547eb7512879842c9ca5f3dffedbf99fe09	84fbb2bf84a2a92e337434cd74f1a6ff3cc572c1
+wiki-site	sha256:52bd37a1bbfc11e49007eeb0a553636d2881dd043bf744ede4a0e77516711671	84fbb2bf84a2a92e337434cd74f1a6ff3cc572c1

@@ -1255,7 +1255,71 @@ def _forget_person_update(person_uri, graph_uris):
     than inferred from the handler around it.
     """
     esc_uri = person_uri.replace("\\", "\\\\").replace(">", "%3E")
-    clauses = [
+
+    # THE FACT NODE, COLLECTED WHILE ITS LINK TO THE PERSON STILL EXISTS.
+    #
+    # The two bare clauses below delete every triple where the person is the
+    # SUBJECT and every triple where they are the OBJECT. The second removes a
+    # fact's LINK to the person and leaves the fact NODE: factText, factSource,
+    # belongsToUser, privacyLevel and createdAt all survive, and the reader
+    # lists facts by belongsToUser, so the sentence the customer asked to have
+    # erased is orphaned rather than erased and is still returned. Measured on
+    # the shipped box 2026-09-18: 47 of 48 orphaned facts created within 100ms
+    # of a forget, against a control with the forget times shifted by one hour
+    # matching 0 of 48. GDPR Article 17, which is this function's own citation.
+    #
+    # ORDER IS LOAD-BEARING: these must run BEFORE the link delete. Moved after
+    # it they match nothing and the repair silently does nothing while looking
+    # correct. tests/test_a_forget_erases_the_fact_not_just_the_link.py drives
+    # that case rather than asserting it.
+    #
+    # SCOPED BY TYPE, AND THAT IS THE WHOLE DESIGN. The obvious form -- delete
+    # every triple of any subject that links to the person -- ERASES BYSTANDERS.
+    # Measured before this was written: a node carrying `spouseOf <person>`
+    # loses its entire record including its own name, and a meeting both people
+    # attended loses its notes and its other attendees. CM041 is a people
+    # graph, so a shared node is the normal case and not a corner:
+    # RelationshipSignal 380, fromConversation 1353. Keying on the fact TYPE
+    # plus the fact-to-person predicate bounds the delete to nodes that exist
+    # only to say something about this person. A meeting is not a PersonFact
+    # and neither is a spouse.
+    #
+    # BOTH VOCABULARIES, because there are two and the smaller one looks like
+    # the only one. CM048 writes its own (see the dual-vocabulary reader's note
+    # below): `a <urn:ostler:Fact> ; <urn:ostler:about>`, NOT pwg. On the box
+    # the pwg arm is 48 facts and the CM048 arm is 1,274, so covering only pwg
+    # would erase four per cent of what was asked for.
+    #
+    # FULL IRIs, NOT `pwg:`. This function returns a bare update with no PREFIX
+    # block -- every caller in this file declares its own -- so a prefixed name
+    # here is a parse error at the store. The namespace is written out rather
+    # than taken from PWG_NS because the erasure is lifted and executed on its
+    # own by its test, which asserts the function's free names are its own
+    # locals; a module global would break that lift.
+    #
+    # NOT COVERED, DELIBERATELY: <urn:ostler:about> is also how a
+    # RelationshipSignal links to a person, which is why the type clause is
+    # load-bearing rather than tidy. Whether a signal about a forgotten person
+    # must also be erased is a live question, and a signal naming two people is
+    # the shared-node problem again. It is not settled by guessing here.
+    fact_shapes = (
+        ("<https://schema.ostler.ai/ontology#PersonFact>",
+         "<https://schema.ostler.ai/ontology#aboutPerson>"),
+        ("<urn:ostler:Fact>", "<urn:ostler:about>"),
+    )
+    clauses = []
+    for graph in graph_uris:
+        for fact_type, about in fact_shapes:
+            clauses.append(
+                "DELETE {{ GRAPH <" + graph + "> {{ ?f ?fp ?fo }} }} "
+                "WHERE {{ GRAPH <" + graph + "> {{ ?f a " + fact_type + " ; "
+                + about + " <{uri}> ; ?fp ?fo }} }};")
+    for fact_type, about in fact_shapes:
+        clauses.append(
+            "DELETE {{ ?f ?fp ?fo }} WHERE {{ ?f a " + fact_type + " ; "
+            + about + " <{uri}> ; ?fp ?fo }};")
+
+    clauses += [
         "DELETE {{ <{uri}> ?p ?o }} WHERE {{ <{uri}> ?p ?o }};",
         "DELETE {{ ?s ?p <{uri}> }} WHERE {{ ?s ?p <{uri}> }};",
     ]
@@ -3700,13 +3764,57 @@ def person_context(name):
         # Relationship signal (CM048 tier 2 — warmth/trust from conversations)
         person_slug = _wiki_slug(pname)
         signals = _sparql_select(
-            'SELECT ?warmth ?trust ?observedAt WHERE {{\n'
+            'SELECT ?warmth ?trust ?observedAt ?spriv WHERE {{\n'
             '  ?signal <urn:ostler:about> ?person .\n'
             '  ?signal <urn:ostler:warmth> ?warmth .\n'
             '  ?signal <urn:ostler:trust> ?trust .\n'
             '  ?signal <urn:ostler:observedAt> ?observedAt .\n'
+            '  OPTIONAL {{{{ ?signal <urn:ostler:privacyLevel> ?spriv }}}}\n'
             '  FILTER(CONTAINS(STR(?person), "{slug}"))\n'
-            '}} ORDER BY DESC(?observedAt) LIMIT 1'.format(slug=person_slug)
+            '}} ORDER BY DESC(?observedAt) LIMIT 10'.format(slug=person_slug)
+        )
+        # 🔴 L3 FILTER, CM041 #175 / board row 2213. Facts were filtered here
+        # and signals were not, so a person marked L3 had their facts withheld
+        # while their warmth and trust scores were served. The gap was OPENED
+        # by our own graph fix: before it these queries returned 0 rows, so
+        # there was nothing to leak, and making them return rows made the
+        # missing filter reachable.
+        #
+        # THE PREDICATE IS urn:ostler:privacyLevel AND NOT pwg:privacyLevel.
+        # Copying the facts path's predicate would match NOTHING here: in the
+        # CM041 files pwg: expands to https://schema.ostler.ai/ontology# while
+        # CM048, which WRITES these nodes, stamps <urn:ostler:privacyLevel>
+        # directly on the RelationshipSignal (vendor/cm048_pipeline/src/
+        # ingest.py:799) with an L1 default.
+        #
+        # 🔴 WHAT THE WRONG PREDICATE ACTUALLY DOES IS LEAK, NOT HIDE, AND THIS
+        # COMMENT SAID THE OPPOSITE UNTIL ARCHIE MEASURED IT. It left ?spriv
+        # unbound, so is_l3 falls back to owner_level alone, and the outcome
+        # depends on the OWNER, across five states:
+        #     owner L0/L1/L2  correct predicate serves 1 of 2, wrong serves 2 of 2
+        #     owner L3        both serve 0
+        #     owner unset     correct serves 1, wrong serves 0
+        # So in three of five states the wrong predicate serves MORE, and the
+        # extra row it serves is exactly the L3 signal this filter exists to
+        # withhold. Only when the owner level is ALSO unparseable does it fail
+        # closed and hide everything. The dominant failure is a DISCLOSURE.
+        # This matters because this comment is the thing standing between the
+        # next reader and "simplifying" it to match the facts path two lines up.
+        #
+        # OPTIONAL, not a required join, for the same reason: an unlabelled
+        # node must reach the filter and be judged, not be dropped by the
+        # pattern before the policy is ever consulted.
+        #
+        # LIMIT is 10 rather than 1 because the filter runs AFTER the query:
+        # with LIMIT 1 a single hidden row reports "no signal" while a visible
+        # older one exists. 10 is a BOUND, not a proof, and every constant has
+        # that property; the true fix is query-side and is deliberately not
+        # written, because filter_l3_facts is most-restrictive-wins across the
+        # record and its owner, and a second private copy of a shared policy
+        # is the defect this is being fixed to avoid.
+        signals = pwg_privacy.filter_l3_facts(
+            [dict(_s, privacy_level=_s.get("spriv")) for _s in signals],
+            owner_level=person.get("priv"),
         )
         if signals:
             sig = signals[0]
@@ -4014,13 +4122,57 @@ def person_enrichment(slug):
             } for m in meetings]
 
         signals = _sparql_select(
-            'SELECT ?warmth ?trust ?observedAt WHERE {{\n'
+            'SELECT ?warmth ?trust ?observedAt ?spriv WHERE {{\n'
             '  ?signal <urn:ostler:about> ?person .\n'
             '  ?signal <urn:ostler:warmth> ?warmth .\n'
             '  ?signal <urn:ostler:trust> ?trust .\n'
             '  ?signal <urn:ostler:observedAt> ?observedAt .\n'
+            '  OPTIONAL {{{{ ?signal <urn:ostler:privacyLevel> ?spriv }}}}\n'
             '  FILTER(CONTAINS(STR(?person), "{slug}"))\n'
-            '}} ORDER BY DESC(?observedAt) LIMIT 1'.format(slug=slug)
+            '}} ORDER BY DESC(?observedAt) LIMIT 10'.format(slug=slug)
+        )
+        # 🔴 L3 FILTER, CM041 #175 / board row 2213. Facts were filtered here
+        # and signals were not, so a person marked L3 had their facts withheld
+        # while their warmth and trust scores were served. The gap was OPENED
+        # by our own graph fix: before it these queries returned 0 rows, so
+        # there was nothing to leak, and making them return rows made the
+        # missing filter reachable.
+        #
+        # THE PREDICATE IS urn:ostler:privacyLevel AND NOT pwg:privacyLevel.
+        # Copying the facts path's predicate would match NOTHING here: in the
+        # CM041 files pwg: expands to https://schema.ostler.ai/ontology# while
+        # CM048, which WRITES these nodes, stamps <urn:ostler:privacyLevel>
+        # directly on the RelationshipSignal (vendor/cm048_pipeline/src/
+        # ingest.py:799) with an L1 default.
+        #
+        # 🔴 WHAT THE WRONG PREDICATE ACTUALLY DOES IS LEAK, NOT HIDE, AND THIS
+        # COMMENT SAID THE OPPOSITE UNTIL ARCHIE MEASURED IT. It left ?spriv
+        # unbound, so is_l3 falls back to owner_level alone, and the outcome
+        # depends on the OWNER, across five states:
+        #     owner L0/L1/L2  correct predicate serves 1 of 2, wrong serves 2 of 2
+        #     owner L3        both serve 0
+        #     owner unset     correct serves 1, wrong serves 0
+        # So in three of five states the wrong predicate serves MORE, and the
+        # extra row it serves is exactly the L3 signal this filter exists to
+        # withhold. Only when the owner level is ALSO unparseable does it fail
+        # closed and hide everything. The dominant failure is a DISCLOSURE.
+        # This matters because this comment is the thing standing between the
+        # next reader and "simplifying" it to match the facts path two lines up.
+        #
+        # OPTIONAL, not a required join, for the same reason: an unlabelled
+        # node must reach the filter and be judged, not be dropped by the
+        # pattern before the policy is ever consulted.
+        #
+        # LIMIT is 10 rather than 1 because the filter runs AFTER the query:
+        # with LIMIT 1 a single hidden row reports "no signal" while a visible
+        # older one exists. 10 is a BOUND, not a proof, and every constant has
+        # that property; the true fix is query-side and is deliberately not
+        # written, because filter_l3_facts is most-restrictive-wins across the
+        # record and its owner, and a second private copy of a shared policy
+        # is the defect this is being fixed to avoid.
+        signals = pwg_privacy.filter_l3_facts(
+            [dict(_s, privacy_level=_s.get("spriv")) for _s in signals],
+            owner_level=row.get("priv"),
         )
         if signals:
             sig = signals[0]

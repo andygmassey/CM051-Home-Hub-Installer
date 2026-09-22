@@ -224,9 +224,9 @@ def render_wizard(snapshot: SystemSnapshot, steps: list[dict]) -> str:
     steps_html = ""
     for step in steps:
         status_color = {
-            "complete": "#5cb579",
-            "partial": "#d4a052",
-            "needed": "#d96666",
+            "complete": "#2C4A2C",
+            "partial": "#5C4611",
+            "needed": "#7A1F1F",
             "blocked": "#4a4540",
         }.get(step["status"], "rgba(236,232,221,0.40)")
 
@@ -243,7 +243,7 @@ def render_wizard(snapshot: SystemSnapshot, steps: list[dict]) -> str:
             <div style="margin-top:12px;background:#0a0908;border:1px solid var(--border);border-radius:6px;padding:12px 16px;">
                 <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:4px;">{step['action']}</div>
                 <code style="font-family:'SF Mono',monospace;font-size:0.82rem;color:var(--amber-light);cursor:pointer;user-select:all;"
-                      onclick="navigator.clipboard.writeText(this.textContent).then(()=>this.style.color='#5cb579')"
+                      onclick="navigator.clipboard.writeText(this.textContent).then(()=>this.style.color='#2C4A2C')"
                 >{step['action_command']}</code>
                 <div style="font-size:0.68rem;color:var(--text-faint);margin-top:4px;">{WIZARD_CLICK_TO_COPY}</div>
             </div>"""
@@ -276,20 +276,20 @@ def render_wizard(snapshot: SystemSnapshot, steps: list[dict]) -> str:
                shares the dashboard's tokens so the welcome -> dashboard
                transition feels seamless. */
             --bg: #0d0b08;
-            --bg-card: #1a1612;
-            --bg-elevated: #221c16;
-            --border: rgba(236, 232, 221, 0.16);
-            --border-subtle: rgba(236, 232, 221, 0.08);
-            --text-primary: #ECE8DD;
-            --text-secondary: rgba(236, 232, 221, 0.74);
-            --text-muted: rgba(236, 232, 221, 0.50);
-            --text-faint: rgba(236, 232, 221, 0.32);
+            --bg-card: #FFFFFF;
+            --bg-elevated: #FFFFFF;
+            --border: rgba(20, 18, 14, 0.16);
+            --border-subtle: rgba(20, 18, 14, 0.08);
+            --text-primary: #14120e;
+            --text-secondary: rgba(20, 18, 14, 0.74);
+            --text-muted: rgba(20, 18, 14, 0.50);
+            --text-faint: rgba(20, 18, 14, 0.32);
             /* The wizard already references --amber via inline styles.
                Rebind to oxblood so the wording stays the same but the
                surface reads brand-true. */
-            --amber: #C84545;
-            --amber-light: #E26A6A;
-            --amber-glow: rgba(200, 69, 69, 0.18);
+            --amber: #7A1F1F;
+            --amber-light: #7A1F1F;
+            --amber-glow: rgba(122, 31, 31, 0.18);
             --font-display: 'Outfit', -apple-system, system-ui, sans-serif;
             --font-body: 'IBM Plex Sans', -apple-system, system-ui, sans-serif;
             --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;

@@ -319,3 +319,13 @@ jobs:
       - name: every workflow step carries a command
         if: always()
         run: python3 tests/test_every_workflow_step_can_run.py
+
+      # A CUT GATE'S REFUSAL ARM MUST BE REACHABLE. Sibling of the step above
+      # and the same failure shape: a defect that deletes the evidence of
+      # itself. A test that exits 1 only under OSTLER_CUT_IN_PROGRESS, and that
+      # cut.yml never runs, produces no output, no failure and no log line, so
+      # nothing but a comparison of the two files can see it. Two gates shipped
+      # in that state in one batch, both recorded WIRED, both green on every PR.
+      - name: Every cut gate's refusal arm is reachable from cut.yml
+        if: always()
+        run: python3 tests/test_a_cut_gate_is_reachable_in_the_cut.py

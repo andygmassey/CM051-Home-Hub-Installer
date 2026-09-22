@@ -2360,3 +2360,22 @@ nonperson	scripts/box_walk_probes/egress_hosts.tsv::a94a9f641d2531e2	PRODUCT: th
 nonperson	scripts/box_walk_probes/probes/no_unexpected_egress.sh::a94a9f641d2531e2	PRODUCT: the same registrant name, in the comment that records how the 199.165.136.100 finding was explained. The comment is the evidence chain for a boundary claim; renaming the registrant would make the recorded measurement unrepeatable by the reader it is written for.
 nonperson	docs/EGRESS_INVENTORY.md::a94a9f641d2531e2	PRODUCT: the same registrant name, in the public privacy document, in the sentence that tells a reader which registry query to run to check our claim for themselves. The whole point of the sentence is that the name is verifiable against an external record; replacing it with a synthetic one would leave the instruction pointing at nothing.
 nonperson	vendor/cm041/identity_resolver/batch_resolver.py::c5b0040aee224783	PRODUCT: a third-party datastore named at the start of a docstring sentence, so the capitalised verb in front of it makes the pair look like a forename and surname. It is the name of the store this function deletes points from; renaming it would make the docstring describe a component that does not exist. Permitted rather than reworded because the line is VENDORED from CM041 and editing it adds drift to a tree that already carries too much.
+# ── The Doctor's import pages, surfaced by the doctor.patch regen (2026-09-19) ──
+# Four PAIR findings appeared when sync_vendor.sh --regen-patch captured
+# divergence the previous doctor.patch was UNDER-RECORDING. They are page-title
+# constants naming the third-party products the pages import from, and the PAIR
+# arm reads "Import <Product>" as a forename/surname pair.
+#
+# CONTROL, so this is a measurement and not an assertion: pii_name_guard is
+# rc=0 CLEAN on the base cut/v1.0.101 and rc=1 with exactly these 4 findings on
+# the branch that regenerates the patch, PAIR 8421 examined / 4 found. Nothing
+# else in the tree moved, so these two rows clear exactly what the regen added.
+#
+# ⚠️ THESE ROWS ARE PATH-BOUND TO THE PATCH AND WILL NOT SURVIVE A RE-PIN.
+# After a doctor re-pin the same constants live in vendor/doctor/agent/
+# import_notion.py and import_obsidian.py as ordinary source, not inside
+# doctor.patch, so the glob stops matching and the same four pairs come back
+# under new paths. Whoever does the re-pin re-runs --print-permits for those
+# two files. Recorded here so it is found at the time rather than rediscovered.
+nonperson	vendor/divergences/doctor.patch::200fd3a3e9e1c8c1	PRODUCT: the page-title and heading constants for the Doctor's Notion import page. The value names the third-party product the page imports from, which is the whole content of the sentence a customer reads; a synthetic substitute would leave a shipped page offering an import from a product that does not exist. Permitted rather than reworded because the line is VENDORED and editing it adds drift to a tree already carrying 23 divergent files.
+nonperson	vendor/divergences/doctor.patch::3cd82b59cd3c9a35	PRODUCT: the same pair for the Doctor's Obsidian import page, and the same reasoning. Obsidian is the third-party product named in customer-facing copy on a page whose only purpose is importing from it, so the name IS the fact and renaming it would falsify the artefact rather than scrub it.

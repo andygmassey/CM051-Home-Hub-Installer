@@ -95,6 +95,49 @@ _hydrate_sentinel_record whatsapp "sent=0"
 eq  "all-zero payload -> no_data"               "$(field whatsapp status)"     "no_data"
 eq  "all-zero payload -> item_count 0"          "$(field whatsapp item_count)" "0"
 
+# 8. A PAYLOAD WITH NO COUNT KEY MUST NOT FREEZE last_update_at FOREVER.
+#
+# Cases 1-7 all supply a measurable count, so none of them could see this.
+# Three of the thirteen shipped sentinels (places, privacy_backfill, dedupe)
+# write `payload=ran=1,rc=0`, which carries no count key at all. The carry
+# branch compares "" == "" and matches on every run, so the timestamp froze
+# at whatever it first held.
+#
+# MEASURED on the walk box 2026-09-18T17:18Z, after a run that wrote 929
+# places that same minute:
+#   places.done  recorded_at=2026-09-18T17:18:30Z  last_update_at=2026-09-17T12:45:10Z
+# The Doctor renders `last_update_at or recorded_at`, so the customer was
+# shown a date a day old in the "when" column.
+_hydrate_sentinel_record places "ran=1,rc=0"
+lua_a="$(field places last_update_at)"
+rec_a="$(field places recorded_at)"
+eq  "unmeasurable count -> item_count stays empty" "$(field places item_count)" ""
+if [[ -z "$lua_a" ]]; then
+  ok "an unmeasurable count reports NO last_update_at, so the Doctor falls back to recorded_at"
+else
+  bad "unmeasurable count wrote last_update_at=[$lua_a]; it will now freeze there forever"
+fi
+
+# The regression itself: run it again a second later and prove the record did
+# not pin itself to the first run's clock.
+sleep 1
+_hydrate_sentinel_record places "ran=1,rc=0"
+rec_b="$(field places recorded_at)"
+neq "a second run advances recorded_at (the field the Doctor falls back to)" "$rec_b" "$rec_a"
+if [[ -z "$(field places last_update_at)" ]]; then
+  ok "still no fabricated last_update_at on the second run"
+else
+  bad "second run invented last_update_at=[$(field places last_update_at)]"
+fi
+
+# CONTROL: the carry-forward of case 2 must still work for a KNOWN count.
+# This fix must narrow the carry to measurable counts, not remove it.
+_hydrate_sentinel_record reminders "pending=6"
+lua_r="$(field reminders last_update_at)"
+sleep 1
+_hydrate_sentinel_record reminders "pending=6"
+eq  "CONTROL: a KNOWN unchanged count still carries last_update_at" "$(field reminders last_update_at)" "$lua_r"
+
 echo
 echo "hydrate sentinel change-fields test: ${pass} passed, ${fail} failed."
 [[ "$fail" -eq 0 ]] || exit 1
