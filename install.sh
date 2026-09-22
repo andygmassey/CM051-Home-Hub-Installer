@@ -32719,11 +32719,15 @@ if [[ -x "$_HYDRATE_APPLENOTES_BIN" ]] || command -v "$_HYDRATE_APPLENOTES_BIN" 
     _HYDRATE_APPLENOTES_BIN_OK=true
 fi
 
-if _hydrate_sentinel_fresh "apple_notes"; then
-    info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA"
+# `apple_notes_knowledge`, not `apple_notes`, for the reason spelled out on
+# the reminders leg below: the reader's sentinel answers a different question
+# from this one. Same run, same walk, same symptom -- "No Apple Notes to
+# read" and apple_notes_knowledge absent.
+if _hydrate_sentinel_fresh "apple_notes_knowledge"; then
+    info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_ALREADY_EMBEDDED"
 elif [[ "${OSTLER_APPLE_NOTES_KNOWLEDGE:-1}" == "0" ]]; then
     # Deferred explicit-flag hook: operator opted this leg out.
-    info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA"
+    info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_OPTED_OUT"
 elif [[ "$_HYDRATE_APPLENOTES_BIN_OK" == "true" ]] && [[ -s "$_HYDRATE_APPLENOTES_JSON_FILE" ]]; then
     info "$MSG_HYDRATE_APPLE_NOTES_STARTED"
 
@@ -32821,14 +32825,14 @@ elif [[ "$_HYDRATE_APPLENOTES_BIN_OK" == "true" ]] && [[ -s "$_HYDRATE_APPLENOTE
     # so the sentinel names the stage that actually failed.
     if [[ "${_HYDRATE_APPLENOTES_CONVERT_RC:-0}" -ne 0 ]]; then
         # #852: `:-unknown`, NOT `:-0`. See the whatsapp block.
-        _hydrate_sentinel_record_error "apple_notes" "$_HYDRATE_APPLENOTES_CONVERT_RC" \
+        _hydrate_sentinel_record_error "apple_notes_knowledge" "$_HYDRATE_APPLENOTES_CONVERT_RC" \
             "stage=convert,notes=${_HYDRATE_APPLENOTES_COUNT:-unknown}"
     elif [[ "${_HYDRATE_APPLENOTES_EMBED_RC:-0}" -ne 0 ]]; then
-        _hydrate_sentinel_record_error "apple_notes" "$_HYDRATE_APPLENOTES_EMBED_RC" \
+        _hydrate_sentinel_record_error "apple_notes_knowledge" "$_HYDRATE_APPLENOTES_EMBED_RC" \
             "stage=embed,notes=${_HYDRATE_APPLENOTES_COUNT:-unknown}"
     else
         # W012 class: reachable zero on the rc=0 arm.
-        _hydrate_sentinel_record "apple_notes" "notes=${_HYDRATE_APPLENOTES_COUNT:-0}" \
+        _hydrate_sentinel_record "apple_notes_knowledge" "notes=${_HYDRATE_APPLENOTES_COUNT:-0}" \
             "ran_ok_no_notes"
     fi
 
@@ -32841,7 +32845,7 @@ elif [[ "$_HYDRATE_APPLENOTES_BIN_OK" != "true" ]]; then
 else
     info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA"
     # Same shape as browsing and imessage.
-    _hydrate_sentinel_record_no_data "apple_notes" "no_export_json"
+    _hydrate_sentinel_record_no_data "apple_notes_knowledge" "no_export_json"
 fi
 
 unset _HYDRATE_APPLENOTES_FDA_DIR _HYDRATE_APPLENOTES_JSON_FILE
@@ -32906,12 +32910,22 @@ if [[ -x "$_HYDRATE_REMINDERS_BIN" ]] || command -v "$_HYDRATE_REMINDERS_BIN" >/
     _HYDRATE_REMINDERS_BIN_OK=true
 fi
 
-if _hydrate_sentinel_fresh "reminders"; then
-    info "$MSG_HYDRATE_REMINDERS_SKIPPED_NO_DATA"
+# THE KEY IS `reminders_knowledge`, NOT `reminders`, AND THAT IS THE WHOLE
+# DEFECT (#775). `reminders` is written by the FDA READER at
+# _hydrate_fda_record_reminders, which answers "did we read the reminders".
+# This leg answers a DIFFERENT question: "are the reminders EMBEDDED into
+# knowledge search". The second is not entailed by the first, and on the
+# v1.0.101 walk the reader wrote reminders.done status=ok item_count=2369
+# twenty-four log lines earlier, so this leg saw a fresh sentinel from its
+# own run and skipped in elapsed_s=0 while REPORTING ok. The customer was
+# told "No Reminders to read" about 2369 reminders, and reminders_knowledge
+# was never created.
+if _hydrate_sentinel_fresh "reminders_knowledge"; then
+    info "$MSG_HYDRATE_REMINDERS_SKIPPED_ALREADY_EMBEDDED"
 elif [[ "${OSTLER_REMINDERS_KNOWLEDGE:-1}" == "0" ]]; then
     # Deferred explicit-flag hook, mirroring OSTLER_APPLE_NOTES_KNOWLEDGE:
     # operator opted this leg out.
-    info "$MSG_HYDRATE_REMINDERS_SKIPPED_NO_DATA"
+    info "$MSG_HYDRATE_REMINDERS_SKIPPED_OPTED_OUT"
 elif [[ "$_HYDRATE_REMINDERS_BIN_OK" == "true" ]] && [[ -s "$_HYDRATE_REMINDERS_JSON_FILE" ]]; then
     info "$MSG_HYDRATE_REMINDERS_STARTED"
 
@@ -33000,13 +33014,13 @@ elif [[ "$_HYDRATE_REMINDERS_BIN_OK" == "true" ]] && [[ -s "$_HYDRATE_REMINDERS_
     # Sentinel dedupes a re-run within the 7-day window. Two stages, same
     # as Apple Notes: report whichever stage actually failed.
     if [[ "${_HYDRATE_REMINDERS_CONVERT_RC:-0}" -ne 0 ]]; then
-        _hydrate_sentinel_record_error "reminders" "$_HYDRATE_REMINDERS_CONVERT_RC" \
+        _hydrate_sentinel_record_error "reminders_knowledge" "$_HYDRATE_REMINDERS_CONVERT_RC" \
             "stage=convert,reminders=${_HYDRATE_REMINDERS_COUNT:-unknown}"
     elif [[ "${_HYDRATE_REMINDERS_EMBED_RC:-0}" -ne 0 ]]; then
-        _hydrate_sentinel_record_error "reminders" "$_HYDRATE_REMINDERS_EMBED_RC" \
+        _hydrate_sentinel_record_error "reminders_knowledge" "$_HYDRATE_REMINDERS_EMBED_RC" \
             "stage=embed,reminders=${_HYDRATE_REMINDERS_COUNT:-unknown}"
     else
-        _hydrate_sentinel_record "reminders" "reminders=${_HYDRATE_REMINDERS_COUNT:-0}" \
+        _hydrate_sentinel_record "reminders_knowledge" "reminders=${_HYDRATE_REMINDERS_COUNT:-0}" \
             "ran_ok_no_reminders"
     fi
 
@@ -33018,7 +33032,7 @@ elif [[ "$_HYDRATE_REMINDERS_BIN_OK" != "true" ]]; then
     info "$MSG_HYDRATE_REMINDERS_SKIPPED_PIPELINE_PENDING"
 else
     info "$MSG_HYDRATE_REMINDERS_SKIPPED_NO_DATA"
-    _hydrate_sentinel_record_no_data "reminders" "no_export_json"
+    _hydrate_sentinel_record_no_data "reminders_knowledge" "no_export_json"
 fi
 
 unset _HYDRATE_REMINDERS_FDA_DIR _HYDRATE_REMINDERS_JSON_FILE
