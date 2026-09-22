@@ -1557,12 +1557,57 @@ jobs:
       # ever existed there is nothing to capture, and that is not this step's
       # failure to report -- the job is already red from the real cause, and an
       # error here would bury it under a second, misleading one.
+      # 🔴 THE ARTEFACT NAME CANNOT CARRY A REF THAT HAS A SLASH IN IT, and a
+      # cut branch always does. Measured 2026-09-22 on run 35767257896: the
+      # build ran to completion, signed, notarised and stapled, the step
+      # reported "With the provided path, there will be 2 files uploaded", and
+      # then the upload refused:
+      #
+      #   The artifact name is not valid: ostler-dmg-candidate-cut/v1.0.101-281.
+      #   Contains the following character:  Forward slash /
+      #
+      # So a finished DMG was built and thrown away over its own filename. The
+      # job went red at the last step of a green build, which reads in the
+      # summary exactly like a build that failed.
+      #
+      # WHY NOBODY SAW IT BEFORE: on a TAG PUSH github.ref_name is `v1.0.101`
+      # and carries no slash, so the released path has never been able to hit
+      # this. It is reachable only from a dispatch, and dispatch only became a
+      # BUILDING path at #2118. The bug arrived with that widening and sat
+      # behind gates that failed earlier, so this is the first run that ever
+      # got far enough to reach it.
+      #
+      # GitHub Actions expressions have no replace(), so the sanitising is done
+      # in a step rather than inline. The tag path is left byte-identical
+      # rather than routed through the same variable, because the released
+      # artefact name is what the download tooling and the BOM expect and it
+      # must not change shape to fix a candidate-only defect.
+      - name: Name the artefact, with any slash in the ref flattened
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "push" ]; then
+            _name="ostler-dmg-${{ github.ref_name }}"
+          else
+            _ref='${{ github.ref_name }}'
+            _flat="${_ref//\//-}"
+            _name="ostler-dmg-candidate-${_flat}-${{ github.run_number }}"
+          fi
+          case "$_name" in
+            *[/\\:\"\<\>\|\*\?]*)
+              echo "REFUSING: artefact name still holds a character upload-artifact rejects: ${_name}" >&2
+              exit 1
+              ;;
+          esac
+          echo "artefact name: ${_name}"
+          echo "OSTLER_ARTIFACT_NAME=${_name}" >> "$GITHUB_ENV"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           # A dispatch build is a CANDIDATE and is named so. Nobody should be
           # able to mistake one for a released artefact in the artefact list.
-          name: ostler-dmg-${{ github.event_name == 'push' && github.ref_name || format('candidate-{0}-{1}', github.ref_name, github.run_number) }}
+          name: ${{ env.OSTLER_ARTIFACT_NAME }}
           path: |
             dist/*.dmg
             dist/SHA256SUMS
