@@ -117,6 +117,19 @@ for _dom in ai.creativemachines.ostler-hub ai.ostler.installer ai.creativemachin
     fi
 done
 
+# 7. The Keychain item. THE LAST SURFACE THAT DEPENDED ON THE UNINSTALLER,
+#    which is exactly the dependency that hid /Applications/Ostler for months:
+#    install.sh:24080 deletes this with `|| true`, so a failure there is
+#    swallowed and a stale key sits on a box a fresh install never minted.
+#    Service name is not a guess: install.sh:36230 adds it with
+#    -s "Ostler Recovery Key" and :24080 deletes it by the same string, and
+#    those are the only two call sites.
+if [ "$DRY" = "0" ]; then
+    security delete-generic-password -s "Ostler Recovery Key" >/dev/null 2>&1 || true
+else
+    echo "  would remove: keychain item 'Ostler Recovery Key'"
+fi
+
 echo
 echo "=== PROVING it, surface by surface ==="
 
@@ -134,6 +147,30 @@ _assert_absent() {   # $1 = path, $2 = what it would hide
 for _entry in "${PATHS[@]}"; do
     _assert_absent "${_entry%%|*}" "${_entry##*|}"
 done
+
+# THE KEYCHAIN, with the instrument proven before the answer is trusted.
+# `dump-keychain` is the WRONG instrument over ssh: it returns nothing at all
+# and `show-keychain-info` fails with "User interaction is not allowed", so a
+# LOCKED keychain and an EMPTY one print identically. find-generic-password
+# does work over ssh, and a bare invocation returns an item from the login
+# keychain -- that is the positive control, and without it a not-found here
+# would be unreadable rather than absent.
+if security find-generic-password >/dev/null 2>&1; then
+    if security find-generic-password -s "Ostler Recovery Key" >/dev/null 2>&1; then
+        printf '  SURVIVED  %-46s  %s\n' "keychain: Ostler Recovery Key" "a key a fresh install never minted"
+        FAIL=1
+    else
+        printf '  absent    %s\n' "keychain item Ostler Recovery Key (control: keychain IS readable)"
+    fi
+else
+    printf '  UNMEASURED %-45s  %s\n' "keychain" "the keychain could not be read at all, so absence is not evidence"
+    FAIL=1
+fi
+
+# LIMIT, STATED RATHER THAN HIDDEN: this proves the absence of ONE service
+# name. A second Ostler keychain item under a different service would not be
+# caught, and the keychain cannot be enumerated over ssh. That needs a console
+# session and is not claimed here.
 
 for _dom in ai.creativemachines.ostler-hub ai.ostler.installer ai.creativemachines.ostler; do
     if defaults read "$_dom" >/dev/null 2>&1; then
