@@ -1498,7 +1498,7 @@ MSG_HYDRATE_BROWSING_SKIPPED_SENSITIVE="Skipped %s pages flagged as sensitive (b
 MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA="No browsing history to import. You can re-run later from Settings."
 MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING="Browsing-history reader not ready yet. You can re-run later from Settings."
 
-# ── ONE SENTENCE FOR FOUR DIFFERENT FACTS (#2311) ───────────────────
+# ── ONE SENTENCE FOR FOUR DIFFERENT FACTS (#2313) ───────────────────
 #
 # MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA above was emitted by FOUR branches of
 # the hydrate_browsing block: the already-done skip, a run that sent nothing,

@@ -258,7 +258,7 @@ jobs:
         if: always()
         run: /bin/bash tests/test_the_source_table_items_column_is_the_number_it_claims.sh
 
-      # 🔴 #2311, MEASURED ON macmini16-walk 2026-09-23. Every gate above this
+      # 🔴 #2313, MEASURED ON macmini16-walk 2026-09-23. Every gate above this
       # line asks whether the sentinel FILE is honest about the run that wrote
       # it. None of them asks the question the file cannot answer: are the rows
       # still in the store? The walk box answered no. browsing.done said
@@ -272,7 +272,7 @@ jobs:
       # REAL http server standing in for the store, both directions: the
       # pre-fix guard must still reproduce the skip, and the current one must
       # not. Explicit run step, not a loop entry (#647).
-      - name: A hydrate skip is corroborated at the destination (#2311)
+      - name: A hydrate skip is corroborated at the destination (#2313)
         if: always()
         run: /bin/bash tests/test_hydrate_browsing_skip_is_corroborated_at_the_store.sh
 

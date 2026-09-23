@@ -30444,7 +30444,7 @@ except Exception:
     esac
 }
 
-# ── A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE (#2311) ──────────
+# ── A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE (#2313) ──────────
 #
 # 🔴 THE MEASURED DEFECT. macmini16-walk, 2026-09-23. The install log says, 750
 # lines apart and in the same run:
@@ -30476,6 +30476,10 @@ except Exception:
 # noticed: `safari_history` is not in _OSTLER_REQUIRED_QDRANT_COLLECTIONS, so
 # the membership check could not miss it, and the initial_hydrate retry fires
 # only on a POSITIVELY EMPTY store, which this one was not (5 collections).
+#
+# The instrument that CAN see it is the ingest_coverage box-walk probe, which
+# #2311 taught to report this as FAIL rather than CANNOT-RUN. That probe is
+# what turns this fix from MERGED into PROVEN; nothing in this file can.
 #
 # THE RULE. A skip must be corroborated at the destination. The sentinel says
 # "we have done this before"; only the store can say "and it is still there".
@@ -31958,7 +31962,7 @@ _HYDRATE_BROWSING_FDA_DIR="${OSTLER_DIR}/imports/fda"
 _HYDRATE_BROWSING_SAFARI="${_HYDRATE_BROWSING_FDA_DIR}/safari_history.json"
 _HYDRATE_BROWSING_CHROME="${_HYDRATE_BROWSING_FDA_DIR}/chrome_history.json"
 
-# #2311: the skip is CORROBORATED AT THE DESTINATION or it does not happen.
+# #2313: the skip is CORROBORATED AT THE DESTINATION or it does not happen.
 # See _hydrate_collection_rows for the walk that paid for this. The sentinel
 # alone is a record that a run finished, not evidence that its rows survived;
 # on macmini16-walk the two disagreed by 8,831 visits and the customer was
@@ -32081,7 +32085,7 @@ try:
 except Exception:
     print(0)' 2>/dev/null
         )" || { _HYDRATE_BROWSING_UNMEASURED=true; _HYDRATE_BROWSING_SKIPPED=""; }
-        # #2311: `total` is how many rows the reader actually SAW. Without it
+        # #2313: `total` is how many rows the reader actually SAW. Without it
         # a `sent=0` over an empty store cannot be told from a customer whose
         # Safari history is genuinely empty -- and warning THAT customer that
         # their history was lost would be the same class of false statement
@@ -32107,7 +32111,7 @@ except Exception:
                 info "$(printf "$MSG_HYDRATE_BROWSING_SKIPPED_SENSITIVE" "$_HYDRATE_BROWSING_SKIPPED")"
             fi
         else
-            # #2311, THE HONEST-REPORTING HALF. `sent=0` is TWO different facts
+            # #2313, THE HONEST-REPORTING HALF. `sent=0` is TWO different facts
             # and they used to print the same sentence and the same status=ok:
             #
             #   the store already holds the rows  -> a successful no-op. The
@@ -32170,7 +32174,7 @@ except Exception:
             _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}" \
                 "counter_failed_count_unmeasured"
         elif [[ "${_HYDRATE_BROWSING_NOTHING_STORED:-false}" == true ]]; then
-            # #2311: the durable record gets the same three-way split the log
+            # #2313: the durable record gets the same three-way split the log
             # line does. `nothing_sent` alone was the reason a reader could not
             # tell a successful no-op from a total loss, and the next run has to
             # be able to.
@@ -32189,7 +32193,7 @@ except Exception:
 elif [[ ! -x "$_HYDRATE_BROWSING_PY" ]]; then
     info "$MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING"
 else
-    # #2311: its OWN sentence. This branch means no export file was found, and
+    # #2313: its OWN sentence. This branch means no export file was found, and
     # the comment below has always said it cannot tell that apart from a
     # customer with no history -- while printing the sentence that asserts the
     # second. A branch that knows it cannot tell must not print the answer.
@@ -32201,7 +32205,7 @@ else
     _hydrate_sentinel_record_no_data "browsing" "no_export_json"
 fi
 
-# #2311: A STEP THAT STORED NOTHING MAY NOT CLOSE `ok`.
+# #2313: A STEP THAT STORED NOTHING MAY NOT CLOSE `ok`.
 #
 # The measured line was `STEP_END id=hydrate_browsing status=ok elapsed_s=0`
 # over 8,831 unstored visits. The timeout and error paths already reach

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A hydrate skip must be corroborated at the destination (#2311)
+# A hydrate skip must be corroborated at the destination (#2313)
 # ==============================================================
 #
 # THE INPUT THIS TEST REPLAYS
