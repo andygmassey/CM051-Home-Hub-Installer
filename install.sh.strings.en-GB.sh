@@ -1497,6 +1497,28 @@ MSG_HYDRATE_BROWSING_DONE="Imported %s pages of browsing history"
 MSG_HYDRATE_BROWSING_SKIPPED_SENSITIVE="Skipped %s pages flagged as sensitive (banking, medical, etc.)"
 MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA="No browsing history to import. You can re-run later from Settings."
 MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING="Browsing-history reader not ready yet. You can re-run later from Settings."
+
+# ── ONE SENTENCE FOR FOUR DIFFERENT FACTS (#2313) ───────────────────
+#
+# MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA above was emitted by FOUR branches of
+# the hydrate_browsing block: the already-done skip, a run that sent nothing,
+# a run that printed nothing, and a missing export file. Measured on
+# macmini16-walk 2026-09-23, install.log line 1246, that sentence was printed
+# over 8,831 visits the reader had already found and logged at line 497. The
+# customer was told they have no browsing history. They have eight thousand
+# pages of it.
+#
+# A message emitted by several branches cannot tell you which one fired, which
+# is why the skip, the empty run and the absent export now each own a line.
+# NO_DATA above is reserved for its literal meaning: the run happened and the
+# customer's history is genuinely empty.
+#
+# Privacy unchanged: counts only, no URLs, titles or domains.
+MSG_HYDRATE_BROWSING_ALREADY_IMPORTED="Your browsing history is already imported (%s pages). Nothing to re-import."
+MSG_HYDRATE_BROWSING_SKIPPED_NO_EXPORT="No exported browsing history found to import. You can re-run later from Settings."
+MSG_WARN_HYDRATE_BROWSING_REIMPORT_STORE_EMPTY="Your browsing history was imported before, but your search index no longer holds it. Importing it again."
+MSG_WARN_HYDRATE_BROWSING_REIMPORT_UNVERIFIED="Could not check whether your browsing history is still in your search index. Importing it again rather than assuming it is there."
+MSG_WARN_HYDRATE_BROWSING_NOTHING_STORED="Your browsing history did not reach your search index, so your Browsing page will be empty. Re-run from Settings, or open Doctor."
 MSG_HYDRATE_BROWSING_BACKGROUND_CONTINUES="Browsing history is still loading in the background. Your wiki fills in as it goes, and shows you where it is up to."
 
 # Email-preferences hydration strings (v1.0.3)

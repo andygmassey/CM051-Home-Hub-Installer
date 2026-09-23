@@ -30480,6 +30480,98 @@ except Exception:
     esac
 }
 
+# ── A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE (#2313) ──────────
+#
+# 🔴 THE MEASURED DEFECT. macmini16-walk, 2026-09-23. The install log says, 750
+# lines apart and in the same run:
+#
+#     install.log:497   [ok] Safari: 8831 visits across 100 domains
+#     install.log:1246  No browsing history to import. You can re-run later ...
+#     install.log:1247  STEP_END id=hydrate_browsing status=ok elapsed_s=0
+#
+# and an hour later the hourly top-up agent had to CREATE the destination:
+#
+#     fda-rerun.err:8033  GET  .../collections/safari_history  404 Not Found
+#     fda-rerun.err:8034  PUT  .../collections/safari_history  200 OK
+#
+# one 404 and one creation in 8,283 lines. The reader found 8,831 visits, the
+# hydrate step stored none of them, and it reported ok in zero seconds.
+#
+# WHY. ~/.ostler/state/hydrate/browsing.done said
+# `status=ok payload=sent=8626,skipped=205`, recorded 2026-09-22T19:25:23Z --
+# eight hours before this install. `_hydrate_sentinel_fresh browsing` was
+# therefore true and the step skipped. The sentinel was not wrong about what it
+# recorded. It was answering a question nobody asked it: it is a record that a
+# RUN completed, and it was read as a claim that the DATA IS IN THE STORE.
+#
+# Those two facts have independent lifetimes. The sentinel is a file under
+# ~/.ostler; the rows are in a Qdrant volume inside the container VM. Delete the
+# VM (which the walk procedure mandates before every walk), prune a docker
+# volume, reset the container engine, or lose the volume to corruption, and the
+# store is empty while every sentinel still reads fresh and ok. Nothing else
+# noticed: `safari_history` is not in _OSTLER_REQUIRED_QDRANT_COLLECTIONS, so
+# the membership check could not miss it, and the initial_hydrate retry fires
+# only on a POSITIVELY EMPTY store, which this one was not (5 collections).
+#
+# The instrument that CAN see it is the ingest_coverage box-walk probe, which
+# #2311 taught to report this as FAIL rather than CANNOT-RUN. That probe is
+# what turns this fix from MERGED into PROVEN; nothing in this file can.
+#
+# THE RULE. A skip must be corroborated at the destination. The sentinel says
+# "we have done this before"; only the store can say "and it is still there".
+#
+# _hydrate_collection_rows <collection> prints exactly one of:
+#
+#   <digits>   the store answered 200 and this is its points_count
+#   absent     the store answered 404: the collection is POSITIVELY not there
+#   unknown    the store could not be read at all (CANNOT-RUN)
+#
+# THE THIRD ANSWER IS WHY THIS DOES NOT REUSE _hydrate_qdrant_points ABOVE.
+# That one uses `curl -sf`, which exits non-zero with an empty body on BOTH a
+# 404 and a connection refusal, so it prints `unknown` for both. Harmless in a
+# sentinel payload field; fatal in a skip decision, where "the collection is
+# gone" and "I could not look" are exactly the two facts the decision turns on.
+# So this reads the HTTP STATUS, not the exit code.
+#
+# Never fatal: the ERR trap propagates into command substitutions under the
+# global `set -Eeuo pipefail`, so the curl carries its own `|| true`.
+_hydrate_collection_rows() {
+    local collection="$1"
+    local raw code body count
+    raw="$(curl -s --noproxy '*' --max-time 5 -w '\n%{http_code}' \
+        "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
+        "${QDRANT_URL:-http://localhost:6333}/collections/${collection}" \
+        2>/dev/null || true)"
+    code="${raw##*$'\n'}"
+    body="${raw%$'\n'*}"
+    case "$code" in
+        404) printf 'absent';  return 0 ;;
+        200) ;;
+        # 000 (no connection), 401, 5xx, or no -w output at all. A store that
+        # did not answer has NOT told us the collection is empty.
+        *)   printf 'unknown'; return 0 ;;
+    esac
+    count="$(printf '%s' "$body" | python3 -c 'import json,sys
+try:
+    print(int((json.loads(sys.stdin.read()).get("result") or {}).get("points_count")))
+except Exception:
+    print("unknown")' 2>/dev/null || true)"
+    case "${count:-}" in
+        ''|*[!0-9]*) printf 'unknown' ;;
+        *)           printf '%s' "$count" ;;
+    esac
+}
+
+# Does the destination POSITIVELY hold rows? Only a read-back number greater
+# than zero says yes. `absent` and `unknown` both answer no, for reasons the
+# caller reports separately -- the whole point of the three-valued reader above
+# is that a caller must never collapse them here.
+_hydrate_collection_has_rows() {
+    local n="${1:-}"
+    [[ "$n" =~ ^[0-9]+$ ]] || return 1
+    [[ "$n" -gt 0 ]]
+}
+
 # Progress heartbeat for the long-running hydrate phases.
 #
 # Even with the gtimeout cap in place (coreutils installed in Phase
@@ -31906,10 +31998,42 @@ _HYDRATE_BROWSING_FDA_DIR="${OSTLER_DIR}/imports/fda"
 _HYDRATE_BROWSING_SAFARI="${_HYDRATE_BROWSING_FDA_DIR}/safari_history.json"
 _HYDRATE_BROWSING_CHROME="${_HYDRATE_BROWSING_FDA_DIR}/chrome_history.json"
 
+# #2313: the skip is CORROBORATED AT THE DESTINATION or it does not happen.
+# See _hydrate_collection_rows for the walk that paid for this. The sentinel
+# alone is a record that a run finished, not evidence that its rows survived;
+# on macmini16-walk the two disagreed by 8,831 visits and the customer was
+# told they had none.
+_HYDRATE_BROWSING_SENTINEL_FRESH=false
 if _hydrate_sentinel_fresh "browsing"; then
-    info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
+    _HYDRATE_BROWSING_SENTINEL_FRESH=true
+fi
+# Only asked when it can change the answer, so a store probe is never spent on
+# a run that was going to hydrate anyway.
+_HYDRATE_BROWSING_ROWS=""
+if [[ "$_HYDRATE_BROWSING_SENTINEL_FRESH" == "true" ]]; then
+    _HYDRATE_BROWSING_ROWS="$(_hydrate_collection_rows safari_history)"
+fi
+
+if [[ "$_HYDRATE_BROWSING_SENTINEL_FRESH" == "true" ]] \
+   && _hydrate_collection_has_rows "$_HYDRATE_BROWSING_ROWS"; then
+    # The one skip that is earned: a completed run AND the rows still there.
+    ok "$(printf "$MSG_HYDRATE_BROWSING_ALREADY_IMPORTED" "$_HYDRATE_BROWSING_ROWS")"
 elif [[ -x "$_HYDRATE_BROWSING_PY" ]] && \
    { [[ -s "$_HYDRATE_BROWSING_SAFARI" ]] || [[ -s "$_HYDRATE_BROWSING_CHROME" ]]; }; then
+    # A fresh sentinel that did NOT survive corroboration lands here, and the
+    # customer is told which of the two things happened rather than watching a
+    # silent re-import. `absent` and `unknown` are different facts and get
+    # different sentences: one says the rows are gone, the other says we could
+    # not find out. Erring towards re-importing is deliberate -- the cost of a
+    # needless re-import is time, the cost of a needless skip is the customer's
+    # entire browsing history, measured.
+    if [[ "$_HYDRATE_BROWSING_SENTINEL_FRESH" == "true" ]]; then
+        if [[ "$_HYDRATE_BROWSING_ROWS" == "unknown" ]]; then
+            warn "$MSG_WARN_HYDRATE_BROWSING_REIMPORT_UNVERIFIED"
+        else
+            warn "$MSG_WARN_HYDRATE_BROWSING_REIMPORT_STORE_EMPTY"
+        fi
+    fi
     info "$MSG_HYDRATE_BROWSING_STARTED"
 
     # T1: was a bare literal 90. Named + env-tunable on the
@@ -31997,6 +32121,24 @@ try:
 except Exception:
     print(0)' 2>/dev/null
         )" || { _HYDRATE_BROWSING_UNMEASURED=true; _HYDRATE_BROWSING_SKIPPED=""; }
+        # #2313: `total` is how many rows the reader actually SAW. Without it
+        # a `sent=0` over an empty store cannot be told from a customer whose
+        # Safari history is genuinely empty -- and warning THAT customer that
+        # their history was lost would be the same class of false statement
+        # this change exists to remove, pointed the other way. Counts only,
+        # same privacy contract as sent and skipped_sensitive.
+        _HYDRATE_BROWSING_TOTAL="$(
+            printf '%s' "$_HYDRATE_BROWSING_JSON" \
+            | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(d.get("total", -1)))
+except Exception:
+    print(-1)' 2>/dev/null
+        )" || _HYDRATE_BROWSING_TOTAL="-1"
+        # -1 is NOT a count. It is this field saying it was not measured, and
+        # it is deliberately outside the range a real total can take.
+        _HYDRATE_BROWSING_TOTAL="${_HYDRATE_BROWSING_TOTAL:--1}"
         _HYDRATE_BROWSING_SENT="${_HYDRATE_BROWSING_SENT:-0}"
         _HYDRATE_BROWSING_SKIPPED="${_HYDRATE_BROWSING_SKIPPED:-0}"
         if [[ "$_HYDRATE_BROWSING_SENT" -gt 0 ]]; then
@@ -32005,10 +32147,43 @@ except Exception:
                 info "$(printf "$MSG_HYDRATE_BROWSING_SKIPPED_SENSITIVE" "$_HYDRATE_BROWSING_SKIPPED")"
             fi
         else
-            info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
+            # #2313, THE HONEST-REPORTING HALF. `sent=0` is TWO different facts
+            # and they used to print the same sentence and the same status=ok:
+            #
+            #   the store already holds the rows  -> a successful no-op. The
+            #      file header one screen up already makes this call for the
+            #      sentinel ("sent=0,skipped=500 must read as ok"); it applies
+            #      here for the same reason.
+            #   the store holds nothing           -> the customer's history was
+            #      read and then dropped. That is the data-loss shape, it is
+            #      what the walk found, and it must not close `ok`.
+            #
+            # Read back from the destination, so the branch is decided by the
+            # store and not by a counter that can be zero for either reason.
+            _HYDRATE_BROWSING_ROWS_AFTER="$(_hydrate_collection_rows safari_history)"
+            if _hydrate_collection_has_rows "$_HYDRATE_BROWSING_ROWS_AFTER"; then
+                ok "$(printf "$MSG_HYDRATE_BROWSING_ALREADY_IMPORTED" "$_HYDRATE_BROWSING_ROWS_AFTER")"
+            elif [[ "$_HYDRATE_BROWSING_TOTAL" == "0" ]]; then
+                # The reader looked and there was nothing there. This is the
+                # ONE branch the sentence below was ever true for, and it now
+                # has it to itself.
+                info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
+                _HYDRATE_BROWSING_NO_SOURCE_ROWS=true
+            else
+                warn "$MSG_WARN_HYDRATE_BROWSING_NOTHING_STORED"
+                _HYDRATE_BROWSING_NOTHING_STORED=true
+            fi
         fi
     else
-        info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
+        # The ingest printed nothing at all, so nothing was measured and
+        # nothing can be claimed. Same read-back, same three outcomes.
+        _HYDRATE_BROWSING_ROWS_AFTER="$(_hydrate_collection_rows safari_history)"
+        if _hydrate_collection_has_rows "$_HYDRATE_BROWSING_ROWS_AFTER"; then
+            ok "$(printf "$MSG_HYDRATE_BROWSING_ALREADY_IMPORTED" "$_HYDRATE_BROWSING_ROWS_AFTER")"
+        else
+            warn "$MSG_WARN_HYDRATE_BROWSING_NOTHING_STORED"
+            _HYDRATE_BROWSING_NOTHING_STORED=true
+        fi
     fi
 
     # #48g sentinel record: dedupes re-runs within a 7-day window.
@@ -32035,19 +32210,40 @@ except Exception:
         if [[ "${_HYDRATE_BROWSING_UNMEASURED:-false}" == true ]]; then
             _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}" \
                 "counter_failed_count_unmeasured"
+        elif [[ "${_HYDRATE_BROWSING_NO_SOURCE_ROWS:-false}" == true ]]; then
+            # 🔴 A DECLARED REASON IS ONLY WORTH ITS DECLARATION IF IT IS TRUE.
+            # Without this arm the genuinely-empty customer recorded
+            # `detail=ran_ok_nothing_sent_store_already_populated` beside
+            # `collection_points=absent` -- the detail and the payload
+            # contradicting each other in the same file, which is worse than no
+            # detail at all because it reads as an answer.
+            _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0},collection_points=${_HYDRATE_BROWSING_ROWS_AFTER:-unknown}" \
+                "ran_ok_source_had_no_rows"
+        elif [[ "${_HYDRATE_BROWSING_NOTHING_STORED:-false}" == true ]]; then
+            # #2313: the durable record gets the same three-way split the log
+            # line does. `nothing_sent` alone was the reason a reader could not
+            # tell a successful no-op from a total loss, and the next run has to
+            # be able to.
+            _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0},collection_points=${_HYDRATE_BROWSING_ROWS_AFTER:-unknown}" \
+                "ran_ok_nothing_sent_and_store_empty"
         else
-            _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}" \
-                "ran_ok_nothing_sent_or_skipped"
+            _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0},collection_points=${_HYDRATE_BROWSING_ROWS_AFTER:-unknown}" \
+                "ran_ok_nothing_sent_store_already_populated"
         fi
     fi
 
     unset _HYDRATE_BROWSING_TIMED_OUT _HYDRATE_BROWSING_JSON
-    unset _HYDRATE_BROWSING_SENT _HYDRATE_BROWSING_SKIPPED
+    unset _HYDRATE_BROWSING_SENT _HYDRATE_BROWSING_SKIPPED _HYDRATE_BROWSING_TOTAL
     unset _HYDRATE_BROWSING_TIMEOUT_WRAP _HYDRATE_BROWSING_LOG _HYDRATE_BROWSING_RC _HYDRATE_BROWSING_CAP
+    unset _HYDRATE_BROWSING_ROWS_AFTER _HYDRATE_BROWSING_NO_SOURCE_ROWS
 elif [[ ! -x "$_HYDRATE_BROWSING_PY" ]]; then
     info "$MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING"
 else
-    info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
+    # #2313: its OWN sentence. This branch means no export file was found, and
+    # the comment below has always said it cannot tell that apart from a
+    # customer with no history -- while printing the sentence that asserts the
+    # second. A branch that knows it cannot tell must not print the answer.
+    info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_EXPORT"
     # No safari_history.json and no chrome_history.json. That is USUALLY the
     # FDA export not having landed yet, not a customer with no browsing
     # history -- and this branch cannot tell those apart. Record no_data so
@@ -32055,8 +32251,26 @@ else
     _hydrate_sentinel_record_no_data "browsing" "no_export_json"
 fi
 
+# #2313: A STEP THAT STORED NOTHING MAY NOT CLOSE `ok`.
+#
+# The measured line was `STEP_END id=hydrate_browsing status=ok elapsed_s=0`
+# over 8,831 unstored visits. The timeout and error paths already reach
+# STEP_END through gui_step_record_rc (_hydrate_sentinel_record_error calls
+# it), but an ingest that exits 0 and delivers nothing has an rc of 0 and so
+# had no route to the status field at all. This is that route.
+#
+# `warn`, not `error`: nothing failed, and StepStatus already carries warn
+# (gui/OstlerInstaller/ProgressProtocol.swift), so the GUI renders it without a
+# new wire value. gui_step_end can only ESCALATE, and closing the step here
+# clears __OSTLER_STEP_ID, so the next progress() call sees it closed and does
+# not emit a second STEP_END.
+if [[ "${_HYDRATE_BROWSING_NOTHING_STORED:-false}" == "true" ]]; then
+    gui_step_end warn
+fi
+
 unset _HYDRATE_BROWSING_VENV _HYDRATE_BROWSING_PY
 unset _HYDRATE_BROWSING_FDA_DIR _HYDRATE_BROWSING_SAFARI _HYDRATE_BROWSING_CHROME
+unset _HYDRATE_BROWSING_SENTINEL_FRESH _HYDRATE_BROWSING_ROWS _HYDRATE_BROWSING_NOTHING_STORED
 
 # Email-preferences hydration (v1.0.3) -----------------------------
 #
