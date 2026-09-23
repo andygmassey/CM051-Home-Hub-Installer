@@ -62,6 +62,19 @@
 
 set -uo pipefail
 
+# NO QUIET-GREP-ON-THE-RIGHT-OF-A-PIPE ANYWHERE IN THIS FILE, and the ban is
+# not stylistic. The banned shape is deliberately NOT spelled here: a scanner
+# that hunts it must not find a specimen in the prose warning against it.
+# Under `set -o pipefail` (set above), `grep -q` exits 0 on its FIRST match and
+# closes the pipe, SIGPIPE-ing the producer; the PIPELINE then reports non-zero
+# and the condition reads FALSE for a pattern that was PRESENT. An inverted
+# verdict, and on a test whose whole subject is a status field that lied, that
+# is the same defect one level up. tests/test_pipefail_shortcircuit_inversion.sh
+# ratchets the repo against it. Remedy A (a herestring: no pipe, so no SIGPIPE)
+# is used throughout, which is sound because this file is bash and runs under
+# /bin/bash; if any of it ever runs through `sh -c` or over ssh, the herestring
+# is a bashism and the remedy becomes `[ "$(... | grep -c PAT)" -gt 0 ]`.
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALL_SH="${REPO_ROOT}/install.sh"
 EMITTER="${REPO_ROOT}/lib/progress_emitter.sh"
@@ -193,9 +206,9 @@ line_for() { grep "id=$1	" "$MARKERS" | grep 'STEP_END' | tail -n 1; }
 A_LINE="$(line_for records_nothing)"
 if [ -z "$A_LINE" ]; then
     fail "A: no STEP_END for records_nothing. Nothing was measured."
-elif printf '%s' "$A_LINE" | grep -q 'status=ok'; then
+elif grep -q 'status=ok' <<< "$A_LINE"; then
     fail "A: a step that recorded nothing still closed status=ok: ${A_LINE}"
-elif printf '%s' "$A_LINE" | grep -q 'status=unmeasured' && printf '%s' "$A_LINE" | grep -q 'measured=no'; then
+elif grep -q 'status=unmeasured' <<< "$A_LINE" && grep -q 'measured=no' <<< "$A_LINE"; then
     pass "A: a step that recorded nothing closes status=unmeasured measured=no"
 else
     fail "A: unexpected status for records_nothing: ${A_LINE}"
@@ -203,7 +216,7 @@ fi
 
 # --- B: the positive control --------------------------------------------
 B_LINE="$(line_for measured_success)"
-if printf '%s' "$B_LINE" | grep -q 'status=ok' && printf '%s' "$B_LINE" | grep -q 'measured=rc'; then
+if grep -q 'status=ok' <<< "$B_LINE" && grep -q 'measured=rc' <<< "$B_LINE"; then
     pass "B: a MEASURED success still closes status=ok measured=rc"
 else
     fail "B: a measured success did not close ok, so the change made everything suspect: ${B_LINE:-<none>}"
@@ -211,7 +224,7 @@ fi
 
 # --- C: three outcomes, all distinct ------------------------------------
 C_LINE="$(line_for measured_failure)"
-if printf '%s' "$C_LINE" | grep -q 'status=error' && printf '%s' "$C_LINE" | grep -q 'rc=3'; then
+if grep -q 'status=error' <<< "$C_LINE" && grep -q 'rc=3' <<< "$C_LINE"; then
     A_S="$(printf '%s' "$A_LINE" | tr '\t' '\n' | grep '^status=')"
     B_S="$(printf '%s' "$B_LINE" | tr '\t' '\n' | grep '^status=')"
     C_S="$(printf '%s' "$C_LINE" | tr '\t' '\n' | grep '^status=')"
@@ -226,14 +239,14 @@ fi
 
 # --- D: the real install.sh recorder ------------------------------------
 D_LINE="$(line_for hydrate_real_payload)"
-if printf '%s' "$D_LINE" | grep -q 'status=ok' && printf '%s' "$D_LINE" | grep -q 'measured=rc'; then
+if grep -q 'status=ok' <<< "$D_LINE" && grep -q 'measured=rc' <<< "$D_LINE"; then
     pass "D: _hydrate_sentinel_record with a real payload closes the step ok"
 else
     fail "D: install.sh's success recorder still tells the step nothing: ${D_LINE:-<none>}"
 fi
 
 DZ_LINE="$(line_for hydrate_zero_payload)"
-if printf '%s' "$DZ_LINE" | grep -q 'status=ok'; then
+if grep -q 'status=ok' <<< "$DZ_LINE"; then
     fail "D: an all-zero payload was laundered into a success: ${DZ_LINE}"
 else
     pass "D: an all-zero payload does NOT close ok (it stays unmeasured)"
@@ -241,9 +254,9 @@ fi
 
 # --- E: the declaration --------------------------------------------------
 E_LINE="$(line_for declared_noop)"
-if printf '%s' "$E_LINE" | grep -q 'status=ok' \
-   && printf '%s' "$E_LINE" | grep -q 'measured=declared-none' \
-   && printf '%s' "$E_LINE" | grep -q 'reason='; then
+if grep -q 'status=ok' <<< "$E_LINE" \
+   && grep -q 'measured=declared-none' <<< "$E_LINE" \
+   && grep -q 'reason=' <<< "$E_LINE"; then
     pass "E: a declared no-op closes ok, stamped declared-none with its reason"
 else
     fail "E: the explicit declaration did not reach the wire: ${E_LINE:-<none>}"
@@ -275,9 +288,9 @@ PII_INPUT="see someone${_AT}example.invalid ${_SL}Users${_SL}someone ${_DG}"
 # CONTROL ON THE INPUT ITSELF. If the composition above ever produced a benign
 # string, the assertion below would pass while testing nothing. The hostile
 # input must actually be hostile before it is used.
-if printf '%s' "$PII_INPUT" | grep -q "$_AT" \
-   && printf '%s' "$PII_INPUT" | grep -q "$_SL" \
-   && printf '%s' "$PII_INPUT" | grep -qE '[0-9]'; then
+if grep -q "$_AT" <<< "$PII_INPUT" \
+   && grep -q "$_SL" <<< "$PII_INPUT" \
+   && grep -qE '[0-9]' <<< "$PII_INPUT"; then
     pass "E2 input control: the hostile reason really does carry an at-sign, a solidus and digits"
 else
     fail "E2 input control: the composed input is benign, so the assertion below would prove nothing: [${PII_INPUT}]"
@@ -293,7 +306,7 @@ HOSTILE="$(OSTLER_GUI=1 _T_EMITTER="$EMITTER" _T_PII="$PII_INPUT" bash -c '
 HOSTILE_REASON="$(printf '%s' "$HOSTILE" | tr '\t' '\n' | grep '^reason=' | sed 's/^reason=//')"
 if [ -z "$HOSTILE_REASON" ]; then
     fail "E2: no reason field on the wire at all: ${HOSTILE}"
-elif printf '%s' "$HOSTILE_REASON" | grep -qE '@|/|[0-9]'; then
+elif grep -qE '@|/|[0-9]' <<< "$HOSTILE_REASON"; then
     fail "E2: the reason field passed an address, a path or digits through: [${HOSTILE_REASON}]"
 else
     pass "E2: the reason field cannot carry an address, a path or digits [${HOSTILE_REASON}]"
@@ -309,14 +322,14 @@ fi
 
 # --- F: no laundering ----------------------------------------------------
 F_LINE="$(line_for declare_after_error)"
-if printf '%s' "$F_LINE" | grep -q 'status=error'; then
+if grep -q 'status=error' <<< "$F_LINE"; then
     pass "F: a declaration cannot launder a recorded error into ok"
 else
     fail "F: a declaration overwrote a recorded error: ${F_LINE:-<none>}"
 fi
 
 F2_LINE="$(line_for forced_ok)"
-if printf '%s' "$F2_LINE" | grep -q 'status=ok'; then
+if grep -q 'status=ok' <<< "$F2_LINE"; then
     fail "F: an explicit \`gui_step_end ok\` asserted success over an unmeasured step: ${F2_LINE}"
 else
     pass "F: an explicit \`gui_step_end ok\` cannot assert success over an unmeasured step"
@@ -325,14 +338,14 @@ fi
 # --- G: the debt meter ---------------------------------------------------
 DONE_LINE="$(grep 'DONE' "$MARKERS" | tail -n 1)"
 # records_nothing, hydrate_zero_payload, forced_ok
-if printf '%s' "$DONE_LINE" | grep -q 'unmeasured_steps=3'; then
+if grep -q 'unmeasured_steps=3' <<< "$DONE_LINE"; then
     pass "G: the DONE line carries unmeasured_steps=3"
 else
     fail "G: expected unmeasured_steps=3 on the DONE line, got: ${DONE_LINE:-<none>}"
 fi
 # measured_failure + declare_after_error only. If unmeasured counted here,
 # install.sh's closing verdict would tell every customer their install broke.
-if printf '%s' "$DONE_LINE" | grep -q 'failed_steps=2'; then
+if grep -q 'failed_steps=2' <<< "$DONE_LINE"; then
     pass "G: unmeasured steps are NOT counted as failures (failed_steps=2)"
 else
     fail "G: unmeasured steps leaked into failed_steps: ${DONE_LINE:-<none>}"
@@ -349,7 +362,7 @@ gui_step_end
 gui_done ok
 CLEAN
 CLEAN_DONE="$(grep 'DONE' "$CLEAN_MARKERS" | tail -n 1)"
-if printf '%s' "$CLEAN_DONE" | grep -q 'unmeasured_steps=0'; then
+if grep -q 'unmeasured_steps=0' <<< "$CLEAN_DONE"; then
     pass "G: a fully measured run PRINTS unmeasured_steps=0, so zero is not an unreporting build"
 else
     fail "G: expected unmeasured_steps=0 on a fully measured run, got: ${CLEAN_DONE:-<none>}"
@@ -376,7 +389,7 @@ else
     MUT_LINE="$(grep 'id=records_nothing	' "$MUT_MARKERS" | grep 'STEP_END' | tail -n 1)"
     if [ -z "$MUT_LINE" ]; then
         fail "H: the mutated run emitted no STEP_END for records_nothing; the arm proved nothing"
-    elif printf '%s' "$MUT_LINE" | grep -q 'status=ok'; then
+    elif grep -q 'status=ok' <<< "$MUT_LINE"; then
         pass "H: with the default back to \`ok\`, the defect returns -- this test sees the fix"
     else
         fail "H: the pre-fix default did NOT reproduce the defect, so A is green for another reason: ${MUT_LINE}"
