@@ -105,35 +105,32 @@ INSTALL_SH="${REPO_ROOT}/install.sh"
 # shipping the module in a tree that cannot be absent. That is a real option
 # and it is not tonight's.
 #
-# ── RAISED 8 -> 9 ON 2026-09-23, DELIBERATELY, AND HERE IS THE REASONING ─────
+# ── RAISED 8 -> 9 AND LOWERED BACK TO 8 ON 2026-09-23, SAME DAY ─────────────
 #
-# The gate's own text offers two remedies and forbids the third: hoist it, or
-# "say so IN THE PR and raise the pin deliberately. Do not raise it silently."
-# This is the second, said out loud.
+# Recorded rather than quietly reverted, because the reasoning is the useful
+# part. The Front Page catch-up agent (install.sh 3.14d-editor-bis) first
+# arrived as a verbatim mirror of the wiki catch-up: a `progress` call gated on
+# `-x ${OSTLER_DIR}/bin/editor-frontpage-tick.sh`, with a decrement when the
+# gate is false. That is a ninth late site, and it is genuinely NOT hoistable
+# for the reason this file already gives: it is a FILE TEST, and the file it
+# tests is rendered a few lines earlier, so nothing at seed time can answer it.
+# The pin was raised to 9, out loud, and the raise named its own undo:
 #
-# THE NEW SITE IS A VERBATIM MIRROR OF ONE ALREADY INSIDE THE PIN. The
-# editor-frontpage-tick decrement mirrors the wiki-recompile-tick decrement
-# line for line, and that one has been pinned since before this change.
-# Measured against main: editor-tick decrement 1 here and 0 on main,
-# wiki-tick decrement 1 in both. So this raise admits a twin of an accepted
-# site, not a new class of hazard.
+#     "WHAT WOULD LOWER IT AGAIN: make the catch-up unconditional so the
+#      question 'will this step run' has an answer at seed time."
 #
-# IT IS NOT HOISTABLE, for the reason this file already states three
-# paragraphs up: only three of the six are, because the rest are FILE TESTS
-# and a variable being assigned early says nothing about whether the path it
-# names exists at seed time. This is a file test. Hoisting it would be a
-# guess, and the file says a guess is not a hoist.
+# That is what the change now does. The step is announced unconditionally and
+# always performs: it either installs the catch-up agent or says why it did
+# not. The condition survives as a branch INSIDE the step, where it belongs,
+# and stops being a question about the denominator. Nine sites became eight
+# again, and the gate went straight to "only 8 late decrements but the pin is
+# still 9. Someone hoisted one and did not lower the pin", which is the ratchet
+# holding ground in the direction it exists to hold it.
 #
-# WHAT WOULD LOWER IT AGAIN: the same answer as the paragraph above. Make the
-# catch-up unconditional so the question "will this step run" has an answer at
-# seed time. That is a real option and it is not this change's.
-#
-# THE COST OF NOT RAISING IT is worse than the raise. The change this pin is
-# blocking is the one that stops a customer's front page reading zero
-# interests for their entire first hour, which is a BLOCKING walk probe. A
-# tenth of a percent of denominator wobble against that is not a trade worth
-# taking, and pretending the wobble is absent would be the silent raise.
-PIN=9
+# THE GENERAL LESSON, and it outlives this agent: a file test that cannot be
+# hoisted is often a gate that should not exist. Ask whether the step has to be
+# conditional at all before asking whether its condition can be computed early.
+PIN=8
 
 cannot() { echo "CANNOT-RUN [$1]: $2" >&2; exit 2; }
 [ -f "$INSTALL_SH" ] || cannot "no-install-sh" "$INSTALL_SH not found -- nothing was examined."
