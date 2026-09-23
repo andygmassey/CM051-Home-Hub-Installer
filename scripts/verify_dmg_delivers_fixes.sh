@@ -176,6 +176,123 @@ PAYLOAD_INV=(  "_node_holds_a_different_canonical_key"
                "mergedInto> <{canonical}>"
                "_resurrectable_subjects" )
 
+# ── COMMENT STRIPPING, AND WHY THIS GATE WAS BLIND WITHOUT IT ────────────────
+#
+# The header above says this file "greps a behaviour-tied INVARIANT per fix --
+# the string the fix introduced into the code path -- never a comment". That
+# was the INTENT and it was never enforced. `grep -cF` counts a line whether it
+# is executed or commented out, so the claim was decoration.
+#
+# MEASURED 2026-09-23 against a built DMG carrying this repo's install.sh. The
+# only live occurrence of the #2202 invariant is the invocation at install.sh
+#     .venv/bin/python3 -m identity_resolver.repair_merge_consistency \
+# Prefixing that one line with "# was: " in BOTH install.sh copies kills the
+# merge-consistency repair on every customer Mac, and this gate printed
+#     PRESENT   #2202-the-merge-consistency-repair-is-invoked (in all 2)
+#     PASS: every required fix invariant is present
+# rc=0. That is the gate that answers "does the DMG contain the fixes" saying
+# yes about a feature it had just watched die.
+#
+# THE RULE: match only against text that survives comment stripping. Shell and
+# Python both comment with '#', which is every file this gate reads.
+#
+# CONSERVATIVE BY CONSTRUCTION, because a false FAIL here blocks a cut:
+#   - a line whose first non-blank character is '#' contributes nothing;
+#   - on any other line the first '#' that is NOT inside a single- or
+#     double-quoted span AND is preceded by whitespace ends the line;
+#   - anything else is left exactly as it was. A '#' inside "http://x#y" or
+#     mid-token (a Python f-string, a shell ${x#y} expansion) is untouched.
+#
+# VALIDATED BOTH WAYS on the real artefact: all 13 invariants below still read
+# PRESENT on an unmutated DMG after stripping, and the mutation above now reads
+# ABSENT. Neither direction alone would have been worth anything.
+strip_comments() {
+    awk '
+        {
+            line = $0
+            probe = line
+            sub(/^[[:space:]]+/, "", probe)
+            if (substr(probe, 1, 1) == "#") next
+            n = length(line); sq = 0; dq = 0; out = line
+            for (k = 1; k <= n; k++) {
+                ch = substr(line, k, 1)
+                if (ch == "\\" && sq == 0) { k++; continue }
+                if (ch == "\047" && dq == 0) { sq = 1 - sq; continue }
+                if (ch == "\"" && sq == 0) { dq = 1 - dq; continue }
+                if (ch == "#" && sq == 0 && dq == 0) {
+                    prev = (k == 1) ? " " : substr(line, k - 1, 1)
+                    if (prev == " " || prev == "\t") { out = substr(line, 1, k - 1); break }
+                }
+            }
+            print out
+        }
+    ' "$1"
+}
+
+# live_count <file> <invariant> -> occurrences that survive comment stripping.
+# `grep -c`, never `grep -q`: this file sets pipefail and a short-circuiting
+# consumer SIGPIPEs the producer and inverts the verdict. grep -c reads to EOF.
+live_count() {
+    grep -cF -- "$2" < "$1"
+}
+
+# ── AN EMPTY STRIP IS NOT PROOF THAT THE STRIPPER IS BROKEN ────────────────
+#
+# The first version of the guard below read "the stripped file is empty" as
+# "the stripper malfunctioned" and exited 2. MEASURED 2026-09-23, by its own
+# test: that turned a real, measurable delivery failure into a shrug.
+#
+# The stale-payload fixture writes a contact_syncer/syncer.py whose ENTIRE
+# content is one comment line, which is what a stale vendored file looks like
+# here. Stripping it correctly yields nothing. The honest verdict is ABSENT,
+# NOT DELIVERED, rc 1. The guard said CANNOT-RUN instead, so arms 7 and 7b --
+# the two arms that exist to catch a payload shipping dark -- both lost the
+# ability to fail. A guard added to stop a false PASS had created a false
+# CANNOT-RUN, which on this board is the same disease with better manners.
+#
+# THE DISCRIMINATOR: the stripper is broken only if it removed something that
+# was NOT a comment. So count the lines that are neither blank nor
+# comment-only. Zero of them means an empty strip is the CORRECT answer and the
+# measurement proceeds to report the invariant absent. More than zero, with an
+# empty strip, means live code really was eaten and CANNOT-RUN is right.
+#
+# THE CONTROL PAIR, both taken on the real artefact every run: a file with live
+# code that strips to empty is refused, and a file that is all comments is
+# measured and reports ABSENT.
+live_line_count() {
+    awk '{ p = $0
+           sub(/^[[:space:]]+/, "", p)
+           if (p != "" && substr(p, 1, 1) != "#") n++ }
+         END { print n + 0 }' "$1"
+}
+
+# 0 = the strip can be trusted, 1 = it ate live code.
+strip_is_trustworthy() {   # $1 = original file, $2 = stripped file
+    [ -s "$2" ] && return 0
+    [ "$(live_line_count "$1")" -eq 0 ]
+}
+
+# ── THE SENSITIVITY ARM. IT RUNS EVERY TIME, ON THE REAL ARTEFACT ────────────
+#
+# A fix you cannot make fail is the same defect wearing a new pattern. So for
+# every invariant, this gate builds a copy of the file it is about to measure
+# with EVERY occurrence of that invariant commented out, and requires its own
+# matcher to report ABSENT. If the matcher still finds it, the gate is blind
+# and says so instead of printing a verdict.
+#
+# This is the positive/negative control pair in one: the measurement itself is
+# the must-be-PRESENT arm, and this is the must-be-ABSENT arm, both taken on
+# the same bytes in the same run.
+prove_sensitive() {   # $1 = source file, $2 = invariant
+    _ps_mut="${WORK}/sens.mutant"
+    awk -v inv="$2" '{ if (index($0, inv)) print "# was: " $0; else print }' "$1" > "$_ps_mut"
+    strip_comments "$_ps_mut" > "${WORK}/sens.stripped"
+    _ps_n="$(live_count "${WORK}/sens.stripped" "$2")"
+    rm -f "$_ps_mut" "${WORK}/sens.stripped"
+    [ "$_ps_n" -eq 0 ]
+}
+
+WORK="$(mktemp -d)"
 MP="$(mktemp -d)"
 DEV=""
 ATTACHED=0
@@ -224,6 +341,7 @@ cleanup() {
         fi
     fi
     [ -d "$MP" ] && rmdir "$MP" 2>/dev/null || true
+    [ -n "${WORK:-}" ] && [ -d "$WORK" ] && rm -rf "$WORK" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -249,13 +367,38 @@ if [ "$n_installs" -eq 0 ]; then
     exit 2
 fi
 
+# Strip once per file, not once per (file, invariant): install.sh is ~1.9 MB.
+# A stripped copy that came out EMPTY means the stripper broke, and an empty
+# haystack reports every invariant ABSENT -- a whole-cut FAIL from a tool
+# fault. Refuse instead: "could not look" must never print as "not there".
+STRIPPED=()
+si=0
+while [ "$si" -lt "$n_installs" ]; do
+    _sf="${WORK}/install.${si}.stripped"
+    strip_comments "${INSTALLS[$si]}" > "$_sf"
+    if ! strip_is_trustworthy "${INSTALLS[$si]}" "$_sf"; then
+        echo "CANNOT-RUN: comment stripping removed LIVE code from ${INSTALLS[$si]}," >&2
+        echo "            leaving nothing to measure -- the stripper is broken." >&2
+        exit 2
+    fi
+    STRIPPED+=("$_sf")
+    si=$((si + 1))
+done
+
 fail=0
 i=0
 while [ "$i" -lt "${#FIX_IDS[@]}" ]; do
     id="${FIX_IDS[$i]}"; inv="${FIX_INV[$i]}"
+    # THE MUST-BE-ABSENT ARM, taken BEFORE the measurement it guards.
+    if ! prove_sensitive "${INSTALLS[0]}" "$inv"; then
+        echo "CANNOT-RUN: the matcher still finds '${inv}' after every occurrence" >&2
+        echo "            in ${INSTALLS[0]} was commented out. This gate is BLIND to" >&2
+        echo "            that invariant, so its verdict on ${id} means nothing." >&2
+        exit 2
+    fi
     present_in=0
-    for f in "${INSTALLS[@]}"; do
-        if [ "$(grep -cF -- "$inv" "$f")" -gt 0 ]; then
+    for f in "${STRIPPED[@]}"; do
+        if [ "$(live_count "$f" "$inv")" -gt 0 ]; then
             present_in=$((present_in + 1))
         fi
     done
@@ -284,9 +427,21 @@ while [ "$j" -lt "${#PAYLOAD_IDS[@]}" ]; do
         j=$((j + 1))
         continue
     fi
+    if ! prove_sensitive "${PFILES[0]}" "$pinv"; then
+        echo "CANNOT-RUN: the matcher still finds '${pinv}' after every occurrence" >&2
+        echo "            in ${PFILES[0]} was commented out -- BLIND to ${pid}." >&2
+        exit 2
+    fi
     p_present=0
     for f in "${PFILES[@]}"; do
-        if [ "$(grep -cF -- "$pinv" "$f")" -gt 0 ]; then
+        _pstrip="${WORK}/payload.stripped"
+        strip_comments "$f" > "$_pstrip"
+        if ! strip_is_trustworthy "$f" "$_pstrip"; then
+            echo "CANNOT-RUN: comment stripping removed LIVE code from ${f}," >&2
+            echo "            leaving nothing to measure -- the stripper is broken." >&2
+            exit 2
+        fi
+        if [ "$(live_count "$_pstrip" "$pinv")" -gt 0 ]; then
             p_present=$((p_present + 1))
         fi
     done
@@ -312,5 +467,6 @@ if [ "$cannot_payload" -ne 0 ]; then
     echo "            Every install.sh invariant passed. That is not the same as delivery." >&2
     exit 2
 fi
-echo "PASS: every required fix invariant is present -- ${#FIX_IDS[@]} in every install.sh, ${#PAYLOAD_IDS[@]} in the payload."
+echo "PASS: every required fix invariant is present as LIVE code (comments stripped)"
+echo "      -- ${#FIX_IDS[@]} in every install.sh, ${#PAYLOAD_IDS[@]} in the payload; each one proven ABSENT first on a commented-out copy."
 exit 0
