@@ -23923,12 +23923,68 @@ OSTLER_LAUNCHAGENT_LABELS=(
     com.creativemachines.ostler-remotecapture
 )
 
+# 🔴 ENUMERATE THE DISK, DO NOT ONLY TRUST THE LIST.
+#
+# ANDY, 2026-09-24: "The Uninstaller should wipe all this shit." The list
+# above is hand-maintained and it is STRUCTURALLY BLIND to one whole class:
+# an agent installed by VENDORED code rather than by install.sh writing the
+# plist itself. install.sh:34593 copies context-refresh/ and runs its
+# INSTALL_SNIPPET.sh, and that snippet writes
+# com.creativemachines.ostler.context-refresh. A list derived from reading
+# install.sh can never contain it.
+#
+# MEASURED on the walk box: 23 agents present, 22 named in this file, one
+# missing, and the missing one survived a "successful" uninstall STILL
+# LOADED, pointed at a ~/.ostler the uninstaller had just deleted.
+#
+# Adding that one name by hand repairs the instance and leaves the class, and
+# the next vendored snippet is dark again. So the teardown now takes the UNION
+# of the declared list and whatever is actually on disk under the two
+# namespaces WE OWN: com.ostler.* and com.creativemachines.ostler*.
+#
+# WHY THE LIST IS STILL READ RATHER THAN REPLACED: an agent whose plist has
+# already been deleted can still be LOADED in the session. Enumeration cannot
+# see it and the list can, so both halves are needed and neither is redundant.
+#
+# SCOPE IS NAMED, NOT WIDE: only those two prefixes, only in the customer's
+# own ~/Library/LaunchAgents. A selector wider than its subject in a tool that
+# does not ask is how three separate incidents started on 2026-09-23.
+_u_agent_labels=()
 for _label in "${OSTLER_LAUNCHAGENT_LABELS[@]}"; do
+    _u_agent_labels+=("$_label")
+done
+for _plist in "${HOME}/Library/LaunchAgents"/com.ostler.*.plist \
+              "${HOME}/Library/LaunchAgents"/com.creativemachines.ostler*.plist; do
+    [ -e "$_plist" ] || continue
+    _found="$(basename "$_plist" .plist)"
+    _dupe=0
+    for _known in "${_u_agent_labels[@]}"; do
+        [ "$_known" = "$_found" ] && { _dupe=1; break; }
+    done
+    if [ "$_dupe" -eq 0 ]; then
+        # Worth a line of its own: this is an agent the declared list did not
+        # know about, which is the case that was silently surviving.
+        echo "  Found an unlisted Ostler LaunchAgent on disk: ${_found}"
+        _u_agent_labels+=("$_found")
+    fi
+done
+
+for _label in "${_u_agent_labels[@]}"; do
     launchctl bootout "gui/$(id -u)/${_label}" 2>/dev/null || \
         launchctl unload "${HOME}/Library/LaunchAgents/${_label}.plist" 2>/dev/null || true
     rm -f "${HOME}/Library/LaunchAgents/${_label}.plist"
 done
-unset _label
+
+# AND SAY SO IF ANY SURVIVED. The whole reason /Applications/Ostler stayed
+# invisible for months is that a removal failed and nothing graded it.
+_u_left="$(ls "${HOME}/Library/LaunchAgents" 2>/dev/null | grep -cE '^com\.(ostler|creativemachines\.ostler)' || true)"
+if [ "${_u_left:-0}" -gt 0 ]; then
+    echo "  (warning: ${_u_left} Ostler LaunchAgent(s) could not be removed:)"
+    ls "${HOME}/Library/LaunchAgents" 2>/dev/null \
+        | grep -E '^com\.(ostler|creativemachines\.ostler)' | sed 's/^/      /'
+fi
+unset _label _plist _found _known _dupe _u_left
+unset _u_agent_labels
 
 # Ollama's cask is Homebrew's to remove, not launchd's. Sequenced after the
 # loop so com.ostler.ollama is already unloaded and nothing is holding the
