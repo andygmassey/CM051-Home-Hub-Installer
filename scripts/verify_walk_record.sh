@@ -516,7 +516,24 @@ _adjudicate_scoped() {
         exit 2
     fi
 
-    blocking+=("${blk_broken[@]}")
+    # 🔴 EMPTY-ARRAY EXPANSION IS AN ERROR UNDER bash 3.2, WHICH IS THE SHELL
+    # THE CUT HOST RUNS. `"${arr[@]}"` on an empty array under `set -u` is an
+    # unbound-variable error in 3.2 and legal only from 4.4. This line is
+    # reached on EVERY record that is not clean, so the gate died before it
+    # could refuse, anonymously, on exactly the inputs it exists to judge.
+    #
+    # CI never saw it: walk-record-gate.yml runs ubuntu-latest, where bash is
+    # 5.x. The crash lives only on the path publish_release.sh takes on a Mac
+    # without Homebrew bash, which is the host that matters.
+    #
+    # Reproduced and fixed both directions under /bin/bash 3.2.57:
+    #   old form, empty array      -> blk_broken[@]: unbound variable
+    #   new form, empty array      -> survives, 0 entries carried
+    #   new form, two entries      -> survives, 2 entries carried
+    #
+    # The ${arr[@]+"${arr[@]}"} form expands to nothing when unset and to the
+    # quoted elements otherwise, so it is not a workaround that loses data.
+    blocking+=(${blk_broken[@]+"${blk_broken[@]}"})
 
     for p in "$@"; do
         sc="$(_scope_of "$p")"

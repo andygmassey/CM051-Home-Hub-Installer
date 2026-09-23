@@ -11,6 +11,18 @@
 # THIS LIST MAY ONLY SHRINK. Removing a row means the source is now requested
 # by a preset. Adding one requires a reason and a condition to remove it.
 #
+# RETIRED 2026-09-23: apple_notes. Its row said the converter was absent
+# ("vendor/cm024_knowledge ships only base.py + evernote.py adapters"). That
+# was TRUE when written and FALSE for months afterwards: the vendored tree now
+# ships six adapters including ingestion/adapters/apple_notes.py, the ADAPTERS
+# registry maps "apple_notes", and cli.py builds its `--source` choices from
+# that map. The row's own removal condition ("`convert --source apple_notes`
+# exits 0 on a real apple_notes.json") was MEASURED before the row was
+# deleted, not assumed: rc 0 on a synthetic two-note fixture with two markdown
+# files written, against a negative control (`--source apple_notes_nope`) that
+# exits 2. A declared deferral whose stated condition is met is no longer a
+# decision. It is a stale row holding a shipped capability dark, which is
+# exactly what this one did for the life of the product.
+#
 # source<TAB>reason<TAB>removal condition
-apple_notes	converter absent: vendor/cm024_knowledge ships only base.py + evernote.py adapters, so `convert --source apple_notes` exits non-zero on an unknown source. install.sh:9375 says restore it in the same change that lands the CM024 re-pin, not before. Enabling it alone converts a silent no_data into a hard failure AND asks Full Disk Access for data we discard.	CM024 re-pin lands an apple_notes adapter and `convert --source apple_notes` exits 0 on a real apple_notes.json
 apple_music	no consumer anywhere. 0 hits in install.sh, 0 hits in vendor/cm024_knowledge, and `convert --source` is never invoked for it. Extracting it would read the library and hand the data to nothing.	a consumer exists and is invoked from the hydrate path

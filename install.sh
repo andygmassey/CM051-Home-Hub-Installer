@@ -1350,7 +1350,11 @@ gui_step_end()    { :; }
 # every other helper here. Present so the hydrate sentinel recorders
 # can call it unguarded.
 gui_step_record_rc() { :; }
-gui_step_status() { printf 'ok'; }
+# #2318: `unmeasured`, not `ok`. Before the emitter is sourced nothing can
+# have measured anything, and the stub must not be the one surface that
+# still answers "fine" by default.
+gui_step_status() { printf 'unmeasured'; }
+gui_step_measures_nothing() { :; }
 gui_log()         { :; }
 gui_warn()        { :; }
 gui_phase()       { :; }
@@ -3330,14 +3334,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8218) captures the path BY
+    # _ostler_write_store_curl_config (defined :8223) captures the path BY
     # VALUE and never re-reads it:
-    #     :8219   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8264   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8273 and :14685, both of which run
+    #     :8224   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8269   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8278 and :14771, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :3325 above has just deleted
-    # that tree and :3329 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :3329 above has just deleted
+    # that tree and :3333 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -3352,13 +3356,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15456, where the note reads
+    # WhatsApp Web session path did it again at :15542, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15473 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15559 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3367,13 +3371,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5838 against a definition at :8218. Top-level
+    # writer's own definition: :5843 against a definition at :8223. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8273, :14685) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8278, :14771) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17528 / :17706 / :17863 / :18205 path. There the
+    # :17614 / :17792 / :17949 / :18291 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -4464,7 +4468,8 @@ else
     gui_step_begin()  { :; }
     gui_step_end()    { :; }
     gui_step_record_rc() { :; }
-    gui_step_status() { printf 'ok'; }
+    gui_step_status() { printf 'unmeasured'; }
+    gui_step_measures_nothing() { :; }
     gui_read()        {
         # Mirrors the TTY half of the full helper so install.sh keeps
         # working when sourced direct from a terminal. Handles the
@@ -8909,8 +8914,20 @@ fi
 # so no cut-tooling / Makefile change is needed. Canonical source + tests:
 # lib/ostler-detect-exports.sh; tests/test_gdpr_export_detect.sh runs a drift
 # guard in CI that fails if this embedded copy diverges from that file.
-mkdir -p "${HOME}/.ostler/lib" 2>/dev/null || true
-cat > "${HOME}/.ostler/lib/ostler-detect-exports.sh" <<'OSTLER_DETECT_EXPORTS_EOF'
+#
+# 🔴 ${OSTLER_DIR}, NEVER A LITERAL ${HOME}/.ostler. Phase 2 writes into the
+# /tmp/ostler-prelaunch-<pid> staging tree, and _ostler_promote_prelaunch_tree
+# (:3257) promotes it by doing `rm -rf "${OSTLER_FINAL_DIR}/${name}"` then `mv`
+# for EVERY top-level entry, one of which is lib/. So a lib written straight to
+# ~/.ostler/lib is deleted by the promote that follows it, and the install that
+# wrote it reports status=ok. Measured on the walk box 2026-09-23: all three
+# libs embedded here were written, were used during the install, and were
+# absent from ~/.ostler/lib afterwards, which left the wiki summary backfill on
+# the unbounded fallback mutex. _ostler_set_paths rebinds OSTLER_DIR at the
+# promote, so it is the only spelling correct on both sides of the move.
+# Guarded by tests/test_prelaunch_libs_survive_promote.sh.
+mkdir -p "${OSTLER_DIR}/lib" 2>/dev/null || true
+cat > "${OSTLER_DIR}/lib/ostler-detect-exports.sh" <<'OSTLER_DETECT_EXPORTS_EOF'
 #!/usr/bin/env bash
 # Bulletproof GDPR-export detection for Ostler's import.
 #
@@ -9077,7 +9094,7 @@ done
 
 exit "$found_any"
 OSTLER_DETECT_EXPORTS_EOF
-chmod +x "${HOME}/.ostler/lib/ostler-detect-exports.sh" 2>/dev/null || true
+chmod +x "${OSTLER_DIR}/lib/ostler-detect-exports.sh" 2>/dev/null || true
 
 # ── Resource-tier governor lib (v1.0.3 first-run-storm fix) ────────
 # Adaptive first-run resource governor: detects the hardware tier
@@ -9088,8 +9105,20 @@ chmod +x "${HOME}/.ostler/lib/ostler-detect-exports.sh" 2>/dev/null || true
 # shipped inside install.sh, with a CI drift guard
 # (tests/test_resource_tier_governor.sh) that fails if this embedded
 # copy diverges from the canonical lib/ostler-resource-tier.sh.
-mkdir -p "${HOME}/.ostler/lib" 2>/dev/null || true
-cat > "${HOME}/.ostler/lib/ostler-resource-tier.sh" <<'OSTLER_RESOURCE_TIER_EOF'
+#
+# 🔴 ${OSTLER_DIR}, NEVER A LITERAL ${HOME}/.ostler. Phase 2 writes into the
+# /tmp/ostler-prelaunch-<pid> staging tree, and _ostler_promote_prelaunch_tree
+# (:3257) promotes it by doing `rm -rf "${OSTLER_FINAL_DIR}/${name}"` then `mv`
+# for EVERY top-level entry, one of which is lib/. So a lib written straight to
+# ~/.ostler/lib is deleted by the promote that follows it, and the install that
+# wrote it reports status=ok. Measured on the walk box 2026-09-23: all three
+# libs embedded here were written, were used during the install, and were
+# absent from ~/.ostler/lib afterwards, which left the wiki summary backfill on
+# the unbounded fallback mutex. _ostler_set_paths rebinds OSTLER_DIR at the
+# promote, so it is the only spelling correct on both sides of the move.
+# Guarded by tests/test_prelaunch_libs_survive_promote.sh.
+mkdir -p "${OSTLER_DIR}/lib" 2>/dev/null || true
+cat > "${OSTLER_DIR}/lib/ostler-resource-tier.sh" <<'OSTLER_RESOURCE_TIER_EOF'
 #!/usr/bin/env bash
 #
 # ostler-resource-tier.sh
@@ -9514,7 +9543,7 @@ if [ "${BASH_SOURCE[0]:-$0}" = "${0}" ]; then
     printf 'OSTLER_INGEST_OFFPEAK_ONLY=%s\n' "${OSTLER_INGEST_OFFPEAK_ONLY:-1}"
 fi
 OSTLER_RESOURCE_TIER_EOF
-chmod +x "${HOME}/.ostler/lib/ostler-resource-tier.sh" 2>/dev/null || true
+chmod +x "${OSTLER_DIR}/lib/ostler-resource-tier.sh" 2>/dev/null || true
 
 # -- Shared ingest-slot arbitration lib (2026-08-14 starvation fix) --
 # Fair, time-bounded arbitration of the one shared Ollama ingest slot.
@@ -9528,8 +9557,20 @@ chmod +x "${HOME}/.ostler/lib/ostler-resource-tier.sh" 2>/dev/null || true
 # heredoc with a CI drift guard (tests/test_ingest_slot_fairness.sh)
 # that fails if this embedded copy diverges from the canonical
 # lib/ostler-ingest-slot.sh.
-mkdir -p "${HOME}/.ostler/lib" 2>/dev/null || true
-cat > "${HOME}/.ostler/lib/ostler-ingest-slot.sh" <<'OSTLER_INGEST_SLOT_EOF'
+#
+# 🔴 ${OSTLER_DIR}, NEVER A LITERAL ${HOME}/.ostler. Phase 2 writes into the
+# /tmp/ostler-prelaunch-<pid> staging tree, and _ostler_promote_prelaunch_tree
+# (:3257) promotes it by doing `rm -rf "${OSTLER_FINAL_DIR}/${name}"` then `mv`
+# for EVERY top-level entry, one of which is lib/. So a lib written straight to
+# ~/.ostler/lib is deleted by the promote that follows it, and the install that
+# wrote it reports status=ok. Measured on the walk box 2026-09-23: all three
+# libs embedded here were written, were used during the install, and were
+# absent from ~/.ostler/lib afterwards, which left the wiki summary backfill on
+# the unbounded fallback mutex. _ostler_set_paths rebinds OSTLER_DIR at the
+# promote, so it is the only spelling correct on both sides of the move.
+# Guarded by tests/test_prelaunch_libs_survive_promote.sh.
+mkdir -p "${OSTLER_DIR}/lib" 2>/dev/null || true
+cat > "${OSTLER_DIR}/lib/ostler-ingest-slot.sh" <<'OSTLER_INGEST_SLOT_EOF'
 #!/usr/bin/env bash
 #
 # ostler-ingest-slot.sh
@@ -10350,7 +10391,7 @@ ostler_slot_release() {
     return 0
 }
 OSTLER_INGEST_SLOT_EOF
-chmod +x "${HOME}/.ostler/lib/ostler-ingest-slot.sh" 2>/dev/null || true
+chmod +x "${OSTLER_DIR}/lib/ostler-ingest-slot.sh" 2>/dev/null || true
 
 # Auto-unzip export zips in the scan dirs FIRST, so the content detection
 # below (and the parsers) can read a still-zipped download. Runs AFTER the
@@ -10378,7 +10419,7 @@ _ostler_zip_count_add() {  # $1=running total  $2="key=NN"; echoes the new total
 }
 for _sd in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     [[ -d "$_sd" ]] || continue
-    _uz_line="$(bash "${HOME}/.ostler/lib/ostler-detect-exports.sh" "$_sd" --unzip 2>&1 >/dev/null | grep '^UNZIP_SUMMARY ' || true)"
+    _uz_line="$(bash "${OSTLER_DIR}/lib/ostler-detect-exports.sh" "$_sd" --unzip 2>&1 >/dev/null | grep '^UNZIP_SUMMARY ' || true)"
     if [[ -n "${_uz_line:-}" ]]; then
         read -r _ _uzf _uzo _uza _uzsn _uzsp _uzso <<<"$_uz_line" || true
         _OSTLER_ZIPS_FOUND="$(_ostler_zip_count_add "$_OSTLER_ZIPS_FOUND" "${_uzf:-found=0}")"
@@ -10820,7 +10861,46 @@ PRESET=${PRESET:-recommended}
 # and Safari history"). Pre-fix the strings file promised those sources
 # but the bash var did not include them, so install completed with the
 # wiki empty of iMessage + email-correspondent data on every install.
-RECOMMENDED="safari_history,safari_bookmarks,calendar,reminders,imessage,apple_mail"
+#
+# apple_notes (2026-09-23): THE SAME DEFECT AS #48g, ON THE SAME LINE, FOUND
+# AGAIN. Everything downstream of the picker already shipped and was already
+# proven: vendor/cm024_knowledge registers the apple_notes adapter (its
+# ADAPTERS map, and cli.py builds `--source` from that map), the hydrate leg
+# below drives `convert --source apple_notes` + embed, the assistant searches
+# apple_notes_knowledge (OSTLER_KNOWLEDGE_COLLECTIONS, marked :searched), the
+# Doctor prints an apple_notes row unconditionally (_SOURCE_KINDS in the
+# vendored web_ui.py), and extract_all.py has apple_notes in DEFAULT_SOURCES
+# with an extractor that writes apple_notes.json. The ONLY missing link was
+# this line and the picker below, so OSTLER_FDA_SOURCES never carried the
+# name, extract_all took `disabled_by_user`, the JSON was never written, the
+# `[[ ! -s ]]` gate on the hydrate leg always skipped, and
+# apple_notes_knowledge was empty on every install ever shipped.
+#
+# MEASURED on the v1.0.101 walk rather than reasoned about:
+# state/hydrate/apple_notes.done read `status=no_data item_count=0
+# detail=no_export_json` and imports/fda/apple_notes.json did not exist.
+#
+# WHY RECOMMENDED AND NOT EVERYTHING-ONLY. Three reasons, in order of weight:
+#   1. The customer copy already promises it in Recommended, in BOTH places a
+#      customer can read it: MSG_PROMPT_FDA_PRESET_CHOICE_RECOMMENDED ("...
+#      Calendar, Notes, Messages ...") and the TTY menu just above ("Safari
+#      history + bookmarks, Notes, Calendar, ..."). Listing it only under
+#      Everything would leave both promises false, which is precisely the
+#      strings-promise-vs-var mismatch #48g existed to close.
+#   2. It costs NO new permission. NoteStore.sqlite sits behind the same
+#      single Full Disk Access grant already taken for Safari, iMessage and
+#      Mail at this same moment. There is no separate Notes prompt to decline,
+#      so the "do not print an amber row for ever to someone who said no"
+#      concern does not arise: the customer never says no to Notes
+#      specifically. Contrast photos_metadata, which stays off by default.
+#   3. The Doctor row is UNCONDITIONAL either way. apple_notes is in
+#      _SOURCE_KINDS, not _FDA_EXTRACT_KINDS, so the panel prints the row
+#      whether or not a sentinel exists. Everything-only would therefore keep
+#      the amber "not run yet" row on the default install forever, which is
+#      the outcome the deferral was supposed to avoid.
+# Andy, 2026-09-02, on the deferral this replaces: "I don't know where you're
+# getting that Apple Notes shouldn't be included - it SHOULD."
+RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders,imessage,apple_mail"
 
 # DMG fix 3 (#618 partial): most customers are Chrome-primary, so a
 # Recommended install must ingest Chrome history too when Chrome is
@@ -10876,6 +10956,12 @@ case "$PRESET" in
         echo "  Recommended (defaults on):"
         _ask_source "safari_history"   "Safari history          " Y
         _ask_source "safari_bookmarks" "Safari bookmarks        " Y
+        # Same order as the TTY menu above and as RECOMMENDED. A source in a
+        # preset but NOT here is worse than dark: the customer who picks
+        # Customise loses it silently while the Recommended customer keeps it,
+        # and nothing in the summary line says so.
+        # tests/test_the_picker_offers_every_preset_source.sh asserts the join.
+        _ask_source "apple_notes"      "Apple Notes             " Y
         _ask_source "calendar"         "Calendar                " Y
         _ask_source "reminders"        "Reminders               " Y
         _ask_source "imessage"         "iMessage                " Y
@@ -12185,13 +12271,13 @@ if ! [[ "$TOTAL_STEPS" =~ ^[0-9]+$ ]] || [[ "$TOTAL_STEPS" -le 0 ]]; then
     # the thing that holds when this constant next drifts, and it will.
     #
     # tests/test_total_steps_dynamic.sh exercises this path (BASH_SOURCE is
-    # unresolvable under `bash -c`) and fails if this constant drifts.
-    # 42 -> 43 on 2026-09-18: the merge-consistency repair (CM041 #162) added
-    # a progress call. Bumped because tests/test_total_steps_dynamic.sh failed
-    # on it, which is the arm working as designed; a customer on the
-    # `curl | bash` path would otherwise have divided by 42 while 43 steps ran
-    # and watched the bar finish at 102%.
-    TOTAL_STEPS=43
+    # unresolvable under `bash -c`) and fails if this drifts. Citations below.
+    # 42 -> 43 on 2026-09-18 (merge-consistency repair, CM041 #162), 43 -> 44 on
+    # 2026-09-23 (Front Page catch-up agent, 3.14d-editor-bis). Each was forced
+    # by tests/test_total_steps_dynamic.sh, the arm working as designed: a
+    # `curl | bash` customer would otherwise divide by the stale number, and
+    # watch the bar finish past 100%. EDIT THIS BLOCK LINE-NEUTRALLY: comment
+    TOTAL_STEPS=44
     [[ -n "$EXPORTS_DIR" ]] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 fi
 CURRENT_STEP=0
@@ -13555,7 +13641,7 @@ else
     # LOW (16GB floor that ships today) and HIGH keep 2. Fail-safe: if the
     # tier lib is missing we keep the historic 2.
     OSTLER_NUM_PARALLEL=2
-    _ostler_tier_lib="${HOME}/.ostler/lib/ostler-resource-tier.sh"
+    _ostler_tier_lib="${OSTLER_DIR}/lib/ostler-resource-tier.sh"
     if [[ -f "$_ostler_tier_lib" ]]; then
         # shellcheck source=/dev/null
         . "$_ostler_tier_lib"
@@ -18658,6 +18744,26 @@ fi
 mkdir -p "${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/AI Conversations}" 2>/dev/null \
     || warn "Could not create the AI Conversations folder, so the wiki page for them may stay empty until the next compile."  # i18n-exempt
 
+# #979, FOURTH INSTANCE, AND THIS TIME IT IS THE HUMAN CONVERSATIONS TREE.
+#
+# Everything the comment above says is true of ~/Documents/Ostler/Conversations
+# as well. That is where the four shipped bundle feeds (vendor/imessage_source,
+# vendor/email_source, vendor/whatsapp_source, vendor/spoken_source, each with
+# its own LaunchAgent) write the four-artefact bundles, and the wiki-compiler
+# service below now bind-mounts it read-only. Docker would create a missing
+# bind source itself, root-owned, in the customer visible zone, and those four
+# feeds run as the customer.
+#
+# THE WRITERS RESOLVE THIS PATH IN CODE, NOT FROM AN ENV VAR:
+# vendor/cm048_pipeline/src/ostler_paths.py::conversations_dir() returns
+# Path.home()/"Documents"/"Ostler"/"Conversations" with no override hook. So
+# the default below is the only path any writer ever uses, and the variable
+# exists to re-aim the MOUNT, exactly as OSTLER_WIKI_DIR and
+# OSTLER_AI_CONVERSATIONS_DIR do here. It does not move the writers, and an
+# operator who sets it without moving them will mount an empty tree.
+mkdir -p "${OSTLER_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/Conversations}" 2>/dev/null \
+    || warn "Could not create the Conversations folder, so the wiki pages for your conversations may stay empty until the next compile."  # i18n-exempt
+
 cat > "${OSTLER_DIR}/docker-compose.yml" <<'DCEOF'
 services:
   qdrant:
@@ -18903,6 +19009,36 @@ services:
       # writable mount onto the customer's conversation tree is a foothold
       # the wiki compiler has no reason to hold.
       - ${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/AI Conversations}:/ai-conversations:ro
+      # 🔴 #979 A FOURTH TIME, AND THE TREE IS THE HUMAN ONE. The comment
+      # above is about ~/Documents/Ostler/AI Conversations. THIS line is about
+      # ~/Documents/Ostler/Conversations, a different tree with a different
+      # producer, and it was missing here for the identical reason.
+      #
+      # MEASURED 2026-09-23 on origin/main 7ecd4907, on this file:
+      #     OSTLER_CONVERSATIONS_DIR      -> 0
+      #     CONTROL, same file, same query:
+      #     OSTLER_AI_CONVERSATIONS_DIR   -> 8
+      # so the zero is real absence and not a false read of the wrong file.
+      #
+      # WHO WRITES IT: four shipped launchd feeds (imessage, email, whatsapp,
+      # spoken), each emitting <date>/<slug>-<short-id>/{summary,transcript,
+      # todos}.md per the locked four-artefact conversation directive.
+      #
+      # WHO READS IT, AND ALL THREE OF THEM ARE CALLED: compiler/config.py's
+      # bundles_dir feeds bundle_conversation_pages.generate (compile.py:906),
+      # commitment_pages.generate (:957) and reply_debt_pages.generate (:985).
+      # Without this mount and the env var below, bundles_dir resolves through
+      # expanduser("~"), which in this image (no USER, no ENV HOME) is /root,
+      # so root.exists() is False and all three take their graceful
+      # no-captures branch and return status=skipped reason=no_root. Three
+      # empty pages, exit 0, no error line anywhere, and every WhatsApp,
+      # iMessage, email and call bundle on the box invisible to the wiki.
+      #
+      # READ-ONLY, same reasoning as the AI mount above: the compiler CONSUMES
+      # these bundles and nothing in CM044 writes them, so a writable mount
+      # onto the customer's conversation tree is a foothold it has no reason
+      # to hold.
+      - ${OSTLER_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/Conversations}:/conversations:ro
       - oxigraph_data:/app/oxigraph:ro
       - qdrant_data:/app/qdrant:ro
       # Hydration status hand-off (CM044 #624). The compiler writes a
@@ -19027,6 +19163,18 @@ services:
       # which is the same defect one layer up: a thing that is there and
       # that nothing looks at.
       - OSTLER_AI_CONVERSATIONS_DIR=/ai-conversations
+      # #979, fourth instance. The path INSIDE the container, matching the
+      # bind mount above. compiler/config.py::bundles_dir honours this, and
+      # all three bundle readers resolve through it. Without it the mount
+      # would be present and unread, which is the same defect one layer up:
+      # a thing that is there and that nothing looks at.
+      #
+      # Set EXPLICITLY rather than letting a HOME-relative path resolve, for
+      # the same reason OSTLER_SUBSCRIPTION_STATE and OSTLER_WORKSPACE are:
+      # the image declares no USER and no ENV HOME, so "~" is /root only by
+      # inheritance from the base image, and a HOME-relative read would
+      # silently stop matching the day anyone adds a USER line.
+      - OSTLER_CONVERSATIONS_DIR=/conversations
       # #482, second half. Names the workspace directory the mount above
       # landed on. resolve_journal_path() branch 2 reads OSTLER_WORKSPACE as
       # a WORKSPACE dir, and because this value's basename is literally
@@ -23755,6 +23903,7 @@ OSTLER_LAUNCHAGENT_LABELS=(
     com.creativemachines.ostler.wiki-recompile
     com.creativemachines.ostler.wiki-recompile-catchup
     com.creativemachines.ostler.editor-frontpage
+    com.creativemachines.ostler.editor-frontpage-catchup
     com.creativemachines.ostler.dedupe-catchup
     com.ostler.enrich
     com.creativemachines.ostler.assistant
@@ -26262,6 +26411,366 @@ if [[ -n "$EDITOR_FRONTPAGE_SRC" ]]; then
     fi
 else
     warn "$MSG_WARN_EDITOR_FRONTPAGE_VENDOR_MISSING"
+fi
+
+# ── 3.14d-editor-bis  Front Page FIRST-DAY catch-up LaunchAgent ──
+#
+# 🔴 RunAtLoad FIRES WHEN THE GRAPH IS EMPTY, AND NOTHING RE-RUNS FOR AN HOUR.
+#
+# The agent installed immediately above is StartInterval 3600 + RunAtLoad true,
+# and its own plist comment states the intent: "RunAtLoad fires one emit at
+# LaunchAgent load (post-install / login) so the Dashboard shows a populated
+# (or honestly-settling) Front Page immediately rather than after the first
+# hour." On a fresh install it does not achieve that, because the install
+# finishes BEFORE the ingest it depends on.
+#
+# MEASURED END TO END on macmini16-walk, 2026-09-23, from the box's own
+# ~/.ostler/logs/editor-frontpage.log and .err:
+#
+#   12:00:53  tick  projected 0 preference nodes from 0 Qdrant points
+#                   interest-profile artefact: 0 interests
+#   13:00:58  tick  projected 0 preference nodes from 926 Qdrant points;
+#                   926 skipped as unqueryable
+#                   interest-profile artefact: 0 interests
+#   13:05     the real preference points land (bookmarks and the rest)
+#   13:29     the SAME installed wrapper, run by hand, on the SAME box:
+#                   projected 4797 preference nodes (43173 triples) from
+#                   5723 Qdrant points
+#                   interest-profile artefact: 4628 interests
+#                   front-page: 9 cards (phase=steady)
+#
+# 0 interests to 4,628 with no other change. Nothing is wrong with the
+# projector or the compiler. THE SCHEDULE IS WRONG: the one guaranteed run
+# happens at the one moment there is provably nothing to read.
+#
+# WHAT THE CUSTOMER GETS in that window, which is up to a full hour wide:
+# an empty Front Page on the Dashboard, and an assistant that cannot answer
+# a question about their own interests, because
+# ~/.ostler/preferences/interest_profile.json is the file
+# /api/v1/preferences serves and the daemon's pwg_preferences tool reads.
+# The BLOCKING walk probe assistant_answers_grounded scores
+# [tool_found_nothing:pwg_preferences] for exactly this reason, twice in a
+# row on two different builds. scripts/box_walk_probes/lib/preference_seed.sh
+# had already written the cause down in its own header: "Its RunAtLoad tick
+# fires at the END OF THE INSTALL, before any seed exists ... which nothing
+# rewrote for an hour."
+#
+# THE FIX IS THE SHAPE THAT ALREADY SHIPS, one block up: the wiki's first-day
+# catch-up agent (com.creativemachines.ostler.wiki-recompile-catchup). A
+# self-removing wrapper that counts its runs against a cap, re-runs the
+# EXISTING tick (no duplicated compile logic), and boots out its own agent
+# once the work is done or the cap is reached. The hourly agent above is
+# deliberately left EXACTLY as it is -- its RunAtLoad run is harmless, and the
+# missing catch-up is the whole defect.
+#
+# HOW THE WRAPPER TELLS "NOT POPULATED YET" FROM "GENUINELY NOTHING TO
+# PROJECT", because a box whose owner really has no preferences must stop
+# rather than retry to the cap:
+#
+#   the UPSTREAM DENOMINATOR, read as THREE states, never two. The Qdrant
+#   `preferences` collection is what compiler.project_preferences reads and
+#   what every interest ultimately comes from.
+#     n > 0        there IS data upstream and the profile is still empty, so
+#                  the projection/compile has not caught up. RETRY.
+#     n == 0 on a 200  the collection exists and holds nothing. No number of
+#                  retries can change that. STOP -- but only after
+#                  EDITOR_CATCHUP_EMPTY_CONFIRMATIONS consecutive readings,
+#                  so a collection created at hydrate and filled ten minutes
+#                  later cannot end the catch-up on the one tick that caught
+#                  it between the two.
+#     404 / curl failure / unparseable body  COULD NOT LOOK. That is not a
+#                  zero and is never read as one. RETRY, bounded by the cap.
+#
+#   "found nothing" and "could not look" print identically unless you make
+#   them different, and this is the block where making them different is the
+#   entire correctness argument.
+#
+# INTERVAL 300s, NOT the wiki's 1800s, and the difference is justified by what
+# each tick costs. The wiki catch-up drives a full site recompile. This one
+# drives the Front Page tick, measured at 5s on the cold run and under 1s on
+# the second (times from the log above), and it stops the moment it succeeds,
+# so on a healthy box it runs a handful of times. 36 tries at 300s bounds the
+# worst case at 3 hours, which comfortably covers the 65-minute ingest window
+# measured above with room for a slower Mac.
+#
+# STEP-COUNT: UNCONDITIONAL progress call, NO late decrement, and that is a
+# deliberate departure from the wiki catch-up one block up.
+#
+# The wiki's version gates its `progress` on the tick existing and subtracts a
+# slot when it does not. Copying that here would have added a NINTH late
+# decrement, and scripts' ratchet pins the late-decrement count at 8 with the
+# reason stated: a decrement that fires AFTER the first progress call moves the
+# denominator the customer has already been shown a percentage against, so the
+# bar jumps. The gate offers "hoist it above the seed, or say so in the PR and
+# raise the pin". Neither was needed. The condition here is
+# `-x ${OSTLER_DIR}/bin/editor-frontpage-tick.sh`, which the 3.14d-editor block
+# renders moments earlier, so it is genuinely unknowable at seed time and
+# cannot be hoisted -- but it does not have to be a GATE. The step always runs:
+# it either installs the catch-up agent or says why it did not. One step
+# announced, one step performed, denominator untouched, ratchet still 8.
+progress "$MSG_PROGRESS_EDITOR_FRONTPAGE_CATCHUP" "editor_frontpage_catchup_agent"
+if [[ -x "${OSTLER_DIR}/bin/editor-frontpage-tick.sh" ]]; then
+
+    EDITOR_CATCHUP_INTERVAL_S="${EDITOR_CATCHUP_INTERVAL_S:-300}"
+    EDITOR_CATCHUP_MAX_TRIES="${EDITOR_CATCHUP_MAX_TRIES:-36}"
+    EDITOR_CATCHUP_EMPTY_CONFIRMATIONS="${EDITOR_CATCHUP_EMPTY_CONFIRMATIONS:-2}"
+    EDITOR_CATCHUP_LABEL="com.creativemachines.ostler.editor-frontpage-catchup"
+    EDITOR_CATCHUP_PLIST="${HOME}/Library/LaunchAgents/${EDITOR_CATCHUP_LABEL}.plist"
+
+    # Self-removing, bounded catch-up wrapper. Single-quoted heredoc: no
+    # install-time expansion, it resolves OSTLER_DIR at run time exactly like
+    # ostler-wiki-recompile-catchup and ostler-contact-resync do.
+    cat > "${OSTLER_DIR}/bin/ostler-editor-frontpage-catchup" <<'EFPCUEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+OSTLER_DIR="${HOME}/.ostler"
+LOGS_DIR="${OSTLER_DIR}/logs"
+STATE_DIR="${OSTLER_DIR}/state"
+LABEL="com.creativemachines.ostler.editor-frontpage-catchup"
+PLIST="${HOME}/Library/LaunchAgents/${LABEL}.plist"
+TRIES_FILE="${STATE_DIR}/editor-frontpage-catchup.tries"
+EMPTY_FILE="${STATE_DIR}/editor-frontpage-catchup.empty-confirmations"
+LOG_FILE="${LOGS_DIR}/editor-frontpage-catchup.log"
+EDITOR_CATCHUP_MAX_TRIES="${EDITOR_CATCHUP_MAX_TRIES:-36}"
+EDITOR_CATCHUP_EMPTY_CONFIRMATIONS="${EDITOR_CATCHUP_EMPTY_CONFIRMATIONS:-2}"
+TICK="${OSTLER_EDITOR_TICK:-${OSTLER_DIR}/bin/editor-frontpage-tick.sh}"
+PROFILE="${OSTLER_INTEREST_PROFILE:-${OSTLER_DIR}/preferences/interest_profile.json}"
+QDRANT_URL="${QDRANT_URL:-http://127.0.0.1:6333}"
+STORE_CURL_CONF="${OSTLER_DIR}/secrets/store-curl.conf"
+
+# Same guard, same value, same reason as editor-frontpage-tick.sh: the
+# interpreter this wrapper resolves below is the one INSIDE the notarised app,
+# and an unguarded `import json` writes .pyc next to the source it imports,
+# which breaks the code seal (69 .pyc from one import, measured on v1.0.45,
+# codesign rc=1 and spctl refuses). Set in the plist as well. A parent that
+# already set it wins.
+export PYTHONPYCACHEPREFIX="${PYTHONPYCACHEPREFIX:-${OSTLER_DIR}/cache/pycache}"
+
+mkdir -p "$LOGS_DIR" "$STATE_DIR"
+
+log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
+
+remove_self() {
+    # Delete the FILES first, then unload. Reversing these two loses the file:
+    # launchd tears the job down before `launchctl bootout` returns, so every
+    # statement after it is unreachable (measured 10/10, archie@.240,
+    # 2026-09-05). A plist left in ~/Library/LaunchAgents is loaded again at
+    # the next login, so a "self-removing" agent that only booted itself out
+    # came back forever, carrying its old counters with it.
+    rm -f "$PLIST" "$TRIES_FILE" "$EMPTY_FILE"
+    launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
+}
+
+# Resolve an interpreter for the two JSON reads below. NOT a guess:
+# INSTALL_SNIPPET.sh renders the absolute path install.sh chose into the tick
+# as PYTHON_BIN="<path>", so read it back out of the producer rather than
+# picking a different python from the one that wrote the file. Falls back to
+# whatever python3 is on the agent's PATH. No interpreter at all is
+# CANNOT-READ, never "empty".
+_python() {
+    local p=""
+    if [ -r "$TICK" ]; then
+        p="$(sed -n 's/^PYTHON_BIN="\(.*\)"$/\1/p' "$TICK" | head -1)"
+    fi
+    if [ -n "$p" ] && [ -x "$p" ]; then printf '%s' "$p"; return 0; fi
+    p="$(command -v python3 2>/dev/null || true)"
+    if [ -n "$p" ]; then printf '%s' "$p"; return 0; fi
+    return 1
+}
+
+# Prints "<count> <raw_rows>" from the artefact, or ABSENT, or CANNOT-READ.
+# count is what /api/v1/preferences serves and what the assistant's
+# pwg_preferences tool therefore sees; raw_rows is how many preference rows
+# the compiler actually found in the graph, which separates "the graph is
+# empty" from "the graph has rows and the confidence floor suppressed them".
+_profile_counts() {
+    local py
+    py="$(_python)" || { printf 'CANNOT-READ'; return 0; }
+    [ -f "$PROFILE" ] || { printf 'ABSENT'; return 0; }
+    "$py" - "$PROFILE" <<'PYEOF' 2>/dev/null || printf 'CANNOT-READ'
+import json, sys
+try:
+    d = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    print("CANNOT-READ")
+    raise SystemExit(0)
+print("%d %d" % (int(d.get("count") or 0),
+                 int((d.get("stats") or {}).get("raw_rows") or 0)))
+PYEOF
+}
+
+# THE DISCRIMINATOR. Prints the upstream point count, or CANNOT-READ.
+# A 404 (hydrate has not created the collection yet), a curl failure, a
+# missing credential or an unparseable body are ALL CANNOT-READ. Only a body
+# that parses and carries an integer points_count is ever reported as a
+# number, so a zero printed here is a measured zero and nothing else.
+_upstream_points() {
+    local py body
+    py="$(_python)" || { printf 'CANNOT-READ'; return 0; }
+    # Same name, same file and same shape as install.sh's own store credential
+    # array, rebuilt here because a LaunchAgent inherits none of the installer's
+    # environment. Absent conf means the stores were left keyless; the call then
+    # goes out bare on loopback, exactly as the installer's own does.
+    local _OSTLER_STORE_CURL_ARGS=()
+    [ -r "$STORE_CURL_CONF" ] && _OSTLER_STORE_CURL_ARGS=( -K "$STORE_CURL_CONF" )
+    body="$(curl -sf -m 10 ${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"} \
+        "${QDRANT_URL}/collections/preferences" 2>/dev/null)" \
+        || { printf 'CANNOT-READ'; return 0; }
+    printf '%s' "$body" | "$py" -c '
+import json, sys
+try:
+    d = json.loads(sys.stdin.read())
+    n = (d.get("result") or {}).get("points_count")
+    if n is None:
+        raise ValueError("no points_count")
+    print(int(n))
+except Exception:
+    print("CANNOT-READ")
+' 2>/dev/null || printf 'CANNOT-READ'
+}
+
+_read_counter() {
+    local f="$1" v=0
+    [ -f "$f" ] && v="$(cat "$f" 2>/dev/null || echo 0)"
+    case "$v" in
+        ''|*[!0-9]*) v=0 ;;
+    esac
+    printf '%s' "$v"
+}
+
+# ── Bound first, so no branch below can run for ever ──────────────────
+tries="$(_read_counter "$TRIES_FILE")"
+tries=$((tries + 1))
+printf '%s' "$tries" >"$TRIES_FILE"
+if [ "$tries" -gt "$EDITOR_CATCHUP_MAX_TRIES" ]; then
+    log "catch-up gave up after ${EDITOR_CATCHUP_MAX_TRIES} ticks with the interest profile still empty; removing agent (the hourly Front Page refresh continues)"
+    remove_self
+    exit 0
+fi
+
+if [ ! -x "$TICK" ]; then
+    log "editor-frontpage-tick.sh missing at ${TICK}; removing catch-up agent"
+    remove_self
+    exit 0
+fi
+
+# Already populated before we did anything? Then the hourly agent, or an
+# earlier catch-up tick, has already done the job.
+before="$(_profile_counts)"
+case "$before" in
+    [0-9]*\ [0-9]*)
+        if [ "${before%% *}" -gt 0 ]; then
+            log "interest profile already holds ${before%% *} interests; catch-up not needed, removing agent"
+            remove_self
+            exit 0
+        fi
+        ;;
+esac
+
+# Reuse the installed tick. NO duplicated projection or compile logic: this
+# is the same wrapper the hourly agent runs, so the catch-up cannot drift
+# from the thing it is catching up. Non-fatal, so a failed tick is retried.
+log "catch-up tick ${tries}/${EDITOR_CATCHUP_MAX_TRIES}: re-emitting the interest profile against current graph state"
+"$TICK" >>"$LOG_FILE" 2>&1 || log "catch-up tick ${tries} returned non-zero; will retry"
+
+after="$(_profile_counts)"
+count=""
+raw=""
+case "$after" in
+    [0-9]*\ [0-9]*) count="${after%% *}"; raw="${after##* }" ;;
+esac
+
+# ── 1. POPULATED. The job is done; stop. ──────────────────────────────
+if [ -n "$count" ] && [ "$count" -gt 0 ]; then
+    log "POPULATED: the interest profile now serves ${count} interests from ${raw} projected rows. Removing the catch-up agent; the hourly refresh keeps it fresh."
+    remove_self
+    exit 0
+fi
+
+# ── 2. GENUINELY NOTHING TO PROJECT, confirmed, not assumed. ──────────
+upstream="$(_upstream_points)"
+case "$upstream" in
+    ''|*[!0-9]*)
+        # COULD NOT LOOK. Reset the confirmation run: an unreadable upstream
+        # proves nothing in either direction and must not be allowed to sit
+        # inside a sequence of zeroes as if it agreed with them.
+        printf '0' >"$EMPTY_FILE"
+        log "CANNOT TELL (try ${tries}/${EDITOR_CATCHUP_MAX_TRIES}): the interest profile serves ${count:-0} interests and the preferences collection at ${QDRANT_URL} could not be read, so whether there is anything to project is unmeasured. Retrying."
+        exit 0
+        ;;
+    0)
+        empties="$(_read_counter "$EMPTY_FILE")"
+        empties=$((empties + 1))
+        printf '%s' "$empties" >"$EMPTY_FILE"
+        if [ "$empties" -ge "$EDITOR_CATCHUP_EMPTY_CONFIRMATIONS" ]; then
+            log "GENUINELY EMPTY: the preferences collection answered with 0 points on ${empties} consecutive readings, so there is nothing to project and no retry can change that. Removing the catch-up agent; the hourly refresh will pick up preferences if any ever arrive."
+            remove_self
+            exit 0
+        fi
+        log "the preferences collection answered with 0 points (confirmation ${empties}/${EDITOR_CATCHUP_EMPTY_CONFIRMATIONS}); one more reading decides whether this box has nothing to project"
+        exit 0
+        ;;
+esac
+
+# ── 3. NOT POPULATED YET. There is data upstream; keep catching up. ───
+printf '0' >"$EMPTY_FILE"
+if [ -n "$raw" ] && [ "$raw" -gt 0 ]; then
+    log "NOT POPULATED YET (try ${tries}/${EDITOR_CATCHUP_MAX_TRIES}): ${upstream} preference point(s) upstream and ${raw} row(s) in the graph, but 0 cleared the compiler's confidence floor. Retrying; if this persists to the cap the floor is the surface to look at, not the schedule."
+else
+    log "NOT POPULATED YET (try ${tries}/${EDITOR_CATCHUP_MAX_TRIES}): ${upstream} preference point(s) upstream and 0 row(s) in the graph. The ingest has not finished reaching the projector. Retrying."
+fi
+exit 0
+EFPCUEOF
+    chmod +x "${OSTLER_DIR}/bin/ostler-editor-frontpage-catchup"
+
+    mkdir -p "${HOME}/Library/LaunchAgents"
+    cat > "$EDITOR_CATCHUP_PLIST" <<EFPCUPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${EDITOR_CATCHUP_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${OSTLER_DIR}/bin/ostler-editor-frontpage-catchup</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <key>PYTHONPYCACHEPREFIX</key>
+        <string>${OSTLER_DIR}/cache/pycache</string>
+        <key>EDITOR_CATCHUP_MAX_TRIES</key>
+        <string>${EDITOR_CATCHUP_MAX_TRIES}</string>
+        <key>EDITOR_CATCHUP_EMPTY_CONFIRMATIONS</key>
+        <string>${EDITOR_CATCHUP_EMPTY_CONFIRMATIONS}</string>
+    </dict>
+    <key>StartInterval</key>
+    <integer>${EDITOR_CATCHUP_INTERVAL_S}</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/editor-frontpage-catchup.log</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/editor-frontpage-catchup.err</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>
+EFPCUPLIST
+    chmod 0644 "$EDITOR_CATCHUP_PLIST"
+
+    if _ostler_launchagent_load_verified "$EDITOR_CATCHUP_PLIST"; then
+        ok "$MSG_OK_EDITOR_FRONTPAGE_CATCHUP_LOADED"
+    else
+        warn "$MSG_WARN_EDITOR_FRONTPAGE_CATCHUP_LOAD_FAILED"
+    fi
+else
+    info "$MSG_INFO_EDITOR_FRONTPAGE_CATCHUP_SKIPPED_NO_TICK"
 fi
 
 # ── 3.14e Ostler assistant LaunchAgent (binary staged at 3.7c) ───
@@ -29439,6 +29948,16 @@ _hydrate_sentinel_record() {
 
     count="$(_hydrate_payload_count "$payload")"
     _hydrate_compute_change "$sentinel" "$count" "$now"
+    # #2318: THE SENTINEL KNEW AND THE STEP DID NOT.
+    #
+    # _hydrate_sentinel_record_error has always called gui_step_record_rc,
+    # so the failure half of this pair reached the step status. The SUCCESS
+    # half reached only the .done file. With `ok` as the step default that
+    # was invisible; with `unmeasured` as the default a hydrate that really
+    # did store data would have closed `unmeasured`, which is just as false
+    # in the other direction. A sentinel written with a non-zero payload IS
+    # the measurement, so it is recorded as one.
+    gui_step_record_rc 0
     {
         printf 'recorded_at=%s\n' "$now"
         printf 'source=%s\n' "$source"
@@ -29975,6 +30494,184 @@ except Exception:
         *)           printf '%s' "$count" ;;
     esac
 }
+
+# ── A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE (#2313) ──────────
+#
+# 🔴 THE MEASURED DEFECT. macmini16-walk, 2026-09-23. The install log says, 750
+# lines apart and in the same run:
+#
+#     install.log:497   [ok] Safari: 8831 visits across 100 domains
+#     install.log:1246  No browsing history to import. You can re-run later ...
+#     install.log:1247  STEP_END id=hydrate_browsing status=ok elapsed_s=0
+#
+# and an hour later the hourly top-up agent had to CREATE the destination:
+#
+#     fda-rerun.err:8033  GET  .../collections/safari_history  404 Not Found
+#     fda-rerun.err:8034  PUT  .../collections/safari_history  200 OK
+#
+# one 404 and one creation in 8,283 lines. The reader found 8,831 visits, the
+# hydrate step stored none of them, and it reported ok in zero seconds.
+#
+# WHY. ~/.ostler/state/hydrate/browsing.done said
+# `status=ok payload=sent=8626,skipped=205`, recorded 2026-09-22T19:25:23Z --
+# eight hours before this install. `_hydrate_sentinel_fresh browsing` was
+# therefore true and the step skipped. The sentinel was not wrong about what it
+# recorded. It was answering a question nobody asked it: it is a record that a
+# RUN completed, and it was read as a claim that the DATA IS IN THE STORE.
+#
+# Those two facts have independent lifetimes. The sentinel is a file under
+# ~/.ostler; the rows are in a Qdrant volume inside the container VM. Delete the
+# VM (which the walk procedure mandates before every walk), prune a docker
+# volume, reset the container engine, or lose the volume to corruption, and the
+# store is empty while every sentinel still reads fresh and ok. Nothing else
+# noticed: `safari_history` is not in _OSTLER_REQUIRED_QDRANT_COLLECTIONS, so
+# the membership check could not miss it, and the initial_hydrate retry fires
+# only on a POSITIVELY EMPTY store, which this one was not (5 collections).
+#
+# The instrument that CAN see it is the ingest_coverage box-walk probe, which
+# #2311 taught to report this as FAIL rather than CANNOT-RUN. That probe is
+# what turns this fix from MERGED into PROVEN; nothing in this file can.
+#
+# THE RULE. A skip must be corroborated at the destination. The sentinel says
+# "we have done this before"; only the store can say "and it is still there".
+#
+# _hydrate_collection_rows <collection> prints exactly one of:
+#
+#   <digits>   the store answered 200 and this is its points_count
+#   absent     the store answered 404: the collection is POSITIVELY not there
+#   unknown    the store could not be read at all (CANNOT-RUN)
+#
+# THE THIRD ANSWER IS WHY THIS DOES NOT REUSE _hydrate_qdrant_points ABOVE.
+# That one uses `curl -sf`, which exits non-zero with an empty body on BOTH a
+# 404 and a connection refusal, so it prints `unknown` for both. Harmless in a
+# sentinel payload field; fatal in a skip decision, where "the collection is
+# gone" and "I could not look" are exactly the two facts the decision turns on.
+# So this reads the HTTP STATUS, not the exit code.
+#
+# Never fatal: the ERR trap propagates into command substitutions under the
+# global `set -Eeuo pipefail`, so the curl carries its own `|| true`.
+_hydrate_collection_rows() {
+    local collection="$1"
+    local raw code body count
+    raw="$(curl -s --noproxy '*' --max-time 5 -w '\n%{http_code}' \
+        "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
+        "${QDRANT_URL:-http://localhost:6333}/collections/${collection}" \
+        2>/dev/null || true)"
+    code="${raw##*$'\n'}"
+    body="${raw%$'\n'*}"
+    case "$code" in
+        404) printf 'absent';  return 0 ;;
+        200) ;;
+        # 000 (no connection), 401, 5xx, or no -w output at all. A store that
+        # did not answer has NOT told us the collection is empty.
+        *)   printf 'unknown'; return 0 ;;
+    esac
+    count="$(printf '%s' "$body" | python3 -c 'import json,sys
+try:
+    print(int((json.loads(sys.stdin.read()).get("result") or {}).get("points_count")))
+except Exception:
+    print("unknown")' 2>/dev/null || true)"
+    case "${count:-}" in
+        ''|*[!0-9]*) printf 'unknown' ;;
+        *)           printf '%s' "$count" ;;
+    esac
+}
+
+# Does the destination POSITIVELY hold rows? Only a read-back number greater
+# than zero says yes. `absent` and `unknown` both answer no, for reasons the
+# caller reports separately -- the whole point of the three-valued reader above
+# is that a caller must never collapse them here.
+_hydrate_collection_has_rows() {
+    local n="${1:-}"
+    [[ "$n" =~ ^[0-9]+$ ]] || return 1
+    [[ "$n" -gt 0 ]]
+}
+
+# ── THE SAME RULE, FOR THE DESTINATION THAT IS NOT QDRANT (#2314) ───────────
+#
+# #2313 corroborated ONE source at ONE kind of destination. Seven more legs
+# skip on the same evidence, and three of them do not write a Qdrant collection
+# at all, so `_hydrate_collection_rows` cannot answer for them. Corroborating
+# those against SOME collection because it is the nearest readable thing would
+# be worse than not corroborating them: a `people` collection filled by the
+# contacts import would license a WhatsApp skip over a graph that lost every
+# WhatsApp triple.
+#
+#   whatsapp, imessage      -> Oxigraph. `ingest_whatsapp` and `ingest_imessage`
+#                              contain ZERO Qdrant references
+#                              (vendor/ostler_fda/pwg_ingest.py); they INSERT
+#                              pwg:PersonIdentifier triples carrying
+#                              pwg:identifierLabel "WHATSAPP" / "IMESSAGE".
+#                              Oxigraph lives in the SAME container VM as
+#                              Qdrant, so it is lost by exactly the events that
+#                              motivated #2313. A live read of it IS a read of
+#                              the store the ingest writes to, which is the
+#                              whole requirement. Not-Qdrant is not the
+#                              disqualifier; not-in-the-VM is.
+#   ai_conversations        -> NOTHING HERE ANSWERS FOR IT, and it deliberately
+#                              gets no reader. Its visible destination is a
+#                              markdown tree under $HOME, which shares the
+#                              SENTINEL's lifetime and so cannot see this
+#                              defect at all; its VM-side half belongs to CM048,
+#                              whose collection nothing in this repo names. The
+#                              gap is written up at that call site, and pinned
+#                              by
+#                              tests/test_every_hydrate_skip_is_corroborated_at_its_destination.sh
+#
+# _hydrate_graph_matches <sparql-count-query> prints exactly one of:
+#
+#   <digits>   Oxigraph answered 200 and this is the COUNT it returned. Zero is
+#              a real, positive zero: a graph endpoint that answers has told us
+#              the pattern matches nothing.
+#   unknown    could not be read at all (CANNOT-RUN)
+#
+# THREE STATES, TWO TOKENS, AND THE DIFFERENCE MATTERS. The decision needs
+# three answers and gets three:
+#
+#   data is there        a 200 with a count > 0
+#   data is gone         a 200 with a count of 0  <- `absent`'s equivalent here
+#   could not look       anything that is not a 200
+#
+# There is no `absent` TOKEN because a collection can be positively missing and
+# a SPARQL pattern cannot: a graph endpoint that answers 200 with zero matches
+# has POSITIVELY told us the data is not there, so the honest encoding of that
+# state is the digit 0, not a word meaning "no such thing". What must never
+# happen is the third state collapsing into either of the first two, which is
+# the exact defect `_hydrate_qdrant_points` has and `_hydrate_collection_rows`
+# was written to avoid. `unknown` is a word no caller can mistake for a count:
+# `_hydrate_collection_has_rows` rejects it, and every caller tests for it by
+# name before reporting a reason.
+#
+# 🔴 READ THE HTTP STATUS, NEVER `tr -dc '0-9'` ON THE BODY. _guard_email_coverage
+# (~:31084) pipes the CSV through `tr -dc '0-9' || true` and defaults the result
+# to 0, so a refused connection and a graph holding nothing are byte-identical
+# to it. Harmless there -- it only suppresses a warning -- and fatal here.
+#
+# Never fatal: the ERR trap propagates into command substitutions under the
+# global `set -Eeuo pipefail`, so the curl carries its own `|| true`.
+_hydrate_graph_matches() {
+    local query="$1"
+    local raw code body n
+    raw="$(curl -s --noproxy '*' --max-time 15 -w '\n%{http_code}' \
+        "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
+        -H "Accept: text/csv" --data-urlencode "query=${query}" \
+        "${OXIGRAPH_URL:-http://localhost:7878}/query" 2>/dev/null || true)"
+    code="${raw##*$'\n'}"
+    body="${raw%$'\n'*}"
+    # 000 (no connection), 400 (this build does not understand the query), 401,
+    # 5xx, or no -w output at all. A store that did not answer has NOT told us
+    # the graph is empty.
+    [[ "$code" == "200" ]] || { printf 'unknown'; return 0; }
+    # Oxigraph's text/csv for `SELECT (COUNT(...) AS ?n)` is a header line then
+    # one value line. The header is the letter n, which fails the digit test
+    # below, so a truncated reply reads `unknown` rather than becoming a count.
+    n="$(printf '%s' "$body" | tail -n 1 | tr -d '\r' | tr -d ' ')"
+    case "${n:-}" in
+        ''|*[!0-9]*) printf 'unknown' ;;
+        *)           printf '%s' "$n" ;;
+    esac
+}
+
 
 # Progress heartbeat for the long-running hydrate phases.
 #
@@ -31224,10 +31921,43 @@ _HYDRATE_WHATSAPP_PY="${_HYDRATE_WHATSAPP_VENV}/bin/python"
 _HYDRATE_WHATSAPP_DB="${HOME}/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite"
 _HYDRATE_OXIGRAPH_WA="${OXIGRAPH_URL:-http://localhost:7878}"
 
+# ── #2314: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
+# The skip is CORROBORATED AT THE DESTINATION or it does not happen. See
+# _hydrate_collection_rows for the walk that paid for #2313, which fixed
+# this for browsing alone; this leg skipped on the same evidence.
+# ingest_whatsapp writes NO Qdrant collection (zero Qdrant references in
+# vendor/ostler_fda/pwg_ingest.py); it INSERTs pwg:PersonIdentifier triples
+# carrying pwg:identifierLabel "WHATSAPP" into Oxigraph. Oxigraph is in the
+# same container VM as Qdrant, so it is lost by the same events.
+_HYDRATE_WHATSAPP_SENTINEL_FRESH=false
 if _hydrate_sentinel_fresh "whatsapp"; then
-    info "$MSG_HYDRATE_WHATSAPP_SKIPPED_NO_CHATS"
+    _HYDRATE_WHATSAPP_SENTINEL_FRESH=true
+fi
+# Only asked when it can change the answer, so a store probe is never spent
+# on a run that was going to hydrate anyway.
+_HYDRATE_WHATSAPP_ROWS=""
+if [[ "$_HYDRATE_WHATSAPP_SENTINEL_FRESH" == "true" ]]; then
+    _HYDRATE_WHATSAPP_ROWS="$(_hydrate_graph_matches 'PREFIX pwg: <https://schema.ostler.ai/ontology#> SELECT (COUNT(DISTINCT ?id) AS ?n) WHERE { ?id pwg:identifierLabel "WHATSAPP" }')"
+fi
+
+if [[ "$_HYDRATE_WHATSAPP_SENTINEL_FRESH" == "true" ]] \
+   && _hydrate_collection_has_rows "$_HYDRATE_WHATSAPP_ROWS"; then
+    # The one skip that is earned: a completed run AND the rows still there.
+    ok "$(printf "$MSG_HYDRATE_WHATSAPP_ALREADY_IMPORTED" "$_HYDRATE_WHATSAPP_ROWS")"
 elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
     info "$MSG_HYDRATE_WHATSAPP_STARTED"
+    # A fresh sentinel that did NOT survive corroboration lands here, and the
+    # customer is told which of the two things happened rather than watching a
+    # silent re-import. `absent`/no rows and `unknown` are different facts.
+    # Erring towards re-importing is deliberate: a needless re-import costs
+    # time, a needless skip costs the customer the data.
+    if [[ "$_HYDRATE_WHATSAPP_SENTINEL_FRESH" == "true" ]]; then
+        if [[ "$_HYDRATE_WHATSAPP_ROWS" == "unknown" ]]; then
+            warn "$MSG_WARN_HYDRATE_WHATSAPP_REIMPORT_UNVERIFIED"
+        else
+            warn "$MSG_WARN_HYDRATE_WHATSAPP_REIMPORT_STORE_EMPTY"
+        fi
+    fi
 
     # Same timeout picker as hydrate_email (brew coreutils gtimeout
     # preferred; system timeout fallback; unbounded if neither).
@@ -31361,6 +32091,7 @@ else
 fi
 
 unset _HYDRATE_WHATSAPP_VENV _HYDRATE_WHATSAPP_PY _HYDRATE_WHATSAPP_DB
+unset _HYDRATE_WHATSAPP_SENTINEL_FRESH _HYDRATE_WHATSAPP_ROWS
 unset _HYDRATE_OXIGRAPH_WA
 
 unset _HYDRATE_VCF _HYDRATE_API _HYDRATE_OXIGRAPH _HYDRATE_PIPELINE_PY \
@@ -31402,10 +32133,48 @@ _HYDRATE_BROWSING_FDA_DIR="${OSTLER_DIR}/imports/fda"
 _HYDRATE_BROWSING_SAFARI="${_HYDRATE_BROWSING_FDA_DIR}/safari_history.json"
 _HYDRATE_BROWSING_CHROME="${_HYDRATE_BROWSING_FDA_DIR}/chrome_history.json"
 
+# #2313: the skip is CORROBORATED AT THE DESTINATION or it does not happen.
+# See _hydrate_collection_rows for the walk that paid for this. The sentinel
+# alone is a record that a run finished, not evidence that its rows survived;
+# on macmini16-walk the two disagreed by 8,831 visits and the customer was
+# told they had none.
+_HYDRATE_BROWSING_SENTINEL_FRESH=false
 if _hydrate_sentinel_fresh "browsing"; then
-    info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
+    _HYDRATE_BROWSING_SENTINEL_FRESH=true
+fi
+# Only asked when it can change the answer, so a store probe is never spent on
+# a run that was going to hydrate anyway.
+_HYDRATE_BROWSING_ROWS=""
+if [[ "$_HYDRATE_BROWSING_SENTINEL_FRESH" == "true" ]]; then
+    _HYDRATE_BROWSING_ROWS="$(_hydrate_collection_rows safari_history)"
+fi
+
+if [[ "$_HYDRATE_BROWSING_SENTINEL_FRESH" == "true" ]] \
+   && _hydrate_collection_has_rows "$_HYDRATE_BROWSING_ROWS"; then
+    # The one skip that is earned: a completed run AND the rows still there.
+    # #2318: THIS IS A MEASUREMENT, so it is recorded as one. The step read
+    # the destination back and the destination answered with rows. Without
+    # this the step would close `unmeasured` -- true of a skip that checked
+    # nothing, and false of this one, which is the whole distinction #2313
+    # drew one level down at the sentinel.
+    ok "$(printf "$MSG_HYDRATE_BROWSING_ALREADY_IMPORTED" "$_HYDRATE_BROWSING_ROWS")"
+    gui_step_record_rc 0
 elif [[ -x "$_HYDRATE_BROWSING_PY" ]] && \
    { [[ -s "$_HYDRATE_BROWSING_SAFARI" ]] || [[ -s "$_HYDRATE_BROWSING_CHROME" ]]; }; then
+    # A fresh sentinel that did NOT survive corroboration lands here, and the
+    # customer is told which of the two things happened rather than watching a
+    # silent re-import. `absent` and `unknown` are different facts and get
+    # different sentences: one says the rows are gone, the other says we could
+    # not find out. Erring towards re-importing is deliberate -- the cost of a
+    # needless re-import is time, the cost of a needless skip is the customer's
+    # entire browsing history, measured.
+    if [[ "$_HYDRATE_BROWSING_SENTINEL_FRESH" == "true" ]]; then
+        if [[ "$_HYDRATE_BROWSING_ROWS" == "unknown" ]]; then
+            warn "$MSG_WARN_HYDRATE_BROWSING_REIMPORT_UNVERIFIED"
+        else
+            warn "$MSG_WARN_HYDRATE_BROWSING_REIMPORT_STORE_EMPTY"
+        fi
+    fi
     info "$MSG_HYDRATE_BROWSING_STARTED"
 
     # T1: was a bare literal 90. Named + env-tunable on the
@@ -31493,6 +32262,24 @@ try:
 except Exception:
     print(0)' 2>/dev/null
         )" || { _HYDRATE_BROWSING_UNMEASURED=true; _HYDRATE_BROWSING_SKIPPED=""; }
+        # #2313: `total` is how many rows the reader actually SAW. Without it
+        # a `sent=0` over an empty store cannot be told from a customer whose
+        # Safari history is genuinely empty -- and warning THAT customer that
+        # their history was lost would be the same class of false statement
+        # this change exists to remove, pointed the other way. Counts only,
+        # same privacy contract as sent and skipped_sensitive.
+        _HYDRATE_BROWSING_TOTAL="$(
+            printf '%s' "$_HYDRATE_BROWSING_JSON" \
+            | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(d.get("total", -1)))
+except Exception:
+    print(-1)' 2>/dev/null
+        )" || _HYDRATE_BROWSING_TOTAL="-1"
+        # -1 is NOT a count. It is this field saying it was not measured, and
+        # it is deliberately outside the range a real total can take.
+        _HYDRATE_BROWSING_TOTAL="${_HYDRATE_BROWSING_TOTAL:--1}"
         _HYDRATE_BROWSING_SENT="${_HYDRATE_BROWSING_SENT:-0}"
         _HYDRATE_BROWSING_SKIPPED="${_HYDRATE_BROWSING_SKIPPED:-0}"
         if [[ "$_HYDRATE_BROWSING_SENT" -gt 0 ]]; then
@@ -31501,10 +32288,50 @@ except Exception:
                 info "$(printf "$MSG_HYDRATE_BROWSING_SKIPPED_SENSITIVE" "$_HYDRATE_BROWSING_SKIPPED")"
             fi
         else
-            info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
+            # #2313, THE HONEST-REPORTING HALF. `sent=0` is TWO different facts
+            # and they used to print the same sentence and the same status=ok:
+            #
+            #   the store already holds the rows  -> a successful no-op. The
+            #      file header one screen up already makes this call for the
+            #      sentinel ("sent=0,skipped=500 must read as ok"); it applies
+            #      here for the same reason.
+            #   the store holds nothing           -> the customer's history was
+            #      read and then dropped. That is the data-loss shape, it is
+            #      what the walk found, and it must not close `ok`.
+            #
+            # Read back from the destination, so the branch is decided by the
+            # store and not by a counter that can be zero for either reason.
+            _HYDRATE_BROWSING_ROWS_AFTER="$(_hydrate_collection_rows safari_history)"
+            if _hydrate_collection_has_rows "$_HYDRATE_BROWSING_ROWS_AFTER"; then
+                ok "$(printf "$MSG_HYDRATE_BROWSING_ALREADY_IMPORTED" "$_HYDRATE_BROWSING_ROWS_AFTER")"
+                gui_step_record_rc 0   # #2318: the store was read back
+            elif [[ "$_HYDRATE_BROWSING_TOTAL" == "0" ]]; then
+                # The reader looked and there was nothing there. This is the
+                # ONE branch the sentence below was ever true for, and it now
+                # has it to itself.
+                info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
+                # #2318: "nothing to import" is a MEASURED outcome, not an
+                # absent one. total=0 is the reader reporting an empty source,
+                # which is why it is `ok` and not `unmeasured`. Contrast the
+                # else-arm below, which #2313 already closes `warn`.
+                gui_step_record_rc 0
+                _HYDRATE_BROWSING_NO_SOURCE_ROWS=true
+            else
+                warn "$MSG_WARN_HYDRATE_BROWSING_NOTHING_STORED"
+                _HYDRATE_BROWSING_NOTHING_STORED=true
+            fi
         fi
     else
-        info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
+        # The ingest printed nothing at all, so nothing was measured and
+        # nothing can be claimed. Same read-back, same three outcomes.
+        _HYDRATE_BROWSING_ROWS_AFTER="$(_hydrate_collection_rows safari_history)"
+        if _hydrate_collection_has_rows "$_HYDRATE_BROWSING_ROWS_AFTER"; then
+            ok "$(printf "$MSG_HYDRATE_BROWSING_ALREADY_IMPORTED" "$_HYDRATE_BROWSING_ROWS_AFTER")"
+            gui_step_record_rc 0   # #2318: the store was read back
+        else
+            warn "$MSG_WARN_HYDRATE_BROWSING_NOTHING_STORED"
+            _HYDRATE_BROWSING_NOTHING_STORED=true
+        fi
     fi
 
     # #48g sentinel record: dedupes re-runs within a 7-day window.
@@ -31531,19 +32358,40 @@ except Exception:
         if [[ "${_HYDRATE_BROWSING_UNMEASURED:-false}" == true ]]; then
             _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}" \
                 "counter_failed_count_unmeasured"
+        elif [[ "${_HYDRATE_BROWSING_NO_SOURCE_ROWS:-false}" == true ]]; then
+            # 🔴 A DECLARED REASON IS ONLY WORTH ITS DECLARATION IF IT IS TRUE.
+            # Without this arm the genuinely-empty customer recorded
+            # `detail=ran_ok_nothing_sent_store_already_populated` beside
+            # `collection_points=absent` -- the detail and the payload
+            # contradicting each other in the same file, which is worse than no
+            # detail at all because it reads as an answer.
+            _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0},collection_points=${_HYDRATE_BROWSING_ROWS_AFTER:-unknown}" \
+                "ran_ok_source_had_no_rows"
+        elif [[ "${_HYDRATE_BROWSING_NOTHING_STORED:-false}" == true ]]; then
+            # #2313: the durable record gets the same three-way split the log
+            # line does. `nothing_sent` alone was the reason a reader could not
+            # tell a successful no-op from a total loss, and the next run has to
+            # be able to.
+            _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0},collection_points=${_HYDRATE_BROWSING_ROWS_AFTER:-unknown}" \
+                "ran_ok_nothing_sent_and_store_empty"
         else
-            _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}" \
-                "ran_ok_nothing_sent_or_skipped"
+            _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0},collection_points=${_HYDRATE_BROWSING_ROWS_AFTER:-unknown}" \
+                "ran_ok_nothing_sent_store_already_populated"
         fi
     fi
 
     unset _HYDRATE_BROWSING_TIMED_OUT _HYDRATE_BROWSING_JSON
-    unset _HYDRATE_BROWSING_SENT _HYDRATE_BROWSING_SKIPPED
+    unset _HYDRATE_BROWSING_SENT _HYDRATE_BROWSING_SKIPPED _HYDRATE_BROWSING_TOTAL
     unset _HYDRATE_BROWSING_TIMEOUT_WRAP _HYDRATE_BROWSING_LOG _HYDRATE_BROWSING_RC _HYDRATE_BROWSING_CAP
+    unset _HYDRATE_BROWSING_ROWS_AFTER _HYDRATE_BROWSING_NO_SOURCE_ROWS
 elif [[ ! -x "$_HYDRATE_BROWSING_PY" ]]; then
     info "$MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING"
 else
-    info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
+    # #2313: its OWN sentence. This branch means no export file was found, and
+    # the comment below has always said it cannot tell that apart from a
+    # customer with no history -- while printing the sentence that asserts the
+    # second. A branch that knows it cannot tell must not print the answer.
+    info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_EXPORT"
     # No safari_history.json and no chrome_history.json. That is USUALLY the
     # FDA export not having landed yet, not a customer with no browsing
     # history -- and this branch cannot tell those apart. Record no_data so
@@ -31551,8 +32399,26 @@ else
     _hydrate_sentinel_record_no_data "browsing" "no_export_json"
 fi
 
+# #2313: A STEP THAT STORED NOTHING MAY NOT CLOSE `ok`.
+#
+# The measured line was `STEP_END id=hydrate_browsing status=ok elapsed_s=0`
+# over 8,831 unstored visits. The timeout and error paths already reach
+# STEP_END through gui_step_record_rc (_hydrate_sentinel_record_error calls
+# it), but an ingest that exits 0 and delivers nothing has an rc of 0 and so
+# had no route to the status field at all. This is that route.
+#
+# `warn`, not `error`: nothing failed, and StepStatus already carries warn
+# (gui/OstlerInstaller/ProgressProtocol.swift), so the GUI renders it without a
+# new wire value. gui_step_end can only ESCALATE, and closing the step here
+# clears __OSTLER_STEP_ID, so the next progress() call sees it closed and does
+# not emit a second STEP_END.
+if [[ "${_HYDRATE_BROWSING_NOTHING_STORED:-false}" == "true" ]]; then
+    gui_step_end warn
+fi
+
 unset _HYDRATE_BROWSING_VENV _HYDRATE_BROWSING_PY
 unset _HYDRATE_BROWSING_FDA_DIR _HYDRATE_BROWSING_SAFARI _HYDRATE_BROWSING_CHROME
+unset _HYDRATE_BROWSING_SENTINEL_FRESH _HYDRATE_BROWSING_ROWS _HYDRATE_BROWSING_NOTHING_STORED
 
 # Email-preferences hydration (v1.0.3) -----------------------------
 #
@@ -31606,8 +32472,33 @@ elif [[ -n "${OSTLER_SOCIAL_ARCHIVES_DIR:-}" ]]; then
     _HYDRATE_EMAILPREFS_FILE="${OSTLER_SOCIAL_ARCHIVES_DIR%/}/${_HYDRATE_EMAILPREFS_REL}"
 fi
 
+# ── #2314: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
+# The skip is CORROBORATED AT THE DESTINATION or it does not happen. See
+# _hydrate_collection_rows for the walk that paid for #2313, which fixed
+# this for browsing alone; this leg skipped on the same evidence.
+# The ingest below runs with QDRANT_COLLECTION=preferences, so that is its
+# destination, named in this file rather than guessed. NECESSARY, NOT
+# SUFFICIENT: `preferences` is SHARED with ingest_bookmarks and ingest_social,
+# so a non-empty answer can be owed to another leg. It can therefore still
+# license a skip this leg did not earn -- but it can only ever turn a skip
+# into a re-import, never the reverse, so it is strictly safer than the
+# sentinel alone. A per-leg discriminator inside `preferences` would close
+# the remaining gap and does not exist today.
+_HYDRATE_EMAILPREFS_SENTINEL_FRESH=false
 if _hydrate_sentinel_fresh "email_preferences"; then
-    info "$MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_NO_FILE"
+    _HYDRATE_EMAILPREFS_SENTINEL_FRESH=true
+fi
+# Only asked when it can change the answer, so a store probe is never spent
+# on a run that was going to hydrate anyway.
+_HYDRATE_EMAILPREFS_ROWS=""
+if [[ "$_HYDRATE_EMAILPREFS_SENTINEL_FRESH" == "true" ]]; then
+    _HYDRATE_EMAILPREFS_ROWS="$(_hydrate_collection_rows preferences)"
+fi
+
+if [[ "$_HYDRATE_EMAILPREFS_SENTINEL_FRESH" == "true" ]] \
+   && _hydrate_collection_has_rows "$_HYDRATE_EMAILPREFS_ROWS"; then
+    # The one skip that is earned: a completed run AND the rows still there.
+    ok "$(printf "$MSG_HYDRATE_EMAIL_PREFERENCES_ALREADY_IMPORTED" "$_HYDRATE_EMAILPREFS_ROWS")"
 elif [[ -z "$_HYDRATE_EMAILPREFS_FILE" ]]; then
     # The customer case: no archive configured. Skip cleanly.
     info "$MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_NO_FILE"
@@ -31620,6 +32511,18 @@ elif [[ ! -s "$_HYDRATE_EMAILPREFS_FILE" ]]; then
     info "$(printf "$MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_NO_FILE_AT" "$_HYDRATE_EMAILPREFS_FILE")"
 else
     info "$MSG_HYDRATE_EMAIL_PREFERENCES_STARTED"
+    # A fresh sentinel that did NOT survive corroboration lands here, and the
+    # customer is told which of the two things happened rather than watching a
+    # silent re-import. `absent`/no rows and `unknown` are different facts.
+    # Erring towards re-importing is deliberate: a needless re-import costs
+    # time, a needless skip costs the customer the data.
+    if [[ "$_HYDRATE_EMAILPREFS_SENTINEL_FRESH" == "true" ]]; then
+        if [[ "$_HYDRATE_EMAILPREFS_ROWS" == "unknown" ]]; then
+            warn "$MSG_WARN_HYDRATE_EMAIL_PREFERENCES_REIMPORT_UNVERIFIED"
+        else
+            warn "$MSG_WARN_HYDRATE_EMAIL_PREFERENCES_REIMPORT_STORE_EMPTY"
+        fi
+    fi
 
     # Same timeout picker as the other hydrate phases (brew coreutils
     # gtimeout preferred; system timeout fallback; unbounded if neither).
@@ -31706,6 +32609,7 @@ fi
 unset _HYDRATE_EMAILPREFS_CM019_DIR _HYDRATE_EMAILPREFS_PY _HYDRATE_EMAILPREFS_REL
 unset _HYDRATE_EMAILPREFS_USER _HYDRATE_EMAILPREFS_QDRANT _HYDRATE_EMAILPREFS_OXIGRAPH
 unset _HYDRATE_EMAILPREFS_FILE
+unset _HYDRATE_EMAILPREFS_SENTINEL_FRESH _HYDRATE_EMAILPREFS_ROWS
 
 # iMessage hydration (CX-84) ---------------------------------------
 #
@@ -31749,10 +32653,44 @@ _HYDRATE_IMESSAGE_PY="${_HYDRATE_IMESSAGE_VENV}/bin/python"
 _HYDRATE_IMESSAGE_FDA_DIR="${OSTLER_DIR}/imports/fda"
 _HYDRATE_IMESSAGE_JSON_FILE="${_HYDRATE_IMESSAGE_FDA_DIR}/imessage_conversations.json"
 
+# ── #2314: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
+# The skip is CORROBORATED AT THE DESTINATION or it does not happen. See
+# _hydrate_collection_rows for the walk that paid for #2313, which fixed
+# this for browsing alone; this leg skipped on the same evidence.
+# ingest_imessage writes NO Qdrant collection either; the people half of this
+# step lands as pwg:identifierLabel "IMESSAGE" triples in Oxigraph. The step
+# ALSO calls ingest_social, which writes `preferences` -- corroborating on
+# that instead would read a collection three other legs fill, and would say
+# nothing about whether this step's own identifiers survived.
+_HYDRATE_IMESSAGE_SENTINEL_FRESH=false
 if _hydrate_sentinel_fresh "imessage"; then
-    info "$MSG_HYDRATE_IMESSAGE_SKIPPED_NO_DATA"
+    _HYDRATE_IMESSAGE_SENTINEL_FRESH=true
+fi
+# Only asked when it can change the answer, so a store probe is never spent
+# on a run that was going to hydrate anyway.
+_HYDRATE_IMESSAGE_ROWS=""
+if [[ "$_HYDRATE_IMESSAGE_SENTINEL_FRESH" == "true" ]]; then
+    _HYDRATE_IMESSAGE_ROWS="$(_hydrate_graph_matches 'PREFIX pwg: <https://schema.ostler.ai/ontology#> SELECT (COUNT(DISTINCT ?id) AS ?n) WHERE { ?id pwg:identifierLabel "IMESSAGE" }')"
+fi
+
+if [[ "$_HYDRATE_IMESSAGE_SENTINEL_FRESH" == "true" ]] \
+   && _hydrate_collection_has_rows "$_HYDRATE_IMESSAGE_ROWS"; then
+    # The one skip that is earned: a completed run AND the rows still there.
+    ok "$(printf "$MSG_HYDRATE_IMESSAGE_ALREADY_IMPORTED" "$_HYDRATE_IMESSAGE_ROWS")"
 elif [[ -x "$_HYDRATE_IMESSAGE_PY" ]] && [[ -s "$_HYDRATE_IMESSAGE_JSON_FILE" ]]; then
     info "$MSG_HYDRATE_IMESSAGE_STARTED"
+    # A fresh sentinel that did NOT survive corroboration lands here, and the
+    # customer is told which of the two things happened rather than watching a
+    # silent re-import. `absent`/no rows and `unknown` are different facts.
+    # Erring towards re-importing is deliberate: a needless re-import costs
+    # time, a needless skip costs the customer the data.
+    if [[ "$_HYDRATE_IMESSAGE_SENTINEL_FRESH" == "true" ]]; then
+        if [[ "$_HYDRATE_IMESSAGE_ROWS" == "unknown" ]]; then
+            warn "$MSG_WARN_HYDRATE_IMESSAGE_REIMPORT_UNVERIFIED"
+        else
+            warn "$MSG_WARN_HYDRATE_IMESSAGE_REIMPORT_STORE_EMPTY"
+        fi
+    fi
 
     # T1: was a bare literal 90. Named + env-tunable on the
     # _HYDRATE_APPLENOTES_CAP pattern, and governed by the floor rule --
@@ -31937,6 +32875,7 @@ fi
 
 unset _HYDRATE_IMESSAGE_VENV _HYDRATE_IMESSAGE_PY
 unset _HYDRATE_IMESSAGE_FDA_DIR _HYDRATE_IMESSAGE_JSON_FILE
+unset _HYDRATE_IMESSAGE_SENTINEL_FRESH _HYDRATE_IMESSAGE_ROWS
 
 # ── Conversation-ingest landing guard (CM044 fix) ──────────────────
 #
@@ -32731,13 +33670,49 @@ fi
 # Mirroring the reminders fix here would have renamed a key nothing else
 # writes and left `apple_notes` declared in OSTLER_SENTINEL_SOURCES with no
 # writer at all, which the #711 error-path gate correctly reds as UNGUARDED.
+# ── #2314: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
+# The skip is CORROBORATED AT THE DESTINATION or it does not happen. See
+# _hydrate_collection_rows for the walk that paid for #2313, which fixed
+# this for browsing alone; this leg skipped on the same evidence.
+# The embed step below is passed --collection "$_HYDRATE_APPLENOTES_COLLECTION"
+# (default apple_notes_knowledge), so the probe reads the SAME variable the
+# writer is given. An operator who retargets the collection retargets the
+# corroboration with it, which a literal here would not do.
+#
+# The v1.0.101 walk found apple_notes_knowledge ABSENT against populated
+# controls, beside a sentinel that read ok. This is that pair.
+_HYDRATE_APPLENOTES_SENTINEL_FRESH=false
 if _hydrate_sentinel_fresh "apple_notes"; then
-    info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_ALREADY_EMBEDDED"
+    _HYDRATE_APPLENOTES_SENTINEL_FRESH=true
+fi
+# Only asked when it can change the answer, so a store probe is never spent
+# on a run that was going to hydrate anyway.
+_HYDRATE_APPLENOTES_ROWS=""
+if [[ "$_HYDRATE_APPLENOTES_SENTINEL_FRESH" == "true" ]]; then
+    _HYDRATE_APPLENOTES_ROWS="$(_hydrate_collection_rows "$_HYDRATE_APPLENOTES_COLLECTION")"
+fi
+
+if [[ "$_HYDRATE_APPLENOTES_SENTINEL_FRESH" == "true" ]] \
+   && _hydrate_collection_has_rows "$_HYDRATE_APPLENOTES_ROWS"; then
+    # The one skip that is earned: a completed run AND the rows still there.
+    ok "$(printf "$MSG_HYDRATE_APPLE_NOTES_ALREADY_IMPORTED" "$_HYDRATE_APPLENOTES_ROWS")"
 elif [[ "${OSTLER_APPLE_NOTES_KNOWLEDGE:-1}" == "0" ]]; then
     # Deferred explicit-flag hook: operator opted this leg out.
     info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_OPTED_OUT"
 elif [[ "$_HYDRATE_APPLENOTES_BIN_OK" == "true" ]] && [[ -s "$_HYDRATE_APPLENOTES_JSON_FILE" ]]; then
     info "$MSG_HYDRATE_APPLE_NOTES_STARTED"
+    # A fresh sentinel that did NOT survive corroboration lands here, and the
+    # customer is told which of the two things happened rather than watching a
+    # silent re-import. `absent`/no rows and `unknown` are different facts.
+    # Erring towards re-importing is deliberate: a needless re-import costs
+    # time, a needless skip costs the customer the data.
+    if [[ "$_HYDRATE_APPLENOTES_SENTINEL_FRESH" == "true" ]]; then
+        if [[ "$_HYDRATE_APPLENOTES_ROWS" == "unknown" ]]; then
+            warn "$MSG_WARN_HYDRATE_APPLE_NOTES_REIMPORT_UNVERIFIED"
+        else
+            warn "$MSG_WARN_HYDRATE_APPLE_NOTES_REIMPORT_STORE_EMPTY"
+        fi
+    fi
 
     # Same timeout picker as the other hydrate phases (brew coreutils
     # gtimeout preferred; system timeout fallback; unbounded if neither).
@@ -32860,6 +33835,7 @@ unset _HYDRATE_APPLENOTES_FDA_DIR _HYDRATE_APPLENOTES_JSON_FILE
 unset _HYDRATE_APPLENOTES_BIN _HYDRATE_APPLENOTES_BIN_OK
 unset _HYDRATE_APPLENOTES_STAGING _HYDRATE_APPLENOTES_DBPATH
 unset _HYDRATE_APPLENOTES_COLLECTION _HYDRATE_APPLENOTES_EMBED_MODEL
+unset _HYDRATE_APPLENOTES_SENTINEL_FRESH _HYDRATE_APPLENOTES_ROWS
 unset _HYDRATE_APPLENOTES_MAXLEVEL _HYDRATE_APPLENOTES_QDRANT
 unset _HYDRATE_APPLENOTES_OLLAMA
 
@@ -32928,14 +33904,52 @@ fi
 # own run and skipped in elapsed_s=0 while REPORTING ok. The customer was
 # told "No Reminders to read" about 2369 reminders, and reminders_knowledge
 # was never created.
+# ── #2314: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
+# The skip is CORROBORATED AT THE DESTINATION or it does not happen. See
+# _hydrate_collection_rows for the walk that paid for #2313, which fixed
+# this for browsing alone; this leg skipped on the same evidence.
+# Same shape as apple_notes: the probe reads the variable the embedder is
+# given (_HYDRATE_REMINDERS_COLLECTION=reminders_knowledge).
+#
+# This leg has ALREADY shipped the sentinel-lies-about-the-store failure once.
+# The v1.0.101 walk: "[ok] Reminders: 2369 total" and "No Reminders to read"
+# and "STEP_END id=hydrate_reminders status=ok elapsed_s=0", 24 lines apart in
+# one run, with reminders_knowledge ABSENT. #2117 gave this leg its own
+# sentinel key so it stopped reading the READER's record. That fixed which
+# record it consults. It did not make a record evidence about a store.
+_HYDRATE_REMINDERS_SENTINEL_FRESH=false
 if _hydrate_sentinel_fresh "reminders_knowledge"; then
-    info "$MSG_HYDRATE_REMINDERS_SKIPPED_ALREADY_EMBEDDED"
+    _HYDRATE_REMINDERS_SENTINEL_FRESH=true
+fi
+# Only asked when it can change the answer, so a store probe is never spent
+# on a run that was going to hydrate anyway.
+_HYDRATE_REMINDERS_ROWS=""
+if [[ "$_HYDRATE_REMINDERS_SENTINEL_FRESH" == "true" ]]; then
+    _HYDRATE_REMINDERS_ROWS="$(_hydrate_collection_rows "$_HYDRATE_REMINDERS_COLLECTION")"
+fi
+
+if [[ "$_HYDRATE_REMINDERS_SENTINEL_FRESH" == "true" ]] \
+   && _hydrate_collection_has_rows "$_HYDRATE_REMINDERS_ROWS"; then
+    # The one skip that is earned: a completed run AND the rows still there.
+    ok "$(printf "$MSG_HYDRATE_REMINDERS_ALREADY_IMPORTED" "$_HYDRATE_REMINDERS_ROWS")"
 elif [[ "${OSTLER_REMINDERS_KNOWLEDGE:-1}" == "0" ]]; then
     # Deferred explicit-flag hook, mirroring OSTLER_APPLE_NOTES_KNOWLEDGE:
     # operator opted this leg out.
     info "$MSG_HYDRATE_REMINDERS_SKIPPED_OPTED_OUT"
 elif [[ "$_HYDRATE_REMINDERS_BIN_OK" == "true" ]] && [[ -s "$_HYDRATE_REMINDERS_JSON_FILE" ]]; then
     info "$MSG_HYDRATE_REMINDERS_STARTED"
+    # A fresh sentinel that did NOT survive corroboration lands here, and the
+    # customer is told which of the two things happened rather than watching a
+    # silent re-import. `absent`/no rows and `unknown` are different facts.
+    # Erring towards re-importing is deliberate: a needless re-import costs
+    # time, a needless skip costs the customer the data.
+    if [[ "$_HYDRATE_REMINDERS_SENTINEL_FRESH" == "true" ]]; then
+        if [[ "$_HYDRATE_REMINDERS_ROWS" == "unknown" ]]; then
+            warn "$MSG_WARN_HYDRATE_REMINDERS_REIMPORT_UNVERIFIED"
+        else
+            warn "$MSG_WARN_HYDRATE_REMINDERS_REIMPORT_STORE_EMPTY"
+        fi
+    fi
 
     _HYDRATE_REMINDERS_CAP="${OSTLER_HYDRATE_REMINDERS_TIMEOUT:-1800}"
     _HYDRATE_REMINDERS_TIMEOUT_WRAP=""
@@ -33047,6 +34061,7 @@ unset _HYDRATE_REMINDERS_FDA_DIR _HYDRATE_REMINDERS_JSON_FILE
 unset _HYDRATE_REMINDERS_BIN _HYDRATE_REMINDERS_BIN_OK
 unset _HYDRATE_REMINDERS_STAGING _HYDRATE_REMINDERS_DBPATH
 unset _HYDRATE_REMINDERS_COLLECTION _HYDRATE_REMINDERS_EMBED_MODEL
+unset _HYDRATE_REMINDERS_SENTINEL_FRESH _HYDRATE_REMINDERS_ROWS
 unset _HYDRATE_REMINDERS_MAXLEVEL _HYDRATE_REMINDERS_QDRANT
 unset _HYDRATE_REMINDERS_OLLAMA
 
@@ -33067,10 +34082,43 @@ progress "Indexing your people for search" "hydrate_people"
 _HYDRATE_PEOPLE_VENV="${OSTLER_DIR}/services/email-ingest/.venv"
 _HYDRATE_PEOPLE_PY="${_HYDRATE_PEOPLE_VENV}/bin/python"
 
+# ── #2314: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
+# The skip is CORROBORATED AT THE DESTINATION or it does not happen. See
+# _hydrate_collection_rows for the walk that paid for #2313, which fixed
+# this for browsing alone; this leg skipped on the same evidence.
+# ingest_people_to_qdrant upserts into PEOPLE_QDRANT_COLLECTION, default
+# `people`; this block's own sentinel payload already reads that collection
+# back through _hydrate_qdrant_points a hundred lines below. It recorded the
+# number and never acted on it.
+_HYDRATE_PEOPLE_SENTINEL_FRESH=false
 if _hydrate_sentinel_fresh "people"; then
-    info "$MSG_HYDRATE_PEOPLE_SKIPPED_NO_DATA"
+    _HYDRATE_PEOPLE_SENTINEL_FRESH=true
+fi
+# Only asked when it can change the answer, so a store probe is never spent
+# on a run that was going to hydrate anyway.
+_HYDRATE_PEOPLE_ROWS=""
+if [[ "$_HYDRATE_PEOPLE_SENTINEL_FRESH" == "true" ]]; then
+    _HYDRATE_PEOPLE_ROWS="$(_hydrate_collection_rows people)"
+fi
+
+if [[ "$_HYDRATE_PEOPLE_SENTINEL_FRESH" == "true" ]] \
+   && _hydrate_collection_has_rows "$_HYDRATE_PEOPLE_ROWS"; then
+    # The one skip that is earned: a completed run AND the rows still there.
+    ok "$(printf "$MSG_HYDRATE_PEOPLE_ALREADY_IMPORTED" "$_HYDRATE_PEOPLE_ROWS")"
 elif [[ -x "$_HYDRATE_PEOPLE_PY" ]]; then
     info "$MSG_HYDRATE_PEOPLE_STARTED"
+    # A fresh sentinel that did NOT survive corroboration lands here, and the
+    # customer is told which of the two things happened rather than watching a
+    # silent re-import. `absent`/no rows and `unknown` are different facts.
+    # Erring towards re-importing is deliberate: a needless re-import costs
+    # time, a needless skip costs the customer the data.
+    if [[ "$_HYDRATE_PEOPLE_SENTINEL_FRESH" == "true" ]]; then
+        if [[ "$_HYDRATE_PEOPLE_ROWS" == "unknown" ]]; then
+            warn "$MSG_WARN_HYDRATE_PEOPLE_REIMPORT_UNVERIFIED"
+        else
+            warn "$MSG_WARN_HYDRATE_PEOPLE_REIMPORT_STORE_EMPTY"
+        fi
+    fi
 
     # ── NO WALL-CLOCK CAP. Andy's call, 2026-08-21, and it is the right one ──
     #
@@ -33241,6 +34289,7 @@ else
 fi
 
 unset _HYDRATE_PEOPLE_VENV _HYDRATE_PEOPLE_PY
+unset _HYDRATE_PEOPLE_SENTINEL_FRESH _HYDRATE_PEOPLE_ROWS
 
 # Preferences install-time ingest now runs earlier, at phase 3.12b,
 # through the shared ostler-import fan-out (CM041 contacts + CM019
@@ -35467,6 +36516,36 @@ if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
     done
     unset _aiconv_p
 
+    # ── #2314: THIS LEG IS NOT CORROBORATED, AND THAT IS THE FINDING ────
+    #
+    # Every other `_hydrate_sentinel_fresh` skip in this file now reads its own
+    # destination back before it trusts a fresh sentinel. This one does not, and
+    # it is left uncorroborated DELIBERATELY rather than given the nearest
+    # readable thing.
+    #
+    # WHY THE OBVIOUS PROBE IS WORTHLESS HERE. cm052 dual-stores: an episodic
+    # markdown artefact under ~/Documents/Ostler/AI Conversations, and a POST of
+    # extracted facts to CM048 (vendor/cm052_ai_conversations/src/cm052/wire.py).
+    # Counting the markdown looks like corroboration and is not: that tree is a
+    # directory under $HOME, and so is the sentinel. THEY SHARE A LIFETIME. The
+    # defect being fixed is a sentinel that survives a container-VM delete while
+    # the rows inside the VM do not, so anything that dies with the sentinel can
+    # never answer the question. It would read `ok` in exactly the case that
+    # matters, and would ADD the appearance of a check.
+    #
+    # WHY THE HONEST PROBE CANNOT BE WRITTEN YET. The half that does live in the
+    # VM is CM048's. The POST returns {"job_id": ..., "status": "queued"} -- a
+    # queue receipt, not a landing -- cm052 contains ZERO Qdrant references, and
+    # nothing in THIS repo names the collection CM048 eventually embeds into.
+    # Picking one by resemblance is what the whatsapp and imessage notes above
+    # refuse to do, and it would be worse here than doing nothing.
+    #
+    # SO: a named gap, at the line, with what would close it. When CM048's
+    # collection is nameable from this repo, this becomes
+    # `_hydrate_collection_rows <that collection>` and joins the other seven.
+    # tests/test_every_hydrate_skip_is_corroborated_at_its_destination.sh pins
+    # the gap: it asserts this leg acquires no corroboration that reads a path
+    # under $HOME, while leaving a real store-side one free to land.
     if _hydrate_sentinel_fresh "ai_conversations"; then
         info "$MSG_HYDRATE_AICONV_SKIPPED_NO_DATA"
     elif [[ -z "$_AICONV_SRC" ]]; then

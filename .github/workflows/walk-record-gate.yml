@@ -144,6 +144,15 @@ on:
       - 'scripts/payload_delta.sh'
       - 'gui/Makefile'
       - 'tests/test_a_walk_failure_is_classified.sh'
+      # THE JOIN BETWEEN A WALK AND ITS RECORD. Measured on origin/main
+      # 2026-09-23: the writer had ZERO executable invocations outside tests/
+      # (control: 8 files inside it), so two walks on real hardware left no
+      # record any gate could read. scripts/record_walk.sh is the call, and
+      # scripts/ttywalk.sh is where it is made -- both watched, because a
+      # change to either can re-dark the writer, and the test that guards it
+      # is listed too or editing it would be dark on self-edit.
+      - 'scripts/record_walk.sh'
+      - 'tests/test_a_completed_walk_records_itself.sh'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in the very PR that narrows it.
       - 'scripts/tests/test_the_walk_record_says_whether_the_box_was_seeded.sh'
@@ -433,6 +442,36 @@ jobs:
           bash tests/test_post_walk_qa_measures_the_artefact.sh || rc=$?
           if [ "$rc" -eq 2 ]; then
             echo "::error title=CANNOT-RUN (harness, not product)::The writer harness could not locate its anchors in scripts/post_walk_qa.sh. NOTHING about the writer has been measured. Do not debug post_walk_qa.sh on the strength of this line -- re-point the anchors in tests/test_post_walk_qa_measures_the_artefact.sh, and do not delete the arms."
+          fi
+          exit "$rc"
+
+      # ── THE WALK MUST RECORD ITSELF ────────────────────────────────────
+      #
+      # Everything above judges a record that EXISTS. This judges whether one
+      # ever gets written. scripts/post_walk_qa.sh has written walk records
+      # correctly since 2026-08-21 and NOTHING CALLED IT: 0 executable
+      # invocations outside tests/ on origin/main 2026-09-23, against a control
+      # of 8 inside it. The deliverable the launch directive names was produced
+      # only when a human remembered a second command, and on 2026-09-23 two
+      # walks on real hardware produced none.
+      #
+      # The suite runs the recorder against stub writers, so all three outcomes
+      # -- RECORDED, DECLINED, CANNOT-RUN -- are exercised on a runner with no
+      # box. It was proved RED against unmodified origin/main (arm 1 FAIL,
+      # rc=1) and its freshness control was mutation-tested: disabling the
+      # `-nt` check makes a dead writer report `RECORDED verdict=CLEAN` over a
+      # previous walk's file, and arm 4 catches it.
+      #
+      # rc=2 IS NOT rc=1, same as the arms above: 2 means the harness could not
+      # set up and NOTHING was measured.
+      - name: A completed walk must record itself, and say so when it cannot
+        if: always()
+        run: |
+          set -uo pipefail
+          rc=0
+          bash tests/test_a_completed_walk_records_itself.sh || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::The walk-recording harness could not set itself up, or scripts/record_walk.sh is absent. NOTHING about the join between a walk and its record has been measured. Re-point the anchors in tests/test_a_completed_walk_records_itself.sh; do not delete the arms."
           fi
           exit "$rc"
 

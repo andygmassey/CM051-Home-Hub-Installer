@@ -40,6 +40,8 @@ on:
     paths:
       - 'install.sh'
       - 'tests/test_hydrate_sentinel_not_on_error.sh'
+      - 'tests/test_hydrate_browsing_skip_is_corroborated_at_the_store.sh'
+      - 'tests/test_every_hydrate_skip_is_corroborated_at_its_destination.sh'
       - 'tests/test_hydrate_counters_survive_a_failed_producer.sh'
       - 'tests/test_an_unmeasured_count_is_not_a_measured_zero.sh'
       - 'tests/test_an_old_format_sentinel_does_not_abort_the_install.sh'
@@ -257,10 +259,45 @@ jobs:
         if: always()
         run: /bin/bash tests/test_the_source_table_items_column_is_the_number_it_claims.sh
 
-      - name: All twelve tests parse under bash 3.2-compatible syntax
+      # 🔴 #2313, MEASURED ON macmini16-walk 2026-09-23. Every gate above this
+      # line asks whether the sentinel FILE is honest about the run that wrote
+      # it. None of them asks the question the file cannot answer: are the rows
+      # still in the store? The walk box answered no. browsing.done said
+      # `status=ok payload=sent=8626`, the collection did not exist, the step
+      # skipped, and the customer was told "No browsing history to import" over
+      # 8,831 visits the reader had logged 750 lines earlier.
+      #
+      # A sentinel under ~/.ostler and a Qdrant volume inside the container VM
+      # have independent lifetimes, so freshness alone can never license a
+      # skip. This drives the REAL extracted hydrate_browsing block against a
+      # REAL http server standing in for the store, both directions: the
+      # pre-fix guard must still reproduce the skip, and the current one must
+      # not. Explicit run step, not a loop entry (#647).
+      - name: A hydrate skip is corroborated at the destination (#2313)
+        if: always()
+        run: /bin/bash tests/test_hydrate_browsing_skip_is_corroborated_at_the_store.sh
+
+      # 🔴 #2314: THE OTHER SIX, AND THE SEVENTH NAMED AS A GAP.
+      # _hydrate_sentinel_fresh has EIGHT skip call sites and #2313 corroborated
+      # one of them. This drives the REAL extracted guard region of each
+      # remaining leg against REAL http servers standing in for Qdrant and
+      # Oxigraph, both directions per leg: the pre-fix guard must still
+      # reproduce the skip, the current one must not. Two mutations of the fix
+      # itself, one per destination class, are asserted CAUGHT. It also pins the
+      # ai_conversations gap one-sided: that leg may acquire a real store-side
+      # corroboration at any time and may not acquire one reading a path under
+      # $HOME, because such a path dies with the sentinel and cannot see the
+      # defect. Explicit run step, not a loop entry (#647).
+      - name: Every hydrate skip is corroborated at its own destination (#2314)
+        if: always()
+        run: /bin/bash tests/test_every_hydrate_skip_is_corroborated_at_its_destination.sh
+
+      - name: All fourteen tests parse under bash 3.2-compatible syntax
         if: always()
         run: |
           bash -n tests/test_hydrate_sentinel_not_on_error.sh
+          bash -n tests/test_hydrate_browsing_skip_is_corroborated_at_the_store.sh
+          bash -n tests/test_every_hydrate_skip_is_corroborated_at_its_destination.sh
           bash -n tests/test_aiconv_hydrate_honesty.sh
           bash -n tests/test_email_settling_numerator_is_messages.sh
           bash -n tests/test_no_data_is_not_success.sh

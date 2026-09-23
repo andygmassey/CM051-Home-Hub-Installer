@@ -120,6 +120,45 @@ struct StepStatusGlyph: Equatable {
                 severity: .informational,
                 accessibilityCopyKey: "sidebar.status_background"
             )
+        case .unmeasured:
+            // #2318: "we did not check", not "something is wrong".
+            // Informational for the same reason `timeout` is: a note,
+            // not an alarm. It must NOT be the green tick -- that is the
+            // whole point, a step that measured nothing may not look
+            // identical to one that measured a success -- and it must not
+            // be the warning triangle either, or a perfectly good install
+            // reads as 42 problems.
+            //
+            // 🔴 AND IT MUST NOT BE A BARE CIRCLE, WHICH IS WHAT IT WAS.
+            // MEASURED on a console walk of the v1.0.101 candidate,
+            // 2026-09-24, by Andy, in about thirty seconds of looking at
+            // the actual product: `circle.dashed` in muted ink and the
+            // PENDING glyph `circle` in hairline grey are the same thing
+            // to a human eye. Fourteen COMPLETED steps rendered as though
+            // they were still running, while the three measured ones
+            // below them carried green ticks. A working install read as
+            // hung, and the obvious customer response to that is Cancel.
+            //
+            // The test suite asserted `unmeasured` != `ok` and passed.
+            // It never asserted `unmeasured` != PENDING, because pending
+            // is not a StepStatus at all -- it is the ABSENCE of a
+            // STEP_END, drawn in SidebarView. So the control lived in the
+            // wrong compartment: it proved the glyph was not a success,
+            // and never asked whether it was distinguishable from
+            // not-started, which is the only confusion that reaches a
+            // customer. testNoStatusGlyphCollidesWithAnUnfinishedStep now
+            // holds that axis.
+            //
+            // A HOLLOW TICK IN MUTED INK says done-but-unverified: the
+            // tick carries completion, the absence of green and of fill
+            // carries "nobody checked". That keeps #2318's whole point --
+            // an unmeasured step still may not wear the green tick -- while
+            // not borrowing the vocabulary of a step that has not run.
+            return StepStatusGlyph(
+                symbolName: "checkmark.circle",
+                severity: .informational,
+                accessibilityCopyKey: "sidebar.status_unmeasured"
+            )
         case .warn, .error:
             return StepStatusGlyph(
                 symbolName: "exclamationmark.triangle.fill",

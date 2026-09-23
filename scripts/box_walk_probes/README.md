@@ -74,6 +74,23 @@ Two rules came out of it, and they apply to every probe here:
 `box_run` discards the remote command's stderr; **`box_run_v` does not**. Use
 the latter whenever the reason a read failed is part of the answer.
 
+**Rule 1 broke again in 2026-09, and prose was all that had ever enforced it.**
+`doctor_page_renders_for_a_customer` ran bare `curl` against `127.0.0.1:8089`,
+which is the DRIVER's loopback, and recorded CANNOT-RUN on the v1.0.100 and
+v1.0.101 walks saying "the Doctor is not serving: /api/v1/sources answered
+000". The Doctor was serving both times, and
+`source_status_artefact_is_served`, which GETs that same URL on that same box
+through `box_run`, passed in the same walk. Two builds of coverage lost to a
+connection the driver refused to itself, and the refusal named a cause the
+probe had no instrument to see: `000` is curl reporting that no status line
+arrived, and refused, timed out, proxied and never-issued all print it.
+
+Pointing a probe at the box's LAN address is NOT the repair. The Doctor binds
+`127.0.0.1` on the box deliberately, as the single auth boundary; the request
+has to be ISSUED ON the box. Enforced from now on by
+`tests/test_a_probe_must_measure_the_box_not_the_driver.sh`, which stubs `ssh`
+and requires every HTTP read the probe makes to have crossed it.
+
 **Why this file had to be written.** #719: nothing invoked `run_box_walk.sh` at
 all. #713: every `box_walk_probe` manifest row had ALWAYS returned SKIP, and
 SKIP does not fail a cut. The suite was not missing — it was **built and dark**,
