@@ -434,10 +434,17 @@ if ingest_ran Aprime; then
     fail "A': the pre-fix guard ran the ingest. The original failing input did not reproduce, so A proves nothing."
 elif [ "$(count_in "${WORK}/Aprime/markers.txt" "$NO_DATA_SENTENCE")" = "0" ]; then
     fail "A': the pre-fix guard did not print the sentence the customer saw."
-elif ! grep -qF 'status=ok' <<< "$_line" || ! grep -qF 'elapsed_s=0' <<< "$_line"; then
-    fail "A': expected the walk's own line (status=ok elapsed_s=0), got: ${_line:-<none>}"
+elif ! grep -qF 'elapsed_s=0' <<< "$_line"; then
+    fail "A': expected the walk's own zero-second skip, got: ${_line:-<none>}"
+elif grep -qF 'status=ok' <<< "$_line"; then
+    # #2318: this arm USED to require status=ok, because that is what the
+    # macmini16 walk line said. It no longer can, and the reason is the point.
+    # The pre-fix guard skips on the sentinel alone and reads NOTHING back, so
+    # it now closes `unmeasured` -- the two fixes compose. Asserting ok here
+    # would re-pin the very default #2318 removed, inside the test for #2313.
+    fail "A': the pre-fix guard claimed status=ok having corroborated nothing: ${_line}"
 else
-    pass "A': the pre-fix guard skips a live export over an absent collection, says 'No browsing history to import', and closes status=ok in zero seconds"
+    pass "A': the pre-fix guard skips a live export over an absent collection, says 'No browsing history to import', closes in zero seconds, and (post-#2318) cannot claim ok having checked nothing"
 fi
 
 # ── A   THE SAME INPUT, FIXED ─────────────────────────────────────────────

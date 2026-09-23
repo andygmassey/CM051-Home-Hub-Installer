@@ -1350,7 +1350,11 @@ gui_step_end()    { :; }
 # every other helper here. Present so the hydrate sentinel recorders
 # can call it unguarded.
 gui_step_record_rc() { :; }
-gui_step_status() { printf 'ok'; }
+# #2318: `unmeasured`, not `ok`. Before the emitter is sourced nothing can
+# have measured anything, and the stub must not be the one surface that
+# still answers "fine" by default.
+gui_step_status() { printf 'unmeasured'; }
+gui_step_measures_nothing() { :; }
 gui_log()         { :; }
 gui_warn()        { :; }
 gui_phase()       { :; }
@@ -3330,14 +3334,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8218) captures the path BY
+    # _ostler_write_store_curl_config (defined :8223) captures the path BY
     # VALUE and never re-reads it:
-    #     :8219   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8264   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8273 and :14766, both of which run
+    #     :8224   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8269   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8278 and :14771, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :3325 above has just deleted
-    # that tree and :3329 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :3329 above has just deleted
+    # that tree and :3333 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -3352,13 +3356,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15537, where the note reads
+    # WhatsApp Web session path did it again at :15542, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15554 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15559 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3367,13 +3371,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5838 against a definition at :8218. Top-level
+    # writer's own definition: :5843 against a definition at :8223. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8273, :14766) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8278, :14771) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17609 / :17787 / :17944 / :18286 path. There the
+    # :17614 / :17792 / :17949 / :18291 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -4464,7 +4468,8 @@ else
     gui_step_begin()  { :; }
     gui_step_end()    { :; }
     gui_step_record_rc() { :; }
-    gui_step_status() { printf 'ok'; }
+    gui_step_status() { printf 'unmeasured'; }
+    gui_step_measures_nothing() { :; }
     gui_read()        {
         # Mirrors the TTY half of the full helper so install.sh keeps
         # working when sourced direct from a terminal. Handles the
@@ -29943,6 +29948,16 @@ _hydrate_sentinel_record() {
 
     count="$(_hydrate_payload_count "$payload")"
     _hydrate_compute_change "$sentinel" "$count" "$now"
+    # #2318: THE SENTINEL KNEW AND THE STEP DID NOT.
+    #
+    # _hydrate_sentinel_record_error has always called gui_step_record_rc,
+    # so the failure half of this pair reached the step status. The SUCCESS
+    # half reached only the .done file. With `ok` as the step default that
+    # was invisible; with `unmeasured` as the default a hydrate that really
+    # did store data would have closed `unmeasured`, which is just as false
+    # in the other direction. A sentinel written with a non-zero payload IS
+    # the measurement, so it is recorded as one.
+    gui_step_record_rc 0
     {
         printf 'recorded_at=%s\n' "$now"
         printf 'source=%s\n' "$source"
@@ -32137,7 +32152,13 @@ fi
 if [[ "$_HYDRATE_BROWSING_SENTINEL_FRESH" == "true" ]] \
    && _hydrate_collection_has_rows "$_HYDRATE_BROWSING_ROWS"; then
     # The one skip that is earned: a completed run AND the rows still there.
+    # #2318: THIS IS A MEASUREMENT, so it is recorded as one. The step read
+    # the destination back and the destination answered with rows. Without
+    # this the step would close `unmeasured` -- true of a skip that checked
+    # nothing, and false of this one, which is the whole distinction #2313
+    # drew one level down at the sentinel.
     ok "$(printf "$MSG_HYDRATE_BROWSING_ALREADY_IMPORTED" "$_HYDRATE_BROWSING_ROWS")"
+    gui_step_record_rc 0
 elif [[ -x "$_HYDRATE_BROWSING_PY" ]] && \
    { [[ -s "$_HYDRATE_BROWSING_SAFARI" ]] || [[ -s "$_HYDRATE_BROWSING_CHROME" ]]; }; then
     # A fresh sentinel that did NOT survive corroboration lands here, and the
@@ -32283,11 +32304,17 @@ except Exception:
             _HYDRATE_BROWSING_ROWS_AFTER="$(_hydrate_collection_rows safari_history)"
             if _hydrate_collection_has_rows "$_HYDRATE_BROWSING_ROWS_AFTER"; then
                 ok "$(printf "$MSG_HYDRATE_BROWSING_ALREADY_IMPORTED" "$_HYDRATE_BROWSING_ROWS_AFTER")"
+                gui_step_record_rc 0   # #2318: the store was read back
             elif [[ "$_HYDRATE_BROWSING_TOTAL" == "0" ]]; then
                 # The reader looked and there was nothing there. This is the
                 # ONE branch the sentence below was ever true for, and it now
                 # has it to itself.
                 info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
+                # #2318: "nothing to import" is a MEASURED outcome, not an
+                # absent one. total=0 is the reader reporting an empty source,
+                # which is why it is `ok` and not `unmeasured`. Contrast the
+                # else-arm below, which #2313 already closes `warn`.
+                gui_step_record_rc 0
                 _HYDRATE_BROWSING_NO_SOURCE_ROWS=true
             else
                 warn "$MSG_WARN_HYDRATE_BROWSING_NOTHING_STORED"
@@ -32300,6 +32327,7 @@ except Exception:
         _HYDRATE_BROWSING_ROWS_AFTER="$(_hydrate_collection_rows safari_history)"
         if _hydrate_collection_has_rows "$_HYDRATE_BROWSING_ROWS_AFTER"; then
             ok "$(printf "$MSG_HYDRATE_BROWSING_ALREADY_IMPORTED" "$_HYDRATE_BROWSING_ROWS_AFTER")"
+            gui_step_record_rc 0   # #2318: the store was read back
         else
             warn "$MSG_WARN_HYDRATE_BROWSING_NOTHING_STORED"
             _HYDRATE_BROWSING_NOTHING_STORED=true

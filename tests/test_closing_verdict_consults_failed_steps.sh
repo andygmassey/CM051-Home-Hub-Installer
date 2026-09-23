@@ -213,17 +213,26 @@ markers="${WORK}/markers.txt"
   exec 9>"$markers"
   export OSTLER_GUI=1 OSTLER_MARKER_FD=9
   gui_step_begin s_alpha "Alpha"; gui_step_record_rc 124; gui_step_end timeout
-  gui_step_begin s_clean "Clean"; gui_step_end                 # an ok step in the middle
+  # #2318: the clean step RECORDS its success. The comment always said "an
+  # ok step", and before the default changed it got there by defaulting.
+  # Now it has to earn it, which is the point.
+  gui_step_begin s_clean "Clean"; gui_step_record_rc 0; gui_step_end
   gui_step_begin s_gamma "Gamma"; gui_step_record_rc 5;   gui_step_end error
   printf '%s' "${__OSTLER_FAILED_STEP_IDS}" > "${WORK}/idlist.txt"
   printf '%s' "${__OSTLER_FAILED_STEPS}"    > "${WORK}/count.txt"
 ) 2>/dev/null
-# The ids of the STEP_END markers whose status is NOT ok, from the GUI wire.
+# The ids of the STEP_END markers the GUI renders as PROBLEMS, from the wire.
+#
+# #2318: `unmeasured` is excluded alongside `ok`. It is neither a success
+# nor a failure -- it says nothing recorded an outcome -- and the failed
+# id-list this is compared against deliberately does not carry it. Testing
+# `!= "ok"` alone would make every unmeasured step read as a failed one,
+# which is the inflation the change exists to avoid.
 nonok="$(awk -F'\t' '
     /STEP_END/ {
         id=""; st="";
         for (i=1;i<=NF;i++) { if ($i ~ /^id=/) id=substr($i,4); if ($i ~ /^status=/) st=substr($i,8) }
-        if (st != "ok") printf "%s ", id
+        if (st != "ok" && st != "unmeasured") printf "%s ", id
     }' "$markers" | sed 's/ *$//')"
 idlist="$(cat "${WORK}/idlist.txt")"
 count="$(cat "${WORK}/count.txt")"
