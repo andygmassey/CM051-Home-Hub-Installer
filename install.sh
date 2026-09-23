@@ -3334,7 +3334,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8219   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8264   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8273 and :14721, both of which run
+    # Its two top-level arming calls are :8273 and :14766, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3325 above has just deleted
     # that tree and :3329 has just rebound OSTLER_DIR to the final one, so
@@ -3352,13 +3352,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15492, where the note reads
+    # WhatsApp Web session path did it again at :15537, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15509 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15554 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3371,9 +3371,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8273, :14721) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8273, :14766) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17564 / :17742 / :17899 / :18241 path. There the
+    # :17609 / :17787 / :17944 / :18286 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -10856,7 +10856,46 @@ PRESET=${PRESET:-recommended}
 # and Safari history"). Pre-fix the strings file promised those sources
 # but the bash var did not include them, so install completed with the
 # wiki empty of iMessage + email-correspondent data on every install.
-RECOMMENDED="safari_history,safari_bookmarks,calendar,reminders,imessage,apple_mail"
+#
+# apple_notes (2026-09-23): THE SAME DEFECT AS #48g, ON THE SAME LINE, FOUND
+# AGAIN. Everything downstream of the picker already shipped and was already
+# proven: vendor/cm024_knowledge registers the apple_notes adapter (its
+# ADAPTERS map, and cli.py builds `--source` from that map), the hydrate leg
+# below drives `convert --source apple_notes` + embed, the assistant searches
+# apple_notes_knowledge (OSTLER_KNOWLEDGE_COLLECTIONS, marked :searched), the
+# Doctor prints an apple_notes row unconditionally (_SOURCE_KINDS in the
+# vendored web_ui.py), and extract_all.py has apple_notes in DEFAULT_SOURCES
+# with an extractor that writes apple_notes.json. The ONLY missing link was
+# this line and the picker below, so OSTLER_FDA_SOURCES never carried the
+# name, extract_all took `disabled_by_user`, the JSON was never written, the
+# `[[ ! -s ]]` gate on the hydrate leg always skipped, and
+# apple_notes_knowledge was empty on every install ever shipped.
+#
+# MEASURED on the v1.0.101 walk rather than reasoned about:
+# state/hydrate/apple_notes.done read `status=no_data item_count=0
+# detail=no_export_json` and imports/fda/apple_notes.json did not exist.
+#
+# WHY RECOMMENDED AND NOT EVERYTHING-ONLY. Three reasons, in order of weight:
+#   1. The customer copy already promises it in Recommended, in BOTH places a
+#      customer can read it: MSG_PROMPT_FDA_PRESET_CHOICE_RECOMMENDED ("...
+#      Calendar, Notes, Messages ...") and the TTY menu just above ("Safari
+#      history + bookmarks, Notes, Calendar, ..."). Listing it only under
+#      Everything would leave both promises false, which is precisely the
+#      strings-promise-vs-var mismatch #48g existed to close.
+#   2. It costs NO new permission. NoteStore.sqlite sits behind the same
+#      single Full Disk Access grant already taken for Safari, iMessage and
+#      Mail at this same moment. There is no separate Notes prompt to decline,
+#      so the "do not print an amber row for ever to someone who said no"
+#      concern does not arise: the customer never says no to Notes
+#      specifically. Contrast photos_metadata, which stays off by default.
+#   3. The Doctor row is UNCONDITIONAL either way. apple_notes is in
+#      _SOURCE_KINDS, not _FDA_EXTRACT_KINDS, so the panel prints the row
+#      whether or not a sentinel exists. Everything-only would therefore keep
+#      the amber "not run yet" row on the default install forever, which is
+#      the outcome the deferral was supposed to avoid.
+# Andy, 2026-09-02, on the deferral this replaces: "I don't know where you're
+# getting that Apple Notes shouldn't be included - it SHOULD."
+RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders,imessage,apple_mail"
 
 # DMG fix 3 (#618 partial): most customers are Chrome-primary, so a
 # Recommended install must ingest Chrome history too when Chrome is
@@ -10912,6 +10951,12 @@ case "$PRESET" in
         echo "  Recommended (defaults on):"
         _ask_source "safari_history"   "Safari history          " Y
         _ask_source "safari_bookmarks" "Safari bookmarks        " Y
+        # Same order as the TTY menu above and as RECOMMENDED. A source in a
+        # preset but NOT here is worse than dark: the customer who picks
+        # Customise loses it silently while the Recommended customer keeps it,
+        # and nothing in the summary line says so.
+        # tests/test_the_picker_offers_every_preset_source.sh asserts the join.
+        _ask_source "apple_notes"      "Apple Notes             " Y
         _ask_source "calendar"         "Calendar                " Y
         _ask_source "reminders"        "Reminders               " Y
         _ask_source "imessage"         "iMessage                " Y
