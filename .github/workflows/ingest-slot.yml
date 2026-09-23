@@ -151,7 +151,7 @@ jobs:
             vendor/whatsapp_source/bin/whatsapp-bundle-tick.sh \
             vendor/spoken_source/bin/spoken-bundle-tick.sh \
             wiki-recompile/bin/wiki-recompile-tick.sh \
-            tests/test_ingest_slot_fairness.sh
+            tests/test_ingest_slot_fairness.sh \
             tests/test_prelaunch_libs_survive_promote.sh
           do
             if [ ! -f "$f" ]; then
