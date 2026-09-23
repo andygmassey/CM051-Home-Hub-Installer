@@ -23895,6 +23895,17 @@ OSTLER_LAUNCHAGENT_LABELS=(
     com.ostler.stay-awake
     com.ostler.imessage-bridge
     com.creativemachines.ostler.hub-power
+    # 🔴 ADDED 2026-09-24. This label was MISSING and the omission was not a
+    # typo, it is structural: context-refresh is installed by a VENDORED
+    # snippet (install.sh copies context-refresh/ and runs its
+    # INSTALL_SNIPPET.sh), not by install.sh writing the plist itself. A
+    # hardcoded list derived from install.sh is blind to that whole class.
+    # MEASURED on the walk box: 23 agents present, 22 named here, and the one
+    # missing was this. It survived a "successful" uninstall still loaded,
+    # pointed at a ~/.ostler/context-refresh the uninstaller had just deleted.
+    # Filed as #2322; the structural fix (enumerate BOTH namespaces on disk
+    # and union with this list) is tracked there.
+    com.creativemachines.ostler.context-refresh
     com.creativemachines.ostler.email-ingest
     com.creativemachines.ostler.whatsapp-bundle
     com.creativemachines.ostler.email-bundle
@@ -24067,11 +24078,72 @@ for _u_app in "/Applications/Ostler/Ostler Safari Extension.app" "/Applications/
     fi
 done
 
+# 🔴 OUR OWN BUNDLES FIRST, OR THE rmdir BELOW CAN NEVER SUCCEED.
+#
+# MEASURED 2026-09-24 on Andy's console walk. This uninstaller printed
+# "Done. Ostler has been removed." and left /Applications/Ostler standing,
+# every single time, because "Recover Ostler.app" was inside it and rmdir
+# refuses a non-empty directory. The `|| true` then swallowed the refusal.
+#
+# THAT SURVIVING FOLDER HID A LAUNCH BLOCKER FOR MONTHS. install.sh moves
+# Ostler RemoteCapture into ${OSTLER_APPS_DIR} at step 33 and, on a Mac
+# where that folder does not exist, the move fails and the WHOLE INSTALL
+# aborts. Every walk box had the folder left over from an earlier install,
+# so the move always worked and no walk could ever see it. Andy deleted the
+# folder by hand to make the box look like a customer's, and the install
+# died at step 33 of 45. A cleaner that quietly does less than it says is
+# not untidy, it is a permanent blind spot for one class of defect.
+#
+# THE SAFETY PROPERTY ABOVE IS KEPT, and it was right: never rm -rf a
+# directory whose contents we did not put there. So remove the bundles we
+# DID put there, BY NAME, and only then rmdir. A customer file still stops
+# the removal, and now says so instead of passing in silence.
+for _u_ours in "Recover Ostler.app" "Ostler RemoteCapture.app" "Ostler Safari Extension.app" "Ostler.app"; do
+    if [[ -d "/Applications/Ostler/${_u_ours}" ]]; then
+        _u_quit_bundle_processes "/Applications/Ostler/${_u_ours}"
+        echo "  Removing /Applications/Ostler/${_u_ours}..."
+        rm -rf "/Applications/Ostler/${_u_ours}" 2>/dev/null \
+            || sudo rm -rf "/Applications/Ostler/${_u_ours}" 2>/dev/null || true
+    fi
+done
+
 # The folder itself, once its contents are gone. rmdir and not rm -rf:
 # if anything is still in there it is something the uninstaller did not
 # put there and did not account for, and silently deleting a customer's
 # file to tidy a directory is not a trade this script gets to make.
-rmdir "/Applications/Ostler" 2>/dev/null || sudo rmdir "/Applications/Ostler" 2>/dev/null || true
+if [[ -d "/Applications/Ostler" ]]; then
+    if ! rmdir "/Applications/Ostler" 2>/dev/null && ! sudo rmdir "/Applications/Ostler" 2>/dev/null; then
+        # NO LONGER SILENT. This exact silence is what hid the step-33
+        # defect, so the refusal now names what is still in there.
+        echo "  Note: /Applications/Ostler was kept because it is not empty:"
+        ls -1 "/Applications/Ostler" 2>/dev/null | sed 's/^/      /' | head -5
+        echo "      Those are not files Ostler installed. Remove them and the"
+        echo "      folder yourself if you want it gone."
+    fi
+fi
+
+# ── The container VM, and the disk it leaves behind ────────────
+#
+# 🔴 MEASURED 2026-09-24: after a "successful" uninstall the colima VM was
+# STILL RUNNING and ~/.colima held 17G. The customer is told Ostler has been
+# removed while a virtual machine and its disk stay on the Mac.
+#
+# AND `colima delete --force` IS NOT ENOUGH ON ITS OWN. It reports done and
+# leaves the persistent data disk: measured, 16G surviving a successful
+# delete, with five other surfaces all reading clean at the same moment.
+# The disk is removed explicitly, by its own path, because a delete that
+# says done and leaves 16G is the reason anyone has to check.
+_u_emit UNINSTALL_PHASE "name=container_vm"
+echo "  Removing the container VM and its disk..."
+if command -v colima >/dev/null 2>&1 || [[ -x /opt/homebrew/bin/colima ]]; then
+    PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" colima stop >/dev/null 2>&1 || true
+    PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" colima delete --force >/dev/null 2>&1 || true
+fi
+rm -rf "${HOME}/.colima/_lima/_disks/colima" 2>/dev/null \
+    || sudo rm -rf "${HOME}/.colima/_lima/_disks/colima" 2>/dev/null || true
+if [[ -e "${HOME}/.colima/_lima/_disks/colima/datadisk" ]]; then
+    echo "  (warning: the VM data disk could not be removed; remove ~/.colima yourself)"
+fi
 
 echo "  Restoring sleep settings..."
 sudo pmset -a sleep 1 2>/dev/null || true
