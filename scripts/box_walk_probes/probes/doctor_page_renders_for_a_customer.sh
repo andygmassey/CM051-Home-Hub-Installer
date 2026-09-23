@@ -87,7 +87,11 @@ _issued_from() {
     if [ -n "${OSTLER_BOX_HOST:-}" ]; then
         printf 'the box %s, where curl ran over ssh' "${OSTLER_BOX_HOST}"
     else
-        printf 'THIS machine -- OSTLER_BOX_HOST is unset, so 127.0.0.1 here is the walk driver and NOT the box'
+        # Both readings are live: run_box_walk.sh supports being run ON the box
+        # with no host set, and post_walk_qa.sh always sets one. Naming the
+        # ambiguity is the point -- the two walks this probe lost were lost to
+        # a verdict that quietly assumed the second reading was the first.
+        printf 'THIS machine, because OSTLER_BOX_HOST is unset: that is the box when the suite is run on it, and the walk driver when it is not'
     fi
 }
 
