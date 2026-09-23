@@ -156,12 +156,30 @@ QA="${OSTLER_POST_WALK_QA:-${REPO_ROOT}/scripts/post_walk_qa.sh}"
 # checks against, so a wrong value here produces a refusal, never a false
 # record.
 if [[ -z "$VERSION" ]]; then
+    # 🔴 AN UNREACHABLE BOX IS NOT AN ABSENT VERSION, AND THE FIRST VERSION OF
+    # THIS FILE CONFLATED THEM. Measured against 192.0.2.1 (TEST-NET-1, which
+    # cannot answer): ssh timed out, the substitution yielded "", and this
+    # reported DECLINED -- "a repo walk ... is not evidence about any release".
+    # Every word of that was false. The walk may well have been an artefact
+    # walk; we simply could not ask. A confident wrong REASON sends the next
+    # person to the wrong problem, which is the same defect class as reporting
+    # CANNOT-RUN as a pass, one field over.
+    #
+    # ssh exits 255 for its OWN failures and otherwise propagates the remote
+    # command's code, so 255 is the discriminator between "could not look" and
+    # "looked, found nothing". `cat` on an absent file exits 1, which is a real
+    # measurement: the file is not there.
+    _ssh_rc=0
     VERSION="$(ssh -o ConnectTimeout=10 -o BatchMode=yes "$HOST" \
-        'cat ~/.walk-artefact-version 2>/dev/null' | tr -d '[:space:]')"
+        'cat ~/.walk-artefact-version 2>/dev/null' 2>/dev/null)" || _ssh_rc=$?
+    VERSION="$(printf '%s' "$VERSION" | tr -d '[:space:]')"
+    if [[ "$_ssh_rc" -eq 255 ]]; then
+        cannot "could not reach ${HOST} to read the artefact version (ssh exited 255). This walk is unrecorded and the reason is the network, NOT an absent version. Re-run: scripts/record_walk.sh --host ${HOST} --version <vX.Y.Z>"
+    fi
 fi
 
 if [[ -z "$VERSION" ]]; then
-    decline "no artefact version is known for this walk (~/.walk-artefact-version on the box is empty or absent). A repo walk exercises install.sh from a checkout and is not evidence about any release, so there is no release to record."
+    decline "no artefact version is known for this walk (~/.walk-artefact-version on the box is present-but-empty or absent, and the box WAS reachable). A repo walk exercises install.sh from a checkout and is not evidence about any release, so there is no release to record."
 fi
 
 # NORMALISE THE LEADING v, AND ONLY THAT. post_walk_qa.sh requires ^v[0-9.]+$

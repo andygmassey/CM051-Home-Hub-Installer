@@ -23,7 +23,7 @@
 #
 # A grep proving "ttywalk.sh mentions record_walk.sh" would pass on a comment,
 # which is precisely the state that caused the defect. So arm 1 greps for the
-# INVOCATION, with a negative control proving the grep can fail; and arms 2-6
+# INVOCATION, with a negative control proving the grep can fail; and arms 2-8
 # EXECUTE scripts/record_walk.sh against a stub writer, so every branch is
 # measured rather than read.
 #
@@ -233,13 +233,48 @@ else
     fail "a .tsv was created from a malformed version."
 fi
 
+printf '\n== 8. an unreachable box is CANNOT-RUN, not a declined precondition ==\n'
+
+# 🔴 THIS ARM EXISTS BECAUSE THE FIRST VERSION GOT IT WRONG. Measured against
+# 192.0.2.1 (TEST-NET-1, RFC 5737, which by definition cannot answer): ssh
+# timed out, the version came back empty, and record_walk.sh reported
+# DECLINED -- "a repo walk ... is not evidence about any release". Every word
+# was false; we simply could not ask. "Could not look" and "looked and found
+# nothing" print identically unless something separates them.
+#
+# ssh is SHADOWED rather than dialled, so this arm needs no network and cannot
+# take 10 seconds. 255 is ssh's own-failure code.
+mkdir -p "${TMP}/w7"
+FAKE_SSH_DIR="${TMP}/fakebin"
+mkdir -p "$FAKE_SSH_DIR"
+cat > "${FAKE_SSH_DIR}/ssh" <<'SSHEOF'
+#!/usr/bin/env bash
+# Stands in for an unreachable host: ssh's own failure code, nothing on stdout.
+echo "ssh: connect to host port 22: Operation timed out" >&2
+exit 255
+SSHEOF
+chmod +x "${FAKE_SSH_DIR}/ssh"
+[[ -x "${FAKE_SSH_DIR}/ssh" ]] || cannot "could not create the ssh stand-in; arm 8 would measure the real network instead."
+
+OUT="$(PATH="${FAKE_SSH_DIR}:${PATH}" OSTLER_POST_WALK_QA="$NOOP_WRITER" \
+    OSTLER_WALK_RECORD_DIR="${TMP}/w7" \
+    bash "$RECORDER" --host stub@example.invalid --walk-verdict 0 2>&1)"
+RC=$?
+if [[ "$RC" -eq 2 ]] && printf '%s' "$OUT" | /usr/bin/grep -q 'NOT an absent version'; then
+    pass "an unreachable box is CANNOT-RUN and names the network as the reason"
+elif [[ "$RC" -eq 3 ]]; then
+    fail "an unreachable box was reported DECLINED. That states, falsely and confidently, that this was a repo walk with nothing to record. Output: ${OUT}"
+else
+    fail "an unreachable box gave rc=${RC} without naming the network. Output: ${OUT}"
+fi
+
 printf '\n---- %s arms, %s failed ----\n' "$ARMS" "$FAILURES"
 
 # A ZERO DENOMINATOR READS AS SUCCESS. If every arm were skipped this would
 # print "0 arms, 0 failed" and exit 0, which is the shape of a suite that
 # measured nothing.
-if [[ "$ARMS" -lt 10 ]]; then
-    cannot "only ${ARMS} arms ran; this suite has 11. Something skipped, and a partial suite is not a pass."
+if [[ "$ARMS" -lt 11 ]]; then
+    cannot "only ${ARMS} arms ran; this suite has 12. Something skipped, and a partial suite is not a pass."
 fi
 
 [[ "$FAILURES" -eq 0 ]] || exit 1
