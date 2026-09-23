@@ -6,7 +6,10 @@
 # com.creativemachines.ostler.editor-frontpage.plist (hourly by default,
 # RunAtLoad fires one emit at install so the Dashboard is never blank).
 #
-# What it does (two cheap, read-only steps):
+# What it does (one producer, then two cheap emits):
+#   0. Project the Qdrant `preferences` collection into Oxigraph as
+#      preference nodes. The only step that WRITES, and it must precede
+#      step 1, which compiles from what it writes.
 #   1. Emit the stable interest-profile artefact to
 #      ~/.ostler/preferences/interest_profile.json. This is what the Hub
 #      serves at /api/v1/preferences and therefore what the assistant's
@@ -160,33 +163,7 @@ export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost}"
 log "Editor front-page tick start (recompiling interest profile -> front_page.json)"
 cd "$SOURCE_DIR"
 
-# --- Step 1: the interest-profile artefact the Hub actually serves -----
-# DELIBERATELY NON-FATAL, and the ordering matters. This step is new; the
-# front-page emit below has worked on every box since it shipped. Under
-# `set -e` a hard failure here would take the working surface down with the
-# new one, so a failure is logged and stepped over. The reverse ordering
-# (front page first) was rejected: the artefact is the one the ASSISTANT
-# reads, so it gets first call on the tick's budget, and the front page is
-# unaffected either way because the two writes touch different files.
-#
-# Guarded on the file existing so a tick running against an older staged
-# tree degrades to previous behaviour instead of erroring every hour.
-if [ -f "$SOURCE_DIR/compiler/emit_artefact.py" ]; then
-    # rc captured explicitly: `$?` read inside an if/else branch reports the
-    # branch's own last command, not the condition's, and that misreports the
-    # failure in the log line -- the exact class of wrong-surface reporting
-    # this fix exists to remove.
-    _artefact_rc=0
-    PYTHONPATH="$SOURCE_DIR" "$PYTHON_BIN" -m compiler.emit_artefact \
-        --oxigraph "$OSTLER_OXIGRAPH_URL" || _artefact_rc=$?
-    if [ "$_artefact_rc" -ne 0 ]; then
-        log "interest-profile artefact emit failed (rc=${_artefact_rc}); /api/v1/preferences will keep serving the previous artefact, or count:0 if this is a first run. Front page emit continues."
-    fi
-else
-    log "compiler/emit_artefact.py not in the staged tree; skipping the interest-profile artefact (staged tree predates it)."
-fi
-
-# --- Step 1.5: PROJECT QDRANT PREFERENCES INTO THE GRAPH ---------------
+# --- Step 0: PROJECT QDRANT PREFERENCES INTO THE GRAPH -----------------
 #
 # 🔴 compiler/project_preferences.py SHIPPED AND WAS CALLED BY NOTHING.
 # Measured on the v1.0.100 box, with a control of the same shape:
@@ -204,9 +181,30 @@ fi
 #     graph total                         76167 -> 120493 triples
 #     interest_profile.json stats         raw_rows 4792
 #
-# It runs BEFORE emit_artefact because emit_artefact reads what this writes.
-# Guarded on the file existing for the same reason Step 1 is: a tick against an
-# older staged tree degrades instead of erroring every hour.
+# THE ORDERING IS THE WIRING, not a preference. This block WRITES the
+# preference nodes that step 1 below READS: the two name the same ontology
+# host, the same node types and the same four required predicates, and
+# neither side uses a GRAPH clause, so they meet in the default graph. A
+# compile that runs first sees the graph as the PREVIOUS tick left it.
+#
+# THAT IS EXACTLY WHAT THIS FILE DID UNTIL 2026-09-23, and this very comment
+# asserted the opposite while it did so, which is how it survived review. The
+# block was numbered "Step 1.5" and sat BELOW Step 1. It is a ONE-TICK LAG
+# and not a permanent zero, so a box up for two hourly ticks looked correct
+# and nobody saw it; it bites only between ingest completing and the
+# following tick, which is the window a thin walk runs in. Measured there:
+# interest_profile.json count 0 and stats.raw_rows 0 over a graph holding
+# 4718 preference nodes, so /api/v1/preferences served an empty set with
+# HTTP 200, so the assistant's pwg_preferences tool answered "No preferences
+# were found in the personal graph", so the BLOCKING walk probe
+# assistant_answers_grounded scored tool_found_nothing.
+#
+# tests/test_the_preference_projection_runs_before_the_compile_that_reads_it.sh
+# renders this wrapper the way INSTALL_SNIPPET.sh does, runs it, and fails if
+# the two are ever swapped back.
+#
+# Guarded on the file existing for the same reason step 1 below is: a tick
+# against an older staged tree degrades instead of erroring every hour.
 #
 # ⚠️ THIS IS NECESSARY AND NOT SUFFICIENT, AND SAYING SO HERE IS THE POINT.
 # With all 4792 rows present the profile STILL reports 0 interests:
@@ -224,6 +222,36 @@ if [ -f "$SOURCE_DIR/compiler/project_preferences.py" ]; then
     fi
 else
     log "compiler/project_preferences.py not in the staged tree; skipping the preference projection (staged tree predates it)."
+fi
+
+# --- Step 1: the interest-profile artefact the Hub actually serves -----
+# DELIBERATELY NON-FATAL, and the ordering matters. This step is new; the
+# front-page emit below has worked on every box since it shipped. Under
+# `set -e` a hard failure here would take the working surface down with the
+# new one, so a failure is logged and stepped over. The reverse ordering
+# (front page first) was rejected: the artefact is the one the ASSISTANT
+# reads, so it goes first of the two emits, and the front page is
+# unaffected either way because the two writes touch different files.
+#
+# IT MUST STAY BELOW STEP 0. That is not a budget question but a data
+# dependency: this step compiles from the graph the projection writes, so
+# running it first compiles last tick's graph. See Step 0 for the measurement.
+#
+# Guarded on the file existing so a tick running against an older staged
+# tree degrades to previous behaviour instead of erroring every hour.
+if [ -f "$SOURCE_DIR/compiler/emit_artefact.py" ]; then
+    # rc captured explicitly: `$?` read inside an if/else branch reports the
+    # branch's own last command, not the condition's, and that misreports the
+    # failure in the log line -- the exact class of wrong-surface reporting
+    # this fix exists to remove.
+    _artefact_rc=0
+    PYTHONPATH="$SOURCE_DIR" "$PYTHON_BIN" -m compiler.emit_artefact \
+        --oxigraph "$OSTLER_OXIGRAPH_URL" || _artefact_rc=$?
+    if [ "$_artefact_rc" -ne 0 ]; then
+        log "interest-profile artefact emit failed (rc=${_artefact_rc}); /api/v1/preferences will keep serving the previous artefact, or count:0 if this is a first run. Front page emit continues."
+    fi
+else
+    log "compiler/emit_artefact.py not in the staged tree; skipping the interest-profile artefact (staged tree predates it)."
 fi
 
 # --- Step 2: the Dashboard front page (unchanged) ----------------------
