@@ -32,17 +32,41 @@
 #   5. The network preflight block is present (github.com reachability probe).
 #   6. The 3-retry fetch loop is present.
 #   7. OSTLER_INSTALLER_TARBALL_SHA256 is documented in --help.
-#   8. The sentinel value REPLACE_AT_RELEASE_TIME does NOT appear in a
-#      released build -- i.e. the constant has been patched. This check
-#      is gated by an env var so CI (which runs against the repo, not a
-#      release build) can skip it.
+#   8. The pin is WELL FORMED -- exactly the sentinel, or exactly 64
+#      lowercase hex characters. Nothing else, ever.
+#   9. When a built tarball exists, the pin equals that tarball's ACTUAL
+#      digest, recomputed here.
 #
-# Environment variables:
+# ── WHY THIS WAS REWRITTEN, 2026-09-23 ───────────────────────────────────────
 #
-#   OSTLER_CHECK_RELEASE_SHA=1
-#     When set, check (7) fails if DEFAULT_INSTALLER_TARBALL_SHA256 is still
-#     the sentinel REPLACE_AT_RELEASE_TIME. Set this in release-gate CI only;
-#     never in development CI where the sentinel is the expected repo state.
+# Check 8 used to be the real supply-chain assertion and it was gated:
+#
+#     if [[ "${OSTLER_CHECK_RELEASE_SHA:-0}" == "1" ]]; then
+#
+# MEASURED: OSTLER_CHECK_RELEASE_SHA is set in ZERO executable files in this
+# repository. Its only other appearance anywhere is a sentence in RELEASE.md
+# telling a human to set it. Control for that search: OSTLER_EMERGENCY_CUT,
+# which IS set, appears in two real files -- so the search finds env vars where
+# they exist and the zero was real. The branch had therefore never run, and the
+# test printed "SKIP: sentinel check skipped" on every execution since it was
+# written. A check nobody can reach is not a weak check, it is no check.
+#
+# THE OTHER HALF WAS WEAKER THAN IT LOOKED. Check 10 compared the pin against
+# dist/install.tar.gz.sha256 -- a sidecar FILE, not the tarball. A stale sidecar
+# and a stale pin agree with each other perfectly. The digest is now RECOMPUTED
+# from the tarball bytes, and the sidecar is checked against that too.
+#
+# THE GATE NOW DECIDES FROM WHAT IS ON DISK, WHICH CANNOT BE FORGOTTEN:
+#   - no tarball built  -> the pin cannot be verified here. Said out loud as
+#     NOT VERIFIED, with the command that would verify it. Not a pass, not a
+#     failure, and never a silent SKIP that reads like a pass.
+#   - tarball built      -> the pin MUST equal its recomputed digest. Hard fail.
+# There is no environment variable to remember and none to forget.
+#
+# The presence checks (2 to 7) now read a COMMENT-STRIPPED copy of install.sh.
+# They previously matched their own strings inside a comment, which is the same
+# defect one layer down: a commented-out shasum verification would have read as
+# a present shasum verification.
 
 set -euo pipefail
 
@@ -59,6 +83,45 @@ if [[ ! -f "$INSTALL_SCRIPT" ]]; then
     exit 1
 fi
 
+# A line that is commented out is not code. Every presence check below reads
+# this stripped copy, never install.sh itself.
+#
+# Trailing comments count, not just whole-line ones. The mutation that forced
+# this is realistic and leaves install.sh parsing cleanly:
+#     actual_sha="$expected_sha"   # shasum -a 256 "${BOOTSTRAP_TMPDIR}/..."
+# The supply-chain digest is then never computed and the comparison always
+# succeeds, while a whole-line-only stripper still reports the shasum block
+# PRESENT. So the '#' that ends a line is found with quote state tracked, and
+# a '#' inside a quoted span or mid-token is left alone.
+LIVE="$(mktemp -t bootstrap-live.XXXXXX)"
+UNVERIFIED=0
+cleanup_live() { rm -f "$LIVE"; }
+trap cleanup_live EXIT
+awk '
+    {
+        line = $0
+        probe = line
+        sub(/^[[:space:]]+/, "", probe)
+        if (substr(probe, 1, 1) == "#") next
+        n = length(line); sq = 0; dq = 0; out = line
+        for (k = 1; k <= n; k++) {
+            ch = substr(line, k, 1)
+            if (ch == "\\" && sq == 0) { k++; continue }
+            if (ch == "\047" && dq == 0) { sq = 1 - sq; continue }
+            if (ch == "\"" && sq == 0) { dq = 1 - dq; continue }
+            if (ch == "#" && sq == 0 && dq == 0) {
+                prev = (k == 1) ? " " : substr(line, k - 1, 1)
+                if (prev == " " || prev == "\t") { out = substr(line, 1, k - 1); break }
+            }
+        }
+        print out
+    }
+' "$INSTALL_SCRIPT" > "$LIVE"
+if [[ ! -s "$LIVE" ]]; then
+    echo "CANNOT-RUN: comment stripping emptied install.sh; the stripper is broken." >&2
+    exit 2
+fi
+
 # ── 1. Parse check ────────────────────────────────────────────────────────────
 if bash -n "$INSTALL_SCRIPT" 2>/dev/null; then
     pass "install.sh parses cleanly (bash -n)"
@@ -67,74 +130,75 @@ else
 fi
 
 # ── 2. DEFAULT_INSTALLER_TARBALL_SHA256 constant present ─────────────────────
-if grep -qE '^DEFAULT_INSTALLER_TARBALL_SHA256="' "$INSTALL_SCRIPT"; then
+if grep -qE '^DEFAULT_INSTALLER_TARBALL_SHA256="' "$LIVE"; then
     pass "DEFAULT_INSTALLER_TARBALL_SHA256 constant is present"
 else
     fail "DEFAULT_INSTALLER_TARBALL_SHA256 constant not found -- bootstrap prelude block may be missing"
 fi
 
 # ── 3. INSTALLER_TARBALL_SHA256 wired from env-var override ──────────────────
-if grep -qE '^INSTALLER_TARBALL_SHA256="\$\{OSTLER_INSTALLER_TARBALL_SHA256:-\$\{DEFAULT_INSTALLER_TARBALL_SHA256\}\}"' "$INSTALL_SCRIPT"; then
+if grep -qE '^INSTALLER_TARBALL_SHA256="\$\{OSTLER_INSTALLER_TARBALL_SHA256:-\$\{DEFAULT_INSTALLER_TARBALL_SHA256\}\}"' "$LIVE"; then
     pass "INSTALLER_TARBALL_SHA256 wired from OSTLER_INSTALLER_TARBALL_SHA256 env override"
 else
     fail "INSTALLER_TARBALL_SHA256 not wired from env override -- supply-chain guard cannot be overridden by operator"
 fi
 
 # ── 4. SHA verification block present ────────────────────────────────────────
-if grep -q 'shasum -a 256 "\${BOOTSTRAP_TMPDIR}/install.tar.gz"' "$INSTALL_SCRIPT"; then
+if grep -q 'shasum -a 256 "\${BOOTSTRAP_TMPDIR}/install.tar.gz"' "$LIVE"; then
     pass "SHA verification (shasum) block present in curl|bash bootstrap branch"
 else
     fail "shasum verification block not found in curl|bash bootstrap branch"
 fi
 
-if grep -q 'Tarball SHA-256 mismatch. Refusing to extract.' "$INSTALL_SCRIPT"; then
+if grep -q 'Tarball SHA-256 mismatch. Refusing to extract.' "$LIVE"; then
     pass "SHA mismatch hard-fail message present"
 else
     fail "SHA mismatch hard-fail message not found -- guard may silently pass on mismatch"
 fi
 
 # ── 5. Network preflight block present ───────────────────────────────────────
-if grep -q 'Cannot reach github.com from this Mac.' "$INSTALL_SCRIPT"; then
+if grep -q 'Cannot reach github.com from this Mac.' "$LIVE"; then
     pass "Network preflight block present (github.com reachability probe)"
 else
     fail "Network preflight block not found -- customers on broken networks get cryptic curl errors"
 fi
 
 # ── 6. 3-retry fetch loop present ────────────────────────────────────────────
-if grep -q 'for attempt in 1 2 3; do' "$INSTALL_SCRIPT"; then
+if grep -q 'for attempt in 1 2 3; do' "$LIVE"; then
     pass "3-attempt retry fetch loop present"
 else
     fail "3-attempt retry fetch loop not found -- transient CDN failures will abort installs"
 fi
 
-if grep -q 'Attempt \${attempt}/3 failed; retrying in \${backoff}s' "$INSTALL_SCRIPT"; then
+if grep -q 'Attempt \${attempt}/3 failed; retrying in \${backoff}s' "$LIVE"; then
     pass "Retry backoff message present"
 else
     fail "Retry backoff message not found"
 fi
 
 # ── 7. OSTLER_INSTALLER_TARBALL_SHA256 documented in --help ──────────────────
-if grep -q '"  OSTLER_INSTALLER_TARBALL_SHA256"' "$INSTALL_SCRIPT"; then
+if grep -q '"  OSTLER_INSTALLER_TARBALL_SHA256"' "$LIVE"; then
     pass "OSTLER_INSTALLER_TARBALL_SHA256 documented in --help env-var section"
 else
     fail "OSTLER_INSTALLER_TARBALL_SHA256 not documented in --help -- operators cannot discover the override"
 fi
 
-# ── 8. Sentinel not present in release build (optional, gated by env var) ────
-if [[ "${OSTLER_CHECK_RELEASE_SHA:-0}" == "1" ]]; then
-    SENTINEL_LINE="$(grep '^DEFAULT_INSTALLER_TARBALL_SHA256=' "$INSTALL_SCRIPT" || true)"
-    if grep -q 'REPLACE_AT_RELEASE_TIME' <<<"$SENTINEL_LINE"; then
-        fail "DEFAULT_INSTALLER_TARBALL_SHA256 is still the sentinel REPLACE_AT_RELEASE_TIME -- release.sh has not run or its install.sh patch step was missed"
-    else
-        PINNED_SHA="$(echo "$SENTINEL_LINE" | sed -E 's/.*"([0-9a-f]{64})".*/\1/')"
-        if [[ ${#PINNED_SHA} -eq 64 ]]; then
-            pass "DEFAULT_INSTALLER_TARBALL_SHA256 is a 64-char hex digest (${PINNED_SHA:0:16}...)"
-        else
-            fail "DEFAULT_INSTALLER_TARBALL_SHA256 is neither sentinel nor a valid 64-char hex digest: ${SENTINEL_LINE}"
-        fi
-    fi
+# ── 8. The pin is WELL FORMED. Unconditional, no env var. ────────────────────
+#
+# Exactly the sentinel, or exactly 64 lowercase hex. A truncated, upper-cased
+# or half-patched pin is neither, and used to pass unnoticed because the only
+# branch that looked at the VALUE was switched off.
+SENTINEL_LINE="$(grep '^DEFAULT_INSTALLER_TARBALL_SHA256=' "$LIVE" | head -1)"
+PINNED_SHA="$(printf '%s' "$SENTINEL_LINE" | sed -E 's/^[^"]*"([^"]*)".*/\1/')"
+
+if [[ -z "$SENTINEL_LINE" ]]; then
+    fail "no DEFAULT_INSTALLER_TARBALL_SHA256 assignment survives comment stripping -- the prelude is commented out or gone"
+elif [[ "$PINNED_SHA" == "REPLACE_AT_RELEASE_TIME" ]]; then
+    pass "pin is the sentinel REPLACE_AT_RELEASE_TIME (unreleased tree)"
+elif [[ "$PINNED_SHA" =~ ^[0-9a-f]{64}$ ]]; then
+    pass "pin is a well-formed 64-char hex digest (${PINNED_SHA:0:16}...)"
 else
-    echo "SKIP: sentinel check skipped (set OSTLER_CHECK_RELEASE_SHA=1 in release-gate CI)"
+    fail "pin is neither the sentinel nor a 64-char lowercase hex digest: ${SENTINEL_LINE}"
 fi
 
 # ── 9. Built tarball: inner install.sh stays at sentinel (Finding 2 invariant)
@@ -167,30 +231,49 @@ else
     echo "SKIP: tarball-inner sentinel check skipped (no ${DIST_TARBALL}; run release.sh first)"
 fi
 
-# ── 10. Built tarball SHA matches repo-root install.sh pin (end-to-end) ──────
+# ── 9b. The pin equals the tarball's ACTUAL digest, recomputed here ──────────
 #
-# After release.sh runs, the repo-root install.sh is patched with the
-# tarball's SHA. The sidecar and the pinned value must agree. Skipped when
-# no dist artefacts exist OR when the repo-root install.sh is still at
-# sentinel (CI against a clean checkout that has not run release.sh).
-if [[ -f "$DIST_TARBALL" ]] && [[ -f "${REPO_ROOT}/dist/install.tar.gz.sha256" ]]; then
-    SIDECAR_SHA="$(awk '{print $1}' "${REPO_ROOT}/dist/install.tar.gz.sha256")"
-    OUTER_LINE="$(grep '^DEFAULT_INSTALLER_TARBALL_SHA256=' "$INSTALL_SCRIPT" || true)"
-    OUTER_SHA="$(echo "$OUTER_LINE" | sed -E 's/.*"([^"]+)".*/\1/')"
-    if [[ "$OUTER_SHA" == "REPLACE_AT_RELEASE_TIME" ]]; then
-        echo "SKIP: end-to-end SHA-match skipped (repo-root install.sh still at sentinel; release.sh has not patched it yet)"
-    elif [[ "$OUTER_SHA" == "$SIDECAR_SHA" ]]; then
-        pass "repo-root install.sh pin matches dist/install.tar.gz.sha256 (${OUTER_SHA:0:16}...)"
+# The old version of this compared the pin against dist/install.tar.gz.sha256.
+# That sidecar is written by the same release.sh run that writes the pin, so a
+# stale pair agrees with itself and proves nothing about the bytes a customer
+# downloads. shasum the tarball instead, and hold the sidecar to the same
+# answer.
+#
+# WHEN THERE IS NO TARBALL the pin is NOT VERIFIED here. That is not a pass.
+# It is an absence of instrumentation, and the command that would close it is
+# printed rather than implied.
+if [[ -f "$DIST_TARBALL" ]]; then
+    ACTUAL_SHA="$(shasum -a 256 "$DIST_TARBALL" | awk '{print $1}')"
+    if [[ "$PINNED_SHA" == "REPLACE_AT_RELEASE_TIME" ]]; then
+        fail "dist/install.tar.gz exists but the repo-root pin is still the sentinel -- release.sh built the tarball and did not patch install.sh"
+    elif [[ "$PINNED_SHA" == "$ACTUAL_SHA" ]]; then
+        pass "pin matches the recomputed digest of dist/install.tar.gz (${ACTUAL_SHA:0:16}...)"
     else
-        fail "repo-root install.sh pin (${OUTER_SHA:0:16}...) does NOT match dist/install.tar.gz.sha256 (${SIDECAR_SHA:0:16}...)"
+        fail "pin (${PINNED_SHA:0:16}...) does NOT match the recomputed digest of dist/install.tar.gz (${ACTUAL_SHA:0:16}...) -- every customer fetch would abort"
     fi
-else
-    echo "SKIP: end-to-end SHA-match skipped (no dist artefacts; run release.sh first)"
+
+    SIDECAR="${REPO_ROOT}/dist/install.tar.gz.sha256"
+    if [[ -f "$SIDECAR" ]]; then
+        SIDECAR_SHA="$(awk '{print $1}' "$SIDECAR")"
+        if [[ "$SIDECAR_SHA" == "$ACTUAL_SHA" ]]; then
+            pass "sidecar agrees with the recomputed digest"
+        else
+            fail "sidecar (${SIDECAR_SHA:0:16}...) disagrees with the recomputed digest (${ACTUAL_SHA:0:16}...) -- the sidecar is stale"
+        fi
+    fi
+elif [[ "$PINNED_SHA" != "REPLACE_AT_RELEASE_TIME" ]]; then
+    UNVERIFIED=$((UNVERIFIED+1))
+    echo "NOT VERIFIED: install.sh pins ${PINNED_SHA:0:16}... and there is no dist/install.tar.gz"
+    echo "              to check it against, so nothing here measured the supply-chain pin."
+    echo "              To instrument it:  ./release.sh   then re-run this test."
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
-echo "Bootstrap prelude test summary: ${PASS} passed, ${FAIL} failed"
+echo "Bootstrap prelude test summary: ${PASS} passed, ${FAIL} failed, ${UNVERIFIED} not verified"
+if [[ $UNVERIFIED -gt 0 ]]; then
+    echo "  ${UNVERIFIED} check(s) had no artefact to measure. Not a pass. See NOT VERIFIED above."
+fi
 
 if [[ $FAIL -gt 0 ]]; then
     exit 1
