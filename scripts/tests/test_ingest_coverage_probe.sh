@@ -14,6 +14,19 @@
 #
 # Every arm asserts the VERDICT REASON, never the exit code alone. A #1284
 # mutation arm proves the literal-$HOME -K path is caught. python3 fake Qdrant
+# ALSO (v1.0.101): a collection that DOES NOT EXIST. The probe reported
+# CANNOT-RUN -- "only 3 of 4 stores answered (missing: safari_history)" -- with
+# no HTTP code anywhere in the record, and the cause was recoverable only from
+# the box's own logs two days later: the installer's hydrate_browsing step
+# imported nothing (install.log:1246, STEP_END status=ok elapsed_s=0) after
+# reading 8831 Safari visits, so Qdrant, which does not self-create, held no
+# safari_history collection at all. GET returned 404. count_store had no 404
+# arm, so "does not exist" came out of the same door as "the body was
+# gibberish", and a FAIL was filed as a missing prerequisite. The partial-fake
+# arms below drive the WHOLE probe over real HTTP against a Qdrant that answers
+# 404 for one collection and 200 for the others, with a mutant that removes the
+# 404 arm as the control.
+#
 # on loopback + a controlled -K config; no real store, no ssh; bash 3.2.
 # ============================================================================
 set -uo pipefail
@@ -43,6 +56,32 @@ srv = http.server.HTTPServer(("127.0.0.1", int(sys.argv[1])), H)
 srv.serve_forever()
 PY
 
+# A Qdrant that answers 404 for the collections named in FAKE_MISSING and 200
+# with a real points_count for every other. One code for every path cannot
+# express the v1.0.101 box, where three collections answered and one did not
+# exist -- and it is the MIXTURE that the control arm depends on.
+FAKE_PARTIAL_PY="${WORK}/fake_qdrant_partial.py"
+cat > "$FAKE_PARTIAL_PY" <<'PY'
+import http.server, os, sys
+MISSING = set(x for x in os.environ.get("FAKE_MISSING", "").split(",") if x)
+BODY_404 = b'{"status":{"error":"Not found: Collection does not exist!"},"time":0.0}'
+BODY_200 = b'{"status":"ok","result":{"points_count":8626},"time":0.0}'
+class H(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def do_GET(self):
+        name = self.path.rstrip("/").split("/")[-1]
+        missing = name in MISSING
+        self.send_response(404 if missing else 200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(BODY_404 if missing else BODY_200)
+srv = http.server.HTTPServer(("127.0.0.1", int(sys.argv[1])), H)
+srv.serve_forever()
+PY
+
+start_partial() { FAKE_MISSING="$2" python3 "$FAKE_PARTIAL_PY" "$1" >/dev/null 2>&1 & FAKE_PID=$!
+    local i=0; while [ $i -lt 50 ]; do curl -s -o /dev/null -m 1 "http://127.0.0.1:$1/" 2>/dev/null && return 0; i=$((i+1)); sleep 0.05 2>/dev/null || true; done; }
+
 start_fake() { FAKE_CODE="$2" python3 "$FAKE_PY" "$1" >/dev/null 2>&1 & FAKE_PID=$!
     local i=0; while [ $i -lt 50 ]; do curl -s -o /dev/null -m 1 "http://127.0.0.1:$1/" 2>/dev/null && return 0; i=$((i+1)); sleep 0.05 2>/dev/null || true; done; }
 stop_fake() { kill "${FAKE_PID:-}" 2>/dev/null; FAKE_PID=""; }
@@ -60,7 +99,11 @@ run_probe_capture() { # $1 qdrant url  $2 conf path  $3 auth|noauth  $4 probe
         absent)     rm -f "$realconf" ;;
         *)          : > "$realconf" ;;
     esac
+    # The 404 confirming re-read still happens here (two reads, as on a box);
+    # only the wait between them is taken out, or every 404 arm would cost 15s
+    # a store for nothing.
     HOME="$WORK" OSTLER_QDRANT_URL="$url" OSTLER_PROBE_STORE_CURL_CONF="$confpath" \
+        OSTLER_STORE_ABSENT_RECHECK_S=0 \
         OSTLER_INGEST_BASELINE="${WORK}/baseline.tsv" OSTLER_BOX_HOST="" bash "$probe" 2>&1
 }
 verdict_of() { printf '%s' "$1" | grep -oE 'VERDICT: (PASS|FAIL|CANNOT-RUN|BROKEN)' | head -1; }
@@ -120,6 +163,45 @@ V="$(verdict_of "$OUT")"
 if [ "$V" != "VERDICT: CANNOT-RUN" ]; then fail arm6-unreadable "got '${V}', expected CANNOT-RUN"
 elif [ "$(printf '%s' "$OUT" | grep -cF 'not readable')" -eq 0 ]; then fail arm6-unreadable-reason "populated unreadable conf reported as empty, not as denied -- the exact residual-a defect"
 else note "arm6 unreadable populated conf -> CANNOT-RUN, reason names permission not emptiness ✅"; fi
+
+# ============================================================================
+# A COLLECTION THAT DOES NOT EXIST (v1.0.101 walk). Real HTTP, mixed codes.
+# ============================================================================
+printf '\n404 arms: one collection missing, the rest answering\n'
+
+# ARM 7: three collections answer 200 with a count, safari_history answers 404.
+# The probe must FAIL and must name it as a collection that does not exist --
+# not "a store that did not answer", which is what the walk record said.
+start_partial "$OK_PORT" safari_history
+OUT="$(run_probe_capture "http://127.0.0.1:${OK_PORT}" "${WORK}/conf_auth" auth)"; stop_fake
+V="$(verdict_of "$OUT")"
+if [ "$V" != "VERDICT: FAIL" ]; then fail arm7-404 "one 404 among three 200s got '${V}', expected FAIL"
+elif [ "$(printf '%s' "$OUT" | grep -cF 'safari_history(no such collection)')" -eq 0 ]; then fail arm7-404-reason "FAIL but the reason does not name safari_history as a collection that does not exist"
+else note "arm7 one 404 + three 200s -> FAIL naming the absent collection ✅"; fi
+
+# ARM 8: EVERY collection 404 -> CANNOT-RUN. Nothing answered 200, so nothing
+# in this run proves the endpoint is Qdrant, and a 404 from the wrong service
+# reads identically. The refusal is the point: this is the arm that stops the
+# fix above turning into four false accusations.
+start_partial "$OK_PORT" conversations,people,safari_history,preferences
+OUT="$(run_probe_capture "http://127.0.0.1:${OK_PORT}" "${WORK}/conf_auth" auth)"; stop_fake
+V="$(verdict_of "$OUT")"
+if [ "$V" != "VERDICT: CANNOT-RUN" ]; then fail arm8-all404 "four 404s got '${V}', expected CANNOT-RUN"
+elif [ "$(printf '%s' "$OUT" | grep -cF 'Refusing to convict')" -eq 0 ]; then fail arm8-all404-reason "CANNOT-RUN but the reason does not say it is refusing for want of a control"
+else note "arm8 four 404s, nothing answering 200 -> CANNOT-RUN, not four accusations ✅"; fi
+
+# ARM 9, THE CONTROL ON ARMS 7 AND 8: a mutant with the 404 arm taken back out
+# must reproduce the v1.0.101 reading -- CANNOT-RUN "only 3 of 4 stores
+# answered" -- on the SAME input that makes the fixed probe FAIL. Without this
+# the two arms above could be passing for some other reason entirely.
+sed "s/^        404)     printf 'ABSENT';    return 0 ;;\$//" "$PROBE" > "$MUT"
+start_partial "$OK_PORT" safari_history
+OUT="$(run_probe_capture "http://127.0.0.1:${OK_PORT}" "${WORK}/conf_auth" auth "$MUT")"; stop_fake
+V="$(verdict_of "$OUT")"
+if [ "$V" = "VERDICT: FAIL" ]; then fail arm9-mutant-FAIL "the 404-blind mutant produced FAIL; these arms are not measuring the 404 arm"
+elif [ "$V" != "VERDICT: CANNOT-RUN" ]; then fail arm9-mutant "404-blind mutant got '${V}', expected the v1.0.101 CANNOT-RUN"
+elif [ "$(printf '%s' "$OUT" | grep -cF 'only 3 of 4 stores answered')" -eq 0 ]; then fail arm9-mutant-reason "mutant went CANNOT-RUN for some other reason than the subset arm; the v1.0.101 reading is not reproduced"
+else note "arm9 CONTROL: the 404-blind mutant reproduces the v1.0.101 reading, CANNOT-RUN 'only 3 of 4 stores answered' ✅"; fi
 
 # ============================================================================
 # THE TOP-UP AGENT PARSER, DRIVEN ON REAL launchctl print TEXT (v1.0.82 walk,
