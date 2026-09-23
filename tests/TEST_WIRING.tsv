@@ -537,6 +537,7 @@ test_the_emergency_cut_row_tells_the_truth.sh	WIRED	.github/workflows/cut-manife
 test_the_erasure_graft_survives_a_revendor.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
 test_the_failed_to_look_message_can_actually_print.sh	WIRED	.github/workflows/dmg-delivery-gate.yml
 test_the_forward_calendar_window_survives_the_rerun.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_the_front_page_catch_up_survives_a_late_ingest.sh	WIRED	.github/workflows/writer-reader-vocabulary.yml
 test_the_generated_uninstaller_parses.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_the_governor_revendor_guard_is_actually_run.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_the_install_panel_says_it_is_reading_the_transcript.py	WIRED	.github/workflows/consent-data-handling.yml

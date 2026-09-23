@@ -175,6 +175,13 @@ final class StepCatalog {
         // it installs the hourly agent that writes ~/.ostler/editor/
         // front_page.json, the file the Hub Dashboard's Front Page reads.
         "editor_frontpage",
+        // The Front Page first-day catch-up LaunchAgent. install.sh emits the
+        // matching `progress "..." "editor_frontpage_catchup_agent"`
+        // immediately after editor_frontpage, at phase 3.14d-editor-bis. The
+        // hourly agent's RunAtLoad run fires at the end of the install, when
+        // the graph is still empty; this one re-emits until the interest
+        // profile actually fills, then removes itself.
+        "editor_frontpage_catchup_agent",
         "ostler_hub_app",
         "ostler_remotecapture",
         // CX-81 Tailscale step (2026-05-26): dedicated "Connect your
