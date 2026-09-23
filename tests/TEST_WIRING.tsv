@@ -57,6 +57,7 @@ test_a_named_log_must_outlive_the_message.sh	WIRED	.github/workflows/install-dia
 test_a_pairing_non_answer_is_not_a_rejection.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_a_pairing_reader_runs_before_the_pairing_mutator.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_a_plistbuddy_read_takes_its_exit_code.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_a_probe_must_measure_the_box_not_the_driver.sh	WIRED	.github/workflows/unreachable-not-absence.yml
 test_a_promote_before_the_decline_arms_is_gated.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_quiesced_interval_agent_is_re_registered.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_ratchet_must_not_name_a_false_cause.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
@@ -384,6 +385,7 @@ test_no_orphaned_fixes_gate.sh	WIRED	.github/workflows/cut.yml
 test_no_parser_labels_sensitive_data_publishable.py	WIRED	.github/workflows/writer-reader-vocabulary.yml
 test_no_path_is_frozen_across_the_promote.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_no_probe_lives_outside_the_walk_glob.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_no_probe_shadows_the_dispatcher.sh	WIRED	.github/workflows/every-probe-is-collected.yml
 test_no_program_dodges_the_promote.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_no_test_uses_a_bash4_builtin.sh	WIRED	.github/workflows/bash32-compat.yml
 test_no_unbounded_enrich_invocation.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
@@ -435,6 +437,7 @@ test_pr_age_gate_declares_partial_runs.sh	WIRED	.github/workflows/cut-gate-wrapp
 test_pr_gate_aggregate.sh	WIRED	.github/workflows/ci-required-gate.yml
 test_pref_noise_source_cap.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_preferences_vendor_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_prelaunch_libs_survive_promote.sh	WIRED	.github/workflows/ingest-slot.yml
 test_probe_absence_is_not_an_answer.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_probe_pgrep_is_scoped_to_this_account.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_product_seed_regex_does_not_exclude_the_bundle.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
