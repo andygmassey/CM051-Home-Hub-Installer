@@ -96,7 +96,7 @@ final class SidebarStatusGlyphTests: XCTestCase {
         let glyphs = all.map { StepStatusGlyph.forStatus($0) }
 
         // warn and error intentionally share; everything else is unique.
-        // #2314: `unmeasured` shares the INFORMATIONAL bucket with
+        // #2318: `unmeasured` shares the INFORMATIONAL bucket with
         // `timeout` (neither is an alarm) but must keep its own glyph --
         // "we gave up waiting" and "we never looked" are different facts.
         let buckets = Set(glyphs.map { $0.severity })
@@ -107,7 +107,7 @@ final class SidebarStatusGlyphTests: XCTestCase {
         XCTAssertEqual(symbols.count, 5,
                        "expected five distinct glyphs across six states")
 
-        // The assertion that matters for #2314: a step that measured
+        // The assertion that matters for #2318: a step that measured
         // nothing must not be drawn as one that measured a success.
         XCTAssertNotEqual(StepStatusGlyph.forStatus(.unmeasured).symbolName,
                           StepStatusGlyph.forStatus(.ok).symbolName,

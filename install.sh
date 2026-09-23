@@ -1350,7 +1350,7 @@ gui_step_end()    { :; }
 # every other helper here. Present so the hydrate sentinel recorders
 # can call it unguarded.
 gui_step_record_rc() { :; }
-# #2314: `unmeasured`, not `ok`. Before the emitter is sourced nothing can
+# #2318: `unmeasured`, not `ok`. Before the emitter is sourced nothing can
 # have measured anything, and the stub must not be the one surface that
 # still answers "fine" by default.
 gui_step_status() { printf 'unmeasured'; }
@@ -29948,7 +29948,7 @@ _hydrate_sentinel_record() {
 
     count="$(_hydrate_payload_count "$payload")"
     _hydrate_compute_change "$sentinel" "$count" "$now"
-    # #2314: THE SENTINEL KNEW AND THE STEP DID NOT.
+    # #2318: THE SENTINEL KNEW AND THE STEP DID NOT.
     #
     # _hydrate_sentinel_record_error has always called gui_step_record_rc,
     # so the failure half of this pair reached the step status. The SUCCESS
@@ -32032,7 +32032,7 @@ fi
 if [[ "$_HYDRATE_BROWSING_SENTINEL_FRESH" == "true" ]] \
    && _hydrate_collection_has_rows "$_HYDRATE_BROWSING_ROWS"; then
     # The one skip that is earned: a completed run AND the rows still there.
-    # #2314: THIS IS A MEASUREMENT, so it is recorded as one. The step read
+    # #2318: THIS IS A MEASUREMENT, so it is recorded as one. The step read
     # the destination back and the destination answered with rows. Without
     # this the step would close `unmeasured` -- true of a skip that checked
     # nothing, and false of this one, which is the whole distinction #2313
@@ -32184,13 +32184,13 @@ except Exception:
             _HYDRATE_BROWSING_ROWS_AFTER="$(_hydrate_collection_rows safari_history)"
             if _hydrate_collection_has_rows "$_HYDRATE_BROWSING_ROWS_AFTER"; then
                 ok "$(printf "$MSG_HYDRATE_BROWSING_ALREADY_IMPORTED" "$_HYDRATE_BROWSING_ROWS_AFTER")"
-                gui_step_record_rc 0   # #2314: the store was read back
+                gui_step_record_rc 0   # #2318: the store was read back
             elif [[ "$_HYDRATE_BROWSING_TOTAL" == "0" ]]; then
                 # The reader looked and there was nothing there. This is the
                 # ONE branch the sentence below was ever true for, and it now
                 # has it to itself.
                 info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
-                # #2314: "nothing to import" is a MEASURED outcome, not an
+                # #2318: "nothing to import" is a MEASURED outcome, not an
                 # absent one. total=0 is the reader reporting an empty source,
                 # which is why it is `ok` and not `unmeasured`. Contrast the
                 # else-arm below, which #2313 already closes `warn`.
@@ -32207,7 +32207,7 @@ except Exception:
         _HYDRATE_BROWSING_ROWS_AFTER="$(_hydrate_collection_rows safari_history)"
         if _hydrate_collection_has_rows "$_HYDRATE_BROWSING_ROWS_AFTER"; then
             ok "$(printf "$MSG_HYDRATE_BROWSING_ALREADY_IMPORTED" "$_HYDRATE_BROWSING_ROWS_AFTER")"
-            gui_step_record_rc 0   # #2314: the store was read back
+            gui_step_record_rc 0   # #2318: the store was read back
         else
             warn "$MSG_WARN_HYDRATE_BROWSING_NOTHING_STORED"
             _HYDRATE_BROWSING_NOTHING_STORED=true

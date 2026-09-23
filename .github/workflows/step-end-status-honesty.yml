@@ -39,7 +39,7 @@ on:
       - 'install.sh'
       - 'lib/progress_emitter.sh'
       - 'tests/test_step_end_does_not_report_a_timed_out_step_as_ok.sh'
-      # #2314: the accumulator's own DEFAULT. Watched because the step
+      # #2318: the accumulator's own DEFAULT. Watched because the step
       # below runs it, and because it reads install.sh + the emitter,
       # both already watched above.
       - 'tests/test_a_step_that_measured_nothing_cannot_report_ok.sh'
@@ -85,7 +85,7 @@ jobs:
       - name: A step killed by its timeout must not report status=ok (#839)
         run: /bin/bash tests/test_step_end_does_not_report_a_timed_out_step_as_ok.sh
 
-      # #2314 -- THE DEFAULT UNDERNEATH #839.
+      # #2318 -- THE DEFAULT UNDERNEATH #839.
       #
       # #839 stopped gui_step_end taking `ok` from its call site. It left
       # the ACCUMULATOR defaulting to `ok`, so the fix only ever reached
@@ -99,7 +99,7 @@ jobs:
       # and a mutation arm that puts the default back and requires the
       # defect to return, so it cannot pass by the emitter being dead or
       # by asserting the fix is merely present.
-      - name: A step that measured nothing cannot report ok (#2314)
+      - name: A step that measured nothing cannot report ok (#2318)
         if: always()
         run: /bin/bash tests/test_a_step_that_measured_nothing_cannot_report_ok.sh
 
@@ -227,7 +227,7 @@ jobs:
             *) echo "CANNOT-RUN: the shim did not put bash 3.2 on PATH; this step measured the wrong shell." >&2; exit 1 ;;
           esac
           /bin/bash tests/test_an_abort_inside_a_step_is_counted.sh
-          # #2314 under 3.2: the new state is read back through
+          # #2318 under 3.2: the new state is read back through
           # `[[ "$x" == "unmeasured" ]]` inside gui_step_record_rc and
           # gui_step_measures_nothing, and the mutation arm re-sources a
           # sed-rewritten emitter. 3.2 is the shell the customer runs.

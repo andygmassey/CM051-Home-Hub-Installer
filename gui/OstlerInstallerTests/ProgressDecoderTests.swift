@@ -212,7 +212,7 @@ final class ProgressDecoderTests: XCTestCase {
         XCTAssertFalse(status.isProblem)
     }
 
-    // #2314 ------------------------------------------------------------
+    // #2318 ------------------------------------------------------------
 
     func testUnmeasuredStepDecodesAsUnmeasuredNotOK() {
         // The line a step that recorded no outcome now writes. The whole

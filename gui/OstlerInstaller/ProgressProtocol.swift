@@ -143,7 +143,7 @@ enum PromptKind: String, Equatable {
 
 enum StepStatus: String, Equatable {
     case ok, warn, fail
-    /// #2314: the step closed and NOTHING recorded an outcome for it.
+    /// #2318: the step closed and NOTHING recorded an outcome for it.
     /// Not a success, not a failure: the absence of a measurement.
     ///
     /// It exists because `ok` used to be the shell-side DEFAULT rather
@@ -167,7 +167,7 @@ enum StepStatus: String, Equatable {
     /// Written as an exhaustive switch rather than `self != .ok` so the
     /// fail-safe survives: a status added later still lands in `default`
     /// and counts as a problem. `unmeasured` is the ONE deliberate
-    /// exclusion (#2314) -- it means our instrumentation did not look,
+    /// exclusion (#2318) -- it means our instrumentation did not look,
     /// not that the customer's install went wrong, and on a build where
     /// most steps are not yet instrumented, counting it would turn every
     /// clean install into a wall of warnings.

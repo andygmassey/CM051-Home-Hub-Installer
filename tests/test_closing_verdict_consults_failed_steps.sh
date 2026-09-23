@@ -213,7 +213,7 @@ markers="${WORK}/markers.txt"
   exec 9>"$markers"
   export OSTLER_GUI=1 OSTLER_MARKER_FD=9
   gui_step_begin s_alpha "Alpha"; gui_step_record_rc 124; gui_step_end timeout
-  # #2314: the clean step RECORDS its success. The comment always said "an
+  # #2318: the clean step RECORDS its success. The comment always said "an
   # ok step", and before the default changed it got there by defaulting.
   # Now it has to earn it, which is the point.
   gui_step_begin s_clean "Clean"; gui_step_record_rc 0; gui_step_end
@@ -223,7 +223,7 @@ markers="${WORK}/markers.txt"
 ) 2>/dev/null
 # The ids of the STEP_END markers the GUI renders as PROBLEMS, from the wire.
 #
-# #2314: `unmeasured` is excluded alongside `ok`. It is neither a success
+# #2318: `unmeasured` is excluded alongside `ok`. It is neither a success
 # nor a failure -- it says nothing recorded an outcome -- and the failed
 # id-list this is compared against deliberately does not carry it. Testing
 # `!= "ok"` alone would make every unmeasured step read as a failed one,

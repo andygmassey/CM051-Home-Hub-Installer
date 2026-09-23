@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A STEP THAT MEASURED NOTHING MAY NOT REPORT `ok` (#2314)
+# A STEP THAT MEASURED NOTHING MAY NOT REPORT `ok` (#2318)
 # =======================================================
 #
 # THE INPUT THIS TEST REPLAYS

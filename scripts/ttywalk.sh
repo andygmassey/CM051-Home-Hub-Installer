@@ -254,7 +254,7 @@ else:
 show('STEP_END not status=ok',    r'STEP_END(?!.*status=ok)')
 show('  of which status=error',   r'STEP_END.*status=error')
 show('  of which status=timeout', r'STEP_END.*status=timeout')
-# #2314: without this row the 'of which' lines stop summing to the headline,
+# #2318: without this row the 'of which' lines stop summing to the headline,
 # because the unmeasured state is not-ok and is neither failure word.
 # A breakdown that does not add up sends the reader hunting for a failure
 # that is not there. An unmeasured step is NOT a failure: it is the count of

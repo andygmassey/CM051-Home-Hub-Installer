@@ -141,7 +141,7 @@ _ostler_marker_field_is_public() {
         # derived from customer data -- gui_read's one derivation path
         # (a slug of the title when no id is passed) is handled by
         # __OSTLER_PROMPT_ID_DERIVED below rather than trusted here.
-        # #2314: `measured` is a closed enumeration (no|rc|declared-none)
+        # #2318: `measured` is a closed enumeration (no|rc|declared-none)
         # authored here, and `reason` is constrained at its only producer
         # (gui_step_measures_nothing) to [a-z0-9 _-], which cannot spell an
         # address, a path or a phone number. Both describe the INSTRUMENT,
@@ -332,7 +332,7 @@ __OSTLER_STEP_START=0
 # both timed out and errored reports the error, and any measurement at
 # all outranks the absence of one.
 #
-# WHY A FOURTH STATE AND NOT `warn` (#2314)
+# WHY A FOURTH STATE AND NOT `warn` (#2318)
 #
 # `warn` is already spoken for, and it means the OPPOSITE thing. #2313
 # gave it to "the step ran, we looked at the store, and it had stored
@@ -383,7 +383,7 @@ __OSTLER_ERROR_LINES=0
 # Fold a child's exit code into the open step's status. Safe to call
 # unconditionally after any child.
 #
-# #2314: rc 0 IS A MEASUREMENT AND NO LONGER A NO-OP. It used to `return`
+# #2318: rc 0 IS A MEASUREMENT AND NO LONGER A NO-OP. It used to `return`
 # before touching anything, on the reasoning that the default was already
 # `ok`. Once the default became `unmeasured` that early return was the
 # whole bug in miniature: a step that ran its child, watched it exit 0 and
@@ -513,7 +513,7 @@ gui_step_end() {
     # `ok` again is not a fix.
     local requested="${1:-}"
     local status="${__OSTLER_STEP_STATUS:-unmeasured}"
-    # #2314: `unmeasured` joins `ok` as a value an ARGUMENT may not impose.
+    # #2318: `unmeasured` joins `ok` as a value an ARGUMENT may not impose.
     # The guard used to refuse only the literal `ok`, so once `unmeasured`
     # existed as a value, `gui_step_end unmeasured` would have overwritten a
     # recorded timeout or error -- turning a measured failure into "nobody
@@ -537,7 +537,7 @@ gui_step_end() {
     local measured="${__OSTLER_STEP_MEASURED:-no}"
 
     if [[ "$status" == "unmeasured" ]]; then
-        # #2314: NOT a failure, and deliberately not counted as one. This
+        # #2318: NOT a failure, and deliberately not counted as one. This
         # is the instrumentation debt meter: the step ran, it may well
         # have worked, and nothing in it recorded an outcome either way.
         # The one thing it may not do is claim success.

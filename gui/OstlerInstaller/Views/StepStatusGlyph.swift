@@ -121,7 +121,7 @@ struct StepStatusGlyph: Equatable {
                 accessibilityCopyKey: "sidebar.status_background"
             )
         case .unmeasured:
-            // #2314: "we did not check", not "something is wrong".
+            // #2318: "we did not check", not "something is wrong".
             // Informational for the same reason `timeout` is: a note,
             // not an alarm. It must NOT be the green tick -- that is the
             // whole point, a step that measured nothing may not look

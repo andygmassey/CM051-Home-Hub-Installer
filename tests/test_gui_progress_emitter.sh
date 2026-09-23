@@ -49,7 +49,7 @@ echo "PASS: emit produces well-formed tab-separated markers"
 
 # ── Test 3: step bookkeeping emits BEGIN+END pair with elapsed ──
 #
-# #2314: the step now RECORDS its child's exit code. It used to close with
+# #2318: the step now RECORDS its child's exit code. It used to close with
 # a bare `gui_step_end ok`, which is the very assertion-over-a-measurement
 # that #839 removed from install.sh and that this change removes from the
 # accumulator's default. A step that measures nothing no longer closes ok,
@@ -67,7 +67,7 @@ if ! grep -qE $'^#OSTLER\tSTEP_END\tid=foo\tstatus=ok\telapsed_s=[0-9]+\tmeasure
 fi
 echo "PASS: gui_step_begin / gui_step_end emit correctly"
 
-# ── Test 3b (#2314): the same step WITHOUT a measurement must not say ok ──
+# ── Test 3b (#2318): the same step WITHOUT a measurement must not say ok ──
 # The shape assertion above can only prove the ok path is well formed. This
 # proves the default is no longer ok, on the identical input minus the one
 # call that measures. Without it, Test 3 passes against a build in which
