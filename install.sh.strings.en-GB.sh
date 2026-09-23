@@ -1518,7 +1518,7 @@ MSG_HYDRATE_BROWSING_ALREADY_IMPORTED="Your browsing history is already imported
 MSG_HYDRATE_BROWSING_SKIPPED_NO_EXPORT="No exported browsing history found to import. You can re-run later from Settings."
 MSG_WARN_HYDRATE_BROWSING_REIMPORT_STORE_EMPTY="Your browsing history was imported before, but your search index no longer holds it. Importing it again."
 MSG_WARN_HYDRATE_BROWSING_REIMPORT_UNVERIFIED="Could not check whether your browsing history is still in your search index. Importing it again rather than assuming it is there."
-MSG_WARN_HYDRATE_BROWSING_NOTHING_STORED="Read your browsing history but stored none of it, so your Browsing page will be empty. Re-run from Settings, or open Doctor."
+MSG_WARN_HYDRATE_BROWSING_NOTHING_STORED="Your browsing history did not reach your search index, so your Browsing page will be empty. Re-run from Settings, or open Doctor."
 MSG_HYDRATE_BROWSING_BACKGROUND_CONTINUES="Browsing history is still loading in the background. Your wiki fills in as it goes, and shows you where it is up to."
 
 # Email-preferences hydration strings (v1.0.3)

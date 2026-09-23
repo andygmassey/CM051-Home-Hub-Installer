@@ -64,6 +64,10 @@
 #       nothing-stored sentence, and a sentinel reason that names it.
 #   E   POSITIVE CONTROL FOR D. Ingest sends 5,000 -> STEP_END status=ok. Without
 #       this, a harness that stamped every step warn would pass D.
+#   F   THE MIRROR IMAGE. A customer whose history is genuinely empty: the
+#       reader saw nothing, sent nothing, and the store is empty. All three are
+#       true and none is a fault. D and F differ ONLY in `total`, which is what
+#       makes that field the discriminator rather than a decoration.
 #
 # HOW IT AVOIDS BEING GREEN BY CONSTRUCTION
 #
@@ -301,6 +305,9 @@ printf 'Harness: the pre-fix mutant applied, removed the corroboration, and pars
 # path logic inside the block runs unmodified.
 run_scenario() {
     local name="$1" block="$2" sentinel="$3" store="$4" sent="$5" skipped="$6"
+    # How many rows the reader SAW. Defaults to `sent`, so every existing
+    # scenario keeps its meaning; F sets it independently.
+    local total="${7:-$5}"
     local dir="${WORK}/${name}"
     mkdir -p "${dir}/state/hydrate" \
              "${dir}/imports/fda" \
@@ -334,7 +341,7 @@ SENTINEL
 #!/usr/bin/env bash
 # Test-only stand-in for the venv interpreter. Not shipped.
 printf 'ran\n' >> "${dir}/ingest_ran"
-printf '{"status": "ok", "sent": ${sent}, "points_created": ${sent}, "skipped_sensitive": ${skipped}, "total": ${sent}}\n'
+printf '{"status": "ok", "sent": ${sent}, "points_created": ${sent}, "skipped_sensitive": ${skipped}, "total": ${total}}\n'
 INGEST
     chmod +x "${dir}/services/email-ingest/.venv/bin/python"
 
@@ -417,7 +424,7 @@ NO_DATA_SENTENCE="No browsing history to import."
 ALREADY_SENTENCE="is already imported"
 UNVERIFIED_SENTENCE="Could not check whether your browsing history"
 STORE_EMPTY_SENTENCE="no longer holds it"
-NOTHING_STORED_SENTENCE="stored none of it"
+NOTHING_STORED_SENTENCE="did not reach your search index"
 
 # ── A'  THE DEFECT REPRODUCES ON THE PRE-FIX GUARD ────────────────────────
 # Run FIRST: if this does not reproduce, nothing below is evidence of a fix.
@@ -476,7 +483,7 @@ else
 fi
 
 # ── D   STORED NOTHING, SO NOT `ok` ───────────────────────────────────────
-run_scenario "D" "$BLOCK" absent 404 0 0
+run_scenario "D" "$BLOCK" absent 404 0 0 8831
 _line="$(step_end_line "${WORK}/D/markers.txt")"
 _sentinel="${WORK}/D/state/hydrate/browsing.done"
 if ! ingest_ran D; then
@@ -502,6 +509,26 @@ elif [ "$(count_in "${WORK}/E/markers.txt" "Imported 5000")" = "0" ]; then
     fail "E: the count was not reported to the customer."
 else
     pass "E: an ingest that delivers 5,000 pages still closes status=ok and reports the count"
+fi
+
+# ── F   THE CUSTOMER WHO GENUINELY HAS NONE ──────────────────────────────
+# The mirror image of the defect. A brand-new Mac writes an empty export, the
+# ingest sees nothing and sends nothing, and the store is empty -- all three
+# true at once, and none of it a fault. Warning THAT customer that their
+# history was lost is the same false statement pointed the other way, so the
+# discriminator is `total`: what the reader SAW, not what the store HOLDS.
+run_scenario "F" "$BLOCK" absent 404 0 0 0
+_line="$(step_end_line "${WORK}/F/markers.txt")"
+if ! ingest_ran F; then
+    fail "F: the ingest did not run, so the scenario never reached the branch under test."
+elif [ "$(count_in "${WORK}/F/markers.txt" "$NO_DATA_SENTENCE")" = "0" ]; then
+    fail "F: a customer with no browsing history was not told the one thing that is true."
+elif [ "$(count_in "${WORK}/F/markers.txt" "$NOTHING_STORED_SENTENCE")" != "0" ]; then
+    fail "F: a customer with no history was warned that their history was lost."
+elif ! grep -qF 'status=ok' <<< "$_line"; then
+    fail "F: nothing to import is not a fault and must close ok, got: ${_line:-<none>}"
+else
+    pass "F: an empty history reads as an empty history, not as a loss, and closes ok"
 fi
 
 printf '\n'

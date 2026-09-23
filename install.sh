@@ -32081,6 +32081,24 @@ try:
 except Exception:
     print(0)' 2>/dev/null
         )" || { _HYDRATE_BROWSING_UNMEASURED=true; _HYDRATE_BROWSING_SKIPPED=""; }
+        # #2311: `total` is how many rows the reader actually SAW. Without it
+        # a `sent=0` over an empty store cannot be told from a customer whose
+        # Safari history is genuinely empty -- and warning THAT customer that
+        # their history was lost would be the same class of false statement
+        # this change exists to remove, pointed the other way. Counts only,
+        # same privacy contract as sent and skipped_sensitive.
+        _HYDRATE_BROWSING_TOTAL="$(
+            printf '%s' "$_HYDRATE_BROWSING_JSON" \
+            | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(d.get("total", -1)))
+except Exception:
+    print(-1)' 2>/dev/null
+        )" || _HYDRATE_BROWSING_TOTAL="-1"
+        # -1 is NOT a count. It is this field saying it was not measured, and
+        # it is deliberately outside the range a real total can take.
+        _HYDRATE_BROWSING_TOTAL="${_HYDRATE_BROWSING_TOTAL:--1}"
         _HYDRATE_BROWSING_SENT="${_HYDRATE_BROWSING_SENT:-0}"
         _HYDRATE_BROWSING_SKIPPED="${_HYDRATE_BROWSING_SKIPPED:-0}"
         if [[ "$_HYDRATE_BROWSING_SENT" -gt 0 ]]; then
@@ -32105,6 +32123,11 @@ except Exception:
             _HYDRATE_BROWSING_ROWS_AFTER="$(_hydrate_collection_rows safari_history)"
             if _hydrate_collection_has_rows "$_HYDRATE_BROWSING_ROWS_AFTER"; then
                 ok "$(printf "$MSG_HYDRATE_BROWSING_ALREADY_IMPORTED" "$_HYDRATE_BROWSING_ROWS_AFTER")"
+            elif [[ "$_HYDRATE_BROWSING_TOTAL" == "0" ]]; then
+                # The reader looked and there was nothing there. This is the
+                # ONE branch the sentence below was ever true for, and it now
+                # has it to itself.
+                info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
             else
                 warn "$MSG_WARN_HYDRATE_BROWSING_NOTHING_STORED"
                 _HYDRATE_BROWSING_NOTHING_STORED=true
@@ -32160,7 +32183,7 @@ except Exception:
     fi
 
     unset _HYDRATE_BROWSING_TIMED_OUT _HYDRATE_BROWSING_JSON
-    unset _HYDRATE_BROWSING_SENT _HYDRATE_BROWSING_SKIPPED
+    unset _HYDRATE_BROWSING_SENT _HYDRATE_BROWSING_SKIPPED _HYDRATE_BROWSING_TOTAL
     unset _HYDRATE_BROWSING_TIMEOUT_WRAP _HYDRATE_BROWSING_LOG _HYDRATE_BROWSING_RC _HYDRATE_BROWSING_CAP
     unset _HYDRATE_BROWSING_ROWS_AFTER
 elif [[ ! -x "$_HYDRATE_BROWSING_PY" ]]; then
