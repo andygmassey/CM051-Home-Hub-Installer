@@ -40,6 +40,7 @@ on:
       - 'lib/ostler-ingest-slot.sh'
       - 'tests/test_ingest_slot_fairness.sh'
       - 'tests/test_a_hung_slot_holder_is_stopped.sh'
+      - 'tests/test_prelaunch_libs_survive_promote.sh'
       - 'vendor/email_source/bin/email-bundle-tick.sh'
       - 'vendor/imessage_source/bin/imessage-bundle-tick.sh'
       - 'vendor/whatsapp_source/bin/whatsapp-bundle-tick.sh'
@@ -54,6 +55,7 @@ on:
       - 'lib/ostler-ingest-slot.sh'
       - 'tests/test_ingest_slot_fairness.sh'
       - 'tests/test_a_hung_slot_holder_is_stopped.sh'
+      - 'tests/test_prelaunch_libs_survive_promote.sh'
       - 'vendor/email_source/bin/email-bundle-tick.sh'
       - 'vendor/imessage_source/bin/imessage-bundle-tick.sh'
       - 'vendor/whatsapp_source/bin/whatsapp-bundle-tick.sh'
@@ -93,6 +95,25 @@ jobs:
         if: success() || failure()
         run: bash tests/test_a_hung_slot_holder_is_stopped.sh
 
+      # Sections 1 to 6 above prove the lib arbitrates fairly; Section 7
+      # proves install.sh CARRIES it. Neither can see whether it arrives.
+      # install.sh writes into a /tmp staging tree and promotes that tree
+      # to ~/.ostler by deleting each final-tree entry and moving the
+      # staged one over it, so a lib written straight to ${HOME}/.ostler/lib
+      # is removed by the install that wrote it. Measured on the walk box
+      # on 2026-09-23: the suite above was green and
+      # ~/.ostler/lib/ostler-ingest-slot.sh did not exist, so the wiki
+      # summary backfill ran on the unbounded fallback mutex.
+      #
+      # This runs the real write statements and the real promote function,
+      # both extracted from install.sh, and then asks whether the file is
+      # there. It exits 2 for CANNOT-RUN, which is neither a pass nor a
+      # fail, so a harness that stops measuring says so instead of going
+      # green.
+      - name: Every embedded lib survives the staging-tree promote
+        if: success() || failure()
+        run: bash tests/test_prelaunch_libs_survive_promote.sh
+
   shell-3-2:
     name: The shipped ticks parse under bash 3.2, the customer's shell
     runs-on: macos-latest
@@ -131,6 +152,7 @@ jobs:
             vendor/spoken_source/bin/spoken-bundle-tick.sh \
             wiki-recompile/bin/wiki-recompile-tick.sh \
             tests/test_ingest_slot_fairness.sh
+            tests/test_prelaunch_libs_survive_promote.sh
           do
             if [ ! -f "$f" ]; then
               echo "REFUSING: $f is missing; the list is stale and a clean result here would be manufactured" >&2
@@ -144,5 +166,5 @@ jobs:
               rc=1
             fi
           done
-          echo "examined 7 files"
+          echo "examined 8 files"
           exit "$rc"
