@@ -104,7 +104,36 @@ INSTALL_SH="${REPO_ROOT}/install.sh"
 # WHAT WOULD LOWER IT AGAIN: making the repair unconditional, which means
 # shipping the module in a tree that cannot be absent. That is a real option
 # and it is not tonight's.
-PIN=8
+#
+# ── RAISED 8 -> 9 ON 2026-09-23, DELIBERATELY, AND HERE IS THE REASONING ─────
+#
+# The gate's own text offers two remedies and forbids the third: hoist it, or
+# "say so IN THE PR and raise the pin deliberately. Do not raise it silently."
+# This is the second, said out loud.
+#
+# THE NEW SITE IS A VERBATIM MIRROR OF ONE ALREADY INSIDE THE PIN. The
+# editor-frontpage-tick decrement mirrors the wiki-recompile-tick decrement
+# line for line, and that one has been pinned since before this change.
+# Measured against main: editor-tick decrement 1 here and 0 on main,
+# wiki-tick decrement 1 in both. So this raise admits a twin of an accepted
+# site, not a new class of hazard.
+#
+# IT IS NOT HOISTABLE, for the reason this file already states three
+# paragraphs up: only three of the six are, because the rest are FILE TESTS
+# and a variable being assigned early says nothing about whether the path it
+# names exists at seed time. This is a file test. Hoisting it would be a
+# guess, and the file says a guess is not a hoist.
+#
+# WHAT WOULD LOWER IT AGAIN: the same answer as the paragraph above. Make the
+# catch-up unconditional so the question "will this step run" has an answer at
+# seed time. That is a real option and it is not this change's.
+#
+# THE COST OF NOT RAISING IT is worse than the raise. The change this pin is
+# blocking is the one that stops a customer's front page reading zero
+# interests for their entire first hour, which is a BLOCKING walk probe. A
+# tenth of a percent of denominator wobble against that is not a trade worth
+# taking, and pretending the wobble is absent would be the silent raise.
+PIN=9
 
 cannot() { echo "CANNOT-RUN [$1]: $2" >&2; exit 2; }
 [ -f "$INSTALL_SH" ] || cannot "no-install-sh" "$INSTALL_SH not found -- nothing was examined."
