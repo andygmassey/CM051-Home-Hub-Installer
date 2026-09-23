@@ -119,9 +119,35 @@ class H(http.server.BaseHTTPRequestHandler):
 http.server.HTTPServer(("127.0.0.1", port), H).serve_forever()
 ' "$1" &
     SERVER_PID=$!
+    # 🔴 A POLL LOOP WITH NO DELAY IS NOT A WAIT.
+    #
+    # MEASURED 2026-09-24 on macos-latest, twice, after this test went red on
+    # a PR that touches only SwiftUI glyph code and could not possibly affect
+    # it. Both runs reported the honest thing:
+    #
+    #   CANNOT-RUN: the fixture Doctor never came up on 127.0.0.1:18921
+    #   NOTHING was checked. This is not a pass.
+    #
+    # There was no `sleep` in this loop. Against a port with nothing
+    # listening, curl fails IMMEDIATELY -- connection refused, long before
+    # --max-time 1 is relevant -- so all 60 attempts burned through in well
+    # under a second while python3's http.server was still starting. On this
+    # developer's Mac the server wins that race and the test passes; on a cold
+    # CI runner it does not. MEASURE ON THE HOST THAT RUNS IT.
+    #
+    # The identical defect was fixed in
+    # scripts/box_walk_probes/probes/doctor_page_renders_for_a_customer.sh
+    # earlier the same night, where its readiness loop took a self-test from
+    # 105s to 2s. Same shape, different file, and the ratchet that catches
+    # pipefail constructs does not look for this one.
+    #
+    # 60 attempts at 0.25s is up to 15 seconds of real waiting, which is
+    # generous for a local http.server and still fails fast when it genuinely
+    # cannot bind.
     local i=0
     while [ $i -lt 60 ]; do
         if curl -s -o /dev/null --noproxy '*' --max-time 1 "http://127.0.0.1:$1/api/v1/sources"; then return 0; fi
+        sleep 0.25
         i=$((i+1))
     done
     return 1
