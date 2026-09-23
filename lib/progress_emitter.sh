@@ -19,10 +19,15 @@
 #   WARN        step=<id>       msg=<line>
 #   PROMPT      id=<id>  kind=text|secret|yesno|choice  title=<...>
 #               default=<...>  choices=<comma-separated>  help=<...>
-#   STEP_END    id=<id>  status=ok|warn|timeout|error|fail  elapsed_s=<n>
-#               [rc=<n>]
-#               `rc=` is present whenever status is not ok, and carries
-#               the exit code of the child that produced the status.
+#   STEP_END    id=<id>  status=unmeasured|ok|warn|timeout|error|fail
+#               elapsed_s=<n>  measured=no|rc|declared-none  [rc=<n>]
+#               [reason=<...>]
+#               `rc=` is present whenever status is not ok/unmeasured, and
+#               carries the exit code of the child that produced the status.
+#               `measured=` is ALWAYS present and says how the status was
+#               arrived at, so `status=ok` can never again be read without
+#               knowing whether anything was looked at. `reason=` is present
+#               only for measured=declared-none.
 #               See "Step status accounting" below for why the status
 #               is accumulated rather than passed by the call site.
 #   PHASE       id=<n>   title=<...>
@@ -35,7 +40,7 @@
 #               from ~/.ostler/state/pipeline_signals.json directly,
 #               so this marker is informational only; installs
 #               without GUI handling silently ignore it.
-#   DONE        status=ok|fail  failed_steps=<n>
+#   DONE        status=ok|fail   failed_steps=<n>  unmeasured_steps=<n>  failed_steps=<n>
 #               `failed_steps` is ALWAYS present and counts the steps
 #               that ended with a status other than ok. It is printed
 #               even when it is zero, so a reader can tell "no step
@@ -136,12 +141,19 @@ _ostler_marker_field_is_public() {
         # derived from customer data -- gui_read's one derivation path
         # (a slug of the title when no id is passed) is handled by
         # __OSTLER_PROMPT_ID_DERIVED below rather than trusted here.
-        id|step|name|kind|level|status|has_fetched|code|remediation)
+        # #2314: `measured` is a closed enumeration (no|rc|declared-none)
+        # authored here, and `reason` is constrained at its only producer
+        # (gui_step_measures_nothing) to [a-z0-9 _-], which cannot spell an
+        # address, a path or a phone number. Both describe the INSTRUMENT,
+        # not the customer. Without them the durable log -- the one surface
+        # an auditor reads -- shows the new status with no way to tell a
+        # declared no-op from an unmeasured step.
+        id|step|name|kind|level|status|has_fetched|code|remediation|measured|reason)
             [[ "$1" == "id" && "${__OSTLER_PROMPT_ID_DERIVED:-0}" == "1" ]] && return 1
             return 0
             ;;
         # Machine numerics.
-        pct|idx|total|phase|elapsed_s|rc|count|failed_steps|errors|total_permissions)
+        pct|idx|total|phase|elapsed_s|rc|count|failed_steps|unmeasured_steps|errors|total_permissions)
             return 0
             ;;
         # Operator narrative -- see "WHAT IS DELIBERATELY NOT REDACTED".
@@ -303,7 +315,12 @@ __OSTLER_STEP_START=0
 #
 # THREE STATES, NEVER TWO
 #
-#   ok       the step's children all exited 0
+#   unmeasured  THE DEFAULT. The step closed and NOTHING recorded an
+#            outcome for it. It is not a success, not a failure, and not
+#            a claim of any kind: it is the absence of a measurement.
+#   ok       a child's exit code was folded in and it was 0, or the step
+#            EXPLICITLY declared it has nothing to measure. `ok` is now
+#            earned, never defaulted.
 #   timeout  a child was killed by its cap (rc 124 SIGTERM / 137 SIGKILL).
 #            "We gave up waiting", NOT "it failed". Best-effort hydrate
 #            steps legitimately end this way and the customer-facing copy
@@ -311,10 +328,28 @@ __OSTLER_STEP_START=0
 #            exactly as it is. Only the machine-readable record changes.
 #   error    a child exited non-zero for any other reason.
 #
-# error outranks timeout outranks ok, so a step that both timed out and
-# errored reports the error.
-__OSTLER_STEP_STATUS="ok"
+# error outranks timeout outranks ok outranks unmeasured, so a step that
+# both timed out and errored reports the error, and any measurement at
+# all outranks the absence of one.
+#
+# WHY A FOURTH STATE AND NOT `warn` (#2314)
+#
+# `warn` is already spoken for, and it means the OPPOSITE thing. #2313
+# gave it to "the step ran, we looked at the store, and it had stored
+# nothing" -- a measurement, whose result was bad. `unmeasured` is that
+# nobody looked. Collapsing the two would destroy the single distinction
+# this change exists to create, and would put an alert triangle beside 42
+# steps of a perfectly good install.
+__OSTLER_STEP_STATUS="unmeasured"
 __OSTLER_STEP_RC=0
+# HOW the step's status was arrived at, emitted as `measured=` on STEP_END:
+#   no             nothing recorded an outcome
+#   rc             a child's exit code was folded in via gui_step_record_rc
+#   declared-none  the step declared it has nothing to measure
+# Always emitted, so `status=ok` can never again be read without knowing
+# whether anything was actually looked at.
+__OSTLER_STEP_MEASURED="no"
+__OSTLER_STEP_MEASURED_REASON=""
 
 # Count of steps closed with a status other than ok. Read by gui_done so
 # the single terminal line carries the truth about the whole run.
@@ -326,6 +361,18 @@ __OSTLER_FAILED_STEPS=0
 # count already carries. word-count == __OSTLER_FAILED_STEPS is an invariant.
 # Read by install.sh's closing verdict to NAME which steps did not complete.
 __OSTLER_FAILED_STEP_IDS=""
+# Count of steps closed WITHOUT any measurement, and their ids. Deliberately
+# NOT folded into __OSTLER_FAILED_STEPS: an unmeasured step has not failed,
+# and install.sh's closing verdict keys off that counter to tell the customer
+# their install had problems. Reporting 42 unmeasured steps as 42 failures
+# would be a worse lie than the one being fixed.
+#
+# This pair is the instrumentation DEBT METER. It is emitted on the DONE line
+# whether it is zero or not, for the reason failed_steps is: an absent field
+# cannot be told apart from a build too old to report one.
+__OSTLER_UNMEASURED_STEPS=0
+__OSTLER_UNMEASURED_STEP_IDS=""
+
 # Message-level error counter. Companion to __OSTLER_FAILED_STEPS, and a
 # DIFFERENT question: that one counts steps that ended badly, this one counts
 # [ERROR] lines raised anywhere. See gui_log for why both are needed.
@@ -333,8 +380,16 @@ __OSTLER_ERROR_LINES=0
 
 # gui_step_record_rc <rc>
 #
-# Fold a child's exit code into the open step's status. rc 0 is a no-op,
-# so this is safe to call unconditionally after any child.
+# Fold a child's exit code into the open step's status. Safe to call
+# unconditionally after any child.
+#
+# #2314: rc 0 IS A MEASUREMENT AND NO LONGER A NO-OP. It used to `return`
+# before touching anything, on the reasoning that the default was already
+# `ok`. Once the default became `unmeasured` that early return was the
+# whole bug in miniature: a step that ran its child, watched it exit 0 and
+# said so would still have closed `unmeasured`. rc 0 now moves the step
+# from unmeasured to ok, and ONLY from unmeasured -- it can never launder
+# an already-recorded error or timeout back into a success.
 #
 # NOTE ON PIPELINES: a pipeline's exit code belongs to its LAST command,
 # so `foo | tail -n 1` yields tail's rc, not foo's. Callers must capture
@@ -348,13 +403,25 @@ gui_step_record_rc() {
     if ! [[ "$rc" =~ ^[0-9]+$ ]]; then
         __OSTLER_STEP_STATUS="error"
         __OSTLER_STEP_RC=1
+        __OSTLER_STEP_MEASURED="rc"
         return 0
     fi
-    [[ "$rc" -eq 0 ]] && return 0
+    if [[ "$rc" -eq 0 ]]; then
+        # Promote only from the absence of a measurement. A step whose
+        # earlier child errored and whose later child exits 0 keeps the
+        # error: "something in here worked" is not "the step worked".
+        if [[ "$__OSTLER_STEP_STATUS" == "unmeasured" ]]; then
+            __OSTLER_STEP_STATUS="ok"
+            __OSTLER_STEP_RC=0
+        fi
+        __OSTLER_STEP_MEASURED="rc"
+        return 0
+    fi
 
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
-        # timeout must not overwrite an already-recorded error.
-        if [[ "$__OSTLER_STEP_STATUS" == "ok" ]]; then
+        # timeout must not overwrite an already-recorded error, but it
+        # must overwrite the absence of a measurement.
+        if [[ "$__OSTLER_STEP_STATUS" == "ok" || "$__OSTLER_STEP_STATUS" == "unmeasured" ]]; then
             __OSTLER_STEP_STATUS="timeout"
             __OSTLER_STEP_RC="$rc"
         fi
@@ -362,6 +429,7 @@ gui_step_record_rc() {
         __OSTLER_STEP_STATUS="error"
         __OSTLER_STEP_RC="$rc"
     fi
+    __OSTLER_STEP_MEASURED="rc"
     return 0
 }
 
@@ -371,7 +439,49 @@ gui_step_record_rc() {
 # install.sh branch on the accumulated state without reaching into the
 # private variables.
 gui_step_status() {
-    printf '%s' "${__OSTLER_STEP_STATUS:-ok}"
+    printf '%s' "${__OSTLER_STEP_STATUS:-unmeasured}"
+}
+
+# gui_step_measures_nothing <reason>
+#
+# THE EXPLICIT DECLARATION, and the only other way to earn `ok`.
+#
+# A step that genuinely has nothing to measure says so HERE, in one line,
+# naming its reason. That reason travels on the STEP_END marker, so a
+# reader can tell a declared no-op from a real measurement without
+# reading install.sh.
+#
+# WHY A DECLARATION AND NOT INFERENCE. The alternative is to guess from a
+# step's name or its body which steps "obviously" have nothing to check.
+# Inference from a step's name is the precise mistake this codebase keeps
+# making, and it fails silently in the dangerous direction: the step that
+# most looks like a no-op is the one whose measurement nobody wrote.
+#
+# It CANNOT clear an already-recorded failure. Declaring "nothing to
+# measure" after a child has errored is a contradiction, and the
+# measurement wins.
+gui_step_measures_nothing() {
+    local reason="${1:-unspecified}"
+    # The reason rides the durable log as a PUBLIC marker field, so it is
+    # constrained to LETTERS ONLY (plus space, underscore, hyphen). That
+    # cannot spell an address, a path, an email or a phone number -- it is
+    # a developer's note about the instrument, never a value from the
+    # customer's machine. DIGITS ARE EXCLUDED DELIBERATELY: a reason is
+    # prose and needs none, and allowing them is all it takes to spell a
+    # phone number or an account number. Anything else is dropped, not
+    # escaped, so a mistake at a call site degrades to a poorer reason
+    # rather than to a leak. Tabs and newlines would also break the
+    # tab-separated, newline-anchored wire.
+    reason="$(printf '%s' "$reason" | LC_ALL=C tr -c 'a-zA-Z _-' ' ' | tr -s ' ')"
+    reason="${reason# }"; reason="${reason% }"
+    [[ -z "$reason" ]] && reason="unspecified"
+    if [[ "$__OSTLER_STEP_STATUS" == "unmeasured" ]]; then
+        __OSTLER_STEP_STATUS="ok"
+        __OSTLER_STEP_RC=0
+        __OSTLER_STEP_MEASURED="declared-none"
+        __OSTLER_STEP_MEASURED_REASON="$reason"
+    fi
+    return 0
 }
 
 gui_step_begin() {
@@ -381,8 +491,10 @@ gui_step_begin() {
     __OSTLER_STEP_START=$(date +%s)
     # A new step starts clean. Without this reset one failed step would
     # stain every step after it, which is the mirror image of the defect.
-    __OSTLER_STEP_STATUS="ok"
+    __OSTLER_STEP_STATUS="unmeasured"
     __OSTLER_STEP_RC=0
+    __OSTLER_STEP_MEASURED="no"
+    __OSTLER_STEP_MEASURED_REASON=""
     local args=("id=$id" "title=$title")
     [[ -n "$phase" ]] && args+=("phase=$phase")
     [[ -n "$idx" ]]   && args+=("idx=$idx")
@@ -400,9 +512,20 @@ gui_step_end() {
     # measurement, and a fix that a future call site can undo by passing
     # `ok` again is not a fix.
     local requested="${1:-}"
-    local status="${__OSTLER_STEP_STATUS:-ok}"
-    if [[ -n "$requested" && "$requested" != "ok" ]]; then
+    local status="${__OSTLER_STEP_STATUS:-unmeasured}"
+    # #2314: `unmeasured` joins `ok` as a value an ARGUMENT may not impose.
+    # The guard used to refuse only the literal `ok`, so once `unmeasured`
+    # existed as a value, `gui_step_end unmeasured` would have overwritten a
+    # recorded timeout or error -- turning a measured failure into "nobody
+    # looked". Both directions of laundering are refused: an argument may
+    # escalate to a measured problem, never demote to a success and never
+    # demote to the absence of a measurement.
+    if [[ -n "$requested" && "$requested" != "ok" && "$requested" != "unmeasured" ]]; then
         status="$requested"
+        # An escalation IS a measurement: the caller looked and decided.
+        # #2313's `gui_step_end warn` for "ran but stored nothing" is
+        # exactly that, and it must not read as un-looked-at.
+        __OSTLER_STEP_MEASURED="rc"
     fi
 
     local id="${__OSTLER_STEP_ID:-unknown}"
@@ -411,8 +534,26 @@ gui_step_end() {
         elapsed=$(( $(date +%s) - __OSTLER_STEP_START ))
     fi
 
-    if [[ "$status" == "ok" ]]; then
-        gui_emit STEP_END "id=$id" "status=$status" "elapsed_s=$elapsed"
+    local measured="${__OSTLER_STEP_MEASURED:-no}"
+
+    if [[ "$status" == "unmeasured" ]]; then
+        # #2314: NOT a failure, and deliberately not counted as one. This
+        # is the instrumentation debt meter: the step ran, it may well
+        # have worked, and nothing in it recorded an outcome either way.
+        # The one thing it may not do is claim success.
+        __OSTLER_UNMEASURED_STEPS=$(( __OSTLER_UNMEASURED_STEPS + 1 ))
+        __OSTLER_UNMEASURED_STEP_IDS="${__OSTLER_UNMEASURED_STEP_IDS:+${__OSTLER_UNMEASURED_STEP_IDS} }${id}"
+        gui_emit STEP_END "id=$id" "status=$status" "elapsed_s=$elapsed" \
+                          "measured=${measured}"
+    elif [[ "$status" == "ok" ]]; then
+        if [[ "$measured" == "declared-none" ]]; then
+            gui_emit STEP_END "id=$id" "status=$status" "elapsed_s=$elapsed" \
+                              "measured=${measured}" \
+                              "reason=${__OSTLER_STEP_MEASURED_REASON:-unspecified}"
+        else
+            gui_emit STEP_END "id=$id" "status=$status" "elapsed_s=$elapsed" \
+                              "measured=${measured}"
+        fi
     else
         # Count it even when OSTLER_GUI is unset: the counter is
         # bookkeeping, gui_emit is the wire, and only the wire is gated.
@@ -437,13 +578,15 @@ gui_step_end() {
         [[ "$rc" =~ ^[0-9]+$ ]] || rc=1
         [[ "$rc" -eq 0 ]] && rc=1
         gui_emit STEP_END "id=$id" "status=$status" "elapsed_s=$elapsed" \
-                          "rc=${rc}"
+                          "rc=${rc}" "measured=${measured}"
     fi
 
     __OSTLER_STEP_ID=""
     __OSTLER_STEP_START=0
-    __OSTLER_STEP_STATUS="ok"
+    __OSTLER_STEP_STATUS="unmeasured"
     __OSTLER_STEP_RC=0
+    __OSTLER_STEP_MEASURED="no"
+    __OSTLER_STEP_MEASURED_REASON=""
 }
 
 # ── Interactive prompt redirection ────────────────────────────────
@@ -739,10 +882,12 @@ gui_done() {
     if [[ -n "${OSTLER_LAST_ERROR_CODE:-}" ]]; then
         gui_emit DONE "status=$status" "code=${OSTLER_LAST_ERROR_CODE}" \
                       "failed_steps=${__OSTLER_FAILED_STEPS:-0}" \
+                      "unmeasured_steps=${__OSTLER_UNMEASURED_STEPS:-0}" \
                       "errors=${__OSTLER_ERROR_LINES:-0}"
     else
         gui_emit DONE "status=$status" \
                       "failed_steps=${__OSTLER_FAILED_STEPS:-0}" \
+                      "unmeasured_steps=${__OSTLER_UNMEASURED_STEPS:-0}" \
                       "errors=${__OSTLER_ERROR_LINES:-0}"
     fi
 }

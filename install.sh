@@ -1350,7 +1350,11 @@ gui_step_end()    { :; }
 # every other helper here. Present so the hydrate sentinel recorders
 # can call it unguarded.
 gui_step_record_rc() { :; }
-gui_step_status() { printf 'ok'; }
+# #2314: `unmeasured`, not `ok`. Before the emitter is sourced nothing can
+# have measured anything, and the stub must not be the one surface that
+# still answers "fine" by default.
+gui_step_status() { printf 'unmeasured'; }
+gui_step_measures_nothing() { :; }
 gui_log()         { :; }
 gui_warn()        { :; }
 gui_phase()       { :; }
@@ -4464,7 +4468,8 @@ else
     gui_step_begin()  { :; }
     gui_step_end()    { :; }
     gui_step_record_rc() { :; }
-    gui_step_status() { printf 'ok'; }
+    gui_step_status() { printf 'unmeasured'; }
+    gui_step_measures_nothing() { :; }
     gui_read()        {
         # Mirrors the TTY half of the full helper so install.sh keeps
         # working when sourced direct from a terminal. Handles the
@@ -29943,6 +29948,16 @@ _hydrate_sentinel_record() {
 
     count="$(_hydrate_payload_count "$payload")"
     _hydrate_compute_change "$sentinel" "$count" "$now"
+    # #2314: THE SENTINEL KNEW AND THE STEP DID NOT.
+    #
+    # _hydrate_sentinel_record_error has always called gui_step_record_rc,
+    # so the failure half of this pair reached the step status. The SUCCESS
+    # half reached only the .done file. With `ok` as the step default that
+    # was invisible; with `unmeasured` as the default a hydrate that really
+    # did store data would have closed `unmeasured`, which is just as false
+    # in the other direction. A sentinel written with a non-zero payload IS
+    # the measurement, so it is recorded as one.
+    gui_step_record_rc 0
     {
         printf 'recorded_at=%s\n' "$now"
         printf 'source=%s\n' "$source"
@@ -32017,7 +32032,13 @@ fi
 if [[ "$_HYDRATE_BROWSING_SENTINEL_FRESH" == "true" ]] \
    && _hydrate_collection_has_rows "$_HYDRATE_BROWSING_ROWS"; then
     # The one skip that is earned: a completed run AND the rows still there.
+    # #2314: THIS IS A MEASUREMENT, so it is recorded as one. The step read
+    # the destination back and the destination answered with rows. Without
+    # this the step would close `unmeasured` -- true of a skip that checked
+    # nothing, and false of this one, which is the whole distinction #2313
+    # drew one level down at the sentinel.
     ok "$(printf "$MSG_HYDRATE_BROWSING_ALREADY_IMPORTED" "$_HYDRATE_BROWSING_ROWS")"
+    gui_step_record_rc 0
 elif [[ -x "$_HYDRATE_BROWSING_PY" ]] && \
    { [[ -s "$_HYDRATE_BROWSING_SAFARI" ]] || [[ -s "$_HYDRATE_BROWSING_CHROME" ]]; }; then
     # A fresh sentinel that did NOT survive corroboration lands here, and the
@@ -32163,11 +32184,17 @@ except Exception:
             _HYDRATE_BROWSING_ROWS_AFTER="$(_hydrate_collection_rows safari_history)"
             if _hydrate_collection_has_rows "$_HYDRATE_BROWSING_ROWS_AFTER"; then
                 ok "$(printf "$MSG_HYDRATE_BROWSING_ALREADY_IMPORTED" "$_HYDRATE_BROWSING_ROWS_AFTER")"
+                gui_step_record_rc 0   # #2314: the store was read back
             elif [[ "$_HYDRATE_BROWSING_TOTAL" == "0" ]]; then
                 # The reader looked and there was nothing there. This is the
                 # ONE branch the sentence below was ever true for, and it now
                 # has it to itself.
                 info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
+                # #2314: "nothing to import" is a MEASURED outcome, not an
+                # absent one. total=0 is the reader reporting an empty source,
+                # which is why it is `ok` and not `unmeasured`. Contrast the
+                # else-arm below, which #2313 already closes `warn`.
+                gui_step_record_rc 0
                 _HYDRATE_BROWSING_NO_SOURCE_ROWS=true
             else
                 warn "$MSG_WARN_HYDRATE_BROWSING_NOTHING_STORED"
@@ -32180,6 +32207,7 @@ except Exception:
         _HYDRATE_BROWSING_ROWS_AFTER="$(_hydrate_collection_rows safari_history)"
         if _hydrate_collection_has_rows "$_HYDRATE_BROWSING_ROWS_AFTER"; then
             ok "$(printf "$MSG_HYDRATE_BROWSING_ALREADY_IMPORTED" "$_HYDRATE_BROWSING_ROWS_AFTER")"
+            gui_step_record_rc 0   # #2314: the store was read back
         else
             warn "$MSG_WARN_HYDRATE_BROWSING_NOTHING_STORED"
             _HYDRATE_BROWSING_NOTHING_STORED=true

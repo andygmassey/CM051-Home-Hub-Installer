@@ -48,18 +48,37 @@ fi
 echo "PASS: emit produces well-formed tab-separated markers"
 
 # ── Test 3: step bookkeeping emits BEGIN+END pair with elapsed ──
-out="$(OSTLER_GUI=1 bash -c "source '$LIB'; gui_step_begin foo 'Title bar' 3 1 2; sleep 1; gui_step_end ok" 2>&1 >/dev/null)"
+#
+# #2314: the step now RECORDS its child's exit code. It used to close with
+# a bare `gui_step_end ok`, which is the very assertion-over-a-measurement
+# that #839 removed from install.sh and that this change removes from the
+# accumulator's default. A step that measures nothing no longer closes ok,
+# so the marker shape is pinned on a step that actually measured something.
+out="$(OSTLER_GUI=1 bash -c "source '$LIB'; gui_step_begin foo 'Title bar' 3 1 2; sleep 1; true; gui_step_record_rc \$?; gui_step_end" 2>&1 >/dev/null)"
 if ! grep -q $'^#OSTLER\tSTEP_BEGIN\tid=foo\ttitle=Title bar\tphase=3\tidx=1\ttotal=2$' <<<"$out"; then
     echo "FAIL [step]: STEP_BEGIN missing or malformed" >&2
     echo "  got: $out" >&2
     exit 1
 fi
-if ! grep -qE $'^#OSTLER\tSTEP_END\tid=foo\tstatus=ok\telapsed_s=[0-9]+$' <<<"$out"; then
-    echo "FAIL [step]: STEP_END missing elapsed_s" >&2
+if ! grep -qE $'^#OSTLER\tSTEP_END\tid=foo\tstatus=ok\telapsed_s=[0-9]+\tmeasured=rc$' <<<"$out"; then
+    echo "FAIL [step]: STEP_END missing elapsed_s or measured=" >&2
     echo "  got: $out" >&2
     exit 1
 fi
 echo "PASS: gui_step_begin / gui_step_end emit correctly"
+
+# ── Test 3b (#2314): the same step WITHOUT a measurement must not say ok ──
+# The shape assertion above can only prove the ok path is well formed. This
+# proves the default is no longer ok, on the identical input minus the one
+# call that measures. Without it, Test 3 passes against a build in which
+# `ok` is still a constant.
+out="$(OSTLER_GUI=1 bash -c "source '$LIB'; gui_step_begin foo 'Title bar' 3 1 2; gui_step_end ok" 2>&1 >/dev/null)"
+if ! grep -qE $'^#OSTLER\tSTEP_END\tid=foo\tstatus=unmeasured\telapsed_s=[0-9]+\tmeasured=no$' <<<"$out"; then
+    echo "FAIL [step]: a step that measured nothing did not close status=unmeasured" >&2
+    echo "  got: $out" >&2
+    exit 1
+fi
+echo "PASS: a step that measured nothing closes status=unmeasured, even when asked for ok"
 
 # ── Test 4: gui_read TTY fallback returns the typed answer ──────
 # Pipe a string in via a here-string. read inside gui_read picks it up.

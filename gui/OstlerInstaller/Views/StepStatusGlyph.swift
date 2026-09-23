@@ -120,6 +120,19 @@ struct StepStatusGlyph: Equatable {
                 severity: .informational,
                 accessibilityCopyKey: "sidebar.status_background"
             )
+        case .unmeasured:
+            // #2314: "we did not check", not "something is wrong".
+            // Informational for the same reason `timeout` is: a note,
+            // not an alarm. It must NOT be the green tick -- that is the
+            // whole point, a step that measured nothing may not look
+            // identical to one that measured a success -- and it must not
+            // be the warning triangle either, or a perfectly good install
+            // reads as 42 problems.
+            return StepStatusGlyph(
+                symbolName: "circle.dashed",
+                severity: .informational,
+                accessibilityCopyKey: "sidebar.status_unmeasured"
+            )
         case .warn, .error:
             return StepStatusGlyph(
                 symbolName: "exclamationmark.triangle.fill",

@@ -235,6 +235,7 @@
     "step_counter": "Step {current} of {total}",
     "status_ok": "Completed",
     "status_background": "Took longer than expected; finished in the background",
+    "status_unmeasured": "Completed; this step does not report a result yet",
     "status_attention": "Needs attention",
     "status_failed": "Failed"
   },

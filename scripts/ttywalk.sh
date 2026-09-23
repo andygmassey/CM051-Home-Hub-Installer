@@ -254,6 +254,17 @@ else:
 show('STEP_END not status=ok',    r'STEP_END(?!.*status=ok)')
 show('  of which status=error',   r'STEP_END.*status=error')
 show('  of which status=timeout', r'STEP_END.*status=timeout')
+# #2314: without this row the 'of which' lines stop summing to the headline,
+# because the unmeasured state is not-ok and is neither failure word.
+# A breakdown that does not add up sends the reader hunting for a failure
+# that is not there. An unmeasured step is NOT a failure: it is the count of
+# steps that recorded no outcome, and it is the instrumentation debt, not a
+# defect on the box.
+# NO BACKTICKS IN THIS BLOCK. It sits inside a double-quoted ssh payload, so
+# the LOCAL shell would execute whatever sat between them before the payload
+# was ever sent. The repo gate that enforces this caught exactly that here.
+show('  of which status=unmeasured (no outcome recorded; NOT a failure)',
+                                  r'STEP_END.*status=unmeasured')
 show('ERR-NN codes',              r'ERR-\d+-')
 show('Python tracebacks',         r'Traceback \(most recent call last\)')
 show('TERMINAL DONE markers',     r'#OSTLER\s+DONE\s')

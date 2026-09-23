@@ -209,6 +209,12 @@ fi
 progress "Setting up conversation memory" "cm048_setup"
 $WRAP sleep 0 >/dev/null 2>&1
 rc=$?
+# #2314: record the rc UNCONDITIONALLY, which is what the emitter's own
+# contract asks for and what the failure arm below already did in effect.
+# `ok` is no longer a default, so a control that measures nothing closes
+# `unmeasured` -- correctly. The control's job is to prove a MEASURED
+# success still closes ok, so it now takes the measurement.
+gui_step_record_rc "$rc"
 [ "$rc" -eq 0 ] || _hydrate_sentinel_record_error "cm048" "$rc" "control=broken"
 
 # ── A: the original failing input ─────────────────────────────────────

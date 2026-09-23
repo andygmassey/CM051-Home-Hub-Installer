@@ -143,6 +143,16 @@ enum PromptKind: String, Equatable {
 
 enum StepStatus: String, Equatable {
     case ok, warn, fail
+    /// #2314: the step closed and NOTHING recorded an outcome for it.
+    /// Not a success, not a failure: the absence of a measurement.
+    ///
+    /// It exists because `ok` used to be the shell-side DEFAULT rather
+    /// than a measurement, so 42 of 46 install steps could only ever
+    /// report success. Distinct from `warn`, which #2313 gave to "the
+    /// step ran, we looked at the store, and it had stored nothing" --
+    /// a measurement whose result was bad. This one is that nobody
+    /// looked, and it must never be drawn as an alarm.
+    case unmeasured
     /// #839: a child was killed by its wall-clock cap (rc 124 SIGTERM /
     /// 137 SIGKILL). "We gave up waiting", NOT "it failed". Best-effort
     /// hydrate steps end this way legitimately and the customer keeps
@@ -153,9 +163,24 @@ enum StepStatus: String, Equatable {
     case error
 
     /// True when the step did not do its job, whatever the reason.
-    /// Everything that is not `ok` counts, so a status added later is
-    /// counted as a problem by default rather than silently ignored.
-    var isProblem: Bool { self != .ok }
+    ///
+    /// Written as an exhaustive switch rather than `self != .ok` so the
+    /// fail-safe survives: a status added later still lands in `default`
+    /// and counts as a problem. `unmeasured` is the ONE deliberate
+    /// exclusion (#2314) -- it means our instrumentation did not look,
+    /// not that the customer's install went wrong, and on a build where
+    /// most steps are not yet instrumented, counting it would turn every
+    /// clean install into a wall of warnings.
+    var isProblem: Bool {
+        switch self {
+        case .ok, .unmeasured: return false
+        default: return true
+        }
+    }
+
+    /// True when the step actually recorded an outcome, either way.
+    /// The debt meter: `!isMeasured` is the work still to do.
+    var isMeasured: Bool { self != .unmeasured }
 }
 
 /// Stateful line buffer that pulls #OSTLER markers out of a stream

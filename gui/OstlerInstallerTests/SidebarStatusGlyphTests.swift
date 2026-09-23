@@ -92,17 +92,29 @@ final class SidebarStatusGlyphTests: XCTestCase {
     /// would still be the only thing catching it. This asserts the
     /// mapping actually discriminates across the whole enum.
     func testEveryStatusMapsToADistinctSeverityBucketWhereIntended() {
-        let all: [StepStatus] = [.ok, .timeout, .warn, .error, .fail]
+        let all: [StepStatus] = [.ok, .timeout, .warn, .error, .fail, .unmeasured]
         let glyphs = all.map { StepStatusGlyph.forStatus($0) }
 
         // warn and error intentionally share; everything else is unique.
+        // #2314: `unmeasured` shares the INFORMATIONAL bucket with
+        // `timeout` (neither is an alarm) but must keep its own glyph --
+        // "we gave up waiting" and "we never looked" are different facts.
         let buckets = Set(glyphs.map { $0.severity })
         XCTAssertEqual(buckets.count, 4,
                        "expected done / informational / alert / fatal")
 
         let symbols = Set(glyphs.map { $0.symbolName })
-        XCTAssertEqual(symbols.count, 4,
-                       "expected four distinct glyphs across five states")
+        XCTAssertEqual(symbols.count, 5,
+                       "expected five distinct glyphs across six states")
+
+        // The assertion that matters for #2314: a step that measured
+        // nothing must not be drawn as one that measured a success.
+        XCTAssertNotEqual(StepStatusGlyph.forStatus(.unmeasured).symbolName,
+                          StepStatusGlyph.forStatus(.ok).symbolName,
+                          "unmeasured must not wear the green tick")
+        XCTAssertNotEqual(StepStatusGlyph.forStatus(.unmeasured).severity,
+                          StepStatusGlyph.forStatus(.error).severity,
+                          "unmeasured must not be drawn as an alert")
 
         for g in glyphs {
             XCTAssertFalse(g.symbolName.isEmpty)
@@ -144,7 +156,7 @@ final class SidebarStatusGlyphTests: XCTestCase {
     /// one renders the raw dotted key to VoiceOver at runtime.
     func testAccessibilityKeysResolveInTheCatalogue() throws {
         let sidebar = try sidebarCopy()
-        for status in [StepStatus.ok, .timeout, .warn, .error, .fail] {
+        for status in [StepStatus.ok, .timeout, .warn, .error, .fail, .unmeasured] {
             let key = StepStatusGlyph.forStatus(status).accessibilityCopyKey
             // "sidebar.status_ok" -> "status_ok"
             let leaf = String(key.split(separator: ".").last ?? "")
