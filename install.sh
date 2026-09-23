@@ -3334,7 +3334,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8219   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8264   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8273 and :14730, both of which run
+    # Its two top-level arming calls are :8273 and :14766, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3325 above has just deleted
     # that tree and :3329 has just rebound OSTLER_DIR to the final one, so
@@ -3352,13 +3352,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15501, where the note reads
+    # WhatsApp Web session path did it again at :15537, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15518 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15554 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3371,9 +3371,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8273, :14730) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8273, :14766) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17573 / :17751 / :17908 / :18250 path. There the
+    # :17609 / :17787 / :17944 / :18286 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -8909,8 +8909,20 @@ fi
 # so no cut-tooling / Makefile change is needed. Canonical source + tests:
 # lib/ostler-detect-exports.sh; tests/test_gdpr_export_detect.sh runs a drift
 # guard in CI that fails if this embedded copy diverges from that file.
-mkdir -p "${HOME}/.ostler/lib" 2>/dev/null || true
-cat > "${HOME}/.ostler/lib/ostler-detect-exports.sh" <<'OSTLER_DETECT_EXPORTS_EOF'
+#
+# 🔴 ${OSTLER_DIR}, NEVER A LITERAL ${HOME}/.ostler. Phase 2 writes into the
+# /tmp/ostler-prelaunch-<pid> staging tree, and _ostler_promote_prelaunch_tree
+# (:3257) promotes it by doing `rm -rf "${OSTLER_FINAL_DIR}/${name}"` then `mv`
+# for EVERY top-level entry, one of which is lib/. So a lib written straight to
+# ~/.ostler/lib is deleted by the promote that follows it, and the install that
+# wrote it reports status=ok. Measured on the walk box 2026-09-23: all three
+# libs embedded here were written, were used during the install, and were
+# absent from ~/.ostler/lib afterwards, which left the wiki summary backfill on
+# the unbounded fallback mutex. _ostler_set_paths rebinds OSTLER_DIR at the
+# promote, so it is the only spelling correct on both sides of the move.
+# Guarded by tests/test_prelaunch_libs_survive_promote.sh.
+mkdir -p "${OSTLER_DIR}/lib" 2>/dev/null || true
+cat > "${OSTLER_DIR}/lib/ostler-detect-exports.sh" <<'OSTLER_DETECT_EXPORTS_EOF'
 #!/usr/bin/env bash
 # Bulletproof GDPR-export detection for Ostler's import.
 #
@@ -9077,7 +9089,7 @@ done
 
 exit "$found_any"
 OSTLER_DETECT_EXPORTS_EOF
-chmod +x "${HOME}/.ostler/lib/ostler-detect-exports.sh" 2>/dev/null || true
+chmod +x "${OSTLER_DIR}/lib/ostler-detect-exports.sh" 2>/dev/null || true
 
 # ── Resource-tier governor lib (v1.0.3 first-run-storm fix) ────────
 # Adaptive first-run resource governor: detects the hardware tier
@@ -9088,8 +9100,20 @@ chmod +x "${HOME}/.ostler/lib/ostler-detect-exports.sh" 2>/dev/null || true
 # shipped inside install.sh, with a CI drift guard
 # (tests/test_resource_tier_governor.sh) that fails if this embedded
 # copy diverges from the canonical lib/ostler-resource-tier.sh.
-mkdir -p "${HOME}/.ostler/lib" 2>/dev/null || true
-cat > "${HOME}/.ostler/lib/ostler-resource-tier.sh" <<'OSTLER_RESOURCE_TIER_EOF'
+#
+# 🔴 ${OSTLER_DIR}, NEVER A LITERAL ${HOME}/.ostler. Phase 2 writes into the
+# /tmp/ostler-prelaunch-<pid> staging tree, and _ostler_promote_prelaunch_tree
+# (:3257) promotes it by doing `rm -rf "${OSTLER_FINAL_DIR}/${name}"` then `mv`
+# for EVERY top-level entry, one of which is lib/. So a lib written straight to
+# ~/.ostler/lib is deleted by the promote that follows it, and the install that
+# wrote it reports status=ok. Measured on the walk box 2026-09-23: all three
+# libs embedded here were written, were used during the install, and were
+# absent from ~/.ostler/lib afterwards, which left the wiki summary backfill on
+# the unbounded fallback mutex. _ostler_set_paths rebinds OSTLER_DIR at the
+# promote, so it is the only spelling correct on both sides of the move.
+# Guarded by tests/test_prelaunch_libs_survive_promote.sh.
+mkdir -p "${OSTLER_DIR}/lib" 2>/dev/null || true
+cat > "${OSTLER_DIR}/lib/ostler-resource-tier.sh" <<'OSTLER_RESOURCE_TIER_EOF'
 #!/usr/bin/env bash
 #
 # ostler-resource-tier.sh
@@ -9514,7 +9538,7 @@ if [ "${BASH_SOURCE[0]:-$0}" = "${0}" ]; then
     printf 'OSTLER_INGEST_OFFPEAK_ONLY=%s\n' "${OSTLER_INGEST_OFFPEAK_ONLY:-1}"
 fi
 OSTLER_RESOURCE_TIER_EOF
-chmod +x "${HOME}/.ostler/lib/ostler-resource-tier.sh" 2>/dev/null || true
+chmod +x "${OSTLER_DIR}/lib/ostler-resource-tier.sh" 2>/dev/null || true
 
 # -- Shared ingest-slot arbitration lib (2026-08-14 starvation fix) --
 # Fair, time-bounded arbitration of the one shared Ollama ingest slot.
@@ -9528,8 +9552,20 @@ chmod +x "${HOME}/.ostler/lib/ostler-resource-tier.sh" 2>/dev/null || true
 # heredoc with a CI drift guard (tests/test_ingest_slot_fairness.sh)
 # that fails if this embedded copy diverges from the canonical
 # lib/ostler-ingest-slot.sh.
-mkdir -p "${HOME}/.ostler/lib" 2>/dev/null || true
-cat > "${HOME}/.ostler/lib/ostler-ingest-slot.sh" <<'OSTLER_INGEST_SLOT_EOF'
+#
+# 🔴 ${OSTLER_DIR}, NEVER A LITERAL ${HOME}/.ostler. Phase 2 writes into the
+# /tmp/ostler-prelaunch-<pid> staging tree, and _ostler_promote_prelaunch_tree
+# (:3257) promotes it by doing `rm -rf "${OSTLER_FINAL_DIR}/${name}"` then `mv`
+# for EVERY top-level entry, one of which is lib/. So a lib written straight to
+# ~/.ostler/lib is deleted by the promote that follows it, and the install that
+# wrote it reports status=ok. Measured on the walk box 2026-09-23: all three
+# libs embedded here were written, were used during the install, and were
+# absent from ~/.ostler/lib afterwards, which left the wiki summary backfill on
+# the unbounded fallback mutex. _ostler_set_paths rebinds OSTLER_DIR at the
+# promote, so it is the only spelling correct on both sides of the move.
+# Guarded by tests/test_prelaunch_libs_survive_promote.sh.
+mkdir -p "${OSTLER_DIR}/lib" 2>/dev/null || true
+cat > "${OSTLER_DIR}/lib/ostler-ingest-slot.sh" <<'OSTLER_INGEST_SLOT_EOF'
 #!/usr/bin/env bash
 #
 # ostler-ingest-slot.sh
@@ -10350,7 +10386,7 @@ ostler_slot_release() {
     return 0
 }
 OSTLER_INGEST_SLOT_EOF
-chmod +x "${HOME}/.ostler/lib/ostler-ingest-slot.sh" 2>/dev/null || true
+chmod +x "${OSTLER_DIR}/lib/ostler-ingest-slot.sh" 2>/dev/null || true
 
 # Auto-unzip export zips in the scan dirs FIRST, so the content detection
 # below (and the parsers) can read a still-zipped download. Runs AFTER the
@@ -10378,7 +10414,7 @@ _ostler_zip_count_add() {  # $1=running total  $2="key=NN"; echoes the new total
 }
 for _sd in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     [[ -d "$_sd" ]] || continue
-    _uz_line="$(bash "${HOME}/.ostler/lib/ostler-detect-exports.sh" "$_sd" --unzip 2>&1 >/dev/null | grep '^UNZIP_SUMMARY ' || true)"
+    _uz_line="$(bash "${OSTLER_DIR}/lib/ostler-detect-exports.sh" "$_sd" --unzip 2>&1 >/dev/null | grep '^UNZIP_SUMMARY ' || true)"
     if [[ -n "${_uz_line:-}" ]]; then
         read -r _ _uzf _uzo _uza _uzsn _uzsp _uzso <<<"$_uz_line" || true
         _OSTLER_ZIPS_FOUND="$(_ostler_zip_count_add "$_OSTLER_ZIPS_FOUND" "${_uzf:-found=0}")"
@@ -13600,7 +13636,7 @@ else
     # LOW (16GB floor that ships today) and HIGH keep 2. Fail-safe: if the
     # tier lib is missing we keep the historic 2.
     OSTLER_NUM_PARALLEL=2
-    _ostler_tier_lib="${HOME}/.ostler/lib/ostler-resource-tier.sh"
+    _ostler_tier_lib="${OSTLER_DIR}/lib/ostler-resource-tier.sh"
     if [[ -f "$_ostler_tier_lib" ]]; then
         # shellcheck source=/dev/null
         . "$_ostler_tier_lib"

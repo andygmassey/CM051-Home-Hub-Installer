@@ -28,6 +28,12 @@ on:
       # purpose ("so the probe cannot half-exist on a box"). This guard is
       # the GUARD half, listed so editing the test re-runs the test.
       - 'tests/test_the_two_ws_clients_are_identical.sh'
+      # Wired 2026-09-23. assistant_grounds_the_opening_turn defined its body
+      # as probe_main(), the name of the dispatcher in lib/probe.sh, so every
+      # --self-test ran the measurement instead and exited 78. The walk marked
+      # it BROKEN and skipped it, and nothing else in the suite could see a
+      # wrong function name. Listed so editing the test re-runs the test.
+      - 'tests/test_no_probe_shadows_the_dispatcher.sh'
       - '.github/workflows/every-probe-is-collected.yml'
   push:
     branches: [main]
@@ -66,3 +72,16 @@ jobs:
         # same job SKIPS this step, and a skipped test reports nothing at all.
         if: always()
         run: /bin/bash tests/test_the_two_ws_clients_are_identical.sh
+
+      - name: No probe shadows the dispatcher, and every probe has a negative control
+        # lib/probe.sh:338 owns probe_main(). A probe that redefines that name
+        # shadows the dispatcher, so --self-test and --describe run the
+        # measurement body instead of the control -- which is how
+        # assistant_grounds_the_opening_turn came back 78 where 1 was expected,
+        # was marked BROKEN, had its phase 2 skipped, and never produced a
+        # verdict on any walk. The probe was collected, parsed and manifested;
+        # only the function name was wrong, and nothing could see it.
+        # if: always() -- ci-maskless (#1695): a red earlier in the same job
+        # would otherwise SKIP this step, and a skipped test reports nothing.
+        if: always()
+        run: /bin/bash tests/test_no_probe_shadows_the_dispatcher.sh

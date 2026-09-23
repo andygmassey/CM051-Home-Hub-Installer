@@ -41,8 +41,9 @@
 # Section 5  the old policy really does starve (mechanism control, so
 #            these numbers are not taken on trust)
 # Section 6  reader.py translates a real macOS FDA denial
-# Section 7  install.sh delivers the lib, and the embedded copy has not
-#            drifted from the canonical one
+# Section 7  install.sh CARRIES the lib and the embedded copy has not
+#            drifted. Not a delivery check: see the note on the section
+#            itself, and tests/test_prelaunch_libs_survive_promote.sh
 # Section 8  the wiki recompile tick is wired to the shared slot
 # Section 9  EVERY conversation feed is wired -- the section whose
 #            absence let a delivered lib sit uncalled on the box
@@ -364,18 +365,42 @@ PYEOF
 fi
 
 # ---------------------------------------------------------------------
-# Section 7 -- delivery. A lib that install.sh never writes is merged but
-# not delivered, and the sealed ticks fall back to the unbounded path.
+# Section 7 -- the EMBED: install.sh carries the lib, and the embedded
+# copy has not drifted from the canonical one.
+#
+# 🔴 THIS SECTION IS NOT A DELIVERY CHECK, AND CALLING IT ONE COST AN
+# INSTALL. Every assertion below is about text inside install.sh. It
+# never runs install.sh, never models the staging-tree promote, and never
+# looks at an installed tree, so it cannot see whether the lib reaches a
+# customer. Comparing two copies of a file says nothing about whether
+# either one arrives.
+#
+# Measured on the walk box 2026-09-23, on an install that reported
+# status=ok failed_steps=0 errors=0: this section passed, and
+# ~/.ostler/lib/ostler-ingest-slot.sh did not exist. install.sh wrote it
+# to a literal ${HOME}/.ostler/lib, and the promote deletes ~/.ostler/lib
+# before moving the staging lib/ over it. Worse, the chmod assertion
+# below used to grep for that literal ${HOME} path, so the guard PINNED
+# the defect: correcting the path made this section go red.
+#
+# Delivery is measured by tests/test_prelaunch_libs_survive_promote.sh,
+# which runs the real write statements and the real promote and then asks
+# whether the file is there.
 # ---------------------------------------------------------------------
 echo
-echo "== Section 7: install.sh delivers the lib, with no drift =="
+echo "== Section 7: install.sh carries the lib, with no drift =="
 if grep -q 'OSTLER_INGEST_SLOT_EOF' "$INSTALL_SH"; then
     pass "install.sh carries the embedded lib heredoc"
 else
     failure "install.sh does not deliver ostler-ingest-slot.sh; the sealed ticks would fall back to the unbounded path on every install"
 fi
-grep -q 'chmod +x "${HOME}/.ostler/lib/ostler-ingest-slot.sh"' "$INSTALL_SH" \
-    || failure "install.sh never makes the lib executable"
+# ${OSTLER_DIR}, not ${HOME}/.ostler. During Phase 2 OSTLER_DIR is the
+# /tmp staging tree, and _ostler_set_paths rebinds it to ~/.ostler at the
+# promote, so it is the only spelling that is correct on both sides of
+# the move. A write to the literal ${HOME} path is discarded by the
+# promote.
+grep -q 'chmod +x "${OSTLER_DIR}/lib/ostler-ingest-slot.sh"' "$INSTALL_SH" \
+    || failure "install.sh never makes the lib executable at \${OSTLER_DIR}/lib. If it chmods a literal \${HOME}/.ostler/lib path instead, the promote deletes the file before the customer ever runs it."
 
 EMBED="$(awk "/<<.OSTLER_INGEST_SLOT_EOF.\$/{f=1;next} /^OSTLER_INGEST_SLOT_EOF\$/{f=0} f" "$INSTALL_SH")"
 EMBED_LINES="$(printf '%s\n' "$EMBED" | grep -c .)"
