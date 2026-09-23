@@ -46,6 +46,17 @@ read, and the zeros are real absences rather than a search that could not look.
 `origin/main` was `60762906`. The whole tracked HR015 tree was swept, not just
 `doctor/`, and the sweep of `doctor/` alone and of the whole tree agree.
 
+**Which text predicates are real, because two of the obvious ones are not.** The
+panel's promise reads "Every source Ostler reads, whether it has run, how much
+it found and when it last looked. A source that has never run says so rather
+than being left out." It is **split across Python string literals**, so a search
+for "how much it found and when it last looked" or "A source that has never run
+says so" scores **0 in the vendored copy that contains it**. Those zeros are
+dead predicates, not measurements, and row #2219 records the same trap catching
+an earlier reader. Every text predicate used above was first run against
+`vendor/doctor` and kept only if it scored 1 there: "Where your data came from"
+(1) and "Every source Ostler reads" (1). Both score 0 on every HR015 ref.
+
 Sizes, as a second independent shape: `doctor/agent/web_ui.py` is **3,927**
 lines at the pin and **4,992** on HR015 `origin/main`; the vendored copy is
 **6,755**.
