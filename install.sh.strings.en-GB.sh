@@ -1507,9 +1507,6 @@ MSG_HYDRATE_AICONV_SKIPPED_NO_DATA="No AI chat history to read. You can re-run l
 MSG_HYDRATE_AICONV_BACKGROUND_CONTINUES="AI chats are still loading in the background. Your wiki fills in as it goes, and shows you where it is up to."
 MSG_HYDRATE_AICONV_HEARTBEAT="  Still reading your AI chat history (%ss so far). A large history can take several minutes."
 
-MSG_HYDRATE_AICONV_ALREADY_IMPORTED="Your AI chat history is already saved (%s conversations). Nothing to re-read."
-MSG_WARN_HYDRATE_AICONV_REIMPORT_STORE_EMPTY="Your AI chats were saved before, but the saved conversations are no longer on this Mac. Reading them again."
-MSG_WARN_HYDRATE_AICONV_REIMPORT_UNVERIFIED="Could not check whether your saved AI conversations are still on this Mac. Reading them again rather than assuming they are."
 
 # Browser history hydration strings (CX-86 Gap A + Gap C)
 # Used by install.sh's hydrate_browsing step. The progress call

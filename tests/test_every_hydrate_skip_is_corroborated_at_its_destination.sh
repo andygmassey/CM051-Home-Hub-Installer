@@ -23,7 +23,7 @@
 #     install.sh   if _hydrate_sentinel_fresh "apple_notes"
 #     install.sh   if _hydrate_sentinel_fresh "reminders_knowledge"
 #     install.sh   if _hydrate_sentinel_fresh "people"
-#     install.sh   if _hydrate_sentinel_fresh "ai_conversations"
+#     install.sh   if _hydrate_sentinel_fresh "ai_conversations"   <- see below
 #
 # `reminders_knowledge` has already shipped this failure once in its own right:
 # the v1.0.101 walk logged "[ok] Reminders: 2369 total", "No Reminders to read"
@@ -39,12 +39,21 @@
 #   people              Qdrant `people`               (PEOPLE_QDRANT_COLLECTION)
 #   whatsapp            Oxigraph, pwg:identifierLabel "WHATSAPP"
 #   imessage            Oxigraph, pwg:identifierLabel "IMESSAGE"
-#   ai_conversations    the episodic markdown tree on disk
+#   ai_conversations    NOT CORROBORATED. A named gap, pinned at the end of
+#                       this file rather than filled.
 #
-# `ingest_whatsapp` and `ingest_imessage` contain ZERO Qdrant references, and
-# cm052 contains none either. Corroborating them against the nearest readable
-# collection would be worse than not corroborating them at all, so they get
-# readers of their own with the same three-valued contract.
+# `ingest_whatsapp` and `ingest_imessage` contain ZERO Qdrant references; they
+# INSERT into Oxigraph, which sits in the SAME container VM and dies with it, so
+# a live read of it IS a read of the store the ingest writes to. They get a
+# reader of their own with the same three-valued contract.
+#
+# `ai_conversations` gets none, on purpose. Its visible destination is a markdown
+# tree under $HOME, and the sentinel is a file under $HOME: THEY SHARE A
+# LIFETIME, so counting it would read `ok` in exactly the case this change
+# exists for, while adding the appearance of a check. Its VM-side half is
+# CM048's, whose collection nothing in this repo names. The last section of this
+# file pins that gap: the leg may acquire a real store-side corroboration at any
+# time, and may not acquire one that reads a path under $HOME.
 #
 # WHAT THIS ASSERTS, PER SOURCE
 #
@@ -61,8 +70,12 @@
 #       could not be checked, never that it is empty.
 #   D   NO SENTINEL AT ALL. The leg runs and says nothing about re-importing,
 #       because there is nothing to explain.
+#   P   THE PINNED GAP. ai_conversations still skips on the sentinel alone, says
+#       at the line why it cannot be corroborated yet, and has acquired no
+#       $HOME-rooted probe. With an anti-vacuity control: the same predicate
+#       must FIRE on a seeded copy that adds one.
 #
-# AND THREE MUTATIONS OF THIS PR'S OWN FIX, one per destination class, each
+# AND TWO MUTATIONS OF THIS PR'S OWN FIX, one per destination class, each
 # asserted CAUGHT rather than run by hand once and written up.
 #
 # HOW IT AVOIDS BEING GREEN BY CONSTRUCTION
@@ -218,14 +231,6 @@ fi
 printf 'Harness: on port %s the collection endpoint answers 404 and 200 on demand, the SPARQL endpoint returns a count, and %s refuses.\n' \
     "$PORT" "$DEAD_URL"
 
-# Scenario C for ai_conversations needs a directory the process genuinely
-# cannot read. root can read anything, so under root that one sub-case is
-# CANNOT-RUN and says so rather than passing.
-UNREADABLE_DIRS_WORK=1
-if [ "$(id -u)" = "0" ]; then
-    UNREADABLE_DIRS_WORK=0
-fi
-
 # ── EXTRACT THE REAL CODE ─────────────────────────────────────────────────
 extract_fn() {
     awk -v fn="$1" '
@@ -250,8 +255,7 @@ extract_guard() {
 HELPERS="${WORK}/helpers.sh"
 : > "$HELPERS"
 for fn in _hydrate_sentinel_fresh _hydrate_collection_rows \
-          _hydrate_collection_has_rows _hydrate_graph_matches \
-          _hydrate_artefact_files; do
+          _hydrate_collection_has_rows _hydrate_graph_matches; do
     extract_fn "$fn" "$INSTALL_SH" >> "$HELPERS"
     printf '\n' >> "$HELPERS"
     if ! grep -q "^${fn}() {" "$HELPERS"; then
@@ -275,11 +279,10 @@ src_cfg() {
       apple_notes)         printf '%s\n' _HYDRATE_APPLENOTES apple_notes qdrant HYDRATE_APPLE_NOTES 'Your Apple Notes are already in your knowledge base. Skipping.' ;;
       reminders_knowledge) printf '%s\n' _HYDRATE_REMINDERS reminders_knowledge qdrant HYDRATE_REMINDERS 'Your Reminders are already in your knowledge base. Skipping.' ;;
       people)              printf '%s\n' _HYDRATE_PEOPLE people qdrant HYDRATE_PEOPLE 'No people to index yet.' ;;
-      ai_conversations)    printf '%s\n' _HYDRATE_AICONV ai_conversations fs HYDRATE_AICONV 'No AI chat history to read.' ;;
     esac
 }
 
-SOURCES="whatsapp email_preferences imessage apple_notes reminders_knowledge people ai_conversations"
+SOURCES="whatsapp email_preferences imessage apple_notes reminders_knowledge people"
 
 # One guard region per source, plus the proof it came out of install.sh intact.
 for s in $SOURCES; do
@@ -306,7 +309,7 @@ for s in $SOURCES; do
         exit 1
     fi
 done
-printf 'Harness: extracted five helpers and the guard region of all seven legs from install.sh.\n'
+printf 'Harness: extracted four helpers and the guard region of all six corroborated legs from install.sh.\n'
 
 # ── THE MUTANT: the guard as it stood before this change ──────────────────
 #
@@ -365,7 +368,7 @@ MUTPY
         exit 1
     fi
 done
-printf 'Harness: the pre-fix mutant of all seven legs applied, removed the corroboration, and parses.\n\n'
+printf 'Harness: the pre-fix mutant of all six legs applied, removed the corroboration, and parses.\n\n'
 
 # ── ONE CASE ──────────────────────────────────────────────────────────────
 #
@@ -374,14 +377,6 @@ printf 'Harness: the pre-fix mutant of all seven legs applied, removed the corro
 # Everything the region reads is built under a synthetic OSTLER_DIR and HOME,
 # so the real branch conditions inside the region are evaluated unmodified.
 ROWS_COUNT=4242
-# The filesystem destination is counted in FILES, so staging 4,242 of them
-# would be four thousand pointless writes. Three is a count like any other and
-# the assertion reads whichever one the class stages.
-FS_ROWS_COUNT=3
-rows_count_for() {
-    set -- $(src_cfg "$1" | tr '\n' ' ')
-    if [ "$3" = "fs" ]; then printf '%s' "$FS_ROWS_COUNT"; else printf '%s' "$ROWS_COUNT"; fi
-}
 run_case() {
     local s="$1" guard="$2" sentinel="$3" dest="$4"
     set -- $(src_cfg "$s" | tr '\n' ' ')
@@ -409,7 +404,7 @@ SENTINEL
     mkdir -p "${dir}/home/Library/Group Containers/group.net.whatsapp.WhatsApp.shared"
     : > "${dir}/home/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite"
 
-    local qurl="$LIVE_URL" ourl="$LIVE_URL" aidir="${dir}/home/Documents/Ostler/AI Conversations"
+    local qurl="$LIVE_URL" ourl="$LIVE_URL"
     case "$class" in
       qdrant)
         if [ "$dest" = "unreadable" ]; then qurl="$DEAD_URL"
@@ -419,28 +414,15 @@ SENTINEL
         if [ "$dest" = "unreadable" ]; then ourl="$DEAD_URL"
         elif [ "$dest" = "rows" ]; then printf '%s\n' "$ROWS_COUNT" > "$GRAPH_MODE"
         else printf '0\n' > "$GRAPH_MODE"; fi ;;
-      fs)
-        if [ "$dest" = "rows" ]; then
-            mkdir -p "$aidir"
-            local i=1
-            while [ "$i" -le "$FS_ROWS_COUNT" ]; do
-                printf '# synthetic conversation %s\n' "$i" > "${aidir}/synthetic-${i}.md"
-                i=$((i + 1))
-            done
-        elif [ "$dest" = "unreadable" ]; then
-            mkdir -p "$aidir"
-            chmod 000 "$aidir"
-        fi ;;
     esac
 
     OSTLER_DIR="$dir" _T_HOME="${dir}/home" _T_GUARD="$guard" _T_STRINGS="$STRINGS" \
-    _T_HELPERS="$HELPERS" _T_QDRANT="$qurl" _T_OXIGRAPH="$ourl" _T_AIDIR="$aidir" \
+    _T_HELPERS="$HELPERS" _T_QDRANT="$qurl" _T_OXIGRAPH="$ourl" \
     bash > "${dir}/out.txt" 2>&1 <<'DRIVER'
 set -uo pipefail
 HOME="${_T_HOME}"
 QDRANT_URL="${_T_QDRANT}"
 OXIGRAPH_URL="${_T_OXIGRAPH}"
-OSTLER_AI_CONVERSATIONS_DIR="${_T_AIDIR}"
 _HYDRATE_SENTINEL_DIR="${OSTLER_DIR}/state/hydrate"
 _OSTLER_STORE_CURL_ARGS=()
 REPAIR_MODE=0
@@ -462,7 +444,6 @@ _HYDRATE_REMINDERS_BIN_OK=true
 _HYDRATE_REMINDERS_JSON_FILE="$_JSON"
 _HYDRATE_REMINDERS_COLLECTION="reminders_knowledge"
 _HYDRATE_PEOPLE_PY="$_PY"
-_AICONV_SRC="${OSTLER_DIR}/cm052_ai_conversations"
 
 # shellcheck source=/dev/null
 . "${_T_STRINGS}"
@@ -502,7 +483,6 @@ started_sentence() {
       apple_notes)         printf '%s' "$MSG_HYDRATE_APPLE_NOTES_STARTED" ;;
       reminders_knowledge) printf '%s' "$MSG_HYDRATE_REMINDERS_STARTED" ;;
       people)              printf '%s' "$MSG_HYDRATE_PEOPLE_STARTED" ;;
-      ai_conversations)    printf '%s' "$MSG_HYDRATE_AICONV_STARTED" ;;
     esac
 }
 msg_of() { eval "printf '%s' \"\${$1}\""; }
@@ -551,26 +531,22 @@ for s in $SOURCES; do
         fail "B ${s}: re-imported over a destination that HOLDS the rows. The fix removed skipping rather than corroborating it."
     elif ! saw "$out" "$already"; then
         fail "B ${s}: the corroborated skip did not print its own sentence. Output: $(tr '\n' '|' < "$out")"
-    elif ! saw "$out" "$(rows_count_for "$s")"; then
-        fail "B ${s}: the skip did not report the count the destination gave ($(rows_count_for "$s"))."
+    elif ! saw "$out" "$ROWS_COUNT"; then
+        fail "B ${s}: the skip did not report the count the destination gave (${ROWS_COUNT})."
     else
         pass "B ${s}: a fresh sentinel WITH the rows present skips, in its own words, and reports the count"
     fi
 
     # C   could not look is not looked and found nothing
-    if [ "$class" = "fs" ] && [ "$UNREADABLE_DIRS_WORK" = "0" ]; then
-        printf '  CANNOT-RUN  C %s: running as root, so an unreadable directory cannot be staged. Not a pass.\n' "$s"
+    out="$(run_case "$s" "$guard" fresh unreadable)"
+    if ! saw "$out" "$started"; then
+        fail "C ${s}: an unreadable destination was treated as evidence the rows are there."
+    elif ! saw "$out" "$unver_line"; then
+        fail "C ${s}: the run did not say it could not check. Output: $(tr '\n' '|' < "$out")"
+    elif saw "$out" "$empty_line"; then
+        fail "C ${s}: an unreadable destination was reported as a positively empty one."
     else
-        out="$(run_case "$s" "$guard" fresh unreadable)"
-        if ! saw "$out" "$started"; then
-            fail "C ${s}: an unreadable destination was treated as evidence the rows are there."
-        elif ! saw "$out" "$unver_line"; then
-            fail "C ${s}: the run did not say it could not check. Output: $(tr '\n' '|' < "$out")"
-        elif saw "$out" "$empty_line"; then
-            fail "C ${s}: an unreadable destination was reported as a positively empty one."
-        else
-            pass "C ${s}: an unreadable destination re-imports and says it could not check, never that it is empty"
-        fi
+        pass "C ${s}: an unreadable destination re-imports and says it could not check, never that it is empty"
     fi
 
     # D   no sentinel: nothing to explain, so nothing is explained
@@ -610,12 +586,6 @@ elif which == 'graph':
     src = src.replace('''    [[ "$code" == "200" ]] || { printf 'unknown'; return 0; }''',
                       '''    [[ "$code" == "200" ]] || { printf '0'; return 0; }''')
     assert src != before, 'graph mutation did not apply'
-elif which == 'fs':
-    # An archive that is not there reads as an archive that is.
-    before = src
-    src = src.replace('''    [[ -d "$dir" ]] || { printf 'absent'; return 0; }''',
-                      '''    [[ -d "$dir" ]] || { printf '9'; return 0; }''')
-    assert src != before, 'fs mutation did not apply'
 open(sys.argv[2], 'w').write(src)
 MUTHELP
 }
@@ -655,17 +625,64 @@ else
     pass "MUTATION graph: reading the body and ignoring the status is caught -- a refused connection stops being distinguishable from an empty graph"
 fi
 
-# fs class: A must go red, because a missing archive reads as a full one.
-out="$(mutation_case fs ai_conversations fresh empty)"
-if saw "$out" "$(started_sentence ai_conversations)"; then
-    fail "MUTATION fs: a missing archive reading as a populated one was NOT caught."
+
+# ── P   THE PINNED GAP: ai_conversations ──────────────────────────────────
+#
+# This leg is NOT corroborated and must not be quietly "fixed" with a probe
+# that cannot answer the question. Its visible destination is a markdown tree
+# under $HOME; the sentinel is a file under $HOME. They share a lifetime, so a
+# count of that tree reads `ok` in exactly the case this whole change exists
+# for -- a container VM deleted out from under a surviving sentinel -- while
+# adding the appearance of a check. Its VM-side half belongs to CM048, whose
+# collection nothing in this repo names.
+#
+# The pin is deliberately one-sided. A real store-side corroboration may land
+# here at any time and this section stays green; a $HOME-rooted one may not.
+printf -- '-- ai_conversations (the gap this change does NOT close) --\n'
+
+AICONV_REGION="${WORK}/aiconv_region.sh"
+awk '
+    index($0, "#2314: THIS LEG IS NOT CORROBORATED") > 0 { inside = 1 }
+    inside { print }
+    inside && index($0, "MSG_HYDRATE_AICONV_STARTED") > 0 { exit }
+' "$INSTALL_SH" > "$AICONV_REGION"
+
+# home_rooted_probe <file>  -- does this region corroborate against something
+# that dies with the sentinel? Counts, never exit codes.
+home_rooted_probe() {
+    local n
+    n="$(grep -E -c '_hydrate_artefact_files|OSTLER_AI_CONVERSATIONS_DIR|\$\{?HOME\}?/Documents' "$1" 2>/dev/null || true)"
+    printf '%s' "${n:-0}"
+}
+
+if [ ! -s "$AICONV_REGION" ]; then
+    fail "P ai_conversations: could not extract the region, so nothing below was measured."
+elif ! grep -q '_hydrate_sentinel_fresh "ai_conversations"' "$AICONV_REGION"; then
+    fail "P ai_conversations: the sentinel gate is gone from the region. Re-point this pin at wherever it moved."
+elif [ "$(home_rooted_probe "$AICONV_REGION")" != "0" ]; then
+    fail "P ai_conversations: this leg has acquired a corroboration that reads a path under \$HOME. That shares the sentinel's lifetime and cannot see the defect."
+elif ! grep -q 'SHARE A LIFETIME' "$AICONV_REGION"; then
+    fail "P ai_conversations: the gap is not explained at the line, so the next reader will fill it with the probe that does not work."
 else
-    pass "MUTATION fs: an absent archive reported as rows is caught -- the leg skips over data that is not there"
+    pass "P ai_conversations: still skips on the sentinel alone, says at the line why, and has no \$HOME-rooted probe pretending otherwise"
+fi
+
+# ANTI-VACUITY. A predicate that can only ever return zero would pass the above
+# over any region at all, including an empty one.
+SEEDED="${WORK}/aiconv_seeded.sh"
+{
+    cat "$AICONV_REGION"
+    printf '    _X_ROWS="$(_hydrate_artefact_files "${HOME}/Documents/Ostler/AI Conversations")"\n'
+} > "$SEEDED"
+if [ "$(home_rooted_probe "$SEEDED")" = "0" ]; then
+    fail "P control: the predicate did not fire on a region that DOES carry a \$HOME-rooted probe. The pass above is vacuous."
+else
+    pass "P control: the same predicate fires on a seeded copy carrying exactly that probe, so the pass above is a measurement"
 fi
 
 printf '\n'
 if [ "$FAILURES" -eq 0 ]; then
-    printf 'OK: all seven remaining hydrate legs corroborate their skip at their own destination, and three mutations of that are caught.\n'
+    printf 'OK: six legs corroborate their skip at their own destination, two mutations of that are caught, and the seventh gap is pinned.\n'
     exit 0
 fi
 printf 'FAILED: %s assertion(s).\n' "$FAILURES"

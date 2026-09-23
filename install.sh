@@ -30567,12 +30567,22 @@ _hydrate_collection_has_rows() {
 #              the pattern matches nothing.
 #   unknown    could not be read at all (CANNOT-RUN)
 #
-# There is no `absent` here and its absence is deliberate. A collection can be
-# positively missing; a SPARQL pattern cannot. The two-valued answer is the
-# honest one for this surface, and it is two values for a stated reason rather
-# than because the reader cannot tell three apart -- which is the exact defect
-# `_hydrate_qdrant_points` has and `_hydrate_collection_rows` was written to
-# avoid.
+# THREE STATES, TWO TOKENS, AND THE DIFFERENCE MATTERS. The decision needs
+# three answers and gets three:
+#
+#   data is there        a 200 with a count > 0
+#   data is gone         a 200 with a count of 0  <- `absent`'s equivalent here
+#   could not look       anything that is not a 200
+#
+# There is no `absent` TOKEN because a collection can be positively missing and
+# a SPARQL pattern cannot: a graph endpoint that answers 200 with zero matches
+# has POSITIVELY told us the data is not there, so the honest encoding of that
+# state is the digit 0, not a word meaning "no such thing". What must never
+# happen is the third state collapsing into either of the first two, which is
+# the exact defect `_hydrate_qdrant_points` has and `_hydrate_collection_rows`
+# was written to avoid. `unknown` is a word no caller can mistake for a count:
+# `_hydrate_collection_has_rows` rejects it, and every caller tests for it by
+# name before reporting a reason.
 #
 # 🔴 READ THE HTTP STATUS, NEVER `tr -dc '0-9'` ON THE BODY. _guard_email_coverage
 # (~:31084) pipes the CSV through `tr -dc '0-9' || true` and defaults the result
@@ -30604,28 +30614,6 @@ _hydrate_graph_matches() {
     esac
 }
 
-# _hydrate_artefact_files <dir> prints exactly one of:
-#
-#   <digits>   that many .md files under <dir>
-#   absent     <dir> does not exist: positively nothing there
-#   unknown    it exists and could not be counted
-#
-# Same three-valued contract as _hydrate_collection_rows, for a destination on
-# the filesystem rather than in a store.
-_hydrate_artefact_files() {
-    local dir="$1"
-    local n
-    [[ -d "$dir" ]] || { printf 'absent'; return 0; }
-    # Exists but cannot be listed: `find` would print nothing to stdout and the
-    # count would read as a positive zero. That is the two-valued collapse this
-    # whole change exists to remove, so it gets its own answer.
-    [[ -r "$dir" ]] || { printf 'unknown'; return 0; }
-    n="$(find "$dir" -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ' || true)"
-    case "${n:-}" in
-        ''|*[!0-9]*) printf 'unknown' ;;
-        *)           printf '%s' "$n" ;;
-    esac
-}
 
 # Progress heartbeat for the long-running hydrate phases.
 #
@@ -36457,56 +36445,42 @@ if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
     done
     unset _aiconv_p
 
-    # ── #2314: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
-    # The skip is CORROBORATED AT THE DESTINATION or it does not happen. See
-    # _hydrate_collection_rows for the walk that paid for #2313, which fixed
-    # this for browsing alone; this leg skipped on the same evidence.
-    # 🔴 THIS ONE IS A PARTIAL CORROBORATION AND SAYING SO IS THE POINT.
+    # ── #2314: THIS LEG IS NOT CORROBORATED, AND THAT IS THE FINDING ────
     #
-    # cm052 dual-stores: an episodic markdown artefact under
-    # ~/Documents/Ostler/AI Conversations, and a POST of extracted facts to
-    # CM048 (vendor/cm052_ai_conversations/src/cm052/wire.py). The gist half is
-    # the half that lives in the VM, and it is the half this cannot check: the
-    # POST returns {"job_id": ..., "status": "queued"}, cm052 contains ZERO
-    # Qdrant references, and nothing in THIS repo names the collection CM048
-    # eventually embeds into. Corroborating against a collection picked by
-    # resemblance is exactly what the WhatsApp note above refuses to do.
+    # Every other `_hydrate_sentinel_fresh` skip in this file now reads its own
+    # destination back before it trusts a fresh sentinel. This one does not, and
+    # it is left uncorroborated DELIBERATELY rather than given the nearest
+    # readable thing.
     #
-    # So this checks the destination it CAN name. That catches the customer
-    # whose archive was moved or deleted while the sentinel stayed fresh, and it
-    # does NOT catch a wiped CM048 store. Both statements are true and the
-    # second is why this leg is listed as partially covered in the PR.
-    _HYDRATE_AICONV_SENTINEL_FRESH=false
+    # WHY THE OBVIOUS PROBE IS WORTHLESS HERE. cm052 dual-stores: an episodic
+    # markdown artefact under ~/Documents/Ostler/AI Conversations, and a POST of
+    # extracted facts to CM048 (vendor/cm052_ai_conversations/src/cm052/wire.py).
+    # Counting the markdown looks like corroboration and is not: that tree is a
+    # directory under $HOME, and so is the sentinel. THEY SHARE A LIFETIME. The
+    # defect being fixed is a sentinel that survives a container-VM delete while
+    # the rows inside the VM do not, so anything that dies with the sentinel can
+    # never answer the question. It would read `ok` in exactly the case that
+    # matters, and would ADD the appearance of a check.
+    #
+    # WHY THE HONEST PROBE CANNOT BE WRITTEN YET. The half that does live in the
+    # VM is CM048's. The POST returns {"job_id": ..., "status": "queued"} -- a
+    # queue receipt, not a landing -- cm052 contains ZERO Qdrant references, and
+    # nothing in THIS repo names the collection CM048 eventually embeds into.
+    # Picking one by resemblance is what the whatsapp and imessage notes above
+    # refuse to do, and it would be worse here than doing nothing.
+    #
+    # SO: a named gap, at the line, with what would close it. When CM048's
+    # collection is nameable from this repo, this becomes
+    # `_hydrate_collection_rows <that collection>` and joins the other seven.
+    # tests/test_every_hydrate_skip_is_corroborated_at_its_destination.sh pins
+    # the gap: it asserts this leg acquires no corroboration that reads a path
+    # under $HOME, while leaving a real store-side one free to land.
     if _hydrate_sentinel_fresh "ai_conversations"; then
-        _HYDRATE_AICONV_SENTINEL_FRESH=true
-    fi
-    # Only asked when it can change the answer, so a store probe is never spent
-    # on a run that was going to hydrate anyway.
-    _HYDRATE_AICONV_ROWS=""
-    if [[ "$_HYDRATE_AICONV_SENTINEL_FRESH" == "true" ]]; then
-        _HYDRATE_AICONV_ROWS="$(_hydrate_artefact_files "${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/AI Conversations}")"
-    fi
-
-    if [[ "$_HYDRATE_AICONV_SENTINEL_FRESH" == "true" ]] \
-       && _hydrate_collection_has_rows "$_HYDRATE_AICONV_ROWS"; then
-        # The one skip that is earned: a completed run AND the rows still there.
-        ok "$(printf "$MSG_HYDRATE_AICONV_ALREADY_IMPORTED" "$_HYDRATE_AICONV_ROWS")"
+        info "$MSG_HYDRATE_AICONV_SKIPPED_NO_DATA"
     elif [[ -z "$_AICONV_SRC" ]]; then
         info "$MSG_HYDRATE_AICONV_SKIPPED_NOT_READY"
     else
         info "$MSG_HYDRATE_AICONV_STARTED"
-        # A fresh sentinel that did NOT survive corroboration lands here, and the
-        # customer is told which of the two things happened rather than watching a
-        # silent re-import. `absent`/no rows and `unknown` are different facts.
-        # Erring towards re-importing is deliberate: a needless re-import costs
-        # time, a needless skip costs the customer the data.
-        if [[ "$_HYDRATE_AICONV_SENTINEL_FRESH" == "true" ]]; then
-            if [[ "$_HYDRATE_AICONV_ROWS" == "unknown" ]]; then
-                warn "$MSG_WARN_HYDRATE_AICONV_REIMPORT_UNVERIFIED"
-            else
-                warn "$MSG_WARN_HYDRATE_AICONV_REIMPORT_STORE_EMPTY"
-            fi
-        fi
 
         # Idempotent venv + NON-editable pip install. Editable installs
         # do not expose the `src` package on every setuptools version
@@ -36824,7 +36798,6 @@ AICONVPLIST
     fi
 
     unset _AICONV_DIR _AICONV_VENV _AICONV_BIN _AICONV_LOG _AICONV_SRC
-    unset _HYDRATE_AICONV_SENTINEL_FRESH _HYDRATE_AICONV_ROWS
 fi
 # (disabled path: deliberately silent -- the section ships dark on
 # v1.0.x and the customer never hears about a feature that is off.)
