@@ -277,14 +277,17 @@ jobs:
         if: always()
         run: /bin/bash tests/test_hydrate_browsing_skip_is_corroborated_at_the_store.sh
 
-      # 🔴 #2314: THE OTHER SEVEN. _hydrate_sentinel_fresh has EIGHT skip call
-      # sites and #2313 corroborated one of them. This drives the REAL extracted
-      # guard region of each remaining leg against REAL http servers standing in
-      # for Qdrant and Oxigraph, and a real directory for the episodic archive,
-      # both directions per leg: the pre-fix guard must still reproduce the
-      # skip, the current one must not. Three mutations of the fix itself, one
-      # per destination class, are asserted CAUGHT. Explicit run step, not a
-      # loop entry (#647).
+      # 🔴 #2314: THE OTHER SIX, AND THE SEVENTH NAMED AS A GAP.
+      # _hydrate_sentinel_fresh has EIGHT skip call sites and #2313 corroborated
+      # one of them. This drives the REAL extracted guard region of each
+      # remaining leg against REAL http servers standing in for Qdrant and
+      # Oxigraph, both directions per leg: the pre-fix guard must still
+      # reproduce the skip, the current one must not. Two mutations of the fix
+      # itself, one per destination class, are asserted CAUGHT. It also pins the
+      # ai_conversations gap one-sided: that leg may acquire a real store-side
+      # corroboration at any time and may not acquire one reading a path under
+      # $HOME, because such a path dies with the sentinel and cannot see the
+      # defect. Explicit run step, not a loop entry (#647).
       - name: Every hydrate skip is corroborated at its own destination (#2314)
         if: always()
         run: /bin/bash tests/test_every_hydrate_skip_is_corroborated_at_its_destination.sh

@@ -30572,7 +30572,7 @@ _hydrate_collection_has_rows() {
     [[ "$n" -gt 0 ]]
 }
 
-# ── THE SAME RULE, FOR THE TWO DESTINATIONS THAT ARE NOT QDRANT (#2314) ──────
+# ── THE SAME RULE, FOR THE DESTINATION THAT IS NOT QDRANT (#2314) ───────────
 #
 # #2313 corroborated ONE source at ONE kind of destination. Seven more legs
 # skip on the same evidence, and three of them do not write a Qdrant collection
@@ -30589,12 +30589,19 @@ _hydrate_collection_has_rows() {
 #                              pwg:identifierLabel "WHATSAPP" / "IMESSAGE".
 #                              Oxigraph lives in the SAME container VM as
 #                              Qdrant, so it is lost by exactly the events that
-#                              motivated #2313.
-#   ai_conversations        -> the episodic markdown tree under
-#                              ~/Documents/Ostler/AI Conversations, which is
-#                              the one destination of that leg this repo can
-#                              name. See the call site for what that does and
-#                              does not cover.
+#                              motivated #2313. A live read of it IS a read of
+#                              the store the ingest writes to, which is the
+#                              whole requirement. Not-Qdrant is not the
+#                              disqualifier; not-in-the-VM is.
+#   ai_conversations        -> NOTHING HERE ANSWERS FOR IT, and it deliberately
+#                              gets no reader. Its visible destination is a
+#                              markdown tree under $HOME, which shares the
+#                              SENTINEL's lifetime and so cannot see this
+#                              defect at all; its VM-side half belongs to CM048,
+#                              whose collection nothing in this repo names. The
+#                              gap is written up at that call site, and pinned
+#                              by
+#                              tests/test_every_hydrate_skip_is_corroborated_at_its_destination.sh
 #
 # _hydrate_graph_matches <sparql-count-query> prints exactly one of:
 #
