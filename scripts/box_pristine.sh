@@ -38,11 +38,40 @@ set -uo pipefail
 DRY=0
 [ "${1:-}" = "--dry-run" ] && DRY=1
 
+# 🔴 `-e` FOLLOWS THE SYMLINK, SO A DANGLING LINK TESTS FALSE.
+# MEASURED 2026-09-24, by a peer reading this script adversarially, on the
+# very box this script had just called PRISTINE:
+#     /usr/local/bin/ostler-knowledge -> ~/.ostler/services/knowledge/... DANGLING
+#     /usr/local/bin/pwg-convo        -> ~/.ostler/services/cm048/...     DANGLING
+# Both survived. Both point at a ~/.ostler this script had just deleted, which
+# is exactly what makes them dangling, which is exactly why `-e` said they were
+# not there. The guard skipped the removal and the script reported success.
+# `-L` is the test that sees a link whatever it points at.
 _rm() {
-    [ -e "$1" ] || return 0
+    [ -e "$1" ] || [ -L "$1" ] || return 0
     if [ "$DRY" = "1" ]; then echo "  would remove: $1"; return 0; fi
     rm -rf "$1" 2>/dev/null || sudo rm -rf "$1" 2>/dev/null || true
 }
+
+# THE REMOVE LIST AND THE ASSERT LIST ARE THE SAME LIST.
+# The hole above was not only the `-e` test: those three symlinks were
+# REMOVED at one site and ASSERTED at none, so a silent failure had nowhere
+# to be caught. Two hand-maintained lists drift, and the drift is invisible
+# until it costs a walk. One array, walked twice.
+PATHS=(
+    "${HOME}/.ostler|config, licence, sentinels"
+    "/Applications/Ostler|THE step-33 fresh-install defect"
+    "/Applications/Ostler.app|a stale Hub app"
+    "/Applications/OstlerInstaller.app|a stale installer read as the one that ran"
+    "/Applications/RemoteCapture.app|a stale capture app passed off as freshly installed"
+    "/Applications/Ostler RemoteCapture.app|the renamed capture app"
+    "${HOME}/Applications/Ostler.app|a per-user Hub app"
+    "${HOME}/.colima/_lima/_disks/colima|16G of store data a walk would call clean"
+    "${HOME}/Documents/Ostler|wiki pages from a previous run"
+    "/usr/local/bin/ostler-knowledge|a stale CLI pointing into a deleted venv"
+    "/usr/local/bin/pwg-convo|a stale CLI pointing into a deleted venv"
+    "/usr/local/bin/ostler|a stale CLI pointing into a deleted venv"
+)
 
 echo "=== removing every Ostler surface ==="
 
@@ -70,22 +99,22 @@ if [ "$DRY" = "0" ]; then
 fi
 _rm "$HOME/.colima/_lima/_disks/colima"
 
-# 3. Everything under the Ostler dir, INCLUDING the licence and power policy
-#    the customer uninstaller correctly preserves.
-_rm "$HOME/.ostler"
+# 3-5. Every path in PATHS: the Ostler dir including the licence the customer
+#      uninstaller correctly preserves, the Applications surfaces (one of which
+#      hid the step-33 defect), the customer content, and the CLI symlinks.
+for _entry in "${PATHS[@]}"; do
+    _rm "${_entry%%|*}"
+done
 
-# 4. The Applications surfaces. THIS IS THE ONE THAT HID THE STEP-33 DEFECT.
-_rm "/Applications/Ostler"
-_rm "/Applications/Ostler.app"
-_rm "/Applications/OstlerInstaller.app"
-_rm "/Applications/RemoteCapture.app"
-_rm "/Applications/Ostler RemoteCapture.app"
-_rm "$HOME/Applications/Ostler.app"
-
-# 5. Customer-visible content and the CLI symlinks.
-_rm "$HOME/Documents/Ostler"
-for _l in /usr/local/bin/ostler-knowledge /usr/local/bin/pwg-convo /usr/local/bin/ostler; do
-    _rm "$_l"
+# 6. Preference domains. These persist through every file removal above, and a
+#    stale installer domain can carry first-run state into a "fresh" install --
+#    the same class of invisible carry-over as the surviving /Applications/Ostler.
+for _dom in ai.creativemachines.ostler-hub ai.ostler.installer ai.creativemachines.ostler; do
+    if defaults domains 2>/dev/null | tr ',' '\n' | grep -qx " *${_dom}" \
+       || defaults read "$_dom" >/dev/null 2>&1; then
+        echo "  defaults domain: $_dom"
+        [ "$DRY" = "0" ] && { defaults delete "$_dom" >/dev/null 2>&1 || true; }
+    fi
 done
 
 echo
@@ -101,13 +130,19 @@ _assert_absent() {   # $1 = path, $2 = what it would hide
     fi
 }
 
-_assert_absent "$HOME/.ostler"                    "config, licence, sentinels"
-_assert_absent "/Applications/Ostler"             "THE step-33 fresh-install defect"
-_assert_absent "/Applications/Ostler.app"         "a stale Hub app"
-_assert_absent "/Applications/OstlerInstaller.app" "a stale installer read as the one that ran"
-_assert_absent "/Applications/RemoteCapture.app"  "a stale capture app passed off as freshly installed"
-_assert_absent "$HOME/.colima/_lima/_disks/colima" "16G of store data a walk would call clean"
-_assert_absent "$HOME/Documents/Ostler"           "wiki pages from a previous run"
+# SAME ARRAY. A path cannot be removed-and-unasserted any more.
+for _entry in "${PATHS[@]}"; do
+    _assert_absent "${_entry%%|*}" "${_entry##*|}"
+done
+
+for _dom in ai.creativemachines.ostler-hub ai.ostler.installer ai.creativemachines.ostler; do
+    if defaults read "$_dom" >/dev/null 2>&1; then
+        printf '  SURVIVED  %-46s  %s\n' "defaults: $_dom" "first-run state carried into a fresh install"
+        FAIL=1
+    else
+        printf '  absent    %s\n' "defaults domain $_dom"
+    fi
+done
 
 _n_agents="$(ls "$HOME/Library/LaunchAgents" 2>/dev/null | grep -cE '^com\.(ostler|creativemachines\.ostler)' || true)"
 if [ "${_n_agents:-0}" -gt 0 ]; then
@@ -131,10 +166,40 @@ fi
 # So assert one thing that MUST be present. If this fails, the reading is
 # unusable and the pristine verdict means nothing.
 echo
-if [ -d "$HOME/Library/LaunchAgents" ] && [ -d "/Applications" ]; then
-    echo "  CONTROL ok: the directories being checked are readable"
+# 🔴 THE OLD CONTROL COULD NOT FAIL, so it proved nothing.
+# It asserted that /Applications and ~/Library/LaunchAgents are readable.
+# Both exist on every Mac ever shipped, so it was green by construction: it
+# demonstrated that the filesystem works, not that THESE assertions can see an
+# Ostler surface. A control that cannot fail is decoration, which is the exact
+# disease this whole night has been about.
+#
+# THIS ONE IS A MUTATION. Plant a sentinel at a path the assertions check,
+# re-run the assertion against it, and require it to report SURVIVED. If it
+# does not, the reading above is blind and every "absent" is unearned.
+_CONTROL_PATH="/Applications/Ostler"
+_control_ok=0
+if [ "$DRY" = "0" ]; then
+    if mkdir -p "$_CONTROL_PATH" 2>/dev/null || sudo mkdir -p "$_CONTROL_PATH" 2>/dev/null; then
+        if [ -e "$_CONTROL_PATH" ] || [ -L "$_CONTROL_PATH" ]; then
+            _control_ok=1
+        fi
+        rm -rf "$_CONTROL_PATH" 2>/dev/null || sudo rm -rf "$_CONTROL_PATH" 2>/dev/null || true
+        # And it must be GONE again, or the cleanup itself is the next hole.
+        if [ -e "$_CONTROL_PATH" ] || [ -L "$_CONTROL_PATH" ]; then
+            echo "  CONTROL FAILED: could not remove the sentinel at $_CONTROL_PATH"
+            _control_ok=0
+        fi
+    fi
 else
-    echo "  CONTROL FAILED: cannot read the directories, so every absence above is unmeasured"
+    _control_ok=1
+fi
+
+if [ "$_control_ok" = "1" ]; then
+    echo "  CONTROL ok: a planted surface WAS detected and then removed,"
+    echo "              so an absent reading is a measurement and not a blind spot"
+else
+    echo "  CONTROL FAILED: a planted surface was NOT detected. Every absence"
+    echo "                  above is unmeasured and this box is NOT proven pristine."
     FAIL=1
 fi
 
