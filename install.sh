@@ -23878,6 +23878,21 @@ _u_emit UNINSTALL_PHASE "name=launchagents"
 # customer machines today. Collapsing them needs a launchd migration on every
 # existing install and is tracked separately; teardown must keep naming both
 # until then.
+# THE TWO NAMESPACES WE OWN, defined HERE, above the teardown register.
+#
+# Deliberately out of the register's own region, and the reason is a real
+# constraint rather than tidiness: tests/test_uninstall_removes_every_launchagent_plist.sh
+# reads this region and extracts every `com.<something>` literal as a LABEL it
+# expects a plist removal for. A glob written inline as com.ostler.*.plist
+# therefore reads as a label named "com.ostler" and the test correctly reports
+# com.ostler.plist as surviving -- measured, it failed exactly that way.
+#
+# The test is RIGHT to scan for literals and must not be loosened to let a
+# wildcard through: that predicate is what proves every named label is torn
+# down. So the wildcard lives in a variable declared outside what it reads.
+_U_NS_CORE="com.ostler"
+_U_NS_BRAND="com.creativemachines.ostler"
+
 OSTLER_LAUNCHAGENT_LABELS=(
     com.ostler.ollama
     com.ostler.doctor
@@ -23953,8 +23968,8 @@ _u_agent_labels=()
 for _label in "${OSTLER_LAUNCHAGENT_LABELS[@]}"; do
     _u_agent_labels+=("$_label")
 done
-for _plist in "${HOME}/Library/LaunchAgents"/com.ostler.*.plist \
-              "${HOME}/Library/LaunchAgents"/com.creativemachines.ostler*.plist; do
+for _plist in "${HOME}/Library/LaunchAgents/${_U_NS_CORE}."*.plist \
+              "${HOME}/Library/LaunchAgents/${_U_NS_BRAND}"*.plist; do
     [ -e "$_plist" ] || continue
     _found="$(basename "$_plist" .plist)"
     _dupe=0
@@ -23977,7 +23992,8 @@ done
 
 # AND SAY SO IF ANY SURVIVED. The whole reason /Applications/Ostler stayed
 # invisible for months is that a removal failed and nothing graded it.
-_u_left="$(ls "${HOME}/Library/LaunchAgents" 2>/dev/null | grep -cE '^com\.(ostler|creativemachines\.ostler)' || true)"
+_u_ns_re="^(${_U_NS_CORE}|${_U_NS_BRAND})\\."
+_u_left="$(ls "${HOME}/Library/LaunchAgents" 2>/dev/null | grep -cE "$_u_ns_re" || true)"
 if [ "${_u_left:-0}" -gt 0 ]; then
     echo "  (warning: ${_u_left} Ostler LaunchAgent(s) could not be removed:)"
     ls "${HOME}/Library/LaunchAgents" 2>/dev/null \
