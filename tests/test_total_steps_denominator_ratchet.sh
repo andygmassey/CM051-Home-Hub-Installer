@@ -104,6 +104,32 @@ INSTALL_SH="${REPO_ROOT}/install.sh"
 # WHAT WOULD LOWER IT AGAIN: making the repair unconditional, which means
 # shipping the module in a tree that cannot be absent. That is a real option
 # and it is not tonight's.
+#
+# ── RAISED 8 -> 9 AND LOWERED BACK TO 8 ON 2026-09-23, SAME DAY ─────────────
+#
+# Recorded rather than quietly reverted, because the reasoning is the useful
+# part. The Front Page catch-up agent (install.sh 3.14d-editor-bis) first
+# arrived as a verbatim mirror of the wiki catch-up: a `progress` call gated on
+# `-x ${OSTLER_DIR}/bin/editor-frontpage-tick.sh`, with a decrement when the
+# gate is false. That is a ninth late site, and it is genuinely NOT hoistable
+# for the reason this file already gives: it is a FILE TEST, and the file it
+# tests is rendered a few lines earlier, so nothing at seed time can answer it.
+# The pin was raised to 9, out loud, and the raise named its own undo:
+#
+#     "WHAT WOULD LOWER IT AGAIN: make the catch-up unconditional so the
+#      question 'will this step run' has an answer at seed time."
+#
+# That is what the change now does. The step is announced unconditionally and
+# always performs: it either installs the catch-up agent or says why it did
+# not. The condition survives as a branch INSIDE the step, where it belongs,
+# and stops being a question about the denominator. Nine sites became eight
+# again, and the gate went straight to "only 8 late decrements but the pin is
+# still 9. Someone hoisted one and did not lower the pin", which is the ratchet
+# holding ground in the direction it exists to hold it.
+#
+# THE GENERAL LESSON, and it outlives this agent: a file test that cannot be
+# hoisted is often a gate that should not exist. Ask whether the step has to be
+# conditional at all before asking whether its condition can be computed early.
 PIN=8
 
 cannot() { echo "CANNOT-RUN [$1]: $2" >&2; exit 2; }
