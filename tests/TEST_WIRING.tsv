@@ -555,6 +555,7 @@ test_the_permanent_manifest_is_not_optional.sh	WIRED	.github/workflows/cut-manif
 test_the_pii_hook_asks_cis_question.sh	WIRED	.github/workflows/operator-pii-scan.yml
 test_the_pii_scan_reads_every_file_in_the_tree.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_port_preflight_aborts_carry_distinct_support_codes.sh	WIRED	.github/workflows/colima-autostart.yml
+test_the_preference_projection_runs_before_the_compile_that_reads_it.sh	WIRED	.github/workflows/writer-reader-vocabulary.yml
 test_the_promote_instructions_name_what_makes_it_fail.sh	WIRED	.github/workflows/customer-download-path.yml
 test_the_recovery_cli_does_not_print_the_key_by_default.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_the_recovery_key_can_be_redeemed_end_to_end.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
