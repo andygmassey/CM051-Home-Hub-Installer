@@ -10820,7 +10820,46 @@ PRESET=${PRESET:-recommended}
 # and Safari history"). Pre-fix the strings file promised those sources
 # but the bash var did not include them, so install completed with the
 # wiki empty of iMessage + email-correspondent data on every install.
-RECOMMENDED="safari_history,safari_bookmarks,calendar,reminders,imessage,apple_mail"
+#
+# apple_notes (2026-09-23): THE SAME DEFECT AS #48g, ON THE SAME LINE, FOUND
+# AGAIN. Everything downstream of the picker already shipped and was already
+# proven: vendor/cm024_knowledge registers the apple_notes adapter (its
+# ADAPTERS map, and cli.py builds `--source` from that map), the hydrate leg
+# below drives `convert --source apple_notes` + embed, the assistant searches
+# apple_notes_knowledge (OSTLER_KNOWLEDGE_COLLECTIONS, marked :searched), the
+# Doctor prints an apple_notes row unconditionally (_SOURCE_KINDS in the
+# vendored web_ui.py), and extract_all.py has apple_notes in DEFAULT_SOURCES
+# with an extractor that writes apple_notes.json. The ONLY missing link was
+# this line and the picker below, so OSTLER_FDA_SOURCES never carried the
+# name, extract_all took `disabled_by_user`, the JSON was never written, the
+# `[[ ! -s ]]` gate on the hydrate leg always skipped, and
+# apple_notes_knowledge was empty on every install ever shipped.
+#
+# MEASURED on the v1.0.101 walk rather than reasoned about:
+# state/hydrate/apple_notes.done read `status=no_data item_count=0
+# detail=no_export_json` and imports/fda/apple_notes.json did not exist.
+#
+# WHY RECOMMENDED AND NOT EVERYTHING-ONLY. Three reasons, in order of weight:
+#   1. The customer copy already promises it in Recommended, in BOTH places a
+#      customer can read it: MSG_PROMPT_FDA_PRESET_CHOICE_RECOMMENDED ("...
+#      Calendar, Notes, Messages ...") and the TTY menu just above ("Safari
+#      history + bookmarks, Notes, Calendar, ..."). Listing it only under
+#      Everything would leave both promises false, which is precisely the
+#      strings-promise-vs-var mismatch #48g existed to close.
+#   2. It costs NO new permission. NoteStore.sqlite sits behind the same
+#      single Full Disk Access grant already taken for Safari, iMessage and
+#      Mail at this same moment. There is no separate Notes prompt to decline,
+#      so the "do not print an amber row for ever to someone who said no"
+#      concern does not arise: the customer never says no to Notes
+#      specifically. Contrast photos_metadata, which stays off by default.
+#   3. The Doctor row is UNCONDITIONAL either way. apple_notes is in
+#      _SOURCE_KINDS, not _FDA_EXTRACT_KINDS, so the panel prints the row
+#      whether or not a sentinel exists. Everything-only would therefore keep
+#      the amber "not run yet" row on the default install forever, which is
+#      the outcome the deferral was supposed to avoid.
+# Andy, 2026-09-02, on the deferral this replaces: "I don't know where you're
+# getting that Apple Notes shouldn't be included - it SHOULD."
+RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders,imessage,apple_mail"
 
 # DMG fix 3 (#618 partial): most customers are Chrome-primary, so a
 # Recommended install must ingest Chrome history too when Chrome is
@@ -10876,6 +10915,12 @@ case "$PRESET" in
         echo "  Recommended (defaults on):"
         _ask_source "safari_history"   "Safari history          " Y
         _ask_source "safari_bookmarks" "Safari bookmarks        " Y
+        # Same order as the TTY menu above and as RECOMMENDED. A source in a
+        # preset but NOT here is worse than dark: the customer who picks
+        # Customise loses it silently while the Recommended customer keeps it,
+        # and nothing in the summary line says so.
+        # tests/test_the_picker_offers_every_preset_source.sh asserts the join.
+        _ask_source "apple_notes"      "Apple Notes             " Y
         _ask_source "calendar"         "Calendar                " Y
         _ask_source "reminders"        "Reminders               " Y
         _ask_source "imessage"         "iMessage                " Y
