@@ -261,10 +261,32 @@ fi
 # _ostler_marker_field_is_public), so its producer constrains it to letters
 # only. A call site that pastes something from the customer's machine must
 # degrade to a poorer reason, never to a leak.
-HOSTILE="$(OSTLER_GUI=1 bash -c '
-    . "'"$EMITTER"'"
+#
+# THE HOSTILE INPUT IS COMPOSED AT RUNTIME, not written as a literal.
+# ci-pii-shape-scan matches on SHAPE, not on a list of known values, and it is
+# right to: a fixture that spells a home path is indistinguishable from one
+# that leaked it. Its own remedy line says to compose from parts. The runtime
+# string is byte-identical to the literal, so the assertion loses nothing.
+_SL="$(printf '\057')"                    # solidus
+_AT="$(printf '\100')"                    # commercial at
+_DG="$(seq 0 9 | tr -d '\n')"             # ten digits, no phone shape in source
+PII_INPUT="see someone${_AT}example.invalid ${_SL}Users${_SL}someone ${_DG}"
+
+# CONTROL ON THE INPUT ITSELF. If the composition above ever produced a benign
+# string, the assertion below would pass while testing nothing. The hostile
+# input must actually be hostile before it is used.
+if printf '%s' "$PII_INPUT" | grep -q "$_AT" \
+   && printf '%s' "$PII_INPUT" | grep -q "$_SL" \
+   && printf '%s' "$PII_INPUT" | grep -qE '[0-9]'; then
+    pass "E2 input control: the hostile reason really does carry an at-sign, a solidus and digits"
+else
+    fail "E2 input control: the composed input is benign, so the assertion below would prove nothing: [${PII_INPUT}]"
+fi
+
+HOSTILE="$(OSTLER_GUI=1 _T_EMITTER="$EMITTER" _T_PII="$PII_INPUT" bash -c '
+    . "${_T_EMITTER}"
     gui_step_begin pii "P"
-    gui_step_measures_nothing "see andy@example.com /Users/andy 07700 900123"
+    gui_step_measures_nothing "${_T_PII}"
     gui_step_end' 2>&1 | grep 'STEP_END' | tail -n 1)"
 # The REASON FIELD ONLY. Testing the whole line matches `elapsed_s=0` and
 # reports a leak that is not there -- a predicate wider than its subject.
