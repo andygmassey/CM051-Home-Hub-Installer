@@ -1471,6 +1471,28 @@ MSG_HYDRATE_WHATSAPP_SKIPPED_NO_APP="WhatsApp Desktop is not installed. Install 
 MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING="WhatsApp reader not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES="WhatsApp is still loading in the background. Your wiki fills in as it goes, and shows you where it is up to."
 
+# ── A SKIP THAT WAS NEVER EARNED HAD A SENTENCE OF ITS OWN (#2314) ──
+#
+# #2313 gave the browsing leg these three lines. Seven more legs skipped on the
+# same evidence and printed the same class of false sentence when they did:
+# "No WhatsApp chats to read", "No iMessage history to read", "No people to
+# index yet", "No email-preferences file configured", "No AI chat history to
+# read" -- each emitted by a branch that had NOT looked at whether the data was
+# still there, and two of them ("already in your knowledge base") asserting a
+# state of the store from a file that cannot see the store.
+#
+# ALREADY_IMPORTED is the skip that was corroborated, and it carries the count
+# the destination actually reported, so the sentence is checkable by the
+# customer rather than merely reassuring. The two REIMPORT_ lines separate "the
+# rows are gone" from "I could not look", which is the distinction the whole
+# change turns on.
+#
+# Privacy unchanged: counts only. No names, handles, addresses, titles or
+# message content in any of these.
+MSG_HYDRATE_WHATSAPP_ALREADY_IMPORTED="Your WhatsApp contacts are already in your people graph (%s identifiers). Nothing to re-read."
+MSG_WARN_HYDRATE_WHATSAPP_REIMPORT_STORE_EMPTY="Your WhatsApp contacts were read before, but your people graph no longer holds them. Reading them again."
+MSG_WARN_HYDRATE_WHATSAPP_REIMPORT_UNVERIFIED="Could not check whether your WhatsApp contacts are still in your people graph. Reading them again rather than assuming they are there."
+
 # AI Conversations hydration strings (#553 / #613)
 # Used by install.sh's AI Conversations leg (after the first-month-free
 # activation -- the CM052 subscription gate must be open before the
@@ -1484,6 +1506,7 @@ MSG_HYDRATE_AICONV_SKIPPED_NOT_READY="AI-conversation reader not ready yet. You 
 MSG_HYDRATE_AICONV_SKIPPED_NO_DATA="No AI chat history to read. You can re-run later from Settings."
 MSG_HYDRATE_AICONV_BACKGROUND_CONTINUES="AI chats are still loading in the background. Your wiki fills in as it goes, and shows you where it is up to."
 MSG_HYDRATE_AICONV_HEARTBEAT="  Still reading your AI chat history (%ss so far). A large history can take several minutes."
+
 
 # Browser history hydration strings (CX-86 Gap A + Gap C)
 # Used by install.sh's hydrate_browsing step. The progress call
@@ -1538,6 +1561,10 @@ MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_PIPELINE_PENDING="Preference pipeline not 
 MSG_HYDRATE_EMAIL_PREFERENCES_BACKGROUND_CONTINUES="Email preferences are still loading in the background. Your wiki fills in as it goes, and shows you where it is up to."
 MSG_HYDRATE_EMAIL_PREFERENCES_HEARTBEAT="  Still loading your email preferences (%ss so far). A large history can take a few minutes."
 
+MSG_HYDRATE_EMAIL_PREFERENCES_ALREADY_IMPORTED="Your email preferences are already loaded (%s entries). Nothing to re-load."
+MSG_WARN_HYDRATE_EMAIL_PREFERENCES_REIMPORT_STORE_EMPTY="Your email preferences were loaded before, but your search index no longer holds them. Loading them again."
+MSG_WARN_HYDRATE_EMAIL_PREFERENCES_REIMPORT_UNVERIFIED="Could not check whether your email preferences are still in your search index. Loading them again rather than assuming they are there."
+
 # Preferences import counts-only confirmation, shown by phase 3.12b after
 # the shared ostler-import fan-out runs. The other hydrate_preferences
 # strings were removed when the standalone block was collapsed into the
@@ -1579,6 +1606,10 @@ MSG_HYDRATE_IMESSAGE_SKIPPED_FDA_PENDING="iMessage reader not ready yet. You can
 MSG_HYDRATE_IMESSAGE_BACKGROUND_CONTINUES="iMessage is still loading in the background. Your wiki fills in as it goes, and shows you where it is up to."
 MSG_HYDRATE_IMESSAGE_HEARTBEAT="  Still reading your iMessage history (%ss so far). A large message history can take several minutes."
 
+MSG_HYDRATE_IMESSAGE_ALREADY_IMPORTED="Your iMessage contacts are already in your people graph (%s identifiers). Nothing to re-read."
+MSG_WARN_HYDRATE_IMESSAGE_REIMPORT_STORE_EMPTY="Your iMessage contacts were read before, but your people graph no longer holds them. Reading them again."
+MSG_WARN_HYDRATE_IMESSAGE_REIMPORT_UNVERIFIED="Could not check whether your iMessage contacts are still in your people graph. Reading them again rather than assuming they are there."
+
 # Apple Notes knowledge hydration (CM024 apple_notes adapter). Notes are
 # converted to markdown + embedded locally; only note-count totals are
 # shown to the customer -- no note titles or bodies leave the process.
@@ -1591,6 +1622,10 @@ MSG_HYDRATE_APPLE_NOTES_SKIPPED_OPTED_OUT="Apple Notes are switched off for know
 MSG_HYDRATE_APPLE_NOTES_SKIPPED_PIPELINE_PENDING="Knowledge importer not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_APPLE_NOTES_BACKGROUND_CONTINUES="Apple Notes are still loading in the background. Your knowledge base fills in as it goes, and shows you where it is up to."
 MSG_HYDRATE_APPLE_NOTES_HEARTBEAT="  Still reading your Apple Notes (%ss so far). A large notes library can take a few minutes."
+
+MSG_HYDRATE_APPLE_NOTES_ALREADY_IMPORTED="Your Apple Notes are already in your knowledge base (%s entries). Nothing to re-read."
+MSG_WARN_HYDRATE_APPLE_NOTES_REIMPORT_STORE_EMPTY="Your Apple Notes were added before, but your knowledge base no longer holds them. Adding them again."
+MSG_WARN_HYDRATE_APPLE_NOTES_REIMPORT_UNVERIFIED="Could not check whether your Apple Notes are still in your knowledge base. Adding them again rather than assuming they are there."
 
 # Reminders knowledge hydration (CM024 reminders adapter, same pattern as
 # Apple Notes above). Reminders are converted to markdown + embedded
@@ -1610,6 +1645,10 @@ MSG_HYDRATE_REMINDERS_SKIPPED_PIPELINE_PENDING="Knowledge importer not ready yet
 MSG_HYDRATE_REMINDERS_BACKGROUND_CONTINUES="Reminders are still loading in the background. Your knowledge base fills in as it goes, and shows you where it is up to."
 MSG_HYDRATE_REMINDERS_HEARTBEAT="  Still reading your Reminders (%ss so far). A large reminders list can take a few minutes."
 
+MSG_HYDRATE_REMINDERS_ALREADY_IMPORTED="Your Reminders are already in your knowledge base (%s entries). Nothing to re-read."
+MSG_WARN_HYDRATE_REMINDERS_REIMPORT_STORE_EMPTY="Your Reminders were added before, but your knowledge base no longer holds them. Adding them again."
+MSG_WARN_HYDRATE_REMINDERS_REIMPORT_UNVERIFIED="Could not check whether your Reminders are still in your knowledge base. Adding them again rather than assuming they are there."
+
 # People search index (#600)
 MSG_HYDRATE_PEOPLE_STARTED="Indexing your people for search"
 MSG_HYDRATE_PEOPLE_DONE="Indexed %s people for search"
@@ -1617,6 +1656,10 @@ MSG_HYDRATE_PEOPLE_PARTIAL="Indexed %s of %s people for search so far. The rest 
 MSG_HYDRATE_PEOPLE_SKIPPED_NO_DATA="No people to index yet. You can re-run later from Settings."
 MSG_HYDRATE_PEOPLE_SKIPPED_FDA_PENDING="People indexer not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_PEOPLE_BACKGROUND_CONTINUES="Your people are still being indexed in the background. Search fills in as it goes, and the wiki shows you where it is up to."
+
+MSG_HYDRATE_PEOPLE_ALREADY_IMPORTED="Your people are already indexed for search (%s people). Nothing to re-index."
+MSG_WARN_HYDRATE_PEOPLE_REIMPORT_STORE_EMPTY="Your people were indexed before, but your search index no longer holds them. Indexing them again."
+MSG_WARN_HYDRATE_PEOPLE_REIMPORT_UNVERIFIED="Could not check whether your people are still in your search index. Indexing them again rather than assuming they are there."
 
 # CX-47 (DMG #30, 2026-05-24): elevated pre-warn banner for the three
 # folder-access TCC prompts triggered by the GDPR-export scan.
