@@ -527,6 +527,11 @@ elif [ "$(count_in "${WORK}/F/markers.txt" "$NOTHING_STORED_SENTENCE")" != "0" ]
     fail "F: a customer with no history was warned that their history was lost."
 elif ! grep -qF 'status=ok' <<< "$_line"; then
     fail "F: nothing to import is not a fault and must close ok, got: ${_line:-<none>}"
+elif [ "$(count_in "${WORK}/F/state/hydrate/browsing.done" "ran_ok_source_had_no_rows")" = "0" ]; then
+    # A declared reason is only worth its declaration if it is true. Without
+    # this, F recorded `store_already_populated` beside `collection_points=absent`:
+    # the detail and the payload contradicting each other in the same file.
+    fail "F: the durable record names the wrong reason. Contents: $(tr '\n' ' ' < "${WORK}/F/state/hydrate/browsing.done" 2>/dev/null)"
 else
     pass "F: an empty history reads as an empty history, not as a loss, and closes ok"
 fi

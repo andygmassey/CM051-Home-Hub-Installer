@@ -32132,6 +32132,7 @@ except Exception:
                 # ONE branch the sentence below was ever true for, and it now
                 # has it to itself.
                 info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
+                _HYDRATE_BROWSING_NO_SOURCE_ROWS=true
             else
                 warn "$MSG_WARN_HYDRATE_BROWSING_NOTHING_STORED"
                 _HYDRATE_BROWSING_NOTHING_STORED=true
@@ -32173,6 +32174,15 @@ except Exception:
         if [[ "${_HYDRATE_BROWSING_UNMEASURED:-false}" == true ]]; then
             _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}" \
                 "counter_failed_count_unmeasured"
+        elif [[ "${_HYDRATE_BROWSING_NO_SOURCE_ROWS:-false}" == true ]]; then
+            # 🔴 A DECLARED REASON IS ONLY WORTH ITS DECLARATION IF IT IS TRUE.
+            # Without this arm the genuinely-empty customer recorded
+            # `detail=ran_ok_nothing_sent_store_already_populated` beside
+            # `collection_points=absent` -- the detail and the payload
+            # contradicting each other in the same file, which is worse than no
+            # detail at all because it reads as an answer.
+            _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0},collection_points=${_HYDRATE_BROWSING_ROWS_AFTER:-unknown}" \
+                "ran_ok_source_had_no_rows"
         elif [[ "${_HYDRATE_BROWSING_NOTHING_STORED:-false}" == true ]]; then
             # #2313: the durable record gets the same three-way split the log
             # line does. `nothing_sent` alone was the reason a reader could not
@@ -32189,7 +32199,7 @@ except Exception:
     unset _HYDRATE_BROWSING_TIMED_OUT _HYDRATE_BROWSING_JSON
     unset _HYDRATE_BROWSING_SENT _HYDRATE_BROWSING_SKIPPED _HYDRATE_BROWSING_TOTAL
     unset _HYDRATE_BROWSING_TIMEOUT_WRAP _HYDRATE_BROWSING_LOG _HYDRATE_BROWSING_RC _HYDRATE_BROWSING_CAP
-    unset _HYDRATE_BROWSING_ROWS_AFTER
+    unset _HYDRATE_BROWSING_ROWS_AFTER _HYDRATE_BROWSING_NO_SOURCE_ROWS
 elif [[ ! -x "$_HYDRATE_BROWSING_PY" ]]; then
     info "$MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING"
 else
