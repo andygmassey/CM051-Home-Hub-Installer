@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Every hydrate skip is corroborated at ITS OWN destination (#2316)
+# Every hydrate skip is corroborated at ITS OWN destination (#2314)
 # =================================================================
 #
 # WHAT #2313 FIXED, AND WHAT IT LEFT

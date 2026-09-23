@@ -30536,7 +30536,7 @@ _hydrate_collection_has_rows() {
     [[ "$n" -gt 0 ]]
 }
 
-# ── THE SAME RULE, FOR THE TWO DESTINATIONS THAT ARE NOT QDRANT (#2316) ──────
+# ── THE SAME RULE, FOR THE TWO DESTINATIONS THAT ARE NOT QDRANT (#2314) ──────
 #
 # #2313 corroborated ONE source at ONE kind of destination. Seven more legs
 # skip on the same evidence, and three of them do not write a Qdrant collection
@@ -31875,7 +31875,7 @@ _HYDRATE_WHATSAPP_PY="${_HYDRATE_WHATSAPP_VENV}/bin/python"
 _HYDRATE_WHATSAPP_DB="${HOME}/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite"
 _HYDRATE_OXIGRAPH_WA="${OXIGRAPH_URL:-http://localhost:7878}"
 
-# ── #2316: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
+# ── #2314: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
 # The skip is CORROBORATED AT THE DESTINATION or it does not happen. See
 # _hydrate_collection_rows for the walk that paid for #2313, which fixed
 # this for browsing alone; this leg skipped on the same evidence.
@@ -32413,7 +32413,7 @@ elif [[ -n "${OSTLER_SOCIAL_ARCHIVES_DIR:-}" ]]; then
     _HYDRATE_EMAILPREFS_FILE="${OSTLER_SOCIAL_ARCHIVES_DIR%/}/${_HYDRATE_EMAILPREFS_REL}"
 fi
 
-# ── #2316: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
+# ── #2314: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
 # The skip is CORROBORATED AT THE DESTINATION or it does not happen. See
 # _hydrate_collection_rows for the walk that paid for #2313, which fixed
 # this for browsing alone; this leg skipped on the same evidence.
@@ -32594,7 +32594,7 @@ _HYDRATE_IMESSAGE_PY="${_HYDRATE_IMESSAGE_VENV}/bin/python"
 _HYDRATE_IMESSAGE_FDA_DIR="${OSTLER_DIR}/imports/fda"
 _HYDRATE_IMESSAGE_JSON_FILE="${_HYDRATE_IMESSAGE_FDA_DIR}/imessage_conversations.json"
 
-# ── #2316: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
+# ── #2314: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
 # The skip is CORROBORATED AT THE DESTINATION or it does not happen. See
 # _hydrate_collection_rows for the walk that paid for #2313, which fixed
 # this for browsing alone; this leg skipped on the same evidence.
@@ -33611,7 +33611,7 @@ fi
 # Mirroring the reminders fix here would have renamed a key nothing else
 # writes and left `apple_notes` declared in OSTLER_SENTINEL_SOURCES with no
 # writer at all, which the #711 error-path gate correctly reds as UNGUARDED.
-# ── #2316: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
+# ── #2314: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
 # The skip is CORROBORATED AT THE DESTINATION or it does not happen. See
 # _hydrate_collection_rows for the walk that paid for #2313, which fixed
 # this for browsing alone; this leg skipped on the same evidence.
@@ -33845,7 +33845,7 @@ fi
 # own run and skipped in elapsed_s=0 while REPORTING ok. The customer was
 # told "No Reminders to read" about 2369 reminders, and reminders_knowledge
 # was never created.
-# ── #2316: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
+# ── #2314: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
 # The skip is CORROBORATED AT THE DESTINATION or it does not happen. See
 # _hydrate_collection_rows for the walk that paid for #2313, which fixed
 # this for browsing alone; this leg skipped on the same evidence.
@@ -34023,7 +34023,7 @@ progress "Indexing your people for search" "hydrate_people"
 _HYDRATE_PEOPLE_VENV="${OSTLER_DIR}/services/email-ingest/.venv"
 _HYDRATE_PEOPLE_PY="${_HYDRATE_PEOPLE_VENV}/bin/python"
 
-# ── #2316: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
+# ── #2314: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
 # The skip is CORROBORATED AT THE DESTINATION or it does not happen. See
 # _hydrate_collection_rows for the walk that paid for #2313, which fixed
 # this for browsing alone; this leg skipped on the same evidence.
@@ -36457,7 +36457,7 @@ if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
     done
     unset _aiconv_p
 
-    # ── #2316: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
+    # ── #2314: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
     # The skip is CORROBORATED AT THE DESTINATION or it does not happen. See
     # _hydrate_collection_rows for the walk that paid for #2313, which fixed
     # this for browsing alone; this leg skipped on the same evidence.

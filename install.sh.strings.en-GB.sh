@@ -1471,7 +1471,7 @@ MSG_HYDRATE_WHATSAPP_SKIPPED_NO_APP="WhatsApp Desktop is not installed. Install 
 MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING="WhatsApp reader not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES="WhatsApp is still loading in the background. Your wiki fills in as it goes, and shows you where it is up to."
 
-# ── A SKIP THAT WAS NEVER EARNED HAD A SENTENCE OF ITS OWN (#2316) ──
+# ── A SKIP THAT WAS NEVER EARNED HAD A SENTENCE OF ITS OWN (#2314) ──
 #
 # #2313 gave the browsing leg these three lines. Seven more legs skipped on the
 # same evidence and printed the same class of false sentence when they did:

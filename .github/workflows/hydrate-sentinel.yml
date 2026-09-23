@@ -277,7 +277,7 @@ jobs:
         if: always()
         run: /bin/bash tests/test_hydrate_browsing_skip_is_corroborated_at_the_store.sh
 
-      # 🔴 #2316: THE OTHER SEVEN. _hydrate_sentinel_fresh has EIGHT skip call
+      # 🔴 #2314: THE OTHER SEVEN. _hydrate_sentinel_fresh has EIGHT skip call
       # sites and #2313 corroborated one of them. This drives the REAL extracted
       # guard region of each remaining leg against REAL http servers standing in
       # for Qdrant and Oxigraph, and a real directory for the episodic archive,
@@ -285,7 +285,7 @@ jobs:
       # skip, the current one must not. Three mutations of the fix itself, one
       # per destination class, are asserted CAUGHT. Explicit run step, not a
       # loop entry (#647).
-      - name: Every hydrate skip is corroborated at its own destination (#2316)
+      - name: Every hydrate skip is corroborated at its own destination (#2314)
         if: always()
         run: /bin/bash tests/test_every_hydrate_skip_is_corroborated_at_its_destination.sh
 
