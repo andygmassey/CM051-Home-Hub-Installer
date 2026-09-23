@@ -65,10 +65,29 @@
 #   why a plain --reset deliberately does not do this.
 #   scripts/ttywalk.sh --host ... --expect-name ... --report-only # read last run
 #
+#   THE WALK RECORDS ITSELF. When the install reaches an adjudication this runs
+#   scripts/record_walk.sh, which runs the probe suite and writes
+#   walks/<version>.tsv -- the launch directive's deliverable, and the file
+#   scripts/verify_walk_record.sh reads. Until 2026-09-23 nothing did, and two
+#   walks on real hardware left no evidence any gate could read.
+#
+#   --no-record          skip it. ANNOUNCED, never silent. The probe suite
+#                        writes to the live store, so a box mid-demo is a real
+#                        reason to decline.
+#   --console "<who was at the console, when, what they granted>"
+#                        record this as a CONSOLE walk. Without it the record
+#                        says walk_kind=thin and does NOT authorise repointing
+#                        the customer download. Reads OSTLER_CONSOLE_WALK too.
+#
 # EXIT CODES, and they are three not two:
 #   0  PASS        install.sh reached its end and said so on the marker wire
 #   1  FAIL        it did not, and we watched that happen
 #   2  CANNOT-RUN  we were not in a position to find out
+#
+#   A PASS that could not be RECORDED becomes 2, not 0: nothing downstream can
+#   read it, and a pass nobody can verify is absence of evidence. A FAIL is
+#   never rewritten this way -- that would convert a found defect into a
+#   missing measurement.
 
 set -uo pipefail
 
@@ -90,6 +109,19 @@ DO_RESET=0
 WIPE_STORES=0
 REPORT_ONLY=0
 STAGE_ONLY=0
+# RECORDING IS THE DEFAULT, AND THAT IS THE FIX. The walk record is the launch
+# directive's deliverable, scripts/post_walk_qa.sh has written it correctly
+# since 2026-08-21, and until 2026-09-23 NOTHING CALLED IT: measured on
+# origin/main, 0 executable invocations outside tests/, against a control of 8
+# inside it. Two walks ran on real hardware on 2026-09-23 and recorded nothing.
+# An opt-in would have reproduced that, because the thing being forgotten was
+# the second command.
+#
+# --no-record exists because the probe suite WRITES (it seeds a synthetic
+# person into the LIVE store, #829), so a box mid-demo is a real reason to
+# decline. Declining is ANNOUNCED, never silent.
+NO_RECORD=0
+CONSOLE_WALK="${OSTLER_CONSOLE_WALK:-}"
 
 die() { printf 'CANNOT-RUN: %s\n' "$*" >&2; exit "$CANNOT_RUN"; }
 say() { printf '%s\n' "$*"; }
@@ -105,8 +137,10 @@ while [[ $# -gt 0 ]]; do
         --wipe-stores)  WIPE_STORES=1; shift ;;
         --report-only)  REPORT_ONLY=1; shift ;;
         --stage-only)   STAGE_ONLY=1; shift ;;
+        --no-record)    NO_RECORD=1; shift ;;
+        --console)      CONSOLE_WALK="${2:-}"; shift 2 ;;
         --from-dmg)     FROM_DMG="${2:-}"; shift 2 ;;
-        -h|--help)      sed -n '2,71p' "${BASH_SOURCE[0]}"; exit 0 ;;
+        -h|--help)      sed -n '2,90p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *)              die "unknown argument: $1" ;;
     esac
 done
@@ -1650,6 +1684,54 @@ rule "QA PAIRS ANSWERED"
 # excludes the header, because "rows: 5" over four answers is a small lie of
 # exactly the kind this harness exists to catch.
 "${SSH[@]}" "awk 'NR>1' ~/.walk-qa.tsv 2>/dev/null | wc -l | tr -d ' ' | sed 's/^/answers this run: /'; tail -50 ~/.walk-qa.tsv 2>/dev/null || echo '(none)'"
+
+# ── RECORD THE WALK ──────────────────────────────────────────────────────
+#
+# 🔴 THIS SCRIPT RAN TWO FULL WALKS ON REAL HARDWARE ON 2026-09-23 AND LEFT NO
+# EVIDENCE ANY GATE COULD READ. The launch directive makes walks/v1.0.NN.tsv
+# THE deliverable; scripts/verify_walk_record.sh reads it; scripts/post_walk_qa.sh
+# writes it and has since 2026-08-21. The only missing piece was a call, and
+# this file -- the command the directive mandates -- named post_walk_qa.sh
+# exactly twice, both times in a comment.
+#
+# WHY IT SITS HERE, AFTER report() AND BEFORE THE EXIT. report() is what sets
+# WALK_VERDICT, so this is the first point at which the install's adjudication
+# is known; and the exit below is final, so anything after it would be dead.
+#
+# WHY IT DOES NOT TOUCH WALK_VERDICT ON A FAIL. A record is written for FAILED
+# walks too -- walks/v1.0.100.tsv says `verdict FAILED` and is one of the most
+# useful files in this repo. Folding the recorder's exit into the walk's would
+# turn "the probes found defects" into "the walk was not recorded", the exact
+# inversion verify_walk_record.sh warns about at _require_console_walk.
+#
+# WHAT IT DOES ESCALATE, and only this: a walk that PASSED but could not be
+# recorded is not a green anyone may act on, because nothing downstream can
+# see it. That is CANNOT-RUN -- absence of evidence -- and it is applied only
+# to a verdict that would otherwise read as clean. A FAIL keeps saying FAIL.
+# Same doctrine, and the same placement rule, as _require_console_walk.
+if [[ "$NO_RECORD" -eq 1 ]]; then
+    say ""
+    say "walk-record: DECLINED -- --no-record was passed. No walks/<version>.tsv"
+    say "             was written, so no gate downstream can see this walk."
+elif [[ ! -x "${REPO_ROOT}/scripts/record_walk.sh" && ! -f "${REPO_ROOT}/scripts/record_walk.sh" ]]; then
+    say ""
+    say "walk-record: CANNOT-RUN -- ${REPO_ROOT}/scripts/record_walk.sh is absent."
+    say "             This walk is unrecorded and nothing downstream can read it."
+    [[ "${WALK_VERDICT:-}" == "$PASS" ]] && WALK_VERDICT="$CANNOT_RUN"
+else
+    RECORD_ARGS=(--host "$HOST" --walk-verdict "${WALK_VERDICT:-2}")
+    [[ -n "$CONSOLE_WALK" ]] && RECORD_ARGS+=(--console "$CONSOLE_WALK")
+    # NOT in an && chain and NOT read through a pipe: 3 (DECLINED) and 2
+    # (CANNOT-RUN) are both ordinary and must be told apart.
+    RECORD_RC=0
+    bash "${REPO_ROOT}/scripts/record_walk.sh" "${RECORD_ARGS[@]}" || RECORD_RC=$?
+    if [[ "$RECORD_RC" -eq 2 && "${WALK_VERDICT:-}" == "$PASS" ]]; then
+        say ""
+        say "The walk passed and COULD NOT BE RECORDED, so there is nothing for any"
+        say "gate to read. A pass nobody can verify is not a pass: CANNOT-RUN."
+        WALK_VERDICT="$CANNOT_RUN"
+    fi
+fi
 
 # ── EXIT WITH THE VERDICT ────────────────────────────────────────────────
 # This script used to end on its last `ssh`, so it exited 0 no matter what the
