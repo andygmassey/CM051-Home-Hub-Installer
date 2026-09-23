@@ -28208,10 +28208,44 @@ if curl -fSL --retry 2 --retry-delay 2 -o "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTU
         # a separate branding follow-up. v1.0 just needs the install to
         # complete; bundle filename match (REMOTECAPTURE_APP_PATH) is what
         # subsequent codesign/spctl/LaunchAgent steps key off.
+        # 🔴 THE PARENT DIRECTORY MUST EXIST BEFORE THE MOVE, AND IT DID NOT.
+        # MEASURED on Andy's console walk of the v1.0.101 candidate,
+        # 2026-09-24: this step failed with ERR-24-CM042-EXTRACT and took
+        # the WHOLE install down at step 33 of 45, after mail, calendar,
+        # contacts and the graph had all completed.
+        #
+        # The chain: the shipped uninstaller removes /Applications/Ostler.
+        # A reinstall reaches HERE before anything recreates it. The tarball
+        # downloads (2,860,885 bytes, release remote-capture-v0.1.3, checksum
+        # fine) and extracts correctly to /Applications/RemoteCapture.app.
+        # Then this `mv` targets ${OSTLER_APPS_DIR}/... whose PARENT does not
+        # exist, so mv fails -- and `|| true` swallows it. The next check
+        # finds nothing at REMOTECAPTURE_APP_PATH and reports
+        # MSG_ERR_CM042_BUNDLE_NOT_FOUND_POST_EXTRACT, whose customer-facing
+        # text says "signature or notarisation check failed". NOTHING WAS
+        # SIGNED-CHECKED. codesign is twenty lines BELOW this and never ran.
+        # A customer chasing that message goes to certificates; the fault is
+        # a missing mkdir.
+        #
+        # _ostler_apps_dir_ready already exists, already does exactly this,
+        # and is called from three other sites (_ostler_relocate_app and two
+        # more). This path simply never called it. The helper was right and
+        # the caller was missing -- which is why no test of the helper could
+        # ever have caught this.
+        if ! _ostler_apps_dir_ready; then
+            err "$(printf "$MSG_ERR_CM042_APPS_DIR_UNAVAILABLE" "${OSTLER_APPS_DIR}")"
+        fi
+
         if [[ ! -d "$REMOTECAPTURE_APP_PATH" ]] && [[ -d "/Applications/RemoteCapture.app" ]]; then
-            mv "/Applications/RemoteCapture.app" "$REMOTECAPTURE_APP_PATH" 2>/dev/null \
-                || sudo mv "/Applications/RemoteCapture.app" "$REMOTECAPTURE_APP_PATH" 2>/dev/null \
-                || true
+            # NO LONGER SWALLOWED. A failed move is the thing that produced a
+            # false signature verdict, so it gets to say so in its own words.
+            if ! mv "/Applications/RemoteCapture.app" "$REMOTECAPTURE_APP_PATH" 2>"${REMOTECAPTURE_TMPDIR}/mv.log"; then
+                sudo mv "/Applications/RemoteCapture.app" "$REMOTECAPTURE_APP_PATH" 2>>"${REMOTECAPTURE_TMPDIR}/mv.log" || true
+            fi
+            if [[ ! -d "$REMOTECAPTURE_APP_PATH" ]] && [[ -s "${REMOTECAPTURE_TMPDIR}/mv.log" ]]; then
+                err "$(printf "$MSG_ERR_CM042_RENAME_FAILED" "${REMOTECAPTURE_APP_PATH}")"
+                sed -e 's/^/    /' "${REMOTECAPTURE_TMPDIR}/mv.log" | head -3
+            fi
         fi
 
         if [[ ! -d "$REMOTECAPTURE_APP_PATH" ]]; then
