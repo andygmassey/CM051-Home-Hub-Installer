@@ -18661,6 +18661,26 @@ fi
 mkdir -p "${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/AI Conversations}" 2>/dev/null \
     || warn "Could not create the AI Conversations folder, so the wiki page for them may stay empty until the next compile."  # i18n-exempt
 
+# #979, FOURTH INSTANCE, AND THIS TIME IT IS THE HUMAN CONVERSATIONS TREE.
+#
+# Everything the comment above says is true of ~/Documents/Ostler/Conversations
+# as well. That is where the four shipped bundle feeds (vendor/imessage_source,
+# vendor/email_source, vendor/whatsapp_source, vendor/spoken_source, each with
+# its own LaunchAgent) write the four-artefact bundles, and the wiki-compiler
+# service below now bind-mounts it read-only. Docker would create a missing
+# bind source itself, root-owned, in the customer visible zone, and those four
+# feeds run as the customer.
+#
+# THE WRITERS RESOLVE THIS PATH IN CODE, NOT FROM AN ENV VAR:
+# vendor/cm048_pipeline/src/ostler_paths.py::conversations_dir() returns
+# Path.home()/"Documents"/"Ostler"/"Conversations" with no override hook. So
+# the default below is the only path any writer ever uses, and the variable
+# exists to re-aim the MOUNT, exactly as OSTLER_WIKI_DIR and
+# OSTLER_AI_CONVERSATIONS_DIR do here. It does not move the writers, and an
+# operator who sets it without moving them will mount an empty tree.
+mkdir -p "${OSTLER_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/Conversations}" 2>/dev/null \
+    || warn "Could not create the Conversations folder, so the wiki pages for your conversations may stay empty until the next compile."  # i18n-exempt
+
 cat > "${OSTLER_DIR}/docker-compose.yml" <<'DCEOF'
 services:
   qdrant:
@@ -18906,6 +18926,36 @@ services:
       # writable mount onto the customer's conversation tree is a foothold
       # the wiki compiler has no reason to hold.
       - ${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/AI Conversations}:/ai-conversations:ro
+      # 🔴 #979 A FOURTH TIME, AND THE TREE IS THE HUMAN ONE. The comment
+      # above is about ~/Documents/Ostler/AI Conversations. THIS line is about
+      # ~/Documents/Ostler/Conversations, a different tree with a different
+      # producer, and it was missing here for the identical reason.
+      #
+      # MEASURED 2026-09-23 on origin/main 7ecd4907, on this file:
+      #     OSTLER_CONVERSATIONS_DIR      -> 0
+      #     CONTROL, same file, same query:
+      #     OSTLER_AI_CONVERSATIONS_DIR   -> 8
+      # so the zero is real absence and not a false read of the wrong file.
+      #
+      # WHO WRITES IT: four shipped launchd feeds (imessage, email, whatsapp,
+      # spoken), each emitting <date>/<slug>-<short-id>/{summary,transcript,
+      # todos}.md per the locked four-artefact conversation directive.
+      #
+      # WHO READS IT, AND ALL THREE OF THEM ARE CALLED: compiler/config.py's
+      # bundles_dir feeds bundle_conversation_pages.generate (compile.py:906),
+      # commitment_pages.generate (:957) and reply_debt_pages.generate (:985).
+      # Without this mount and the env var below, bundles_dir resolves through
+      # expanduser("~"), which in this image (no USER, no ENV HOME) is /root,
+      # so root.exists() is False and all three take their graceful
+      # no-captures branch and return status=skipped reason=no_root. Three
+      # empty pages, exit 0, no error line anywhere, and every WhatsApp,
+      # iMessage, email and call bundle on the box invisible to the wiki.
+      #
+      # READ-ONLY, same reasoning as the AI mount above: the compiler CONSUMES
+      # these bundles and nothing in CM044 writes them, so a writable mount
+      # onto the customer's conversation tree is a foothold it has no reason
+      # to hold.
+      - ${OSTLER_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/Conversations}:/conversations:ro
       - oxigraph_data:/app/oxigraph:ro
       - qdrant_data:/app/qdrant:ro
       # Hydration status hand-off (CM044 #624). The compiler writes a
@@ -19030,6 +19080,18 @@ services:
       # which is the same defect one layer up: a thing that is there and
       # that nothing looks at.
       - OSTLER_AI_CONVERSATIONS_DIR=/ai-conversations
+      # #979, fourth instance. The path INSIDE the container, matching the
+      # bind mount above. compiler/config.py::bundles_dir honours this, and
+      # all three bundle readers resolve through it. Without it the mount
+      # would be present and unread, which is the same defect one layer up:
+      # a thing that is there and that nothing looks at.
+      #
+      # Set EXPLICITLY rather than letting a HOME-relative path resolve, for
+      # the same reason OSTLER_SUBSCRIPTION_STATE and OSTLER_WORKSPACE are:
+      # the image declares no USER and no ENV HOME, so "~" is /root only by
+      # inheritance from the base image, and a HOME-relative read would
+      # silently stop matching the day anyone adds a USER line.
+      - OSTLER_CONVERSATIONS_DIR=/conversations
       # #482, second half. Names the workspace directory the mount above
       # landed on. resolve_journal_path() branch 2 reads OSTLER_WORKSPACE as
       # a WORKSPACE dir, and because this value's basename is literally
