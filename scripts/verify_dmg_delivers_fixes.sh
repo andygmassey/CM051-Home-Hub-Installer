@@ -236,6 +236,42 @@ live_count() {
     grep -cF -- "$2" < "$1"
 }
 
+# ── AN EMPTY STRIP IS NOT PROOF THAT THE STRIPPER IS BROKEN ────────────────
+#
+# The first version of the guard below read "the stripped file is empty" as
+# "the stripper malfunctioned" and exited 2. MEASURED 2026-09-23, by its own
+# test: that turned a real, measurable delivery failure into a shrug.
+#
+# The stale-payload fixture writes a contact_syncer/syncer.py whose ENTIRE
+# content is one comment line, which is what a stale vendored file looks like
+# here. Stripping it correctly yields nothing. The honest verdict is ABSENT,
+# NOT DELIVERED, rc 1. The guard said CANNOT-RUN instead, so arms 7 and 7b --
+# the two arms that exist to catch a payload shipping dark -- both lost the
+# ability to fail. A guard added to stop a false PASS had created a false
+# CANNOT-RUN, which on this board is the same disease with better manners.
+#
+# THE DISCRIMINATOR: the stripper is broken only if it removed something that
+# was NOT a comment. So count the lines that are neither blank nor
+# comment-only. Zero of them means an empty strip is the CORRECT answer and the
+# measurement proceeds to report the invariant absent. More than zero, with an
+# empty strip, means live code really was eaten and CANNOT-RUN is right.
+#
+# THE CONTROL PAIR, both taken on the real artefact every run: a file with live
+# code that strips to empty is refused, and a file that is all comments is
+# measured and reports ABSENT.
+live_line_count() {
+    awk '{ p = $0
+           sub(/^[[:space:]]+/, "", p)
+           if (p != "" && substr(p, 1, 1) != "#") n++ }
+         END { print n + 0 }' "$1"
+}
+
+# 0 = the strip can be trusted, 1 = it ate live code.
+strip_is_trustworthy() {   # $1 = original file, $2 = stripped file
+    [ -s "$2" ] && return 0
+    [ "$(live_line_count "$1")" -eq 0 ]
+}
+
 # ── THE SENSITIVITY ARM. IT RUNS EVERY TIME, ON THE REAL ARTEFACT ────────────
 #
 # A fix you cannot make fail is the same defect wearing a new pattern. So for
@@ -340,8 +376,9 @@ si=0
 while [ "$si" -lt "$n_installs" ]; do
     _sf="${WORK}/install.${si}.stripped"
     strip_comments "${INSTALLS[$si]}" > "$_sf"
-    if [ ! -s "$_sf" ]; then
-        echo "CANNOT-RUN: comment stripping emptied ${INSTALLS[$si]} -- the stripper is broken." >&2
+    if ! strip_is_trustworthy "${INSTALLS[$si]}" "$_sf"; then
+        echo "CANNOT-RUN: comment stripping removed LIVE code from ${INSTALLS[$si]}," >&2
+        echo "            leaving nothing to measure -- the stripper is broken." >&2
         exit 2
     fi
     STRIPPED+=("$_sf")
@@ -399,8 +436,9 @@ while [ "$j" -lt "${#PAYLOAD_IDS[@]}" ]; do
     for f in "${PFILES[@]}"; do
         _pstrip="${WORK}/payload.stripped"
         strip_comments "$f" > "$_pstrip"
-        if [ ! -s "$_pstrip" ]; then
-            echo "CANNOT-RUN: comment stripping emptied ${f} -- the stripper is broken." >&2
+        if ! strip_is_trustworthy "$f" "$_pstrip"; then
+            echo "CANNOT-RUN: comment stripping removed LIVE code from ${f}," >&2
+            echo "            leaving nothing to measure -- the stripper is broken." >&2
             exit 2
         fi
         if [ "$(live_count "$_pstrip" "$pinv")" -gt 0 ]; then
