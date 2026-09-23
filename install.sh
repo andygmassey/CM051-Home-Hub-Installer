@@ -30536,6 +30536,97 @@ _hydrate_collection_has_rows() {
     [[ "$n" -gt 0 ]]
 }
 
+# ── THE SAME RULE, FOR THE TWO DESTINATIONS THAT ARE NOT QDRANT (#2316) ──────
+#
+# #2313 corroborated ONE source at ONE kind of destination. Seven more legs
+# skip on the same evidence, and three of them do not write a Qdrant collection
+# at all, so `_hydrate_collection_rows` cannot answer for them. Corroborating
+# those against SOME collection because it is the nearest readable thing would
+# be worse than not corroborating them: a `people` collection filled by the
+# contacts import would license a WhatsApp skip over a graph that lost every
+# WhatsApp triple.
+#
+#   whatsapp, imessage      -> Oxigraph. `ingest_whatsapp` and `ingest_imessage`
+#                              contain ZERO Qdrant references
+#                              (vendor/ostler_fda/pwg_ingest.py); they INSERT
+#                              pwg:PersonIdentifier triples carrying
+#                              pwg:identifierLabel "WHATSAPP" / "IMESSAGE".
+#                              Oxigraph lives in the SAME container VM as
+#                              Qdrant, so it is lost by exactly the events that
+#                              motivated #2313.
+#   ai_conversations        -> the episodic markdown tree under
+#                              ~/Documents/Ostler/AI Conversations, which is
+#                              the one destination of that leg this repo can
+#                              name. See the call site for what that does and
+#                              does not cover.
+#
+# _hydrate_graph_matches <sparql-count-query> prints exactly one of:
+#
+#   <digits>   Oxigraph answered 200 and this is the COUNT it returned. Zero is
+#              a real, positive zero: a graph endpoint that answers has told us
+#              the pattern matches nothing.
+#   unknown    could not be read at all (CANNOT-RUN)
+#
+# There is no `absent` here and its absence is deliberate. A collection can be
+# positively missing; a SPARQL pattern cannot. The two-valued answer is the
+# honest one for this surface, and it is two values for a stated reason rather
+# than because the reader cannot tell three apart -- which is the exact defect
+# `_hydrate_qdrant_points` has and `_hydrate_collection_rows` was written to
+# avoid.
+#
+# 🔴 READ THE HTTP STATUS, NEVER `tr -dc '0-9'` ON THE BODY. _guard_email_coverage
+# (~:31084) pipes the CSV through `tr -dc '0-9' || true` and defaults the result
+# to 0, so a refused connection and a graph holding nothing are byte-identical
+# to it. Harmless there -- it only suppresses a warning -- and fatal here.
+#
+# Never fatal: the ERR trap propagates into command substitutions under the
+# global `set -Eeuo pipefail`, so the curl carries its own `|| true`.
+_hydrate_graph_matches() {
+    local query="$1"
+    local raw code body n
+    raw="$(curl -s --noproxy '*' --max-time 15 -w '\n%{http_code}' \
+        "${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"}" \
+        -H "Accept: text/csv" --data-urlencode "query=${query}" \
+        "${OXIGRAPH_URL:-http://localhost:7878}/query" 2>/dev/null || true)"
+    code="${raw##*$'\n'}"
+    body="${raw%$'\n'*}"
+    # 000 (no connection), 400 (this build does not understand the query), 401,
+    # 5xx, or no -w output at all. A store that did not answer has NOT told us
+    # the graph is empty.
+    [[ "$code" == "200" ]] || { printf 'unknown'; return 0; }
+    # Oxigraph's text/csv for `SELECT (COUNT(...) AS ?n)` is a header line then
+    # one value line. The header is the letter n, which fails the digit test
+    # below, so a truncated reply reads `unknown` rather than becoming a count.
+    n="$(printf '%s' "$body" | tail -n 1 | tr -d '\r' | tr -d ' ')"
+    case "${n:-}" in
+        ''|*[!0-9]*) printf 'unknown' ;;
+        *)           printf '%s' "$n" ;;
+    esac
+}
+
+# _hydrate_artefact_files <dir> prints exactly one of:
+#
+#   <digits>   that many .md files under <dir>
+#   absent     <dir> does not exist: positively nothing there
+#   unknown    it exists and could not be counted
+#
+# Same three-valued contract as _hydrate_collection_rows, for a destination on
+# the filesystem rather than in a store.
+_hydrate_artefact_files() {
+    local dir="$1"
+    local n
+    [[ -d "$dir" ]] || { printf 'absent'; return 0; }
+    # Exists but cannot be listed: `find` would print nothing to stdout and the
+    # count would read as a positive zero. That is the two-valued collapse this
+    # whole change exists to remove, so it gets its own answer.
+    [[ -r "$dir" ]] || { printf 'unknown'; return 0; }
+    n="$(find "$dir" -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ' || true)"
+    case "${n:-}" in
+        ''|*[!0-9]*) printf 'unknown' ;;
+        *)           printf '%s' "$n" ;;
+    esac
+}
+
 # Progress heartbeat for the long-running hydrate phases.
 #
 # Even with the gtimeout cap in place (coreutils installed in Phase
@@ -31784,10 +31875,43 @@ _HYDRATE_WHATSAPP_PY="${_HYDRATE_WHATSAPP_VENV}/bin/python"
 _HYDRATE_WHATSAPP_DB="${HOME}/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite"
 _HYDRATE_OXIGRAPH_WA="${OXIGRAPH_URL:-http://localhost:7878}"
 
+# ── #2316: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
+# The skip is CORROBORATED AT THE DESTINATION or it does not happen. See
+# _hydrate_collection_rows for the walk that paid for #2313, which fixed
+# this for browsing alone; this leg skipped on the same evidence.
+# ingest_whatsapp writes NO Qdrant collection (zero Qdrant references in
+# vendor/ostler_fda/pwg_ingest.py); it INSERTs pwg:PersonIdentifier triples
+# carrying pwg:identifierLabel "WHATSAPP" into Oxigraph. Oxigraph is in the
+# same container VM as Qdrant, so it is lost by the same events.
+_HYDRATE_WHATSAPP_SENTINEL_FRESH=false
 if _hydrate_sentinel_fresh "whatsapp"; then
-    info "$MSG_HYDRATE_WHATSAPP_SKIPPED_NO_CHATS"
+    _HYDRATE_WHATSAPP_SENTINEL_FRESH=true
+fi
+# Only asked when it can change the answer, so a store probe is never spent
+# on a run that was going to hydrate anyway.
+_HYDRATE_WHATSAPP_ROWS=""
+if [[ "$_HYDRATE_WHATSAPP_SENTINEL_FRESH" == "true" ]]; then
+    _HYDRATE_WHATSAPP_ROWS="$(_hydrate_graph_matches 'PREFIX pwg: <https://schema.ostler.ai/ontology#> SELECT (COUNT(DISTINCT ?id) AS ?n) WHERE { ?id pwg:identifierLabel "WHATSAPP" }')"
+fi
+
+if [[ "$_HYDRATE_WHATSAPP_SENTINEL_FRESH" == "true" ]] \
+   && _hydrate_collection_has_rows "$_HYDRATE_WHATSAPP_ROWS"; then
+    # The one skip that is earned: a completed run AND the rows still there.
+    ok "$(printf "$MSG_HYDRATE_WHATSAPP_ALREADY_IMPORTED" "$_HYDRATE_WHATSAPP_ROWS")"
 elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
     info "$MSG_HYDRATE_WHATSAPP_STARTED"
+    # A fresh sentinel that did NOT survive corroboration lands here, and the
+    # customer is told which of the two things happened rather than watching a
+    # silent re-import. `absent`/no rows and `unknown` are different facts.
+    # Erring towards re-importing is deliberate: a needless re-import costs
+    # time, a needless skip costs the customer the data.
+    if [[ "$_HYDRATE_WHATSAPP_SENTINEL_FRESH" == "true" ]]; then
+        if [[ "$_HYDRATE_WHATSAPP_ROWS" == "unknown" ]]; then
+            warn "$MSG_WARN_HYDRATE_WHATSAPP_REIMPORT_UNVERIFIED"
+        else
+            warn "$MSG_WARN_HYDRATE_WHATSAPP_REIMPORT_STORE_EMPTY"
+        fi
+    fi
 
     # Same timeout picker as hydrate_email (brew coreutils gtimeout
     # preferred; system timeout fallback; unbounded if neither).
@@ -31921,6 +32045,7 @@ else
 fi
 
 unset _HYDRATE_WHATSAPP_VENV _HYDRATE_WHATSAPP_PY _HYDRATE_WHATSAPP_DB
+unset _HYDRATE_WHATSAPP_SENTINEL_FRESH _HYDRATE_WHATSAPP_ROWS
 unset _HYDRATE_OXIGRAPH_WA
 
 unset _HYDRATE_VCF _HYDRATE_API _HYDRATE_OXIGRAPH _HYDRATE_PIPELINE_PY \
@@ -32288,8 +32413,33 @@ elif [[ -n "${OSTLER_SOCIAL_ARCHIVES_DIR:-}" ]]; then
     _HYDRATE_EMAILPREFS_FILE="${OSTLER_SOCIAL_ARCHIVES_DIR%/}/${_HYDRATE_EMAILPREFS_REL}"
 fi
 
+# ── #2316: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
+# The skip is CORROBORATED AT THE DESTINATION or it does not happen. See
+# _hydrate_collection_rows for the walk that paid for #2313, which fixed
+# this for browsing alone; this leg skipped on the same evidence.
+# The ingest below runs with QDRANT_COLLECTION=preferences, so that is its
+# destination, named in this file rather than guessed. NECESSARY, NOT
+# SUFFICIENT: `preferences` is SHARED with ingest_bookmarks and ingest_social,
+# so a non-empty answer can be owed to another leg. It can therefore still
+# license a skip this leg did not earn -- but it can only ever turn a skip
+# into a re-import, never the reverse, so it is strictly safer than the
+# sentinel alone. A per-leg discriminator inside `preferences` would close
+# the remaining gap and does not exist today.
+_HYDRATE_EMAILPREFS_SENTINEL_FRESH=false
 if _hydrate_sentinel_fresh "email_preferences"; then
-    info "$MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_NO_FILE"
+    _HYDRATE_EMAILPREFS_SENTINEL_FRESH=true
+fi
+# Only asked when it can change the answer, so a store probe is never spent
+# on a run that was going to hydrate anyway.
+_HYDRATE_EMAILPREFS_ROWS=""
+if [[ "$_HYDRATE_EMAILPREFS_SENTINEL_FRESH" == "true" ]]; then
+    _HYDRATE_EMAILPREFS_ROWS="$(_hydrate_collection_rows preferences)"
+fi
+
+if [[ "$_HYDRATE_EMAILPREFS_SENTINEL_FRESH" == "true" ]] \
+   && _hydrate_collection_has_rows "$_HYDRATE_EMAILPREFS_ROWS"; then
+    # The one skip that is earned: a completed run AND the rows still there.
+    ok "$(printf "$MSG_HYDRATE_EMAIL_PREFERENCES_ALREADY_IMPORTED" "$_HYDRATE_EMAILPREFS_ROWS")"
 elif [[ -z "$_HYDRATE_EMAILPREFS_FILE" ]]; then
     # The customer case: no archive configured. Skip cleanly.
     info "$MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_NO_FILE"
@@ -32302,6 +32452,18 @@ elif [[ ! -s "$_HYDRATE_EMAILPREFS_FILE" ]]; then
     info "$(printf "$MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_NO_FILE_AT" "$_HYDRATE_EMAILPREFS_FILE")"
 else
     info "$MSG_HYDRATE_EMAIL_PREFERENCES_STARTED"
+    # A fresh sentinel that did NOT survive corroboration lands here, and the
+    # customer is told which of the two things happened rather than watching a
+    # silent re-import. `absent`/no rows and `unknown` are different facts.
+    # Erring towards re-importing is deliberate: a needless re-import costs
+    # time, a needless skip costs the customer the data.
+    if [[ "$_HYDRATE_EMAILPREFS_SENTINEL_FRESH" == "true" ]]; then
+        if [[ "$_HYDRATE_EMAILPREFS_ROWS" == "unknown" ]]; then
+            warn "$MSG_WARN_HYDRATE_EMAIL_PREFERENCES_REIMPORT_UNVERIFIED"
+        else
+            warn "$MSG_WARN_HYDRATE_EMAIL_PREFERENCES_REIMPORT_STORE_EMPTY"
+        fi
+    fi
 
     # Same timeout picker as the other hydrate phases (brew coreutils
     # gtimeout preferred; system timeout fallback; unbounded if neither).
@@ -32388,6 +32550,7 @@ fi
 unset _HYDRATE_EMAILPREFS_CM019_DIR _HYDRATE_EMAILPREFS_PY _HYDRATE_EMAILPREFS_REL
 unset _HYDRATE_EMAILPREFS_USER _HYDRATE_EMAILPREFS_QDRANT _HYDRATE_EMAILPREFS_OXIGRAPH
 unset _HYDRATE_EMAILPREFS_FILE
+unset _HYDRATE_EMAILPREFS_SENTINEL_FRESH _HYDRATE_EMAILPREFS_ROWS
 
 # iMessage hydration (CX-84) ---------------------------------------
 #
@@ -32431,10 +32594,44 @@ _HYDRATE_IMESSAGE_PY="${_HYDRATE_IMESSAGE_VENV}/bin/python"
 _HYDRATE_IMESSAGE_FDA_DIR="${OSTLER_DIR}/imports/fda"
 _HYDRATE_IMESSAGE_JSON_FILE="${_HYDRATE_IMESSAGE_FDA_DIR}/imessage_conversations.json"
 
+# ── #2316: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
+# The skip is CORROBORATED AT THE DESTINATION or it does not happen. See
+# _hydrate_collection_rows for the walk that paid for #2313, which fixed
+# this for browsing alone; this leg skipped on the same evidence.
+# ingest_imessage writes NO Qdrant collection either; the people half of this
+# step lands as pwg:identifierLabel "IMESSAGE" triples in Oxigraph. The step
+# ALSO calls ingest_social, which writes `preferences` -- corroborating on
+# that instead would read a collection three other legs fill, and would say
+# nothing about whether this step's own identifiers survived.
+_HYDRATE_IMESSAGE_SENTINEL_FRESH=false
 if _hydrate_sentinel_fresh "imessage"; then
-    info "$MSG_HYDRATE_IMESSAGE_SKIPPED_NO_DATA"
+    _HYDRATE_IMESSAGE_SENTINEL_FRESH=true
+fi
+# Only asked when it can change the answer, so a store probe is never spent
+# on a run that was going to hydrate anyway.
+_HYDRATE_IMESSAGE_ROWS=""
+if [[ "$_HYDRATE_IMESSAGE_SENTINEL_FRESH" == "true" ]]; then
+    _HYDRATE_IMESSAGE_ROWS="$(_hydrate_graph_matches 'PREFIX pwg: <https://schema.ostler.ai/ontology#> SELECT (COUNT(DISTINCT ?id) AS ?n) WHERE { ?id pwg:identifierLabel "IMESSAGE" }')"
+fi
+
+if [[ "$_HYDRATE_IMESSAGE_SENTINEL_FRESH" == "true" ]] \
+   && _hydrate_collection_has_rows "$_HYDRATE_IMESSAGE_ROWS"; then
+    # The one skip that is earned: a completed run AND the rows still there.
+    ok "$(printf "$MSG_HYDRATE_IMESSAGE_ALREADY_IMPORTED" "$_HYDRATE_IMESSAGE_ROWS")"
 elif [[ -x "$_HYDRATE_IMESSAGE_PY" ]] && [[ -s "$_HYDRATE_IMESSAGE_JSON_FILE" ]]; then
     info "$MSG_HYDRATE_IMESSAGE_STARTED"
+    # A fresh sentinel that did NOT survive corroboration lands here, and the
+    # customer is told which of the two things happened rather than watching a
+    # silent re-import. `absent`/no rows and `unknown` are different facts.
+    # Erring towards re-importing is deliberate: a needless re-import costs
+    # time, a needless skip costs the customer the data.
+    if [[ "$_HYDRATE_IMESSAGE_SENTINEL_FRESH" == "true" ]]; then
+        if [[ "$_HYDRATE_IMESSAGE_ROWS" == "unknown" ]]; then
+            warn "$MSG_WARN_HYDRATE_IMESSAGE_REIMPORT_UNVERIFIED"
+        else
+            warn "$MSG_WARN_HYDRATE_IMESSAGE_REIMPORT_STORE_EMPTY"
+        fi
+    fi
 
     # T1: was a bare literal 90. Named + env-tunable on the
     # _HYDRATE_APPLENOTES_CAP pattern, and governed by the floor rule --
@@ -32619,6 +32816,7 @@ fi
 
 unset _HYDRATE_IMESSAGE_VENV _HYDRATE_IMESSAGE_PY
 unset _HYDRATE_IMESSAGE_FDA_DIR _HYDRATE_IMESSAGE_JSON_FILE
+unset _HYDRATE_IMESSAGE_SENTINEL_FRESH _HYDRATE_IMESSAGE_ROWS
 
 # ── Conversation-ingest landing guard (CM044 fix) ──────────────────
 #
@@ -33413,13 +33611,49 @@ fi
 # Mirroring the reminders fix here would have renamed a key nothing else
 # writes and left `apple_notes` declared in OSTLER_SENTINEL_SOURCES with no
 # writer at all, which the #711 error-path gate correctly reds as UNGUARDED.
+# ── #2316: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
+# The skip is CORROBORATED AT THE DESTINATION or it does not happen. See
+# _hydrate_collection_rows for the walk that paid for #2313, which fixed
+# this for browsing alone; this leg skipped on the same evidence.
+# The embed step below is passed --collection "$_HYDRATE_APPLENOTES_COLLECTION"
+# (default apple_notes_knowledge), so the probe reads the SAME variable the
+# writer is given. An operator who retargets the collection retargets the
+# corroboration with it, which a literal here would not do.
+#
+# The v1.0.101 walk found apple_notes_knowledge ABSENT against populated
+# controls, beside a sentinel that read ok. This is that pair.
+_HYDRATE_APPLENOTES_SENTINEL_FRESH=false
 if _hydrate_sentinel_fresh "apple_notes"; then
-    info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_ALREADY_EMBEDDED"
+    _HYDRATE_APPLENOTES_SENTINEL_FRESH=true
+fi
+# Only asked when it can change the answer, so a store probe is never spent
+# on a run that was going to hydrate anyway.
+_HYDRATE_APPLENOTES_ROWS=""
+if [[ "$_HYDRATE_APPLENOTES_SENTINEL_FRESH" == "true" ]]; then
+    _HYDRATE_APPLENOTES_ROWS="$(_hydrate_collection_rows "$_HYDRATE_APPLENOTES_COLLECTION")"
+fi
+
+if [[ "$_HYDRATE_APPLENOTES_SENTINEL_FRESH" == "true" ]] \
+   && _hydrate_collection_has_rows "$_HYDRATE_APPLENOTES_ROWS"; then
+    # The one skip that is earned: a completed run AND the rows still there.
+    ok "$(printf "$MSG_HYDRATE_APPLE_NOTES_ALREADY_IMPORTED" "$_HYDRATE_APPLENOTES_ROWS")"
 elif [[ "${OSTLER_APPLE_NOTES_KNOWLEDGE:-1}" == "0" ]]; then
     # Deferred explicit-flag hook: operator opted this leg out.
     info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_OPTED_OUT"
 elif [[ "$_HYDRATE_APPLENOTES_BIN_OK" == "true" ]] && [[ -s "$_HYDRATE_APPLENOTES_JSON_FILE" ]]; then
     info "$MSG_HYDRATE_APPLE_NOTES_STARTED"
+    # A fresh sentinel that did NOT survive corroboration lands here, and the
+    # customer is told which of the two things happened rather than watching a
+    # silent re-import. `absent`/no rows and `unknown` are different facts.
+    # Erring towards re-importing is deliberate: a needless re-import costs
+    # time, a needless skip costs the customer the data.
+    if [[ "$_HYDRATE_APPLENOTES_SENTINEL_FRESH" == "true" ]]; then
+        if [[ "$_HYDRATE_APPLENOTES_ROWS" == "unknown" ]]; then
+            warn "$MSG_WARN_HYDRATE_APPLE_NOTES_REIMPORT_UNVERIFIED"
+        else
+            warn "$MSG_WARN_HYDRATE_APPLE_NOTES_REIMPORT_STORE_EMPTY"
+        fi
+    fi
 
     # Same timeout picker as the other hydrate phases (brew coreutils
     # gtimeout preferred; system timeout fallback; unbounded if neither).
@@ -33542,6 +33776,7 @@ unset _HYDRATE_APPLENOTES_FDA_DIR _HYDRATE_APPLENOTES_JSON_FILE
 unset _HYDRATE_APPLENOTES_BIN _HYDRATE_APPLENOTES_BIN_OK
 unset _HYDRATE_APPLENOTES_STAGING _HYDRATE_APPLENOTES_DBPATH
 unset _HYDRATE_APPLENOTES_COLLECTION _HYDRATE_APPLENOTES_EMBED_MODEL
+unset _HYDRATE_APPLENOTES_SENTINEL_FRESH _HYDRATE_APPLENOTES_ROWS
 unset _HYDRATE_APPLENOTES_MAXLEVEL _HYDRATE_APPLENOTES_QDRANT
 unset _HYDRATE_APPLENOTES_OLLAMA
 
@@ -33610,14 +33845,52 @@ fi
 # own run and skipped in elapsed_s=0 while REPORTING ok. The customer was
 # told "No Reminders to read" about 2369 reminders, and reminders_knowledge
 # was never created.
+# ── #2316: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
+# The skip is CORROBORATED AT THE DESTINATION or it does not happen. See
+# _hydrate_collection_rows for the walk that paid for #2313, which fixed
+# this for browsing alone; this leg skipped on the same evidence.
+# Same shape as apple_notes: the probe reads the variable the embedder is
+# given (_HYDRATE_REMINDERS_COLLECTION=reminders_knowledge).
+#
+# This leg has ALREADY shipped the sentinel-lies-about-the-store failure once.
+# The v1.0.101 walk: "[ok] Reminders: 2369 total" and "No Reminders to read"
+# and "STEP_END id=hydrate_reminders status=ok elapsed_s=0", 24 lines apart in
+# one run, with reminders_knowledge ABSENT. #2117 gave this leg its own
+# sentinel key so it stopped reading the READER's record. That fixed which
+# record it consults. It did not make a record evidence about a store.
+_HYDRATE_REMINDERS_SENTINEL_FRESH=false
 if _hydrate_sentinel_fresh "reminders_knowledge"; then
-    info "$MSG_HYDRATE_REMINDERS_SKIPPED_ALREADY_EMBEDDED"
+    _HYDRATE_REMINDERS_SENTINEL_FRESH=true
+fi
+# Only asked when it can change the answer, so a store probe is never spent
+# on a run that was going to hydrate anyway.
+_HYDRATE_REMINDERS_ROWS=""
+if [[ "$_HYDRATE_REMINDERS_SENTINEL_FRESH" == "true" ]]; then
+    _HYDRATE_REMINDERS_ROWS="$(_hydrate_collection_rows "$_HYDRATE_REMINDERS_COLLECTION")"
+fi
+
+if [[ "$_HYDRATE_REMINDERS_SENTINEL_FRESH" == "true" ]] \
+   && _hydrate_collection_has_rows "$_HYDRATE_REMINDERS_ROWS"; then
+    # The one skip that is earned: a completed run AND the rows still there.
+    ok "$(printf "$MSG_HYDRATE_REMINDERS_ALREADY_IMPORTED" "$_HYDRATE_REMINDERS_ROWS")"
 elif [[ "${OSTLER_REMINDERS_KNOWLEDGE:-1}" == "0" ]]; then
     # Deferred explicit-flag hook, mirroring OSTLER_APPLE_NOTES_KNOWLEDGE:
     # operator opted this leg out.
     info "$MSG_HYDRATE_REMINDERS_SKIPPED_OPTED_OUT"
 elif [[ "$_HYDRATE_REMINDERS_BIN_OK" == "true" ]] && [[ -s "$_HYDRATE_REMINDERS_JSON_FILE" ]]; then
     info "$MSG_HYDRATE_REMINDERS_STARTED"
+    # A fresh sentinel that did NOT survive corroboration lands here, and the
+    # customer is told which of the two things happened rather than watching a
+    # silent re-import. `absent`/no rows and `unknown` are different facts.
+    # Erring towards re-importing is deliberate: a needless re-import costs
+    # time, a needless skip costs the customer the data.
+    if [[ "$_HYDRATE_REMINDERS_SENTINEL_FRESH" == "true" ]]; then
+        if [[ "$_HYDRATE_REMINDERS_ROWS" == "unknown" ]]; then
+            warn "$MSG_WARN_HYDRATE_REMINDERS_REIMPORT_UNVERIFIED"
+        else
+            warn "$MSG_WARN_HYDRATE_REMINDERS_REIMPORT_STORE_EMPTY"
+        fi
+    fi
 
     _HYDRATE_REMINDERS_CAP="${OSTLER_HYDRATE_REMINDERS_TIMEOUT:-1800}"
     _HYDRATE_REMINDERS_TIMEOUT_WRAP=""
@@ -33729,6 +34002,7 @@ unset _HYDRATE_REMINDERS_FDA_DIR _HYDRATE_REMINDERS_JSON_FILE
 unset _HYDRATE_REMINDERS_BIN _HYDRATE_REMINDERS_BIN_OK
 unset _HYDRATE_REMINDERS_STAGING _HYDRATE_REMINDERS_DBPATH
 unset _HYDRATE_REMINDERS_COLLECTION _HYDRATE_REMINDERS_EMBED_MODEL
+unset _HYDRATE_REMINDERS_SENTINEL_FRESH _HYDRATE_REMINDERS_ROWS
 unset _HYDRATE_REMINDERS_MAXLEVEL _HYDRATE_REMINDERS_QDRANT
 unset _HYDRATE_REMINDERS_OLLAMA
 
@@ -33749,10 +34023,43 @@ progress "Indexing your people for search" "hydrate_people"
 _HYDRATE_PEOPLE_VENV="${OSTLER_DIR}/services/email-ingest/.venv"
 _HYDRATE_PEOPLE_PY="${_HYDRATE_PEOPLE_VENV}/bin/python"
 
+# ── #2316: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
+# The skip is CORROBORATED AT THE DESTINATION or it does not happen. See
+# _hydrate_collection_rows for the walk that paid for #2313, which fixed
+# this for browsing alone; this leg skipped on the same evidence.
+# ingest_people_to_qdrant upserts into PEOPLE_QDRANT_COLLECTION, default
+# `people`; this block's own sentinel payload already reads that collection
+# back through _hydrate_qdrant_points a hundred lines below. It recorded the
+# number and never acted on it.
+_HYDRATE_PEOPLE_SENTINEL_FRESH=false
 if _hydrate_sentinel_fresh "people"; then
-    info "$MSG_HYDRATE_PEOPLE_SKIPPED_NO_DATA"
+    _HYDRATE_PEOPLE_SENTINEL_FRESH=true
+fi
+# Only asked when it can change the answer, so a store probe is never spent
+# on a run that was going to hydrate anyway.
+_HYDRATE_PEOPLE_ROWS=""
+if [[ "$_HYDRATE_PEOPLE_SENTINEL_FRESH" == "true" ]]; then
+    _HYDRATE_PEOPLE_ROWS="$(_hydrate_collection_rows people)"
+fi
+
+if [[ "$_HYDRATE_PEOPLE_SENTINEL_FRESH" == "true" ]] \
+   && _hydrate_collection_has_rows "$_HYDRATE_PEOPLE_ROWS"; then
+    # The one skip that is earned: a completed run AND the rows still there.
+    ok "$(printf "$MSG_HYDRATE_PEOPLE_ALREADY_IMPORTED" "$_HYDRATE_PEOPLE_ROWS")"
 elif [[ -x "$_HYDRATE_PEOPLE_PY" ]]; then
     info "$MSG_HYDRATE_PEOPLE_STARTED"
+    # A fresh sentinel that did NOT survive corroboration lands here, and the
+    # customer is told which of the two things happened rather than watching a
+    # silent re-import. `absent`/no rows and `unknown` are different facts.
+    # Erring towards re-importing is deliberate: a needless re-import costs
+    # time, a needless skip costs the customer the data.
+    if [[ "$_HYDRATE_PEOPLE_SENTINEL_FRESH" == "true" ]]; then
+        if [[ "$_HYDRATE_PEOPLE_ROWS" == "unknown" ]]; then
+            warn "$MSG_WARN_HYDRATE_PEOPLE_REIMPORT_UNVERIFIED"
+        else
+            warn "$MSG_WARN_HYDRATE_PEOPLE_REIMPORT_STORE_EMPTY"
+        fi
+    fi
 
     # ── NO WALL-CLOCK CAP. Andy's call, 2026-08-21, and it is the right one ──
     #
@@ -33923,6 +34230,7 @@ else
 fi
 
 unset _HYDRATE_PEOPLE_VENV _HYDRATE_PEOPLE_PY
+unset _HYDRATE_PEOPLE_SENTINEL_FRESH _HYDRATE_PEOPLE_ROWS
 
 # Preferences install-time ingest now runs earlier, at phase 3.12b,
 # through the shared ostler-import fan-out (CM041 contacts + CM019
@@ -36149,12 +36457,56 @@ if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
     done
     unset _aiconv_p
 
+    # ── #2316: A SENTINEL IS EVIDENCE ABOUT A RUN, NEVER ABOUT A STORE ──
+    # The skip is CORROBORATED AT THE DESTINATION or it does not happen. See
+    # _hydrate_collection_rows for the walk that paid for #2313, which fixed
+    # this for browsing alone; this leg skipped on the same evidence.
+    # 🔴 THIS ONE IS A PARTIAL CORROBORATION AND SAYING SO IS THE POINT.
+    #
+    # cm052 dual-stores: an episodic markdown artefact under
+    # ~/Documents/Ostler/AI Conversations, and a POST of extracted facts to
+    # CM048 (vendor/cm052_ai_conversations/src/cm052/wire.py). The gist half is
+    # the half that lives in the VM, and it is the half this cannot check: the
+    # POST returns {"job_id": ..., "status": "queued"}, cm052 contains ZERO
+    # Qdrant references, and nothing in THIS repo names the collection CM048
+    # eventually embeds into. Corroborating against a collection picked by
+    # resemblance is exactly what the WhatsApp note above refuses to do.
+    #
+    # So this checks the destination it CAN name. That catches the customer
+    # whose archive was moved or deleted while the sentinel stayed fresh, and it
+    # does NOT catch a wiped CM048 store. Both statements are true and the
+    # second is why this leg is listed as partially covered in the PR.
+    _HYDRATE_AICONV_SENTINEL_FRESH=false
     if _hydrate_sentinel_fresh "ai_conversations"; then
-        info "$MSG_HYDRATE_AICONV_SKIPPED_NO_DATA"
+        _HYDRATE_AICONV_SENTINEL_FRESH=true
+    fi
+    # Only asked when it can change the answer, so a store probe is never spent
+    # on a run that was going to hydrate anyway.
+    _HYDRATE_AICONV_ROWS=""
+    if [[ "$_HYDRATE_AICONV_SENTINEL_FRESH" == "true" ]]; then
+        _HYDRATE_AICONV_ROWS="$(_hydrate_artefact_files "${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/AI Conversations}")"
+    fi
+
+    if [[ "$_HYDRATE_AICONV_SENTINEL_FRESH" == "true" ]] \
+       && _hydrate_collection_has_rows "$_HYDRATE_AICONV_ROWS"; then
+        # The one skip that is earned: a completed run AND the rows still there.
+        ok "$(printf "$MSG_HYDRATE_AICONV_ALREADY_IMPORTED" "$_HYDRATE_AICONV_ROWS")"
     elif [[ -z "$_AICONV_SRC" ]]; then
         info "$MSG_HYDRATE_AICONV_SKIPPED_NOT_READY"
     else
         info "$MSG_HYDRATE_AICONV_STARTED"
+        # A fresh sentinel that did NOT survive corroboration lands here, and the
+        # customer is told which of the two things happened rather than watching a
+        # silent re-import. `absent`/no rows and `unknown` are different facts.
+        # Erring towards re-importing is deliberate: a needless re-import costs
+        # time, a needless skip costs the customer the data.
+        if [[ "$_HYDRATE_AICONV_SENTINEL_FRESH" == "true" ]]; then
+            if [[ "$_HYDRATE_AICONV_ROWS" == "unknown" ]]; then
+                warn "$MSG_WARN_HYDRATE_AICONV_REIMPORT_UNVERIFIED"
+            else
+                warn "$MSG_WARN_HYDRATE_AICONV_REIMPORT_STORE_EMPTY"
+            fi
+        fi
 
         # Idempotent venv + NON-editable pip install. Editable installs
         # do not expose the `src` package on every setuptools version
@@ -36472,6 +36824,7 @@ AICONVPLIST
     fi
 
     unset _AICONV_DIR _AICONV_VENV _AICONV_BIN _AICONV_LOG _AICONV_SRC
+    unset _HYDRATE_AICONV_SENTINEL_FRESH _HYDRATE_AICONV_ROWS
 fi
 # (disabled path: deliberately silent -- the section ships dark on
 # v1.0.x and the customer never hears about a feature that is off.)

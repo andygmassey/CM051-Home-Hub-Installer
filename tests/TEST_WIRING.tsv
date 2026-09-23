@@ -252,6 +252,7 @@ test_every_default_source_is_requested.sh	WIRED	.github/workflows/default-source
 test_every_detected_export_reaches_the_importer.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_every_external_download_url_resolves.sh	WIRED	.github/workflows/download-urls-resolve.yml
 test_every_fail_call_has_error_code.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_every_hydrate_skip_is_corroborated_at_its_destination.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_every_knowledge_collection_has_a_reader_verdict.sh	WIRED	.github/workflows/install-manifest-gate.yml
 test_every_launchagent_is_torn_down.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_every_marker_pattern_compiles.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
