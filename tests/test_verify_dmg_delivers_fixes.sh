@@ -306,6 +306,52 @@ else
     printf '  [SKIP] arm 5: v1.0.50 artefact not on this box (%s)\n' "$V50"
 fi
 
+# arm 10: THE STRIPPER-TRUST DISCRIMINATOR, ON ITS OWN.
+#
+# Arms 7 and 7b went red because the guard that decides "is an empty strip a
+# real answer or a broken stripper" could only say BROKEN. Fixing it so those
+# two go green again proves one direction. This arm proves the other, because a
+# guard that can no longer refuse anything would also turn them green.
+#
+# The two helpers are lifted out of the check by name rather than by sourcing
+# the whole file, which would run it.
+_h="${TMP}/helpers.sh"
+awk '/^live_line_count\(\) \{/,/^}/'     "$CHECK" >  "$_h"
+awk '/^strip_is_trustworthy\(\) \{/,/^}/' "$CHECK" >> "$_h"
+if [ "$(awk '/^live_line_count\(\) \{/{n++} /^strip_is_trustworthy\(\) \{/{n++} END{print n+0}' "$CHECK")" -ne 2 ]; then
+    bad "arm 10: could not lift both helpers out of the check -- they have been renamed or removed"
+else
+    . "$_h"
+    printf '# only a comment\n\n   # and an indented one\n' > "${TMP}/allcomment.py"
+    printf 'def f():\n    return 1  # trailing comment\n'     > "${TMP}/livecode.py"
+    : > "${TMP}/emptystrip"
+    printf 'def f():\n'                                        > "${TMP}/goodstrip"
+
+    _a10=0
+    # (1) all comments + empty strip -> TRUSTWORTHY. This is the stale payload
+    #     fixture, and calling it broken is what made arm 7 unable to fail.
+    strip_is_trustworthy "${TMP}/allcomment.py" "${TMP}/emptystrip" \
+        || { bad "arm 10a: an all-comment file that strips to empty was called BROKEN"; _a10=1; }
+    # (2) live code + empty strip -> REFUSED. The guard must still be able to
+    #     say no, or it is decoration.
+    if strip_is_trustworthy "${TMP}/livecode.py" "${TMP}/emptystrip"; then
+        bad "arm 10b: a file with LIVE CODE that stripped to empty was trusted -- the guard cannot refuse"
+        _a10=1
+    fi
+    # (3) live code + non-empty strip -> TRUSTWORTHY, the ordinary path.
+    strip_is_trustworthy "${TMP}/livecode.py" "${TMP}/goodstrip" \
+        || { bad "arm 10c: the ordinary non-empty strip was called BROKEN"; _a10=1; }
+    # (4) the counter itself discriminates, so 10a is not passing on a zero
+    #     that live_line_count returns for everything.
+    _lc_all="$(live_line_count "${TMP}/allcomment.py")"
+    _lc_live="$(live_line_count "${TMP}/livecode.py")"
+    if [ "$_lc_all" -ne 0 ] || [ "$_lc_live" -lt 1 ]; then
+        bad "arm 10d: live_line_count does not discriminate (all-comment=${_lc_all}, live=${_lc_live})"
+        _a10=1
+    fi
+    [ "$_a10" -eq 0 ] && ok "arm 10: the strip-trust guard passes an all-comment file and still REFUSES a stripper that ate live code"
+fi
+
 echo "== ${PASS} pass / ${FAIL} fail / ${CANT} cannot-run =="
 [ "${FAIL}" -gt 0 ] && exit 1
 [ "${CANT}" -gt 0 ] && exit 2
