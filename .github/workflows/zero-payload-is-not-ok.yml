@@ -48,6 +48,7 @@ on:
       - 'tests/test_hydrate_email_preferences_wired.sh'
       - 'tests/test_hydrate_people_wired.sh'
       - 'tests/test_hydrate_reminders_wired.sh'
+      - 'tests/test_the_embedding_sentinel_is_not_the_readers.sh'
   push:
     branches: [main]
 
@@ -101,6 +102,13 @@ jobs:
         # satisfy it, because the loop variable indirection puts the
         # execution verb and the literal filename on different lines.
         run: /bin/bash tests/test_hydrate_reminders_wired.sh
+      - name: The embedding sentinel is not the reader's sentinel (#775)
+        # always(), for the reason the step below states: a guard that only
+        # runs when everything before it was green stops being measured
+        # exactly when something is wrong.
+        if: always()
+        # Explicit, single-line invocation, same rule as the step above.
+        run: /bin/bash tests/test_the_embedding_sentinel_is_not_the_readers.sh
       - name: The existing hydrate guards must still hold
         # always(), because a step that only runs when everything before it
         # was green stops being measured exactly when something is wrong.

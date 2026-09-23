@@ -2702,6 +2702,16 @@ _SOURCE_KINDS = {
 _FDA_EXTRACT_KINDS = {
     "photos": "source",
     "reminders": "source",
+    # The EMBEDDING half of reminders, not a second source (CM051 #2298).
+    # It is conditional for the same reason its source is -- the leg only
+    # runs when the customer picked Reminders and an export exists -- so it
+    # belongs here rather than in _SOURCE_KINDS, where a declined Reminders
+    # would print an amber "not run yet" row for ever.
+    #
+    # It is SERVED because it is WRITTEN: on the v1.0.101 walk the embedding
+    # leg skipped on the FDA reader's sentinel and reminders_knowledge was
+    # never created, while the panel had no row that could have shown it.
+    "reminders_knowledge": "operation",
 }
 _SOURCE_STATUS_INT_FIELDS = {"item_count", "rc"}
 

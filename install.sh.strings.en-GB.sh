@@ -1560,6 +1560,8 @@ MSG_HYDRATE_IMESSAGE_HEARTBEAT="  Still reading your iMessage history (%ss so fa
 MSG_HYDRATE_APPLE_NOTES_STARTED="Reading your Apple Notes - they stay on this Mac"
 MSG_HYDRATE_APPLE_NOTES_DONE="Added %s notes to your knowledge base"
 MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA="No Apple Notes to read. You can re-run later from Settings."
+MSG_HYDRATE_APPLE_NOTES_SKIPPED_ALREADY_EMBEDDED="Your Apple Notes are already in your knowledge base. Skipping."
+MSG_HYDRATE_APPLE_NOTES_SKIPPED_OPTED_OUT="Apple Notes are switched off for knowledge search. You can turn them on in Settings."
 MSG_HYDRATE_APPLE_NOTES_SKIPPED_PIPELINE_PENDING="Knowledge importer not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_APPLE_NOTES_BACKGROUND_CONTINUES="Apple Notes are still loading in the background. Your knowledge base fills in as it goes, and shows you where it is up to."
 MSG_HYDRATE_APPLE_NOTES_HEARTBEAT="  Still reading your Apple Notes (%ss so far). A large notes library can take a few minutes."
@@ -1571,6 +1573,13 @@ MSG_HYDRATE_APPLE_NOTES_HEARTBEAT="  Still reading your Apple Notes (%ss so far)
 MSG_HYDRATE_REMINDERS_STARTED="Reading your Reminders - they stay on this Mac"
 MSG_HYDRATE_REMINDERS_DONE="Added %s reminders to your knowledge base"
 MSG_HYDRATE_REMINDERS_SKIPPED_NO_DATA="No Reminders to read. You can re-run later from Settings."
+# THREE CAUSES NEEDED THREE STRINGS (#775). Until v1.0.101 the line above was
+# emitted for all three, so a customer whose 2369 reminders were skipped by a
+# stale sentinel was told there were none to read. A message that cannot
+# distinguish "already done" from "none exist" is not a message, it is a
+# guess the reader has to make.
+MSG_HYDRATE_REMINDERS_SKIPPED_ALREADY_EMBEDDED="Your Reminders are already in your knowledge base. Skipping."
+MSG_HYDRATE_REMINDERS_SKIPPED_OPTED_OUT="Reminders are switched off for knowledge search. You can turn them on in Settings."
 MSG_HYDRATE_REMINDERS_SKIPPED_PIPELINE_PENDING="Knowledge importer not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_REMINDERS_BACKGROUND_CONTINUES="Reminders are still loading in the background. Your knowledge base fills in as it goes, and shows you where it is up to."
 MSG_HYDRATE_REMINDERS_HEARTBEAT="  Still reading your Reminders (%ss so far). A large reminders list can take a few minutes."

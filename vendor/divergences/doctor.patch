@@ -7411,7 +7411,7 @@
      _record_snapshot(snapshot, findings)
      # CM024 Block 3.4: surface the Evernote import nav link only when
      # the feature flag is on. Read here (not inside the renderer) so
-@@ -2112,8 +2647,298 @@
+@@ -2112,8 +2647,308 @@
              },
          )
      return {"status": "healthy", "service": "ostler-doctor"}
@@ -7470,6 +7470,16 @@
 +_FDA_EXTRACT_KINDS = {
 +    "photos": "source",
 +    "reminders": "source",
++    # The EMBEDDING half of reminders, not a second source (CM051 #2298).
++    # It is conditional for the same reason its source is -- the leg only
++    # runs when the customer picked Reminders and an export exists -- so it
++    # belongs here rather than in _SOURCE_KINDS, where a declined Reminders
++    # would print an amber "not run yet" row for ever.
++    #
++    # It is SERVED because it is WRITTEN: on the v1.0.101 walk the embedding
++    # leg skipped on the FDA reader's sentinel and reminders_knowledge was
++    # never created, while the panel had no row that could have shown it.
++    "reminders_knowledge": "operation",
 +}
 +_SOURCE_STATUS_INT_FIELDS = {"item_count", "rc"}
 +
@@ -7710,7 +7720,7 @@
  @app.get("/api/v1/box-status", response_class=JSONResponse)
  async def api_box_status():
      """Aggregated live box status for the Hub header chip + Governor page.
-@@ -2248,6 +3073,59 @@
+@@ -2248,6 +3083,59 @@
      return result
  
  
@@ -7770,7 +7780,7 @@
  @app.post("/api/v1/auth/chat-token", response_class=JSONResponse)
  async def api_chat_token(request: Request):
      """Mint a fresh ZeroClaw bearer token for the iOS chat tab.
-@@ -2261,7 +3139,18 @@
+@@ -2261,7 +3149,18 @@
      See ``chat_token.py`` for the end-to-end logic, the admin-token
      seed convention, and the public-URL resolution rules. This
      handler only owns the HTTP plumbing.
@@ -7789,7 +7799,7 @@
      from chat_token import (
          TokenIssueError as _ChatTokenError,
          issue_chat_token as _issue,
-@@ -2294,1609 +3183,3538 @@
+@@ -2294,47 +3193,1287 @@
      return all_observability_postures()
  
  
@@ -7812,1591 +7822,6 @@
 -    """Section display order for the Configuration panel.
 -
 -    Imported lazily from ``config_panel`` so the panel's renderer and
--    its backend share one source of truth for section ordering.
--    """
--    from config_panel import SECTION_ORDER
--
--    return SECTION_ORDER
--
--
--# ── CM024 Evernote import (feature-flagged, launch-scope brief 2026-05-13) ──
--#
--# Four routes back the Doctor "Import Evernote" surface. All four
--# 404 when ``features.evernote_import`` is off in
--# ``~/.ostler/config/features.yaml`` -- the installer always deploys
--# ``ostler-knowledge`` (CM051 PR #70's 3.13b section) but the
--# customer-visible surface stays hidden until the operator flips
--# the flag. Block 3.3 wires the routes + lockfile + state machine;
--# Block 3.4 fills in the UI page body.
--
--
--def _render_import_evernote_page(active_job_id=None) -> str:
--    """Render the Evernote import page (CM024 Block 3.4).
--
--    ``active_job_id`` is the output of
--    ``import_evernote.current_running_job_id()``. When non-None the
--    page boots straight into the polling-status panel so the operator
--    who closed and reopened the tab mid-import reattaches without
--    having to re-enter the path.
--
--    Vanilla HTML + JS, no framework. Matches Doctor's chassis tokens
--    (Outfit / Plex Sans / Plex Mono, ostler-ink palette) so it sits
--    visually next to ``/doctor`` rather than feeling bolted on.
--
--    Polling cadence per the launch-scope brief:
--        - ``GET /status`` every 5 seconds
--        - ``GET /tail``  every 10 seconds
--    On a terminal status (succeeded / failed) both timers stop.
--    """
--    initial_job_id_js = json.dumps(active_job_id)
--    return f"""<!DOCTYPE html>
--<html lang="en">
--<head>
--    <meta charset="UTF-8">
--    <meta name="viewport" content="width=device-width, initial-scale=1.0">
--    <title>{EVERNOTE_TITLE_TAG}</title>
--    <style>
--        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
--        :root {{
--            --ostler-ink: #0d0b08;
--            --ostler-ink-deep: #07060a;
--            --ostler-panel: #1a1612;
--            --ostler-panel-elev: #221c16;
--            --ostler-chassis: #ECE8DD;
--            --ostler-accent: #C84545;
--            --ostler-accent-hover: #D76060;
--            --ostler-accent-warm: #E26A6A;
--            --ostler-accent-glow: rgba(200, 69, 69, 0.18);
--            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
--            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
--            --text: var(--ostler-chassis);
--            --text-secondary: rgba(236, 232, 221, 0.74);
--            --text-muted: rgba(236, 232, 221, 0.50);
--            --text-faint: rgba(236, 232, 221, 0.32);
--            --green: #5cb579;
--            --yellow: #d4a052;
--            --red: #d96666;
--            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
--            --shadow-card: 0 1px 2px rgba(0,0,0,0.45), 0 8px 24px rgba(0,0,0,0.35);
--            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
--            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
--            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
--        }}
--        * {{ margin:0; padding:0; box-sizing:border-box; }}
--        body {{
--            font-family: var(--font-body);
--            font-size: 15px;
--            line-height: 1.5;
--            background: var(--ostler-ink);
--            color: var(--text);
--            min-height: 100vh;
--            padding: 2.5rem 1.75rem;
--            -webkit-font-smoothing: antialiased;
--            -moz-osx-font-smoothing: grayscale;
--        }}
--        a {{ color: var(--ostler-accent); text-decoration: none; }}
--        a:hover {{ color: var(--ostler-accent-hover); }}
--        .container {{ max-width: 760px; margin: 0 auto; }}
--        h1 {{
--            font-family: var(--font-display);
--            font-size: 1.7rem;
--            font-weight: 600;
--            letter-spacing: -0.02em;
--            margin-bottom: 0.3rem;
--        }}
--        .subtitle {{
--            font-family: var(--font-mono);
--            font-size: 0.78rem;
--            letter-spacing: 0.04em;
--            color: var(--text-muted);
--            margin-bottom: 2rem;
--        }}
--        .subtitle a {{ color: var(--text-muted); }}
--        .subtitle a:hover {{ color: var(--ostler-accent-warm); text-decoration: underline; }}
--        .section-title {{
--            font-family: var(--font-display);
--            font-size: 0.72rem;
--            text-transform: uppercase;
--            letter-spacing: 0.18em;
--            color: var(--text-muted);
--            margin-bottom: 0.85rem;
--            font-weight: 500;
--        }}
--        .panel {{
--            background: var(--ostler-panel);
--            border: 1px solid var(--ostler-hairline-faint);
--            border-radius: 12px;
--            padding: 1.4rem 1.5rem;
--            box-shadow: var(--shadow-soft);
--            margin-bottom: 1.4rem;
--        }}
--        .panel p {{ color: var(--text-secondary); margin-bottom: 0.85rem; }}
--        .help {{
--            font-size: 0.82rem;
--            color: var(--text-muted);
--            margin-top: 0.55rem;
--            line-height: 1.55;
--        }}
--        .help code {{
--            font-family: var(--font-mono);
--            font-size: 0.78rem;
--            background: var(--ostler-ink-deep);
--            border: 1px solid var(--ostler-hairline-faint);
--            border-radius: 4px;
--            padding: 0.1rem 0.35rem;
--            color: var(--ostler-accent-warm);
--        }}
--        label {{
--            display: block;
--            font-family: var(--font-display);
--            font-size: 0.78rem;
--            text-transform: uppercase;
--            letter-spacing: 0.16em;
--            color: var(--text-muted);
--            margin-bottom: 0.45rem;
--            font-weight: 500;
--        }}
--        input[type="text"] {{
--            display: block;
--            width: 100%;
--            background: var(--ostler-ink-deep);
--            color: var(--text);
--            border: 1px solid var(--ostler-hairline-soft);
--            border-radius: 8px;
--            padding: 0.75rem 0.95rem;
--            font-family: var(--font-mono);
--            font-size: 0.86rem;
--            letter-spacing: 0.01em;
--            outline: none;
--            transition: border-color 0.18s, box-shadow 0.18s;
--        }}
--        input[type="text"]:focus {{
--            border-color: var(--ostler-accent);
--            box-shadow: 0 0 0 3px var(--ostler-accent-glow);
--        }}
--        input[type="text"]::placeholder {{ color: var(--text-faint); }}
--        .button-row {{
--            display: flex;
--            gap: 0.6rem;
--            align-items: center;
--            margin-top: 1rem;
--            flex-wrap: wrap;
--        }}
--        button.primary, button.secondary {{
--            font-family: var(--font-display);
--            font-weight: 500;
--            font-size: 0.85rem;
--            padding: 0.65rem 1.4rem;
--            border-radius: 999px;
--            cursor: pointer;
--            border: 1px solid transparent;
--            transition: background 0.18s, transform 0.18s, box-shadow 0.18s, border-color 0.18s, color 0.18s;
--        }}
--        button.primary {{
--            background: var(--ostler-accent);
--            color: white;
--        }}
--        button.primary:hover {{
--            background: var(--ostler-accent-hover);
--            transform: translateY(-1px);
--            box-shadow: var(--shadow-soft);
--        }}
--        button.primary:disabled {{
--            background: var(--ostler-panel-elev);
--            color: var(--text-muted);
--            cursor: not-allowed;
--            transform: none;
--            box-shadow: none;
--        }}
--        button.secondary {{
--            background: var(--ostler-panel);
--            color: var(--text-secondary);
--            border-color: var(--ostler-hairline-soft);
--        }}
--        button.secondary:hover {{
--            border-color: var(--ostler-accent);
--            color: var(--text);
--            background: var(--ostler-panel-elev);
--            transform: translateY(-1px);
--        }}
--        .banner {{
--            padding: 0.75rem 1rem;
--            border-radius: 8px;
--            font-size: 0.86rem;
--            margin-bottom: 1.2rem;
--            border-left: 3px solid var(--red);
--            background: rgba(217, 102, 102, 0.10);
--            color: var(--text);
--            display: none;
--        }}
--        .banner.visible {{ display: block; }}
--        .status-row {{
--            display: flex;
--            align-items: center;
--            gap: 0.85rem;
--            margin-bottom: 1rem;
--            flex-wrap: wrap;
--        }}
--        .status-pill {{
--            font-family: var(--font-display);
--            font-size: 0.7rem;
--            text-transform: uppercase;
--            letter-spacing: 0.18em;
--            padding: 0.3rem 0.85rem;
--            border-radius: 999px;
--            font-weight: 600;
--            color: white;
--            background: var(--text-faint);
--        }}
--        .status-pill.running {{ background: var(--yellow); }}
--        .status-pill.succeeded {{ background: var(--green); }}
--        .status-pill.partial {{ background: #d4a052; }}
--        .status-pill.failed {{ background: var(--red); }}
--        .status-meta {{
--            font-family: var(--font-mono);
--            font-size: 0.76rem;
--            letter-spacing: 0.02em;
--            color: var(--text-muted);
--        }}
--        .log-pane {{
--            background: var(--ostler-ink-deep);
--            border: 1px solid var(--ostler-hairline-soft);
--            border-radius: 8px;
--            padding: 0.85rem 1rem;
--            font-family: var(--font-mono);
--            font-size: 0.78rem;
--            line-height: 1.5;
--            color: var(--text-secondary);
--            max-height: 360px;
--            overflow-y: auto;
--            white-space: pre-wrap;
--            word-break: break-word;
--        }}
--        .log-pane.empty {{
--            color: var(--text-faint);
--            font-style: italic;
--        }}
--        .meta-bottom {{
--            font-family: var(--font-mono);
--            font-size: 0.72rem;
--            letter-spacing: 0.04em;
--            color: var(--text-faint);
--            margin-top: 2rem;
--            padding-top: 1.1rem;
--            border-top: 1px solid var(--ostler-hairline-faint);
--        }}
--        button:focus-visible {{
--            outline: 2px solid var(--ostler-accent);
--            outline-offset: 2px;
--        }}
--        @media (max-width: 720px) {{
--            body {{ padding: 1.4rem 1rem; }}
--            h1 {{ font-size: 1.4rem; }}
--        }}
--    </style>
--</head>
--<body>
--    <div class="container">
--        <h1>{EVERNOTE_HEADING}</h1>
--        <div class="subtitle">
--            {EVERNOTE_SUBTITLE}
--        </div>
--
--        <div id="errorBanner" class="banner"></div>
--
--        <div id="formPanel" class="panel" style="display:none">
--            <div class="section-title">{EVERNOTE_SECTION_SOURCE}</div>
--            <p>
--                {EVERNOTE_INTRO_HTML}
--            </p>
--            <form id="importForm" autocomplete="off">
--                <label for="enexPath">{EVERNOTE_LABEL_PATH}</label>
--                <input type="text" id="enexPath" name="enex_path"
--                    placeholder="{EVERNOTE_PLACEHOLDER_PATH}"
--                    spellcheck="false" autocapitalize="off">
--                <div class="help">
--                    {EVERNOTE_HELP_TIP_HTML}
--                </div>
--                <div class="button-row">
--                    <button type="submit" class="primary" id="submitBtn">{EVERNOTE_BTN_START}</button>
--                </div>
--            </form>
--        </div>
--
--        <div id="jobPanel" class="panel" style="display:none">
--            <div class="section-title">{EVERNOTE_SECTION_STATUS}</div>
--            <div class="status-row">
--                <span class="status-pill" id="statusPill">{EVERNOTE_PILL_STARTING}</span>
--                <span class="status-meta" id="statusMeta"></span>
--            </div>
--            <div class="section-title" style="margin-top:1.2rem">{EVERNOTE_SECTION_LOG_TAIL}</div>
--            <div class="log-pane empty" id="logPane">{EVERNOTE_WAITING_FIRST_LOG}</div>
--            <div class="button-row" id="resetRow" style="display:none">
--                <button type="button" class="secondary" id="resetBtn">{EVERNOTE_BTN_IMPORT_ANOTHER}</button>
--            </div>
--        </div>
--
--        <div class="meta-bottom">
--            {EVERNOTE_META_FOOTER_HTML}
--        </div>
--    </div>
--
--    <script>
--    (function() {{
--        const STATUS_POLL_MS = 5000;
--        const TAIL_POLL_MS = 10000;
--        const INITIAL_JOB_ID = {initial_job_id_js};
--
--        const formPanel = document.getElementById('formPanel');
--        const jobPanel = document.getElementById('jobPanel');
--        const importForm = document.getElementById('importForm');
--        const submitBtn = document.getElementById('submitBtn');
--        const enexInput = document.getElementById('enexPath');
--        const statusPill = document.getElementById('statusPill');
--        const statusMeta = document.getElementById('statusMeta');
--        const logPane = document.getElementById('logPane');
--        const resetRow = document.getElementById('resetRow');
--        const resetBtn = document.getElementById('resetBtn');
--        const errorBanner = document.getElementById('errorBanner');
--
--        let currentJobId = null;
--        let statusTimer = null;
--        let tailTimer = null;
--
--        function showError(msg) {{
--            errorBanner.textContent = msg;
--            errorBanner.classList.add('visible');
--        }}
--
--        function clearError() {{
--            errorBanner.classList.remove('visible');
--            errorBanner.textContent = '';
--        }}
--
--        function showForm() {{
--            formPanel.style.display = '';
--            jobPanel.style.display = 'none';
--            enexInput.value = '';
--            enexInput.focus();
--        }}
--
--        function showJobPanel() {{
--            formPanel.style.display = 'none';
--            jobPanel.style.display = '';
--        }}
--
--        function renderStatus(state) {{
--            const status = state.status || 'unknown';
--            statusPill.textContent = status;
--            statusPill.className = 'status-pill ' + status;
--
--            const bits = [];
--            if (state.job_id) bits.push('job ' + state.job_id);
--            if (state.started_at) bits.push('started ' + state.started_at.substring(0, 19) + 'Z');
--            if (state.completed_at) bits.push('finished ' + state.completed_at.substring(0, 19) + 'Z');
--            if (state.exit_code !== null && state.exit_code !== undefined) {{
--                bits.push('exit ' + state.exit_code);
--            }}
--            // A degraded ('partial') import carries a human-facing note
--            // explaining what landed and what is pending; surface it.
--            if (state.note) bits.push(state.note);
--            statusMeta.textContent = bits.join(' \\u00b7 ');
--
--            if (status === 'succeeded' || status === 'failed' || status === 'partial') {{
--                resetRow.style.display = '';
--                stopPolling();
--                // One last tail fetch to make sure the final output is shown.
--                fetchTail();
--            }} else {{
--                resetRow.style.display = 'none';
--            }}
--        }}
--
--        function fetchStatus() {{
--            if (!currentJobId) return;
--            fetch('/api/v1/import/evernote/' + encodeURIComponent(currentJobId) + '/status')
--                .then(function(r) {{
--                    if (r.status === 404) {{
--                        // Either feature flipped off mid-session, or the
--                        // job_id has been reaped. Either way the page is
--                        // out of sync; force a reload.
--                        stopPolling();
--                        showError('{EVERNOTE_ERROR_JOB_NOT_FOUND}');
--                        return null;
--                    }}
--                    return r.json();
--                }})
--                .then(function(state) {{
--                    if (state) renderStatus(state);
--                }})
--                .catch(function(err) {{
--                    showError('{EVERNOTE_ERROR_STATUS_FAIL_PREFIX}' + err);
--                }});
--        }}
--
--        function fetchTail() {{
--            if (!currentJobId) return;
--            fetch('/api/v1/import/evernote/' + encodeURIComponent(currentJobId) + '/tail')
--                .then(function(r) {{
--                    if (!r.ok) return null;
--                    return r.text();
--                }})
--                .then(function(text) {{
--                    if (text === null) return;
--                    if (!text || text.trim() === '') {{
--                        logPane.classList.add('empty');
--                        logPane.textContent = 'Waiting for first log output\\u2026';
--                    }} else {{
--                        logPane.classList.remove('empty');
--                        logPane.textContent = text;
--                        // Auto-scroll to the bottom so the latest line is
--                        // always visible without manual scrolling.
--                        logPane.scrollTop = logPane.scrollHeight;
--                    }}
--                }})
--                .catch(function(err) {{
--                    // Don't surface tail failures as errors - the status
--                    // pane is the source of truth.
--                }});
--        }}
--
--        function startPolling() {{
--            stopPolling();
--            fetchStatus();
--            fetchTail();
--            statusTimer = setInterval(fetchStatus, STATUS_POLL_MS);
--            tailTimer = setInterval(fetchTail, TAIL_POLL_MS);
--        }}
--
--        function stopPolling() {{
--            if (statusTimer) {{ clearInterval(statusTimer); statusTimer = null; }}
--            if (tailTimer) {{ clearInterval(tailTimer); tailTimer = null; }}
--        }}
--
--        function handleSubmit(event) {{
--            event.preventDefault();
--            clearError();
--            const path = enexInput.value.trim();
--            if (!path) {{
--                showError('{EVERNOTE_ERROR_NO_PATH}');
--                return;
--            }}
--            submitBtn.disabled = true;
--            submitBtn.textContent = '{EVERNOTE_BTN_STARTING}';
--            fetch('/api/v1/import/evernote', {{
--                method: 'POST',
--                headers: {{'Content-Type': 'application/json'}},
--                body: JSON.stringify({{enex_path: path}}),
--            }})
--                .then(function(r) {{
--                    return r.json().then(function(body) {{ return [r.status, body]; }});
--                }})
--                .then(function(pair) {{
--                    const status = pair[0], body = pair[1];
--                    if (status === 200 && body.job_id) {{
--                        currentJobId = body.job_id;
--                        showJobPanel();
--                        startPolling();
--                    }} else {{
--                        showError(body.error || ('Import failed to start (HTTP ' + status + ')'));
--                    }}
--                }})
--                .catch(function(err) {{
--                    showError('{EVERNOTE_ERROR_NETWORK_PREFIX}' + err);
--                }})
--                .finally(function() {{
--                    submitBtn.disabled = false;
--                    submitBtn.textContent = '{EVERNOTE_BTN_START}';
--                }});
--        }}
--
--        function handleReset() {{
--            stopPolling();
--            currentJobId = null;
--            clearError();
--            resetRow.style.display = 'none';
--            logPane.classList.add('empty');
--            logPane.textContent = 'Waiting for first log output\\u2026';
--            statusPill.textContent = '{EVERNOTE_PILL_STARTING}';
--            statusPill.className = 'status-pill';
--            statusMeta.textContent = '';
--            showForm();
--        }}
--
--        importForm.addEventListener('submit', handleSubmit);
--        resetBtn.addEventListener('click', handleReset);
--
--        if (INITIAL_JOB_ID) {{
--            // Reattach to an in-flight job whose POST was issued from
--            // an earlier tab. The server discovered the live lockfile
--            // and rendered the job_id into the page; we go straight to
--            // the polling state without showing the form.
--            currentJobId = INITIAL_JOB_ID;
--            showJobPanel();
--            startPolling();
--        }} else {{
--            showForm();
--        }}
--    }})();
--    </script>
--</body>
--</html>"""
--
--
--@app.get("/import-evernote", response_class=HTMLResponse)
--async def import_evernote_page():
--    """Render the Evernote import page. 404 when the feature flag is off."""
--    from import_evernote import current_running_job_id, is_feature_enabled
--
--    if not is_feature_enabled():
--        return JSONResponse(
--            {"error": "feature_disabled"}, status_code=404,
--        )
--    return HTMLResponse(_render_import_evernote_page(
--        active_job_id=current_running_job_id(),
--    ))
--
--
--@app.post("/api/v1/import/evernote", response_class=JSONResponse)
--async def api_import_evernote_start(request: Request):
--    """Start a new Evernote import job.
--
--    Body: ``{"enex_path": "/path/to/export.enex"}``. On success returns
--    ``{"job_id": "...", "status": "started"}`` with 200. Validation
--    failures surface as 400 / 404 / 409 / 500 per
--    ``import_evernote.EvernoteImportError``. Returns 404
--    ``{"error": "feature_disabled"}`` when the flag is off.
--    """
--    from import_evernote import (
--        EvernoteImportError as _Err,
--        is_feature_enabled as _flag,
--        start_import as _start,
--        validate_enex_path as _validate,
--    )
--
--    if not _flag():
--        return JSONResponse(
--            {"error": "feature_disabled"}, status_code=404,
--        )
--
--    try:
--        body = await request.json()
--    except Exception as exc:
--        return JSONResponse(
--            {"error": f"invalid JSON: {exc}"}, status_code=400,
--        )
--
--    if not isinstance(body, dict):
--        return JSONResponse(
--            {"error": "body must be a JSON object"}, status_code=400,
--        )
--
--    try:
--        enex_path = _validate(body.get("enex_path"))
--        result = _start(enex_path)
--    except _Err as exc:
--        return JSONResponse({"error": exc.detail}, status_code=exc.status)
--
--    return JSONResponse(result, status_code=200)
--
--
--@app.get("/api/v1/import/evernote/{job_id}/status", response_class=JSONResponse)
--async def api_import_evernote_status(job_id: str):
--    """Return the state of an Evernote import job."""
--    from import_evernote import (
--        EvernoteImportError as _Err,
--        is_feature_enabled as _flag,
--        read_status as _status,
--    )
--
--    if not _flag():
--        return JSONResponse(
--            {"error": "feature_disabled"}, status_code=404,
--        )
--
--    try:
--        return JSONResponse(_status(job_id), status_code=200)
--    except _Err as exc:
--        return JSONResponse({"error": exc.detail}, status_code=exc.status)
--
--
--@app.get("/api/v1/import/evernote/{job_id}/tail", response_class=PlainTextResponse)
--async def api_import_evernote_tail(job_id: str):
--    """Return the last 100 lines of the job's import log as text/plain."""
--    from import_evernote import (
--        EvernoteImportError as _Err,
--        is_feature_enabled as _flag,
--        read_tail as _tail,
--    )
--
--    if not _flag():
--        return JSONResponse(
--            {"error": "feature_disabled"}, status_code=404,
--        )
--
--    try:
--        return PlainTextResponse(_tail(job_id), status_code=200)
--    except _Err as exc:
--        return JSONResponse({"error": exc.detail}, status_code=exc.status)
--
--
--# ── Pair iOS device panel (DFA-002) ──────────────────────────────────
--
--
--def _render_pair_ios_page() -> str:
--    """Render the Pair iOS device panel.
--
--    Vanilla HTML + JS, no framework. Matches Doctor's chassis tokens
--    (Outfit / Plex Sans / Plex Mono, ostler-ink palette) so it sits
--    visually next to ``/doctor`` rather than feeling bolted on.
--
--    The QR image is rendered server-side as inline SVG and embedded in
--    the API JSON; the client just sets ``innerHTML``. No external
--    JavaScript libraries are loaded.
--    """
--    return f"""<!DOCTYPE html>
--<html lang="en">
--<head>
--    <meta charset="UTF-8">
--    <meta name="viewport" content="width=device-width, initial-scale=1.0">
--    <title>{PAIR_IOS_TITLE_TAG}</title>
--    <style>
--        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
--        :root {{
--            --ostler-ink: #0d0b08;
--            --ostler-ink-deep: #07060a;
--            --ostler-panel: #1a1612;
--            --ostler-panel-elev: #221c16;
--            --ostler-chassis: #ECE8DD;
--            --ostler-accent: #C84545;
--            --ostler-accent-hover: #D76060;
--            --ostler-accent-warm: #E26A6A;
--            --ostler-accent-glow: rgba(200, 69, 69, 0.18);
--            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
--            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
--            --text: var(--ostler-chassis);
--            --text-secondary: rgba(236, 232, 221, 0.74);
--            --text-muted: rgba(236, 232, 221, 0.50);
--            --text-faint: rgba(236, 232, 221, 0.32);
--            --red: #d96666;
--            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
--            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
--            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
--            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
--        }}
--        * {{ margin:0; padding:0; box-sizing:border-box; }}
--        body {{
--            font-family: var(--font-body);
--            font-size: 15px;
--            line-height: 1.5;
--            background: var(--ostler-ink);
--            color: var(--text);
--            min-height: 100vh;
--            padding: 2.5rem 1.75rem;
--            -webkit-font-smoothing: antialiased;
--            -moz-osx-font-smoothing: grayscale;
--        }}
--        a {{ color: var(--ostler-accent); text-decoration: none; }}
--        a:hover {{ color: var(--ostler-accent-hover); }}
--        .container {{ max-width: 600px; margin: 0 auto; }}
--        h1 {{
--            font-family: var(--font-display);
--            font-size: 1.7rem;
--            font-weight: 600;
--            letter-spacing: -0.02em;
--            margin-bottom: 0.3rem;
--        }}
--        .subtitle {{
--            font-family: var(--font-mono);
--            font-size: 0.78rem;
--            letter-spacing: 0.04em;
--            color: var(--text-muted);
--            margin-bottom: 2rem;
--        }}
--        .subtitle a {{ color: var(--text-muted); }}
--        .subtitle a:hover {{ color: var(--ostler-accent-warm); text-decoration: underline; }}
--        .section-title {{
--            font-family: var(--font-display);
--            font-size: 0.72rem;
--            text-transform: uppercase;
--            letter-spacing: 0.18em;
--            color: var(--text-muted);
--            margin-bottom: 0.85rem;
--            font-weight: 500;
--        }}
--        .panel {{
--            background: var(--ostler-panel);
--            border: 1px solid var(--ostler-hairline-faint);
--            border-radius: 12px;
--            padding: 1.4rem 1.5rem;
--            box-shadow: var(--shadow-soft);
--            margin-bottom: 1.4rem;
--        }}
--        .panel p {{ color: var(--text-secondary); margin-bottom: 0.85rem; }}
--        .help {{
--            font-size: 0.82rem;
--            color: var(--text-muted);
--            margin-top: 0.55rem;
--            line-height: 1.55;
--        }}
--        .qr-wrap {{
--            display: flex;
--            justify-content: center;
--            margin: 0.6rem 0 0.4rem;
--        }}
--        .qr-frame {{
--            background: var(--ostler-chassis);
--            border-radius: 12px;
--            padding: 1rem;
--            box-shadow: var(--shadow-soft);
--        }}
--        .qr-frame svg {{
--            display: block;
--            width: 240px;
--            height: 240px;
--        }}
--        .hub-addr {{
--            font-family: var(--font-mono);
--            font-size: 0.92rem;
--            letter-spacing: 0.04em;
--            color: var(--text-secondary);
--            background: var(--ostler-ink-deep);
--            border: 1px solid var(--ostler-hairline-soft);
--            border-radius: 8px;
--            padding: 0.55rem 0.85rem;
--            text-align: center;
--            margin: 1rem 0 0.4rem;
--            user-select: all;
--            -webkit-user-select: all;
--        }}
--        .hub-addr-label {{
--            font-family: var(--font-display);
--            font-size: 0.7rem;
--            text-transform: uppercase;
--            letter-spacing: 0.16em;
--            color: var(--text-muted);
--            text-align: center;
--            margin-top: 0.85rem;
--        }}
--        .camera-hint {{
--            font-size: 0.82rem;
--            color: var(--text-muted);
--            text-align: center;
--            line-height: 1.5;
--            margin-top: 0.85rem;
--        }}
--        .empty-state-title {{
--            font-family: var(--font-display);
--            font-size: 1.05rem;
--            font-weight: 600;
--            margin-bottom: 0.55rem;
--            color: var(--text);
--        }}
--        .button-row {{
--            display: flex;
--            gap: 0.6rem;
--            align-items: center;
--            margin-top: 1.1rem;
--            flex-wrap: wrap;
--        }}
--        button.secondary {{
--            font-family: var(--font-display);
--            font-weight: 500;
--            font-size: 0.85rem;
--            padding: 0.65rem 1.4rem;
--            border-radius: 999px;
--            cursor: pointer;
--            background: var(--ostler-panel);
--            color: var(--text-secondary);
--            border: 1px solid var(--ostler-hairline-soft);
--            transition: background 0.18s, transform 0.18s, box-shadow 0.18s, border-color 0.18s, color 0.18s;
--        }}
--        button.secondary:hover {{
--            border-color: var(--ostler-accent);
--            color: var(--text);
--            background: var(--ostler-panel-elev);
--            transform: translateY(-1px);
--        }}
--        button.secondary:disabled {{
--            background: var(--ostler-panel);
--            color: var(--text-muted);
--            cursor: not-allowed;
--            transform: none;
--            border-color: var(--ostler-hairline-faint);
--        }}
--        button:focus-visible {{
--            outline: 2px solid var(--ostler-accent);
--            outline-offset: 2px;
--        }}
--        .banner {{
--            padding: 0.75rem 1rem;
--            border-radius: 8px;
--            font-size: 0.86rem;
--            margin-bottom: 1.2rem;
--            border-left: 3px solid var(--red);
--            background: rgba(217, 102, 102, 0.10);
--            color: var(--text);
--            display: none;
--        }}
--        .banner.visible {{ display: block; }}
--        .network-notice {{
--            padding: 0.7rem 1rem;
--            border-radius: 8px;
--            font-size: 0.82rem;
--            margin-bottom: 1.4rem;
--            border-left: 3px solid #e0a437;
--            background: rgba(224, 164, 55, 0.10);
--            color: var(--text-secondary);
--            line-height: 1.5;
--        }}
--        .meta-bottom {{
--            font-family: var(--font-mono);
--            font-size: 0.72rem;
--            letter-spacing: 0.04em;
--            color: var(--text-faint);
--            margin-top: 2rem;
--            padding-top: 1.1rem;
--            border-top: 1px solid var(--ostler-hairline-faint);
--            line-height: 1.55;
--        }}
--        @media (max-width: 720px) {{
--            body {{ padding: 1.4rem 1rem; }}
--            h1 {{ font-size: 1.4rem; }}
--            .qr-frame svg {{ width: 200px; height: 200px; }}
--            .hub-addr {{ font-size: 0.82rem; }}
--        }}
--    </style>
--</head>
--<body>
--    <div class="container">
--        <h1>{PAIR_IOS_HEADING}</h1>
--        <div class="subtitle">
--            {PAIR_IOS_SUBTITLE}
--        </div>
--
--        <div class="network-notice">{PAIR_IOS_NETWORK_BANNER_HTML}</div>
--
--        <div id="errorBanner" class="banner"></div>
--
--        <div id="codePanel" class="panel" style="display:none">
--            <div class="section-title">{PAIR_IOS_SECTION_CODE}</div>
--            <p>{PAIR_IOS_INTRO_HTML}</p>
--            <div class="qr-wrap">
--                <div class="qr-frame" id="qrFrame"></div>
--            </div>
--            <div class="camera-hint">{PAIR_IOS_CAMERA_HINT_HTML}</div>
--            <div class="hub-addr-label">{PAIR_IOS_HUB_ADDR_LABEL}</div>
--            <div class="hub-addr" id="hubAddr"></div>
--            <div class="button-row">
--                <button type="button" class="secondary" id="regenerateBtn">{PAIR_IOS_BTN_REGENERATE}</button>
--            </div>
--        </div>
--
--        <div id="emptyPanel" class="panel" style="display:none">
--            <div class="empty-state-title" id="emptyTitle"></div>
--            <p id="emptyDetail"></p>
--            <div class="button-row" id="emptyButtonRow" style="display:none">
--                <button type="button" class="secondary" id="regenerateBtnEmpty">{PAIR_IOS_BTN_REGENERATE}</button>
--            </div>
--        </div>
--
--        <div class="meta-bottom">
--            {PAIR_IOS_META_FOOTER_HTML}
--        </div>
--    </div>
--
--    <script>
--    (function() {{
--        const STATUS_POLL_MS = 15000;
--
--        const codePanel = document.getElementById('codePanel');
--        const emptyPanel = document.getElementById('emptyPanel');
--        const qrFrame = document.getElementById('qrFrame');
--        const hubAddrEl = document.getElementById('hubAddr');
--        const emptyTitle = document.getElementById('emptyTitle');
--        const emptyDetail = document.getElementById('emptyDetail');
--        const emptyButtonRow = document.getElementById('emptyButtonRow');
--        const regenerateBtn = document.getElementById('regenerateBtn');
--        const regenerateBtnEmpty = document.getElementById('regenerateBtnEmpty');
--        const errorBanner = document.getElementById('errorBanner');
--
--        function showError(msg) {{
--            errorBanner.textContent = msg;
--            errorBanner.classList.add('visible');
--        }}
--
--        function clearError() {{
--            errorBanner.classList.remove('visible');
--            errorBanner.textContent = '';
--        }}
--
--        function showCode(state) {{
--            emptyPanel.style.display = 'none';
--            codePanel.style.display = '';
--            qrFrame.innerHTML = state.qr_svg || '';
--            hubAddrEl.textContent = state.hub_addr || '';
--        }}
--
--        function showEmpty(title, detail, withRegenerate) {{
--            codePanel.style.display = 'none';
--            emptyPanel.style.display = '';
--            emptyTitle.innerHTML = title;
--            emptyDetail.innerHTML = detail;
--            emptyButtonRow.style.display = withRegenerate ? '' : 'none';
--        }}
--
--        function renderState(state) {{
--            if (state.available && state.qr_svg) {{
--                showCode(state);
--                return;
--            }}
--            switch (state.error_kind) {{
--                case 'pairing_disabled':
--                    showEmpty(
--                        '{PAIR_IOS_DISABLED_TITLE}',
--                        '{PAIR_IOS_DISABLED_DETAIL}',
--                        false
--                    );
--                    break;
--                case 'no_code_active':
--                    showEmpty(
--                        '{PAIR_IOS_NO_CODE_TITLE}',
--                        '{PAIR_IOS_NO_CODE_DETAIL}',
--                        true
--                    );
--                    break;
--                case 'qr_render_failed':
--                    showEmpty(
--                        '{PAIR_IOS_QR_RENDER_TITLE}',
--                        '{PAIR_IOS_QR_RENDER_DETAIL}',
--                        true
--                    );
--                    break;
--                case 'gateway_envelope_invalid':
--                    showEmpty(
--                        '{PAIR_IOS_ENVELOPE_INVALID_TITLE}',
--                        '{PAIR_IOS_ENVELOPE_INVALID_DETAIL}',
--                        true
--                    );
--                    break;
--                default:
--                    // gateway_down / timeout / unreachable / http_error /
--                    // malformed -- all surface the same friendly "Hub not
--                    // ready yet" empty state.
--                    showEmpty(
--                        '{PAIR_IOS_EMPTY_TITLE}',
--                        '{PAIR_IOS_EMPTY_DETAIL}',
--                        false
--                    );
--            }}
--        }}
--
--        function fetchStatus() {{
--            fetch('/api/v1/pair/status')
--                .then(function(r) {{ return r.json(); }})
--                .then(function(state) {{
--                    clearError();
--                    renderState(state);
--                }})
--                .catch(function(err) {{
--                    showError('{PAIR_IOS_ERROR_NETWORK_PREFIX}' + err);
--                }});
--        }}
--
--        function regenerate(btn) {{
--            const originalLabel = btn.textContent;
--            btn.disabled = true;
--            btn.textContent = '{PAIR_IOS_BTN_REGENERATING}';
--            fetch('/api/v1/pair/regenerate', {{method: 'POST'}})
--                .then(function(r) {{ return r.json(); }})
--                .then(function(state) {{
--                    clearError();
--                    renderState(state);
--                }})
--                .catch(function(err) {{
--                    showError('{PAIR_IOS_ERROR_REGENERATE_PREFIX}' + err);
--                }})
--                .finally(function() {{
--                    btn.disabled = false;
--                    btn.textContent = originalLabel;
--                }});
--        }}
--
--        regenerateBtn.addEventListener('click', function() {{ regenerate(regenerateBtn); }});
--        regenerateBtnEmpty.addEventListener('click', function() {{ regenerate(regenerateBtnEmpty); }});
--
--        fetchStatus();
--        setInterval(fetchStatus, STATUS_POLL_MS);
--    }})();
--    </script>
--</body>
--</html>"""
--
--
--@app.get("/pair-ios", response_class=HTMLResponse)
--async def pair_ios_page():
--    """Render the Pair iOS device panel (DFA-002)."""
--    return HTMLResponse(_render_pair_ios_page())
--
--
--@app.get("/api/v1/pair/status", response_class=JSONResponse)
--async def api_pair_status():
--    """Return the current pair code, QR SVG, and any error state."""
--    from pair_status import fetch_pair_status
--    return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
--
--
--@app.post("/api/v1/pair/regenerate", response_class=JSONResponse)
--async def api_pair_regenerate(request: Request):
--    """Rotate the pair code via the gateway and return the new shape.
--
--    Cross-origin POSTs from a malicious local browser tab can DOS the
--    pair code (rotate it under the customer's feet) even though the
--    same-origin policy blocks the attacker from reading the new code.
--    Modern browsers set ``Sec-Fetch-Site`` automatically; reject
--    anything that is not ``same-origin`` or ``none`` (the latter
--    covers direct navigation and bookmarks). Older browsers do not
--    send the header; in that case the request is allowed through and
--    the same-origin policy remains the defence-in-depth.
--    """
--    sec_fetch_site = request.headers.get("sec-fetch-site")
--    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
--        return JSONResponse(
--            {"error": "Cross-site request refused"},
--            status_code=403,
--        )
--    from pair_status import fetch_pair_status
--    return JSONResponse(
--        fetch_pair_status(fresh=True).to_dict(), status_code=200,
--    )
--
--
--# ── Configuration panel (backlog #261) ───────────────────────────────
--#
--# A view-and-edit surface for the customer-safe Ostler settings file at
--# ``~/.ostler/config/config.yaml``. Read-first: it always renders the
--# current config; a small strict whitelist of fields (channel toggles,
--# model, schedule times, privacy default) can be edited and written
--# back. Secrets are never rendered -- secret-looking keys show
--# "set"/"not set" only. See ``config_panel.py`` for the schema, the
--# whitelist, validation, and the atomic write.
--
--
--def _render_config_page() -> str:
--    """Render the Doctor Configuration panel.
--
--    Vanilla HTML + JS, no framework. Matches Doctor's chassis tokens
--    (Outfit / Plex Sans / Plex Mono, ostler-ink palette) so it sits
--    visually next to ``/doctor`` and ``/pair-ios``.
--
--    The form is built client-side from the ``/api/v1/config`` view
--    model, so the whitelist and current values live in one place
--    (``config_panel.py``) and the page stays in sync automatically.
--    """
--    return f"""<!DOCTYPE html>
--<html lang="en">
--<head>
--    <meta charset="UTF-8">
--    <meta name="viewport" content="width=device-width, initial-scale=1.0">
--    <title>{CONFIG_TITLE_TAG}</title>
--    <style>
--        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
--        :root {{
--            --ostler-ink: #0d0b08;
--            --ostler-ink-deep: #07060a;
--            --ostler-panel: #1a1612;
--            --ostler-panel-elev: #221c16;
--            --ostler-chassis: #ECE8DD;
--            --ostler-accent: #C84545;
--            --ostler-accent-hover: #D76060;
--            --ostler-accent-warm: #E26A6A;
--            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
--            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
--            --text: var(--ostler-chassis);
--            --text-secondary: rgba(236, 232, 221, 0.74);
--            --text-muted: rgba(236, 232, 221, 0.50);
--            --text-faint: rgba(236, 232, 221, 0.32);
--            --green: #5cb579;
--            --red: #d96666;
--            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
--            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
--            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
--            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
--        }}
--        * {{ margin:0; padding:0; box-sizing:border-box; }}
--        body {{
--            font-family: var(--font-body);
--            font-size: 15px;
--            line-height: 1.5;
--            background: var(--ostler-ink);
--            color: var(--text);
--            min-height: 100vh;
--            padding: 2.5rem 1.75rem;
--            -webkit-font-smoothing: antialiased;
--            -moz-osx-font-smoothing: grayscale;
--        }}
--        a {{ color: var(--ostler-accent); text-decoration: none; }}
--        a:hover {{ color: var(--ostler-accent-hover); }}
--        .container {{ max-width: 640px; margin: 0 auto; }}
--        h1 {{
--            font-family: var(--font-display);
--            font-size: 1.7rem;
--            font-weight: 600;
--            letter-spacing: -0.02em;
--            margin-bottom: 0.3rem;
--        }}
--        .subtitle {{
--            font-family: var(--font-mono);
--            font-size: 0.78rem;
--            letter-spacing: 0.04em;
--            color: var(--text-muted);
--            margin-bottom: 2rem;
--        }}
--        .subtitle a {{ color: var(--text-muted); }}
--        .subtitle a:hover {{ color: var(--ostler-accent-warm); text-decoration: underline; }}
--        .section-title {{
--            font-family: var(--font-display);
--            font-size: 0.72rem;
--            text-transform: uppercase;
--            letter-spacing: 0.18em;
--            color: var(--text-muted);
--            margin-bottom: 0.85rem;
--            font-weight: 500;
--        }}
--        .panel {{
--            background: var(--ostler-panel);
--            border: 1px solid var(--ostler-hairline-faint);
--            border-radius: 12px;
--            padding: 1.4rem 1.5rem;
--            box-shadow: var(--shadow-soft);
--            margin-bottom: 1.4rem;
--        }}
--        .panel p {{ color: var(--text-secondary); margin-bottom: 0.85rem; }}
--        .field {{
--            display: flex;
--            align-items: flex-start;
--            justify-content: space-between;
--            gap: 1rem;
--            padding: 0.85rem 0;
--            border-top: 1px solid var(--ostler-hairline-faint);
--        }}
--        .field:first-of-type {{ border-top: none; padding-top: 0.2rem; }}
--        .field-text {{ flex: 1 1 auto; min-width: 0; }}
--        .field-label {{
--            font-family: var(--font-display);
--            font-weight: 500;
--            font-size: 0.95rem;
--            color: var(--text);
--        }}
--        .field-help {{
--            font-size: 0.8rem;
--            color: var(--text-muted);
--            margin-top: 0.2rem;
--            line-height: 1.5;
--        }}
--        .field-control {{ flex: 0 0 auto; padding-top: 0.1rem; }}
--        select {{
--            font-family: var(--font-body);
--            font-size: 0.88rem;
--            color: var(--text);
--            background: var(--ostler-ink-deep);
--            border: 1px solid var(--ostler-hairline-soft);
--            border-radius: 8px;
--            padding: 0.45rem 0.7rem;
--            min-width: 9rem;
--        }}
--        input[type="time"] {{
--            font-family: var(--font-mono);
--            font-size: 0.88rem;
--            color: var(--text);
--            background: var(--ostler-ink-deep);
--            border: 1px solid var(--ostler-hairline-soft);
--            border-radius: 8px;
--            padding: 0.4rem 0.6rem;
--            color-scheme: dark;
--        }}
--        select:focus, input:focus {{
--            outline: none;
--            border-color: var(--ostler-accent);
--        }}
--        /* Toggle switch */
--        .toggle {{
--            position: relative;
--            display: inline-block;
--            width: 44px;
--            height: 26px;
--        }}
--        .toggle input {{ opacity: 0; width: 0; height: 0; }}
--        .toggle .slider {{
--            position: absolute;
--            cursor: pointer;
--            inset: 0;
--            background: var(--ostler-ink-deep);
--            border: 1px solid var(--ostler-hairline-soft);
--            border-radius: 999px;
--            transition: background 0.18s, border-color 0.18s;
--        }}
--        .toggle .slider::before {{
--            content: "";
--            position: absolute;
--            height: 18px;
--            width: 18px;
--            left: 3px;
--            top: 3px;
--            background: var(--text-secondary);
--            border-radius: 50%;
--            transition: transform 0.18s, background 0.18s;
--        }}
--        .toggle input:checked + .slider {{
--            background: var(--ostler-accent);
--            border-color: var(--ostler-accent);
--        }}
--        .toggle input:checked + .slider::before {{
--            transform: translateX(18px);
--            background: var(--ostler-chassis);
--        }}
--        .toggle input:focus-visible + .slider {{
--            outline: 2px solid var(--ostler-accent);
--            outline-offset: 2px;
--        }}
--        .readonly-row {{
--            display: flex;
--            align-items: baseline;
--            justify-content: space-between;
--            gap: 1rem;
--            padding: 0.5rem 0;
--            border-top: 1px solid var(--ostler-hairline-faint);
--            font-size: 0.86rem;
--        }}
--        .readonly-row:first-of-type {{ border-top: none; }}
--        .readonly-key {{
--            font-family: var(--font-mono);
--            color: var(--text-secondary);
--            word-break: break-all;
--        }}
--        .readonly-val {{
--            font-family: var(--font-mono);
--            color: var(--text-muted);
--            text-align: right;
--        }}
--        .badge {{
--            font-family: var(--font-display);
--            font-size: 0.68rem;
--            text-transform: uppercase;
--            letter-spacing: 0.1em;
--            padding: 0.15rem 0.5rem;
--            border-radius: 999px;
--            border: 1px solid var(--ostler-hairline-soft);
--            color: var(--text-muted);
--        }}
--        .badge.set {{ color: var(--green); border-color: rgba(92,181,121,0.4); }}
--        .badge.secret {{ color: var(--text-faint); }}
--        .button-row {{
--            display: flex;
--            gap: 0.6rem;
--            align-items: center;
--            margin-top: 1.1rem;
--            flex-wrap: wrap;
--        }}
--        button.primary {{
--            font-family: var(--font-display);
--            font-weight: 500;
--            font-size: 0.85rem;
--            padding: 0.65rem 1.5rem;
--            border-radius: 999px;
--            cursor: pointer;
--            background: var(--ostler-accent);
--            color: var(--ostler-chassis);
--            border: 1px solid var(--ostler-accent);
--            transition: background 0.18s, transform 0.18s, box-shadow 0.18s;
--        }}
--        button.primary:hover {{
--            background: var(--ostler-accent-hover);
--            transform: translateY(-1px);
--        }}
--        button.primary:disabled {{
--            background: var(--ostler-panel);
--            color: var(--text-muted);
--            border-color: var(--ostler-hairline-faint);
--            cursor: not-allowed;
--            transform: none;
--        }}
--        button:focus-visible {{
--            outline: 2px solid var(--ostler-accent);
--            outline-offset: 2px;
--        }}
--        .config-path {{
--            font-family: var(--font-mono);
--            font-size: 0.78rem;
--            color: var(--text-faint);
--        }}
--        .banner {{
--            padding: 0.75rem 1rem;
--            border-radius: 8px;
--            font-size: 0.86rem;
--            margin-bottom: 1.2rem;
--            border-left: 3px solid var(--red);
--            background: rgba(217, 102, 102, 0.10);
--            color: var(--text);
--            display: none;
--        }}
--        .banner.visible {{ display: block; }}
--        .banner.ok {{
--            border-left-color: var(--green);
--            background: rgba(92, 181, 121, 0.10);
--        }}
--        .empty {{ color: var(--text-muted); font-size: 0.86rem; }}
--        .meta-bottom {{
--            font-family: var(--font-mono);
--            font-size: 0.72rem;
--            letter-spacing: 0.04em;
--            color: var(--text-faint);
--            margin-top: 2rem;
--            padding-top: 1.1rem;
--            border-top: 1px solid var(--ostler-hairline-faint);
--            line-height: 1.55;
--        }}
--        @media (max-width: 720px) {{
--            body {{ padding: 1.4rem 1rem; }}
--            h1 {{ font-size: 1.4rem; }}
--            .field {{ flex-direction: column; }}
--            .field-control {{ align-self: flex-start; }}
--        }}
--    </style>
--</head>
--<body>
--    <div class="container">
--        <h1>{CONFIG_HEADING}</h1>
--        <div class="subtitle">
--            {CONFIG_SUBTITLE}
--        </div>
--
--        <div id="statusBanner" class="banner"></div>
--
--        <div id="editPanels"></div>
--
--        <div id="readonlyPanel" class="panel" style="display:none">
--            <div class="section-title">{CONFIG_SECTION_READONLY}</div>
--            <p>{CONFIG_READONLY_INTRO}</p>
--            <div id="readonlyRows"></div>
--        </div>
--
--        <div class="button-row">
--            <button type="button" class="primary" id="saveBtn">{CONFIG_BTN_SAVE}</button>
--            <span class="config-path" id="configPath"></span>
--        </div>
--
--        <div class="meta-bottom">
--            {CONFIG_META_FOOTER}
--        </div>
--    </div>
--
--    <script>
--    (function() {{
--        const editPanels = document.getElementById('editPanels');
--        const readonlyPanel = document.getElementById('readonlyPanel');
--        const readonlyRows = document.getElementById('readonlyRows');
--        const saveBtn = document.getElementById('saveBtn');
--        const statusBanner = document.getElementById('statusBanner');
--        const configPathEl = document.getElementById('configPath');
--
--        const SECTION_ORDER = {json.dumps(list(_config_section_order()))};
--
--        function showStatus(msg, ok) {{
--            statusBanner.textContent = msg;
--            statusBanner.className = 'banner visible' + (ok ? ' ok' : '');
--        }}
--        function clearStatus() {{
--            statusBanner.className = 'banner';
--            statusBanner.textContent = '';
--        }}
--
--        function esc(s) {{
--            const d = document.createElement('div');
--            d.textContent = s == null ? '' : String(s);
--            return d.innerHTML;
--        }}
--
--        function controlFor(field) {{
--            const id = 'cfg_' + field.key;
--            if (field.kind === 'bool') {{
--                const checked = field.value === true ? ' checked' : '';
--                return '<label class="toggle"><input type="checkbox" id="' + id +
--                    '" data-key="' + esc(field.key) + '" data-kind="bool"' + checked +
--                    '><span class="slider"></span></label>';
--            }}
--            if (field.kind === 'enum') {{
--                let opts = '';
--                if (field.value == null) {{
--                    opts += '<option value="" selected>{CONFIG_OPT_UNSET}</option>';
--                }}
--                field.choices.forEach(function(c) {{
--                    const sel = (c === field.value) ? ' selected' : '';
--                    opts += '<option value="' + esc(c) + '"' + sel + '>' + esc(c) + '</option>';
--                }});
--                return '<select id="' + id + '" data-key="' + esc(field.key) +
--                    '" data-kind="enum">' + opts + '</select>';
--            }}
--            if (field.kind === 'time') {{
--                const v = field.value == null ? '' : esc(field.value);
--                return '<input type="time" id="' + id + '" data-key="' + esc(field.key) +
--                    '" data-kind="time" value="' + v + '">';
--            }}
--            return '';
--        }}
--
--        function renderEdit(view) {{
--            editPanels.innerHTML = '';
--            const bySection = {{}};
--            view.editable.forEach(function(f) {{
--                (bySection[f.section] = bySection[f.section] || []).push(f);
--            }});
--            SECTION_ORDER.forEach(function(section) {{
--                const fields = bySection[section];
--                if (!fields || !fields.length) return;
--                let rows = '';
--                fields.forEach(function(f) {{
--                    rows += '<div class="field"><div class="field-text">' +
--                        '<div class="field-label">' + esc(f.label) + '</div>' +
--                        '<div class="field-help">' + esc(f.help) + '</div></div>' +
--                        '<div class="field-control">' + controlFor(f) + '</div></div>';
--                }});
--                editPanels.insertAdjacentHTML('beforeend',
--                    '<div class="panel"><div class="section-title">' + esc(section) +
--                    '</div>' + rows + '</div>');
--            }});
--        }}
--
--        function renderReadonly(view) {{
--            if (!view.read_only || !view.read_only.length) {{
--                readonlyPanel.style.display = 'none';
--                return;
--            }}
--            readonlyPanel.style.display = '';
--            let rows = '';
--            view.read_only.forEach(function(r) {{
--                let right;
--                if (r.is_secret) {{
--                    const cls = r.is_set ? 'badge set secret' : 'badge secret';
--                    right = '<span class="' + cls + '">' +
--                        (r.is_set ? '{CONFIG_SECRET_SET}' : '{CONFIG_SECRET_UNSET}') + '</span>';
--                }} else {{
--                    right = '<span class="readonly-val">' + esc(r.value) + '</span>';
--                }}
--                rows += '<div class="readonly-row"><span class="readonly-key">' +
--                    esc(r.key) + '</span>' + right + '</div>';
--            }});
--            readonlyRows.innerHTML = rows;
--        }}
--
--        function render(view) {{
--            renderEdit(view);
--            renderReadonly(view);
--            configPathEl.textContent = view.config_path || '';
--        }}
--
--        function load() {{
--            fetch('/api/v1/config')
--                .then(function(r) {{ return r.json(); }})
--                .then(function(view) {{
--                    if (view.error) {{ showStatus(view.error, false); return; }}
--                    clearStatus();
--                    render(view);
--                }})
--                .catch(function(err) {{
--                    showStatus('{CONFIG_ERR_LOAD_PREFIX}' + err, false);
--                }});
--        }}
--
--        function collectUpdates() {{
--            const updates = {{}};
--            const controls = editPanels.querySelectorAll('[data-key]');
--            controls.forEach(function(el) {{
--                const key = el.getAttribute('data-key');
--                const kind = el.getAttribute('data-kind');
--                if (kind === 'bool') {{
--                    updates[key] = el.checked;
--                }} else {{
--                    const v = el.value;
--                    if (v !== '') updates[key] = v;
--                }}
--            }});
--            return updates;
--        }}
--
--        function save() {{
--            const updates = collectUpdates();
--            const label = saveBtn.textContent;
--            saveBtn.disabled = true;
--            saveBtn.textContent = '{CONFIG_BTN_SAVING}';
--            fetch('/api/v1/config', {{
--                method: 'POST',
--                headers: {{'Content-Type': 'application/json'}},
--                body: JSON.stringify(updates)
--            }})
--                .then(function(r) {{ return r.json().then(function(b) {{ return {{ok: r.ok, body: b}}; }}); }})
--                .then(function(res) {{
--                    if (!res.ok) {{
--                        showStatus(res.body.error || '{CONFIG_ERR_SAVE_GENERIC}', false);
--                        return;
--                    }}
--                    render(res.body);
--                    showStatus('{CONFIG_SAVED}', true);
--                }})
--                .catch(function(err) {{
--                    showStatus('{CONFIG_ERR_SAVE_PREFIX}' + err, false);
--                }})
--                .finally(function() {{
--                    saveBtn.disabled = false;
--                    saveBtn.textContent = label;
--                }});
--        }}
--
--        saveBtn.addEventListener('click', save);
--        load();
--    }})();
--    </script>
--</body>
--</html>"""
--
--
--@app.get("/config", response_class=HTMLResponse)
--async def config_page():
--    """Render the Doctor Configuration panel (backlog #261)."""
--    return HTMLResponse(_render_config_page())
--
--
--@app.get("/api/v1/config", response_class=JSONResponse)
--async def api_config_get():
--    """Return the current config view model.
--
--    Secrets are never included as values: secret-looking keys are
--    reported presence-only (set / not set). See ``config_panel.py``.
--    """
--    from config_panel import ConfigError as _ConfigError, read_config_view
--
--    try:
--        return JSONResponse(read_config_view(), status_code=200)
--    except _ConfigError as exc:
--        return JSONResponse({"error": exc.detail}, status_code=exc.status)
--
--
--@app.post("/api/v1/config", response_class=JSONResponse)
--async def api_config_post(request: Request):
--    """Validate + persist a whitelist of safe config edits.
--
--    Same cross-site guard as the pair-regenerate route: reject any POST
--    whose ``Sec-Fetch-Site`` is present and not same-origin, so a
--    malicious local tab cannot mutate the customer's config under them.
--    Only whitelisted, non-secret fields are writable; everything else is
--    rejected by ``config_panel.write_config``.
--    """
--    sec_fetch_site = request.headers.get("sec-fetch-site")
--    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
--        return JSONResponse(
--            {"error": "Cross-site request refused"},
--            status_code=403,
--        )
 +# The wiki homepage's first-run "still settling" panel (CM044
 +# ``compiler/hydration.py`` bakes it into the page HTML; a small JS
 +# poller then auto-hides it once hydration completes) fetches
@@ -9627,11 +8052,11 @@
 +    """Section display order for the Configuration panel.
 +
 +    Imported lazily from ``config_panel`` so the panel's renderer and
-+    its backend share one source of truth for section ordering.
-+    """
-+    from config_panel import SECTION_ORDER
-+
-+    return SECTION_ORDER
+     its backend share one source of truth for section ordering.
+     """
+     from config_panel import SECTION_ORDER
+ 
+     return SECTION_ORDER
 +
 +
 +# ── CM024 Evernote import (feature-flagged, launch-scope brief 2026-05-13) ──
@@ -10587,7 +9012,7 @@
 +                    // pane is the source of truth.
 +                }});
 +        }}
-+
+ 
 +        function startPolling() {{
 +            stopPolling();
 +            fetchStatus();
@@ -10595,12 +9020,21 @@
 +            statusTimer = setInterval(fetchStatus, STATUS_POLL_MS);
 +            tailTimer = setInterval(fetchTail, TAIL_POLL_MS);
 +        }}
-+
+ 
+-# ── CM024 Evernote import (feature-flagged, launch-scope brief 2026-05-13) ──
+-#
+-# Four routes back the Doctor "Import Evernote" surface. All four
+-# 404 when ``features.evernote_import`` is off in
+-# ``~/.ostler/config/features.yaml`` -- the installer always deploys
+-# ``ostler-knowledge`` (CM051 PR #70's 3.13b section) but the
+-# customer-visible surface stays hidden until the operator flips
+-# the flag. Block 3.3 wires the routes + lockfile + state machine;
+-# Block 3.4 fills in the UI page body.
 +        function stopPolling() {{
 +            if (statusTimer) {{ clearInterval(statusTimer); statusTimer = null; }}
 +            if (tailTimer) {{ clearInterval(tailTimer); tailTimer = null; }}
 +        }}
-+
+ 
 +        function handleSubmit(event) {{
 +            event.preventDefault();
 +            clearError();
@@ -10637,7 +9071,9 @@
 +                    submitBtn.textContent = '{NOTION_BTN_START}';
 +                }});
 +        }}
-+
+ 
+-def _render_import_evernote_page(active_job_id=None) -> str:
+-    """Render the Evernote import page (CM024 Block 3.4).
 +        function handleReset() {{
 +            stopPolling();
 +            currentJobId = null;
@@ -10650,7 +9086,7 @@
 +            statusMeta.textContent = '';
 +            showForm();
 +        }}
-+
+ 
 +        importForm.addEventListener('submit', handleSubmit);
 +        resetBtn.addEventListener('click', handleReset);
 +
@@ -10674,43 +9110,49 @@
 +def _render_import_obsidian_page(active_job_id=None) -> str:
 +    """Render the Obsidian import page (CM024 Notion/Obsidian consumer-half fix, 2026-09-13).
 +
-+    ``active_job_id`` is the output of
+     ``active_job_id`` is the output of
+-    ``import_evernote.current_running_job_id()``. When non-None the
 +    ``import_obsidian.current_running_job_id()``. When non-None the
-+    page boots straight into the polling-status panel so the operator
-+    who closed and reopened the tab mid-import reattaches without
-+    having to re-enter the path.
-+
-+    Vanilla HTML + JS, no framework. Matches Doctor's chassis tokens
-+    (Outfit / Plex Sans / Plex Mono, ostler-ink palette) so it sits
-+    visually next to ``/doctor`` rather than feeling bolted on.
-+
-+    Polling cadence per the launch-scope brief:
-+        - ``GET /status`` every 5 seconds
-+        - ``GET /tail``  every 10 seconds
-+    On a terminal status (succeeded / failed) both timers stop.
-+    """
-+    initial_job_id_js = json.dumps(active_job_id)
-+    return f"""<!DOCTYPE html>
-+<html lang="en">
-+<head>
-+    <meta charset="UTF-8">
-+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     page boots straight into the polling-status panel so the operator
+     who closed and reopened the tab mid-import reattaches without
+     having to re-enter the path.
+@@ -2354,30 +4493,30 @@
+ <head>
+     <meta charset="UTF-8">
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+-    <title>{EVERNOTE_TITLE_TAG}</title>
 +    <title>{OBSIDIAN_TITLE_TAG}</title>
-+    <style>
-+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
-+        :root {{
-+            --ostler-ink: #0d0b08;
-+            --ostler-ink-deep: #07060a;
+     <style>
+         /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
+         :root {{
+             --ostler-ink: #0d0b08;
+             --ostler-ink-deep: #07060a;
+-            --ostler-panel: #1a1612;
+-            --ostler-panel-elev: #221c16;
 +            --ostler-panel: #FFFFFF;
 +            --ostler-panel-elev: #FFFFFF;
-+            --ostler-chassis: #ECE8DD;
+             --ostler-chassis: #ECE8DD;
+-            --ostler-accent: #C84545;
+-            --ostler-accent-hover: #D76060;
+-            --ostler-accent-warm: #E26A6A;
+-            --ostler-accent-glow: rgba(200, 69, 69, 0.18);
+-            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
+-            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
 +            --ostler-accent: #7A1F1F;
 +            --ostler-accent-hover: #6E1717;
 +            --ostler-accent-warm: #7A1F1F;
 +            --ostler-accent-glow: rgba(122, 31, 31, 0.18);
 +            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
 +            --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
-+            --text: var(--ostler-chassis);
+             --text: var(--ostler-chassis);
+-            --text-secondary: rgba(236, 232, 221, 0.74);
+-            --text-muted: rgba(236, 232, 221, 0.50);
+-            --text-faint: rgba(236, 232, 221, 0.32);
+-            --green: #5cb579;
+-            --yellow: #d4a052;
+-            --red: #d96666;
+-            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+-            --shadow-card: 0 1px 2px rgba(0,0,0,0.45), 0 8px 24px rgba(0,0,0,0.35);
 +            --text-secondary: rgba(20, 18, 14, 0.74);
 +            --text-muted: rgba(20, 18, 14, 0.50);
 +            --text-faint: rgba(20, 18, 14, 0.32);
@@ -10719,568 +9161,184 @@
 +            --red: #7A1F1F;
 +            --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
 +            --shadow-card: 0 1px 2px rgba(20,18,14,0.11), 0 8px 24px rgba(20,18,14,0.08);
-+            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-+            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-+            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
-+        }}
-+        * {{ margin:0; padding:0; box-sizing:border-box; }}
-+        body {{
-+            font-family: var(--font-body);
-+            font-size: 15px;
-+            line-height: 1.5;
-+            background: var(--ostler-ink);
-+            color: var(--text);
-+            min-height: 100vh;
-+            padding: 2.5rem 1.75rem;
-+            -webkit-font-smoothing: antialiased;
-+            -moz-osx-font-smoothing: grayscale;
-+        }}
-+        a {{ color: var(--ostler-accent); text-decoration: none; }}
-+        a:hover {{ color: var(--ostler-accent-hover); }}
-+        .container {{ max-width: 760px; margin: 0 auto; }}
-+        h1 {{
-+            font-family: var(--font-display);
-+            font-size: 1.7rem;
-+            font-weight: 600;
-+            letter-spacing: -0.02em;
-+            margin-bottom: 0.3rem;
-+        }}
-+        .subtitle {{
-+            font-family: var(--font-mono);
-+            font-size: 0.78rem;
-+            letter-spacing: 0.04em;
-+            color: var(--text-muted);
-+            margin-bottom: 2rem;
-+        }}
-+        .subtitle a {{ color: var(--text-muted); }}
-+        .subtitle a:hover {{ color: var(--ostler-accent-warm); text-decoration: underline; }}
-+        .section-title {{
-+            font-family: var(--font-display);
-+            font-size: 0.72rem;
-+            text-transform: uppercase;
-+            letter-spacing: 0.18em;
-+            color: var(--text-muted);
-+            margin-bottom: 0.85rem;
-+            font-weight: 500;
-+        }}
-+        .panel {{
-+            background: var(--ostler-panel);
-+            border: 1px solid var(--ostler-hairline-faint);
-+            border-radius: 12px;
-+            padding: 1.4rem 1.5rem;
-+            box-shadow: var(--shadow-soft);
-+            margin-bottom: 1.4rem;
-+        }}
-+        .panel p {{ color: var(--text-secondary); margin-bottom: 0.85rem; }}
-+        .help {{
-+            font-size: 0.82rem;
-+            color: var(--text-muted);
-+            margin-top: 0.55rem;
-+            line-height: 1.55;
-+        }}
-+        .help code {{
-+            font-family: var(--font-mono);
-+            font-size: 0.78rem;
-+            background: var(--ostler-ink-deep);
-+            border: 1px solid var(--ostler-hairline-faint);
-+            border-radius: 4px;
-+            padding: 0.1rem 0.35rem;
-+            color: var(--ostler-accent-warm);
-+        }}
-+        label {{
-+            display: block;
-+            font-family: var(--font-display);
-+            font-size: 0.78rem;
-+            text-transform: uppercase;
-+            letter-spacing: 0.16em;
-+            color: var(--text-muted);
-+            margin-bottom: 0.45rem;
-+            font-weight: 500;
-+        }}
-+        input[type="text"] {{
-+            display: block;
-+            width: 100%;
-+            background: var(--ostler-ink-deep);
-+            color: var(--text);
-+            border: 1px solid var(--ostler-hairline-soft);
-+            border-radius: 8px;
-+            padding: 0.75rem 0.95rem;
-+            font-family: var(--font-mono);
-+            font-size: 0.86rem;
-+            letter-spacing: 0.01em;
-+            outline: none;
-+            transition: border-color 0.18s, box-shadow 0.18s;
-+        }}
-+        input[type="text"]:focus {{
-+            border-color: var(--ostler-accent);
-+            box-shadow: 0 0 0 3px var(--ostler-accent-glow);
-+        }}
-+        input[type="text"]::placeholder {{ color: var(--text-faint); }}
-+        .button-row {{
-+            display: flex;
-+            gap: 0.6rem;
-+            align-items: center;
-+            margin-top: 1rem;
-+            flex-wrap: wrap;
-+        }}
-+        button.primary, button.secondary {{
-+            font-family: var(--font-display);
-+            font-weight: 500;
-+            font-size: 0.85rem;
-+            padding: 0.65rem 1.4rem;
-+            border-radius: 999px;
-+            cursor: pointer;
-+            border: 1px solid transparent;
-+            transition: background 0.18s, transform 0.18s, box-shadow 0.18s, border-color 0.18s, color 0.18s;
-+        }}
-+        button.primary {{
-+            background: var(--ostler-accent);
-+            color: white;
-+        }}
-+        button.primary:hover {{
-+            background: var(--ostler-accent-hover);
-+            transform: translateY(-1px);
-+            box-shadow: var(--shadow-soft);
-+        }}
-+        button.primary:disabled {{
-+            background: var(--ostler-panel-elev);
-+            color: var(--text-muted);
-+            cursor: not-allowed;
-+            transform: none;
-+            box-shadow: none;
-+        }}
-+        button.secondary {{
-+            background: var(--ostler-panel);
-+            color: var(--text-secondary);
-+            border-color: var(--ostler-hairline-soft);
-+        }}
-+        button.secondary:hover {{
-+            border-color: var(--ostler-accent);
-+            color: var(--text);
-+            background: var(--ostler-panel-elev);
-+            transform: translateY(-1px);
-+        }}
-+        .banner {{
-+            padding: 0.75rem 1rem;
-+            border-radius: 8px;
-+            font-size: 0.86rem;
-+            margin-bottom: 1.2rem;
-+            border-left: 3px solid var(--red);
-+            background: rgba(217, 102, 102, 0.10);
-+            color: var(--text);
-+            display: none;
-+        }}
-+        .banner.visible {{ display: block; }}
-+        .status-row {{
-+            display: flex;
-+            align-items: center;
-+            gap: 0.85rem;
-+            margin-bottom: 1rem;
-+            flex-wrap: wrap;
-+        }}
-+        .status-pill {{
-+            font-family: var(--font-display);
-+            font-size: 0.7rem;
-+            text-transform: uppercase;
-+            letter-spacing: 0.18em;
-+            padding: 0.3rem 0.85rem;
-+            border-radius: 999px;
-+            font-weight: 600;
-+            color: white;
-+            background: var(--text-faint);
-+        }}
-+        .status-pill.running {{ background: var(--yellow); }}
-+        .status-pill.succeeded {{ background: var(--green); }}
+             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+             --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+             --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+@@ -2550,7 +4689,7 @@
+         }}
+         .status-pill.running {{ background: var(--yellow); }}
+         .status-pill.succeeded {{ background: var(--green); }}
+-        .status-pill.partial {{ background: #d4a052; }}
 +        .status-pill.partial {{ background: #5C4611; }}
-+        .status-pill.failed {{ background: var(--red); }}
-+        .status-meta {{
-+            font-family: var(--font-mono);
-+            font-size: 0.76rem;
-+            letter-spacing: 0.02em;
-+            color: var(--text-muted);
-+        }}
-+        .log-pane {{
-+            background: var(--ostler-ink-deep);
-+            border: 1px solid var(--ostler-hairline-soft);
-+            border-radius: 8px;
-+            padding: 0.85rem 1rem;
-+            font-family: var(--font-mono);
-+            font-size: 0.78rem;
-+            line-height: 1.5;
-+            color: var(--text-secondary);
-+            max-height: 360px;
-+            overflow-y: auto;
-+            white-space: pre-wrap;
-+            word-break: break-word;
-+        }}
-+        .log-pane.empty {{
-+            color: var(--text-faint);
-+            font-style: italic;
-+        }}
-+        .meta-bottom {{
-+            font-family: var(--font-mono);
-+            font-size: 0.72rem;
-+            letter-spacing: 0.04em;
-+            color: var(--text-faint);
-+            margin-top: 2rem;
-+            padding-top: 1.1rem;
-+            border-top: 1px solid var(--ostler-hairline-faint);
-+        }}
-+        button:focus-visible {{
-+            outline: 2px solid var(--ostler-accent);
-+            outline-offset: 2px;
-+        }}
-+        @media (max-width: 720px) {{
-+            body {{ padding: 1.4rem 1rem; }}
-+            h1 {{ font-size: 1.4rem; }}
-+        }}
-+    </style>
-+</head>
-+<body>
-+    <div class="container">
+         .status-pill.failed {{ background: var(--red); }}
+         .status-meta {{
+             font-family: var(--font-mono);
+@@ -2597,47 +4736,47 @@
+ </head>
+ <body>
+     <div class="container">
+-        <h1>{EVERNOTE_HEADING}</h1>
 +        <h1>{OBSIDIAN_HEADING}</h1>
-+        <div class="subtitle">
+         <div class="subtitle">
+-            {EVERNOTE_SUBTITLE}
 +            {OBSIDIAN_SUBTITLE}
-+        </div>
-+
-+        <div id="errorBanner" class="banner"></div>
-+
-+        <div id="formPanel" class="panel" style="display:none">
+         </div>
+ 
+         <div id="errorBanner" class="banner"></div>
+ 
+         <div id="formPanel" class="panel" style="display:none">
+-            <div class="section-title">{EVERNOTE_SECTION_SOURCE}</div>
 +            <div class="section-title">{OBSIDIAN_SECTION_SOURCE}</div>
-+            <p>
+             <p>
+-                {EVERNOTE_INTRO_HTML}
 +                {OBSIDIAN_INTRO_HTML}
-+            </p>
-+            <form id="importForm" autocomplete="off">
+             </p>
+             <form id="importForm" autocomplete="off">
+-                <label for="enexPath">{EVERNOTE_LABEL_PATH}</label>
+-                <input type="text" id="enexPath" name="enex_path"
+-                    placeholder="{EVERNOTE_PLACEHOLDER_PATH}"
 +                <label for="sourcePath">{OBSIDIAN_LABEL_PATH}</label>
 +                <input type="text" id="sourcePath" name="path"
 +                    placeholder="{OBSIDIAN_PLACEHOLDER_PATH}"
-+                    spellcheck="false" autocapitalize="off">
-+                <div class="help">
+                     spellcheck="false" autocapitalize="off">
+                 <div class="help">
+-                    {EVERNOTE_HELP_TIP_HTML}
 +                    {OBSIDIAN_HELP_TIP_HTML}
-+                </div>
-+                <div class="button-row">
+                 </div>
+                 <div class="button-row">
+-                    <button type="submit" class="primary" id="submitBtn">{EVERNOTE_BTN_START}</button>
 +                    <button type="submit" class="primary" id="submitBtn">{OBSIDIAN_BTN_START}</button>
-+                </div>
-+            </form>
-+        </div>
-+
-+        <div id="jobPanel" class="panel" style="display:none">
+                 </div>
+             </form>
+         </div>
+ 
+         <div id="jobPanel" class="panel" style="display:none">
+-            <div class="section-title">{EVERNOTE_SECTION_STATUS}</div>
 +            <div class="section-title">{OBSIDIAN_SECTION_STATUS}</div>
-+            <div class="status-row">
+             <div class="status-row">
+-                <span class="status-pill" id="statusPill">{EVERNOTE_PILL_STARTING}</span>
 +                <span class="status-pill" id="statusPill">{OBSIDIAN_PILL_STARTING}</span>
-+                <span class="status-meta" id="statusMeta"></span>
-+            </div>
+                 <span class="status-meta" id="statusMeta"></span>
+             </div>
+-            <div class="section-title" style="margin-top:1.2rem">{EVERNOTE_SECTION_LOG_TAIL}</div>
+-            <div class="log-pane empty" id="logPane">{EVERNOTE_WAITING_FIRST_LOG}</div>
 +            <div class="section-title" style="margin-top:1.2rem">{OBSIDIAN_SECTION_LOG_TAIL}</div>
 +            <div class="log-pane empty" id="logPane">{OBSIDIAN_WAITING_FIRST_LOG}</div>
-+            <div class="button-row" id="resetRow" style="display:none">
+             <div class="button-row" id="resetRow" style="display:none">
+-                <button type="button" class="secondary" id="resetBtn">{EVERNOTE_BTN_IMPORT_ANOTHER}</button>
 +                <button type="button" class="secondary" id="resetBtn">{OBSIDIAN_BTN_IMPORT_ANOTHER}</button>
-+            </div>
-+        </div>
-+
-+        <div class="meta-bottom">
+             </div>
+         </div>
+ 
+         <div class="meta-bottom">
+-            {EVERNOTE_META_FOOTER_HTML}
 +            {OBSIDIAN_META_FOOTER_HTML}
-+        </div>
-+    </div>
-+
-+    <script>
-+    (function() {{
-+        const STATUS_POLL_MS = 5000;
-+        const TAIL_POLL_MS = 10000;
-+        const INITIAL_JOB_ID = {initial_job_id_js};
-+
-+        const formPanel = document.getElementById('formPanel');
-+        const jobPanel = document.getElementById('jobPanel');
-+        const importForm = document.getElementById('importForm');
-+        const submitBtn = document.getElementById('submitBtn');
+         </div>
+     </div>
+ 
+@@ -2651,7 +4790,7 @@
+         const jobPanel = document.getElementById('jobPanel');
+         const importForm = document.getElementById('importForm');
+         const submitBtn = document.getElementById('submitBtn');
+-        const enexInput = document.getElementById('enexPath');
 +        const sourceInput = document.getElementById('sourcePath');
-+        const statusPill = document.getElementById('statusPill');
-+        const statusMeta = document.getElementById('statusMeta');
-+        const logPane = document.getElementById('logPane');
-+        const resetRow = document.getElementById('resetRow');
-+        const resetBtn = document.getElementById('resetBtn');
-+        const errorBanner = document.getElementById('errorBanner');
-+
-+        let currentJobId = null;
-+        let statusTimer = null;
-+        let tailTimer = null;
-+
-+        function showError(msg) {{
-+            errorBanner.textContent = msg;
-+            errorBanner.classList.add('visible');
-+        }}
-+
-+        function clearError() {{
-+            errorBanner.classList.remove('visible');
-+            errorBanner.textContent = '';
-+        }}
-+
-+        function showForm() {{
-+            formPanel.style.display = '';
-+            jobPanel.style.display = 'none';
+         const statusPill = document.getElementById('statusPill');
+         const statusMeta = document.getElementById('statusMeta');
+         const logPane = document.getElementById('logPane');
+@@ -2676,8 +4815,8 @@
+         function showForm() {{
+             formPanel.style.display = '';
+             jobPanel.style.display = 'none';
+-            enexInput.value = '';
+-            enexInput.focus();
 +            sourceInput.value = '';
 +            sourceInput.focus();
-+        }}
-+
-+        function showJobPanel() {{
-+            formPanel.style.display = 'none';
-+            jobPanel.style.display = '';
-+        }}
-+
-+        function renderStatus(state) {{
-+            const status = state.status || 'unknown';
-+            statusPill.textContent = status;
-+            statusPill.className = 'status-pill ' + status;
-+
-+            const bits = [];
-+            if (state.job_id) bits.push('job ' + state.job_id);
-+            if (state.started_at) bits.push('started ' + state.started_at.substring(0, 19) + 'Z');
-+            if (state.completed_at) bits.push('finished ' + state.completed_at.substring(0, 19) + 'Z');
-+            if (state.exit_code !== null && state.exit_code !== undefined) {{
-+                bits.push('exit ' + state.exit_code);
-+            }}
-+            // A degraded ('partial') import carries a human-facing note
-+            // explaining what landed and what is pending; surface it.
-+            if (state.note) bits.push(state.note);
-+            statusMeta.textContent = bits.join(' \\u00b7 ');
-+
-+            if (status === 'succeeded' || status === 'failed' || status === 'partial') {{
-+                resetRow.style.display = '';
-+                stopPolling();
-+                // One last tail fetch to make sure the final output is shown.
-+                fetchTail();
-+            }} else {{
-+                resetRow.style.display = 'none';
-+            }}
-+        }}
-+
-+        function fetchStatus() {{
-+            if (!currentJobId) return;
+         }}
+ 
+         function showJobPanel() {{
+@@ -2714,14 +4853,14 @@
+ 
+         function fetchStatus() {{
+             if (!currentJobId) return;
+-            fetch('/api/v1/import/evernote/' + encodeURIComponent(currentJobId) + '/status')
 +            fetch('/api/v1/import/obsidian/' + encodeURIComponent(currentJobId) + '/status')
-+                .then(function(r) {{
-+                    if (r.status === 404) {{
-+                        // Either feature flipped off mid-session, or the
-+                        // job_id has been reaped. Either way the page is
-+                        // out of sync; force a reload.
-+                        stopPolling();
+                 .then(function(r) {{
+                     if (r.status === 404) {{
+                         // Either feature flipped off mid-session, or the
+                         // job_id has been reaped. Either way the page is
+                         // out of sync; force a reload.
+                         stopPolling();
+-                        showError('{EVERNOTE_ERROR_JOB_NOT_FOUND}');
 +                        showError('{OBSIDIAN_ERROR_JOB_NOT_FOUND}');
-+                        return null;
-+                    }}
-+                    return r.json();
-+                }})
-+                .then(function(state) {{
-+                    if (state) renderStatus(state);
-+                }})
-+                .catch(function(err) {{
+                         return null;
+                     }}
+                     return r.json();
+@@ -2730,13 +4869,13 @@
+                     if (state) renderStatus(state);
+                 }})
+                 .catch(function(err) {{
+-                    showError('{EVERNOTE_ERROR_STATUS_FAIL_PREFIX}' + err);
 +                    showError('{OBSIDIAN_ERROR_STATUS_FAIL_PREFIX}' + err);
-+                }});
-+        }}
-+
-+        function fetchTail() {{
-+            if (!currentJobId) return;
+                 }});
+         }}
+ 
+         function fetchTail() {{
+             if (!currentJobId) return;
+-            fetch('/api/v1/import/evernote/' + encodeURIComponent(currentJobId) + '/tail')
 +            fetch('/api/v1/import/obsidian/' + encodeURIComponent(currentJobId) + '/tail')
-+                .then(function(r) {{
-+                    if (!r.ok) return null;
-+                    return r.text();
-+                }})
-+                .then(function(text) {{
-+                    if (text === null) return;
-+                    if (!text || text.trim() === '') {{
-+                        logPane.classList.add('empty');
-+                        logPane.textContent = 'Waiting for first log output\\u2026';
-+                    }} else {{
-+                        logPane.classList.remove('empty');
-+                        logPane.textContent = text;
-+                        // Auto-scroll to the bottom so the latest line is
-+                        // always visible without manual scrolling.
-+                        logPane.scrollTop = logPane.scrollHeight;
-+                    }}
-+                }})
-+                .catch(function(err) {{
-+                    // Don't surface tail failures as errors - the status
-+                    // pane is the source of truth.
-+                }});
-+        }}
-+
-+        function startPolling() {{
-+            stopPolling();
-+            fetchStatus();
-+            fetchTail();
-+            statusTimer = setInterval(fetchStatus, STATUS_POLL_MS);
-+            tailTimer = setInterval(fetchTail, TAIL_POLL_MS);
-+        }}
-+
-+        function stopPolling() {{
-+            if (statusTimer) {{ clearInterval(statusTimer); statusTimer = null; }}
-+            if (tailTimer) {{ clearInterval(tailTimer); tailTimer = null; }}
-+        }}
-+
-+        function handleSubmit(event) {{
-+            event.preventDefault();
-+            clearError();
+                 .then(function(r) {{
+                     if (!r.ok) return null;
+                     return r.text();
+@@ -2776,17 +4915,17 @@
+         function handleSubmit(event) {{
+             event.preventDefault();
+             clearError();
+-            const path = enexInput.value.trim();
 +            const path = sourceInput.value.trim();
-+            if (!path) {{
+             if (!path) {{
+-                showError('{EVERNOTE_ERROR_NO_PATH}');
 +                showError('{OBSIDIAN_ERROR_NO_PATH}');
-+                return;
-+            }}
-+            submitBtn.disabled = true;
+                 return;
+             }}
+             submitBtn.disabled = true;
+-            submitBtn.textContent = '{EVERNOTE_BTN_STARTING}';
+-            fetch('/api/v1/import/evernote', {{
 +            submitBtn.textContent = '{OBSIDIAN_BTN_STARTING}';
 +            fetch('/api/v1/import/obsidian', {{
-+                method: 'POST',
-+                headers: {{'Content-Type': 'application/json'}},
+                 method: 'POST',
+                 headers: {{'Content-Type': 'application/json'}},
+-                body: JSON.stringify({{enex_path: path}}),
 +                body: JSON.stringify({{path: path}}),
-+            }})
-+                .then(function(r) {{
-+                    return r.json().then(function(body) {{ return [r.status, body]; }});
-+                }})
-+                .then(function(pair) {{
-+                    const status = pair[0], body = pair[1];
-+                    if (status === 200 && body.job_id) {{
-+                        currentJobId = body.job_id;
-+                        showJobPanel();
-+                        startPolling();
-+                    }} else {{
-+                        showError(body.error || ('Import failed to start (HTTP ' + status + ')'));
-+                    }}
-+                }})
-+                .catch(function(err) {{
+             }})
+                 .then(function(r) {{
+                     return r.json().then(function(body) {{ return [r.status, body]; }});
+@@ -2802,11 +4941,11 @@
+                     }}
+                 }})
+                 .catch(function(err) {{
+-                    showError('{EVERNOTE_ERROR_NETWORK_PREFIX}' + err);
 +                    showError('{OBSIDIAN_ERROR_NETWORK_PREFIX}' + err);
-+                }})
-+                .finally(function() {{
-+                    submitBtn.disabled = false;
+                 }})
+                 .finally(function() {{
+                     submitBtn.disabled = false;
+-                    submitBtn.textContent = '{EVERNOTE_BTN_START}';
 +                    submitBtn.textContent = '{OBSIDIAN_BTN_START}';
-+                }});
-+        }}
-+
-+        function handleReset() {{
-+            stopPolling();
-+            currentJobId = null;
-+            clearError();
-+            resetRow.style.display = 'none';
-+            logPane.classList.add('empty');
-+            logPane.textContent = 'Waiting for first log output\\u2026';
+                 }});
+         }}
+ 
+@@ -2817,7 +4956,7 @@
+             resetRow.style.display = 'none';
+             logPane.classList.add('empty');
+             logPane.textContent = 'Waiting for first log output\\u2026';
+-            statusPill.textContent = '{EVERNOTE_PILL_STARTING}';
 +            statusPill.textContent = '{OBSIDIAN_PILL_STARTING}';
-+            statusPill.className = 'status-pill';
-+            statusMeta.textContent = '';
-+            showForm();
-+        }}
-+
-+        importForm.addEventListener('submit', handleSubmit);
-+        resetBtn.addEventListener('click', handleReset);
-+
-+        if (INITIAL_JOB_ID) {{
-+            // Reattach to an in-flight job whose POST was issued from
-+            // an earlier tab. The server discovered the live lockfile
-+            // and rendered the job_id into the page; we go straight to
-+            // the polling state without showing the form.
-+            currentJobId = INITIAL_JOB_ID;
-+            showJobPanel();
-+            startPolling();
-+        }} else {{
-+            showForm();
-+        }}
-+    }})();
-+    </script>
-+</body>
-+</html>"""
-+
-+
-+@app.get("/import-evernote", response_class=HTMLResponse)
-+async def import_evernote_page():
-+    """Render the Evernote import page. 404 when the feature flag is off."""
-+    from import_evernote import current_running_job_id, is_feature_enabled
-+
-+    if not is_feature_enabled():
-+        return JSONResponse(
-+            {"error": "feature_disabled"}, status_code=404,
-+        )
-+    return HTMLResponse(_render_import_evernote_page(
-+        active_job_id=current_running_job_id(),
-+    ))
-+
-+
-+@app.post("/api/v1/import/evernote", response_class=JSONResponse)
-+async def api_import_evernote_start(request: Request):
-+    """Start a new Evernote import job.
-+
-+    Body: ``{"enex_path": "/path/to/export.enex"}``. On success returns
-+    ``{"job_id": "...", "status": "started"}`` with 200. Validation
-+    failures surface as 400 / 404 / 409 / 500 per
-+    ``import_evernote.EvernoteImportError``. Returns 404
-+    ``{"error": "feature_disabled"}`` when the flag is off.
-+    """
-+    from import_evernote import (
-+        EvernoteImportError as _Err,
-+        is_feature_enabled as _flag,
-+        start_import as _start,
-+        validate_enex_path as _validate,
-+    )
-+
-+    if not _flag():
-+        return JSONResponse(
-+            {"error": "feature_disabled"}, status_code=404,
-+        )
-+
-+    try:
-+        body = await request.json()
-+    except Exception as exc:
-+        return JSONResponse(
-+            {"error": f"invalid JSON: {exc}"}, status_code=400,
-+        )
-+
-+    if not isinstance(body, dict):
-+        return JSONResponse(
-+            {"error": "body must be a JSON object"}, status_code=400,
-+        )
-+
-+    try:
-+        enex_path = _validate(body.get("enex_path"))
-+        result = _start(enex_path)
-+    except _Err as exc:
-+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
-+
-+    return JSONResponse(result, status_code=200)
-+
-+
-+@app.get("/api/v1/import/evernote/{job_id}/status", response_class=JSONResponse)
-+async def api_import_evernote_status(job_id: str):
-+    """Return the state of an Evernote import job."""
-+    from import_evernote import (
-+        EvernoteImportError as _Err,
-+        is_feature_enabled as _flag,
-+        read_status as _status,
-+    )
-+
-+    if not _flag():
-+        return JSONResponse(
-+            {"error": "feature_disabled"}, status_code=404,
-+        )
-+
-+    try:
-+        return JSONResponse(_status(job_id), status_code=200)
-+    except _Err as exc:
-+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
-+
-+
-+@app.get("/api/v1/import/evernote/{job_id}/tail", response_class=PlainTextResponse)
-+async def api_import_evernote_tail(job_id: str):
-+    """Return the last 100 lines of the job's import log as text/plain."""
-+    from import_evernote import (
-+        EvernoteImportError as _Err,
-+        is_feature_enabled as _flag,
-+        read_tail as _tail,
-+    )
-+
-+    if not _flag():
-+        return JSONResponse(
-+            {"error": "feature_disabled"}, status_code=404,
-+        )
-+
-+    try:
-+        return PlainTextResponse(_tail(job_id), status_code=200)
-+    except _Err as exc:
-+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
-+
-+
+             statusPill.className = 'status-pill';
+             statusMeta.textContent = '';
+             showForm();
+@@ -2940,6 +5079,200 @@
+         return JSONResponse({"error": exc.detail}, status_code=exc.status)
+ 
+ 
 +@app.get("/import-notion", response_class=HTMLResponse)
 +async def import_notion_page():
 +    """Render the Notion import page. 404 when the feature flag is off."""
@@ -11475,397 +9533,48 @@
 +        return JSONResponse({"error": exc.detail}, status_code=exc.status)
 +
 +
-+# ── Pair iOS device panel (DFA-002) ──────────────────────────────────
-+
-+
-+def _render_pair_ios_page() -> str:
-+    """Render the Pair iOS device panel.
-+
-+    Vanilla HTML + JS, no framework. Matches Doctor's chassis tokens
-+    (Outfit / Plex Sans / Plex Mono, ostler-ink palette) so it sits
-+    visually next to ``/doctor`` rather than feeling bolted on.
-+
-+    The QR image is rendered server-side as inline SVG and embedded in
-+    the API JSON; the client just sets ``innerHTML``. No external
-+    JavaScript libraries are loaded.
-+    """
-+    return f"""<!DOCTYPE html>
-+<html lang="en">
-+<head>
-+    <meta charset="UTF-8">
-+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-+    <title>{PAIR_IOS_TITLE_TAG}</title>
-+    <style>
-+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
-+        :root {{
-+            --ostler-ink: #0d0b08;
-+            --ostler-ink-deep: #07060a;
+ # ── Pair iOS device panel (DFA-002) ──────────────────────────────────
+ 
+ 
+@@ -2965,21 +5298,21 @@
+         :root {{
+             --ostler-ink: #0d0b08;
+             --ostler-ink-deep: #07060a;
+-            --ostler-panel: #1a1612;
+-            --ostler-panel-elev: #221c16;
 +            --ostler-panel: #FFFFFF;
 +            --ostler-panel-elev: #FFFFFF;
-+            --ostler-chassis: #ECE8DD;
+             --ostler-chassis: #ECE8DD;
+-            --ostler-accent: #C84545;
+-            --ostler-accent-hover: #D76060;
+-            --ostler-accent-warm: #E26A6A;
+-            --ostler-accent-glow: rgba(200, 69, 69, 0.18);
+-            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
+-            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
 +            --ostler-accent: #7A1F1F;
 +            --ostler-accent-hover: #6E1717;
 +            --ostler-accent-warm: #7A1F1F;
 +            --ostler-accent-glow: rgba(122, 31, 31, 0.18);
 +            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
 +            --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
-+            --text: var(--ostler-chassis);
+             --text: var(--ostler-chassis);
+-            --text-secondary: rgba(236, 232, 221, 0.74);
+-            --text-muted: rgba(236, 232, 221, 0.50);
+-            --text-faint: rgba(236, 232, 221, 0.32);
+-            --red: #d96666;
+-            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
 +            --text-secondary: rgba(20, 18, 14, 0.74);
 +            --text-muted: rgba(20, 18, 14, 0.50);
 +            --text-faint: rgba(20, 18, 14, 0.32);
 +            --red: #7A1F1F;
 +            --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
-+            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-+            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-+            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
-+        }}
-+        * {{ margin:0; padding:0; box-sizing:border-box; }}
-+        body {{
-+            font-family: var(--font-body);
-+            font-size: 15px;
-+            line-height: 1.5;
-+            background: var(--ostler-ink);
-+            color: var(--text);
-+            min-height: 100vh;
-+            padding: 2.5rem 1.75rem;
-+            -webkit-font-smoothing: antialiased;
-+            -moz-osx-font-smoothing: grayscale;
-+        }}
-+        a {{ color: var(--ostler-accent); text-decoration: none; }}
-+        a:hover {{ color: var(--ostler-accent-hover); }}
-+        .container {{ max-width: 600px; margin: 0 auto; }}
-+        h1 {{
-+            font-family: var(--font-display);
-+            font-size: 1.7rem;
-+            font-weight: 600;
-+            letter-spacing: -0.02em;
-+            margin-bottom: 0.3rem;
-+        }}
-+        .subtitle {{
-+            font-family: var(--font-mono);
-+            font-size: 0.78rem;
-+            letter-spacing: 0.04em;
-+            color: var(--text-muted);
-+            margin-bottom: 2rem;
-+        }}
-+        .subtitle a {{ color: var(--text-muted); }}
-+        .subtitle a:hover {{ color: var(--ostler-accent-warm); text-decoration: underline; }}
-+        .section-title {{
-+            font-family: var(--font-display);
-+            font-size: 0.72rem;
-+            text-transform: uppercase;
-+            letter-spacing: 0.18em;
-+            color: var(--text-muted);
-+            margin-bottom: 0.85rem;
-+            font-weight: 500;
-+        }}
-+        .panel {{
-+            background: var(--ostler-panel);
-+            border: 1px solid var(--ostler-hairline-faint);
-+            border-radius: 12px;
-+            padding: 1.4rem 1.5rem;
-+            box-shadow: var(--shadow-soft);
-+            margin-bottom: 1.4rem;
-+        }}
-+        .panel p {{ color: var(--text-secondary); margin-bottom: 0.85rem; }}
-+        .help {{
-+            font-size: 0.82rem;
-+            color: var(--text-muted);
-+            margin-top: 0.55rem;
-+            line-height: 1.55;
-+        }}
-+        .qr-wrap {{
-+            display: flex;
-+            justify-content: center;
-+            margin: 0.6rem 0 0.4rem;
-+        }}
-+        .qr-frame {{
-+            background: var(--ostler-chassis);
-+            border-radius: 12px;
-+            padding: 1rem;
-+            box-shadow: var(--shadow-soft);
-+        }}
-+        .qr-frame svg {{
-+            display: block;
-+            width: 240px;
-+            height: 240px;
-+        }}
-+        .hub-addr {{
-+            font-family: var(--font-mono);
-+            font-size: 0.92rem;
-+            letter-spacing: 0.04em;
-+            color: var(--text-secondary);
-+            background: var(--ostler-ink-deep);
-+            border: 1px solid var(--ostler-hairline-soft);
-+            border-radius: 8px;
-+            padding: 0.55rem 0.85rem;
-+            text-align: center;
-+            margin: 1rem 0 0.4rem;
-+            user-select: all;
-+            -webkit-user-select: all;
-+        }}
-+        .hub-addr-label {{
-+            font-family: var(--font-display);
-+            font-size: 0.7rem;
-+            text-transform: uppercase;
-+            letter-spacing: 0.16em;
-+            color: var(--text-muted);
-+            text-align: center;
-+            margin-top: 0.85rem;
-+        }}
-+        .camera-hint {{
-+            font-size: 0.82rem;
-+            color: var(--text-muted);
-+            text-align: center;
-+            line-height: 1.5;
-+            margin-top: 0.85rem;
-+        }}
-+        .empty-state-title {{
-+            font-family: var(--font-display);
-+            font-size: 1.05rem;
-+            font-weight: 600;
-+            margin-bottom: 0.55rem;
-+            color: var(--text);
-+        }}
-+        .button-row {{
-+            display: flex;
-+            gap: 0.6rem;
-+            align-items: center;
-+            margin-top: 1.1rem;
-+            flex-wrap: wrap;
-+        }}
-+        button.secondary {{
-+            font-family: var(--font-display);
-+            font-weight: 500;
-+            font-size: 0.85rem;
-+            padding: 0.65rem 1.4rem;
-+            border-radius: 999px;
-+            cursor: pointer;
-+            background: var(--ostler-panel);
-+            color: var(--text-secondary);
-+            border: 1px solid var(--ostler-hairline-soft);
-+            transition: background 0.18s, transform 0.18s, box-shadow 0.18s, border-color 0.18s, color 0.18s;
-+        }}
-+        button.secondary:hover {{
-+            border-color: var(--ostler-accent);
-+            color: var(--text);
-+            background: var(--ostler-panel-elev);
-+            transform: translateY(-1px);
-+        }}
-+        button.secondary:disabled {{
-+            background: var(--ostler-panel);
-+            color: var(--text-muted);
-+            cursor: not-allowed;
-+            transform: none;
-+            border-color: var(--ostler-hairline-faint);
-+        }}
-+        button:focus-visible {{
-+            outline: 2px solid var(--ostler-accent);
-+            outline-offset: 2px;
-+        }}
-+        .banner {{
-+            padding: 0.75rem 1rem;
-+            border-radius: 8px;
-+            font-size: 0.86rem;
-+            margin-bottom: 1.2rem;
-+            border-left: 3px solid var(--red);
-+            background: rgba(217, 102, 102, 0.10);
-+            color: var(--text);
-+            display: none;
-+        }}
-+        .banner.visible {{ display: block; }}
-+        .network-notice {{
-+            padding: 0.7rem 1rem;
-+            border-radius: 8px;
-+            font-size: 0.82rem;
-+            margin-bottom: 1.4rem;
-+            border-left: 3px solid #e0a437;
-+            background: rgba(224, 164, 55, 0.10);
-+            color: var(--text-secondary);
-+            line-height: 1.5;
-+        }}
-+        .meta-bottom {{
-+            font-family: var(--font-mono);
-+            font-size: 0.72rem;
-+            letter-spacing: 0.04em;
-+            color: var(--text-faint);
-+            margin-top: 2rem;
-+            padding-top: 1.1rem;
-+            border-top: 1px solid var(--ostler-hairline-faint);
-+            line-height: 1.55;
-+        }}
-+        @media (max-width: 720px) {{
-+            body {{ padding: 1.4rem 1rem; }}
-+            h1 {{ font-size: 1.4rem; }}
-+            .qr-frame svg {{ width: 200px; height: 200px; }}
-+            .hub-addr {{ font-size: 0.82rem; }}
-+        }}
-+    </style>
-+</head>
-+<body>
-+    <div class="container">
-+        <h1>{PAIR_IOS_HEADING}</h1>
-+        <div class="subtitle">
-+            {PAIR_IOS_SUBTITLE}
-+        </div>
-+
-+        <div class="network-notice">{PAIR_IOS_NETWORK_BANNER_HTML}</div>
-+
-+        <div id="errorBanner" class="banner"></div>
-+
-+        <div id="codePanel" class="panel" style="display:none">
-+            <div class="section-title">{PAIR_IOS_SECTION_CODE}</div>
-+            <p>{PAIR_IOS_INTRO_HTML}</p>
-+            <div class="qr-wrap">
-+                <div class="qr-frame" id="qrFrame"></div>
-+            </div>
-+            <div class="camera-hint">{PAIR_IOS_CAMERA_HINT_HTML}</div>
-+            <div class="hub-addr-label">{PAIR_IOS_HUB_ADDR_LABEL}</div>
-+            <div class="hub-addr" id="hubAddr"></div>
-+            <div class="button-row">
-+                <button type="button" class="secondary" id="regenerateBtn">{PAIR_IOS_BTN_REGENERATE}</button>
-+            </div>
-+        </div>
-+
-+        <div id="emptyPanel" class="panel" style="display:none">
-+            <div class="empty-state-title" id="emptyTitle"></div>
-+            <p id="emptyDetail"></p>
-+            <div class="button-row" id="emptyButtonRow" style="display:none">
-+                <button type="button" class="secondary" id="regenerateBtnEmpty">{PAIR_IOS_BTN_REGENERATE}</button>
-+            </div>
-+        </div>
-+
-+        <div class="meta-bottom">
-+            {PAIR_IOS_META_FOOTER_HTML}
-+        </div>
-+    </div>
-+
-+    <script>
-+    (function() {{
-+        const STATUS_POLL_MS = 15000;
-+
-+        const codePanel = document.getElementById('codePanel');
-+        const emptyPanel = document.getElementById('emptyPanel');
-+        const qrFrame = document.getElementById('qrFrame');
-+        const hubAddrEl = document.getElementById('hubAddr');
-+        const emptyTitle = document.getElementById('emptyTitle');
-+        const emptyDetail = document.getElementById('emptyDetail');
-+        const emptyButtonRow = document.getElementById('emptyButtonRow');
-+        const regenerateBtn = document.getElementById('regenerateBtn');
-+        const regenerateBtnEmpty = document.getElementById('regenerateBtnEmpty');
-+        const errorBanner = document.getElementById('errorBanner');
-+
-+        function showError(msg) {{
-+            errorBanner.textContent = msg;
-+            errorBanner.classList.add('visible');
-+        }}
-+
-+        function clearError() {{
-+            errorBanner.classList.remove('visible');
-+            errorBanner.textContent = '';
-+        }}
-+
-+        function showCode(state) {{
-+            emptyPanel.style.display = 'none';
-+            codePanel.style.display = '';
-+            qrFrame.innerHTML = state.qr_svg || '';
-+            hubAddrEl.textContent = state.hub_addr || '';
-+        }}
-+
-+        function showEmpty(title, detail, withRegenerate) {{
-+            codePanel.style.display = 'none';
-+            emptyPanel.style.display = '';
-+            emptyTitle.innerHTML = title;
-+            emptyDetail.innerHTML = detail;
-+            emptyButtonRow.style.display = withRegenerate ? '' : 'none';
-+        }}
-+
-+        function renderState(state) {{
-+            if (state.available && state.qr_svg) {{
-+                showCode(state);
-+                return;
-+            }}
-+            switch (state.error_kind) {{
-+                case 'pairing_disabled':
-+                    showEmpty(
-+                        '{PAIR_IOS_DISABLED_TITLE}',
-+                        '{PAIR_IOS_DISABLED_DETAIL}',
-+                        false
-+                    );
-+                    break;
-+                case 'no_code_active':
-+                    showEmpty(
-+                        '{PAIR_IOS_NO_CODE_TITLE}',
-+                        '{PAIR_IOS_NO_CODE_DETAIL}',
-+                        true
-+                    );
-+                    break;
-+                case 'qr_render_failed':
-+                    showEmpty(
-+                        '{PAIR_IOS_QR_RENDER_TITLE}',
-+                        '{PAIR_IOS_QR_RENDER_DETAIL}',
-+                        true
-+                    );
-+                    break;
-+                case 'gateway_envelope_invalid':
-+                    showEmpty(
-+                        '{PAIR_IOS_ENVELOPE_INVALID_TITLE}',
-+                        '{PAIR_IOS_ENVELOPE_INVALID_DETAIL}',
-+                        true
-+                    );
-+                    break;
-+                default:
-+                    // gateway_down / timeout / unreachable / http_error /
-+                    // malformed -- all surface the same friendly "Hub not
-+                    // ready yet" empty state.
-+                    showEmpty(
-+                        '{PAIR_IOS_EMPTY_TITLE}',
-+                        '{PAIR_IOS_EMPTY_DETAIL}',
-+                        false
-+                    );
-+            }}
-+        }}
-+
-+        function fetchStatus() {{
-+            fetch('/api/v1/pair/status')
-+                .then(function(r) {{ return r.json(); }})
-+                .then(function(state) {{
-+                    clearError();
-+                    renderState(state);
-+                }})
-+                .catch(function(err) {{
-+                    showError('{PAIR_IOS_ERROR_NETWORK_PREFIX}' + err);
-+                }});
-+        }}
-+
-+        function regenerate(btn) {{
-+            const originalLabel = btn.textContent;
-+            btn.disabled = true;
-+            btn.textContent = '{PAIR_IOS_BTN_REGENERATING}';
-+            fetch('/api/v1/pair/regenerate', {{method: 'POST'}})
-+                .then(function(r) {{ return r.json(); }})
-+                .then(function(state) {{
-+                    clearError();
-+                    renderState(state);
-+                }})
-+                .catch(function(err) {{
-+                    showError('{PAIR_IOS_ERROR_REGENERATE_PREFIX}' + err);
-+                }})
-+                .finally(function() {{
-+                    btn.disabled = false;
-+                    btn.textContent = originalLabel;
-+                }});
-+        }}
-+
-+        regenerateBtn.addEventListener('click', function() {{ regenerate(regenerateBtn); }});
-+        regenerateBtnEmpty.addEventListener('click', function() {{ regenerate(regenerateBtnEmpty); }});
-+
-+        fetchStatus();
-+        setInterval(fetchStatus, STATUS_POLL_MS);
-+    }})();
-+    </script>
-+</body>
-+</html>"""
+             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+             --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+             --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+@@ -3331,8 +5664,484 @@
+     </script>
+ </body>
+ </html>"""
 +
 +
 +def _render_whatsapp_pair_page() -> str:
@@ -11874,9 +9583,9 @@
 +    Vanilla HTML + JS, no framework, chassis tokens inlined the same way
 +    ``_render_pair_ios_page`` does so the two pairing surfaces sit together
 +    rather than one feeling bolted on.
-+
+ 
 +    THREE DESIGN RULES, each load-bearing:
-+
+ 
 +    1. The countdown renders the daemon's MEASURED ``expires_at``. Doctor
 +       applies no TTL of its own. A countdown that disagrees with WhatsApp's is
 +       worse than no countdown, because the customer trusts the one on screen.
@@ -12344,13 +10053,15 @@
 +    return JSONResponse(fetch_token_status().to_dict(), status_code=200)
 +
 +
-+@app.get("/pair-ios", response_class=HTMLResponse)
-+async def pair_ios_page():
-+    """Render the Pair iOS device panel (DFA-002)."""
-+    return HTMLResponse(_render_pair_ios_page())
-+
-+
-+@app.get("/api/v1/pair/status", response_class=JSONResponse)
+ @app.get("/pair-ios", response_class=HTMLResponse)
+ async def pair_ios_page():
+     """Render the Pair iOS device panel (DFA-002)."""
+@@ -3340,8 +6149,20 @@
+ 
+ 
+ @app.get("/api/v1/pair/status", response_class=JSONResponse)
+-async def api_pair_status():
+-    """Return the current pair code, QR SVG, and any error state."""
 +async def api_pair_status(request: Request):
 +    """Return the current pair code, QR SVG, and any error state.
 +
@@ -12365,565 +10076,117 @@
 +    if refusal is not None:
 +        return refusal
 +
-+    from pair_status import fetch_pair_status
-+    return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
-+
-+
-+@app.post("/api/v1/pair/regenerate", response_class=JSONResponse)
-+async def api_pair_regenerate(request: Request):
-+    """Rotate the pair code via the gateway and return the new shape.
-+
-+    Cross-origin POSTs from a malicious local browser tab can DOS the
-+    pair code (rotate it under the customer's feet) even though the
-+    same-origin policy blocks the attacker from reading the new code.
+     from pair_status import fetch_pair_status
+     return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
+ 
+@@ -3353,18 +6174,17 @@
+     Cross-origin POSTs from a malicious local browser tab can DOS the
+     pair code (rotate it under the customer's feet) even though the
+     same-origin policy blocks the attacker from reading the new code.
+-    Modern browsers set ``Sec-Fetch-Site`` automatically; reject
+-    anything that is not ``same-origin`` or ``none`` (the latter
+-    covers direct navigation and bookmarks). Older browsers do not
+-    send the header; in that case the request is allowed through and
+-    the same-origin policy remains the defence-in-depth.
 +
 +    This used to check ``Sec-Fetch-Site`` alone, inline. It now calls the
 +    shared ``_cross_site_refusal``, which adds the ``Origin`` half: a browser
 +    old enough not to stamp ``Sec-Fetch-Site`` still sends ``Origin`` on a
 +    POST, and that case was the gap. One predicate, so the four credential
 +    routes cannot drift apart the way this one and the chat-token mint had.
-+    """
+     """
+-    sec_fetch_site = request.headers.get("sec-fetch-site")
+-    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
+-        return JSONResponse(
+-            {"error": "Cross-site request refused"},
+-            status_code=403,
+-        )
 +    refusal = _not_hub_local(request) or _cross_site_refusal(request)
 +    if refusal is not None:
 +        return refusal
 +
-+    from pair_status import fetch_pair_status
-+    return JSONResponse(
-+        fetch_pair_status(fresh=True).to_dict(), status_code=200,
-+    )
-+
-+
-+# ── Configuration panel (backlog #261) ───────────────────────────────
-+#
-+# A view-and-edit surface for the customer-safe Ostler settings file at
-+# ``~/.ostler/config/config.yaml``. Read-first: it always renders the
-+# current config; a small strict whitelist of fields (channel toggles,
-+# model, schedule times, privacy default) can be edited and written
-+# back. Secrets are never rendered -- secret-looking keys show
-+# "set"/"not set" only. See ``config_panel.py`` for the schema, the
-+# whitelist, validation, and the atomic write.
-+
-+
-+def _render_config_page() -> str:
-+    """Render the Doctor Configuration panel.
-+
-+    Vanilla HTML + JS, no framework. Matches Doctor's chassis tokens
-+    (Outfit / Plex Sans / Plex Mono, ostler-ink palette) so it sits
-+    visually next to ``/doctor`` and ``/pair-ios``.
-+
-+    The form is built client-side from the ``/api/v1/config`` view
-+    model, so the whitelist and current values live in one place
-+    (``config_panel.py``) and the page stays in sync automatically.
-+    """
-+    return f"""<!DOCTYPE html>
-+<html lang="en">
-+<head>
-+    <meta charset="UTF-8">
-+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-+    <title>{CONFIG_TITLE_TAG}</title>
-+    <style>
-+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
-+        :root {{
-+            --ostler-ink: #0d0b08;
-+            --ostler-ink-deep: #07060a;
+     from pair_status import fetch_pair_status
+     return JSONResponse(
+         fetch_pair_status(fresh=True).to_dict(), status_code=200,
+@@ -3404,21 +6224,21 @@
+         :root {{
+             --ostler-ink: #0d0b08;
+             --ostler-ink-deep: #07060a;
+-            --ostler-panel: #1a1612;
+-            --ostler-panel-elev: #221c16;
 +            --ostler-panel: #FFFFFF;
 +            --ostler-panel-elev: #FFFFFF;
-+            --ostler-chassis: #ECE8DD;
+             --ostler-chassis: #ECE8DD;
+-            --ostler-accent: #C84545;
+-            --ostler-accent-hover: #D76060;
+-            --ostler-accent-warm: #E26A6A;
+-            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
+-            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
 +            --ostler-accent: #7A1F1F;
 +            --ostler-accent-hover: #6E1717;
 +            --ostler-accent-warm: #7A1F1F;
 +            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
 +            --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
-+            --text: var(--ostler-chassis);
+             --text: var(--ostler-chassis);
+-            --text-secondary: rgba(236, 232, 221, 0.74);
+-            --text-muted: rgba(236, 232, 221, 0.50);
+-            --text-faint: rgba(236, 232, 221, 0.32);
+-            --green: #5cb579;
+-            --red: #d96666;
+-            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
 +            --text-secondary: rgba(20, 18, 14, 0.74);
 +            --text-muted: rgba(20, 18, 14, 0.50);
 +            --text-faint: rgba(20, 18, 14, 0.32);
 +            --green: #2C4A2C;
 +            --red: #7A1F1F;
 +            --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
-+            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-+            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-+            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
-+        }}
-+        * {{ margin:0; padding:0; box-sizing:border-box; }}
-+        body {{
-+            font-family: var(--font-body);
-+            font-size: 15px;
-+            line-height: 1.5;
-+            background: var(--ostler-ink);
-+            color: var(--text);
-+            min-height: 100vh;
-+            padding: 2.5rem 1.75rem;
-+            -webkit-font-smoothing: antialiased;
-+            -moz-osx-font-smoothing: grayscale;
-+        }}
-+        a {{ color: var(--ostler-accent); text-decoration: none; }}
-+        a:hover {{ color: var(--ostler-accent-hover); }}
-+        .container {{ max-width: 640px; margin: 0 auto; }}
-+        h1 {{
-+            font-family: var(--font-display);
-+            font-size: 1.7rem;
-+            font-weight: 600;
-+            letter-spacing: -0.02em;
-+            margin-bottom: 0.3rem;
-+        }}
-+        .subtitle {{
-+            font-family: var(--font-mono);
-+            font-size: 0.78rem;
-+            letter-spacing: 0.04em;
-+            color: var(--text-muted);
-+            margin-bottom: 2rem;
-+        }}
-+        .subtitle a {{ color: var(--text-muted); }}
-+        .subtitle a:hover {{ color: var(--ostler-accent-warm); text-decoration: underline; }}
-+        .section-title {{
-+            font-family: var(--font-display);
-+            font-size: 0.72rem;
-+            text-transform: uppercase;
-+            letter-spacing: 0.18em;
-+            color: var(--text-muted);
-+            margin-bottom: 0.85rem;
-+            font-weight: 500;
-+        }}
-+        .panel {{
-+            background: var(--ostler-panel);
-+            border: 1px solid var(--ostler-hairline-faint);
-+            border-radius: 12px;
-+            padding: 1.4rem 1.5rem;
-+            box-shadow: var(--shadow-soft);
-+            margin-bottom: 1.4rem;
-+        }}
-+        .panel p {{ color: var(--text-secondary); margin-bottom: 0.85rem; }}
-+        .field {{
-+            display: flex;
-+            align-items: flex-start;
-+            justify-content: space-between;
-+            gap: 1rem;
-+            padding: 0.85rem 0;
-+            border-top: 1px solid var(--ostler-hairline-faint);
-+        }}
-+        .field:first-of-type {{ border-top: none; padding-top: 0.2rem; }}
-+        .field-text {{ flex: 1 1 auto; min-width: 0; }}
-+        .field-label {{
-+            font-family: var(--font-display);
-+            font-weight: 500;
-+            font-size: 0.95rem;
-+            color: var(--text);
-+        }}
-+        .field-help {{
-+            font-size: 0.8rem;
-+            color: var(--text-muted);
-+            margin-top: 0.2rem;
-+            line-height: 1.5;
-+        }}
-+        .field-control {{ flex: 0 0 auto; padding-top: 0.1rem; }}
-+        select {{
-+            font-family: var(--font-body);
-+            font-size: 0.88rem;
-+            color: var(--text);
-+            background: var(--ostler-ink-deep);
-+            border: 1px solid var(--ostler-hairline-soft);
-+            border-radius: 8px;
-+            padding: 0.45rem 0.7rem;
-+            min-width: 9rem;
-+        }}
-+        input[type="time"] {{
-+            font-family: var(--font-mono);
-+            font-size: 0.88rem;
-+            color: var(--text);
-+            background: var(--ostler-ink-deep);
-+            border: 1px solid var(--ostler-hairline-soft);
-+            border-radius: 8px;
-+            padding: 0.4rem 0.6rem;
-+            color-scheme: dark;
-+        }}
-+        select:focus, input:focus {{
-+            outline: none;
-+            border-color: var(--ostler-accent);
-+        }}
-+        /* Toggle switch */
-+        .toggle {{
-+            position: relative;
-+            display: inline-block;
-+            width: 44px;
-+            height: 26px;
-+        }}
-+        .toggle input {{ opacity: 0; width: 0; height: 0; }}
-+        .toggle .slider {{
-+            position: absolute;
-+            cursor: pointer;
-+            inset: 0;
-+            background: var(--ostler-ink-deep);
-+            border: 1px solid var(--ostler-hairline-soft);
-+            border-radius: 999px;
-+            transition: background 0.18s, border-color 0.18s;
-+        }}
-+        .toggle .slider::before {{
-+            content: "";
-+            position: absolute;
-+            height: 18px;
-+            width: 18px;
-+            left: 3px;
-+            top: 3px;
-+            background: var(--text-secondary);
-+            border-radius: 50%;
-+            transition: transform 0.18s, background 0.18s;
-+        }}
-+        .toggle input:checked + .slider {{
-+            background: var(--ostler-accent);
-+            border-color: var(--ostler-accent);
-+        }}
-+        .toggle input:checked + .slider::before {{
-+            transform: translateX(18px);
-+            background: var(--ostler-chassis);
-+        }}
-+        .toggle input:focus-visible + .slider {{
-+            outline: 2px solid var(--ostler-accent);
-+            outline-offset: 2px;
-+        }}
-+        .readonly-row {{
-+            display: flex;
-+            align-items: baseline;
-+            justify-content: space-between;
-+            gap: 1rem;
-+            padding: 0.5rem 0;
-+            border-top: 1px solid var(--ostler-hairline-faint);
-+            font-size: 0.86rem;
-+        }}
-+        .readonly-row:first-of-type {{ border-top: none; }}
-+        .readonly-key {{
-+            font-family: var(--font-mono);
-+            color: var(--text-secondary);
-+            word-break: break-all;
-+        }}
-+        .readonly-val {{
-+            font-family: var(--font-mono);
-+            color: var(--text-muted);
-+            text-align: right;
-+        }}
-+        .badge {{
-+            font-family: var(--font-display);
-+            font-size: 0.68rem;
-+            text-transform: uppercase;
-+            letter-spacing: 0.1em;
-+            padding: 0.15rem 0.5rem;
-+            border-radius: 999px;
-+            border: 1px solid var(--ostler-hairline-soft);
-+            color: var(--text-muted);
-+        }}
-+        .badge.set {{ color: var(--green); border-color: rgba(92,181,121,0.4); }}
-+        .badge.secret {{ color: var(--text-faint); }}
-+        .button-row {{
-+            display: flex;
-+            gap: 0.6rem;
-+            align-items: center;
-+            margin-top: 1.1rem;
-+            flex-wrap: wrap;
-+        }}
-+        button.primary {{
-+            font-family: var(--font-display);
-+            font-weight: 500;
-+            font-size: 0.85rem;
-+            padding: 0.65rem 1.5rem;
-+            border-radius: 999px;
-+            cursor: pointer;
-+            background: var(--ostler-accent);
-+            color: var(--ostler-chassis);
-+            border: 1px solid var(--ostler-accent);
-+            transition: background 0.18s, transform 0.18s, box-shadow 0.18s;
-+        }}
-+        button.primary:hover {{
-+            background: var(--ostler-accent-hover);
-+            transform: translateY(-1px);
-+        }}
-+        button.primary:disabled {{
-+            background: var(--ostler-panel);
-+            color: var(--text-muted);
-+            border-color: var(--ostler-hairline-faint);
-+            cursor: not-allowed;
-+            transform: none;
-+        }}
-+        button:focus-visible {{
-+            outline: 2px solid var(--ostler-accent);
-+            outline-offset: 2px;
-+        }}
-+        .config-path {{
-+            font-family: var(--font-mono);
-+            font-size: 0.78rem;
-+            color: var(--text-faint);
-+        }}
-+        .banner {{
-+            padding: 0.75rem 1rem;
-+            border-radius: 8px;
-+            font-size: 0.86rem;
-+            margin-bottom: 1.2rem;
-+            border-left: 3px solid var(--red);
-+            background: rgba(217, 102, 102, 0.10);
-+            color: var(--text);
-+            display: none;
-+        }}
-+        .banner.visible {{ display: block; }}
-+        .banner.ok {{
-+            border-left-color: var(--green);
-+            background: rgba(92, 181, 121, 0.10);
-+        }}
-+        .empty {{ color: var(--text-muted); font-size: 0.86rem; }}
-+        .meta-bottom {{
-+            font-family: var(--font-mono);
-+            font-size: 0.72rem;
-+            letter-spacing: 0.04em;
-+            color: var(--text-faint);
-+            margin-top: 2rem;
-+            padding-top: 1.1rem;
-+            border-top: 1px solid var(--ostler-hairline-faint);
-+            line-height: 1.55;
-+        }}
-+        @media (max-width: 720px) {{
-+            body {{ padding: 1.4rem 1rem; }}
-+            h1 {{ font-size: 1.4rem; }}
-+            .field {{ flex-direction: column; }}
-+            .field-control {{ align-self: flex-start; }}
-+        }}
-+    </style>
-+</head>
-+<body>
-+    <div class="container">
-+        <h1>{CONFIG_HEADING}</h1>
-+        <div class="subtitle">
-+            {CONFIG_SUBTITLE}
-+        </div>
-+
-+        <div id="statusBanner" class="banner"></div>
-+
-+        <div id="editPanels"></div>
-+
-+        <div id="readonlyPanel" class="panel" style="display:none">
-+            <div class="section-title">{CONFIG_SECTION_READONLY}</div>
-+            <p>{CONFIG_READONLY_INTRO}</p>
-+            <div id="readonlyRows"></div>
-+        </div>
-+
-+        <div class="button-row">
-+            <button type="button" class="primary" id="saveBtn">{CONFIG_BTN_SAVE}</button>
-+            <span class="config-path" id="configPath"></span>
-+        </div>
-+
-+        <div class="meta-bottom">
-+            {CONFIG_META_FOOTER}
-+        </div>
-+    </div>
-+
-+    <script>
-+    (function() {{
-+        const editPanels = document.getElementById('editPanels');
-+        const readonlyPanel = document.getElementById('readonlyPanel');
-+        const readonlyRows = document.getElementById('readonlyRows');
-+        const saveBtn = document.getElementById('saveBtn');
-+        const statusBanner = document.getElementById('statusBanner');
-+        const configPathEl = document.getElementById('configPath');
-+
-+        const SECTION_ORDER = {json.dumps(list(_config_section_order()))};
-+
-+        function showStatus(msg, ok) {{
-+            statusBanner.textContent = msg;
-+            statusBanner.className = 'banner visible' + (ok ? ' ok' : '');
-+        }}
-+        function clearStatus() {{
-+            statusBanner.className = 'banner';
-+            statusBanner.textContent = '';
-+        }}
-+
-+        function esc(s) {{
-+            const d = document.createElement('div');
-+            d.textContent = s == null ? '' : String(s);
-+            return d.innerHTML;
-+        }}
-+
-+        function controlFor(field) {{
-+            const id = 'cfg_' + field.key;
-+            if (field.kind === 'bool') {{
-+                const checked = field.value === true ? ' checked' : '';
-+                return '<label class="toggle"><input type="checkbox" id="' + id +
-+                    '" data-key="' + esc(field.key) + '" data-kind="bool"' + checked +
-+                    '><span class="slider"></span></label>';
-+            }}
-+            if (field.kind === 'enum') {{
-+                let opts = '';
-+                if (field.value == null) {{
-+                    opts += '<option value="" selected>{CONFIG_OPT_UNSET}</option>';
-+                }}
-+                field.choices.forEach(function(c) {{
-+                    const sel = (c === field.value) ? ' selected' : '';
-+                    opts += '<option value="' + esc(c) + '"' + sel + '>' + esc(c) + '</option>';
-+                }});
-+                return '<select id="' + id + '" data-key="' + esc(field.key) +
-+                    '" data-kind="enum">' + opts + '</select>';
-+            }}
-+            if (field.kind === 'time') {{
-+                const v = field.value == null ? '' : esc(field.value);
-+                return '<input type="time" id="' + id + '" data-key="' + esc(field.key) +
-+                    '" data-kind="time" value="' + v + '">';
-+            }}
-+            return '';
-+        }}
-+
-+        function renderEdit(view) {{
-+            editPanels.innerHTML = '';
-+            const bySection = {{}};
-+            view.editable.forEach(function(f) {{
-+                (bySection[f.section] = bySection[f.section] || []).push(f);
-+            }});
-+            SECTION_ORDER.forEach(function(section) {{
-+                const fields = bySection[section];
-+                if (!fields || !fields.length) return;
-+                let rows = '';
-+                fields.forEach(function(f) {{
-+                    rows += '<div class="field"><div class="field-text">' +
-+                        '<div class="field-label">' + esc(f.label) + '</div>' +
-+                        '<div class="field-help">' + esc(f.help) + '</div></div>' +
-+                        '<div class="field-control">' + controlFor(f) + '</div></div>';
-+                }});
-+                editPanels.insertAdjacentHTML('beforeend',
-+                    '<div class="panel"><div class="section-title">' + esc(section) +
-+                    '</div>' + rows + '</div>');
-+            }});
-+        }}
-+
-+        function renderReadonly(view) {{
-+            if (!view.read_only || !view.read_only.length) {{
-+                readonlyPanel.style.display = 'none';
-+                return;
-+            }}
-+            readonlyPanel.style.display = '';
-+            let rows = '';
-+            view.read_only.forEach(function(r) {{
-+                let right;
-+                if (r.is_secret) {{
-+                    const cls = r.is_set ? 'badge set secret' : 'badge secret';
-+                    right = '<span class="' + cls + '">' +
-+                        (r.is_set ? '{CONFIG_SECRET_SET}' : '{CONFIG_SECRET_UNSET}') + '</span>';
-+                }} else {{
-+                    right = '<span class="readonly-val">' + esc(r.value) + '</span>';
-+                }}
-+                rows += '<div class="readonly-row"><span class="readonly-key">' +
-+                    esc(r.key) + '</span>' + right + '</div>';
-+            }});
-+            readonlyRows.innerHTML = rows;
-+        }}
-+
-+        function render(view) {{
-+            renderEdit(view);
-+            renderReadonly(view);
-+            configPathEl.textContent = view.config_path || '';
-+        }}
-+
-+        function load() {{
-+            fetch('/api/v1/config')
-+                .then(function(r) {{ return r.json(); }})
-+                .then(function(view) {{
-+                    if (view.error) {{ showStatus(view.error, false); return; }}
-+                    clearStatus();
-+                    render(view);
-+                }})
-+                .catch(function(err) {{
-+                    showStatus('{CONFIG_ERR_LOAD_PREFIX}' + err, false);
-+                }});
-+        }}
-+
-+        function collectUpdates() {{
-+            const updates = {{}};
-+            const controls = editPanels.querySelectorAll('[data-key]');
-+            controls.forEach(function(el) {{
-+                const key = el.getAttribute('data-key');
-+                const kind = el.getAttribute('data-kind');
-+                if (kind === 'bool') {{
-+                    updates[key] = el.checked;
-+                }} else {{
-+                    const v = el.value;
-+                    if (v !== '') updates[key] = v;
-+                }}
-+            }});
-+            return updates;
-+        }}
-+
-+        function save() {{
-+            const updates = collectUpdates();
-+            const label = saveBtn.textContent;
-+            saveBtn.disabled = true;
-+            saveBtn.textContent = '{CONFIG_BTN_SAVING}';
-+            fetch('/api/v1/config', {{
-+                method: 'POST',
-+                headers: {{'Content-Type': 'application/json'}},
-+                body: JSON.stringify(updates)
-+            }})
-+                .then(function(r) {{ return r.json().then(function(b) {{ return {{ok: r.ok, body: b}}; }}); }})
-+                .then(function(res) {{
-+                    if (!res.ok) {{
-+                        showStatus(res.body.error || '{CONFIG_ERR_SAVE_GENERIC}', false);
-+                        return;
-+                    }}
-+                    render(res.body);
-+                    showStatus('{CONFIG_SAVED}', true);
-+                }})
-+                .catch(function(err) {{
-+                    showStatus('{CONFIG_ERR_SAVE_PREFIX}' + err, false);
-+                }})
-+                .finally(function() {{
-+                    saveBtn.disabled = false;
-+                    saveBtn.textContent = label;
-+                }});
-+        }}
-+
-+        saveBtn.addEventListener('click', save);
-+        load();
-+    }})();
-+    </script>
-+</body>
-+</html>"""
-+
-+
-+@app.get("/config", response_class=HTMLResponse)
-+async def config_page():
-+    """Render the Doctor Configuration panel (backlog #261)."""
-+    return HTMLResponse(_render_config_page())
-+
-+
-+@app.get("/api/v1/config", response_class=JSONResponse)
+             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+             --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+             --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+@@ -3867,12 +6687,22 @@
+ 
+ 
+ @app.get("/api/v1/config", response_class=JSONResponse)
+-async def api_config_get():
 +async def api_config_get(request: Request):
-+    """Return the current config view model.
-+
-+    Secrets are never included as values: secret-looking keys are
-+    reported presence-only (set / not set). See ``config_panel.py``.
+     """Return the current config view model.
+ 
+     Secrets are never included as values: secret-looking keys are
+     reported presence-only (set / not set). See ``config_panel.py``.
 +
 +    Not a credential route, so it is not in the list above -- but it is the
 +    customer's settings (channels, schedule, model, privacy default) and
 +    wildcard CORS made it readable by any page they opened. The POST beside it
 +    already refused a cross-site write; the READ refused nothing. Its only
 +    caller is the Doctor's own ``/config`` panel, same-origin.
-+    """
+     """
 +    refusal = _cross_site_refusal(request)
 +    if refusal is not None:
 +        return refusal
 +
-+    from config_panel import ConfigError as _ConfigError, read_config_view
-+
-+    try:
-+        return JSONResponse(read_config_view(), status_code=200)
-+    except _ConfigError as exc:
-+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
-+
-+
-+@app.post("/api/v1/config", response_class=JSONResponse)
-+async def api_config_post(request: Request):
-+    """Validate + persist a whitelist of safe config edits.
-+
+     from config_panel import ConfigError as _ConfigError, read_config_view
+ 
+     try:
+@@ -3885,18 +6715,16 @@
+ async def api_config_post(request: Request):
+     """Validate + persist a whitelist of safe config edits.
+ 
+-    Same cross-site guard as the pair-regenerate route: reject any POST
+-    whose ``Sec-Fetch-Site`` is present and not same-origin, so a
+-    malicious local tab cannot mutate the customer's config under them.
 +    Same cross-site guard as the pair-regenerate route, and now literally the
 +    same function, so a malicious local tab cannot mutate the customer's
 +    config under them. The inline copy this replaces checked
 +    ``Sec-Fetch-Site`` only; ``_cross_site_refusal`` adds the ``Origin`` half.
-+    Only whitelisted, non-secret fields are writable; everything else is
-+    rejected by ``config_panel.write_config``.
-+    """
+     Only whitelisted, non-secret fields are writable; everything else is
+     rejected by ``config_panel.write_config``.
+     """
+-    sec_fetch_site = request.headers.get("sec-fetch-site")
+-    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
+-        return JSONResponse(
+-            {"error": "Cross-site request refused"},
+-            status_code=403,
+-        )
 +    refusal = _cross_site_refusal(request)
 +    if refusal is not None:
 +        return refusal
