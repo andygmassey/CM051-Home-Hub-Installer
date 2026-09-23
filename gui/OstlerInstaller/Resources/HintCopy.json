@@ -471,6 +471,17 @@
     "illustration": null,
     "needs_fda": false
   },
+  "editor_frontpage_catchup_agent": {
+    "id": "editor_frontpage_catchup_agent",
+    "title": "Scheduling your Front Page catch-up",
+    "subtitle": "Your interests are still being read in",
+    "why": "Ostler is still reading your bookmarks, notes and messages while this installer finishes, so your Front Page has almost nothing to show yet. This schedules a short catch-up that rebuilds it as soon as your interests land, rather than leaving you with an empty page until the next hourly refresh.",
+    "duration_estimate_s": 30,
+    "long_running_threshold_s": 30,
+    "long_running_copy": null,
+    "illustration": null,
+    "needs_fda": false
+  },
   "ostler_remotecapture": {
     "id": "ostler_remotecapture",
     "title": "Setting up call and meeting transcripts",
