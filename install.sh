@@ -3334,7 +3334,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8219   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8264   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8273 and :14685, both of which run
+    # Its two top-level arming calls are :8273 and :14730, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3325 above has just deleted
     # that tree and :3329 has just rebound OSTLER_DIR to the final one, so
@@ -3352,13 +3352,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15456, where the note reads
+    # WhatsApp Web session path did it again at :15501, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15473 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15518 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3371,9 +3371,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8273, :14685) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8273, :14730) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17528 / :17706 / :17863 / :18205 path. There the
+    # :17573 / :17751 / :17908 / :18250 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -10820,7 +10820,46 @@ PRESET=${PRESET:-recommended}
 # and Safari history"). Pre-fix the strings file promised those sources
 # but the bash var did not include them, so install completed with the
 # wiki empty of iMessage + email-correspondent data on every install.
-RECOMMENDED="safari_history,safari_bookmarks,calendar,reminders,imessage,apple_mail"
+#
+# apple_notes (2026-09-23): THE SAME DEFECT AS #48g, ON THE SAME LINE, FOUND
+# AGAIN. Everything downstream of the picker already shipped and was already
+# proven: vendor/cm024_knowledge registers the apple_notes adapter (its
+# ADAPTERS map, and cli.py builds `--source` from that map), the hydrate leg
+# below drives `convert --source apple_notes` + embed, the assistant searches
+# apple_notes_knowledge (OSTLER_KNOWLEDGE_COLLECTIONS, marked :searched), the
+# Doctor prints an apple_notes row unconditionally (_SOURCE_KINDS in the
+# vendored web_ui.py), and extract_all.py has apple_notes in DEFAULT_SOURCES
+# with an extractor that writes apple_notes.json. The ONLY missing link was
+# this line and the picker below, so OSTLER_FDA_SOURCES never carried the
+# name, extract_all took `disabled_by_user`, the JSON was never written, the
+# `[[ ! -s ]]` gate on the hydrate leg always skipped, and
+# apple_notes_knowledge was empty on every install ever shipped.
+#
+# MEASURED on the v1.0.101 walk rather than reasoned about:
+# state/hydrate/apple_notes.done read `status=no_data item_count=0
+# detail=no_export_json` and imports/fda/apple_notes.json did not exist.
+#
+# WHY RECOMMENDED AND NOT EVERYTHING-ONLY. Three reasons, in order of weight:
+#   1. The customer copy already promises it in Recommended, in BOTH places a
+#      customer can read it: MSG_PROMPT_FDA_PRESET_CHOICE_RECOMMENDED ("...
+#      Calendar, Notes, Messages ...") and the TTY menu just above ("Safari
+#      history + bookmarks, Notes, Calendar, ..."). Listing it only under
+#      Everything would leave both promises false, which is precisely the
+#      strings-promise-vs-var mismatch #48g existed to close.
+#   2. It costs NO new permission. NoteStore.sqlite sits behind the same
+#      single Full Disk Access grant already taken for Safari, iMessage and
+#      Mail at this same moment. There is no separate Notes prompt to decline,
+#      so the "do not print an amber row for ever to someone who said no"
+#      concern does not arise: the customer never says no to Notes
+#      specifically. Contrast photos_metadata, which stays off by default.
+#   3. The Doctor row is UNCONDITIONAL either way. apple_notes is in
+#      _SOURCE_KINDS, not _FDA_EXTRACT_KINDS, so the panel prints the row
+#      whether or not a sentinel exists. Everything-only would therefore keep
+#      the amber "not run yet" row on the default install forever, which is
+#      the outcome the deferral was supposed to avoid.
+# Andy, 2026-09-02, on the deferral this replaces: "I don't know where you're
+# getting that Apple Notes shouldn't be included - it SHOULD."
+RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders,imessage,apple_mail"
 
 # DMG fix 3 (#618 partial): most customers are Chrome-primary, so a
 # Recommended install must ingest Chrome history too when Chrome is
@@ -10876,6 +10915,12 @@ case "$PRESET" in
         echo "  Recommended (defaults on):"
         _ask_source "safari_history"   "Safari history          " Y
         _ask_source "safari_bookmarks" "Safari bookmarks        " Y
+        # Same order as the TTY menu above and as RECOMMENDED. A source in a
+        # preset but NOT here is worse than dark: the customer who picks
+        # Customise loses it silently while the Recommended customer keeps it,
+        # and nothing in the summary line says so.
+        # tests/test_the_picker_offers_every_preset_source.sh asserts the join.
+        _ask_source "apple_notes"      "Apple Notes             " Y
         _ask_source "calendar"         "Calendar                " Y
         _ask_source "reminders"        "Reminders               " Y
         _ask_source "imessage"         "iMessage                " Y
@@ -12185,13 +12230,13 @@ if ! [[ "$TOTAL_STEPS" =~ ^[0-9]+$ ]] || [[ "$TOTAL_STEPS" -le 0 ]]; then
     # the thing that holds when this constant next drifts, and it will.
     #
     # tests/test_total_steps_dynamic.sh exercises this path (BASH_SOURCE is
-    # unresolvable under `bash -c`) and fails if this constant drifts.
-    # 42 -> 43 on 2026-09-18: the merge-consistency repair (CM041 #162) added
-    # a progress call. Bumped because tests/test_total_steps_dynamic.sh failed
-    # on it, which is the arm working as designed; a customer on the
-    # `curl | bash` path would otherwise have divided by 42 while 43 steps ran
-    # and watched the bar finish at 102%.
-    TOTAL_STEPS=43
+    # unresolvable under `bash -c`) and fails if this drifts. Citations below.
+    # 42 -> 43 on 2026-09-18 (merge-consistency repair, CM041 #162), 43 -> 44 on
+    # 2026-09-23 (Front Page catch-up agent, 3.14d-editor-bis). Each was forced
+    # by tests/test_total_steps_dynamic.sh, the arm working as designed: a
+    # `curl | bash` customer would otherwise divide by the stale number, and
+    # watch the bar finish past 100%. EDIT THIS BLOCK LINE-NEUTRALLY: comment
+    TOTAL_STEPS=44
     [[ -n "$EXPORTS_DIR" ]] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 fi
 CURRENT_STEP=0
@@ -23817,6 +23862,7 @@ OSTLER_LAUNCHAGENT_LABELS=(
     com.creativemachines.ostler.wiki-recompile
     com.creativemachines.ostler.wiki-recompile-catchup
     com.creativemachines.ostler.editor-frontpage
+    com.creativemachines.ostler.editor-frontpage-catchup
     com.creativemachines.ostler.dedupe-catchup
     com.ostler.enrich
     com.creativemachines.ostler.assistant
@@ -26324,6 +26370,366 @@ if [[ -n "$EDITOR_FRONTPAGE_SRC" ]]; then
     fi
 else
     warn "$MSG_WARN_EDITOR_FRONTPAGE_VENDOR_MISSING"
+fi
+
+# ── 3.14d-editor-bis  Front Page FIRST-DAY catch-up LaunchAgent ──
+#
+# 🔴 RunAtLoad FIRES WHEN THE GRAPH IS EMPTY, AND NOTHING RE-RUNS FOR AN HOUR.
+#
+# The agent installed immediately above is StartInterval 3600 + RunAtLoad true,
+# and its own plist comment states the intent: "RunAtLoad fires one emit at
+# LaunchAgent load (post-install / login) so the Dashboard shows a populated
+# (or honestly-settling) Front Page immediately rather than after the first
+# hour." On a fresh install it does not achieve that, because the install
+# finishes BEFORE the ingest it depends on.
+#
+# MEASURED END TO END on macmini16-walk, 2026-09-23, from the box's own
+# ~/.ostler/logs/editor-frontpage.log and .err:
+#
+#   12:00:53  tick  projected 0 preference nodes from 0 Qdrant points
+#                   interest-profile artefact: 0 interests
+#   13:00:58  tick  projected 0 preference nodes from 926 Qdrant points;
+#                   926 skipped as unqueryable
+#                   interest-profile artefact: 0 interests
+#   13:05     the real preference points land (bookmarks and the rest)
+#   13:29     the SAME installed wrapper, run by hand, on the SAME box:
+#                   projected 4797 preference nodes (43173 triples) from
+#                   5723 Qdrant points
+#                   interest-profile artefact: 4628 interests
+#                   front-page: 9 cards (phase=steady)
+#
+# 0 interests to 4,628 with no other change. Nothing is wrong with the
+# projector or the compiler. THE SCHEDULE IS WRONG: the one guaranteed run
+# happens at the one moment there is provably nothing to read.
+#
+# WHAT THE CUSTOMER GETS in that window, which is up to a full hour wide:
+# an empty Front Page on the Dashboard, and an assistant that cannot answer
+# a question about their own interests, because
+# ~/.ostler/preferences/interest_profile.json is the file
+# /api/v1/preferences serves and the daemon's pwg_preferences tool reads.
+# The BLOCKING walk probe assistant_answers_grounded scores
+# [tool_found_nothing:pwg_preferences] for exactly this reason, twice in a
+# row on two different builds. scripts/box_walk_probes/lib/preference_seed.sh
+# had already written the cause down in its own header: "Its RunAtLoad tick
+# fires at the END OF THE INSTALL, before any seed exists ... which nothing
+# rewrote for an hour."
+#
+# THE FIX IS THE SHAPE THAT ALREADY SHIPS, one block up: the wiki's first-day
+# catch-up agent (com.creativemachines.ostler.wiki-recompile-catchup). A
+# self-removing wrapper that counts its runs against a cap, re-runs the
+# EXISTING tick (no duplicated compile logic), and boots out its own agent
+# once the work is done or the cap is reached. The hourly agent above is
+# deliberately left EXACTLY as it is -- its RunAtLoad run is harmless, and the
+# missing catch-up is the whole defect.
+#
+# HOW THE WRAPPER TELLS "NOT POPULATED YET" FROM "GENUINELY NOTHING TO
+# PROJECT", because a box whose owner really has no preferences must stop
+# rather than retry to the cap:
+#
+#   the UPSTREAM DENOMINATOR, read as THREE states, never two. The Qdrant
+#   `preferences` collection is what compiler.project_preferences reads and
+#   what every interest ultimately comes from.
+#     n > 0        there IS data upstream and the profile is still empty, so
+#                  the projection/compile has not caught up. RETRY.
+#     n == 0 on a 200  the collection exists and holds nothing. No number of
+#                  retries can change that. STOP -- but only after
+#                  EDITOR_CATCHUP_EMPTY_CONFIRMATIONS consecutive readings,
+#                  so a collection created at hydrate and filled ten minutes
+#                  later cannot end the catch-up on the one tick that caught
+#                  it between the two.
+#     404 / curl failure / unparseable body  COULD NOT LOOK. That is not a
+#                  zero and is never read as one. RETRY, bounded by the cap.
+#
+#   "found nothing" and "could not look" print identically unless you make
+#   them different, and this is the block where making them different is the
+#   entire correctness argument.
+#
+# INTERVAL 300s, NOT the wiki's 1800s, and the difference is justified by what
+# each tick costs. The wiki catch-up drives a full site recompile. This one
+# drives the Front Page tick, measured at 5s on the cold run and under 1s on
+# the second (times from the log above), and it stops the moment it succeeds,
+# so on a healthy box it runs a handful of times. 36 tries at 300s bounds the
+# worst case at 3 hours, which comfortably covers the 65-minute ingest window
+# measured above with room for a slower Mac.
+#
+# STEP-COUNT: UNCONDITIONAL progress call, NO late decrement, and that is a
+# deliberate departure from the wiki catch-up one block up.
+#
+# The wiki's version gates its `progress` on the tick existing and subtracts a
+# slot when it does not. Copying that here would have added a NINTH late
+# decrement, and scripts' ratchet pins the late-decrement count at 8 with the
+# reason stated: a decrement that fires AFTER the first progress call moves the
+# denominator the customer has already been shown a percentage against, so the
+# bar jumps. The gate offers "hoist it above the seed, or say so in the PR and
+# raise the pin". Neither was needed. The condition here is
+# `-x ${OSTLER_DIR}/bin/editor-frontpage-tick.sh`, which the 3.14d-editor block
+# renders moments earlier, so it is genuinely unknowable at seed time and
+# cannot be hoisted -- but it does not have to be a GATE. The step always runs:
+# it either installs the catch-up agent or says why it did not. One step
+# announced, one step performed, denominator untouched, ratchet still 8.
+progress "$MSG_PROGRESS_EDITOR_FRONTPAGE_CATCHUP" "editor_frontpage_catchup_agent"
+if [[ -x "${OSTLER_DIR}/bin/editor-frontpage-tick.sh" ]]; then
+
+    EDITOR_CATCHUP_INTERVAL_S="${EDITOR_CATCHUP_INTERVAL_S:-300}"
+    EDITOR_CATCHUP_MAX_TRIES="${EDITOR_CATCHUP_MAX_TRIES:-36}"
+    EDITOR_CATCHUP_EMPTY_CONFIRMATIONS="${EDITOR_CATCHUP_EMPTY_CONFIRMATIONS:-2}"
+    EDITOR_CATCHUP_LABEL="com.creativemachines.ostler.editor-frontpage-catchup"
+    EDITOR_CATCHUP_PLIST="${HOME}/Library/LaunchAgents/${EDITOR_CATCHUP_LABEL}.plist"
+
+    # Self-removing, bounded catch-up wrapper. Single-quoted heredoc: no
+    # install-time expansion, it resolves OSTLER_DIR at run time exactly like
+    # ostler-wiki-recompile-catchup and ostler-contact-resync do.
+    cat > "${OSTLER_DIR}/bin/ostler-editor-frontpage-catchup" <<'EFPCUEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+OSTLER_DIR="${HOME}/.ostler"
+LOGS_DIR="${OSTLER_DIR}/logs"
+STATE_DIR="${OSTLER_DIR}/state"
+LABEL="com.creativemachines.ostler.editor-frontpage-catchup"
+PLIST="${HOME}/Library/LaunchAgents/${LABEL}.plist"
+TRIES_FILE="${STATE_DIR}/editor-frontpage-catchup.tries"
+EMPTY_FILE="${STATE_DIR}/editor-frontpage-catchup.empty-confirmations"
+LOG_FILE="${LOGS_DIR}/editor-frontpage-catchup.log"
+EDITOR_CATCHUP_MAX_TRIES="${EDITOR_CATCHUP_MAX_TRIES:-36}"
+EDITOR_CATCHUP_EMPTY_CONFIRMATIONS="${EDITOR_CATCHUP_EMPTY_CONFIRMATIONS:-2}"
+TICK="${OSTLER_EDITOR_TICK:-${OSTLER_DIR}/bin/editor-frontpage-tick.sh}"
+PROFILE="${OSTLER_INTEREST_PROFILE:-${OSTLER_DIR}/preferences/interest_profile.json}"
+QDRANT_URL="${QDRANT_URL:-http://127.0.0.1:6333}"
+STORE_CURL_CONF="${OSTLER_DIR}/secrets/store-curl.conf"
+
+# Same guard, same value, same reason as editor-frontpage-tick.sh: the
+# interpreter this wrapper resolves below is the one INSIDE the notarised app,
+# and an unguarded `import json` writes .pyc next to the source it imports,
+# which breaks the code seal (69 .pyc from one import, measured on v1.0.45,
+# codesign rc=1 and spctl refuses). Set in the plist as well. A parent that
+# already set it wins.
+export PYTHONPYCACHEPREFIX="${PYTHONPYCACHEPREFIX:-${OSTLER_DIR}/cache/pycache}"
+
+mkdir -p "$LOGS_DIR" "$STATE_DIR"
+
+log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
+
+remove_self() {
+    # Delete the FILES first, then unload. Reversing these two loses the file:
+    # launchd tears the job down before `launchctl bootout` returns, so every
+    # statement after it is unreachable (measured 10/10, archie@.240,
+    # 2026-09-05). A plist left in ~/Library/LaunchAgents is loaded again at
+    # the next login, so a "self-removing" agent that only booted itself out
+    # came back forever, carrying its old counters with it.
+    rm -f "$PLIST" "$TRIES_FILE" "$EMPTY_FILE"
+    launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
+}
+
+# Resolve an interpreter for the two JSON reads below. NOT a guess:
+# INSTALL_SNIPPET.sh renders the absolute path install.sh chose into the tick
+# as PYTHON_BIN="<path>", so read it back out of the producer rather than
+# picking a different python from the one that wrote the file. Falls back to
+# whatever python3 is on the agent's PATH. No interpreter at all is
+# CANNOT-READ, never "empty".
+_python() {
+    local p=""
+    if [ -r "$TICK" ]; then
+        p="$(sed -n 's/^PYTHON_BIN="\(.*\)"$/\1/p' "$TICK" | head -1)"
+    fi
+    if [ -n "$p" ] && [ -x "$p" ]; then printf '%s' "$p"; return 0; fi
+    p="$(command -v python3 2>/dev/null || true)"
+    if [ -n "$p" ]; then printf '%s' "$p"; return 0; fi
+    return 1
+}
+
+# Prints "<count> <raw_rows>" from the artefact, or ABSENT, or CANNOT-READ.
+# count is what /api/v1/preferences serves and what the assistant's
+# pwg_preferences tool therefore sees; raw_rows is how many preference rows
+# the compiler actually found in the graph, which separates "the graph is
+# empty" from "the graph has rows and the confidence floor suppressed them".
+_profile_counts() {
+    local py
+    py="$(_python)" || { printf 'CANNOT-READ'; return 0; }
+    [ -f "$PROFILE" ] || { printf 'ABSENT'; return 0; }
+    "$py" - "$PROFILE" <<'PYEOF' 2>/dev/null || printf 'CANNOT-READ'
+import json, sys
+try:
+    d = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    print("CANNOT-READ")
+    raise SystemExit(0)
+print("%d %d" % (int(d.get("count") or 0),
+                 int((d.get("stats") or {}).get("raw_rows") or 0)))
+PYEOF
+}
+
+# THE DISCRIMINATOR. Prints the upstream point count, or CANNOT-READ.
+# A 404 (hydrate has not created the collection yet), a curl failure, a
+# missing credential or an unparseable body are ALL CANNOT-READ. Only a body
+# that parses and carries an integer points_count is ever reported as a
+# number, so a zero printed here is a measured zero and nothing else.
+_upstream_points() {
+    local py body
+    py="$(_python)" || { printf 'CANNOT-READ'; return 0; }
+    # Same name, same file and same shape as install.sh's own store credential
+    # array, rebuilt here because a LaunchAgent inherits none of the installer's
+    # environment. Absent conf means the stores were left keyless; the call then
+    # goes out bare on loopback, exactly as the installer's own does.
+    local _OSTLER_STORE_CURL_ARGS=()
+    [ -r "$STORE_CURL_CONF" ] && _OSTLER_STORE_CURL_ARGS=( -K "$STORE_CURL_CONF" )
+    body="$(curl -sf -m 10 ${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"} \
+        "${QDRANT_URL}/collections/preferences" 2>/dev/null)" \
+        || { printf 'CANNOT-READ'; return 0; }
+    printf '%s' "$body" | "$py" -c '
+import json, sys
+try:
+    d = json.loads(sys.stdin.read())
+    n = (d.get("result") or {}).get("points_count")
+    if n is None:
+        raise ValueError("no points_count")
+    print(int(n))
+except Exception:
+    print("CANNOT-READ")
+' 2>/dev/null || printf 'CANNOT-READ'
+}
+
+_read_counter() {
+    local f="$1" v=0
+    [ -f "$f" ] && v="$(cat "$f" 2>/dev/null || echo 0)"
+    case "$v" in
+        ''|*[!0-9]*) v=0 ;;
+    esac
+    printf '%s' "$v"
+}
+
+# ── Bound first, so no branch below can run for ever ──────────────────
+tries="$(_read_counter "$TRIES_FILE")"
+tries=$((tries + 1))
+printf '%s' "$tries" >"$TRIES_FILE"
+if [ "$tries" -gt "$EDITOR_CATCHUP_MAX_TRIES" ]; then
+    log "catch-up gave up after ${EDITOR_CATCHUP_MAX_TRIES} ticks with the interest profile still empty; removing agent (the hourly Front Page refresh continues)"
+    remove_self
+    exit 0
+fi
+
+if [ ! -x "$TICK" ]; then
+    log "editor-frontpage-tick.sh missing at ${TICK}; removing catch-up agent"
+    remove_self
+    exit 0
+fi
+
+# Already populated before we did anything? Then the hourly agent, or an
+# earlier catch-up tick, has already done the job.
+before="$(_profile_counts)"
+case "$before" in
+    [0-9]*\ [0-9]*)
+        if [ "${before%% *}" -gt 0 ]; then
+            log "interest profile already holds ${before%% *} interests; catch-up not needed, removing agent"
+            remove_self
+            exit 0
+        fi
+        ;;
+esac
+
+# Reuse the installed tick. NO duplicated projection or compile logic: this
+# is the same wrapper the hourly agent runs, so the catch-up cannot drift
+# from the thing it is catching up. Non-fatal, so a failed tick is retried.
+log "catch-up tick ${tries}/${EDITOR_CATCHUP_MAX_TRIES}: re-emitting the interest profile against current graph state"
+"$TICK" >>"$LOG_FILE" 2>&1 || log "catch-up tick ${tries} returned non-zero; will retry"
+
+after="$(_profile_counts)"
+count=""
+raw=""
+case "$after" in
+    [0-9]*\ [0-9]*) count="${after%% *}"; raw="${after##* }" ;;
+esac
+
+# ── 1. POPULATED. The job is done; stop. ──────────────────────────────
+if [ -n "$count" ] && [ "$count" -gt 0 ]; then
+    log "POPULATED: the interest profile now serves ${count} interests from ${raw} projected rows. Removing the catch-up agent; the hourly refresh keeps it fresh."
+    remove_self
+    exit 0
+fi
+
+# ── 2. GENUINELY NOTHING TO PROJECT, confirmed, not assumed. ──────────
+upstream="$(_upstream_points)"
+case "$upstream" in
+    ''|*[!0-9]*)
+        # COULD NOT LOOK. Reset the confirmation run: an unreadable upstream
+        # proves nothing in either direction and must not be allowed to sit
+        # inside a sequence of zeroes as if it agreed with them.
+        printf '0' >"$EMPTY_FILE"
+        log "CANNOT TELL (try ${tries}/${EDITOR_CATCHUP_MAX_TRIES}): the interest profile serves ${count:-0} interests and the preferences collection at ${QDRANT_URL} could not be read, so whether there is anything to project is unmeasured. Retrying."
+        exit 0
+        ;;
+    0)
+        empties="$(_read_counter "$EMPTY_FILE")"
+        empties=$((empties + 1))
+        printf '%s' "$empties" >"$EMPTY_FILE"
+        if [ "$empties" -ge "$EDITOR_CATCHUP_EMPTY_CONFIRMATIONS" ]; then
+            log "GENUINELY EMPTY: the preferences collection answered with 0 points on ${empties} consecutive readings, so there is nothing to project and no retry can change that. Removing the catch-up agent; the hourly refresh will pick up preferences if any ever arrive."
+            remove_self
+            exit 0
+        fi
+        log "the preferences collection answered with 0 points (confirmation ${empties}/${EDITOR_CATCHUP_EMPTY_CONFIRMATIONS}); one more reading decides whether this box has nothing to project"
+        exit 0
+        ;;
+esac
+
+# ── 3. NOT POPULATED YET. There is data upstream; keep catching up. ───
+printf '0' >"$EMPTY_FILE"
+if [ -n "$raw" ] && [ "$raw" -gt 0 ]; then
+    log "NOT POPULATED YET (try ${tries}/${EDITOR_CATCHUP_MAX_TRIES}): ${upstream} preference point(s) upstream and ${raw} row(s) in the graph, but 0 cleared the compiler's confidence floor. Retrying; if this persists to the cap the floor is the surface to look at, not the schedule."
+else
+    log "NOT POPULATED YET (try ${tries}/${EDITOR_CATCHUP_MAX_TRIES}): ${upstream} preference point(s) upstream and 0 row(s) in the graph. The ingest has not finished reaching the projector. Retrying."
+fi
+exit 0
+EFPCUEOF
+    chmod +x "${OSTLER_DIR}/bin/ostler-editor-frontpage-catchup"
+
+    mkdir -p "${HOME}/Library/LaunchAgents"
+    cat > "$EDITOR_CATCHUP_PLIST" <<EFPCUPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${EDITOR_CATCHUP_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${OSTLER_DIR}/bin/ostler-editor-frontpage-catchup</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <key>PYTHONPYCACHEPREFIX</key>
+        <string>${OSTLER_DIR}/cache/pycache</string>
+        <key>EDITOR_CATCHUP_MAX_TRIES</key>
+        <string>${EDITOR_CATCHUP_MAX_TRIES}</string>
+        <key>EDITOR_CATCHUP_EMPTY_CONFIRMATIONS</key>
+        <string>${EDITOR_CATCHUP_EMPTY_CONFIRMATIONS}</string>
+    </dict>
+    <key>StartInterval</key>
+    <integer>${EDITOR_CATCHUP_INTERVAL_S}</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/editor-frontpage-catchup.log</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/editor-frontpage-catchup.err</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>
+EFPCUPLIST
+    chmod 0644 "$EDITOR_CATCHUP_PLIST"
+
+    if _ostler_launchagent_load_verified "$EDITOR_CATCHUP_PLIST"; then
+        ok "$MSG_OK_EDITOR_FRONTPAGE_CATCHUP_LOADED"
+    else
+        warn "$MSG_WARN_EDITOR_FRONTPAGE_CATCHUP_LOAD_FAILED"
+    fi
+else
+    info "$MSG_INFO_EDITOR_FRONTPAGE_CATCHUP_SKIPPED_NO_TICK"
 fi
 
 # ── 3.14e Ostler assistant LaunchAgent (binary staged at 3.7c) ───
