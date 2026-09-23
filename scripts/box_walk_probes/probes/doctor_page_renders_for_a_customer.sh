@@ -257,11 +257,36 @@ http.server.HTTPServer(("127.0.0.1", port), H).serve_forever()
 ' "$2" "$3" "$4" "$5" &
             pid=$!
             # Wait for it to answer rather than sleeping a guessed interval.
+            #
+            # 🔴 A POLL LOOP WITH NO DELAY IS NOT A WAIT. This loop used to
+            # spin 40 times with no sleep. A refused connection returns in
+            # under a millisecond, so all 40 attempts completed before the
+            # server had finished binding, the loop fell through as though it
+            # had waited, and the real request then timed out 35 seconds later
+            # and reported CANNOT-RUN with a transport reason. Measured on a
+            # macos runner 2026-09-23: three arms at ~35s each, the third
+            # failing with curl exit 28 against its own fixture.
+            #
+            # AND THE FALL-THROUGH WAS THE WORSE HALF. Exhausting the loop was
+            # indistinguishable from succeeding, so a harness that never came
+            # up produced a PROBE VERDICT rather than a harness error. That is
+            # the same confusion this probe exists to fix, one layer down: a
+            # thing that could not be measured must not be reported as a
+            # measurement.
             i=0
+            _up=0
             while [ $i -lt 40 ]; do
-                if curl -s -o /dev/null --noproxy '*' --max-time 1 "http://127.0.0.1:$2/api/v1/sources"; then break; fi
+                if curl -s -o /dev/null --noproxy '*' --max-time 1 "http://127.0.0.1:$2/api/v1/sources"; then _up=1; break; fi
+                sleep 0.25
                 i=$((i+1))
             done
+            if [ "$_up" -ne 1 ]; then
+                printf '  ARM HARNESS FAILED: fixture server on port %s never answered after 40 tries at 0.25s. This is the TEST, not the probe.\n' "$2"
+                kill "$pid" 2>/dev/null
+                wait "$pid" 2>/dev/null
+                fails=$((fails+1))
+                continue
+            fi
         fi
 
         out="$(OSTLER_BOX_HOST= OSTLER_PROBE_DOCTOR_HOST=127.0.0.1 DOCTOR_PORT="$2" bash "$0" 2>&1)"; rc=$?
