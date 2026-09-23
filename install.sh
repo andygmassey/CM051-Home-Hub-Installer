@@ -29370,7 +29370,7 @@ _hydrate_payload_is_all_zero() {
 #
 # A reader (CM044) should cover THIS list rather than one somebody transcribed.
 OSTLER_SENTINEL_STATUSES="ok error timeout no_data cannot_run"
-OSTLER_SENTINEL_SOURCES="ai_conversations apple_notes browsing calendar contacts dedupe email email_preferences imessage people photos places privacy_backfill reminders whatsapp"
+OSTLER_SENTINEL_SOURCES="ai_conversations apple_notes browsing calendar contacts dedupe email email_preferences imessage people photos places privacy_backfill reminders reminders_knowledge whatsapp"
 
 # ── WHICH FDA EXTRACTOR SOURCE FEEDS WHICH DOCTOR ROW (#1587) ────────────
 #
@@ -32719,11 +32719,19 @@ if [[ -x "$_HYDRATE_APPLENOTES_BIN" ]] || command -v "$_HYDRATE_APPLENOTES_BIN" 
     _HYDRATE_APPLENOTES_BIN_OK=true
 fi
 
-# `apple_notes_knowledge`, not `apple_notes`, for the reason spelled out on
-# the reminders leg below: the reader's sentinel answers a different question
-# from this one. Same run, same walk, same symptom -- "No Apple Notes to
-# read" and apple_notes_knowledge absent.
-if _hydrate_sentinel_fresh "apple_notes_knowledge"; then
+# APPLE NOTES KEEPS THE BARE `apple_notes` KEY, AND THAT IS A MEASUREMENT.
+# The reminders leg below takes its own key because TWO writers share
+# `reminders`: _hydrate_fda_record_reminders (the FDA reader) and this
+# knowledge leg. apple_notes has ONE writer -- there is no
+# _hydrate_fda_record_apple_notes -- so no second party can answer for it.
+# CHECKED ON THE v1.0.101 WALK RATHER THAN ASSUMED: apple_notes.done read
+# `status=no_data item_count=0 detail=no_export_json` and
+# imports/fda/apple_notes.json did not exist, so "No Apple Notes to read"
+# was TRUE and this leg took the no-data branch, not the freshness branch.
+# Mirroring the reminders fix here would have renamed a key nothing else
+# writes and left `apple_notes` declared in OSTLER_SENTINEL_SOURCES with no
+# writer at all, which the #711 error-path gate correctly reds as UNGUARDED.
+if _hydrate_sentinel_fresh "apple_notes"; then
     info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_ALREADY_EMBEDDED"
 elif [[ "${OSTLER_APPLE_NOTES_KNOWLEDGE:-1}" == "0" ]]; then
     # Deferred explicit-flag hook: operator opted this leg out.
@@ -32825,14 +32833,14 @@ elif [[ "$_HYDRATE_APPLENOTES_BIN_OK" == "true" ]] && [[ -s "$_HYDRATE_APPLENOTE
     # so the sentinel names the stage that actually failed.
     if [[ "${_HYDRATE_APPLENOTES_CONVERT_RC:-0}" -ne 0 ]]; then
         # #852: `:-unknown`, NOT `:-0`. See the whatsapp block.
-        _hydrate_sentinel_record_error "apple_notes_knowledge" "$_HYDRATE_APPLENOTES_CONVERT_RC" \
+        _hydrate_sentinel_record_error "apple_notes" "$_HYDRATE_APPLENOTES_CONVERT_RC" \
             "stage=convert,notes=${_HYDRATE_APPLENOTES_COUNT:-unknown}"
     elif [[ "${_HYDRATE_APPLENOTES_EMBED_RC:-0}" -ne 0 ]]; then
-        _hydrate_sentinel_record_error "apple_notes_knowledge" "$_HYDRATE_APPLENOTES_EMBED_RC" \
+        _hydrate_sentinel_record_error "apple_notes" "$_HYDRATE_APPLENOTES_EMBED_RC" \
             "stage=embed,notes=${_HYDRATE_APPLENOTES_COUNT:-unknown}"
     else
         # W012 class: reachable zero on the rc=0 arm.
-        _hydrate_sentinel_record "apple_notes_knowledge" "notes=${_HYDRATE_APPLENOTES_COUNT:-0}" \
+        _hydrate_sentinel_record "apple_notes" "notes=${_HYDRATE_APPLENOTES_COUNT:-0}" \
             "ran_ok_no_notes"
     fi
 
@@ -32845,7 +32853,7 @@ elif [[ "$_HYDRATE_APPLENOTES_BIN_OK" != "true" ]]; then
 else
     info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA"
     # Same shape as browsing and imessage.
-    _hydrate_sentinel_record_no_data "apple_notes_knowledge" "no_export_json"
+    _hydrate_sentinel_record_no_data "apple_notes" "no_export_json"
 fi
 
 unset _HYDRATE_APPLENOTES_FDA_DIR _HYDRATE_APPLENOTES_JSON_FILE

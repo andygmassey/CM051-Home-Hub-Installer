@@ -121,14 +121,27 @@ else
 fi
 
 echo
-echo "3. SAME COLLISION, APPLE NOTES"
-_write_reader_sentinel "apple_notes"
-if ! _hydrate_sentinel_fresh "apple_notes"; then
-    fail "control: apple_notes.done is not fresh under its own key"
-elif _hydrate_sentinel_fresh "$AK"; then
-    fail "apple_notes.done made the embedding leg (key '$AK') skip"
+echo "3. APPLE NOTES IS THE ASYMMETRY, AND IT KEEPS THE BARE KEY ON PURPOSE"
+# An earlier version of this fix renamed apple_notes too, by analogy, and it
+# was WRONG. reminders has TWO writers -- _hydrate_fda_record_reminders and
+# the knowledge leg -- so the key is contested. apple_notes has ONE: there is
+# no _hydrate_fda_record_apple_notes. MEASURED ON THE SAME WALK rather than
+# reasoned about: apple_notes.done read `status=no_data item_count=0
+# detail=no_export_json` and imports/fda/apple_notes.json did not exist, so
+# "No Apple Notes to read" was TRUE and that leg took the no-data branch.
+# Renaming it would have left `apple_notes` declared in
+# OSTLER_SENTINEL_SOURCES with no writer, which the #711 error-path gate
+# correctly reports as UNGUARDED. This arm pins the asymmetry so nobody
+# "tidies" it into symmetry later.
+if [[ "$AK" == "apple_notes" ]]; then
+    pass "the apple-notes leg keeps the bare key (one writer, no contest)"
 else
-    pass "the apple-notes embedding leg (key '$AK') still runs"
+    fail "the apple-notes leg asks for '$AK'; it has a single writer, so a separate key orphans 'apple_notes' in OSTLER_SENTINEL_SOURCES"
+fi
+if grep -qE '^_hydrate_fda_record_apple_notes\(\)' "$INSTALL"; then
+    fail "an FDA reader recorder for apple_notes now EXISTS -- the key is contested after all and arm 3's premise has expired"
+else
+    pass "still no _hydrate_fda_record_apple_notes, so the premise for the bare key holds"
 fi
 
 echo
@@ -145,9 +158,9 @@ echo "5. WIRING -- install.sh asks the right key on each side"
 grep -q '_hydrate_sentinel_fresh "reminders_knowledge"' "$INSTALL" \
     && pass "embedding leg checks reminders_knowledge" \
     || fail "embedding leg does not check reminders_knowledge"
-grep -q '_hydrate_sentinel_fresh "apple_notes_knowledge"' "$INSTALL" \
-    && pass "embedding leg checks apple_notes_knowledge" \
-    || fail "embedding leg does not check apple_notes_knowledge"
+grep -q '_hydrate_sentinel_fresh "apple_notes"' "$INSTALL" \
+    && pass "apple-notes leg still checks the bare apple_notes key" \
+    || fail "apple-notes leg no longer checks apple_notes -- that key would be orphaned"
 grep -qE '_hydrate_sentinel_record +reminders ' "$INSTALL" \
     && pass "the FDA reader still records the bare 'reminders' key (unchanged)" \
     || fail "the reader's own key was changed -- that is a different fix and breaks its callers"
@@ -173,6 +186,22 @@ if [[ -r "$STRINGS" ]]; then
     done
 else
     fail "CANNOT-RUN: strings file unreadable at $STRINGS"
+fi
+
+echo
+echo "7. THE NEW KEY IS DECLARED IN THE SENTINEL VOCABULARY"
+# A key the register does not know about is a key no error-path gate walks.
+vocab="$(grep -oE 'OSTLER_SENTINEL_SOURCES="[^"]*"' "$INSTALL" | head -1)"
+if [[ -z "$vocab" ]]; then
+    fail "CANNOT-RUN: could not read OSTLER_SENTINEL_SOURCES out of install.sh"
+else
+    for k in "$RK" "$AK"; do
+        if grep -qE "(\"| )${k}( |\")" <<<"$vocab"; then
+            pass "'${k}' is declared in OSTLER_SENTINEL_SOURCES"
+        else
+            fail "'${k}' is used as a sentinel key but is NOT in OSTLER_SENTINEL_SOURCES"
+        fi
+    done
 fi
 
 echo
