@@ -383,7 +383,7 @@ run_case() {
     local var="$1" key="$2" class="$3"
     local dir="${WORK}/run_${s}_${sentinel}_${dest}_$$_${RANDOM}"
     mkdir -p "${dir}/state/hydrate" "${dir}/imports/fda" \
-             "${dir}/services/email-ingest/.venv/bin" "${dir}/home"
+             "${dir}/services/email-ingest/.venv/bin" "${dir}/fixturehome"
 
     if [ "$sentinel" = "fresh" ]; then
         # Exactly the shape measured on the walk box, with synthetic counts.
@@ -401,8 +401,8 @@ SENTINEL
     : > "${dir}/services/email-ingest/.venv/bin/python"
     chmod +x "${dir}/services/email-ingest/.venv/bin/python"
     printf '{"synthetic": true}\n' > "${dir}/imports/fda/input.json"
-    mkdir -p "${dir}/home/Library/Group Containers/group.net.whatsapp.WhatsApp.shared"
-    : > "${dir}/home/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite"
+    mkdir -p "${dir}/fixturehome/Library/Group Containers/group.net.whatsapp.WhatsApp.shared"
+    : > "${dir}/fixturehome/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite"
 
     local qurl="$LIVE_URL" ourl="$LIVE_URL"
     case "$class" in
@@ -416,7 +416,7 @@ SENTINEL
         else printf '0\n' > "$GRAPH_MODE"; fi ;;
     esac
 
-    OSTLER_DIR="$dir" _T_HOME="${dir}/home" _T_GUARD="$guard" _T_STRINGS="$STRINGS" \
+    OSTLER_DIR="$dir" _T_HOME="${dir}/fixturehome" _T_GUARD="$guard" _T_STRINGS="$STRINGS" \
     _T_HELPERS="$HELPERS" _T_QDRANT="$qurl" _T_OXIGRAPH="$ourl" \
     bash > "${dir}/out.txt" 2>&1 <<'DRIVER'
 set -uo pipefail
