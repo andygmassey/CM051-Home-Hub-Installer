@@ -32,6 +32,92 @@
 # ============================================================================
 
 pr_exemptions:
+  # -------------------------------------------------------------------------
+  # v1.0.101 PR-AGE EXEMPTIONS, added 2026-09-23 by TNM.
+  #
+  # THE DENOMINATOR, because 25 is not an estate-wide number: check-pr-age
+  # resolved 1 of 7 repos on run 35765238488. CM044, CM041, CM059, CM031,
+  # HR015 and ostler-assistant all returned 'could not list PRs (auth/billing?)'
+  # and were declared via PR_AGE_ALLOW_PARTIAL. That run says NOTHING about
+  # those six in either direction. 25 is the count for CM051 alone.
+  #
+  # Every row below carries its own reason. None is a copy of another.
+  # -------------------------------------------------------------------------
+  - ref: "CM051-Home-Hub-Installer#2272"
+    reason: "CI surface for the v1.0.101 freeze, and its own title says DO NOT MERGE. It exists only so the frozen tip receives check-runs, because a branch push alone yields zero and the cut reads zero as CANNOT-RUN. Merging it would destroy the thing it is for. RETIRES WITH THE TAG: close the PR the moment v1.0.101 is tagged and let this exemption expire with it, which is why its date is the day after the tag and not after the walk. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-24
+  - ref: "CM051-Home-Hub-Installer#1818"
+    reason: "Ostler Uninstaller: colima-safe teardown, --purge-data, standalone Uninstaller.app. DRAFT, and its own title carries the condition: LAUNCH ITEM, do not merge until walk clears. The walk has not cleared. The exemption expired because it was dated rather than conditioned, and the condition it names is still live and still unmet. Re-dated once, to the day after this walk, on the PR's own stated terms. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#1868"
+    reason: "test(pipefail): the ratchet could not see the form that reddened #1865. Test-only; it widens what a CI ratchet can detect and ships nothing to a customer. Landing a change to the cut's own tooling during the cut is the one edit that makes a red cut unreadable afterwards. Real finding, mine, and it lands against the next cut. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#1872"
+    reason: "test(interests): the profile generator is correct given data, so the empty profile is upstream. Test-only, and its conclusion is that the defect is NOT here: the generator is correct and the emptiness arrives from upstream. Merging it changes no behaviour and fixes nothing that this artefact carries; the work it points at is upstream and is not cut scope. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#1873"
+    reason: "fix(store-auth): an absent HTTP library has not failed, and saying so buried the ones that did. A GENUINE PRODUCT FIX and the one row here I am least comfortable deferring: it corrects install-time error honesty, which is exactly the class the walk exists to catch. Deferred on sequencing, not merit. It alters a failure path in the artefact we have just frozen, and landing it now would mean the thing walked is not the thing measured. FIRST IN THE QUEUE after this tag. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#2009"
+    reason: "fix(cut): defuse the six pipefail landmines in scripts the cut itself runs (#1815). Changes the cut's own scripts. Landing it mid-cut would alter the machinery producing the artefact while it is producing it, so a red could not be attributed to the tree or the tooling. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#2026"
+    reason: "fix(privacy): two scales ran opposite ways, and five of six writers stamped only one of them. Touches privacy-level writers across six call sites. Real and wanted; a six-writer change to privacy stamping is not a T-minus edit, and it needs the walk's privacy probes run against it rather than beside it. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#2028"
+    reason: "fix(owner): the install mints the owner node, and it can only carry one name (#1690). Changes install-time owner minting. The v1.0.101 artefact is frozen with the current behaviour, and the owner node is read by the people-count probes; changing the writer after the freeze would leave the walk grading a writer the DMG does not contain. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#2029"
+    reason: "fix(usage-journal): three states for a zero, the attribution gap named, and a staging tree refused (#1634, #1163, #1774). usage_journal_producers is declared NOT BLOCKING for v1.0 by launch directive item 5, so this cannot gate the cut by decision already taken. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#2031"
+    reason: "fix(cut-gates): guard EVERY checkout a cut gate reads, and fetch first (#1550). Same class as #2009: it edits the gates the cut runs. Correct fix, wrong hour. It lands before the NEXT cut so the next cut is the one it protects. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#2040"
+    reason: "fix(pairing): a refused pairing code must not say the gateway is still starting up (#2011). Customer-visible message fix on the pairing failure path. Wanted, and it changes a surface the walk's pairing arms read, so it lands after this walk rather than during it. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#2046"
+    reason: "gate(privacy): ratchet the crossings between the two level scales, and ban intent-comments on privacy numbers. A new gate. A gate that has never run a full cut cannot be introduced during one: it would either pass vacuously or red the cut for a reason nobody could separate from the tree. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#2048"
+    reason: "fix(1160): an unlabelled preference was silently dropped from every search. Real data-loss fix in search. Deferred on the same freeze ground; it changes ingest behaviour the frozen artefact does not carry. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#2050"
+    reason: "test(cut): the dry run is reachable, and nothing was asserting it (#1519). Test-only against the cut's dry-run path. Its sibling #2242 already landed on the frozen branch, so the property is covered for this cut. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#2053"
+    reason: "fix(walk): a registered probe the walk cannot collect is now named, not silently omitted (#1152). Changes what the walk REPORTS. Landing it between the freeze and the walk would mean this walk is graded by an instrument no previous walk used, and the v1.0.100 comparison would break. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#2065"
+    reason: "fix(registers): two registers graded the same probe in opposite directions (#1772). Register reconciliation. Same instrument-change argument as #2053: do not re-grade the grader between the freeze and the walk it grades. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#2068"
+    reason: "gate(vendor): an unregenerable divergence is recorded, READ, and cannot be overridden away (#977). A new vendor gate. Introducing it during the cut would red the cut on vendor state that the freeze has already fixed in place, with no way to tell a real divergence from the gate's first run. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#2069"
+    reason: "fix(interests): the domain was dead by construction, and an empty page never said which empty it was. Customer-visible empty-state honesty. Wanted, not urgent enough to unfreeze for, and it changes a page the walk reads. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#2123"
+    reason: "ci: run the cheapest check first in download-currency. Pure CI ordering. It ships nothing and saves runner time; there is no version of this that justifies touching the cut branch. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#2132"
+    reason: "board: four rows gated on tonight's measurements, and the count moves 40 to 36. Board bookkeeping. It changes the register, and the register is read by the preflight that just passed; editing it now would invalidate a green measured minutes ago. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#2162"
+    reason: "feat(install,walk): record the OS the box actually ran, on both sides. A feature touching both the installer and the walk record. Two-sided changes at T-minus are how a walk record stops binding to the artefact it walked. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#2191"
+    reason: "test(citations): the self-test's fixture was the tree it was testing, so it went red on every branch the tool exists to repair. Test-only, and it fixes a fixture-encodes-the-flag defect. Genuinely good work; it changes no shipped byte and can land against the next cut. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#2195"
+    reason: "probe(grounded): the battery gains the rephrasing half of a declared pair, re-applied on top of the store map. assistant_answers_grounded is BLOCKING by launch directive item 5, so this probe's battery must not be altered between a freeze and the walk that runs it. It is the live lane for that file and it lands first after the walk. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#2235"
+    reason: "board: 2220's citations are record-relative, and the re-walk gains an instrument. Board and instrument work for the re-walk. Same ground as #2132: do not move the register the preflight just read. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
+  - ref: "CM051-Home-Hub-Installer#2238"
+    reason: "probe(grounded): thirteen faults in the opening-turn probe, and it now produces a number. Thirteen fixes to a BLOCKING probe. This is exactly the change that must not land between a freeze and its walk, because the walk would then be the probe's first ever run and a FAIL could not be attributed. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-09-25
   - ref: "CM059-Ostler-Editor#24"
     reason: "feat(frontpage): render 'tell Ostler what you're into', and wire it to persist. Open 103h. CM059 is not consumed by the cut: MEASURED, 'CM059' appears 0 times in gui/Makefile. Not vendored, not pinned, not fetched, so its open PRs cannot change one byte of this DMG. THE RETIREMENT CONDITION IS A CONDITION, NOT A DATE, because v1.0.97 was spent renewing an exemption on a ground that had already lapsed: retire this row when the repo becomes a cut input, or when the PR lands, whichever comes first. NOT A JUDGEMENT ON MERIT."
     review_by: 2026-09-24
@@ -81,31 +167,6 @@ pr_exemptions:
   #    cut-manifests/ or vendor/, so exempting them changes nothing about what
   #    v1.0.90 ships: this cut's tree is unaffected whether they stay open,
   #    merge, or close. Not a judgement on any of the three changes.
-  - ref: "CM051-Home-Hub-Installer#1873"
-    reason: >-
-      DRAFT, "HELD: an absent HTTP library has not failed, and saying so
-      buried the ones that did". Opened 2026-09-09, 149 additions / 1
-      deletion across .github/workflows/venv-store-shim.yml,
-      lib/ostler_store_auth.py, tests/TEST_WIRING.tsv and one new test.
-      Self-declared HELD, not yet qualifying under the freeze criteria.
-      Held state and file list confirmed via `gh pr view 1873`.
-    review_by: "2026-09-19"
-  - ref: "CM051-Home-Hub-Installer#1872"
-    reason: >-
-      DRAFT, "HELD: why the interest profile was empty on a box with 830
-      preference points". Opened 2026-09-09, 190 additions across
-      .github/workflows/vendor-integrity.yml, tests/TEST_WIRING.tsv and one
-      new test. Self-declared HELD, not yet qualifying under the freeze
-      criteria. Held state and file list confirmed via `gh pr view 1872`.
-    review_by: "2026-09-19"
-  - ref: "CM051-Home-Hub-Installer#1868"
-    reason: >-
-      DRAFT, "HELD UNDER FREEZE: the pipefail ratchet could not see the form
-      that reddened #1865". Opened 2026-09-09, 221 additions / 30 deletions,
-      all three files under tests/ (a baseline fixture and two test scripts).
-      Held state and file list confirmed via `gh pr view 1868`.
-    review_by: "2026-09-19"
-
   # ── v1.0.61 cut, 2026-09-03 (Archie). Six PRs over 48h, none of which can
   #    reach this DMG, deferred so check-pr-age does not kill `make ship` at
   #    cut.yml:862. Every row here is deferred on ARITHMETIC or on DRAFT
@@ -260,25 +321,6 @@ pr_exemptions:
       freeze (directive item 2: it moves no walk probe), TNM was asked to
       renew or close and renewal is the default. Re-decide on the new date.
     review_by: "2026-09-12"
-  - ref: "CM051-Home-Hub-Installer#1818"
-    reason: >-
-      RE-DECIDED 2026-09-13, and the grounds have CHANGED rather than been
-      renewed. The previous row deferred this on the launch freeze and said
-      "retire this row when the freeze lifts or the PR merges". THE FREEZE HAS
-      LIFTED (Andy, 2026-09-13), so that ground is gone and this is not a
-      rollover of it. What still holds is narrower and is Andy's own
-      instruction, carried in the PR's title: '[LAUNCH ITEM, do not merge
-      until walk clears]'. No clean walk record exists yet, so the one
-      condition the PR sets for itself is unmet and merging it now would
-      break that instruction rather than honour the lifted freeze. It remains
-      a DRAFT. It touches no file in this cut's tree, so exempting it changes
-      nothing about what v1.0.97 ships: the tree is identical whether this
-      sits open, merges, or closes. Deferred on Andy's standing instruction
-      and on draft status, not on merit, and this is not a judgement about
-      the uninstaller change. RETIRE THIS ROW when a clean walk record exists
-      (then it can merge and be judged on merit) or when Andy withdraws the
-      walk-clears condition. Not on the next cut, not automatically.
-    review_by: "2026-09-20"
   - ref: "CM051-Home-Hub-Installer#495"
     reason: >-
       'feat(cut-infra): vendor drift check + .vendor-manifests'. DRAFT, and
