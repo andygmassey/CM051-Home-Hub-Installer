@@ -1,0 +1,54 @@
+# console_only_probes.tsv -- WHICH PROBES ARE LEGITIMATELY UNMEASURABLE
+# WITHOUT A HUMAN AT THE CONSOLE.
+#
+# LAUNCH DIRECTIVE item 3 (CLAUDE.md, Andy, 2026-09-07), verbatim:
+#
+#   "Andy is asked to walk ONLY when the thin walk reports 0 FAIL and the only
+#    CANNOT-RUNs are TCC/GUI items. Never before."
+#
+# That sentence needs a list, and until this file there was none. run_box_walk.sh
+# exited 0 on FAIL=0 && BROKEN=0 regardless of how many probes reported
+# CANNOT-RUN, so a walk where half the instruments shrugged reported the same
+# success as a walk where every one of them measured. This file is the half of
+# the directive the code could not read.
+#
+# THE RULE, and it is the whole file:
+#   a probe listed here with surface tcc or gui  -> its CANNOT-RUN is expected
+#       on an ssh walk, because the measurement genuinely needs a human logged
+#       in at the machine. It does not make the walk non-clean.
+#   ANY OTHER PROBE -> its CANNOT-RUN is COVERAGE LOST. The walk exits 3 and
+#       names it.
+#
+# SILENCE IS NEVER AN EXEMPTION. A probe that does not appear here is NOT
+# exempt, and so is an absent or unreadable file: run_box_walk.sh then treats
+# every CANNOT-RUN as coverage lost and says so on the console. Both failure
+# directions land on "the walk is not clean", which is the only safe one.
+#
+# A TYPO IS NOT AN EXEMPTION EITHER. Only the exact strings tcc and gui are
+# read as a surface. Any other value in column 2 leaves the probe non-exempt.
+#
+# ⚠️ THIS FILE SHIPS WITH ZERO EXEMPT PROBES, AND THAT IS A MEASUREMENT,
+# NOT AN OVERSIGHT. Taken 2026-09-23 over the 29 probes in probes/:
+#
+#   /usr/bin/grep -h probe_cannot_run probes/*.sh \
+#     | /usr/bin/grep -Eic 'tcc|full disk|screen recording|at the console|gui'   -> 5
+#   POSITIVE CONTROL, same corpus, same pipeline:
+#   /usr/bin/grep -h probe_cannot_run probes/*.sh | /usr/bin/grep -ic ssh        -> 21
+#
+# The control proves the search resolves. All 5 subject hits were then read and
+# all 5 are the substring "gui" inside ordinary English (guidance, distinguish,
+# arguing); NONE is about TCC or a GUI. Every real CANNOT-RUN reason in the
+# suite is ssh reachability, an absent prerequisite, or a stated ambiguity, and
+# an operator sitting at the box fixes none of those by being there.
+#
+# So on the evidence available today, NO probe qualifies, and the honest list is
+# empty. Adding the first row is a deliberate act with a reason next to it,
+# which is the point: an exemption someone had to write down can be argued with,
+# and one that is merely the default cannot.
+#
+# COLUMNS (tab-separated, exactly three):
+#   probe     the probe file name without .sh, exactly as the record names it
+#   surface   tcc | gui -- what specifically needs the console
+#   why       what a human at the machine can do that ssh cannot
+#
+# probe	surface	why

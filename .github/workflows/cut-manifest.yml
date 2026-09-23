@@ -54,6 +54,13 @@ on:
       - 'tests/test_a_failing_probes_early_output_is_not_discarded.py'
       - 'tests/test_phase_2_failures_reach_the_walk_record.sh'
       - 'tests/test_cannot_run_names_its_prerequisite.sh'
+      # The exit-code contract (a CANNOT-RUN is not a clean walk), its
+      # register, and its test. ALL THREE are triggers: a run: with no
+      # matching paths: entry is dark on self-edit. The register is under
+      # scripts/box_walk_probes/** already, and named here anyway so a
+      # reader of this list can see that editing it re-runs the gate.
+      - 'tests/test_a_cannot_run_is_not_a_clean_walk.sh'
+      - 'scripts/box_walk_probes/console_only_probes.tsv'
       - 'tests/test_walk_record_states_measured_count.sh'
       # A walk record named its SUBJECT six ways and its INSTRUMENT not at all,
       # and the probes come from the checkout rather than the artefact. Watched
@@ -513,6 +520,33 @@ jobs:
       - name: a CANNOT-RUN names its prerequisite, without leaking it into the record
         if: always()
         run: /bin/bash tests/test_cannot_run_names_its_prerequisite.sh
+
+      # SAME JOB AND SAME REASON AS THE STEP ABOVE: the subject is
+      # run_box_walk.sh, which the cut host executes under macOS system bash
+      # 3.2, and bash 5 on ubuntu accepts 3.2-invalid syntax.
+      #
+      # THE DEFECT: the runner exited 0 on FAIL=0 && BROKEN=0 regardless of how
+      # many probes reported CANNOT-RUN, so a walk where half the instruments
+      # shrugged reported success. LAUNCH DIRECTIVE item 3 had already decided
+      # otherwise -- "the only CANNOT-RUNs are TCC/GUI items" -- and only the
+      # exit code disagreed. It now exits 3 unless every CANNOT-RUN is a probe
+      # DECLARED console-only in scripts/box_walk_probes/console_only_probes.tsv.
+      #
+      # `|| rc=$?` and NOT a bare call: a step runs under /bin/bash -e {0}, so
+      # a bare call would terminate the step at that line and the CANNOT-RUN
+      # annotation below would be unreachable. That is the exact shape
+      # cannot-run-branch-reachable.yml exists to refuse, and this gate must
+      # not carry it.
+      - name: a CANNOT-RUN is not a clean walk, and only a declared console-only probe is exempt
+        if: always()
+        run: |
+          set -uo pipefail
+          rc=0
+          /bin/bash tests/test_a_cannot_run_is_not_a_clean_walk.sh || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::A file the exit-code test needs is absent, so NO arm ran. Nothing was measured; this is not a pass."
+          fi
+          exit "$rc"
 
       # The four counts partition the suite whether or not anything was
       # measured: a BROKEN probe is counted in `broken` and then SKIPPED at
