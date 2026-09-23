@@ -12185,15 +12185,12 @@ if ! [[ "$TOTAL_STEPS" =~ ^[0-9]+$ ]] || [[ "$TOTAL_STEPS" -le 0 ]]; then
     # the thing that holds when this constant next drifts, and it will.
     #
     # tests/test_total_steps_dynamic.sh exercises this path (BASH_SOURCE is
-    # unresolvable under `bash -c`) and fails if this constant drifts.
-    # 42 -> 43 on 2026-09-18: the merge-consistency repair (CM041 #162) added
-    # a progress call. Bumped because tests/test_total_steps_dynamic.sh failed
-    # on it, which is the arm working as designed; a customer on the
-    # `curl | bash` path would otherwise have divided by 42 while 43 steps ran
-    # and watched the bar finish at 102%.
-    # 43 -> 44 on 2026-09-23: the Front Page first-day catch-up agent
-    # (3.14d-editor-bis) added a progress call. Same arm, same reason as the
-    # bump above; tests/test_total_steps_dynamic.sh is what catches the drift.
+    # unresolvable under `bash -c`) and fails if this drifts. Citations below.
+    # 42 -> 43 on 2026-09-18 (merge-consistency repair, CM041 #162), 43 -> 44 on
+    # 2026-09-23 (Front Page catch-up agent, 3.14d-editor-bis). Each was forced
+    # by tests/test_total_steps_dynamic.sh, the arm working as designed: a
+    # `curl | bash` customer would otherwise divide by the stale number, and
+    # watch the bar finish past 100%. EDIT THIS BLOCK LINE-NEUTRALLY: comment
     TOTAL_STEPS=44
     [[ -n "$EXPORTS_DIR" ]] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 fi
@@ -26451,9 +26448,13 @@ PYEOF
 _upstream_points() {
     local py body
     py="$(_python)" || { printf 'CANNOT-READ'; return 0; }
-    local conf_args=()
-    [ -r "$STORE_CURL_CONF" ] && conf_args=( -K "$STORE_CURL_CONF" )
-    body="$(curl -sf -m 10 ${conf_args[@]+"${conf_args[@]}"} \
+    # Same name, same file and same shape as install.sh's own store credential
+    # array, rebuilt here because a LaunchAgent inherits none of the installer's
+    # environment. Absent conf means the stores were left keyless; the call then
+    # goes out bare on loopback, exactly as the installer's own does.
+    local _OSTLER_STORE_CURL_ARGS=()
+    [ -r "$STORE_CURL_CONF" ] && _OSTLER_STORE_CURL_ARGS=( -K "$STORE_CURL_CONF" )
+    body="$(curl -sf -m 10 ${_OSTLER_STORE_CURL_ARGS[@]+"${_OSTLER_STORE_CURL_ARGS[@]}"} \
         "${QDRANT_URL}/collections/preferences" 2>/dev/null)" \
         || { printf 'CANNOT-READ'; return 0; }
     printf '%s' "$body" | "$py" -c '
