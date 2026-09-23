@@ -57,6 +57,7 @@ test_a_named_log_must_outlive_the_message.sh	WIRED	.github/workflows/install-dia
 test_a_pairing_non_answer_is_not_a_rejection.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_a_pairing_reader_runs_before_the_pairing_mutator.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_a_plistbuddy_read_takes_its_exit_code.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_a_probe_must_measure_the_box_not_the_driver.sh	WIRED	.github/workflows/unreachable-not-absence.yml
 test_a_promote_before_the_decline_arms_is_gated.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_quiesced_interval_agent_is_re_registered.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_ratchet_must_not_name_a_false_cause.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
