@@ -30,8 +30,8 @@
 # box. So CANNOT-RUN is printed in its own block with the missing prerequisite
 # named, every time.
 #
-# EXIT: 0 only when FAIL=0 and BROKEN=0. CANNOT-RUN does not fail the run --
-# it is a coverage statement, not a defect -- but it is always shown.
+# EXIT: 0 clean; 1 any FAIL or BROKEN; 3 nothing failed but a probe that is NOT
+# declared console-only could not run. The third one is explained at the bottom.
 #
 # BASH 3.2 (macOS system bash). No associative arrays, no mapfile.
 # ============================================================================
@@ -650,7 +650,99 @@ if [ "$FAIL" -eq 0 ] && [ "$BROKEN" -eq 0 ] && [ "$CANNOT" -gt 0 ]; then
     printf 'This is NOT a clean box walk. It is a partial one. Fix the prerequisites and re-run.\n'
 fi
 
+# -------------------------------------------------------------------------
+# WAS EVERY CANNOT-RUN ONE WE ACCEPT FROM AN SSH WALK?
+#
+# ⚠️ THE EXIT 3 BELOW IS NEW AND IT USED TO BE A 0. This file ended
+#
+#     if [ "$FAIL" -gt 0 ] || [ "$BROKEN" -gt 0 ]; then exit 1; fi
+#     exit 0
+#
+# so the run exited 0 whatever CANNOT was, and the header above said that was
+# deliberate: "CANNOT-RUN does not fail the run -- it is a coverage statement,
+# not a defect". The four-number headline printed the truth and the one number
+# a caller can act on threw it away. A walk where half the instruments shrugged
+# reported the same success as a walk where all of them measured, so a probe
+# that refuses instead of failing cost nothing, and refusing became the cheap
+# path.
+#
+# THE RULE WAS ALREADY DECIDED, IN WRITING, AND ONLY THE CODE DISAGREED.
+# LAUNCH DIRECTIVE item 3 (CLAUDE.md, Andy, 2026-09-07), verbatim: "Andy is
+# asked to walk ONLY when the thin walk reports 0 FAIL and the only CANNOT-RUNs
+# are TCC/GUI items. Never before." Nothing is invented here. The exit code is
+# made to say what the directive says.
+#
+# WHICH PROBES ARE TCC/GUI IS DECLARED, NEVER INFERRED. It is read from
+# console_only_probes.tsv beside this file. It is NOT inferred from a probe's
+# name and NOT from the words in its refusal message, because the message is
+# written by the same hand that chose to refuse, and a classifier keyed on it
+# would be asking the accused. An unlisted probe is not exempt; nor is one
+# whose surface column says anything but tcc or gui; nor is any probe at all
+# when the register cannot be read. Every failure direction lands on "this walk
+# is not clean", which is the only safe one.
+#
+# ⚠️ THIS BLOCK MUST STAY BELOW EVERY SECTION post_walk_qa.sh PARSES, AND ITS
+# HEADERS MUST NOT START WITH THE STRINGS THAT FUNCTION KEYS ON.
+# section_names() there matches with index($0, hdr) == 1 on "FAILED:",
+# "NOT MEASURED" and "BROKEN (", grabs the bare probe names beneath, and EXITS
+# at the first line that is not one. Every header printed below begins with
+# "COVERAGE", so none can be mistaken for a section start, and each of those
+# sections has already been terminated by a blank line by the time this runs.
+# count_of() there anchors on NF == 2 with a numeric second field, which no
+# line below satisfies either. tests/test_a_cannot_run_is_not_a_clean_walk.sh
+# runs the REAL parser over this output and requires every name to survive.
+# -------------------------------------------------------------------------
+
+# Distinct from 1 (a real defect was measured) and from 2 (this script could
+# not start: bad argument, empty suite), so a caller can tell the three apart.
+EX_COVERAGE_LOST=3
+CONSOLE_ONLY_REGISTER="$HERE/console_only_probes.tsv"
+
+CONSOLE_ONLY_NOT_EXEMPT=""
+NOT_EXEMPT=0
+
+# Prints tcc or gui for a DECLARED console-only probe and nothing for any
+# other. An unreadable register prints nothing for every probe, which is the
+# safe direction: nothing is exempt and the walk says so out loud.
+_console_only_surface() {
+    [ -r "$CONSOLE_ONLY_REGISTER" ] || return 0
+    awk -F'\t' -v want="$1" '
+        substr($0, 1, 1) == "#" { next }
+        $1 == want && ($2 == "tcc" || $2 == "gui") { print $2; exit }
+    ' "$CONSOLE_ONLY_REGISTER"
+}
+
+if [ "$CANNOT" -gt 0 ]; then
+    printf '\nCOVERAGE CLASSIFICATION, from %s\n' "$CONSOLE_ONLY_REGISTER"
+    if [ ! -r "$CONSOLE_ONLY_REGISTER" ]; then
+        printf '  THE REGISTER IS NOT READABLE, so no probe can be declared console-only\n'
+        printf '  and every CANNOT-RUN below counts as coverage lost. An absent list is\n'
+        printf '  not an empty one and must never read as a blanket exemption.\n'
+    fi
+    for b in $CANNOT_LIST; do
+        _surface="$(_console_only_surface "$b")"
+        if [ -n "$_surface" ]; then
+            printf '  CONSOLE-ONLY (%s)  %s\n' "$_surface" "$b"
+        else
+            NOT_EXEMPT=$((NOT_EXEMPT + 1))
+            CONSOLE_ONLY_NOT_EXEMPT="$CONSOLE_ONLY_NOT_EXEMPT $b"
+            printf '  COVERAGE LOST      %s\n' "$b"
+        fi
+    done
+fi
+
 if [ "$FAIL" -gt 0 ] || [ "$BROKEN" -gt 0 ]; then
     exit 1
+fi
+
+if [ "$NOT_EXEMPT" -gt 0 ]; then
+    printf '\nCOVERAGE LOST -- %s of %s probes could not be measured, and not one of\n' "$NOT_EXEMPT" "$PROBE_COUNT"
+    printf 'them is declared console-only. NOTHING FAILED IS NOT EVERYTHING PASSED:\n'
+    for b in $CONSOLE_ONLY_NOT_EXEMPT; do printf '  %s\n' "$b"; done
+    printf 'Each named its missing prerequisite above. Being at the console fixes none\n'
+    printf 'of them, which is why none is exempt. Fix the prerequisite and re-run, or\n'
+    printf 'declare the probe in the register with a reason someone can argue with.\n'
+    printf 'This walk is NOT clean and must not be reported as one.\n'
+    exit "$EX_COVERAGE_LOST"
 fi
 exit 0
