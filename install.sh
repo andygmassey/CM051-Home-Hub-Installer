@@ -26407,11 +26407,23 @@ fi
 # worst case at 3 hours, which comfortably covers the 65-minute ingest window
 # measured above with room for a slower Mac.
 #
-# Step-count: this is a gated progress step (the tick must be installed).
-# Subtract its slot from TOTAL_STEPS when skipped, exactly like the wiki one.
-[[ ! -x "${OSTLER_DIR}/bin/editor-frontpage-tick.sh" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
+# STEP-COUNT: UNCONDITIONAL progress call, NO late decrement, and that is a
+# deliberate departure from the wiki catch-up one block up.
+#
+# The wiki's version gates its `progress` on the tick existing and subtracts a
+# slot when it does not. Copying that here would have added a NINTH late
+# decrement, and scripts' ratchet pins the late-decrement count at 8 with the
+# reason stated: a decrement that fires AFTER the first progress call moves the
+# denominator the customer has already been shown a percentage against, so the
+# bar jumps. The gate offers "hoist it above the seed, or say so in the PR and
+# raise the pin". Neither was needed. The condition here is
+# `-x ${OSTLER_DIR}/bin/editor-frontpage-tick.sh`, which the 3.14d-editor block
+# renders moments earlier, so it is genuinely unknowable at seed time and
+# cannot be hoisted -- but it does not have to be a GATE. The step always runs:
+# it either installs the catch-up agent or says why it did not. One step
+# announced, one step performed, denominator untouched, ratchet still 8.
+progress "$MSG_PROGRESS_EDITOR_FRONTPAGE_CATCHUP" "editor_frontpage_catchup_agent"
 if [[ -x "${OSTLER_DIR}/bin/editor-frontpage-tick.sh" ]]; then
-    progress "$MSG_PROGRESS_EDITOR_FRONTPAGE_CATCHUP" "editor_frontpage_catchup_agent"
 
     EDITOR_CATCHUP_INTERVAL_S="${EDITOR_CATCHUP_INTERVAL_S:-300}"
     EDITOR_CATCHUP_MAX_TRIES="${EDITOR_CATCHUP_MAX_TRIES:-36}"
