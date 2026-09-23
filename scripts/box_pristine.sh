@@ -110,7 +110,12 @@ done
 #    stale installer domain can carry first-run state into a "fresh" install --
 #    the same class of invisible carry-over as the surviving /Applications/Ostler.
 for _dom in ai.creativemachines.ostler-hub ai.ostler.installer ai.creativemachines.ostler; do
-    if defaults domains 2>/dev/null | tr ',' '\n' | grep -qx " *${_dom}" \
+    # NEVER `... | grep -q` under pipefail: grep -q exits on the FIRST match
+    # and SIGPIPEs its producer, so the pipeline reports failure for a pattern
+    # it DID find. The repo's ratchet caught this one in review, in my own
+    # file, hours after I watched it bite somebody else's.
+    # `grep -c` must read to EOF, so it cannot short-circuit.
+    if [ "$(defaults domains 2>/dev/null | tr ',' '\n' | grep -cx " *${_dom}")" -gt 0 ] \
        || defaults read "$_dom" >/dev/null 2>&1; then
         echo "  defaults domain: $_dom"
         [ "$DRY" = "0" ] && { defaults delete "$_dom" >/dev/null 2>&1 || true; }
