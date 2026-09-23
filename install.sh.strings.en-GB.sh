@@ -940,6 +940,13 @@ MSG_WARN_YOU_MAY_NEED_INSTALL_MANUALLY_INSTALL="You may need to install manually
 
 MSG_ERR_ACTUAL="  actual:   %s"
 MSG_ERR_CM042_BUNDLE_NOT_FOUND_POST_EXTRACT="Ostler RemoteCapture bundle was not present at %s after extract. The release tarball may be malformed."
+# Added 2026-09-24 after ERR-24-CM042-EXTRACT took a whole install down on a
+# console walk. The two causes below were previously indistinguishable from a
+# signing failure, because the ONLY message this limb could reach said
+# "signature or notarisation check failed" -- for a bundle nothing had signed,
+# checked or even found.
+MSG_ERR_CM042_APPS_DIR_UNAVAILABLE="Could not create or reach %s, so Ostler RemoteCapture has nowhere to be installed to. This is a folder permissions problem, not a problem with the download."
+MSG_ERR_CM042_RENAME_FAILED="Ostler RemoteCapture downloaded and unpacked correctly, but could not be moved into place at %s. The unpacked app has been left in /Applications. This is not a signing problem."
 MSG_ERR_CM042_CODESIGN_OUTPUT="  codesign --verify reported:"
 MSG_ERR_CM042_REFUSING_STAGE_BUNDLE="  Refusing to stage a bundle that does not match the published checksum."
 MSG_ERR_CM042_SHA_256_MISMATCH="Ostler RemoteCapture tarball SHA-256 mismatch."
