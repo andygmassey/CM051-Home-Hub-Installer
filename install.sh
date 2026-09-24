@@ -11206,7 +11206,7 @@ PRESET=${PRESET:-recommended}
 #      Mail at this same moment. There is no separate Notes prompt to decline,
 #      so the "do not print an amber row for ever to someone who said no"
 #      concern does not arise: the customer never says no to Notes
-#      specifically. Contrast photos_metadata, which stays off by default.
+#      specifically. (photos_metadata joined the default in #2364.)
 #   3. The Doctor row is UNCONDITIONAL either way. apple_notes is in
 #      _SOURCE_KINDS, not _FDA_EXTRACT_KINDS, so the panel prints the row
 #      whether or not a sentinel exists. Everything-only would therefore keep
@@ -11214,7 +11214,13 @@ PRESET=${PRESET:-recommended}
 #      the outcome the deferral was supposed to avoid.
 # Andy, 2026-09-02, on the deferral this replaces: "I don't know where you're
 # getting that Apple Notes shouldn't be included - it SHOULD."
-RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders,imessage,apple_mail"
+# #2364: photos_metadata (dates, places, captions; NEVER faces) is in the
+# default preset. The installer already asks for Photos access up front and
+# tells the customer it is "so the Hub can read photo metadata", and then did
+# not read it unless they picked Everything or ticked it by hand: on the
+# v1.0.102 walk a default install ingested 0 of 1,298 photo events. Faces stay
+# out of every preset (photos_faces is the Art. 9 opt-in, tickable only).
+RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders,imessage,apple_mail,photos_metadata"
 
 # DMG fix 3 (#618 partial): most customers are Chrome-primary, so a
 # Recommended install must ingest Chrome history too when Chrome is
@@ -11237,7 +11243,7 @@ fi
 # people" reads as a bug; not listing the source reads as fine).
 # chrome_history is inherited from RECOMMENDED above, so it is NOT
 # re-added here (a duplicate in OSTLER_FDA_SOURCES would double-list it).
-EVERYTHING="${RECOMMENDED},photos_metadata"
+EVERYTHING="${RECOMMENDED}"
 if [[ "$HAS_WHATSAPP_DESKTOP" == true ]]; then
     EVERYTHING="${EVERYTHING},whatsapp_history"
 fi
@@ -11301,7 +11307,7 @@ case "$PRESET" in
         else
             _ask_source "chrome_history"   "Chrome history            " N
         fi
-        _ask_source "photos_metadata"  "Photos events (no faces)  " N
+        _ask_source "photos_metadata"  "Photos events (no faces)  " Y
         # vendor/ostler_fda/apple_music.py has a complete extractor but is
         # DELIBERATELY not offered here, in RECOMMENDED, or in EVERYTHING.
         # Every other source above reads a live, TCC-gated database the FDA

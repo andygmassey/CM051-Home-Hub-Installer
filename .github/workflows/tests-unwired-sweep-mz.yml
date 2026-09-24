@@ -177,6 +177,11 @@ jobs:
         if: always()
         run: bash tests/test_wiki_password_never_reaches_install_log.sh
 
+      # #2364: Photos events are read on a default install; faces never are.
+      - name: Photos events are in the default preset
+        if: always()
+        run: bash tests/test_photos_events_are_in_the_default_preset.sh
+
       # BOARD ROW 997. Its own step with an execution verb, because
       # verify_new_tests_are_wired.sh scores a path WIRED only on a line that
       # also carries one, and an entry in the batch list above carries none.
