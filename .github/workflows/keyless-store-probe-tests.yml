@@ -23,6 +23,10 @@ on:
       - 'scripts/tests/test_ingest_coverage_probe.sh'
       - 'scripts/tests/test_people_count_agreement_probe.sh'
       - 'scripts/tests/test_people_stores_reconcile_probe.sh'
+      - 'scripts/tests/test_probe_self_tests_never_reach_the_box.sh'
+      - 'scripts/box_walk_probes/run_box_walk.sh'
+      - 'scripts/box_walk_probes/probes/**'
+      - 'scripts/box_walk_probes/lib/**'
       - '.github/workflows/keyless-store-probe-tests.yml'
   push:
     branches: [main]
@@ -35,6 +39,10 @@ on:
       - 'scripts/tests/test_ingest_coverage_probe.sh'
       - 'scripts/tests/test_people_count_agreement_probe.sh'
       - 'scripts/tests/test_people_stores_reconcile_probe.sh'
+      - 'scripts/tests/test_probe_self_tests_never_reach_the_box.sh'
+      - 'scripts/box_walk_probes/run_box_walk.sh'
+      - 'scripts/box_walk_probes/probes/**'
+      - 'scripts/box_walk_probes/lib/**'
       - '.github/workflows/keyless-store-probe-tests.yml'
 
 concurrency:
