@@ -112,7 +112,7 @@ print("4. a real name already present and NOT provisional")
 s.update(f'INSERT DATA {{ <{B}> a <{NS}Person> ; <{NS}displayName> "John Doe" }}')
 upsert(s, B, "john@example.com", "")
 check("an address never displaces it", names(s, B) == ["John Doe"])
-upsert(s, B, "john@example.com", "Johnny Doe")
+upsert(s, B, "john@example.com", "Jane Doe")
 check("nor does another human name (it is not provisional)", names(s, B) == ["John Doe"])
 
 print("5. a provisional phone-number handle")
