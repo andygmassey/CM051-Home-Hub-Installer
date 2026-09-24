@@ -39,7 +39,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-INSTALL_SH="${REPO_ROOT}/install.sh"
+INSTALL_SH="${1:-${REPO_ROOT}/install.sh}"
 FAILED=0
 
 failure() {
@@ -64,22 +64,29 @@ fi
 BLOCK_END=$((APPS_TO_OPEN_START + 30))
 GATE_BLOCK="$(sed -n "${APPS_TO_OPEN_START},${BLOCK_END}p" "$INSTALL_SH")"
 
-# Axis 1: each of Calendar / Mail / Contacts uses BOTH the
-# population probe AND the accountsdb count probe.
+# Axis 1: each of Calendar / Mail / Contacts is gated on BOTH its account
+# count AND a population probe. Since #2351 the population probe is the shared
+# row count in lib/ostler-app-warmup.sh (ostler_warm_needs_open ->
+# ostler_warm_store_rows), which install.sh embeds; the account gate stays in
+# the pre-launch loop.
+WARM_LIB="$(awk "index(\$0, \"<<'OSTLER_APP_WARMUP_EOF'\") { f = 1; next } f && \$0 == \"OSTLER_APP_WARMUP_EOF\" { exit } f { print }" "$INSTALL_SH")"
+if ! grep -q "ostler_warm_needs_open" <<< "$GATE_BLOCK"; then
+    failure "pre-launch gate does not ask the population probe (ostler_warm_needs_open)"
+fi
 for source in calendar mail contacts; do
     case "$source" in
-        calendar) app="Calendar" ;;
-        mail)     app="Mail" ;;
-        contacts) app="Contacts" ;;
+        calendar) key="calendar" ;;
+        mail)     key="apple_mail" ;;
+        contacts) key="contacts" ;;
     esac
-    if ! grep -q "_store_populated_${source}" <<< "$GATE_BLOCK"; then
-        failure "pre-launch gate does not use _store_populated_${source}"
-    fi
     if ! grep -q "_accountsdb_count_${source}" <<< "$GATE_BLOCK"; then
         failure "pre-launch gate does not use _accountsdb_count_${source}"
     fi
-    if ! grep -qF "APPS_TO_OPEN+=(\"${app}\")" <<< "$GATE_BLOCK"; then
-        failure "pre-launch gate does not append '${app}' to APPS_TO_OPEN"
+    if ! grep -qE "^ *${key}\) .*_accountsdb_count_${source}" <<< "$GATE_BLOCK"; then
+        failure "pre-launch gate does not tie ${key} to _accountsdb_count_${source}"
+    fi
+    if ! awk -v k="        ${key})" '/^ostler_warm_store_rows\(\) \{/ { g = 1 } g && index($0, k) == 1 { f = 1 } f && /COUNT\(\*\)/ { print; exit } f && /;;/ { exit }' <<< "$WARM_LIB" | grep -q .; then
+        failure "the warm-up lib does not count ROWS for ${key}"
     fi
 done
 
