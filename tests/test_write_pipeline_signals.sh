@@ -334,5 +334,28 @@ if [[ "$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('enr
 fi
 echo "PASS [case-17]: a bogus enrichment decision exits non-zero and changes nothing"
 
+# ── Case 18: notes_has_fetched is written, and SURVIVES a later write ──
+#
+# The hourly ostler-fda tick records notes_has_fetched directly into this
+# file. The writer drops unknown keys on rewrite, so unless it knows this one
+# an installer re-run would silently erase what the tick measured.
+python3 "$WRITER" --output "$OUT15" --notes-has-fetched false >/dev/null
+python3 "$WRITER" --output "$OUT15" --imessage-fda-needed true >/dev/null
+NOTES="$(python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(d.get('notes_has_fetched'),isinstance(d.get('notes_checked_ts'),int),d.get('enrichment_decision'))" "$OUT15")"
+if [[ "$NOTES" != "False True accepted" ]]; then
+    echo "FAIL [case-18]: notes_has_fetched was not written or not preserved, got [$NOTES]" >&2
+    cat "$OUT15" >&2
+    exit 1
+fi
+set +e
+python3 "$WRITER" --output "$OUT15" --notes-has-fetched maybe >/dev/null 2>&1
+RC=$?
+set -e
+if [[ "$RC" == "0" ]]; then
+    echo "FAIL [case-18]: a bogus --notes-has-fetched was accepted" >&2
+    exit 1
+fi
+echo "PASS [case-18]: notes_has_fetched is written, preserved across a later write, and validated"
+
 echo ""
 echo "ALL PIPELINE_SIGNALS WRITER TESTS PASSED"

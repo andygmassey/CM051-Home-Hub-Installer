@@ -4938,6 +4938,23 @@ _store_populated_mail() {
     return 1
 }
 
+# Notes: the note-body table has rows. NOT "NoteStore.sqlite exists": the
+# file is created empty on a Mac whose Notes app has never been opened, and
+# iCloud only fills it once Notes runs. Measured 2026-09-24 on a walk box:
+# NoteStore.sqlite present since July, 0 rows in ZICNOTEDATA, so the old
+# file-exists test called Notes "already present", never opened it, and every
+# extract read 0 notes. Opened once by hand, the same store held 412.
+_store_populated_notes() {
+    local db="${HOME}/Library/Group Containers/group.com.apple.notes/NoteStore.sqlite"
+    [[ -f "$db" ]] || return 1
+    local n
+    n="$(sqlite3 "file:${db}?mode=ro" -bail \
+        "SELECT COUNT(*) FROM ZICNOTEDATA" 2>/dev/null || echo 0)"
+    n="${n:-0}"
+    [[ "$n" =~ ^[0-9]+$ ]] || n=0
+    [[ "$n" -gt 0 ]]
+}
+
 # Calendar: Calendar Cache row count > 0 OR any *.calendar dir with a
 # .ics file inside. CX-122 (2026-06-01): macOS Sequoia 15.x stores events
 # in the Calendar Agent GROUP CONTAINER, not ~/Library/Calendars (that
@@ -17530,7 +17547,8 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     # apps (no Accounts4.sqlite source row) and their stores create
     # on first launch from iCloud. CX-101 leaves these as-is for v1.0.
     [[ ! -d "$HOME/Library/Group Containers/group.com.apple.reminders" ]] && APPS_TO_OPEN+=("Reminders")
-    [[ ! -f "$HOME/Library/Group Containers/group.com.apple.notes/NoteStore.sqlite" ]] && APPS_TO_OPEN+=("Notes")
+    # Row count, not file presence: see _store_populated_notes.
+    _store_populated_notes || APPS_TO_OPEN+=("Notes")
 
     if [[ ${#APPS_TO_OPEN[@]} -gt 0 ]]; then
         info "$(printf "$MSG_INFO_TRIGGERING_ICLOUD_SYNC_SILENT_FIRST_RUN" "${APPS_TO_OPEN[*]}")"
@@ -17541,9 +17559,25 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
         sleep 10
         # Close them quietly (SIGTERM via AppleScript, not force-kill)
         for app in "${APPS_TO_OPEN[@]}"; do
+            # Notes is LEFT RUNNING, hidden. Its iCloud sync runs inside the
+            # app, so quitting it after ten seconds stopped the sync that
+            # opening it was meant to start. The others are quit as before.
+            [[ "$app" == "Notes" ]] && continue
             _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
                 osascript -e "tell application \"$app\" to quit" 2>/dev/null || true
         done
+        # Give Notes a bounded chance to fill before the extract reads it. A
+        # store still empty after this is NOT final: the hourly fda-rerun
+        # re-checks it, re-opens Notes, and embeds the notes the first time
+        # the extract finds any.
+        if [[ " ${APPS_TO_OPEN[*]} " == *" Notes "* ]]; then
+            _notes_wait_left="${OSTLER_NOTES_POPULATE_WAIT_S:-60}"
+            while (( _notes_wait_left > 0 )) && ! _store_populated_notes; do
+                sleep 5
+                _notes_wait_left=$((_notes_wait_left - 5))
+            done
+            unset _notes_wait_left
+        fi
         ok "$MSG_OK_APPS_LAUNCHED_TRIGGER_ICLOUD_SYNC"
     else
         ok "$MSG_OK_APP_DATABASES_ALREADY_PRESENT_SKIPPING_PRE"
@@ -22501,6 +22535,10 @@ fi
 # this script's exit status (the sealed tick.sh says so), which is the only
 # channel a scheduler can act on -- a loud log tells a human, an rc tells the
 # system, and only one of those is watching at 04:00.
+#
+# The rc is CAPTURED rather than left to set -e, so the Apple Notes step below
+# still runs after a failed ingest, and the tick still exits with it.
+_fda_rc=0
 "$OSTLER_PYTHON" -c "
 import json, sys, os, datetime
 sys.path.insert(0, '${FDA_DIR}')
@@ -22581,7 +22619,132 @@ else:
 if failed:
     sys.stderr.write('[ingest] FAILED: ' + '; '.join(failed) + chr(10))
     sys.exit(1)
-"
+" || _fda_rc=$?
+# ── APPLE NOTES: RE-OPEN AN EMPTY STORE, EMBED WHEN THE EXTRACT CHANGES ────
+#
+# WHY THIS IS HERE. Notes are embedded into apple_notes_knowledge by ONE step,
+# the install-time hydrate leg, which runs once. Every tick of this script
+# re-extracts apple_notes.json, and until now nothing read the new file. So a
+# store that was empty at install (a Mac whose Notes app had never been
+# opened, measured 2026-09-24: NoteStore.sqlite present, 0 note rows, then 412
+# once Notes ran) recorded 0 and stayed 0 for the life of the install.
+#
+# THREE THINGS, EACH MEASURED BEFORE IT ACTS:
+#   1. Count the Notes store's note-body rows. Unreadable is CANNOT-RUN and
+#      records nothing; it is never written down as "no notes".
+#   2. Record notes_has_fetched + notes_checked_ts in pipeline_signals.json,
+#      merged so every other key survives. If the store is empty, open Notes
+#      hidden (`open -g -j`) at most once per OSTLER_NOTES_REOPEN_S (a day),
+#      because iCloud Notes syncs inside the app and not without it.
+#   3. If apple_notes.json holds notes and its hash differs from the last one
+#      embedded, run the SAME convert + embed the install leg runs, and on
+#      success record the hash and the hydrate sentinel. An embed failure
+#      makes the tick non-zero and is retried next tick.
+_ostler_notes_refresh() {
+    # OSTLER_NOTES_REFRESH=0 turns the whole step off (and keeps test
+    # harnesses that run this wrapper from opening Notes on their own host).
+    [[ "${OSTLER_NOTES_REFRESH:-1}" == "0" ]] && return 0
+    case ",${OSTLER_FDA_SOURCES:-apple_notes}," in
+        *,apple_notes,*) ;;
+        *) return 0 ;;
+    esac
+    local store="${HOME}/Library/Group Containers/group.com.apple.notes/NoteStore.sqlite"
+    local state="${OSTLER_DIR}/state"
+    local signals="${state}/pipeline_signals.json"
+    local opened="${state}/notes_opened_at"
+    local n="" fetched now last
+    mkdir -p "${state}/hydrate"
+    if [[ -f "$store" ]]; then
+        n="$(sqlite3 "file:${store}?mode=ro" -bail "SELECT COUNT(*) FROM ZICNOTEDATA" 2>/dev/null || true)"
+    else
+        n=0
+    fi
+    if [[ ! "$n" =~ ^[0-9]+$ ]]; then
+        echo "[notes] CANNOT-RUN: the Notes store exists and could not be read; nothing recorded"
+    else
+        fetched=false
+        [[ "$n" -gt 0 ]] && fetched=true
+        "$OSTLER_PYTHON" - "$signals" "$fetched" <<'NOTES_SIGNALS_EOF' || echo "[notes] could not update pipeline_signals.json" >&2
+import json, os, sys, time
+path, fetched = sys.argv[1], sys.argv[2] == "true"
+try:
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    if not isinstance(data, dict):
+        data = {}
+except (OSError, ValueError):
+    data = {}
+data["notes_has_fetched"] = fetched
+data["notes_checked_ts"] = int(time.time())
+tmp = path + ".tmp." + str(os.getpid())
+with open(tmp, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, indent=2, sort_keys=True)
+    fh.write("\n")
+os.chmod(tmp, 0o600)
+os.replace(tmp, path)
+NOTES_SIGNALS_EOF
+        if [[ "$fetched" == false ]]; then
+            now="$(date +%s)"
+            last="$(cat "$opened" 2>/dev/null || true)"
+            [[ "$last" =~ ^[0-9]+$ ]] || last=0
+            if (( now - last >= ${OSTLER_NOTES_REOPEN_S:-86400} )); then
+                if open -g -j -a Notes 2>/dev/null; then
+                    printf '%s\n' "$now" > "$opened"
+                    echo "[notes] the Notes store is empty; opened Notes in the background so iCloud can fill it"
+                else
+                    echo "[notes] the Notes store is empty and Notes could not be opened"
+                fi
+            fi
+        fi
+    fi
+
+    local json="${OSTLER_DIR}/imports/fda/apple_notes.json"
+    local mark="${state}/hydrate/apple_notes_knowledge.sha256"
+    local bin="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
+    local log="${OSTLER_DIR}/logs/notes-rerun-embed.log"
+    local staging="${OSTLER_DIR}/data/knowledge-staging-notes-rerun"
+    local count sha
+    [[ -s "$json" ]] || return 0
+    count="$("$OSTLER_PYTHON" -c 'import json,sys; d=json.load(open(sys.argv[1])); print(len(d) if isinstance(d, list) else 0)' "$json" 2>/dev/null || true)"
+    [[ "$count" =~ ^[0-9]+$ ]] || count=0
+    [[ "$count" -gt 0 ]] || return 0
+    sha="$(shasum -a 256 "$json" | cut -d' ' -f1)"
+    [[ "$sha" == "$(cat "$mark" 2>/dev/null || true)" ]] && return 0
+    if [[ ! -x "$bin" ]] && ! command -v "$bin" >/dev/null 2>&1; then
+        echo "[notes] CANNOT-RUN: ${bin} is not installed, so ${count} notes were not embedded"
+        return 0
+    fi
+    rm -rf "$staging"
+    mkdir -p "$staging" "$(dirname "$log")" "${OSTLER_DIR}/data"
+    if "$bin" convert --source apple_notes "$json" --output "$staging" >>"$log" 2>&1 \
+       && "$bin" embed "$staging" \
+            --collection apple_notes_knowledge \
+            --embedding-model "${OSTLER_KNOWLEDGE_EMBED_MODEL:-nomic-embed-text}" \
+            --max-compartment-level "${OSTLER_KNOWLEDGE_MAX_COMPARTMENT_LEVEL:-2}" \
+            --db-path "${OSTLER_DIR}/data/knowledge-metadata.db" >>"$log" 2>&1; then
+        printf '%s\n' "$sha" > "$mark"
+        {
+            printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            printf 'source=apple_notes\n'
+            printf 'status=ok\n'
+            printf 'item_count=%s\n' "$count"
+            printf 'detail=fda_rerun\n'
+            printf 'payload=notes=%s\n' "$count"
+        } > "${state}/hydrate/apple_notes.done"
+        echo "[notes] embedded ${count} notes into apple_notes_knowledge"
+    else
+        echo "[notes] FAILED to embed ${count} notes; see ${log}; the next tick retries" >&2
+        return 1
+    fi
+    return 0
+}
+
+_notes_rc=0
+_ostler_notes_refresh || _notes_rc=$?
+if [[ "$_fda_rc" -ne 0 ]]; then
+    exit "$_fda_rc"
+fi
+exit "$_notes_rc"
 FDAEOF
 chmod +x "${OSTLER_DIR}/bin/ostler-fda"
 
@@ -26097,6 +26260,7 @@ if [[ -n "$_pipeline_writer" ]] && python3 "$_pipeline_writer" \
         --output "$PIPELINE_SIGNALS_FILE" \
         --accounts "$MAIL_ACCOUNTS_FOUND" \
         --has-fetched "$MAIL_HAS_FETCHED" \
+        --notes-has-fetched "$(_store_populated_notes && echo true || echo false)" \
         --enrichment-decision "${OSTLER_CONSENT_ENRICHMENT_DECISION:-unknown}"; then
     info "$(printf "$MSG_INFO_APPLE_MAIL_ACCOUNTS_VISIBLE_INFORMATIONAL" "${MAIL_ACCOUNTS_FOUND}")"
     # CX-100 three-state copy: accounts==0 -> state 1 (no source);

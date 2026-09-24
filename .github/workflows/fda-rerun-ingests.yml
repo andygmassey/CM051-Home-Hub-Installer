@@ -51,6 +51,7 @@ on:
       - 'install.sh'
       - 'scripts/lib/strip_comments.sh'
       - 'tests/test_fda_rerun_ingests.sh'
+      - 'tests/test_notes_are_opened_and_refreshed.sh'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/fda-rerun-ingests.yml'
   push:
@@ -81,6 +82,14 @@ jobs:
       - name: Test parses under bash 3.2-compatible syntax
         if: always()
         run: bash -n tests/test_fda_rerun_ingests.sh
+
+      # The same wrapper's Apple Notes step, plus install.sh's Notes probe:
+      # an empty store is opened rather than believed, and a later tick embeds
+      # the notes the install could not see. Executed against shims that
+      # record calls; nothing opens an app on the runner.
+      - name: An empty Notes store is opened, and the rerun catches up
+        if: always()
+        run: bash tests/test_notes_are_opened_and_refreshed.sh
 
   # SEPARATE JOB, deliberately. See the header.
   predicate-self-test:
