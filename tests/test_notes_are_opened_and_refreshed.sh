@@ -254,7 +254,7 @@ rm -rf "${HC}/.ostler"; : > "$OPENLOG"
 mk "$CHATDB" "CREATE TABLE message (ROWID INTEGER PRIMARY KEY);" message 0
 PRE="$(OSTLER_WARM_POLL_S=1 lib "" "ostler_warm_prelaunch '${HC}/.ostler/state/pipeline_signals.json' '${HC}/.ostler/state' 2 apple_mail imessage calendar reminders")"
 check "prelaunch opens Mail, Messages and Reminders, not Calendar" \
-    '[[ "$(grep ^OPENED <<< "$PRE" | cut -d" " -f2 | sort | tr "\n" " ")" == "Mail Messages Reminders " ]]'
+    '[[ "$(grep ^OPENED <<< "$PRE" | cut -d" " -f2 | sort | tr "\n" ",")" == "Mail,Messages,Reminders," ]]'
 check "prelaunch lists NOTHING to quit while stores are empty or apps must keep running" \
     '! grep -q "^QUIT" <<< "$PRE"'
 mk "$REMDB" "CREATE TABLE ZREMCDREMINDER (Z_PK INTEGER PRIMARY KEY);" ZREMCDREMINDER 2
