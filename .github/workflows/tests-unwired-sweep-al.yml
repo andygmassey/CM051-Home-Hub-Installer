@@ -105,7 +105,6 @@ jobs:
             test_doctor_probe_non_fatal.sh \
             test_doctor_repo_fallback.sh \
             test_email_folder_prompt.sh \
-            test_email_checkpoint_lives_under_dot_ostler.sh \
             test_email_ingest_bootstrap_guard.sh \
             test_email_ingest_loud_guard.sh \
             test_email_ingest_venv_wired.sh \
@@ -133,6 +132,11 @@ jobs:
       - name: The manual Homebrew tarball install targets a branch that still exists
         if: always()
         run: bash tests/test_a_manual_brew_tarball_must_target_a_branch_that_still_exists.sh
+
+      # INDIVIDUAL STEP for the same reason as the one above (#2347).
+      - name: The Apple Mail checkpoint lives under ~/.ostler, so a reinstall reads email
+        if: always()
+        run: bash tests/test_email_checkpoint_lives_under_dot_ostler.sh
 
       - name: Python tests (a..l)
         # Independent axis from the shell tests: run even if those failed, so a
