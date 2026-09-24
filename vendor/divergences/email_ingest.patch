@@ -110,19 +110,24 @@ index 40bc9855..82f17463 100755
      echo "email-ingest install: LaunchAgent bootstrapped ($LABEL)"
  else
 diff --git a/bin/email-ingest-tick.sh b/bin/email-ingest-tick.sh
-index 89ca3130..0de82da3 100755
+index 89ca3130..73f88169 100755
 --- a/bin/email-ingest-tick.sh
 +++ b/bin/email-ingest-tick.sh
-@@ -28,7 +28,7 @@
+@@ -26,9 +26,11 @@
+ #
+ # Configuration (env, set by the installer or LaunchAgent):
  #   OSTLER_DIR         (default ~/.ostler) -- artefact root
- #   OSTLER_HOME        (default $HOME)     -- ostler-fda needs this
+-#   OSTLER_HOME        (default $HOME)     -- ostler-fda needs this
++#   (OSTLER_HOME is NOT read from the environment any more: the tick
++#    hands ostler-fda OSTLER_HOME=$OSTLER_DIR so its checkpoint lands in
++#    $OSTLER_DIR/state, where the uninstaller and Doctor both look.)
  #   OSTLER_PYTHON      (default python3)   -- python interpreter
 -#   OSTLER_BACKFILL_DAYS (default 365)     -- first-tick clamp
 +#   OSTLER_BACKFILL_DAYS (default 1825)    -- first-tick clamp
  #   OSTLER_BACKFILL_CHUNK_DAYS (default 30) -- backward-sweep chunk
  #
  # British English throughout.
-@@ -37,14 +37,18 @@ set -euo pipefail
+@@ -37,14 +39,17 @@ set -euo pipefail
  
  # Resolve config with sensible defaults so a manual run (e.g. "what
  # would the LaunchAgent do?") works without env-var ceremony.
@@ -139,14 +144,14 @@ index 89ca3130..0de82da3 100755
 +# up over a handful of hourly ticks rather than blocking the
 +# install on the full multi-year scan.
  OSTLER_DIR="${OSTLER_DIR:-$HOME/.ostler}"
- OSTLER_HOME="${OSTLER_HOME:-$HOME}"
+-OSTLER_HOME="${OSTLER_HOME:-$HOME}"
  OSTLER_PYTHON="${OSTLER_PYTHON:-python3}"
 -OSTLER_BACKFILL_DAYS="${OSTLER_BACKFILL_DAYS:-365}"
 +OSTLER_BACKFILL_DAYS="${OSTLER_BACKFILL_DAYS:-1825}"
  OSTLER_BACKFILL_CHUNK_DAYS="${OSTLER_BACKFILL_CHUNK_DAYS:-30}"
  
  # Where to drop the hourly mbox. One file per hour means a re-run
-@@ -59,6 +63,38 @@ log() {
+@@ -59,13 +64,63 @@ log() {
      printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
  }
  
@@ -185,7 +190,33 @@ index 89ca3130..0de82da3 100755
  # ---------------------------------------------------------------------------
  # 1. Emit fresh messages from Apple Mail
  # ---------------------------------------------------------------------------
-@@ -89,18 +125,53 @@ fi
+ 
+ log "email-ingest tick start: mbox=$MBOX backfill_days=$OSTLER_BACKFILL_DAYS"
+ 
+-OSTLER_HOME="$OSTLER_HOME" "$OSTLER_PYTHON" -m ostler_fda.apple_mail_mbox \
++# Legacy checkpoint location. This tick used to hand ostler-fda
++# OSTLER_HOME=$HOME, and ostler-fda appends /state itself, so the
++# checkpoint was written to ~/state/apple_mail_mbox_checkpoint.json,
++# OUTSIDE ~/.ostler. The uninstaller never removed it, so a reinstall
++# inherited a "backfill complete" marker from the previous install and
++# emitted zero messages, every hour, forever (measured on a walk box:
++# 12 ticks, 20986 .emlx scanned per tick, 0 emitted). Remove it once; a
++# fresh checkpoint under $OSTLER_DIR/state is seeded on this tick.
++_LEGACY_CKPT_DIR="$HOME/state"
++_LEGACY_CKPT="$_LEGACY_CKPT_DIR/apple_mail_mbox_checkpoint.json"
++if [ -f "$_LEGACY_CKPT" ]; then
++    rm -f -- "$_LEGACY_CKPT"
++    if [ -z "$(ls -A -- "$_LEGACY_CKPT_DIR")" ]; then
++        rmdir -- "$_LEGACY_CKPT_DIR"
++    fi
++    log "removed legacy email checkpoint outside $OSTLER_DIR; reseeding under $OSTLER_DIR/state"
++fi
++
++OSTLER_HOME="$OSTLER_DIR" "$OSTLER_PYTHON" -m ostler_fda.apple_mail_mbox \
+     --emit-mbox "$MBOX" \
+     --backfill-days "$OSTLER_BACKFILL_DAYS" \
+     --backfill-chunk-days "$OSTLER_BACKFILL_CHUNK_DAYS" \
+@@ -89,18 +144,53 @@ fi
  # 2. Hand the mbox to CM046's email adapter -> CM048
  # ---------------------------------------------------------------------------
  

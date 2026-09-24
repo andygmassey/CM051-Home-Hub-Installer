@@ -133,6 +133,11 @@ jobs:
         if: always()
         run: bash tests/test_a_manual_brew_tarball_must_target_a_branch_that_still_exists.sh
 
+      # INDIVIDUAL STEP for the same reason as the one above (#2347).
+      - name: The Apple Mail checkpoint lives under ~/.ostler, so a reinstall reads email
+        if: always()
+        run: bash tests/test_email_checkpoint_lives_under_dot_ostler.sh
+
       - name: Python tests (a..l)
         # Independent axis from the shell tests: run even if those failed, so a
         # red shell run never hides whether the Python guards also broke.

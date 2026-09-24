@@ -71,6 +71,7 @@ PATHS=(
     "/usr/local/bin/ostler-knowledge|a stale CLI pointing into a deleted venv"
     "/usr/local/bin/pwg-convo|a stale CLI pointing into a deleted venv"
     "/usr/local/bin/ostler|a stale CLI pointing into a deleted venv"
+    "${HOME}/state/apple_mail_mbox_checkpoint.json|a stale email checkpoint (legacy path outside ~/.ostler) that tells a fresh install its backfill is done"
 )
 
 echo "=== removing every Ostler surface ==="

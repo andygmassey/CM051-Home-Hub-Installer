@@ -24280,6 +24280,20 @@ if [[ -d "${HOME}/.ostler" ]]; then
     rmdir "${HOME}/.ostler" 2>/dev/null || true
 fi
 
+# Legacy email checkpoint OUTSIDE ~/.ostler. Older email-ingest ticks handed
+# ostler-fda OSTLER_HOME=$HOME, which appends /state, so the checkpoint landed
+# at ~/state/apple_mail_mbox_checkpoint.json. Left behind, it tells the NEXT
+# install its email backfill is already complete, and that install then
+# ingests zero email. Remove the one file we own; the folder goes only if we
+# leave it empty, because ~/state is not ours by name.
+if [[ -f "${HOME}/state/apple_mail_mbox_checkpoint.json" ]]; then
+    echo "  Removing the legacy email checkpoint at ~/state..."
+    rm -f "${HOME}/state/apple_mail_mbox_checkpoint.json"
+    if [[ -d "${HOME}/state" ]] && [[ -z "$(ls -A "${HOME}/state")" ]]; then
+        rmdir "${HOME}/state"
+    fi
+fi
+
 if [[ -n "$KNOWLEDGE_STAGING_BAK" ]] && [[ -d "${KNOWLEDGE_STAGING_BAK}/staging" ]]; then
     mkdir -p "$(dirname "$KNOWLEDGE_STAGING_DIR")"
     mv "${KNOWLEDGE_STAGING_BAK}/staging" "$KNOWLEDGE_STAGING_DIR"
@@ -31878,7 +31892,10 @@ if [[ -x "$_HYDRATE_EMAIL_PY" ]] && [[ -x "$_HYDRATE_EMAIL_BIN" ]]; then
     # progress + recover from a per-chunk failure without restarting
     # the whole multi-year scan.
     _hydrate_heartbeat_start "$MSG_HYDRATE_EMAIL_HEARTBEAT"
-    if OSTLER_HOME="$HOME" $_HYDRATE_EMAIL_TIMEOUT_WRAP \
+    # OSTLER_HOME is the Ostler root, not $HOME: ostler-fda appends /state,
+    # so $HOME put the checkpoint at ~/state, outside everything the
+    # uninstaller removes. Must match vendor/email_ingest/bin/email-ingest-tick.sh.
+    if OSTLER_HOME="$OSTLER_DIR" $_HYDRATE_EMAIL_TIMEOUT_WRAP \
        "$_HYDRATE_EMAIL_PY" -m ostler_fda.apple_mail_mbox \
            --emit-mbox "$_HYDRATE_EMAIL_MBOX" \
            --backfill-days "$OSTLER_HYDRATE_EMAIL_DAYS" \
