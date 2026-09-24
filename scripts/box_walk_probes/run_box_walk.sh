@@ -136,6 +136,19 @@ printf '============================================================\n\n'
 # -------------------------------------------------------------------------
 # PHASE 1 -- negative controls. Try to make every probe fail.
 # -------------------------------------------------------------------------
+# A SELF-TEST IS FIXTURES ONLY, SO IT RUNS WITH THE BOX VARIABLES CLEARED (#2362).
+# With OSTLER_BOX_HOST exported, lib/probe.sh box_run() sends any call a
+# self-test makes to the live box. Five self-tests do make one, and on the
+# v1.0.102 walk four of them came back BROKEN while the box was busy settling
+# its install: the same self-tests pass on any quiet host. A negative control
+# whose verdict depends on the state of the thing under test is not a control.
+# Measured: freshness_panel_has_dates, ingest_coverage, no_unexpected_egress,
+# people_stores_reconcile and usage_journal_producers each return a different
+# code with OSTLER_BOX_HOST pointed at an unreachable host than without it.
+run_probe_self_test() {
+    env -u OSTLER_BOX_HOST -u OSTLER_BOX_WALK_EVIDENCE_DIR bash "$1" --self-test 2>&1
+}
+
 BROKEN_LIST=""
 BROKEN=0
 
@@ -147,7 +160,7 @@ else
     printf -- '--- PHASE 1: negative controls (each probe must be able to FAIL) ---\n'
     for p in $PROBES; do
         b="$(basename "$p" .sh)"
-        out="$(bash "$p" --self-test 2>&1)"
+        out="$(run_probe_self_test "$p")"
         rc=$?
         # THE EXIT CODE IS NOT THE ONLY SIGNAL, and reading it alone is how a
         # broken probe passes phase 1.

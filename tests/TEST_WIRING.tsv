@@ -239,6 +239,7 @@ test_email_folder_prompt.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_email_ingest_bootstrap_guard.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_email_ingest_loud_guard.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_email_ingest_venv_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_email_only_people_get_a_provisional_name.py	WIRED	.github/workflows/privacy-spine.yml
 test_email_settling_numerator_is_messages.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_end_of_install_confirmation.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_engine_provenance_never_claims_what_it_did_not_install.sh	WIRED	.github/workflows/engine-provenance.yml
@@ -429,6 +430,7 @@ test_people_sweep_partial_landing_is_not_success.py	WIRED	.github/workflows/peop
 test_pgrep_no_match_does_not_fabricate_a_done.sh	WIRED	.github/workflows/bash32-compat.yml
 test_phase_2_failures_reach_the_walk_record.sh	WIRED	.github/workflows/cut-manifest.yml
 test_photo_events_reach_the_graph.py	WIRED	.github/workflows/privacy-spine.yml
+test_photos_events_are_in_the_default_preset.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_pii_shape_scan_scope.sh	WIRED	.github/workflows/operator-pii-scan.yml
 test_pinned_images_are_pullable.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_pinned_wiki_image_has_design_system.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
@@ -771,6 +773,7 @@ scripts/tests/test_people_count_agreement_probe.sh	WIRED	.github/workflows/keyle
 scripts/tests/test_people_seed_and_retrieval_probe.sh	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_people_stores_reconcile_probe.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
 scripts/tests/test_permission_briefing.sh	WIRED	.github/workflows/permission-briefing.yml
+scripts/tests/test_probe_self_tests_never_reach_the_box.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
 scripts/tests/test_probes_do_not_emit_derivable_person_uris.py	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_regenerate_divergence_patch.sh	WIRED	.github/workflows/vendor-integrity.yml
 scripts/tests/test_resolve_cut_daemon_pin.sh	WIRED	gui/Makefile

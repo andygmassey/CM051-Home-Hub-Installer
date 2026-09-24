@@ -3338,7 +3338,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8241   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8286   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8295 and :15085, both of which run
+    # Its two top-level arming calls are :8295 and :15091, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3329 above has just deleted
     # that tree and :3333 has just rebound OSTLER_DIR to the final one, so
@@ -3356,13 +3356,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15856, where the note reads
+    # WhatsApp Web session path did it again at :15862, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15873 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15879 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3375,9 +3375,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8295, :15085) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8295, :15091) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17943 / :18121 / :18278 / :18620 path. There the
+    # :17949 / :18127 / :18284 / :18626 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -11206,7 +11206,7 @@ PRESET=${PRESET:-recommended}
 #      Mail at this same moment. There is no separate Notes prompt to decline,
 #      so the "do not print an amber row for ever to someone who said no"
 #      concern does not arise: the customer never says no to Notes
-#      specifically. Contrast photos_metadata, which stays off by default.
+#      specifically. (photos_metadata joined the default in #2364.)
 #   3. The Doctor row is UNCONDITIONAL either way. apple_notes is in
 #      _SOURCE_KINDS, not _FDA_EXTRACT_KINDS, so the panel prints the row
 #      whether or not a sentinel exists. Everything-only would therefore keep
@@ -11214,7 +11214,13 @@ PRESET=${PRESET:-recommended}
 #      the outcome the deferral was supposed to avoid.
 # Andy, 2026-09-02, on the deferral this replaces: "I don't know where you're
 # getting that Apple Notes shouldn't be included - it SHOULD."
-RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders,imessage,apple_mail"
+# #2364: photos_metadata (dates, places, captions; NEVER faces) is in the
+# default preset. The installer already asks for Photos access up front and
+# tells the customer it is "so the Hub can read photo metadata", and then did
+# not read it unless they picked Everything or ticked it by hand: on the
+# v1.0.102 walk a default install ingested 0 of 1,298 photo events. Faces stay
+# out of every preset (photos_faces is the Art. 9 opt-in, tickable only).
+RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders,imessage,apple_mail,photos_metadata"
 
 # DMG fix 3 (#618 partial): most customers are Chrome-primary, so a
 # Recommended install must ingest Chrome history too when Chrome is
@@ -11237,7 +11243,7 @@ fi
 # people" reads as a bug; not listing the source reads as fine).
 # chrome_history is inherited from RECOMMENDED above, so it is NOT
 # re-added here (a duplicate in OSTLER_FDA_SOURCES would double-list it).
-EVERYTHING="${RECOMMENDED},photos_metadata"
+EVERYTHING="${RECOMMENDED}"
 if [[ "$HAS_WHATSAPP_DESKTOP" == true ]]; then
     EVERYTHING="${EVERYTHING},whatsapp_history"
 fi
@@ -11301,7 +11307,7 @@ case "$PRESET" in
         else
             _ask_source "chrome_history"   "Chrome history            " N
         fi
-        _ask_source "photos_metadata"  "Photos events (no faces)  " N
+        _ask_source "photos_metadata"  "Photos events (no faces)  " Y
         # vendor/ostler_fda/apple_music.py has a complete extractor but is
         # DELIBERATELY not offered here, in RECOMMENDED, or in EVERYTHING.
         # Every other source above reads a live, TCC-gated database the FDA
