@@ -103,9 +103,45 @@ _rm "$HOME/.colima/_lima/_disks/colima"
 # 3-5. Every path in PATHS: the Ostler dir including the licence the customer
 #      uninstaller correctly preserves, the Applications surfaces (one of which
 #      hid the step-33 defect), the customer content, and the CLI symlinks.
+# THE LICENCE IS THE CUSTOMER'S PROPERTY, NOT OSTLER RESIDUE.
+#
+# MEASURED 2026-09-24: the first run of this script deleted ~/.ostler whole,
+# licence included, and the next walk refused before it staged anything:
+#
+#   CANNOT-RUN: no licence at ~/.ostler/license/license.json
+#   install.sh reads exactly that path and refuses without it
+#
+# The refusal was correct and the reset was wrong. A customer's Mac on the
+# morning they install HAS a licence -- they bought one -- so a box with no
+# licence is not "a customer's Mac before install", it is a state no customer
+# is ever in. The shipped uninstaller preserves it for the same reason and is
+# right to.
+#
+# So it is carried across the wipe rather than spared in place: spared in
+# place would leave ~/.ostler standing, and the whole point is that the
+# directory goes. Restored only if it was there to begin with.
+_LICENCE_SRC="${HOME}/.ostler/license/license.json"
+_LICENCE_TMP=""
+if [ -f "$_LICENCE_SRC" ] && [ "$DRY" = "0" ]; then
+    _LICENCE_TMP="$(mktemp)"
+    cp "$_LICENCE_SRC" "$_LICENCE_TMP" 2>/dev/null && chmod 600 "$_LICENCE_TMP" \
+        && echo "  carrying the licence across the wipe (it is the customer's, not residue)"
+fi
+
 for _entry in "${PATHS[@]}"; do
     _rm "${_entry%%|*}"
 done
+
+if [ -n "$_LICENCE_TMP" ] && [ -f "$_LICENCE_TMP" ]; then
+    mkdir -p "$(dirname "$_LICENCE_SRC")" 2>/dev/null || true
+    if cp "$_LICENCE_TMP" "$_LICENCE_SRC" 2>/dev/null; then
+        chmod 600 "$_LICENCE_SRC" 2>/dev/null || true
+        echo "  licence restored to ${_LICENCE_SRC}"
+    else
+        echo "  WARNING: the licence could NOT be restored; the next walk will refuse."
+    fi
+    rm -f "$_LICENCE_TMP" 2>/dev/null || true
+fi
 
 # 6. Preference domains. These persist through every file removal above, and a
 #    stale installer domain can carry first-run state into a "fresh" install --
@@ -150,9 +186,32 @@ _assert_absent() {   # $1 = path, $2 = what it would hide
 }
 
 # SAME ARRAY. A path cannot be removed-and-unasserted any more.
+# ~/.ostler is handled separately below: the licence is deliberately carried
+# across, so "absent" is the wrong assertion for it and a weaker one would
+# hide real residue.
 for _entry in "${PATHS[@]}"; do
-    _assert_absent "${_entry%%|*}" "${_entry##*|}"
+    _p="${_entry%%|*}"
+    [ "$_p" = "${HOME}/.ostler" ] && continue
+    _assert_absent "$_p" "${_entry##*|}"
 done
+
+# ~/.ostler MUST contain nothing but the licence. Asserting plain absence
+# would fail on the licence we deliberately kept; asserting nothing at all
+# would let every sentinel, config and cached venv survive unnoticed, which is
+# the exact residue this script exists to remove. So the assertion is EXACT:
+# zero entries, or exactly one named "license".
+if [ ! -e "${HOME}/.ostler" ]; then
+    printf '  absent    %s\n' "${HOME}/.ostler"
+else
+    _leftover="$(ls -A "${HOME}/.ostler" 2>/dev/null | grep -vx 'license' | head -5)"
+    if [ -n "$_leftover" ]; then
+        printf '  SURVIVED  %-46s  %s\n' "${HOME}/.ostler contents" "config, sentinels or caches from a previous install"
+        printf '%s\n' "$_leftover" | sed 's/^/              /'
+        FAIL=1
+    else
+        printf '  absent    %s (bar the licence, carried deliberately)\n' "${HOME}/.ostler"
+    fi
+fi
 
 # THE KEYCHAIN, with the instrument proven before the answer is trusted.
 # `dump-keychain` is the WRONG instrument over ssh: it returns nothing at all

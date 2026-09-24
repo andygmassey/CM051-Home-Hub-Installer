@@ -176,9 +176,12 @@ def _make_fake_httpx_client(posted: dict):
         def __exit__(self, *exc):
             return False
 
-        def post(self, url, json=None):
+        # headers: CM052 #11 sends the Hub API service token (the endpoint
+        # fails closed without it), so the double must accept and record it.
+        def post(self, url, json=None, headers=None):
             posted["url"] = url
             posted["json"] = json
+            posted["headers"] = headers
             return _FakeResponse()
 
     return _FakeClient

@@ -171,6 +171,12 @@ jobs:
         if: always()
         run: bash tests/test_the_success_screen_names_the_wiki_credential.sh
 
+      # The other half of the same credential: the customer is handed it, and
+      # install.log is NOT. Its own step with an execution verb.
+      - name: the wiki password never reaches install.log
+        if: always()
+        run: bash tests/test_wiki_password_never_reaches_install_log.sh
+
       # BOARD ROW 997. Its own step with an execution verb, because
       # verify_new_tests_are_wired.sh scores a path WIRED only on a line that
       # also carries one, and an entry in the batch list above carries none.

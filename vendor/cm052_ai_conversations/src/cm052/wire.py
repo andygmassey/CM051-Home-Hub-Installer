@@ -82,10 +82,35 @@ def _user_email() -> str:
 
 
 def _cm048_endpoint() -> str:
-    return (
-        os.environ.get("CM052_CM048_ENDPOINT")
-        or "http://localhost:8089/api/v1/conversation/process"
-    )
+    """The Hub API's conversation endpoint.
+
+    It is served by the Hub API on ``OSTLER_API_PORT`` (8090). This used to
+    default to 8089, which on a customer Hub is the Doctor UI: every POST
+    was 401 and no AI conversation's facts ever reached CM048.
+    """
+    override = os.environ.get("CM052_CM048_ENDPOINT")
+    if override:
+        return override
+    port = (os.environ.get("OSTLER_API_PORT") or "8090").strip() or "8090"
+    return f"http://127.0.0.1:{port}/api/v1/conversation/process"
+
+
+def _service_token() -> str:
+    """The Hub API service token, or "" when none is configured.
+
+    The Hub API fails closed: a request without the token is 401. Env names
+    are the server's own contract (primary first). The file fallback exists
+    because this runs from a LaunchAgent whose plist may not carry the token.
+    """
+    for name in ("OSTLER_SERVICE_TOKEN", "PWG_SERVICE_TOKEN"):
+        value = (os.environ.get(name) or "").strip()
+        if value:
+            return value
+    try:
+        path = Path.home() / ".ostler" / "secrets" / "service_token"
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 
 _DEFAULT_AI_CONVERSATIONS_DIR = "~/Documents/Ostler/AI Conversations"
@@ -549,12 +574,21 @@ def post(
                 str(episodic_target) if episodic_target else None
             ),
         }
+    # The Hub API reads ``transcript`` (text) and ``metadata`` (object); a
+    # body carrying only the paths is a 400 "Missing 'transcript' field".
+    # The paths stay alongside for any consumer that already reads them.
     payload = {
+        "transcript": transcript_path.read_text(encoding="utf-8"),
+        "metadata": json.loads(metadata_path.read_text(encoding="utf-8")),
         "transcript_path": str(transcript_path),
         "metadata_path": str(metadata_path),
     }
     url = endpoint or _cm048_endpoint()
+    headers = {}
+    token = _service_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     with httpx.Client(timeout=timeout) as client:
-        response = client.post(url, json=payload)
+        response = client.post(url, json=payload, headers=headers)
         response.raise_for_status()
         return response.json()
