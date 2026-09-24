@@ -100,6 +100,17 @@ if [ "$DRY" = "0" ]; then
 fi
 _rm "$HOME/.colima/_lima/_disks/colima"
 
+# A RUNNING Ollama.app (the desktop app, not our headless agent). It serves
+# :11434 itself, so a fresh install's com.ostler.ollama agent cannot bind and
+# crash-loops: measured on the v1.0.102 walk box, 1,185 runs, every one
+# "address already in use", which failed acceptance gate A8. That app instance
+# had been started 2026-09-23 by something before the walk and survived every
+# file removal above. A customer's pre-install Mac is not running our app.
+if pgrep -f "/Applications/Ollama.app/Contents/MacOS/Ollama" >/dev/null 2>&1; then
+    echo "  process: Ollama.app (desktop app holding :11434)"
+    [ "$DRY" = "0" ] && pkill -f "/Applications/Ollama.app/Contents/" 2>/dev/null || true
+fi
+
 # 3-5. Every path in PATHS: the Ostler dir including the licence the customer
 #      uninstaller correctly preserves, the Applications surfaces (one of which
 #      hid the step-33 defect), the customer content, and the CLI symlinks.
@@ -253,6 +264,13 @@ if [ "${_n_agents:-0}" -gt 0 ]; then
     FAIL=1
 else
     printf '  absent    %s\n' "LaunchAgents in both ostler namespaces"
+fi
+
+if pgrep -f "/Applications/Ollama.app/Contents/" >/dev/null 2>&1; then
+    printf '  SURVIVED  %-46s  %s\n' "Ollama.app process" "would hold :11434 against the fresh agent"
+    FAIL=1
+else
+    printf '  absent    %s\n' "running Ollama.app / ollama serve"
 fi
 
 _n_loaded="$(launchctl list 2>/dev/null | grep -cE 'com\.(ostler|creativemachines\.ostler)' || true)"
