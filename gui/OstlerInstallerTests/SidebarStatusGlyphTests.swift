@@ -137,15 +137,20 @@ final class SidebarStatusGlyphTests: XCTestCase {
             "a dashed circle is indistinguishable from the pending circle at a glance"
         )
 
-        // And #2318's original property still holds: complete, but NOT the
-        // green tick of a measured success.
-        XCTAssertNotEqual(
-            unmeasured.symbolName, StepStatusGlyph.forStatus(.ok).symbolName,
-            "unmeasured must not wear the MEASURED-success glyph"
+        // #2318's property MOVED on 2026-09-24, it did not go away. The
+        // sidebar now draws a finished step as finished either way, on Andy's
+        // decision, so the two assertions that used to sit here would
+        // contradict it. What they were really protecting is the WIRE, and
+        // that is asserted here instead -- deliberately in this test, so the
+        // rule travels with the glyph it used to constrain.
+        XCTAssertFalse(
+            StepStatus.unmeasured.isMeasured,
+            "the sidebar stopped showing the measured/unmeasured split; the WIRE must not. "
+            + "If this fails, `ok by default` is back and the pixels are the least of it."
         )
-        XCTAssertNotEqual(
-            unmeasured.severity, StepStatusGlyph.forStatus(.ok).severity,
-            "unmeasured must not share the done severity, or it is a success by colour"
+        XCTAssertTrue(
+            StepStatus.ok.isMeasured,
+            "a measured success must still say so on the wire"
         )
     }
 
@@ -157,19 +162,46 @@ final class SidebarStatusGlyphTests: XCTestCase {
         // #2318: `unmeasured` shares the INFORMATIONAL bucket with
         // `timeout` (neither is an alarm) but must keep its own glyph --
         // "we gave up waiting" and "we never looked" are different facts.
+        // 🔴 REWRITTEN 2026-09-24 ON ANDY'S DECISION, watching his own
+        // console walk: a FINISHED step reads as finished in the customer's
+        // sidebar, measured or not. `unmeasured` therefore shares the glyph
+        // AND the severity of `ok`, deliberately, so the counts below drop
+        // by one each.
+        //
+        // The assertions this replaces said "unmeasured must not wear the
+        // green tick". That was the right rule for a WIRE and the wrong one
+        // for a SIDEBAR: it put an engineering distinction in front of a
+        // customer who cannot act on it. They are not deleted to make a red
+        // go away -- the property they protected has MOVED, and the test
+        // below now asserts it where it actually lives.
         let buckets = Set(glyphs.map { $0.severity })
         XCTAssertEqual(buckets.count, 4,
-                       "expected done / informational / alert / fatal")
+                       "expected done / informational / alert / fatal -- `timeout` still holds "
+                       + "informational on its own now that unmeasured has moved to done")
 
         let symbols = Set(glyphs.map { $0.symbolName })
-        XCTAssertEqual(symbols.count, 5,
-                       "expected five distinct glyphs across six states")
+        XCTAssertEqual(symbols.count, 4,
+                       "expected four distinct glyphs: ok+unmeasured share, warn+error share")
 
-        // The assertion that matters for #2318: a step that measured
-        // nothing must not be drawn as one that measured a success.
-        XCTAssertNotEqual(StepStatusGlyph.forStatus(.unmeasured).symbolName,
-                          StepStatusGlyph.forStatus(.ok).symbolName,
-                          "unmeasured must not wear the green tick")
+        // THE CUSTOMER-FACING RULE, stated positively.
+        XCTAssertEqual(StepStatusGlyph.forStatus(.unmeasured).symbolName,
+                       StepStatusGlyph.forStatus(.ok).symbolName,
+                       "a finished step must read as finished, whether or not it was verified")
+
+        // AND THE PROPERTY #2318 ACTUALLY PROTECTS, WHICH IS NOT A PIXEL.
+        // The distinction lives in the WIRE and must survive this change in
+        // full: an operator reading STEP_END, the marker stream or
+        // walks/*.tsv must still be able to tell a measured success from a
+        // step that measured nothing. If this ever fails, `ok by default`
+        // has come back and the sidebar is the least of it.
+        XCTAssertTrue(StepStatus.ok.isMeasured,
+                      "ok must still report as measured on the wire")
+        XCTAssertFalse(StepStatus.unmeasured.isMeasured,
+                       "unmeasured must still report as UNMEASURED on the wire -- "
+                       + "the sidebar stopped showing the distinction, the log must not")
+        XCTAssertNotEqual(StepStatus.ok, StepStatus.unmeasured,
+                          "the two states must remain distinct values, not merged")
+
         XCTAssertNotEqual(StepStatusGlyph.forStatus(.unmeasured).severity,
                           StepStatusGlyph.forStatus(.error).severity,
                           "unmeasured must not be drawn as an alert")
