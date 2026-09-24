@@ -149,14 +149,40 @@ struct StepStatusGlyph: Equatable {
             // customer. testNoStatusGlyphCollidesWithAnUnfinishedStep now
             // holds that axis.
             //
-            // A HOLLOW TICK IN MUTED INK says done-but-unverified: the
-            // tick carries completion, the absence of green and of fill
-            // carries "nobody checked". That keeps #2318's whole point --
-            // an unmeasured step still may not wear the green tick -- while
-            // not borrowing the vocabulary of a step that has not run.
+            // 🔴 ANDY DECIDED 2026-09-24, WATCHING HIS OWN CONSOLE WALK:
+            // a step that FINISHED reads as finished, in the customer's
+            // sidebar, whether or not anything verified it.
+            //
+            // The hollow muted tick below was mine and it was half-right. It
+            // fixed the real defect -- fourteen COMPLETED steps drawn with
+            // the not-started circle, so a working install read as hung --
+            // and then leaked an ENGINEERING distinction into a CUSTOMER
+            // surface. Green here, grey there, for a difference the customer
+            // cannot act on: "we did not check this one" is a worry with no
+            // remedy attached, offered to somebody who just wants to know
+            // whether their Mac is working.
+            //
+            // WHAT IS NOT CHANGED, AND IT IS THE HALF THAT MATTERS. #2318's
+            // real fix was in the WIRE, not the pixels: `ok` stopped being
+            // the accumulator's default, STEP_END still carries
+            // status=unmeasured and measured=no, and the walk record still
+            // reports unmeasured_steps=36 on a clean install. Every engineer
+            // surface keeps the distinction in full. An operator reading the
+            // log, the marker stream or walks/*.tsv sees exactly what was and
+            // was not measured. Only the sidebar stops showing it.
+            //
+            // So this is NOT a return to "ok by default". Nothing has been
+            // told it succeeded. A finished step is drawn as finished, and
+            // whether it was VERIFIED is answered where somebody can act on
+            // the answer.
+            //
+            // The right end state is fewer unmeasured steps, not a prettier
+            // way to display them: 3 of 45 currently verify their own work.
+            // Wiring the rest is the standing job this decision does not
+            // remove.
             return StepStatusGlyph(
-                symbolName: "checkmark.circle",
-                severity: .informational,
+                symbolName: "checkmark.circle.fill",
+                severity: .done,
                 accessibilityCopyKey: "sidebar.status_unmeasured"
             )
         case .warn, .error:
