@@ -71,6 +71,11 @@ jobs:
         if: always()
         run: /bin/bash scripts/tests/test_people_stores_reconcile_probe.sh
 
+      # #2362: a self-test is fixtures only; it must not reach the box.
+      - name: Probe self-tests never reach the box
+        if: always()
+        run: /bin/bash scripts/tests/test_probe_self_tests_never_reach_the_box.sh
+
       # THE PROBE'S OWN NEGATIVE CONTROL, RUN WHERE A PR CAN SEE IT.
       #
       # The four steps above drive the credential adjudication. None of them

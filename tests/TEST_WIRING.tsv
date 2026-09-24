@@ -772,6 +772,7 @@ scripts/tests/test_people_count_agreement_probe.sh	WIRED	.github/workflows/keyle
 scripts/tests/test_people_seed_and_retrieval_probe.sh	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_people_stores_reconcile_probe.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
 scripts/tests/test_permission_briefing.sh	WIRED	.github/workflows/permission-briefing.yml
+scripts/tests/test_probe_self_tests_never_reach_the_box.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
 scripts/tests/test_probes_do_not_emit_derivable_person_uris.py	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_regenerate_divergence_patch.sh	WIRED	.github/workflows/vendor-integrity.yml
 scripts/tests/test_resolve_cut_daemon_pin.sh	WIRED	gui/Makefile
