@@ -81,6 +81,7 @@ EMBEDS="
 OSTLER_DETECT_EXPORTS_EOF:ostler-detect-exports.sh
 OSTLER_RESOURCE_TIER_EOF:ostler-resource-tier.sh
 OSTLER_INGEST_SLOT_EOF:ostler-ingest-slot.sh
+OSTLER_APP_WARMUP_EOF:ostler-app-warmup.sh
 "
 
 # ---------------------------------------------------------------------
@@ -109,8 +110,8 @@ for pair in $EMBEDS; do
     fi
     EMBED_COUNT=$((EMBED_COUNT + 1))
 done
-if [ "$EMBED_COUNT" -ne 3 ]; then
-    cannot_run "expected 3 embedded libs, located $EMBED_COUNT"
+if [ "$EMBED_COUNT" -ne 4 ]; then
+    cannot_run "expected 4 embedded libs, located $EMBED_COUNT"
 fi
 pass "located all $EMBED_COUNT embedded libs in install.sh"
 
@@ -202,10 +203,10 @@ for pair in $EMBEDS; do
         failure "the write statement for $delim did not run"
     fi
 done
-if [ "$WROTE" -ne 3 ]; then
-    cannot_run "only $WROTE of 3 write statements ran; nothing below would be measuring the shipped behaviour"
+if [ "$WROTE" -ne 4 ]; then
+    cannot_run "only $WROTE of 4 write statements ran; nothing below would be measuring the shipped behaviour"
 fi
-pass "ran all 3 embedded write statements as install.sh runs them"
+pass "ran all 4 embedded write statements as install.sh runs them"
 
 run_promote >/dev/null 2>&1
 
@@ -220,8 +221,8 @@ for pair in $EMBEDS; do
     fi
 done
 echo "examined $CHECKED embedded libs"
-if [ "$CHECKED" -ne 3 ]; then
-    cannot_run "examined $CHECKED libs, expected 3"
+if [ "$CHECKED" -ne 4 ]; then
+    cannot_run "examined $CHECKED libs, expected 4"
 fi
 
 # ---------------------------------------------------------------------

@@ -397,6 +397,7 @@ test_no_test_uses_a_bash4_builtin.sh	WIRED	.github/workflows/bash32-compat.yml
 test_no_unbounded_enrich_invocation.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_no_undefined_msg_refs_in_install_sh.sh	WIRED	.github/workflows/container-runtime-precondition.yml
 test_no_xcodebuild_pipe_into_early_exit.sh	WIRED	.github/workflows/pbxproj-sync.yml
+test_notes_are_opened_and_refreshed.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_notion_obsidian_import_runs_end_to_end.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_ollama_agent_check_survives_a_not_yet_running_agent.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_ollama_agent_does_not_depend_on_a_foreign_port.sh	WIRED	.github/workflows/cold-box-source-truth.yml

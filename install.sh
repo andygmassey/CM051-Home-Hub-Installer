@@ -3334,11 +3334,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8223) captures the path BY
+    # _ostler_write_store_curl_config (defined :8240) captures the path BY
     # VALUE and never re-reads it:
-    #     :8224   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8269   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8278 and :14771, both of which run
+    #     :8241   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8286   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8295 and :15085, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3329 above has just deleted
     # that tree and :3333 has just rebound OSTLER_DIR to the final one, so
@@ -3356,13 +3356,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15542, where the note reads
+    # WhatsApp Web session path did it again at :15856, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15559 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15873 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3371,13 +3371,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5843 against a definition at :8223. Top-level
+    # writer's own definition: :5860 against a definition at :8240. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8278, :14771) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8295, :15085) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17614 / :17792 / :17949 / :18291 path. There the
+    # :17943 / :18121 / :18278 / :18620 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -4936,6 +4936,23 @@ _store_populated_mail() {
         [[ "$n" -gt 0 ]] && return 0
     fi
     return 1
+}
+
+# Notes: the note-body table has rows. NOT "NoteStore.sqlite exists": the
+# file is created empty on a Mac whose Notes app has never been opened, and
+# iCloud only fills it once Notes runs. Measured 2026-09-24 on a walk box:
+# NoteStore.sqlite present since July, 0 rows in ZICNOTEDATA, so the old
+# file-exists test called Notes "already present", never opened it, and every
+# extract read 0 notes. Opened once by hand, the same store held 412.
+_store_populated_notes() {
+    local db="${HOME}/Library/Group Containers/group.com.apple.notes/NoteStore.sqlite"
+    [[ -f "$db" ]] || return 1
+    local n
+    n="$(sqlite3 "file:${db}?mode=ro" -bail \
+        "SELECT COUNT(*) FROM ZICNOTEDATA" 2>/dev/null || echo 0)"
+    n="${n:-0}"
+    [[ "$n" =~ ^[0-9]+$ ]] || n=0
+    [[ "$n" -gt 0 ]]
 }
 
 # Calendar: Calendar Cache row count > 0 OR any *.calendar dir with a
@@ -10392,6 +10409,303 @@ ostler_slot_release() {
 }
 OSTLER_INGEST_SLOT_EOF
 chmod +x "${OSTLER_DIR}/lib/ostler-ingest-slot.sh" 2>/dev/null || true
+
+# -- The app warm-up lib, one copy for install and rerun (#2351, 2026-09-24) --
+# ONE rule for opening Mail, Notes, Messages, Calendar, Contacts and Reminders
+# so iCloud fills the stores the extractors read: count ROWS not files, never
+# quit an app before its store has rows, keep Mail/Messages/Notes running,
+# record <source>_has_fetched, and let the hourly rerun re-open at most once a
+# day. Used by the install-time warm-up below AND by bin/ostler-fda. Same embed
+# pattern as ostler-ingest-slot.sh above: a QUOTED heredoc, written to
+# ${OSTLER_DIR}/lib so it survives the promote, with a CI drift guard
+# (tests/test_apple_apps_are_warmed_by_one_rule.sh) against the canonical
+# lib/ostler-app-warmup.sh.
+mkdir -p "${OSTLER_DIR}/lib" 2>/dev/null || true
+cat > "${OSTLER_DIR}/lib/ostler-app-warmup.sh" <<'OSTLER_APP_WARMUP_EOF'
+#!/usr/bin/env bash
+# ostler-app-warmup.sh -- ONE rule for waking the Apple apps whose stores we read.
+#
+# Sourced by install.sh (the install-time warm-up) and by ~/.ostler/bin/ostler-fda
+# (the hourly rerun). Both used to carry their own rules, and the rules differed
+# per app, which is how a walk on 2026-09-24 found three of them wrong at once:
+#
+#   Notes     the store FILE existed but held 0 notes, so "file present" called
+#             it populated and Notes was never opened. Opened by hand: 405 notes.
+#   Mail      the store held 346,843 envelopes, newest a day old, and Mail was
+#             not running. Mail only fetches while it runs, so a populated but
+#             closed Mail is a store that has stopped moving.
+#   Messages  same shape: history arrives from iCloud while Messages runs.
+#
+# And the install-time warm-up QUIT every app it opened after ten seconds, which
+# stopped the sync that opening it was meant to start.
+#
+# THE RULE, the same for every source:
+#   1. Count ROWS in the store the extractor reads. Never a file, never a folder.
+#      Unreadable is CANNOT-RUN: nothing is recorded and it is never "0 rows".
+#   2. Open the app (hidden, no focus steal) when its store has no rows, or, for
+#      the apps that only fetch while running (Mail, Messages, Notes), when the
+#      app is not running.
+#   3. Never quit an app we opened. Apps outside the keep-running set may be
+#      quit once their store HAS rows; before that, quitting stops the sync.
+#   4. Record <source>_has_fetched and <source>_checked_ts in
+#      pipeline_signals.json, merged so every other key survives.
+#   5. The rerun re-opens an app at most once per OSTLER_WARM_REOPEN_S (a day).
+#
+# bash 3.2 safe: macOS /bin/bash runs this. No associative arrays.
+#
+# Every path is rooted at $HOME so a test can point HOME at a fixture tree.
+
+# Map a source key to the app that owns its store. Empty for an unknown key.
+ostler_warm_app_for() {
+    case "$1" in
+        apple_mail) echo "Mail" ;;
+        apple_notes) echo "Notes" ;;
+        imessage) echo "Messages" ;;
+        calendar) echo "Calendar" ;;
+        contacts) echo "Contacts" ;;
+        reminders) echo "Reminders" ;;
+        *) echo "" ;;
+    esac
+}
+
+# Apps whose sync runs inside the app, so they must stay running to keep the
+# store moving. Returns 0 for those.
+ostler_warm_keep_running() {
+    case "$1" in
+        apple_mail|apple_notes|imessage) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Read-only row count of one sqlite table. Prints the integer, or nothing when
+# the database could not be read (CANNOT-RUN, deliberately not 0).
+_ostler_warm_count() {
+    local db="$1" sql="$2" n
+    n="$(sqlite3 "file:${db}?mode=ro" -bail "$sql" 2>/dev/null)" || return 0
+    [[ "$n" =~ ^[0-9]+$ ]] && printf '%s' "$n"
+    return 0
+}
+
+# Print the number of rows in the store a source's extractor reads.
+#   an integer  the store was read (0 means genuinely empty, or absent)
+#   nothing     the store exists and could not be read: CANNOT-RUN
+ostler_warm_store_rows() {
+    local src="$1" db n total
+    case "$src" in
+        apple_notes)
+            db="${HOME}/Library/Group Containers/group.com.apple.notes/NoteStore.sqlite"
+            [[ -f "$db" ]] || { echo 0; return 0; }
+            _ostler_warm_count "$db" "SELECT COUNT(*) FROM ZICNOTEDATA"
+            ;;
+        apple_mail)
+            db="$(find "${HOME}/Library/Mail" -maxdepth 1 -type d -name 'V[0-9]*' 2>/dev/null | sort -V | tail -1)"
+            [[ -n "$db" && -f "${db}/MailData/Envelope Index" ]] || { echo 0; return 0; }
+            _ostler_warm_count "${db}/MailData/Envelope Index" "SELECT COUNT(*) FROM messages"
+            ;;
+        imessage)
+            db="${HOME}/Library/Messages/chat.db"
+            [[ -f "$db" ]] || { echo 0; return 0; }
+            _ostler_warm_count "$db" "SELECT COUNT(*) FROM message"
+            ;;
+        calendar)
+            db="${HOME}/Library/Group Containers/group.com.apple.calendar/Calendar.sqlitedb"
+            [[ -f "$db" ]] || db="${HOME}/Library/Calendars/Calendar.sqlitedb"
+            [[ -f "$db" ]] || { echo 0; return 0; }
+            _ostler_warm_count "$db" "SELECT COUNT(*) FROM CalendarItem"
+            ;;
+        contacts)
+            total=0
+            local found=false
+            while IFS= read -r db; do
+                [[ -n "$db" ]] || continue
+                found=true
+                n="$(_ostler_warm_count "$db" "SELECT COUNT(*) FROM ZABCDRECORD")"
+                [[ -n "$n" ]] || return 0
+                total=$((total + n))
+            done < <(find "${HOME}/Library/Application Support/AddressBook" -name '*.abcddb' -size +0c 2>/dev/null)
+            [[ "$found" == true ]] || { echo 0; return 0; }
+            echo "$total"
+            ;;
+        reminders)
+            total=0
+            local any=false
+            for db in "${HOME}/Library/Group Containers/group.com.apple.reminders/Container_v1/Stores/"Data-*.sqlite; do
+                [[ -f "$db" ]] || continue
+                any=true
+                n="$(_ostler_warm_count "$db" "SELECT COUNT(*) FROM ZREMCDREMINDER")"
+                # A store without the table is a local scaffold, not a failure.
+                [[ -n "$n" ]] || n=0
+                total=$((total + n))
+            done
+            [[ "$any" == true ]] || { echo 0; return 0; }
+            echo "$total"
+            ;;
+        *)
+            ;;
+    esac
+    return 0
+}
+
+# Is the app running? pgrep -x on the process name, which for these six is the
+# app name.
+ostler_warm_app_running() {
+    pgrep -x "$1" >/dev/null 2>&1
+}
+
+# Decide whether a source's app should be opened now. Prints a reason word and
+# returns 0 when it should, returns 1 when it should not.
+#   empty        the store has no rows
+#   unreadable   the store could not be read; opening is harmless, guessing
+#                "populated" is not
+#   not-running  an app that only syncs while running is not running
+ostler_warm_needs_open() {
+    local src="$1" app rows
+    app="$(ostler_warm_app_for "$src")"
+    [[ -n "$app" ]] || return 1
+    rows="$(ostler_warm_store_rows "$src")"
+    if [[ -z "$rows" ]]; then
+        echo "unreadable"; return 0
+    fi
+    if [[ "$rows" -eq 0 ]]; then
+        echo "empty"; return 0
+    fi
+    if ostler_warm_keep_running "$src" && ! ostler_warm_app_running "$app"; then
+        echo "not-running"; return 0
+    fi
+    return 1
+}
+
+# Open an app hidden, without stealing focus.
+ostler_warm_open() {
+    open -g -j -a "$1" >/dev/null 2>&1
+}
+
+# Merge <src>_has_fetched and <src>_checked_ts into pipeline_signals.json.
+# Mail keeps its historical key name, mail_has_fetched.
+ostler_warm_record() {
+    local signals="$1" src="$2" fetched="$3" py="${OSTLER_PYTHON:-python3}" key
+    case "$src" in
+        apple_mail) key="mail" ;;
+        apple_notes) key="notes" ;;
+        *) key="$src" ;;
+    esac
+    mkdir -p "$(dirname "$signals")" 2>/dev/null || true
+    "$py" - "$signals" "$key" "$fetched" <<'OSTLER_WARM_SIGNALS_EOF'
+import json, os, sys, time
+path, key, fetched = sys.argv[1], sys.argv[2], sys.argv[3] == "true"
+try:
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    if not isinstance(data, dict):
+        data = {}
+except (OSError, ValueError):
+    data = {}
+data[key + "_has_fetched"] = fetched
+data[key + "_checked_ts"] = int(time.time())
+tmp = path + ".tmp." + str(os.getpid())
+with open(tmp, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, indent=2, sort_keys=True)
+    fh.write("\n")
+os.chmod(tmp, 0o600)
+os.replace(tmp, path)
+OSTLER_WARM_SIGNALS_EOF
+}
+
+# The install-time half. Opens what the rule says, waits up to $3 seconds for
+# the opened stores to fill, records each opened source, and prints one line
+# per decision for the caller, which owns the user-facing messages and the
+# quitting (it has the timeout wrapper; this lib runs unattended too):
+#   OPENED <App> <reason>   an app it opened
+#   QUIT <App>              an opened app whose store now HAS rows and which
+#                           need not keep running; nothing else is ever listed
+#   $1 pipeline_signals.json   $2 state dir   $3 wait seconds   $@ source keys
+ostler_warm_prelaunch() {
+    local signals="$1" state="$2" wait="$3" src app rows all why
+    shift 3
+    local opened=()
+    [[ "${OSTLER_APP_WARMUP:-1}" == "0" ]] && return 0
+    for src in "$@"; do
+        why="$(ostler_warm_needs_open "$src")" || continue
+        app="$(ostler_warm_app_for "$src")"
+        ostler_warm_open "$app" || true
+        opened+=("$src")
+        echo "OPENED ${app} ${why}"
+    done
+    [[ ${#opened[@]} -gt 0 ]] || return 0
+    [[ "$wait" =~ ^[0-9]+$ ]] || wait=60
+    while (( wait > 0 )); do
+        all=true
+        for src in "${opened[@]}"; do
+            rows="$(ostler_warm_store_rows "$src")"
+            if [[ -z "$rows" || "$rows" -eq 0 ]]; then
+                all=false
+                break
+            fi
+        done
+        [[ "$all" == true ]] && break
+        sleep "${OSTLER_WARM_POLL_S:-5}"
+        wait=$((wait - ${OSTLER_WARM_POLL_S:-5}))
+    done
+    mkdir -p "$state" 2>/dev/null || true
+    for src in "${opened[@]}"; do
+        date +%s > "${state}/warm_opened_${src}" 2>/dev/null || true
+        rows="$(ostler_warm_store_rows "$src")"
+        # Unreadable: record nothing, quit nothing.
+        [[ -n "$rows" ]] || continue
+        if [[ "$rows" -gt 0 ]]; then
+            ostler_warm_record "$signals" "$src" true || true
+            ostler_warm_keep_running "$src" || echo "QUIT $(ostler_warm_app_for "$src")"
+        else
+            ostler_warm_record "$signals" "$src" false || true
+        fi
+    done
+    return 0
+}
+
+# The hourly rerun's half. For each source: count rows, record the signal, and
+# open the app when the rule says so, at most once per OSTLER_WARM_REOPEN_S.
+#   $1  state dir (holds warm_opened_<src> stamps)
+#   $2  pipeline_signals.json path
+#   $@  source keys
+ostler_warm_rerun() {
+    local state="$1" signals="$2" src app rows fetched why stamp now last
+    shift 2
+    [[ "${OSTLER_APP_WARMUP:-1}" == "0" ]] && return 0
+    mkdir -p "$state" 2>/dev/null || true
+    for src in "$@"; do
+        app="$(ostler_warm_app_for "$src")"
+        [[ -n "$app" ]] || continue
+        rows="$(ostler_warm_store_rows "$src")"
+        if [[ -z "$rows" ]]; then
+            # Unattended, an unreadable store is reported and left alone: it
+            # usually means a lost permission, which opening an app cannot fix.
+            echo "[warm] ${src}: CANNOT-RUN, the ${app} store exists and could not be read; nothing recorded"
+            continue
+        else
+            fetched=false
+            [[ "$rows" -gt 0 ]] && fetched=true
+            ostler_warm_record "$signals" "$src" "$fetched" \
+                || echo "[warm] ${src}: could not update pipeline_signals.json" >&2
+        fi
+        why="$(ostler_warm_needs_open "$src")" || continue
+        stamp="${state}/warm_opened_${src}"
+        now="$(date +%s)"
+        last="$(cat "$stamp" 2>/dev/null || true)"
+        [[ "$last" =~ ^[0-9]+$ ]] || last=0
+        if (( now - last < ${OSTLER_WARM_REOPEN_S:-86400} )); then
+            continue
+        fi
+        if ostler_warm_open "$app"; then
+            printf '%s\n' "$now" > "$stamp"
+            echo "[warm] ${src}: ${why}; opened ${app} in the background so it can sync"
+        else
+            echo "[warm] ${src}: ${why}; ${app} could not be opened"
+        fi
+    done
+    return 0
+}
+OSTLER_APP_WARMUP_EOF
+chmod +x "${OSTLER_DIR}/lib/ostler-app-warmup.sh" 2>/dev/null || true
 
 # Auto-unzip export zips in the scan dirs FIRST, so the content detection
 # below (and the parsers) can read a still-zipped download. Runs AFTER the
@@ -17510,44 +17824,59 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     # but the local derived store is empty, force a pre-launch so the
     # app starts syncing. If accounts are 0, no benefit to opening the
     # app -- the customer has nothing to sync yet.
+    # #2351: ONE rule for every app, from lib/ostler-app-warmup.sh. Count ROWS
+    # in the store the extractor reads (a file or folder that exists proves
+    # nothing: Notes on a walk box had a NoteStore.sqlite since July and 0
+    # notes), open Mail/Messages/Notes when they are not running because they
+    # only fetch while they run, and never quit an app whose store is still
+    # empty. The account gates on Mail, Calendar and Contacts stay here: with no
+    # account there is nothing to sync and opening Mail shows its setup window.
+    # A store still empty after the bounded wait is NOT final: the hourly
+    # fda-rerun re-checks it and re-opens the app at most once a day.
+    # shellcheck source=lib/ostler-app-warmup.sh
+    source "${OSTLER_DIR}/lib/ostler-app-warmup.sh" || true
     APPS_TO_OPEN=()
-    # Calendar: open if CalDAV / iCloud calendar account exists AND
-    # local Calendar Cache / Calendar.sqlitedb is empty.
-    if ! _store_populated_calendar && [[ "$(_accountsdb_count_calendar)" -gt 0 ]]; then
-        APPS_TO_OPEN+=("Calendar")
+    _warm_candidates=()
+    for _warm_src in calendar apple_mail contacts reminders apple_notes imessage; do
+        case "$_warm_src" in
+            calendar)   [[ "$(_accountsdb_count_calendar)" -gt 0 ]] || continue ;;
+            apple_mail) [[ "$(_accountsdb_count_mail)" -gt 0 ]] || continue ;;
+            contacts)   [[ "$(_accountsdb_count_contacts)" -gt 0 ]] || continue ;;
+            imessage)   [[ ",${OSTLER_FDA_SOURCES:-}," == *",imessage,"* ]] || continue ;;
+            apple_notes) [[ ",${OSTLER_FDA_SOURCES:-apple_notes}," == *",apple_notes,"* ]] || continue ;;
+        esac
+        _warm_candidates+=("$_warm_src")
+    done
+    _warm_out=""
+    if declare -F ostler_warm_prelaunch >/dev/null; then
+        _warm_out="$(ostler_warm_prelaunch "${OSTLER_DIR}/state/pipeline_signals.json" "${OSTLER_DIR}/state" \
+            "${OSTLER_WARM_POPULATE_WAIT_S:-${OSTLER_NOTES_POPULATE_WAIT_S:-60}}" \
+            ${_warm_candidates[@]+"${_warm_candidates[@]}"})" || true
+    else
+        warn "The app warm-up library is missing, so no Apple app was opened to sync"
     fi
-    # Mail: open if mail account exists AND no .emlx / Envelope Index
-    # rows yet. The _store_populated_mail helper covers both.
-    if ! _store_populated_mail && [[ "$(_accountsdb_count_mail)" -gt 0 ]]; then
-        APPS_TO_OPEN+=("Mail")
-    fi
-    # Contacts: open if CardDAV / iCloud contacts exist AND no
-    # populated .abcddb yet.
-    if ! _store_populated_contacts && [[ "$(_accountsdb_count_contacts)" -gt 0 ]]; then
-        APPS_TO_OPEN+=("Contacts")
-    fi
-    # Reminders + Notes still use existence checks; they're system
-    # apps (no Accounts4.sqlite source row) and their stores create
-    # on first launch from iCloud. CX-101 leaves these as-is for v1.0.
-    [[ ! -d "$HOME/Library/Group Containers/group.com.apple.reminders" ]] && APPS_TO_OPEN+=("Reminders")
-    [[ ! -f "$HOME/Library/Group Containers/group.com.apple.notes/NoteStore.sqlite" ]] && APPS_TO_OPEN+=("Notes")
+    while read -r _warm_verb _warm_app _warm_why; do
+        [[ "$_warm_verb" == "OPENED" ]] || continue
+        APPS_TO_OPEN+=("$_warm_app")
+        dbg "app warm-up: opened ${_warm_app} (${_warm_why})"
+    done <<< "$_warm_out"
 
     if [[ ${#APPS_TO_OPEN[@]} -gt 0 ]]; then
         info "$(printf "$MSG_INFO_TRIGGERING_ICLOUD_SYNC_SILENT_FIRST_RUN" "${APPS_TO_OPEN[*]}")"
-        for app in "${APPS_TO_OPEN[@]}"; do
-            open -gj -a "$app" 2>/dev/null || true
-        done
-        # Give apps 10 seconds to launch and start syncing
-        sleep 10
-        # Close them quietly (SIGTERM via AppleScript, not force-kill)
-        for app in "${APPS_TO_OPEN[@]}"; do
+        # Quit ONLY what the lib listed: an app whose store now has rows and
+        # which need not keep running. Never Mail, Messages or Notes, and never
+        # an app whose store is still empty (quitting it stops the sync that
+        # opening it was meant to start).
+        while read -r _warm_verb _warm_app _warm_why; do
+            [[ "$_warm_verb" == "QUIT" ]] || continue
             _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
-                osascript -e "tell application \"$app\" to quit" 2>/dev/null || true
-        done
+                osascript -e "tell application \"${_warm_app}\" to quit" 2>/dev/null || true
+        done <<< "$_warm_out"
         ok "$MSG_OK_APPS_LAUNCHED_TRIGGER_ICLOUD_SYNC"
     else
         ok "$MSG_OK_APP_DATABASES_ALREADY_PRESENT_SKIPPING_PRE"
     fi
+    unset _warm_candidates _warm_src _warm_out _warm_verb _warm_app _warm_why
     echo ""
 
     info "$MSG_INFO_READING_SAFARI_IMESSAGE_NOTES_CALENDAR_PHOTOS"
@@ -22501,6 +22830,10 @@ fi
 # this script's exit status (the sealed tick.sh says so), which is the only
 # channel a scheduler can act on -- a loud log tells a human, an rc tells the
 # system, and only one of those is watching at 04:00.
+#
+# The rc is CAPTURED rather than left to set -e, so the Apple Notes step below
+# still runs after a failed ingest, and the tick still exits with it.
+_fda_rc=0
 "$OSTLER_PYTHON" -c "
 import json, sys, os, datetime
 sys.path.insert(0, '${FDA_DIR}')
@@ -22581,7 +22914,115 @@ else:
 if failed:
     sys.stderr.write('[ingest] FAILED: ' + '; '.join(failed) + chr(10))
     sys.exit(1)
-"
+" || _fda_rc=$?
+# ── APPLE NOTES: RE-OPEN AN EMPTY STORE, EMBED WHEN THE EXTRACT CHANGES ────
+#
+# WHY THIS IS HERE. Notes are embedded into apple_notes_knowledge by ONE step,
+# the install-time hydrate leg, which runs once. Every tick of this script
+# re-extracts apple_notes.json, and until now nothing read the new file. So a
+# store that was empty at install (a Mac whose Notes app had never been
+# opened, measured 2026-09-24: NoteStore.sqlite present, 0 note rows, then 412
+# once Notes ran) recorded 0 and stayed 0 for the life of the install.
+#
+# TWO STEPS:
+#   1. _ostler_app_warm_rerun: the shared rule in lib/ostler-app-warmup.sh for
+#      every app whose store we read (Notes, Messages, Calendar, Reminders, and
+#      Mail once it has mail). Count rows, record <source>_has_fetched in
+#      pipeline_signals.json, and open an app whose store is empty, or Mail,
+#      Messages or Notes when not running, at most once per
+#      OSTLER_WARM_REOPEN_S (a day). Unreadable is CANNOT-RUN, never "0".
+#   2. _ostler_notes_refresh: if apple_notes.json holds notes and its hash
+#      differs from the last one embedded, run the SAME convert + embed the
+#      install leg runs, and on success record the hash and the hydrate
+#      sentinel. An embed failure makes the tick non-zero and is retried.
+_ostler_app_warm_rerun() {
+    # OSTLER_APP_WARMUP=0 (or the older OSTLER_NOTES_REFRESH=0) turns it off,
+    # which also keeps test harnesses from opening apps on their own host.
+    [[ "${OSTLER_APP_WARMUP:-1}" == "0" ]] && return 0
+    [[ "${OSTLER_NOTES_REFRESH:-1}" == "0" ]] && return 0
+    local lib="${OSTLER_DIR}/lib/ostler-app-warmup.sh"
+    if [[ ! -f "$lib" ]]; then
+        echo "[warm] CANNOT-RUN: ${lib} is missing, so no app was checked"
+        return 0
+    fi
+    # shellcheck source=/dev/null
+    source "$lib"
+    local srcs=() s rows
+    for s in apple_notes imessage calendar reminders apple_mail; do
+        case ",${OSTLER_FDA_SOURCES:-apple_notes}," in
+            *",${s},"*) ;;
+            *) continue ;;
+        esac
+        # Mail only once it holds mail: with no account, opening Mail shows its
+        # setup window, and this runs unattended.
+        if [[ "$s" == "apple_mail" ]]; then
+            rows="$(ostler_warm_store_rows apple_mail)"
+            [[ -n "$rows" && "$rows" -gt 0 ]] || continue
+        fi
+        srcs+=("$s")
+    done
+    [[ ${#srcs[@]} -gt 0 ]] || return 0
+    mkdir -p "${OSTLER_DIR}/state"
+    ostler_warm_rerun "${OSTLER_DIR}/state" "${OSTLER_DIR}/state/pipeline_signals.json" "${srcs[@]}"
+}
+
+_ostler_notes_refresh() {
+    [[ "${OSTLER_NOTES_REFRESH:-1}" == "0" ]] && return 0
+    case ",${OSTLER_FDA_SOURCES:-apple_notes}," in
+        *,apple_notes,*) ;;
+        *) return 0 ;;
+    esac
+    local state="${OSTLER_DIR}/state"
+    mkdir -p "${state}/hydrate"
+
+    local json="${OSTLER_DIR}/imports/fda/apple_notes.json"
+    local mark="${state}/hydrate/apple_notes_knowledge.sha256"
+    local bin="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
+    local log="${OSTLER_DIR}/logs/notes-rerun-embed.log"
+    local staging="${OSTLER_DIR}/data/knowledge-staging-notes-rerun"
+    local count sha
+    [[ -s "$json" ]] || return 0
+    count="$("$OSTLER_PYTHON" -c 'import json,sys; d=json.load(open(sys.argv[1])); print(len(d) if isinstance(d, list) else 0)' "$json" 2>/dev/null || true)"
+    [[ "$count" =~ ^[0-9]+$ ]] || count=0
+    [[ "$count" -gt 0 ]] || return 0
+    sha="$(shasum -a 256 "$json" | cut -d' ' -f1)"
+    [[ "$sha" == "$(cat "$mark" 2>/dev/null || true)" ]] && return 0
+    if [[ ! -x "$bin" ]] && ! command -v "$bin" >/dev/null 2>&1; then
+        echo "[notes] CANNOT-RUN: ${bin} is not installed, so ${count} notes were not embedded"
+        return 0
+    fi
+    rm -rf "$staging"
+    mkdir -p "$staging" "$(dirname "$log")" "${OSTLER_DIR}/data"
+    if "$bin" convert --source apple_notes "$json" --output "$staging" >>"$log" 2>&1 \
+       && "$bin" embed "$staging" \
+            --collection apple_notes_knowledge \
+            --embedding-model "${OSTLER_KNOWLEDGE_EMBED_MODEL:-nomic-embed-text}" \
+            --max-compartment-level "${OSTLER_KNOWLEDGE_MAX_COMPARTMENT_LEVEL:-2}" \
+            --db-path "${OSTLER_DIR}/data/knowledge-metadata.db" >>"$log" 2>&1; then
+        printf '%s\n' "$sha" > "$mark"
+        {
+            printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            printf 'source=apple_notes\n'
+            printf 'status=ok\n'
+            printf 'item_count=%s\n' "$count"
+            printf 'detail=fda_rerun\n'
+            printf 'payload=notes=%s\n' "$count"
+        } > "${state}/hydrate/apple_notes.done"
+        echo "[notes] embedded ${count} notes into apple_notes_knowledge"
+    else
+        echo "[notes] FAILED to embed ${count} notes; see ${log}; the next tick retries" >&2
+        return 1
+    fi
+    return 0
+}
+
+_ostler_app_warm_rerun || true
+_notes_rc=0
+_ostler_notes_refresh || _notes_rc=$?
+if [[ "$_fda_rc" -ne 0 ]]; then
+    exit "$_fda_rc"
+fi
+exit "$_notes_rc"
 FDAEOF
 chmod +x "${OSTLER_DIR}/bin/ostler-fda"
 
@@ -26111,6 +26552,7 @@ if [[ -n "$_pipeline_writer" ]] && python3 "$_pipeline_writer" \
         --output "$PIPELINE_SIGNALS_FILE" \
         --accounts "$MAIL_ACCOUNTS_FOUND" \
         --has-fetched "$MAIL_HAS_FETCHED" \
+        --notes-has-fetched "$(_store_populated_notes && echo true || echo false)" \
         --enrichment-decision "${OSTLER_CONSENT_ENRICHMENT_DECISION:-unknown}"; then
     info "$(printf "$MSG_INFO_APPLE_MAIL_ACCOUNTS_VISIBLE_INFORMATIONAL" "${MAIL_ACCOUNTS_FOUND}")"
     # CX-100 three-state copy: accounts==0 -> state 1 (no source);

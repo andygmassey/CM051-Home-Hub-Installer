@@ -213,6 +213,7 @@ run_wrapper() {
     # is what gets exercised.
     HOME="$root" \
     OSTLER_PYTHON= \
+    OSTLER_NOTES_REFRESH=0 \
     OSTLER_FDA_PROBE_LOG="$log" \
         bash "${root}/.ostler/bin/ostler-fda" >"${WORK}/${label}.out" 2>&1
     echo $?
@@ -234,7 +235,7 @@ printf '%s\n' "$WRAPPER_BODY" > "${WORK}/ostler-fda.shipped"
 awk '
     !stop { print }
     !stop && $0 == "run_all(fda_dir)" { stop = 1; next }
-    stop && $0 == "\"" { print; stop = 2; next }
+    stop == 1 && ($0 == "\"" || $0 ~ /^" \|\| _fda_rc=/) { print; stop = 2; next }
     stop == 2 { print }
 ' "${WORK}/ostler-fda.shipped" > "${WORK}/ostler-fda.extractonly"
 
@@ -509,11 +510,15 @@ if [[ "$SELF_TEST" == "1" ]]; then
         "(11)"
 
     # Defect D: a `|| true` bolted on to quieten a failing tick. Anchored by
-    # line number because the closing quote of the `-c` string is a lone `"`
-    # and is not unique in install.sh.
+    # line number because the closing quote of the `-c` string is not unique
+    # in install.sh. Since the Apple Notes step was added after the ingest,
+    # that quote no longer sits on the last line before FDAEOF: it reads
+    # `" || _fda_rc=$?`, capturing the rc the wrapper exits with at the end.
+    # The probe replaces the capture with `|| true`, which is the same defect.
     CLOSE_LINE="$(awk '
         index($0, "bin/ostler-fda\" <<") { grab = 1 }
-        grab && $0 == "FDAEOF"           { print NR - 1; exit }
+        grab && $0 ~ /^" \|\| _fda_rc=/  { print NR; exit }
+        grab && $0 == "FDAEOF"           { exit }
     ' "$INSTALL_SH")"
     if [[ -z "$CLOSE_LINE" ]]; then
         echo "  [INCONCLUSIVE] silence-the-failure -- could not locate the closing quote" >&2
@@ -525,7 +530,7 @@ if [[ "$SELF_TEST" == "1" ]]; then
         # nothing, which the probe then reports as INCONCLUSIVE rather than as
         # a pass. Correct behaviour, wrong test.
         probe "silence-the-failure" \
-            "${CLOSE_LINE}s@^\"\$@\" || true@" \
+            "${CLOSE_LINE}s@^\" || _fda_rc=\\\$?\$@\" || true@" \
             "(6)"
     fi
 
