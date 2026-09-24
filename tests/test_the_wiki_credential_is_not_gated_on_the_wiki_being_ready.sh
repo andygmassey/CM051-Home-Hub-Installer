@@ -167,7 +167,7 @@ render() {
         SECRETS_DIR="${SYNTH_SECRETS}" \
         OSTLER_WIKI_TAILNET_URL="" \
         "$@" \
-        /bin/bash "${WORK}/harness.sh" > "${out}" 2>"${out}.err"
+        /bin/bash "${WORK}/harness.sh" > "${out}" 2>"${out}.err" 9>"${out}.fd9"
     local rc=$?
     if [ "${rc}" -ne 0 ]; then
         cant "the banner exited ${rc} for $*: $(head -3 "${out}.err")"
@@ -197,10 +197,14 @@ done
 # premise is asserted on the state that was ALWAYS correct, and the search
 # predicate is given a negative control in the same limb.
 
+# #2357: the password is handed to the customer on fd 9 (the terminal, saved
+# before install.sh tees stdout into install.log) and NEVER on stdout, which is
+# the log. So "the customer is given their password" reads the fd 9 channel,
+# and a separate limb asserts it is absent from stdout.
 if [ -s "${WORK}/ready.out" ] \
-   && grep -qF "${SYNTH_PW}" "${WORK}/ready.out" \
+   && grep -qF "${SYNTH_PW}" "${WORK}/ready.out.fd9" \
    && grep -qF "localhost:8044" "${WORK}/ready.out"; then
-    if grep -qF "${SYNTH_ABSENT}" "${WORK}/ready.out"; then
+    if grep -qF "${SYNTH_ABSENT}" "${WORK}/ready.out" "${WORK}/ready.out.fd9"; then
         bad "negative control: a value never handed to the banner was found in its output, so the search predicate is not reading what it claims"
     else
         ok "premise: the ready state renders the address and the password, and a value never passed in is NOT found"
@@ -214,7 +218,7 @@ fi
 for state in building nopages unknown; do
     out="${WORK}/${state}.out"
     [ -s "${out}" ] || continue
-    if grep -qF "${SYNTH_PW}" "${out}"; then
+    if grep -qF "${SYNTH_PW}" "${out}.fd9"; then
         ok "state '${state}': the customer is given their password"
     else
         bad "state '${state}': NO password. This is the v1.0.98 experience -- the wiki finishes building later, serves, and asks for a credential the customer was never shown"
@@ -225,6 +229,17 @@ for state in building nopages unknown; do
         bad "state '${state}': no address, so there is nothing for the sign-in to be used on"
     fi
 done
+
+# ── Limb 4b (#2357): the password never reaches stdout, which is install.log.
+leaked=""
+for state in ready building nopages unknown; do
+    grep -qF "${SYNTH_PW}" "${WORK}/${state}.out" && leaked="${leaked} ${state}"
+done
+if [ -z "${leaked}" ]; then
+    ok "no state prints the password on stdout, the stream install.sh tees into install.log"
+else
+    bad "the password is on stdout (so in install.log) in state(s):${leaked}"
+fi
 
 # ── Limb 5: THE ROUTE BACK. ────────────────────────────────────────────────
 #

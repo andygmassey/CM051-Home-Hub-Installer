@@ -37961,7 +37961,7 @@ echo -e "  ${BOLD}         ${NC} $MSG_INFO_WIKI_INTERNAL_ADDRESS"
 # is the marker channel, so nothing is written there: the GUI customer never
 # types it (the app presents it), and it is on the clipboard and on disk.
 echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_SIGN_IN_WITHHELD" "ostler")"
-if [[ "${OSTLER_GUI:-0}" != "1" ]] && [[ -t 9 ]]; then
+if [[ "${OSTLER_GUI:-0}" != "1" ]] && { : >&9; } 2>/dev/null; then
     echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_SIGN_IN" "ostler" "${WIKI_PASSWORD}")" >&9
 fi
 
