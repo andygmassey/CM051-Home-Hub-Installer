@@ -598,6 +598,7 @@ MSG_INFO_WIKI_TAILNET_BANNER="%s  (from your own devices, over Tailscale. This i
 MSG_INFO_WIKI_IN_THE_APP="in the Ostler app. Open Ostler and choose Wiki in the sidebar; your pages are there, already signed in."
 MSG_INFO_WIKI_INTERNAL_ADDRESS="Ostler fetches those pages from http://localhost:8044 on this Mac. That address is internal and has nothing on it for you to sign in to."
 MSG_INFO_WIKI_SIGN_IN="Your wiki sign-in is %s with the password %s. Ostler presents it for you, so there is nothing to type on this Mac; you need it in your own hands only when you open the wiki from another of your devices over Tailscale."
+MSG_INFO_WIKI_SIGN_IN_WITHHELD="Your wiki sign-in is %s. The password is not written into this log; it is on your clipboard and in the file named below. Ostler presents it for you, so there is nothing to type on this Mac."
 MSG_INFO_WIKI_PORT_LAST_STATUS="Last HTTP status from the wiki port: %s (000 means nothing answered; 403 means it answered and refused the credential)."
 # HR015 #943. The four lines below are the readiness half of the wiki handover.
 # They exist because the credential half is no longer gated on them: a customer

@@ -37952,7 +37952,18 @@ echo -e "  ${BOLD}         ${NC} $MSG_INFO_WIKI_INTERNAL_ADDRESS"
 # the readiness lines below report. It is what Ostler presents on the
 # customer's behalf, and what they need in their own hands on the Tailscale
 # route. A credential they were never shown is the whole of #943.
-echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_SIGN_IN" "ostler" "${WIKI_PASSWORD}")"
+# ISSUE_TBD: THE PASSWORD ITSELF NEVER GOES TO STDOUT, because stdout is teed into
+# ~/.ostler/logs/install.log (see the `exec > >(tee -a ...)` near the top), and
+# a walk box's log was found holding it in cleartext in this summary. stdout
+# gets the sign-in with the password withheld and where it is kept; the value
+# goes only to a terminal the customer is looking at, on fd 9, which is the
+# ORIGINAL stderr saved before the tee and so is not logged. Under the GUI fd 9
+# is the marker channel, so nothing is written there: the GUI customer never
+# types it (the app presents it), and it is on the clipboard and on disk.
+echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_SIGN_IN_WITHHELD" "ostler")"
+if [[ "${OSTLER_GUI:-0}" != "1" ]] && [[ -t 9 ]]; then
+    echo -e "  ${BOLD}         ${NC} $(printf "$MSG_INFO_WIKI_SIGN_IN" "ostler" "${WIKI_PASSWORD}")" >&9
+fi
 
 # #1660: MAKE IT A PASTE, NOT A MEMORY TEST. The surface that still asks a
 # browser for this is the tailnet route, and retyping a long random string
