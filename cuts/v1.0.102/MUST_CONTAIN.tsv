@@ -24,6 +24,8 @@
 # verbatim. Then one row per change merged for this cut, each with a
 # capability that reads 0 on the v1.0.101 candidate's sources.
 what	repo	ref	landed	capability_id	verify	ticket
+fix(email): an email-only correspondent gets a provisional name, and names only move up	CM051	82e9bf0508	no	email_only_people_get_a_provisional_name	capability_matrix.sh gate	CM051 #2361
+fix(photos): Photos events are read on a default install; faces still never are	CM051	82e9bf0508	no	photos_events_in_the_default_preset	capability_matrix.sh gate	CM051 #2364
 fix(photos): 1,298 photo events were extracted and read by nothing	CM051	095b8af76b	no	photo_events_reach_the_graph	capability_matrix.sh gate	CM051 #2348
 fix(email-ingest): the Apple Mail checkpoint lives under ~/.ostler so a reinstall reads email	CM051	3d94eb4d10	no	email_checkpoint_under_dot_ostler_install	capability_matrix.sh gate	CM051 #2347
 fix(warm-up): one rule for Notes, Mail, Messages and the other Apple apps we read	CM051	80a531b0ab	no	apple_apps_warmed_by_one_rule	capability_matrix.sh gate	CM051 #2351
