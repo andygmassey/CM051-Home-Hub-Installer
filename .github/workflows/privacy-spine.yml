@@ -77,6 +77,10 @@ jobs:
         if: always()
         run: python3 tests/test_calendar_attendee_resolve_before_create.py
 
+      - name: Photo events reach the graph, and face names only with the opt-in
+        if: always()
+        run: python3 tests/test_photo_events_reach_the_graph.py
+
       - name: AI conversations are private by default in BOTH pinning places
         if: always()
         run: python3 tests/test_ai_conversations_default_to_the_locked_privacy_level.py

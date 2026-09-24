@@ -1408,6 +1408,145 @@ def ingest_photos_people(fda_dir: Path) -> dict:
     return {"status": "ok", "people_created": people_created}
 
 
+# ── Photos event (WHERE + WHEN) ingestion ─────────────────────────
+#
+# extract_all writes photos_events.json on every run: one row per photo with
+# its capture date and GPS. Until this function nothing read it. The only
+# photos writer was ingest_photos_people, which reads photos_people.json, and
+# that file exists only when the customer opts in to faces. With faces off
+# (the default) every run logged "[ok] Photos: 0 people, 1298 events" at
+# extract and then "No Photos data to ingest", and the wiki's "Photos here"
+# section (CM044 load_photo_events, which queries pwg:PhotoEvent) stayed
+# empty. The writer was built once, in HR015 PR #143, and that PR was closed
+# unmerged as a stale draft, so the reader shipped and the writer never did.
+#
+# Graph contract, exactly what CM044 compiler/pwg_data.py load_photo_events
+# queries:
+#   pwg:PhotoEvent       rdf:type, one node per photo
+#   pwg:photoDate        xsd:dateTime capture time (always)
+#   pwg:photoLatitude    xsd:double, only when GPS is present
+#   pwg:photoLongitude   xsd:double, only when GPS is present
+#   pwg:photoPlace       place label, only when the extractor derived one
+#   pwg:photoAttendee    edge to a face Person, ONLY with the faces opt-in
+# URIs are uuid5 of date + coordinates, so a re-run re-inserts identical
+# triples and adds nothing (same pattern as the calendar's pwg:Meeting).
+
+def _photo_face_person_uri(name: str) -> str:
+    """The Person URI ingest_photos_people mints for a face label."""
+    return _person_uri(_person_id_from_identifier(f"photos_face_{name}"))
+
+
+def _photo_xsd_datetime(raw: str) -> str:
+    """``2026-09-10 12:34:56.5+08:00`` (str(datetime)) -> xsd:dateTime form."""
+    raw = raw.strip()
+    if len(raw) > 10 and raw[10] == " ":
+        raw = raw[:10] + "T" + raw[11:]
+    return raw
+
+
+def ingest_photo_events(fda_dir: Path) -> dict:
+    """Write one pwg:PhotoEvent per row of photos_events.json."""
+    events_file = fda_dir / "photos_events.json"
+    if not events_file.exists():
+        logger.info("No Photos events to ingest")
+        return {"status": "skipped", "reason": "no data"}
+
+    events = json.loads(events_file.read_text())
+    # Face edges only with the faces opt-in, which is exactly when
+    # photos_people.json is written. Belt to extract_all's braces: an events
+    # file written before that strip existed can still carry names.
+    faces_opted_in = (fda_dir / "photos_people.json").exists()
+
+    ingested = with_gps = with_place = 0
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        date = str(event.get("date") or "").strip()
+        if not date:
+            continue
+        date = _photo_xsd_datetime(date)
+
+        lat, lon = event.get("latitude"), event.get("longitude")
+        try:
+            lat = float(lat) if lat is not None else None
+            lon = float(lon) if lon is not None else None
+        except (TypeError, ValueError):
+            lat = lon = None
+        has_coords = lat is not None and lon is not None
+
+        place = event.get("location")
+        place = place.strip() if isinstance(place, str) and place.strip() else None
+
+        coord_key = f"{lat},{lon}" if has_coords else "nogps"
+        event_id = uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"https://schema.ostler.ai/photo_event/{date}|{coord_key}",
+        )
+        uri = f"https://schema.ostler.ai/ontology#photo_event_{event_id}"
+
+        triples = [
+            f"<{uri}> a pwg:PhotoEvent",
+            f'<{uri}> pwg:source "photos_fda"',
+            f'<{uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
+            f'<{uri}> pwg:photoDate "{_escape(date)}"^^xsd:dateTime',
+        ]
+        if has_coords:
+            triples.append(f'<{uri}> pwg:photoLatitude "{lat}"^^xsd:double')
+            triples.append(f'<{uri}> pwg:photoLongitude "{lon}"^^xsd:double')
+            with_gps += 1
+        if place:
+            triples.append(f'<{uri}> pwg:photoPlace "{_escape(place)}"')
+            with_place += 1
+        if faces_opted_in:
+            for name in event.get("people") or []:
+                if isinstance(name, str) and name.strip():
+                    triples.append(
+                        f"<{uri}> pwg:photoAttendee "
+                        f"<{_photo_face_person_uri(name.strip())}>"
+                    )
+
+        _sparql_update(
+            "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
+            "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+            "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
+        )
+        ingested += 1
+
+    logger.info(
+        "Photos events: %d ingested (%d with GPS, %d with a place label)",
+        ingested, with_gps, with_place,
+    )
+    return {
+        "status": "ok",
+        "events_ingested": ingested,
+        "events_with_location": with_gps,
+        "events_with_place_label": with_place,
+    }
+
+
+def ingest_photos(fda_dir: Path) -> dict:
+    """The "photos" dispatch entry: events always, face people when opted in.
+
+    One entry, so the per-source record (state/source_activity/photos.tsv)
+    reports what photos actually did. It used to be ingest_photos_people
+    alone, whose "no data" when faces are off was recorded as the verdict for
+    the whole of Photos while 1298 events sat unread beside it.
+    """
+    events = ingest_photo_events(fda_dir)
+    people = ingest_photos_people(fda_dir)
+    statuses = {events.get("status"), people.get("status")}
+    if "ok" in statuses:
+        status = "ok"
+    elif statuses == {"skipped"}:
+        return {"status": "skipped", "reason": "no data"}
+    else:
+        status = "error"
+    out = {"status": status}
+    out.update({k: v for k, v in events.items() if k != "status"})
+    out["people_created"] = people.get("people_created", 0)
+    return out
+
+
 # ── Apple Mail contact ingestion ──────────────────────────────────
 
 def ingest_mail_contacts(fda_dir: Path) -> dict:
@@ -3038,7 +3177,7 @@ _INGEST_DISPATCH = (
     ("imessage", "ingest_imessage"),
     ("whatsapp", "ingest_whatsapp"),
     ("calendar", "ingest_calendar"),
-    ("photos", "ingest_photos_people"),
+    ("photos", "ingest_photos"),
     ("apple_mail", "ingest_mail_contacts"),
     ("browser_history", "ingest_browser_history"),
     ("bookmarks", "ingest_bookmarks"),
@@ -3055,6 +3194,10 @@ _DISPATCH_EXEMPT = frozenset({
     # ingest_all IS the dispatcher/runner -- it loops _INGEST_DISPATCH; it is
     # not itself a writer the loop should call.
     "ingest_all",
+    # Both run inside ingest_photos, the "photos" dispatch entry, so the
+    # per-source record reports Photos as one source.
+    "ingest_photos_people",
+    "ingest_photo_events",
 })
 
 

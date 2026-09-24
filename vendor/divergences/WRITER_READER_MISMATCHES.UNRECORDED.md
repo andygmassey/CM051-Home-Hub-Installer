@@ -381,3 +381,37 @@ status daemon that forks until macOS kills it and the Doctor goes quiet.
 
 None of the five is a candidate for the patch until the pin moves, and the
 re-pin is separately blocked for the reason the #2133 entry records.
+
+## Added 2026-09-24. `ostler_fda`, the photo-event writer that was never merged
+
+### The refusal, measured
+
+`HR015="<HR015 checkout>" scripts/regenerate_divergence_patch.sh ostler_fda`
+was run and REFUSED with "this is a RE-PIN, not a graft to record": the source
+has advanced past pin c4e7396f by one commit touching this tree (28662818,
+HR015 #977). Regenerating would fold that commit into ostler_fda.patch as a
+local edit, so the graft is recorded here and a grep of the patch for it
+returns nothing, which means NOT RECORDED, not NOT DIVERGED.
+
+### What was grafted, location and shape only
+
+- `vendor/ostler_fda/pwg_ingest.py`: new `ingest_photo_events` (writes one
+  `pwg:PhotoEvent` per row of photos_events.json with `pwg:photoDate`,
+  `pwg:photoLatitude`, `pwg:photoLongitude`, `pwg:photoPlace`, and
+  `pwg:photoAttendee` only with the faces opt-in), new `ingest_photos`
+  (events plus face people), and the `"photos"` dispatch entry now names
+  `ingest_photos`. `ingest_photos_people` and `ingest_photo_events` join
+  `_DISPATCH_EXEMPT` because `ingest_photos` runs both.
+- `vendor/ostler_fda/extract_all.py`: with faces off, face labels are cleared
+  from every event before photos_events.json is written.
+
+WHY: photos_events.json had no reader. CM044's wiki queries `pwg:PhotoEvent`
+and nothing wrote one; HR015 PR #143 built the writer and was closed unmerged
+as a stale draft. Measured on a walked box: "[ok] Photos: 0 people, 1298
+events (faces=off)" then "No Photos data to ingest", 10 of 10 runs.
+
+### What a future sync must preserve
+
+Both edits. Upstream HR015 `ostler_fda` should take them back; until it does,
+a sync that accepts divergence loss restores the dark writer. Gate:
+`tests/test_photo_events_reach_the_graph.py`, wired in privacy-spine.yml.

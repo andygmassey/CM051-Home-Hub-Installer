@@ -492,6 +492,14 @@ def run_all(
                     since_days=365,
                     with_people_only=("photos_faces" in sources),
                 )
+                if "photos_faces" not in sources:
+                    # The query joins face labels onto every photo it
+                    # returns, whether or not the customer opted in to
+                    # faces. Measured on a box with faces off: 25 of 1298
+                    # events still carried names. Face data is opt-in, so
+                    # without the opt-in it never reaches the file.
+                    for e in events:
+                        e.people = []
                 (output_dir / "photos_events.json").write_text(
                     json.dumps([asdict(e) for e in events], indent=2, default=str)
                 )
