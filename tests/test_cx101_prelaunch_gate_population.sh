@@ -66,12 +66,12 @@ GATE_BLOCK="$(sed -n "${APPS_TO_OPEN_START},${BLOCK_END}p" "$INSTALL_SH")"
 
 # Axis 1: each of Calendar / Mail / Contacts is gated on BOTH its account
 # count AND a population probe. Since #2351 the population probe is the shared
-# row count in lib/ostler-app-warmup.sh (ostler_warm_needs_open ->
+# row count in lib/ostler-app-warmup.sh (ostler_warm_prelaunch -> ostler_warm_needs_open ->
 # ostler_warm_store_rows), which install.sh embeds; the account gate stays in
 # the pre-launch loop.
 WARM_LIB="$(awk "index(\$0, \"<<'OSTLER_APP_WARMUP_EOF'\") { f = 1; next } f && \$0 == \"OSTLER_APP_WARMUP_EOF\" { exit } f { print }" "$INSTALL_SH")"
-if ! grep -q "ostler_warm_needs_open" <<< "$GATE_BLOCK"; then
-    failure "pre-launch gate does not ask the population probe (ostler_warm_needs_open)"
+if ! grep -q "ostler_warm_prelaunch" <<< "$GATE_BLOCK" || ! grep -q "why=\"\$(ostler_warm_needs_open" <<< "$WARM_LIB"; then
+    failure "pre-launch gate does not ask the population probe (ostler_warm_prelaunch -> ostler_warm_needs_open)"
 fi
 for source in calendar mail contacts; do
     case "$source" in

@@ -187,6 +187,57 @@ os.replace(tmp, path)
 OSTLER_WARM_SIGNALS_EOF
 }
 
+# The install-time half. Opens what the rule says, waits up to $3 seconds for
+# the opened stores to fill, records each opened source, and prints one line
+# per decision for the caller, which owns the user-facing messages and the
+# quitting (it has the timeout wrapper; this lib runs unattended too):
+#   OPENED <App> <reason>   an app it opened
+#   QUIT <App>              an opened app whose store now HAS rows and which
+#                           need not keep running; nothing else is ever listed
+#   $1 pipeline_signals.json   $2 state dir   $3 wait seconds   $@ source keys
+ostler_warm_prelaunch() {
+    local signals="$1" state="$2" wait="$3" src app rows all why
+    shift 3
+    local opened=()
+    [[ "${OSTLER_APP_WARMUP:-1}" == "0" ]] && return 0
+    for src in "$@"; do
+        why="$(ostler_warm_needs_open "$src")" || continue
+        app="$(ostler_warm_app_for "$src")"
+        ostler_warm_open "$app" || true
+        opened+=("$src")
+        echo "OPENED ${app} ${why}"
+    done
+    [[ ${#opened[@]} -gt 0 ]] || return 0
+    [[ "$wait" =~ ^[0-9]+$ ]] || wait=60
+    while (( wait > 0 )); do
+        all=true
+        for src in "${opened[@]}"; do
+            rows="$(ostler_warm_store_rows "$src")"
+            if [[ -z "$rows" || "$rows" -eq 0 ]]; then
+                all=false
+                break
+            fi
+        done
+        [[ "$all" == true ]] && break
+        sleep "${OSTLER_WARM_POLL_S:-5}"
+        wait=$((wait - ${OSTLER_WARM_POLL_S:-5}))
+    done
+    mkdir -p "$state" 2>/dev/null || true
+    for src in "${opened[@]}"; do
+        date +%s > "${state}/warm_opened_${src}" 2>/dev/null || true
+        rows="$(ostler_warm_store_rows "$src")"
+        # Unreadable: record nothing, quit nothing.
+        [[ -n "$rows" ]] || continue
+        if [[ "$rows" -gt 0 ]]; then
+            ostler_warm_record "$signals" "$src" true || true
+            ostler_warm_keep_running "$src" || echo "QUIT $(ostler_warm_app_for "$src")"
+        else
+            ostler_warm_record "$signals" "$src" false || true
+        fi
+    done
+    return 0
+}
+
 # The hourly rerun's half. For each source: count rows, record the signal, and
 # open the app when the rule says so, at most once per OSTLER_WARM_REOPEN_S.
 #   $1  state dir (holds warm_opened_<src> stamps)

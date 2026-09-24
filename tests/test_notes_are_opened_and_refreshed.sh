@@ -93,9 +93,10 @@ WARM_BLOCK="$(awk '/# #2351: ONE rule for every app/,/MSG_OK_APP_DATABASES_ALREA
 check "the pre-launch gate no longer decides Notes on file presence" \
     '! grep -q "NoteStore.sqlite \]\] && APPS_TO_OPEN" "$INSTALL_SH" && ! grep -q "APPS_TO_OPEN+=(\"Notes\")" "$INSTALL_SH"'
 check "the pre-launch gate asks the shared lib, for all six sources" \
-    '[[ "$WARM_BLOCK" == *"ostler_warm_needs_open"* && "$WARM_BLOCK" == *"calendar apple_mail contacts reminders apple_notes imessage"* ]]'
-check "the pre-launch quit loop skips keep-running apps and empty stores" \
-    '[[ "$WARM_BLOCK" == *"ostler_warm_keep_running \"\$_warm_src\" && continue"* && "$WARM_BLOCK" == *"\"\$_warm_rows\" -gt 0 ]] || continue"* ]]'
+    '[[ "$WARM_BLOCK" == *"ostler_warm_prelaunch"* && "$WARM_BLOCK" == *"calendar apple_mail contacts reminders apple_notes imessage"* ]]'
+check "the pre-launch block quits only what the lib lists as QUIT" \
+    '[[ "$WARM_BLOCK" == *"[[ \"\$_warm_verb\" == \"QUIT\" ]] || continue"* ]] && [[ $(grep -c "to quit" <<< "$WARM_BLOCK") -eq 1 ]]'
+
 # The warm-up lib exactly as install.sh embeds it, and the canonical copy.
 awk '
     index($0, "<<'"'"'OSTLER_APP_WARMUP_EOF'"'"'") { f = 1; next }
@@ -244,6 +245,24 @@ check "the rerun opens exactly Mail, Messages (not running) and Reminders (empty
     '[[ "$(sort "$OPENLOG" | tr "\n" "|")" == "-g -j -a Mail|-g -j -a Messages|-g -j -a Reminders|" ]]'
 check "the rerun records every source it measured, under the historical mail key" \
     'python3 -c "import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if (d[\"mail_has_fetched\"], d[\"imessage_has_fetched\"], d[\"calendar_has_fetched\"], d[\"reminders_has_fetched\"]) == (True, True, True, False) else 1)" "${HC}/.ostler/state/pipeline_signals.json"'
+
+# The install-time half, executed. Mail (not running, has rows), Messages
+# (empty), Calendar (rows) and Reminders (empty). Calendar is NOT opened; of the
+# three opened, NOTHING may be listed QUIT: Mail and Messages keep running,
+# Reminders is still empty.
+rm -rf "${HC}/.ostler"; : > "$OPENLOG"
+mk "$CHATDB" "CREATE TABLE message (ROWID INTEGER PRIMARY KEY);" message 0
+PRE="$(OSTLER_WARM_POLL_S=1 lib "" "ostler_warm_prelaunch '${HC}/.ostler/state/pipeline_signals.json' '${HC}/.ostler/state' 2 apple_mail imessage calendar reminders")"
+check "prelaunch opens Mail, Messages and Reminders, not Calendar" \
+    '[[ "$(grep ^OPENED <<< "$PRE" | cut -d" " -f2 | sort | tr "\n" " ")" == "Mail Messages Reminders " ]]'
+check "prelaunch lists NOTHING to quit while stores are empty or apps must keep running" \
+    '! grep -q "^QUIT" <<< "$PRE"'
+mk "$REMDB" "CREATE TABLE ZREMCDREMINDER (Z_PK INTEGER PRIMARY KEY);" ZREMCDREMINDER 2
+PRE="$(OSTLER_WARM_POLL_S=1 lib "Mail,Messages" "ostler_warm_prelaunch '${HC}/.ostler/state/pipeline_signals.json' '${HC}/.ostler/state' 2 apple_mail reminders")"
+mk "$REMDB" "CREATE TABLE ZREMCDREMINDER (Z_PK INTEGER PRIMARY KEY);" ZREMCDREMINDER 0
+check "a populated Reminders store is not opened at all, so it is never quit" \
+    '[[ -z "$PRE" ]]'
+
 
 echo
 echo "== ${PASS} pass / ${FAIL} fail =="

@@ -3338,7 +3338,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8241   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8286   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8295 and :15034, both of which run
+    # Its two top-level arming calls are :8295 and :15085, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3329 above has just deleted
     # that tree and :3333 has just rebound OSTLER_DIR to the final one, so
@@ -3356,13 +3356,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15805, where the note reads
+    # WhatsApp Web session path did it again at :15856, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15822 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15873 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3375,9 +3375,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8295, :15034) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8295, :15085) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17912 / :18090 / :18247 / :18589 path. There the
+    # :17943 / :18121 / :18278 / :18620 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -10410,7 +10410,7 @@ ostler_slot_release() {
 OSTLER_INGEST_SLOT_EOF
 chmod +x "${OSTLER_DIR}/lib/ostler-ingest-slot.sh" 2>/dev/null || true
 
-# -- Shared Apple-app warm-up lib (#2351, 2026-09-24) --
+# -- The app warm-up lib, one copy for install and rerun (#2351, 2026-09-24) --
 # ONE rule for opening Mail, Notes, Messages, Calendar, Contacts and Reminders
 # so iCloud fills the stores the extractors read: count ROWS not files, never
 # quit an app before its store has rows, keep Mail/Messages/Notes running,
@@ -10609,6 +10609,57 @@ with open(tmp, "w", encoding="utf-8") as fh:
 os.chmod(tmp, 0o600)
 os.replace(tmp, path)
 OSTLER_WARM_SIGNALS_EOF
+}
+
+# The install-time half. Opens what the rule says, waits up to $3 seconds for
+# the opened stores to fill, records each opened source, and prints one line
+# per decision for the caller, which owns the user-facing messages and the
+# quitting (it has the timeout wrapper; this lib runs unattended too):
+#   OPENED <App> <reason>   an app it opened
+#   QUIT <App>              an opened app whose store now HAS rows and which
+#                           need not keep running; nothing else is ever listed
+#   $1 pipeline_signals.json   $2 state dir   $3 wait seconds   $@ source keys
+ostler_warm_prelaunch() {
+    local signals="$1" state="$2" wait="$3" src app rows all why
+    shift 3
+    local opened=()
+    [[ "${OSTLER_APP_WARMUP:-1}" == "0" ]] && return 0
+    for src in "$@"; do
+        why="$(ostler_warm_needs_open "$src")" || continue
+        app="$(ostler_warm_app_for "$src")"
+        ostler_warm_open "$app" || true
+        opened+=("$src")
+        echo "OPENED ${app} ${why}"
+    done
+    [[ ${#opened[@]} -gt 0 ]] || return 0
+    [[ "$wait" =~ ^[0-9]+$ ]] || wait=60
+    while (( wait > 0 )); do
+        all=true
+        for src in "${opened[@]}"; do
+            rows="$(ostler_warm_store_rows "$src")"
+            if [[ -z "$rows" || "$rows" -eq 0 ]]; then
+                all=false
+                break
+            fi
+        done
+        [[ "$all" == true ]] && break
+        sleep "${OSTLER_WARM_POLL_S:-5}"
+        wait=$((wait - ${OSTLER_WARM_POLL_S:-5}))
+    done
+    mkdir -p "$state" 2>/dev/null || true
+    for src in "${opened[@]}"; do
+        date +%s > "${state}/warm_opened_${src}" 2>/dev/null || true
+        rows="$(ostler_warm_store_rows "$src")"
+        # Unreadable: record nothing, quit nothing.
+        [[ -n "$rows" ]] || continue
+        if [[ "$rows" -gt 0 ]]; then
+            ostler_warm_record "$signals" "$src" true || true
+            ostler_warm_keep_running "$src" || echo "QUIT $(ostler_warm_app_for "$src")"
+        else
+            ostler_warm_record "$signals" "$src" false || true
+        fi
+    done
+    return 0
 }
 
 # The hourly rerun's half. For each source: count rows, record the signal, and
@@ -17778,12 +17829,14 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     # nothing: Notes on a walk box had a NoteStore.sqlite since July and 0
     # notes), open Mail/Messages/Notes when they are not running because they
     # only fetch while they run, and never quit an app whose store is still
-    # empty. The account gates on Mail, Calendar and Contacts stay: with no
+    # empty. The account gates on Mail, Calendar and Contacts stay here: with no
     # account there is nothing to sync and opening Mail shows its setup window.
+    # A store still empty after the bounded wait is NOT final: the hourly
+    # fda-rerun re-checks it and re-opens the app at most once a day.
     # shellcheck source=lib/ostler-app-warmup.sh
-    source "${OSTLER_DIR}/lib/ostler-app-warmup.sh"
+    source "${OSTLER_DIR}/lib/ostler-app-warmup.sh" || true
     APPS_TO_OPEN=()
-    WARM_SOURCES_OPENED=()
+    _warm_candidates=()
     for _warm_src in calendar apple_mail contacts reminders apple_notes imessage; do
         case "$_warm_src" in
             calendar)   [[ "$(_accountsdb_count_calendar)" -gt 0 ]] || continue ;;
@@ -17792,60 +17845,38 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             imessage)   [[ ",${OSTLER_FDA_SOURCES:-}," == *",imessage,"* ]] || continue ;;
             apple_notes) [[ ",${OSTLER_FDA_SOURCES:-apple_notes}," == *",apple_notes,"* ]] || continue ;;
         esac
-        if _warm_why="$(ostler_warm_needs_open "$_warm_src")"; then
-            APPS_TO_OPEN+=("$(ostler_warm_app_for "$_warm_src")")
-            WARM_SOURCES_OPENED+=("$_warm_src")
-            dbg "app warm-up: ${_warm_src} ${_warm_why}"
-        fi
+        _warm_candidates+=("$_warm_src")
     done
-    unset _warm_src _warm_why
+    _warm_out=""
+    if declare -F ostler_warm_prelaunch >/dev/null; then
+        _warm_out="$(ostler_warm_prelaunch "${OSTLER_DIR}/state/pipeline_signals.json" "${OSTLER_DIR}/state" \
+            "${OSTLER_WARM_POPULATE_WAIT_S:-${OSTLER_NOTES_POPULATE_WAIT_S:-60}}" \
+            ${_warm_candidates[@]+"${_warm_candidates[@]}"})" || true
+    else
+        warn "The app warm-up library is missing, so no Apple app was opened to sync"
+    fi
+    while read -r _warm_verb _warm_app _warm_why; do
+        [[ "$_warm_verb" == "OPENED" ]] || continue
+        APPS_TO_OPEN+=("$_warm_app")
+        dbg "app warm-up: opened ${_warm_app} (${_warm_why})"
+    done <<< "$_warm_out"
 
     if [[ ${#APPS_TO_OPEN[@]} -gt 0 ]]; then
         info "$(printf "$MSG_INFO_TRIGGERING_ICLOUD_SYNC_SILENT_FIRST_RUN" "${APPS_TO_OPEN[*]}")"
-        for app in "${APPS_TO_OPEN[@]}"; do
-            ostler_warm_open "$app" || true
-        done
-        # A bounded chance for every opened store to fill before the extract
-        # reads it. A store still empty after this is NOT final: the hourly
-        # fda-rerun re-checks it and re-opens the app at most once a day.
-        _warm_wait_left="${OSTLER_WARM_POPULATE_WAIT_S:-${OSTLER_NOTES_POPULATE_WAIT_S:-60}}"
-        while (( _warm_wait_left > 0 )); do
-            _warm_all_have_rows=true
-            for _warm_src in "${WARM_SOURCES_OPENED[@]}"; do
-                _warm_rows="$(ostler_warm_store_rows "$_warm_src")"
-                if [[ -z "$_warm_rows" || "$_warm_rows" -eq 0 ]]; then
-                    _warm_all_have_rows=false
-                    break
-                fi
-            done
-            [[ "$_warm_all_have_rows" == true ]] && break
-            sleep 5
-            _warm_wait_left=$((_warm_wait_left - 5))
-        done
-        # Quit only what is safe to quit: never Mail, Messages or Notes (they
-        # sync only while running), and never an app whose store is still empty
-        # (quitting it stops the sync that opening it was meant to start).
-        for _warm_src in "${WARM_SOURCES_OPENED[@]}"; do
-            ostler_warm_keep_running "$_warm_src" && continue
-            _warm_rows="$(ostler_warm_store_rows "$_warm_src")"
-            [[ -n "$_warm_rows" && "$_warm_rows" -gt 0 ]] || continue
+        # Quit ONLY what the lib listed: an app whose store now has rows and
+        # which need not keep running. Never Mail, Messages or Notes, and never
+        # an app whose store is still empty (quitting it stops the sync that
+        # opening it was meant to start).
+        while read -r _warm_verb _warm_app _warm_why; do
+            [[ "$_warm_verb" == "QUIT" ]] || continue
             _ostler_run_with_deadline "$OSTLER_OSASCRIPT_TIMEOUT_S" \
-                osascript -e "tell application \"$(ostler_warm_app_for "$_warm_src")\" to quit" 2>/dev/null || true
-        done
-        # Record what each opened store holds now, so Doctor and the rerun
-        # read a measured state rather than infer one.
-        for _warm_src in "${WARM_SOURCES_OPENED[@]}"; do
-            _warm_rows="$(ostler_warm_store_rows "$_warm_src")"
-            [[ -n "$_warm_rows" ]] || continue
-            if [[ "$_warm_rows" -gt 0 ]]; then _warm_fetched=true; else _warm_fetched=false; fi
-            ostler_warm_record "${OSTLER_DIR}/state/pipeline_signals.json" "$_warm_src" "$_warm_fetched" || true
-            printf '%s\n' "$(date +%s)" > "${OSTLER_DIR}/state/warm_opened_${_warm_src}" 2>/dev/null || true
-        done
-        unset _warm_wait_left _warm_all_have_rows _warm_src _warm_rows _warm_fetched
+                osascript -e "tell application \"${_warm_app}\" to quit" 2>/dev/null || true
+        done <<< "$_warm_out"
         ok "$MSG_OK_APPS_LAUNCHED_TRIGGER_ICLOUD_SYNC"
     else
         ok "$MSG_OK_APP_DATABASES_ALREADY_PRESENT_SKIPPING_PRE"
     fi
+    unset _warm_candidates _warm_src _warm_out _warm_verb _warm_app _warm_why
     echo ""
 
     info "$MSG_INFO_READING_SAFARI_IMESSAGE_NOTES_CALENDAR_PHOTOS"
