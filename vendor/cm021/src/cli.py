@@ -151,12 +151,37 @@ def _build_upsert(
     same correspondent) advance the timestamp monotonically. The
     rdf:type + skos:prefLabel land via INSERT DATA only -- if they
     already exist Oxigraph treats the re-insert as a no-op.
+
+    THE displayName IS TIERED AND ONLY EVER MOVES UP (CM051 #2361).
+    A sender with no name used to get NO displayName at all, and the
+    people index reads only Persons that have one, so every email-only
+    correspondent was in the graph and absent from search and the wiki:
+    28 of them on the v1.0.102 walk box, the whole of the people-count
+    disagreement. The tier table is the one ostler_fda uses
+    (_upsert_display_name): an email address is tier 1 and is written
+    PROVISIONAL; a human name is tier 2 and clears the flag. Tier 1
+    never replaces anything but an absent name or a provisional
+    non-email handle; tier 2 replaces anything still provisional; a
+    real name already present is never touched.
     """
-    name_lit = _escape_sparql_literal(name) if name else ""
     email_lit = _escape_sparql_literal(email)
 
     label = name if name else email
     label_lit = _escape_sparql_literal(label)
+
+    display = name if (name and "@" not in name) else email
+    display_lit = _escape_sparql_literal(display)
+    is_human_name = display is name and bool(name)
+
+    if is_human_name:
+        guard = "!BOUND(?dn) || BOUND(?prov)"
+        flag = ""
+    else:
+        guard = '!BOUND(?dn) || (BOUND(?prov) && !CONTAINS(STR(?dn), "@"))'
+        flag = (
+            f'  <{person_iri}> pwg:displayNameProvisional '
+            '"true"^^<http://www.w3.org/2001/XMLSchema#boolean> .'
+        )
 
     parts = []
     parts.append("PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>")
@@ -170,14 +195,27 @@ def _build_upsert(
     parts.append(f"  <{person_iri}> rdf:type pwg:Person ;")
     parts.append(f"                 pwg:email \"{email_lit}\" ;")
     parts.append(f"                 skos:prefLabel \"{label_lit}\" .")
-    if name_lit:
-        parts.append(f"  <{person_iri}> pwg:displayName \"{name_lit}\" .")
     if last_contact_iso:
         ts_lit = _escape_sparql_literal(last_contact_iso)
         parts.append(
             f"  <{person_iri}> pwg:lastContactEmail "
             f"\"{ts_lit}\"^^<http://www.w3.org/2001/XMLSchema#dateTime> ."
         )
+    parts.append("} ;")
+    parts.append("")
+    parts.append("DELETE {")
+    parts.append(f"  <{person_iri}> pwg:displayName ?dn .")
+    parts.append(f"  <{person_iri}> pwg:displayNameProvisional ?prov .")
+    parts.append("}")
+    parts.append("INSERT {")
+    parts.append(f"  <{person_iri}> pwg:displayName \"{display_lit}\" .")
+    if flag:
+        parts.append(flag)
+    parts.append("}")
+    parts.append("WHERE {")
+    parts.append(f"  OPTIONAL {{ <{person_iri}> pwg:displayName ?dn }}")
+    parts.append(f"  OPTIONAL {{ <{person_iri}> pwg:displayNameProvisional ?prov }}")
+    parts.append(f"  FILTER ({guard})")
     parts.append("}")
     return "\n".join(parts)
 

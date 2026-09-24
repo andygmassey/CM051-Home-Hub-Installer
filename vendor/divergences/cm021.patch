@@ -31,51 +31,116 @@
      print(msg, file=sys.stderr, flush=True)
  
  
--def _safe_person_iri(email: str) -> str:
--    """Return a URL-safe Person IRI rooted at urn:ostler:person/.
 +def _clean_email_for_iri(email: str) -> str:
 +    """Normalise an email for use as a PWG Person IRI key.
- 
--    Uses ``urllib.parse.quote`` so addresses with ``+`` aliases,
--    Unicode local parts, or dots round-trip cleanly. The IRI is
--    deterministic so subsequent ticks UPSERT instead of creating
--    duplicates.
++
 +    Mirrors ``_person_id_from_identifier`` in
 +    ``vendor/ostler_fda/pwg_ingest.py`` (the canonical writer for
 +    iMessage / WhatsApp / Mail Person nodes), which uses
 +    ``identifier.strip().lower()`` before hashing into a uuid5.
 +    Keep these two helpers byte-for-byte equivalent so the resulting
 +    Person IRIs collide deterministically across sources.
-     """
--    return f"urn:ostler:person/{urllib.parse.quote(email.lower(), safe='')}"
++    """
 +    return email.strip().lower()
 +
 +
-+def _safe_person_iri(email: str) -> str:
+ def _safe_person_iri(email: str) -> str:
+-    """Return a URL-safe Person IRI rooted at urn:pwg:person/.
 +    """Return the canonical PWG Person IRI for an email address.
-+
+ 
+-    Uses ``urllib.parse.quote`` so addresses with ``+`` aliases,
+-    Unicode local parts, or dots round-trip cleanly. The IRI is
+-    deterministic so subsequent ticks UPSERT instead of creating
+-    duplicates.
 +    Shape: ``https://schema.ostler.ai/ontology#person_<uuid5>`` where the
 +    uuid5 is derived from ``https://schema.ostler.ai/person/<clean>`` using
 +    ``uuid.NAMESPACE_URL`` -- identical to the FDA ingest writer in
 +    ``vendor/ostler_fda/pwg_ingest.py`` so emails ingested via this
 +    CLI join the same Person nodes the FDA path creates from
 +    iMessage / WhatsApp.
-+    """
+     """
+-    return f"urn:pwg:person/{urllib.parse.quote(email.lower(), safe='')}"
 +    clean = _clean_email_for_iri(email)
 +    person_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://schema.ostler.ai/person/{clean}"))
 +    return f"{PWG_NS}person_{person_id}"
  
  
  def _escape_sparql_literal(value: str) -> str:
-@@ -133,7 +160,7 @@
+@@ -124,16 +151,41 @@
+     same correspondent) advance the timestamp monotonically. The
+     rdf:type + skos:prefLabel land via INSERT DATA only -- if they
+     already exist Oxigraph treats the re-insert as a no-op.
++
++    THE displayName IS TIERED AND ONLY EVER MOVES UP (CM051 #2361).
++    A sender with no name used to get NO displayName at all, and the
++    people index reads only Persons that have one, so every email-only
++    correspondent was in the graph and absent from search and the wiki:
++    28 of them on the v1.0.102 walk box, the whole of the people-count
++    disagreement. The tier table is the one ostler_fda uses
++    (_upsert_display_name): an email address is tier 1 and is written
++    PROVISIONAL; a human name is tier 2 and clears the flag. Tier 1
++    never replaces anything but an absent name or a provisional
++    non-email handle; tier 2 replaces anything still provisional; a
++    real name already present is never touched.
+     """
+-    name_lit = _escape_sparql_literal(name) if name else ""
+     email_lit = _escape_sparql_literal(email)
  
+     label = name if name else email
+     label_lit = _escape_sparql_literal(label)
+ 
++    display = name if (name and "@" not in name) else email
++    display_lit = _escape_sparql_literal(display)
++    is_human_name = display is name and bool(name)
++
++    if is_human_name:
++        guard = "!BOUND(?dn) || BOUND(?prov)"
++        flag = ""
++    else:
++        guard = '!BOUND(?dn) || (BOUND(?prov) && !CONTAINS(STR(?dn), "@"))'
++        flag = (
++            f'  <{person_iri}> pwg:displayNameProvisional '
++            '"true"^^<http://www.w3.org/2001/XMLSchema#boolean> .'
++        )
++
      parts = []
      parts.append("PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>")
--    parts.append("PREFIX pwg: <urn:ostler:>")
+-    parts.append("PREFIX pwg: <urn:pwg:>")
 +    parts.append(f"PREFIX pwg: <{PWG_NS}>")
      parts.append("PREFIX skos: <http://www.w3.org/2004/02/skos/core#>")
      parts.append("")
      parts.append(f"DELETE {{ <{person_iri}> pwg:lastContactEmail ?old }}")
+@@ -143,15 +195,28 @@
+     parts.append(f"  <{person_iri}> rdf:type pwg:Person ;")
+     parts.append(f"                 pwg:email \"{email_lit}\" ;")
+     parts.append(f"                 skos:prefLabel \"{label_lit}\" .")
+-    if name_lit:
+-        parts.append(f"  <{person_iri}> pwg:displayName \"{name_lit}\" .")
+     if last_contact_iso:
+         ts_lit = _escape_sparql_literal(last_contact_iso)
+         parts.append(
+             f"  <{person_iri}> pwg:lastContactEmail "
+             f"\"{ts_lit}\"^^<http://www.w3.org/2001/XMLSchema#dateTime> ."
+         )
++    parts.append("} ;")
++    parts.append("")
++    parts.append("DELETE {")
++    parts.append(f"  <{person_iri}> pwg:displayName ?dn .")
++    parts.append(f"  <{person_iri}> pwg:displayNameProvisional ?prov .")
+     parts.append("}")
++    parts.append("INSERT {")
++    parts.append(f"  <{person_iri}> pwg:displayName \"{display_lit}\" .")
++    if flag:
++        parts.append(flag)
++    parts.append("}")
++    parts.append("WHERE {")
++    parts.append(f"  OPTIONAL {{ <{person_iri}> pwg:displayName ?dn }}")
++    parts.append(f"  OPTIONAL {{ <{person_iri}> pwg:displayNameProvisional ?prov }}")
++    parts.append(f"  FILTER ({guard})")
++    parts.append("}")
+     return "\n".join(parts)
+ 
+ 
 --- a/src/filters.py
 +++ b/src/filters.py
 @@ -79,8 +79,11 @@
