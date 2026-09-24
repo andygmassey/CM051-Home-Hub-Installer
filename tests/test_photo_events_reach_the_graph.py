@@ -49,7 +49,7 @@ def check(cond: bool, msg: str) -> None:
 # Synthetic rows in the exact shape extract_all writes (asdict + default=str).
 ROWS = [
     {"date": "2031-02-03 10:11:12.500000+08:00", "location": None,
-     "latitude": 1.25, "longitude": 103.5, "people": ["Synthetic Face Alpha"], "album": None},
+     "latitude": 1.25, "longitude": 103.5, "people": ["Jane Doe"], "album": None},
     {"date": "2031-02-04 09:00:00+08:00", "location": "Testville, Nowhere",
      "latitude": None, "longitude": None, "people": [], "album": None},
     {"date": "", "location": None, "latitude": 0.0, "longitude": 0.0, "people": [], "album": None},
@@ -119,7 +119,7 @@ from ostler_fda import photos_metadata as pm  # noqa: E402
 
 def fake_events(since_days: int = 365, with_people_only: bool = True, db_path=None):
     return [pm.PhotoEvent(date=datetime(2031, 1, 1, tzinfo=timezone.utc), location=None,
-                          latitude=1.0, longitude=2.0, people=["Synthetic Face Beta"], album=None)]
+                          latitude=1.0, longitude=2.0, people=["John Doe"], album=None)]
 
 
 with tempfile.TemporaryDirectory() as td, \
