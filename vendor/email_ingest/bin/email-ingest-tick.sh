@@ -26,7 +26,9 @@
 #
 # Configuration (env, set by the installer or LaunchAgent):
 #   OSTLER_DIR         (default ~/.ostler) -- artefact root
-#   OSTLER_HOME        (default $HOME)     -- ostler-fda needs this
+#   (OSTLER_HOME is NOT read from the environment any more: the tick
+#    hands ostler-fda OSTLER_HOME=$OSTLER_DIR so its checkpoint lands in
+#    $OSTLER_DIR/state, where the uninstaller and Doctor both look.)
 #   OSTLER_PYTHON      (default python3)   -- python interpreter
 #   OSTLER_BACKFILL_DAYS (default 1825)    -- first-tick clamp
 #   OSTLER_BACKFILL_CHUNK_DAYS (default 30) -- backward-sweep chunk
@@ -46,7 +48,6 @@ set -euo pipefail
 # up over a handful of hourly ticks rather than blocking the
 # install on the full multi-year scan.
 OSTLER_DIR="${OSTLER_DIR:-$HOME/.ostler}"
-OSTLER_HOME="${OSTLER_HOME:-$HOME}"
 OSTLER_PYTHON="${OSTLER_PYTHON:-python3}"
 OSTLER_BACKFILL_DAYS="${OSTLER_BACKFILL_DAYS:-1825}"
 OSTLER_BACKFILL_CHUNK_DAYS="${OSTLER_BACKFILL_CHUNK_DAYS:-30}"
@@ -101,7 +102,25 @@ fi
 
 log "email-ingest tick start: mbox=$MBOX backfill_days=$OSTLER_BACKFILL_DAYS"
 
-OSTLER_HOME="$OSTLER_HOME" "$OSTLER_PYTHON" -m ostler_fda.apple_mail_mbox \
+# Legacy checkpoint location. This tick used to hand ostler-fda
+# OSTLER_HOME=$HOME, and ostler-fda appends /state itself, so the
+# checkpoint was written to ~/state/apple_mail_mbox_checkpoint.json,
+# OUTSIDE ~/.ostler. The uninstaller never removed it, so a reinstall
+# inherited a "backfill complete" marker from the previous install and
+# emitted zero messages, every hour, forever (measured on a walk box:
+# 12 ticks, 20986 .emlx scanned per tick, 0 emitted). Remove it once; a
+# fresh checkpoint under $OSTLER_DIR/state is seeded on this tick.
+_LEGACY_CKPT_DIR="$HOME/state"
+_LEGACY_CKPT="$_LEGACY_CKPT_DIR/apple_mail_mbox_checkpoint.json"
+if [ -f "$_LEGACY_CKPT" ]; then
+    rm -f -- "$_LEGACY_CKPT"
+    if [ -z "$(ls -A -- "$_LEGACY_CKPT_DIR")" ]; then
+        rmdir -- "$_LEGACY_CKPT_DIR"
+    fi
+    log "removed legacy email checkpoint outside $OSTLER_DIR; reseeding under $OSTLER_DIR/state"
+fi
+
+OSTLER_HOME="$OSTLER_DIR" "$OSTLER_PYTHON" -m ostler_fda.apple_mail_mbox \
     --emit-mbox "$MBOX" \
     --backfill-days "$OSTLER_BACKFILL_DAYS" \
     --backfill-chunk-days "$OSTLER_BACKFILL_CHUNK_DAYS" \

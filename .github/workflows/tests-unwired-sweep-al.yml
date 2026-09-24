@@ -105,6 +105,7 @@ jobs:
             test_doctor_probe_non_fatal.sh \
             test_doctor_repo_fallback.sh \
             test_email_folder_prompt.sh \
+            test_email_checkpoint_lives_under_dot_ostler.sh \
             test_email_ingest_bootstrap_guard.sh \
             test_email_ingest_loud_guard.sh \
             test_email_ingest_venv_wired.sh \
