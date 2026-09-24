@@ -393,7 +393,7 @@ _pf "pf: installer version == cut"   bash tests/test_installer_version_matches_t
 # reported and does NOT block the verdict. Marking it CANNOT-RUN would make this
 # script exit 2 forever and never be able to clear a tag, which would be a gate
 # that can only ever say no.
-row "pf: wiki provenance (2 steps)" "DEFERRED" "needs docker; RUN BY THE CUT, not skipped. Safe to defer for THIS cut because the wiki image pins are byte-identical to v1.0.74 (compiler 64debb2e2209, site 77eee04f13b1) -- revisit if a cut ever moves them."
+row "pf: wiki provenance (2 steps)" "DEFERRED" "needs docker; RUN BY THE CUT, not skipped. THE v1.0.74 BASELINE THIS ROW USED TO CITE IS TWO RE-PINS OLD AND THE CONDITION IT SET FOR ITSELF HAS FIRED: it said revisit if a cut ever moves them, and #2262 moved both (compiler 64debb2e2209 -> 7cd2dd8b73f2, site 77eee04f13b1 -> 52bd37a1bbfc). Deferred here on a narrower ground that is checkable rather than remembered: both digests now in install.sh carry provenance rows in scripts/wiki_image_provenance.tsv:222-223, bound to CM044 84fbb2bf. That records WHERE the images came from; it does NOT prove the images, which is what the two docker steps do in the cut. Revisit if a re-pin ever lands a digest with no provenance row."
 
 # ── report ─────────────────────────────────────────────────────────────────
 printf '  %-30s  %-12s  %s\n' "CHECK" "VERDICT" "DETAIL"
