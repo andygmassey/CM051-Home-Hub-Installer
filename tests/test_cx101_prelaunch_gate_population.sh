@@ -85,7 +85,8 @@ for source in calendar mail contacts; do
     if ! grep -qE "^ *${key}\) .*_accountsdb_count_${source}" <<< "$GATE_BLOCK"; then
         failure "pre-launch gate does not tie ${key} to _accountsdb_count_${source}"
     fi
-    if ! awk -v k="        ${key})" '/^ostler_warm_store_rows\(\) \{/ { g = 1 } g && index($0, k) == 1 { f = 1 } f && /COUNT\(\*\)/ { print; exit } f && /;;/ { exit }' <<< "$WARM_LIB" | grep -q .; then
+    _rows_hit="$(awk -v k="        ${key})" '/^ostler_warm_store_rows\(\) \{/ { g = 1 } g && index($0, k) == 1 { f = 1 } f && /COUNT\(\*\)/ { print; exit } f && /;;/ { exit }' <<< "$WARM_LIB")"
+    if [[ -z "$_rows_hit" ]]; then
         failure "the warm-up lib does not count ROWS for ${key}"
     fi
 done
