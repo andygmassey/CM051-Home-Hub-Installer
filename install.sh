@@ -37952,7 +37952,7 @@ echo -e "  ${BOLD}         ${NC} $MSG_INFO_WIKI_INTERNAL_ADDRESS"
 # the readiness lines below report. It is what Ostler presents on the
 # customer's behalf, and what they need in their own hands on the Tailscale
 # route. A credential they were never shown is the whole of #943.
-# ISSUE_TBD: THE PASSWORD ITSELF NEVER GOES TO STDOUT, because stdout is teed into
+# #2357: THE PASSWORD ITSELF NEVER GOES TO STDOUT, because stdout is teed into
 # ~/.ostler/logs/install.log (see the `exec > >(tee -a ...)` near the top), and
 # a walk box's log was found holding it in cleartext in this summary. stdout
 # gets the sign-in with the password withheld and where it is kept; the value
