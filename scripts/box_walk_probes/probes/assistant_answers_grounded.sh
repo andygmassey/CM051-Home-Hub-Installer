@@ -694,6 +694,65 @@ _offending_tool() {
 #
 # An unrecognised verdict is UNMEASURED, not a defect. Claiming a product failure
 # on a token the classifier does not recognise is the very error being fixed.
+# ── DECLARED REPHRASING PAIRS (#1162) ───────────────────────────────────────
+# Two battery members a customer would consider the same question. Until this
+# existed the battery held three DISTINCT questions, so the strongest thing a
+# walk record could say was "1 of 3 failed". That reads as a RATE, and a rate
+# is neither reproducible nor actionable. What was actually measured on the
+# walk box (ostler-hub, hub-v0.4.64, gemma4:e2b, 2026-08-27, three separate
+# runs, surviving an interposed unrelated turn) was not a rate:
+#
+#   "What subjects am I most drawn to?"  -> tool_call pwg_preferences, OK
+#   "What are my interests?"             -> no tool_call at all
+#
+# ONE EXACT STRING fails every time while a semantically identical rephrasing
+# grounds. That is a defect with a repro case, and seeing it requires two
+# questions that mean the same thing.
+#
+# Both members carry the SAME store set in the battery above, deliberately:
+# they are the same question, so a routing map that treated them differently
+# would make an asymmetry here unreadable.
+_rephrasing_pairs() {
+    printf '%s\t%s\n' 'What are my interests?' 'What subjects am I most drawn to?'
+}
+
+# Per-question verdicts are recorded as three TAB-separated fields:
+#     <question>\t<verdict token>\t<class from classify_verdict>
+# No battery question contains a tab, which is what makes field 1 a safe key.
+_verdict_of() {  # _verdict_of <records-file> <question> -> verdict token or ''
+    awk -F'\t' -v q="$2" '$1 == q { print $2; exit }' "$1"
+}
+_class_of() {    # _class_of   <records-file> <question> -> ok|defect|unmeasured or ''
+    awk -F'\t' -v q="$2" '$1 == q { print $3; exit }' "$1"
+}
+
+# THE ASYMMETRY READER. A named function over a RECORDS FILE, so the self-test
+# drives the same code the walk runs rather than a re-implementation of it.
+# Prints one line per pair where ONE member completed without reaching the
+# graph and the OTHER completed and did reach it, and NOTHING otherwise. It
+# changes no count and can move no verdict: a member that failed is already in
+# _failed. It says which WAY the pair fell, which is the diagnosis the ship
+# decision never needed and the next engineer always did.
+_phrasing_asymmetry() {  # _phrasing_asymmetry <records-file>
+    _pa_file="$1"
+    while IFS="$(printf '\t')" read -r _pa_left _pa_right; do
+        [ -n "$_pa_left" ] || continue
+        [ -n "$_pa_right" ] || continue
+        _pa_lc="$(_class_of "$_pa_file" "$_pa_left")"
+        _pa_rc="$(_class_of "$_pa_file" "$_pa_right")"
+        [ -n "$_pa_lc" ] && [ -n "$_pa_rc" ] || continue
+        if [ "$_pa_lc" = "defect" ] && [ "$_pa_rc" = "ok" ]; then
+            printf 'PHRASING ASYMMETRY: "%s" COMPLETED without reaching the graph (%s) while its rephrasing "%s" grounded in the same walk. One exact string, not one question in N.\n' \
+                "$_pa_left" "$(_verdict_of "$_pa_file" "$_pa_left")" "$_pa_right"
+        elif [ "$_pa_rc" = "defect" ] && [ "$_pa_lc" = "ok" ]; then
+            printf 'PHRASING ASYMMETRY: "%s" COMPLETED without reaching the graph (%s) while its rephrasing "%s" grounded in the same walk. One exact string, not one question in N.\n' \
+                "$_pa_right" "$(_verdict_of "$_pa_file" "$_pa_right")" "$_pa_left"
+        fi
+    done <<EOF
+$(_rephrasing_pairs)
+EOF
+}
+
 classify_verdict() {
     # classify_verdict <turn verdict> -> defect | unmeasured | ok
     case "$1" in
@@ -750,6 +809,7 @@ _questions() {
 What do you know about me?	${_TOOL_REGISTRY}
 What are my interests?	pwg_preferences
 Who have I been in contact with recently?	pwg_people pwg_person_timeline
+What subjects am I most drawn to?	pwg_preferences
 QEOF
 }
 
@@ -781,6 +841,32 @@ run_probe() {
     [ -n "$EXPECT_FACT" ] && printf '%s\t%s\n' "$SEEDED_QUESTION" "pwg_people pwg_person_timeline" >> "$_qfile"
     _declared="$(grep -c . "$_qfile")"
 
+    # ── A DECLARED PAIR THAT IS NEVER ASKED IS AN UNMEASURABLE CLAIM ────────
+    # #1039's lesson applied BEFORE the walk rather than after it: the reader
+    # above can be perfectly right about an asymmetry while the questions it
+    # compares were never put to the assistant, and a test of the reader alone
+    # would be green for ever. So the attachment is pinned structurally, here,
+    # where the battery actually exists on disk. Refusing is CANNOT-RUN and not
+    # FAIL: a pair declared against a battery that does not carry it is a
+    # defect in THIS FILE, not evidence about the product.
+    #
+    # Matched on FIELD 1, never the whole line. The battery rows carry a store
+    # set in field 2, so a whole-line comparison would miss every member and
+    # refuse the probe on every run.
+    _pairs=0
+    while IFS="$(printf '\t')" read -r _p_left _p_right; do
+        [ -n "$_p_left" ] || continue
+        _pairs=$(( _pairs + 1 ))
+        cut -f1 "$_qfile" | grep -Fxq -- "$_p_left" || probe_cannot_run \
+            "declared rephrasing pair member is not in the battery: '${_p_left}'. The pair would never be asked, so its asymmetry could never be observed and a green here would prove nothing"
+        cut -f1 "$_qfile" | grep -Fxq -- "$_p_right" || probe_cannot_run \
+            "declared rephrasing pair member is not in the battery: '${_p_right}'. The pair would never be asked, so its asymmetry could never be observed and a green here would prove nothing"
+    done <<EOF
+$(_rephrasing_pairs)
+EOF
+    [ "$_pairs" -eq 0 ] && probe_cannot_run \
+        "no rephrasing pair is declared, so this probe cannot tell 'one exact string fails every time' from 'one question in N fails'. #1162 is exactly that distinction and a battery with no pair in it cannot make it"
+
     # ── THE MAPPING IS CHECKED BEFORE A SINGLE QUESTION IS ASKED (#1125) ─────
     #
     # Two ways a store set can be worthless, and both are silent at run time:
@@ -811,6 +897,9 @@ run_probe() {
     # distinguish a model that declined the tools it held from a model that
     # was never offered any.
     _turns_with_tool_call=0
+    # <question>TAB<verdict>TAB<class>, one row per turn. Read only by the
+    # asymmetry limb; the pass/fail arithmetic is untouched by it.
+    _vrec="$(mktemp)"
     _tmp="$(mktemp)"
     exec 3< "$_qfile"
     while IFS="$(printf '\t')" read -r _q _accept_tools <&3; do
@@ -829,7 +918,9 @@ run_probe() {
             _turns_with_tool_call=$(( _turns_with_tool_call + 1 ))
         fi
         _v="$(adjudicate_turn "$_tmp" "$_accept_tools")"
-        case "$(classify_verdict "$_v")" in
+        _cls="$(classify_verdict "$_v")"
+        printf '%s\t%s\t%s\n' "$_q" "$_v" "$_cls" >> "$_vrec"
+        case "$_cls" in
             ok) : ;;
             defect)
                 _failed=$(( _failed + 1 ))
@@ -906,7 +997,16 @@ run_probe() {
     fi
 
     # The denominator, always. "0 of 0 grounded" must never read as success.
-    probe_examined "$_asked" "questions asked over /ws/chat (battery declares ${_declared}; ${_failed} answered without reaching the graph, ${_unmeasured} never completed or were never observed, ${_turns_with_tool_call} produced at least one tool call)"
+    # Computed BEFORE the verdict lines so it can ride in the FAIL detail.
+    _asym="$(_phrasing_asymmetry "$_vrec")"
+    _asym_n="$(printf '%s\n' "$_asym" | grep -c . || true)"
+    rm -f "$_vrec"
+    if [ "${_asym_n:-0}" -gt 0 ]; then
+        probe_note "phrasing asymmetry observed on ${_asym_n} of ${_pairs} declared pair(s)"
+        _detail="${_detail} [$(printf '%s' "$_asym" | tr '\n' ';')]"
+    fi
+
+    probe_examined "$_asked" "questions asked over /ws/chat (battery declares ${_declared}, of which ${_pairs} declared rephrasing pair(s) were asked and ${_asym_n:-0} showed an asymmetry; ${_failed} answered without reaching the graph, ${_unmeasured} never completed or were never observed, ${_turns_with_tool_call} produced at least one tool call)"
 
     [ "$_asked" -eq 0 ] && probe_cannot_run "no questions were asked; the battery is empty"
 
@@ -1240,15 +1340,61 @@ QMAP
     _rt no_expected_tools   unmeasured
     _rt some_future_verdict unmeasured
 
-    # 61 = 35 adjudicator and predicate arms (the 37 `|| _ok=0` lines less the
-    # two roll-ups) + 6 tool-name arms + 8 store-map control sites + 12 routing
-    # cases. COUNTED, not estimated, and counted by code SITE rather than by
+    # ── #1162: THE ASYMMETRY READER, DRIVEN ON RECORDS FILES ────────────────
+    # The walk runs this exact function, so these arms exercise the shipped
+    # code rather than a re-implementation of it. SIX arms, and FOUR of them
+    # assert SILENCE: a reader that prints on every input says nothing, and
+    # the two firing arms alone could not tell the two apart.
+    _pair_l='What are my interests?'
+    _pair_r='What subjects am I most drawn to?'
+    # 🔴 ITS OWN FILE, NOT $_d. These arms sit AFTER `rm -rf "$_d"` at the end
+    # of the fixture section, and the first version of them wrote into that
+    # deleted directory. The records file then never existed, _class_of read
+    # nothing, the reader printed nothing, and the two arms that must FIRE
+    # read 0. They failed, which is the only reason this was found: an arm
+    # asserting SILENCE would have passed on a missing file and pinned
+    # nothing at all. Same shape as every other finding tonight, in the arm
+    # written to catch that shape.
+    _rec="$(mktemp)"
+    _mkrec() {
+        : > "$_rec"
+        while [ "$#" -ge 3 ]; do
+            printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$_rec"
+            shift 3
+        done
+        printf '%s' "$_rec"
+    }
+    _asym_n_of() { printf '%s\n' "$(_phrasing_asymmetry "$1")" | grep -c . || true; }
+
+    # FIRES: one member completed without reaching the graph, the other
+    # grounded. Both orderings, because the reader reads the pair both ways.
+    [ "$(_asym_n_of "$(_mkrec "$_pair_l" no_tool_call defect "$_pair_r" grounded ok)")" -eq 1 ] || _ok=0
+    [ "$(_asym_n_of "$(_mkrec "$_pair_l" grounded ok "$_pair_r" no_tool_call defect)")" -eq 1 ] || _ok=0
+    # SILENT: both grounded. Nothing asymmetric happened.
+    [ "$(_asym_n_of "$(_mkrec "$_pair_l" grounded ok "$_pair_r" grounded ok)")" -eq 0 ] || _ok=0
+    # SILENT: both failed. That is a question that does not work, which is a
+    # different and already-counted finding, not a phrasing asymmetry.
+    [ "$(_asym_n_of "$(_mkrec "$_pair_l" no_tool_call defect "$_pair_r" no_tool_call defect)")" -eq 0 ] || _ok=0
+    # SILENT: one never completed. An unmeasured turn cannot be compared with
+    # a measured one, and saying it could is how a zero denominator reads as
+    # a result.
+    [ "$(_asym_n_of "$(_mkrec "$_pair_l" no_tool_call defect "$_pair_r" incomplete unmeasured)")" -eq 0 ] || _ok=0
+    # SILENT: the other member is absent from the records entirely.
+    [ "$(_asym_n_of "$(_mkrec "$_pair_l" no_tool_call defect)")" -eq 0 ] || _ok=0
+    # AND A CONTROL ON THE HARNESS ITSELF: the records file these arms read
+    # must exist and be non-empty, or every silence arm above is vacuous.
+    [ -s "$_rec" ] || _ok=0
+    rm -f "$_rec"
+
+    # 68 = 42 adjudicator, predicate and asymmetry arms (the 44 `|| _ok=0`
+    # lines less the two roll-ups) + 6 tool-name arms + 8 store-map control
+    # sites + 12 routing cases. COUNTED, not estimated, and counted by code SITE rather than by
     # execution: two of the map sites sit inside per-tool loops. scripts/tests/
     # test_grounded_probe_names_the_store_and_refuses_a_blind_turn.sh recounts
     # them from this file with the same definition and goes red if the number
     # and the arms drift apart. Without that recount a declared denominator is
     # just a number, which is the shape this probe exists to refuse.
-    probe_examined 61 "planted transcript fixtures, predicate checks, store-map controls and verdict-routing cases"
+    probe_examined 68 "planted transcript fixtures, predicate checks, store-map controls, asymmetry-reader arms and verdict-routing cases"
     if [ "$_ok" -eq 1 ]; then
         # The control FIRED: six known-bad shapes each produced their own
         # non-grounded verdict, and the healthy ones did not.

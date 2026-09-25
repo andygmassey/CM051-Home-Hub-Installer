@@ -271,7 +271,11 @@ ok arm-6 "blinding the scanner (sibling removed, then its registry line unreadab
 # This drives the REAL run_probe, because the discriminator lives in the loop
 # and not in adjudicate_turn. The probe's own self-test cannot reach it.
 H="$WORK/h1113.sh"
-run_battery() {  # run_battery <probe path> <turn1> <turn2> <turn3> -> full verdict line
+run_battery() {  # run_battery <probe path> <turn per battery question> -> full verdict line
+                 # ONE TURN PER QUESTION. The battery gained a fourth in #1162
+                 # (the rephrasing half of the declared pair); a call short of
+                 # one turn leaves the last question `incomplete`, which makes
+                 # the whole probe CANNOT-RUN and every arm here vacuous.
     local probe="$1"; shift
     local i=1 t
     rm -f "$WORK"/ans.*
@@ -315,14 +319,14 @@ HDR
 # below is measuring the harness. Each turn reads a store its own question
 # declares: overview for the broad opener, preferences for tastes, people for
 # contacts.
-ctl="$(run_battery "$PROBE" grounded_all grounded_prefs grounded_people)"
+ctl="$(run_battery "$PROBE" grounded_all grounded_prefs grounded_people grounded_prefs)"
 [[ "$ctl" == PASS* ]] || cannot_run "a healthy battery produced '${ctl}' through this harness; the harness is wrong, not the probe"
 # (a) NOTHING was offered: no turn produced a tool call at all.
-none="$(run_battery "$PROBE" notool notool notool)"
+none="$(run_battery "$PROBE" notool notool notool notool)"
 [[ "$none" == FAIL* ]] || fail arm-7 "a battery in which no question reached the graph produced '${none}', not FAIL. Zero tools offered is a worse product failure, not a lesser one."
 [[ "$(count 'NOT established that the model was offered any tools' "$none")" -ge 1 ]] || fail arm-7 "with zero tool calls anywhere the FAIL did not say tool availability is unproven, so it still reads as the model declining tools it held: ${none}"
 # (b) Tools WERE offered: one turn called a tool, two did not.
-some="$(run_battery "$PROBE" grounded_all notool notool)"
+some="$(run_battery "$PROBE" grounded_all notool notool notool)"
 [[ "$some" == FAIL* ]] || fail arm-7 "two ungrounded turns beside one grounded one produced '${some}', not FAIL"
 [[ "$(count 'Tools WERE offered on this box' "$some")" -ge 1 ]] || fail arm-7 "with a tool call on one turn the FAIL did not attribute the other two to routing: ${some}"
 # MUST-MISS, both directions: the two messages must not be interchangeable.
@@ -333,7 +337,7 @@ some="$(run_battery "$PROBE" grounded_all notool notool)"
 # discriminator would be a constant wearing the shape of a measurement.
 sed -e 's/^            _turns_with_tool_call=$(( _turns_with_tool_call + 1 ))$/            :/' "$PROBE" > "$MUT"
 [[ "$(diff "$PROBE" "$MUT" | grep -c '^<')" -eq 1 ]] || cannot_run "the #1113 counter mutant did not land"
-msome="$(run_battery "$MUT" grounded_all notool notool)"
+msome="$(run_battery "$MUT" grounded_all notool notool notool)"
 [[ "$(count 'Tools WERE offered on this box' "$msome")" -eq 0 ]] || fail arm-7 "the counter mutant still reported tools offered, so this arm is not reading the counter"
 ok arm-7 "a battery with no tool call anywhere says tool availability is UNPROVEN, one with a tool call attributes the misses to routing, both still FAIL, and freezing the counter is caught"
 
