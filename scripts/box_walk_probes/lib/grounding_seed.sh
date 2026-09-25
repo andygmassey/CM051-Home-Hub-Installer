@@ -288,7 +288,7 @@ grounding_seed_apply() {
         # naming them was made by this walk: assistant_grounds_the_opening_turn
         # may remove exactly those entries to restore its precondition. Never
         # set when the operator keyed a real contact (that path returns above).
-        export OSTLER_GATE_PERSON_SYNTHETIC=1
+        export OSTLER_SEED_PERSON_IS_SYNTHETIC=1
         GROUNDING_SEED_STATE="seeded"
         printf '  SEEDED. The grounded probe gets its content assertion:\n'
         printf '    OSTLER_GATE_KNOWN_PERSON = %s\n' "${OSTLER_GATE_KNOWN_PERSON}"

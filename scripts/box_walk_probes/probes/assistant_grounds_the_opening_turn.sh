@@ -653,12 +653,12 @@ run_probe() {
         # before this probe and asks about the same seeded person, and the
         # daemon files that conversation in memory. So on every walk the
         # person is "remembered" by the time this probe looks. When the person
-        # is the walk's SYNTHETIC seed (OSTLER_GATE_PERSON_SYNTHETIC=1, set only
+        # is the walk's SYNTHETIC seed (OSTLER_SEED_PERSON_IS_SYNTHETIC=1, set only
         # by grounding_seed_apply after it seeded), every memory naming them was
         # made by the walk, and removing exactly those entries restores the
         # precondition. When the operator keyed a REAL contact, customer memory
         # is never touched and the old refusal stands.
-        if [ "${OSTLER_GATE_PERSON_SYNTHETIC:-0}" = "1" ]; then
+        if [ "${OSTLER_SEED_PERSON_IS_SYNTHETIC:-0}" = "1" ]; then
             _keys="$(printf '%s\n' "$_mem" | sed -n 's/^KEY //p' | tr '\n' ' ')"
             _forgot="$(_memory_forget_keys ${_keys})"
             _mem="$(_memory_mentions_person)"
