@@ -71,3 +71,4 @@ fix(recovery): ostler-unlock pointed into /tmp, so the recovery key could not be
 pin(daemon): 0.4.83 lets pwg_people list recent contacts and keeps the routing words inside the prompt cap	CM051	2e367adc60	no	pwg_people_lists_recent_contacts	capability_matrix.sh gate	CM051 #2370
 pin(daemon): 0.4.83 names the pwg_ store in the user turn for interests and recent contacts	CM051	2e367adc60	no	routing_hint_names_the_store	capability_matrix.sh gate	CM051 #2370
 fix(a8): a planned kickstart -k restart is not an unclean exit	CM051	46ae01ac	no	a8_excuses_only_a_planned_restart	capability_matrix.sh gate	CM051 #2369
+fix(install): a retried AI model pull must not emit a fatal DONE to the GUI	CM051	3dec0435	no	a_retried_model_pull_emits_no_fatal_done	capability_matrix.sh gate	CM051 #2373
