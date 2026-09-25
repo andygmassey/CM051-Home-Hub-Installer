@@ -11,7 +11,7 @@
 # THAT row was taken from; the os003_sha header describes the most recent
 # sync only. A row with no field 3 predates per-row provenance.
 os003_repo	andygmassey/OS003-Ostler-Release
-os003_sha	0ed8687c0cb3001512f887c9b83fa4a35e605106
+os003_sha	e769c4f4ef5b0f9ecedc9133646f8f549869b0a0
 os003_branch	main
 cuts/v1.0.71/MUST_CONTAIN.tsv	b0badae3ce94b382200db36a7d049dd2c27010c9c91d7bf54271ad258114ca99	0e027d263066b61c7e1e656be2e9566a4242c845
 cuts/v1.0.72/MUST_CONTAIN.tsv	33645f0cf42bc8e8f395b490af738829c2479e5d61059ba7040b6ffd7b08140b	11e0bec6b43c251f7787a485831d40293d50e3e5
@@ -43,4 +43,4 @@ cuts/v1.0.98/MUST_CONTAIN.tsv	d107638e781ffe74e0aceb62212ccf1735097b1120d0542a86
 cuts/v1.0.99/MUST_CONTAIN.tsv	ad689ff26408d9a5df0f4f305ad23d7cc55b481dcb005f18a56b7fa5f11a84bc	c4e56f723267c24f95f3bb8ba8ffe03f6f6c1f2a
 cuts/v1.0.100/MUST_CONTAIN.tsv	e2b868e6ea5dcd3367f2b179bfeac2de80174339578f1496fcbf1ff22cd3ea34	7fcd1437cb16751a93a1adccc2b41c6c6df296e7
 cuts/v1.0.101/MUST_CONTAIN.tsv	61e7c9cd40aec3f7d997cad98c5d86e063e82ec3d948c9a53d32d2dcb8c84400	84fd853325df1c9ac9070f1e5af61a522f39ed7d
-cuts/v1.0.102/MUST_CONTAIN.tsv	cada676572a9ea0b816fbfc9b850147e30a2acc62f8c80b1a6eae95e5d109c8b	0ed8687c0cb3001512f887c9b83fa4a35e605106
+cuts/v1.0.102/MUST_CONTAIN.tsv	202dba7a44de97a08070cf033b08753c7d034a28404f9af53dadafef98da1e1b	e769c4f4ef5b0f9ecedc9133646f8f549869b0a0
