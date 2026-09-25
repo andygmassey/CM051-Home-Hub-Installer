@@ -378,19 +378,45 @@ result MANUAL A7 "Home & Wiki agree on phase" "open the app: Home + Wiki must bo
 # and the clean case is the one that PASSED. The remote side now emits a
 # terminating OK marker, so an empty or truncated reply is distinguishable from
 # a genuinely clean list.
-bad_agents=$(box "launchctl list | grep -iE 'ostler|creativemachines' | awk '\$2!=0 && \$2!=\"-\" && \$2!=78 {print \$3\"(exit=\"\$2\")\"}'; echo __A8_OK__")
+# ── A PLANNED RESTART IS NOT A CRASH (CM051 row 2220) ─────────────────────
+# `launchctl kickstart -k` stops the running process with SIGTERM, so launchd
+# records the OLD process's last exit as -15 even though the restart was the
+# installer's own, deliberate, end-of-install step. On the v1.0.102 walk the
+# assistant showed exactly that: running, healthy, last_exit=-15, and A8
+# FAILED the install. So a -15 is excused ONLY when all three hold:
+#   1. the installer wrote a planned-restart marker for THAT label
+#      (~/.ostler/state/planned_restarts.tsv, written by _ks_bounded -k),
+#   2. the job is running NOW (a PID, not "-"),
+#   3. the exit is exactly -15. Any other code, or -15 with no marker, or a
+#      -15 job that is not running, still FAILS.
+# The marker file's absence excuses nothing, so a missing file can only make
+# this stricter.
+a8_raw=$(box "launchctl list | grep -iE 'ostler|creativemachines' | awk '\$2!=0 && \$2!=\"-\" && \$2!=78 {print \$1\" \"\$2\" \"\$3}'; echo __A8_MARKS__; cat ~/.ostler/state/planned_restarts.tsv 2>/dev/null; echo __A8_OK__")
 # 🔴 grep -c, NEVER `| grep -q`. This file runs under `set -uo pipefail`, and
 # grep -q exits on the FIRST match, SIGPIPEs the producer, and inverts the
 # verdict. tests/test_pipefail_shortcircuit_inversion.sh ratchets against
 # exactly this, and it caught the line in my own fix for the defect above:
 # I introduced the trap I was writing a refusal for. grep -c reads to EOF.
-if [ "$(printf '%s' "$bad_agents" | grep -c '__A8_OK__')" -eq 0 ]; then
+if [ "$(printf '%s' "$a8_raw" | grep -c '__A8_OK__')" -eq 0 ]; then
   result CANNOT A8 "LaunchAgents exit clean" \
     "the launchctl query returned no terminator, so the agent list was never read: 'all clean' is not available"
 else
-  bad_agents=$(printf '%s' "$bad_agents" | sed 's/__A8_OK__//' | tr -d '\n' )
+  a8_agents=$(printf '%s\n' "$a8_raw" | sed -n '1,/^__A8_MARKS__$/p' | grep -v '^__A8_MARKS__$')
+  a8_marks=$(printf '%s\n' "$a8_raw" | sed -n '/^__A8_MARKS__$/,/^__A8_OK__$/p' | grep -v -E '^__A8_(MARKS|OK)__$' | cut -f1)
+  bad_agents=""; planned_agents=""
+  while read -r a8_pid a8_exit a8_label; do
+    [ -n "${a8_label:-}" ] || continue
+    if [ "$a8_exit" = "-15" ] && [ "$a8_pid" != "-" ] \
+       && [ "$(printf '%s\n' "$a8_marks" | grep -c -x -F -- "$a8_label")" -gt 0 ]; then
+      planned_agents="${planned_agents}${a8_label}(planned restart) "
+    else
+      bad_agents="${bad_agents}${a8_label}(exit=${a8_exit}) "
+    fi
+  done <<A8EOF
+$a8_agents
+A8EOF
   if [ -z "$bad_agents" ]; then
-    result PASS A8 "LaunchAgents exit clean" "all ostler agents exit 0 / benign"
+    result PASS A8 "LaunchAgents exit clean" "all ostler agents exit 0 / benign${planned_agents:+; excused: ${planned_agents}}"
   else
     result FAIL A8 "LaunchAgents exit clean" "nonzero exits: $bad_agents"
   fi
