@@ -346,6 +346,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 🔴 CHEAPEST CHECK FIRST, AND IT IS NOT A STYLE PREFERENCE.
+      # This step was LAST and was cancelled mid-run four separate times
+      # tonight, each time marking the whole job failed and blocking a merge
+      # while both measuring steps had already passed. Once the cause was a
+      # concurrency supersede; once Archie read the log and found
+      # "##[error]The runner has received a shutdown signal" with no newer run
+      # in existence, which is CANNOT-RUN and not FAIL.
+      #
+      # It needs no network and takes under a second, so running it first cuts
+      # its exposure window to almost nothing and fails fast on a wiring
+      # regression instead of after two API round trips. It does NOT cure a
+      # runner shutdown -- nothing here can -- it stops this particular step
+      # being the one standing in the blast radius.
+      - name: the gate is invoked by this workflow
+        run: /bin/bash tests/test_download_currency_gate_is_wired.sh
+
       - name: the gate can go red -- proven on this runner, before the real run
         # A gate whose red has never been seen ON THE HOST THAT RUNS IT is a
         # gate that has been run, not tested. Both red arms are exercised here
@@ -402,5 +418,3 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: the gate is invoked by this workflow
-        run: /bin/bash tests/test_download_currency_gate_is_wired.sh
