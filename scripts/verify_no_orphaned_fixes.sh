@@ -388,7 +388,16 @@ deferred_note() {
     c_num="$(printf '%s' "${CUT_VERSION:-}" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
     if [[ -n "$u_num" && -n "$c_num" && "$u_num" != "$c_num" ]]; then
         # Expired iff until_cut sorts strictly BEFORE the version being cut.
-        if [[ "$(printf '%s\n%s\n' "${u_num#v}" "${c_num#v}" | sort -V | head -1)" == "${u_num#v}" ]]; then
+        #
+        # `sed -n '1p'`, NOT `head -1`. This file sets `set -o pipefail`, and
+        # `head -1` exits the instant it has its line, which SIGPIPEs `sort`
+        # while it is still writing the second. `sed -n '1p'` reads to EOF, so
+        # the producer never dies. The comparison is a `[[ ... == ... ]]` on the
+        # captured string, so the inversion does not change the verdict TODAY --
+        # it is fixed because the shape is the one that took the v1.0.75 cut,
+        # and because the next edit that moves this into a condition inherits a
+        # live landmine. See tests/test_pipefail_shortcircuit_inversion.sh.
+        if [[ "$(printf '%s\n%s\n' "${u_num#v}" "${c_num#v}" | sort -V | sed -n '1p')" == "${u_num#v}" ]]; then
             suffix="  [EXPIRED: said ${u_num}, cutting ${c_num}]"
             expired_deferrals=$((expired_deferrals + 1))
             printf '%s\n' "$ref" >> "$EXPIRED_REFS"

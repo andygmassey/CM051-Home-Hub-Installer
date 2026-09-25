@@ -389,12 +389,20 @@ while IFS=$'\t' read -r repo fix artifact marker mpath desc; do
   # (artifact class here, manifest kind there).
   class="${artifact%%:*}"
   case "$class" in wiki-compiler|wiki-site) class=wiki ;; esac
+  # `grep -c`, NOT `| grep -q`. This file sets `set -o pipefail`, so a
+  # short-circuiting consumer SIGPIPEs printf and the pipeline reports the
+  # WRITER's death instead of the reader's verdict. On these two lines that
+  # inverts class SELECTION: a class that IS selected reads as not selected and
+  # is silently skipped, and a class that IS on the skip list gets verified
+  # anyway. Both directions are wrong and neither prints anything odd.
+  # `grep -c` must read to EOF to count, so it cannot short-circuit, and it is
+  # POSIX where the herestring is a bashism.
   if [[ -n "${PROV_GATE_ONLY_CLASSES:-}" ]] \
-     && ! printf '%s' ",${PROV_GATE_ONLY_CLASSES}," | grep -q ",${class},"; then
+     && [ "$(printf '%s' ",${PROV_GATE_ONLY_CLASSES}," | grep -c ",${class},")" -eq 0 ]; then
     skipped "${label} :: class '${class}' not selected by PROV_GATE_ONLY_CLASSES"; continue
   fi
   if [[ -n "${PROV_GATE_SKIP_CLASSES:-}" ]] \
-     && printf '%s' ",${PROV_GATE_SKIP_CLASSES}," | grep -q ",${class},"; then
+     && [ "$(printf '%s' ",${PROV_GATE_SKIP_CLASSES}," | grep -c ",${class},")" -gt 0 ]; then
     skipped "${label} :: class '${class}' deliberately skipped here -- verified in another job"; continue
   fi
 
@@ -465,7 +473,11 @@ while IFS=$'\t' read -r repo fix artifact marker mpath desc; do
         info "         not CM044. This gate deliberately refuses them. Do not go looking for"
         info "         an absent label -- you will find a present, plausible, wrong one.)"
         info "stamp CM044 sha into the image at build time (see PROVENANCE_GATE.md) so this becomes an enforceable check next cut"
-      elif ! printf '%s' "$ledger_sha" | grep -q "^${rev}" && ! printf '%s' "$rev" | grep -q "^${ledger_sha}"; then
+      # `grep -c`, NOT `| grep -q`. Under pipefail an inverted match here calls
+      # a CORRECTLY bound image a "ledger MISBINDING" and stops the cut on a
+      # fault that is not there.
+      elif [ "$(printf '%s' "$ledger_sha" | grep -c "^${rev}")" -eq 0 ] \
+           && [ "$(printf '%s' "$rev" | grep -c "^${ledger_sha}")" -eq 0 ]; then
         red "${label} :: image revision label ${rev:0:12} != ledger sha ${ledger_sha:0:12} -- ledger MISBINDING"
         continue
       fi
