@@ -528,7 +528,7 @@ PYMEMORY"
 # One copy, driven by run_probe and by the self-test.
 _read_memory_answer() {
     case "$1" in
-        READ\ *)
+        "READ "*)
             local n
             n="$(printf '%s\n' "$1" | awk 'NR==1 {print $3}')"
             case "$n" in ''|*[!0-9]*) printf 'UNREADABLE'; return ;; esac
