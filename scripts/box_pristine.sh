@@ -111,6 +111,61 @@ if pgrep -f "/Applications/Ollama.app/Contents/MacOS/Ollama" >/dev/null 2>&1; th
     [ "$DRY" = "0" ] && pkill -f "/Applications/Ollama.app/Contents/" 2>/dev/null || true
 fi
 
+# A PROCESS RUNNING FROM A PATH THIS SCRIPT REMOVES. Deleting a bundle does not
+# stop a process already executing from it: macOS holds the running image by
+# its vnode. MEASURED on the Mini16 before the v1.0.102 fourth walk, a day after
+# this script had reported the box pristine:
+#
+#   pid 52697  /Applications/Ostler.app/Contents/MacOS/ostler-hub      since 09-24 09:18
+#   pid 25454  /Applications/Ostler/Ostler Safari Extension.app/...     since 09-24 02:29
+#   pid 12755  tail -f -n 0 ~/.ostler/logs/install.log
+#
+# A deleted-but-running hub can hold a port and answer a probe, so the next walk
+# would have measured the OLD binary. The customer uninstaller already quits the
+# bundles it removes (install.sh _u_quit_bundle_processes); this script removed
+# the files and never looked at the processes.
+#
+# The subject is every process whose EXECUTABLE (ps comm) is under a removed
+# path, plus any whose ARGV names a path under ~/.ostler (the tail above runs
+# /usr/bin/tail). Our own pid and parent are excluded by pid.
+_pristine_roots() {
+    local _e
+    for _e in "${PATHS[@]}"; do printf '%s\n' "${_e%%|*}"; done
+}
+_pristine_procs() {   # prints "pid<TAB>what" for each process under a removed path
+    local _roots
+    _roots="$(_pristine_roots)"
+    ps -axo pid=,comm= 2>/dev/null | while read -r _pid _comm; do
+        [ "$_pid" = "$$" ] || [ "$_pid" = "${PPID:-0}" ] && continue
+        while IFS= read -r _r; do
+            [ -n "$_r" ] || continue
+            case "$_comm" in "$_r"/*|"$_r") printf '%s\t%s\n' "$_pid" "$_comm"; break ;; esac
+        done <<ROOTS
+$_roots
+ROOTS
+    done
+    ps -axo pid=,args= 2>/dev/null | while read -r _pid _args; do
+        [ "$_pid" = "$$" ] || [ "$_pid" = "${PPID:-0}" ] && continue
+        case "$_args" in *"${HOME}/.ostler/"*) printf '%s\t%s\n' "$_pid" "$_args" ;; esac
+    done
+}
+_pristine_stop_procs() {
+    local _pids
+    _pids="$(_pristine_procs | cut -f1 | sort -u | tr '\n' ' ')"
+    [ -n "${_pids// /}" ] || return 0
+    _pristine_procs | sort -u | sed 's/^/  process: /' | cut -c1-160
+    [ "$DRY" = "0" ] || return 0
+    # shellcheck disable=SC2086
+    kill -TERM $_pids 2>/dev/null || true
+    local _w=0
+    while [ "$_w" -lt 20 ] && [ -n "$(_pristine_procs)" ]; do sleep 0.25; _w=$((_w + 1)); done
+    _pids="$(_pristine_procs | cut -f1 | sort -u | tr '\n' ' ')"
+    # shellcheck disable=SC2086
+    [ -n "${_pids// /}" ] && { kill -KILL $_pids 2>/dev/null || sudo kill -KILL $_pids 2>/dev/null || true; sleep 0.25; }
+    return 0
+}
+_pristine_stop_procs
+
 # 3-5. Every path in PATHS: the Ostler dir including the licence the customer
 #      uninstaller correctly preserves, the Applications surfaces (one of which
 #      hid the step-33 defect), the customer content, and the CLI symlinks.
@@ -273,6 +328,15 @@ else
     printf '  absent    %s\n' "running Ollama.app / ollama serve"
 fi
 
+_n_procs="$(_pristine_procs | cut -f1 | sort -u | grep -c . || true)"
+if [ "${_n_procs:-0}" -gt 0 ]; then
+    printf '  SURVIVED  %-46s  %s\n' "$_n_procs process(es)" "running from a removed Ostler path; would answer a walk's probes"
+    _pristine_procs | sort -u | sed 's/^/              /' | cut -c1-160
+    FAIL=1
+else
+    printf '  absent    %s\n' "processes running from any removed Ostler path"
+fi
+
 _n_loaded="$(launchctl list 2>/dev/null | grep -cE 'com\.(ostler|creativemachines\.ostler)' || true)"
 if [ "${_n_loaded:-0}" -gt 0 ]; then
     printf '  SURVIVED  %-46s  %s\n' "$_n_loaded loaded job(s)" "still running after removal"
@@ -312,6 +376,40 @@ if [ "$DRY" = "0" ]; then
     fi
 else
     _control_ok=1
+fi
+
+# THE PROCESS CONTROL, a mutation of the same kind: start a sentinel process
+# that names a path under a removed root, require the detector to SEE it
+# and the stop to END it. Without this, "no process survived" could equally
+# mean "the detector cannot see one".
+if [ "$DRY" = "0" ]; then
+    _pc_dir="${HOME}/.ostler/.pristine-process-control"
+    _pc_had_ostler=0; [ -e "${HOME}/.ostler" ] && _pc_had_ostler=1
+    _pc_ok=0
+    # `tail -f` on a file under ~/.ostler: the exact shape found on the box,
+    # and a system binary run in place. A COPY of a system binary cannot be
+    # the sentinel: macOS SIGKILLs a copied platform binary at launch, so the
+    # control would "stop" a process that was never running.
+    if mkdir -p "$_pc_dir" 2>/dev/null && : > "$_pc_dir/log" 2>/dev/null; then
+        tail -f "$_pc_dir/log" >/dev/null 2>&1 &
+        _pc_pid=$!
+        sleep 0.5
+        if [ "$(_pristine_procs | cut -f1 | grep -cx "$_pc_pid")" -gt 0 ]; then
+            _pristine_stop_procs >/dev/null
+            wait "$_pc_pid" 2>/dev/null || true
+            kill -0 "$_pc_pid" 2>/dev/null || _pc_ok=1
+        fi
+        kill -KILL "$_pc_pid" 2>/dev/null || true
+    fi
+    rm -rf "$_pc_dir" 2>/dev/null || true
+    [ "$_pc_had_ostler" = "1" ] || rmdir "${HOME}/.ostler" 2>/dev/null || true
+    if [ "$_pc_ok" = "1" ]; then
+        echo "  CONTROL ok: a planted process under a removed path WAS seen and then stopped"
+    else
+        echo "  CONTROL FAILED: a planted process under a removed path was NOT seen or NOT stopped;"
+        echo "                  'no process survived' above is unmeasured."
+        _control_ok=0
+    fi
 fi
 
 if [ "$_control_ok" = "1" ]; then
