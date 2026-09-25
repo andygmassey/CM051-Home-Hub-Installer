@@ -31,9 +31,9 @@ fix(email-ingest): the Apple Mail checkpoint lives under ~/.ostler so a reinstal
 fix(warm-up): one rule for Notes, Mail, Messages and the other Apple apps we read	CM051	80a531b0ab	no	apple_apps_warmed_by_one_rule	capability_matrix.sh gate	CM051 #2351
 fix(summary): the wiki password is never written into install.log	CM051	cd7ef36285	no	wiki_password_withheld_from_install_log	capability_matrix.sh gate	CM051 #2357
 vendor(cm052): re-pin to 46d2e11e so AI conversations reach the Hub	CM051	cd7ef36285	no	aiconv_posts_to_the_hub_api_port	capability_matrix.sh gate	CM051 #2353
-pin(daemon): 0.4.82 carries five feeds on the backfill ladder	CM051	78c01ed69d	no	bundle_ticks_climb_the_backfill_ladder	capability_matrix.sh gate	CM051 #2355
-pin(daemon): 0.4.82 carries the WhatsApp not-linked message	CM051	78c01ed69d	no	whatsapp_tick_names_not_linked	capability_matrix.sh gate	CM051 #2353
-pin(daemon): 0.4.82 carries the email-ingest checkpoint fix in the tick launchd runs	CM051	78c01ed69d	no	email_ingest_tick_checkpoint_under_dot_ostler	capability_matrix.sh gate	CM051 #2347
+pin(daemon): 0.4.83 (supersedes the 0.4.82 pin, same fix) carries five feeds on the backfill ladder	CM051	2e367adc60	no	bundle_ticks_climb_the_backfill_ladder	capability_matrix.sh gate	CM051 #2355
+pin(daemon): 0.4.83 (supersedes the 0.4.82 pin, same fix) carries the WhatsApp not-linked message	CM051	2e367adc60	no	whatsapp_tick_names_not_linked	capability_matrix.sh gate	CM051 #2353
+pin(daemon): 0.4.83 (supersedes the 0.4.82 pin, same fix) carries the email-ingest checkpoint fix in the tick launchd runs	CM051	2e367adc60	no	email_ingest_tick_checkpoint_under_dot_ostler	capability_matrix.sh gate	CM051 #2347
 vendor: classify the remaining ten deltas on contact_syncer and doctor	CM051	a7d677c6e0bb	no	none	capability_matrix.sh gate	CM051 #2234
 fix(977): a dropped Notion or Obsidian export is findable, and the tree stops redding the cut	CM051	eec085a90e8a	no	knowledge_import_dispatch_has_a_collection	capability_matrix.sh gate	CM051 #2233
 vendor: classify the two single-commit deltas on cm041 assistant_api and identity_resolver	CM051	1edf9b759039	no	none	capability_matrix.sh gate	CM051 #2231
@@ -68,3 +68,6 @@ repin(wiki): both wiki images at v0.1.34, which supersedes #2125's pin and carri
 fix(signals): the payloads never said what they were, so the whole band was dropped	CM051	f50c5c186462	no	reply_debt_detector_is_pointed_at_its_own_tree	capability_matrix.sh gate	CM051 #2124
 fix(preferences): the projector shipped and nothing called it	CM051	b694b1b79901	no	editor_preference_projection_is_called	capability_matrix.sh gate	CM051 #2122
 fix(recovery): ostler-unlock pointed into /tmp, so the recovery key could not be redeemed	CM051	29113ac4bc27	no	ostler_unlock_link_survives_the_promote	capability_matrix.sh gate	CM051 #2116
+pin(daemon): 0.4.83 lets pwg_people list recent contacts and keeps the routing words inside the prompt cap	CM051	2e367adc60	no	pwg_people_lists_recent_contacts	capability_matrix.sh gate	CM051 #2370
+pin(daemon): 0.4.83 names the pwg_ store in the user turn for interests and recent contacts	CM051	2e367adc60	no	routing_hint_names_the_store	capability_matrix.sh gate	CM051 #2370
+fix(a8): a planned kickstart -k restart is not an unclean exit	CM051	46ae01ac	no	a8_excuses_only_a_planned_restart	capability_matrix.sh gate	CM051 #2369
