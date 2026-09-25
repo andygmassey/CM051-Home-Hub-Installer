@@ -138,6 +138,12 @@ jobs:
         if: always()
         run: bash tests/test_email_checkpoint_lives_under_dot_ostler.sh
 
+      # INDIVIDUAL STEP (row 2220): A8 read the installer's own planned
+      # kickstart -k (last exit -15) as a crash and failed a healthy walk.
+      - name: Acceptance check A8 excuses only a recorded, running, planned restart
+        if: always()
+        run: bash tests/test_a8_excuses_only_a_planned_restart.sh
+
       - name: Python tests (a..l)
         # Independent axis from the shell tests: run even if those failed, so a
         # red shell run never hides whether the Python guards also broke.

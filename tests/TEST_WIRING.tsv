@@ -17,6 +17,7 @@
 # the workflow that runs it.
 #
 # columns: test_file<TAB>status<TAB>runner
+test_a8_excuses_only_a_planned_restart.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_a_blocker_with_no_issue_still_blocks.py	WIRED	.github/workflows/cut-checklist-complete.yml
 test_a_blocking_row_stops_a_cut.sh	WIRED	.github/workflows/cut-checklist-complete.yml
 test_a_bom_row_can_claim_landed_and_not_be_in_the_pin.sh	WIRED	.github/workflows/bom-pin-agreement.yml

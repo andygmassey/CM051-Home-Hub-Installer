@@ -27731,6 +27731,12 @@ _ostler_start_assistant_daemon() {
     local _plist="${HOME}/Library/LaunchAgents/${_label}.plist"
     [[ -f "$_plist" ]] || return 0
     if [[ "${OSTLER_ASSISTANT_STARTED:-0}" == "1" ]]; then
+        # PLANNED restart: record it, because launchd will report the old
+        # process's last exit as -15 (SIGTERM) and acceptance check A8 must
+        # be able to tell this from a crash (CM051 row 2220). Label, epoch.
+        mkdir -p "${HOME}/.ostler/state" 2>/dev/null \
+            && printf '%s\t%s\n' "$_label" "$(date +%s)" \
+                >> "${HOME}/.ostler/state/planned_restarts.tsv" 2>/dev/null
         _ks_bounded "${_domain}/${_label}" -k   # bounded: see _ks_bounded
         return 0
     fi
