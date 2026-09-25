@@ -139,6 +139,12 @@ on:
       # which is how a test rots while reporting green on every unrelated push.
       - 'tests/test_pinned_wiki_images_are_arm64_only.sh'
       - 'tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh'
+      # #1550. The checkout guard, its test, and the library both of them read.
+      # All three are triggers: a run: step with no matching paths entry is dark
+      # on self-edit, and a guard whose LIBRARY is not watched can be blinded by
+      # a change that never re-runs the test that proves it fires.
+      - 'scripts/lib/checkout_guard.sh'
+      - 'tests/test_every_checkout_a_cut_gate_reads_is_guarded.sh'
       # #1167. The run-at-commit gate, its wiring test, and the baseline both
       # of them read. All three are triggers: the gate is the defect surface,
       # the test is the instrument, and a `run:` with no matching paths entry
@@ -383,6 +389,19 @@ jobs:
         if: always()
         run: /bin/bash tests/test_a_gate_that_exits_zero_after_dying_is_not_a_pass.sh
 
+      # #1550. A cut gate that reads a checkout is only as true as the branch
+      # somebody left it on. The CM044 half was guarded; the ostler-assistant
+      # half was not, and that half fails towards a false GREEN. The guard
+      # itself also had no proof it could fire: _cm044_branch_ok returned 0 hits
+      # across tests/ and .github, against 2 for _interpreter_died as a control.
+      #
+      # This builds real git repositories in four states, drives the REAL runner
+      # through --print-checkout-guard, and carries three mutants: the guard
+      # blinded to ok, the guard blinded to off-tip, and one gate unwired from
+      # it. It needs no network -- origin is a local bare repo.
+      - name: Every checkout a cut gate reads is guarded, and the guard can fire
+        if: always()
+        run: /bin/bash tests/test_every_checkout_a_cut_gate_reads_is_guarded.sh
       # #1167. The gate's own --self-test proves it can discriminate and runs in
       # declared-gates-reachable.yml. This proves it is ASKED, on the cut, and
       # can answer when it is: invoked by cut.yml, if: always(), GH_TOKEN

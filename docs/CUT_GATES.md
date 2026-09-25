@@ -15,6 +15,28 @@ rather than the verdict.
 Both env vars are **required**. Neither has a default, on purpose — see
 [Why no defaults](#why-no-defaults).
 
+### Before you read a red: check which tree you pointed it at
+
+Several gates compare the cut against a working tree on your machine:
+`CM044_DIR` (the wiki image gates) and `OSTLER_ASSISTANT_DIR` plus `HR015_ROOT`
+(cut provenance, content provenance, vendor pair drift). A checkout left on
+somebody's feature branch produces a verdict about the checkout, not about the
+artefact. On 2026-09-05 that cost a confident RED on a wiki image that was
+provably correct, and the assistant side can fail the other way and report a
+GREEN on a comparison that was never valid.
+
+Every one of those checkouts is now fetched and compared against the tip of its
+default branch before the gates that read it run, and a checkout that is not at
+the tip makes those gates **CANNOT-RUN** rather than RED. To see the verdicts
+without running anything:
+
+```bash
+scripts/run_all_cut_gates.sh --print-checkout-guard
+```
+
+`OSTLER_CUT_GATES_FETCH=0` skips the fetch and compares against the cached
+remote ref, which is only appropriate offline.
+
 ---
 
 ## The rule this document exists to enforce
