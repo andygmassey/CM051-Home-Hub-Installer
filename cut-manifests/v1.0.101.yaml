@@ -4988,6 +4988,44 @@ open_issues:
       vendored copy, so a re-pin deletes it, and two of its rows already break
       the promise the panel makes
     gate: >-
+      ✅ CONDITION MET AND RETIRED 2026-09-24, VERIFIED AGAINST THE ROW RATHER THAN AGAINST THE PULL
+      REQUEST THAT CLAIMED IT. The retirement condition this row was given was TWO halves: the
+      divergence is RECORDED, and the tree is regenerate_forbidden with a declared reason. Both were
+      measured on origin/main d9f755a5 by a reader who did not write the fix. HALF ONE, THE BAN.
+      vendor/VENDOR_MANIFEST.toml declares 24 trees and exactly TWO carry regenerate_forbidden = true:
+      cm041/contact_syncer, which pre-dates this, and doctor, set by PR #2315 with a declared reason of
+      1,382 characters. DENOMINATOR PRINTED, because a flag read on one tree cannot say whether the
+      reader works: 22 of the 24 read absent, so the predicate discriminates in both directions and the
+      true is a real true. HALF TWO, THE RECORD, AND IT IS STRONGER THAN RECORDED.
+      vendor/divergences/doctor.patch is 10,584 lines over 23 files, 18 modified and 5 vendor-only new
+      files, which matches the manifest's own claim exactly. It was APPLIED rather than read: HR015
+      doctor at the pinned sha b0b38310, whose agent/web_ui.py is 3,927 lines, plus that patch rebuilds
+      ALL 23 covered files byte for byte against the vendored tree, agent/web_ui.py included at 6,755
+      lines, cmp rc 0. VACUITY CONTROL, because a comparison that cannot fail proves nothing: the same
+      23 files BEFORE the patch score 0 identical and 23 differing. So doctor.patch is a COMPLETE
+      record of the divergence rather than a partial one, and the ban now protects a record that can
+      actually rebuild the panel. AND THIS ROW'S OWN CENTRAL CLAIM IS NOW FALSE, WHICH IS WHY IT IS
+      RETIRED RATHER THAN STRUCK. The row says eight commits touched vendor/doctor since 2026-09-16 and
+      that all eight are absent from doctor.patch, every one scoring 0 of 5 on the row's own probe. That
+      probe was re-run today, unchanged, against the ten commits now in range: eight score 5 of 6, one
+      scores 4 of 4, and one has a ZERO DENOMINATOR and is reported as such rather than as a pass,
+      because e3fccdff added a single line shorter than the probe's own 46-character floor so there was
+      nothing for it to measure. THE CAUSE IS DATED AND CHECKABLE: doctor.patch was regenerated TWICE
+      AFTER this row was measured on 2026-09-19, by 28486898 at 2026-09-23T01:58 and 7ecd4907 at
+      2026-09-23T11:33. The row was true when it was written and it is not true now. THE ROW'S OWN
+      NAMED RESIDUAL IS DISCHARGED. It said what still blocks is the patch regeneration that would
+      capture the extract-kinds delta. Counted on ADDED lines of the current patch: _FDA_EXTRACT_KINDS
+      3, read_source_status 5, _SOURCE_KINDS 4, render_source_status 2, and a fragment of the panel's
+      own promise sentence 1. Ragged rather than uniform, against a fabricated symbol scoring 0. A
+      CONTROL THAT DID NOT DISCRIMINATE, SAID PLAINLY RATHER THAN QUIETLY DROPPED: collect_licence_state
+      also scores 0, and that is CORRECT behaviour rather than a broken reader, because a symbol that
+      does not diverge cannot appear in a diff at all. It was the wrong control for this surface, and
+      the byte-for-byte rebuild above is the right one. WHAT THIS DOES NOT CLOSE. The ban stops a
+      regeneration deleting the panel; it does not give the panel an upstream. The row's own open
+      question, whether this tree is the one place a vendor-side edit is correct, is answered yes by the
+      ban, and that answer now carries a declared reason and an owner instead of being a habit. Nothing
+      here was walked, so by item 9 this is MERGED, and it is neither DELIVERED nor PROVEN. ORIGINAL
+      TEXT FOLLOWS.
       🔴 BLOCKING, AND THE ROW'S REAL GAP IS FIVE TIMES WIDER THAN IT SAYS. RE-MEASURED 2026-09-19. The
       row narrows its own first finding to one missing delta: a merged pull request of 2026-09-17
       added lines to the vendored file and never touched the divergence patch, so a re-pin loses THAT
