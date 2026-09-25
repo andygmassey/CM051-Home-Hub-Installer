@@ -27,7 +27,7 @@ version	v1.0.102
 version_source	measured(CFBundleShortVersionString, matches argument)
 artefact_sha256	unavailable
 artefact_sha256_source	asserted-unverifiable(no OstlerInstaller-1.0.102.dmg on the box)
-walked_at	2026-09-24T18:42:15Z
+walked_at	2026-09-25T00:34:26Z
 box_fp	71ebc47b7c4ab63f
 walk_kind	thin
 walk_kind_source	default (no OSTLER_CONSOLE_WALK declared) -- an ssh walk; this record does NOT authorise repointing the customer download
@@ -62,7 +62,7 @@ walk_kind_source	default (no OSTLER_CONSOLE_WALK declared) -- an ssh walk; this 
 # reset fixes: a correct, clean, committed sha that was nonetheless
 # not main. Resolve the sha before assuming the lineage -- this
 # field answers WHICH probes ran, never WHERE they came from.
-instrument_rev	6ca87a8c1e9b8e9e19ecd4c735b9e3e8147d8107
+instrument_rev	75dc7d6d749673c7b7469784dfba4f5c0645b8e5
 instrument_source	measured(git rev-parse HEAD, scripts/box_walk_probes clean)
 #
 # stores_provenance answers the question every store-reading probe
@@ -83,31 +83,27 @@ stores_provenance	carried-over-from-previous-install
 # marker could not be read, which is NOT the same as unrun.
 grounding_seed	not-recorded(no ~/.walk-grounding-seed-run on the box; this walk predates the marker or the read failed)
 counts_scope	box_walk_probes_only(phase1); verdict+qa_exit+failed_probe_names_recorded+failed_probe+not_measured_probe cover all phases
-pass	19
-fail	1
+pass	22
+fail	2
 cannot_run	5
-broken	4
-measured	25 of 29 (pass+fail+cannot_run; a broken probe is SKIPPED in phase 2 and measures nothing) -- buckets partition the suite
+broken	0
+measured	29 of 29 (pass+fail+cannot_run; a broken probe is SKIPPED in phase 2 and measures nothing) -- buckets partition the suite
 verdict	FAILED
 qa_exit	1
-failed_probe_names_recorded	3 of 6
+failed_probe_names_recorded	3 of 5
 failed_probe	acceptance_gate_v1013
-failed_probe	ingest_coverage
-failed_probe	people_count_agreement
+failed_probe	assistant_answers_grounded
+failed_probe	people_stores_reconcile
 failed_probe_reasons	withheld(public repo); phase 1 -- run_box_walk.sh prints them under "WHAT EACH FAILURE FOUND"; phase 2 -- the cut-manifest gate's own log on the walked box, and any full_output=... path it names
 not_measured_reasons	withheld(public repo); phase 1 -- run_box_walk.sh prints them under "PREREQUISITES THAT WERE ABSENT"; phase 2 -- the cut-manifest gate's own log on the walked box, and any full_output=... path it names
 not_measured_probe	app_signature_survives_first_run
-not_measured_probe	assistant_answers_grounded
 not_measured_probe	assistant_grounds_the_opening_turn
-not_measured_probe	converge_kill_is_recorded
 not_measured_probe	no_store_port_is_tcp_reachable
 not_measured_probe	no_unexpected_egress
 not_measured_probe	pair_state_agreement
-not_measured_probe	people_stores_reconcile
-broken_probe	freshness_panel_has_dates
-broken_probe	ingest_coverage
-broken_probe	no_unexpected_egress
-broken_probe	people_stores_reconcile
+not_measured_probe	pairing_recovers_without_a_repair_storm
+not_measured_probe	people_count_agreement
+not_measured_probe	running_config_matches_disk
 regression_of	acceptance_gate_v1013	v1.0.95
-regression_of	ingest_coverage	v1.0.101
-regression_of	people_count_agreement	v1.0.101
+regression_of	assistant_answers_grounded	v1.0.101
+regression_of	people_stores_reconcile	v1.0.101
