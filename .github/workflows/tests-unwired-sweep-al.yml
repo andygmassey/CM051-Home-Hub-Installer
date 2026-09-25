@@ -211,6 +211,11 @@ jobs:
       - name: a walk record is found under either spelling
         if: always()
         run: bash tests/test_a_walk_record_is_found_under_either_spelling.sh
+      # INDIVIDUAL STEP, macOS: box_pristine.sh runs on a Mac and ps comm is a
+      # full executable path only there.
+      - name: pristine stops processes running from removed Ostler paths
+        if: always()
+        run: bash tests/test_pristine_stops_processes_running_from_removed_paths.sh
       - name: an identity mismatch shows the difference, not two identical strings
         if: always()
         run: bash tests/test_identity_mismatch_shows_the_difference.sh
