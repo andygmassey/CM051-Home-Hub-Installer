@@ -29,6 +29,10 @@ on:
     paths:
       - 'install.sh'
       - 'lib/ostler_store_auth.py'
+      # Wired 2026-09-09: the shim logged an ABSENT library as a FAILURE, so
+      # the log that exists for the rare case held 351 routine lines and no
+      # real one. Measured on the v1.0.81 walk box.
+      - 'tests/test_store_auth_shim_logs_only_real_failures.py'
       - 'tests/test_venvs_install_store_shim.sh'
       - 'tests/test_store_callers_authenticate.sh'
       - 'tests/test_installer_authenticates_to_qdrant.sh'
@@ -186,3 +190,13 @@ jobs:
       - name: the gate itself parses
         if: always()
         run: /bin/bash -n tests/test_wiki_compiler_gets_the_qdrant_key.sh
+
+      # AN ABSENT LIBRARY HAS NOT FAILED.
+      #
+      # Measured on the v1.0.81 walk box: store-auth-shim.log held 351 lines,
+      # 288 aiohttp and 63 httpx, every one a ModuleNotFoundError, on a box
+      # where nothing uses aiohttp. The module's comment says the log is for
+      # "the rare case nobody can currently see"; at 351 to 0 it hid it.
+      - name: the shim logs only real failures
+        if: always()
+        run: python3 tests/test_store_auth_shim_logs_only_real_failures.py
