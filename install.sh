@@ -301,17 +301,6 @@ _ks_bounded() {
     _ksb_target="${1:-}"
     _ksb_flag="${2:-}"
     [ -n "$_ksb_target" ] || return 0
-    # A `-k` restart is PLANNED, and launchd records it as the old process's
-    # last exit: -15, SIGTERM. The acceptance gate's A8 used to read that as an
-    # unclean exit and FAIL a healthy install (CM051 row 2220, v1.0.102 walk:
-    # the end-of-install assistant restart). Write down every planned restart
-    # so A8 can tell one from a crash. Label, epoch, TAB-separated. Best
-    # effort: a marker that fails to write makes A8 stricter, never looser.
-    if [ "$_ksb_flag" = "-k" ]; then
-        mkdir -p "${HOME}/.ostler/state" 2>/dev/null \
-            && printf '%s\t%s\n' "${_ksb_target##*/}" "$(date +%s)" \
-                >> "${HOME}/.ostler/state/planned_restarts.tsv" 2>/dev/null
-    fi
     (
         if [ -n "$_ksb_flag" ]; then
             launchctl kickstart "$_ksb_flag" "$_ksb_target" >/dev/null 2>&1 &
@@ -27742,6 +27731,12 @@ _ostler_start_assistant_daemon() {
     local _plist="${HOME}/Library/LaunchAgents/${_label}.plist"
     [[ -f "$_plist" ]] || return 0
     if [[ "${OSTLER_ASSISTANT_STARTED:-0}" == "1" ]]; then
+        # PLANNED restart: record it, because launchd will report the old
+        # process's last exit as -15 (SIGTERM) and acceptance check A8 must
+        # be able to tell this from a crash (CM051 row 2220). Label, epoch.
+        mkdir -p "${HOME}/.ostler/state" 2>/dev/null \
+            && printf '%s\t%s\n' "$_label" "$(date +%s)" \
+                >> "${HOME}/.ostler/state/planned_restarts.tsv" 2>/dev/null
         _ks_bounded "${_domain}/${_label}" -k   # bounded: see _ks_bounded
         return 0
     fi

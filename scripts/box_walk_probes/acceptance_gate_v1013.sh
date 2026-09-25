@@ -379,13 +379,14 @@ result MANUAL A7 "Home & Wiki agree on phase" "open the app: Home + Wiki must bo
 # terminating OK marker, so an empty or truncated reply is distinguishable from
 # a genuinely clean list.
 # ── A PLANNED RESTART IS NOT A CRASH (CM051 row 2220) ─────────────────────
-# `launchctl kickstart -k` stops the running process with SIGTERM, so launchd
+# A restart with kickstart and the -k flag stops the running process with SIGTERM, so launchd
 # records the OLD process's last exit as -15 even though the restart was the
 # installer's own, deliberate, end-of-install step. On the v1.0.102 walk the
 # assistant showed exactly that: running, healthy, last_exit=-15, and A8
 # FAILED the install. So a -15 is excused ONLY when all three hold:
 #   1. the installer wrote a planned-restart marker for THAT label
-#      (~/.ostler/state/planned_restarts.tsv, written by _ks_bounded -k),
+#      (~/.ostler/state/planned_restarts.tsv, written by install.sh when it
+#      restarts the assistant at the end of the install),
 #   2. the job is running NOW (a PID, not "-"),
 #   3. the exit is exactly -15. Any other code, or -15 with no marker, or a
 #      -15 job that is not running, still FAILS.

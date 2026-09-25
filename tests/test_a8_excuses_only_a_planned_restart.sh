@@ -13,8 +13,8 @@
 #   nomarker  -15, running, no marker               -> FAIL
 #   stopped   -15, NOT running, marker              -> FAIL
 #   crash     exit 1, running, marker               -> FAIL
-# and it checks that _ks_bounded -k in install.sh writes the marker the gate
-# reads, so the two halves cannot drift apart.
+# and it checks that install.sh's assistant restart writes the marker the
+# gate reads, so the two halves cannot drift apart.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GATE="$ROOT/scripts/box_walk_probes/acceptance_gate_v1013.sh"
@@ -62,16 +62,23 @@ run_arm nomarker 63654 -15 0 FAIL
 run_arm stopped  -     -15 1 FAIL
 run_arm crash    63654 1   1 FAIL
 
-# The writer half: _ks_bounded -k must append the label the gate looks for.
-d="$W/writer"; mkdir -p "$d/bin" "$d/hm"
+# The writer half: the installer's end-of-install assistant restart must
+# append the label the gate looks for, and a FIRST start (bootstrap, not a
+# restart) must not.
+d="$W/writer"; mkdir -p "$d/bin" "$d/hm/Library/LaunchAgents"
 printf '#!/bin/sh\nexit 0\n' > "$d/bin/launchctl"; chmod +x "$d/bin/launchctl"
-awk '/^_ks_bounded\(\) \{/{f=1} f{print} f&&/^}$/{exit}' "$ROOT/install.sh" > "$d/fn.sh"
-HOME="$d/hm" PATH="$d/bin:/usr/bin:/bin" bash -c ". '$d/fn.sh'; _ks_bounded 'gui/501/$LABEL' -k; _ks_bounded 'gui/501/com.ostler.doctor'"
-if [ "$(cut -f1 "$d/hm/.ostler/state/planned_restarts.tsv" 2>/dev/null | grep -c -x -F "$LABEL")" -eq 1 ] \
-   && [ "$(grep -c 'com.ostler.doctor' "$d/hm/.ostler/state/planned_restarts.tsv" 2>/dev/null || true)" -eq 0 ]; then
-    printf 'ok    writer    -> _ks_bounded -k marks the label; a plain kickstart does not\n'
+: > "$d/hm/Library/LaunchAgents/$LABEL.plist"
+awk '/^_ostler_start_assistant_daemon\(\) \{/{f=1} f{print} f&&/^}$/{exit}' "$ROOT/install.sh" > "$d/fn.sh"
+[ -s "$d/fn.sh" ] || { echo "FAIL: could not lift _ostler_start_assistant_daemon"; exit 1; }
+M="$d/hm/.ostler/state/planned_restarts.tsv"
+HOME="$d/hm" PATH="$d/bin:/usr/bin:/bin" bash -c "_ks_bounded(){ :; }; . '$d/fn.sh'; ASSISTANT_BINARY_INSTALLED=true; OSTLER_ASSISTANT_STARTED=0; _ostler_start_assistant_daemon"
+first=$(cut -f1 "$M" 2>/dev/null | grep -c -x -F "$LABEL" || true)
+HOME="$d/hm" PATH="$d/bin:/usr/bin:/bin" bash -c "_ks_bounded(){ :; }; . '$d/fn.sh'; ASSISTANT_BINARY_INSTALLED=true; OSTLER_ASSISTANT_STARTED=1; _ostler_start_assistant_daemon"
+after=$(cut -f1 "$M" 2>/dev/null | grep -c -x -F "$LABEL" || true)
+if [ "$first" -eq 0 ] && [ "$after" -eq 1 ]; then
+    printf 'ok    writer    -> the planned restart is marked; a first start is not\n'
 else
-    printf 'FAIL  writer    -> marker file wrong or missing\n'; fails=$((fails + 1))
+    printf 'FAIL  writer    -> first start marked %s, restart marked %s (want 0, 1)\n' "$first" "$after"; fails=$((fails + 1))
 fi
 
 [ "$fails" -eq 0 ] && { echo "PASS: A8 excuses only a recorded, running, SIGTERM restart"; exit 0; }
