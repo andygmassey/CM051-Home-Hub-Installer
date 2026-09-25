@@ -352,8 +352,18 @@ PYPAYLOAD
 # match (a number span IMMEDIATELY followed by a label span saying People), and
 # a marker that cannot be found returns UNREADABLE rather than 0. A missing tile
 # must never read as "the customer is shown zero people".
+# read_wiki_people_tile [reading-number]. FAKE_TILE_SEQ (pipe-separated, the
+# last repeating) drives the self-test's re-read arms, selected by the reading
+# number passed IN, never by a counter, for the subshell reason read_result
+# gives below. FAKE_TILE alone still drives every single-reading case.
 read_wiki_people_tile() {
-    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_TILE:-UNREADABLE}"; return; fi
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then
+        if [ -n "${FAKE_TILE_SEQ:-}" ]; then
+            printf '%s' "$FAKE_TILE_SEQ" | awk -F'|' -v n="${1:-1}" '{ i = (n > NF) ? NF : n; printf "%s", $i }'
+            return
+        fi
+        printf '%s' "${FAKE_TILE:-UNREADABLE}"; return
+    fi
     box_run "python3 - <<'OSTLERTILE'
 import os, re
 p = os.path.expanduser(\"~/Documents/Ostler/Wiki/index.md\")
@@ -408,6 +418,10 @@ PYPAYLOAD"
 # widen it deliberately rather than by accident.
 RECONCILE_READS="${OSTLER_PROBE_RECONCILE_READS:-3}"
 RECONCILE_READ_GAP_S="${OSTLER_PROBE_RECONCILE_GAP_S:-60}"
+# The wiki People tile: up to ten readings a minute apart, only when it is
+# LOWER than two agreeing stores (see "A TILE STILL CATCHING UP" below).
+TILE_READS="${OSTLER_PROBE_TILE_READS:-10}"
+TILE_READ_GAP_S="${OSTLER_PROBE_TILE_GAP_S:-60}"
 
 _reconcile_sleep() {
     [ "${SELF_TEST_LOCAL:-0}" -eq 1 ] && return 0
@@ -603,6 +617,33 @@ run_probe() {
             probe_note "residual D  wiki People tile           : ${tile}  (graph ${graph}, reconciled ${reconciled}) -> ${d_state}" ;;
     esac
 
+    # ── A TILE STILL CATCHING UP IS NOT A THIRD NUMBER (v1.0.102 walks 2 and 3)
+    #
+    # Both walks FAILED here with the stores in exact agreement and the tile
+    # BEHIND them (walk 3: graph 3433, vectors 3433, tile 3422), because email
+    # was still adding people and the wiki People tile is written by the next
+    # recompile, not by the ingest. Re-run minutes later, both read 3433 x3 and
+    # PASSED. So when the stores agree and the tile is LOWER than they are, the
+    # tile is re-read, bounded, and the verdict can only move FAIL -> PASS: it
+    # passes only if a later reading EQUALS the reconciled count. A tile HIGHER
+    # than the stores is never lag and is decided on the first reading, and a
+    # tile that is still short when the bound runs out still FAILS.
+    local tile_reads=1
+    if [ "$d_state" = "third-number" ] && [ "$a" -eq 0 ] && [ "$b_fail" -eq 0 ] \
+       && [ "$tile" -lt "$reconciled" ] && [ "$TILE_READS" -gt 1 ]; then
+        local first_tile="$tile" t_next
+        while [ "$tile_reads" -lt "$TILE_READS" ]; do
+            [ "${SELF_TEST_LOCAL:-0}" -eq 1 ] || sleep "$TILE_READ_GAP_S"
+            tile_reads=$((tile_reads + 1))
+            t_next="$(read_wiki_people_tile "$tile_reads")"
+            case "$t_next" in ''|UNREADABLE|*[!0-9]*) continue ;; esac
+            tile="$t_next"
+            if [ "$tile" -eq "$reconciled" ]; then d_state="ok"; break; fi
+            [ "$tile" -gt "$reconciled" ] && break
+        done
+        probe_note "            tile re-read                     : ${first_tile} -> ${tile} over ${tile_reads} reading(s) ${TILE_READ_GAP_S}s apart -> ${d_state}"
+    fi
+
     local failures=""
     # A IS STILL DECIDED ON ONE READING, deliberately: the header's argument
     # that no ingest race produces an untyped merge survivor is untouched by the
@@ -728,6 +769,18 @@ self_test() {
     _tcase "D tile correct -> PASS"           "OK 7187 7187 0 0 0 0 7187" "7187" "$PROBE_EX_PASS"
     # stores agree, tile matches NEITHER -> the #273 defect -> FAIL
     _tcase "D tile is a THIRD number -> FAIL" "OK 7187 7187 0 0 0 0 7187" "6547" "$PROBE_EX_FAIL"
+    # A tile still catching up: lower, then equal on a later reading -> PASS
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7187 0 0 0 0 7187" FAKE_TILE_SEQ="7100|7150|7187" run_probe 2>&1)"; rc=$?
+    if [ "$rc" -eq "$PROBE_EX_PASS" ] && [ "$(printf '%s' "$out" | grep -c 'tile re-read .*7100 -> 7187')" -gt 0 ]; then _st_tick; printf '  ok [D tile catches up on a re-read -> PASS, and the re-read is what passed it]\n'
+    else _st_tick; printf '  SELF-TEST FAIL [D catch-up]: expected %s, got %s\n' "$PROBE_EX_PASS" "$rc"; fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="D catch-up"; fi
+    # A tile that stays short for every reading -> FAIL
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7187 0 0 0 0 7187" FAKE_TILE_SEQ="7100|7100|7100" run_probe 2>&1)"; rc=$?
+    if [ "$rc" -eq "$PROBE_EX_FAIL" ]; then _st_tick; printf '  ok [D tile never catches up -> FAIL]\n'
+    else _st_tick; printf '  SELF-TEST FAIL [D stuck]: expected %s, got %s\n' "$PROBE_EX_FAIL" "$rc"; fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="D stuck"; fi
+    # A tile HIGHER than the stores is never lag: FAIL even if a later reading would match
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7187 0 0 0 0 7187" FAKE_TILE_SEQ="7300|7187" run_probe 2>&1)"; rc=$?
+    if [ "$rc" -eq "$PROBE_EX_FAIL" ]; then _st_tick; printf '  ok [D tile above the stores is not re-read -> FAIL]\n'
+    else _st_tick; printf '  SELF-TEST FAIL [D above]: expected %s, got %s\n' "$PROBE_EX_FAIL" "$rc"; fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="D above"; fi
     # stores agree, tile tracks the graph, which here EQUALS reconciled -> PASS
     _tcase "D tile tracks graph -> PASS"      "OK 7187 7187 0 0 0 0 7187" "7187" "$PROBE_EX_PASS"
     # THE ONE THAT MATTERS: A is non-zero, so a graph-tracking tile is a
