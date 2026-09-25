@@ -144,6 +144,11 @@ jobs:
         if: always()
         run: bash tests/test_a8_excuses_only_a_planned_restart.sh
 
+      # INDIVIDUAL STEP (#2372): a retried model pull emitted a fatal DONE.
+      - name: A retried AI model pull emits no fatal DONE marker
+        if: always()
+        run: bash tests/test_a_retried_model_pull_emits_no_fatal_done.sh
+
       - name: Python tests (a..l)
         # Independent axis from the shell tests: run even if those failed, so a
         # red shell run never hides whether the Python guards also broke.

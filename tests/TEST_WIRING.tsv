@@ -66,6 +66,7 @@ test_a_quiesced_interval_agent_is_re_registered.sh	WIRED	.github/workflows/cold-
 test_a_ratchet_must_not_name_a_false_cause.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_a_remembered_remote_access_answer_is_not_asked_again.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_remote_url_is_quoted_against_zsh_globbing.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_a_retried_model_pull_emits_no_fatal_done.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_a_row_that_could_not_measure_is_counted_and_named.py	WIRED	.github/workflows/cut-manifest.yml
 test_a_running_daemon_is_not_a_daemon_that_can_read.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_second_contact_card_cannot_be_written_onto_one_person.py	WIRED	.github/workflows/rule-2-holds-on-the-write.yml
