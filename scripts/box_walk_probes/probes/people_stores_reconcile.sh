@@ -498,6 +498,134 @@ _parse_reconcile() {
     c_set=$(printf '%s' "$out" | awk '{print $11}')
 }
 
+# ─── DRIVE THE PRODUCT'S OWN WRITER, THEN ASK AGAIN (v1.0.102 walk 4) ──────
+#
+# Walk 4 FAILED this probe with C=2 named people missing from search across
+# three readings and the People tile 2 behind the graph across ten. Neither was
+# a drop. Measured on the same box afterwards: graph 3433, vectors 3433, tile
+# 3433, residual 0. The two writers run on their own clocks, and both clocks
+# are longer than the probe's windows:
+#
+#     vectors   com.ostler.fda-rerun (people_index leg)   every 3600s, ~6 min
+#     tile      wiki-recompile-catchup                     every 1800s, ~2 min
+#
+# A person that email ingest creates is searchable after the NEXT people_index
+# run, up to an hour later; three readings over two minutes cannot see that.
+# Waiting an hour would pass the probe and prove nothing either. So when a
+# residual survives every re-read, the probe RUNS the writer that owns it
+# (launchctl kickstart, the job's own entry point, never a hand-rolled write),
+# waits for that run's own completion marker, and asks once more:
+#
+#   C  a URI that was missing BEFORE the kick and is still missing after
+#      people_index completed a run STARTED after the kick was not queued, it
+#      was DROPPED. That FAILS, and the note says so in those words.
+#   D  the tile is compared with the graph read immediately before the kick and
+#      immediately after the compile completes. The compile snapshots the graph
+#      somewhere between those two readings, so the tile must fall inside them;
+#      on a quiet box they are equal and this is exact equality. Anything
+#      outside is the #273 third number and FAILS.
+#
+# A writer that cannot be driven (not loaded, kick refused, no completion
+# within the bound) leaves the verdict exactly where the re-reads put it: this
+# path can only move FAIL -> PASS on evidence, never on a timeout.
+#
+# The completion markers are the writers' own: people_index.tsv
+# last_success_at for the vectors, and for the tile the index.md mtime AND the
+# job no longer running (the compile rewrites index.md more than once).
+read -r -d '' WRITER_PY <<'PYWRITER'
+import calendar, os, subprocess, sys, time
+kind, action = sys.argv[1], sys.argv[2]
+label = {"people": "com.ostler.fda-rerun",
+         "wiki": "com.creativemachines.ostler.wiki-recompile-catchup"}[kind]
+tgt = "gui/%d/%s" % (os.getuid(), label)
+def state():
+    try:
+        r = subprocess.run(["launchctl", "print", tgt], capture_output=True, text=True)
+    except Exception:
+        return "unreadable"
+    if r.returncode != 0:
+        return "notloaded"
+    for line in r.stdout.splitlines():
+        if line.startswith("\tstate = "):
+            return line.split("=", 1)[1].strip().replace(" ", "_")
+    return "unreadable"
+def marker():
+    try:
+        if kind == "people":
+            p = os.path.expanduser("~/.ostler/state/source_activity/people_index.tsv")
+            for line in open(p, encoding="utf-8"):
+                if line.startswith("last_success_at="):
+                    v = line.split("=", 1)[1].strip()
+                    return calendar.timegm(time.strptime(v, "%Y-%m-%dT%H:%M:%SZ")) if v else 0
+            return 0
+        return int(os.stat(os.path.expanduser("~/Documents/Ostler/Wiki/index.md")).st_mtime)
+    except Exception:
+        return -1
+if action == "kick":
+    r = subprocess.run(["launchctl", "kickstart", tgt], capture_output=True, text=True)
+    print("KICKED" if r.returncode == 0 else "KICKFAIL %d" % r.returncode)
+else:
+    print("%s %d %d" % (state(), marker(), int(time.time())))
+PYWRITER
+
+WRITER_WAIT_S="${OSTLER_PROBE_WRITER_WAIT_S:-1500}"
+WRITER_POLL_S="${OSTLER_PROBE_WRITER_POLL_S:-15}"
+
+# _drive_writer <people|wiki>. Returns 0 when a run started after the kick has
+# completed, 1 otherwise; WRITER_DETAIL says which, in words.
+WRITER_DETAIL=""
+_drive_writer() {
+    local kind="$1" fake
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then
+        case "$kind" in
+            people) fake="${FAKE_PEOPLE_WRITER:-DONE}" ;;
+            *)      fake="${FAKE_WIKI_WRITER:-DONE}" ;;
+        esac
+        case "$fake" in
+            DONE) WRITER_DETAIL="the ${kind} writer completed a run started after the kick"; return 0 ;;
+            *)    WRITER_DETAIL="the ${kind} writer could not be driven: ${fake}"; return 1 ;;
+        esac
+    fi
+    local st mk now t_kick="" deadline k
+    deadline=$(( $(date +%s) + WRITER_WAIT_S ))
+    # A run already in flight may have snapshotted before the residual existed,
+    # so let it finish first; the kick then starts a run that cannot have.
+    while :; do
+        read -r st mk now <<< "$(box_run "python3 - ${kind} status <<'PYWRITER'
+${WRITER_PY}
+PYWRITER")"
+        case "$st" in
+            notloaded) WRITER_DETAIL="the ${kind} writer job is not loaded on this box"; return 1 ;;
+            running) : ;;
+            ''|unreadable) : ;;
+            *) break ;;
+        esac
+        [ "$(date +%s)" -ge "$deadline" ] && { WRITER_DETAIL="the ${kind} writer was still busy or unreadable after ${WRITER_WAIT_S}s, so no run could be started"; return 1; }
+        sleep "$WRITER_POLL_S"
+    done
+    t_kick="$now"
+    k="$(box_run "python3 - ${kind} kick <<'PYWRITER'
+${WRITER_PY}
+PYWRITER")"
+    case "$k" in
+        KICKED) : ;;
+        *) WRITER_DETAIL="launchctl kickstart of the ${kind} writer was refused (${k:-no answer})"; return 1 ;;
+    esac
+    while :; do
+        sleep "$WRITER_POLL_S"
+        read -r st mk now <<< "$(box_run "python3 - ${kind} status <<'PYWRITER'
+${WRITER_PY}
+PYWRITER")"
+        case "$mk" in ''|*[!0-9-]*) mk=-1 ;; esac
+        if [ "$st" != "running" ] && [ -n "$st" ] && [ "$st" != "unreadable" ] \
+           && [ "$mk" -gt "$t_kick" ]; then
+            WRITER_DETAIL="the ${kind} writer completed a run started after the kick, $(( ${now:-$t_kick} - t_kick ))s after it"
+            return 0
+        fi
+        [ "$(date +%s)" -ge "$deadline" ] && { WRITER_DETAIL="the ${kind} writer did not complete a run within ${WRITER_WAIT_S}s of the kick"; return 1; }
+    done
+}
+
 run_probe() {
     if ! box_reachable; then
         probe_cannot_run "box ${OSTLER_BOX_HOST:-localhost} is not reachable over ssh; nothing was measured"
@@ -555,6 +683,34 @@ run_probe() {
         c_fail="$c_named"; b_fail="$b"
     else
         c_fail="$(_set_count "$c_persist")"; b_fail="$(_set_count "$b_persist")"
+    fi
+
+    # C SURVIVED EVERY RE-READ: run the vector writer and ask once more. See
+    # "DRIVE THE PRODUCT'S OWN WRITER" above. Only the URIs missing in every
+    # earlier reading are carried, so a person created after the kick cannot
+    # fail this, and one missing before it cannot hide behind new arrivals.
+    local c_writer=""
+    if [ "$identity" = "present" ] && [ "$c_fail" -gt 0 ]; then
+        probe_note "C=${c_fail} held across ${reads} readings: running the product's own vector writer (people_index in com.ostler.fda-rerun) and reading once more"
+        if _drive_writer people; then
+            reads=$((reads + 1))
+            out="$(read_result "$reads")"
+            _guard_reconcile_output "$out"
+            _parse_reconcile "$out"
+            c_persist="$(_set_intersect "$c_persist" "$c_set")"
+            b_persist="$(_set_intersect "$b_persist" "$b_set")"
+            c_fail="$(_set_count "$c_persist")"; b_fail="$(_set_count "$b_persist")"
+            if [ "$c_fail" -eq 0 ]; then
+                c_writer="queued"
+                probe_note "            after the writer ran             : ${WRITER_DETAIL}; every person missing before it is now searchable, so they were QUEUED for the next people_index run, not dropped"
+            else
+                c_writer="dropped"
+                probe_note "            after the writer ran             : ${WRITER_DETAIL}; ${c_fail} person(s) missing before the kick are STILL unsearchable after a run that started after it, so they were DROPPED, not queued"
+            fi
+        else
+            c_writer="undriven"
+            probe_note "            vector writer                    : ${WRITER_DETAIL}; the verdict stays on the re-reads alone"
+        fi
     fi
 
     probe_examined "$((graph + vec))" "person records across two stores (graph ${graph}, vectors ${vec}, in both ${both})"
@@ -628,7 +784,7 @@ run_probe() {
     # passes only if a later reading EQUALS the reconciled count. A tile HIGHER
     # than the stores is never lag and is decided on the first reading, and a
     # tile that is still short when the bound runs out still FAILS.
-    local tile_reads=1
+    local tile_reads=1 d_writer=""
     if [ "$d_state" = "third-number" ] && [ "$a" -eq 0 ] && [ "$b_fail" -eq 0 ] \
        && [ "$tile" -lt "$reconciled" ] && [ "$TILE_READS" -gt 1 ]; then
         local first_tile="$tile" t_next
@@ -642,6 +798,40 @@ run_probe() {
             [ "$tile" -gt "$reconciled" ] && break
         done
         probe_note "            tile re-read                     : ${first_tile} -> ${tile} over ${tile_reads} reading(s) ${TILE_READ_GAP_S}s apart -> ${d_state}"
+
+        # STILL SHORT: run the compile that writes the tile, and bracket it.
+        if [ "$d_state" = "third-number" ] && [ "$tile" -lt "$reconciled" ]; then
+            local g_k="$graph" r_k="$reconciled" g_d r_d lo hi t_after
+            d_writer="ran"
+            probe_note "            tile still short after ${tile_reads} reading(s): running the product's own compile (wiki-recompile-catchup) and bracketing it with two graph readings"
+            if _drive_writer wiki; then
+                reads=$((reads + 1))
+                out="$(read_result "$reads")"
+                _guard_reconcile_output "$out"
+                _parse_reconcile "$out"
+                g_d="$graph"; r_d=$((graph + a - c_unnamed))
+                tile_reads=$((tile_reads + 1))
+                t_after="$(read_wiki_people_tile "$tile_reads")"
+                lo="$g_k"; hi="$g_k"
+                for v in "$r_k" "$g_d" "$r_d"; do
+                    [ "$v" -lt "$lo" ] && lo="$v"; [ "$v" -gt "$hi" ] && hi="$v"
+                done
+                case "$t_after" in
+                    ''|UNREADABLE|*[!0-9]*)
+                        probe_note "            after the compile ran            : ${WRITER_DETAIL}; the tile is UNREADABLE, so the verdict stays" ;;
+                    *)
+                        tile="$t_after"; reconciled="$r_d"
+                        if [ "$tile" -ge "$lo" ] && [ "$tile" -le "$hi" ]; then
+                            d_state="ok"
+                            probe_note "            after the compile ran            : ${WRITER_DETAIL}; tile ${tile} lies inside the graph readings taken before and after it (${lo}..${hi}), so the tile renders the graph, it was only a compile behind"
+                        else
+                            probe_note "            after the compile ran            : ${WRITER_DETAIL}; tile ${tile} lies OUTSIDE the graph readings taken before and after it (${lo}..${hi}), so the tile computed a number of its own"
+                        fi ;;
+                esac
+            else
+                probe_note "            wiki compile                     : ${WRITER_DETAIL}; the verdict stays on the re-reads alone"
+            fi
+        fi
     fi
 
     local failures=""
@@ -665,6 +855,9 @@ run_probe() {
 
     if [ -n "$failures" ]; then
         probe_fail "the two stores hold different SETS of people -- ${failures%; }"
+    fi
+    if [ "$c_writer" = "queued" ] || [ "$d_writer" = "ran" ]; then
+        probe_pass "graph, vector store and People tile agree once the product's own writers have run: ${c_writer:+every person missing across the re-reads was queued for the next people_index run and is now searchable; }${d_writer:+the tile was one compile behind and now renders the graph; }nothing was dropped"
     fi
     if [ "$reads" -gt 1 ]; then
         probe_pass "graph and vector store agree: across ${reads} readings ${RECONCILE_READ_GAP_S}s apart, no person URI was missing in all of them, so the sets that differed were ingestion in flight and not a disagreement"
@@ -869,6 +1062,58 @@ self_test() {
     _scase "A: fails on the first reading, no re-read -> FAIL" \
         "OK 7111 7284 106 0 0 30 7081 0 - -" \
         "$PROBE_EX_FAIL"
+
+    # ── THE WRITER ARMS (v1.0.102 walk 4) ─────────────────────────────────
+    # _wcase <label> <FAKE_RECONCILE_SEQ> <FAKE_PEOPLE_WRITER> <expected exit> <text the output must carry>
+    _wcase() {
+        local label="$1" seq="$2" writer="$3" want="$4" must="$5"
+        out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE_SEQ="$seq" FAKE_PEOPLE_WRITER="$writer" run_probe 2>&1)"; rc=$?
+        if [ "$rc" -ne "$want" ]; then
+            _st_tick; printf '  SELF-TEST FAIL [%s]: expected exit %s, got %s\n' "$label" "$want" "$rc"
+            printf '    output: %s\n' "$(printf '%s' "$out" | tail -1)"
+            fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="$label"
+        elif [ "$(printf '%s' "$out" | grep -c -F -- "$must")" -eq 0 ]; then
+            _st_tick; printf '  SELF-TEST FAIL [%s]: exit right but the output never says "%s"\n' "$label" "$must"
+            fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="$label"
+        else
+            _st_tick; printf '  ok [%s] exit %s\n' "$label" "$rc"
+        fi
+    }
+    _C1="OK 7200 7187 0 0 1 0 7187 0 - aaaaaaaaaaa1"
+    _C0="OK 7201 7201 0 0 0 0 7201 0 - -"
+    _wcase "C held 3 readings, the writer ran, now searchable -> PASS (queued)" \
+        "${_C1}|${_C1}|${_C1}|${_C0}" DONE "$PROBE_EX_PASS" "QUEUED for the next people_index run"
+    _wcase "C held 3 readings, the writer ran, STILL missing -> FAIL (dropped)" \
+        "${_C1}|${_C1}|${_C1}|${_C1}" DONE "$PROBE_EX_FAIL" "DROPPED, not queued"
+    _wcase "C held, the writer could not be driven -> FAIL on the re-reads" \
+        "${_C1}|${_C1}|${_C1}|${_C0}" "TIMEOUT" "$PROBE_EX_FAIL" "the verdict stays on the re-reads alone"
+    _wcase "C held, a NEW person missing after the writer does not fail it -> PASS" \
+        "${_C1}|${_C1}|${_C1}|OK 7202 7201 0 0 1 0 7201 0 - zzzzzzzzzzz9" DONE "$PROBE_EX_PASS" "QUEUED for the next people_index run"
+
+    # _dcase <label> <FAKE_RECONCILE_SEQ> <FAKE_TILE_SEQ> <FAKE_WIKI_WRITER> <expected exit> <text>
+    _dcase() {
+        local label="$1" seq="$2" tseq="$3" writer="$4" want="$5" must="$6"
+        out="$(SELF_TEST_LOCAL=1 TILE_READS=2 FAKE_RECONCILE_SEQ="$seq" FAKE_TILE_SEQ="$tseq" FAKE_WIKI_WRITER="$writer" run_probe 2>&1)"; rc=$?
+        if [ "$rc" -ne "$want" ]; then
+            _st_tick; printf '  SELF-TEST FAIL [%s]: expected exit %s, got %s\n' "$label" "$want" "$rc"
+            printf '    output: %s\n' "$(printf '%s' "$out" | tail -1)"
+            fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="$label"
+        elif [ "$(printf '%s' "$out" | grep -c -F -- "$must")" -eq 0 ]; then
+            _st_tick; printf '  SELF-TEST FAIL [%s]: exit right but the output never says "%s"\n' "$label" "$must"
+            fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="$label"
+        else
+            _st_tick; printf '  ok [%s] exit %s\n' "$label" "$rc"
+        fi
+    }
+    _Q="OK 7187 7187 0 0 0 0 7187 0 - -"
+    _dcase "D short after re-reads, compile ran, tile now equal -> PASS" \
+        "$_Q" "7100|7100|7187" DONE "$PROBE_EX_PASS" "it was only a compile behind"
+    _dcase "D short, graph grew during the compile, tile inside the bracket -> PASS" \
+        "${_Q}|OK 7190 7190 0 0 0 0 7190 0 - -" "7100|7100|7188" DONE "$PROBE_EX_PASS" "(7187..7190)"
+    _dcase "D short, compile ran, tile still outside the bracket -> FAIL" \
+        "$_Q" "7100|7100|7100" DONE "$PROBE_EX_FAIL" "computed a number of its own"
+    _dcase "D short, the compile could not be driven -> FAIL" \
+        "$_Q" "7100|7100|7187" TIMEOUT "$PROBE_EX_FAIL" "the verdict stays on the re-reads alone"
 
     # ─── THE INGEST-TICK HOLD ───────────────────────────────────────────────
     #

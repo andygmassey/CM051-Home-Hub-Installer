@@ -284,6 +284,11 @@ grounding_seed_apply() {
     if [ "${_gs_rc}" -eq 0 ]; then
         export OSTLER_GATE_KNOWN_PERSON="${_gs_kp}"
         export OSTLER_GATE_EXPECT_FACT="${_gs_ef}"
+        # The person is the walk's own synthetic fixture, so any daemon memory
+        # naming them was made by this walk: assistant_grounds_the_opening_turn
+        # may remove exactly those entries to restore its precondition. Never
+        # set when the operator keyed a real contact (that path returns above).
+        export OSTLER_GATE_PERSON_SYNTHETIC=1
         GROUNDING_SEED_STATE="seeded"
         printf '  SEEDED. The grounded probe gets its content assertion:\n'
         printf '    OSTLER_GATE_KNOWN_PERSON = %s\n' "${OSTLER_GATE_KNOWN_PERSON}"
