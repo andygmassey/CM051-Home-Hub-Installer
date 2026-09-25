@@ -41,7 +41,16 @@ c=\$(cat "$d/calls" 2>/dev/null || echo 0); c=\$((c+1)); echo "\$c" > "$d/calls"
 if [ "\$c" -le $n ]; then echo "Error: pull model manifest: connection reset" >&2; exit 1; fi
 printf 'pulling 4e30e2665218:  50%%\r'; printf 'pulling 4e30e2665218: 100%%\n'; exit 0
 O
-    chmod +x "$d/bin/ollama"
+    # install.sh is macOS-only and calls BSD `mktemp -t <prefix>`; GNU mktemp
+    # refuses a -t prefix with no XXX, which would make every pull "fail" on a
+    # Linux runner for a reason the product never meets. Shim it to the BSD
+    # meaning so the arm measures the pull wrapper, not the runner's mktemp.
+    cat > "$d/bin/mktemp" <<'M'
+#!/bin/sh
+if [ "${1:-}" = "-t" ]; then exec /usr/bin/mktemp "${TMPDIR:-/tmp}/${2:-tmp}.XXXXXX"; fi
+exec /usr/bin/mktemp "$@"
+M
+    chmod +x "$d/bin/ollama" "$d/bin/mktemp"
     PATH="$d/bin:/usr/bin:/bin" D="$d" FNS="$W/fns.sh" bash -c '
         set -Eeuo pipefail
         trap '\''echo x >> "$D/errs"'\'' ERR
