@@ -292,6 +292,30 @@ class QdrantLoader:
             level_tokens = [
                 f"L{n}" for n in COMPARTMENT_DOMAIN if _in_scope(n)
             ]
+            # ── THE THIRD CASE: A POINT WITH NO compartment_level AT ALL ──────
+            #
+            # Two arms means a point carrying NEITHER form matches NEITHER and
+            # is dropped. Measured on a live box: 934 of 9,948.
+            #
+            # The writers are fixed now, so nothing new can arrive unlabelled,
+            # but records already written that way are still on disk.
+            #
+            # EXCLUDING THEM IS THE RIGHT DIRECTION and is deliberate: an
+            # unlabelled record has an UNKNOWN audience, and unknown must not
+            # default to shareable. Andy, 2026-09-16: "if there really is no
+            # record, hide it."
+            #
+            # What was wrong was that it happened SILENTLY. A search returning
+            # less and a search working correctly printed the same thing. The
+            # log below does not change WHAT is returned; it makes the omission
+            # sayable, which is the whole of the fix.
+            logger.info(
+                "compartment filter: points with no compartment_level are "
+                "EXCLUDED from this query. That is deliberate (unknown audience "
+                "must not default to shareable) and it is said out loud because "
+                "a silent exclusion and a correct filter return the same shape."
+            )
+
             # One nested one-of clause: numeric payload OR string payload.
             compartment_arms = [
                 {"key": "compartment_level", "range": numeric_range},
