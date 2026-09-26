@@ -18,6 +18,7 @@ Requires Full Disk Access (FDA) permission on macOS Sequoia+.
 from __future__ import annotations
 
 import logging
+import plistlib
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -176,6 +177,55 @@ def extract_people(
     return people
 
 
+def _place_label(blob: Optional[bytes]) -> Optional[str]:
+    """City-level place label from Photos' reverse-geocode blob, or None.
+
+    The blob is an NSKeyedArchiver plist: a PLRevGeoLocationInfo whose
+    ``postalAddress`` is a CNPostalAddress. Only the city (falling back to
+    the sub-administrative area, then the state) and the country are used,
+    so the label reads "Cambridge, United Kingdom", which is the shape
+    CM044 place_pages matches an area against (first token of the area
+    name, as a substring). Street, postcode and the formatted address are
+    NEVER read: a photo place is city level, not an address.
+
+    Returns None for anything it cannot read, so a malformed or unfamiliar
+    blob costs that one photo its label and never the run.
+    """
+    if not blob:
+        return None
+    try:
+        arch = plistlib.loads(bytes(blob))
+        objects = arch["$objects"]
+
+        def deref(v):
+            return objects[v.data] if isinstance(v, plistlib.UID) else v
+
+        def classname(obj) -> str:
+            cls = deref(obj.get("$class")) if isinstance(obj, dict) else None
+            return cls.get("$classname", "") if isinstance(cls, dict) else ""
+
+        root = deref(arch.get("$top", {}).get("root"))
+        address = deref(root.get("postalAddress")) if isinstance(root, dict) else None
+        if classname(address) != "CNPostalAddress":
+            address = next(
+                (o for o in objects if classname(o) == "CNPostalAddress"), None
+            )
+        if not isinstance(address, dict):
+            return None
+
+        def text(key: str) -> str:
+            v = deref(address.get(key))
+            return v.strip() if isinstance(v, str) else ""
+
+        locality = text("_city") or text("_subAdministrativeArea") or text("_state")
+        country = text("_country")
+        parts = [p for p in (locality, country) if p]
+        return ", ".join(parts) or None
+    except Exception as e:  # noqa: BLE001 - one bad blob must not end the run
+        logger.debug("Photos reverse-geocode blob not readable: %s", e)
+        return None
+
+
 def extract_photo_events(
     db_path: Optional[Path] = None,
     since_days: int = 365,
@@ -216,18 +266,19 @@ def extract_photo_events(
     # (ZASSET / ZPERSON), then the very-old ZGENERICASSET layout.
     rows = None
     try:
-        # macOS 26+ (Tahoe). ZREVERSELOCATIONDATA moved out of ZASSET
-        # into ZADDITIONALASSETATTRIBUTES; we drop location_data here
-        # rather than add another join (location parsing is a v1.0.1
-        # follow-on anyway, TODO at line 252).
+        # macOS 26+ (Tahoe). The reverse-geocode blob lives in
+        # ZADDITIONALASSETATTRIBUTES (one row per asset), so it is joined
+        # here; _place_label turns it into "City, Country" for the wiki's
+        # "Photos here" section.
         query = """
             SELECT
                 a.ZDATECREATED as date,
                 a.ZLATITUDE as lat,
                 a.ZLONGITUDE as lon,
-                NULL as location_data,
+                MAX(aa.ZREVERSELOCATIONDATA) as location_data,
                 GROUP_CONCAT(DISTINCT p.ZFULLNAME) as people
             FROM ZASSET a
+            LEFT JOIN ZADDITIONALASSETATTRIBUTES aa ON aa.ZASSET = a.Z_PK
             LEFT JOIN ZDETECTEDFACE df ON df.ZASSETFORFACE = a.Z_PK
             LEFT JOIN ZPERSON p ON p.Z_PK = df.ZPERSONFORFACE
             WHERE a.ZDATECREATED > ?
@@ -302,7 +353,7 @@ def extract_photo_events(
 
         events.append(PhotoEvent(
             date=date,
-            location=None,  # TODO: parse ZREVERSELOCATIONDATA (plist blob)
+            location=_place_label(row["location_data"]),
             latitude=row["lat"] if row["lat"] and row["lat"] != 0 else None,
             longitude=row["lon"] if row["lon"] and row["lon"] != 0 else None,
             people=people,
