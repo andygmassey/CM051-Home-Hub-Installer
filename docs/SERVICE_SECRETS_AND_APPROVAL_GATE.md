@@ -7,7 +7,7 @@ the Muse comparison in HR015 `launch/PROACTIVE_ASSISTANT_NOTE_2026-09-26.md`.
 Two threats, kept apart because they need different fixes:
 
 - **Another account on the same Mac** (see `THREAT_MODEL_LOCAL_USERS.md`).
-  Fixed in this PR where it was measured open: `~/.ostler` 0700 on every path
+  MERGED in this PR where it was measured open: `~/.ostler` 0700 on every path
   (#2407), the assistant LaunchAgent plist 0600 (#2408).
 - **The assistant itself, hijacked** (prompt injection through a message,
   email or web page). It runs as the customer's own uid. This is the Muse
@@ -68,7 +68,7 @@ folder. Today's exposure is limited because Hub chat and the messaging
 channels exclude `shell` (`[autonomy].non_cli_excluded_tools`, #2385), so this
 is reachable from the CLI and from any path that still offers `shell`.
 
-**Fixed in ostler-ai/ostler-assistant#419** (merged 9dcce771; it reaches customers
+**MERGED in ostler-ai/ostler-assistant#419** (merged 9dcce771; it reaches customers
 only in a hub build pinned into a cut). The sandbox now takes the CONFIGURED
 workspace, never the process's cwd, and refuses `$HOME`, `/`, and any ancestor
 of `~/.ostler`. The policy denies `~/.ostler`, `~/.ssh` and `~/.gnupg`, then
@@ -108,7 +108,7 @@ Design:
 5. **Fail closed:** sentinel down means outbound actions are refused and the
    assistant says so; it never falls back to acting directly.
 
-Order of work: (a) the policy fix in section 3 (done, #419); (b) the sentinel for outbound messaging, the highest-harm action; (c)
+Order of work: (a) the policy fix in section 3 (merged, #419); (b) the sentinel for outbound messaging, the highest-harm action; (c)
 move service tokens behind it, at which point the Keychain question in
 section 2 becomes "the sentinel's Keychain item, readable only by the
 sentinel's signed binary", which is the version that actually keeps secrets
