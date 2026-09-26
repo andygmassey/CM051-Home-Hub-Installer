@@ -72,3 +72,8 @@ pin(daemon): 0.4.83 lets pwg_people list recent contacts and keeps the routing w
 pin(daemon): 0.4.83 names the pwg_ store in the user turn for interests and recent contacts	CM051	2e367adc60	no	routing_hint_names_the_store	capability_matrix.sh gate	CM051 #2370
 fix(a8): a planned kickstart -k restart is not an unclean exit	CM051	46ae01ac	no	a8_excuses_only_a_planned_restart	capability_matrix.sh gate	CM051 #2369
 fix(install): a retried AI model pull must not emit a fatal DONE to the GUI	CM051	3dec0435	no	a_retried_model_pull_emits_no_fatal_done	capability_matrix.sh gate	CM051 #2373
+pin(daemon): 0.4.85 pwg_preferences names an empty filter instead of claiming no preferences	CM051	03f2778f60	no	pwg_preferences_names_an_empty_filter	capability_matrix.sh gate	CM051 #2400 (oa #414)
+pin(daemon): 0.4.85 the clock is the last system-prompt section so a new chat session reuses the prompt	CM051	03f2778f60	no	prompt_clock_is_last	capability_matrix.sh gate	CM051 #2400 (oa #416)
+pin(daemon): 0.4.85 tools listed one line each when their schemas are sent natively	CM051	03f2778f60	no	prompt_tools_one_line_when_native	capability_matrix.sh gate	CM051 #2400 (oa #416)
+pin(daemon): 0.4.85 a reminder made in chat is an agent job that reaches the customer	CM051	03f2778f60	no	chat_reminder_is_an_agent_job	capability_matrix.sh gate	CM051 #2400 (oa #417)
+fix(install): Hub chat carries the chat tool set, not all 52 tools	CM051	f921db609d	no	hub_chat_carries_the_chat_tool_set	capability_matrix.sh gate	CM051 #2393
