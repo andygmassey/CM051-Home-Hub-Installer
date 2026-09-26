@@ -3377,7 +3377,7 @@ _ostler_promote_prelaunch_tree() {
     # behind `|| true`, do nothing while looking applied. That path is harmless
     # anyway: both armings (:8295, :15091) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17949 / :18127 / :18284 / :18626 path. There the
+    # :17973 / :18151 / :18308 / :18650 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -16185,6 +16185,30 @@ TOMLPREAMBLE
     # nothing. The curated, install-from-source gallery is a
     # later (Curator) release; v1.0 loads only the vetted skills Ostler
     # drops into the workspace skills directory via the runtime dir scan.
+    # Hub chat carries the chat tool set, not all 52 tools (#2385).
+    #
+    # Every chat turn sends the full definition of every tool it may call,
+    # and the model reads all of it before answering. Measured on a 16 GB
+    # walk box, same daemon, back to back: the full set is 14,204 prompt
+    # tokens per turn and simple replies took 27-50s; with the tools below
+    # excluded it is 5,848 tokens and simple replies took 16-21s, data
+    # questions 25-33s (were 46-60s), still calling the right pwg_* tool.
+    #
+    # Excluded here: developer and admin tools a customer never drives from
+    # chat (shell, file editing, git, browser automation, model routing,
+    # backups, cross-session sends) and `schedule`, which makes SHELL jobs
+    # whose output reaches nobody; measured on the walk box, "cancel the
+    # water reminder" went to `schedule` and errored. Deliberately KEPT:
+    # cron_add, cron_list and cron_remove, so "remind me every morning" can
+    # be set up, seen and cancelled from chat; every pwg_* reader; memory.
+    #
+    # Only [autonomy].non_cli_excluded_tools is written. AutonomyConfig is
+    # #[serde(default)] at the container, so every other autonomy field
+    # (level, auto_approve, ...) keeps the daemon's own default.
+    echo
+    echo "[autonomy]"
+    echo 'non_cli_excluded_tools = ["schedule", "cron_update", "cron_run", "cron_runs", "browser", "browser_open", "model_routing_config", "model_switch", "proxy_config", "git_operations", "canvas", "calculator", "content_search", "glob_search", "file_read", "file_edit", "file_write", "shell", "screenshot", "image_info", "backup", "memory_export", "memory_purge", "sessions_send", "sessions_history", "sessions_list", "llm_task", "poll", "reaction", "pushover", "escalate_to_human"]'
+
     echo
     echo "[skills]"
     echo "allow_scripts = false"
