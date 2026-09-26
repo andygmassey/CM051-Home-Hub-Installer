@@ -27,7 +27,7 @@ version	v1.0.102
 version_source	measured(CFBundleShortVersionString, matches argument)
 artefact_sha256	unavailable
 artefact_sha256_source	asserted-unverifiable(no OstlerInstaller-1.0.102.dmg on the box)
-walked_at	2026-09-25T06:37:44Z
+walked_at	2026-09-26T17:11:06Z
 box_fp	71ebc47b7c4ab63f
 walk_kind	thin
 walk_kind_source	default (no OSTLER_CONSOLE_WALK declared) -- an ssh walk; this record does NOT authorise repointing the customer download
@@ -62,7 +62,7 @@ walk_kind_source	default (no OSTLER_CONSOLE_WALK declared) -- an ssh walk; this 
 # reset fixes: a correct, clean, committed sha that was nonetheless
 # not main. Resolve the sha before assuming the lineage -- this
 # field answers WHICH probes ran, never WHERE they came from.
-instrument_rev	7f09b85b8cdd5b704bb3812ade655dcaa4c5122e
+instrument_rev	6fb0f58ab90a16aa5edc7868ebbf47fa30a1e861
 instrument_source	measured(git rev-parse HEAD, scripts/box_walk_probes clean)
 #
 # stores_provenance answers the question every store-reading probe
@@ -83,18 +83,14 @@ stores_provenance	carried-over-from-previous-install
 # marker could not be read, which is NOT the same as unrun.
 grounding_seed	not-recorded(no ~/.walk-grounding-seed-run on the box; this walk predates the marker or the read failed)
 counts_scope	box_walk_probes_only(phase1); verdict+qa_exit+failed_probe_names_recorded+failed_probe+not_measured_probe cover all phases
-pass	25
-fail	1
-cannot_run	3
+pass	27
+fail	0
+cannot_run	2
 broken	0
 measured	29 of 29 (pass+fail+cannot_run; a broken probe is SKIPPED in phase 2 and measures nothing) -- buckets partition the suite
 verdict	FAILED
 qa_exit	1
-failed_probe_names_recorded	1 of 1
-failed_probe	people_stores_reconcile
-failed_probe_reasons	withheld(public repo); phase 1 -- run_box_walk.sh prints them under "WHAT EACH FAILURE FOUND"; phase 2 -- the cut-manifest gate's own log on the walked box, and any full_output=... path it names
+failed_probe_names_recorded	0 of 0
 not_measured_reasons	withheld(public repo); phase 1 -- run_box_walk.sh prints them under "PREREQUISITES THAT WERE ABSENT"; phase 2 -- the cut-manifest gate's own log on the walked box, and any full_output=... path it names
 not_measured_probe	app_signature_survives_first_run
 not_measured_probe	assistant_grounds_the_opening_turn
-not_measured_probe	pair_state_agreement
-regression_of	people_stores_reconcile	v1.0.101
