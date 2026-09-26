@@ -38,9 +38,11 @@
 		518D2D22C28A4FDC3193751D /* LicensePersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87045089A04409A175F1AD96 /* LicensePersistenceTests.swift */; };
 		51E255E2F487381E460923C0 /* HardwareFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BE0CF828CCF9ED9B1E1129C /* HardwareFingerprint.swift */; };
 		57A0F57A55B5BB44859A4EA9 /* OutputLineBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 550ED01700CFB0F35C724B93 /* OutputLineBuffer.swift */; };
+		57BED849F55EA7E928348BE6 /* WhatsAppLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07881D8348F3D885363E99B6 /* WhatsAppLink.swift */; };
 		5A0CDE4242E182B01897F1D2 /* PermissionsPrewarmCodeShapeTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41FB5F2EB882E0395B4E1E95 /* PermissionsPrewarmCodeShapeTest.swift */; };
 		5C929EC9E1AA80A742F125FD /* OnboardingButtonFooterProofTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2506E3AD81DD970743B00309 /* OnboardingButtonFooterProofTests.swift */; };
 		5DC7A9A8DF64004EE1102DC8 /* AutoQuitAndKeepInstallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 919D01DA21E65C7EBA26F7FA /* AutoQuitAndKeepInstallerTests.swift */; };
+		5F15E306F51107A29D7848B5 /* WhatsAppLinkSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32536CCF11D7C73D2C7D1170 /* WhatsAppLinkSection.swift */; };
 		6294421D4362E4D2BB657559 /* StringsCatalogueEmDashTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = E72FA18E774D1E8714779AC2 /* StringsCatalogueEmDashTest.swift */; };
 		66A0343A50F3D01C5CF42933 /* IBMPlexSans-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 38CF88E41D08067999FC9583 /* IBMPlexSans-Regular.ttf */; };
 		673333837843D135C3E79E65 /* OnboardingQuestionXOfYTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEC700A7069CEE4F60264318 /* OnboardingQuestionXOfYTests.swift */; };
@@ -72,6 +74,7 @@
 		A3CA9AD2EA0BD7D8E503F6F7 /* LogDrawerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B00C2C51EF6CA0F9AAC4D24 /* LogDrawerView.swift */; };
 		A3E91202774BD111B0AB1AEA /* HardwareFingerprintTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE7A7D5DC9570D6ADC808110 /* HardwareFingerprintTests.swift */; };
 		A437D3E3326FAE2B1C3BA371 /* StatementHeaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E815D5DF452D90B0BC613D81 /* StatementHeaderTests.swift */; };
+		A4C51BA63B32A8A4ABDE9227 /* WhatsAppLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88522314ACA67F9D5AC81A0A /* WhatsAppLinkTests.swift */; };
 		A4DFFC3D202122DC0660BDB5 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF64A6B46A3BD66D6097C846 /* App.swift */; };
 		A68572FB804065C8C2307303 /* SidebarStatusGlyphTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D69CC5DCDD142BF9D6A82E9 /* SidebarStatusGlyphTests.swift */; };
 		AC25C69E00C98EB58C4793C2 /* RecoveryKeySurvivesFailedInstallTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7903EF5EC6060503BE8F8B51 /* RecoveryKeySurvivesFailedInstallTests.swift */; };
@@ -122,6 +125,7 @@
 /* Begin PBXFileReference section */
 		0544C4D9C05213F111A16263 /* SelfRelocatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfRelocatorTests.swift; sourceTree = "<group>"; };
 		0554AF9354860CD204FC3F51 /* PermissionsIntroCatalogueKeysTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsIntroCatalogueKeysTest.swift; sourceTree = "<group>"; };
+		07881D8348F3D885363E99B6 /* WhatsAppLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhatsAppLink.swift; sourceTree = "<group>"; };
 		08A68D9D961170201BC0E5A7 /* StepCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepCatalog.swift; sourceTree = "<group>"; };
 		091F620E783EA78D7DCFED68 /* OnboardingQuestionViewSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingQuestionViewSnapshotTests.swift; sourceTree = "<group>"; };
 		0A8FE4423B311BB14298C94D /* Outfit-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Outfit-Regular.ttf"; sourceTree = "<group>"; };
@@ -140,6 +144,7 @@
 		2A7F8AA37BD12A43858C1420 /* RecoveryRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryRootView.swift; sourceTree = "<group>"; };
 		2BECBCD317ECFB7182B86C35 /* RecoveryApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryApp.swift; sourceTree = "<group>"; };
 		2EAED9BF2C1D82930A1EBABB /* generate_appicon.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = generate_appicon.py; sourceTree = "<group>"; };
+		32536CCF11D7C73D2C7D1170 /* WhatsAppLinkSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhatsAppLinkSection.swift; sourceTree = "<group>"; };
 		38CF88E41D08067999FC9583 /* IBMPlexSans-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "IBMPlexSans-Regular.ttf"; sourceTree = "<group>"; };
 		3B3A82C28A40E6D64666C5A3 /* DeviceRegistrationClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceRegistrationClientTests.swift; sourceTree = "<group>"; };
 		40241AAA50AAB3FC5CE4B5A8 /* AdminAuthorizationGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdminAuthorizationGateTests.swift; sourceTree = "<group>"; };
@@ -179,6 +184,7 @@
 		7EC2E5CA6E396F6D43EF3FED /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		83899BF5EEEC0C2F975B0421 /* ReuseSettingsExplanationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReuseSettingsExplanationTests.swift; sourceTree = "<group>"; };
 		87045089A04409A175F1AD96 /* LicensePersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicensePersistenceTests.swift; sourceTree = "<group>"; };
+		88522314ACA67F9D5AC81A0A /* WhatsAppLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhatsAppLinkTests.swift; sourceTree = "<group>"; };
 		88E69616403717DA4E9247AC /* TailscaleConnectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TailscaleConnectView.swift; sourceTree = "<group>"; };
 		88EEF0A1E14468F9B99A6663 /* ProgressDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressDecoderTests.swift; sourceTree = "<group>"; };
 		8B1D6C35562EADC4DD07B5B0 /* PermissionsIntroView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsIntroView.swift; sourceTree = "<group>"; };
@@ -264,6 +270,7 @@
 				D93788700DA6F1729EFEB460 /* SidebarView.swift */,
 				5D722F8B887182BE26B4B847 /* StepStatusGlyph.swift */,
 				88E69616403717DA4E9247AC /* TailscaleConnectView.swift */,
+				32536CCF11D7C73D2C7D1170 /* WhatsAppLinkSection.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -354,6 +361,7 @@
 				6A33AD875E67AD0B3C40F963 /* SupportLogVisibilityTests.swift */,
 				B80328BFAF8BCE4ABBC78465 /* TerminationExitCodeReconcileTests.swift */,
 				7232516E5CE0725DC792EAF0 /* TypedInstallGateTest.swift */,
+				88522314ACA67F9D5AC81A0A /* WhatsAppLinkTests.swift */,
 			);
 			path = OstlerInstallerTests;
 			sourceTree = "<group>";
@@ -409,6 +417,7 @@
 				550ED01700CFB0F35C724B93 /* OutputLineBuffer.swift */,
 				8F30F204F6FC5AB19BC84461 /* ProgressProtocol.swift */,
 				4B61CA4E5C5CB6A987FF9652 /* test_icon_geometry.py */,
+				07881D8348F3D885363E99B6 /* WhatsAppLink.swift */,
 				F449E7484435D5081F7CC53C /* Auth */,
 				70F3A6F3FB38114D1EC93F45 /* Bootstrap */,
 				FE9676D0B0AB2FB88EC5C6C6 /* Resources */,
@@ -1231,6 +1240,8 @@
 				3F2D87F797014DECDE6E74CA /* StepStatusGlyph.swift in Sources */,
 				FF3C80CAFC5353E7C36C2631 /* TailscaleConnectView.swift in Sources */,
 				9D4F4FAFE6D88FFBBBABAD08 /* ViewCopy.swift in Sources */,
+				57BED849F55EA7E928348BE6 /* WhatsAppLink.swift in Sources */,
+				5F15E306F51107A29D7848B5 /* WhatsAppLinkSection.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1282,6 +1293,7 @@
 				F953AB41A3E824D581406226 /* SupportLogVisibilityTests.swift in Sources */,
 				D593E67900B5C491B3B2F624 /* TerminationExitCodeReconcileTests.swift in Sources */,
 				CB38667F41A4BC45C5B47258 /* TypedInstallGateTest.swift in Sources */,
+				A4C51BA63B32A8A4ABDE9227 /* WhatsAppLinkTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

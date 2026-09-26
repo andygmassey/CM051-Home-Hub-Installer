@@ -263,6 +263,11 @@ struct InstallCompleteView: View {
             // relabelled "already installed the app? scan to pair".
             pairingSection
 
+            // v1.0.103: link WhatsApp here instead of from Terminal. Renders
+            // nothing unless the customer chose WhatsApp (reads the config
+            // install.sh wrote); draws its own divider when it does.
+            WhatsAppLinkSection()
+
             Divider()
 
             // #599: the per-service tick list, moved into a collapsed
