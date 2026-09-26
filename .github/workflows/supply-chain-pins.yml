@@ -67,6 +67,7 @@ on:
       - 'tests/test_daemon_pins_agree.sh'
       - 'tests/test_fallback_pin_moves_with_the_version.sh'
       - 'tests/test_pinned_images_are_pullable.sh'
+      - 'tests/test_every_image_is_on_ghcr.sh'
       - 'tests/test_wiki_image_namespace_matches_ci.sh'
       - '.github/workflows/supply-chain-pins.yml'
   pull_request:
@@ -81,6 +82,7 @@ on:
       - 'tests/test_daemon_pins_agree.sh'
       - 'tests/test_fallback_pin_moves_with_the_version.sh'
       - 'tests/test_pinned_images_are_pullable.sh'
+      - 'tests/test_every_image_is_on_ghcr.sh'
       - 'tests/test_wiki_image_namespace_matches_ci.sh'
       - '.github/workflows/supply-chain-pins.yml'
 
@@ -108,6 +110,15 @@ jobs:
       - name: every compose image is first-party
         if: always()
         run: bash tests/test_v1010_redteam3_supply_chain_pins.sh
+
+      # EVERY IMAGE COMES FROM ghcr.io, BY DIGEST (CM051 #2404). qdrant, nginx
+      # and valkey were pulled from Docker Hub until v1.0.103; they are now
+      # mirrored at the same digest by creativemachines-ai/ostler-image-mirror.
+      # The test plants seven violations on a clean baseline and must refuse
+      # each before it judges the real tree, so a blind gate goes red here.
+      - name: every image is on ghcr.io and digest-pinned
+        if: always()
+        run: /bin/bash tests/test_every_image_is_on_ghcr.sh
 
       - name: daemon pins agree with each other
         if: always()

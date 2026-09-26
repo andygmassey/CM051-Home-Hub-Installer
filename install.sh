@@ -19126,7 +19126,7 @@ mkdir -p "${OSTLER_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/Conversations}" 2
 cat > "${OSTLER_DIR}/docker-compose.yml" <<'DCEOF'
 services:
   qdrant:
-    image: qdrant/qdrant@sha256:d774e7bb65744454984c6021637a0da89271f30df15e48601a9fafc926d26b1f  # v1.12.1
+    image: ghcr.io/creativemachines-ai/qdrant@sha256:d774e7bb65744454984c6021637a0da89271f30df15e48601a9fafc926d26b1f  # v1.12.1, mirrored at the same digest from docker.io/qdrant/qdrant
     container_name: ostler-qdrant
     # v1.0.10 security lockdown: the REST port (6333) is NO LONGER
     # published to the host directly -- it is fronted by store-proxy
@@ -19217,7 +19217,7 @@ services:
   # container. 8144 is loopback-only on the host, exactly like 6333 /
   # 7878, so nothing is reachable off-box except through Tailscale.
   store-proxy:
-    image: nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10  # 1.27-alpine
+    image: ghcr.io/creativemachines-ai/nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10  # 1.27-alpine, mirrored at the same digest from docker.io/library/nginx
     container_name: ostler-store-proxy
     depends_on:
       - qdrant
@@ -19257,7 +19257,7 @@ services:
   redis:
     # Valkey: BSD-3-Clause LF fork of Redis (Redis 7.4+ relicensed to RSAL/SSPL).
     # Drop-in compatible with our redis-py client and protocol.
-    image: valkey/valkey@sha256:94365b275456ae14621001c03556c732b1d93a0cdeacc317d1bdd52eba680885  # 8-alpine (8.1.8)
+    image: ghcr.io/creativemachines-ai/valkey@sha256:94365b275456ae14621001c03556c732b1d93a0cdeacc317d1bdd52eba680885  # 8-alpine (8.1.8), mirrored at the same digest from docker.io/valkey/valkey
     container_name: ostler-redis
     # v1.0.10 security lockdown: host port is 127.0.0.1-only. Native
     # auth via --requirepass is interpolated from the compose .env as

@@ -197,7 +197,7 @@ done
 pass "conf-injection and wildcard logins refused, gate left fail-closed"
 
 # ── 4. The pinned nginx accepts the real thing ─────────────────────
-NGINX_IMAGE="$(grep -oE 'nginx@sha256:[a-f0-9]{64}' "$INSTALL" | head -1)"
+NGINX_IMAGE="$(grep -oE 'ghcr\.io/creativemachines-ai/nginx@sha256:[a-f0-9]{64}' "$INSTALL" | head -1)"
 [[ -n "$NGINX_IMAGE" ]] || fail "could not read the pinned nginx image from $INSTALL"
 
 if ! docker info >/dev/null 2>&1; then

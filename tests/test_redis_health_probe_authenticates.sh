@@ -31,7 +31,7 @@ docker info >/dev/null 2>&1        || { echo "CANNOT-RUN: docker daemon not reac
 # The digest install.sh pins for the store, read from the file rather than
 # copied here: a test that pins its own image stops testing what ships.
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-IMG="$(grep -oE 'valkey/valkey@sha256:[0-9a-f]{64}' "$HERE/install.sh" | head -1)"
+IMG="$(grep -oE 'ghcr\.io/creativemachines-ai/valkey@sha256:[0-9a-f]{64}' "$HERE/install.sh" | head -1)"
 [ -n "$IMG" ] || { echo "CANNOT-RUN: no valkey digest found in install.sh"; exit 3; }
 
 PW="test-only-$(openssl rand -hex 8)"
