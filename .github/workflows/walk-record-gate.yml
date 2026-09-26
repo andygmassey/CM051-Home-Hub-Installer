@@ -244,6 +244,13 @@ jobs:
         if: always()
         run: bash tests/test_probe_pgrep_is_scoped_to_this_account.sh
 
+      # A 200 from the daemon's memory DELETE is not a deletion: it answers
+      # deleted=false when forget() removed nothing, and the opening-turn
+      # battery stopped as CANNOT-RUN on "FORGOT 3 0" for rows still present.
+      - name: The probe's memory purge counts only real deletions
+        if: always()
+        run: bash tests/test_probe_memory_purge_counts_only_real_deletions.sh
+
       # The third instance of the same class in one night, and the one that
       # actually spent a red. The pairing probe captured curl's stdout and never
       # took its exit code, so a six-second timeout printed "8443 REJECTED a code

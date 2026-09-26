@@ -6309,6 +6309,10 @@ open_issues:
     repo: CM051
     title: 'qdrant, nginx and valkey were pulled from Docker Hub; now mirrored to ghcr.io/creativemachines-ai at the same digest'
     gate: 'NOT BLOCKING for v1.0.102 (v1.0.103 scope item 6, registered here as #2397 and #2398 were, because opening cut-manifests/v1.0.103.yaml before cuts/v1.0.103/cut.env exists reds the rollforward pin gate). MERGED is the word, not PROVEN. The three images are copied byte for byte by github.com/creativemachines-ai/ostler-image-mirror (run 36250489737: each mirror resolves to the upstream digest by tag and by digest, and an anonymous client gets 200 at that digest with a 404 negative control). install.sh pins ghcr.io/creativemachines-ai/{qdrant,nginx,valkey}@<the same digest>. GATED by tests/test_every_image_is_on_ghcr.sh in supply-chain-pins.yml: every live image line must be ghcr.io and @sha256, red on main with 3 violations, green on the fix, and it refuses 7 planted violations on a clean baseline before judging the tree. tests/test_pinned_images_are_pullable.sh now also pulls the three mirrors anonymously. WHAT CLOSES IT: the next walk logs the VM egress and shows no Docker Hub host contacted during compose pull.'
+  - issue: 2420
+    repo: CM051
+    title: 'Opening-turn probe counts a refused memory delete as a deletion, so the battery stops as CANNOT-RUN'
+    gate: 'v1.0.103 harness. Registered in the same action as the filing. MEASURED on the v1.0.102 candidate 5 walk box: 4 keys naming the synthetic seed person, each present in brain.db by key, DELETE /api/memory/<key> answered 200 deleted=false for each and recall was unchanged; the probe printed FORGOT 3 0 and stopped. FIX: count only deleted=true; remove leftover synthetic-person rows by exact key from the daemon SQLite file; output names api= and db= counts. tests/test_probe_memory_purge_counts_only_real_deletions.sh fails on main (rows survive, output FORGOT 2 0), passes on the fix. WHAT CLOSES IT: a walk where assistant_grounds_the_opening_turn runs all openings.'
   - issue: 2406
     repo: CM051
     title: 'Linking WhatsApp needs Terminal, and the pair code has expired before the customer reaches it'
