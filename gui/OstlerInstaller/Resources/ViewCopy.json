@@ -354,5 +354,29 @@
     "faq_secure_a": "Yes. All traffic between your devices is end-to-end encrypted with WireGuard. Tailscale itself can never read your data – it only helps your devices find each other.",
     "faq_later_q": "Can I add it later?",
     "faq_later_a": "Yes. You can run the installer again with --repair, or open Settings inside Ostler and turn Tailscale on then."
+  },
+
+  "whatsapp_link": {
+    "_meta": "v1.0.103: the Connect WhatsApp step on the install-complete screen (WhatsAppLinkSection.swift). Replaces the Terminal command as the way to link. The code is WhatsApp's 8 characters, shown as two groups of four, exactly as the phone asks for it.",
+    "title": "Connect WhatsApp",
+    "intro": "Link WhatsApp so Ostler can message you there. It takes about a minute, and you will need your phone.",
+    "get_code_button": "Get my code",
+    "requesting": "Asking WhatsApp for a code. This takes a few seconds.",
+    "steps_heading": "On your phone, in WhatsApp:",
+    "step1": "Open Settings, then Linked devices.",
+    "step2": "Tap Link a device, then Link with phone number instead.",
+    "step3": "Type this code:",
+    "expires_in": "This code works for {seconds} more seconds.",
+    "waiting": "Waiting for your phone. This screen updates by itself once you are linked.",
+    "expired": "That code has run out. Codes only last three minutes, so get a new one when your phone is ready.",
+    "new_code_button": "Get a new code",
+    "failed": "Ostler could not get a code from WhatsApp just now. Check this Mac is online, then try again.",
+    "try_again_button": "Try again",
+    "linked": "WhatsApp is connected. Ostler can now message you there.",
+    "skip_button": "Not now",
+    "skipped": "WhatsApp is not connected yet. To connect it later, open Terminal and run:",
+    "connect_now_button": "Connect now",
+    "no_phone": "WhatsApp is switched on, but Ostler does not have your WhatsApp number, so it cannot make a code here. To connect it, open Terminal and run:",
+    "later_command": "~/.ostler/OstlerAssistant.app/Contents/MacOS/ostler-assistant setup channels --interactive whatsapp"
   }
 }
