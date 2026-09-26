@@ -6313,9 +6313,9 @@ open_issues:
     repo: CM051
     title: 'Opening-turn probe counts a refused memory delete as a deletion, so the battery stops as CANNOT-RUN'
     gate: 'v1.0.103 harness. Registered in the same action as the filing. MEASURED on the v1.0.102 candidate 5 walk box: 4 keys naming the synthetic seed person, each present in brain.db by key, DELETE /api/memory/<key> answered 200 deleted=false for each and recall was unchanged; the probe printed FORGOT 3 0 and stopped. FIX: count only deleted=true; remove leftover synthetic-person rows by exact key from the daemon SQLite file; output names api= and db= counts. tests/test_probe_memory_purge_counts_only_real_deletions.sh fails on main (rows survive, output FORGOT 2 0), passes on the fix. WHAT CLOSES IT: a walk where assistant_grounds_the_opening_turn runs all openings.'
-  - issue: 423
-    repo: ostler-assistant
-    title: 'A privacy forget can report success without removing the memory'
+  - issue: 2422
+    repo: CM051
+    title: 'A privacy forget can report success without removing the memory (tracks ostler-assistant #423)'
     gate: 'BLOCKING for v1.0.103 (Aesop decision 2026-09-27, Andy delegated calls): a forget that silently does not forget cannot go to friends and family. MEASURED on the v1.0.102 candidate 5 walk box: one DELETE /api/memory/<key> for a key present in brain.db answered deleted=false with recall unchanged; the same box then answered deleted=true for a freshly stored key (row gone), so the defect is not universal and its trigger is not yet isolated; the leading suspect is post-turn consolidation writing new daily_/core_ entries about the same subject after a purge. Separately, the memory_forget tool maps forget()=false to success=true "No memory found", so the model can tell the customer a forget happened when nothing was removed. CLOSES ON: either the root cause fixed in ostler-assistant with a red/green test, or (fallback) memory_forget reports a non-removal as a failure the assistant must relay ("I could not remove that"), in the hub build pinned into the v1.0.103 cut, plus a walk showing the opening-turn battery running all openings with no WARN memory_forget_api line.'
   - issue: 2406
     repo: CM051
