@@ -28,6 +28,7 @@ name: walk-record-gate
 on:
   pull_request:
     paths:
+      - 'tests/test_probe_memory_purge_counts_only_real_deletions.sh'
       - 'scripts/verify_walk_record.sh'
       - 'tests/test_a_remote_url_is_quoted_against_zsh_globbing.sh'
       - 'scripts/ttywalk.sh'
