@@ -544,6 +544,33 @@ _read_the_battery() {
 # The body is `run_probe` now, which is the contract, and
 # tests/test_no_probe_shadows_the_dispatcher.sh fails the build if any probe
 # in this directory takes the dispatcher's name again.
+# _restore_precondition_before_opening <i>. See the loop in run_probe for why.
+# Returns 0 to go on; on a memory it cannot read or clear it has already called
+# probe_cannot_run, and returns 1 so the caller stops. Adds to _carried_total.
+_restore_precondition_before_opening() {
+    local i="$1" _cm _ck _cn _cf
+    [ "$i" -gt 1 ] || return 0
+    [ "${OSTLER_SEED_PERSON_IS_SYNTHETIC:-0}" = "1" ] || return 0
+    _cm="$(_memory_mentions_person)"
+    case "$(_read_memory_answer "$_cm")" in
+        ABSENT) return 0 ;;
+        PRESENT)
+            _ck="$(printf '%s\n' "$_cm" | sed -n 's/^KEY //p' | tr '\n' ' ')"
+            _cn="$(printf '%s\n' "$_cm" | awk 'NR==1 {print $3}')"
+            _cf="$(_memory_forget_keys ${_ck})"
+            _carried_total=$((_carried_total + ${_cn:-0}))
+            if [ "$(_read_memory_answer "$(_memory_mentions_person)")" != "ABSENT" ]; then
+                probe_cannot_run "before opening ${i} the daemon remembered the seed person from opening $((i - 1)) and removing it did not take (${_cf:-no forget answer}). Openings after this would be asked against memory, so the battery stops here. Nothing about the model was learned from the remainder."
+                return 1
+            fi
+            probe_note "opening ${i}: removed ${_cn} memory entr(y/ies) about the seed person left by the previous opening (${_cf})"
+            return 0 ;;
+        *)
+            probe_cannot_run "before opening ${i} daemon memory could not be read ($(printf '%s' "${_cm:-<nothing>}" | head -1)), so precondition 1 is unestablished for the rest of the battery."
+            return 1 ;;
+    esac
+}
+
 run_probe() {
     [ -n "$KNOWN_PERSON" ] || { probe_cannot_run "OSTLER_GATE_KNOWN_PERSON is unset -- the seed oracle did not run, so there is no seeded person to ask about. Nothing was measured."; return; }
     [ -n "$EXPECT_FACT" ]  || { probe_cannot_run "OSTLER_GATE_EXPECT_FACT is unset -- without the expected fact a 'grounded' verdict would be unfalsifiable. Nothing was measured."; return; }
@@ -617,8 +644,19 @@ run_probe() {
     _cold_n=0; _warm_n=0; _unk_n=0; _cold_ttft=""; _warm_ttft=""
     _raw="$(mktemp)" || { probe_cannot_run "could not create a temp file to hold the client's output on this machine. Nothing was asked."; return; }
     _i=0
+    _carried_total=0
     while [ "$_i" -lt "$OPENINGS" ]; do
         _i=$((_i + 1))
+        # PRECONDITION 1 HOLDS FOR EVERY OPENING, NOT ONLY THE FIRST. The daemon
+        # files each answered opening in memory, so without this opening N is
+        # asked against the memory of openings 1..N-1. Measured on the v1.0.102
+        # candidate 4 box, first run of this probe: openings 1-6 grounded, 7-10
+        # no_tool_call, consecutively, which is accumulation and not the
+        # one-in-ten cold start this probe measures. Only memory naming the
+        # walk's SYNTHETIC seed person is removed, and how much each opening
+        # left behind is recorded, because "the assistant stops looking things
+        # up once it remembers the topic" is a finding in its own right.
+        _restore_precondition_before_opening "$_i" || return
         # COLD or WARM, READ BEFORE THE REQUEST. `ollama ps` lists models
         # currently resident. If the model under test is absent, this opening
         # pays a cold load; if present, it does not. TTFT differs between the
@@ -721,6 +759,7 @@ run_probe() {
     # be here died at lib/probe.sh:73 with "$2: unbound variable" and exited 1
     # -- which run_box_walk.sh reads as FAIL. A probe that cannot reach its own
     # verdict must not be able to emit one by falling over.
+    probe_note "memory carried between openings: ${_carried_total} entr(y/ies) about the seed person were removed before openings 2..${OPENINGS}"
     probe_examined "$_done" "opening turns completed on ${MODEL_TAG} (of ${OPENINGS} attempted)"
     probe_note "model_tag=${MODEL_TAG} ram_gb=${RAM_GB:-unread} openings_completed=${_done} grounded=${_grounded} no_tool_call=${_no_tool} tool_found_nothing=${_tool_no_fact} fact_missing_in_reply=${_reply_no_fact} client_fault=${_client_fault} client_refused=${_client_refused} silent=${_silent} unreadable=${_unreadable}"
 
