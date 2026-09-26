@@ -56,6 +56,13 @@ EXEMPT: dict[str, str] = {
         "a wait as if it were a measurement. Its invocation is pinned by "
         "tests/test_the_walk_waits_for_converge.sh, which fails if the runner "
         "stops sourcing it, calling it, or gating on it.",
+    "lib/daemon_memory.sh":
+        "a sourced library, not a probe: it reads and forgets the assistant "
+        "daemon's own memory for the walk's SYNTHETIC seed person. "
+        "grounding_seed.sh sources it to purge what an earlier run taught the "
+        "daemon (#2381), and assistant_grounds_the_opening_turn.sh sources it "
+        "for its precondition 1 (#2379). It has no verdict of its own. Its "
+        "purge is pinned by tests/test_the_seed_forgets_what_the_walk_taught.sh.",
     "lib/grounding_seed.sh":
         "a sourced library, not a probe: run_box_walk.sh sources it between "
         "phase 1 and phase 2 and calls grounding_seed_apply, which seeds the "
