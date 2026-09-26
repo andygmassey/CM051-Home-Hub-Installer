@@ -81,9 +81,9 @@ def build_db(path: Path) -> None:
     recent = 800_000_000.0  # Mac-epoch seconds, well inside since_days=36500
     rows = [
         (1, recent + 4, 1.5, 2.5, revgeo_blob(_city="Testville", _country="Nowhereland",
-                                             _street="1 Invented Road", _postalCode="ZZ1 1ZZ",
-                                             _state="Imaginary County")),
-        (2, recent + 3, 1.6, 2.6, revgeo_blob(_state="Fictional State", _country="Nowhereland")),
+                                             _street="12 streetname", _postalCode="zz1 1zz",
+                                             _state="Shireland")),
+        (2, recent + 3, 1.6, 2.6, revgeo_blob(_state="Statelandia", _country="Nowhereland")),
         (3, recent + 2, 1.7, 2.7, b"not a plist at all"),
         (4, recent + 1, 1.8, 2.8, None),
     ]
@@ -106,9 +106,9 @@ with tempfile.TemporaryDirectory() as td:
     check(by_lat.get(1.5) == "Testville, Nowhereland",
           f"blob with a city gives 'City, Country', got {by_lat.get(1.5)!r}")
     label = by_lat.get(1.5) or ""
-    check("Invented" not in label and "ZZ1" not in label,
+    check("streetname" not in label and "zz1" not in label,
           "street and postcode never reach the label")
-    check(by_lat.get(1.6) == "Fictional State, Nowhereland",
+    check(by_lat.get(1.6) == "Statelandia, Nowhereland",
           f"no city falls back to the state, got {by_lat.get(1.6)!r}")
     check(by_lat.get(1.7) is None, f"unreadable blob gives None, got {by_lat.get(1.7)!r}")
     check(by_lat.get(1.8) is None, f"no blob gives None, got {by_lat.get(1.8)!r}")
