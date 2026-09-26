@@ -130,6 +130,7 @@ test_assistant_config_required_fields.sh	WIRED	.github/workflows/assistant-confi
 test_assistant_config_vane_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_assistant_identity_belt.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_assistant_ollama_num_ctx.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_assistant_sandbox_is_pinned_to_seatbelt.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
 test_audit_red_merges_predicate.py	WIRED	.github/workflows/red-merge-audit.yml
 test_autologin_consent_opt_in.sh	WIRED	.github/workflows/consent-contract.yml
 test_background_copy_promises_no_deadline.sh	WIRED	.github/workflows/background-copy-honesty.yml
@@ -426,6 +427,7 @@ test_os003_sync_defaults_agree.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_osascript_dialogs_activate_system_events.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_osascript_sites_are_deadlined.sh	WIRED	.github/workflows/osascript-deadline.yml
 test_ostler_gui_sudo_gates.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_ostler_home_is_owner_only_on_every_path.sh	WIRED	.github/workflows/secrets-dir-mode.yml
 test_ostler_home_root_is_one_class.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_oxigraph_proxy_credential.sh	WIRED	.github/workflows/store-host-exposure.yml
 test_parser_claims_do_not_cross_services.py	WIRED	.github/workflows/parser-claim-separation.yml

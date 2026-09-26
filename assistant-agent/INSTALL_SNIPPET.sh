@@ -205,7 +205,13 @@ sed \
 umask "$_snippet_umask_orig"
 
 chmod 0600 "$RENDERED_PLIST"
-_rendered_mode="$(/usr/bin/stat -f '%Lp' "$RENDERED_PLIST")"
+# BSD stat on the Mac this ships to; GNU stat only where the Linux CI runs
+# this snippet against a sandboxed HOME (vendor-integrity).
+if [ "$(uname -s)" = "Darwin" ]; then
+    _rendered_mode="$(/usr/bin/stat -f '%Lp' "$RENDERED_PLIST")"
+else
+    _rendered_mode="$(stat -c '%a' "$RENDERED_PLIST")"
+fi
 if [ "$_rendered_mode" != "600" ]; then
     echo "ostler-assistant install: $RENDERED_PLIST is mode $_rendered_mode, not 600; refusing to load a plist that holds the service token readable by other accounts" >&2
     exit 1
