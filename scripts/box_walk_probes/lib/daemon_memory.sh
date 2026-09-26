@@ -67,14 +67,61 @@ try:
         for k in hits:
             print("KEY " + k)
     else:
-        ok = bad = 0
+        # A 200 is NOT a deletion. The daemon answers {"status":"ok",
+        # "deleted":false} when its forget() removed nothing, and on the
+        # v1.0.102 candidate 5 walk box it did exactly that for keys that
+        # were present in brain.db (measured: 4 keys, 4 rows by key, API
+        # deleted=false for each, recall unchanged). Counting the HTTP 200 as
+        # a deletion printed "FORGOT 3 0" and then found the person still
+        # remembered, so the opening-turn battery stopped as CANNOT-RUN.
+        # Count only deleted=true. For the keys the API left, remove the rows
+        # from the daemon's own SQLite file by exact key: the keys come from
+        # the read above, which only returns entries naming the SYNTHETIC seed
+        # person, so nothing else is touched. The API defect is filed on its
+        # own and this fallback is named in the output, never silent.
+        import sqlite3
+        api = db = bad = 0
+        left = []
         for k in sys.argv[5:]:
             try:
-                call("DELETE", "/api/memory/" + urllib.parse.quote(k, safe=""))
-                ok += 1
+                body = json.load(call("DELETE", "/api/memory/" + urllib.parse.quote(k, safe="")))
+                if isinstance(body, dict) and body.get("deleted") is True:
+                    api += 1
+                else:
+                    left.append(k)
             except Exception:
-                bad += 1
-        print("FORGOT %d %d" % (ok, bad))
+                left.append(k)
+        # NOT A GENERAL FORGET. This deletes only the memories table row by
+        # exact key; it bypasses anything else forget() would clear (FTS or
+        # embedding rows). It exists so the probe can restore its own
+        # precondition for a synthetic person. Recall measured 0 after it on
+        # the walk box, which is all the probe needs. Never reuse it for a
+        # customer forget.
+        if left:
+            dbp = os.path.expanduser(os.environ.get("OSTLER_PROBE_MEMORY_DB",
+                  "~/.ostler/assistant-config/workspace/memory/brain.db"))
+            try:
+                con = sqlite3.connect(dbp, timeout=10)
+                for k in left:
+                    n = con.execute("DELETE FROM memories WHERE key = ?", (k,)).rowcount
+                    if n > 0:
+                        db += 1
+                    else:
+                        bad += 1
+                con.commit()
+                con.close()
+            except Exception as exc:
+                bad += len(left) - db
+                # stdout, not stderr: box_run discards stderr, and a probe
+                # that could not look must say why.
+                print("FORGET-DB-ERROR %s: %s: %s" % (dbp, type(exc).__name__, exc))
+        print("FORGOT %d %d api=%d db=%d" % (api + db, bad, api, db))
+        if db > 0:
+            # The walk record must carry the product defect, not bury it in a
+            # count: the daemon's own forget refused present keys
+            # (ostler-assistant #423, BLOCKING for v1.0.103).
+            print("WARN memory_forget_api: %d of %d present keys returned deleted=false"
+                  % (db, len(sys.argv[5:])))
 except urllib.error.HTTPError as exc:
     print("UNREADABLE http %d" % exc.code)
 except Exception as exc:
