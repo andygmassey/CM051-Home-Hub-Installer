@@ -172,4 +172,11 @@ jobs:
       # itself let through.
       - name: a blocker with no tracker issue still blocks
         if: always()
+        # GH_TOKEN IS NEEDED THE MOMENT A BLOCKING ROW NAMES A TRACKER ISSUE.
+        # This test drives the checklist gate, which then asks GitHub whether
+        # that issue is still open. With no token that is CANNOT-RUN, exit 2,
+        # and arm 7b fails. It stayed hidden until #2411 became the first
+        # tracker BLOCKING row: without a token 16/1, with one 17/0.
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: python3 tests/test_a_blocker_with_no_issue_still_blocks.py
