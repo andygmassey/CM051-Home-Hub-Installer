@@ -16196,16 +16196,18 @@ TOMLPREAMBLE
     #
     # Excluded here: developer and admin tools a customer never drives from
     # chat (shell, file editing, git, browser automation, model routing,
-    # backups, cross-session sends). Deliberately KEPT: cron_add, cron_list
-    # and cron_remove, so "remind me every morning" can be set up, seen and
-    # cancelled from chat; schedule; every pwg_* reader; memory tools.
+    # backups, cross-session sends) and `schedule`, which makes SHELL jobs
+    # whose output reaches nobody; measured on the walk box, "cancel the
+    # water reminder" went to `schedule` and errored. Deliberately KEPT:
+    # cron_add, cron_list and cron_remove, so "remind me every morning" can
+    # be set up, seen and cancelled from chat; every pwg_* reader; memory.
     #
     # Only [autonomy].non_cli_excluded_tools is written. AutonomyConfig is
     # #[serde(default)] at the container, so every other autonomy field
     # (level, auto_approve, ...) keeps the daemon's own default.
     echo
     echo "[autonomy]"
-    echo 'non_cli_excluded_tools = ["cron_update", "cron_run", "cron_runs", "browser", "browser_open", "model_routing_config", "model_switch", "proxy_config", "git_operations", "canvas", "calculator", "content_search", "glob_search", "file_read", "file_edit", "file_write", "shell", "screenshot", "image_info", "backup", "memory_export", "memory_purge", "sessions_send", "sessions_history", "sessions_list", "llm_task", "poll", "reaction", "pushover", "escalate_to_human"]'
+    echo 'non_cli_excluded_tools = ["schedule", "cron_update", "cron_run", "cron_runs", "browser", "browser_open", "model_routing_config", "model_switch", "proxy_config", "git_operations", "canvas", "calculator", "content_search", "glob_search", "file_read", "file_edit", "file_write", "shell", "screenshot", "image_info", "backup", "memory_export", "memory_purge", "sessions_send", "sessions_history", "sessions_list", "llm_task", "poll", "reaction", "pushover", "escalate_to_human"]'
 
     echo
     echo "[skills]"

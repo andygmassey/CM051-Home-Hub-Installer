@@ -17,8 +17,9 @@
 #
 # Two sets, both asserted:
 #   MUST_EXCLUDE  heavy tools that must be absent from chat
-#   MUST_KEEP     tools chat needs: reminders (cron_add/list/remove,
-#                 schedule), every pwg_* reader, memory. Excluding any of
+#   MUST_KEEP     tools chat needs: reminders (cron_add/list/remove),
+#                 every pwg_* reader, memory. `schedule` is EXCLUDED: it
+#                 makes shell jobs whose output reaches nobody. Excluding any of
 #                 these silently removes a customer feature, e.g.
 #                 "remind me every morning" stops working if cron_add goes.
 #
@@ -74,10 +75,10 @@ import sys, tomllib
 MUST_EXCLUDE = {
     "shell", "file_write", "file_edit", "git_operations", "browser",
     "browser_open", "model_routing_config", "proxy_config", "backup",
-    "sessions_send", "memory_purge",
+    "sessions_send", "memory_purge", "schedule",
 }
 MUST_KEEP = {
-    "cron_add", "cron_list", "cron_remove", "schedule",
+    "cron_add", "cron_list", "cron_remove",
     "pwg_people", "pwg_preferences", "pwg_overview", "pwg_commitments",
     "pwg_topics", "pwg_person_timeline", "pwg_knowledge_search",
     "memory_recall", "remember_fact", "web_search_tool",
@@ -129,7 +130,7 @@ control_red() {   # $1 = label, $2 = TOML body
     if check "$f" 2>/dev/null; then bad "CONTROL DID NOT FIRE: $1"; else ok "control: red on $1"; fi
     rm -f "$f"
 }
-GOOD='"shell", "file_write", "file_edit", "git_operations", "browser", "browser_open", "model_routing_config", "proxy_config", "backup", "sessions_send", "memory_purge"'
+GOOD='"shell", "file_write", "file_edit", "git_operations", "browser", "browser_open", "model_routing_config", "proxy_config", "backup", "sessions_send", "memory_purge", "schedule"'
 control_red "no [autonomy] table"            '[skills]
 allow_scripts = false'
 control_red "empty exclusion list"           '[autonomy]
@@ -139,7 +140,9 @@ non_cli_excluded_tools = [${GOOD}, \"cron_add\"]"
 control_red "a pwg reader excluded"          "[autonomy]
 non_cli_excluded_tools = [${GOOD}, \"pwg_people\"]"
 control_red "shell left in chat"             '[autonomy]
-non_cli_excluded_tools = ["file_write", "file_edit", "git_operations", "browser", "browser_open", "model_routing_config", "proxy_config", "backup", "sessions_send", "memory_purge"]'
+non_cli_excluded_tools = ["schedule", "file_write", "file_edit", "git_operations", "browser", "browser_open", "model_routing_config", "proxy_config", "backup", "sessions_send", "memory_purge"]'
+control_red "schedule left in chat"          '[autonomy]
+non_cli_excluded_tools = ["shell", "file_write", "file_edit", "git_operations", "browser", "browser_open", "model_routing_config", "proxy_config", "backup", "sessions_send", "memory_purge"]'
 control_red "autonomy level overridden"      "[autonomy]
 level = \"full\"
 non_cli_excluded_tools = [${GOOD}]"
