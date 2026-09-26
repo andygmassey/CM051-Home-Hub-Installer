@@ -16185,6 +16185,28 @@ TOMLPREAMBLE
     # nothing. The curated, install-from-source gallery is a
     # later (Curator) release; v1.0 loads only the vetted skills Ostler
     # drops into the workspace skills directory via the runtime dir scan.
+    # Hub chat carries the chat tool set, not all 52 tools (#2385).
+    #
+    # Every chat turn sends the full definition of every tool it may call,
+    # and the model reads all of it before answering. Measured on a 16 GB
+    # walk box, same daemon, back to back: the full set is 14,204 prompt
+    # tokens per turn and simple replies took 27-50s; with the tools below
+    # excluded it is 5,848 tokens and simple replies took 16-21s, data
+    # questions 25-33s (were 46-60s), still calling the right pwg_* tool.
+    #
+    # Excluded here: developer and admin tools a customer never drives from
+    # chat (shell, file editing, git, browser automation, model routing,
+    # backups, cross-session sends). Deliberately KEPT: cron_add, cron_list
+    # and cron_remove, so "remind me every morning" can be set up, seen and
+    # cancelled from chat; schedule; every pwg_* reader; memory tools.
+    #
+    # Only [autonomy].non_cli_excluded_tools is written. AutonomyConfig is
+    # #[serde(default)] at the container, so every other autonomy field
+    # (level, auto_approve, ...) keeps the daemon's own default.
+    echo
+    echo "[autonomy]"
+    echo 'non_cli_excluded_tools = ["cron_update", "cron_run", "cron_runs", "browser", "browser_open", "model_routing_config", "model_switch", "proxy_config", "git_operations", "canvas", "calculator", "content_search", "glob_search", "file_read", "file_edit", "file_write", "shell", "screenshot", "image_info", "backup", "memory_export", "memory_purge", "sessions_send", "sessions_history", "sessions_list", "llm_task", "poll", "reaction", "pushover", "escalate_to_human"]'
+
     echo
     echo "[skills]"
     echo "allow_scripts = false"
