@@ -459,12 +459,82 @@ _read_ram_gb() {
 # state, nothing about the model was learned). Unreadable -> CANNOT-RUN, and
 # NOT "absent", because "could not look" and "found nothing" print identically
 # and only one of them is evidence.
+# THE ROUTE THIS USED TO READ DOES NOT EXIST. It asked
+# /api/v1/memory/search, unauthenticated, through curl -f. The daemon has no
+# such route (measured on the v1.0.102 walk-4 box: 404 "unknown endpoint", with
+# or without the admin token), so the reading was empty on every box and this
+# probe was CANNOT-RUN on every walk it has ever been in, reported as "could
+# not read daemon memory" and never as "the instrument asks a route nobody
+# serves". The daemon's memory API is GET /api/memory?query= (recall, top 50)
+# and DELETE /api/memory/{key}, both behind the admin bearer token
+# (ostler-assistant crates/zeroclaw-gateway/src/lib.rs, the /api/memory
+# routes). python on the box, not curl, so the token never rides on a command
+# line and a refused read names its HTTP status instead of printing nothing.
+read -r -d '' MEMORY_PY <<'PYMEMORY'
+import json, os, sys, urllib.error, urllib.parse, urllib.request
+gw, tok_path, person, action = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+urllib.request.install_opener(urllib.request.build_opener(urllib.request.ProxyHandler({})))
+try:
+    tok = open(os.path.expanduser(tok_path), encoding="utf-8").read().strip()
+except Exception as exc:
+    print("UNREADABLE token " + type(exc).__name__); sys.exit(0)
+H = {"Authorization": "Bearer " + tok}
+def call(method, path):
+    req = urllib.request.Request(gw + path, headers=H, method=method)
+    return urllib.request.urlopen(req, timeout=15)
+try:
+    if action == "read":
+        d = json.load(call("GET", "/api/memory?query=" + urllib.parse.quote(person)))
+        entries = d.get("entries") if isinstance(d, dict) else None
+        if not isinstance(entries, list):
+            print("UNREADABLE shape " + type(d).__name__); sys.exit(0)
+        hits = [e.get("key", "") for e in entries
+                if person.lower() in str(e.get("content") or "").lower()]
+        print("READ %d %d" % (len(entries), len(hits)))
+        for k in hits:
+            print("KEY " + k)
+    else:
+        ok = bad = 0
+        for k in sys.argv[5:]:
+            try:
+                call("DELETE", "/api/memory/" + urllib.parse.quote(k, safe=""))
+                ok += 1
+            except Exception:
+                bad += 1
+        print("FORGOT %d %d" % (ok, bad))
+except urllib.error.HTTPError as exc:
+    print("UNREADABLE http %d" % exc.code)
+except Exception as exc:
+    print("UNREADABLE " + type(exc).__name__)
+PYMEMORY
+
 _memory_mentions_person() {
     # ${GATEWAY}, not a second hard-coded 127.0.0.1:8000. The refusal this
     # feeds NAMES the URL it could not read, and a message that names one
     # address while the reader used another is the shape that makes a probe's
     # reason untrustworthy even when its verdict is right.
-    box_run "curl -fsS --max-time 10 '${GATEWAY}/api/v1/memory/search?q=$(printf '%s' "$KNOWN_PERSON" | sed 's/ /%20/g')' 2>/dev/null"
+    box_run "python3 - '${GATEWAY}' '${TOKEN_PATH}' '${KNOWN_PERSON}' read <<'PYMEMORY'
+${MEMORY_PY}
+PYMEMORY"
+}
+
+_memory_forget_keys() {
+    box_run "python3 - '${GATEWAY}' '${TOKEN_PATH}' '${KNOWN_PERSON}' forget $* <<'PYMEMORY'
+${MEMORY_PY}
+PYMEMORY"
+}
+
+# _read_memory_answer <reader output> -> UNREADABLE | ABSENT | PRESENT
+# One copy, driven by run_probe and by the self-test.
+_read_memory_answer() {
+    case "$1" in
+        "READ "*)
+            local n
+            n="$(printf '%s\n' "$1" | awk 'NR==1 {print $3}')"
+            case "$n" in ''|*[!0-9]*) printf 'UNREADABLE'; return ;; esac
+            if [ "$n" -gt 0 ]; then printf 'PRESENT'; else printf 'ABSENT'; fi ;;
+        *) printf 'UNREADABLE' ;;
+    esac
 }
 
 # ── THE DECISIONS, ONE COPY EACH, DRIVEN BY run_probe AND self_test ─────────
@@ -572,16 +642,37 @@ run_probe() {
     fi
 
     _mem="$(_memory_mentions_person)"
-    if [ -z "$_mem" ]; then
-        probe_cannot_run "could not read daemon memory for the seeded person at ${GATEWAY}/api/v1/memory/search, so precondition 1 is UNESTABLISHED. 'Could not look' is not 'absent', and an opening turn run against unknown memory state is exactly the confound that voided the previous result."
+    _memstate="$(_read_memory_answer "$_mem")"
+    if [ "$_memstate" = "UNREADABLE" ]; then
+        probe_cannot_run "could not read daemon memory for the seeded person at ${GATEWAY}/api/memory (answer: $(printf '%s' "${_mem:-<nothing>}" | head -1)), so precondition 1 is UNESTABLISHED. 'Could not look' is not 'absent', and an opening turn run against unknown memory state is exactly the confound that voided the previous result."
         return
     fi
-    # -F, not a BRE. A person's name is DATA, and a name carrying a regex
-    # metacharacter would otherwise be matched as a pattern.
-    _hits="$(printf '%s' "$_mem" | grep -c -i -F -- "$KNOWN_PERSON")"
-    if [ "$_hits" -gt 0 ]; then
-        probe_cannot_run "the daemon ALREADY remembers ${KNOWN_PERSON} (${_hits} match(es) before the first question). It can answer from memory without calling a tool, which renders as a grounded pass. The box needs a fresh install for this measurement. Nothing about the model was learned."
-        return
+    if [ "$_memstate" = "PRESENT" ]; then
+        _hits="$(printf '%s\n' "$_mem" | awk 'NR==1 {print $3}')"
+        # THE WALK POISONS ITS OWN PRECONDITION. assistant_answers_grounded runs
+        # before this probe and asks about the same seeded person, and the
+        # daemon files that conversation in memory. So on every walk the
+        # person is "remembered" by the time this probe looks. When the person
+        # is the walk's SYNTHETIC seed (OSTLER_SEED_PERSON_IS_SYNTHETIC=1, set only
+        # by grounding_seed_apply after it seeded), every memory naming them was
+        # made by the walk, and removing exactly those entries restores the
+        # precondition. When the operator keyed a REAL contact, customer memory
+        # is never touched and the old refusal stands.
+        if [ "${OSTLER_SEED_PERSON_IS_SYNTHETIC:-0}" = "1" ]; then
+            _keys="$(printf '%s\n' "$_mem" | sed -n 's/^KEY //p' | tr '\n' ' ')"
+            _forgot="$(_memory_forget_keys ${_keys})"
+            _mem="$(_memory_mentions_person)"
+            _memstate="$(_read_memory_answer "$_mem")"
+            if [ "$_memstate" = "ABSENT" ]; then
+                probe_note "precondition 1 RESTORED: removed ${_hits} memory entr(y/ies) the walk itself created about the synthetic seed person (${_forgot:-no forget answer}); re-read shows none"
+            else
+                probe_cannot_run "the daemon remembers the synthetic seed person ${KNOWN_PERSON} from earlier in this walk, and removing those entries did not take (${_forgot:-no forget answer}; re-read: ${_memstate}). It could answer from memory without calling a tool. Nothing about the model was learned."
+                return
+            fi
+        else
+            probe_cannot_run "the daemon ALREADY remembers ${KNOWN_PERSON} (${_hits} match(es) before the first question), and this is not the walk's synthetic seed person, so its memory is not the walk's to remove. It can answer from memory without calling a tool, which renders as a grounded pass. The box needs a fresh install for this measurement. Nothing about the model was learned."
+            return
+        fi
     fi
     probe_note "precondition 1 OK: the seeded person is absent from daemon memory before the first question"
 
@@ -741,7 +832,9 @@ self_test() {
     # A self-test that cannot clean up hangs the walk it is meant to protect.
     trap 'rm -rf "$_d"' EXIT
 
+    _n=0
     _arm() { # _arm <label> <got> <want>
+        _n=$((_n + 1))
         if [ "$2" = "$3" ]; then
             printf '  arm OK: %s -> %s\n' "$1" "$2"
         else
@@ -788,12 +881,20 @@ self_test() {
     _arm "read_the_battery/a failure beyond the opening" "$(_read_the_battery 10 8 1 1 0 10)" FAIL-CEILING
     _arm "read_the_battery/fact held and not used" "$(_read_the_battery 10 9 0 0 1 10)" FAIL-CEILING
 
+    # The memory reader. The first arm is the shape every walk before v1.0.102
+    # candidate 5 actually got: a 404 from a route the daemon does not serve.
+    _arm "read_memory_answer/the route refused (404)" "$(_read_memory_answer 'UNREADABLE http 404')" UNREADABLE
+    _arm "read_memory_answer/nothing at all"          "$(_read_memory_answer '')"                    UNREADABLE
+    _arm "read_memory_answer/count not a number"      "$(_read_memory_answer 'READ x y')"            UNREADABLE
+    _arm "read_memory_answer/read, no mention"        "$(_read_memory_answer 'READ 50 0')"           ABSENT
+    _arm "read_memory_answer/read, mentioned twice"   "$(_read_memory_answer "$(printf 'READ 50 2\nKEY a\nKEY b')")" PRESENT
+
     if [ "$fails" -gt 0 ]; then
         probe_examined "$fails" "self-test arm(s) that did NOT behave as required"
-        probe_pass "SELF-TEST BROKEN: ${fails} of 16 arms returned the wrong outcome (first: ${firstbad}). This probe cannot be trusted to tell PASS from FAIL from CANNOT-RUN, so its verdicts mean nothing."
+        probe_pass "SELF-TEST BROKEN: ${fails} of ${_n} arms returned the wrong outcome (first: ${firstbad}). This probe cannot be trusted to tell PASS from FAIL from CANNOT-RUN, so its verdicts mean nothing."
     fi
-    probe_examined 16 "self-test arms (5 opening classifications, 5 client-output shapes including the IndexError that used to be reported as transport, 6 readings including a zero denominator)"
-    probe_fail "negative control behaved on all 16 arms: a turn with no pwg_ tool FAILs, a non-pwg tool does not count as grounded, the client's own traceback reads client_fault and NOT transport, an empty client output is the only shape called silent, and 0 of 0 refuses instead of passing"
+    probe_examined "$_n" "self-test arms, counted as they ran (5 opening classifications, 5 client-output shapes including the IndexError that used to be reported as transport, 6 readings including a zero denominator, 5 memory-reader answers including the 404 every earlier walk got)"
+    probe_fail "negative control behaved on all ${_n} arms: a turn with no pwg_ tool FAILs, a non-pwg tool does not count as grounded, the client's own traceback reads client_fault and NOT transport, an empty client output is the only shape called silent, and 0 of 0 refuses instead of passing"
 }
 
 probe_main "$@"
