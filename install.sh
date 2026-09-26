@@ -2743,7 +2743,7 @@ _OSTLER_FINAL_PREEXISTED=false
 # An install over an existing tree may never reach the promote's chmod (no
 # staging tree on a re-run), so lock it here, before any secret is touched.
 _ostler_lock_home_dir "$OSTLER_FINAL_DIR" \
-    || fail "Could not restrict ${OSTLER_FINAL_DIR} to owner-only access (mode 0700). Check who owns that folder, then run the installer again."  # i18n-exempt
+    || fail_with_code "ERR-02-OSTLER-DIR-NOT-PRIVATE" "Could not restrict ${OSTLER_FINAL_DIR} to owner-only access (mode 0700). Check who owns that folder, then run the installer again."  # i18n-exempt
 OSTLER_PRELAUNCH_DIR="${OSTLER_PRELAUNCH_DIR:-/tmp/ostler-prelaunch-$$}"
 
 # _ostler_set_paths $target_root rebinds OSTLER_DIR + every
@@ -3334,7 +3334,7 @@ _ostler_promote_prelaunch_tree() {
 
     mkdir -p "$OSTLER_FINAL_DIR"
     _ostler_lock_home_dir "$OSTLER_FINAL_DIR" \
-        || fail "Could not restrict ${OSTLER_FINAL_DIR} to owner-only access (mode 0700). Check who owns that folder, then run the installer again."  # i18n-exempt
+        || fail_with_code "ERR-02-OSTLER-DIR-NOT-PRIVATE" "Could not restrict ${OSTLER_FINAL_DIR} to owner-only access (mode 0700). Check who owns that folder, then run the installer again."  # i18n-exempt
 
     # Walk top-level entries in the staging tree and move them
     # into ~/.ostler/. Hidden entries (starting with .) included.
