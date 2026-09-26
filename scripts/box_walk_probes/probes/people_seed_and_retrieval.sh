@@ -288,7 +288,7 @@ box_exec() {
     if [ "$RUN_MODE" = "local" ]; then
         eval "$1"
     else
-        /usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=10 \
+        /usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
             -o StrictHostKeyChecking=accept-new "$BOX_HOST" "$1"
     fi
 }

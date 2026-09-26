@@ -113,10 +113,17 @@ probe_note() {
 # probe runs on the box itself, and it must not be mistaken for a missing
 # prerequisite.
 # ---------------------------------------------------------------------------
+# A DEAD LINK MUST END THE CALL, NOT HANG IT. v1.0.102 candidate 4: the
+# driver's wifi dropped mid-probe and one ssh sat 42 minutes on a connection
+# the box had already closed, because ConnectTimeout bounds only the connect.
+# ServerAlive* makes ssh itself give up after ~60s of silence (15s x 4), so the
+# call returns 255 and the probe says CANNOT-RUN in a minute, not never. A
+# chat turn that is slow still streams frames, so this does not cut a turn
+# short; only a link that answers nothing does.
 box_run() {
     if [ -n "${OSTLER_BOX_HOST:-}" ]; then
         ssh -o ConnectTimeout="${OSTLER_SSH_TIMEOUT:-8}" \
-            -o BatchMode=yes \
+            -o BatchMode=yes -o ServerAliveInterval="${OSTLER_SSH_ALIVE_S:-15}" -o ServerAliveCountMax="${OSTLER_SSH_ALIVE_N:-4}" \
             "$OSTLER_BOX_HOST" "$1" 2>/dev/null
     else
         bash -lc "$1" 2>/dev/null
@@ -149,7 +156,7 @@ box_reachable() {
 box_run_v() {
     if [ -n "${OSTLER_BOX_HOST:-}" ]; then
         ssh -o ConnectTimeout="${OSTLER_SSH_TIMEOUT:-8}" \
-            -o BatchMode=yes \
+            -o BatchMode=yes -o ServerAliveInterval="${OSTLER_SSH_ALIVE_S:-15}" -o ServerAliveCountMax="${OSTLER_SSH_ALIVE_N:-4}" \
             "$OSTLER_BOX_HOST" "$1"
     else
         bash -lc "$1"

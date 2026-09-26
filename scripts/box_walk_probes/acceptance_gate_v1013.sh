@@ -112,7 +112,7 @@ if [ -t 1 ]; then RED=$'\033[31m'; GRN=$'\033[32m'; YEL=$'\033[33m'; DIM=$'\033[
 else RED=""; GRN=""; YEL=""; DIM=""; RST=""; fi
 
 # read-only command on the target box
-box(){ ssh -o ConnectTimeout=8 -o BatchMode=yes "$HOST" "$1" 2>/dev/null; }
+box(){ ssh -o ConnectTimeout=8 -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$HOST" "$1" 2>/dev/null; }
 # robust log-line count on the box. Patterns MUST NOT contain single-quotes.
 # Greps log DIRECTORIES (not *.log globs) so zsh nomatch cannot abort the pipe.
 # shellcheck disable=SC2088  # tilde is DELIBERATELY unquoted-for-remote: it must

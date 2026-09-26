@@ -211,7 +211,7 @@ echo "════════════════════════�
 # Reachability first, and as its own outcome. Without this, every probe
 # independently reports CANNOT-RUN and the summary reads like 13 separate
 # defects instead of one unplugged cable.
-if ! ssh -o BatchMode=yes -o ConnectTimeout=8 "$BOX" 'true' 2>/dev/null; then
+if ! ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$BOX" 'true' 2>/dev/null; then
     echo
     echo "CANNOT REACH ${BOX} over ssh."
     echo "Nothing was measured. This is not a pass and not a failure -- it is"
@@ -568,7 +568,7 @@ if [[ -n "$CUT_VERSION" ]]; then
     #
     # An unreadable marker is recorded as unknown(...), never as a clean value.
     # An assumption here would be indistinguishable from a measurement.
-    STORES_PROVENANCE="$(ssh -o BatchMode=yes -o ConnectTimeout=8 "$BOX" \
+    STORES_PROVENANCE="$(ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$BOX" \
         'cat ~/.walk-stores-provenance 2>/dev/null' 2>/dev/null | tr -d '[:space:]')"
     case "$STORES_PROVENANCE" in
         carried-over-from-previous-install|unknown-no-reset-step|wiped-by-shipped-uninstaller*|wiped-by-explicit-store-wipe*) : ;;
@@ -583,7 +583,7 @@ if [[ -n "$CUT_VERSION" ]]; then
     # until now the record could not tell them apart on any of the 17 walks
     # where that probe failed. An unreadable marker is recorded as
     # not-recorded(...), NEVER as a clean value.
-    GROUNDING_SEED="$(ssh -o BatchMode=yes -o ConnectTimeout=8 "$BOX" \
+    GROUNDING_SEED="$(ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$BOX" \
         'cat ~/.walk-grounding-seed-run 2>/dev/null' 2>/dev/null | tr -s '[:space:]' ' ' | sed 's/ *$//')"
     case "$GROUNDING_SEED" in
         seeded*|skipped*|absent*|failed*|unrun*) : ;;
@@ -592,12 +592,12 @@ if [[ -n "$CUT_VERSION" ]]; then
     esac
     echo "  seed:   ${GROUNDING_SEED}"
 
-    INSTALLED_VERSION="$(ssh -o BatchMode=yes -o ConnectTimeout=8 "$BOX" \
+    INSTALLED_VERSION="$(ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$BOX" \
         'cat ~/.walk-artefact-version 2>/dev/null' 2>/dev/null | tr -d '[:space:]')"
     if [[ -n "$INSTALLED_VERSION" ]]; then
         echo "  version source: the walk's own record of the bundle it ran (~/.walk-artefact-version)"
     else
-        INSTALLED_VERSION="$(ssh -o BatchMode=yes -o ConnectTimeout=8 "$BOX" \
+        INSTALLED_VERSION="$(ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$BOX" \
             '/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" \
                  /Applications/OstlerInstaller.app/Contents/Info.plist 2>/dev/null' 2>/dev/null \
             | tr -d '[:space:]')"
@@ -680,7 +680,7 @@ if [[ -n "$CUT_VERSION" ]]; then
     ARTEFACT_SHA_SOURCE="asserted-unverifiable(not attempted)"
 
     _dmg_err="$(mktemp)"
-    _dmg_list="$(ssh -o BatchMode=yes -o ConnectTimeout=8 "$BOX" \
+    _dmg_list="$(ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$BOX" \
         'for d in "$HOME/Downloads" "$HOME/Desktop" "$HOME"; do
              [ -d "$d" ] && find "$d" -maxdepth 1 -type f -name "OstlerInstaller-*.dmg" -print
          done' 2>"$_dmg_err")"
@@ -703,7 +703,7 @@ if [[ -n "$CUT_VERSION" ]]; then
         [[ -z "$_matched" ]] && _n_matched=0
 
         if [[ "$_n_matched" -eq 1 ]]; then
-            _hash="$(ssh -o BatchMode=yes -o ConnectTimeout=8 "$BOX" \
+            _hash="$(ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$BOX" \
                 "shasum -a 256 -- '${_matched}'" | awk '{print $1}')"
             if [[ "$_hash" =~ ^[0-9a-fA-F]{64}$ ]]; then
                 ARTEFACT_SHA="$_hash"
