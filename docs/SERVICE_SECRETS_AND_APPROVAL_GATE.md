@@ -68,14 +68,15 @@ folder. Today's exposure is limited because Hub chat and the messaging
 channels exclude `shell` (`[autonomy].non_cli_excluded_tools`, #2385), so this
 is reachable from the CLI and from any path that still offers `shell`.
 
-**Next fix (#2411, not in this PR):** in ostler-assistant, end the policy with
-`(deny file-read* file-write*)` for `~/.ostler/secrets`, `~/.ostler/.env`,
-`~/.ostler/config/.env`, `~/.ostler/assistant-config`,
-`~/.ostler/ostler-store-auth.conf`, and `(deny file-write*)` for
-`~/Library/LaunchAgents`; and take the workspace from the configured
-workspace directory, never from the process's current directory. Proof shape:
-the table above re-run against the new policy, secrets 0 bytes, LaunchAgents
-write denied, controls unchanged.
+**Fixed in ostler-ai/ostler-assistant#419** (merged 9dcce771; it reaches customers
+only in a hub build pinned into a cut). The sandbox now takes the CONFIGURED
+workspace, never the process's cwd, and refuses `$HOME`, `/`, and any ancestor
+of `~/.ostler`. The policy denies `~/.ostler`, `~/.ssh` and `~/.gnupg`, then
+re-allows a workspace inside `~/.ostler`, and ends with the secret denials and
+the LaunchAgents write denial. Same probes, new policy: 0 bytes from every
+secret, `~/.ssh` 0 entries, and writes to LaunchAgents, next to the daemon
+binary, to a home dotfile and to `~/.ostler/bin` all denied. Workspace and
+`/tmp` writes are still allowed, and both controls are still denied.
 
 ## 4. Out-of-process approval gate (#2413, design only, not built)
 
@@ -107,8 +108,7 @@ Design:
 5. **Fail closed:** sentinel down means outbound actions are refused and the
    assistant says so; it never falls back to acting directly.
 
-Order of work: (a) the policy deny list in section 3, which needs no new
-process; (b) the sentinel for outbound messaging, the highest-harm action; (c)
+Order of work: (a) the policy fix in section 3 (done, #419); (b) the sentinel for outbound messaging, the highest-harm action; (c)
 move service tokens behind it, at which point the Keychain question in
 section 2 becomes "the sentinel's Keychain item, readable only by the
 sentinel's signed binary", which is the version that actually keeps secrets
