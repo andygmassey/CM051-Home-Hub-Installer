@@ -415,3 +415,31 @@ events (faces=off)" then "No Photos data to ingest", 10 of 10 runs.
 Both edits. Upstream HR015 `ostler_fda` should take them back; until it does,
 a sync that accepts divergence loss restores the dark writer. Gate:
 `tests/test_photo_events_reach_the_graph.py`, wired in privacy-spine.yml.
+
+## Added 2026-09-26. `ostler_fda`, photo events carry a place name (#2415)
+
+### The refusal, measured
+
+`HR015="<HR015 checkout>" scripts/regenerate_divergence_patch.sh ostler_fda --write`
+was re-run for this PR against a fresh HR015 checkout and REFUSED with "this
+is a RE-PIN, not a graft to record": the source is still one commit past pin
+c4e7396f on this tree (2866281, HR015 #977). Same limb as the 2026-09-24
+entry, measured again rather than inherited.
+
+### What was grafted, location and shape only
+
+- `vendor/ostler_fda/photos_metadata.py`: new `_place_label` (decodes the
+  NSKeyedArchiver reverse-geocode archive to a city-level "City, Country"
+  label; street, postcode and formatted address are never read), the macOS 26
+  query in `extract_photo_events` joins `ZADDITIONALASSETATTRIBUTES` for
+  `ZREVERSELOCATIONDATA`, and `PhotoEvent.location` is set from
+  `_place_label` instead of `None`. `import plistlib` added.
+
+WHY: `pwg:photoPlace` is written only when a label exists, and CM044 matches a
+photo to a place page only by that label, so "Photos here" was always empty.
+Local macOS 26.4 library: 0 of 1291 events labelled before, 970 after.
+
+### What a future sync must preserve
+
+The edit above. Gate: `tests/test_photo_events_carry_place_names.py`, wired in
+privacy-spine.yml.
