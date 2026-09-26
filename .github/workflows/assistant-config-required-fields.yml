@@ -36,6 +36,8 @@ on:
       - 'tests/test_skills_lockdown_config.sh'
       # #2385: Hub chat carries the chat tool set (render-and-parse, same emitter).
       - 'tests/test_hub_chat_carries_the_chat_tool_set.sh'
+      # v1.0.103 security pass: the command sandbox is pinned to Seatbelt.
+      - 'tests/test_assistant_sandbox_is_pinned_to_seatbelt.sh'
       - 'tests/test_reuse_run_keeps_the_daily_briefs.sh'
       # Wired 2026-09-06 (#1694). Same surface as the steps above -- the TOML
       # install.sh emits -- and it ran nowhere: scripts/tests/ was outside
@@ -90,6 +92,13 @@ jobs:
       - name: Hub chat carries the chat tool set, not all tools (#2385)
         if: always()
         run: bash tests/test_hub_chat_carries_the_chat_tool_set.sh
+
+      # v1.0.103 security pass. Same emitter: [security.sandbox] must pin
+      # backend = "sandbox-exec" (Seatbelt), not leave it to auto-detect.
+      # RED on pre-fix install.sh (no [security.sandbox] table).
+      - name: The assistant command sandbox is pinned to Seatbelt
+        if: always()
+        run: bash tests/test_assistant_sandbox_is_pinned_to_seatbelt.sh
 
       # #619. SAME EMITTER, DIFFERENT FAILURE MODE: not "a table is present but
       # partial", but "a table the customer already had is regenerated EMPTY".
