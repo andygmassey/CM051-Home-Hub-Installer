@@ -459,83 +459,8 @@ _read_ram_gb() {
 # state, nothing about the model was learned). Unreadable -> CANNOT-RUN, and
 # NOT "absent", because "could not look" and "found nothing" print identically
 # and only one of them is evidence.
-# THE ROUTE THIS USED TO READ DOES NOT EXIST. It asked
-# /api/v1/memory/search, unauthenticated, through curl -f. The daemon has no
-# such route (measured on the v1.0.102 walk-4 box: 404 "unknown endpoint", with
-# or without the admin token), so the reading was empty on every box and this
-# probe was CANNOT-RUN on every walk it has ever been in, reported as "could
-# not read daemon memory" and never as "the instrument asks a route nobody
-# serves". The daemon's memory API is GET /api/memory?query= (recall, top 50)
-# and DELETE /api/memory/{key}, both behind the admin bearer token
-# (ostler-assistant crates/zeroclaw-gateway/src/lib.rs, the /api/memory
-# routes). python on the box, not curl, so the token never rides on a command
-# line and a refused read names its HTTP status instead of printing nothing.
-read -r -d '' MEMORY_PY <<'PYMEMORY'
-import json, os, sys, urllib.error, urllib.parse, urllib.request
-gw, tok_path, person, action = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
-urllib.request.install_opener(urllib.request.build_opener(urllib.request.ProxyHandler({})))
-try:
-    tok = open(os.path.expanduser(tok_path), encoding="utf-8").read().strip()
-except Exception as exc:
-    print("UNREADABLE token " + type(exc).__name__); sys.exit(0)
-H = {"Authorization": "Bearer " + tok}
-def call(method, path):
-    req = urllib.request.Request(gw + path, headers=H, method=method)
-    return urllib.request.urlopen(req, timeout=15)
-try:
-    if action == "read":
-        d = json.load(call("GET", "/api/memory?query=" + urllib.parse.quote(person)))
-        entries = d.get("entries") if isinstance(d, dict) else None
-        if not isinstance(entries, list):
-            print("UNREADABLE shape " + type(d).__name__); sys.exit(0)
-        hits = [e.get("key", "") for e in entries
-                if person.lower() in str(e.get("content") or "").lower()]
-        print("READ %d %d" % (len(entries), len(hits)))
-        for k in hits:
-            print("KEY " + k)
-    else:
-        ok = bad = 0
-        for k in sys.argv[5:]:
-            try:
-                call("DELETE", "/api/memory/" + urllib.parse.quote(k, safe=""))
-                ok += 1
-            except Exception:
-                bad += 1
-        print("FORGOT %d %d" % (ok, bad))
-except urllib.error.HTTPError as exc:
-    print("UNREADABLE http %d" % exc.code)
-except Exception as exc:
-    print("UNREADABLE " + type(exc).__name__)
-PYMEMORY
-
-_memory_mentions_person() {
-    # ${GATEWAY}, not a second hard-coded 127.0.0.1:8000. The refusal this
-    # feeds NAMES the URL it could not read, and a message that names one
-    # address while the reader used another is the shape that makes a probe's
-    # reason untrustworthy even when its verdict is right.
-    box_run "python3 - '${GATEWAY}' '${TOKEN_PATH}' '${KNOWN_PERSON}' read <<'PYMEMORY'
-${MEMORY_PY}
-PYMEMORY"
-}
-
-_memory_forget_keys() {
-    box_run "python3 - '${GATEWAY}' '${TOKEN_PATH}' '${KNOWN_PERSON}' forget $* <<'PYMEMORY'
-${MEMORY_PY}
-PYMEMORY"
-}
-
-# _read_memory_answer <reader output> -> UNREADABLE | ABSENT | PRESENT
-# One copy, driven by run_probe and by the self-test.
-_read_memory_answer() {
-    case "$1" in
-        "READ "*)
-            local n
-            n="$(printf '%s\n' "$1" | awk 'NR==1 {print $3}')"
-            case "$n" in ''|*[!0-9]*) printf 'UNREADABLE'; return ;; esac
-            if [ "$n" -gt 0 ]; then printf 'PRESENT'; else printf 'ABSENT'; fi ;;
-        *) printf 'UNREADABLE' ;;
-    esac
-}
+# The memory reader lives in lib/daemon_memory.sh, shared with the seed.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/daemon_memory.sh"
 
 # ── THE DECISIONS, ONE COPY EACH, DRIVEN BY run_probe AND self_test ─────────
 #

@@ -217,6 +217,30 @@ exit $rc
 # because its whole purpose is to export into the environment the probes
 # inherit. Returns 0 when the gate variables are exported, 1 otherwise.
 # ---------------------------------------------------------------------------
+# Remove daemon memory naming the synthetic seed person, so a re-run of the
+# probe phase on the same box grades retrieval and not a remembered answer.
+# See lib/daemon_memory.sh for the measurement. Reported, never fatal: a purge
+# that could not run leaves the grounded probe to find out, in its own words.
+_gs_purge_daemon_memory() {
+    local _gs_lib _gs_m _gs_st _gs_keys _gs_f
+    _gs_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/daemon_memory.sh"
+    [ -f "${_gs_lib}" ] || { printf '  daemon memory purge: NOT RUN, %s is absent\n' "${_gs_lib}"; return 0; }
+    . "${_gs_lib}"
+    KNOWN_PERSON="${_gs_kp}"
+    _gs_m="$(_memory_mentions_person)"
+    _gs_st="$(_read_memory_answer "${_gs_m}")"
+    case "${_gs_st}" in
+        ABSENT)  printf '  daemon memory: holds nothing about the seed person (checked at %s/api/memory)\n' "${GATEWAY}" ;;
+        PRESENT)
+            _gs_keys="$(printf '%s\n' "${_gs_m}" | sed -n 's/^KEY //p' | tr '\n' ' ')"
+            _gs_f="$(_memory_forget_keys ${_gs_keys})"
+            _gs_st="$(_read_memory_answer "$(_memory_mentions_person)")"
+            printf '  daemon memory: removed what an earlier run taught it about the seed person (%s); re-read: %s\n' "${_gs_f:-no answer}" "${_gs_st}" ;;
+        *) printf '  daemon memory purge: COULD NOT READ (%s); the grounded probes will report what they find\n' "$(printf '%s' "${_gs_m:-<nothing>}" | head -1)" ;;
+    esac
+    return 0
+}
+
 grounding_seed_apply() {
     printf -- '--- GROUNDING SEED: a known person, before the grounded probe asks ---\n'
 
@@ -290,6 +314,7 @@ grounding_seed_apply() {
         # set when the operator keyed a real contact (that path returns above).
         export OSTLER_SEED_PERSON_IS_SYNTHETIC=1
         GROUNDING_SEED_STATE="seeded"
+        _gs_purge_daemon_memory
         printf '  SEEDED. The grounded probe gets its content assertion:\n'
         printf '    OSTLER_GATE_KNOWN_PERSON = %s\n' "${OSTLER_GATE_KNOWN_PERSON}"
         printf '    OSTLER_GATE_EXPECT_FACT  = %s\n\n' "${OSTLER_GATE_EXPECT_FACT}"
