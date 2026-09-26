@@ -41,6 +41,10 @@ kept="$(python3 -c "import sqlite3,sys;print(sqlite3.connect(sys.argv[1]).execut
 fail=0
 [ "$left" = "0" ] || { echo "FAIL: $left seed rows survived a purge the API refused (output: $out)"; fail=1; }
 [ "$kept" = "1" ] || { echo "FAIL: an unrelated row was removed"; fail=1; }
-case "$out" in "FORGOT 2 0 api=0 db=2") ;; *) echo "FAIL: output '$out' does not name the database fallback"; fail=1 ;; esac
+case "$(printf '%s\n' "$out" | head -1)" in "FORGOT 2 0 api=0 db=2") ;; *) echo "FAIL: output '$out' does not name the database fallback"; fail=1 ;; esac
+printf '%s\n' "$out" | grep -q -x 'WARN memory_forget_api: 2 of 2 present keys returned deleted=false' || { echo "FAIL: no WARN line naming the refused API forget (output: $out)"; fail=1; }
+# A database the probe cannot open must say why, not become a bare count.
+out2="$(OSTLER_PROBE_MEMORY_DB="$T/nope/brain.db" python3 "$T/mem.py" "http://127.0.0.1:${PORT}" "$T/tok" "Casey Example" forget core_x)"
+printf '%s\n' "$out2" | grep -q '^FORGET-DB-ERROR ' || { echo "FAIL: an unopenable database printed no reason (output: $out2)"; fail=1; }
 [ "$fail" = 0 ] && echo "PASS: deleted=false is not counted; the 2 seed rows went via the database fallback, the unrelated row stayed"
 exit "$fail"
