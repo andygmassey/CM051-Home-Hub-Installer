@@ -6,10 +6,15 @@
 # new rows. New rows: one per change landed since v1.0.102 candidate 5, each
 # with a capability pattern present at its fix commit and absent at the parent.
 #
+# DEFERRED TO v1.0.104 (deleted from this BOM, not lost), 2026-09-27:
+#   chat_answers_stream (oa #418), live_turn_steps_aside_background and
+#   live_chat_admitted_ahead_of_replay (oa #421). REVERTED in ostler-ai/ostler-assistant#426
+#   because together they wedged Ollama on the v1.0.103 candidate 2 walk (oa #425,
+#   CM051 #2427): a cancelled queued live acquire leaks live_pending, and the stream
+#   task holds the slot and connection after its receiver drops. Re-land with the
+#   leak fixes and a 35 min idle soak.
+#
 what	repo	ref	landed	capability_id	verify	ticket
-fix(daemon): chat answers stream token by token, tool turns included	CM051	87d1422d	no	chat_answers_stream	capability_matrix.sh gate	CM051 #2423 (oa #418)
-fix(daemon): a non-live generation in flight steps aside for a live chat turn	CM051	87d1422d	no	live_turn_steps_aside_background	capability_matrix.sh gate	CM051 #2423 (oa #421)
-fix(daemon): a live Hub chat turn is admitted ahead of replayed and background turns	CM051	87d1422d	no	live_chat_admitted_ahead_of_replay	capability_matrix.sh gate	CM051 #2423 (oa #421)
 fix(daemon): a chat reminder is never silent and can be cancelled by a word from it	CM051	87d1422d	no	chat_reminder_never_silent	capability_matrix.sh gate	CM051 #2423 (oa #420)
 fix(daemon): Seatbelt denies the service secrets and LaunchAgents writes	CM051	87d1422d	no	seatbelt_denies_secrets_and_launchagents	capability_matrix.sh gate	CM051 #2411 (oa #419)
 fix(daemon): Seatbelt workspace is the configured workspace, never $HOME or an ancestor of ~/.ostler	CM051	87d1422d	no	seatbelt_workspace_never_home	capability_matrix.sh gate	CM051 #2411 (oa #419)
