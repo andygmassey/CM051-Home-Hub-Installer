@@ -248,6 +248,8 @@ _ostler_persist_diagnostics() {
 #       daemon; nothing swapped, running daemon left untouched
 #   22  staging copy (ditto) of the payload daemon failed
 #   23  atomic swap (mv) failed
+#   24  ~/.ostler could not be restricted to 0700 (verified by stat);
+#       nothing swapped
 #   30  plist re-render (INSTALL_SNIPPET.sh) failed
 #   31  plist bootstrap (launchctl) failed
 #   40  VERSION write failed
@@ -490,6 +492,30 @@ _ostler_private_artefact() {
     _mode="$(/usr/bin/stat -f '%Lp' "${_d}" 2>/dev/null)" || return 1
     [ "${_mode}" = "700" ] || return 1
     printf '%s/%s' "${_d}" "${_name}"
+}
+
+# ── _ostler_lock_home_dir: ~/.ostler is 0700, VERIFIED, on every path ──────
+#
+# ~/.ostler holds the service secrets, the store credentials, the assistant
+# config and the customer's databases. Measured 2026-09-26 (v1.0.103 security
+# pass, Muse comparison): the directory itself was left 0755 on a box whose
+# first install predated the promote-time chmod, because that chmod lives
+# inside _ostler_promote_prelaunch_tree, which returns early when there is no
+# staging tree (every re-install and every Sparkle upgrade), and it was
+# `2>/dev/null || true`, so a mode that did not stick was indistinguishable
+# from one that did. Another local account could then list the tree.
+#
+# So: one function, three call sites (the start of every install over an
+# existing tree, the promote, and upgrade mode), and it VERIFIES the mode with
+# stat rather than trusting chmod's exit code. A failure is returned to the
+# caller, which fails loudly; nothing here falls back to "leave it as it was".
+_ostler_lock_home_dir() {
+    local _d="$1" _mode
+    [ -n "${_d}" ] || return 1
+    [ -d "${_d}" ] || return 0   # nothing to lock yet; the promote locks it
+    chmod 700 "${_d}" || return 1
+    _mode="$(/usr/bin/stat -f '%Lp' "${_d}")" || return 1
+    [ "${_mode}" = "700" ]
 }
 
 if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "1" ]]; then
@@ -952,6 +978,11 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         [[ -f "$_UPG_PAYLOAD_VERSION_FILE" ]] || _upg_die 10 "payload VERSION missing: ${_UPG_PAYLOAD_VERSION_FILE}"
         [[ -d "$_UPG_OSTLER_DIR" ]] || _upg_die 10 "no prior ~/.ostler install to upgrade"
         [[ -d "$_UPG_APP" ]] || _upg_die 10 "no installed OstlerAssistant.app to upgrade"
+        # An upgrade is the ONLY path most existing installs take, so the
+        # 0700 fix has to run here or it never reaches them. Before any swap.
+        _ostler_lock_home_dir "$_UPG_OSTLER_DIR" \
+            || _upg_die 24 "could not restrict ${_UPG_OSTLER_DIR} to 0700 (mode now $(/usr/bin/stat -f '%Lp' "$_UPG_OSTLER_DIR" 2>&1)); nothing swapped"
+        _upg_log "home dir mode 0700 verified: ${_UPG_OSTLER_DIR}"
 
         local _new_version
         _new_version="$(head -n1 "$_UPG_PAYLOAD_VERSION_FILE" 2>/dev/null | tr -d '[:space:]')"
@@ -2709,6 +2740,10 @@ OSTLER_FINAL_DIR="${HOME}/.ostler"
 # what lets the arm tell the two apart.
 _OSTLER_FINAL_PREEXISTED=false
 [[ -d "$OSTLER_FINAL_DIR" ]] && _OSTLER_FINAL_PREEXISTED=true
+# An install over an existing tree may never reach the promote's chmod (no
+# staging tree on a re-run), so lock it here, before any secret is touched.
+_ostler_lock_home_dir "$OSTLER_FINAL_DIR" \
+    || fail_with_code "ERR-02-OSTLER-DIR-NOT-PRIVATE" "Could not restrict ${OSTLER_FINAL_DIR} to owner-only access (mode 0700). Check who owns that folder, then run the installer again."  # i18n-exempt
 OSTLER_PRELAUNCH_DIR="${OSTLER_PRELAUNCH_DIR:-/tmp/ostler-prelaunch-$$}"
 
 # _ostler_set_paths $target_root rebinds OSTLER_DIR + every
@@ -3298,7 +3333,8 @@ _ostler_promote_prelaunch_tree() {
     _ostler_quiesce_interval_agents
 
     mkdir -p "$OSTLER_FINAL_DIR"
-    chmod 700 "$OSTLER_FINAL_DIR" 2>/dev/null || true
+    _ostler_lock_home_dir "$OSTLER_FINAL_DIR" \
+        || fail_with_code "ERR-02-OSTLER-DIR-NOT-PRIVATE" "Could not restrict ${OSTLER_FINAL_DIR} to owner-only access (mode 0700). Check who owns that folder, then run the installer again."  # i18n-exempt
 
     # Walk top-level entries in the staging tree and move them
     # into ~/.ostler/. Hidden entries (starting with .) included.
@@ -3334,14 +3370,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8240) captures the path BY
+    # _ostler_write_store_curl_config (defined :8276) captures the path BY
     # VALUE and never re-reads it:
-    #     :8241   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8286   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8295 and :15091, both of which run
+    #     :8277   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8322   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8331 and :15127, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :3329 above has just deleted
-    # that tree and :3333 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :3365 above has just deleted
+    # that tree and :3369 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -3353,16 +3389,16 @@ _ostler_promote_prelaunch_tree() {
     #
     # THE FILE MOVES, THE VALUE DOES NOT. This is NOT a new class and this
     # comment should not pretend to have found one. install.sh already carries
-    # it four times over, all catalogued at :353: #177 baked a staging path
+    # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15862, where the note reads
+    # WhatsApp Web session path did it again at :15898, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15879 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15915 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3371,13 +3407,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5860 against a definition at :8240. Top-level
+    # writer's own definition: :5896 against a definition at :8276. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8295, :15091) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8331, :15127) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17973 / :18151 / :18308 / :18650 path. There the
+    # :18027 / :18205 / :18362 / :18704 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -16213,6 +16249,24 @@ TOMLPREAMBLE
     echo "[skills]"
     echo "allow_scripts = false"
     echo "registry_url = \"\""
+
+    # Pin the command sandbox to macOS Seatbelt (sandbox-exec), explicitly.
+    #
+    # The daemon default is backend = "auto". MEASURED 2026-09-26 on a Mac
+    # with a working install (v1.0.103 security pass): auto picked Seatbelt
+    # ("macOS sandbox-exec (Seatbelt) enabled" in the assistant log), because
+    # zeroclaw-runtime security/detect.rs tries Bubblewrap first, which is not
+    # compiled in and not installed, then Seatbelt, then Docker. So today the
+    # pin changes nothing on a normal Mac. It is written anyway for the same
+    # reason allow_scripts is: the customer's isolation must not depend on an
+    # upstream auto-detect order that a runtime bump can reorder (Docker is on
+    # that list, and colima puts a docker on PATH). With an explicit backend,
+    # an unavailable Seatbelt is a WARN in the log naming sandbox-exec, never a
+    # quiet switch to something else.
+    echo
+    echo "[security.sandbox]"
+    echo "enabled = true"
+    echo "backend = \"sandbox-exec\""
 } > "$ASSISTANT_CONFIG"
 chmod 600 "$ASSISTANT_CONFIG"
 umask "$umask_orig"

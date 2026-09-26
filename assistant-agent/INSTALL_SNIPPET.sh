@@ -181,6 +181,19 @@ esc_pwg_token="$(printf '%s' "${PWG_SERVICE_TOKEN:-}" | sed 's/[&/\]/\\&/g')"
 # OSTLER_HOME prefix in the default install layout
 # ($HOME/.ostler/assistant-config). Substitute the most specific
 # token first so a later OSTLER_HOME pass cannot eat its prefix.
+# OWNER-ONLY (0600), NOT 0644. This plist carries PWG_SERVICE_TOKEN (the
+# bearer for every locked-down local service) and the customer's own
+# iMessage handles (phone number and email). ~/Library/LaunchAgents is 0755,
+# so at 0644 any other account on the Mac could read both. MEASURED
+# 2026-09-26 on a working install: this was the only 0644 LaunchAgent that
+# held a secret; com.ostler.doctor and com.ostler.ical-server carry the same
+# token and were already 0600. launchd reads a user agent as that user, so
+# 0600 loads exactly as before (proven on the box: bootout, bootstrap,
+# health 200). Written under umask 077 so the file is never world-readable,
+# not even between the write and the chmod, and the mode is VERIFIED.
+_snippet_umask_orig="$(umask)"
+umask 077
+rm -f "$RENDERED_PLIST"
 sed \
     -e "s/OSTLER_IMESSAGE_SELF_HANDLES_VALUE/$esc_self_handles/g" \
     -e "s/PWG_SERVICE_TOKEN_VALUE/$esc_pwg_token/g" \
@@ -189,8 +202,20 @@ sed \
     -e "s/OSTLER_BIN/$esc_bin/g" \
     -e "s/OSTLER_HOME/$esc_home/g" \
     "$ASSISTANT_PLIST_SRC" > "$RENDERED_PLIST"
+umask "$_snippet_umask_orig"
 
-chmod 0644 "$RENDERED_PLIST"
+chmod 0600 "$RENDERED_PLIST"
+# BSD stat on the Mac this ships to; GNU stat only where the Linux CI runs
+# this snippet against a sandboxed HOME (vendor-integrity).
+if [ "$(uname -s)" = "Darwin" ]; then
+    _rendered_mode="$(/usr/bin/stat -f '%Lp' "$RENDERED_PLIST")"
+else
+    _rendered_mode="$(stat -c '%a' "$RENDERED_PLIST")"
+fi
+if [ "$_rendered_mode" != "600" ]; then
+    echo "ostler-assistant install: $RENDERED_PLIST is mode $_rendered_mode, not 600; refusing to load a plist that holds the service token readable by other accounts" >&2
+    exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # 3. Load via launchctl bootstrap (idempotent: bootout if already loaded)
