@@ -179,7 +179,7 @@ _cs_box_exec() {
         # on a walk. Production never sets it.
         "${OSTLER_CONVO_SEED_LOCAL_SH:-/bin/sh}" -c "$1"
     else
-        /usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=10 \
+        /usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
             -o StrictHostKeyChecking=accept-new "$OSTLER_BOX_HOST" "$1"
     fi
 }
@@ -194,7 +194,7 @@ _cs_box_exec_stdin() {
         # on a walk. Production never sets it.
         "${OSTLER_CONVO_SEED_LOCAL_SH:-/bin/sh}" -c "$1"
     else
-        /usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=10 \
+        /usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
             -o StrictHostKeyChecking=accept-new "$OSTLER_BOX_HOST" "$1"
     fi
 }

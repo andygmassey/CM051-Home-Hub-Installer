@@ -71,6 +71,7 @@ on:
       - 'tests/test_probe_pgrep_is_scoped_to_this_account.sh'
       - 'tests/test_no_probe_lives_outside_the_walk_glob.sh'
       - 'tests/test_the_walk_seeds_the_grounded_probe.sh'
+      - 'tests/test_every_walk_ssh_gives_up_on_a_dead_link.sh'
       - 'tests/test_the_seed_forgets_what_the_walk_taught.sh'
       - 'scripts/box_walk_probes/lib/daemon_memory.sh'
       - 'tests/test_the_walk_waits_for_converge.sh'
@@ -729,6 +730,10 @@ jobs:
       - name: The walk seeds the grounded probe, and a failed seed is not a FAIL
         if: always()
         run: /bin/bash tests/test_the_walk_seeds_the_grounded_probe.sh
+
+      - name: Every walk ssh gives up on a dead link instead of hanging the walk
+        if: always()
+        run: /bin/bash tests/test_every_walk_ssh_gives_up_on_a_dead_link.sh
 
       - name: The seed forgets what an earlier run taught the daemon about the seed person, and nothing else
         if: always()

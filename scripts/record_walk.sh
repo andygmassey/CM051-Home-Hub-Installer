@@ -170,7 +170,7 @@ if [[ -z "$VERSION" ]]; then
     # "looked, found nothing". `cat` on an absent file exits 1, which is a real
     # measurement: the file is not there.
     _ssh_rc=0
-    VERSION="$(ssh -o ConnectTimeout=10 -o BatchMode=yes "$HOST" \
+    VERSION="$(ssh -o ConnectTimeout=10 -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$HOST" \
         'cat ~/.walk-artefact-version 2>/dev/null' 2>/dev/null)" || _ssh_rc=$?
     VERSION="$(printf '%s' "$VERSION" | tr -d '[:space:]')"
     if [[ "$_ssh_rc" -eq 255 ]]; then

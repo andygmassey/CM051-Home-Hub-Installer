@@ -137,7 +137,7 @@ _ps_box_exec() {
     if [ -z "${OSTLER_BOX_HOST:-}" ]; then
         /bin/sh -c "$1"
     else
-        /usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=10 \
+        /usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
             -o StrictHostKeyChecking=accept-new "$OSTLER_BOX_HOST" "$1"
     fi
 }
@@ -146,7 +146,7 @@ _ps_box_exec_stdin() {
     if [ -z "${OSTLER_BOX_HOST:-}" ]; then
         /bin/sh -c "$1"
     else
-        /usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=10 \
+        /usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
             -o StrictHostKeyChecking=accept-new "$OSTLER_BOX_HOST" "$1"
     fi
 }
