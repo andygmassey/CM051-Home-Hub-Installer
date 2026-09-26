@@ -40,6 +40,7 @@ on:
       - 'lib/ostler-ingest-slot.sh'
       - 'tests/test_ingest_slot_fairness.sh'
       - 'tests/test_a_hung_slot_holder_is_stopped.sh'
+      - 'tests/test_live_chat_outranks_the_ingest_slot.sh'
       - 'tests/test_prelaunch_libs_survive_promote.sh'
       - 'vendor/email_source/bin/email-bundle-tick.sh'
       - 'vendor/imessage_source/bin/imessage-bundle-tick.sh'
@@ -55,6 +56,7 @@ on:
       - 'lib/ostler-ingest-slot.sh'
       - 'tests/test_ingest_slot_fairness.sh'
       - 'tests/test_a_hung_slot_holder_is_stopped.sh'
+      - 'tests/test_live_chat_outranks_the_ingest_slot.sh'
       - 'tests/test_prelaunch_libs_survive_promote.sh'
       - 'vendor/email_source/bin/email-bundle-tick.sh'
       - 'vendor/imessage_source/bin/imessage-bundle-tick.sh'
@@ -94,6 +96,15 @@ jobs:
       - name: A hung slot holder is stopped, a busy one is not
         if: success() || failure()
         run: bash tests/test_a_hung_slot_holder_is_stopped.sh
+
+      # #2385. A live chat turn outranks every feed: acquire refuses while the
+      # daemon's interactive-chat marker is fresh, a waiting feed gives up, and
+      # a holder's payload is stopped within a poll. RED on the pre-fix lib
+      # (3 of 7); stale marker, no marker, TTL=0 and no-chat holder are the
+      # controls that must stay green.
+      - name: A live chat turn outranks the ingest slot (#2385)
+        if: success() || failure()
+        run: bash tests/test_live_chat_outranks_the_ingest_slot.sh
 
       # Sections 1 to 6 above prove the lib arbitrates fairly; Section 7
       # proves install.sh CARRIES it. Neither can see whether it arrives.

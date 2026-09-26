@@ -3338,7 +3338,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8241   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8286   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8295 and :15091, both of which run
+    # Its two top-level arming calls are :8295 and :15155, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3329 above has just deleted
     # that tree and :3333 has just rebound OSTLER_DIR to the final one, so
@@ -3356,13 +3356,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :353: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15862, where the note reads
+    # WhatsApp Web session path did it again at :15926, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15879 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :15943 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3375,9 +3375,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8295, :15091) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8295, :15155) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :17949 / :18127 / :18284 / :18626 path. There the
+    # :18013 / :18191 / :18348 / :18690 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -9727,6 +9727,42 @@ _OSTLER_SLOT_MAX_HOLD="${OSTLER_SLOT_MAX_HOLD_SECS:-180}"
 _OSTLER_SLOT_WAIT="${OSTLER_SLOT_WAIT_SECS:-75}"
 _OSTLER_SLOT_GRACE="${OSTLER_SLOT_GRACE_SECS:-60}"
 _OSTLER_SLOT_POLL="${OSTLER_SLOT_POLL_SECS:-5}"
+
+# --- live chat outranks every background feed (#2385) -----------------
+# The daemon touches this marker when a live chat turn starts (the Hub
+# app's /ws/chat and every iMessage / WhatsApp / email reply). The ticks
+# already yield at TICK START when it is fresh, but that was the only
+# place anything looked at it. MEASURED on the v1.0.102 walk box: a feed
+# that had been waiting as "starving" took the slot the moment the
+# holder let go and dispatched a summary 62s into a live turn, and an
+# in-flight summary (35-105s per call, more under load) kept decoding on
+# the one model while the user waited. Live replies took 287s, 308s and
+# timed out at 900s with ingest running.
+#
+# So the slot itself now honours the marker, in both places a feed can
+# get or keep the model: acquire refuses while a live turn is fresh, and
+# the holder's watchdog stops its payload within one poll. Stopping is
+# the same clean, watermarked stop as the max-hold path, so no work is
+# lost, only redone. Same path and TTL knobs as the ticks.
+#   OSTLER_INTERACTIVE_MARKER    -> marker path override
+#   OSTLER_INTERACTIVE_TTL_SECS  -> freshness window (default 120; 0 off)
+_OSTLER_SLOT_IMARKER="${OSTLER_INTERACTIVE_MARKER:-${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/interactive-chat.active}"
+_OSTLER_SLOT_ITTL="${OSTLER_INTERACTIVE_TTL_SECS:-120}"
+
+# Returns 0 when a live chat turn touched the marker within the TTL.
+# Fail-open for background work: absent marker, unreadable mtime, a TTL
+# of 0 or a non-number all return 1, so a stat quirk can never wedge
+# ingestion forever.
+_ostler_slot_chat_active() {
+    case "$_OSTLER_SLOT_ITTL" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$_OSTLER_SLOT_ITTL" -gt 0 ] || return 1
+    [ -f "$_OSTLER_SLOT_IMARKER" ] || return 1
+    local m age
+    m="$(stat -f %m "$_OSTLER_SLOT_IMARKER" 2>/dev/null || stat -c %Y "$_OSTLER_SLOT_IMARKER" 2>/dev/null || true)"
+    case "$m" in ''|*[!0-9]*) return 1 ;; esac
+    age=$(( $(_ostler_slot_now) - m ))
+    [ "$age" -ge 0 ] && [ "$age" -lt "$_OSTLER_SLOT_ITTL" ]
+}
 # How long a holder's payload may burn ZERO cpu before it is called hung
 # rather than busy. The max-hold watchdog below only arms when another feed is
 # ENROLLED AND WAITING, which is deliberate -- a multi-hour backfill on an idle
@@ -10012,6 +10048,13 @@ ostler_slot_acquire() {
     mkdir -p "$(dirname "$_OSTLER_SLOT_DIR")" 2>/dev/null || true
     _ostler_slot_state_set "$_OSTLER_SLOT_FEED" feed "$_OSTLER_SLOT_FEED"
 
+    # A live chat turn outranks every feed (#2385). Not a starvation
+    # event: nothing is bumped, the next tick simply tries again.
+    if _ostler_slot_chat_active; then
+        _ostler_slot_log "live chat in progress; not taking the model slot this tick (next tick retries)."
+        return 1
+    fi
+
     # Uncontended: take it and go.
     if _ostler_slot_take; then
         return 0
@@ -10059,6 +10102,14 @@ ostler_slot_acquire() {
 
         if [ -d "$_OSTLER_SLOT_DIR" ] && ! _ostler_slot_holder_alive; then
             _ostler_slot_reclaim_if_dead
+        fi
+
+        # Re-check on EVERY poll: the chat may have started while we waited.
+        # This is the path the walk box caught dispatching mid-turn.
+        if _ostler_slot_chat_active; then
+            _ostler_slot_log "live chat started while waiting; giving up this tick (next tick retries)."
+            _ostler_slot_withdraw
+            return 1
         fi
 
         if [ ! -d "$_OSTLER_SLOT_DIR" ]; then
@@ -10213,6 +10264,19 @@ _ostler_slot_watchdog() {
         kill -0 "$work_pid" 2>/dev/null || return 0
         [ -d "$_OSTLER_SLOT_DIR" ] || return 0
         now="$(_ostler_slot_now)"
+        # LIVE CHAT FIRST (#2385). Checked before the stall and max-hold
+        # paths and with no waiter gate: the waiter here is a person. Same
+        # clean, watermarked stop and the same keep-retrying-on-failure
+        # rule as the max-hold path below.
+        if _ostler_slot_chat_active; then
+            : > "$_OSTLER_SLOT_DIR/preempted" 2>/dev/null || true
+            _ostler_slot_log "live chat started; stopping cleanly so the reply gets the model. Progress is watermarked; the next tick resumes."
+            if _ostler_slot_kill_tree "$work_pid"; then
+                return 0
+            fi
+            _ostler_slot_log "stop attempt for live chat failed; the watchdog is STAYING UP and will retry each poll."
+            continue
+        fi
         # Read the deadline EVERY poll rather than using the value fixed at
         # acquire time: it does not exist until a waiter enrols, and the whole
         # correction in #783 is that enrolment is the event that starts it.
