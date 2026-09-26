@@ -6297,3 +6297,11 @@ open_issues:
     repo: CM051
     title: 'The opening-turn battery asks each opening against the memory of the openings before it'
     gate: 'GATED 2026-09-26. AN INSTRUMENT DEFECT, WITH A PRODUCT NOTE. Registered in the same action as the filing. MEASURED on the v1.0.102 candidate 4 box, the first run of assistant_grounds_the_opening_turn on any box: openings 1-6 grounded, 7-10 no_tool_call and reply_fact=no, consecutively. Precondition 1 was checked only before opening 1. FIX: _restore_precondition_before_opening runs before every opening, removes memory naming the SYNTHETIC seed person only, records the total carried, and is CANNOT-RUN when memory cannot be read or a purge does not take. GUARD: tests/test_every_opening_starts_from_clean_memory.sh drives the real function with the reader stubbed, 8 arms (carried memory removed and counted, opening 1 untouched, a real contact never purged, a stuck purge and an unreadable memory both CANNOT-RUN and stop the loop, the loop calls it); 5 of 8 FAIL on origin/main. Wired in walk-record-gate.yml. PRODUCT NOTE, not fixed here: once the daemon remembered the topic it stopped calling the tool AND answered without the fact.'
+  - issue: 2397
+    repo: CM051
+    title: 'Chat reminders go to the first announcing config job, so the delivery target depends on job order'
+    gate: 'NOT BLOCKING (v1.0.103 watch item from Archie review of ostler-ai/ostler-assistant#417). Registered in the same action as the filing. The home delivery a chat reminder falls back to is the first announcing config job, so reordering jobs changes where reminders go. WHAT CLOSES IT: home resolved from an explicit setting, with a test that reorders the jobs.'
+  - issue: 2398
+    repo: CM051
+    title: 'A chat reminder the model marks delivery "none" is still stored silent'
+    gate: 'NOT BLOCKING (v1.0.103 watch item from Archie review of ostler-ai/ostler-assistant#417). Registered in the same action as the filing. #417 fills the home delivery only when delivery is absent; an explicit "none" from the model still stores a reminder that tells nobody. WHAT CLOSES IT: an explicit none on a chat reminder treated as absent or refused, with a test.'
