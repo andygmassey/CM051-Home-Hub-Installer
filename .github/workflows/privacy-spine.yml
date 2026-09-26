@@ -81,6 +81,10 @@ jobs:
         if: always()
         run: python3 tests/test_photo_events_reach_the_graph.py
 
+      - name: Photo events carry a city-level place name for the wiki's Photos here
+        if: always()
+        run: python3 tests/test_photo_events_carry_place_names.py
+
       # #2361: executed against pyoxigraph, the engine the product speaks to.
       - name: Install pyoxigraph for the display-name tier test
         if: always()
