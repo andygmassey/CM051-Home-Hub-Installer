@@ -18,7 +18,7 @@ python3 - "$T/brain.db" <<'PY'
 import sqlite3, sys
 c = sqlite3.connect(sys.argv[1])
 c.execute("CREATE TABLE memories (id TEXT PRIMARY KEY, key TEXT NOT NULL UNIQUE, content TEXT NOT NULL)")
-c.executemany("INSERT INTO memories VALUES (?,?,?)", [("1","core_a","Casey Example is a synthetic person"),("2","daily_b","Casey Example again"),("3","core_keep","unrelated row")])
+c.executemany("INSERT INTO memories VALUES (?,?,?)", [("1","core_a","seed-person-zz9 is a synthetic person"),("2","daily_b","seed-person-zz9 again"),("3","core_keep","unrelated row")])
 c.commit()
 PY
 cat > "$T/stub.py" <<'PY'
@@ -35,7 +35,7 @@ PY
 python3 "$T/stub.py" > "$T/port" & SRV=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$T/port" ] && break; sleep 0.3; done
 PORT="$(head -1 "$T/port")"
-out="$(OSTLER_PROBE_MEMORY_DB="$T/brain.db" python3 "$T/mem.py" "http://127.0.0.1:${PORT}" "$T/tok" "Casey Example" forget core_a daily_b)"
+out="$(OSTLER_PROBE_MEMORY_DB="$T/brain.db" python3 "$T/mem.py" "http://127.0.0.1:${PORT}" "$T/tok" "seed-person-zz9" forget core_a daily_b)"
 left="$(python3 -c "import sqlite3,sys;print(sqlite3.connect(sys.argv[1]).execute('select count(*) from memories where key in (\"core_a\",\"daily_b\")').fetchone()[0])" "$T/brain.db")"
 kept="$(python3 -c "import sqlite3,sys;print(sqlite3.connect(sys.argv[1]).execute('select count(*) from memories where key=\"core_keep\"').fetchone()[0])" "$T/brain.db")"
 fail=0
@@ -44,7 +44,7 @@ fail=0
 case "$(printf '%s\n' "$out" | head -1)" in "FORGOT 2 0 api=0 db=2") ;; *) echo "FAIL: output '$out' does not name the database fallback"; fail=1 ;; esac
 printf '%s\n' "$out" | grep -q -x 'WARN memory_forget_api: 2 of 2 present keys returned deleted=false' || { echo "FAIL: no WARN line naming the refused API forget (output: $out)"; fail=1; }
 # A database the probe cannot open must say why, not become a bare count.
-out2="$(OSTLER_PROBE_MEMORY_DB="$T/nope/brain.db" python3 "$T/mem.py" "http://127.0.0.1:${PORT}" "$T/tok" "Casey Example" forget core_x)"
+out2="$(OSTLER_PROBE_MEMORY_DB="$T/nope/brain.db" python3 "$T/mem.py" "http://127.0.0.1:${PORT}" "$T/tok" "seed-person-zz9" forget core_x)"
 printf '%s\n' "$out2" | grep -q '^FORGET-DB-ERROR ' || { echo "FAIL: an unopenable database printed no reason (output: $out2)"; fail=1; }
 [ "$fail" = 0 ] && echo "PASS: deleted=false is not counted; the 2 seed rows went via the database fallback, the unrelated row stayed"
 exit "$fail"
