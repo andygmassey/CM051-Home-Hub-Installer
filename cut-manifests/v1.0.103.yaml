@@ -6328,7 +6328,7 @@ open_issues:
   - issue: 2411
     repo: CM051
     title: 'The assistant''s Seatbelt sandbox can read every service secret and write LaunchAgents'
-    gate: 'OPEN, NOT BUILT. Fix shape decided, proof not written. Registered in the same action as the filing. MEASURED on macstudio with the shipped policy and workspace = $HOME: sandboxed read of secrets/service_token 64 of 64 bytes, .env JWT line readable, write into ~/Library/LaunchAgents ALLOWED; controls (the macOS Shared folder, network) both denied. Exposure limited today because chat and the channels exclude shell (#2385). FIX SHAPE (ostler-assistant): deny rules for the secret paths and LaunchAgents writes, workspace from config not cwd. Needs a daemon build to reach a cut. Design: docs/SERVICE_SECRETS_AND_APPROVAL_GATE.md section 3.'
+    gate: 'OPEN. Fix raised as ostler-ai/ostler-assistant#419 (policy deny rules; box, old vs new policy: secrets 64 -> 0 bytes, LaunchAgents write ALLOWED -> denied, non-secret reads, workspace writes and both controls unchanged; unit 17/17, mutant red). Reaches customers only with a hub build pinned into the cut. Registered in the same action as the filing. MEASURED on macstudio with the shipped policy and workspace = $HOME: sandboxed read of secrets/service_token 64 of 64 bytes, .env JWT line readable, write into ~/Library/LaunchAgents ALLOWED; controls (the macOS Shared folder, network) both denied. Exposure limited today because chat and the channels exclude shell (#2385). Workspace from cwd ($HOME) is NOT changed by #419. Design: docs/SERVICE_SECRETS_AND_APPROVAL_GATE.md section 3.'
   - issue: 2412
     repo: CM051
     title: 'Service secrets are plaintext files; the Keychain move is blocked by consumers in the VM, launchd env and config.toml'
