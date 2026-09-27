@@ -130,6 +130,16 @@ on:
   # candidate-<ref>-<run>. The NO INPUTS half was and remains true. Found by TNM,
   # and it is the same shape as a header that outlived the change it described.
   workflow_dispatch:
+  # TAG REHEARSAL, BY REF NAME, NOT BY INPUT (verify_dispatch_cannot_ship.py
+  # rule 2: a dispatch declares no inputs). A dispatch on a branch named
+  # rehearse/v1.0.NN runs THIS preflight job in tag mode for v1.0.NN
+  # (OSTLER_CUT_IN_PROGRESS=1, the named version, every tag-only step), then
+  # STOPS: `cut` and `dry-run` are skipped for that ref, so nothing is built,
+  # signed, notarised, uploaded or tagged. v1.0.103 and v1.0.104 each spent
+  # their one tag push on a preflight refusal no dispatch could see.
+  # scripts/push_cut_tag.sh dispatches it and refuses to tag unless the run at
+  # the same SHA concluded success. Guarded by
+  # tests/test_rehearse_tag_is_the_tag_preflight.sh.
 
 permissions:
   # 🔴 READ, NOT WRITE. THE COMMENT THAT USED TO SIT ON THIS LINE NAMED A
@@ -237,6 +247,8 @@ jobs:
       # hotfix 1.0.13.1 selects the v1.0.13 line's manifest exactly as a real
       # cut of it would.
       - name: Resolve which cut this run is about
+        env:
+          REHEARSE_REF: ${{ startsWith(github.ref, 'refs/heads/rehearse/v1.0.') && github.ref_name || '' }}
         run: |
           set -euo pipefail
           # 🔴 THE SOURCE IS NOW EXPORTED, NOT JUST PRINTED (#171).
@@ -259,6 +271,10 @@ jobs:
             CUT_VERSION="${GITHUB_REF_NAME}"
             CUT_VERSION_SOURCE="tag"
             echo "source: tag push"
+          elif [ -n "${REHEARSE_REF:-}" ]; then
+            CUT_VERSION="${REHEARSE_REF#rehearse/}"
+            CUT_VERSION_SOURCE="tag"
+            echo "source: tag rehearsal on ${REHEARSE_REF} (no tag exists, nothing is built)"
           else
             VER="$(python3 -c 'import plistlib; print(plistlib.load(open("gui/OstlerInstaller/Info.plist","rb"))["CFBundleShortVersionString"])')"
             [ -n "$VER" ] || { echo "::error::could not read CFBundleShortVersionString from gui/OstlerInstaller/Info.plist" >&2; exit 1; }
@@ -389,7 +405,7 @@ jobs:
           # The check still RUNS on a dispatch and still PRINTS every blocking
           # row. It reports instead of refusing, so a candidate can be built and
           # walked and the rows can finally close.
-          OSTLER_CUT_IN_PROGRESS: ${{ github.event_name == 'push' && '1' || '0' }}
+          OSTLER_CUT_IN_PROGRESS: ${{ (github.event_name == 'push' || startsWith(github.ref, 'refs/heads/rehearse/v1.0.')) && '1' || '0' }}
           GH_TOKEN: ${{ github.token }}
         run: python3 tests/test_the_cut_checklist_is_complete.py
 
@@ -427,7 +443,7 @@ jobs:
           # The check still RUNS on a dispatch and still PRINTS every blocking
           # row. It reports instead of refusing, so a candidate can be built and
           # walked and the rows can finally close.
-          OSTLER_CUT_IN_PROGRESS: ${{ github.event_name == 'push' && '1' || '0' }}
+          OSTLER_CUT_IN_PROGRESS: ${{ (github.event_name == 'push' || startsWith(github.ref, 'refs/heads/rehearse/v1.0.')) && '1' || '0' }}
         run: python3 tests/test_strict_checks_are_back_on_before_a_cut.py
 
       # 🔴 THE DOCTOR PAGE IS THE ONE A CUSTOMER IS SENT TO WHEN SOMETHING IS
@@ -470,7 +486,7 @@ jobs:
           # The check still RUNS on a dispatch and still PRINTS every blocking
           # row. It reports instead of refusing, so a candidate can be built and
           # walked and the rows can finally close.
-          OSTLER_CUT_IN_PROGRESS: ${{ github.event_name == 'push' && '1' || '0' }}
+          OSTLER_CUT_IN_PROGRESS: ${{ (github.event_name == 'push' || startsWith(github.ref, 'refs/heads/rehearse/v1.0.')) && '1' || '0' }}
         run: |
           python3 -m pip install --quiet -r vendor/doctor/agent/requirements.txt
           python3 tests/test_the_doctor_page_is_on_brand.py
@@ -520,7 +536,7 @@ jobs:
           # The check still RUNS on a dispatch and still PRINTS every blocking
           # row. It reports instead of refusing, so a candidate can be built and
           # walked and the rows can finally close.
-          OSTLER_CUT_IN_PROGRESS: ${{ github.event_name == 'push' && '1' || '0' }}
+          OSTLER_CUT_IN_PROGRESS: ${{ (github.event_name == 'push' || startsWith(github.ref, 'refs/heads/rehearse/v1.0.')) && '1' || '0' }}
         run: |
           python3 -m pip install --quiet rdflib pyoxigraph
           python3 tests/test_a_forget_erases_the_fact_not_just_the_link.py
@@ -551,10 +567,10 @@ jobs:
       # adds nothing; and unlike the freshness self-tests it needs the checkout
       # to be the tag.
       - name: BOM rows must be in the pinned tree
-        if: startsWith(github.ref, 'refs/tags/v1.0.')
+        if: startsWith(github.ref, 'refs/tags/v1.0.') || startsWith(github.ref, 'refs/heads/rehearse/v1.0.')
         run: |
           set -euo pipefail
-          VER="${GITHUB_REF_NAME}"
+          VER="${GITHUB_REF_NAME#rehearse/}"
           echo "tag: ${VER}"
           bash scripts/verify_bom_rows_are_in_the_pin.sh "$VER"
 
@@ -980,7 +996,7 @@ jobs:
       # undoing the unmaskability the header above argues for. Keep both:
       # unmaskable where it can answer, silent where it cannot.
       - name: The installer's own version IS the version being cut
-        if: always() && startsWith(github.ref, 'refs/tags/v1.0.')
+        if: always() && (startsWith(github.ref, 'refs/tags/v1.0.') || startsWith(github.ref, 'refs/heads/rehearse/v1.0.'))
         run: bash tests/test_installer_version_matches_the_cut.sh "${CUT_VERSION}"
 
   cut:
@@ -1016,7 +1032,7 @@ jobs:
     # and a notarisation round trip. That is the price of finding out before
     # shipping rather than after, and it is smaller than a burnt version
     # number, of which two have already been spent learning this.
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !startsWith(github.ref, 'refs/heads/rehearse/v1.0.'))
     # macos-26, NOT macos-14. macos-14 carries Xcode 15.4 and gui/.xcode-version
     # pins 26.6 (17F113), so check-pbxproj-sync could only ever report
     # UNAVAILABLE on that image -- measured on the v1.0.26 cut. The DMG should
@@ -1796,7 +1812,7 @@ jobs:
   # ---------------------------------------------------------------------
   dry-run:
     needs: preflight
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && !startsWith(github.ref, 'refs/heads/rehearse/v1.0.')
     runs-on: macos-26
     timeout-minutes: 60
     # STRICTLY LESS THAN THE `cut` JOB'S, AND THAT IS THE POINT.
