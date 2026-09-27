@@ -14573,6 +14573,26 @@ if [ $(( $(now) - last )) -lt "$COOLDOWN_S" ]; then
     exit 0
 fi
 log "WEDGED: ${n} failed probes, idle cpu ${cpu}%, ${conns} client connections queued; restarting ${LABEL}"
+# Evidence first: a restart destroys the wedged state, so what it looked like
+# is written down before the kickstart. Kept: the newest EVIDENCE_KEEP files.
+EVIDENCE_DIR="${OSTLER_WATCHDOG_EVIDENCE_DIR:-${HOME}/.ostler/logs/ollama-wedge}"
+EVIDENCE_KEEP="${OSTLER_WATCHDOG_EVIDENCE_KEEP:-10}"
+OLLAMA_LOG_DIR_WD="${OSTLER_WATCHDOG_OLLAMA_LOG_DIR:-${HOME}/.ostler/logs}"
+mkdir -p "$EVIDENCE_DIR"
+ev="${EVIDENCE_DIR}/wedge-$(date -u +%Y%m%dT%H%M%SZ)-$$.txt"
+{
+    echo "== captured $(date -u +%Y-%m-%dT%H:%M:%SZ) probes=${n} cpu=${cpu}% client_conns=${conns}"
+    echo "== /api/ps"; curl -s --max-time 5 "${URL}/api/ps" 2>&1; echo
+    echo "== lsof :11434"; lsof -nP -iTCP:11434 2>&1
+    echo "== ollama processes"; ps -Ao pid,lstart,pcpu,rss,command 2>&1 | awk '/ollama|llama-server/ && !/awk/'
+    echo "== ollama open log files (a (deleted) marker means the log was unlinked while open)"
+    for _p in $(pgrep -f 'ollama serve' 2>/dev/null); do lsof -p "$_p" 2>/dev/null | awk '/ollama\.(err|log)/'; done
+    for _lf in ollama.err ollama.log; do
+        echo "== tail -n 200 ${_lf}"; tail -n 200 "${OLLAMA_LOG_DIR_WD}/${_lf}" 2>&1
+    done
+} > "$ev" 2>&1
+log "EVIDENCE ${ev}"
+ls -1t "$EVIDENCE_DIR"/wedge-*.txt 2>/dev/null | awk -v k="$EVIDENCE_KEEP" 'NR>k' | while IFS= read -r _old; do rm -f "$_old"; done
 if launchctl kickstart -k "gui/$(id -u)/${LABEL}"; then
     now > "$LAST"; rm -f "$FAILS"
     log "RESTARTED ${LABEL}"
