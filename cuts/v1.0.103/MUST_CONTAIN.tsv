@@ -15,6 +15,8 @@
 #   leak fixes and a 35 min idle soak.
 #
 what	repo	ref	landed	capability_id	verify	ticket
+fix(install): the Ollama watchdog treats any change in the serve log as progress, never restarting a GPU-busy engine	CM051	854f7a5c	no	ollama_watchdog_idle_is_no_progress	capability_matrix.sh gate	CM051 #2432 (#2445)
+fix(install): the promote merges logs/ so a running service's log keeps its path	CM051	854f7a5c	no	promote_merges_logs_dir	capability_matrix.sh gate	CM051 #2434 (#2445)
 pin(daemon): 0.4.88 a question that names a person reaches the graph every time (daemon prefetch, marked origin daemon_prefetch)	CM051	83fa4a57	no	graph_prefetch	capability_matrix.sh gate	CM051 #2438 (oa #428)
 fix(install): a watchdog heals a wedged Ollama, and writes the evidence before it restarts	CM051	2a7aceac	no	ollama_wedge_watchdog	capability_matrix.sh gate	CM051 #2432 (#2433)
 fix(daemon): a chat reminder is never silent and can be cancelled by a word from it	CM051	87d1422d	no	chat_reminder_never_silent	capability_matrix.sh gate	CM051 #2423 (oa #420)
