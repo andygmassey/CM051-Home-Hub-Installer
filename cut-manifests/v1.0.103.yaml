@@ -6342,6 +6342,10 @@ open_issues:
     repo: CM051
     title: 'Ollama wedges after hours of use: requests queue in ollama serve and are never dispatched'
     gate: '🔴 BLOCKING for v1.0.103 (WEDGE-103 2026-09-27). MEASURED on the v1.0.103 candidate 3 walk box (hub-v0.4.87, #418/#421 already reverted) ~3h after install: ollama serve held 24 assistant + 7 Doctor sockets, all with Recv-Q 0 / Send-Q 0; the llama-server runner was healthy (/health 200, both slots idle, 0% CPU) with NO connection from serve; direct embed and generate timed out. CONTROL: restarting com.ostler.ollama ALONE cured it (generate 200 in 12.6 s, embed 200 in 2.6 s, assistant untouched), so the wedge is in Ollama 0.34.0 scheduler dispatch, not an assistant leak. Trigger NOT INSTRUMENTED (serve log lost to an unlinked ollama.err; 40 rounds of synthetic mixed load did not reproduce). Fix for the cut: the ostler-ollama-watchdog backstop (restart only when version answers, embed fails twice, all Ollama processes idle, 15 min cooldown). CLOSES ON: a soak on a long-running assistant (>= 3h up, after a full probe phase) where generate and embed each answer within 30 s, or the watchdog log showing WEDGED -> RESTARTED followed by healthy probes.'
+  - issue: 2442
+    repo: CM051
+    title: 'The Ollama watchdog probes only /api/embed, so a generate-only wedge is never healed'
+    gate: 'NOT BLOCKING for v1.0.103, v1.0.104 (Archie ruling 2026-09-27). MEASURED on the v1.0.103 candidate 4 soak: at t+40m /api/chat timed out at 30 s while /api/embed answered in 0.11 s; that instance was contention (llama-server busy), but the watchdog decides WEDGED from embed probes only, so a generation runner that stops answering while embed still answers is never restarted. WHAT CLOSES IT: the watchdog also probes a 1-token /api/generate under the same idle-CPU and cooldown guards, writes which probe failed into the evidence file, and a test plants a generate-only failure and sees the restart.'
   - issue: 2434
     repo: CM051
     title: 'ollama.err was unlinked while Ollama still had it open, so the wedge evidence was lost'
