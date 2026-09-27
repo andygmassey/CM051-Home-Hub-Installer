@@ -3293,34 +3293,6 @@ _ostler_quiesce_interval_agents() {
     return 0
 }
 
-# Move one staging entry into the final tree. logs/ is MERGED, never replaced:
-# services started before the promote (Ollama at install step 5) already hold
-# ~/.ostler/logs/<file> open, and an rm -rf of that directory unlinks their
-# log for the rest of the process's life (#2434, measured on the v1.0.103
-# candidate 4 walk: ollama serve held a 126 MB ollama.err with no path, so the
-# #2432 wedge evidence had no log). Every other entry keeps the replace
-# semantics it always had.
-_ostler_promote_entry() {
-    local entry="$1" final="$2" name f b
-    name="$(basename "$entry")"
-    if [[ "$name" == "logs" ]] && [[ -d "$entry" ]] && [[ -d "${final}/logs" ]] && [[ ! -L "${final}/logs" ]]; then
-        for f in "$entry"/* "$entry"/.[!.]* "$entry"/..?*; do
-            [[ -e "$f" ]] || continue
-            b="$(basename "$f")"
-            if [[ -d "$f" ]] && [[ -e "${final}/logs/${b}" ]]; then
-                rm -rf "${final}/logs/${b}"
-            fi
-            mv -f "$f" "${final}/logs/${b}"
-        done
-        rmdir "$entry" 2>/dev/null || rm -rf "$entry"
-        return 0
-    fi
-    if [[ -e "${final}/${name}" ]]; then
-        rm -rf "${final}/${name}"
-    fi
-    mv "$entry" "${final}/${name}"
-}
-
 _ostler_promote_prelaunch_tree() {
     if [[ "$OSTLER_PRELAUNCH_PROMOTED" == "true" ]]; then
         return 0
@@ -3366,7 +3338,7 @@ _ostler_promote_prelaunch_tree() {
 
     # Walk top-level entries in the staging tree and move them
     # into ~/.ostler/. Hidden entries (starting with .) included.
-    local entry name
+    local entry name f
     for entry in "$OSTLER_PRELAUNCH_DIR"/* "$OSTLER_PRELAUNCH_DIR"/.[!.]* "$OSTLER_PRELAUNCH_DIR"/..?*; do
         [[ -e "$entry" ]] || continue
         name="$(basename "$entry")"
@@ -3382,7 +3354,15 @@ _ostler_promote_prelaunch_tree() {
         # observable window is one in which a reader sees the
         # target absent, which is the same window mv -f handles
         # internally on macOS for files (but not directories).
-        _ostler_promote_entry "$entry" "$OSTLER_FINAL_DIR"
+        if [[ "$name" == "logs" && -d "$entry" && -d "${OSTLER_FINAL_DIR}/logs" && ! -L "${OSTLER_FINAL_DIR}/logs" ]]; then
+            # #2434: MERGE logs/. Ollama starts before this promote and holds ~/.ostler/logs/ollama.err open; replacing the dir unlinks it for the process's life.
+            for f in "$entry"/* "$entry"/.[!.]* "$entry"/..?*; do [[ -e "$f" ]] || continue; [[ -d "$f" ]] && rm -rf "${OSTLER_FINAL_DIR}/logs/$(basename "$f")"; mv -f "$f" "${OSTLER_FINAL_DIR}/logs/"; done
+            rm -rf "$entry"; continue
+        fi
+        if [[ -e "${OSTLER_FINAL_DIR}/${name}" ]]; then
+            rm -rf "${OSTLER_FINAL_DIR}/${name}"
+        fi
+        mv "$entry" "${OSTLER_FINAL_DIR}/${name}"
     done
 
     # Wipe the now-empty staging dir (it should only contain the
@@ -3395,14 +3375,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8276) captures the path BY
+    # _ostler_write_store_curl_config (defined :8281) captures the path BY
     # VALUE and never re-reads it:
-    #     :8277   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8322   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8331 and :15247, both of which run
+    #     :8282   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8327   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8336 and :15285, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :3365 above has just deleted
-    # that tree and :3369 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :3370 above has just deleted
+    # that tree and :3374 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -3417,13 +3397,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :16018, where the note reads
+    # WhatsApp Web session path did it again at :16056, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :16035 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :16073 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3432,13 +3412,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :5896 against a definition at :8276. Top-level
+    # writer's own definition: :5901 against a definition at :8281. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8331, :15247) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8336, :15285) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :18147 / :18325 / :18482 / :18824 path. There the
+    # :18185 / :18363 / :18520 / :18862 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -14587,7 +14567,7 @@ fi
 # Progress reading: size of the serve process's stderr via its OPEN fd 2.
 serve_size() {
     local _p _s
-    _p=$(pgrep -f 'ollama serve' 2>/dev/null | head -1)
+    _p=$(pgrep -f 'ollama serve' 2>/dev/null | head -1 || true)
     [ -n "$_p" ] || { echo ""; return; }
     _s=$(lsof -a -p "$_p" -d 2 -Fs 2>/dev/null | awk '/^s[0-9]/{print substr($0,2); exit}')
     echo "$_s"

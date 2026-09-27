@@ -9,8 +9,12 @@ HOLD=""; W="$(mktemp -d)"; trap 'kill $HOLD 2>/dev/null; rm -rf "$W"' EXIT
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  ok   $*"; }
 bad() { FAIL=$((FAIL+1)); echo "  FAIL $*"; }
-awk '/^_ostler_promote_entry\(\) \{/{f=1} f{print} f&&/^\}/{exit}' "$ROOT/install.sh" > "$W/fn.sh"
-[ -s "$W/fn.sh" ] || { bad "install.sh has no _ostler_promote_entry"; echo "$PASS passed, $FAIL failed"; exit 1; }
+# Lift the promote's per-entry body (the logs/ merge branch plus the replace
+# branch) out of _ostler_promote_prelaunch_tree and wrap it as a function, so
+# the test runs the exact bytes the installer runs.
+awk '/^_ostler_promote_prelaunch_tree\(\) \{/{f=1} f&&/name="\$\(basename "\$entry"\)"/{g=1;next} g&&/^    done$/{exit} g{print}' "$ROOT/install.sh" > "$W/body.sh"
+grep -q 'name" == "logs"' "$W/body.sh" || { bad "the promote has no logs/ merge branch"; echo "$PASS passed, $FAIL failed"; exit 1; }
+{ echo '_ostler_promote_entry() {'; echo '  local entry="$1" OSTLER_FINAL_DIR="$2" name f; name="$(basename "$entry")"'; echo '  for _once in 1; do'; cat "$W/body.sh"; echo '  done'; echo '}'; } > "$W/fn.sh"
 . "$W/fn.sh"
 F="$W/final"; S="$W/stage"
 mkdir -p "$F/logs" "$S/logs" "$S/bin" "$F/bin"
