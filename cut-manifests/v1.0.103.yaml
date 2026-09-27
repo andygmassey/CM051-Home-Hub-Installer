@@ -6374,3 +6374,7 @@ open_issues:
     repo: CM051
     title: 'Hub chat answers arrive in one piece after generation; no token streaming on tool-bearing turns'
     gate: 'NOT BLOCKING (v1.0.103 scope item 4). Registered in the same action as the filing. Fix is ostler-ai/ostler-assistant#418 (native Ollama tool-call streaming; e2e test fails on main, passes on the fix). It reaches a customer only when a hub version built from an ostler-assistant main carrying #418 is pinned here. WHAT CLOSES IT: that pin, and a walk turn whose ws frames show more than one chunk before done.'
+  - issue: 2430
+    repo: CM051
+    title: 'Doctor page intermittently renders no source-status table, and the probe keeps no page body to say why'
+    gate: 'NOT BLOCKING for v1.0.103 (Aesop and Archie, 2026-09-27); owed to v1.0.104. Registered in the same action as the filing. MEASURED on candidate 3 (DMG 12af27be): doctor_page_renders_for_a_customer FAILED once at 00:24Z (200, 58882 bytes, no table), PASSED on re-run at 00:31Z, and 70 further polls were all tabled with no sentinel or activity rewrite near the FAIL. The only no-table path is render_source_status catching an exception from read_source_status; which one fired is NOT INSTRUMENTED because the probe keeps no page body. RETIREMENT CONDITION: the probe records the body (or the Could not read branch and its exception) on FAIL, and, if that branch is the cause, atomic sentinel and activity writes, proven by a walk.'
