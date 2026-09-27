@@ -15,6 +15,8 @@
 #   leak fixes and a 35 min idle soak.
 #
 what	repo	ref	landed	capability_id	verify	ticket
+pin(daemon): 0.4.88 a question that names a person reaches the graph every time (daemon prefetch, marked origin daemon_prefetch)	CM051	83fa4a57	no	graph_prefetch	capability_matrix.sh gate	CM051 #2438 (oa #428)
+fix(install): a watchdog heals a wedged Ollama, and writes the evidence before it restarts	CM051	2a7aceac	no	ollama_wedge_watchdog	capability_matrix.sh gate	CM051 #2432 (#2433)
 fix(daemon): a chat reminder is never silent and can be cancelled by a word from it	CM051	87d1422d	no	chat_reminder_never_silent	capability_matrix.sh gate	CM051 #2423 (oa #420)
 fix(daemon): Seatbelt denies the service secrets and LaunchAgents writes	CM051	87d1422d	no	seatbelt_denies_secrets_and_launchagents	capability_matrix.sh gate	CM051 #2411 (oa #419)
 fix(daemon): Seatbelt workspace is the configured workspace, never $HOME or an ancestor of ~/.ostler	CM051	87d1422d	no	seatbelt_workspace_never_home	capability_matrix.sh gate	CM051 #2411 (oa #419)
