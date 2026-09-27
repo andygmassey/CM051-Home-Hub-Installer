@@ -59,6 +59,7 @@ on:
       - 'tests/test_cut_dispatch_is_dry.sh'
       - 'scripts/push_cut_tag.sh'
       - 'tests/test_push_cut_tag_refuses_a_red_checklist.sh'
+      - 'tests/test_rehearse_tag_is_the_tag_preflight.sh'
       # Wired 2026-09-19. Row 1519 asks whether the dry run is reachable at
       # all, and said the decisive proof was to FIRE a dispatch. Arm 3 answers
       # it structurally, for free, on every PR: it walks the dry-run job's
@@ -348,6 +349,12 @@ jobs:
               || true
           fi
           python3 -c 'import yaml, sys; sys.stdout.write("PyYAML %s on %s\n" % (yaml.__version__, sys.version.split()[0]))'
+
+      # After the PyYAML step: this test parses cut.yml. Placed before it, the
+      # first run crashed on import and the mutant arms read the crash as caught.
+      - name: A tag rehearsal runs the tag preflight and builds nothing
+        if: always()
+        run: /bin/bash tests/test_rehearse_tag_is_the_tag_preflight.sh
 
       - name: The dry run is structurally reachable on a dispatch
         if: always()
