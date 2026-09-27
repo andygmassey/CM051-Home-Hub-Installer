@@ -6350,6 +6350,14 @@ open_issues:
     repo: CM051
     title: 'fda_extract logs Command failed inside a subshell six times while DONE reports errors=0'
     gate: 'NOT BLOCKING for v1.0.103 (Aesop, per Archie''s instruction 2026-09-27). MEASURED on the candidate 4 walk: install.log lines 537-542 carry the subshell failure at line 204 of step fda_extract while DONE says errors=0; the extract output is present on the box (12 files, apple_mail 40 MB). imessage_conversations.json is 7.5 KB, unexplained. WHAT CLOSES IT: a walk whose fda_extract either logs no error-level subshell failure or counts it in errors, with the reason for each failure named.'
+  - issue: 2447
+    repo: CM051
+    title: 'The opening-turn manifest re-run loses its seed, so it records CANNOT-RUN after phase 1 measured it'
+    gate: 'NOT BLOCKING for v1.0.103, v1.0.104 (Archie ruling 2026-09-27). A HARNESS DEFECT found on the candidate 5 walk; the probe was re-measured and passed (walks/v1.0.103.addendum.md).'
+  - issue: 2448
+    repo: CM051
+    title: 'people_stores_reconcile''s 600s cap is too short under first-run ingest'
+    gate: 'NOT BLOCKING for v1.0.103, v1.0.104 (Archie ruling 2026-09-27). A HARNESS DEFECT found on the candidate 5 walk; the probe was re-measured and passed (walks/v1.0.103.addendum.md).'
   - issue: 2434
     repo: CM051
     title: 'ollama.err was unlinked while Ollama still had it open, so the wedge evidence was lost'
