@@ -87,6 +87,7 @@ on:
       # records for test_post_walk_qa_measures_the_artefact.sh).
       - 'scripts/box_walk_probes/lib/preference_seed.sh'
       - 'tests/test_the_walk_seeds_the_preference_pair.sh'
+      - 'tests/test_cm019_bundle_accepts_the_payload_root.sh'
       # The conversation seed: the third write route, and the only one that
       # needs a model call. Same rule as the two lines above -- the lib and
       # its test go in the watch set together, or a PR could narrow the lib
@@ -770,6 +771,10 @@ jobs:
       - name: The walk seeds the preference pair, and both sides of the floor
         if: always()
         run: /bin/bash tests/test_the_walk_seeds_the_preference_pair.sh
+
+      - name: The cm019 bundle accepts the payload root the driver passes
+        if: always()
+        run: /bin/bash tests/test_cm019_bundle_accepts_the_payload_root.sh
 
       # THE THIRD WRITE ROUTE, AND THE ONLY ONE THAT NEEDS A MODEL CALL. The
       # two steps above give the walk a PERSON and a PREFERENCE. Nothing had

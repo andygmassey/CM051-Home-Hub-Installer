@@ -238,6 +238,18 @@ _ps_find_bundle() {
     PREFERENCE_SEED_BUNDLE_SRC=""
 
     if [ -n "${OSTLER_CM019_BUNDLE:-}" ]; then
+        # The payload root (<app>/Contents/Resources, the directory that holds
+        # install.sh) is the natural thing to pass, and on the v1.0.103
+        # candidate 4 walk it was passed: the seed then compared box files
+        # against a directory that has no services/ tree and read every one
+        # as "bundle MISSING", a CANNOT-RUN about the harness, not the box.
+        # Accept that shape by descending into cm019_preferences, and SAY SO.
+        if [ -f "${OSTLER_CM019_BUNDLE}/install.sh" ] \
+            && [ -d "${OSTLER_CM019_BUNDLE}/cm019_preferences" ]; then
+            PREFERENCE_SEED_BUNDLE="${OSTLER_CM019_BUNDLE}/cm019_preferences"
+            PREFERENCE_SEED_BUNDLE_SRC="OSTLER_CM019_BUNDLE (payload root; descended into cm019_preferences)"
+            return 0
+        fi
         if [ -d "${OSTLER_CM019_BUNDLE}" ]; then
             PREFERENCE_SEED_BUNDLE="${OSTLER_CM019_BUNDLE}"
             PREFERENCE_SEED_BUNDLE_SRC="OSTLER_CM019_BUNDLE"
