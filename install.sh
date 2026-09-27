@@ -3374,7 +3374,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8277   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8322   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8331 and :15127, both of which run
+    # Its two top-level arming calls are :8331 and :15247, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3365 above has just deleted
     # that tree and :3369 has just rebound OSTLER_DIR to the final one, so
@@ -3392,13 +3392,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15898, where the note reads
+    # WhatsApp Web session path did it again at :16018, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15915 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :16035 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3411,9 +3411,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8331, :15127) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8331, :15247) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :18027 / :18205 / :18362 / :18704 path. There the
+    # :18147 / :18325 / :18482 / :18824 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -14540,7 +14540,6 @@ LABEL="${OSTLER_WATCHDOG_LABEL:-com.ostler.ollama}"
 FAILS="${STATE_DIR}/ollama_watchdog.fails"
 LAST="${STATE_DIR}/ollama_watchdog.last_restart"
 LOCK="${STATE_DIR}/ollama_watchdog.lock"
-now() { date +%s; }
 log() { printf '%s ollama-watchdog: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 mkdir -p "$STATE_DIR"
 mkdir "$LOCK" 2>/dev/null || { log "previous probe still running; skipping"; exit 0; }
@@ -14568,7 +14567,7 @@ if [ "$cpu" -ge "$IDLE_PCT" ]; then
     exit 0
 fi
 last=$(cat "$LAST" 2>/dev/null || echo 0)
-if [ $(( $(now) - last )) -lt "$COOLDOWN_S" ]; then
+if [ $(( $(date +%s) - last )) -lt "$COOLDOWN_S" ]; then
     log "WEDGED but inside the ${COOLDOWN_S}s cooldown since the last restart; no restart"
     exit 0
 fi
@@ -14586,7 +14585,8 @@ ev="${EVIDENCE_DIR}/wedge-$(date -u +%Y%m%dT%H%M%SZ)-$$.txt"
     echo "== lsof :11434"; lsof -nP -iTCP:11434 2>&1
     echo "== ollama processes"; ps -Ao pid,lstart,pcpu,rss,command 2>&1 | awk '/ollama|llama-server/ && !/awk/'
     echo "== ollama open log files (a (deleted) marker means the log was unlinked while open)"
-    for _p in $(pgrep -f 'ollama serve' 2>/dev/null); do lsof -p "$_p" 2>/dev/null | awk '/ollama\.(err|log)/'; done
+    _serve_pids=$(pgrep -f 'ollama serve' 2>/dev/null || true)
+    for _p in $_serve_pids; do lsof -p "$_p" 2>/dev/null | awk '/ollama\.(err|log)/'; done
     for _lf in ollama.err ollama.log; do
         echo "== tail -n 200 ${_lf}"; tail -n 200 "${OLLAMA_LOG_DIR_WD}/${_lf}" 2>&1
     done
@@ -14594,7 +14594,7 @@ ev="${EVIDENCE_DIR}/wedge-$(date -u +%Y%m%dT%H%M%SZ)-$$.txt"
 log "EVIDENCE ${ev}"
 ls -1t "$EVIDENCE_DIR"/wedge-*.txt 2>/dev/null | awk -v k="$EVIDENCE_KEEP" 'NR>k' | while IFS= read -r _old; do rm -f "$_old"; done
 if launchctl kickstart -k "gui/$(id -u)/${LABEL}"; then
-    now > "$LAST"; rm -f "$FAILS"
+    date +%s > "$LAST"; rm -f "$FAILS"
     log "RESTARTED ${LABEL}"
 else
     log "RESTART FAILED for ${LABEL}"

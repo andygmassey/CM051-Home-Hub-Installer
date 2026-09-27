@@ -244,6 +244,10 @@ jobs:
       # failure there would otherwise skip this, which is exactly what
       # scripts/verify_ci_steps_are_maskless.py exists to stop. Adding a step
       # can mask the one after it; the gate caught mine.
+      - name: The Ollama wedge watchdog heals only a wedge, and writes its evidence first
+        if: always()
+        run: bash tests/test_ollama_watchdog_heals_only_a_wedge.sh
+
       - name: The existing LaunchAgent guards must still hold
         if: always()
         run: |
