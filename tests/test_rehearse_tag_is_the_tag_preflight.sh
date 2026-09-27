@@ -11,8 +11,12 @@ set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 check() {
 python3 - "$1" <<'PY'
-import sys, yaml
-p = sys.argv[1]; y = yaml.safe_load(open(p)); jobs = y["jobs"]
+import sys
+try:
+    import yaml
+    y = yaml.safe_load(open(sys.argv[1])); jobs = y["jobs"]; jobs["preflight"]["steps"]
+except Exception as e:
+    print("  CANNOT-RUN cannot read the workflow: %s: %s" % (type(e).__name__, e)); sys.exit(2)
 R = "startsWith(github.ref, 'refs/heads/rehearse/v1.0.')"
 bad = []
 if "preflight" not in jobs: bad.append("no preflight job")
@@ -41,12 +45,23 @@ sys.exit(1 if bad else 0)
 PY
 }
 pass=0; fail=0
-if check .github/workflows/cut.yml; then echo "  ok   cut.yml: rehearsal runs the tag preflight and nothing else"; pass=$((pass+1)); else echo "  FAIL cut.yml"; fail=$((fail+1)); fi
+# check exits 0 clean, 1 on a named violation, 2 when it could not read the
+# file. Only 1 WITH the expected violation counts as a mutant caught; 2
+# anywhere is CANNOT-RUN, never a pass (the first CI run crashed on a missing
+# PyYAML and every mutant arm read the crash as "caught").
+check .github/workflows/cut.yml; rc=$?
+[ $rc -eq 2 ] && { echo "CANNOT-RUN: could not read cut.yml"; exit 2; }
+if [ $rc -eq 0 ]; then echo "  ok   cut.yml: rehearsal runs the tag preflight and nothing else"; pass=$((pass+1)); else echo "  FAIL cut.yml"; fail=$((fail+1)); fi
+mutant() { # label, file, expected violation text
+  local out rc; out=$(check "$2"); rc=$?
+  if [ $rc -eq 2 ]; then echo "CANNOT-RUN: mutant '$1' could not be read"; exit 2; fi
+  if [ $rc -eq 1 ] && grep -qF -- "$3" <<<"$out"; then echo "  ok   mutant caught for the right reason: $1"; pass=$((pass+1));
+  else echo "  FAIL mutant survived or failed for another reason: $1 (rc=$rc)"; fail=$((fail+1)); fi
+}
 m=$(mktemp)
 sed "s/ \&\& !startsWith(github.ref, 'refs\/heads\/rehearse\/v1.0.'))\$/)/" .github/workflows/cut.yml > "$m"
 if cmp -s "$m" .github/workflows/cut.yml; then echo "  FAIL mutant 1 did not apply"; fail=$((fail+1));
-elif check "$m" >/dev/null; then echo "  FAIL mutant 1 (cut job reachable on a rehearsal) survived"; fail=$((fail+1));
-else echo "  ok   mutant 1 caught: cut job reachable on a rehearsal"; pass=$((pass+1)); fi
+else mutant "cut job reachable on a rehearsal" "$m" "job \`cut\` can run on a rehearse ref"; fi
 python3 - "$m" <<'PY'
 import sys
 p='.github/workflows/cut.yml'; s=open(p).read()
@@ -55,7 +70,6 @@ s=s.replace(a,"        if: startsWith(github.ref, 'refs/tags/v1.0.')\n        ru
 open(sys.argv[1],'w').write(s)
 PY
 if cmp -s "$m" .github/workflows/cut.yml; then echo "  FAIL mutant 2 did not apply"; fail=$((fail+1));
-elif check "$m" >/dev/null; then echo "  FAIL mutant 2 (BOM step skips rehearsal) survived"; fail=$((fail+1));
-else echo "  ok   mutant 2 caught: BOM-in-pin step skips the rehearsal"; pass=$((pass+1)); fi
+else mutant "BOM-in-pin step skips the rehearsal" "$m" "tag-only step skips rehearsal: BOM rows must be in the pinned tree"; fi
 rm -f "$m"
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
