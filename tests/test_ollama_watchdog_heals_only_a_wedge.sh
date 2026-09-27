@@ -47,7 +47,7 @@ cat > "$WORK/bin/lsof" <<'EOF'
 case "$*" in
   *-Fs*) [ "${SHIM_LOGSIZE:-}" = unreadable ] && exit 1
          f="${SHIM_SIZEFILE:-}"; n=100
-         if [ -n "$f" ]; then n=$(cat "$f" 2>/dev/null || echo 100); [ "${SHIM_GROW:-0}" = 1 ] && echo $((n+500)) > "$f"; fi
+         if [ -n "$f" ]; then n=$(cat "$f" 2>/dev/null || echo 100); [ "${SHIM_GROW:-0}" = 1 ] && echo $((n+500)) > "$f"; [ "${SHIM_SHRINK:-0}" = 1 ] && echo $((n/2)) > "$f"; fi
          printf 'p4242\nf2\ns%s\n' "$n"; exit 0 ;;
 esac
 echo "COMMAND PID"; echo "ostler-as 1"; echo "ostler-as 1"
@@ -97,7 +97,7 @@ S="$WORK/s4"; echo 1000 > "$WORK/size4"
 for i in 1 2 3; do SHIM_EMBED=000 SHIM_CPU=0.0 SHIM_GROW=1 SHIM_SIZEFILE="$WORK/size4" run busy "$S"; done
 [ "$(restarts busy)" = 0 ] && ok "busy on the GPU (3 fails, 0% cpu, log growing): no restart" || bad "restarted a busy server whose log was growing"
 [ "$(evcount "$WORK/s4")" = 0 ] && ok "busy: no evidence file (nothing was restarted)" || bad "busy wrote evidence"
-grep -q 'serve stderr grew' "$WORK/log.busy" && ok "busy is logged as progress, with the byte counts" || bad "no progress line logged"
+grep -q 'serve stderr changed' "$WORK/log.busy" && ok "busy is logged as progress, with the byte counts" || bad "no progress line logged"
 
 # 4b. MUTANT: restore the CPU-only guard; the GPU-busy case must now restart,
 # or case 4 proves nothing about the progress check.
@@ -112,6 +112,17 @@ for i in 1 2; do
         "$MUT" >> "$WORK/log.mut" 2>&1
 done
 [ "$(restarts mut)" = 1 ] && ok "MUST-FAIL mutant (CPU-only guard) restarts the GPU-busy server" || bad "the CPU-only mutant did not restart: case 4 is not a real assertion"
+
+# 4d. the rotation truncated the log: size SHRANK between probes. That is
+# change, so BUSY -> no restart. A -gt check would read it as idle.
+S="$WORK/s4d"; echo 100000 > "$WORK/size4d"
+for i in 1 2 3; do SHIM_EMBED=000 SHIM_CPU=0.0 SHIM_SHRINK=1 SHIM_SIZEFILE="$WORK/size4d" run shrink "$S"; done
+[ "$(restarts shrink)" = 0 ] && ok "log shrank (rotation) + failed probes: no restart" || bad "restarted after a rotation shrank the log"
+MUT2="$WORK/mutant_gt"; sed -e 's/if \[ "\$cur_size" != "\$prev_size" \]; then/if [ "$cur_size" -gt "$prev_size" ]; then/' "$SCRIPT" > "$MUT2"; chmod +x "$MUT2"
+grep -q 'cur_size" -gt "\$prev_size' "$MUT2" && ok "-gt mutation applied" || bad "-gt mutation did not apply"
+S="$WORK/s4dm"; echo 100000 > "$WORK/size4dm"
+for i in 1 2 3; do PATH="$WORK/bin:$PATH" SHIM_CALLS="$WORK/calls.gt" OSTLER_WATCHDOG_STATE_DIR="$S" OSTLER_WATCHDOG_EVIDENCE_DIR="$S/evidence" OSTLER_WATCHDOG_OLLAMA_LOG_DIR="$WORK/ologs" OSTLER_WATCHDOG_PROBE_S=1 SHIM_EMBED=000 SHIM_CPU=0.0 SHIM_SHRINK=1 SHIM_SIZEFILE="$WORK/size4dm" "$MUT2" >> "$WORK/log.gt" 2>&1; done
+[ "$(restarts gt)" -ge 1 ] && ok "MUST-FAIL mutant (-gt) restarts the busy engine whose log shrank" || bad "the -gt mutant did not restart: arm 4d is not a real assertion"
 
 # 4c. progress unreadable: fall back to CPU, and say so.
 S="$WORK/s4c"; for i in 1 2; do SHIM_EMBED=000 SHIM_CPU=85.0 SHIM_LOGSIZE=unreadable run fallback "$S"; done

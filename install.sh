@@ -14609,8 +14609,10 @@ conns=$(lsof -nP -iTCP:11434 -sTCP:ESTABLISHED 2>/dev/null | awk 'NR>1 && $1!="o
 log "PROBE-FAIL ${n}: embed http=${code:-none} (limit ${PROBE_S}s), ollama cpu=${cpu}%, client_conns=${conns}"
 [ "$n" -ge 2 ] || exit 0
 if [ -n "$cur_size" ] && [ -n "$prev_size" ]; then
-    if [ "$cur_size" -gt "$prev_size" ]; then
-        log "BUSY, not wedged (serve stderr grew ${prev_size} -> ${cur_size} bytes since the last probe); no restart"
+    # ANY change is progress: the rotation truncates ollama.err in place, so a
+    # busy engine can read SMALLER than last time. Only an unchanged size is idle.
+    if [ "$cur_size" != "$prev_size" ]; then
+        log "BUSY, not wedged (serve stderr changed ${prev_size} -> ${cur_size} bytes since the last probe); no restart"
         exit 0
     fi
     progress="no progress (serve stderr ${cur_size} bytes, unchanged since the last probe)"
