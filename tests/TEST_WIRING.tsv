@@ -466,6 +466,7 @@ test_probe_memory_purge_counts_only_real_deletions.sh	WIRED	.github/workflows/wa
 test_probe_pgrep_is_scoped_to_this_account.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_product_seed_regex_does_not_exclude_the_bundle.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_progress_bar_cannot_exceed_one_hundred.sh	WIRED	.github/workflows/install-gui-contract.yml
+test_promote_keeps_open_logs_linked.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_promote_scope_only_ever_grows.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_promote_scope_refuses_on_the_artefact.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_prompt_loops_gate.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
