@@ -317,6 +317,10 @@ while time.time() < deadline:
     t = ev.get("type", "?")
     if t == "tool_call":
         print("FRAME tool_call %s" % ev.get("name", "?"))
+        # WHO decided the call (ostler-assistant #428): "model", or "daemon_prefetch"
+        # for the lookup the daemon runs before asking the model. A daemon older than
+        # #428 sends no origin, and every call it made was the model's.
+        print("FRAME tool_origin %s %s" % (ev.get("name", "?"), ev.get("origin", "model")))
         # WAS THE CALL FILTERED, AND BY HOW MUCH TEXT.
         #
         # The frame stream records tool NAMES and nothing else, so a tool that

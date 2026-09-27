@@ -273,6 +273,10 @@ while time.time() < deadline:
     t = ev.get("type", "?")
     if t == "tool_call":
         print("FRAME tool_call %s" % ev.get("name", "?"))
+        # WHO decided the call (ostler-assistant #428): "model", or "daemon_prefetch"
+        # for the lookup the daemon runs before asking the model. A daemon older than
+        # #428 sends no origin, and every call it made was the model's.
+        print("FRAME tool_origin %s %s" % (ev.get("name", "?"), ev.get("origin", "model")))
         # WAS THE CALL FILTERED, AND BY HOW MUCH TEXT.
         #
         # The frame stream records tool NAMES and nothing else, so a tool that
@@ -476,6 +480,15 @@ _read_ram_gb() {
 
 # _classify_opening <frames-file>
 #   -> no_tool_call | tool_found_nothing | fact_missing_in_reply | grounded
+#
+# WHO FETCHED DOES NOT CHANGE THE VERDICT, AND IS REPORTED BESIDE IT. Since
+# ostler-assistant #428 (row 2220, Andy 2026-09-27) the daemon looks up a named
+# person itself before the model is asked, and marks that call
+# origin=daemon_prefetch (FRAME tool_origin). no_tool_call now means NEITHER the
+# model NOR the daemon fetched. A pass still needs a real pwg tool_result that
+# carried the fact AND a reply that carried it: a prefetch the model ignored is
+# fact_missing_in_reply, a FAIL. model_called and daemon_prefetched are counted
+# separately so the model's own tool-calling stays visible.
 _classify_opening() {
     _co_f="$1"
     _co_tool="$(grep -E '^FRAME tool_call ' "$_co_f" | grep -cE 'pwg_')"
@@ -654,6 +667,7 @@ run_probe() {
 
     # ── THE BATTERY: N fresh sessions, the seeded question FIRST in each ─────
     _grounded=0; _no_tool=0; _tool_no_fact=0; _reply_no_fact=0; _done=0
+    _model_called=0; _daemon_prefetched=0
     _client_fault=0; _client_refused=0; _silent=0; _unreadable=0
     _first_fault=""; _first_refusal=""; _sessions_announced=0
     _cold_n=0; _warm_n=0; _unk_n=0; _cold_ttft=""; _warm_ttft=""
@@ -734,6 +748,11 @@ run_probe() {
         # variable, no argument with the gate.
         _replyfact="$(grep -c '^FRAME reply_fact YES' "$_raw")"
         _toolname="$(sed -n 's/^FRAME tool_call \(pwg_[a-z_]*\).*/\1/p' "$_raw" | head -1)"
+        _by_model="$(grep -cE '^FRAME tool_origin pwg_[a-z_]* model$' "$_raw")"
+        _by_daemon="$(grep -cE '^FRAME tool_origin pwg_[a-z_]* daemon_prefetch$' "$_raw")"
+        [ "$_by_model" -gt 0 ] && _model_called=$((_model_called + 1))
+        [ "$_by_daemon" -gt 0 ] && _daemon_prefetched=$((_daemon_prefetched + 1))
+        probe_note "opening ${_i}: pwg calls by model=${_by_model} by daemon_prefetch=${_by_daemon}"
         _ttft="$(sed -n 's/^FRAME ttft_s //p' "$_raw" | head -1)"
         _tps="$(sed -n 's/^FRAME tok_per_s //p' "$_raw" | head -1)"
         _ntok="$(sed -n 's/^FRAME tokens //p' "$_raw" | head -1)"
@@ -776,7 +795,7 @@ run_probe() {
     # verdict must not be able to emit one by falling over.
     probe_note "memory carried between openings: ${_carried_total} entr(y/ies) about the seed person were removed before openings 2..${OPENINGS}"
     probe_examined "$_done" "opening turns completed on ${MODEL_TAG} (of ${OPENINGS} attempted)"
-    probe_note "model_tag=${MODEL_TAG} ram_gb=${RAM_GB:-unread} openings_completed=${_done} grounded=${_grounded} no_tool_call=${_no_tool} tool_found_nothing=${_tool_no_fact} fact_missing_in_reply=${_reply_no_fact} client_fault=${_client_fault} client_refused=${_client_refused} silent=${_silent} unreadable=${_unreadable}"
+    probe_note "model_tag=${MODEL_TAG} ram_gb=${RAM_GB:-unread} openings_completed=${_done} grounded=${_grounded} model_called=${_model_called} daemon_prefetched=${_daemon_prefetched} no_tool_call=${_no_tool} tool_found_nothing=${_tool_no_fact} fact_missing_in_reply=${_reply_no_fact} client_fault=${_client_fault} client_refused=${_client_refused} silent=${_silent} unreadable=${_unreadable}"
 
     # ── THE READING ─────────────────────────────────────────────────────────
     case "$(_read_the_battery "$_done" "$_grounded" "$_no_tool" "$_tool_no_fact" "$_reply_no_fact" "$MIN_OPENINGS")" in
@@ -834,6 +853,12 @@ self_test() {
     _arm "classify_opening/pwg_ tool, no fact"    "$(_classify_opening "$_d/o_nothing")"  tool_found_nothing
     _arm "classify_opening/fact held, not used"   "$(_classify_opening "$_d/o_ignored")"  fact_missing_in_reply
     _arm "classify_opening/grounded"              "$(_classify_opening "$_d/o_grounded")" grounded
+    # ostler-assistant #428: the daemon's own lookup counts only when the ANSWER
+    # used it. Prefetched and carried is grounded; prefetched and ignored is a FAIL.
+    printf 'FRAME tool_call pwg_people\nFRAME tool_origin pwg_people daemon_prefetch\nFRAME tool_fact YES\nFRAME reply_fact YES\nFRAME done\n' > "$_d/o_prefetch_used"
+    printf 'FRAME tool_call pwg_people\nFRAME tool_origin pwg_people daemon_prefetch\nFRAME tool_fact YES\nFRAME reply_fact NO\nFRAME done\n' > "$_d/o_prefetch_ignored"
+    _arm "classify_opening/daemon prefetch, answer used it"  "$(_classify_opening "$_d/o_prefetch_used")"    grounded
+    _arm "classify_opening/daemon prefetch, answer ignored"  "$(_classify_opening "$_d/o_prefetch_ignored")" fact_missing_in_reply
     _arm "classify_opening/non-pwg tool is not grounded" "$(_classify_opening "$_d/o_offgraph")" no_tool_call
 
     # ── _classify_client_run. ARM 2 IS THE ORIGINAL CRASHING INPUT: the exact

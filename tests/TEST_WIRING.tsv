@@ -303,6 +303,7 @@ test_governor_pause_throttle.sh	WIRED	.github/workflows/tests-unwired-sweep-al.y
 test_graph_db_pull_retry.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_grep_c_arith_safety.sh	WIRED	.github/workflows/grep-c-arith-safety.yml
 test_grep_row_cannot_be_satisfied_by_its_own_manifest.py	WIRED	.github/workflows/cut-manifest.yml
+test_grounding_reports_who_fetched.sh	WIRED	.github/workflows/every-probe-is-collected.yml
 test_gui_progress_emitter.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_hub_app_fetch_wired.sh	WIRED	.github/workflows/hub-app-fetch.yml
 test_hub_chat_carries_the_chat_tool_set.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
