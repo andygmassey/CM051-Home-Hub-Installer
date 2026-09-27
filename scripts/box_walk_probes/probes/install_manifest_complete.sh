@@ -174,7 +174,7 @@ self_test() {
     # A COMPLETE synthetic install: every REQUIRED (unconditional) launch_agent
     # present, so the only failure in each case below is the one it injects.
     local L
-    for L in com.ostler.stay-awake com.ostler.engine-supervisor com.ostler.ollama com.ostler.ollama-logrotate com.ostler.enrich com.ostler.export-scan com.ostler.doctor com.ostler.ical-server com.ostler.fda-rerun com.creativemachines.ostler.assistant com.creativemachines.ostler.email-ingest com.creativemachines.ostler.wiki-recompile com.creativemachines.ostler.editor-frontpage; do
+    for L in com.ostler.stay-awake com.ostler.engine-supervisor com.ostler.ollama com.ostler.ollama-logrotate com.ostler.ollama-watchdog com.ostler.enrich com.ostler.export-scan com.ostler.doctor com.ostler.ical-server com.ostler.fda-rerun com.creativemachines.ostler.assistant com.creativemachines.ostler.email-ingest com.creativemachines.ostler.wiki-recompile com.creativemachines.ostler.editor-frontpage; do
         printf '<plist><dict><key>Label</key><string>%s</string></dict></plist>\n' "$L" > "$la/$L.plist"
     done
     printf '[[cron.jobs]]\nid = "morning-brief"\n[[cron.jobs]]\nid = "evening-wrap"\n' > "$work/.ostler/assistant-config/config.toml"

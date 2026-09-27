@@ -57,6 +57,7 @@ on:
       # matching path entry means editing one of these does not trigger the
       # workflow that checks it.
       - 'tests/test_every_launchagent_is_torn_down.sh'
+      - 'tests/test_ollama_watchdog_heals_only_a_wedge.sh'
       - 'tests/test_uninstall_removes_every_launchagent_plist.sh'
       - 'tests/test_export_scan_plist_bootstrap_race_217.sh'
       - 'tests/test_stay_awake_agent_survives_installer_exit.sh'
@@ -250,6 +251,7 @@ jobs:
           set -uo pipefail
           rc_total=0
           for t in tests/test_every_launchagent_is_torn_down.sh \
+                   tests/test_ollama_watchdog_heals_only_a_wedge.sh \
                    tests/test_uninstall_removes_every_launchagent_plist.sh \
                    tests/test_export_scan_plist_bootstrap_race_217.sh \
                    tests/test_stay_awake_agent_survives_installer_exit.sh \
