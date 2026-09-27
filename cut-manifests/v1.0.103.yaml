@@ -6386,3 +6386,11 @@ open_issues:
     repo: CM051
     title: 'Doctor page intermittently renders no source-status table, and the probe keeps no page body to say why'
     gate: 'NOT BLOCKING for v1.0.103 (Aesop and Archie, 2026-09-27); owed to v1.0.104. Registered in the same action as the filing. MEASURED on candidate 3 (DMG 12af27be): doctor_page_renders_for_a_customer FAILED once at 00:24Z (200, 58882 bytes, no table), PASSED on re-run at 00:31Z, and 70 further polls were all tabled with no sentinel or activity rewrite near the FAIL. The only no-table path is render_source_status catching an exception from read_source_status; which one fired is NOT INSTRUMENTED because the probe keeps no page body. RETIREMENT CONDITION: the probe records the body (or the Could not read branch and its exception) on FAIL, and, if that branch is the cause, atomic sentinel and activity writes, proven by a walk.'
+  - issue: 2435
+    repo: CM051
+    title: 'Daemon graph prefetch: no box test that an L3 person is withheld from the prefetched lookup'
+    gate: 'NOT BLOCKING for v1.0.103 (Archie, review of ostler-ai/ostler-assistant#428); owed to v1.0.104. Registered in the same action as the filing. The prefetch goes through execute_tool_call and the identical HTTP call, so L3 filtering is identical by construction, but that is not measured. WHAT CLOSES IT: a box probe seeding a synthetic L3 person whose daemon_prefetch tool_result and reply both withhold them.'
+  - issue: 2436
+    repo: CM051
+    title: 'Daemon graph prefetch: check consolidation cannot turn the injected lookup block into a core_ memory attributed to the user'
+    gate: 'NOT BLOCKING for v1.0.103 (Archie, review of ostler-ai/ostler-assistant#428); owed to v1.0.104. Registered in the same action as the filing. WHAT CLOSES IT: a test that the [Looked up in the user''s own data] block is never consolidated as something the user said, and a post-walk box check of core_ memories.'
