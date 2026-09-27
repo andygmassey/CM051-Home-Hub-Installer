@@ -57,6 +57,8 @@ on:
       # self-edit note above.
       - 'scripts/verify_dispatch_cannot_ship.py'
       - 'tests/test_cut_dispatch_is_dry.sh'
+      - 'scripts/push_cut_tag.sh'
+      - 'tests/test_push_cut_tag_refuses_a_red_checklist.sh'
       # Wired 2026-09-19. Row 1519 asks whether the dry run is reachable at
       # all, and said the decisive proof was to FIRE a dispatch. Arm 3 answers
       # it structurally, for free, on every PR: it walks the dry-run job's
@@ -303,6 +305,12 @@ jobs:
       - name: A workflow_dispatch cannot publish
         if: always()
         run: /bin/bash tests/test_cut_dispatch_is_dry.sh
+
+      # v1.0.103's one tag push was refused at preflight because nothing ran the
+      # ship-mode checklist before the tag existed. push_cut_tag.sh runs it first.
+      - name: A cut tag is not pushed while the tag-time checklist is red
+        if: always()
+        run: /bin/bash tests/test_push_cut_tag_refuses_a_red_checklist.sh
 
       # THE OTHER HALF OF THE SAME QUESTION, AND IT IS NOT THE SAME TEST.
       # The suite above asks whether a dispatch can SHIP. This one asks whether

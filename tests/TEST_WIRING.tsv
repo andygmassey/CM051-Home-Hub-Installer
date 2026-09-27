@@ -474,6 +474,7 @@ test_provenance_gate_cannot_run_is_not_stale.sh	WIRED	.github/workflows/cut-gate
 test_provenance_gate_marker_read_is_not_piped.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_provenance_gate_refuses_when_it_examined_nothing.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_provenance_survives_the_filter_under_execution.py	WIRED	.github/workflows/install-abort-and-egress.yml
+test_push_cut_tag_refuses_a_red_checklist.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pyc_bytes_depend_on_compile_path.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pyc_seed_excludes_nested_ostler_app.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_qdrant_import_gate_refuses_empty_store.sh	WIRED	.github/workflows/launchd-plist-paths.yml
