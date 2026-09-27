@@ -58,6 +58,7 @@ on:
       # workflow that checks it.
       - 'tests/test_every_launchagent_is_torn_down.sh'
       - 'tests/test_ollama_watchdog_heals_only_a_wedge.sh'
+      - 'tests/test_promote_keeps_open_logs_linked.sh'
       - 'tests/test_uninstall_removes_every_launchagent_plist.sh'
       - 'tests/test_export_scan_plist_bootstrap_race_217.sh'
       - 'tests/test_stay_awake_agent_survives_installer_exit.sh'
@@ -247,6 +248,10 @@ jobs:
       - name: The Ollama wedge watchdog heals only a wedge, and writes its evidence first
         if: always()
         run: bash tests/test_ollama_watchdog_heals_only_a_wedge.sh
+
+      - name: The promote merges logs/ so a running service's log keeps its path (#2434)
+        if: always()
+        run: bash tests/test_promote_keeps_open_logs_linked.sh
 
       - name: The existing LaunchAgent guards must still hold
         if: always()

@@ -3293,6 +3293,34 @@ _ostler_quiesce_interval_agents() {
     return 0
 }
 
+# Move one staging entry into the final tree. logs/ is MERGED, never replaced:
+# services started before the promote (Ollama at install step 5) already hold
+# ~/.ostler/logs/<file> open, and an rm -rf of that directory unlinks their
+# log for the rest of the process's life (#2434, measured on the v1.0.103
+# candidate 4 walk: ollama serve held a 126 MB ollama.err with no path, so the
+# #2432 wedge evidence had no log). Every other entry keeps the replace
+# semantics it always had.
+_ostler_promote_entry() {
+    local entry="$1" final="$2" name f b
+    name="$(basename "$entry")"
+    if [[ "$name" == "logs" ]] && [[ -d "$entry" ]] && [[ -d "${final}/logs" ]] && [[ ! -L "${final}/logs" ]]; then
+        for f in "$entry"/* "$entry"/.[!.]* "$entry"/..?*; do
+            [[ -e "$f" ]] || continue
+            b="$(basename "$f")"
+            if [[ -d "$f" ]] && [[ -e "${final}/logs/${b}" ]]; then
+                rm -rf "${final}/logs/${b}"
+            fi
+            mv -f "$f" "${final}/logs/${b}"
+        done
+        rmdir "$entry" 2>/dev/null || rm -rf "$entry"
+        return 0
+    fi
+    if [[ -e "${final}/${name}" ]]; then
+        rm -rf "${final}/${name}"
+    fi
+    mv "$entry" "${final}/${name}"
+}
+
 _ostler_promote_prelaunch_tree() {
     if [[ "$OSTLER_PRELAUNCH_PROMOTED" == "true" ]]; then
         return 0
@@ -3354,10 +3382,7 @@ _ostler_promote_prelaunch_tree() {
         # observable window is one in which a reader sees the
         # target absent, which is the same window mv -f handles
         # internally on macOS for files (but not directories).
-        if [[ -e "${OSTLER_FINAL_DIR}/${name}" ]]; then
-            rm -rf "${OSTLER_FINAL_DIR}/${name}"
-        fi
-        mv "$entry" "${OSTLER_FINAL_DIR}/${name}"
+        _ostler_promote_entry "$entry" "$OSTLER_FINAL_DIR"
     done
 
     # Wipe the now-empty staging dir (it should only contain the
@@ -14528,7 +14553,16 @@ cat > "${OSTLER_DIR}/bin/ostler-ollama-watchdog" <<'OLLAMAWDEOF'
 #!/usr/bin/env bash
 # Heal a wedged Ollama: restart com.ostler.ollama only when the server
 # answers /api/version but cannot serve a tiny embed twice in a row while
-# every Ollama process is idle on CPU. Driven by com.ostler.ollama-watchdog.
+# Ollama makes NO PROGRESS. Driven by com.ostler.ollama-watchdog.
+#
+# IDLE MEANS NO PROGRESS, NOT LOW CPU (#2432, v1.0.103 candidate 4 soak).
+# On Apple Silicon inference runs on the GPU, so a server busy re-processing
+# 6-8k-token prompts reads 0-2% CPU. The CPU guard restarted exactly such a
+# server at 07:09Z and killed its in-flight work. Progress is read instead
+# from the size of the serve process's stderr, taken through lsof on the OPEN
+# fd, so it still counts when the log file has been unlinked (#2434). Any
+# growth since the previous probe is BUSY. CPU is only a fallback, used when
+# that size cannot be read at all, and the log line says so.
 set -uo pipefail
 URL="${OSTLER_OLLAMA_URL:-http://127.0.0.1:11434}"
 MODEL="${OSTLER_WATCHDOG_EMBED_MODEL:-nomic-embed-text}"
@@ -14540,6 +14574,7 @@ LABEL="${OSTLER_WATCHDOG_LABEL:-com.ostler.ollama}"
 FAILS="${STATE_DIR}/ollama_watchdog.fails"
 LAST="${STATE_DIR}/ollama_watchdog.last_restart"
 LOCK="${STATE_DIR}/ollama_watchdog.lock"
+SIZEF="${STATE_DIR}/ollama_watchdog.logsize"
 log() { printf '%s ollama-watchdog: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 mkdir -p "$STATE_DIR"
 mkdir "$LOCK" 2>/dev/null || { log "previous probe still running; skipping"; exit 0; }
@@ -14549,6 +14584,17 @@ if ! curl -s -o /dev/null --max-time 10 "${URL}/api/version"; then
     log "DOWN: /api/version did not answer; launchd KeepAlive owns this case, no action"
     exit 0
 fi
+# Progress reading: size of the serve process's stderr via its OPEN fd 2.
+serve_size() {
+    local _p _s
+    _p=$(pgrep -f 'ollama serve' 2>/dev/null | head -1)
+    [ -n "$_p" ] || { echo ""; return; }
+    _s=$(lsof -a -p "$_p" -d 2 -Fs 2>/dev/null | awk '/^s[0-9]/{print substr($0,2); exit}')
+    echo "$_s"
+}
+prev_size=$(cat "$SIZEF" 2>/dev/null || echo "")
+cur_size=$(serve_size)
+[ -n "$cur_size" ] && echo "$cur_size" > "$SIZEF"
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time "$PROBE_S" \
     "${URL}/api/embed" -d "{\"model\":\"${MODEL}\",\"input\":\"ok\"}" 2>/dev/null)
 if [ "$code" = "200" ]; then
@@ -14562,16 +14608,26 @@ cpu=$(ps -Ao pcpu=,comm= | awk '/ollama|llama-server/ {s+=$1} END {printf "%d", 
 conns=$(lsof -nP -iTCP:11434 -sTCP:ESTABLISHED 2>/dev/null | awk 'NR>1 && $1!="ollama"' | wc -l | tr -d ' ')
 log "PROBE-FAIL ${n}: embed http=${code:-none} (limit ${PROBE_S}s), ollama cpu=${cpu}%, client_conns=${conns}"
 [ "$n" -ge 2 ] || exit 0
-if [ "$cpu" -ge "$IDLE_PCT" ]; then
-    log "BUSY, not wedged (cpu ${cpu}% >= ${IDLE_PCT}%); no restart"
-    exit 0
+if [ -n "$cur_size" ] && [ -n "$prev_size" ]; then
+    if [ "$cur_size" -gt "$prev_size" ]; then
+        log "BUSY, not wedged (serve stderr grew ${prev_size} -> ${cur_size} bytes since the last probe); no restart"
+        exit 0
+    fi
+    progress="no progress (serve stderr ${cur_size} bytes, unchanged since the last probe)"
+else
+    # Progress unreadable: fall back to CPU, and say so.
+    if [ "$cpu" -ge "$IDLE_PCT" ]; then
+        log "BUSY, not wedged (progress unreadable; fallback cpu ${cpu}% >= ${IDLE_PCT}%); no restart"
+        exit 0
+    fi
+    progress="progress unreadable, fallback cpu ${cpu}%"
 fi
 last=$(cat "$LAST" 2>/dev/null || echo 0)
 if [ $(( $(date +%s) - last )) -lt "$COOLDOWN_S" ]; then
     log "WEDGED but inside the ${COOLDOWN_S}s cooldown since the last restart; no restart"
     exit 0
 fi
-log "WEDGED: ${n} failed probes, idle cpu ${cpu}%, ${conns} client connections queued; restarting ${LABEL}"
+log "WEDGED: ${n} failed probes, ${progress}, cpu ${cpu}%, ${conns} client connections queued; restarting ${LABEL}"
 # Evidence first: a restart destroys the wedged state, so what it looked like
 # is written down before the kickstart. Kept: the newest EVIDENCE_KEEP files.
 EVIDENCE_DIR="${OSTLER_WATCHDOG_EVIDENCE_DIR:-${HOME}/.ostler/logs/ollama-wedge}"
@@ -14580,7 +14636,7 @@ OLLAMA_LOG_DIR_WD="${OSTLER_WATCHDOG_OLLAMA_LOG_DIR:-${HOME}/.ostler/logs}"
 mkdir -p "$EVIDENCE_DIR"
 ev="${EVIDENCE_DIR}/wedge-$(date -u +%Y%m%dT%H%M%SZ)-$$.txt"
 {
-    echo "== captured $(date -u +%Y-%m-%dT%H:%M:%SZ) probes=${n} cpu=${cpu}% client_conns=${conns}"
+    echo "== captured $(date -u +%Y-%m-%dT%H:%M:%SZ) probes=${n} cpu=${cpu}% client_conns=${conns} serve_stderr_bytes=${cur_size:-unreadable} previous=${prev_size:-none}"
     echo "== /api/ps"; curl -s --max-time 5 "${URL}/api/ps" 2>&1; echo
     echo "== lsof :11434"; lsof -nP -iTCP:11434 2>&1
     echo "== ollama processes"; ps -Ao pid,lstart,pcpu,rss,command 2>&1 | awk '/ollama|llama-server/ && !/awk/'

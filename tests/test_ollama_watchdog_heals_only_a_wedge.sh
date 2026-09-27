@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # The Ollama wedge watchdog (#2432) must restart com.ostler.ollama when, and
 # only when, the server is WEDGED: /api/version answers, a tiny embed fails
-# twice in a row, and every Ollama process is idle on CPU. It must NOT restart
-# a server that is merely busy, down (launchd owns that), healthy, on its first
+# twice in a row, and Ollama makes NO PROGRESS (the serve process's stderr,
+# read by size through its open fd, has not grown since the last probe). It
+# must NOT restart a server that is merely busy (log growing, even at 0% CPU:
+# Apple Silicon runs inference on the GPU), down (launchd owns that), healthy, on its first
 # failed probe, or inside the cooldown after a restart.
 #
 # The script under test is lifted from install.sh's OLLAMAWDEOF heredoc, so the
@@ -42,7 +44,17 @@ printf '%s ollama\n%s llama-server\n' "${SHIM_CPU:-0.0}" "0.0"
 EOF
 cat > "$WORK/bin/lsof" <<'EOF'
 #!/usr/bin/env bash
+case "$*" in
+  *-Fs*) [ "${SHIM_LOGSIZE:-}" = unreadable ] && exit 1
+         f="${SHIM_SIZEFILE:-}"; n=100
+         if [ -n "$f" ]; then n=$(cat "$f" 2>/dev/null || echo 100); [ "${SHIM_GROW:-0}" = 1 ] && echo $((n+500)) > "$f"; fi
+         printf 'p4242\nf2\ns%s\n' "$n"; exit 0 ;;
+esac
 echo "COMMAND PID"; echo "ostler-as 1"; echo "ostler-as 1"
+EOF
+cat > "$WORK/bin/pgrep" <<'EOF'
+#!/usr/bin/env bash
+echo 4242
 EOF
 cat > "$WORK/bin/launchctl" <<'EOF'
 #!/usr/bin/env bash
@@ -79,10 +91,32 @@ for _sec in '== /api/ps' '== lsof :11434' '== ollama processes' '== ollama open 
 done
 grep -q 'ollama log line 3' "$EVF" 2>/dev/null && ok "evidence carries the Ollama log tail" || bad "evidence lacks the Ollama log tail"
 
-# 4. busy: two failed probes but Ollama is working -> no restart
-S="$WORK/s4"; SHIM_EMBED=000 SHIM_CPU=85.0 run busy "$S"; SHIM_EMBED=000 SHIM_CPU=85.0 run busy "$S"
-[ "$(restarts busy)" = 0 ] && ok "busy (2 fails, 85% cpu): no restart" || bad "restarted a busy server"
+# 4. busy ON THE GPU: failed probes, 0% CPU, but the serve log keeps growing
+# -> no restart. This is the v1.0.103 candidate 4 false heal (07:09Z).
+S="$WORK/s4"; echo 1000 > "$WORK/size4"
+for i in 1 2 3; do SHIM_EMBED=000 SHIM_CPU=0.0 SHIM_GROW=1 SHIM_SIZEFILE="$WORK/size4" run busy "$S"; done
+[ "$(restarts busy)" = 0 ] && ok "busy on the GPU (3 fails, 0% cpu, log growing): no restart" || bad "restarted a busy server whose log was growing"
 [ "$(evcount "$WORK/s4")" = 0 ] && ok "busy: no evidence file (nothing was restarted)" || bad "busy wrote evidence"
+grep -q 'serve stderr grew' "$WORK/log.busy" && ok "busy is logged as progress, with the byte counts" || bad "no progress line logged"
+
+# 4b. MUTANT: restore the CPU-only guard; the GPU-busy case must now restart,
+# or case 4 proves nothing about the progress check.
+MUT="$WORK/mutant"
+sed -e 's/if \[ -n "\$cur_size" \] \&\& \[ -n "\$prev_size" \]; then/if false; then/' "$SCRIPT" > "$MUT"; chmod +x "$MUT"
+grep -q '^if false; then' "$MUT" && ok "mutation applied" || bad "mutation did not apply"
+S="$WORK/s4m"; echo 1000 > "$WORK/size4m"
+for i in 1 2; do
+    PATH="$WORK/bin:$PATH" SHIM_CALLS="$WORK/calls.mut" OSTLER_WATCHDOG_STATE_DIR="$S" \
+        OSTLER_WATCHDOG_EVIDENCE_DIR="$S/evidence" OSTLER_WATCHDOG_OLLAMA_LOG_DIR="$WORK/ologs" \
+        OSTLER_WATCHDOG_PROBE_S=1 SHIM_EMBED=000 SHIM_CPU=0.0 SHIM_GROW=1 SHIM_SIZEFILE="$WORK/size4m" \
+        "$MUT" >> "$WORK/log.mut" 2>&1
+done
+[ "$(restarts mut)" = 1 ] && ok "MUST-FAIL mutant (CPU-only guard) restarts the GPU-busy server" || bad "the CPU-only mutant did not restart: case 4 is not a real assertion"
+
+# 4c. progress unreadable: fall back to CPU, and say so.
+S="$WORK/s4c"; for i in 1 2; do SHIM_EMBED=000 SHIM_CPU=85.0 SHIM_LOGSIZE=unreadable run fallback "$S"; done
+[ "$(restarts fallback)" = 0 ] && ok "progress unreadable + 85% cpu: CPU fallback, no restart" || bad "fallback restarted a CPU-busy server"
+grep -q 'progress unreadable; fallback cpu' "$WORK/log.fallback" && ok "the fallback is named in the log" || bad "fallback not named"
 
 # 5. down: /api/version fails -> launchd's job, no restart
 S="$WORK/s5"; for i in 1 2 3; do SHIM_VERSION=down SHIM_EMBED=000 run down "$S"; done
