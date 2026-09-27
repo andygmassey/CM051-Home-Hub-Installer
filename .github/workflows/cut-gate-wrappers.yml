@@ -59,6 +59,7 @@ on:
       - 'tests/test_cut_dispatch_is_dry.sh'
       - 'scripts/push_cut_tag.sh'
       - 'tests/test_push_cut_tag_refuses_a_red_checklist.sh'
+      - 'tests/test_rehearse_tag_is_the_tag_preflight.sh'
       # Wired 2026-09-19. Row 1519 asks whether the dry run is reachable at
       # all, and said the decisive proof was to FIRE a dispatch. Arm 3 answers
       # it structurally, for free, on every PR: it walks the dry-run job's
@@ -311,6 +312,10 @@ jobs:
       - name: A cut tag is not pushed while the tag-time checklist is red
         if: always()
         run: /bin/bash tests/test_push_cut_tag_refuses_a_red_checklist.sh
+
+      - name: A tag rehearsal runs the tag preflight and builds nothing
+        if: always()
+        run: /bin/bash tests/test_rehearse_tag_is_the_tag_preflight.sh
 
       # THE OTHER HALF OF THE SAME QUESTION, AND IT IS NOT THE SAME TEST.
       # The suite above asks whether a dispatch can SHIP. This one asks whether
