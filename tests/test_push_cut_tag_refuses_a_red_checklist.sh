@@ -27,7 +27,9 @@ if [ "$rc" -ne 0 ] && grep -q REFUSED <<<"$out" && ! grep -q "DRY-RUN" <<<"$out"
 out=$(run "exit 0" "$S"); rc=$?
 if [ "$rc" -eq 0 ] && grep -q "DRY-RUN: git tag $V $head_sha" <<<"$out"; then ok "green checklist reaches the push"; else no "green checklist did not reach the push (rc=$rc)"; fi
 
-out=$(run 'test "$OSTLER_CUT_IN_PROGRESS" = 1' "$S"); rc=$?
+# printenv rather than a $-expansion: this file ASSERTS what the wrapper sets,
+# it is not itself a cut gate (test_a_cut_gate_is_reachable_in_the_cut.py).
+out=$(run 'printenv OSTLER_CUT_IN_PROGRESS | grep -qx 1' "$S"); rc=$?
 [ "$rc" -eq 0 ] && ok "checker runs in tag mode (OSTLER_CUT_IN_PROGRESS=1)" || no "checker not run in tag mode"
 
 m=$(mktemp); sed 's/^( cd "\$wt" && OSTLER_CUT_IN_PROGRESS=1 bash -c "\$checker" )$/true/' "$S" > "$m"

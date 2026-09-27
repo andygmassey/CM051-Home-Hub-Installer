@@ -176,10 +176,33 @@ def main():
     # exists to remove, and every arm above passes on it. So the gate itself is
     # driven, as a cut, and its output read.
     import os
+    import shutil
     import subprocess
+    import tempfile
+    # THE GATE IS DRIVEN ON A COPY OF THE BOARD WITH ONE SYNTHETIC BLOCKER
+    # INJECTED, never on the live board alone. The first version drove the
+    # live board and so needed a real BLOCKING row with no tracker to exist:
+    # the test could only pass while the board carried the very defect the
+    # gate refuses, and it went red the moment the last one (row 2220) was
+    # resolved for the v1.0.104 cut. A test whose fixture is the defect it
+    # guards cannot let the defect be fixed.
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="blocker-gate-"))
+    (tmp / "tests").mkdir()
+    shutil.copy2(GATE, tmp / "tests" / GATE.name)
+    shutil.copytree(ROOT / "cut-manifests", tmp / "cut-manifests")
+    newest = tmp / "cut-manifests" / manifest.name
+    newest.write_text(newest.read_text(encoding="utf-8").replace(
+        "open_issues:\n",
+        "open_issues:\n"
+        "  - issue: 999999\n"
+        "    repo: none\n"
+        "    title: 'SYNTHETIC blocker injected by test_a_blocker_with_no_issue_still_blocks.py'\n"
+        "    gate: 'BLOCKING. SYNTHETIC ROW, never on the real board.'\n", 1),
+        encoding="utf-8")
+    GATE_RUN = tmp / "tests" / GATE.name
     env = dict(os.environ, OSTLER_CUT_IN_PROGRESS="1")
-    run = subprocess.run([sys.executable, str(GATE)], capture_output=True,
-                         text=True, env=env, cwd=str(ROOT))
+    run = subprocess.run([sys.executable, str(GATE_RUN)], capture_output=True,
+                         text=True, env=env, cwd=str(tmp))
     out = run.stdout + run.stderr
     marker = "declare themselves BLOCKING and name no tracker issue"
 
@@ -205,8 +228,8 @@ def main():
     # CONTROL on the same command: OUTSIDE a cut the same rows must be reported
     # and must NOT fail. Without this, arm 7 passes for a gate that refuses
     # unconditionally, which would stop every pull request in the repository.
-    run2 = subprocess.run([sys.executable, str(GATE)], capture_output=True,
-                          text=True, cwd=str(ROOT))
+    run2 = subprocess.run([sys.executable, str(GATE_RUN)], capture_output=True,
+                          text=True, cwd=str(tmp))
     out2 = run2.stdout + run2.stderr
     if marker in out2 and not _fail_line_with(out2, marker) and run2.returncode == 0:
         ok("(7b) CONTROL: outside a cut the same rows are reported by number, on "
