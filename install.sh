@@ -3374,7 +3374,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8277   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8322   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8331 and :15127, both of which run
+    # Its two top-level arming calls are :8331 and :15247, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3365 above has just deleted
     # that tree and :3369 has just rebound OSTLER_DIR to the final one, so
@@ -3392,13 +3392,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :15898, where the note reads
+    # WhatsApp Web session path did it again at :16018, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :15915 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :16035 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3411,9 +3411,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8331, :15127) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8331, :15247) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :18027 / :18205 / :18362 / :18704 path. There the
+    # :18147 / :18325 / :18482 / :18824 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -14506,6 +14506,126 @@ OLLAMAROTPLIST
 launchctl bootstrap "gui/$(id -u)" "$OLLAMA_ROT_PLIST" 2>/dev/null || \
     launchctl load "$OLLAMA_ROT_PLIST" 2>/dev/null || true
 
+# ── Ollama wedge watchdog (#2432) ─────────────────────────────────
+#
+# MEASURED on the v1.0.103 walk box, 2026-09-27: after hours of normal use the
+# model server stopped serving. `ollama serve` held every client socket with
+# empty send/recv queues, its llama-server runner was healthy (/health 200,
+# both slots idle, 0% CPU), and there was NO connection from serve to the
+# runner: requests sat in the server's own queue and were never dispatched.
+# A direct embed timed out at 60 s and a generate at 90 s, so the assistant,
+# search and ingest were all dead. Restarting com.ostler.ollama ALONE cured it
+# (generate 200 in 12.6 s, embed 200 in 2.6 s, the assistant untouched). The
+# root cause is inside Ollama's scheduler and is not ours to patch, so this is
+# the backstop: a customer's Mac must heal itself rather than sit dead.
+#
+# RULE: restart only when the server is provably WEDGED, never when merely
+# BUSY. Two consecutive failed embed probes, at least one interval apart,
+# while serve AND every runner are idle on CPU, and never more than once per
+# cooldown. /api/version failing means Ollama is DOWN, which launchd's
+# KeepAlive already handles, so that case is logged and left alone.
+cat > "${OSTLER_DIR}/bin/ostler-ollama-watchdog" <<'OLLAMAWDEOF'
+#!/usr/bin/env bash
+# Heal a wedged Ollama: restart com.ostler.ollama only when the server
+# answers /api/version but cannot serve a tiny embed twice in a row while
+# every Ollama process is idle on CPU. Driven by com.ostler.ollama-watchdog.
+set -uo pipefail
+URL="${OSTLER_OLLAMA_URL:-http://127.0.0.1:11434}"
+MODEL="${OSTLER_WATCHDOG_EMBED_MODEL:-nomic-embed-text}"
+PROBE_S="${OSTLER_WATCHDOG_PROBE_S:-45}"
+IDLE_PCT="${OSTLER_WATCHDOG_IDLE_PCT:-5}"
+COOLDOWN_S="${OSTLER_WATCHDOG_COOLDOWN_S:-900}"
+STATE_DIR="${OSTLER_WATCHDOG_STATE_DIR:-${HOME}/.ostler/state}"
+LABEL="${OSTLER_WATCHDOG_LABEL:-com.ostler.ollama}"
+FAILS="${STATE_DIR}/ollama_watchdog.fails"
+LAST="${STATE_DIR}/ollama_watchdog.last_restart"
+LOCK="${STATE_DIR}/ollama_watchdog.lock"
+log() { printf '%s ollama-watchdog: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+mkdir -p "$STATE_DIR"
+mkdir "$LOCK" 2>/dev/null || { log "previous probe still running; skipping"; exit 0; }
+trap 'rmdir "$LOCK" 2>/dev/null' EXIT
+
+if ! curl -s -o /dev/null --max-time 10 "${URL}/api/version"; then
+    log "DOWN: /api/version did not answer; launchd KeepAlive owns this case, no action"
+    exit 0
+fi
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time "$PROBE_S" \
+    "${URL}/api/embed" -d "{\"model\":\"${MODEL}\",\"input\":\"ok\"}" 2>/dev/null)
+if [ "$code" = "200" ]; then
+    [ -s "$FAILS" ] && log "HEALTHY again after $(cat "$FAILS") failed probe(s)"
+    rm -f "$FAILS"
+    exit 0
+fi
+n=$(( $(cat "$FAILS" 2>/dev/null || echo 0) + 1 ))
+echo "$n" > "$FAILS"
+cpu=$(ps -Ao pcpu=,comm= | awk '/ollama|llama-server/ {s+=$1} END {printf "%d", s+0}')
+conns=$(lsof -nP -iTCP:11434 -sTCP:ESTABLISHED 2>/dev/null | awk 'NR>1 && $1!="ollama"' | wc -l | tr -d ' ')
+log "PROBE-FAIL ${n}: embed http=${code:-none} (limit ${PROBE_S}s), ollama cpu=${cpu}%, client_conns=${conns}"
+[ "$n" -ge 2 ] || exit 0
+if [ "$cpu" -ge "$IDLE_PCT" ]; then
+    log "BUSY, not wedged (cpu ${cpu}% >= ${IDLE_PCT}%); no restart"
+    exit 0
+fi
+last=$(cat "$LAST" 2>/dev/null || echo 0)
+if [ $(( $(date +%s) - last )) -lt "$COOLDOWN_S" ]; then
+    log "WEDGED but inside the ${COOLDOWN_S}s cooldown since the last restart; no restart"
+    exit 0
+fi
+log "WEDGED: ${n} failed probes, idle cpu ${cpu}%, ${conns} client connections queued; restarting ${LABEL}"
+# Evidence first: a restart destroys the wedged state, so what it looked like
+# is written down before the kickstart. Kept: the newest EVIDENCE_KEEP files.
+EVIDENCE_DIR="${OSTLER_WATCHDOG_EVIDENCE_DIR:-${HOME}/.ostler/logs/ollama-wedge}"
+EVIDENCE_KEEP="${OSTLER_WATCHDOG_EVIDENCE_KEEP:-10}"
+OLLAMA_LOG_DIR_WD="${OSTLER_WATCHDOG_OLLAMA_LOG_DIR:-${HOME}/.ostler/logs}"
+mkdir -p "$EVIDENCE_DIR"
+ev="${EVIDENCE_DIR}/wedge-$(date -u +%Y%m%dT%H%M%SZ)-$$.txt"
+{
+    echo "== captured $(date -u +%Y-%m-%dT%H:%M:%SZ) probes=${n} cpu=${cpu}% client_conns=${conns}"
+    echo "== /api/ps"; curl -s --max-time 5 "${URL}/api/ps" 2>&1; echo
+    echo "== lsof :11434"; lsof -nP -iTCP:11434 2>&1
+    echo "== ollama processes"; ps -Ao pid,lstart,pcpu,rss,command 2>&1 | awk '/ollama|llama-server/ && !/awk/'
+    echo "== ollama open log files (a (deleted) marker means the log was unlinked while open)"
+    _serve_pids=$(pgrep -f 'ollama serve' 2>/dev/null || true)
+    for _p in $_serve_pids; do lsof -p "$_p" 2>/dev/null | awk '/ollama\.(err|log)/'; done
+    for _lf in ollama.err ollama.log; do
+        echo "== tail -n 200 ${_lf}"; tail -n 200 "${OLLAMA_LOG_DIR_WD}/${_lf}" 2>&1
+    done
+} > "$ev" 2>&1
+log "EVIDENCE ${ev}"
+ls -1t "$EVIDENCE_DIR"/wedge-*.txt 2>/dev/null | awk -v k="$EVIDENCE_KEEP" 'NR>k' | while IFS= read -r _old; do rm -f "$_old"; done
+if launchctl kickstart -k "gui/$(id -u)/${LABEL}"; then
+    date +%s > "$LAST"; rm -f "$FAILS"
+    log "RESTARTED ${LABEL}"
+else
+    log "RESTART FAILED for ${LABEL}"
+fi
+OLLAMAWDEOF
+chmod +x "${OSTLER_DIR}/bin/ostler-ollama-watchdog"
+
+OLLAMA_WD_PLIST="${HOME}/Library/LaunchAgents/com.ostler.ollama-watchdog.plist"
+cat > "$OLLAMA_WD_PLIST" <<OLLAMAWDPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ostler.ollama-watchdog</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${HOME}/.ostler/bin/ostler-ollama-watchdog</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>180</integer>
+    <key>StandardOutPath</key>
+    <string>${_ollama_rot_logs}/ollama-watchdog.log</string>
+    <key>StandardErrorPath</key>
+    <string>${_ollama_rot_logs}/ollama-watchdog.err</string>
+</dict>
+</plist>
+OLLAMAWDPLIST
+launchctl bootstrap "gui/$(id -u)" "$OLLAMA_WD_PLIST" 2>/dev/null || \
+    launchctl load "$OLLAMA_WD_PLIST" 2>/dev/null || true
+
 # ── 3.4 Python check ──────────────────────────────────────────────
 #
 # The verified-3.10+ Python is established in Phase 2.99 before any
@@ -24432,6 +24552,7 @@ OSTLER_LAUNCHAGENT_LABELS=(
     com.ostler.engine-supervisor
     com.ostler.meeting-brief-sender
     com.ostler.ollama-logrotate
+    com.ostler.ollama-watchdog
     com.ostler.stay-awake
     com.ostler.imessage-bridge
     com.creativemachines.ostler.hub-power
