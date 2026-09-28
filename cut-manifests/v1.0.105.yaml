@@ -6435,6 +6435,26 @@ open_issues:
     repo: CM051
     title: 'Daemon graph prefetch: check consolidation cannot turn the injected lookup block into a core_ memory attributed to the user'
     gate: 'NOT BLOCKING for v1.0.103 (Archie, review of ostler-ai/ostler-assistant#428); owed to v1.0.104. Registered in the same action as the filing. WHAT CLOSES IT: a test that the [Looked up in the user''s own data] block is never consolidated as something the user said, and a post-walk box check of core_ memories.'
+  - issue: 2463
+    repo: CM051
+    title: 'Chat: a relationship word (my wife) is looked up as a person''s name'
+    gate: 'BLOCKING for the next cut (Andy''s v1.0.105 console walk, 2026-09-28). Registered by FIX106-C so the board stays complete; the fix and its CLOSES-ON belong to the chat/reminders PR, which replaces this gate text.'
+  - issue: 2464
+    repo: CM051
+    title: 'Chat: the assistant''s own name is looked up as a person'
+    gate: 'BLOCKING for the next cut (Andy''s v1.0.105 console walk, 2026-09-28). Registered by FIX106-C so the board stays complete; the fix and its CLOSES-ON belong to the chat/reminders PR, which replaces this gate text.'
+  - issue: 2465
+    repo: CM051
+    title: 'Chat: an unasked opening brief arrives after the customer''s message'
+    gate: 'BLOCKING for the next cut (Andy''s v1.0.105 console walk, 2026-09-28). Registered by FIX106-C so the board stays complete; the fix and its CLOSES-ON belong to the chat/reminders PR, which replaces this gate text.'
+  - issue: 2466
+    repo: CM051
+    title: 'Reminders: a one-off (in 5 minutes) is refused from chat'
+    gate: 'BLOCKING for the next cut (Andy''s v1.0.105 console walk, 2026-09-28). Registered by FIX106-C so the board stays complete; the fix and its CLOSES-ON belong to the chat/reminders PR, which replaces this gate text.'
+  - issue: 2467
+    repo: CM051
+    title: 'Front page: Not me does not stick; the card comes back'
+    gate: 'BLOCKING for the next cut. Same defect as #2470 (filed twice in parallel); closes with #2470 on the same walk evidence.'
   - issue: 2469
     repo: CM051
     title: 'Timeline opens a year ahead, ends part way through today, labels every row MEETING'
