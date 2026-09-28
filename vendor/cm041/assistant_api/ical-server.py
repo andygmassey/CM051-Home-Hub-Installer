@@ -862,6 +862,20 @@ except Exception:
     _LOCAL_TZ = None
 
 
+def _safe_iso_day(params, key):
+    """Parse an optional ?key=YYYY-MM-DD. Returns (value_or_None, error_or_None).
+
+    Strict, because the value is interpolated into a SPARQL FILTER.
+    """
+    raw = (params.get(key) or [""])[0].strip()
+    if not raw:
+        return None, None
+    import re as _re
+    if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
+        return None, {"error": "{} must be YYYY-MM-DD".format(key)}
+    return raw, None
+
+
 def _safe_int(params, key, default):
     """Parse a query param as int, returning (value, error_dict_or_None).
 
@@ -5733,7 +5747,8 @@ def api_meeting_upcoming(within_minutes=120):
     }
 
 
-def _timeline_from_graph(past_days=730, limit=200):
+def _timeline_from_graph(past_days=730, limit=200, start=None, end=None,
+                         ascending=False):
     """Historic timeline rows from the People Graph - one entry PER MEETING.
 
     The Timeline is mainly a HISTORIC view, so its primary source is the graph
@@ -5760,9 +5775,18 @@ def _timeline_from_graph(past_days=730, limit=200):
             '  OPTIONAL {{ ?m pwg:meetingAttendee ?p . ?p pwg:displayName ?name }}\n'
             '  OPTIONAL {{ ?m pwg:meetingSummary ?summary }}\n'
             '  OPTIONAL {{ ?m pwg:meetingLocation ?location }}\n'
-            '  FILTER(?date >= "{cutoff}")\n'
-            '}} GROUP BY ?m ?date ORDER BY DESC(?date) LIMIT {limit}'.format(
-                ns=PWG_NS, cutoff=cutoff, limit=max(1, limit)
+            '  FILTER(?date >= "{cutoff}"){start_f}{end_f}\n'
+            '}} GROUP BY ?m ?date ORDER BY {order}(?date) LIMIT {limit}'.format(
+                ns=PWG_NS, cutoff=cutoff, limit=max(1, limit),
+                # Window bounds (#106c). `start` is EXCLUSIVE (the newest day
+                # the client already holds), `end` is EXCLUSIVE (the oldest).
+                # Both are validated YYYY-MM-DD by the handler, so they are
+                # safe to interpolate.
+                start_f=(' FILTER(SUBSTR(STR(?date), 1, 10) > "{}")'.format(start)
+                         if start else ''),
+                end_f=(' FILTER(SUBSTR(STR(?date), 1, 10) < "{}")'.format(end)
+                       if end else ''),
+                order='ASC' if ascending else 'DESC',
             )
         )
     except Exception as exc:
@@ -5774,7 +5798,11 @@ def _timeline_from_graph(past_days=730, limit=200):
         participants = [a for a in attendees_raw.split("|")
                         if a and not _is_nameless_name(a)]
         out.append({
-            "kind": "meeting",
+            # A graph Meeting with nobody attending is not a meeting: it is an
+            # all-day entry, a reminder, a holiday or an expiry date the
+            # calendar carried. Labelling those "meeting" put a MEETING chip
+            # on every Timeline row (#106c, Andy's walk 2026-09-28).
+            "kind": "meeting" if participants else "event",
             "date": (r.get("date") or "")[:10],
             "summary": r.get("summary", ""),
             "participants": participants,
@@ -5783,7 +5811,7 @@ def _timeline_from_graph(past_days=730, limit=200):
     return out, None
 
 
-def _timeline_conversations(past_days=730, limit=200):
+def _timeline_conversations(past_days=730, limit=200, start=None, end=None):
     """Historic conversation rows for the Timeline, from Qdrant.
 
     Meetings live in Oxigraph as pwg:Meeting nodes; CONVERSATIONS do not. They
@@ -5849,6 +5877,8 @@ def _timeline_conversations(past_days=730, limit=200):
         date = raw_date[:10]
         if not date or date < cutoff:
             continue
+        if (start and date <= start) or (end and date >= end):
+            continue
         counterpart = (payload.get("contact_name")
                        or payload.get("wing")
                        or payload.get("participant")
@@ -5862,15 +5892,40 @@ def _timeline_conversations(past_days=730, limit=200):
             # what-happened-when view; conversation content is L2+ and has its
             # own privacy-gated surfaces. A channel + counterpart is enough to
             # place the event without publishing what was said.
-            "summary": (payload.get("channel") or "conversation"),
+            # Channel AND counterpart, never the bare channel: a row that
+            # says only "whatsapp" told the customer nothing (#106c).
+            "summary": _conversation_title(payload.get("channel"),
+                                           participants),
             "participants": participants,
         })
 
+    # Truncate from the side nearest the window edge the client asked for:
+    # a forward page (start given) keeps the EARLIEST rows after `start`.
+    rows.sort(key=lambda r: r["date"], reverse=not (start and not end))
+    rows = rows[:max(1, limit)]
     rows.sort(key=lambda r: r["date"], reverse=True)
-    return rows[:max(1, limit)], None
+    return rows, None
 
 
-def api_timeline(days=7, past_days=730, limit=200):
+_CHANNEL_LABELS = {
+    "whatsapp": "WhatsApp", "imessage": "iMessage", "im": "iMessage",
+    "sms": "Text message", "email": "Email", "mail": "Email",
+    "call": "Call", "phone": "Call", "slack": "Slack", "telegram": "Telegram",
+    "signal": "Signal", "spoken": "Conversation",
+}
+
+
+def _conversation_title(channel, participants):
+    """Human title for a conversation row: channel plus who it was with."""
+    raw = (channel or "").strip()
+    label = _CHANNEL_LABELS.get(raw.lower(), raw[:1].upper() + raw[1:] if raw
+                                else "Conversation")
+    if participants:
+        return "{} with {}".format(label, participants[0])
+    return "{} conversation".format(label)
+
+
+def api_timeline(days=7, past_days=730, limit=200, before=None, after=None):
     """Mainly-historic life timeline: past meetings/events + a short forward look.
 
     The Timeline is a HISTORIC view first. Its backbone is the People Graph
@@ -5919,7 +5974,23 @@ def api_timeline(days=7, past_days=730, limit=200):
     # Past (the main event): historic meetings/events from the graph, one row
     # per meeting, back `past_days` days. This is what makes the Timeline a
     # historic view rather than a 7-day-forward calendar peek.
-    past_rows, past_err = _timeline_from_graph(past_days=past_days, limit=limit)
+    # WINDOW (#106c). The Timeline opens on TODAY. Before this, graph
+    # meetings had no upper bound and were sorted newest-first, so a year of
+    # future all-day entries filled the 200-row cap and the list ended part
+    # way through today with no history reachable at all.
+    #   no params   -> everything up to today + `days`, newest first (the page
+    #                  the client opens on, with today near the top)
+    #   before=D    -> an OLDER page: rows strictly before D
+    #   after=D     -> a LATER page: the earliest rows strictly after D
+    from datetime import date as _date, timedelta as _td
+    forward = bool(after) and not before
+    window_start = after or None
+    window_end = before or None
+    if not before and not after:
+        window_end = (_date.today() + _td(days=max(0, days) + 1)).isoformat()
+    past_rows, past_err = _timeline_from_graph(
+        past_days=past_days, limit=limit, start=window_start, end=window_end,
+        ascending=forward)
     if past_err is not None:
         items.append({"kind": "meeting_error", "error": past_err})
     else:
@@ -5932,16 +6003,22 @@ def api_timeline(days=7, past_days=730, limit=200):
     #
     # Failure here is reported, never fatal: a broken conversation store must
     # degrade this section, not empty the whole Timeline of its meetings.
-    conv_rows, conv_err = _timeline_conversations(past_days=past_days, limit=limit)
+    conv_rows, conv_err = _timeline_conversations(
+        past_days=past_days, limit=limit, start=window_start, end=window_end)
     if conv_err is not None:
         items.append({"kind": "conversation_error", "error": conv_err})
     else:
         items.extend(conv_rows)
 
     # Newest first (it is mainly a historic timeline), then cap.
-    items.sort(key=lambda i: i.get("date") or "", reverse=True)
+    # The live-calendar strip only belongs on the opening page; a paged
+    # request must not re-emit it (duplicates) or leak outside its window.
+    if before or after:
+        items = [i for i in items if i.get("kind") != "calendar"]
+    items.sort(key=lambda i: i.get("date") or "", reverse=not forward)
     if limit:
         items = items[:limit]
+    items.sort(key=lambda i: i.get("date") or "", reverse=True)
 
     # CM031 PWG Companion decodes `entries: [{type, timestamp, title,
     # subtitle, attendees}]`. Map our `items: [{kind, date, summary,
@@ -5954,7 +6031,14 @@ def api_timeline(days=7, past_days=730, limit=200):
         if kind in ("calendar_error", "meeting_error"):
             # Surface but skip – CM031 does not render error sentinels.
             continue
-        entry_type = "meeting" if kind == "meeting" else "calendar"
+        # Carry the row's real kind (#106c). This used to collapse every
+        # non-meeting kind to "calendar", which the Hub maps to MEETING.
+        if kind == "calendar":
+            entry_type = "meeting" if it.get("attendees") else "event"
+        elif kind == "conversation":
+            entry_type = "message"
+        else:
+            entry_type = kind or "event"
         raw_date = it.get("date") or ""
         timestamp = _to_iso8601(raw_date)
         # Attendee names come in two shapes:
@@ -5984,6 +6068,8 @@ def api_timeline(days=7, past_days=730, limit=200):
         "entries": entries,
         "days": days,
         "past_days": past_days,
+        "before": before,
+        "after": after,
         "limit": limit,
         "count": len(items),
     }
@@ -8128,6 +8214,11 @@ class Handler(BaseHTTPRequestHandler):
                 past_days, err = _safe_int(params, "past_days", 730)
             if not err:
                 limit, err = _safe_int(params, "limit", 200)
+            before = after = None
+            if not err:
+                before, err = _safe_iso_day(params, "before")
+            if not err:
+                after, err = _safe_iso_day(params, "after")
             if err:
                 self.send_response(400)
                 self.send_header("Content-Type", "application/json")
@@ -8135,7 +8226,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps(err).encode())
                 return
             try:
-                result = api_timeline(days=days, past_days=past_days, limit=limit)
+                result = api_timeline(days=days, past_days=past_days,
+                                      limit=limit, before=before, after=after)
             except Exception as exc:
                 # `entries` mirrors `items` per the iOS ServerTimelineResponse
                 # decoder (F-1, 2026-05-27). Without it the Companion drops
