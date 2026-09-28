@@ -69,6 +69,10 @@ on:
       - 'tests/test_every_conversation_produces_all_four_artefacts.py'
       - 'vendor/cm048_pipeline/src/conversation_writer.py'
       - 'tests/test_the_doctor_status_poll_has_a_fork_budget.py'
+      - 'tests/test_doctor_routines_are_measured_live.py'
+      - 'tests/test_remote_access_reads_the_installers_tailscale.py'
+      - 'vendor/doctor/agent/routine_status.py'
+      - 'vendor/doctor/agent/remote_access.py'
       - 'vendor/doctor/agent/box_status.py'
       - 'vendor/doctor/agent/pair_status.py'
       - 'tests/test_the_pairing_qr_refuses_an_address_the_phone_cannot_open.py'
@@ -346,6 +350,16 @@ jobs:
         # being measured is the same defect it exists to catch.
         if: always()
         run: python3 tests/test_the_doctor_status_poll_has_a_fork_budget.py
+
+      # v1.0.106: the Doctor's Data sources tab and remote-access switch read
+      # each routine's own surfaces and the installer's own tailscaled.
+      - name: The Doctor's routine table is measured live
+        if: always()
+        run: python3 tests/test_doctor_routines_are_measured_live.py
+
+      - name: Remote access reads and drives the installer's Tailscale
+        if: always()
+        run: python3 tests/test_remote_access_reads_the_installers_tailscale.py
 
       # Symbol-level guard: web_ui.py imports a batch of CONFIG_* string
       # constants `from web_ui_copy` -- the import-resolution guard above

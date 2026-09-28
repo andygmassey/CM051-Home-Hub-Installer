@@ -51,6 +51,8 @@ on:
   pull_request:
     paths:
       - 'install.sh'
+      - 'tests/test_connect_whatsapp_is_on_the_first_screen.sh'
+      - 'gui/OstlerInstaller/Views/InstallCompleteView.swift'
       - 'install.sh.strings.en-GB.sh'
       - 'scripts/ttywalk.sh'
       - 'tests/test_the_licence_a_customer_paid_for_is_owner_only.sh'
@@ -128,6 +130,10 @@ jobs:
       - name: The WhatsApp channel block still emits a usable config
         if: always()
         run: bash tests/test_whatsapp_channel_block.sh
+
+      - name: The WhatsApp link step is on the first screen after install
+        if: always()
+        run: bash tests/test_connect_whatsapp_is_on_the_first_screen.sh
 
       # The licence keep had to be added to ttywalk's residue count in the same
       # change, or every wipe walk would abort at CANNOT-RUN on the surviving

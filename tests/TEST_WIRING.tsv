@@ -133,6 +133,7 @@ test_assistant_ollama_num_ctx.sh	WIRED	.github/workflows/tests-unwired-sweep-al.
 test_assistant_sandbox_is_pinned_to_seatbelt.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
 test_audit_red_merges_predicate.py	WIRED	.github/workflows/red-merge-audit.yml
 test_autologin_consent_opt_in.sh	WIRED	.github/workflows/consent-contract.yml
+test_automated_senders_are_not_people.py	WIRED	.github/workflows/privacy-spine.yml
 test_background_copy_promises_no_deadline.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_beta_licence_expiry_warns_before_and_is_read_only.sh	WIRED	.github/workflows/the-trial-must-actually-end.yml
 test_bom_ref_is_not_the_cut_pin.sh	WIRED	.github/workflows/walk-record-gate.yml
@@ -165,6 +166,7 @@ test_composite_cleanup.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_config_reader_absence_does_not_abort_the_install.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_confirm_calendars_helper.py	WIRED	.github/workflows/install-gui-contract.yml
 test_confirm_identity_helper.py	WIRED	.github/workflows/install-gui-contract.yml
+test_connect_whatsapp_is_on_the_first_screen.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_consent_a7_a8.sh	WIRED	.github/workflows/consent-contract.yml
 test_consent_decisions_survive_a_reuse_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_consent_state_is_defined_before_it_is_called.sh	WIRED	.github/workflows/cold-box-source-truth.yml
@@ -230,6 +232,7 @@ test_doctor_probe_errtrap_regression.sh	WIRED	.github/workflows/tests-unwired-sw
 test_doctor_probe_non_fatal.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_doctor_proxy_paths_predicate.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_doctor_repo_fallback.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_doctor_routines_are_measured_live.py	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_secret_scrub.py	WIRED	.github/workflows/cut.yml
 test_doctor_silent_failure_grafts.py	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_web_ui_strings_complete.py	WIRED	.github/workflows/vendor-integrity.yml
@@ -488,6 +491,7 @@ test_recording_consent_gates_the_capture_companion.sh	WIRED	.github/workflows/co
 test_redis_health_probe_authenticates.sh	WIRED	.github/workflows/redis-health-probe.yml
 test_region_persist_does_not_leak_a_traceback.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_rehearse_tag_is_the_tag_preflight.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_remote_access_reads_the_installers_tailscale.py	WIRED	.github/workflows/vendor-integrity.yml
 test_repair_overmerged_contact_cards.py	WIRED	.github/workflows/contact-card-repair.yml
 test_repin_wiki_images_refuses_a_typed_sha.sh	WIRED	.github/workflows/cut-freshness.yml
 test_reset_says_when_it_did_not_uninstall.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
