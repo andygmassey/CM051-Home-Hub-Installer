@@ -1,7 +1,10 @@
 --- a/src/cli.py
 +++ b/src/cli.py
-@@ -56,9 +56,10 @@
+@@ -54,11 +54,13 @@
+ from __future__ import annotations
+ 
  import argparse
++import email.utils
  import json
  import os
 +import re
@@ -12,7 +15,7 @@
  from datetime import datetime, timedelta, timezone
  from pathlib import Path
  from typing import Any, Dict, Optional, Set
-@@ -73,7 +74,17 @@
+@@ -73,7 +75,17 @@
  
  _OXIGRAPH_DEFAULT = "http://localhost:7878"
  
@@ -30,7 +33,7 @@
  def _stderr(msg: str) -> None:
      """Write a diagnostic line to stderr, never stdout.
  
-@@ -84,15 +95,32 @@
+@@ -84,15 +96,32 @@
      print(msg, file=sys.stderr, flush=True)
  
  
@@ -69,7 +72,7 @@
  
  
  def _escape_sparql_literal(value: str) -> str:
-@@ -124,16 +152,41 @@
+@@ -124,16 +153,41 @@
      same correspondent) advance the timestamp monotonically. The
      rdf:type + skos:prefLabel land via INSERT DATA only -- if they
      already exist Oxigraph treats the re-insert as a no-op.
@@ -113,7 +116,7 @@
      parts.append("PREFIX skos: <http://www.w3.org/2004/02/skos/core#>")
      parts.append("")
      parts.append(f"DELETE {{ <{person_iri}> pwg:lastContactEmail ?old }}")
-@@ -143,18 +196,102 @@
+@@ -143,18 +197,102 @@
      parts.append(f"  <{person_iri}> rdf:type pwg:Person ;")
      parts.append(f"                 pwg:email \"{email_lit}\" ;")
      parts.append(f"                 skos:prefLabel \"{label_lit}\" .")
@@ -142,8 +145,8 @@
 +    parts.append(f"  FILTER ({guard})")
 +    parts.append("}")
      return "\n".join(parts)
- 
- 
++
++
 +
 +# --- Automated and organisation senders are not people (CM051 v1.0.106) ---
 +#
@@ -187,8 +190,8 @@
 +    if _AUTOMATED_LOCAL_RE.search(local):
 +        return "local-part"
 +    return None
-+
-+
+ 
+ 
 +# The predicates THIS CLI writes for a sender. A Person carrying anything
 +# else was also seen by another source (Contacts, iMessage, WhatsApp,
 +# calendar) or enriched, and is never removed from here.
@@ -218,7 +221,7 @@
  def _post_sparql_update(endpoint: str, query: str, timeout: float = 5.0) -> None:
      """POST a SPARQL UPDATE to Oxigraph.
  
-@@ -184,6 +321,8 @@
+@@ -184,6 +322,8 @@
          "people_extracted": 0,
          "signatures_extracted": 0,
          "skipped": 0,
@@ -227,7 +230,7 @@
          "errors": [],
      }
  
-@@ -210,6 +349,7 @@
+@@ -210,6 +350,7 @@
          cutoff = datetime.now(timezone.utc) - timedelta(days=args.backfill_days)
  
      seen_emails: Set[str] = set()
@@ -235,7 +238,7 @@
      email_filter = EmailFilter()
      parser = FastMboxParser(str(mbox_path), email_filter=email_filter)
  
-@@ -236,6 +376,26 @@
+@@ -236,6 +377,26 @@
              result["skipped"] += 1
              continue
  
@@ -262,13 +265,98 @@
          # Date filter. Emails with no date header pass through;
          # they're rare on legitimate correspondence.
          if cutoff is not None and email.date is not None:
-@@ -289,6 +449,7 @@
+@@ -289,6 +450,7 @@
          f"messages_read={result['messages_read']} "
          f"people_extracted={result['people_extracted']} "
          f"skipped={result['skipped']} "
 +        f"skipped_automated={result['skipped_automated']} "
          f"errors={len(result['errors'])}"
      )
+ 
+@@ -343,7 +505,70 @@
+         "--dry-run",
+         action="store_true",
+         help="Parse + count but do not write to Oxigraph.",
++    )
++
++
++
++def cmd_reclassify_mail(args: argparse.Namespace) -> int:
++    """One-off: remove Persons earlier ticks made for automated senders.
++
++    The hourly tick only sees new mail, so a sender turned into a Person
++    before v1.0.106 is never looked at again. This reads the HEADERS only
++    (never a body) of every .emlx in the Mail store, finds the automated
++    senders, and runs the same guarded demote as the tick. Counts only in
++    the JSON, never an address.
++    """
++    import email.parser
++    from types import SimpleNamespace
++
++    result: Dict[str, Any] = {"files_read": 0, "unreadable": 0,
++                              "automated_senders": 0, "people_demoted": 0,
++                              "errors": []}
++    root = Path(args.mail_dir).expanduser()
++    automated: Set[str] = set()
++    hp = email.parser.BytesHeaderParser()
++    for path in root.rglob("*.emlx"):
++        result["files_read"] += 1
++        try:
++            with open(path, "rb") as fh:
++                fh.readline()  # emlx: first line is the byte count
++                head = b""
++                for line in fh:
++                    if line in (b"\n", b"\r\n"):
++                        break
++                    head += line
++            msg = hp.parsebytes(head)
++            frm = email.utils.parseaddr(msg.get("From", ""))[1].strip().lower()
++        except Exception:
++            result["unreadable"] += 1
++            continue
++        if "@" not in frm or frm in automated:
++            continue
++        probe = SimpleNamespace(from_address=frm, headers=dict(msg.items()))
++        if automated_sender_reason(probe) is not None:
++            automated.add(frm)
++    result["automated_senders"] = len(automated)
++    if not args.dry_run:
++        for addr in sorted(automated):
++            try:
++                _post_sparql_update(args.graph_endpoint,
++                                    _build_demote(_safe_person_iri(addr)))
++                result["people_demoted"] += 1
++            except Exception as exc:
++                if len(result["errors"]) < 5:
++                    result["errors"].append(type(exc).__name__)
++    print(json.dumps(result))
++    return 0
++
++
++def _add_reclassify_subcommand(sub: argparse._SubParsersAction) -> None:
++    p = sub.add_parser(
++        "reclassify-mail",
++        help="One-off: remove Persons made for automated senders (headers only).",
+     )
++    p.add_argument("mail_dir", nargs="?", default="~/Library/Mail")
++    p.add_argument("--graph-endpoint", default="http://localhost:7878")
++    p.add_argument("--dry-run", action="store_true")
+ 
+ 
+ def main(argv: Optional[list[str]] = None) -> int:
+@@ -357,10 +582,13 @@
+     )
+     sub = parser.add_subparsers(dest="cmd", required=True)
+     _add_mbox_subcommand(sub)
++    _add_reclassify_subcommand(sub)
+ 
+     args = parser.parse_args(argv)
+     if args.cmd == "mbox":
+         return cmd_mbox(args)
++    if args.cmd == "reclassify-mail":
++        return cmd_reclassify_mail(args)
+     return 2
+ 
  
 --- a/src/filters.py
 +++ b/src/filters.py
