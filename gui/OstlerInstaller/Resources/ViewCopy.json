@@ -327,7 +327,7 @@
     "status_see_log": "see log",
     "open_ostler_button": "Open Ostler",
     "open_wiki_button": "Open your Wiki",
-    "wiki_signin_hint": "Your wiki lives inside Ostler. Open it from the sidebar and your pages are there, already signed in. Nothing to type.",
+    "wiki_signin_hint": "Your wiki lives inside Ostler. The button opens it there, already signed in. Nothing to type.",
     "wiki_checking": "Checking your wiki is ready.",
     "wiki_not_serving_label": "Your wiki is still building",
     "wiki_not_serving_body": "Ostler could not reach your wiki yet, so the button is off rather than sending you to a page that will not load. It builds itself in the background and usually appears within a few minutes. Open Ostler above and it will be waiting, or look again in the Wiki sidebar shortly.",

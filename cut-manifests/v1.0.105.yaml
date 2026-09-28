@@ -6359,6 +6359,22 @@ open_issues:
     repo: CM051
     title: 'fda_extract logs Command failed inside a subshell six times while DONE reports errors=0'
     gate: 'NOT BLOCKING for v1.0.103 (Aesop, per Archie''s instruction 2026-09-27). MEASURED on the candidate 4 walk: install.log lines 537-542 carry the subshell failure at line 204 of step fda_extract while DONE says errors=0; the extract output is present on the box (12 files, apple_mail 40 MB). imessage_conversations.json is 7.5 KB, unexplained. WHAT CLOSES IT: a walk whose fda_extract either logs no error-level subshell failure or counts it in errors, with the reason for each failure named.'
+  - issue: 2458
+    repo: CM051
+    title: 'The in-app wiki renders unstyled: every stylesheet and script 401s through the proxy'
+    gate: 'v1.0.106 TARGET (Aesop 2026-09-28). MEASURED on the v1.0.105 Mini16: /wiki/assets/.. 401 application/json without a credential, 200 text/css with one. Fix in ostler-ai/ostler-assistant wiki_proxy.rs (session-prefix capability). WHAT CLOSES IT: a walk where every stylesheet and script the wiki page references returns 200 with its real type through the proxy, and the console shows the themed wiki.'
+  - issue: 2459
+    repo: CM051
+    title: 'Open Your Wiki does nothing: it opens Ostler.app, a no-op for a running Hub'
+    gate: 'v1.0.106 TARGET (Aesop 2026-09-28). Fix: InstallCompleteView.openWiki opens ostler://wiki (Hub registers the scheme). WHAT CLOSES IT: a console walk where the button lands on the wiki page.'
+  - issue: 2460
+    repo: CM051
+    title: 'Front page: "You and Skype have gone quiet" treats a service sender as a person'
+    gate: 'v1.0.106 TARGET (Aesop 2026-09-28). Fix in vendored cm041 ical-server (_is_service_sender), guarded by tests/test_service_senders_get_no_reconnect_card.py. WHAT CLOSES IT: a walk whose front page carries no service-sender reconnect card.'
+  - issue: 2461
+    repo: CM051
+    title: 'A wiki link in a chat reply replaces the whole Ostler window with a dead-end page'
+    gate: 'v1.0.106 TARGET (Aesop 2026-09-28). Fix in ostler-ai/ostler-assistant (in-app wiki_url, SPA link interceptor, /wiki/* route). WHAT CLOSES IT: a walk where a chat wiki link opens inside the app and the sidebar stays.'
   - issue: 2447
     repo: CM051
     title: 'The opening-turn manifest re-run loses its seed, so it records CANNOT-RUN after phase 1 measured it'
