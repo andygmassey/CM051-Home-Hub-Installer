@@ -70,7 +70,7 @@ run_probe() {
     probe_note "screenshots and facts: ${out}"
     [ "${OSTLER_SCREENS_ALLOW_WRITE:-0}" = "1" ] || probe_note "Not me persistence SKIPPED: read-only mode (set OSTLER_SCREENS_ALLOW_WRITE=1 on a walk box)"
     case "${rc}" in
-        0)  probe_examined "$(grep -c '' "${out}/facts.json" 2>/dev/null || echo 0)" "lines of screen facts"
+        0)  probe_examined "$(/usr/bin/wc -l < "${out}/facts.json" 2>/dev/null | tr -d ' ')" "lines of screen facts"
             probe_pass "every screen assertion held; wiki screenshot at ${out}/wiki.png" ;;
         78) probe_cannot_run "the browser could not run (see above)" ;;
         *)  probe_examined 1 "screen check run"

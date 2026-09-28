@@ -305,7 +305,7 @@ def _good():
                      "rows": [{"kind": "meeting", "day": "2026-09-28", "title": "Lunch"},
                               {"kind": "message", "day": "2026-09-20",
                                "title": "WhatsApp with A"}] * 6},
-        "people": {"names": ["Alex Person", "Sam Example"]},
+        "people": {"names": ["person one", "person two"]},
         "home": {"not_me_checked": True, "not_me_card": "X", "not_me_gone_after_reload": True},
         "settings": {"tailscale_toggle": True},
         "cost": {"loaded": True},
@@ -326,7 +326,7 @@ MUTANTS = [
         rows=[{"kind": "meeting", "day": "2026-09-20", "title": "t%d" % i} for i in range(12)])),
     ("timeline bare channel title", lambda f: f["timeline"]["rows"].append(
         {"kind": "message", "day": "2026-09-20", "title": "whatsapp"})),
-    ("people contains a company", lambda f: f["people"]["names"].append("Acme Promotions")),
+    ("people contains a company", lambda f: f["people"]["names"].append("acme promotions")),
     ("not me came back", lambda f: f["home"].update(not_me_gone_after_reload=False)),
     ("tailscale switch disagrees", lambda f: f["settings"].update(tailscale_toggle=False)),
     ("bursar did not render", lambda f: f["cost"].update(loaded=False)),

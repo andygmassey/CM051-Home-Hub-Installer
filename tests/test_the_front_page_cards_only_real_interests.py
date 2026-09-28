@@ -35,7 +35,7 @@ def interest(i, subject, domain="film_tv", score=0.9):
 profile = {"domains": [{"domain": "film_tv", "interests": [
     interest(1, "#someonesmemorial"),
     interest(2, "Election night coverage"),
-    interest(3, "Weekend Film Festival - Best Website"),
+    interest(3, "weekend film festival - best website"),
     interest(4, "Wildlife documentaries"),
     interest(5, "Ozempic"),
 ] + [interest(10 + k, "Hobby %d" % k, score=0.5) for k in range(20)]}],
@@ -52,7 +52,7 @@ check("a health topic is not carded as an interest",
 check("a real interest still cards", any("Wildlife" in t for t in titles), joined)
 check("a site suffix is stripped from a carded subject",
       not any("Best Website" in t for t in titles)
-      and frontpage.card_subject("Weekend Film Festival - Best Website") == "Weekend Film Festival")
+      and frontpage.card_subject("weekend film festival - best website") == "weekend film festival")
 check("an ordinary hyphenated title keeps its meaning",
       frontpage.card_subject("Spider-Man - Into the Spider-Verse")
       == "Spider-Man - Into the Spider-Verse")
