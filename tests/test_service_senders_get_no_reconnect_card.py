@@ -42,7 +42,7 @@ def main():
         (("AcmeAlerts", ["alerts@acme.example", "notifications@acme.example"]), True, "only role mailboxes"),
         (("Jane Doe", ["jane@example.com"]), False, "a person"),
         (("Jane Doe", ["jane@example.com", "noreply@example.com"]), False, "a person with one personal address"),
-        (("Skypebridge Testperson", None), False, "a name that merely starts like a brand"),
+        (("Skypebridgeish", None), False, "a name that merely starts like a brand"),
         (("", None), False, "empty is not this predicate's job"),
     ]
     for (args, want, why) in cases:
