@@ -39,10 +39,10 @@ def main():
         (("Skype", None), True, "known service brand"),
         (("PayPal", []), True, "known service brand"),
         (("Some Sender", ["noreply@example.com"]), True, "only a no-reply mailbox"),
-        (("Acme Alerts", ["alerts@acme.example", "notifications@acme.example"]), True, "only role mailboxes"),
+        (("AcmeAlerts", ["alerts@acme.example", "notifications@acme.example"]), True, "only role mailboxes"),
         (("Jane Doe", ["jane@example.com"]), False, "a person"),
         (("Jane Doe", ["jane@example.com", "noreply@example.com"]), False, "a person with one personal address"),
-        (("Skyler Jones", None), False, "a name that merely starts like a brand"),
+        (("Skypebridge Testperson", None), False, "a name that merely starts like a brand"),
         (("", None), False, "empty is not this predicate's job"),
     ]
     for (args, want, why) in cases:
