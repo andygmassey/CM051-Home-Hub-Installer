@@ -434,6 +434,46 @@ def _is_not_a_person_to_suggest(display_name, user_name=""):
     return False
 
 
+# Senders that are services, not people. A "gone quiet" card about Skype
+# (a notification and VoIP service, since discontinued) was shown on the
+# v1.0.105 console walk; PayPal before it. Two independent signals, either
+# one enough: the display name is a known service brand, or EVERY address the
+# contact has is a role/automation mailbox. A denylist alone only knows the
+# brands it has seen, which is why the address signal exists.
+_SERVICE_SENDER_NAMES = frozenset({
+    "skype", "paypal", "linkedin", "facebook", "meta", "instagram", "twitter",
+    "x", "google", "gmail", "apple", "icloud", "amazon", "microsoft",
+    "outlook", "teams", "zoom", "slack", "dropbox", "github", "uber",
+    "airbnb", "netflix", "spotify", "whatsapp", "telegram", "ebay",
+    "booking.com", "deliveroo", "revolut", "wise", "stripe", "docusign",
+    "calendly", "eventbrite", "mailchimp", "substack", "medium", "notion",
+})
+_SERVICE_MAILBOX_LOCALPARTS = frozenset({
+    "noreply", "no-reply", "no_reply", "donotreply", "do-not-reply",
+    "notification", "notifications", "notify", "alerts", "alert", "mailer",
+    "mailer-daemon", "postmaster", "news", "newsletter", "info", "support",
+    "help", "hello", "team", "service", "services", "billing", "accounts",
+    "account", "security", "updates", "marketing", "bounce", "automated",
+})
+
+
+def _is_service_sender(display_name, emails=None):
+    """True when a contact is a service/notification sender, not a person.
+
+    Withheld from reconnect SUGGESTIONS only; never hidden or deleted.
+    """
+    name = (display_name or "").strip().casefold()
+    if name in _SERVICE_SENDER_NAMES:
+        return True
+    addrs = [e for e in (emails or []) if isinstance(e, str) and "@" in e]
+    if addrs and all(
+        e.split("@", 1)[0].strip().casefold() in _SERVICE_MAILBOX_LOCALPARTS
+        for e in addrs
+    ):
+        return True
+    return False
+
+
 def _is_nameless_name(display_name):
     """True when ``display_name`` is a raw handle, not a human name.
 
@@ -5336,6 +5376,8 @@ def people_stale(months=3, limit=5):
         # be written properly without a human name.
         if _is_not_a_person_to_suggest(name, USER_NAME):
             continue
+        if _is_service_sender(name, p.get("emails")):
+            continue
         months_since = int((now - lc_ts) / (30 * 86400))
         contacts.append({
             "name": name,
@@ -5424,6 +5466,8 @@ def people_birthdays(days=7):
         # Shared suggestion screen: no shortcodes, no bare addresses, and never
         # the operator's own birthday. See _is_not_a_person_to_suggest.
         if _is_not_a_person_to_suggest(name, USER_NAME):
+            continue
+        if _is_service_sender(name):
             continue
         try:
             # Parse MM-DD or YYYY-MM-DD

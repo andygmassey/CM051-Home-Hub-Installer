@@ -121,3 +121,13 @@ loss would DELETE this privacy fix silently. A sync refusal on this tree is
 EXPECTED and correct. Do not pass SYNC_ACCEPT_DIVERGENCE_LOSS=1.
 
 RE-APPLY AFTER ANY sync_vendor.sh OF THIS TREE.
+
+## 2026-09-28: service senders withheld from reconnect and birthday suggestions
+
+Location: `vendor/cm041/assistant_api/ical-server.py`, new `_is_service_sender`
+(with `_SERVICE_SENDER_NAMES`, `_SERVICE_MAILBOX_LOCALPARTS`) directly above
+`_is_nameless_name`, and one call at each of the two suggestion loops (after
+`_is_not_a_person_to_suggest`). Shape: suggestion-only screen, nothing hidden or
+deleted. Reason: a "You and Skype have gone quiet" card on the v1.0.105 console
+walk. Guarded by `tests/test_service_senders_get_no_reconnect_card.py`. Must be
+upstreamed to CM041 before the next `sync_vendor.sh` of this tree.

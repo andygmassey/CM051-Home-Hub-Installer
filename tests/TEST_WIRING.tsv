@@ -504,6 +504,7 @@ test_secrets_are_documented.sh	WIRED	.github/workflows/secrets-are-documented.ym
 test_section_contract.sh	WIRED	.github/workflows/section-contract.yml
 test_sensitive_artefacts_guard_fires.sh	WIRED	.github/workflows/sensitive-artefact-exposure.yml
 test_sensitive_artefacts_not_world_readable.sh	WIRED	.github/workflows/sensitive-artefact-exposure.yml
+test_service_senders_get_no_reconnect_card.py	WIRED	.github/workflows/privacy-spine.yml
 test_settling_progress_writer.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_ship_prereqs_are_a_superset.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_ship_refuses_an_already_tagged_version.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
@@ -738,6 +739,7 @@ gui/OstlerInstallerTests/OfflineGraceCacheReadTests.swift	WIRED	.github/workflow
 gui/OstlerInstallerTests/OnboardingButtonFooterProofTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/OnboardingQuestionViewSnapshotTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/OnboardingQuestionXOfYTests.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/OpenWikiDeepLinkTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/PairingFailureMessageTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/PairingQRAutoShowTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/PassphraseMismatchUXTests.swift	WIRED	.github/workflows/swift-tests.yml
