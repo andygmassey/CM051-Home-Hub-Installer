@@ -454,6 +454,31 @@ entries:
 
 open_issues:
 
+  - issue: 2463
+    repo: CM051
+    title: "Chat: a relationship word (\"my wife\") is looked up as a person's name"
+    gate: 'BLOCKING for v1.0.106 (Andy, 2026-09-28: a friends-and-family launch basic, found on his v1.0.105 console walk). Registered in the same action as the filing. Fix: ostler-ai/ostler-assistant#430, relationship-only queries are refused by pwg_people and pwg_person_timeline and sent to memory_recall by the prefetch; a real name containing such a word is still looked up. Test a_relationship_is_never_fuzzy_matched_as_a_name is red with the guard disabled. WHAT CLOSES IT: the daemon carrying #430 pinned into the cut, and the v1.0.106 walk showing it on the box.'
+
+  - issue: 2464
+    repo: CM051
+    title: "Chat: the assistant's own name is looked up as a person"
+    gate: 'BLOCKING for v1.0.106 (Andy, 2026-09-28: a friends-and-family launch basic, found on his v1.0.105 console walk). Registered in the same action as the filing. Fix: ostler-ai/ostler-assistant#430, the prefetch excludes the configured user_assistant_name; test the_assistants_own_name_is_never_looked_up_as_a_person carries an anti-vacuity arm. WHAT CLOSES IT: the daemon carrying #430 pinned into the cut, and the v1.0.106 walk showing it on the box.'
+
+  - issue: 2465
+    repo: CM051
+    title: "Chat: an unasked opening brief arrives after the customer's first question"
+    gate: 'BLOCKING for v1.0.106 (Andy, 2026-09-28: a friends-and-family launch basic, found on his v1.0.105 console walk). Registered in the same action as the filing. Fix: ostler-ai/ostler-assistant#430, should_run_handover skips the cold-session brief when the customer spoke first. WHAT CLOSES IT: the daemon carrying #430 pinned into the cut, and the v1.0.106 walk showing it on the box.'
+
+  - issue: 2466
+    repo: CM051
+    title: "Reminders: a one-off (\"in 5 minutes\") is refused from chat"
+    gate: 'BLOCKING for v1.0.106 (Andy, 2026-09-28: a friends-and-family launch basic, found on his v1.0.105 console walk). Registered in the same action as the filing. Fix: ostler-ai/ostler-assistant#430, cron_add accepts one-offs in the customer''s own words, resolved in the Mac''s timezone; nonsense is still refused. WHAT CLOSES IT: the daemon carrying #430 pinned into the cut, and the v1.0.106 walk showing it on the box.'
+
+  - issue: 2467
+    repo: CM051
+    title: "Front page: \"Not me\" does not stick; the card comes back"
+    gate: 'BLOCKING for v1.0.106 (Andy, 2026-09-28: a friends-and-family launch basic, found on his v1.0.105 console walk). Registered in the same action as the filing. Fix: ostler-ai/ostler-assistant#430, feedback persisted to editor/card_states.json via POST /api/v1/frontpage/cards/feedback and applied to the feed by id and by kind plus normalised title. WHAT CLOSES IT: the daemon carrying #430 pinned into the cut, and the v1.0.106 walk showing it on the box.'
+
   - issue: 945
     repo: HR015
     title: "Front page reads 0 interests: the editor SPARQL query is refused by Oxigraph"
