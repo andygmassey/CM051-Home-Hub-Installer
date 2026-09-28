@@ -129,6 +129,10 @@ jobs:
         if: always()
         run: bash tests/test_whatsapp_channel_block.sh
 
+      - name: Connect WhatsApp is on the first screen of Install Complete
+        if: always()
+        run: bash tests/test_connect_whatsapp_is_on_the_first_screen.sh
+
       # The licence keep had to be added to ttywalk's residue count in the same
       # change, or every wipe walk would abort at CANNOT-RUN on the surviving
       # licence -- a check failing because the code it checks was fixed.
