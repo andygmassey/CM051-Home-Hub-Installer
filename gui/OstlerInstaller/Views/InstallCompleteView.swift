@@ -856,15 +856,21 @@ struct InstallCompleteView: View {
     // web/src/pages/Wiki.tsx at WIKI_PROXY_PATH) -- so this button opens the
     // place the wiki actually is.
     //
-    // No deep link: the Hub registers no URL scheme (measured, zero
-    // CFBundleURLSchemes in the hub app tree), so this opens the app and the
-    // customer picks Wiki in the sidebar. The hint copy beside the button
-    // says exactly that.
+    // Deep link: the Hub registers `ostler://` (ostler-assistant
+    // apps/tauri/Info.plist) and routes `ostler://wiki` to the wiki page.
+    // Opening the .app bundle alone only raised the window on whatever page
+    // it last showed, so on every walk the button looked dead. If no app
+    // claims the scheme (an older Hub), fall back to opening the bundle.
     private func openWiki() {
-        if let url = URL(string: "file:///Applications/Ostler.app") {
-            NSWorkspace.shared.open(url)
+        if let link = URL(string: InstallCompleteView.wikiDeepLink),
+           NSWorkspace.shared.urlForApplication(toOpen: link) != nil {
+            NSWorkspace.shared.open(link)
+        } else if let app = URL(string: "file:///Applications/Ostler.app") {
+            NSWorkspace.shared.open(app)
         }
     }
+
+    static let wikiDeepLink = "ostler://wiki"
 
     // #944. THE INSTRUMENT AND THE DEFECT MUST SHARE A SURFACE. The claim this
     // button makes is "your wiki is at this URL", so the evidence has to be

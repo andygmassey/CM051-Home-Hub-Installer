@@ -77,6 +77,10 @@ jobs:
         if: always()
         run: python3 tests/test_calendar_attendee_resolve_before_create.py
 
+      - name: A service sender (Skype, PayPal, no-reply) gets no reconnect card
+        if: always()
+        run: python3 tests/test_service_senders_get_no_reconnect_card.py
+
       - name: Photo events reach the graph, and face names only with the opt-in
         if: always()
         run: python3 tests/test_photo_events_reach_the_graph.py
