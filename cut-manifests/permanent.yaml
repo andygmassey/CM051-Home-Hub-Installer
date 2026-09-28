@@ -935,6 +935,20 @@ entries:
       kind: box_walk_probe
       probe: "people_stores_reconcile"
 
+  - id: box-walk-hub-screens-render-for-a-customer
+    title: opened as a customer would, the Hub's screens show what they claim (the wiki styled first)
+    incident: >-
+      2026-09-28 v1.0.105 console walk (CM051 #2473). Every probe before this
+      asked the engine over ssh and none opened a page, so an unstyled wiki
+      (every stylesheet a 401 application/json, body font Times), a Timeline
+      that ended part way through today with every row labelled MEETING,
+      companies in People, a Not me that never saved and a Tailscale switch
+      reading OFF while it ran all passed six walks. Headless browser on
+      the walk driver opens the Hub and saves wiki.png into the walk record.
+    proof:
+      kind: box_walk_probe
+      probe: "hub_screens_render_for_a_customer"
+
   # PR-branch staleness gate. Encodes feedback_mergeable_api_state_isnt_semantic_safety
   # (filed 2026-07-31): mergeable: MERGEABLE from the GH API does NOT prove the
   # branch is semantically safe to merge. A branch that predates a critical

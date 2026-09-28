@@ -1,0 +1,49 @@
+name: hub screens and the 106c screen fixes
+
+# #106c (Andy's v1.0.105 console walk, 2026-09-28). The screen judge must be
+# able to fail on every assertion (13 mutants), and the server-side fixes it
+# measures are pinned by their own behavioural tests. Each test exits 2 on
+# CANNOT-RUN, never 0: a check that could not run has not passed.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/box_walk_probes/lib/hub_screens.py'
+      - 'scripts/box_walk_probes/probes/hub_screens_render_for_a_customer.sh'
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/doctor/agent/editor_feedback.py'
+      - 'vendor/cm059_editor/compiler/frontpage.py'
+      - 'tests/test_the_timeline_opens_on_today.py'
+      - 'tests/test_the_hub_app_can_record_card_feedback.py'
+      - 'tests/test_the_front_page_cards_only_real_interests.py'
+      - '.github/workflows/hub-screens-and-106c.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  hub-screens:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: The screen judge catches every mutant
+        run: python3 scripts/box_walk_probes/lib/hub_screens.py --self-test
+      - name: The screen probe's own self-test
+        if: always()
+        run: bash scripts/box_walk_probes/probes/hub_screens_render_for_a_customer.sh --self-test
+      - name: The Timeline opens on today, pages both ways and names its rows
+        if: always()
+        run: python3 tests/test_the_timeline_opens_on_today.py
+      - name: The Hub app may record a Front Page card tap
+        if: always()
+        run: python3 tests/test_the_hub_app_can_record_card_feedback.py
+      - name: The Front Page cards only real interests
+        if: always()
+        run: python3 tests/test_the_front_page_cards_only_real_interests.py

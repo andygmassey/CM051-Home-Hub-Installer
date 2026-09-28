@@ -727,6 +727,81 @@ def _apply_feed_caps(cards: list[dict]) -> list[dict]:
     return kept[:MAX_FEED_CARDS]
 
 
+# ---------------------------------------------------------------------------
+# What may become an interest CARD (#106c, items h and i; Andy's walk
+# 2026-09-28). The Front Page showed a raw social hashtag, including a
+# political memorial one, as "one of the things Ostler reckons you're into",
+# and a hunch titled with a page's SEO suffix. Two rules:
+#   * a hashtag is not an interest; and a political, religious, health or
+#     sexuality topic is special-category data that must not be surfaced as a
+#     "thing you're into" by inference (it is not deleted, only not carded);
+#   * a subject that is a page title loses its site suffix.
+# ---------------------------------------------------------------------------
+import re as _re
+
+_SENSITIVE_STEMS = (
+    "politic", "election", "memorial", "campaign", "protest", "maga",
+    "democrat", "republican", "conservative party", "labour party", "tory",
+    "religio", "church", "mosque", "synagogue", "temple", "islam", "muslim",
+    "christian", "catholic", "jewish", "judaism", "hindu", "sikh", "atheis",
+    "diabet", "cancer", "hiv", "aids", "depress", "anxiety", "mental health",
+    "therapy", "rehab", "addiction", "ozempic", "wegovy", "pregnan", "ivf",
+    "fertility", "abortion", "lgbt", "gay", "lesbian", "transgender",
+    "sexual", "trade union",
+)
+
+_SITE_SUFFIX = _re.compile(
+    r"\s+[-|\u2013\u2014:]\s+(?:the\s+)?(?:best|official|home|homepage|"
+    r"welcome|site|website|web site|online|[\w.-]+\.(?:com|org|net|co\.uk|io|hk))"
+    r"(?:\s+(?:site|website|page|home))?\s*$",
+    _re.IGNORECASE,
+)
+
+
+def card_subject(subject: str) -> str:
+    """A card-ready subject: trimmed of a trailing site/SEO suffix."""
+    out = (subject or "").strip()
+    for _ in range(2):
+        cleaned = _SITE_SUFFIX.sub("", out).strip()
+        if cleaned == out or not cleaned:
+            break
+        out = cleaned
+    return out
+
+
+def is_cardable_interest(it: dict) -> bool:
+    """False for a hashtag or a special-category topic (see above)."""
+    subject = (it.get("subject") or "").strip()
+    if not subject or subject.startswith("#"):
+        return False
+    low = subject.lower()
+    if any(stem in low for stem in _SENSITIVE_STEMS):
+        return False
+    if (it.get("privacy") or "").upper() == "L3":
+        return False
+    return True
+
+
+def _cardable_profile(profile: dict) -> dict:
+    """A copy of the profile holding only card-worthy interests, subjects
+    cleaned. The profile itself is untouched (the assistant still reads it)."""
+    out = dict(profile)
+    domains = []
+    for block in profile.get("domains", []) or []:
+        b = dict(block)
+        kept = []
+        for it in block.get("interests", []) or []:
+            if not is_cardable_interest(it):
+                continue
+            it2 = dict(it)
+            it2["subject"] = card_subject(it.get("subject") or "")
+            kept.append(it2)
+        b["interests"] = kept
+        domains.append(b)
+    out["domains"] = domains
+    return out
+
+
 def build_frontpage(profile: dict, *, now: datetime | None = None,
                     settling: dict | None = None,
                     card_states: dict | None = None,
@@ -751,6 +826,7 @@ def build_frontpage(profile: dict, *, now: datetime | None = None,
     ``None`` = enforcement off (legacy behaviour), ``True`` = Pro verified,
     anything else = fail-closed deny -> proactive families suppressed and one
     honest pro-locked card shown."""
+    profile = _cardable_profile(profile or {})
     now = now or datetime.now(timezone.utc)
     phase = decide_phase(profile, settling)
     cards: list[dict] = []

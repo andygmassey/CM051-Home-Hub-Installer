@@ -131,3 +131,23 @@ Location: `vendor/cm041/assistant_api/ical-server.py`, new `_is_service_sender`
 deleted. Reason: a "You and Skype have gone quiet" card on the v1.0.105 console
 walk. Guarded by `tests/test_service_senders_get_no_reconnect_card.py`. Must be
 upstreamed to CM041 before the next `sync_vendor.sh` of this tree.
+## Second graft: the Timeline window, types and titles (CM051 #2469, 2026-09-28)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
+functions `_timeline_from_graph`, `_timeline_conversations`, `api_timeline`,
+the `/api/v1/timeline` handler, and new helpers `_safe_iso_day`,
+`_conversation_title`, `_CHANNEL_LABELS`.
+
+Why: on Andy's v1.0.105 walk the Timeline opened a year ahead and ended part
+way through today (the graph query had no upper date bound and sorted
+newest-first, so future all-day entries filled the 200-row cap), labelled every
+row MEETING (the entries mapper collapsed every non-meeting kind to
+`calendar`), and titled conversations with the bare channel. The graft adds an
+opening window (up to today + `days`) and `before=`/`after=` paging
+(validated YYYY-MM-DD before any SPARQL interpolation), real kinds, and
+titles that name who.
+
+Recorded here, not as a patch, for the same reason as the erasure graft above:
+the tree's patch cannot be regenerated. Guarded by
+`tests/test_the_timeline_opens_on_today.py`. Retire by landing it in CM041
+`assistant_api/ical-server.py` and re-pinning.

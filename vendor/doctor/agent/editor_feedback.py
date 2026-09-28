@@ -73,6 +73,7 @@ _DEFAULT_ADD_CATEGORY = "user_added"
 # them. A request with no Origin at all is allowed: that is a same-process or
 # curl caller, not a browser acting on a page's behalf.
 _ALLOWED_ORIGIN_HOSTS = ("127.0.0.1", "localhost", "[::1]", "::1")
+_APP_WEBVIEW_ORIGINS = ("tauri://localhost", "http://tauri.localhost", "https://tauri.localhost")
 
 
 def origin_is_local(origin: str | None) -> bool:
@@ -80,6 +81,11 @@ def origin_is_local(origin: str | None) -> bool:
     if not origin:
         return True          # non-browser caller; CORS does not apply
     o = origin.strip().lower()
+    # The Hub app's own webview. Its bundled frontend is served from the
+    # tauri:// scheme, so every tap from the real app arrived with this origin
+    # and was refused: "Not me" never reached the store (#106c, item g).
+    if o in _APP_WEBVIEW_ORIGINS:
+        return True
     for scheme in ("http://", "https://"):
         if o.startswith(scheme):
             o = o[len(scheme):]
