@@ -6419,3 +6419,19 @@ open_issues:
     repo: CM051
     title: 'Daemon graph prefetch: check consolidation cannot turn the injected lookup block into a core_ memory attributed to the user'
     gate: 'NOT BLOCKING for v1.0.103 (Archie, review of ostler-ai/ostler-assistant#428); owed to v1.0.104. Registered in the same action as the filing. WHAT CLOSES IT: a test that the [Looked up in the user''s own data] block is never consolidated as something the user said, and a post-walk box check of core_ memories.'
+  - issue: 2475
+    repo: CM051
+    title: 'People: organisations and automated email senders are created as people'
+    gate: 'BLOCKING for the F&F build (Andy walk 2026-09-28, a launch basic). Registered in the same action as the filing. MEASURED READ-ONLY on the v1.0.105 walk box: 683 email-only unreferenced Persons, 536 from automated senders, and all 8 organisations in Andy''s screenshot caught by header. FIX in PR (fix/email-senders-that-are-not-people): vendor/cm021 classifies at ingest, demotes an existing email-only Person under a guard, and install.sh runs reclassify-mail once. tests/test_automated_senders_are_not_people.py FAIL 4 on main, 30/30 on the fix. CLOSES ON: a walk whose People list holds no email-only automated senders, and the Mini16 before/after person count.'
+  - issue: 2476
+    repo: CM051
+    title: 'Settings: Remote access (Tailscale) shows OFF while the installer''s Tailscale is connected'
+    gate: 'BLOCKING for the F&F build (Andy walk 2026-09-28). Registered in the same action as the filing. MEASURED READ-ONLY on the walk box: the installer''s tailscaled BackendState Running while the switch read tunnel.provider none. FIX: vendor/doctor remote_access.py plus GET/POST /api/v1/remote-access (this PR), and the Settings switch reads and drives it (ostler-ai/ostler-assistant feat/doctor-data-sources-tab). CLOSES ON: a walk where the switch matches `tailscale --socket ~/.ostler/tailscale/tailscaled.sock status`.'
+  - issue: 2477
+    repo: CM051
+    title: 'Install Complete: the Connect WhatsApp step was not seen'
+    gate: 'BLOCKING for the F&F build (Andy walk 2026-09-28). Registered in the same action as the filing. Config on the walk box enables the step, so every phase renders; it sat below the fold. FIX: moved directly under What''s happening now. tests/test_connect_whatsapp_is_on_the_first_screen.sh FAIL 2 on main, 3/3 on the fix. NOT INSTRUMENTED: what Andy''s screen showed. CLOSES ON: the next console walk shows the step on the first screen.'
+  - issue: 2478
+    repo: CM051
+    title: 'Doctor: a Data sources tab (every routine, last run, working or not)'
+    gate: 'BLOCKING for the F&F build (Andy asked 2026-09-13 and 2026-09-28). Registered in the same action as the filing. FIX: vendor/doctor routine_status.py plus GET /api/v1/routines (this PR); the Hub Doctor page gains a Data sources tab (ostler-ai/ostler-assistant feat/doctor-data-sources-tab). MEASURED READ-ONLY on the walk box: all 8 routines read live with interval, last run and counts. tests/test_doctor_routines_are_measured_live.py 11/11, and a looser stale threshold fails it. CLOSES ON: a walk whose Hub Doctor Data sources tab shows every routine.'
