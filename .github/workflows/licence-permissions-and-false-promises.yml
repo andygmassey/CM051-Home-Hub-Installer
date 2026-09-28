@@ -51,6 +51,8 @@ on:
   pull_request:
     paths:
       - 'install.sh'
+      - 'tests/test_connect_whatsapp_is_on_the_first_screen.sh'
+      - 'gui/OstlerInstaller/Views/InstallCompleteView.swift'
       - 'install.sh.strings.en-GB.sh'
       - 'scripts/ttywalk.sh'
       - 'tests/test_the_licence_a_customer_paid_for_is_owner_only.sh'
@@ -129,7 +131,7 @@ jobs:
         if: always()
         run: bash tests/test_whatsapp_channel_block.sh
 
-      - name: Connect WhatsApp is on the first screen of Install Complete
+      - name: The WhatsApp link step is on the first screen after install
         if: always()
         run: bash tests/test_connect_whatsapp_is_on_the_first_screen.sh
 

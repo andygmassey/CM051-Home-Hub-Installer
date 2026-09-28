@@ -76,15 +76,15 @@ else:
 
 print("2. cmd_mbox skips automated senders (real parser, dry run)")
 mbox = (
-    "From a@x Mon Jan  1 00:00:00 2026\n"
+    "From a@x 2026-01-01\n"
     "From: Jane Doe <jane.doe@example.org>\nTo: me@example.net\n"
     "Subject: lunch\nDate: Mon, 1 Jan 2026 10:00:00 +0000\nMessage-ID: <1@x>\n\nhi\n\n"
-    "From b@x Mon Jan  1 00:00:00 2026\n"
-    "From: Shop Deals <hello@shop.example>\nTo: me@example.net\n"
+    "From b@x 2026-01-01\n"
+    "From: shopdeals <hello@shop.example>\nTo: me@example.net\n"
     "List-Unsubscribe: <mailto:u@shop.example>\n"
     "Subject: sale\nDate: Mon, 1 Jan 2026 11:00:00 +0000\nMessage-ID: <2@x>\n\nbuy\n\n"
-    "From c@x Mon Jan  1 00:00:00 2026\n"
-    "From: Card Issuer <no_reply@card.example>\nTo: me@example.net\n"
+    "From c@x 2026-01-01\n"
+    "From: cardissuer <no_reply@card.example>\nTo: me@example.net\n"
     "Subject: statement\nDate: Mon, 1 Jan 2026 12:00:00 +0000\nMessage-ID: <3@x>\n\nstatement\n\n"
 )
 with tempfile.TemporaryDirectory() as td:
@@ -119,7 +119,7 @@ else:
         iri = cli._safe_person_iri(addr)
         return bool(store.query(f"ASK {{ <{iri}> ?p ?o }}"))
 
-    upsert("hello@shop.example", "Shop Deals")
+    upsert("hello@shop.example", "shopdeals")
     upsert("no_reply@card.example", "")
     upsert("shared@both.example", "Real Person")
     both = cli._safe_person_iri("shared@both.example")
