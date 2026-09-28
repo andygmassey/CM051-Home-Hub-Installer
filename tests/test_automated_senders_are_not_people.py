@@ -1,0 +1,174 @@
+"""Automated and bulk senders do not become people, and old ones are removed.
+
+CM051 v1.0.106. Andy's v1.0.105 console walk: the People list was full of a
+card issuer, trade bodies, shops, promotions and app vendors, because
+vendor/cm021/src/cli.py turned every inbound sender into a pwg:Person. On the
+walk box 725 Persons had only the email-only shape this CLI writes.
+
+This EXECUTES the shipped code:
+  1. automated_sender_reason() on synthetic messages: list, bulk, auto
+     submitted, feedback/campaign and no-reply senders are machine mail;
+     a person writing (including "Auto-Submitted: no") is not.
+  2. cmd_mbox() over a synthetic mbox with the REAL parser, in --dry-run:
+     the automated messages are counted and skipped, the human one is not.
+  3. _build_demote() against a real SPARQL engine (pyoxigraph): an email-only
+     Person made for an automated sender is removed; a Person that another
+     source also wrote (an extra predicate) or that anything points at is
+     left alone, and so is an unrelated Person.
+Synthetic data only.
+
+EXIT CODES   0 all pass   1 a check failed   2 CANNOT-RUN
+"""
+import argparse
+import contextlib
+import io
+import json
+import sys
+import tempfile
+from pathlib import Path
+from types import SimpleNamespace
+
+REPO = Path(__file__).resolve().parent.parent
+PKG = Path(sys.argv[1]) if len(sys.argv) > 1 else REPO / "vendor" / "cm021"
+
+try:
+    import pyoxigraph
+except ImportError:
+    print("CANNOT-RUN: pyoxigraph is not installed", file=sys.stderr)
+    sys.exit(2)
+
+sys.path.insert(0, str(PKG))
+try:
+    from src import cli  # the shipped module, with its real parser
+except Exception as exc:
+    print(f"CANNOT-RUN: could not import {PKG}/src/cli.py: {exc}", file=sys.stderr)
+    sys.exit(2)
+
+fails = 0
+
+
+def check(label, ok):
+    global fails
+    print(("  ok    " if ok else "  FAIL  ") + label)
+    if not ok:
+        fails += 1
+
+
+def msg(addr, headers=None):
+    return SimpleNamespace(from_address=addr, headers=headers or {})
+
+
+print("1. automated_sender_reason")
+reason = getattr(cli, "automated_sender_reason", None)
+if reason is None:
+    check("automated_sender_reason exists in the shipped cli", False)
+else:
+    check("a person writing is a person", reason(msg("jane.doe@example.org", {"From": "x"})) is None)
+    check("Auto-Submitted: no is a person", reason(msg("jane@example.org", {"Auto-Submitted": "no"})) is None)
+    check("List-Unsubscribe is bulk", reason(msg("hello@shop.example", {"List-Unsubscribe": "<mailto:u@shop.example>"})) == "header")
+    check("header names are case-insensitive", reason(msg("a@b.example", {"list-id": "<l.example>"})) == "header")
+    check("Precedence: bulk", reason(msg("a@b.example", {"Precedence": "bulk"})) == "precedence")
+    check("Auto-Submitted: auto-generated", reason(msg("a@b.example", {"Auto-Submitted": "auto-generated"})) == "auto-submitted")
+    check("Feedback-ID (bulk platform)", reason(msg("a@b.example", {"Feedback-ID": "1:2:3"})) == "header")
+    for local in ("noreply", "no-reply", "no_reply", "donotreply", "notifications", "newsletter", "mailer-daemon"):
+        check(f"local part {local}", reason(msg(f"{local}@b.example")) == "local-part")
+    check("a name containing 'info' inside a word is a person", reason(msg("informal.joe@b.example")) is None)
+
+print("2. cmd_mbox skips automated senders (real parser, dry run)")
+mbox = (
+    "From a@x Mon Jan  1 00:00:00 2026\n"
+    "From: Jane Doe <jane.doe@example.org>\nTo: me@example.net\n"
+    "Subject: lunch\nDate: Mon, 1 Jan 2026 10:00:00 +0000\nMessage-ID: <1@x>\n\nhi\n\n"
+    "From b@x Mon Jan  1 00:00:00 2026\n"
+    "From: Shop Deals <hello@shop.example>\nTo: me@example.net\n"
+    "List-Unsubscribe: <mailto:u@shop.example>\n"
+    "Subject: sale\nDate: Mon, 1 Jan 2026 11:00:00 +0000\nMessage-ID: <2@x>\n\nbuy\n\n"
+    "From c@x Mon Jan  1 00:00:00 2026\n"
+    "From: Card Issuer <no_reply@card.example>\nTo: me@example.net\n"
+    "Subject: statement\nDate: Mon, 1 Jan 2026 12:00:00 +0000\nMessage-ID: <3@x>\n\nstatement\n\n"
+)
+with tempfile.TemporaryDirectory() as td:
+    p = Path(td) / "t.mbox"
+    p.write_text(mbox)
+    args = argparse.Namespace(path=str(p), backfill_days=None,
+                              graph_endpoint="http://127.0.0.1:9", json=True, dry_run=True)
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+        cli.cmd_mbox(args)
+    try:
+        res = json.loads(out.getvalue().strip().splitlines()[-1])
+    except Exception:
+        res = {}
+    check("3 messages read", res.get("messages_read") == 3)
+    check("2 automated senders skipped", res.get("skipped_automated") == 2)
+    check("1 person extracted", res.get("people_extracted") == 1)
+
+print("3. _build_demote against pyoxigraph")
+demote = getattr(cli, "_build_demote", None)
+if demote is None:
+    check("_build_demote exists", False)
+else:
+    NS = cli.PWG_NS
+    store = pyoxigraph.Store()
+
+    def upsert(addr, name=""):
+        store.update(cli._build_upsert(person_iri=cli._safe_person_iri(addr), email=addr,
+                                       name=name, last_contact_iso="2026-01-01T00:00:00+00:00"))
+
+    def exists(addr):
+        iri = cli._safe_person_iri(addr)
+        return bool(store.query(f"ASK {{ <{iri}> ?p ?o }}"))
+
+    upsert("hello@shop.example", "Shop Deals")
+    upsert("no_reply@card.example", "")
+    upsert("shared@both.example", "Real Person")
+    both = cli._safe_person_iri("shared@both.example")
+    store.update(f'INSERT DATA {{ <{both}> <{NS}phone> "+000" }}')
+    upsert("pointed@ref.example", "Pointed At")
+    ref = cli._safe_person_iri("pointed@ref.example")
+    store.update(f"INSERT DATA {{ <{NS}meeting_1> <{NS}attendee> <{ref}> }}")
+    upsert("friend@example.org", "Friend")
+
+    for addr in ("hello@shop.example", "no_reply@card.example", "shared@both.example", "pointed@ref.example"):
+        store.update(demote(cli._safe_person_iri(addr)))
+    check("email-only automated sender removed", not exists("hello@shop.example"))
+    check("email-only automated sender with no name removed", not exists("no_reply@card.example"))
+    check("a Person another source also wrote is kept", exists("shared@both.example"))
+    check("a Person something points at is kept", exists("pointed@ref.example"))
+    check("an unrelated Person is untouched", exists("friend@example.org"))
+
+print("4. reclassify-mail reads .emlx headers and finds automated senders (dry run)")
+rc = getattr(cli, "cmd_reclassify_mail", None)
+if rc is None:
+    check("reclassify-mail exists", False)
+else:
+    with tempfile.TemporaryDirectory() as td:
+        d = Path(td) / "V10" / "acct" / "INBOX.mbox" / "Messages"
+        d.mkdir(parents=True)
+        def emlx(n, head):
+            body = (head + "\n\nbody\n").encode()
+            (d / f"{n}.emlx").write_bytes(str(len(body)).encode() + b"\n" + body)
+        emlx(1, "From: Jane Doe <jane.doe@example.org>\nSubject: hi")
+        emlx(2, "From: Shop <hello@shop.example>\nList-Unsubscribe: <x>\nSubject: sale")
+        emlx(3, "From: Shop <hello@shop.example>\nList-Unsubscribe: <x>\nSubject: sale 2")
+        emlx(4, "From: Bank <no_reply@card.example>\nSubject: statement")
+        (d / "5.emlx").write_bytes(b"not a message")
+        args = argparse.Namespace(mail_dir=td, graph_endpoint="http://127.0.0.1:9", dry_run=True)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc(args)
+        try:
+            res = json.loads(out.getvalue().strip().splitlines()[-1])
+        except Exception:
+            res = {}
+        check("5 files read", res.get("files_read") == 5)
+        check("2 distinct automated senders found", res.get("automated_senders") == 2)
+        check("dry run demotes nothing", res.get("people_demoted") == 0)
+
+print("5. install.sh runs the one-off reclassify once, behind a marker")
+inst = (REPO / "install.sh").read_text(errors="replace") if (REPO / "install.sh").exists() else ""
+check("install.sh calls reclassify-mail", "reclassify-mail" in inst)
+check("the one-off is gated by a marker in state/", "email_reclassify_v1.done" in inst)
+
+print(f"\n{'PASS' if fails == 0 else 'FAIL'}: {fails} failed")
+sys.exit(1 if fails else 0)

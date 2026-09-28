@@ -54,8 +54,10 @@ upserted Oxigraph triples (which stay on the customer's machine).
 from __future__ import annotations
 
 import argparse
+import email.utils
 import json
 import os
+import re
 import sys
 import time
 import uuid
@@ -220,6 +222,77 @@ def _build_upsert(
     return "\n".join(parts)
 
 
+
+# --- Automated and organisation senders are not people (CM051 v1.0.106) ---
+#
+# Andy's v1.0.105 walk: the People list was full of card issuers, trade
+# bodies, shops and promotions, because every inbound sender became a
+# pwg:Person. The domain filter above only knows a curated list. These are
+# the signals a mail client itself uses to tell bulk and machine mail from a
+# person writing: RFC 2369 list headers, RFC 3834 Auto-Submitted, the
+# Precedence convention, the feedback and campaign headers every bulk
+# sending platform stamps, and the no-reply family of local parts.
+
+_AUTOMATED_HEADERS = (
+    "list-unsubscribe", "list-id", "list-post", "feedback-id",
+    "x-campaign-id", "x-mc-user", "x-mailgun-sid", "x-sg-eid",
+    "x-ses-outgoing", "x-auto-response-suppress",
+)
+_BULK_PRECEDENCE = {"bulk", "list", "junk"}
+_AUTOMATED_LOCAL_RE = re.compile(
+    r"(^|[._+-])(no[._-]?reply|do[._-]?not[._-]?reply|notifications?|alerts?|"
+    r"news(letters?)?|marketing|mailer[._-]?daemon|postmaster|bounces?|"
+    r"promo(tions?)?|offers?|deals|digest|updates?|info)([._+-]|$)"
+)
+
+
+def automated_sender_reason(email: FastEmail) -> Optional[str]:
+    """Why this message is machine or bulk mail, or None for a person.
+
+    Returns a short category, never a header value, so the reason can be
+    counted in the JSON summary without leaking anything about the mail.
+    """
+    headers = {k.lower(): (v or "") for k, v in (email.headers or {}).items()}
+    for name in _AUTOMATED_HEADERS:
+        if headers.get(name, "").strip():
+            return "header"
+    if headers.get("precedence", "").strip().lower() in _BULK_PRECEDENCE:
+        return "precedence"
+    auto = headers.get("auto-submitted", "").strip().lower()
+    if auto and auto != "no":
+        return "auto-submitted"
+    local = (email.from_address or "").split("@", 1)[0].lower()
+    if _AUTOMATED_LOCAL_RE.search(local):
+        return "local-part"
+    return None
+
+
+# The predicates THIS CLI writes for a sender. A Person carrying anything
+# else was also seen by another source (Contacts, iMessage, WhatsApp,
+# calendar) or enriched, and is never removed from here.
+_EMAIL_ONLY_PREDICATES = (
+    "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>",
+    "pwg:email", "pwg:lastContactEmail", "pwg:displayName",
+    "pwg:displayNameProvisional", "skos:prefLabel",
+)
+
+
+def _build_demote(person_iri: str) -> str:
+    """SPARQL UPDATE removing a Person this CLI created for an automated
+    sender, only while it still has the email-only shape."""
+    allowed = ", ".join(_EMAIL_ONLY_PREDICATES)
+    return "\n".join([
+        "PREFIX pwg: <" + PWG_NS + ">",
+        "PREFIX skos: <http://www.w3.org/2004/02/skos/core#>",
+        "DELETE { <" + person_iri + "> ?p ?o }",
+        "WHERE {",
+        "  <" + person_iri + "> a pwg:Person ; ?p ?o .",
+        "  FILTER NOT EXISTS { <" + person_iri + "> ?q ?x . FILTER(?q NOT IN (" + allowed + ")) }",
+        "  FILTER NOT EXISTS { ?other ?r <" + person_iri + "> }",
+        "}",
+    ])
+
+
 def _post_sparql_update(endpoint: str, query: str, timeout: float = 5.0) -> None:
     """POST a SPARQL UPDATE to Oxigraph.
 
@@ -249,6 +322,8 @@ def cmd_mbox(args: argparse.Namespace) -> int:
         "people_extracted": 0,
         "signatures_extracted": 0,
         "skipped": 0,
+        "skipped_automated": 0,
+        "people_demoted": 0,
         "errors": [],
     }
 
@@ -275,6 +350,7 @@ def cmd_mbox(args: argparse.Namespace) -> int:
         cutoff = datetime.now(timezone.utc) - timedelta(days=args.backfill_days)
 
     seen_emails: Set[str] = set()
+    demoted: Set[str] = set()
     email_filter = EmailFilter()
     parser = FastMboxParser(str(mbox_path), email_filter=email_filter)
 
@@ -299,6 +375,26 @@ def cmd_mbox(args: argparse.Namespace) -> int:
         # Reuses CM021's curated EmailFilter list.
         if email_filter.should_exclude_domain(email.from_domain):
             result["skipped"] += 1
+            continue
+
+        # Machine and bulk mail is not a person (CM051 v1.0.106). Count it,
+        # and remove a Person this CLI made for the same sender earlier,
+        # but only while that node still has the email-only shape.
+        if automated_sender_reason(email) is not None:
+            result["skipped"] += 1
+            result["skipped_automated"] += 1
+            addr_auto = email.from_address.lower()
+            if not args.dry_run and addr_auto not in demoted:
+                demoted.add(addr_auto)
+                try:
+                    _post_sparql_update(
+                        args.graph_endpoint,
+                        _build_demote(_safe_person_iri(addr_auto)),
+                    )
+                    result["people_demoted"] += 1
+                except Exception as exc:
+                    if len(result["errors"]) < 5:
+                        result["errors"].append(type(exc).__name__)
             continue
 
         # Date filter. Emails with no date header pass through;
@@ -354,6 +450,7 @@ def cmd_mbox(args: argparse.Namespace) -> int:
         f"messages_read={result['messages_read']} "
         f"people_extracted={result['people_extracted']} "
         f"skipped={result['skipped']} "
+        f"skipped_automated={result['skipped_automated']} "
         f"errors={len(result['errors'])}"
     )
 
@@ -411,6 +508,69 @@ def _add_mbox_subcommand(sub: argparse._SubParsersAction) -> None:
     )
 
 
+
+def cmd_reclassify_mail(args: argparse.Namespace) -> int:
+    """One-off: remove Persons earlier ticks made for automated senders.
+
+    The hourly tick only sees new mail, so a sender turned into a Person
+    before v1.0.106 is never looked at again. This reads the HEADERS only
+    (never a body) of every .emlx in the Mail store, finds the automated
+    senders, and runs the same guarded demote as the tick. Counts only in
+    the JSON, never an address.
+    """
+    import email.parser
+    from types import SimpleNamespace
+
+    result: Dict[str, Any] = {"files_read": 0, "unreadable": 0,
+                              "automated_senders": 0, "people_demoted": 0,
+                              "errors": []}
+    root = Path(args.mail_dir).expanduser()
+    automated: Set[str] = set()
+    hp = email.parser.BytesHeaderParser()
+    for path in root.rglob("*.emlx"):
+        result["files_read"] += 1
+        try:
+            with open(path, "rb") as fh:
+                fh.readline()  # emlx: first line is the byte count
+                head = b""
+                for line in fh:
+                    if line in (b"\n", b"\r\n"):
+                        break
+                    head += line
+            msg = hp.parsebytes(head)
+            frm = email.utils.parseaddr(msg.get("From", ""))[1].strip().lower()
+        except Exception:
+            result["unreadable"] += 1
+            continue
+        if "@" not in frm or frm in automated:
+            continue
+        probe = SimpleNamespace(from_address=frm, headers=dict(msg.items()))
+        if automated_sender_reason(probe) is not None:
+            automated.add(frm)
+    result["automated_senders"] = len(automated)
+    if not args.dry_run:
+        for addr in sorted(automated):
+            try:
+                _post_sparql_update(args.graph_endpoint,
+                                    _build_demote(_safe_person_iri(addr)))
+                result["people_demoted"] += 1
+            except Exception as exc:
+                if len(result["errors"]) < 5:
+                    result["errors"].append(type(exc).__name__)
+    print(json.dumps(result))
+    return 0
+
+
+def _add_reclassify_subcommand(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser(
+        "reclassify-mail",
+        help="One-off: remove Persons made for automated senders (headers only).",
+    )
+    p.add_argument("mail_dir", nargs="?", default="~/Library/Mail")
+    p.add_argument("--graph-endpoint", default="http://localhost:7878")
+    p.add_argument("--dry-run", action="store_true")
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         prog="pwg-email-ingest",
@@ -422,10 +582,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
     _add_mbox_subcommand(sub)
+    _add_reclassify_subcommand(sub)
 
     args = parser.parse_args(argv)
     if args.cmd == "mbox":
         return cmd_mbox(args)
+    if args.cmd == "reclassify-mail":
+        return cmd_reclassify_mail(args)
     return 2
 
 

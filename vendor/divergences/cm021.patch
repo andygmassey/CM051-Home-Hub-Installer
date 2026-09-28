@@ -1,7 +1,10 @@
 --- a/src/cli.py
 +++ b/src/cli.py
-@@ -58,7 +58,7 @@
+@@ -56,9 +56,10 @@
+ import argparse
+ import json
  import os
++import re
  import sys
  import time
 -import urllib.parse
@@ -9,7 +12,7 @@
  from datetime import datetime, timedelta, timezone
  from pathlib import Path
  from typing import Any, Dict, Optional, Set
-@@ -73,7 +73,17 @@
+@@ -73,7 +74,17 @@
  
  _OXIGRAPH_DEFAULT = "http://localhost:7878"
  
@@ -27,7 +30,7 @@
  def _stderr(msg: str) -> None:
      """Write a diagnostic line to stderr, never stdout.
  
-@@ -84,15 +94,32 @@
+@@ -84,15 +95,32 @@
      print(msg, file=sys.stderr, flush=True)
  
  
@@ -66,7 +69,7 @@
  
  
  def _escape_sparql_literal(value: str) -> str:
-@@ -124,16 +151,41 @@
+@@ -124,16 +152,41 @@
      same correspondent) advance the timestamp monotonically. The
      rdf:type + skos:prefLabel land via INSERT DATA only -- if they
      already exist Oxigraph treats the re-insert as a no-op.
@@ -110,7 +113,7 @@
      parts.append("PREFIX skos: <http://www.w3.org/2004/02/skos/core#>")
      parts.append("")
      parts.append(f"DELETE {{ <{person_iri}> pwg:lastContactEmail ?old }}")
-@@ -143,15 +195,28 @@
+@@ -143,18 +196,102 @@
      parts.append(f"  <{person_iri}> rdf:type pwg:Person ;")
      parts.append(f"                 pwg:email \"{email_lit}\" ;")
      parts.append(f"                 skos:prefLabel \"{label_lit}\" .")
@@ -140,6 +143,132 @@
 +    parts.append("}")
      return "\n".join(parts)
  
+ 
++
++# --- Automated and organisation senders are not people (CM051 v1.0.106) ---
++#
++# Andy's v1.0.105 walk: the People list was full of card issuers, trade
++# bodies, shops and promotions, because every inbound sender became a
++# pwg:Person. The domain filter above only knows a curated list. These are
++# the signals a mail client itself uses to tell bulk and machine mail from a
++# person writing: RFC 2369 list headers, RFC 3834 Auto-Submitted, the
++# Precedence convention, the feedback and campaign headers every bulk
++# sending platform stamps, and the no-reply family of local parts.
++
++_AUTOMATED_HEADERS = (
++    "list-unsubscribe", "list-id", "list-post", "feedback-id",
++    "x-campaign-id", "x-mc-user", "x-mailgun-sid", "x-sg-eid",
++    "x-ses-outgoing", "x-auto-response-suppress",
++)
++_BULK_PRECEDENCE = {"bulk", "list", "junk"}
++_AUTOMATED_LOCAL_RE = re.compile(
++    r"(^|[._+-])(no[._-]?reply|do[._-]?not[._-]?reply|notifications?|alerts?|"
++    r"news(letters?)?|marketing|mailer[._-]?daemon|postmaster|bounces?|"
++    r"promo(tions?)?|offers?|deals|digest|updates?|info)([._+-]|$)"
++)
++
++
++def automated_sender_reason(email: FastEmail) -> Optional[str]:
++    """Why this message is machine or bulk mail, or None for a person.
++
++    Returns a short category, never a header value, so the reason can be
++    counted in the JSON summary without leaking anything about the mail.
++    """
++    headers = {k.lower(): (v or "") for k, v in (email.headers or {}).items()}
++    for name in _AUTOMATED_HEADERS:
++        if headers.get(name, "").strip():
++            return "header"
++    if headers.get("precedence", "").strip().lower() in _BULK_PRECEDENCE:
++        return "precedence"
++    auto = headers.get("auto-submitted", "").strip().lower()
++    if auto and auto != "no":
++        return "auto-submitted"
++    local = (email.from_address or "").split("@", 1)[0].lower()
++    if _AUTOMATED_LOCAL_RE.search(local):
++        return "local-part"
++    return None
++
++
++# The predicates THIS CLI writes for a sender. A Person carrying anything
++# else was also seen by another source (Contacts, iMessage, WhatsApp,
++# calendar) or enriched, and is never removed from here.
++_EMAIL_ONLY_PREDICATES = (
++    "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>",
++    "pwg:email", "pwg:lastContactEmail", "pwg:displayName",
++    "pwg:displayNameProvisional", "skos:prefLabel",
++)
++
++
++def _build_demote(person_iri: str) -> str:
++    """SPARQL UPDATE removing a Person this CLI created for an automated
++    sender, only while it still has the email-only shape."""
++    allowed = ", ".join(_EMAIL_ONLY_PREDICATES)
++    return "\n".join([
++        "PREFIX pwg: <" + PWG_NS + ">",
++        "PREFIX skos: <http://www.w3.org/2004/02/skos/core#>",
++        "DELETE { <" + person_iri + "> ?p ?o }",
++        "WHERE {",
++        "  <" + person_iri + "> a pwg:Person ; ?p ?o .",
++        "  FILTER NOT EXISTS { <" + person_iri + "> ?q ?x . FILTER(?q NOT IN (" + allowed + ")) }",
++        "  FILTER NOT EXISTS { ?other ?r <" + person_iri + "> }",
++        "}",
++    ])
++
++
+ def _post_sparql_update(endpoint: str, query: str, timeout: float = 5.0) -> None:
+     """POST a SPARQL UPDATE to Oxigraph.
+ 
+@@ -184,6 +321,8 @@
+         "people_extracted": 0,
+         "signatures_extracted": 0,
+         "skipped": 0,
++        "skipped_automated": 0,
++        "people_demoted": 0,
+         "errors": [],
+     }
+ 
+@@ -210,6 +349,7 @@
+         cutoff = datetime.now(timezone.utc) - timedelta(days=args.backfill_days)
+ 
+     seen_emails: Set[str] = set()
++    demoted: Set[str] = set()
+     email_filter = EmailFilter()
+     parser = FastMboxParser(str(mbox_path), email_filter=email_filter)
+ 
+@@ -236,6 +376,26 @@
+             result["skipped"] += 1
+             continue
+ 
++        # Machine and bulk mail is not a person (CM051 v1.0.106). Count it,
++        # and remove a Person this CLI made for the same sender earlier,
++        # but only while that node still has the email-only shape.
++        if automated_sender_reason(email) is not None:
++            result["skipped"] += 1
++            result["skipped_automated"] += 1
++            addr_auto = email.from_address.lower()
++            if not args.dry_run and addr_auto not in demoted:
++                demoted.add(addr_auto)
++                try:
++                    _post_sparql_update(
++                        args.graph_endpoint,
++                        _build_demote(_safe_person_iri(addr_auto)),
++                    )
++                    result["people_demoted"] += 1
++                except Exception as exc:
++                    if len(result["errors"]) < 5:
++                        result["errors"].append(type(exc).__name__)
++            continue
++
+         # Date filter. Emails with no date header pass through;
+         # they're rare on legitimate correspondence.
+         if cutoff is not None and email.date is not None:
+@@ -289,6 +449,7 @@
+         f"messages_read={result['messages_read']} "
+         f"people_extracted={result['people_extracted']} "
+         f"skipped={result['skipped']} "
++        f"skipped_automated={result['skipped_automated']} "
+         f"errors={len(result['errors'])}"
+     )
  
 --- a/src/filters.py
 +++ b/src/filters.py
