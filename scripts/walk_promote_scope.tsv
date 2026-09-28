@@ -42,6 +42,7 @@
 #   why     what a red here means, and why that does or does not describe the DMG
 #
 doctor_page_renders_for_a_customer	blocking	CM051	the Doctor returned 500 on every load for three builds while /api/v1/sources answered 200, so every artefact-shaped check passed. A customer who cannot open the page cannot see anything, including whether their data landed. A red here is the product.
+hub_screens_render_for_a_customer	blocking	CM051 + ostler-assistant web	opened as a customer would, the wiki rendered unstyled (every stylesheet 401 application/json, font Times), Timeline ended part way through today with every row MEETING, and the Tailscale switch read OFF while Tailscale ran, through six walks whose probes all asked the engine over ssh and none opened a page (CM051 #2473). What the customer SEES is the product.
 probe	scope	owner	why
 app_signature_survives_first_run	blocking	CM051	the signature on the .app we shipped. A red is the artefact.
 assistant_answers_grounded	blocking	CM051	the shipped assistant reaching the customer's own data is the product's core promise. Currently red on 1 of 3 questions (tool_error) and it SHOULD hold the promote.

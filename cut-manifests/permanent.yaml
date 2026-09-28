@@ -943,7 +943,7 @@ entries:
       (every stylesheet a 401 application/json, body font Times), a Timeline
       that ended part way through today with every row labelled MEETING,
       companies in People, a Not me that never saved and a Tailscale switch
-      reading OFF while Tailscale ran all passed six walks. Headless Chromium on
+      reading OFF while it ran all passed six walks. Headless browser on
       the walk driver opens the Hub and saves wiki.png into the walk record.
     proof:
       kind: box_walk_probe
