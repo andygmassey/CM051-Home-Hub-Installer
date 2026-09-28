@@ -2949,6 +2949,46 @@ async def api_sources():
     return {"sources": rows, "count": len(rows)}
 
 
+
+@app.get("/api/v1/routines", response_class=JSONResponse)
+async def api_routines():
+    """Every recurring ingest routine: installed, interval, last run, last
+    exit, latest counts and health with its reason. Fail-soft."""
+    try:
+        from routine_status import read_routine_status
+        rows = read_routine_status()
+    except Exception:  # pragma: no cover - never 500 the panel poll
+        rows = []
+    return {"routines": rows, "count": len(rows)}
+
+
+
+@app.get("/api/v1/remote-access", response_class=JSONResponse)
+async def api_remote_access_get():
+    """The installer's Tailscale connection, read through its own socket."""
+    from remote_access import status
+    try:
+        return status()
+    except Exception:  # pragma: no cover - never 500 the settings page
+        return {"installed": False, "connected": False, "state": "unreadable"}
+
+
+@app.post("/api/v1/remote-access", response_class=JSONResponse)
+async def api_remote_access_post(request: Request):
+    """Body ``{"enabled": true|false}``. Same cross-site guard as /api/v1/pause."""
+    sec_fetch_site = request.headers.get("sec-fetch-site")
+    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
+        return JSONResponse({"error": "Cross-site request refused"}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    if not isinstance(body, dict) or not isinstance(body.get("enabled"), bool):
+        return JSONResponse({"error": "enabled must be true or false"}, status_code=400)
+    from remote_access import set_enabled
+    return JSONResponse(set_enabled(body["enabled"]), status_code=200)
+
+
 @app.get("/api/v1/box-status", response_class=JSONResponse)
 async def api_box_status():
     """Aggregated live box status for the Hub header chip + Governor page.

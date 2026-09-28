@@ -443,3 +443,25 @@ Local macOS 26.4 library: 0 of 1291 events labelled before, 970 after.
 
 The edit above. Gate: `tests/test_photo_events_carry_place_names.py`, wired in
 privacy-spine.yml.
+
+## Added 2026-09-28, CM051 v1.0.106 (FIX106-B) -- `doctor`, routines and remote access
+
+Tool re-run on 2026-09-28: `scripts/regenerate_divergence_patch.sh doctor`
+refused again (the tree's regeneration ban is checked before the source
+checkout). So these edits are recorded here by location and shape.
+
+- `vendor/doctor/agent/routine_status.py` -- NEW FILE. `read_routine_status()`:
+  one row per recurring ingest routine (label, interval from its LaunchAgent
+  plist, launchd loaded/running/last exit, last run from its log mtime, the
+  counts its last run printed, health with a reason). No FastAPI imports.
+- `vendor/doctor/agent/remote_access.py` -- NEW FILE. `status()` and
+  `set_enabled()` for the INSTALLER's tailscaled through
+  `$OSTLER_DIR/tailscale/tailscaled.sock`, with install.sh's own
+  `up --hostname=ostler-hub`.
+- `vendor/doctor/agent/web_ui.py` -- three routes added next to
+  `/api/v1/box-status`: `GET /api/v1/routines`, `GET /api/v1/remote-access`,
+  `POST /api/v1/remote-access` (the /api/v1/pause cross-site guard).
+
+A future sync must keep both files and the three routes. Guarded by
+tests/test_doctor_routines_are_measured_live.py and
+tests/test_remote_access_reads_the_installers_tailscale.py (vendor-integrity.yml).

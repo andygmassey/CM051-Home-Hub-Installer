@@ -32741,6 +32741,22 @@ except Exception:
         _hydrate_sentinel_record_no_data "email" "${_HYDRATE_EMAIL_OUTCOME:-unknown}"
     fi
 
+    # v1.0.106: automated and bulk senders are not people. The tick now skips
+    # them, but a Person an earlier version made for one is never revisited
+    # by a tick that only sees new mail, so this runs ONCE per install (a
+    # marker in state/), reading .emlx HEADERS only, and removes such a
+    # Person only while it still has the email-only shape. Counts only.
+    _RECLASSIFY_MARKER="${OSTLER_DIR}/state/email_reclassify_v1.done"
+    if [[ ! -f "$_RECLASSIFY_MARKER" ]]; then
+        _RECLASSIFY_JSON="$("$_HYDRATE_EMAIL_BIN" reclassify-mail "$HOME/Library/Mail" \
+            --graph-endpoint "$_HYDRATE_OXIGRAPH_EMAIL" 2>>"$_HYDRATE_EMAIL_LOG" | tail -n 1 || true)" \
+            && [[ "$_RECLASSIFY_JSON" == *'"people_demoted"'* ]] \
+            && mkdir -p "${OSTLER_DIR}/state" \
+            && printf '%s\n' "$_RECLASSIFY_JSON" > "$_RECLASSIFY_MARKER" \
+            || warn "email: one-off reclassify of automated senders did not complete; the next install retries it"
+    fi
+    unset _RECLASSIFY_MARKER _RECLASSIFY_JSON
+
     unset _HYDRATE_EMAIL_MBOX _HYDRATE_EMAIL_TIMED_OUT _HYDRATE_EMAIL_JSON
     unset _HYDRATE_EMAIL_COUNT _HYDRATE_EMAIL_TIMEOUT_WRAP _HYDRATE_EMAIL_LOG _HYDRATE_EMAIL_CAP
     unset _HYDRATE_EMAIL_COUNTS _HYDRATE_EMAIL_MSGS

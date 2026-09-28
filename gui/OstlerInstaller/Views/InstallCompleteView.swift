@@ -254,6 +254,17 @@ struct InstallCompleteView: View {
             // not read as "everything is finished".
             whatsHappeningSection
 
+            // v1.0.103: link WhatsApp here instead of from Terminal. Renders
+            // nothing unless the customer chose WhatsApp (reads the config
+            // install.sh wrote); draws its own divider when it does.
+            // v1.0.106: MOVED UP, directly under "What's happening now". On
+            // Andy's v1.0.105 console walk it sat below the iPhone download
+            // and the pairing QR, off the first screen, and he never saw it
+            // although his config enabled it (enabled, session_path and
+            // pair_phone all present). A code that expires in 180 s must be
+            // on the first screen the customer sees.
+            WhatsAppLinkSection()
+
             Divider()
 
             // #599: primary iPhone call to action -- download the app.
@@ -262,11 +273,6 @@ struct InstallCompleteView: View {
             // #599: the pairing QR, demoted below the download CTA and
             // relabelled "already installed the app? scan to pair".
             pairingSection
-
-            // v1.0.103: link WhatsApp here instead of from Terminal. Renders
-            // nothing unless the customer chose WhatsApp (reads the config
-            // install.sh wrote); draws its own divider when it does.
-            WhatsAppLinkSection()
 
             Divider()
 

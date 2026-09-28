@@ -98,6 +98,14 @@ jobs:
         if: always()
         run: python3 tests/test_email_only_people_get_a_provisional_name.py
 
+      # v1.0.106: automated and bulk senders are not people; the real parser
+      # and the shipped demote are executed, so bs4 is needed as well.
+      - name: Automated and bulk email senders do not become people
+        if: always()
+        run: |
+          python3 -m pip install --quiet beautifulsoup4
+          python3 tests/test_automated_senders_are_not_people.py
+
       - name: AI conversations are private by default in BOTH pinning places
         if: always()
         run: python3 tests/test_ai_conversations_default_to_the_locked_privacy_level.py
