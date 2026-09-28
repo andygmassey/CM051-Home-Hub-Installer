@@ -116,7 +116,7 @@
      parts.append("PREFIX skos: <http://www.w3.org/2004/02/skos/core#>")
      parts.append("")
      parts.append(f"DELETE {{ <{person_iri}> pwg:lastContactEmail ?old }}")
-@@ -143,18 +197,102 @@
+@@ -143,18 +197,183 @@
      parts.append(f"  <{person_iri}> rdf:type pwg:Person ;")
      parts.append(f"                 pwg:email \"{email_lit}\" ;")
      parts.append(f"                 skos:prefLabel \"{label_lit}\" .")
@@ -145,8 +145,8 @@
 +    parts.append(f"  FILTER ({guard})")
 +    parts.append("}")
      return "\n".join(parts)
-+
-+
+ 
+ 
 +
 +# --- Automated and organisation senders are not people (CM051 v1.0.106) ---
 +#
@@ -161,7 +161,9 @@
 +_AUTOMATED_HEADERS = (
 +    "list-unsubscribe", "list-id", "list-post", "feedback-id",
 +    "x-campaign-id", "x-mc-user", "x-mailgun-sid", "x-sg-eid",
-+    "x-ses-outgoing", "x-auto-response-suppress",
++    "x-ses-outgoing",
++    # NOT x-auto-response-suppress: Exchange/Outlook can stamp it on
++    # ordinary person-to-person mail, so it would demote real people.
 +)
 +_BULK_PRECEDENCE = {"bulk", "list", "junk"}
 +_AUTOMATED_LOCAL_RE = re.compile(
@@ -190,8 +192,8 @@
 +    if _AUTOMATED_LOCAL_RE.search(local):
 +        return "local-part"
 +    return None
- 
- 
++
++
 +# The predicates THIS CLI writes for a sender. A Person carrying anything
 +# else was also seen by another source (Contacts, iMessage, WhatsApp,
 +# calendar) or enriched, and is never removed from here.
@@ -205,6 +207,7 @@
 +def _build_demote(person_iri: str) -> str:
 +    """SPARQL UPDATE removing a Person this CLI created for an automated
 +    sender, only while it still has the email-only shape."""
++    _check_person_iri(person_iri)
 +    allowed = ", ".join(_EMAIL_ONLY_PREDICATES)
 +    return "\n".join([
 +        "PREFIX pwg: <" + PWG_NS + ">",
@@ -218,10 +221,88 @@
 +    ])
 +
 +
++
++_IRI_FORBIDDEN = set('<>" \t\r\n{}|\\^`')
++
++
++def _check_person_iri(person_iri: str) -> None:
++    """Refuse anything that is not a plain IRI in our person namespace
++    before it is spliced into SPARQL (Archie, review of CM051 #2479)."""
++    prefix = PWG_NS + "person_"
++    if (not isinstance(person_iri, str) or not person_iri.startswith(prefix)
++            or len(person_iri) <= len(prefix)
++            or any(c in _IRI_FORBIDDEN for c in person_iri)):
++        raise ValueError("refused: not a person IRI in the pwg namespace")
++
++
++_BACKUP_NAME = "demoted_people.jsonl"
++
++
++def _backup_path() -> Path:
++    root = os.environ.get("OSTLER_HOME") or os.environ.get("OSTLER_DIR") or str(Path.home() / ".ostler")
++    return Path(root) / "state" / _BACKUP_NAME
++
++
++def _backup_person(endpoint: str, person_iri: str, reason: str) -> int:
++    """Append every triple the demote WOULD remove to the backup file BEFORE
++    the UPDATE runs. Returns the triple count. Raises on any failure, so a
++    Person is never deleted without its backup."""
++    _check_person_iri(person_iri)
++    allowed = ", ".join(_EMAIL_ONLY_PREDICATES)
++    q = "\n".join([
++        "PREFIX pwg: <" + PWG_NS + ">",
++        "PREFIX skos: <http://www.w3.org/2004/02/skos/core#>",
++        "SELECT ?p ?o WHERE {",
++        "  <" + person_iri + "> a pwg:Person ; ?p ?o .",
++        "  FILTER NOT EXISTS { <" + person_iri + "> ?q ?x . FILTER(?q NOT IN (" + allowed + ")) }",
++        "  FILTER NOT EXISTS { ?other ?r <" + person_iri + "> }",
++        "}",
++    ])
++    rows = _sparql_select(endpoint, q)
++    if not rows:
++        return 0
++    path = _backup_path()
++    path.parent.mkdir(parents=True, exist_ok=True)
++    ts = datetime.now(timezone.utc).isoformat()
++    with open(path, "a", encoding="utf-8") as fh:
++        for p, o in rows:
++            fh.write(json.dumps({"at": ts, "reason": reason, "s": person_iri, "p": p, "o": o}) + "\n")
++        fh.flush()
++        os.fsync(fh.fileno())
++    return len(rows)
++
++
++def _sparql_select(endpoint: str, query: str, timeout: float = 10.0) -> list:
++    """(p, o) pairs from a SELECT, over the same httpx transport as updates
++    (so the store-auth shim in the service venv applies to both)."""
++    import httpx
++    response = httpx.post(
++        endpoint.rstrip("/") + "/query",
++        content=query,
++        headers={"Content-Type": "application/sparql-query",
++                 "Accept": "application/sparql-results+json"},
++        timeout=timeout,
++    )
++    response.raise_for_status()
++    body = response.json()
++    out = []
++    for b in body.get("results", {}).get("bindings", []):
++        out.append((b["p"]["value"], b["o"]["value"]))
++    return out
++
++
++def _demote(endpoint: str, person_iri: str, reason: str) -> int:
++    """Backup, THEN delete. Returns the triples backed up (0 = nothing to do)."""
++    n = _backup_person(endpoint, person_iri, reason)
++    if n:
++        _post_sparql_update(endpoint, _build_demote(person_iri))
++    return n
++
++
  def _post_sparql_update(endpoint: str, query: str, timeout: float = 5.0) -> None:
      """POST a SPARQL UPDATE to Oxigraph.
  
-@@ -184,6 +322,8 @@
+@@ -184,6 +403,8 @@
          "people_extracted": 0,
          "signatures_extracted": 0,
          "skipped": 0,
@@ -230,7 +311,7 @@
          "errors": [],
      }
  
-@@ -210,6 +350,7 @@
+@@ -210,6 +431,7 @@
          cutoff = datetime.now(timezone.utc) - timedelta(days=args.backfill_days)
  
      seen_emails: Set[str] = set()
@@ -238,34 +319,33 @@
      email_filter = EmailFilter()
      parser = FastMboxParser(str(mbox_path), email_filter=email_filter)
  
-@@ -236,6 +377,26 @@
-             result["skipped"] += 1
-             continue
- 
+@@ -233,7 +455,25 @@
+         # Domain-noise filter (newsletters, automated senders, etc.).
+         # Reuses CM021's curated EmailFilter list.
+         if email_filter.should_exclude_domain(email.from_domain):
++            result["skipped"] += 1
++            continue
++
 +        # Machine and bulk mail is not a person (CM051 v1.0.106). Count it,
 +        # and remove a Person this CLI made for the same sender earlier,
 +        # but only while that node still has the email-only shape.
 +        if automated_sender_reason(email) is not None:
-+            result["skipped"] += 1
+             result["skipped"] += 1
 +            result["skipped_automated"] += 1
 +            addr_auto = email.from_address.lower()
 +            if not args.dry_run and addr_auto not in demoted:
 +                demoted.add(addr_auto)
 +                try:
-+                    _post_sparql_update(
-+                        args.graph_endpoint,
-+                        _build_demote(_safe_person_iri(addr_auto)),
-+                    )
-+                    result["people_demoted"] += 1
++                    if _demote(args.graph_endpoint, _safe_person_iri(addr_auto),
++                               automated_sender_reason(email) or "automated"):
++                        result["people_demoted"] += 1
 +                except Exception as exc:
 +                    if len(result["errors"]) < 5:
 +                        result["errors"].append(type(exc).__name__)
-+            continue
-+
+             continue
+ 
          # Date filter. Emails with no date header pass through;
-         # they're rare on legitimate correspondence.
-         if cutoff is not None and email.date is not None:
-@@ -289,6 +450,7 @@
+@@ -289,6 +529,7 @@
          f"messages_read={result['messages_read']} "
          f"people_extracted={result['people_extracted']} "
          f"skipped={result['skipped']} "
@@ -273,13 +353,10 @@
          f"errors={len(result['errors'])}"
      )
  
-@@ -343,7 +505,70 @@
-         "--dry-run",
-         action="store_true",
-         help="Parse + count but do not write to Oxigraph.",
-+    )
-+
-+
+@@ -346,6 +587,73 @@
+     )
+ 
+ 
 +
 +def cmd_reclassify_mail(args: argparse.Namespace) -> int:
 +    """One-off: remove Persons earlier ticks made for automated senders.
@@ -298,6 +375,7 @@
 +                              "errors": []}
 +    root = Path(args.mail_dir).expanduser()
 +    automated: Set[str] = set()
++    reasons: Dict[str, str] = {}
 +    hp = email.parser.BytesHeaderParser()
 +    for path in root.rglob("*.emlx"):
 +        result["files_read"] += 1
@@ -317,15 +395,18 @@
 +        if "@" not in frm or frm in automated:
 +            continue
 +        probe = SimpleNamespace(from_address=frm, headers=dict(msg.items()))
-+        if automated_sender_reason(probe) is not None:
++        why = automated_sender_reason(probe)
++        if why is not None:
 +            automated.add(frm)
++            reasons[frm] = why
 +    result["automated_senders"] = len(automated)
++    result["by_rule"] = {r: sum(1 for v in reasons.values() if v == r) for r in sorted(set(reasons.values()))}
++    result["backup"] = str(_backup_path())
 +    if not args.dry_run:
 +        for addr in sorted(automated):
 +            try:
-+                _post_sparql_update(args.graph_endpoint,
-+                                    _build_demote(_safe_person_iri(addr)))
-+                result["people_demoted"] += 1
++                if _demote(args.graph_endpoint, _safe_person_iri(addr), reasons[addr]):
++                    result["people_demoted"] += 1
 +            except Exception as exc:
 +                if len(result["errors"]) < 5:
 +                    result["errors"].append(type(exc).__name__)
@@ -337,14 +418,16 @@
 +    p = sub.add_parser(
 +        "reclassify-mail",
 +        help="One-off: remove Persons made for automated senders (headers only).",
-     )
++    )
 +    p.add_argument("mail_dir", nargs="?", default="~/Library/Mail")
 +    p.add_argument("--graph-endpoint", default="http://localhost:7878")
 +    p.add_argument("--dry-run", action="store_true")
- 
- 
++
++
  def main(argv: Optional[list[str]] = None) -> int:
-@@ -357,10 +582,13 @@
+     parser = argparse.ArgumentParser(
+         prog="pwg-email-ingest",
+@@ -357,10 +665,13 @@
      )
      sub = parser.add_subparsers(dest="cmd", required=True)
      _add_mbox_subcommand(sub)

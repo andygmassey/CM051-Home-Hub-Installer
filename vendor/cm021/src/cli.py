@@ -236,7 +236,9 @@ def _build_upsert(
 _AUTOMATED_HEADERS = (
     "list-unsubscribe", "list-id", "list-post", "feedback-id",
     "x-campaign-id", "x-mc-user", "x-mailgun-sid", "x-sg-eid",
-    "x-ses-outgoing", "x-auto-response-suppress",
+    "x-ses-outgoing",
+    # NOT x-auto-response-suppress: Exchange/Outlook can stamp it on
+    # ordinary person-to-person mail, so it would demote real people.
 )
 _BULK_PRECEDENCE = {"bulk", "list", "junk"}
 _AUTOMATED_LOCAL_RE = re.compile(
@@ -280,6 +282,7 @@ _EMAIL_ONLY_PREDICATES = (
 def _build_demote(person_iri: str) -> str:
     """SPARQL UPDATE removing a Person this CLI created for an automated
     sender, only while it still has the email-only shape."""
+    _check_person_iri(person_iri)
     allowed = ", ".join(_EMAIL_ONLY_PREDICATES)
     return "\n".join([
         "PREFIX pwg: <" + PWG_NS + ">",
@@ -291,6 +294,84 @@ def _build_demote(person_iri: str) -> str:
         "  FILTER NOT EXISTS { ?other ?r <" + person_iri + "> }",
         "}",
     ])
+
+
+
+_IRI_FORBIDDEN = set('<>" \t\r\n{}|\\^`')
+
+
+def _check_person_iri(person_iri: str) -> None:
+    """Refuse anything that is not a plain IRI in our person namespace
+    before it is spliced into SPARQL (Archie, review of CM051 #2479)."""
+    prefix = PWG_NS + "person_"
+    if (not isinstance(person_iri, str) or not person_iri.startswith(prefix)
+            or len(person_iri) <= len(prefix)
+            or any(c in _IRI_FORBIDDEN for c in person_iri)):
+        raise ValueError("refused: not a person IRI in the pwg namespace")
+
+
+_BACKUP_NAME = "demoted_people.jsonl"
+
+
+def _backup_path() -> Path:
+    root = os.environ.get("OSTLER_HOME") or os.environ.get("OSTLER_DIR") or str(Path.home() / ".ostler")
+    return Path(root) / "state" / _BACKUP_NAME
+
+
+def _backup_person(endpoint: str, person_iri: str, reason: str) -> int:
+    """Append every triple the demote WOULD remove to the backup file BEFORE
+    the UPDATE runs. Returns the triple count. Raises on any failure, so a
+    Person is never deleted without its backup."""
+    _check_person_iri(person_iri)
+    allowed = ", ".join(_EMAIL_ONLY_PREDICATES)
+    q = "\n".join([
+        "PREFIX pwg: <" + PWG_NS + ">",
+        "PREFIX skos: <http://www.w3.org/2004/02/skos/core#>",
+        "SELECT ?p ?o WHERE {",
+        "  <" + person_iri + "> a pwg:Person ; ?p ?o .",
+        "  FILTER NOT EXISTS { <" + person_iri + "> ?q ?x . FILTER(?q NOT IN (" + allowed + ")) }",
+        "  FILTER NOT EXISTS { ?other ?r <" + person_iri + "> }",
+        "}",
+    ])
+    rows = _sparql_select(endpoint, q)
+    if not rows:
+        return 0
+    path = _backup_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).isoformat()
+    with open(path, "a", encoding="utf-8") as fh:
+        for p, o in rows:
+            fh.write(json.dumps({"at": ts, "reason": reason, "s": person_iri, "p": p, "o": o}) + "\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+    return len(rows)
+
+
+def _sparql_select(endpoint: str, query: str, timeout: float = 10.0) -> list:
+    """(p, o) pairs from a SELECT, over the same httpx transport as updates
+    (so the store-auth shim in the service venv applies to both)."""
+    import httpx
+    response = httpx.post(
+        endpoint.rstrip("/") + "/query",
+        content=query,
+        headers={"Content-Type": "application/sparql-query",
+                 "Accept": "application/sparql-results+json"},
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    body = response.json()
+    out = []
+    for b in body.get("results", {}).get("bindings", []):
+        out.append((b["p"]["value"], b["o"]["value"]))
+    return out
+
+
+def _demote(endpoint: str, person_iri: str, reason: str) -> int:
+    """Backup, THEN delete. Returns the triples backed up (0 = nothing to do)."""
+    n = _backup_person(endpoint, person_iri, reason)
+    if n:
+        _post_sparql_update(endpoint, _build_demote(person_iri))
+    return n
 
 
 def _post_sparql_update(endpoint: str, query: str, timeout: float = 5.0) -> None:
@@ -387,11 +468,9 @@ def cmd_mbox(args: argparse.Namespace) -> int:
             if not args.dry_run and addr_auto not in demoted:
                 demoted.add(addr_auto)
                 try:
-                    _post_sparql_update(
-                        args.graph_endpoint,
-                        _build_demote(_safe_person_iri(addr_auto)),
-                    )
-                    result["people_demoted"] += 1
+                    if _demote(args.graph_endpoint, _safe_person_iri(addr_auto),
+                               automated_sender_reason(email) or "automated"):
+                        result["people_demoted"] += 1
                 except Exception as exc:
                     if len(result["errors"]) < 5:
                         result["errors"].append(type(exc).__name__)
@@ -526,6 +605,7 @@ def cmd_reclassify_mail(args: argparse.Namespace) -> int:
                               "errors": []}
     root = Path(args.mail_dir).expanduser()
     automated: Set[str] = set()
+    reasons: Dict[str, str] = {}
     hp = email.parser.BytesHeaderParser()
     for path in root.rglob("*.emlx"):
         result["files_read"] += 1
@@ -545,15 +625,18 @@ def cmd_reclassify_mail(args: argparse.Namespace) -> int:
         if "@" not in frm or frm in automated:
             continue
         probe = SimpleNamespace(from_address=frm, headers=dict(msg.items()))
-        if automated_sender_reason(probe) is not None:
+        why = automated_sender_reason(probe)
+        if why is not None:
             automated.add(frm)
+            reasons[frm] = why
     result["automated_senders"] = len(automated)
+    result["by_rule"] = {r: sum(1 for v in reasons.values() if v == r) for r in sorted(set(reasons.values()))}
+    result["backup"] = str(_backup_path())
     if not args.dry_run:
         for addr in sorted(automated):
             try:
-                _post_sparql_update(args.graph_endpoint,
-                                    _build_demote(_safe_person_iri(addr)))
-                result["people_demoted"] += 1
+                if _demote(args.graph_endpoint, _safe_person_iri(addr), reasons[addr]):
+                    result["people_demoted"] += 1
             except Exception as exc:
                 if len(result["errors"]) < 5:
                     result["errors"].append(type(exc).__name__)

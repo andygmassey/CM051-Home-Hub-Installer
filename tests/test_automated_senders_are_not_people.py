@@ -170,5 +170,55 @@ inst = (REPO / "install.sh").read_text(errors="replace") if (REPO / "install.sh"
 check("install.sh calls reclassify-mail", "reclassify-mail" in inst)
 check("the one-off is gated by a marker in state/", "email_reclassify_v1.done" in inst)
 
+print("6. backup BEFORE delete, and hostile IRIs refused (Archie, review of #2479)")
+dm = getattr(cli, "_demote", None)
+if dm is None:
+    check("_demote (backup then delete) exists", False)
+else:
+    import os
+    store2 = pyoxigraph.Store()
+    order = []
+
+    def sel(endpoint, q):
+        order.append("backup")
+        return [(str(r["p"].value), str(r["o"].value)) for r in store2.query(q)]
+
+    def upd(endpoint, q):
+        order.append("delete")
+        store2.update(q)
+
+    cli._sparql_select = sel
+    cli._post_sparql_update = upd
+    for addr, nm in (("promo@shop.example", "Shop"), ("keep@friend.example", "Friend")):
+        store2.update(cli._build_upsert(person_iri=cli._safe_person_iri(addr), email=addr,
+                                        name=nm, last_contact_iso="2026-01-01T00:00:00+00:00"))
+    iri = cli._safe_person_iri("promo@shop.example")
+    before = {(str(q.predicate.value), str(q.object.value)) for q in store2.quads_for_pattern(pyoxigraph.NamedNode(iri), None, None)}
+    with tempfile.TemporaryDirectory() as td:
+        os.environ["OSTLER_HOME"] = td
+        n = dm("http://x", iri, "header")
+        bpath = Path(td) / "state" / "demoted_people.jsonl"
+        lines = [json.loads(l) for l in bpath.read_text().splitlines()] if bpath.exists() else []
+    check("the backup is written BEFORE the delete", order[:2] == ["backup", "delete"])
+    check("the backup holds exactly the removed triples",
+          {(l["p"], l["o"]) for l in lines} == before and len(lines) == n and n == len(before))
+    check("every backup line names the subject and the rule",
+          all(l["s"] == iri and l["reason"] == "header" for l in lines))
+    check("the Person is gone after", not bool(store2.query(f"ASK {{ <{iri}> ?p ?o }}")))
+    check("an unrelated Person is untouched",
+          bool(store2.query(f"ASK {{ <{cli._safe_person_iri('keep@friend.example')}> ?p ?o }}")))
+
+    def refused(x):
+        try:
+            cli._build_demote(x)
+            return False
+        except ValueError:
+            return True
+    good = cli._safe_person_iri("a@b.example")
+    check("a normal person IRI is accepted", not refused(good))
+    for hostile in (good + "> ?p ?o } ; DROP ALL ; #", good + " x", good + '"', "<" + good,
+                    "http://evil.example/person_1", cli.PWG_NS + "Thing_1", ""):
+        check(f"hostile IRI refused: {hostile[-24:]!r}", refused(hostile))
+
 print(f"\n{'PASS' if fails == 0 else 'FAIL'}: {fails} failed")
 sys.exit(1 if fails else 0)
