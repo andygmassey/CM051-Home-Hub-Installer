@@ -54,7 +54,7 @@ description: |
   service senders, chat relationship and own-name guards, no unasked brief,
   one-off reminders and a safe cancel, Timeline on Today with history and real
   types, Not me saved, organisations out of People (backed up first), the
-  Tailscale switch tells the truth, a Doctor Data sources tab, and a WebKit
+  Tailscale switch tells the truth, a data-sources tab in the Doctor, and a WebKit
   screen check that gates the walk. Daemon 0.4.89 (oa a19b920f). Text below is v1.0.105s.
   v1.0.105 carries v1.0.104 (itself v1.0.103) UNCHANGED in product. v1.0.104
   was tagged once at 2659eea3 and refused at preflight (run 36334020314) on 13
