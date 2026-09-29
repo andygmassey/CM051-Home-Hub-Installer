@@ -81,3 +81,4 @@ fix(install): mail senders that are organisations or automated are reclassified,
 fix(installer): Open Your Wiki opens the app on the wiki (ostler://wiki)	CM051	ea4762dad7	no	open_your_wiki_deep_link	capability_matrix.sh gate	CM051 #2462
 fix(nudges): service senders never get a gone-quiet or birthday card	CM051	ea4762dad7	no	service_senders_get_no_nudge	capability_matrix.sh gate	CM051 #2462
 fix(people): organisation display names are not people (anchored rule)	CM051	ee5e2fcecb	no	org_display_names_not_people	capability_matrix.sh gate	CM051 #2492
+fix(people): role-mailbox-only names are not listed as people; retired merge duplicates demoted with their node	CM051	b6ea341a3f	no	people_list_hides_role_address_names	capability_matrix.sh gate	CM051 #2494
