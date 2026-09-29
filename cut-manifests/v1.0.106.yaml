@@ -6499,3 +6499,15 @@ open_issues:
     repo: CM051
     title: 'Doctor: a Data sources tab (every routine, last run, working or not)'
     gate: 'BLOCKING for the F&F build (Andy asked 2026-09-13 and 2026-09-28). Registered in the same action as the filing. FIX: vendor/doctor routine_status.py plus GET /api/v1/routines (this PR); the Hub Doctor page gains a Data sources tab (ostler-ai/ostler-assistant feat/doctor-data-sources-tab). MEASURED READ-ONLY on the walk box: all 8 routines read live with interval, last run and counts. tests/test_doctor_routines_are_measured_live.py 11/11, and a looser stale threshold fails it. CLOSES ON: a walk whose Hub Doctor Data sources tab shows every routine.'
+  - issue: 2489
+    repo: CM051
+    title: 'People: organisations and one-way email senders still listed as people after #2479'
+    gate: 'BLOCKING (Andy 2026-09-28: companies in People is not launchable). Registered in the same action as the filing. MEASURED READ-ONLY on the v1.0.106 walk box: 49 org-shaped Persons, 42 email-only. FIX (vendor/cm021/src/cli.py): organisation display-name rule; a Person is someone the owner writes to (Sent-mail recipients, headers only, kept as an owner-only state file refreshed within the hourly mbox run); reclassify-mail graph passes with the same backup-before-delete and IRI safety; install marker email_reclassify_v2. Dry run on the box: 35 org-named plus 123 one-way of 161 email-only Persons would be demoted. tests/test_automated_senders_are_not_people.py: 3 FAIL on main, all pass on the fix, mutants red. CLOSES ON: a walk whose People list shows no email-created organisation or one-way sender, with demoted_people.jsonl holding every removed triple.'
+  - issue: 2490
+    repo: CM051
+    title: "Wiki front page shows the owner's own name as 'a topic you've been into'"
+    gate: 'NOT BLOCKING for v1.0.106 (a visible, cosmetic error; the source is the CM044 wiki compiler and needs an image re-pin). v1.0.107. CLOSES ON: a Front Page with no topic card naming the owner or the assistant.'
+  - issue: 2491
+    repo: CM051
+    title: 'People: Contacts cards named like organisations are typed person or unclassified'
+    gate: 'NOT BLOCKING for v1.0.106: 8 org-like Persons remain on the walk box, all from the owner''s own Contacts or iMessage; they are not deleted by a name heuristic. v1.0.107: type them business at the contacts classifier. CLOSES ON: a walk whose People list shows none of them.'
