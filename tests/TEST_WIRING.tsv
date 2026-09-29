@@ -498,6 +498,7 @@ test_reset_says_when_it_did_not_uninstall.sh	WIRED	.github/workflows/reset-unins
 test_resolver_robustness.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_resource_tier_governor.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_reuse_run_keeps_the_daily_briefs.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
+test_role_addresses_are_not_listed_as_people.py	WIRED	.github/workflows/privacy-spine.yml
 test_rollforward_pin_is_watched_on_prs.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_rollforward_registry_pin.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_runtime_ready_does_not_require_optional_imports.sh	WIRED	.github/workflows/consent-data-handling.yml

@@ -457,6 +457,23 @@ _SERVICE_MAILBOX_LOCALPARTS = frozenset({
 })
 
 
+_ROLE_ADDRESS_LOCAL_RE = re.compile(
+    r"^(no-?reply|noreply|do-?not-?reply|support|help(desk)?|team|info|news(letter)?|"
+    r"promo(tions?)?|marketing|notifications?|alerts?|hello|sales|billing)([._+-]|$)",
+    re.IGNORECASE,
+)
+
+
+def _is_role_address_name(name):
+    """True when a display name is just an email address at a role or
+    automation mailbox, judged by the LOCAL PART only (the domain says where
+    someone works, not what they are)."""
+    n = (name or "").strip()
+    if "@" not in n or " " in n:
+        return False
+    return bool(_ROLE_ADDRESS_LOCAL_RE.match(n.split("@", 1)[0]))
+
+
 def _is_service_sender(display_name, emails=None):
     """True when a contact is a service/notification sender, not a person.
 
@@ -5236,6 +5253,12 @@ def people_list(sort=None, ceiling=10000):
         p = pt.get("payload", {}) or {}
         name = p.get("display_name") or p.get("name") or ""
         if not name:
+            continue
+        # v1.0.106 walk: a record whose ONLY name is a role or automation
+        # mailbox ("support@...", "promotions@...") is not a person to list.
+        # Hidden from the People LIST only; never deleted, and still found by
+        # search and by the assistant.
+        if _is_role_address_name(name):
             continue
         # slug + wiki_url let the Hub People row click through to the
         # person's wiki page (and resolve the enrichment card). Same slug

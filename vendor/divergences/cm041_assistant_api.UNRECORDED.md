@@ -151,3 +151,16 @@ Recorded here, not as a patch, for the same reason as the erasure graft above:
 the tree's patch cannot be regenerated. Guarded by
 `tests/test_the_timeline_opens_on_today.py`. Retire by landing it in CM041
 `assistant_api/ical-server.py` and re-pinning.
+
+## Third graft: role-address-only names are not listed as people (CM051 #2489, 2026-09-30)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
+new `_ROLE_ADDRESS_LOCAL_RE` and `_is_role_address_name` directly above
+`_is_service_sender`, and one `continue` in `people_list` right after the
+empty-name skip. Shape: the People LIST only; nothing is deleted, and search
+and the assistant still find the record. Reason: on the v1.0.106 walk the
+People list showed records whose only name was a support or promotions
+mailbox. Judged by the local part, never the domain. Guarded by
+`tests/test_role_addresses_are_not_listed_as_people.py`. Recorded here, not as
+a patch, for the same reason as the grafts above. Retire by landing it in
+CM041 and re-pinning.
