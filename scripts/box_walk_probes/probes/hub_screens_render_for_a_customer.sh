@@ -29,12 +29,16 @@ _HERE="$(cd "$(dirname "$0")/.." && pwd)"
 _PY="${OSTLER_SCREENS_PYTHON:-${HOME}/walkdriver/pwvenv/bin/python}"
 
 self_test() {
+    # Phase-1 contract (run_box_walk.sh): a self-test must come back FAIL on
+    # known-bad input. The judge's self-test feeds it 18 mutated fixtures, each
+    # of which must go red, so "every mutant caught" is reported as the FAIL
+    # the harness requires, and a mutant that slips through is the BROKEN case.
     if python3 "${_HERE}/lib/hub_screens.py" --self-test; then
         probe_examined 18 "mutated screen facts"
-        probe_pass "every screen assertion fails on its mutant and the good fixture passes"
+        probe_fail "negative control behaved: all 18 known-bad screen fixtures went red, and an unmeasured person link is an explicit CANNOT-RUN row"
     fi
     probe_examined 18 "mutated screen facts"
-    probe_fail "the screen judge did not catch every mutant (see above)"
+    probe_pass "SELF-TEST BROKEN: the screen judge let a known-bad fixture through (see above), so its verdicts mean nothing"
 }
 
 run_probe() {
