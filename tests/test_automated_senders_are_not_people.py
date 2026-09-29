@@ -177,7 +177,7 @@ else:
 print("5. install.sh runs the one-off reclassify once, behind a marker")
 inst = (REPO / "install.sh").read_text(errors="replace") if (REPO / "install.sh").exists() else ""
 check("install.sh calls reclassify-mail", "reclassify-mail" in inst)
-check("the one-off is gated by a marker in state/", "email_reclassify_v2.done" in inst)
+check("the one-off is gated by a marker in state/", "email_reclassify_v3.done" in inst)
 
 print("6. backup BEFORE delete, and hostile IRIs refused (Archie, review of #2479)")
 dm = getattr(cli, "_demote", None)
@@ -188,15 +188,15 @@ else:
     store2 = pyoxigraph.Store()
     order = []
 
-    def sel(endpoint, q):
+    def sel(endpoint, q, names=("p", "o"), timeout=20.0):
         order.append("backup")
-        return [(str(r["p"].value), str(r["o"].value)) for r in store2.query(q)]
+        return [tuple(str(r[n].value) for n in names) for r in store2.query(q)]
 
     def upd(endpoint, q):
         order.append("delete")
         store2.update(q)
 
-    cli._sparql_select = sel
+    cli._sparql_select_vars = sel
     cli._post_sparql_update = upd
     for addr, nm in (("promo@shop.example", "Shop"), ("keep@friend.example", "Friend")):
         store2.update(cli._build_upsert(person_iri=cli._safe_person_iri(addr), email=addr,
@@ -248,6 +248,10 @@ else:
         check(f"a person signing with an affiliation is kept: {keep!r}", onr(keep) is None)
     for org in (J(["Account", "Support", "Team"]), J(["Customer", "Service"]), J(["Orlix", "Bank"])):
         check(f"an org name with no personal part is caught: {org!r}", onr(org) == "org-name")
+    check("an org notice that leads with the org is caught even with a Title-case tail",
+          onr(J(["Service", "Disruption", "Warning"]) + " - " + J(["Scheduled", "Maintenance"])) == "org-name")
+    check("a bare domain as a name is an organisation", onr("examplefare" + ".co.uk") == "domain-name")
+    check("an email address as a name is never judged by its domain", onr("someone" + "@" + "examplemail.co.uk") is None)
     check("a bare message with only an org display name is automated",
           reason(SimpleNamespace(from_address="help@zentrovo.example", from_name="zentrovo support team", headers={})) == "org-name")
 
@@ -274,6 +278,55 @@ else:
           cli._safe_person_iri("help@zentrovo.example") in got_iris)
     check("graph pass leaves a person-named Person", cli._safe_person_iri("friend@example.org") not in got_iris)
     check("graph pass leaves an org-named Person another source wrote (Contacts)", vel not in got_iris)
+    store3.update(cli._build_upsert(person_iri=cli._safe_person_iri("support@zentrovo.example"),
+                                    email="support@zentrovo.example", name="",
+                                    last_contact_iso="2026-01-01T00:00:00+00:00"))
+    store3.update(cli._build_upsert(person_iri=cli._safe_person_iri("zq2" + "@" + "examplemail.co.uk"),
+                                    email="zq2" + "@" + "examplemail.co.uk", name="",
+                                    last_contact_iso="2026-01-01T00:00:00+00:00"))
+    cli._sparql_select_vars = fake_select
+    try:
+        got2 = {g[0] for g in (cli._org_named_email_only_persons("http://x") or [])}
+    finally:
+        cli._sparql_select_vars = real
+    check("an unnamed email-only Person at a role address is selected",
+          cli._safe_person_iri("support@zentrovo.example") in got2)
+    check("an unnamed email-only Person at a personal address is kept",
+          cli._safe_person_iri("zq2" + "@" + "examplemail.co.uk") not in got2)
+
+    # A merged pair: a RETIRED duplicate points at the canonical node with
+    # pwg:mergedInto. The canonical node is selected despite that pointer, and
+    # one demotion removes both, the retired duplicate included.
+    store5 = pyoxigraph.Store()
+    frag = cli._safe_person_iri("a@examplefare.example")
+    canon = cli._safe_person_iri("b@examplefare.example")
+    for iri, addr in ((frag, "a@examplefare.example"), (canon, "b@examplefare.example")):
+        store5.update(cli._build_upsert(person_iri=iri, email=addr, name="examplefare" + ".co.uk",
+                                        last_contact_iso="2026-01-01T00:00:00+00:00"))
+    NSR = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+    store5.update(f'DELETE DATA {{ <{frag}> <{NSR}> <{cli.PWG_NS}Person> }}')
+    store5.update(f'INSERT DATA {{ <{frag}> <{NSR}> <{cli.PWG_NS}RetiredPerson> . '
+                  f'<{frag}> <{cli.PWG_NS}mergedInto> <{canon}> . '
+                  f'<{frag}> <{cli.PWG_NS}mergedAt> "2026-01-02" }}')
+    def fake5(endpoint, query, names, timeout=20.0):
+        return [tuple(str(r[n].value) for n in names) for r in store5.query(query)]
+    cli._sparql_select_vars = fake5
+    try:
+        sel5 = {r[0] for r in (cli._org_named_email_only_persons("http://x") or [])}
+    finally:
+        cli._sparql_select_vars = real
+    check("the canonical node of a merged org pair is selected despite the merge pointer", canon in sel5)
+    store5.update(cli._build_demote(canon))
+    check("one demotion removes the canonical node AND its retired duplicate",
+          not bool(store5.query(f"ASK {{ <{frag}> ?p ?o }}")) and not bool(store5.query(f"ASK {{ <{canon}> ?p ?o }}")))
+    # A pointer from anything that is NOT a retired duplicate still keeps it.
+    store6 = pyoxigraph.Store()
+    store6.update(cli._build_upsert(person_iri=canon, email="b@examplefare.example", name="x",
+                                    last_contact_iso="2026-01-01T00:00:00+00:00"))
+    store6.update(f'INSERT DATA {{ <{cli.PWG_NS}meeting_9> <{cli.PWG_NS}mergedInto> <{canon}> }}')
+    store6.update(cli._build_demote(canon))
+    check("a merge pointer from a non-retired node still keeps the Person",
+          bool(store6.query(f"ASK {{ <{canon}> ?p ?o }}")))
     def boom(*a, **k):
         raise RuntimeError("store down")
     cli._sparql_select_vars = boom

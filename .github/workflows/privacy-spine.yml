@@ -81,6 +81,10 @@ jobs:
         if: always()
         run: python3 tests/test_service_senders_get_no_reconnect_card.py
 
+      - name: A role or automation mailbox is not listed as a person
+        if: always()
+        run: python3 tests/test_role_addresses_are_not_listed_as_people.py
+
       - name: Photo events reach the graph, and face names only with the opt-in
         if: always()
         run: python3 tests/test_photo_events_reach_the_graph.py

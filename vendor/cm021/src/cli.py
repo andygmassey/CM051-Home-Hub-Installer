@@ -266,6 +266,10 @@ _ORG_NAME_RE = re.compile(
     r"technology|technologies|software|network|telecom|properties|realty)\b",
     re.I,
 )
+_DOMAIN_NAME_RE = re.compile(r"^[\w-]+(\.[\w-]+)*\.(com|net|org|io|co|uk|hk|de|fr)$", re.I)
+_ROLE_LOCAL_RE = re.compile(
+    r"^(support|help(desk)?|team|hello|contact|sales|billing|enquiries|customerservice)$"
+)
 _CJK_ONLY_RE = re.compile(r"^[\u3400-\u9fff\s]{5,}$")
 
 
@@ -293,10 +297,16 @@ def organisation_name_reason(name: Optional[str]) -> Optional[str]:
     n = (name or "").strip().strip('"').strip()
     if not n or "@" in n:
         return None
-    if any(_is_personal_segment(seg) for seg in _SEGMENT_SPLIT_RE.split(n)):
+    segs = [x for x in _SEGMENT_SPLIT_RE.split(n) if x and x.strip()]
+    # A person signing with an affiliation puts their NAME FIRST ("<person> |
+    # <org>"); an organisation's notice leads with the org (a service or
+    # a scheduled-maintenance notice). So only the first segment can make it a person.
+    if segs and _is_personal_segment(segs[0]):
         return None
     if _ORG_NAME_RE.search(n):
         return "org-name"
+    if _DOMAIN_NAME_RE.match(n):
+        return "domain-name"
     if " " not in n and n.isalpha() and n.isupper() and len(n) >= 3:
         return "brand-token"
     if _CJK_ONLY_RE.match(n):
@@ -332,24 +342,41 @@ _EMAIL_ONLY_PREDICATES = (
     "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>",
     "pwg:email", "pwg:lastContactEmail", "pwg:displayName",
     "pwg:displayNameProvisional", "skos:prefLabel",
+    # A RETIRED merge duplicate carries only the merge markers besides.
+    "pwg:mergedInto", "pwg:mergedAt",
 )
+
+
+def _demote_where(person_iri: str) -> list:
+    """WHERE lines binding ?s ?p ?o to every triple a demotion removes: the
+    email-only Person itself, plus any RETIRED duplicate that an identity
+    merge pointed at it (pwg:mergedInto) and that is itself email-only. A
+    pointer from anything else keeps the Person, as before."""
+    allowed = ", ".join(_EMAIL_ONLY_PREDICATES)
+    iri = "<" + person_iri + ">"
+    return [
+        "  " + iri + " a pwg:Person .",
+        "  FILTER NOT EXISTS { " + iri + " ?q ?x . FILTER(?q NOT IN (" + allowed + ")) }",
+        "  FILTER NOT EXISTS { ?other ?r " + iri + " .",
+        "    FILTER NOT EXISTS { ?other a pwg:RetiredPerson ; pwg:mergedInto " + iri + " } }",
+        "  { BIND(" + iri + " AS ?s) " + iri + " ?p ?o }",
+        "  UNION",
+        "  { ?s pwg:mergedInto " + iri + " ; a pwg:RetiredPerson ; ?p ?o .",
+        "    FILTER NOT EXISTS { ?s ?q2 ?x2 . FILTER(?q2 NOT IN (" + allowed + ")) }",
+        "    FILTER NOT EXISTS { ?y ?z ?s } }",
+    ]
 
 
 def _build_demote(person_iri: str) -> str:
     """SPARQL UPDATE removing a Person this CLI created for an automated
-    sender, only while it still has the email-only shape."""
+    sender (and its retired merge duplicates), only while it still has the
+    email-only shape."""
     _check_person_iri(person_iri)
-    allowed = ", ".join(_EMAIL_ONLY_PREDICATES)
-    return "\n".join([
-        "PREFIX pwg: <" + PWG_NS + ">",
-        "PREFIX skos: <http://www.w3.org/2004/02/skos/core#>",
-        "DELETE { <" + person_iri + "> ?p ?o }",
-        "WHERE {",
-        "  <" + person_iri + "> a pwg:Person ; ?p ?o .",
-        "  FILTER NOT EXISTS { <" + person_iri + "> ?q ?x . FILTER(?q NOT IN (" + allowed + ")) }",
-        "  FILTER NOT EXISTS { ?other ?r <" + person_iri + "> }",
-        "}",
-    ])
+    return "\n".join(
+        ["PREFIX pwg: <" + PWG_NS + ">",
+         "PREFIX skos: <http://www.w3.org/2004/02/skos/core#>",
+         "DELETE { ?s ?p ?o }",
+         "WHERE {"] + _demote_where(person_iri) + ["}"])
 
 
 
@@ -379,25 +406,19 @@ def _backup_person(endpoint: str, person_iri: str, reason: str) -> int:
     the UPDATE runs. Returns the triple count. Raises on any failure, so a
     Person is never deleted without its backup."""
     _check_person_iri(person_iri)
-    allowed = ", ".join(_EMAIL_ONLY_PREDICATES)
-    q = "\n".join([
-        "PREFIX pwg: <" + PWG_NS + ">",
-        "PREFIX skos: <http://www.w3.org/2004/02/skos/core#>",
-        "SELECT ?p ?o WHERE {",
-        "  <" + person_iri + "> a pwg:Person ; ?p ?o .",
-        "  FILTER NOT EXISTS { <" + person_iri + "> ?q ?x . FILTER(?q NOT IN (" + allowed + ")) }",
-        "  FILTER NOT EXISTS { ?other ?r <" + person_iri + "> }",
-        "}",
-    ])
-    rows = _sparql_select(endpoint, q)
+    q = "\n".join(
+        ["PREFIX pwg: <" + PWG_NS + ">",
+         "PREFIX skos: <http://www.w3.org/2004/02/skos/core#>",
+         "SELECT ?s ?p ?o WHERE {"] + _demote_where(person_iri) + ["}"])
+    rows = _sparql_select_vars(endpoint, q, ("s", "p", "o"))
     if not rows:
         return 0
     path = _backup_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(timezone.utc).isoformat()
     with open(path, "a", encoding="utf-8") as fh:
-        for p, o in rows:
-            fh.write(json.dumps({"at": ts, "reason": reason, "s": person_iri, "p": p, "o": o}) + "\n")
+        for subj, p, o in rows:
+            fh.write(json.dumps({"at": ts, "reason": reason, "s": subj, "p": p, "o": o}) + "\n")
         fh.flush()
         os.fsync(fh.fileno())
     return len(rows)
@@ -427,33 +448,44 @@ def _initials(name: str) -> str:
     return "".join(w[0] for w in (name or "").split() if w)[:4] or "?"
 
 
-def _org_named_email_only_persons(endpoint: str) -> list:
+def _org_named_email_only_persons(endpoint: str) -> Optional[list]:
     """(iri, name, reason) for every email-only Person, with nothing pointing
-    at it, whose display name is an organisation's. A store failure returns
-    None, which the caller reports as CANNOT-RUN, never as zero found."""
+    at it, that is an organisation: by display name, or, when the only name
+    is the address itself (a provisional name), by a role or automated local
+    part. A store failure returns None, which the caller reports as
+    CANNOT-RUN, never as zero found."""
     allowed = ", ".join(_EMAIL_ONLY_PREDICATES)
     q = "\n".join([
         "PREFIX pwg: <" + PWG_NS + ">",
         "PREFIX skos: <http://www.w3.org/2004/02/skos/core#>",
-        "SELECT ?s ?n WHERE {",
-        "  ?s a pwg:Person ; pwg:displayName ?n .",
+        "SELECT ?s ?n ?e WHERE {",
+        "  ?s a pwg:Person ; pwg:email ?e .",
+        "  OPTIONAL { ?s pwg:displayName ?n }",
         "  FILTER NOT EXISTS { ?s ?q ?x . FILTER(?q NOT IN (" + allowed + ")) }",
-        "  FILTER NOT EXISTS { ?other ?r ?s }",
+        "  FILTER NOT EXISTS { ?other ?r ?s . FILTER(?r != pwg:mergedInto) }",
         "}",
     ])
     try:
-        rows = _sparql_select_vars(endpoint, q, ("s", "n"))
+        rows = _sparql_select_vars(endpoint, q, ("s", "n", "e"))
     except Exception:
         return None
     out = []
-    for iri, name in rows:
+    seen: Set[str] = set()
+    for iri, name, addr in rows:
+        if iri in seen:
+            continue
         why = organisation_name_reason(name)
+        if not why and (not name or "@" in name):
+            local = (addr or "").split("@", 1)[0].lower()
+            if _ROLE_LOCAL_RE.match(local) or _AUTOMATED_LOCAL_RE.search(local):
+                why = "role-address"
         if why:
             try:
                 _check_person_iri(iri)
             except ValueError:
                 continue
-            out.append((iri, name, why))
+            seen.add(iri)
+            out.append((iri, name or addr, why))
     return out
 
 

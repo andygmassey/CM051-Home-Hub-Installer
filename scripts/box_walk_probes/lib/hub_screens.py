@@ -44,6 +44,26 @@ ORG_MARKERS = re.compile(
     r"council|institute|university|academy|club|magazine|news)\b",
     re.IGNORECASE,
 )
+ROLE_LOCAL = re.compile(
+    r"^(no-?reply|noreply|do-?not-?reply|support|help(desk)?|team|info|news(letter)?|"
+    r"promo(tions?)?|marketing|notifications?|alerts?|hello|contact|sales|billing)\b",
+    re.IGNORECASE,
+)
+
+
+def _org_like(name):
+    """An organisation or automated sender shown as a person. A name that is an
+    email address (a provisional name, #2361) is judged by its LOCAL PART only:
+    the domain says where a person works (".co.uk", "...group.com"), not what
+    they are."""
+    n = (name or "").strip()
+    if "@" in n:
+        return bool(ROLE_LOCAL.search(n.split("@", 1)[0]))
+    if re.search(r"^[\w-]+(\.[\w-]+)*\.(com|net|org|io|co|uk|hk|de|fr)$", n, re.IGNORECASE):
+        return True
+    return bool(ORG_MARKERS.search(n))
+
+
 DEFAULT_FONTS = ("times", "serif")  # the browser default when no stylesheet applied
 
 
@@ -118,7 +138,7 @@ def judge(f):
 
     p = f.get("people") or {}
     names = p.get("names") or []
-    orgs = [n for n in names if ORG_MARKERS.search(n or "")]
+    orgs = [n for n in names if _org_like(n)]
     add("people: it has rows", len(names) > 0, p.get("error", "no rows"))
     add("people: no organisations or automated senders in the list",
         not orgs, "{} of {}: {}".format(len(orgs), len(names),
@@ -330,7 +350,10 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                 box = page.wait_for_selector("textarea", timeout=30000)
                 box.fill("Who is {}?".format(who))
                 box.press("Enter")
-                link = page.wait_for_selector('main a[href*="/wiki/"]', timeout=240000)
+                # The reply may carry the raw wiki origin (the app rewrites it
+                # on click, externalLinks.classifyLink) or the in-app route.
+                link = page.wait_for_selector(
+                    'main a[href*="/wiki/"], main a[href*=":8044/"]', timeout=240000)
                 link.click()
                 time.sleep(4)
                 pl["url_in_app"] = page.url.startswith(base)
@@ -387,7 +410,7 @@ def _good():
                      "rows": [{"kind": "meeting", "day": "2026-09-28", "title": "Lunch"},
                               {"kind": "message", "day": "2026-09-20",
                                "title": "WhatsApp with A"}] * 6},
-        "people": {"names": ["person one", "person two"]},
+        "people": {"names": ["person one", "person two", "someone" + "@" + "examplemail.co.uk", "a.person" + "@" + "bigco-group.com"]},
         "home": {"not_me_checked": True, "not_me_card": "X", "not_me_gone_after_reload": True},
         "settings": {"tailscale_toggle": True},
         "cost": {"loaded": True},
@@ -416,6 +439,8 @@ MUTANTS = [
     ("timeline bare channel title", lambda f: f["timeline"]["rows"].append(
         {"kind": "message", "day": "2026-09-20", "title": "whatsapp"})),
     ("people contains a company", lambda f: f["people"]["names"].append("acme promotions")),
+    ("people contains a role address", lambda f: f["people"]["names"].append("support@example.com")),
+    ("people contains a domain as a name", lambda f: f["people"]["names"].append("Examplefare.co.uk")),
     ("not me came back", lambda f: f["home"].update(not_me_gone_after_reload=False)),
     ("tailscale switch disagrees", lambda f: f["settings"].update(tailscale_toggle=False)),
     ("bursar did not render", lambda f: f["cost"].update(loaded=False)),

@@ -32746,7 +32746,7 @@ except Exception:
     # by a tick that only sees new mail, so this runs ONCE per install (a
     # marker in state/), reading .emlx HEADERS only, and removes such a
     # Person only while it still has the email-only shape. Counts only.
-    _RECLASSIFY_MARKER="${OSTLER_DIR}/state/email_reclassify_v2.done"
+    _RECLASSIFY_MARKER="${OSTLER_DIR}/state/email_reclassify_v3.done"
     if [[ ! -f "$_RECLASSIFY_MARKER" ]]; then
         _RECLASSIFY_JSON="$("$_HYDRATE_EMAIL_BIN" reclassify-mail "$HOME/Library/Mail" \
             --graph-endpoint "$_HYDRATE_OXIGRAPH_EMAIL" 2>>"$_HYDRATE_EMAIL_LOG" | tail -n 1 || true)" \
