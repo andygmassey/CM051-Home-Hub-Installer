@@ -43,6 +43,9 @@ pr_exemptions:
   #
   # Every row below carries its own reason. None is a copy of another.
   # -------------------------------------------------------------------------
+  - ref: "CM051-Home-Hub-Installer#2396"
+    reason: "DRAFT: a live chat turn outranks every ingest feed (#2385). Its direction was superseded: the live-turn priority it prototypes is being re-landed daemon-side with the leak fixes in ostler-ai/ostler-assistant #427 (v1.0.107), after #421 was reverted for the Ollama wedge. It stays open as the measured record of the slot approach and is the author's to close. Under LAUNCH DIRECTIVE ITEM 4, cut/v1.0.106 is frozen on its own branch, so an open draft on main cannot change one byte of that DMG. Triage by this date: close as superseded by oa #427, or merge. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-07
   - ref: "CM051-Home-Hub-Installer#2334"
     reason: "board(2219): verifies row 2219 against the row rather than the PR. Opened 2026-09-23 and never exempted, so it would red check-pr-age on the next cut run by age alone. Row 2219 has since been adjudicated on measured v1.0.102 evidence in #2368 (merged), so this PR is very likely superseded; it is not closed here because it is another lane's evidence and closing it is the author's call. Under LAUNCH DIRECTIVE ITEM 4 an open board PR cannot change the frozen cut/v1.0.102 DMG. Retire when the PR is closed or merged. NOT A JUDGEMENT ON MERIT."
     review_by: 2026-10-02
