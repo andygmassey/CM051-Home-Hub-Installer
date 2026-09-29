@@ -36,8 +36,18 @@ jobs:
       - name: The screen judge catches every mutant
         run: python3 scripts/box_walk_probes/lib/hub_screens.py --self-test
       - name: The screen probe's own self-test
+        # Phase-1 contract (run_box_walk.sh): --self-test feeds KNOWN-BAD
+        # screens and must report FAIL (exit 1) with the negative control
+        # behaving. Exit 0 means the probe passed bad input; any other code
+        # means it could not run. Both fail this step.
         if: always()
-        run: bash scripts/box_walk_probes/probes/hub_screens_render_for_a_customer.sh --self-test
+        run: |
+          set +e
+          out=$(bash scripts/box_walk_probes/probes/hub_screens_render_for_a_customer.sh --self-test 2>&1); rc=$?
+          set -e
+          printf '%s\n' "$out"
+          if [ "$rc" -ne 1 ]; then echo "self-test exit $rc, expected 1 (known-bad input must FAIL)"; exit 1; fi
+          if ! printf '%s\n' "$out" | grep -c 'negative control behaved' >/dev/null; then echo "exit 1 but no 'negative control behaved' verdict"; exit 1; fi
       - name: The Timeline opens on today, pages both ways and names its rows
         if: always()
         run: python3 tests/test_the_timeline_opens_on_today.py
