@@ -32,6 +32,10 @@ import time
 
 EX_PASS, EX_FAIL, EX_CANNOT = 0, 1, 78
 
+
+class CannotRun(Exception):
+    pass
+
 BARE_CHANNEL_TITLES = {"whatsapp", "sms", "im", "email", "imessage", "mail", "call"}
 ORG_MARKERS = re.compile(
     r"\b(ltd|limited|inc|llc|plc|gmbh|co\.|company|corp|corporation|group|"
@@ -72,6 +76,25 @@ def judge(f):
         font and not any(font.strip().strip('"').startswith(d) for d in DEFAULT_FONTS),
         "font={}".format(w.get("body_font")))
     add("wiki: a screenshot was saved", w.get("screenshot"), "no PNG")
+    js = w.get("scripts") or []
+    bad_js = [x for x in js if int(x.get("status") or 0) >= 400
+              or "javascript" not in (x.get("content_type") or "")]
+    add("wiki: every wiki script arrived as JavaScript", not bad_js,
+        "; ".join("{} {} {}".format(x.get("status"), x.get("content_type"), x.get("url", "")[-60:])
+                  for x in bad_js[:4]))
+    denied = w.get("denied") or []
+    add("wiki: no request was refused 401 while the wiki loaded", not denied,
+        "{} refused, e.g. {}".format(len(denied), (denied[0].get("url", "")[-60:] if denied else "")))
+    add("wiki: loaded through the signed session path (/wiki/s/...)",
+        w.get("frame_url_session"), "frame did not use /wiki/s/")
+    add("engine: checked in WebKit, the engine Ostler.app uses",
+        f.get("engine") == "webkit", "engine={}".format(f.get("engine")))
+    pl = f.get("person_link") or {}
+    if pl.get("person_checked"):
+        add("chat: a person link opens inside the app, sidebar still there",
+            pl.get("url_in_app") and pl.get("sidebar_present") and pl.get("person_frame_loaded"),
+            pl.get("error") or "in_app={} sidebar={} frame={}".format(
+                pl.get("url_in_app"), pl.get("sidebar_present"), pl.get("person_frame_loaded")))
 
     t = f.get("timeline") or {}
     rows = t.get("rows") or []
@@ -127,11 +150,31 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
     today = time.strftime("%Y-%m-%d")
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
+        engine = os.environ.get("HUB_SCREENS_ENGINE", "webkit")
+        facts["engine"] = engine
+        try:
+            browser = getattr(pw, engine).launch(headless=True)
+        except Exception as exc:
+            raise CannotRun("the {} engine would not launch ({}); run "
+                            "`python -m playwright install {}` on the driver. "
+                            "No fallback to another engine.".format(engine, str(exc)[:120], engine))
         ctx = browser.new_context(viewport={"width": 1280, "height": 900})
         ctx.add_init_script(
             "try { localStorage.setItem('zeroclaw_token', %s); } catch (e) {}" % json.dumps(token))
         page = ctx.new_page()
+        if os.environ.get("HUB_SCREENS_RED_CONTROL") == "strip-wiki-session":
+            # RED CONTROL: reproduce v1.0.105. There the wiki's stylesheets and
+            # scripts were fetched from /wiki/... with no credential. Rewrite every
+            # non-document request under /wiki/s/<session>/ back to /wiki/, so the
+            # check must go RED if it can see that failure at all.
+            import re as _re
+
+            def _strip(route, request):
+                if request.resource_type != "document":
+                    return route.continue_(url=_re.sub(r"/wiki/s/[^/]+/", "/wiki/", request.url))
+                return route.continue_()
+            page.route("**/wiki/s/**", _strip)
+            facts["red_control"] = "strip-wiki-session"
 
         def nav(path):
             # Client-side, as the app does. A direct GET of /wiki reaches the
@@ -148,18 +191,24 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
             time.sleep(1)
 
         # -- wiki (first: the check Andy cannot launch without) -------------
-        sheets = []
+        sheets, scripts, denied = [], [], []
 
         def on_resp(r):
             try:
-                if r.request.resource_type == "stylesheet":
-                    sheets.append({"url": r.url, "status": r.status,
-                                   "content_type": r.headers.get("content-type", "")})
+                rt = r.request.resource_type
+                row = {"url": r.url, "status": r.status,
+                       "content_type": r.headers.get("content-type", "")}
+                if rt == "stylesheet":
+                    sheets.append(row)
+                elif rt == "script" and "/wiki/" in r.url:
+                    scripts.append(row)
+                if r.status == 401:
+                    denied.append(row)
             except Exception:
                 pass
 
         page.on("response", on_resp)
-        w = {"loaded": False, "stylesheets": sheets}
+        w = {"loaded": False, "stylesheets": sheets, "scripts": scripts, "denied": denied}
         try:
             nav("/wiki")
             page.wait_for_selector("iframe", timeout=45000)
@@ -172,6 +221,7 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
             if frame is None:
                 raise RuntimeError("no wiki frame")
             frame.wait_for_load_state("load", timeout=45000)
+            w["frame_url_session"] = "/wiki/s/" in (frame.url or "")
             time.sleep(2)
             info = frame.evaluate("""() => {
                 const h = document.querySelector('.md-header, header');
@@ -266,6 +316,29 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
             c["error"] = str(exc)[:200]
         facts["cost"] = c
 
+        # -- a chat citation to a person page stays inside the app ----------
+        pl = {"person_checked": False}
+        who = os.environ.get("HUB_SCREENS_PERSON") or os.environ.get("OSTLER_GATE_KNOWN_PERSON")
+        if allow_write and who:
+            pl["person_checked"] = True
+            try:
+                nav("/chat")
+                box = page.wait_for_selector("textarea", timeout=30000)
+                box.fill("Who is {}?".format(who))
+                box.press("Enter")
+                link = page.wait_for_selector('main a[href*="/wiki/"]', timeout=240000)
+                link.click()
+                time.sleep(4)
+                pl["url_in_app"] = page.url.startswith(base)
+                pl["sidebar_present"] = page.locator('a[href="/timeline"]').count() > 0
+                fr = next((f2 for f2 in page.frames if "/wiki/" in (f2.url or "")), None)
+                pl["person_frame_loaded"] = fr is not None
+                page.screenshot(path=os.path.join(out_dir, "person.png"))
+                pl["screenshot"] = os.path.join(out_dir, "person.png")
+            except Exception as exc:
+                pl["error"] = str(exc)[:200]
+        facts["person_link"] = pl
+
         # -- home: Not me persists (WRITES: walk boxes only) ---------------
         hm = {"not_me_checked": False}
         if allow_write:
@@ -296,9 +369,14 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
 
 def _good():
     return {
-        "tailscale_running": "yes",
+        "tailscale_running": "yes", "engine": "webkit",
+        "person_link": {"person_checked": True, "url_in_app": True, "sidebar_present": True,
+                        "person_frame_loaded": True},
         "wiki": {"loaded": True, "header_found": True, "header_bg": "rgb(122, 31, 31)",
                  "body_font": '"Inter", sans-serif', "screenshot": "/tmp/w.png",
+                 "frame_url_session": True, "denied": [],
+                 "scripts": [{"url": "u/wiki/s/x/assets/b.js", "status": 200,
+                              "content_type": "application/javascript"}],
                  "stylesheets": [{"url": "u/assets/main.css", "status": 200,
                                   "content_type": "text/css"}]},
         "timeline": {"today": "2026-09-28", "today_in_view": True, "today_top": 40,
@@ -315,6 +393,13 @@ def _good():
 MUTANTS = [
     ("wiki stylesheet served as JSON 401", lambda f: f["wiki"]["stylesheets"].__setitem__(
         0, {"url": "u", "status": 401, "content_type": "application/json"})),
+    ("wiki script refused", lambda f: f["wiki"]["scripts"].__setitem__(
+        0, {"url": "u", "status": 401, "content_type": "application/json"})),
+    ("wiki 401 in the network log", lambda f: f["wiki"]["denied"].append({"url": "u", "status": 401})),
+    ("wiki not on the session path (v1.0.105 behaviour)",
+     lambda f: f["wiki"].update(frame_url_session=False)),
+    ("checked in chromium, not webkit", lambda f: f.update(engine="chromium")),
+    ("person link left the app", lambda f: f["person_link"].update(sidebar_present=False)),
     ("wiki header unpainted", lambda f: f["wiki"].update(header_bg="rgba(0, 0, 0, 0)")),
     ("wiki browser-default font", lambda f: f["wiki"].update(body_font="Times")),
     ("wiki never loaded", lambda f: f["wiki"].update(loaded=False)),
@@ -381,6 +466,9 @@ def main(argv):
                             a["--tailscale-running"])
         except ImportError as exc:
             print("CANNOT-RUN: no browser on this driver ({}); install Playwright".format(exc))
+            return EX_CANNOT
+        except CannotRun as exc:
+            print("CANNOT-RUN: {}".format(exc))
             return EX_CANNOT
         json.dump(facts, open(os.path.join(a["--out"], "facts.json"), "w"), indent=1)
     else:

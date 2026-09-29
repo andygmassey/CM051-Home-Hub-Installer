@@ -30,10 +30,10 @@ _PY="${OSTLER_SCREENS_PYTHON:-${HOME}/walkdriver/pwvenv/bin/python}"
 
 self_test() {
     if python3 "${_HERE}/lib/hub_screens.py" --self-test; then
-        probe_examined 13 "mutated screen facts"
+        probe_examined 18 "mutated screen facts"
         probe_pass "every screen assertion fails on its mutant and the good fixture passes"
     fi
-    probe_examined 13 "mutated screen facts"
+    probe_examined 18 "mutated screen facts"
     probe_fail "the screen judge did not catch every mutant (see above)"
 }
 
