@@ -55,7 +55,8 @@ def judge(f):
     out = []
 
     def add(name, ok, detail=""):
-        out.append((name, bool(ok), detail))
+        # ok is True (pass), False (fail) or None (CANNOT-RUN: not measured).
+        out.append((name, None if ok is None else bool(ok), detail))
 
     w = f.get("wiki") or {}
     css = w.get("stylesheets") or []
@@ -90,7 +91,10 @@ def judge(f):
     add("engine: checked in WebKit, the engine Ostler.app uses",
         f.get("engine") == "webkit", "engine={}".format(f.get("engine")))
     pl = f.get("person_link") or {}
-    if pl.get("person_checked"):
+    if not pl.get("person_checked"):
+        add("chat: a person link opens inside the app, sidebar still there", None,
+            "NOT MEASURED: needs --allow-write and HUB_SCREENS_PERSON (the seed person)")
+    else:
         add("chat: a person link opens inside the app, sidebar still there",
             pl.get("url_in_app") and pl.get("sidebar_present") and pl.get("person_frame_loaded"),
             pl.get("error") or "in_app={} sidebar={} frame={}".format(
@@ -420,6 +424,13 @@ MUTANTS = [
 
 def self_test():
     import copy
+    f0 = copy.deepcopy(_good())
+    f0["person_link"] = {"person_checked": False}
+    row = [ok for n, ok, _ in judge(f0) if n.startswith("chat: a person link")]
+    if row != [None]:
+        print("SELF-TEST FAIL: an unmeasured person link must be an explicit CANNOT-RUN row, got {}".format(row))
+        return EX_FAIL
+    print("  ok    unmeasured person link is an explicit CANNOT-RUN row")
     base = judge(_good())
     bad = [n for n, ok, _ in base if not ok]
     if bad:
@@ -476,10 +487,14 @@ def main(argv):
         return 2
     results = judge(facts)
     for name, ok, detail in results:
-        print(("  ok    " if ok else "  FAIL  ") + name + ("" if ok or not detail else "  -- " + detail))
-    fails = [n for n, ok, _ in results if not ok]
-    print("EXAMINED: {} screen assertions".format(len(results)))
-    return EX_FAIL if fails else EX_PASS
+        tag = "  ok    " if ok else ("  CANNOT " if ok is None else "  FAIL  ")
+        print(tag + name + ("" if ok or not detail else "  -- " + detail))
+    fails = [n for n, ok, _ in results if ok is False]
+    cannot = [n for n, ok, _ in results if ok is None]
+    print("EXAMINED: {} screen assertions ({} not measured)".format(len(results), len(cannot)))
+    if fails:
+        return EX_FAIL
+    return EX_CANNOT if cannot else EX_PASS
 
 
 if __name__ == "__main__":

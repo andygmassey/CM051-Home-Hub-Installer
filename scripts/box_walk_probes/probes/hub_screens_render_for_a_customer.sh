@@ -62,6 +62,8 @@ run_probe() {
         sleep 1
     done
 
+    # The chat person-link check needs a known person: the grounding seed's.
+    export HUB_SCREENS_PERSON="${HUB_SCREENS_PERSON:-${OSTLER_GATE_KNOWN_PERSON:-}}"
     set -- collect --base "http://127.0.0.1:${port}" --token-file "${tokfile}" \
         --out "${out}" --tailscale-running "${ts_state}"
     [ "${OSTLER_SCREENS_ALLOW_WRITE:-0}" = "1" ] && set -- "$@" --allow-write
@@ -72,7 +74,7 @@ run_probe() {
     case "${rc}" in
         0)  probe_examined "$(/usr/bin/wc -l < "${out}/facts.json" 2>/dev/null | tr -d ' ')" "lines of screen facts"
             probe_pass "every screen assertion held; wiki screenshot at ${out}/wiki.png" ;;
-        78) probe_cannot_run "the browser could not run (see above)" ;;
+        78) probe_cannot_run "a screen assertion could not be measured, or the browser could not run (see the CANNOT lines above)" ;;
         *)  probe_examined 1 "screen check run"
             probe_fail "a customer-visible screen is wrong (see the FAIL lines above; screenshots in ${out})" ;;
     esac
