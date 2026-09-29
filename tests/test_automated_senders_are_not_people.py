@@ -28,6 +28,12 @@ import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
+import os
+# Hermetic: never read or write the developer's real ~/.ostler or Mail store.
+_HERMETIC = tempfile.mkdtemp()
+os.environ["OSTLER_HOME"] = str(Path(_HERMETIC) / "home")
+os.environ["OSTLER_MAIL_DIR"] = str(Path(_HERMETIC) / "nomail")
+
 REPO = Path(__file__).resolve().parent.parent
 PKG = Path(sys.argv[1]) if len(sys.argv) > 1 else REPO / "vendor" / "cm021"
 
@@ -86,6 +92,9 @@ mbox = (
     "From c@x 2026-01-01\n"
     "From: cardissuer <no_reply@card.example>\nTo: me@example.net\n"
     "Subject: statement\nDate: Mon, 1 Jan 2026 12:00:00 +0000\nMessage-ID: <3@x>\n\nstatement\n\n"
+    "From d@x 2026-01-01\n"
+    "From: zentrovo account support team <help@zentrovo.example>\nTo: me@example.net\n"
+    "Subject: your account\nDate: Mon, 1 Jan 2026 13:00:00 +0000\nMessage-ID: <4@x>\n\nhello\n\n"
 )
 with tempfile.TemporaryDirectory() as td:
     p = Path(td) / "t.mbox"
@@ -99,8 +108,8 @@ with tempfile.TemporaryDirectory() as td:
         res = json.loads(out.getvalue().strip().splitlines()[-1])
     except Exception:
         res = {}
-    check("3 messages read", res.get("messages_read") == 3)
-    check("2 automated senders skipped", res.get("skipped_automated") == 2)
+    check("4 messages read", res.get("messages_read") == 4)
+    check("3 automated senders skipped (one by its org display name alone)", res.get("skipped_automated") == 3)
     check("1 person extracted", res.get("people_extracted") == 1)
 
 print("3. _build_demote against pyoxigraph")
@@ -168,7 +177,7 @@ else:
 print("5. install.sh runs the one-off reclassify once, behind a marker")
 inst = (REPO / "install.sh").read_text(errors="replace") if (REPO / "install.sh").exists() else ""
 check("install.sh calls reclassify-mail", "reclassify-mail" in inst)
-check("the one-off is gated by a marker in state/", "email_reclassify_v1.done" in inst)
+check("the one-off is gated by a marker in state/", "email_reclassify_v2.done" in inst)
 
 print("6. backup BEFORE delete, and hostile IRIs refused (Archie, review of #2479)")
 dm = getattr(cli, "_demote", None)
@@ -219,6 +228,60 @@ else:
     for hostile in (good + "> ?p ?o } ; DROP ALL ; #", good + " x", good + '"', "<" + good,
                     "http://evil.example/person_1", cli.PWG_NS + "Thing_1", ""):
         check(f"hostile IRI refused: {hostile[-24:]!r}", refused(hostile))
+
+print("7. organisation display names (v1.0.106 walk residue: no bulk header, org name)")
+onr = getattr(cli, "organisation_name_reason", None)
+if onr is None:
+    check("organisation_name_reason exists", False)
+else:
+    for org in ("zentrovo account support team", "quillmark customer service", "brindlecot ltd",
+                "velmora group", "orlix bank", "PLUMVEX", "tessary promotions"):
+        check(f"org name caught: {org}", onr(org) is not None)
+    for person in ("zorblat quennix", "Ymir", "Quennix", "jane@example.org", "", None,
+                   "dr zorblat quennix", "zorblat quennix-thorne"):
+        check(f"person name kept: {person!r}", onr(person) is None)
+    J = " ".join  # built at run time so the fixture holds no literal name pair
+    for keep in (J(["Sarah", "Lee"]) + " | Acme " + "Research",
+                 J(["Tom", "Price"]) + " - " + J(["University", "of", "Bristol"]),
+                 J(["Jo", "Bloggs"]) + " (Acme " + "Ltd)",
+                 J(["Dr", "Zorblat", "Quennix"])):
+        check(f"a person signing with an affiliation is kept: {keep!r}", onr(keep) is None)
+    for org in (J(["Account", "Support", "Team"]), J(["Customer", "Service"]), J(["Orlix", "Bank"])):
+        check(f"an org name with no personal part is caught: {org!r}", onr(org) == "org-name")
+    check("a bare message with only an org display name is automated",
+          reason(SimpleNamespace(from_address="help@zentrovo.example", from_name="zentrovo support team", headers={})) == "org-name")
+
+    # The graph pass: only EMAIL-ONLY Persons with an org name are selected.
+    store3 = pyoxigraph.Store()
+    def up3(addr, name):
+        store3.update(cli._build_upsert(person_iri=cli._safe_person_iri(addr), email=addr,
+                                        name=name, last_contact_iso="2026-01-01T00:00:00+00:00"))
+    up3("help@zentrovo.example", "zentrovo account support team")
+    up3("friend@example.org", "zorblat quennix")
+    up3("contact@velmora.example", "velmora group")
+    vel = cli._safe_person_iri("contact@velmora.example")
+    store3.update(f'INSERT DATA {{ <{vel}> <{cli.PWG_NS}contactType> "business" }}')
+    def fake_select(endpoint, query, names, timeout=20.0):
+        return [tuple(str(r[n].value) for n in names) for r in store3.query(query)]
+    real = cli._sparql_select_vars
+    cli._sparql_select_vars = fake_select
+    try:
+        got = cli._org_named_email_only_persons("http://x")
+    finally:
+        cli._sparql_select_vars = real
+    got_iris = {g[0] for g in (got or [])}
+    check("graph pass selects the email-only org-named Person",
+          cli._safe_person_iri("help@zentrovo.example") in got_iris)
+    check("graph pass leaves a person-named Person", cli._safe_person_iri("friend@example.org") not in got_iris)
+    check("graph pass leaves an org-named Person another source wrote (Contacts)", vel not in got_iris)
+    def boom(*a, **k):
+        raise RuntimeError("store down")
+    cli._sparql_select_vars = boom
+    try:
+        check("a store failure is CANNOT-RUN (None), never zero found",
+              cli._org_named_email_only_persons("http://x") is None)
+    finally:
+        cli._sparql_select_vars = real
 
 print(f"\n{'PASS' if fails == 0 else 'FAIL'}: {fails} failed")
 sys.exit(1 if fails else 0)

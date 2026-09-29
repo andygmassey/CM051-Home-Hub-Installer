@@ -248,6 +248,62 @@ _AUTOMATED_LOCAL_RE = re.compile(
 )
 
 
+# An organisation writing from a personal-looking address still names itself
+# as one: "... support team", "<shop> customer service", "<name> ltd".
+# Andy's v1.0.106 walk: 42 email-only Persons survived the header rules
+# because their mail carried no list or bulk header. The display name is the
+# last signal left, so read it. Deliberately conservative: an org WORD, an
+# all-caps brand token, or a long CJK-only company name. An address is never
+# read as a name (a provisional name like "jane@example.org" is a person).
+_ORG_NAME_RE = re.compile(
+    r"\b(team|support|customer\s+(service|care|support|success)|help\s*desk|"
+    r"services?|ltd|limited|inc|llc|plc|gmbh|corp|corporation|company|group|"
+    r"official|promotions?|bank|research|solutions|store|shop|club|hotel|"
+    r"airlines?|airways|insurance|foundation|association|institute|university|"
+    r"council|ministry|department|agency|media|magazine|marketplace|payments?|"
+    r"billing|accounts?|admin|recruitment|recruiting|careers|tickets|booking|"
+    r"reservations|delivery|logistics|holdings|partners|ventures|systems|"
+    r"technology|technologies|software|network|telecom|properties|realty)\b",
+    re.I,
+)
+_CJK_ONLY_RE = re.compile(r"^[\u3400-\u9fff\s]{5,}$")
+
+
+_ORG_WORD_RE = re.compile(r"^(" + _ORG_NAME_RE.pattern.split("\\b(", 1)[1].rsplit(")\\b", 1)[0] + r")$", re.I)
+_NAME_WORD_RE = re.compile(r"^[A-Z][a-z]+(?:[-'][A-Za-z]+)*\.?$")
+_SEGMENT_SPLIT_RE = re.compile(r"\s+[|/\u2013\u2014-]\s+|\s*[,;(]\s*|\s+at\s+|\s+@\s+")
+
+
+def _is_personal_segment(seg: str) -> bool:
+    """Two or three Title-case words, none of them an organisation word:
+    the shape of a person's name: a title, a given name, a hyphenated surname."""
+    words = seg.strip().strip(")").split()
+    if not 2 <= len(words) <= 3:
+        return False
+    return all(_NAME_WORD_RE.match(w) and not _ORG_WORD_RE.match(w.strip(".")) for w in words)
+
+
+def organisation_name_reason(name: Optional[str]) -> Optional[str]:
+    """Why a sender's display name is an organisation's, or None.
+
+    ANCHORED (Archie, review of #2492): an org word demotes only when no part
+    of the name reads as a person's. "<Person> | <Org> Research" and
+    "<Person> - University of <Place>" are people signing with an affiliation.
+    """
+    n = (name or "").strip().strip('"').strip()
+    if not n or "@" in n:
+        return None
+    if any(_is_personal_segment(seg) for seg in _SEGMENT_SPLIT_RE.split(n)):
+        return None
+    if _ORG_NAME_RE.search(n):
+        return "org-name"
+    if " " not in n and n.isalpha() and n.isupper() and len(n) >= 3:
+        return "brand-token"
+    if _CJK_ONLY_RE.match(n):
+        return "org-name"
+    return None
+
+
 def automated_sender_reason(email: FastEmail) -> Optional[str]:
     """Why this message is machine or bulk mail, or None for a person.
 
@@ -266,7 +322,7 @@ def automated_sender_reason(email: FastEmail) -> Optional[str]:
     local = (email.from_address or "").split("@", 1)[0].lower()
     if _AUTOMATED_LOCAL_RE.search(local):
         return "local-part"
-    return None
+    return organisation_name_reason(getattr(email, "from_name", None))
 
 
 # The predicates THIS CLI writes for a sender. A Person carrying anything
@@ -364,6 +420,55 @@ def _sparql_select(endpoint: str, query: str, timeout: float = 10.0) -> list:
     for b in body.get("results", {}).get("bindings", []):
         out.append((b["p"]["value"], b["o"]["value"]))
     return out
+
+
+def _initials(name: str) -> str:
+    """Initials only, so a dry run can show WHO would go without naming them."""
+    return "".join(w[0] for w in (name or "").split() if w)[:4] or "?"
+
+
+def _org_named_email_only_persons(endpoint: str) -> list:
+    """(iri, name, reason) for every email-only Person, with nothing pointing
+    at it, whose display name is an organisation's. A store failure returns
+    None, which the caller reports as CANNOT-RUN, never as zero found."""
+    allowed = ", ".join(_EMAIL_ONLY_PREDICATES)
+    q = "\n".join([
+        "PREFIX pwg: <" + PWG_NS + ">",
+        "PREFIX skos: <http://www.w3.org/2004/02/skos/core#>",
+        "SELECT ?s ?n WHERE {",
+        "  ?s a pwg:Person ; pwg:displayName ?n .",
+        "  FILTER NOT EXISTS { ?s ?q ?x . FILTER(?q NOT IN (" + allowed + ")) }",
+        "  FILTER NOT EXISTS { ?other ?r ?s }",
+        "}",
+    ])
+    try:
+        rows = _sparql_select_vars(endpoint, q, ("s", "n"))
+    except Exception:
+        return None
+    out = []
+    for iri, name in rows:
+        why = organisation_name_reason(name)
+        if why:
+            try:
+                _check_person_iri(iri)
+            except ValueError:
+                continue
+            out.append((iri, name, why))
+    return out
+
+
+def _sparql_select_vars(endpoint: str, query: str, names: tuple, timeout: float = 20.0) -> list:
+    import httpx
+    response = httpx.post(
+        endpoint.rstrip("/") + "/query",
+        content=query,
+        headers={"Content-Type": "application/sparql-query",
+                 "Accept": "application/sparql-results+json"},
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    return [tuple(b.get(n, {}).get("value", "") for n in names)
+            for b in response.json().get("results", {}).get("bindings", [])]
 
 
 def _demote(endpoint: str, person_iri: str, reason: str) -> int:
@@ -618,17 +723,32 @@ def cmd_reclassify_mail(args: argparse.Namespace) -> int:
                         break
                     head += line
             msg = hp.parsebytes(head)
-            frm = email.utils.parseaddr(msg.get("From", ""))[1].strip().lower()
+            frm_name, frm = email.utils.parseaddr(msg.get("From", ""))
+            frm = frm.strip().lower()
         except Exception:
             result["unreadable"] += 1
             continue
         if "@" not in frm or frm in automated:
             continue
-        probe = SimpleNamespace(from_address=frm, headers=dict(msg.items()))
+        probe = SimpleNamespace(from_address=frm, from_name=frm_name, headers=dict(msg.items()))
         why = automated_sender_reason(probe)
         if why is not None:
             automated.add(frm)
             reasons[frm] = why
+    # Second pass, over the GRAPH rather than the mail store: an email-only
+    # Person whose display name is an organisation's, even when its mail is
+    # no longer in ~/Library/Mail. Same guarded demote, same backup.
+    by_name = _org_named_email_only_persons(args.graph_endpoint)
+    if by_name is None:
+        result["errors"].append("graph_read_failed")
+        result["org_named_persons"] = "CANNOT-RUN"
+        by_name = []
+    else:
+        result["org_named_persons"] = len(by_name)
+    if args.dry_run and by_name:
+        import random
+        pick = random.Random(106).sample(by_name, min(20, len(by_name)))
+        result["org_named_samples"] = sorted(_initials(n) + ":" + w for _, n, w in pick)
     result["automated_senders"] = len(automated)
     result["by_rule"] = {r: sum(1 for v in reasons.values() if v == r) for r in sorted(set(reasons.values()))}
     result["backup"] = str(_backup_path())
@@ -636,6 +756,13 @@ def cmd_reclassify_mail(args: argparse.Namespace) -> int:
         for addr in sorted(automated):
             try:
                 if _demote(args.graph_endpoint, _safe_person_iri(addr), reasons[addr]):
+                    result["people_demoted"] += 1
+            except Exception as exc:
+                if len(result["errors"]) < 5:
+                    result["errors"].append(type(exc).__name__)
+        for iri, _name, why in by_name:
+            try:
+                if _demote(args.graph_endpoint, iri, why):
                     result["people_demoted"] += 1
             except Exception as exc:
                 if len(result["errors"]) < 5:
