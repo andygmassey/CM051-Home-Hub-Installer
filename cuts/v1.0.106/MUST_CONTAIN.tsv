@@ -80,3 +80,4 @@ fix(people): demoted people are backed up before they are removed	CM051	3f2242d6
 fix(install): mail senders that are organisations or automated are reclassified, not people	CM051	3f2242d677	no	install_reclassifies_mail_senders	capability_matrix.sh gate	CM051 #2479
 fix(installer): Open Your Wiki opens the app on the wiki (ostler://wiki)	CM051	ea4762dad7	no	open_your_wiki_deep_link	capability_matrix.sh gate	CM051 #2462
 fix(nudges): service senders never get a gone-quiet or birthday card	CM051	ea4762dad7	no	service_senders_get_no_nudge	capability_matrix.sh gate	CM051 #2462
+fix(people): organisation display names are not people (anchored rule)	CM051	ee5e2fcecb	no	org_display_names_not_people	capability_matrix.sh gate	CM051 #2492
