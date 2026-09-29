@@ -269,10 +269,31 @@ _ORG_NAME_RE = re.compile(
 _CJK_ONLY_RE = re.compile(r"^[\u3400-\u9fff\s]{5,}$")
 
 
+_ORG_WORD_RE = re.compile(r"^(" + _ORG_NAME_RE.pattern.split("\\b(", 1)[1].rsplit(")\\b", 1)[0] + r")$", re.I)
+_NAME_WORD_RE = re.compile(r"^[A-Z][a-z]+(?:[-'][A-Za-z]+)*\.?$")
+_SEGMENT_SPLIT_RE = re.compile(r"\s+[|/\u2013\u2014-]\s+|\s*[,;(]\s*|\s+at\s+|\s+@\s+")
+
+
+def _is_personal_segment(seg: str) -> bool:
+    """Two or three Title-case words, none of them an organisation word:
+    the shape of a person's name: a title, a given name, a hyphenated surname."""
+    words = seg.strip().strip(")").split()
+    if not 2 <= len(words) <= 3:
+        return False
+    return all(_NAME_WORD_RE.match(w) and not _ORG_WORD_RE.match(w.strip(".")) for w in words)
+
+
 def organisation_name_reason(name: Optional[str]) -> Optional[str]:
-    """Why a sender's display name is an organisation's, or None."""
+    """Why a sender's display name is an organisation's, or None.
+
+    ANCHORED (Archie, review of #2492): an org word demotes only when no part
+    of the name reads as a person's. "<Person> | <Org> Research" and
+    "<Person> - University of <Place>" are people signing with an affiliation.
+    """
     n = (name or "").strip().strip('"').strip()
     if not n or "@" in n:
+        return None
+    if any(_is_personal_segment(seg) for seg in _SEGMENT_SPLIT_RE.split(n)):
         return None
     if _ORG_NAME_RE.search(n):
         return "org-name"
@@ -401,122 +422,6 @@ def _sparql_select(endpoint: str, query: str, timeout: float = 10.0) -> list:
     return out
 
 
-# A Person is someone you correspond WITH, not anyone who ever wrote to you.
-# Andy's v1.0.106 walk: brands with ordinary-looking names ("<brand> card",
-# "<name> life") survive every header and name rule, and 158 of 161
-# email-only Persons on the walk box were one-way senders the owner had never
-# written to. The owner's Sent mail is the relationship signal, read from
-# HEADERS only, and kept as a local state file the hourly tick consults.
-_SENT_TO_NAME = "email_sent_to.txt"
-
-
-def _sent_to_path() -> Path:
-    return _backup_path().parent / _SENT_TO_NAME
-
-
-def _collect_sent_recipients(root: Path) -> tuple:
-    """(sent_messages_read, set of recipient addresses) from every .emlx in a
-    Sent mailbox. Headers only, never a body."""
-    import email.parser
-    import email.utils as eu
-    hp = email.parser.BytesHeaderParser()
-    n = 0
-    out: Set[str] = set()
-    for path in root.rglob("*.emlx"):
-        if not re.search(r"sent", str(path.parent.parent), re.I):
-            continue
-        try:
-            with open(path, "rb") as fh:
-                fh.readline()
-                head = b""
-                for line in fh:
-                    if line in (b"\n", b"\r\n"):
-                        break
-                    head += line
-            msg = hp.parsebytes(head)
-        except Exception:
-            continue
-        n += 1
-        for key in ("To", "Cc", "Bcc"):
-            for _, addr in eu.getaddresses(msg.get_all(key, [])):
-                if "@" in addr:
-                    out.add(addr.strip().lower())
-    return n, out
-
-
-def _write_sent_to(addrs: Set[str]) -> None:
-    path = _sent_to_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    with open(tmp, "w", encoding="utf-8") as fh:
-        fh.write("\n".join(sorted(addrs)) + "\n")
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
-
-
-def _read_sent_to() -> Optional[Set[str]]:
-    """The owner's sent-to set, or None when it is absent or empty (then no
-    one-way rule applies, rather than every sender reading as one-way)."""
-    try:
-        lines = _sent_to_path().read_text(encoding="utf-8").split()
-    except OSError:
-        return None
-    got = {l.strip().lower() for l in lines if "@" in l}
-    return got or None
-
-
-def _refresh_sent_to_if_stale(max_age: float = 3600.0) -> Optional[Set[str]]:
-    """Keep the sent-to set current from inside the hourly mbox run itself, so
-    someone the owner starts writing to becomes a Person within the hour. A
-    failed or empty scan keeps the last good set (or none)."""
-    path = _sent_to_path()
-    try:
-        fresh = (time.time() - path.stat().st_mtime) < max_age
-    except OSError:
-        fresh = False
-    if not fresh:
-        root = Path(os.environ.get("OSTLER_MAIL_DIR") or (Path.home() / "Library" / "Mail"))
-        try:
-            n, addrs = _collect_sent_recipients(root) if root.exists() else (0, set())
-            if n and addrs:
-                _write_sent_to(addrs)
-        except Exception:
-            pass
-    return _read_sent_to()
-
-
-def _one_way_email_only_persons(endpoint: str, sent: Set[str]) -> Optional[list]:
-    """(iri, reason) for email-only Persons none of whose addresses the owner
-    has ever written to. None on a store failure (CANNOT-RUN, never zero)."""
-    allowed = ", ".join(_EMAIL_ONLY_PREDICATES)
-    q = "\n".join([
-        "PREFIX pwg: <" + PWG_NS + ">",
-        "PREFIX skos: <http://www.w3.org/2004/02/skos/core#>",
-        "SELECT ?s ?e WHERE {",
-        "  ?s a pwg:Person ; pwg:email ?e .",
-        "  FILTER NOT EXISTS { ?s ?q ?x . FILTER(?q NOT IN (" + allowed + ")) }",
-        "  FILTER NOT EXISTS { ?other ?r ?s }",
-        "}",
-    ])
-    try:
-        rows = _sparql_select_vars(endpoint, q, ("s", "e"))
-    except Exception:
-        return None
-    by: Dict[str, Set[str]] = {}
-    for iri, addr in rows:
-        by.setdefault(iri, set()).add(addr.strip().lower())
-    out = []
-    for iri, addrs in sorted(by.items()):
-        if addrs & sent:
-            continue
-        try:
-            _check_person_iri(iri)
-        except ValueError:
-            continue
-        out.append((iri, "one-way"))
-    return out
-
-
 def _initials(name: str) -> str:
     """Initials only, so a dry run can show WHO would go without naming them."""
     return "".join(w[0] for w in (name or "").split() if w)[:4] or "?"
@@ -604,7 +509,6 @@ def cmd_mbox(args: argparse.Namespace) -> int:
         "signatures_extracted": 0,
         "skipped": 0,
         "skipped_automated": 0,
-        "skipped_one_way": 0,
         "people_demoted": 0,
         "errors": [],
     }
@@ -633,7 +537,6 @@ def cmd_mbox(args: argparse.Namespace) -> int:
 
     seen_emails: Set[str] = set()
     demoted: Set[str] = set()
-    sent_to = _refresh_sent_to_if_stale()
     email_filter = EmailFilter()
     parser = FastMboxParser(str(mbox_path), email_filter=email_filter)
 
@@ -658,14 +561,6 @@ def cmd_mbox(args: argparse.Namespace) -> int:
         # Reuses CM021's curated EmailFilter list.
         if email_filter.should_exclude_domain(email.from_domain):
             result["skipped"] += 1
-            continue
-
-        # A one-way sender is not a person either (CM051 v1.0.106): skip a
-        # sender the owner has never written to, when the sent-to set exists.
-        if sent_to is not None and email.from_address.lower() not in sent_to \
-                and automated_sender_reason(email) is None:
-            result["skipped"] += 1
-            result["skipped_one_way"] += 1
             continue
 
         # Machine and bulk mail is not a person (CM051 v1.0.106). Count it,
@@ -850,24 +745,10 @@ def cmd_reclassify_mail(args: argparse.Namespace) -> int:
         by_name = []
     else:
         result["org_named_persons"] = len(by_name)
-    if args.dry_run:
-        result["org_named_initials"] = sorted(_initials(n) for _, n, _ in by_name)
-    sent_n, sent = _collect_sent_recipients(root)
-    result["sent_messages_read"] = sent_n
-    one_way: list = []
-    if sent_n == 0:
-        result["one_way_persons"] = "CANNOT-RUN"  # no Sent mail to judge by
-    else:
-        if not args.dry_run:
-            _write_sent_to(sent)
-        got = _one_way_email_only_persons(args.graph_endpoint, sent)
-        if got is None:
-            result["errors"].append("graph_read_failed")
-            result["one_way_persons"] = "CANNOT-RUN"
-        else:
-            named = {i for i, _, _ in by_name}
-            one_way = [(i, w) for i, w in got if i not in named]
-            result["one_way_persons"] = len(one_way)
+    if args.dry_run and by_name:
+        import random
+        pick = random.Random(106).sample(by_name, min(20, len(by_name)))
+        result["org_named_samples"] = sorted(_initials(n) + ":" + w for _, n, w in pick)
     result["automated_senders"] = len(automated)
     result["by_rule"] = {r: sum(1 for v in reasons.values() if v == r) for r in sorted(set(reasons.values()))}
     result["backup"] = str(_backup_path())
@@ -879,7 +760,7 @@ def cmd_reclassify_mail(args: argparse.Namespace) -> int:
             except Exception as exc:
                 if len(result["errors"]) < 5:
                     result["errors"].append(type(exc).__name__)
-        for iri, why in [(i, w) for i, _, w in by_name] + one_way:
+        for iri, _name, why in by_name:
             try:
                 if _demote(args.graph_endpoint, iri, why):
                     result["people_demoted"] += 1
@@ -888,22 +769,6 @@ def cmd_reclassify_mail(args: argparse.Namespace) -> int:
                     result["errors"].append(type(exc).__name__)
     print(json.dumps(result))
     return 0
-
-
-def cmd_sent_to(args: argparse.Namespace) -> int:
-    """Refresh the owner's sent-to set from Sent mail headers (hourly tick).
-    Counts only in the JSON, never an address."""
-    n, addrs = _collect_sent_recipients(Path(args.mail_dir).expanduser())
-    if n and addrs:
-        _write_sent_to(addrs)
-    print(json.dumps({"sent_messages_read": n, "recipients": len(addrs),
-                      "written": bool(n and addrs)}))
-    return 0
-
-
-def _add_sent_to_subcommand(sub: argparse._SubParsersAction) -> None:
-    p = sub.add_parser("sent-to", help="Refresh the owner's sent-to set (headers only).")
-    p.add_argument("mail_dir", nargs="?", default="~/Library/Mail")
 
 
 def _add_reclassify_subcommand(sub: argparse._SubParsersAction) -> None:
@@ -928,15 +793,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     _add_mbox_subcommand(sub)
     _add_reclassify_subcommand(sub)
-    _add_sent_to_subcommand(sub)
 
     args = parser.parse_args(argv)
     if args.cmd == "mbox":
         return cmd_mbox(args)
     if args.cmd == "reclassify-mail":
         return cmd_reclassify_mail(args)
-    if args.cmd == "sent-to":
-        return cmd_sent_to(args)
     return 2
 
 

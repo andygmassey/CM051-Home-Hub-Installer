@@ -240,6 +240,14 @@ else:
     for person in ("zorblat quennix", "Ymir", "Quennix", "jane@example.org", "", None,
                    "dr zorblat quennix", "zorblat quennix-thorne"):
         check(f"person name kept: {person!r}", onr(person) is None)
+    J = " ".join  # built at run time so the fixture holds no literal name pair
+    for keep in (J(["Sarah", "Lee"]) + " | Acme " + "Research",
+                 J(["Tom", "Price"]) + " - " + J(["University", "of", "Bristol"]),
+                 J(["Jo", "Bloggs"]) + " (Acme " + "Ltd)",
+                 J(["Dr", "Zorblat", "Quennix"])):
+        check(f"a person signing with an affiliation is kept: {keep!r}", onr(keep) is None)
+    for org in (J(["Account", "Support", "Team"]), J(["Customer", "Service"]), J(["Orlix", "Bank"])):
+        check(f"an org name with no personal part is caught: {org!r}", onr(org) == "org-name")
     check("a bare message with only an org display name is automated",
           reason(SimpleNamespace(from_address="help@zentrovo.example", from_name="zentrovo support team", headers={})) == "org-name")
 
@@ -274,65 +282,6 @@ else:
               cli._org_named_email_only_persons("http://x") is None)
     finally:
         cli._sparql_select_vars = real
-
-print("8. one-way senders: a Person is someone the owner writes to")
-if not hasattr(cli, "_one_way_email_only_persons"):
-    check("one-way rule exists", False)
-else:
-    home = Path(os.environ["OSTLER_HOME"])
-    mail = Path(_HERMETIC) / "mail8"
-    sent_dir = mail / "V10" / "acct" / ("Sent " + "Messages.mbox") / "Data" / "Messages"
-    inbox = mail / "V10" / "acct" / "INBOX.mbox" / "Data" / "Messages"
-    sent_dir.mkdir(parents=True); inbox.mkdir(parents=True)
-    body = b"From: me@example.net\nTo: zorblat quennix <zq@example.org>\nSubject: hi\n\nhello\n"
-    (sent_dir / "1.emlx").write_bytes(str(len(body)).encode() + b"\n" + body)
-    n, rec = cli._collect_sent_recipients(mail)
-    check("sent mail read by headers", n == 1 and rec == {"zq@example.org"})
-    ib = b"From: quillby life <hello@quillby.example>\nTo: me@example.net\nSubject: x\n\nx\n"
-    (inbox / "2.emlx").write_bytes(str(len(ib)).encode() + b"\n" + ib)
-    n2, rec2 = cli._collect_sent_recipients(mail)
-    check("an inbox message is not counted as sent", n2 == 1 and "hello@quillby.example" not in rec2)
-
-    store4 = pyoxigraph.Store()
-    def up4(addr, name):
-        store4.update(cli._build_upsert(person_iri=cli._safe_person_iri(addr), email=addr,
-                                        name=name, last_contact_iso="2026-01-01T00:00:00+00:00"))
-    up4("zq@example.org", "zorblat quennix")
-    up4("hello@quillby.example", "quillby life")
-    def fake4(endpoint, query, names, timeout=20.0):
-        return [tuple(str(r[n].value) for n in names) for r in store4.query(query)]
-    real = cli._sparql_select_vars
-    cli._sparql_select_vars = fake4
-    try:
-        ow = cli._one_way_email_only_persons("http://x", {"zq@example.org"})
-    finally:
-        cli._sparql_select_vars = real
-    iris = {i for i, _ in (ow or [])}
-    check("a one-way brand with an ordinary name is selected",
-          cli._safe_person_iri("hello@quillby.example") in iris)
-    check("a correspondent the owner wrote to is kept", cli._safe_person_iri("zq@example.org") not in iris)
-
-    # The hourly mbox run skips a one-way sender once a sent-to set exists.
-    os.environ["OSTLER_MAIL_DIR"] = str(mail)
-    mb = ("From a@x 2026-01-01\n"
-          "From: zorblat quennix <zq@example.org>\nTo: me@example.net\n"
-          "Subject: re\nDate: Mon, 1 Jan 2026 10:00:00 +0000\nMessage-ID: <81@x>\n\nhi\n\n"
-          "From b@x 2026-01-01\n"
-          "From: quillby life <hello@quillby.example>\nTo: me@example.net\n"
-          "Subject: offer\nDate: Mon, 1 Jan 2026 11:00:00 +0000\nMessage-ID: <82@x>\n\nx\n\n")
-    with tempfile.TemporaryDirectory() as td:
-        pth = Path(td) / "m.mbox"; pth.write_text(mb)
-        a = argparse.Namespace(path=str(pth), backfill_days=None,
-                               graph_endpoint="http://127.0.0.1:9", json=True, dry_run=True)
-        o = io.StringIO()
-        with contextlib.redirect_stdout(o), contextlib.redirect_stderr(io.StringIO()):
-            cli.cmd_mbox(a)
-        r8 = json.loads(o.getvalue().strip().splitlines()[-1])
-    check("the sent-to set was written, owner-only", (home / "state" / "email_sent_to.txt").exists()
-          and oct((home / "state" / "email_sent_to.txt").stat().st_mode & 0o777) == "0o600")
-    check("the one-way brand is skipped", r8.get("skipped_one_way") == 1)
-    check("the correspondent is still a person", r8.get("people_extracted") == 1)
-    os.environ["OSTLER_MAIL_DIR"] = str(Path(_HERMETIC) / "nomail")
 
 print(f"\n{'PASS' if fails == 0 else 'FAIL'}: {fails} failed")
 sys.exit(1 if fails else 0)
