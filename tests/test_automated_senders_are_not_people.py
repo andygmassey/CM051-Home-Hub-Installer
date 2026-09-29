@@ -244,7 +244,9 @@ else:
     for keep in (J(["Sarah", "Lee"]) + " | Acme " + "Research",
                  J(["Tom", "Price"]) + " - " + J(["University", "of", "Bristol"]),
                  J(["Jo", "Bloggs"]) + " (Acme " + "Ltd)",
-                 J(["Dr", "Zorblat", "Quennix"])):
+                 J(["Dr", "Zorblat", "Quennix"]),
+                 "Acme " + "Research | " + J(["Sarah", "Lee"]),
+                 J(["University", "of", "Bristol"]) + " - " + J(["Tom", "Price"])):
         check(f"a person signing with an affiliation is kept: {keep!r}", onr(keep) is None)
     for org in (J(["Account", "Support", "Team"]), J(["Customer", "Service"]), J(["Orlix", "Bank"])):
         check(f"an org name with no personal part is caught: {org!r}", onr(org) == "org-name")

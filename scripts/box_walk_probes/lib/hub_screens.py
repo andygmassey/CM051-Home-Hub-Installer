@@ -115,6 +115,9 @@ def judge(f):
         add("chat: a person link opens inside the app, sidebar still there", None,
             "NOT MEASURED: needs --allow-write and HUB_SCREENS_PERSON (the seed person)")
     else:
+        add("chat: no reply link points at the raw wiki port (:8044)",
+            pl.get("raw_port_links", 0) == 0,
+            "{} raw :8044 link(s) in the reply".format(pl.get("raw_port_links")))
         add("chat: a person link opens inside the app, sidebar still there",
             pl.get("url_in_app") and pl.get("sidebar_present") and pl.get("person_frame_loaded"),
             pl.get("error") or "in_app={} sidebar={} frame={}".format(
@@ -348,12 +351,14 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
             try:
                 nav("/chat")
                 box = page.wait_for_selector("textarea", timeout=30000)
-                box.fill("Who is {}?".format(who))
+                box.fill("Who is {}? Include a link to their wiki page.".format(who))
                 box.press("Enter")
-                # The reply may carry the raw wiki origin (the app rewrites it
-                # on click, externalLinks.classifyLink) or the in-app route.
+                # Ask for the page so a reply that simply omits a link is not
+                # mistaken for a broken link. A raw wiki-port link (":8044")
+                # is the v1.0.105 dead-end defect and FAILS, never counts.
                 link = page.wait_for_selector(
-                    'main a[href*="/wiki/"], main a[href*=":8044/"]', timeout=240000)
+                    'main a[href*="/wiki/"], main a[href*=":8044"]', timeout=240000)
+                pl["raw_port_links"] = page.locator('main a[href*=":8044"]').count()
                 link.click()
                 time.sleep(4)
                 pl["url_in_app"] = page.url.startswith(base)
@@ -398,7 +403,7 @@ def _good():
     return {
         "tailscale_running": "yes", "engine": "webkit",
         "person_link": {"person_checked": True, "url_in_app": True, "sidebar_present": True,
-                        "person_frame_loaded": True},
+                        "person_frame_loaded": True, "raw_port_links": 0},
         "wiki": {"loaded": True, "header_found": True, "header_bg": "rgb(122, 31, 31)",
                  "body_font": '"Inter", sans-serif', "screenshot": "/tmp/w.png",
                  "frame_url_session": True, "denied": [],
@@ -427,6 +432,7 @@ MUTANTS = [
      lambda f: f["wiki"].update(frame_url_session=False)),
     ("checked in chromium, not webkit", lambda f: f.update(engine="chromium")),
     ("person link left the app", lambda f: f["person_link"].update(sidebar_present=False)),
+    ("chat reply links the raw wiki port", lambda f: f["person_link"].update(raw_port_links=1)),
     ("wiki header unpainted", lambda f: f["wiki"].update(header_bg="rgba(0, 0, 0, 0)")),
     ("wiki browser-default font", lambda f: f["wiki"].update(body_font="Times")),
     ("wiki never loaded", lambda f: f["wiki"].update(loaded=False)),

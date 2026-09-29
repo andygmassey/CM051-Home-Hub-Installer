@@ -263,7 +263,8 @@ _ORG_NAME_RE = re.compile(
     r"council|ministry|department|agency|media|magazine|marketplace|payments?|"
     r"billing|accounts?|admin|recruitment|recruiting|careers|tickets|booking|"
     r"reservations|delivery|logistics|holdings|partners|ventures|systems|"
-    r"technology|technologies|software|network|telecom|properties|realty)\b",
+    r"technology|technologies|software|network|telecom|properties|realty|"
+    r"notice|warning|maintenance|disruption|outage)\b",
     re.I,
 )
 _DOMAIN_NAME_RE = re.compile(r"^[\w-]+(\.[\w-]+)*\.(com|net|org|io|co|uk|hk|de|fr)$", re.I)
@@ -297,11 +298,9 @@ def organisation_name_reason(name: Optional[str]) -> Optional[str]:
     n = (name or "").strip().strip('"').strip()
     if not n or "@" in n:
         return None
-    segs = [x for x in _SEGMENT_SPLIT_RE.split(n) if x and x.strip()]
-    # A person signing with an affiliation puts their NAME FIRST ("<person> |
-    # <org>"); an organisation's notice leads with the org (a service or
-    # a scheduled-maintenance notice). So only the first segment can make it a person.
-    if segs and _is_personal_segment(segs[0]):
+    # Demoted only when NO segment reads as a person's, whichever order the
+    # person and the affiliation come in (Archie, review of #2494).
+    if any(_is_personal_segment(seg) for seg in _SEGMENT_SPLIT_RE.split(n)):
         return None
     if _ORG_NAME_RE.search(n):
         return "org-name"

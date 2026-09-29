@@ -116,7 +116,7 @@
      parts.append("PREFIX skos: <http://www.w3.org/2004/02/skos/core#>")
      parts.append("")
      parts.append(f"DELETE {{ <{person_iri}> pwg:lastContactEmail ?old }}")
-@@ -143,18 +197,320 @@
+@@ -143,18 +197,319 @@
      parts.append(f"  <{person_iri}> rdf:type pwg:Person ;")
      parts.append(f"                 pwg:email \"{email_lit}\" ;")
      parts.append(f"                 skos:prefLabel \"{label_lit}\" .")
@@ -145,8 +145,8 @@
 +    parts.append(f"  FILTER ({guard})")
 +    parts.append("}")
      return "\n".join(parts)
-+
-+
+ 
+ 
 +
 +# --- Automated and organisation senders are not people (CM051 v1.0.106) ---
 +#
@@ -188,7 +188,8 @@
 +    r"council|ministry|department|agency|media|magazine|marketplace|payments?|"
 +    r"billing|accounts?|admin|recruitment|recruiting|careers|tickets|booking|"
 +    r"reservations|delivery|logistics|holdings|partners|ventures|systems|"
-+    r"technology|technologies|software|network|telecom|properties|realty)\b",
++    r"technology|technologies|software|network|telecom|properties|realty|"
++    r"notice|warning|maintenance|disruption|outage)\b",
 +    re.I,
 +)
 +_DOMAIN_NAME_RE = re.compile(r"^[\w-]+(\.[\w-]+)*\.(com|net|org|io|co|uk|hk|de|fr)$", re.I)
@@ -222,11 +223,9 @@
 +    n = (name or "").strip().strip('"').strip()
 +    if not n or "@" in n:
 +        return None
-+    segs = [x for x in _SEGMENT_SPLIT_RE.split(n) if x and x.strip()]
-+    # A person signing with an affiliation puts their NAME FIRST ("<person> |
-+    # <org>"); an organisation's notice leads with the org (a service or
-+    # a scheduled-maintenance notice). So only the first segment can make it a person.
-+    if segs and _is_personal_segment(segs[0]):
++    # Demoted only when NO segment reads as a person's, whichever order the
++    # person and the affiliation come in (Archie, review of #2494).
++    if any(_is_personal_segment(seg) for seg in _SEGMENT_SPLIT_RE.split(n)):
 +        return None
 +    if _ORG_NAME_RE.search(n):
 +        return "org-name"
@@ -303,8 +302,8 @@
 +         "DELETE { ?s ?p ?o }",
 +         "WHERE {"] + _demote_where(person_iri) + ["}"])
 +
- 
- 
++
++
 +_IRI_FORBIDDEN = set('<>" \t\r\n{}|\\^`')
 +
 +
@@ -439,7 +438,7 @@
  def _post_sparql_update(endpoint: str, query: str, timeout: float = 5.0) -> None:
      """POST a SPARQL UPDATE to Oxigraph.
  
-@@ -184,6 +540,8 @@
+@@ -184,6 +539,8 @@
          "people_extracted": 0,
          "signatures_extracted": 0,
          "skipped": 0,
@@ -448,7 +447,7 @@
          "errors": [],
      }
  
-@@ -210,6 +568,7 @@
+@@ -210,6 +567,7 @@
          cutoff = datetime.now(timezone.utc) - timedelta(days=args.backfill_days)
  
      seen_emails: Set[str] = set()
@@ -456,7 +455,7 @@
      email_filter = EmailFilter()
      parser = FastMboxParser(str(mbox_path), email_filter=email_filter)
  
-@@ -236,6 +595,24 @@
+@@ -236,6 +594,24 @@
              result["skipped"] += 1
              continue
  
@@ -481,7 +480,7 @@
          # Date filter. Emails with no date header pass through;
          # they're rare on legitimate correspondence.
          if cutoff is not None and email.date is not None:
-@@ -289,6 +666,7 @@
+@@ -289,6 +665,7 @@
          f"messages_read={result['messages_read']} "
          f"people_extracted={result['people_extracted']} "
          f"skipped={result['skipped']} "
@@ -489,7 +488,7 @@
          f"errors={len(result['errors'])}"
      )
  
-@@ -343,7 +721,96 @@
+@@ -343,7 +720,96 @@
          "--dry-run",
          action="store_true",
          help="Parse + count but do not write to Oxigraph.",
@@ -586,7 +585,7 @@
  
  
  def main(argv: Optional[list[str]] = None) -> int:
-@@ -357,10 +824,13 @@
+@@ -357,10 +823,13 @@
      )
      sub = parser.add_subparsers(dest="cmd", required=True)
      _add_mbox_subcommand(sub)
