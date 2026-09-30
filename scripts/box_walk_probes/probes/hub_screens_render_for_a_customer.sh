@@ -34,10 +34,10 @@ self_test() {
     # of which must go red, so "every mutant caught" is reported as the FAIL
     # the harness requires, and a mutant that slips through is the BROKEN case.
     if python3 "${_HERE}/lib/hub_screens.py" --self-test; then
-        probe_examined 18 "mutated screen facts"
+        probe_examined 22 "mutated screen facts"
         probe_fail "negative control behaved: all 18 known-bad screen fixtures went red, and an unmeasured person link is an explicit CANNOT-RUN row"
     fi
-    probe_examined 18 "mutated screen facts"
+    probe_examined 22 "mutated screen facts"
     probe_pass "SELF-TEST BROKEN: the screen judge let a known-bad fixture through (see above), so its verdicts mean nothing"
 }
 
@@ -66,13 +66,31 @@ run_probe() {
         sleep 1
     done
 
-    # The chat person-link check needs a known person: the grounding seed's.
+    # The chat person-link check needs a known person that EXISTS NOW. The
+    # v1.0.106 walk showed an order dependency: assistant_grounds_the_opening_turn
+    # purged the grounding seed before this probe ran, so the person was gone
+    # and the check timed out. So this probe seeds its own person (the walk's
+    # synthetic fixture, through the product's write route) unless the operator
+    # named one, and forgets it afterwards only if it seeded it here.
+    _hs_seeded=0
+    if [ -z "${HUB_SCREENS_PERSON:-}" ] && [ "${OSTLER_SCREENS_ALLOW_WRITE:-0}" = "1" ]; then
+        # shellcheck source=../lib/grounding_seed.sh
+        . "${_HERE}/lib/grounding_seed.sh"
+        unset OSTLER_GATE_KNOWN_PERSON OSTLER_GATE_EXPECT_FACT
+        if grounding_seed_apply >/dev/null 2>&1; then
+            _hs_seeded=1
+            probe_note "seeded its own person (synthetic fixture) for the chat person-link check"
+        else
+            probe_note "could not seed a person (state=${GROUNDING_SEED_STATE:-unknown}); the person-link check will be CANNOT-RUN"
+        fi
+    fi
     export HUB_SCREENS_PERSON="${HUB_SCREENS_PERSON:-${OSTLER_GATE_KNOWN_PERSON:-}}"
     set -- collect --base "http://127.0.0.1:${port}" --token-file "${tokfile}" \
         --out "${out}" --tailscale-running "${ts_state}"
     [ "${OSTLER_SCREENS_ALLOW_WRITE:-0}" = "1" ] && set -- "$@" --allow-write
     "${_PY}" "${_HERE}/lib/hub_screens.py" "$@"
     rc=$?
+    [ "${_hs_seeded}" = "1" ] && { grounding_seed_forget >/dev/null 2>&1 || true; }
     probe_note "screenshots and facts: ${out}"
     [ "${OSTLER_SCREENS_ALLOW_WRITE:-0}" = "1" ] || probe_note "Not me persistence SKIPPED: read-only mode (set OSTLER_SCREENS_ALLOW_WRITE=1 on a walk box)"
     case "${rc}" in
