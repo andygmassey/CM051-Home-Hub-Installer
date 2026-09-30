@@ -6515,3 +6515,7 @@ open_issues:
     repo: CM051
     title: 'Wiki: while hydration is incomplete the Personal wiki shows no frame; decide whether it should wait quietly'
     gate: 'NOT BLOCKING for v1.0.106 (a re-hydration window; the wiki is 9 of 9 when hydration is complete). Registered in the same action as the filing. v1.0.107: decide and ship the customer behaviour during re-hydration. CLOSES ON: a walk showing the chosen behaviour while wiki_hydration.json is complete=false.'
+  - issue: 2501
+    repo: CM051
+    title: 'Screen check: the chat person-link check depended on probe order and asked once'
+    gate: 'BLOCKING for v1.0.106 (Archie, 2026-09-30: the person link is #2461''s proof). Registered in the same action as the filing. The probe seeds its own person and asks three times. CLOSES ON: a walk record whose hub_screens rows show 3 of 3 replies with an in-app person link and the link opening inside the app.'
