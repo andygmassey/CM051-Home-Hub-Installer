@@ -6462,7 +6462,7 @@ open_issues:
   - issue: 2467
     repo: CM051
     title: 'Front page: Not me does not stick; the card comes back'
-    gate: 'BLOCKING for the next cut. Same defect as #2470 (filed twice in parallel); closes with #2470 on the same walk evidence.'
+    gate: 'NOT BLOCKING (re-gated by Aesop 2026-09-30, pending Andy''s console walk): the Front Page cards render only inside Ostler.app; getFrontPage() returns null outside Tauri (ostler-assistant web/src/lib/frontpage.ts:107), so the ssh walk''s browser never sees a card (not_me_checked=False on all 4 v1.0.106 c6 runs). Same defect as #2470. Closes on Andy''s console-walk confirmation that a Not me card stays gone after a reload. CONSOLE CHECK: in Ostler.app Home, tap Not me on a Front Page card, then quit and reopen; BROKEN: the same card is back.'
   - issue: 2469
     repo: CM051
     title: 'Timeline opens a year ahead, ends part way through today, labels every row MEETING'
@@ -6470,7 +6470,7 @@ open_issues:
   - issue: 2470
     repo: CM051
     title: 'Front Page Not me is never saved'
-    gate: 'BLOCKING for the next cut (Andy: in the next cut unless it is a big job; it is not). CLOSES ON a walk box where OSTLER_SCREENS_ALLOW_WRITE=1 shows a Not me card gone after a reload, and interest_corrections.json exists.'
+    gate: 'NOT BLOCKING (re-gated by Aesop 2026-09-30, pending Andy''s console walk): the Front Page cards render only inside Ostler.app; getFrontPage() returns null outside Tauri (ostler-assistant web/src/lib/frontpage.ts:107), so the ssh walk''s browser never sees a card (not_me_checked=False on all 4 v1.0.106 c6 runs; the silent row is #2516). Closes on Andy''s console-walk confirmation that a Not me card stays gone after a reload, with interest_corrections.json present. CONSOLE CHECK: after that Not me, ~/.ostler/editor/interest_corrections.json exists and names the card; BROKEN: the file is absent or does not name it.'
   - issue: 2471
     repo: CM051
     title: 'Front Page cards social hashtags and sensitive topics as interests; hunch titles keep SEO suffixes'
@@ -6494,11 +6494,11 @@ open_issues:
   - issue: 2477
     repo: CM051
     title: 'The install-complete screen: the WhatsApp link step was not seen'
-    gate: 'NOT BLOCKING (re-gated by Archie 2026-09-30, pending Andy''s console walk): the installer GUI is visible only at the console; #2479''s GUI test proves the view renders the section, and the console walk proves a customer sees it above the fold. Closes on Andy''s console-walk confirmation.'
+    gate: 'NOT BLOCKING (re-gated by Archie 2026-09-30, pending Andy''s console walk): the installer GUI is visible only at the console; #2479''s GUI test proves the view renders the section, and the console walk proves a customer sees it above the fold. Closes on Andy''s console-walk confirmation. CONSOLE CHECK: at the end of the install, the complete screen shows the WhatsApp link step above the fold; BROKEN: no WhatsApp step, or it is only reachable by scrolling.'
   - issue: 2478
     repo: CM051
     title: 'Doctor: a Data sources tab (every routine, last run, working or not)'
-    gate: 'BLOCKING for the F&F build (Andy asked 2026-09-13 and 2026-09-28). Registered in the same action as the filing. FIX: vendor/doctor routine_status.py plus GET /api/v1/routines (this PR); the Hub Doctor page gains a Data sources tab (ostler-ai/ostler-assistant feat/doctor-data-sources-tab). MEASURED READ-ONLY on the walk box: all 8 routines read live with interval, last run and counts. tests/test_doctor_routines_are_measured_live.py 11/11, and a looser stale threshold fails it. CLOSES ON: a walk whose Hub Doctor Data sources tab shows every routine.'
+    gate: 'NOT BLOCKING (re-gated by Aesop 2026-09-30, pending Andy''s console walk): the Hub Doctor Data sources tab reads /api/v1/routines, which answers 200 on the Doctor (8 routines, live last-run times, measured on the v1.0.106 c6 box) and 404 on the gateway, so only Ostler.app can show the tab (the browser routing is #2514). Closes on Andy''s console-walk confirmation that the Data sources tab shows every routine. CONSOLE CHECK: in Ostler.app, Doctor, Data sources tab lists all 8 routines with a last-run time; BROKEN: the tab is empty, errors, or lists fewer.'
   - issue: 2489
     repo: CM051
     title: 'People: organisations still listed as people after #2479'
@@ -6529,5 +6529,9 @@ open_issues:
     gate: 'NOT BLOCKING for v1.0.106 (Archie, 2026-09-30: an honest refusal is not blocking). TOP v1.0.107 row. PRE-EXISTING, not a #438 regression: parse_clock refuses a bare hour by design; #438 made the failure admitted. Registered in the same action as the filing. MEASURED on the v1.0.106 c6 box: cron_add ERR 3 of 3, tool_result "Invalid schedule: invalid type: string ... expected internally tagged enum Schedule", 0 jobs left behind; the reply quotes that error to the customer. Workaround: say 9am. CLOSES ON: a walk where "remind me tomorrow at 9 to ..." sets a 09:00 local job or asks am or pm, with no internal error text in the reply.'
   - issue: 2514
     repo: CM051
-    title: 'Hub header: the status pill reads Status unavailable in a browser-served Hub, because box-status 404s on the gateway'
+    title: 'Hub in a browser: box-status and routines 404 on the gateway (status pill reads unavailable, Data sources tab cannot load)'
     gate: 'NOT BLOCKING for v1.0.106 (a header indicator; the Doctor endpoint is up). v1.0.107. Registered in the same action as the filing. MEASURED on the v1.0.106 c6 box: /api/v1/box-status 200 on the Doctor (:8089), 404 on the gateway (:8000); outside Tauri the web app fetches it from the gateway. CLOSES ON: a walk where the pill shows the box state in Ostler.app and in a browser-served Hub, or the pill is hidden where it cannot be read.'
+  - issue: 2516
+    repo: CM051
+    title: 'Screen check: an unmeasured Not me check prints no row, so hub_screens can PASS without it'
+    gate: 'NOT BLOCKING for v1.0.106 (Aesop, 2026-09-30): a probe fix for v1.0.107; #2467 and #2470 are proven on the console walk meanwhile. Registered in the same action as the filing. MEASURED: not_me_checked=False on all 4 v1.0.106 c6 hub_screens runs while each read PASS; judge() emits the row only when checked (hub_screens.py:204). CLOSES ON: a hub_screens run where Not me reads ok or CANNOT with its reason, never absent, with a self-test arm and a mutant that drops the row going red.'
