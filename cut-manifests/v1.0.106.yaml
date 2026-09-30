@@ -6511,3 +6511,7 @@ open_issues:
     repo: CM051
     title: 'People: Contacts cards named like organisations are typed person or unclassified'
     gate: 'NOT BLOCKING for v1.0.106: 8 org-like Persons remain on the walk box, all from the owner''s own Contacts or iMessage; they are not deleted by a name heuristic. v1.0.107: type them business at the contacts classifier. CLOSES ON: a walk whose People list shows none of them.'
+  - issue: 2496
+    repo: CM051
+    title: 'Wiki: while hydration is incomplete the Personal wiki shows no frame; decide whether it should wait quietly'
+    gate: 'NOT BLOCKING for v1.0.106 (a re-hydration window; the wiki is 9 of 9 when hydration is complete). Registered in the same action as the filing. v1.0.107: decide and ship the customer behaviour during re-hydration. CLOSES ON: a walk showing the chosen behaviour while wiki_hydration.json is complete=false.'
