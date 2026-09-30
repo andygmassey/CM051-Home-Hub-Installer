@@ -6523,3 +6523,11 @@ open_issues:
     repo: CM051
     title: 'Chat cites a person''s wiki page before it is compiled (cite only when the page exists)'
     gate: 'NOT BLOCKING for v1.0.106 (Aesop and Archie, 2026-09-30: the proxy safety net, ostler-assistant #437, ships in this cut). Registered in the same action as the filing. v1.0.107: omit the link only on a definite 404; 401/403/timeout/refused still emit and log. CLOSES ON: tests (404 omits, 200 emits, 401 and timeout emit, a mutant omitting on 401 goes red) and a box proof of HEAD 200/404 with latency.'
+  - issue: 2513
+    repo: CM051
+    title: 'Reminders: tomorrow at 9 (no am/pm) is refused, and the reply shows the customer a serde error'
+    gate: 'NOT BLOCKING for v1.0.106 (Archie, 2026-09-30: an honest refusal is not blocking). TOP v1.0.107 row. PRE-EXISTING, not a #438 regression: parse_clock refuses a bare hour by design; #438 made the failure admitted. Registered in the same action as the filing. MEASURED on the v1.0.106 c6 box: cron_add ERR 3 of 3, tool_result "Invalid schedule: invalid type: string ... expected internally tagged enum Schedule", 0 jobs left behind; the reply quotes that error to the customer. Workaround: say 9am. CLOSES ON: a walk where "remind me tomorrow at 9 to ..." sets a 09:00 local job or asks am or pm, with no internal error text in the reply.'
+  - issue: 2514
+    repo: CM051
+    title: 'Hub header: the status pill reads Status unavailable in a browser-served Hub, because box-status 404s on the gateway'
+    gate: 'NOT BLOCKING for v1.0.106 (a header indicator; the Doctor endpoint is up). v1.0.107. Registered in the same action as the filing. MEASURED on the v1.0.106 c6 box: /api/v1/box-status 200 on the Doctor (:8089), 404 on the gateway (:8000); outside Tauri the web app fetches it from the gateway. CLOSES ON: a walk where the pill shows the box state in Ostler.app and in a browser-served Hub, or the pill is hidden where it cannot be read.'
