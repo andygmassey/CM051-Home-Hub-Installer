@@ -34,10 +34,10 @@ self_test() {
     # of which must go red, so "every mutant caught" is reported as the FAIL
     # the harness requires, and a mutant that slips through is the BROKEN case.
     if python3 "${_HERE}/lib/hub_screens.py" --self-test; then
-        probe_examined 22 "mutated screen facts"
+        probe_examined 24 "mutated screen facts"
         probe_fail "negative control behaved: all 18 known-bad screen fixtures went red, and an unmeasured person link is an explicit CANNOT-RUN row"
     fi
-    probe_examined 22 "mutated screen facts"
+    probe_examined 24 "mutated screen facts"
     probe_pass "SELF-TEST BROKEN: the screen judge let a known-bad fixture through (see above), so its verdicts mean nothing"
 }
 

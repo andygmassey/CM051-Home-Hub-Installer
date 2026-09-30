@@ -86,7 +86,7 @@ def judge(f):
     add("wiki: it references stylesheets", len(css) > 0, "0 stylesheets seen")
     add("wiki: every stylesheet arrived as text/css",
         css and not bad_css,
-        "; ".join("{} {} {}".format(s.get("status"), s.get("content_type"), s.get("url", "")[-60:])
+        "; ".join("{} {} {}".format(s.get("status"), s.get("content_type"), redact_url(s.get("url", ""))[-60:])
                   for s in bad_css[:4]))
     bg = (w.get("header_bg") or "").replace(" ", "")
     add("wiki: the theme header is painted",
@@ -101,11 +101,11 @@ def judge(f):
     bad_js = [x for x in js if int(x.get("status") or 0) >= 400
               or "javascript" not in (x.get("content_type") or "")]
     add("wiki: every wiki script arrived as JavaScript", not bad_js,
-        "; ".join("{} {} {}".format(x.get("status"), x.get("content_type"), x.get("url", "")[-60:])
+        "; ".join("{} {} {}".format(x.get("status"), x.get("content_type"), redact_url(x.get("url", ""))[-60:])
                   for x in bad_js[:4]))
     denied = w.get("denied") or []
     add("wiki: no request was refused 401 while the wiki loaded", not denied,
-        "{} refused, e.g. {}".format(len(denied), (denied[0].get("url", "")[-60:] if denied else "")))
+        "{} refused, e.g. {}".format(len(denied), (redact_url(denied[0].get("url", ""))[-60:] if denied else "")))
     add("wiki: loaded through the signed session path (/wiki/s/...)",
         w.get("frame_url_session"), "frame did not use /wiki/s/")
     add("engine: checked in WebKit, the engine Ostler.app uses",
@@ -128,6 +128,21 @@ def judge(f):
                 all(a.get("anchor") for a in asks),
                 "{} of {} replies carried a link".format(
                     sum(1 for a in asks if a.get("anchor")), len(asks)))
+        pg = pl.get("page") or {}
+        add("chat: the linked person page is not the raw wiki 404",
+            pg.get("state") in ("rendered", "not_built"),
+            "page state={}".format(pg.get("state")))
+        add("chat: a not-yet-built person page says it is still being written",
+            pg.get("state") in ("not_built", "rendered") and pg.get("heading_names_person"),
+            "page state={} heading_names_person={}".format(pg.get("state"), pg.get("heading_names_person")))
+        rp = pl.get("real_person")
+        if not rp:
+            add("chat: a real person's compiled page renders with their name", None,
+                "NOT MEASURED: set HUB_SCREENS_REAL_PERSON to a person with a compiled page")
+        else:
+            add("chat: a real person's compiled page renders with their name",
+                rp.get("anchor") and (rp.get("page") or {}).get("state") == "rendered",
+                "anchor={} page state={}".format(rp.get("anchor"), (rp.get("page") or {}).get("state")))
         add("chat: a person link opens inside the app, sidebar still there",
             pl.get("url_in_app") and pl.get("sidebar_present") and pl.get("person_frame_loaded"),
             pl.get("error") or "in_app={} sidebar={} frame={}".format(
@@ -178,6 +193,32 @@ def judge(f):
 # ---------------------------------------------------------------------------
 # collect: needs Playwright
 # ---------------------------------------------------------------------------
+
+
+_PEOPLE_SEG = re.compile(r"(/People/)[^/?#\s]+")
+
+
+def redact_url(url):
+    """Never record a person's slug: the walk record is public (CM051)."""
+    return _PEOPLE_SEG.sub(r"\1<redacted>", url or "")
+
+def _person_page_facts(frame, name):
+    """What the person page actually shows: never trust 'the sidebar stayed'.
+    Classifies the frame as rendered (the name in its heading), not_built (the
+    proxy's styled 'still being written' page) or raw_404 (the wiki server's
+    bare error page). Keeps booleans only, never the text or the name."""
+    if frame is None:
+        return {"state": "no_frame"}
+    try:
+        txt = frame.inner_text("body")
+        h1 = " ".join(frame.locator("h1").all_inner_texts())
+    except Exception as exc:
+        return {"state": "unreadable", "error": str(exc)[:120]}
+    raw404 = ("Error code: 404" in txt) or ("File not found" in txt)
+    not_built = "is still being written" in txt
+    named = name.split()[0].lower() in h1.lower() if name else False
+    state = "raw_404" if raw404 else ("not_built" if not_built else ("rendered" if named else "unnamed"))
+    return {"state": state, "heading_names_person": named}
 
 def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"):
     from playwright.sync_api import sync_playwright
@@ -233,7 +274,7 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
         def on_resp(r):
             try:
                 rt = r.request.resource_type
-                row = {"url": r.url, "status": r.status,
+                row = {"url": redact_url(r.url), "status": r.status,
                        "content_type": r.headers.get("content-type", "")}
                 if rt == "stylesheet":
                     sheets.append(row)
@@ -392,8 +433,29 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                 pl["sidebar_present"] = page.locator('a[href="/timeline"]').count() > 0
                 fr = next((f2 for f2 in page.frames if "/wiki/" in (f2.url or "")), None)
                 pl["person_frame_loaded"] = fr is not None
+                pl["page"] = _person_page_facts(fr, who)
                 page.screenshot(path=os.path.join(out_dir, "person.png"))
                 pl["screenshot"] = os.path.join(out_dir, "person.png")
+                # A real person WITH a compiled page must render their own
+                # heading (name withheld from every public record: only the
+                # facts below are kept, never the name).
+                real = os.environ.get("HUB_SCREENS_REAL_PERSON")
+                if real:
+                    before = page.locator(sel).count()
+                    box = page.wait_for_selector("textarea", timeout=30000)
+                    box.fill("Who is {}? Include a link to their wiki page.".format(real))
+                    box.press("Enter")
+                    t0 = time.time()
+                    while time.time() - t0 < 240 and page.locator(sel).count() <= before:
+                        time.sleep(3)
+                    rp = {"checked": True, "anchor": page.locator(sel).count() > before}
+                    if rp["anchor"]:
+                        page.locator(sel).last.click()
+                        time.sleep(4)
+                        fr2 = next((f2 for f2 in page.frames if "/wiki/" in (f2.url or "")), None)
+                        rp["page"] = _person_page_facts(fr2, real)
+                        page.screenshot(path=os.path.join(out_dir, "person-real.png"))
+                    pl["real_person"] = rp
             except Exception as exc:
                 pl["error"] = str(exc)[:200]
         facts["person_link"] = pl
@@ -431,7 +493,10 @@ def _good():
         "tailscale_running": "yes", "engine": "webkit",
         "person_link": {"person_checked": True, "url_in_app": True, "sidebar_present": True,
                         "person_frame_loaded": True, "raw_port_links": 0,
-                        "asks": [{"replied": True, "anchor": True}] * 3},
+                        "asks": [{"replied": True, "anchor": True}] * 3,
+                        "page": {"state": "not_built", "heading_names_person": True},
+                        "real_person": {"checked": True, "anchor": True,
+                                        "page": {"state": "rendered", "heading_names_person": True}}},
         "wiki": {"loaded": True, "header_found": True, "header_bg": "rgb(122, 31, 31)",
                  "body_font": '"Inter", sans-serif', "screenshot": "/tmp/w.png",
                  "frame_url_session": True, "denied": [],
@@ -461,6 +526,11 @@ MUTANTS = [
     ("checked in chromium, not webkit", lambda f: f.update(engine="chromium")),
     ("person link left the app", lambda f: f["person_link"].update(sidebar_present=False)),
     ("chat reply links the raw wiki port", lambda f: f["person_link"].update(raw_port_links=1)),
+    ("person link opens the raw wiki 404 page (sidebar intact)",
+     lambda f: f["person_link"].update(page={"state": "raw_404", "heading_names_person": False})),
+    ("a real person's compiled page does not render",
+     lambda f: f["person_link"].update(real_person={"checked": True, "anchor": True,
+                                                    "page": {"state": "raw_404"}})),
     ("one of 3 replies carried no person link (path in backticks)",
      lambda f: f["person_link"].update(asks=[{"replied": True, "anchor": True},
                                              {"replied": True, "anchor": False},
@@ -494,6 +564,18 @@ def self_test():
         print("SELF-TEST FAIL: an unmeasured person link must be an explicit CANNOT-RUN row, got {}".format(row))
         return EX_FAIL
     print("  ok    unmeasured person link is an explicit CANNOT-RUN row")
+    # PRIVACY ARM: no person slug may reach the public walk record, through
+    # the network recorder or a failure detail.
+    slug = "zz-real-person-slug"
+    leak = copy.deepcopy(_good())
+    leak["wiki"]["stylesheets"] = [{"url": "http://h/wiki/s/k/People/%s/x.css" % slug,
+                                    "status": 404, "content_type": "text/html"}]
+    leak["wiki"]["denied"] = [{"url": "http://h/wiki/People/%s/" % slug, "status": 401}]
+    printed = " ".join(d for _, _, d in judge(leak))
+    if slug in printed or slug in redact_url("http://h/wiki/People/%s/?a=1" % slug):
+        print("SELF-TEST FAIL: a person slug reached the record: redact_url is not applied")
+        return EX_FAIL
+    print("  ok    no person slug reaches the record (network rows and failure details)")
     base = judge(_good())
     bad = [n for n, ok, _ in base if not ok]
     if bad:
@@ -544,7 +626,7 @@ def main(argv):
         except CannotRun as exc:
             print("CANNOT-RUN: {}".format(exc))
             return EX_CANNOT
-        json.dump(facts, open(os.path.join(a["--out"], "facts.json"), "w"), indent=1)
+        json.dump(json.loads(redact_url(json.dumps(facts))), open(os.path.join(a["--out"], "facts.json"), "w"), indent=1)
     else:
         print(__doc__)
         return 2

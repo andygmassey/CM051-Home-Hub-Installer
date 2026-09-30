@@ -6519,3 +6519,7 @@ open_issues:
     repo: CM051
     title: 'Screen check: the chat person-link check depended on probe order and asked once'
     gate: 'BLOCKING for v1.0.106 (Archie, 2026-09-30: the person link is #2461''s proof). Registered in the same action as the filing. The probe seeds its own person and asks three times. CLOSES ON: a walk record whose hub_screens rows show 3 of 3 replies with an in-app person link and the link opening inside the app.'
+  - issue: 2505
+    repo: CM051
+    title: 'Chat cites a person''s wiki page before it is compiled (cite only when the page exists)'
+    gate: 'NOT BLOCKING for v1.0.106 (Aesop and Archie, 2026-09-30: the proxy safety net, ostler-assistant #437, ships in this cut). Registered in the same action as the filing. v1.0.107: omit the link only on a definite 404; 401/403/timeout/refused still emit and log. CLOSES ON: tests (404 omits, 200 emits, 401 and timeout emit, a mutant omitting on 401 goes red) and a box proof of HEAD 200/404 with latency.'
