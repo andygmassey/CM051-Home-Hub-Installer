@@ -702,7 +702,7 @@ def self_test():
     # each of the three pages it must tell apart is a fixture here.
     rendered = ('<html><head><style>h1{x:1}</style></head><body><nav>People'
                 ' &gt; Jane Doe</nav><article class="md-content__inner"><h1 id="jane-doe">'
-                '\n  Jane   Doe\n</h1><p>Works at Example Ltd.</p></article></body></html>')
+                '\n  Jane   Doe\n</h1><p>Works at Acme Corp.</p></article></body></html>')
     # The gateway's not-built page, as wiki_proxy.rs person_page_not_built emits it.
     not_built = ('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Jane Doe'
                  '</title><style>h1{font-size:22px}</style></head><body><main><h1>Jane Doe</h1>'
@@ -720,7 +720,7 @@ def self_test():
                 label, got["state"], got["heading_names_person"], want, named))
             return EX_FAIL
         print("  ok    {} markup classified {}".format(label, want))
-    if classify_person_page(rendered, "John Roe")["heading_names_person"]:
+    if classify_person_page(rendered, "John Smith")["heading_names_person"]:
         print("SELF-TEST FAIL: a rendered page for another person was read as naming the asked person")
         return EX_FAIL
     print("  ok    a rendered page for another person does not name the asked person")
