@@ -46,6 +46,35 @@ arm "and returns non-zero so the loop stops" "$(printf '%s' "$out" | grep -c 'RC
 echo ERR > "$T/mem"; out="$(run 1 3)"
 arm "an unreadable memory is CANNOT-RUN, not absent" \
     "$(printf '%s' "$out" | grep -c -E '^CANNOT .*could not be read' | awk '{print ($1==1)?0:1}')" "$out"
+# The re-read AFTER a purge (v1.0.106 walk, 9/9 then "did not take" with the
+# forget API answering 3 each time): a failed read is not a surviving memory.
+# $T/reads is a queue of what successive re-reads return after the purge.
+run_q() {
+    ( . "$T/probes/probe_nomain.sh" >/dev/null 2>&1
+      _memory_mentions_person() {
+          if [ ! -f "$T/purged" ]; then echo "READ 50 2"; echo "KEY k0"; echo "KEY k1"; return; fi
+          r="$(head -1 "$T/reads")"; [ "$(wc -l < "$T/reads")" -gt 1 ] && sed -i.bak 1d "$T/reads"
+          case "$r" in ERR) echo "UNREADABLE http 503 upstream timed out" ;; ABSENT) echo "READ 50 0" ;; *) echo "READ 50 1"; echo "KEY k9" ;; esac; }
+      _memory_forget_keys() { : > "$T/purged"; echo "FORGOT $# 0"; }
+      probe_note() { printf 'NOTE %s\n' "$1"; }
+      probe_cannot_run() { printf 'CANNOT %s\n' "$1"; }
+      _carried_total=0; sleep() { :; }
+      export OSTLER_SEED_PERSON_IS_SYNTHETIC=1 OSTLER_PROBE_PURGE_ROUNDS=4
+      _restore_precondition_before_opening 7; printf 'RC %s\n' "$?" )
+}
+rm -f "$T/purged"; printf 'ERR\nABSENT\n' > "$T/reads"; out="$(run_q)"
+arm "an unreadable re-read once, then absent: it goes on (PASS)" \
+    "$(printf '%s' "$out" | grep -c -E '^RC 0' | awk '{print ($1==1)?0:1}')" "$out"
+rm -f "$T/purged"; printf 'ERR\n' > "$T/reads"; out="$(run_q)"
+arm "an unreadable re-read that persists is CANNOT-RUN 'memory read failed' with the read's own error" \
+    "$(printf '%s' "$out" | grep -c -E '^CANNOT .*memory read failed: UNREADABLE http 503 upstream timed out' | awk '{print ($1==1)?0:1}')" "$out"
+arm "and it is never reported as a forget that did not take" \
+    "$(printf '%s' "$out" | grep -c 'did not take' | awk '{print ($1==0)?0:1}')" "$out"
+arm "and never goes on" "$(printf '%s' "$out" | grep -c '^RC 1' | awk '{print ($1==1)?0:1}')" "$out"
+rm -f "$T/purged"; printf 'PRESENT\nABSENT\n' > "$T/reads"; out="$(run_q)"
+arm "a memory re-written once by consolidation is purged again and it goes on" \
+    "$(printf '%s' "$out" | grep -c -E '^RC 0' | awk '{print ($1==1)?0:1}')" "$out"
+
 arm "the loop calls it before every opening" \
     "$(grep -c '_restore_precondition_before_opening "\$_i" || return' "$PROBE" | awk '{print ($1==1)?0:1}')"
 

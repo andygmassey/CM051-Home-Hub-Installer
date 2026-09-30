@@ -577,17 +577,30 @@ _restore_precondition_before_opening() {
             # made right after an opening can be followed by fresh entries
             # about the same person. Let consolidation settle and purge again,
             # a bounded number of times, before calling the precondition lost.
-            local _round=1 _cm2
-            while [ "$(_read_memory_answer "$(_memory_mentions_person)")" != "ABSENT" ] \
-                  && [ "$_round" -lt "${OSTLER_PROBE_PURGE_ROUNDS:-4}" ]; do
+            # An UNREADABLE re-read is retried inside the same rounds and is
+            # never reported as "did not take": a read that failed is not a
+            # memory that survived (Archie, review; 9/9 walk 2026-09-30).
+            local _round=1 _cm2 _ans _lastread
+            _lastread="$(_memory_mentions_person)"
+            _ans="$(_read_memory_answer "$_lastread")"
+            while [ "$_ans" != "ABSENT" ] && [ "$_round" -lt "${OSTLER_PROBE_PURGE_ROUNDS:-4}" ]; do
                 sleep "${OSTLER_PROBE_PURGE_SETTLE_S:-15}"
                 _cm2="$(_memory_mentions_person)"
-                [ "$(_read_memory_answer "$_cm2")" = "PRESENT" ] || break
-                _cf="${_cf}
+                _lastread="$_cm2"
+                _ans="$(_read_memory_answer "$_cm2")"
+                if [ "$_ans" = "PRESENT" ]; then
+                    _cf="${_cf}
 round $((_round + 1)): $(_memory_forget_keys $(printf '%s\n' "$_cm2" | sed -n 's/^KEY //p' | tr '\n' ' '))"
+                    _lastread="$(_memory_mentions_person)"
+                    _ans="$(_read_memory_answer "$_lastread")"
+                fi
                 _round=$((_round + 1))
             done
-            if [ "$(_read_memory_answer "$(_memory_mentions_person)")" != "ABSENT" ]; then
+            if [ "$_ans" = "UNREADABLE" ]; then
+                probe_cannot_run "before opening ${i}: memory read failed: $(printf '%s' "${_lastread:-<no output>}" | head -1 | cut -c1-200) (after ${_round} round(s); the purge itself answered ${_cf:-nothing}). Precondition 1 is unestablished, so the battery stops here. A failed read, not a surviving memory."
+                return 1
+            fi
+            if [ "$_ans" != "ABSENT" ]; then
                 probe_cannot_run "before opening ${i} the daemon remembered the seed person from opening $((i - 1)) and removing it did not take (${_cf:-no forget answer}). Openings after this would be asked against memory, so the battery stops here. Nothing about the model was learned from the remainder."
                 return 1
             fi
