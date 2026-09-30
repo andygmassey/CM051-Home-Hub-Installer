@@ -148,6 +148,9 @@ def judge(f):
         else:
             add("chat: a not-yet-built person page says it is still being written",
                 NA, "page is not the not-built page: " + seen)
+        if "link_is_this_person" in pl:
+            add("chat: the link opened is the asked person's page, not another reply's",
+                pl.get("link_is_this_person"), "link_is_this_person={}".format(pl.get("link_is_this_person")))
         if st == "rendered":
             add("chat: a rendered person page names that person in its heading",
                 pg.get("heading_names_person"), seen)
@@ -164,7 +167,8 @@ def judge(f):
         else:
             rpg = rp["page"]
             add("chat: a real person's compiled page renders with their name",
-                rp.get("anchor") and rpg.get("state") == "rendered" and rpg.get("heading_names_person"),
+                rp.get("anchor") and rp.get("link_is_this_person", True) is True
+                and rpg.get("state") == "rendered" and rpg.get("heading_names_person"),
                 "anchor={} page state={} heading_names_person={} (name withheld)".format(
                     rp.get("anchor"), rpg.get("state"), rpg.get("heading_names_person")))
         add("chat: a person link opens inside the app, sidebar still there",
@@ -219,7 +223,9 @@ def judge(f):
 # ---------------------------------------------------------------------------
 
 
-_PEOPLE_SEG = re.compile(r"(/People/)[^/?#\s]+")
+# Case-insensitive, and stops at quotes and brackets: a Playwright timeout
+# quotes the whole locator, whose href filters carry the slug in both cases.
+_PEOPLE_SEG = re.compile(r"(/people/)[^/?#\s\"'\]\)]+", re.I)
 
 
 def redact_url(url):
@@ -230,6 +236,31 @@ def _err(exc, n=200):
     """An exception as it may enter the public record: Playwright quotes the
     frame URL, and a person page URL carries the person's slug."""
     return redact_url(str(exc))[:n]
+
+
+def person_link_selector(name):
+    """The chat link to THIS person's page, never merely the newest wiki link.
+
+    v1.0.106 c6 quiet re-run: two seed asks replied late, their links landed
+    during the real-person ask, and the probe clicked the newest link, which
+    was the seed's page, and judged it as the real person's."""
+    slug = re.sub(r"[^a-z0-9]+", "-", (name or "").casefold()).strip("-")
+    # The trailing slash keeps jane-doe from matching jane-doe-smith.
+    return 'main a[href*="/People/{0}/"], main a[href*="/people/{0}/"]'.format(slug) if slug else None
+
+
+def _wait_chat_idle(page, max_s=240, stable_s=10):
+    """Until the chat transcript stops growing: a reply still streaming, or a
+    queued ask, must not be read as the answer to the next one."""
+    t0, last, since = time.time(), -1, time.time()
+    while time.time() - t0 < max_s:
+        n = len(page.inner_text("main"))
+        if n != last:
+            last, since = n, time.time()
+        elif time.time() - since >= stable_s:
+            return True
+        time.sleep(2)
+    return False
 
 
 def _norm(t):
@@ -503,8 +534,10 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                 # the model's formatting (a path in backticks carried no anchor
                 # on v1.0.106 candidate 5), so one lucky reply proves nothing.
                 sel = 'main a[href*="/wiki/"], main a[href*=":8044"]'
+                own = person_link_selector(who)
                 asks = []
                 for _ in range(3):
+                    _wait_chat_idle(page)
                     before = page.locator(sel).count()
                     before_text = len(page.inner_text("main"))
                     box = page.wait_for_selector("textarea", timeout=30000)
@@ -523,7 +556,9 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                         got = page.locator(sel).count() > before
                     asks.append({"replied": replied, "anchor": got})
                 pl["asks"] = asks
-                link = page.locator(sel).last
+                _wait_chat_idle(page)
+                pl["link_is_this_person"] = page.locator(own).count() > 0
+                link = page.locator(own if pl["link_is_this_person"] else sel).last
                 pl["raw_port_links"] = page.locator('main a[href*=":8044"]').count()
                 link.click()
                 time.sleep(4)
@@ -545,18 +580,23 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                 # there is no chat box: go back to chat first (candidate 6 timed
                 # out here, and the arm silently read as NOT MEASURED).
                 rp = {"checked": True}
+                mine = person_link_selector(real)
                 try:
                     nav("/chat")
-                    before = page.locator(sel).count()
+                    _wait_chat_idle(page)
+                    before = page.locator(mine).count()
                     box = page.wait_for_selector("textarea", timeout=30000)
                     box.fill("Who is {}? Include a link to their wiki page.".format(real))
                     box.press("Enter")
                     t0 = time.time()
-                    while time.time() - t0 < 240 and page.locator(sel).count() <= before:
+                    while time.time() - t0 < 240 and page.locator(mine).count() <= before:
                         time.sleep(3)
-                    rp["anchor"] = page.locator(sel).count() > before
+                    # Only a link to THIS person's page counts, never the
+                    # newest link in the chat.
+                    rp["anchor"] = page.locator(mine).count() > before
+                    rp["link_is_this_person"] = rp["anchor"]
                     if rp["anchor"]:
-                        page.locator(sel).last.click()
+                        page.locator(mine).last.click()
                         time.sleep(4)
                         rp["page"] = _person_page_facts(page, real, public_name=False)
                         page.screenshot(path=os.path.join(out_dir, "person-real.png"))
@@ -598,9 +638,10 @@ def _good():
         "tailscale_running": "yes", "engine": "webkit",
         "person_link": {"person_checked": True, "url_in_app": True, "sidebar_present": True,
                         "person_frame_loaded": True, "raw_port_links": 0,
+                        "link_is_this_person": True,
                         "asks": [{"replied": True, "anchor": True}] * 3,
                         "page": {"state": "not_built", "heading_names_person": False},
-                        "real_person": {"checked": True, "anchor": True,
+                        "real_person": {"checked": True, "anchor": True, "link_is_this_person": True,
                                         "page": {"state": "rendered", "heading_names_person": True}}},
         "wiki": {"loaded": True, "header_found": True, "header_bg": "rgb(122, 31, 31)",
                  "body_font": '"Inter", sans-serif', "screenshot": "/tmp/w.png",
@@ -633,6 +674,10 @@ MUTANTS = [
     ("chat reply links the raw wiki port", lambda f: f["person_link"].update(raw_port_links=1)),
     ("person link opens the raw wiki 404 page (sidebar intact)",
      lambda f: f["person_link"].update(page={"state": "raw_404", "heading_names_person": False})),
+    ("the seed link clicked was another reply's link",
+     lambda f: f["person_link"].update(link_is_this_person=False)),
+    ("the real-person link clicked was another reply's link",
+     lambda f: f["person_link"]["real_person"].update(link_is_this_person=False)),
     ("a rendered person page names someone else",
      lambda f: f["person_link"].update(page={"state": "rendered", "heading_names_person": False})),
     ("a real person's page renders but names someone else",
@@ -698,6 +743,17 @@ def self_test():
         print("SELF-TEST FAIL: a person slug in an exception reached the record: _err is not applied")
         return EX_FAIL
     print("  ok    no person slug reaches the record through an exception message")
+    # LOCATOR ARM: a timeout on the own-link wait quotes the selector, which
+    # carries the slug under /People/ and /people/.
+    loc_exc = RuntimeError("Locator.click: Timeout 30000ms exceeded.\nCall log:\nwaiting for locator('"
+                           + person_link_selector("Jane Doe") + "').last")
+    loc = copy.deepcopy(_good())
+    loc["person_link"]["real_person"] = {"checked": True, "anchor": True, "error": _err(loc_exc)}
+    printed = " ".join(d for _, _, d in judge(loc)) + json.dumps(loc)
+    if "jane-doe" in printed.lower():
+        print("SELF-TEST FAIL: a person slug in a quoted locator reached the record: redaction is case-sensitive or overruns")
+        return EX_FAIL
+    print("  ok    no person slug reaches the record through a quoted locator (either case)")
     # MARKUP ARMS: the classifier runs on the iframe document's markup, and
     # each of the three pages it must tell apart is a fixture here.
     rendered = ('<html><head><style>h1{x:1}</style></head><body><nav>People'
@@ -724,6 +780,14 @@ def self_test():
         print("SELF-TEST FAIL: a rendered page for another person was read as naming the asked person")
         return EX_FAIL
     print("  ok    a rendered page for another person does not name the asked person")
+    # OWN-LINK ARM: the selector for a person matches that person's page and
+    # no other person's.
+    own = person_link_selector("Jane Doe")
+    if not own or "/People/jane-doe/" not in own or "john-smith" in own \
+            or person_link_selector("John Smith") == own:
+        print("SELF-TEST FAIL: person_link_selector does not single out the asked person: {!r}".format(own))
+        return EX_FAIL
+    print("  ok    the link selector singles out the asked person's page")
     # N/A ARM: 'still being written' is judged only on the not-built page.
     na = copy.deepcopy(_good())
     na["person_link"]["page"] = {"state": "rendered", "heading_names_person": True}
