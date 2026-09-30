@@ -6494,7 +6494,7 @@ open_issues:
   - issue: 2477
     repo: CM051
     title: 'The install-complete screen: the WhatsApp link step was not seen'
-    gate: 'BLOCKING for the F&F build (Andy walk 2026-09-28). Registered in the same action as the filing. Config on the walk box enables the step, so every phase renders; it sat below the fold. FIX: moved directly under What''s happening now. tests/test_connect_whatsapp_is_on_the_first_screen.sh FAIL 2 on main, 3/3 on the fix. NOT INSTRUMENTED: what Andy''s screen showed. CLOSES ON: the next console walk shows the step on the first screen.'
+    gate: 'NOT BLOCKING (re-gated by Archie 2026-09-30, pending Andy''s console walk): the installer GUI is visible only at the console; #2479''s GUI test proves the view renders the section, and the console walk proves a customer sees it above the fold. Closes on Andy''s console-walk confirmation.'
   - issue: 2478
     repo: CM051
     title: 'Doctor: a Data sources tab (every routine, last run, working or not)'
