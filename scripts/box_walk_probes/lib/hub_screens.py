@@ -31,6 +31,9 @@ import sys
 import time
 
 EX_PASS, EX_FAIL, EX_CANNOT = 0, 1, 78
+# An arm whose precondition did not arise: neither a pass nor a fail nor a
+# CANNOT-RUN, and never counted as any of them.
+NA = "N/A"
 
 
 class CannotRun(Exception):
@@ -75,8 +78,9 @@ def judge(f):
     out = []
 
     def add(name, ok, detail=""):
-        # ok is True (pass), False (fail) or None (CANNOT-RUN: not measured).
-        out.append((name, None if ok is None else bool(ok), detail))
+        # ok is True (pass), False (fail), None (CANNOT-RUN: not measured)
+        # or NA (the arm's precondition did not arise on this box).
+        out.append((name, ok if ok is None or ok == NA else bool(ok), detail))
 
     w = f.get("wiki") or {}
     css = w.get("stylesheets") or []
@@ -129,20 +133,40 @@ def judge(f):
                 "{} of {} replies carried a link".format(
                     sum(1 for a in asks if a.get("anchor")), len(asks)))
         pg = pl.get("page") or {}
-        add("chat: the linked person page is not the raw wiki 404",
-            pg.get("state") in ("rendered", "not_built"),
-            "page state={}".format(pg.get("state")))
-        add("chat: a not-yet-built person page says it is still being written",
-            pg.get("state") in ("not_built", "rendered") and pg.get("heading_names_person"),
-            "page state={} heading_names_person={}".format(pg.get("state"), pg.get("heading_names_person")))
+        st = pg.get("state")
+        seen = "page state={} heading_names_person={} h1_read={!r} expected={!r}".format(
+            st, pg.get("heading_names_person"), pg.get("h1_read"), pg.get("expected"))
+        if st in ("rendered", "not_built", "raw_404"):
+            add("chat: the linked person page is not the raw wiki 404",
+                st in ("rendered", "not_built"), seen)
+        else:
+            add("chat: the linked person page is not the raw wiki 404", None,
+                "NOT MEASURED: " + seen)
+        if st == "not_built":
+            add("chat: a not-yet-built person page says it is still being written",
+                True, seen)
+        else:
+            add("chat: a not-yet-built person page says it is still being written",
+                NA, "page is not the not-built page: " + seen)
+        if st == "rendered":
+            add("chat: a rendered person page names that person in its heading",
+                pg.get("heading_names_person"), seen)
+        else:
+            add("chat: a rendered person page names that person in its heading",
+                NA, "page is not rendered: " + seen)
         rp = pl.get("real_person")
         if not rp:
             add("chat: a real person's compiled page renders with their name", None,
                 "NOT MEASURED: set HUB_SCREENS_REAL_PERSON to a person with a compiled page")
+        elif rp.get("error") or not rp.get("page"):
+            add("chat: a real person's compiled page renders with their name", None,
+                "NOT MEASURED: anchor={} error={}".format(rp.get("anchor"), rp.get("error")))
         else:
+            rpg = rp["page"]
             add("chat: a real person's compiled page renders with their name",
-                rp.get("anchor") and (rp.get("page") or {}).get("state") == "rendered",
-                "anchor={} page state={}".format(rp.get("anchor"), (rp.get("page") or {}).get("state")))
+                rp.get("anchor") and rpg.get("state") == "rendered" and rpg.get("heading_names_person"),
+                "anchor={} page state={} heading_names_person={} (name withheld)".format(
+                    rp.get("anchor"), rpg.get("state"), rpg.get("heading_names_person")))
         add("chat: a person link opens inside the app, sidebar still there",
             pl.get("url_in_app") and pl.get("sidebar_present") and pl.get("person_frame_loaded"),
             pl.get("error") or "in_app={} sidebar={} frame={}".format(
@@ -202,23 +226,91 @@ def redact_url(url):
     """Never record a person's slug: the walk record is public (CM051)."""
     return _PEOPLE_SEG.sub(r"\1<redacted>", url or "")
 
-def _person_page_facts(frame, name):
-    """What the person page actually shows: never trust 'the sidebar stayed'.
-    Classifies the frame as rendered (the name in its heading), not_built (the
-    proxy's styled 'still being written' page) or raw_404 (the wiki server's
-    bare error page). Keeps booleans only, never the text or the name."""
-    if frame is None:
-        return {"state": "no_frame"}
-    try:
-        txt = frame.inner_text("body")
-        h1 = " ".join(frame.locator("h1").all_inner_texts())
-    except Exception as exc:
-        return {"state": "unreadable", "error": str(exc)[:120]}
-    raw404 = ("Error code: 404" in txt) or ("File not found" in txt)
+def _norm(t):
+    return " ".join((t or "").split()).casefold()
+
+
+def classify_person_page(html, name):
+    """Classify the IFRAME document's markup (never the app shell around it):
+    raw_404 (the wiki server's bare error page), not_built (the proxy's styled
+    'still being written' page), rendered (a page with an h1) or blank (no h1
+    and no marker: still loading). Pure, so --self-test runs it on markup.
+
+    v1.0.106 candidate 6 walk: the old reader took the first /wiki/ frame 4s
+    after the click and read an h1 that was not there yet, so a page that the
+    screenshot shows rendered, heading and all, was recorded as 'unnamed'."""
+    from html.parser import HTMLParser
+
+    class P(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.depth_h1, self.skip, self.h1, self.text = 0, 0, [], []
+
+        def handle_starttag(self, tag, attrs):
+            if tag in ("script", "style"):
+                self.skip += 1
+            elif tag == "h1":
+                self.depth_h1 += 1
+
+        def handle_endtag(self, tag):
+            if tag in ("script", "style") and self.skip:
+                self.skip -= 1
+            elif tag == "h1" and self.depth_h1:
+                self.depth_h1 -= 1
+                self.h1.append("\n")
+
+        def handle_data(self, data):
+            if self.skip:
+                return
+            self.text.append(data)
+            if self.depth_h1:
+                self.h1.append(data)
+
+    p = P()
+    p.feed(html or "")
+    txt = _norm(" ".join(p.text))
+    h1 = _norm(" ".join(p.h1))
+    raw404 = ("error code: 404" in txt) or ("file not found" in txt)
     not_built = "is still being written" in txt
-    named = name.split()[0].lower() in h1.lower() if name else False
-    state = "raw_404" if raw404 else ("not_built" if not_built else ("rendered" if named else "unnamed"))
-    return {"state": state, "heading_names_person": named}
+    named = bool(name) and _norm(name) in h1
+    if raw404:
+        state = "raw_404"
+    elif not_built:
+        state = "not_built"
+    elif h1:
+        state = "rendered"
+    else:
+        state = "blank"
+    return {"state": state, "heading_names_person": named, "h1": h1}
+
+
+def _person_page_facts(page, name, public_name=True, wait_s=30):
+    """What the person page actually shows: never trust 'the sidebar stayed'.
+    Reads the document INSIDE the app's wiki iframe, polling until it is past
+    loading. The h1 text and the expected name are kept only for the seed
+    person (public_name); a real person's are withheld from every record."""
+    t0, facts = time.time(), {"state": "no_frame"}
+    while True:
+        try:
+            el = page.query_selector('iframe[src*="/wiki/"]') or page.query_selector("iframe")
+            frame = el.content_frame() if el else None
+            if frame is not None:
+                try:
+                    frame.wait_for_load_state("load", timeout=10000)
+                except Exception:
+                    pass
+                facts = classify_person_page(frame.content(), name)
+        except Exception as exc:
+            facts = {"state": "unreadable", "error": str(exc)[:120]}
+        if facts["state"] in ("rendered", "not_built", "raw_404") or time.time() - t0 > wait_s:
+            break
+        time.sleep(2)
+    h1 = facts.pop("h1", None)
+    if public_name:
+        facts["h1_read"], facts["expected"] = h1, name
+    else:
+        facts["h1_read"] = facts["expected"] = "<withheld>"
+    return facts
 
 def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"):
     from playwright.sync_api import sync_playwright
@@ -433,14 +525,22 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                 pl["sidebar_present"] = page.locator('a[href="/timeline"]').count() > 0
                 fr = next((f2 for f2 in page.frames if "/wiki/" in (f2.url or "")), None)
                 pl["person_frame_loaded"] = fr is not None
-                pl["page"] = _person_page_facts(fr, who)
+                pl["page"] = _person_page_facts(page, who, public_name=True)
                 page.screenshot(path=os.path.join(out_dir, "person.png"))
                 pl["screenshot"] = os.path.join(out_dir, "person.png")
                 # A real person WITH a compiled page must render their own
                 # heading (name withheld from every public record: only the
                 # facts below are kept, never the name).
-                real = os.environ.get("HUB_SCREENS_REAL_PERSON")
-                if real:
+            except Exception as exc:
+                pl["error"] = str(exc)[:200]
+            real = os.environ.get("HUB_SCREENS_REAL_PERSON")
+            if real:
+                # The seed ask above leaves the page ON the person page, where
+                # there is no chat box: go back to chat first (candidate 6 timed
+                # out here, and the arm silently read as NOT MEASURED).
+                rp = {"checked": True}
+                try:
+                    nav("/chat")
                     before = page.locator(sel).count()
                     box = page.wait_for_selector("textarea", timeout=30000)
                     box.fill("Who is {}? Include a link to their wiki page.".format(real))
@@ -448,16 +548,15 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                     t0 = time.time()
                     while time.time() - t0 < 240 and page.locator(sel).count() <= before:
                         time.sleep(3)
-                    rp = {"checked": True, "anchor": page.locator(sel).count() > before}
+                    rp["anchor"] = page.locator(sel).count() > before
                     if rp["anchor"]:
                         page.locator(sel).last.click()
                         time.sleep(4)
-                        fr2 = next((f2 for f2 in page.frames if "/wiki/" in (f2.url or "")), None)
-                        rp["page"] = _person_page_facts(fr2, real)
+                        rp["page"] = _person_page_facts(page, real, public_name=False)
                         page.screenshot(path=os.path.join(out_dir, "person-real.png"))
-                    pl["real_person"] = rp
-            except Exception as exc:
-                pl["error"] = str(exc)[:200]
+                except Exception as exc:
+                    rp["error"] = str(exc)[:200].replace(real, "<withheld>")
+                pl["real_person"] = rp
         facts["person_link"] = pl
 
         # -- home: Not me persists (WRITES: walk boxes only) ---------------
@@ -494,7 +593,7 @@ def _good():
         "person_link": {"person_checked": True, "url_in_app": True, "sidebar_present": True,
                         "person_frame_loaded": True, "raw_port_links": 0,
                         "asks": [{"replied": True, "anchor": True}] * 3,
-                        "page": {"state": "not_built", "heading_names_person": True},
+                        "page": {"state": "not_built", "heading_names_person": False},
                         "real_person": {"checked": True, "anchor": True,
                                         "page": {"state": "rendered", "heading_names_person": True}}},
         "wiki": {"loaded": True, "header_found": True, "header_bg": "rgb(122, 31, 31)",
@@ -528,6 +627,12 @@ MUTANTS = [
     ("chat reply links the raw wiki port", lambda f: f["person_link"].update(raw_port_links=1)),
     ("person link opens the raw wiki 404 page (sidebar intact)",
      lambda f: f["person_link"].update(page={"state": "raw_404", "heading_names_person": False})),
+    ("a rendered person page names someone else",
+     lambda f: f["person_link"].update(page={"state": "rendered", "heading_names_person": False})),
+    ("a real person's page renders but names someone else",
+     lambda f: f["person_link"].update(real_person={"checked": True, "anchor": True,
+                                                    "page": {"state": "rendered",
+                                                             "heading_names_person": False}})),
     ("a real person's compiled page does not render",
      lambda f: f["person_link"].update(real_person={"checked": True, "anchor": True,
                                                     "page": {"state": "raw_404"}})),
@@ -576,6 +681,40 @@ def self_test():
         print("SELF-TEST FAIL: a person slug reached the record: redact_url is not applied")
         return EX_FAIL
     print("  ok    no person slug reaches the record (network rows and failure details)")
+    # MARKUP ARMS: the classifier runs on the iframe document's markup, and
+    # each of the three pages it must tell apart is a fixture here.
+    rendered = ('<html><head><style>h1{x:1}</style></head><body><nav>People'
+                ' &gt; Jane Doe</nav><article class="md-content__inner"><h1 id="jane-doe">'
+                '\n  Jane   Doe\n</h1><p>Works at Example Ltd.</p></article></body></html>')
+    # The gateway's not-built page, as wiki_proxy.rs person_page_not_built emits it.
+    not_built = ('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Jane Doe'
+                 '</title><style>h1{font-size:22px}</style></head><body><main><h1>Jane Doe</h1>'
+                 '<p>Jane Doe&#39;s page is still being written. It appears after the next'
+                 ' wiki update.</p></main></body></html>')
+    raw_404 = ('<html><head><title>Error response</title></head><body><h1>Error response'
+               '</h1><p>Error code: 404</p><p>Message: File not found.</p></body></html>')
+    blank = '<html><body><div id="app"></div></body></html>'
+    arms = [("rendered", rendered, "rendered", True), ("not_built", not_built, "not_built", True),
+            ("raw_404", raw_404, "raw_404", False), ("blank (loading)", blank, "blank", False)]
+    for label, html, want, named in arms:
+        got = classify_person_page(html, "Jane Doe")
+        if got["state"] != want or got["heading_names_person"] != named:
+            print("SELF-TEST FAIL: {} markup classified {} (heading_names_person={}), want {} ({})".format(
+                label, got["state"], got["heading_names_person"], want, named))
+            return EX_FAIL
+        print("  ok    {} markup classified {}".format(label, want))
+    if classify_person_page(rendered, "John Roe")["heading_names_person"]:
+        print("SELF-TEST FAIL: a rendered page for another person was read as naming the asked person")
+        return EX_FAIL
+    print("  ok    a rendered page for another person does not name the asked person")
+    # N/A ARM: 'still being written' is judged only on the not-built page.
+    na = copy.deepcopy(_good())
+    na["person_link"]["page"] = {"state": "rendered", "heading_names_person": True}
+    row = [ok for n, ok, _ in judge(na) if n.startswith("chat: a not-yet-built")]
+    if row != [NA]:
+        print("SELF-TEST FAIL: the still-being-written arm on a rendered page must be N/A, got {}".format(row))
+        return EX_FAIL
+    print("  ok    still-being-written arm is N/A on a rendered page")
     base = judge(_good())
     bad = [n for n, ok, _ in base if not ok]
     if bad:
@@ -632,11 +771,13 @@ def main(argv):
         return 2
     results = judge(facts)
     for name, ok, detail in results:
-        tag = "  ok    " if ok else ("  CANNOT " if ok is None else "  FAIL  ")
+        tag = "  N/A   " if ok == NA else ("  ok    " if ok else ("  CANNOT " if ok is None else "  FAIL  "))
         print(tag + name + ("" if ok or not detail else "  -- " + detail))
     fails = [n for n, ok, _ in results if ok is False]
     cannot = [n for n, ok, _ in results if ok is None]
-    print("EXAMINED: {} screen assertions ({} not measured)".format(len(results), len(cannot)))
+    na = [n for n, ok, _ in results if ok == NA]
+    print("EXAMINED: {} screen assertions ({} not measured, {} not applicable)".format(
+        len(results), len(cannot), len(na)))
     if fails:
         return EX_FAIL
     return EX_CANNOT if cannot else EX_PASS
