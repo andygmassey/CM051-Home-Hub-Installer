@@ -128,6 +128,21 @@ def judge(f):
                 all(a.get("anchor") for a in asks),
                 "{} of {} replies carried a link".format(
                     sum(1 for a in asks if a.get("anchor")), len(asks)))
+        pg = pl.get("page") or {}
+        add("chat: the linked person page is not the raw wiki 404",
+            pg.get("state") in ("rendered", "not_built"),
+            "page state={}".format(pg.get("state")))
+        add("chat: a not-yet-built person page says it is still being written",
+            pg.get("state") in ("not_built", "rendered") and pg.get("heading_names_person"),
+            "page state={} heading_names_person={}".format(pg.get("state"), pg.get("heading_names_person")))
+        rp = pl.get("real_person")
+        if not rp:
+            add("chat: a real person's compiled page renders with their name", None,
+                "NOT MEASURED: set HUB_SCREENS_REAL_PERSON to a person with a compiled page")
+        else:
+            add("chat: a real person's compiled page renders with their name",
+                rp.get("anchor") and (rp.get("page") or {}).get("state") == "rendered",
+                "anchor={} page state={}".format(rp.get("anchor"), (rp.get("page") or {}).get("state")))
         add("chat: a person link opens inside the app, sidebar still there",
             pl.get("url_in_app") and pl.get("sidebar_present") and pl.get("person_frame_loaded"),
             pl.get("error") or "in_app={} sidebar={} frame={}".format(
@@ -178,6 +193,25 @@ def judge(f):
 # ---------------------------------------------------------------------------
 # collect: needs Playwright
 # ---------------------------------------------------------------------------
+
+
+def _person_page_facts(frame, name):
+    """What the person page actually shows: never trust 'the sidebar stayed'.
+    Classifies the frame as rendered (the name in its heading), not_built (the
+    proxy's styled 'still being written' page) or raw_404 (the wiki server's
+    bare error page). Keeps booleans only, never the text or the name."""
+    if frame is None:
+        return {"state": "no_frame"}
+    try:
+        txt = frame.inner_text("body")
+        h1 = " ".join(frame.locator("h1").all_inner_texts())
+    except Exception as exc:
+        return {"state": "unreadable", "error": str(exc)[:120]}
+    raw404 = ("Error code: 404" in txt) or ("File not found" in txt)
+    not_built = "is still being written" in txt
+    named = name.split()[0].lower() in h1.lower() if name else False
+    state = "raw_404" if raw404 else ("not_built" if not_built else ("rendered" if named else "unnamed"))
+    return {"state": state, "heading_names_person": named}
 
 def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"):
     from playwright.sync_api import sync_playwright
@@ -392,8 +426,29 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                 pl["sidebar_present"] = page.locator('a[href="/timeline"]').count() > 0
                 fr = next((f2 for f2 in page.frames if "/wiki/" in (f2.url or "")), None)
                 pl["person_frame_loaded"] = fr is not None
+                pl["page"] = _person_page_facts(fr, who)
                 page.screenshot(path=os.path.join(out_dir, "person.png"))
                 pl["screenshot"] = os.path.join(out_dir, "person.png")
+                # A real person WITH a compiled page must render their own
+                # heading (name withheld from every public record: only the
+                # facts below are kept, never the name).
+                real = os.environ.get("HUB_SCREENS_REAL_PERSON")
+                if real:
+                    before = page.locator(sel).count()
+                    box = page.wait_for_selector("textarea", timeout=30000)
+                    box.fill("Who is {}? Include a link to their wiki page.".format(real))
+                    box.press("Enter")
+                    t0 = time.time()
+                    while time.time() - t0 < 240 and page.locator(sel).count() <= before:
+                        time.sleep(3)
+                    rp = {"checked": True, "anchor": page.locator(sel).count() > before}
+                    if rp["anchor"]:
+                        page.locator(sel).last.click()
+                        time.sleep(4)
+                        fr2 = next((f2 for f2 in page.frames if "/wiki/" in (f2.url or "")), None)
+                        rp["page"] = _person_page_facts(fr2, real)
+                        page.screenshot(path=os.path.join(out_dir, "person-real.png"))
+                    pl["real_person"] = rp
             except Exception as exc:
                 pl["error"] = str(exc)[:200]
         facts["person_link"] = pl
@@ -431,7 +486,10 @@ def _good():
         "tailscale_running": "yes", "engine": "webkit",
         "person_link": {"person_checked": True, "url_in_app": True, "sidebar_present": True,
                         "person_frame_loaded": True, "raw_port_links": 0,
-                        "asks": [{"replied": True, "anchor": True}] * 3},
+                        "asks": [{"replied": True, "anchor": True}] * 3,
+                        "page": {"state": "not_built", "heading_names_person": True},
+                        "real_person": {"checked": True, "anchor": True,
+                                        "page": {"state": "rendered", "heading_names_person": True}}},
         "wiki": {"loaded": True, "header_found": True, "header_bg": "rgb(122, 31, 31)",
                  "body_font": '"Inter", sans-serif', "screenshot": "/tmp/w.png",
                  "frame_url_session": True, "denied": [],
@@ -461,6 +519,11 @@ MUTANTS = [
     ("checked in chromium, not webkit", lambda f: f.update(engine="chromium")),
     ("person link left the app", lambda f: f["person_link"].update(sidebar_present=False)),
     ("chat reply links the raw wiki port", lambda f: f["person_link"].update(raw_port_links=1)),
+    ("person link opens the raw wiki 404 page (sidebar intact)",
+     lambda f: f["person_link"].update(page={"state": "raw_404", "heading_names_person": False})),
+    ("a real person's compiled page does not render",
+     lambda f: f["person_link"].update(real_person={"checked": True, "anchor": True,
+                                                    "page": {"state": "raw_404"}})),
     ("one of 3 replies carried no person link (path in backticks)",
      lambda f: f["person_link"].update(asks=[{"replied": True, "anchor": True},
                                              {"replied": True, "anchor": False},
