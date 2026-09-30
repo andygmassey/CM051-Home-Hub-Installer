@@ -86,7 +86,7 @@ def judge(f):
     add("wiki: it references stylesheets", len(css) > 0, "0 stylesheets seen")
     add("wiki: every stylesheet arrived as text/css",
         css and not bad_css,
-        "; ".join("{} {} {}".format(s.get("status"), s.get("content_type"), s.get("url", "")[-60:])
+        "; ".join("{} {} {}".format(s.get("status"), s.get("content_type"), redact_url(s.get("url", ""))[-60:])
                   for s in bad_css[:4]))
     bg = (w.get("header_bg") or "").replace(" ", "")
     add("wiki: the theme header is painted",
@@ -101,11 +101,11 @@ def judge(f):
     bad_js = [x for x in js if int(x.get("status") or 0) >= 400
               or "javascript" not in (x.get("content_type") or "")]
     add("wiki: every wiki script arrived as JavaScript", not bad_js,
-        "; ".join("{} {} {}".format(x.get("status"), x.get("content_type"), x.get("url", "")[-60:])
+        "; ".join("{} {} {}".format(x.get("status"), x.get("content_type"), redact_url(x.get("url", ""))[-60:])
                   for x in bad_js[:4]))
     denied = w.get("denied") or []
     add("wiki: no request was refused 401 while the wiki loaded", not denied,
-        "{} refused, e.g. {}".format(len(denied), (denied[0].get("url", "")[-60:] if denied else "")))
+        "{} refused, e.g. {}".format(len(denied), (redact_url(denied[0].get("url", ""))[-60:] if denied else "")))
     add("wiki: loaded through the signed session path (/wiki/s/...)",
         w.get("frame_url_session"), "frame did not use /wiki/s/")
     add("engine: checked in WebKit, the engine Ostler.app uses",
@@ -195,6 +195,13 @@ def judge(f):
 # ---------------------------------------------------------------------------
 
 
+_PEOPLE_SEG = re.compile(r"(/People/)[^/?#\s]+")
+
+
+def redact_url(url):
+    """Never record a person's slug: the walk record is public (CM051)."""
+    return _PEOPLE_SEG.sub(r"\1<redacted>", url or "")
+
 def _person_page_facts(frame, name):
     """What the person page actually shows: never trust 'the sidebar stayed'.
     Classifies the frame as rendered (the name in its heading), not_built (the
@@ -267,7 +274,7 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
         def on_resp(r):
             try:
                 rt = r.request.resource_type
-                row = {"url": r.url, "status": r.status,
+                row = {"url": redact_url(r.url), "status": r.status,
                        "content_type": r.headers.get("content-type", "")}
                 if rt == "stylesheet":
                     sheets.append(row)
@@ -557,6 +564,18 @@ def self_test():
         print("SELF-TEST FAIL: an unmeasured person link must be an explicit CANNOT-RUN row, got {}".format(row))
         return EX_FAIL
     print("  ok    unmeasured person link is an explicit CANNOT-RUN row")
+    # PRIVACY ARM: no person slug may reach the public walk record, through
+    # the network recorder or a failure detail.
+    slug = "zz-real-person-slug"
+    leak = copy.deepcopy(_good())
+    leak["wiki"]["stylesheets"] = [{"url": "http://h/wiki/s/k/People/%s/x.css" % slug,
+                                    "status": 404, "content_type": "text/html"}]
+    leak["wiki"]["denied"] = [{"url": "http://h/wiki/People/%s/" % slug, "status": 401}]
+    printed = " ".join(d for _, _, d in judge(leak))
+    if slug in printed or slug in redact_url("http://h/wiki/People/%s/?a=1" % slug):
+        print("SELF-TEST FAIL: a person slug reached the record: redact_url is not applied")
+        return EX_FAIL
+    print("  ok    no person slug reaches the record (network rows and failure details)")
     base = judge(_good())
     bad = [n for n, ok, _ in base if not ok]
     if bad:
@@ -607,7 +626,7 @@ def main(argv):
         except CannotRun as exc:
             print("CANNOT-RUN: {}".format(exc))
             return EX_CANNOT
-        json.dump(facts, open(os.path.join(a["--out"], "facts.json"), "w"), indent=1)
+        json.dump(json.loads(redact_url(json.dumps(facts))), open(os.path.join(a["--out"], "facts.json"), "w"), indent=1)
     else:
         print(__doc__)
         return 2
