@@ -226,6 +226,12 @@ def redact_url(url):
     """Never record a person's slug: the walk record is public (CM051)."""
     return _PEOPLE_SEG.sub(r"\1<redacted>", url or "")
 
+def _err(exc, n=200):
+    """An exception as it may enter the public record: Playwright quotes the
+    frame URL, and a person page URL carries the person's slug."""
+    return redact_url(str(exc))[:n]
+
+
 def _norm(t):
     return " ".join((t or "").split()).casefold()
 
@@ -301,7 +307,7 @@ def _person_page_facts(page, name, public_name=True, wait_s=30):
                     pass
                 facts = classify_person_page(frame.content(), name)
         except Exception as exc:
-            facts = {"state": "unreadable", "error": str(exc)[:120]}
+            facts = {"state": "unreadable", "error": _err(exc, 120)}
         if facts["state"] in ("rendered", "not_built", "raw_404") or time.time() - t0 > wait_s:
             break
         time.sleep(2)
@@ -407,7 +413,7 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
             page.screenshot(path=shot, full_page=False)
             w["screenshot"] = shot
         except Exception as exc:
-            w["error"] = str(exc)[:200]
+            w["error"] = _err(exc)
         page.remove_listener("response", on_resp)
         facts["wiki"] = w
 
@@ -438,7 +444,7 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                   day: e.getAttribute('data-timeline-day'),
                   title: e.getAttribute('data-timeline-title')}))""")
         except Exception as exc:
-            t["error"] = str(exc)[:200]
+            t["error"] = _err(exc)
         facts["timeline"] = t
 
         # -- people --------------------------------------------------------
@@ -451,7 +457,7 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                   e => e.getAttribute('data-person-name') || '')""")
             page.screenshot(path=os.path.join(out_dir, "people.png"))
         except Exception as exc:
-            pp["error"] = str(exc)[:200]
+            pp["error"] = _err(exc)
         facts["people"] = pp
 
         # -- settings: Tailscale switch -----------------------------------
@@ -472,7 +478,7 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                 return null;
             }""")
         except Exception as exc:
-            st["error"] = str(exc)[:200]
+            st["error"] = _err(exc)
         facts["settings"] = st
 
         # -- bursar --------------------------------------------------------
@@ -483,7 +489,7 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
             c["loaded"] = True
             page.screenshot(path=os.path.join(out_dir, "cost.png"))
         except Exception as exc:
-            c["error"] = str(exc)[:200]
+            c["error"] = _err(exc)
         facts["cost"] = c
 
         # -- a chat citation to a person page stays inside the app ----------
@@ -532,7 +538,7 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                 # heading (name withheld from every public record: only the
                 # facts below are kept, never the name).
             except Exception as exc:
-                pl["error"] = str(exc)[:200]
+                pl["error"] = _err(exc)
             real = os.environ.get("HUB_SCREENS_REAL_PERSON")
             if real:
                 # The seed ask above leaves the page ON the person page, where
@@ -555,7 +561,7 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                         rp["page"] = _person_page_facts(page, real, public_name=False)
                         page.screenshot(path=os.path.join(out_dir, "person-real.png"))
                 except Exception as exc:
-                    rp["error"] = str(exc)[:200].replace(real, "<withheld>")
+                    rp["error"] = _err(exc).replace(real, "<withheld>")
                 pl["real_person"] = rp
         facts["person_link"] = pl
 
@@ -576,7 +582,7 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                            "not_me_gone_after_reload":
                                bool(card) and page.locator("text=" + json.dumps(card)).count() == 0})
             except Exception as exc:
-                hm["error"] = str(exc)[:200]
+                hm["error"] = _err(exc)
         facts["home"] = hm
 
         browser.close()
@@ -681,6 +687,17 @@ def self_test():
         print("SELF-TEST FAIL: a person slug reached the record: redact_url is not applied")
         return EX_FAIL
     print("  ok    no person slug reaches the record (network rows and failure details)")
+    # EXCEPTION ARM: a Playwright error quotes the frame URL, slug and all.
+    exc = RuntimeError('Timeout 30000ms exceeded.\nnavigated to "http://127.0.0.1:30330/wiki/s/k/People/%s/"' % slug)
+    err = copy.deepcopy(_good())
+    err["person_link"]["error"] = _err(exc)
+    err["person_link"]["sidebar_present"] = False
+    err["person_link"]["real_person"] = {"checked": True, "anchor": True, "error": _err(exc)}
+    printed = " ".join(d for _, _, d in judge(err)) + json.dumps(err)
+    if slug in printed or slug in _err(exc):
+        print("SELF-TEST FAIL: a person slug in an exception reached the record: _err is not applied")
+        return EX_FAIL
+    print("  ok    no person slug reaches the record through an exception message")
     # MARKUP ARMS: the classifier runs on the iframe document's markup, and
     # each of the three pages it must tell apart is a fixture here.
     rendered = ('<html><head><style>h1{x:1}</style></head><body><nav>People'
