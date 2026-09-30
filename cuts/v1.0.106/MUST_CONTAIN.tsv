@@ -80,7 +80,7 @@ fix(people): demoted people are backed up before they are removed	CM051	3f2242d6
 fix(install): mail senders that are organisations or automated are reclassified, not people	CM051	3f2242d677	no	install_reclassifies_mail_senders	capability_matrix.sh gate	CM051 #2479
 fix(installer): Open Your Wiki opens the app on the wiki (ostler://wiki)	CM051	ea4762dad7	no	open_your_wiki_deep_link	capability_matrix.sh gate	CM051 #2462
 fix(nudges): service senders never get a gone-quiet or birthday card	CM051	ea4762dad7	no	service_senders_get_no_nudge	capability_matrix.sh gate	CM051 #2462
-fix(people): organisation display names are not people (anchored rule)	CM051	ee5e2fcecb	no	org_display_names_not_people	capability_matrix.sh gate	CM051 #2492
+fix(people): organisation display names are not people (anchored rule)	CM051	b6ea341a3f	no	org_display_names_not_people	capability_matrix.sh gate	CM051 #2492 (its only install.sh line, the reclassify_v2 marker, was bumped to v3 by #2494)
 fix(people): role-mailbox-only names are not listed as people; retired merge duplicates demoted with their node	CM051	b6ea341a3f	no	people_list_hides_role_address_names	capability_matrix.sh gate	CM051 #2494
 pin(daemon): 0.4.90 a /wiki/ path in an assistant reply renders as an in-app link (the person link opens inside the app)	CM051	c9666f0a	no	chat_wiki_path_links_in_app	capability_matrix.sh gate	CM051 #2499 (oa #434, #2461)
 pin(daemon): 0.4.91 a wiki path written as an inline code span in an assistant reply links in-app	CM051	c9666f0a	no	chat_wiki_path_links_in_app	capability_matrix.sh gate	CM051 #2503 (oa #436, #2461)
