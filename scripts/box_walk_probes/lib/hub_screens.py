@@ -223,7 +223,9 @@ def judge(f):
 # ---------------------------------------------------------------------------
 
 
-_PEOPLE_SEG = re.compile(r"(/People/)[^/?#\s]+")
+# Case-insensitive, and stops at quotes and brackets: a Playwright timeout
+# quotes the whole locator, whose href filters carry the slug in both cases.
+_PEOPLE_SEG = re.compile(r"(/people/)[^/?#\s\"'\]\)]+", re.I)
 
 
 def redact_url(url):
@@ -243,7 +245,8 @@ def person_link_selector(name):
     during the real-person ask, and the probe clicked the newest link, which
     was the seed's page, and judged it as the real person's."""
     slug = re.sub(r"[^a-z0-9]+", "-", (name or "").casefold()).strip("-")
-    return 'main a[href*="/People/{0}"], main a[href*="/people/{0}"]'.format(slug) if slug else None
+    # The trailing slash keeps jane-doe from matching jane-doe-smith.
+    return 'main a[href*="/People/{0}/"], main a[href*="/people/{0}/"]'.format(slug) if slug else None
 
 
 def _wait_chat_idle(page, max_s=240, stable_s=10):
@@ -740,6 +743,17 @@ def self_test():
         print("SELF-TEST FAIL: a person slug in an exception reached the record: _err is not applied")
         return EX_FAIL
     print("  ok    no person slug reaches the record through an exception message")
+    # LOCATOR ARM: a timeout on the own-link wait quotes the selector, which
+    # carries the slug under /People/ and /people/.
+    loc_exc = RuntimeError("Locator.click: Timeout 30000ms exceeded.\nCall log:\nwaiting for locator('"
+                           + person_link_selector("Jane Doe") + "').last")
+    loc = copy.deepcopy(_good())
+    loc["person_link"]["real_person"] = {"checked": True, "anchor": True, "error": _err(loc_exc)}
+    printed = " ".join(d for _, _, d in judge(loc)) + json.dumps(loc)
+    if "jane-doe" in printed.lower():
+        print("SELF-TEST FAIL: a person slug in a quoted locator reached the record: redaction is case-sensitive or overruns")
+        return EX_FAIL
+    print("  ok    no person slug reaches the record through a quoted locator (either case)")
     # MARKUP ARMS: the classifier runs on the iframe document's markup, and
     # each of the three pages it must tell apart is a fixture here.
     rendered = ('<html><head><style>h1{x:1}</style></head><body><nav>People'
@@ -769,7 +783,7 @@ def self_test():
     # OWN-LINK ARM: the selector for a person matches that person's page and
     # no other person's.
     own = person_link_selector("Jane Doe")
-    if not own or "/People/jane-doe" not in own or "john-smith" in own \
+    if not own or "/People/jane-doe/" not in own or "john-smith" in own \
             or person_link_selector("John Smith") == own:
         print("SELF-TEST FAIL: person_link_selector does not single out the asked person: {!r}".format(own))
         return EX_FAIL
