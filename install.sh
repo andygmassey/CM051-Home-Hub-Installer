@@ -19499,7 +19499,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:52bd37a1bbfc11e49007eeb0a553636d2881dd043bf744ede4a0e77516711671
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:c2c6ce28b38e8f302cca33f9445917e540a3100dcc9407877ad122f5b5a6f983
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #
@@ -19543,7 +19543,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:7cd2dd8b73f2ab6a18ef569c2a510547eb7512879842c9ca5f3dffedbf99fe09
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:3e096ff80cd977d31316aa746605ac52eb9df0834dd9ef7ff38bb8a4264788c5
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
