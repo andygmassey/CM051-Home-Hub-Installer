@@ -29,10 +29,28 @@ _EDITOR_DIRS = (
     os.path.expanduser("~/.ostler/services/cm059-editor"),
 )
 
-# The three card verbs, plus the labels the UI actually prints. feedback.py
-# normalises both, but validating here keeps an unknown verb a 400 rather than
-# a 500 from deep inside the store.
-_ACTIONS = {"strengthen", "weaken", "drop", "spot on", "not me", "don't show"}
+# The three card verbs, the labels the UI PRINTS, and -- separately, and this
+# is the gap that was missing -- the literal strings the UI actually SENDS.
+#
+# MEASURED 2026-10-01 (v1.0.106 console walk): the Tauri Hub client
+# (ostler-assistant web/src/lib/frontpage.ts, CardFeedbackAction) posts
+# action: 'spot_on' for "Spot on", with an underscore, not the space this set
+# used to require. 'drop' already covered "Not me"/dismiss (the client sends
+# the canonical verb there), so only "Spot on" 400'd with "unknown action" --
+# a second, independent defect from the interest_id one (#2467/#2470):
+# "Spot on" never even reached the interest_id check.
+#
+# CM059's own feedback.normalise_action() already treats "spot on" / "spot_on"
+# / "spot-on" as equivalent (it lowercases and folds both separators to "_"
+# before the lookup) -- this allowlist did not, because it is a SEPARATE gate
+# in front of that normaliser, and it drifted. Listing every alias CM059's own
+# table recognises keeps the two from disagreeing again.
+_ACTIONS = {
+    "strengthen", "weaken", "drop",
+    "spot on", "spot_on", "spot-on", "spoton",
+    "not me", "not_me", "not-me", "notme",
+    "don't show", "dont show", "don't_show", "dont_show", "dont-show", "dismiss",
+}
 
 # ``add`` is the FOURTH verb and it is a different shape from the other three.
 #

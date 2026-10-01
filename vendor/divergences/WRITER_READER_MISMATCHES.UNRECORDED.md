@@ -534,3 +534,77 @@ that renames or drops the file breaks that invocation silently (ImportError
 inside a subshell, swallowed into the step's own failure-retry path) unless
 `tests/test_repair_lid_as_phone_marker_skip.sh`'s extraction-and-run check
 is kept passing.
+
+## Added 2026-10-01, CM051 #2526/#2529 -- `doctor`, a dedicated routine is believed over a stale sentinel
+
+Tool re-run on 2026-10-01: `scripts/regenerate_divergence_patch.sh doctor`
+refused again, exit 1, same ban as every prior entry for this tree (checked
+before the source checkout; declared reason unchanged since #2219). So this
+edit is recorded here by location and shape, not by patch.
+
+- `vendor/doctor/agent/web_ui.py`, inside `read_source_status()`'s ongoing-
+  status merge loop: two new module-level helpers,
+  `_SOURCE_ROUTINE_LABELS` (which dedicated LaunchAgent routine, if any,
+  speaks for a given canonical source -- email, imessage, whatsapp) and
+  `_ROUTINE_COUNT_KEYS` (an explicit per-routine allowlist of which key in
+  that routine's `latest` log counts is a trustworthy count; today only
+  `"emitted"`, the one key `routine_status.py`'s own regex fallback pins by
+  code). New functions `_routine_evidence()` and `_routine_run_count()`.
+  When a source's fda-rerun-tick activity record is silent (`ongoing=never`)
+  but its OWN dedicated routine reports a healthy, completed run, the row's
+  `ongoing`/`last_run_at`/`last_success_at` are now taken from that routine
+  instead of staying `never` forever. A stale `no_data`/`not_run`/
+  `unreadable` install-time `status` is upgraded to `ok` only when that
+  routine also supplies an explicitly-keyed, real count -- written to a NEW
+  field, `last_run_count`, never to `item_count` (the install-time total,
+  which this change never touches).
+- `vendor/doctor/agent/routine_status.py`: unchanged. This reuses its
+  existing `read_routine_status()` reader rather than re-implementing it.
+
+A future sync must keep `_SOURCE_ROUTINE_LABELS`, `_ROUTINE_COUNT_KEYS`,
+`_routine_evidence`, `_routine_run_count`, the `last_run_count` field on every
+`/api/v1/sources` row, and the merge-loop call site that consults them.
+Guarded by tests/test_source_status_prefers_a_live_routine_over_a_stale_sentinel.sh
+(cold-box-source-truth.yml) and the pre-existing
+tests/test_source_status_reports_ongoing_not_just_install.sh /
+tests/test_the_source_table_covers_the_fda_extract_family.sh, both updated
+only to extract the two new helper functions.
+## Added 2026-10-01, CM051 #2574 -- `doctor`, Hub config read admitted + Ostler's VM/model runner
+
+Tool re-run on 2026-10-01: `scripts/regenerate_divergence_patch.sh doctor`
+REFUSED again, this time on the tree's own `regenerate_forbidden` ban (checked
+BEFORE the source checkout, so it fires independently of whether an HR015
+checkout is reachable): "the Doctor source-status panel ... EXISTS ONLY IN
+THIS REPOSITORY ... never by clearing the flag" (board #2219, full reasoning
+in `DOCTOR_SOURCE_STATUS_PANEL_2219.md`). Same tree as the two entries above,
+different refusal reason than either of them, measured rather than inherited.
+
+- `vendor/doctor/agent/web_ui.py` -- new `_hub_read_refusal()`, called by
+  `api_config_get` in place of `_cross_site_refusal`. `_cross_site_refusal`
+  admitted only `Sec-Fetch-Site: same-origin` or absent, so GET
+  `/api/v1/config` 403'd both the Hub's own Tauri webview (stamped
+  cross-site from `tauri://localhost`) and a browser-served Hub on :8000
+  (stamped same-site) -- the Settings and Governor pages could never read
+  back a customer's own saved config. `_hub_read_refusal` admits the read
+  when `Origin` is the Hub's webview or a loopback page
+  (`editor_feedback.origin_is_local`, the same predicate the editor feedback
+  route already trusts), else falls through to the unchanged guard. Writes
+  are untouched: they still go through `_cross_site_refusal` and the
+  `doctor_post` native bridge.
+- `vendor/doctor/agent/box_status.py` -- `_OSTLER_NAMES` gained
+  `com.apple.Virtualization.VirtualMachine`, `colima`, `limactl`,
+  `llama-server` (the shipped stack's container VM and model runner, which
+  were billed to "Other apps" while "Ostler itself" read ~0%), with matching
+  `_LABELS` entries ("Ostler databases" / "Ostler model").
+
+WHY: both measured directly against the shipped tree, not HR015 source --
+`tests/test_the_hub_reads_the_doctor_like_the_app.py` read 5 of 8 FAIL before
+this PR against the app's real request shape (Origin/Sec-Fetch-Site as the
+Tauri webview sends them), 8 of 8 after.
+
+### What a future sync must preserve
+
+Both edits in both files. Gate:
+`tests/test_the_hub_reads_the_doctor_like_the_app.py`, wired into
+`vendor-integrity.yml`. Ledger:
+[HR015-Gaming-PC@406397d](https://github.com/andygmassey/HR015-Gaming-PC/commit/406397dccc6bdaf6cf3d0a9c6a6b1f1587346ff6).

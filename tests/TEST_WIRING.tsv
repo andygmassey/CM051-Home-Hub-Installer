@@ -239,6 +239,7 @@ test_doctor_web_ui_strings_complete.py	WIRED	.github/workflows/vendor-integrity.
 test_download_currency_gate_is_wired.sh	WIRED	.github/workflows/customer-download-path.yml
 test_e1_source_readout_emits.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_editor_feedback_accepts_the_add_verb.sh	WIRED	.github/workflows/vendor-integrity.yml
+test_editor_feedback_accepts_the_real_client_action_strings.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_egress_pool_member_is_not_a_policy_violation.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_egress_verdict_claims_only_what_it_checked.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_email_checkpoint_lives_under_dot_ostler.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -524,6 +525,7 @@ test_slot_waiter_can_outlast_a_holder.sh	WIRED	.github/workflows/slot-fairness.y
 test_social_ingest_wired.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_source_status_canonical_matches_recorders.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_source_status_contract.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_source_status_prefers_a_live_routine_over_a_stale_sentinel.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_source_status_reports_ongoing_not_just_install.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_spoken_transcripts_absence_discriminated.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_stage_payload_strips_ambient_pyc.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
@@ -579,6 +581,7 @@ test_the_front_page_catch_up_survives_a_late_ingest.sh	WIRED	.github/workflows/w
 test_the_generated_uninstaller_parses.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_the_governor_revendor_guard_is_actually_run.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_the_hub_app_can_record_card_feedback.py	WIRED	.github/workflows/hub-screens-and-106c.yml
+test_the_hub_reads_the_doctor_like_the_app.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_install_panel_says_it_is_reading_the_transcript.py	WIRED	.github/workflows/consent-data-handling.yml
 test_the_installer_downloads_from_the_repo_we_publish_to.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_licence_a_customer_paid_for_is_owner_only.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
@@ -644,6 +647,7 @@ test_timeout_is_not_a_successful_hydrate.sh	WIRED	.github/workflows/hydrate-time
 test_total_steps_denominator_ratchet.sh	WIRED	.github/workflows/total-steps-denominator-ratchet.yml
 test_total_steps_dynamic.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_ttywalk_licence_preflight_is_cannot_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_uninstall_and_pristine_remove_webkit_chat_history.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_uninstall_cannot_claim_removal_it_did_not_do.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_uninstall_removes_every_launchagent_plist.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_uninstall_stops_what_it_deletes.sh	WIRED	.github/workflows/launchd-plist-paths.yml
