@@ -26,9 +26,14 @@ name: pr-branch-staleness
 # like a pass. Same reasoning as test-wiring.yml. The job is seconds long.
 #
 # Note on `pull_request`: the run happens against the merge ref, but the
-# primitive asks the API for the PR's own base.sha and compares it to the
-# CURRENT HEAD of the target branch, so the answer is about the branch as it
-# actually stands, not about the ephemeral merge commit.
+# primitive asks the API for the PR's own head.sha (its actual current
+# branch tip, NOT base.sha -- base.sha freezes at PR creation and never
+# moves again even when main is merged into the branch, which is routine on
+# long-lived PRs here; comparing it reports however far main has travelled
+# since the PR opened regardless of whether the branch has kept up) and
+# compares it to the CURRENT HEAD of the target branch, so the answer is
+# about the branch as it actually stands, not about the ephemeral merge
+# commit and not about a fork point nobody has looked at since.
 
 on:
   pull_request:
@@ -105,14 +110,17 @@ jobs:
                 max_commits_behind: 10
           YAML
           printf 'version: v0.0.0\nentries: []\n' > "$d/cut-manifests/v0.0.0.yaml"
-          # A base 500 commits behind its target branch. `gh auth token --user`
-          # must fail so the verifier falls through to GH_TOKEN, matching how a
-          # runner without a per-owner login behaves.
+          # A branch 500 commits behind its target branch, and one that has
+          # NOT merged main in since (head.sha == base.sha): the shape the
+          # gate must still catch post-CM051-#2569-fix, now that base.sha's
+          # VALUE is no longer what gets compared. `gh auth token --user`
+          # must fail so the verifier falls through to GH_TOKEN, matching how
+          # a runner without a per-owner login behaves.
           cat > "$d/bin/gh" <<'SH'
           #!/bin/sh
           case "$*" in
             "auth token --user"*)  exit 1 ;;
-            *"/pulls/"*)           echo '{"base":{"sha":"aaaaaaaa","ref":"main"}}' ;;
+            *"/pulls/"*)           echo '{"base":{"sha":"aaaaaaaa","ref":"main"},"head":{"sha":"aaaaaaaa"}}' ;;
             *"/branches/main")     echo '{"commit":{"sha":"bbbbbbbb"}}' ;;
             *"/compare/"*)         echo '{"status":"ahead","ahead_by":500,"commits":[{"sha":"c1","commit":{"message":"feat: a change this branch would revert"}}]}' ;;
             *)                     exit 1 ;;
@@ -138,6 +146,81 @@ jobs:
             exit 1
           fi
           echo "OK: a stale branch exits 1, so a green below is a measurement, not a silence."
+
+      - name: "CM051 #2569: a branch that merged main in reads 0 behind, not stale forever"
+        # THIRD CONTROL. pulls/{n}.base.sha freezes the moment a PR is
+        # opened and never moves again no matter how many times main is
+        # merged INTO the branch afterwards -- routine on long-lived PRs in
+        # this repo. The primitive used to compare that frozen base.sha
+        # against main's CURRENT tip, so a branch that kept itself current
+        # by merging main in still read as however many commits main had
+        # gained since the PR opened, forever. Fixed to compare
+        # pulls/{n}.head.sha (the branch's actual current tip, which DOES
+        # move on a merge-main-in push) against main's tip instead.
+        #
+        # head.sha here is DELIBERATELY DIFFERENT FROM base.sha -- as it
+        # would be after any push at all -- so this exercises the real
+        # compare call rather than the trivial "identical shas" pass arm.
+        #
+        # THE COMPARE ROUTE IS SHA-SPECIFIC, NOT A BARE WILDCARD, and the
+        # specific pattern is listed BEFORE the generic one (`case` takes the
+        # first match). A wildcard `*"/compare/"*)` alone cannot tell apart
+        # which shas the code under test actually asked for, so it returns
+        # the identical canned answer whether the code compares head.sha or
+        # the frozen base.sha against main's tip -- which would make this
+        # control pass against the PRE-FIX code too, measuring nothing.
+        # Verified by hand: with the generic-only stub, checking out the
+        # pre-fix check_pr_branch_not_stale_vs_main and re-running this exact
+        # control still exited 0. With the specific route below, the pre-fix
+        # code's compare/aaaaaaaa...bbbbbbbb (base_sha...head_sha) falls
+        # through to the generic `exit 1` arm and the control correctly
+        # exits 1 (FAIL) against it.
+        run: |
+          set -e
+          d="${RUNNER_TEMP}/staleness-control-merged-main"
+          mkdir -p "$d/cut-manifests" "$d/bin"
+          cat > "$d/cut-manifests/permanent.yaml" <<'YAML'
+          version: permanent
+          entries:
+            - id: control-pr-branch-merged-main-in
+              title: synthetic control -- a branch that merged main in must PASS
+              proof:
+                kind: pr_branch_not_stale_vs_main
+                max_commits_behind: 10
+          YAML
+          printf 'version: v0.0.0\nentries: []\n' > "$d/cut-manifests/v0.0.0.yaml"
+          cat > "$d/bin/gh" <<'SH'
+          #!/bin/sh
+          case "$*" in
+            "auth token --user"*)       exit 1 ;;
+            *"/pulls/"*)                echo '{"base":{"sha":"aaaaaaaa","ref":"main"},"head":{"sha":"cccccccc"}}' ;;
+            *"/branches/main")          echo '{"commit":{"sha":"bbbbbbbb"}}' ;;
+            *"/compare/cccccccc...bbbbbbbb") echo '{"status":"identical","ahead_by":0,"commits":[]}' ;;
+            *"/compare/"*)              exit 1 ;;
+            *)                          exit 1 ;;
+          esac
+          SH
+          chmod +x "$d/bin/gh"
+          set +e
+          PATH="$d/bin:$PATH" \
+          PR_NUMBER=1 \
+          GITHUB_REPOSITORY=andygmassey/CM051-Home-Hub-Installer \
+          GH_TOKEN=control-not-a-real-token \
+          python3 scripts/verify_cut_manifest.py \
+            --manifest-dir "$d/cut-manifests" \
+            --only-kind pr_branch_not_stale_vs_main \
+            --require-kind pr_branch_not_stale_vs_main
+          rc=$?
+          set -e
+          echo "exit code against a synthetic merged-main-in branch: $rc"
+          if [ "$rc" -ne 0 ]; then
+            echo "CONTROL FAILED: expected exit 0 (PASS) on a branch whose head has" >&2
+            echo "merged main in and is 0 commits behind, got $rc. A branch that keeps" >&2
+            echo "itself current would be reported stale forever -- the exact defect" >&2
+            echo "this control exists to close." >&2
+            exit 1
+          fi
+          echo "OK: a branch that merged main in exits 0, proving base.sha's frozen value is no longer what gets compared."
 
       - name: PR branch must not be stale vs its target branch
         env:
