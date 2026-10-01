@@ -100,8 +100,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # PARTIAL report that says so. Set to 0 to disable the bound.
     "fuzzy_match_max_seconds": 60.0,
     # Phone normalisation
-    "default_country_code": 852,
-    # Common free email domains — too generic to count as a signal for fuzzy matching
+    "default_country_code": None,  # Archie 2026-10-01: no operator default; set from the installer env
+    # Common free email domains – too generic to count as a signal for fuzzy matching
     "common_email_domains": {
         "gmail.com", "googlemail.com", "hotmail.com", "hotmail.co.uk",
         "outlook.com", "live.com", "yahoo.com", "yahoo.co.uk",
@@ -906,7 +906,7 @@ def check_before_insert(
     email: Optional[str] = None,
     phone: Optional[str] = None,
     config: Optional[Dict[str, Any]] = None,
-    default_country_code: int = 852,
+    default_country_code: Optional[int] = None,
 ) -> Optional[str]:
     """Check if a person already exists before creating a new node.
 
@@ -1039,7 +1039,7 @@ def _fetch_all_persons(
         }}
     """)
 
-    country_code = config.get("default_country_code", 852)
+    country_code = config.get("default_country_code")
     persons: Dict[str, PersonRecord] = {}
     for row in rows:
         uri = row["person"]

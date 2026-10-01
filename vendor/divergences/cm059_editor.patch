@@ -30,7 +30,7 @@
          except Exception:
 --- a/frontpage.py
 +++ b/frontpage.py
-@@ -740,8 +740,83 @@
+@@ -742,8 +742,83 @@
              signals_kept += 1
          kept.append(c)
      return kept[:MAX_FEED_CARDS]
@@ -114,7 +114,7 @@
  def build_frontpage(profile: dict, *, now: datetime | None = None,
                      settling: dict | None = None,
                      card_states: dict | None = None,
-@@ -766,6 +841,7 @@
+@@ -768,6 +843,7 @@
      ``None`` = enforcement off (legacy behaviour), ``True`` = Pro verified,
      anything else = fail-closed deny -> proactive families suppressed and one
      honest pro-locked card shown."""
@@ -147,8 +147,8 @@
  
  # ---------------------------------------------------------------------------
  # Taxonomy: how far to trust each source category, and which coarse domain it
-@@ -390,18 +391,128 @@
- _NOISY_SOURCES = {"csv", "email", "imap"}
+@@ -409,18 +410,128 @@
+ _ANCIENT_YEARS = 15
  
  
 +# 🔴 AN IDENTIFIER IS NOT A TASTE, AND NOTHING WAS SAYING SO.
@@ -277,7 +277,7 @@
      s = re.sub(r"\s+", " ", s)
      return s
  
-@@ -720,7 +831,46 @@
+@@ -814,7 +925,46 @@
  
  def compile_profile(raws: list[dict], now: datetime | None = None,
                      corrections: dict | None = None,
@@ -325,7 +325,7 @@
                      contact_lexicon: frozenset = frozenset()) -> dict:
      """Full pipeline: raw rows -> grouped, ranked, corrected profile dict.
      ``contact_lexicon`` (see build_contact_lexicon) screens every subject
-@@ -740,8 +890,16 @@
+@@ -834,8 +984,16 @@
      domains: dict[str, list[dict]] = {}
      dislikes: list[dict] = []
      suppressed = 0
@@ -342,7 +342,7 @@
          if not corrected and it["confidence"] < min_confidence:
              suppressed += 1
              continue
-@@ -767,6 +925,9 @@
+@@ -861,6 +1019,9 @@
              "interests": sum(len(b["interests"]) for b in domain_blocks),
              "dislikes": len(dislikes),
              "suppressed_low_confidence": suppressed,
@@ -352,7 +352,7 @@
              "domains": len(domain_blocks),
          },
          "domains": domain_blocks,
-@@ -777,16 +938,77 @@
+@@ -871,16 +1032,77 @@
  # ---------------------------------------------------------------------------
  # I/O layer (read-only Oxigraph)
  # ---------------------------------------------------------------------------

@@ -1,10 +1,39 @@
 from __future__ import annotations
 
+import os
 import re
 import unicodedata
+from typing import Optional
 
 import phonenumbers
 from rapidfuzz.distance import JaroWinkler
+
+
+def configured_default_country_code() -> Optional[int]:
+    """The customer's own region, from the installer's own config -- never a
+    hardcoded fallback.
+
+    CM051 #2545 review: a hardcoded numeric default here is an OPERATOR
+    value, not a customer one, and would mis-normalise every other
+    customer's national-format numbers into a bogus foreign E.164 string. install.sh collects the customer's own country code during setup
+    and writes it to the pipeline's environment as ``DEFAULT_COUNTRY_CODE``
+    (install.sh:14746); ``contact_syncer/config.py`` already reads it this
+    same way, with no numeric fallback. This mirrors that exact contract so
+    every caller in this package gets ONE definition of "unknown", not a
+    second hardcoded guess.
+
+    Returns ``None`` when the installer never set it (or set it to something
+    unparseable) -- callers must then skip NATIONAL-format parsing entirely
+    rather than guessing a region, and treat only an already-international
+    (``+``-prefixed) number as interpretable.
+    """
+    raw = os.environ.get("DEFAULT_COUNTRY_CODE")
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
 
 
 # Unicode general categories that mark a leading/trailing "junk" run on a
@@ -123,8 +152,17 @@ def clean_display_name(raw: str) -> str:
     return s
 
 
-def normalise_phone(raw: str, default_country_code: int = 852) -> str:
-    """Return E.164 format or the original string if unparseable."""
+def normalise_phone(raw: str, default_country_code: Optional[int] = None) -> str:
+    """Return E.164 format or the original string if unparseable.
+
+    ``default_country_code=None`` (the default, and what every caller gets
+    when the installer never configured one -- see
+    ``configured_default_country_code``) means UNKNOWN: a NATIONAL-format
+    number (no leading ``+``) cannot be safely interpreted without a region,
+    so it is left exactly as given rather than guessed at. An
+    already-international number (``+<code>...``) parses with no region
+    needed either way, so this never regresses the common case.
+    """
     cleaned = raw.strip()
     if not cleaned:
         return cleaned
@@ -134,6 +172,8 @@ def normalise_phone(raw: str, default_country_code: int = 852) -> str:
         # Try parsing as-is first (handles numbers that already include '+').
         parsed = phonenumbers.parse(cleaned, None)
     except phonenumbers.NumberParseException:
+        if default_country_code is None:
+            return cleaned
         try:
             # Fall back: prepend '+' + country code if the number looks local.
             region = _country_code_to_region(default_country_code)
@@ -146,7 +186,7 @@ def normalise_phone(raw: str, default_country_code: int = 852) -> str:
     return cleaned
 
 
-def is_valid_phone(raw: str, default_country_code: int = 852) -> bool:
+def is_valid_phone(raw: str, default_country_code: Optional[int] = None) -> bool:
     """True when `raw` parses as a genuine, valid phone number.
 
     Mirrors ``normalise_phone``'s parse strategy exactly, but reports
@@ -159,6 +199,10 @@ def is_valid_phone(raw: str, default_country_code: int = 852) -> bool:
     that must refuse a non-phone value outright (CM051 #2543 -- a WhatsApp
     LID is 14-15 digits and must never be written out as a phone number)
     need this, not an inference from whether the string changed.
+
+    ``default_country_code=None`` means UNKNOWN (see ``normalise_phone``):
+    a national-format number cannot be validated without a region, so it
+    reads as NOT a valid phone rather than being guessed into one.
     """
     cleaned = (raw or "").strip()
     if not cleaned:
@@ -166,6 +210,8 @@ def is_valid_phone(raw: str, default_country_code: int = 852) -> bool:
     try:
         parsed = phonenumbers.parse(cleaned, None)
     except phonenumbers.NumberParseException:
+        if default_country_code is None:
+            return False
         try:
             region = _country_code_to_region(default_country_code)
             parsed = phonenumbers.parse(cleaned, region)
