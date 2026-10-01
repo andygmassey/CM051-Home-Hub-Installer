@@ -6542,9 +6542,10 @@ open_issues:
     gate: >-
       NOT BLOCKING for v1.0.106 (cosmetic wiki copy, no install/cut mechanics). v1.0.107.
       Andy's v1.0.106 console box-walk (macmini16-walk, read-only) found the wiki Front Page
-      On this day panel rendering "2024-10-01 -- HKTVmall delivery Order H2409..." with an em
-      dash, a leading-zero day ("01 October"), and two duplicate retail order lines carrying
-      reference numbers next to real memories. FIXED in CM044 PR #288
+      On this day panel rendering a raw ISO date with an em dash (the general shape
+      "2024-10-01 -- ExampleMart delivery Order EX-00001..."), a leading-zero day
+      ("01 October"), and two duplicate retail order lines carrying reference numbers next
+      to real memories. A fix is open, NOT YET MERGED, as CM044 PR #288
       (andygmassey/CM044-PWG-Personal-Wiki, fix/on-this-day-human-dates-no-transactional): the
       dashboard's On this day renderer now groups entries by "Last year (2025)" / "2 years ago
       (2024)" / "3 years ago (2023)" instead of a per-bullet ISO date, renders a leading-zero-free
