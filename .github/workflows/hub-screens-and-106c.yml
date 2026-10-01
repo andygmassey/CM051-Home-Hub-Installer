@@ -10,6 +10,8 @@ on:
     paths:
       - 'scripts/box_walk_probes/lib/hub_screens.py'
       - 'scripts/box_walk_probes/probes/hub_screens_render_for_a_customer.sh'
+      - 'scripts/box_walk_probes/lib/customer_read.py'
+      - 'scripts/box_walk_probes/probes/hub_screens_customer_read.sh'
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'vendor/doctor/agent/editor_feedback.py'
       - 'vendor/cm059_editor/compiler/frontpage.py'
@@ -45,6 +47,18 @@ jobs:
         run: |
           set +e
           out=$(bash scripts/box_walk_probes/probes/hub_screens_render_for_a_customer.sh --self-test 2>&1); rc=$?
+          set -e
+          printf '%s\n' "$out"
+          if [ "$rc" -ne 1 ]; then echo "self-test exit $rc, expected 1 (known-bad input must FAIL)"; exit 1; fi
+          if ! printf '%s\n' "$out" | grep -c 'negative control behaved' >/dev/null; then echo "exit 1 but no 'negative control behaved' verdict"; exit 1; fi
+      - name: The customer-read judge catches every defect class by its own assertion
+        if: always()
+        run: python3 scripts/box_walk_probes/lib/customer_read.py --self-test
+      - name: The customer-read probe's own self-test
+        if: always()
+        run: |
+          set +e
+          out=$(bash scripts/box_walk_probes/probes/hub_screens_customer_read.sh --self-test 2>&1); rc=$?
           set -e
           printf '%s\n' "$out"
           if [ "$rc" -ne 1 ]; then echo "self-test exit $rc, expected 1 (known-bad input must FAIL)"; exit 1; fi
