@@ -14,44 +14,24 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import List, Optional, Union
 
+from .._vendor.ostler_usage_journal import RollingUsageRecorder, tokens_from_ollama
+
 logger = logging.getLogger(__name__)
 
-# ── Usage journal: the `cm024k-ingest` producer (CM051 #2472) ─────────────
-#
-# Every Ollama call here is the one-time Evernote convert/embed pass, i.e.
-# purpose="ingesting". session_id is a module-level constant: one id per
-# process, timestamped so a human reading the raw journal can tell two runs
-# apart. Lazy-imported inside the wrapper so an import failure degrades to a
-# log line rather than breaking ingestion -- same shape as
-# vendor/cm048_pipeline/src/ollama_client.py::_record_model_usage and
-# vendor/cm041/contact_syncer/usage.py::record_embed_usage.
-_USAGE_SESSION_ID = "cm024k-ingest-" + datetime.now(timezone.utc).strftime(
-    "%Y-%m-%dT%H:%M:%SZ"
-)
+# One run id per process for the lifetime of this module, used to group
+# usage-journal rows from the same ingest run.
+_USAGE_RUN_ID = "cm024k-ingest-" + datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-
-def _record_embed_usage(data: dict, model: str) -> None:
-    """Record one ``ingesting`` usage row from an Ollama ``/api/embed`` response.
-
-    Never raises. ``tokens_from_ollama`` returns ``(None, None)`` when Ollama
-    reported no counts, and ``record_usage`` then writes nothing -- measured,
-    never estimated.
-    """
-    try:
-        from .._vendor.ostler_usage_journal import record_usage, tokens_from_ollama
-
-        prompt, completion = tokens_from_ollama(data if isinstance(data, dict) else {})
-        record_usage(
-            model=model,
-            input_tokens=prompt,
-            output_tokens=completion,
-            purpose="ingesting",
-            session_id=_USAGE_SESSION_ID,
-        )
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.warning(
-            "usage journal write skipped (%s): %s", type(exc).__name__, exc
-        )
+# Rolled up, not per-call (CM051 #2472 review): a bulk Evernote import embeds
+# one chunk per Ollama call, which measured ~13,600 calls/hour on a live
+# walk. Writing one journal row per call projects to ~86 MB/day with no
+# journal rotation and no cache on the Bursar's monthly-summary reader
+# (oa tracker.rs::local_work_for_month does a full linear rescan on every
+# panel open). A 60-second rollup keeps the real measured totals exact
+# (sums, never estimates) while cutting rows by roughly two orders of
+# magnitude. See RollingUsageRecorder's docstring for the numbers and the
+# one known tradeoff (the journal's raw "calls" count is a floor, not an
+# exact count, for a rolled-up row -- token totals are unaffected).
 
 
 @dataclass
@@ -108,6 +88,15 @@ class Embedder:
         self.batch_size = batch_size
         self.ollama_host = ollama_host
         self.openai_api_key = openai_api_key
+
+        # One rolling recorder per Embedder instance (one instance per
+        # ingest run; see RollingUsageRecorder's docstring). Only exercised
+        # on the ollama provider path.
+        self._usage_recorder = RollingUsageRecorder(
+            model=model,
+            purpose="ingesting",
+            session_id=_USAGE_RUN_ID,
+        )
 
         # Get dimensions from config or use default
         config = self.MODEL_CONFIGS.get(model, {})
@@ -196,10 +185,15 @@ class Embedder:
                     )
                     response.raise_for_status()
                     data = response.json()
-                    _record_embed_usage(data, self.model)
                     # Ollama returns {"embeddings": [[...]]} for single input
                     embeddings = data.get("embeddings", [])
                     results.append(embeddings[0] if embeddings else None)
+
+                    try:
+                        input_tokens, output_tokens = tokens_from_ollama(data)
+                        self._usage_recorder.add(input_tokens, output_tokens)
+                    except Exception as usage_err:
+                        logger.warning(f"Usage journal recording failed: {usage_err}")
                 except Exception as e:
                     logger.warning(f"Ollama embedding error: {e}")
                     results.append(None)

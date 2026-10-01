@@ -23,19 +23,37 @@
 # Not a grep for an import line: it RUNS ``Embedder.embed_batch`` against a
 # monkeypatched Ollama HTTP response and asserts a record is written.
 # scripts/usage_journal_producers.tsv deliberately carries no row for this
-# producer yet (see cut-manifests/v1.0.107.yaml), so the contract is read
-# from the module's own emitted prefix/purpose, not the roster.
+# producer yet (see cut-manifests v1.0.106.yaml's issue:2472 row), so the
+# contract is read from the module's own emitted prefix/purpose, not the
+# roster.
+#
+# UPDATED after the clean re-vendor from andygmassey/evernote-knowledge@
+# e0196b10 (PR #18): upstream's embedder.py does NOT call a free
+# ``record_usage`` function per call. It holds a ``RollingUsageRecorder``
+# (one per ``Embedder`` instance) and calls ``.add(input_tokens,
+# output_tokens)`` per HTTP response, which SUMS measured tokens across a
+# 60-second window per (model, purpose) and writes ONE rolled-up row on
+# flush -- not one row per call. This test therefore asserts the WIRING
+# (a row appears, with the right prefix/purpose, after an explicit
+# ``flush()``) rather than a 1:1 call-to-row ratio for this file specifically;
+# that ratio is a deliberate, documented tradeoff upstream made after a live
+# walk measured ~13,600 embed calls/hour, and is covered on the upstream side
+# by tests/test_usage_journal_vendor.py (not vendored here; excluded as
+# tests/). The sibling classifier.py/email_summarizer.py producers stay
+# strictly per-call and are asserted 1:1 in their own test files.
 #
 # ===========================================================================
 # WHAT IS ASSERTED (6 assertions + 1 control)
 # ===========================================================================
 #   CONTROL 0  the control itself is live
 #   1  ostler_knowledge/_vendor/ostler_usage_journal/usage_journal.py EXISTS
-#   2  embedder.py imports the writer
-#   3  RUNNING embed_batch() against a measured response writes ONE record
+#   2  embedder.py imports RollingUsageRecorder
+#   3  RUNNING embed_batch() against a measured response, then flush(),
+#      writes ONE record
 #   4  the record's session_id carries the "cm024k-ingest-" prefix
 #   5  the record's purpose is "ingesting"
-#   6  MUST-MISS: an Ollama response with no token counts writes NOTHING
+#   6  MUST-MISS: an Ollama response with no token counts, then flush(),
+#      writes NOTHING (an unmeasured call never opens a bucket)
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -67,10 +85,10 @@ else
     bad "ostler_knowledge/_vendor/ostler_usage_journal/usage_journal.py is ABSENT"
 fi
 
-if grep -q 'from .._vendor.ostler_usage_journal import record_usage' "$EMBEDDER"; then
-    ok "embedder.py imports record_usage"
+if grep -q 'from .._vendor.ostler_usage_journal import RollingUsageRecorder' "$EMBEDDER"; then
+    ok "embedder.py imports RollingUsageRecorder"
 else
-    bad "embedder.py does NOT import record_usage"
+    bad "embedder.py does NOT import RollingUsageRecorder"
 fi
 
 out=$(cd "$REPO_ROOT" && "$PY" - <<'PY' 2>&1
@@ -116,6 +134,12 @@ httpx.AsyncClient = FakeAsyncClientMeasured
 e = emb_mod.Embedder()
 before = len(lines())
 asyncio.run(e.embed_batch(["a synthetic note, no person in it"]))
+# ROLLUP: the recorder holds the measured tokens in an open 60s bucket and
+# does not hit disk until flush() (window elapsed, atexit, or SIGTERM). A
+# test cannot wait 60 real seconds, so it flushes explicitly -- this is
+# the documented, public escape hatch (RollingUsageRecorder.flush()), not
+# a private implementation reach-around.
+e._usage_recorder.flush()
 after = lines()
 if len(after) != before + 1:
     print(f"NO_RECORD_WRITTEN before={before} after={len(after)}")
@@ -134,6 +158,9 @@ class FakeAsyncClientUnmeasured(FakeAsyncClientMeasured):
 httpx.AsyncClient = FakeAsyncClientUnmeasured
 before2 = len(lines())
 asyncio.run(e.embed_batch(["another synthetic note"]))
+# An all-unmeasured call must never open a bucket at all (RollingUsageRecorder
+# .add()'s own contract), so flushing an untouched recorder must write nothing.
+e._usage_recorder.flush()
 after2 = len(lines())
 print("UNMEASURED_SILENT" if before2 == after2 else f"UNMEASURED_WROTE {before2}->{after2}")
 PY
@@ -147,13 +174,13 @@ fi
 if grep -q 'IMPORT_FAILED' <<<"$out"; then
     bad "the vendored module does not import: $(printf '%s' "$out" | head -1)"
 fi
-grep -q 'WROTE 1'           <<<"$out" && ok "RUNNING embed_batch() writes a record" \
-                                      || bad "embed_batch() wrote NOTHING on a measured response: $(printf '%s' "$out" | head -1)"
+grep -q 'WROTE 1'           <<<"$out" && ok "RUNNING embed_batch() then flush() writes a record" \
+                                      || bad "embed_batch()+flush() wrote NOTHING on a measured response: $(printf '%s' "$out" | head -1)"
 grep -q 'PREFIX_OK'         <<<"$out" && ok "session_id carries the cm024k-ingest- prefix" \
                                       || bad "session_id prefix is wrong: $(grep -o 'PREFIX_BAD.*' <<<"$out")"
 grep -q 'PURPOSE_OK'        <<<"$out" && ok "purpose is 'ingesting'" \
                                       || bad "purpose is wrong: $(grep -o 'PURPOSE_BAD.*' <<<"$out")"
-grep -q 'UNMEASURED_SILENT' <<<"$out" && ok "MUST-MISS: an unmeasured response writes nothing (no invented numbers)" \
+grep -q 'UNMEASURED_SILENT' <<<"$out" && ok "MUST-MISS: an unmeasured response + flush() writes nothing (bucket never opened)" \
                                       || bad "the must-miss arm did not pass: $(grep -o 'UNMEASURED_WROTE.*' <<<"$out")"
 
 echo
