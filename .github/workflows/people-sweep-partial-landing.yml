@@ -63,7 +63,7 @@ jobs:
       # not a failing assertion -- an unimportable module, same as the
       # sibling people-projection-prune.yml workflow.
       - name: Install pytest and the module's runtime dependencies
-        run: python -m pip install --quiet pytest httpx nameparser
+        run: python -m pip install --quiet pytest httpx nameparser phonenumbers
       # THE FLOOR AND THE RUN ARE ONE STEP ON PURPOSE, same reasoning as
       # people-projection-prune.yml: a floor in a separate step would skip
       # this one when it failed, hiding the real result behind an earlier
