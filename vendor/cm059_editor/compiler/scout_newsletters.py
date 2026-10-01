@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import sys
@@ -64,41 +65,38 @@ from compiler import card_ledger
 from compiler import corrections as corr_mod
 from compiler import frontpage as fp
 from compiler.scouts import Scout
+from compiler._vendor.ostler_usage_journal import record_usage, tokens_from_ollama
 
-# ── Usage journal: the `cm059-notice` producer (CM051 #2472) ──────────────
-#
-# This opt-in re-rank (OSTLER_SCOUT_LLM=1) is unprompted curation of the
-# operator's own newsletters, i.e. purpose="noticing" -- the roster's
-# definition of work the assistant chose to do unprompted. Off by default,
-# but a real producer once enabled: the call below was raw urllib with no
-# usage-journal wiring anywhere near it.
-_USAGE_SESSION_ID = "cm059-notice-" + datetime.now(timezone.utc).strftime(
+# Usage-journal wiring (CM051 #2472): this is the only Ollama call in this
+# module, and it was writing no row to the Hub's cost journal at all before
+# this fix. One id per process -- this scout runs as a single short-lived
+# invocation, never long-running.
+_USAGE_RUN_ID = "cm059-notice-" + datetime.now(timezone.utc).strftime(
     "%Y-%m-%dT%H:%M:%SZ"
 )
 
 
-def _record_generate_usage(data: dict, model: str) -> None:
-    """Record one ``noticing`` usage row from an Ollama ``/api/generate`` response.
+def _record_scout_usage(response: dict, model: str) -> None:
+    """Record one usage row from an Ollama response. Never raises.
 
-    Never raises: this is a best-effort re-rank, and accounting must not be
-    able to break it or the deterministic fallback it sits in front of.
-    ``tokens_from_ollama`` returns ``(None, None)`` when Ollama reported no
-    counts, and ``record_usage`` then writes nothing -- measured, never
-    estimated.
+    Accounting must not be able to break the scout: every failure path here
+    degrades to a log line and returns. MEASURED, NEVER ESTIMATED: when
+    Ollama reports no counts, ``record_usage`` writes nothing, which is the
+    correct, visible-as-a-gap behaviour for an unmeasured call.
     """
     try:
-        from compiler._vendor.ostler_usage_journal import record_usage, tokens_from_ollama
-
-        prompt, completion = tokens_from_ollama(data if isinstance(data, dict) else {})
+        prompt, completion = tokens_from_ollama(response)
         record_usage(
             model=model,
             input_tokens=prompt,
             output_tokens=completion,
             purpose="noticing",
-            session_id=_USAGE_SESSION_ID,
+            session_id=_USAGE_RUN_ID,
         )
-    except Exception:  # noqa: BLE001 - the deterministic order must still stand
-        pass
+    except Exception as exc:  # noqa: BLE001 - never break the scout
+        logging.getLogger(__name__).warning(
+            "usage journal write skipped (%s): %s", type(exc).__name__, exc
+        )
 
 # ---------------------------------------------------------------------------
 # Tunables (spec section 1.3 scout row + E3 scope). Constants, not env knobs;
@@ -402,8 +400,9 @@ def _llm_relevance(scored: list[dict], profile: dict) -> list[dict] | None:
             f"interests: {json.dumps(subjects)}. Stories: "
             f"{json.dumps(dict(enumerate(titles)))}. "
             "Reply with ONLY a JSON object mapping index to score.")
+        llm_model = os.environ.get("OSTLER_SCOUT_LLM_MODEL", "qwen3.5:9b")
         payload = json.dumps({
-            "model": os.environ.get("OSTLER_SCOUT_LLM_MODEL", "qwen3.5:9b"),
+            "model": llm_model,
             "prompt": prompt, "stream": False,
             "format": "json",
         }).encode("utf-8")
@@ -412,7 +411,7 @@ def _llm_relevance(scored: list[dict], profile: dict) -> list[dict] | None:
             headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=20) as resp:  # noqa: S310
             body = json.loads(resp.read().decode("utf-8"))
-        _record_generate_usage(body, os.environ.get("OSTLER_SCOUT_LLM_MODEL", "qwen3.5:9b"))
+        _record_scout_usage(body, llm_model)
         marks = json.loads(body.get("response", ""))
         if not isinstance(marks, dict):
             return None
