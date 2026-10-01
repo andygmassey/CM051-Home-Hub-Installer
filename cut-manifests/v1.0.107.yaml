@@ -6649,7 +6649,7 @@ open_issues:
 
   - issue: 2540
     repo: CM051
-    title: 'Settings page title bar reads ''Home'', and locked rows hide the value set at install'
+    title: 'Hub page titles do not match the sidebar: Settings reads Home, Bursar Cost, Pair iPhone Pair this device; locked rows hide the install value'
     gate: 'NOT BLOCKING for v1.0.107 (QA filing; Archie may raise it). Registered in the same action as the filing. SCREEN: Settings (sidebar ''Settings'', route /preferences). EXPECTED: The title says ''Settings''. Locked rows show the value (e.g. the owner''s city and the owner''s time zone) with the lock. CLOSES ON: a walk where hub_screens: page_titles_match_nav (top bar title == sidebar label for every route) reads PASS, having been RED on the v1.0.106 walk box.'
 
   - issue: 2541
@@ -6731,3 +6731,13 @@ open_issues:
     repo: CM051
     title: 'Hub puts the device pairing token in URLs (wiki iframe ?token=, chat WebSocket ?token=)'
     gate: 'BLOCKING for v1.0.107 (Archie, 2026-10-01: a non-expiring, whole-API device bearer rides in two URLs). Registered in the same action as the filing. CODE: ostler-assistant web/src/pages/Wiki.tsx:44-47 (wikiUrl puts the bearer in the iframe src; wiki_proxy.rs:379-400 then redirects to a /wiki/s/ capability) and web/src/lib/ws.ts:84 (query copy, redundant: ws.ts:89 already sends the bearer.<token> subprotocol and ws.rs:77-110 prefers it). The token lives in paired_tokens (zeroclaw-config pairing.rs:59) with no expiry. MEASURED read-only, UTF-8 and UTF-16LE: 0 hits in 60 log files, 0 of 67 cache files, 0 of 3 HTTPStorages; 1 hit in the hub localStorage, where it is stored by design (the positive control); 303 and /wiki/s/ pages carry Referrer-Policy no-referrer; the wiki nginx keeps no access log (NOT INSTRUMENTED there; the gateway strips the param before forwarding). CLOSES ON: the WebSocket URL carries no token; the iframe src carries only a single-use, seconds-lived, wiki-only ticket minted by a Bearer fetch; and a walk where hub_screens no_bearer_in_any_url reads PASS, having been RED on v1.0.106.'
+
+  - issue: 2562
+    repo: CM051
+    title: 'Hub People and Timeline use an em dash as the empty-value placeholder'
+    gate: 'NOT BLOCKING for v1.0.107 (QA filing; Archie may raise it). Registered in the same action as the filing. SCREEN: Hub People list and one Timeline row. EXPECTED: an empty contact column is empty or reads No contact details; no em dash in Hub copy. CLOSES ON: a walk where hub_screens_customer_read "customer text: no em dash on any Hub screen or wiki page" reads PASS, having been RED on the v1.0.106 walk box (CM051 #2561).'
+
+  - issue: 2563
+    repo: CM051
+    title: 'Wiki tables shrink to content width at the in-app width (half-empty boxes)'
+    gate: 'BLOCKING for v1.0.107 (Andy reported it at the console: most boxes on the wiki front page are not full width). Registered in the same action as the filing. MEASURED at the in-app frame width (1200px): 9 of 89 wiki tables and boxes paint under 95% of the content width, the narrowest at 24%; at 1440px the same tables fill the page. Fix is CM044 CSS. CLOSES ON: the CM044 fix re-pinned into a CM051 cut, and a walk where hub_screens_customer_read "wiki: every table and box is at least 95% of the page width" reads PASS at the app geometry, having been RED on the v1.0.106 walk box (CM051 #2561).'
