@@ -468,30 +468,49 @@ tests/test_remote_access_reads_the_installers_tailscale.py (vendor-integrity.yml
 
 ## Added 2026-10-01, CM051 v1.0.107 (people-correctness agent) -- `cm041/identity_resolver`, a one-time repair for already-written WhatsApp-LID-as-phone rows (#2543)
 
+**UPDATED 2026-10-01 (same day, Archie): CM041 PR #181 MERGED as
+`b9deb6efab984730326106c4c1bc929c0f79599b`.** The graft below was first cut
+from #181's commit `9086498`, a point on that PR's branch that PREDATES the
+Qdrant-payload patch and the backup/restore machinery Archie's review then
+required (#181 HELD, then re-reviewed, then merged). That graft has been
+REPLACED with the content at the merge commit, not re-dated in place --
+`9086498` is stale and must not be read as current. `cmp`/sha256 against
+`source@b9deb6ef` is the proof, not the PR-merged state alone.
+
 Not run against the regeneration tool. `identity_resolver` carries no
-`regenerate_forbidden` flag (unlike `contact_syncer`), but the content this
-graft adds exists ONLY on an open, unmerged CM041 PR
-(andygmassey/CM041-People-Graph#181) -- the pin stays at the merged SHA
-`9e260949`, which the tool would correctly read as "source not at this
-commit" and refuse on the same RE-PIN-vs-graft limb already logged for
-`doctor` above. Recorded by location and shape, per this file's established
-pattern, rather than attempted and refused for the log.
+`regenerate_forbidden` flag (unlike `contact_syncer`), but the pin
+(`pinned_sha = 9e260949ca9776c72038dc4734352e9508c0c494`, see
+VENDOR_MANIFEST.toml) sits far behind `b9deb6ef` on a tree already carrying
+many individually-adjudicated grafts and an existing unrecorded-divergence
+debt (`resolver.py`/`batch_resolver.py` do not reconstruct from the pin plus
+patch; see that row's own history). Re-pinning the whole tree is a separate,
+larger decision than landing this one fix, so this stays a targeted graft of
+two files, by location and shape, per this file's established pattern,
+rather than attempted against the regeneration tool and refused for the log.
 
 ### What was grafted, location and shape only
 
-- `vendor/cm041/identity_resolver/normalise.py`: new `is_valid_phone(raw,
-  default_country_code)`, identical in content and placement to the
-  function of the same name added to the CM041 source by PR #181 (checked
-  byte-for-byte against that branch before grafting).
+- `vendor/cm041/identity_resolver/normalise.py`: `is_valid_phone(raw,
+  default_country_code)`. Unchanged between `9086498` and `b9deb6ef`
+  (diffed to confirm), and the vendored copy is byte-identical to
+  `source@b9deb6ef:identity_resolver/normalise.py` (sha256
+  `a0aeb1427bf62fd006e5cefdc523409ca9fed8e28bd130b9cad0acd802e9d7c4`, both
+  sides).
 - `vendor/cm041/identity_resolver/repair_lid_as_phone.py` -- NEW FILE.
   Idempotent, dry-run-default repair for CM051 #2543's two writer
   fingerprints: Pass A1 (CM041 whatsapp_bridge -- a bogus "phone"
   identifier with a sibling "whatsapp_lid" identifier sharing the same
   invalid value) and Pass A2 (ostler_fda's ingest_whatsapp, the writer that
   actually ships, CM051 #2577 -- only one invalid "phone" identifier, no
-  sibling, scoped by `pwg:source "whatsapp_fda"`). See the module's own
-  docstring for the full fingerprint detail; it is reproduced verbatim from
-  CM041 PR #181 (commit 9086498), not paraphrased.
+  sibling, scoped by `pwg:source "whatsapp_fda"`). ALSO patches the matching
+  Qdrant `people` payload (the Hub People list and `people_stores_reconcile`
+  read Qdrant, not Oxigraph) and backs up every changed row to a jsonl under
+  `~/.ostler/backups/` before writing, restorable via
+  `--restore-from-backup`. Reproduced verbatim from
+  `source@b9deb6ef:identity_resolver/repair_lid_as_phone.py`, not
+  paraphrased -- byte-identical, sha256
+  `a75fb9dea3a604da2fab39b52e98c8389c57c5db56c4fd44e3e37684b4e38caf` both
+  sides (`cmp` also run, exit 0).
 
 WHY: the writer-side fix (this tree's existing `_canonical_key_conflict`/
 `_identifier_match_trustworthy` grafts plus PR #181's forward-fix) stops NEW
