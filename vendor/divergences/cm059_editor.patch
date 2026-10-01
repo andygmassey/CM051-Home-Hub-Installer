@@ -1,8 +1,6 @@
-diff --git a/corrections.py b/corrections.py
-index b33f69cb..a75ce107 100644
 --- a/corrections.py
 +++ b/corrections.py
-@@ -28,6 +28,8 @@ from __future__ import annotations
+@@ -28,6 +28,8 @@
  import json
  import os
  import urllib.request
@@ -11,7 +9,7 @@ index b33f69cb..a75ce107 100644
  from datetime import datetime, timezone
  
  DEFAULT_STORE = os.path.expanduser("~/.ostler/editor/interest_corrections.json")
-@@ -117,9 +119,17 @@ class CorrectionStore:
+@@ -117,9 +119,17 @@
          payload = self._assert_payload(action, key, factor)
          try:
              url = self.ical_server_url.rstrip("/") + "/api/v1/memory/assert"
@@ -30,14 +28,14 @@ index b33f69cb..a75ce107 100644
              with urllib.request.urlopen(req, timeout=10) as resp:
                  return 200 <= resp.status < 300
          except Exception:
-diff --git a/frontpage.py b/frontpage.py
-index 236e41dd..c234e591 100644
 --- a/frontpage.py
 +++ b/frontpage.py
-@@ -727,6 +727,81 @@ def _apply_feed_caps(cards: list[dict]) -> list[dict]:
+@@ -740,8 +740,83 @@
+             signals_kept += 1
+         kept.append(c)
      return kept[:MAX_FEED_CARDS]
- 
- 
++
++
 +# ---------------------------------------------------------------------------
 +# What may become an interest CARD (#106c, items h and i; Andy's walk
 +# 2026-09-28). The Front Page showed a raw social hashtag, including a
@@ -78,8 +76,8 @@ index 236e41dd..c234e591 100644
 +            break
 +        out = cleaned
 +    return out
-+
-+
+ 
+ 
 +def is_cardable_interest(it: dict) -> bool:
 +    """False for a hashtag or a special-category topic (see above)."""
 +    subject = (it.get("subject") or "").strip()
@@ -116,7 +114,7 @@ index 236e41dd..c234e591 100644
  def build_frontpage(profile: dict, *, now: datetime | None = None,
                      settling: dict | None = None,
                      card_states: dict | None = None,
-@@ -751,6 +826,7 @@ def build_frontpage(profile: dict, *, now: datetime | None = None,
+@@ -766,6 +841,7 @@
      ``None`` = enforcement off (legacy behaviour), ``True`` = Pro verified,
      anything else = fail-closed deny -> proactive families suppressed and one
      honest pro-locked card shown."""
@@ -124,11 +122,9 @@ index 236e41dd..c234e591 100644
      now = now or datetime.now(timezone.utc)
      phase = decide_phase(profile, settling)
      cards: list[dict] = []
-diff --git a/interest_profile.py b/interest_profile.py
-index b5cc850e..7290d4cb 100644
 --- a/interest_profile.py
 +++ b/interest_profile.py
-@@ -5,7 +5,7 @@ is a pure function of (raw preference rows, now, corrections) so it is testable
+@@ -5,7 +5,7 @@
  without a live graph. The I/O layer (fetch_preferences) talks read-only to
  Oxigraph; nothing here ever writes to the graph.
  
@@ -137,7 +133,7 @@ index b5cc850e..7290d4cb 100644
    ?s a pwg:LikePreference | pwg:DislikePreference
       pwg:subject            "Web Development"
       pwg:category           "professional"
-@@ -29,11 +29,12 @@ import os
+@@ -29,11 +29,12 @@
  import re
  import sys
  import unicodedata
@@ -151,7 +147,7 @@ index b5cc850e..7290d4cb 100644
  
  # ---------------------------------------------------------------------------
  # Taxonomy: how far to trust each source category, and which coarse domain it
-@@ -390,18 +391,128 @@ _YEAR_TAIL_RE = re.compile(r"\b(19|20)\d{2}\b")
+@@ -390,18 +391,128 @@
  _NOISY_SOURCES = {"csv", "email", "imap"}
  
  
@@ -281,7 +277,7 @@ index b5cc850e..7290d4cb 100644
      s = re.sub(r"\s+", " ", s)
      return s
  
-@@ -720,7 +831,46 @@ def apply_corrections(interests: list[dict], corrections: dict | None,
+@@ -720,7 +831,46 @@
  
  def compile_profile(raws: list[dict], now: datetime | None = None,
                      corrections: dict | None = None,
@@ -329,7 +325,7 @@ index b5cc850e..7290d4cb 100644
                      contact_lexicon: frozenset = frozenset()) -> dict:
      """Full pipeline: raw rows -> grouped, ranked, corrected profile dict.
      ``contact_lexicon`` (see build_contact_lexicon) screens every subject
-@@ -740,8 +890,16 @@ def compile_profile(raws: list[dict], now: datetime | None = None,
+@@ -740,8 +890,16 @@
      domains: dict[str, list[dict]] = {}
      dislikes: list[dict] = []
      suppressed = 0
@@ -346,7 +342,7 @@ index b5cc850e..7290d4cb 100644
          if not corrected and it["confidence"] < min_confidence:
              suppressed += 1
              continue
-@@ -767,6 +925,9 @@ def compile_profile(raws: list[dict], now: datetime | None = None,
+@@ -767,6 +925,9 @@
              "interests": sum(len(b["interests"]) for b in domain_blocks),
              "dislikes": len(dislikes),
              "suppressed_low_confidence": suppressed,
@@ -356,10 +352,11 @@ index b5cc850e..7290d4cb 100644
              "domains": len(domain_blocks),
          },
          "domains": domain_blocks,
-@@ -778,15 +939,76 @@ def compile_profile(raws: list[dict], now: datetime | None = None,
+@@ -777,16 +938,77 @@
+ # ---------------------------------------------------------------------------
  # I/O layer (read-only Oxigraph)
  # ---------------------------------------------------------------------------
- 
++
 +def _oxigraph_credential() -> tuple[str, str] | None:
 +    """The Oxigraph loopback credential, or None when none is configured.
 +
@@ -387,7 +384,7 @@ index b5cc850e..7290d4cb 100644
 +        except OSError:
 +            val = ""
 +    return ("Authorization", "Bearer " + val) if val else None
-+
+ 
 +
  def _sparql_select(oxigraph_url: str, query: str, timeout: float = 30.0) -> list[dict]:
 +    """Read-only SPARQL SELECT against Oxigraph.
@@ -437,9 +434,6 @@ index b5cc850e..7290d4cb 100644
      rows = list(csv.DictReader(io.StringIO(body)))
      return rows
  
-diff --git b/project_preferences.py b/project_preferences.py
-new file mode 100644
-index 00000000..b20355b0
 --- /dev/null
 +++ b/project_preferences.py
 @@ -0,0 +1,272 @@
