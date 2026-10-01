@@ -237,8 +237,12 @@ fi
 # this arm will tell you which, by name, and will not go red while you do it.
 F_DECLARED_UNWIRED='vendor/cm041/contact_syncer/*.py|is_relationship_label
 vendor/cm041/identity_resolver/*.py|is_relationship_label'
-F_DECLARED_TICKET='#617'
-F_DECLARED_EXPIRES='2026-09-30'
+F_DECLARED_TICKET='#2556'
+# Re-dated 2026-10-01 (Archie): #617 was an unrelated, already-closed CM051
+# PR and was never the real tracking issue for this gap. #2556 measures it
+# read-only on a live box (1 of 8417 Person displayNames is a kinship word,
+# with a matched negative-sentinel control) and names both write boundaries.
+F_DECLARED_EXPIRES='2026-10-08'
 F_DECLARED_OWNER='archie'
 
 # THE COMPARISON, as a function, so the self-test below drives the SAME code the
