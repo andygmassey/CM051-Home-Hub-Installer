@@ -241,8 +241,35 @@ mutant("normalise-only scope carries the raw-cased graph",
 
 # M4: the tempting global fix -- union every named graph. Must be absent
 # from the shipped rewriter, because it breaks compartment isolation.
+#
+# SCOPED TO THE REWRITER'S OWN BODY, from its `def` to the next top-level
+# `def`/`class`. This used to scan from the def to END OF FILE, which became
+# wrong when the v1.0.107 re-pin (CM051 #2594) brought upstream CM041 #175's
+# assert_named_graphs_are_off_a_pinned_dataset in below it: that function
+# carries a deliberate `GRAPH ?g {` PROBE (it asks the store whether anything
+# leaked into a named graph), and an end-of-file scan read the probe as the
+# rewriter. M5 below proves the scoped predicate still catches the real thing.
+def rewriter_body(src):
+    tail = src.split("def graph_scoped_select", 1)[1]
+    out = []
+    for i, line in enumerate(tail.splitlines(True)):
+        if i and (line.startswith("def ") or line.startswith("class ")):
+            break
+        out.append(line)
+    return "".join(out)
+
+
 mutant("shipped rewriter emits an unrestricted GRAPH ?g",
-       "GRAPH ?g {" in comp_src.split("def graph_scoped_select")[1])
+       "GRAPH ?g {" in rewriter_body(comp_src))
+
+# M5: the M4 predicate is not blind. Plant `GRAPH ?g {` INSIDE the rewriter's
+# body and the predicate must see it; if it does not, M4 above proves nothing.
+_planted = comp_src.replace(
+    "def graph_scoped_select(sparql, graph_uris):\n",
+    "def graph_scoped_select(sparql, graph_uris):\n"
+    "    _mutant = 'SELECT * WHERE { GRAPH ?g { ?s ?p ?o } }'\n", 1)
+mutant("M4 predicate misses GRAPH ?g planted inside graph_scoped_select",
+       _planted == comp_src or "GRAPH ?g {" not in rewriter_body(_planted))
 
 print()
 if FAILURES:

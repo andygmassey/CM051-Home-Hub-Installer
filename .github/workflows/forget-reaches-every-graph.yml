@@ -50,6 +50,8 @@ on:
       # every one of them is silent if a re-vendor deletes the graft outright.
       - 'tests/test_the_erasure_graft_survives_a_revendor.py'
       - '.github/workflows/forget-reaches-every-graph.yml'
+      - 'tests/test_no_vendored_caller_of_read_across_graphs.py'
+      - 'vendor/**.py'
   push:
     branches: [main]
 
@@ -129,3 +131,17 @@ jobs:
         # comment cannot satisfy it by construction rather than by a rule, and
         # two MUST-MISS arms pin exactly that.
         run: python3 tests/test_the_erasure_graft_survives_a_revendor.py
+
+      # CM051 #2594. The v1.0.107 re-pin made upstream's read_across_graphs
+      # PRESENT in the vendored compartment.py. It scopes reads with a
+      # DENY-list of other users' graphs, which fails open, so it was held on
+      # 2026-09-19 (board row 2213). This keeps it UNCALLED by any vendored
+      # reader. AST-based, so the many "not imported" comments cannot trip
+      # it; the self-test plants a call and an import (must go RED) and a
+      # comment (must stay GREEN) in a scratch copy first.
+      - name: read_across_graphs is called by no vendored file (self-test)
+        if: always()
+        run: python3 tests/test_no_vendored_caller_of_read_across_graphs.py --self-test
+      - name: read_across_graphs is called by no vendored file
+        if: always()
+        run: python3 tests/test_no_vendored_caller_of_read_across_graphs.py
