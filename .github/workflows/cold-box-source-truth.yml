@@ -76,6 +76,10 @@ on:
       - 'tests/test_aiconv_without_owner_email_does_not_redden_health_check.sh'
       - 'tests/test_aiconv_hydrate_honesty.sh'
       - 'tests/test_source_status_reports_ongoing_not_just_install.sh'
+      # The gate AND its subject (#2526/#2529): a dedicated routine's own
+      # evidence is a second producer for ongoing state, consulted when
+      # fda-rerun's record is silent. web_ui.py is already listed above.
+      - 'tests/test_source_status_prefers_a_live_routine_over_a_stale_sentinel.sh'
       - 'tests/test_a_failed_source_recorder_is_not_silent.sh'
       # Both halves again, and a third: this gate reads install.sh's source
       # picker, the vendored Doctor's row register AND the shipped extractor's
@@ -221,6 +225,16 @@ jobs:
       - name: Source status must report ONGOING state, not the install verdict
         if: always()
         run: bash tests/test_source_status_reports_ongoing_not_just_install.sh
+
+      # #2526/#2529: the sibling above pins the general ongoing-vs-install
+      # contract; this pins the specific regression where a source's OWN
+      # dedicated routine (not fda-rerun's shared tick) is live evidence and
+      # was being ignored, plus the two review findings (an unrecognised
+      # counter must never be read as a count; a per-run figure must never
+      # overwrite the install-time total).
+      - name: A source's dedicated routine is believed over a stale sentinel
+        if: always()
+        run: bash tests/test_source_status_prefers_a_live_routine_over_a_stale_sentinel.sh
 
       # #1587. The sibling above asks whether a row tells the truth over time;
       # this one asks whether the row EXISTS. A source the customer ticked and
