@@ -72,6 +72,17 @@ PATHS=(
     "/usr/local/bin/pwg-convo|a stale CLI pointing into a deleted venv"
     "/usr/local/bin/ostler|a stale CLI pointing into a deleted venv"
     "${HOME}/state/apple_mail_mbox_checkpoint.json|a stale email checkpoint (legacy path outside ~/.ostler) that tells a fresh install its backfill is done"
+    # #2520: chat history lives in WebKit's localStorage, keyed by bundle id,
+    # not under ~/.ostler and not under ~/Documents/Ostler -- so neither of
+    # this script's other removal roots ever touched it. MEASURED on a box
+    # this script had just called PRISTINE, after a fresh reinstall: the
+    # previous walk's conversation (two timestamps from an earlier day) was
+    # still visible in Ostler.app's Chat tab.
+    "${HOME}/Library/WebKit/ai.creativemachines.ostler-hub|the hub app's WebKit localStorage, including chat history from a previous install"
+    "${HOME}/Library/HTTPStorages/ai.creativemachines.ostler-hub|hub app cookies and site data"
+    "${HOME}/Library/HTTPStorages/ai.ostler.installer|installer cookies and site data"
+    "${HOME}/Library/Caches/ai.creativemachines.ostler-hub|hub app cache"
+    "${HOME}/Library/Caches/ai.ostler.installer|installer cache"
 )
 
 echo "=== removing every Ostler surface ==="
