@@ -565,6 +565,9 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=120):
             # so a wider read would hide exactly the defect it is measuring.
             wpage = ctx.new_page()
             wpage.set_viewport_size({"width": 1440 - 240, "height": 944})
+            # TODO(#2558): this mirrors the app's own iframe navigation, which puts the device
+            # bearer in the URL. When the single-use wiki ticket lands, mint one with a Bearer
+            # fetch and navigate with the ticket instead; then no URL here carries the token.
             wpage.goto(base + "/wiki/?token=" + token, wait_until="load", timeout=90000)
             fr = wpage.main_frame
         if fr is not None:
