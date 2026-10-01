@@ -114,6 +114,42 @@ arm "the seed runs BEFORE the phase-2 probe loop (a seed after it seeds nothing)
 arm "the forget step runs AFTER the loop, so it cannot change a verdict" $? \
     "forget at $forget_line, probe loop at $loop_line"
 
+# CM051 #2564 review (Archie): the call above is now conditional on
+# READ_ONLY (--only defaults to it; --read-only forces it on a full run).
+# Static proof here that the call is actually the BODY of that guard, not
+# merely preceded somewhere upstream by a READ_ONLY check that does not
+# cover it. The runtime proof that a real read-only run never touches the
+# box lives in scripts/tests/test_read_only_walk_never_writes.sh (all five
+# writers, staged with sentinels, plus its own positive and mutation
+# controls) -- this arm is the static half of the same property.
+guard_line="$(awk -v n="$apply_line" \
+    '/^if \[ "\$READ_ONLY" -eq 0 \]; then$/ && NR < n { g = NR } END { print g + 0 }' \
+    "$RUNNER")"
+between_closers="$(sed -n "$((guard_line + 1)),$((apply_line - 1))p" "$RUNNER" | grep -cE '^(else|fi)$')"
+[ "$guard_line" -gt 0 ] && [ "$between_closers" -eq 0 ]
+arm "the call is gated on READ_ONLY, so a read-only run skips it (CM051 #2564)" $? \
+    "guard_line=$guard_line apply_line=$apply_line else/fi lines between them=$between_closers"
+
+# MUTATION: confirm the arm above actually depends on finding the literal
+# READ_ONLY guard, not on some looser coincidence (e.g. any earlier `if`).
+# Replace just that line with an unconditional `if true; then` and re-run
+# the same detection against the mutant.
+MUT_GUARD="$WORK/mut_readonly_guard.sh"
+sed "${guard_line}s/.*/if true; then/" "$RUNNER" > "$MUT_GUARD"
+mut_guard_line="$(awk -v n="$apply_line" \
+    '/^if \[ "\$READ_ONLY" -eq 0 \]; then$/ && NR < n { g = NR } END { print g + 0 }' \
+    "$MUT_GUARD")"
+# Re-check the FULL two-part predicate against the mutant, not guard_line
+# alone: a file with more than one seed has more than one matching guard
+# line, so an earlier seed's (untouched) guard can still satisfy
+# `NR < apply_line` even after THIS seed's own guard is mutated away. Only
+# the combined predicate (a guard found, with nothing closing it before
+# apply_line) is specific to whether THIS call is still gated.
+mut_between="$(sed -n "$((mut_guard_line + 1)),$((apply_line - 1))p" "$MUT_GUARD" | grep -cE '^(else|fi)$')"
+! { [ "$mut_guard_line" -gt 0 ] && [ "$mut_between" -eq 0 ]; }
+arm "MUST-FAIL: replacing the READ_ONLY guard with 'if true' must lose the gating arm above" $? \
+    "mutant still reports guard_line=$mut_guard_line between=$mut_between"
+
 # ---------------------------------------------------------------------------
 printf -- '\n-- 2. loader exit 0: the gate values are exported, FROM THE FIXTURE --\n'
 # ---------------------------------------------------------------------------

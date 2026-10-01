@@ -159,10 +159,10 @@ if grep -qF 'exists on the target box' "${T}/out.txt"; then
 else
     bad "no marker-refusal message found: $(tail -n 5 "${T}/out.txt" | tr '\n' ' ')"
 fi
-if grep -q 'BOX WALK --' "${T}/out.txt"; then
-    bad "probes ran after the marker refusal -- it did not stop the walk"
+if grep -q -- '--- PHASE 1' "${T}/out.txt"; then
+    bad "phase 1 started after the marker refusal -- it did not stop the walk"
 else
-    ok "refused before the probe banner ever printed"
+    ok "refused before phase 1 (self-tests) ever started"
 fi
 
 printf -- '--- arm 6: --allow-writes is the one thing that gets past a marked box ---\n'

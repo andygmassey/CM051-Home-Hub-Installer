@@ -178,11 +178,14 @@ arm "the forget step runs AFTER the loop, so it cannot change a verdict" $? \
     "forget at $forget_line, probe loop at $loop_line"
 
 # The three line citations at the top of the runner must survive this wiring.
+# CM051 #2564 moved the probe glob from :83 to :100 (the --read-only /
+# --allow-writes flag parsing grew between EX_CANNOT_RUN and the glob); :42
+# and :44 are unaffected since nothing was inserted above them.
 [ "$(sed -n '42p' "$RUNNER")" = 'PROBE_DIR="$HERE/probes"' ] \
     && [ "$(sed -n '44p' "$RUNNER")" = 'EX_CANNOT_RUN=78' ] \
-    && [ "$(sed -n '83p' "$RUNNER")" = 'for f in "$PROBE_DIR"/*.sh; do' ]
-arm "the runner's three cited lines (:42 :44 :83) still say what is cited" $? \
-    "42=[$(sed -n '42p' "$RUNNER")] 44=[$(sed -n '44p' "$RUNNER")] 83=[$(sed -n '83p' "$RUNNER")]"
+    && [ "$(sed -n '100p' "$RUNNER")" = 'for f in "$PROBE_DIR"/*.sh; do' ]
+arm "the runner's three cited lines (:42 :44 :100) still say what is cited" $? \
+    "42=[$(sed -n '42p' "$RUNNER")] 44=[$(sed -n '44p' "$RUNNER")] 100=[$(sed -n '100p' "$RUNNER")]"
 
 # ONE RESOLVER, NOT TWO. The lib must ask the probe where the journal is, or a
 # seed could count rows in a file the probe never reads and report SEEDED while
