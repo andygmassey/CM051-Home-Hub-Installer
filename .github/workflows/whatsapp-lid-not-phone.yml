@@ -1,0 +1,74 @@
+# CM051 #2543: a WhatsApp LID (linked-device id) presented through the
+# ordinary phone-JID suffix (@s.whatsapp.net, not only @lid) must never be
+# written as a "phone" identifier or rendered as a digit-shaped displayName.
+#
+# Runs against THIS vendored copy of pwg_ingest.py (vendor/ostler_fda), the
+# one that actually ships in the DMG -- this tree carries its own grafts
+# (_creation_name_triples / _upsert_display_name, v1018-D658/D659) that
+# HR015's own copy does not, so a test proven only against HR015 proves
+# nothing about what a customer runs. See HR015 PR #1017 for the
+# upstream-converging fix this mirrors.
+name: whatsapp-lid-not-phone
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'vendor/ostler_fda/whatsapp_history.py'
+      - 'vendor/ostler_fda/tests/test_whatsapp_lid_not_phone.py'
+      - '.github/workflows/whatsapp-lid-not-phone.yml'
+  pull_request:
+    paths:
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'vendor/ostler_fda/whatsapp_history.py'
+      - 'vendor/ostler_fda/tests/test_whatsapp_lid_not_phone.py'
+      - '.github/workflows/whatsapp-lid-not-phone.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  whatsapp-lid-not-phone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # httpx, nameparser, phonenumbers: pwg_ingest's own runtime
+      # dependencies (vendor/ostler_fda/pyproject.toml), all imported at
+      # module scope either directly or via identifier_quality. Missing any
+      # one makes pytest exit 2 on COLLECTION -- not a failing assertion, an
+      # unimportable module.
+      - name: Install pytest and the module's runtime dependencies
+        run: python -m pip install --quiet pytest httpx nameparser phonenumbers
+      # `from ostler_fda import pwg_ingest` needs `vendor/` on sys.path.
+      # `python -m pytest` inserts the CURRENT WORKING DIRECTORY as
+      # sys.path[0] (python -m semantics), so running from inside vendor/
+      # makes ostler_fda importable as a top-level package with no
+      # PYTHONPATH hack and no sys.path.insert inside the test file itself.
+      #
+      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE, same reasoning as
+      # contact-card-repair.yml: a failing floor in a separate step would
+      # SKIP the run below and hide the real result behind an earlier red.
+      - name: A WhatsApp LID is never written or shown as a phone number
+        run: |
+          cd vendor
+          n="$(python -m pytest ostler_fda/tests/test_whatsapp_lid_not_phone.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 13 ]; then
+            echo "REFUSING: expected at least 13 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest ostler_fda/tests/test_whatsapp_lid_not_phone.py -v

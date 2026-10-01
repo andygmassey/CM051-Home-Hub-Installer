@@ -1,0 +1,75 @@
+# CM051 #2543: the LID-as-phone repair (CM041 #181, vendored at
+# vendor/cm041/identity_resolver/repair_lid_as_phone.py) must actually be
+# tested against the copy that ships, and install.sh's one-time upgrade step
+# that invokes it must never be able to abort the customer's install.
+name: repair-lid-as-phone-vendored
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm041/identity_resolver/repair_lid_as_phone.py'
+      - 'vendor/cm041/identity_resolver/normalise.py'
+      - 'tests/test_repair_lid_as_phone_vendored.py'
+      - 'tests/test_repair_lid_as_phone_marker_skip.sh'
+      - 'install.sh'
+      - '.github/workflows/repair-lid-as-phone-vendored.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm041/identity_resolver/repair_lid_as_phone.py'
+      - 'vendor/cm041/identity_resolver/normalise.py'
+      - 'tests/test_repair_lid_as_phone_vendored.py'
+      - 'tests/test_repair_lid_as_phone_marker_skip.sh'
+      - 'install.sh'
+      - '.github/workflows/repair-lid-as-phone-vendored.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  vendored-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # httpx, phonenumbers: repair_lid_as_phone.py's own runtime deps.
+      # rapidfuzz: normalise.py imports `from rapidfuzz.distance import
+      # JaroWinkler` at module scope, and repair_lid_as_phone.py imports
+      # `from identity_resolver.normalise import is_valid_phone` -- so
+      # importing the repair module transitively executes normalise.py's
+      # top-level imports. Missing any of the three makes pytest exit 2 on
+      # COLLECTION, not a failing assertion.
+      - name: Install pytest and the vendored module's runtime dependencies
+        run: python -m pip install --quiet pytest httpx phonenumbers rapidfuzz
+      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE, same reasoning as
+      # contact-card-repair.yml: a failing floor in a separate step would SKIP
+      # the run below and hide the real result behind an earlier red.
+      - name: The LID-as-phone repair, against the copy that ships
+        run: |
+          n="$(python -m pytest tests/test_repair_lid_as_phone_vendored.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 24 ]; then
+            echo "REFUSING: expected at least 24 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_repair_lid_as_phone_vendored.py -v
+
+  marker-skip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: install.sh's one-time repair step runs, skips, and never aborts the install
+        run: bash tests/test_repair_lid_as_phone_marker_skip.sh
