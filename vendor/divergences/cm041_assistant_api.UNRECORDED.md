@@ -164,3 +164,19 @@ mailbox. Judged by the local part, never the domain. Guarded by
 `tests/test_role_addresses_are_not_listed_as_people.py`. Recorded here, not as
 a patch, for the same reason as the grafts above. Retire by landing it in
 CM041 and re-pinning.
+
+## Fourth graft: the Hub's own people count applies the locked nameless filter (CM051 #2568, 2026-10-01)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
+one `continue` in `people_list`, replacing `if not name: continue` with
+`if _is_nameless_name(name): continue` (the role-address check above still
+runs right after it, unchanged). Shape: the People LIST only; nothing is
+deleted. Reason: `if not name` only caught an EMPTY display name -- case 1
+of `_is_nameless_name`'s three. A WhatsApp-JID-shaped or bare-phone-shaped
+"name" (cases 2 and 3) passed straight through, so the Hub's own count
+included rows the wiki (`compiler/nameless.py`) and iOS (`PersonNameFilter`)
+both hide -- the Hub/wiki count gap. `_is_nameless_name` itself is untouched
+(no new predicate, reused the LOCKED one, Ref #664). Guarded by
+`tests/test_nameless_filter_applies_to_the_hub_people_count.py`. Recorded
+here, not as a patch, for the same reason as the grafts above. Retire by
+landing it in CM041 and re-pinning.
