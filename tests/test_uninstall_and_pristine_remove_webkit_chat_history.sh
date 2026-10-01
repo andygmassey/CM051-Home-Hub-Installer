@@ -64,10 +64,38 @@ if [[ -z "$BODY" ]]; then
     echo "CANNOT-RUN: could not extract the ostler-uninstall heredoc body from install.sh"
     exit 2
 fi
+# The removal loop names each path in a `for _u_webkit_path in ...` list and
+# then acts on the LOOP VARIABLE (`rm -rf "$_u_webkit_path"`), not on a
+# literal `rm -rf "${HOME}/<path>"` line per path -- so the proof has two
+# parts: each literal path is named in the list exactly once, and the loop
+# body really does remove whatever the list hands it.
 for frag in "${PATHS_FRAGMENTS[@]}"; do
-    n=$(grep -c "rm -rf \"\${HOME}/${frag}\"" <<<"$BODY" || true)
-    [[ "$n" == "1" ]] || failure "generated uninstaller does not remove \${HOME}/${frag} exactly once (count=$n)"
+    n=$(grep -c "\"\${HOME}/${frag}\"" <<<"$BODY" || true)
+    [[ "$n" == "1" ]] || failure "generated uninstaller does not name \${HOME}/${frag} exactly once (count=$n)"
 done
+n=$(grep -c 'rm -rf "\$_u_webkit_path"' <<<"$BODY" || true)
+[[ "$n" == "1" ]] || failure "generated uninstaller's WebKit-path loop does not remove its own loop variable (count=$n); the five names above are listed but may not be acted on"
+
+echo "-- 3. the hub app is quit BEFORE its WebKit data is removed (a running webview can write it back) --"
+# #2520 review (Archie): the first version of this fix removed the WebKit
+# data before quitting Ostler.app, so a still-running webview could recreate
+# the very directory this script had just deleted. Line numbers are WITHIN
+# the extracted body, so they are comparable to each other.
+QUIT_LINE=$(grep -n '_u_quit_bundle_processes "/Applications/Ostler.app"' <<<"$BODY" | head -1 | cut -d: -f1)
+if [[ -z "$QUIT_LINE" ]]; then
+    failure "generated uninstaller never quits /Applications/Ostler.app at all"
+else
+    for frag in 'Library/WebKit/ai.creativemachines.ostler-hub' \
+                'Library/HTTPStorages/ai.creativemachines.ostler-hub' \
+                'Library/Caches/ai.creativemachines.ostler-hub'; do
+        RM_LINE=$(grep -n "\"\${HOME}/${frag}\"" <<<"$BODY" | head -1 | cut -d: -f1)
+        if [[ -z "$RM_LINE" ]]; then
+            failure "cannot find \${HOME}/${frag} in the body to check ordering against the quit"
+        elif [[ "$RM_LINE" -lt "$QUIT_LINE" ]]; then
+            failure "\${HOME}/${frag} is named for removal at line $RM_LINE, BEFORE the hub app is quit at line $QUIT_LINE; a running webview can write it back"
+        fi
+    done
+fi
 
 # CONTROL: both extractions really found their subject, or every count above
 # of 0 is "found nothing to search" rather than "searched and found nothing".
@@ -77,4 +105,4 @@ n=$(grep -c 'Done. Ostler has been removed' <<<"$BODY" || true)
 [[ "$n" -ge 1 ]] || failure "CONTROL: the extracted uninstaller body does not contain its own closing message; the extraction is not the real heredoc"
 
 if [[ "$FAILED" -ne 0 ]]; then exit 1; fi
-echo "PASS: box_pristine.sh and the generated uninstaller both remove all five WebKit/HTTPStorages/Caches chat-history paths"
+echo "PASS: box_pristine.sh and the generated uninstaller both remove all five WebKit/HTTPStorages/Caches chat-history paths, in an order that cannot race the hub app"

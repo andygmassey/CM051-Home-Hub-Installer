@@ -24801,6 +24801,24 @@ for _u_app in "/Applications/Ostler/Ostler RemoteCapture.app" "/Applications/Ost
 done
 rm -rf "${HOME}/Library/Application Support/Ostler RemoteCapture" 2>/dev/null || true
 
+# ── #2520 REVIEW: QUIT BEFORE YOU DELETE ────────────────────────
+#
+# A running Ostler.app webview owns its own WebKit profile and can write to
+# it at any moment -- including the moment between this script deleting the
+# directory and the OS actually quitting the process. The first version of
+# this fix removed the WebKit data BEFORE the hub app was quit (the quit
+# call used to sit inside the `if [[ -d "/Applications/Ostler.app" ]]` block
+# below), so a webview still alive at that instant could recreate the
+# profile it was just supposed to lose. Quitting first and then deleting is
+# the only order that cannot race: once the process is gone, nothing is
+# left to write the data back.
+#
+# This is also the bundle the walk box was found still running from, two
+# days after its /Applications/Ostler.app directory had gone -- deleting a
+# bundle does not stop a process already executing from it, so the quit is
+# load-bearing on its own, independent of the WebKit race above.
+_u_quit_bundle_processes "/Applications/Ostler.app"
+
 # ── #2520: WebKit site data survives both app removal and the ~/.ostler wipe ──
 #
 # This comment used to say "no Application Support dir to clean: the GUI
@@ -24816,11 +24834,28 @@ rm -rf "${HOME}/Library/Application Support/Ostler RemoteCapture" 2>/dev/null ||
 # removed unconditionally here -- the same category as the LaunchAgents and
 # the .app bundles in this script, not the keep/remove prompt that governs
 # ~/Documents/Ostler below.
-rm -rf "${HOME}/Library/WebKit/ai.creativemachines.ostler-hub" 2>/dev/null || true
-rm -rf "${HOME}/Library/HTTPStorages/ai.creativemachines.ostler-hub" 2>/dev/null || true
-rm -rf "${HOME}/Library/HTTPStorages/ai.ostler.installer" 2>/dev/null || true
-rm -rf "${HOME}/Library/Caches/ai.creativemachines.ostler-hub" 2>/dev/null || true
-rm -rf "${HOME}/Library/Caches/ai.ostler.installer" 2>/dev/null || true
+#
+# EACH REMOVAL IS CHECKED, NOT ASSUMED: `rm -rf ... || true` reports success
+# whether or not anything was actually deleted (a permission error on a
+# WebKit-locked file is swallowed the same way #563 swallowed a failed
+# `docker compose down -v`). So every path is tested for survival after the
+# attempt, and a survivor is named rather than silently left behind.
+for _u_webkit_path in \
+    "${HOME}/Library/WebKit/ai.creativemachines.ostler-hub" \
+    "${HOME}/Library/HTTPStorages/ai.creativemachines.ostler-hub" \
+    "${HOME}/Library/HTTPStorages/ai.ostler.installer" \
+    "${HOME}/Library/Caches/ai.creativemachines.ostler-hub" \
+    "${HOME}/Library/Caches/ai.ostler.installer" \
+; do
+    rm -rf "$_u_webkit_path" 2>/dev/null || sudo rm -rf "$_u_webkit_path" 2>/dev/null || true
+    # `-e` alone follows a symlink and tests false for a dangling one (the
+    # box_pristine.sh lesson, #2520 history): `-L` catches it regardless of
+    # what it points at.
+    if [[ -e "$_u_webkit_path" || -L "$_u_webkit_path" ]]; then
+        echo "  (warning: could not remove ${_u_webkit_path}; it may still hold chat history or other site data)"
+    fi
+done
+unset _u_webkit_path
 
 # ── Ostler.app (Tauri Hub desktop) ─────────────────────────────
 _u_emit UNINSTALL_PHASE "name=hub_app"
@@ -24828,12 +24863,9 @@ _u_emit UNINSTALL_PHASE "name=hub_app"
 # No Application Support dir to clean: the GUI persists state via
 # the gateway, not a per-user data directory. (Its WebKit site data is
 # handled above, immediately before this section, because it is not under
-# Application Support.)
+# Application Support. The hub app was already quit above, before that
+# removal, which is also why this block does not need to quit it again.)
 if [[ -d "/Applications/Ostler.app" ]]; then
-    # Stop it before unlinking it: see _u_quit_bundle_processes. This is the
-    # bundle the walk box was found still running from, two days after its
-    # directory had gone.
-    _u_quit_bundle_processes "/Applications/Ostler.app"
     echo "  Removing /Applications/Ostler.app..."
     rm -rf "/Applications/Ostler.app" 2>/dev/null || \
         sudo rm -rf "/Applications/Ostler.app" 2>/dev/null || \
