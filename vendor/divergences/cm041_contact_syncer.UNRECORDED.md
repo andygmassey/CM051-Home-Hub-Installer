@@ -100,3 +100,21 @@ row protects any file under this tree. The true count is zero.
   method above is written down so that is cheap.
 - `verify = "full"` on this row is therefore a claim the tree does not meet.
   Retiring that properly needs the CM041 owner, not a cut-time edit.
+
+## Added 2026-10-02, CM051 v1.0.107 (ORM): one phone number, one person (CM041 #182, CM051 #2545)
+
+`vendor/cm041/contact_syncer/syncer.py`, two hand-grafted edits from CM041
+86499ed6. This tree is `regenerate_forbidden`, so the patch cannot record them.
+
+1. The Qdrant payload `"phones"` list is normalised to E.164 with
+   `normalise_phone(..., self.resolver.default_country_code)`, and empty values
+   are dropped, so the payload agrees with the Oxigraph identifier it mirrors.
+2. The Oxigraph create path keeps a `seen_phones` set and writes a number
+   once, even when one vCard carries it in two formats.
+
+The normalisation on the create and update paths (the BW-1 graft) was already
+here and is unchanged.
+
+### What a future sync must preserve
+
+Both edits. Retire this entry when the pin moves past 86499ed6.
