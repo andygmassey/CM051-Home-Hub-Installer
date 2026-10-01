@@ -118,3 +118,9 @@ wiki_image_grep|wiki-compiler:/app/compiler|def _render_source_freshness_rows|CM
 wiki_image_grep|wiki-compiler:/app/compiler|def _org_fold_key|CM044 #293 / CM051 #2546-7 organisations case-folded, one people/org count everywhere. 0 -> 1.
 wiki_image_grep|wiki-compiler:/app/compiler|def merge_and_filter_categories|CM044 #294 / CM051 #2549 topic categories merged and filtered (no person names or UI fragments). 0 -> 1.
 wiki_image_grep|wiki-compiler:/app/compiler|def _human_date_relative|CM044 #294 / CM051 #2550 front page dates read as human relative dates. 0 -> 1.
+# --- v1.0.107 wiki v0.1.37 (CM044 a2677196, #295) with CM051 #2576's editor-feed mount. Each line below FAILED
+# against the v0.1.36 digests (site d0664be4, compiler 1200a197) and PASSED against v0.1.37 (site ae3df9a1, compiler
+# 629bab59) through this verifier. The site image content is unchanged by #295, so there is no site marker here.
+wiki_image_grep|wiki-compiler:/app/compiler/pages|def _editor_need_cards|CM044 #295 / CM051 #2537 Needs you now is built from the Hub's front_page.json feed. 0 -> 1. Only useful with CM051 #2576's ~/.ostler/editor read-only mount in the same compose, carried in this PR.
+wiki_image_grep|wiki-compiler:/app/compiler/pages|OSTLER_FRONT_PAGE_JSON|CM044 #295 the compiler reads the feed path from OSTLER_FRONT_PAGE_JSON, which install.sh now sets on the wiki-compiler service. 0 -> 1.
+wiki_image_absent|wiki-compiler:/app/compiler/pages|message\("home_l2_chip"\)|CM044 #295 / CM051 #2534 LOCK: no L2 chip is rendered on a front page card. 1 -> 0 (the locale key itself stays, unused).

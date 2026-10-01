@@ -19499,7 +19499,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:d0664be43044247fe10b615c8208f612118eaf8e44eb1f8390bf58a6db92c320
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:ae3df9a1013d4bd0d4bd85bc5aeee6f278c233eb23f6fc0ce9c7991c47678877
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #
@@ -19543,7 +19543,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:1200a197d0b8fb5264f02c6db77adb68ed95fca0f37cd20759f7d4525e415107
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:629bab59d8e174f09c2915729d1f3738684ba26c000a8222f78d628e27d6e073
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -19700,6 +19700,22 @@ services:
       # daemon's workspace. OSTLER_WORKSPACE stays overridable for operators
       # who relocate the workspace, but the default now matches the reader.
       - ${OSTLER_WORKSPACE:-${HOME}/.ostler/assistant-config/workspace}/state:/workspace/state
+      # 🔴 #979 A FIFTH TIME, SAME TWO REPOS, SAME SHAPE. CM044 #295 (CM051
+      # #2537) made the wiki's "Needs you now" band read the Hub's own feed
+      # (cm059_editor's ~/.ostler/editor/front_page.json) instead of running
+      # an independent SPARQL query that disagreed with the Hub app about
+      # who needs attention. That PR's tests pass because its conftest sets
+      # OSTLER_FRONT_PAGE_JSON itself; nothing in THIS compose ever gave the
+      # container a path to the real file, so in the product the feed is
+      # always absent and the band falls back to the (still-independent)
+      # SPARQL cards -- #2537 ships dark on the Hub-feed path, exactly the
+      # #979 shape: wired and tested, never reaches the container.
+      #
+      # READ-ONLY, same reasoning as every other producer mount in this
+      # service: the compiler CONSUMES this feed and nothing in CM044 writes
+      # it, so a writable mount onto the Hub's own editor state is a
+      # foothold the wiki compiler has no reason to hold.
+      - ${HOME}/.ostler/editor:/editor:ro
     environment:
       # Inside-container path the compiler writes the MkDocs source
       # to. Pinned to /wiki to match the wiki-docs:/wiki mount above.
@@ -19828,6 +19844,14 @@ services:
       # narrative LLM call 404s and Person/Org/Year pages render empty. Mirrors
       # the daemon-config expression at :7779.
       - OLLAMA_MODEL=${AI_MODEL:-qwen3.5:9b}
+      # CM051 #2537 / CM044 #295. The path INSIDE the container, matching the
+      # ${HOME}/.ostler/editor:/editor:ro mount above. compiler/pages/
+      # dashboard.py's _editor_need_cards() honours this to read the Hub's
+      # own "Needs you now" feed; absent or unreadable, it falls back to the
+      # independent SPARQL cards (never an empty band). Without this env var
+      # the mount would be present and unread, which is the same defect one
+      # layer up: a thing that is there and that nothing looks at.
+      - OSTLER_FRONT_PAGE_JSON=/editor/front_page.json
     extra_hosts:
       # macOS / Colima-friendly way to surface the host gateway so the
       # OLLAMA_URL above resolves to the host's Ollama.
@@ -35969,6 +35993,13 @@ progress "Compiling your personal wiki (first run)" "wiki_compile"
 # customer would diagnose. mkdir -p is idempotent so re-runs
 # of install.sh are harmless.
 mkdir -p "${USER_FACING_ROOT}/Wiki" "${USER_FACING_ROOT}/Wiki/_images"
+# CM051 #2537: same reasoning for the ${HOME}/.ostler/editor:/editor:ro
+# mount. Phase 3.14d-editor's LaunchAgent (RunAtLoad) ordinarily creates
+# this directory itself on its first tick, which runs before this phase --
+# but that is an ordering ASSUMPTION about a different section, and this is
+# the same class of defect #979 already hit four times. Idempotent and
+# explicit, same as the Wiki tree above.
+mkdir -p "${HOME}/.ostler/editor"
 
 WIKI_FIRST_COMPILE_OK=false
 cd "$OSTLER_DIR"

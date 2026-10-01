@@ -1,0 +1,33 @@
+# editor-feed-gate -- the shipped compose gives the wiki-compiler the Hub's
+# front_page.json (CM051 #2576, CM044 #295). The v0.1.37 compiler builds
+# "Needs you now" from that feed; without the read-only ~/.ostler/editor mount
+# and OSTLER_FRONT_PAGE_JSON it silently falls back to the wiki's own cards.
+# Wired here because verify_test_wiring.sh found the test started by nothing.
+name: editor-feed-gate
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_the_shipped_compose_mounts_the_editor_feed.sh'
+      - '.github/workflows/editor-feed-gate.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  editor-feed-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: the shipped compose mounts the Hub editor feed into the wiki-compiler
+        run: bash tests/test_the_shipped_compose_mounts_the_editor_feed.sh
