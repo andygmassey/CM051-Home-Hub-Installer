@@ -146,6 +146,34 @@ def normalise_phone(raw: str, default_country_code: int = 852) -> str:
     return cleaned
 
 
+def is_valid_phone(raw: str, default_country_code: int = 852) -> bool:
+    """True when `raw` parses as a genuine, valid phone number.
+
+    Mirrors ``normalise_phone``'s parse strategy exactly, but reports
+    validity instead of silently falling back to the uncleaned input.
+    ``normalise_phone`` is for "give me the best E.164 rendering, or the raw
+    string if you can't" -- a caller cannot tell from its return value alone
+    whether the input was ever a real phone number (an unchanged string
+    could mean a genuine failure to format, OR mean "was never a phone
+    number to begin with"). This answers that question directly: callers
+    that must refuse a non-phone value outright (CM051 #2543 -- a WhatsApp
+    LID is 14-15 digits and must never be written out as a phone number)
+    need this, not an inference from whether the string changed.
+    """
+    cleaned = (raw or "").strip()
+    if not cleaned:
+        return False
+    try:
+        parsed = phonenumbers.parse(cleaned, None)
+    except phonenumbers.NumberParseException:
+        try:
+            region = _country_code_to_region(default_country_code)
+            parsed = phonenumbers.parse(cleaned, region)
+        except phonenumbers.NumberParseException:
+            return False
+    return phonenumbers.is_valid_number(parsed)
+
+
 def normalise_email(email: str) -> str:
     return email.strip().lower()
 

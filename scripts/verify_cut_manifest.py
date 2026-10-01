@@ -2860,20 +2860,34 @@ def check_pinned_artefact_freshness(entry: dict, ctx: dict) -> Result:
 #      sets PR_NUMBER and passes `--require-kind pr_branch_not_stale_vs_main`.
 #      With that flag an all-SKIP outcome exits 3 (CANNOT-RUN), so the row can
 #      never again be green by being unreachable.
-#   2. `gh api repos/{this_repo}/pulls/{n}` -> base.sha, head.sha, base.ref,
-#      merge_commit_sha.
-#   3. `gh api repos/{this_repo}/compare/{base.sha}...{base.ref}` where
-#      base.ref is HEAD of the target branch. Count commits main has that
-#      the PR branch does not.
+#   2. `gh api repos/{this_repo}/pulls/{n}` -> head.sha, base.ref.
+#   3. `gh api repos/{this_repo}/compare/{head.sha}...{main_tip}` where
+#      main_tip is the CURRENT HEAD of base.ref (fetched live via
+#      repos/{this_repo}/branches/{base.ref}, never cached). Count commits
+#      main has that the PR branch's CURRENT head does not.
 #   4. If count > max_commits_behind (default 10) -> FAIL, list the
 #      diverging commits + merge-recovery instructions (merge, never
 #      rebase: a rebase rewrites shas so `git merge-base --is-ancestor`
 #      can no longer prove the work landed).
 #
+# 🔴 NOT `base.sha`. `pulls/{n}.base.sha` is the commit this branch forked
+# FROM, frozen the moment the PR was opened; it never moves again no matter
+# how many times `main` is merged INTO the branch afterwards. A long-lived PR
+# that keeps itself current by periodically merging main in therefore read as
+# "N commits behind" forever, where N only ever grows -- comparing a frozen
+# fork point against today's main measures how far main has travelled since
+# the PR opened, not whether the branch has kept up. `pulls/{n}.head.sha` is
+# the branch's ACTUAL current tip, which moves on every push including a
+# "merge main into branch" push, so comparing THAT against main's tip is the
+# only version of this question with a live answer. Found 2026-10-01 running
+# this primitive against CM051 #2569, which merges main in routinely and
+# still read stale.
+#
 # Fail-closed on any API error. Skips when PR_NUMBER unset OR when
 # GITHUB_REPOSITORY unset -- both required for the primitive to apply -- and
-# when the PR is no longer open, because base.sha freezes at that moment and
-# the comparison stops meaning anything (see the block inside the function).
+# when the PR is no longer open, because head.sha stops moving at that moment
+# and the comparison stops meaning anything (see the block inside the
+# function).
 # ---------------------------------------------------------------------------
 
 def check_pr_branch_not_stale_vs_main(entry: dict, ctx: dict) -> Result:
@@ -2922,10 +2936,10 @@ def check_pr_branch_not_stale_vs_main(entry: dict, ctx: dict) -> Result:
                       entry.get("source_pr", ""))
 
     # A MERGED OR CLOSED PR HAS NO ANSWER TO THIS QUESTION, and asking anyway
-    # produces a confident wrong one. `pulls/{n}.base.sha` is FROZEN once a PR
-    # leaves the open state, so the compare below measures the branch against a
-    # base nobody is merging into any more and reports a huge "behind" count for
-    # work that has already landed.
+    # produces a confident wrong one. `pulls/{n}.head.sha` stops moving once a
+    # PR leaves the open state, so the compare below measures a branch nobody
+    # is pushing to any more and can report a stale-looking count for work
+    # that has already landed.
     #
     # Found by running this primitive by hand on #1124 and #1118 on 2026-08-27:
     # both reported "22 commits behind, over the threshold of 10" and I
@@ -2945,40 +2959,47 @@ def check_pr_branch_not_stale_vs_main(entry: dict, ctx: dict) -> Result:
                       f"PR #{pr_number} on {repo} is {pr_state}"
                       + (f" (merged {merged})" if merged else "")
                       + ". Staleness is a question about a branch someone still "
-                      "intends to merge; base.sha is frozen once a PR closes, so "
-                      "comparing it would report a large behind-count for work "
+                      "intends to merge; head.sha stops moving once a PR closes, "
+                      "so comparing it would report a behind-count for work "
                       "that has already landed. Not measured.",
                       entry.get("source_pr", ""))
 
     base = pr.get("base") or {}
-    base_sha = base.get("sha", "")
     base_ref = base.get("ref", "")
-    if not base_sha or not base_ref:
+    # 🔴 NOT base.sha. See the module-level comment above this function: it
+    # freezes at PR creation and never moves when main is merged into the
+    # branch, which is routine on long-lived PRs in this repo. head.sha is
+    # the branch's ACTUAL current tip and moves on every push.
+    pr_head = pr.get("head") or {}
+    pr_head_sha = pr_head.get("sha", "")
+    if not pr_head_sha or not base_ref:
         return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "FAIL",
-                      f"PR #{pr_number} missing base.sha or base.ref",
+                      f"PR #{pr_number} missing head.sha or base.ref",
                       entry.get("source_pr", ""))
 
-    # Fetch current HEAD of the target branch.
+    # Fetch current HEAD of the target branch. LIVE, never cached: this is
+    # the second half of the comparison and it is exactly as time-sensitive
+    # as pr_head_sha.
     branch, err = _gh_api_json(f"repos/{repo}/branches/{base_ref}", token)
     if err or not isinstance(branch, dict):
         return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "FAIL",
                       f"fetching {base_ref} HEAD for {repo}: {err or 'unexpected shape'}",
                       entry.get("source_pr", ""))
-    head_sha = (branch.get("commit") or {}).get("sha", "")
-    if not head_sha:
+    main_tip_sha = (branch.get("commit") or {}).get("sha", "")
+    if not main_tip_sha:
         return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "FAIL",
                       f"branch response missing commit.sha: {branch}",
                       entry.get("source_pr", ""))
 
-    if base_sha == head_sha:
+    if pr_head_sha == main_tip_sha:
         return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "PASS",
-                      f"PR #{pr_number} branch is up to date with {base_ref} ({head_sha[:8]})",
+                      f"PR #{pr_number} branch is up to date with {base_ref} ({main_tip_sha[:8]})",
                       entry.get("source_pr", ""))
 
-    compare, err = _gh_api_json(f"repos/{repo}/compare/{base_sha}...{head_sha}", token)
+    compare, err = _gh_api_json(f"repos/{repo}/compare/{pr_head_sha}...{main_tip_sha}", token)
     if err or not isinstance(compare, dict):
         return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "FAIL",
-                      f"comparing {base_sha[:8]}...{head_sha[:8]}: {err or 'unexpected shape'}",
+                      f"comparing {pr_head_sha[:8]}...{main_tip_sha[:8]}: {err or 'unexpected shape'}",
                       entry.get("source_pr", ""))
 
     ahead_by = int(compare.get("ahead_by") or 0)
@@ -3006,7 +3027,7 @@ def check_pr_branch_not_stale_vs_main(entry: dict, ctx: dict) -> Result:
         surviving.append((c.get("sha", "")[:8], first_line[:120]))
 
     non_ignored_total = len(surviving) + uninspected
-    denom = (f"compare {base_sha[:8]}...{head_sha[:8]}: ahead_by={ahead_by}, "
+    denom = (f"compare {pr_head_sha[:8]}...{main_tip_sha[:8]}: ahead_by={ahead_by}, "
              f"{len(commits)} commit message(s) inspected, {ignored} matched "
              f"ignore_commits_matching={ignore_patterns or '[]'}, "
              f"{uninspected} NOT inspected (GitHub caps .commits at 250) and counted "
@@ -3014,17 +3035,17 @@ def check_pr_branch_not_stale_vs_main(entry: dict, ctx: dict) -> Result:
 
     if non_ignored_total <= max_behind:
         return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "PASS",
-                      f"PR #{pr_number} branch base is {ahead_by} commit(s) behind {base_ref} "
-                      f"HEAD ({head_sha[:8]}); {non_ignored_total} non-ignored, within "
-                      f"max_commits_behind={max_behind}. {denom}",
+                      f"PR #{pr_number} branch ({pr_head_sha[:8]}) is {ahead_by} commit(s) behind "
+                      f"{base_ref} HEAD ({main_tip_sha[:8]}); {non_ignored_total} non-ignored, "
+                      f"within max_commits_behind={max_behind}. {denom}",
                       entry.get("source_pr", ""))
 
-    lines = [f"PR #{pr_number} branch base ({base_sha[:8]}) is {non_ignored_total} non-ignored "
-             f"commit(s) behind {base_ref} HEAD ({head_sha[:8]}); "
+    lines = [f"PR #{pr_number} branch ({pr_head_sha[:8]}) is {non_ignored_total} non-ignored "
+             f"commit(s) behind {base_ref} HEAD ({main_tip_sha[:8]}); "
              f"max_commits_behind={max_behind} exceeded.",
              f"measured: {denom}",
-             f"expected: at most {max_behind} non-ignored commit(s) between the PR base and "
-             f"{base_ref} HEAD on {repo}",
+             f"expected: at most {max_behind} non-ignored commit(s) between the PR branch head "
+             f"and {base_ref} HEAD on {repo}",
              "the commits this branch would merge WITHOUT:"]
     for short, subj in surviving[:10]:
         lines.append(f"    {short} {subj}")

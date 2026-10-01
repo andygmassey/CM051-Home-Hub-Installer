@@ -466,6 +466,145 @@ A future sync must keep both files and the three routes. Guarded by
 tests/test_doctor_routines_are_measured_live.py and
 tests/test_remote_access_reads_the_installers_tailscale.py (vendor-integrity.yml).
 
+## Added 2026-10-01, CM051 v1.0.107 (people-correctness agent) -- `ostler_fda`, a WhatsApp LID stopped being written as a phone number (#2543)
+
+Not re-run against this PR specifically (the tool's prior refusal on this
+tree, logged above under "The refusal, measured", was a round-trip
+self-check failure and a RE-PIN limb -- neither is affected by a graft that
+does not move the pin -- and re-running it carries real risk of a long hang
+against a contended HR015 checkout, which is why it was not attempted again
+here). Recorded by location and shape only, following the established
+pattern for this tree rather than a fresh tool run.
+
+### What was grafted, location and shape only
+
+- `vendor/ostler_fda/pwg_ingest.py`: new `_whatsapp_jid_is_genuine_phone(local)`,
+  validating with `phonenumbers.is_valid_number` rather than `str.isdigit()`.
+  `_whatsapp_display_name` and `_whatsapp_phone_e164` both call it before
+  treating a WhatsApp JID's local part as a phone number; `_whatsapp_phone_e164`
+  now returns `None` (was: always a string) when the local part is all-digits
+  but not a genuine phone. Both call sites inside `ingest_whatsapp` (the
+  "create" branch and the separate "person already exists" enrich branch) now
+  write `pwg:identifierType "whatsapp_lid"` instead of `"phone"` when that
+  happens, and the enrich branch additionally now writes the NORMALISED E.164
+  value instead of the raw JID local-part it wrote before (a second,
+  independent format-mismatch bug in the same branch, unrelated to the LID
+  fix but found and fixed alongside it). `import phonenumbers` added;
+  `phonenumbers>=8.13.0` added to `pyproject.toml`'s `dependencies`.
+
+WHY: WhatsApp's LID privacy system can present a 14-15 digit linked-device id
+through the ORDINARY `@s.whatsapp.net` phone-JID suffix, not only the
+`@lid`-suffixed form the existing BW-4 guard already catches. Every digit
+check in this module asked only "is the local part all-digits", true for
+both a genuine phone-rooted JID and an LID presented this way, so the LID
+sailed through as a `"phone"` identifier AND, via the display-name helper,
+as the literal digits in `pwg:displayName` -- CM051 #2543, "15-digit phone
+numbers shown twice" on the v1.0.106 walk. Traced from the consumer
+(read-only, counts-only query against the live Oxigraph store on the walk
+box): 19 people carried a LID-shaped `"phone"` identifier; 12 of those also
+carried the same LID digits directly as `pwg:displayName`, and all 12 had a
+full 36-char dashed-UUID person URI -- this tree's own `uuid5`-based minting
+convention (`_person_id_from_identifier`), not CM041's. Confirmed the same
+defect in BOTH the HR015 source (fixed separately, HR015 PR #1017, kept
+converging per Archie's instruction) and this vendored copy, byte-for-byte
+identical logic, before grafting here.
+
+### What a future sync must preserve
+
+Both call sites' `id_type`/`id_value` branching inside `ingest_whatsapp`, and
+the new `_whatsapp_jid_is_genuine_phone` helper. Gate:
+`vendor/ostler_fda/tests/test_whatsapp_lid_not_phone.py`, including a test
+proving the discriminator is proven rather than assumed -- a synthetic
+15-digit string whose LEADING digits form a real, allocated country code
+(the UK's, "44") is still rejected, because validity depends on the FULL
+number matching an allocated length/pattern, not merely sharing a calling
+code prefix. One pre-existing test in
+`vendor/ostler_fda/tests/test_provisional_display_name.py` used the UK
+mobile OFCOM drama range (+44 7700 900xxx), which is reserved but NOT
+phonenumbers-valid (checked, not assumed) -- swapped for the OFCOM
+LANDLINE drama range (020 7946 0xxx), which is both reserved and valid, so
+the test still exercises the real code path instead of silently hitting the
+new "not a genuine phone" branch.
+
+### A related, NOT fixed, out-of-scope finding from the same sweep
+
+`vendor/cm048_pipeline/src/ingest.py`'s `_normalise_chat_identifier` carries
+a DELIBERATE, documented duplicate of this same digit-check pattern
+(`("+" + local) if local.isdigit() else raw`, no validity check) for its
+human-facing `pwg:chatIdentifier` literal -- the file's own comment states
+it is "duplicated (not imported) because CM048 ships independently of
+ostler_fda". Same vulnerability class, different tree, different pin, and
+outside what CM051 #2543 named. Not touched here; flagged for whoever owns
+`cm048_pipeline`'s next pass.
+## Added 2026-10-01, CM051 v1.0.107 (people-correctness agent) -- `cm041/identity_resolver`, a one-time repair for already-written WhatsApp-LID-as-phone rows (#2543)
+
+**UPDATED 2026-10-01 (same day, Archie): CM041 PR #181 MERGED as
+`b9deb6efab984730326106c4c1bc929c0f79599b`.** The graft below was first cut
+from #181's commit `9086498`, a point on that PR's branch that PREDATES the
+Qdrant-payload patch and the backup/restore machinery Archie's review then
+required (#181 HELD, then re-reviewed, then merged). That graft has been
+REPLACED with the content at the merge commit, not re-dated in place --
+`9086498` is stale and must not be read as current. `cmp`/sha256 against
+`source@b9deb6ef` is the proof, not the PR-merged state alone.
+
+Not run against the regeneration tool. `identity_resolver` carries no
+`regenerate_forbidden` flag (unlike `contact_syncer`), but the pin
+(`pinned_sha = 9e260949ca9776c72038dc4734352e9508c0c494`, see
+VENDOR_MANIFEST.toml) sits far behind `b9deb6ef` on a tree already carrying
+many individually-adjudicated grafts and an existing unrecorded-divergence
+debt (`resolver.py`/`batch_resolver.py` do not reconstruct from the pin plus
+patch; see that row's own history). Re-pinning the whole tree is a separate,
+larger decision than landing this one fix, so this stays a targeted graft of
+two files, by location and shape, per this file's established pattern,
+rather than attempted against the regeneration tool and refused for the log.
+
+### What was grafted, location and shape only
+
+- `vendor/cm041/identity_resolver/normalise.py`: `is_valid_phone(raw,
+  default_country_code)`. Unchanged between `9086498` and `b9deb6ef`
+  (diffed to confirm), and the vendored copy is byte-identical to
+  `source@b9deb6ef:identity_resolver/normalise.py` (sha256
+  `a0aeb1427bf62fd006e5cefdc523409ca9fed8e28bd130b9cad0acd802e9d7c4`, both
+  sides).
+- `vendor/cm041/identity_resolver/repair_lid_as_phone.py` -- NEW FILE.
+  Idempotent, dry-run-default repair for CM051 #2543's two writer
+  fingerprints: Pass A1 (CM041 whatsapp_bridge -- a bogus "phone"
+  identifier with a sibling "whatsapp_lid" identifier sharing the same
+  invalid value) and Pass A2 (ostler_fda's ingest_whatsapp, the writer that
+  actually ships, CM051 #2577 -- only one invalid "phone" identifier, no
+  sibling, scoped by `pwg:source "whatsapp_fda"`). ALSO patches the matching
+  Qdrant `people` payload (the Hub People list and `people_stores_reconcile`
+  read Qdrant, not Oxigraph) and backs up every changed row to a jsonl under
+  `~/.ostler/backups/` before writing, restorable via
+  `--restore-from-backup`. Reproduced verbatim from
+  `source@b9deb6ef:identity_resolver/repair_lid_as_phone.py`, not
+  paraphrased -- byte-identical, sha256
+  `a75fb9dea3a604da2fab39b52e98c8389c57c5db56c4fd44e3e37684b4e38caf` both
+  sides (`cmp` also run, exit 0).
+
+WHY: the writer-side fix (this tree's existing `_canonical_key_conflict`/
+`_identifier_match_trustworthy` grafts plus PR #181's forward-fix) stops NEW
+bad rows. It does nothing for rows a box already wrote before either fix
+existed. Measured, read-only, on the macmini16-walk box: 33 rows match the
+ostler_fda signature, 0 match the CM041 bridge signature (that writer has
+never run there -- see CM051 #2570's tracking note on this same tree for the
+corroborating 0-whatsapp_lid-identifiers finding).
+
+### What a future sync must preserve
+
+Both files. Gate: `tests/test_repair_lid_as_phone_vendored.py` at the CM051
+repo root (not under `vendor/cm041/identity_resolver/tests/`, which this
+tree does not vendor at all -- following the same top-level placement
+`tests/test_migration_marker_guard_fresh_install.py` already uses for a
+vendored-module test). Also: `install.sh`'s one-time upgrade step (marker
+`state/repair_lid_as_phone_v1.done`, same pattern as
+`state/email_reclassify_v3.done`) invokes
+`identity_resolver.repair_lid_as_phone` by module name -- a future re-vendor
+that renames or drops the file breaks that invocation silently (ImportError
+inside a subshell, swallowed into the step's own failure-retry path) unless
+`tests/test_repair_lid_as_phone_marker_skip.sh`'s extraction-and-run check
+is kept passing.
+
 ## Added 2026-10-01, CM051 #2526/#2529 -- `doctor`, a dedicated routine is believed over a stale sentinel
 
 Tool re-run on 2026-10-01: `scripts/regenerate_divergence_patch.sh doctor`
