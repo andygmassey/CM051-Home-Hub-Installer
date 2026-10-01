@@ -6735,7 +6735,7 @@ open_issues:
   - issue: 2562
     repo: CM051
     title: 'Hub People and Timeline use an em dash as the empty-value placeholder'
-    gate: 'NOT BLOCKING for v1.0.107 (QA filing; Archie may raise it). Registered in the same action as the filing. SCREEN: Hub People list and one Timeline row. EXPECTED: an empty contact column is empty or reads No contact details; no em dash in Hub copy. CLOSES ON: a walk where hub_screens_customer_read "customer text: no em dash on any Hub screen or wiki page" reads PASS, having been RED on the v1.0.106 walk box (CM051 #2561).'
+    gate: 'BLOCKING for v1.0.107 (Aesop, 2026-10-01). Registered in the same action as the filing. SCREEN: Hub People list and one Timeline row. EXPECTED: an empty contact column is empty or reads No contact details; no em dash in Hub copy. CLOSES ON: a walk where hub_screens_customer_read "customer text: no em dash on any Hub screen or wiki page" reads PASS, having been RED on the v1.0.106 walk box (CM051 #2561).'
 
   - issue: 2563
     repo: CM051
