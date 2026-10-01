@@ -571,4 +571,3 @@ Guarded by tests/test_source_status_prefers_a_live_routine_over_a_stale_sentinel
 tests/test_source_status_reports_ongoing_not_just_install.sh /
 tests/test_the_source_table_covers_the_fda_extract_family.sh, both updated
 only to extract the two new helper functions.
->>>>>>> origin/main
