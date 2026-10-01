@@ -15,6 +15,7 @@ on:
       - 'vendor/cm059_editor/compiler/frontpage.py'
       - 'tests/test_the_timeline_opens_on_today.py'
       - 'tests/test_the_hub_app_can_record_card_feedback.py'
+      - 'tests/test_editor_feedback_accepts_the_real_client_action_strings.py'
       - 'tests/test_the_front_page_cards_only_real_interests.py'
       - '.github/workflows/hub-screens-and-106c.yml'
   push:
@@ -54,6 +55,9 @@ jobs:
       - name: The Hub app may record a Front Page card tap
         if: always()
         run: python3 tests/test_the_hub_app_can_record_card_feedback.py
+      - name: The feedback route accepts the real clients' action strings
+        if: always()
+        run: python3 tests/test_editor_feedback_accepts_the_real_client_action_strings.py
       - name: The Front Page cards only real interests
         if: always()
         run: python3 tests/test_the_front_page_cards_only_real_interests.py

@@ -536,3 +536,39 @@ it is "duplicated (not imported) because CM048 ships independently of
 ostler_fda". Same vulnerability class, different tree, different pin, and
 outside what CM051 #2543 named. Not touched here; flagged for whoever owns
 `cm048_pipeline`'s next pass.
+
+## Added 2026-10-01, CM051 #2526/#2529 -- `doctor`, a dedicated routine is believed over a stale sentinel
+
+Tool re-run on 2026-10-01: `scripts/regenerate_divergence_patch.sh doctor`
+refused again, exit 1, same ban as every prior entry for this tree (checked
+before the source checkout; declared reason unchanged since #2219). So this
+edit is recorded here by location and shape, not by patch.
+
+- `vendor/doctor/agent/web_ui.py`, inside `read_source_status()`'s ongoing-
+  status merge loop: two new module-level helpers,
+  `_SOURCE_ROUTINE_LABELS` (which dedicated LaunchAgent routine, if any,
+  speaks for a given canonical source -- email, imessage, whatsapp) and
+  `_ROUTINE_COUNT_KEYS` (an explicit per-routine allowlist of which key in
+  that routine's `latest` log counts is a trustworthy count; today only
+  `"emitted"`, the one key `routine_status.py`'s own regex fallback pins by
+  code). New functions `_routine_evidence()` and `_routine_run_count()`.
+  When a source's fda-rerun-tick activity record is silent (`ongoing=never`)
+  but its OWN dedicated routine reports a healthy, completed run, the row's
+  `ongoing`/`last_run_at`/`last_success_at` are now taken from that routine
+  instead of staying `never` forever. A stale `no_data`/`not_run`/
+  `unreadable` install-time `status` is upgraded to `ok` only when that
+  routine also supplies an explicitly-keyed, real count -- written to a NEW
+  field, `last_run_count`, never to `item_count` (the install-time total,
+  which this change never touches).
+- `vendor/doctor/agent/routine_status.py`: unchanged. This reuses its
+  existing `read_routine_status()` reader rather than re-implementing it.
+
+A future sync must keep `_SOURCE_ROUTINE_LABELS`, `_ROUTINE_COUNT_KEYS`,
+`_routine_evidence`, `_routine_run_count`, the `last_run_count` field on every
+`/api/v1/sources` row, and the merge-loop call site that consults them.
+Guarded by tests/test_source_status_prefers_a_live_routine_over_a_stale_sentinel.sh
+(cold-box-source-truth.yml) and the pre-existing
+tests/test_source_status_reports_ongoing_not_just_install.sh /
+tests/test_the_source_table_covers_the_fda_extract_family.sh, both updated
+only to extract the two new helper functions.
+>>>>>>> origin/main
