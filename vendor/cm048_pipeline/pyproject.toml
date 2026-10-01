@@ -11,6 +11,10 @@ requires-python = ">=3.11"
 dependencies = [
   "httpx>=0.27,<1.0",
   "PyYAML>=6.0",
+  # _normalise_chat_identifier validates a WhatsApp JID's local part is a
+  # genuine phone number before formatting it as one (CM051 #2578: a
+  # WhatsApp LID is all-digits too, and must not be presented as a phone).
+  "phonenumbers>=8.13.0",
 ]
 
 [project.optional-dependencies]
