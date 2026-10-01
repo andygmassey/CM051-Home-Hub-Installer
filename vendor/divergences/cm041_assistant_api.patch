@@ -310,86 +310,11 @@
 +    return (_count("prompt_eval_count"), _count("eval_count"))
 --- a/API.md
 +++ b/API.md
-@@ -122,75 +122,6 @@
-     "last_contact": "2026-02-14",
-     "notes": "Co-founder of prior startup.",
-     "birthday": "1985-06-12"
--  }
--}
--```
--
--### `GET /api/v1/people/{slug}/enrichment`
--
--Per-slug enrichment payload for the iOS / Hub person card. Where
--`/people/context?name=` is a fuzzy name search that can return several
--matches, this endpoint resolves a single canonical person by wiki slug
--(the stable identifier the People list, search results, and wiki URLs
--already use) and returns the richer body the card wants beyond the list
--basics: organisation, role/title, relationship, how-we-met, notes,
--birthday, identifiers, recent meetings, the relationship signal, the
--MAX `last_contact`, and the per-source `last_contact_by_source`
--breakdown.
--
--The slug is validated against the same pattern as
--`POST /api/v1/people/{slug}/forget` (lowercase ASCII letters, digits,
--hyphens, max 80 chars). Per-person fields use British-English keys and
--the response mirrors `/people/context`'s dual shape (`{"person": {...}}`
--plus the same fields lifted to the envelope top-level). `role` and
--`title` both carry the job title so either CM031 client decodes a value.
--
--Best-effort Qdrant top-up adds `phone` / `email` and a display
--`last_contact` when the graph lacked them; a Qdrant failure is swallowed
--(the graph fields are the source of truth). Additive keys
--(`last_contact_by_source`, `identifiers`, `meetings`, `facts`,
--`relationship_signal`) appear only when the graph has the data.
--
--Status codes:
--
--- `400` malformed slug
--- `404` `{"found": false}` no person resolves to the slug
--- `503` `{"degraded": true}` Oxigraph unreachable
--- `200` `{"found": true, "person": {...}}`
--
--```json
--{
--  "slug": "jane-doe",
--  "found": true,
--  "organisation": "Example Corp",
--  "role": "VP Product",
--  "last_contact": "2026-04-20",
--  "person": {
--    "name": "Jane Doe",
--    "slug": "jane-doe",
--    "person_uri": "urn:ostler:person/jane-doe",
--    "wiki_url": "http://localhost:8044/People/jane-doe/",
--    "organisation": "Example Corp",
--    "title": "VP Product",
--    "role": "VP Product",
--    "relationship": "colleague",
--    "last_contact": "2026-04-20",
--    "last_contact_by_source": {
--      "calendar": "2024-03-01",
--      "whatsapp": "2026-04-20",
--      "email": "2025-11-30",
--      "imessage": "2026-01-05"
--    },
--    "phone": "+10000000000",
--    "email": "jane@example.com",
--    "identifiers": [
--      {"type": "phone", "value": "+10000000000"},
--      {"type": "email", "value": "jane@example.com"}
--    ],
--    "meetings": [
--      {"summary": "Quarterly sync", "date": "2026-02-14", "location": "Room 1"}
--    ],
--    "relationship_signal": {"warmth": "0.7", "trust": "0.6", "observed_at": "2026-03-01T09:00:00Z"}
-   }
- }
- ```
-@@ -290,70 +221,6 @@
+@@ -289,70 +289,6 @@
+ `entries[].timestamp` is normalised to ISO-8601 where parseable;
  unparseable strings flow through unchanged so the client can render
  them rather than silently nilling.
- 
+-
 -### `GET /api/v1/meeting/upcoming?within_minutes=<n>`
 -
 -Enriched pre-meeting briefs for events starting within the next
@@ -453,11 +378,10 @@
 -`{"meetings": [], "degraded": true, "reason": "..."}` + HTTP 200
 -rather than 5xx so callers can keep polling without raising the
 -Hub-offline pill.
--
+ 
  ### `GET /api/v1/suggestions`
  
- Composite for the iOS Today view. Three sections:
-@@ -460,6 +327,66 @@
+@@ -460,6 +396,66 @@
    `~/.zeroclaw/sync-state/` written by the sync paths. Missing markers
    are treated as "never synced" rather than errors.
  
@@ -619,8 +543,7 @@
 +from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
  from pathlib import Path
  from urllib.parse import urlparse, parse_qs
--from datetime import datetime, timedelta
-+from datetime import datetime, timedelta, timezone
+ from datetime import datetime, timedelta, timezone
  
 -PORT = 8089
 +# Port is env-overridable so the customer-install path can bind
@@ -656,22 +579,20 @@
  ICAL_SCRIPT = os.environ.get(
      "ICAL_SCRIPT", os.path.expanduser("~/.zeroclaw/ical-query.sh")
  )
-@@ -326,8 +386,54 @@
- 
- # Characters allowed in a "bare identifier" (phone-like) handle.
+@@ -328,6 +388,109 @@
  _NAMELESS_BARE_ID_CHARS = frozenset("0123456789+-(). ")
-+
-+
+ 
+ 
 +def _is_not_a_person_to_suggest(display_name, user_name=""):
 +    """True when this row must not be SUGGESTED as a person to act on.
- 
++
 +    Complements ``_is_nameless_name`` rather than widening it. That predicate is
 +    the canonical "is this displayable" test and its own docstring says it is
 +    "byte-identical to compiler/nameless.py (CM044 wiki) and PersonNameFilter
 +    (CM031 iOS); locked to prevent cross-surface drift" -- so extending it in
 +    one surface is exactly the drift it exists to stop. This asks a different
 +    and stricter question, and only the SUGGESTION surfaces ask it.
- 
++
 +    🔴 WHY IT EXISTS. Measured on a v1.0.100 box the moment the front page's
 +    signal band started rendering:
 +
@@ -708,10 +629,67 @@
 +    return False
 +
 +
++# Senders that are services, not people. A "gone quiet" card about Skype
++# (a notification and VoIP service, since discontinued) was shown on the
++# v1.0.105 console walk; PayPal before it. Two independent signals, either
++# one enough: the display name is a known service brand, or EVERY address the
++# contact has is a role/automation mailbox. A denylist alone only knows the
++# brands it has seen, which is why the address signal exists.
++_SERVICE_SENDER_NAMES = frozenset({
++    "skype", "paypal", "linkedin", "facebook", "meta", "instagram", "twitter",
++    "x", "google", "gmail", "apple", "icloud", "amazon", "microsoft",
++    "outlook", "teams", "zoom", "slack", "dropbox", "github", "uber",
++    "airbnb", "netflix", "spotify", "whatsapp", "telegram", "ebay",
++    "booking.com", "deliveroo", "revolut", "wise", "stripe", "docusign",
++    "calendly", "eventbrite", "mailchimp", "substack", "medium", "notion",
++})
++_SERVICE_MAILBOX_LOCALPARTS = frozenset({
++    "noreply", "no-reply", "no_reply", "donotreply", "do-not-reply",
++    "notification", "notifications", "notify", "alerts", "alert", "mailer",
++    "mailer-daemon", "postmaster", "news", "newsletter", "info", "support",
++    "help", "hello", "team", "service", "services", "billing", "accounts",
++    "account", "security", "updates", "marketing", "bounce", "automated",
++})
++
++
++_ROLE_ADDRESS_LOCAL_RE = re.compile(
++    r"^(no-?reply|noreply|do-?not-?reply|support|help(desk)?|team|info|news(letter)?|"
++    r"promo(tions?)?|marketing|notifications?|alerts?|hello|sales|billing)([._+-]|$)",
++    re.IGNORECASE,
++)
++
++
++def _is_role_address_name(name):
++    """True when a display name is just an email address at a role or
++    automation mailbox, judged by the LOCAL PART only (the domain says where
++    someone works, not what they are)."""
++    n = (name or "").strip()
++    if "@" not in n or " " in n:
++        return False
++    return bool(_ROLE_ADDRESS_LOCAL_RE.match(n.split("@", 1)[0]))
++
++
++def _is_service_sender(display_name, emails=None):
++    """True when a contact is a service/notification sender, not a person.
++
++    Withheld from reconnect SUGGESTIONS only; never hidden or deleted.
++    """
++    name = (display_name or "").strip().casefold()
++    if name in _SERVICE_SENDER_NAMES:
++        return True
++    addrs = [e for e in (emails or []) if isinstance(e, str) and "@" in e]
++    if addrs and all(
++        e.split("@", 1)[0].strip().casefold() in _SERVICE_MAILBOX_LOCALPARTS
++        for e in addrs
++    ):
++        return True
++    return False
++
++
  def _is_nameless_name(display_name):
      """True when ``display_name`` is a raw handle, not a human name.
  
-@@ -473,6 +579,15 @@
+@@ -473,6 +636,15 @@
      "https://tauri.localhost",
  }
  
@@ -727,14 +705,20 @@
  # ── Memory tab (CM031 iOS Companion v1.0 LB) ─────────────────────────
  # The Memory tab is the customer's window into what Ostler has inferred
  # about them. GET returns the user's own PersonFact rows from Oxigraph
-@@ -495,7 +610,23 @@
- # the existing degraded-when-USER_ID-unset path is preserved (normalise folds
+@@ -496,15 +668,40 @@
  # "" -> the "primary" label, which is wrong for a graph IRI here).
- from identity_resolver.compartment import normalise_user_id as _normalise_user_id
-+from identity_resolver.compartment import (
+ from identity_resolver.compartment import (
+     normalise_user_id as _normalise_user_id,
+-    read_across_graphs as _read_across_graphs,
 +    cm048_user_graph_uris as _cm048_user_graph_uris,
 +    graph_scoped_select as _graph_scoped_select,
-+)
+ )
++# NOT imported: upstream's `read_across_graphs`. CM051's vendored
++# identity_resolver tree (a SEPARATE pin from this one) does not carry it --
++# importing a symbol the deployed sibling tree lacks would crash this
++# service at startup. The four readers below that upstream wraps in it
++# instead rely on `_graph_scoped` (below), CM051's own central scoper,
++# which was ALREADY proven to cover them (see its docstring).
  
 +# The operator's own display name, used ONLY to keep them out of their own
 +# suggestions (see _is_not_a_person_to_suggest). Absent is the safe state: an
@@ -751,10 +735,39 @@
  _raw_user_id = os.environ.get("USER_ID", "").strip()
  USER_ID = _normalise_user_id(_raw_user_id) if _raw_user_id else ""
  USER_URI = (
-@@ -538,6 +669,152 @@
+     f"https://schema.ostler.ai/ontology#user_{USER_ID}" if USER_ID else ""
+ )
+ 
++# Scope matches `_USER_GRAPH_URIS` -- the same graphs the readers below reach
++# via `_graph_scoped`/`_sparql_select`. CM041 writes the default graph; CM048
++# writes this user's conversation-derived data into the named graph(s) this
++# resolves. Used by `_forget_person_update` so a GDPR erasure reaches both.
++_USER_GRAPH_URIS = _cm048_user_graph_uris(_raw_user_id)
++
+ # THE READERS BELOW ASKED THE DEFAULT GRAPH; CM048 WRITES TO A NAMED ONE.
+ #
+ # ONE DEFINITION, in identity_resolver/compartment.py, which is the module
+@@ -520,6 +717,15 @@
+ # four of these sites as UNSCOPED -- it searches for the shared function's
+ # real name, and an alias hides a call site from exactly the check that is
+ # supposed to find it.
++#
++# CM051 DEPARTURE FROM THE ABOVE, STATED HERE SO IT IS NOT MISSED: this tree
++# does NOT import or call `read_across_graphs`. CM051's vendored
++# identity_resolver tree is pinned separately and does not yet carry that
++# symbol; importing it here would crash this service at startup on a real
++# install. The four readers upstream wraps in it instead rely on
++# `_graph_scoped` below, CM051's own central scoper, proven by execution
++# (see its docstring) to cover the same six readers upstream names. Same
++# outcome, different mechanism, and the only one this tree can actually run.
+ 
+ 
+ MEMORY_LIMIT = int(os.environ.get("MEMORY_LIMIT", "50"))
+@@ -558,7 +764,153 @@
+ # TODO(hub-portability): replace with a ZeroClaw HTTP endpoint once it
  # exposes one. Tracked alongside Step 3 in HUB_PORTABILITY_PLAN.md.
  QUEUE_DEPTH_FILE = SYNC_STATE_DIR / "queue_depth"
- 
++
 +# ── Recording state endpoint (CM042 → CM031 Live Activity) ───────────
 +# Source of truth for the iOS Companion's Recording Live Activity. The
 +# CM042 producer writes ~/.ostler/recording_state.json atomically
@@ -895,7 +908,7 @@
 +    if len(iso) != 2 or not iso.isalpha():
 +        return None
 +    return iso
-+
+ 
 +
 +def _recording_requires_all_parties(iso):
 +    """True only when we KNOW the country requires every party to agree."""
@@ -904,70 +917,31 @@
  try:
      from zoneinfo import ZoneInfo
      _LOCAL_TZ = ZoneInfo(TIMEZONE)
-@@ -877,7 +1154,53 @@
- # ===========================================================================
- # People Graph endpoints (CM041 Phase 3)
- # ===========================================================================
-+
-+# Identifies THIS API-server RUN, never the person. The prefix is pinned by
-+# CM051 scripts/usage_journal_producers.tsv (row cm041_identity_resolution,
-+# match_kind session_prefix, match_value "cm041-"); a different prefix here
-+# reports that producer ABSENT and takes the gate red.
-+_USAGE_RUN_ID = "cm041-api-" + datetime.now(timezone.utc).strftime(
-+    "%Y-%m-%dT%H:%M:%SZ"
-+)
-+
-+
-+def _record_embed_usage(payload, model):
-+    """Record one ``enriching`` usage row from an ``/api/embed`` response.
-+
-+    Separate from :func:`_embed_text` so the accounting can be tested without
-+    a network call -- ``_embed_text`` is the one arm no unit test reaches.
+@@ -566,6 +918,20 @@
+     _LOCAL_TZ = None
  
-+    MEASURED, NEVER ESTIMATED: ``tokens_from_ollama`` returns ``(None, None)``
-+    when Ollama reported no counts, and ``record_usage`` then writes nothing.
-+    A guessed row is worse than a missing one on a panel the customer reads
-+    beside a price comparison.
+ 
++def _safe_iso_day(params, key):
++    """Parse an optional ?key=YYYY-MM-DD. Returns (value_or_None, error_or_None).
 +
-+    Never raises: usage accounting must not break the search endpoint it
-+    measures.
++    Strict, because the value is interpolated into a SPARQL FILTER.
 +    """
-+    try:
-+        from _vendor.ostler_usage_journal.usage_journal import (
-+            record_usage,
-+            tokens_from_ollama,
-+        )
-+
-+        prompt, completion = tokens_from_ollama(
-+            payload if isinstance(payload, dict) else {}
-+        )
-+        record_usage(
-+            model=model,
-+            input_tokens=prompt,
-+            output_tokens=completion,
-+            purpose="enriching",
-+            session_id=_USAGE_RUN_ID,
-+        )
-+    except Exception as exc:  # pragma: no cover - defensive
-+        # This file has no logger -- it diagnoses through stderr. Matching that
-+        # rather than introducing a second facility for one line.
-+        print(f"[usage] journal write skipped: {exc}",
-+              file=sys.stderr, flush=True)
++    raw = (params.get(key) or [""])[0].strip()
++    if not raw:
++        return None, None
++    import re as _re
++    if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
++        return None, {"error": "{} must be YYYY-MM-DD".format(key)}
++    return raw, None
 +
 +
- def _embed_text(text):
-     """Embed text via Ollama and return the vector."""
-     data = json.dumps({"model": EMBED_MODEL, "input": [text]}).encode()
-@@ -887,14 +1210,77 @@
-         headers={"Content-Type": "application/json"},
-     )
-     resp = urllib.request.urlopen(req, timeout=30)
--    return json.loads(resp.read())["embeddings"][0]
-+    payload = json.loads(resp.read())
-+    _record_embed_usage(payload, EMBED_MODEL)
-+    return payload["embeddings"][0]
-+
-+
+ def _safe_int(params, key, default):
+     """Parse a query param as int, returning (value, error_dict_or_None).
+ 
+@@ -960,11 +1326,144 @@
+     return payload["embeddings"][0]
+ 
+ 
 +# ----------------------------------------------------------------------
 +# Graph scope (v1018-D012b). ONE implementation, shared -- see
 +# identity_resolver/compartment.py for the full rationale.
@@ -986,9 +960,17 @@
 +# (cm048_pipeline topic_writer.py and last_contact_updater.py each
 +# documented it in their own docstring and fixed only their own surface).
 +# A sixth private copy is how it stayed systemic.
-+_USER_GRAPH_URIS = _cm048_user_graph_uris(_raw_user_id)
-+
-+
++#
++# THE ONLY MECHANISM IN THIS TREE, not one of two. Upstream's per-reader
++# ``read_across_graphs`` (CM041 #175, six readers) is NOT imported here --
++# CM051's vendored identity_resolver tree does not yet carry that symbol
++# (separate pin), so importing it would crash this service at startup. The
++# four readers upstream wraps in it instead have that wrapper call REMOVED
++# here (see each call site) and rely on this central scoper alone, proven
++# by execution to cover the same readers (see the note above
++# ``_sparql_select``'s own docstring). It also covers the GDPR erasure path
++# below and every OTHER ``_sparql_select`` call in this file, which
++# upstream's narrower fix never touched regardless.
 +def _graph_scoped(sparql):
 +    """Scope a SELECT to the default graph plus this user's CM048 graphs."""
 +    return _graph_scoped_select(sparql, _USER_GRAPH_URIS)
@@ -1008,7 +990,71 @@
 +    than inferred from the handler around it.
 +    """
 +    esc_uri = person_uri.replace("\\", "\\\\").replace(">", "%3E")
-+    clauses = [
++
++    # THE FACT NODE, COLLECTED WHILE ITS LINK TO THE PERSON STILL EXISTS.
++    #
++    # The two bare clauses below delete every triple where the person is the
++    # SUBJECT and every triple where they are the OBJECT. The second removes a
++    # fact's LINK to the person and leaves the fact NODE: factText, factSource,
++    # belongsToUser, privacyLevel and createdAt all survive, and the reader
++    # lists facts by belongsToUser, so the sentence the customer asked to have
++    # erased is orphaned rather than erased and is still returned. Measured on
++    # the shipped box 2026-09-18: 47 of 48 orphaned facts created within 100ms
++    # of a forget, against a control with the forget times shifted by one hour
++    # matching 0 of 48. GDPR Article 17, which is this function's own citation.
++    #
++    # ORDER IS LOAD-BEARING: these must run BEFORE the link delete. Moved after
++    # it they match nothing and the repair silently does nothing while looking
++    # correct. tests/test_a_forget_erases_the_fact_not_just_the_link.py drives
++    # that case rather than asserting it.
++    #
++    # SCOPED BY TYPE, AND THAT IS THE WHOLE DESIGN. The obvious form -- delete
++    # every triple of any subject that links to the person -- ERASES BYSTANDERS.
++    # Measured before this was written: a node carrying `spouseOf <person>`
++    # loses its entire record including its own name, and a meeting both people
++    # attended loses its notes and its other attendees. CM041 is a people
++    # graph, so a shared node is the normal case and not a corner:
++    # RelationshipSignal 380, fromConversation 1353. Keying on the fact TYPE
++    # plus the fact-to-person predicate bounds the delete to nodes that exist
++    # only to say something about this person. A meeting is not a PersonFact
++    # and neither is a spouse.
++    #
++    # BOTH VOCABULARIES, because there are two and the smaller one looks like
++    # the only one. CM048 writes its own (see the dual-vocabulary reader's note
++    # below): `a <urn:ostler:Fact> ; <urn:ostler:about>`, NOT pwg. On the box
++    # the pwg arm is 48 facts and the CM048 arm is 1,274, so covering only pwg
++    # would erase four per cent of what was asked for.
++    #
++    # FULL IRIs, NOT `pwg:`. This function returns a bare update with no PREFIX
++    # block -- every caller in this file declares its own -- so a prefixed name
++    # here is a parse error at the store. The namespace is written out rather
++    # than taken from PWG_NS because the erasure is lifted and executed on its
++    # own by its test, which asserts the function's free names are its own
++    # locals; a module global would break that lift.
++    #
++    # NOT COVERED, DELIBERATELY: <urn:ostler:about> is also how a
++    # RelationshipSignal links to a person, which is why the type clause is
++    # load-bearing rather than tidy. Whether a signal about a forgotten person
++    # must also be erased is a live question, and a signal naming two people is
++    # the shared-node problem again. It is not settled by guessing here.
++    fact_shapes = (
++        ("<https://schema.ostler.ai/ontology#PersonFact>",
++         "<https://schema.ostler.ai/ontology#aboutPerson>"),
++        ("<urn:ostler:Fact>", "<urn:ostler:about>"),
++    )
++    clauses = []
++    for graph in graph_uris:
++        for fact_type, about in fact_shapes:
++            clauses.append(
++                "DELETE {{ GRAPH <" + graph + "> {{ ?f ?fp ?fo }} }} "
++                "WHERE {{ GRAPH <" + graph + "> {{ ?f a " + fact_type + " ; "
++                + about + " <{uri}> ; ?fp ?fo }} }};")
++    for fact_type, about in fact_shapes:
++        clauses.append(
++            "DELETE {{ ?f ?fp ?fo }} WHERE {{ ?f a " + fact_type + " ; "
++            + about + " <{uri}> ; ?fp ?fo }};")
++
++    clauses += [
 +        "DELETE {{ <{uri}> ?p ?o }} WHERE {{ <{uri}> ?p ?o }};",
 +        "DELETE {{ ?s ?p <{uri}> }} WHERE {{ ?s ?p <{uri}> }};",
 +    ]
@@ -1022,8 +1068,8 @@
 +            "WHERE {{ GRAPH <" + graph + "> {{ ?s ?p <{uri}> }} }};"
 +        )
 +    return "\n".join(clauses).format(uri=esc_uri)
- 
- 
++
++
  def _sparql_select(sparql):
 -    """Run a SPARQL SELECT on Oxigraph, return list of binding dicts."""
 +    """Run a SPARQL SELECT on Oxigraph, return list of binding dicts.
@@ -1039,10 +1085,11 @@
          headers={
              "Content-Type": "application/sparql-query",
              "Accept": "application/sparql-results+json",
-@@ -1199,6 +1585,20 @@
+@@ -1268,6 +1767,20 @@
+ 
  
  # ── Conversation processing (CM048 tier 1) ───────────────────────────
- 
++
 +def _invoke_pwg_convo(args, timeout=900):
 +    """Invoke the pwg-convo CLI (CM048) as a subprocess.
 +
@@ -1056,11 +1103,10 @@
 +        capture_output=True, text=True, timeout=timeout,
 +    )
 +
-+
+ 
  def _conversation_process_background(conversation_id, transcript, metadata):
      """Run CM048 processing in a background thread.
- 
-@@ -1206,9 +1606,10 @@
+@@ -1276,9 +1789,10 @@
      invokes the CM048 processor. Updates state.json on completion or
      failure.
  
@@ -1074,7 +1120,7 @@
      """
      state_dir = PROCESSING_DIR / conversation_id
      state_dir.mkdir(parents=True, exist_ok=True)
-@@ -1251,17 +1652,13 @@
+@@ -1321,17 +1835,13 @@
          json.dumps(state, indent=2), encoding="utf-8"
      )
  
@@ -1096,7 +1142,7 @@
          )
          if result.returncode == 0:
              state["current_step"] = "completed"
-@@ -1270,6 +1667,18 @@
+@@ -1340,6 +1850,18 @@
              state["failed_step"] = "processor"
              state["failure_reason"] = result.stderr[:500] or "Non-zero exit"
              state["last_updated_at"] = datetime.utcnow().isoformat() + "Z"
@@ -1115,7 +1161,7 @@
      except subprocess.TimeoutExpired:
          state["failed_step"] = "processor"
          state["failure_reason"] = "Processing timed out (15 min limit)"
-@@ -1289,18 +1698,40 @@
+@@ -1359,18 +1881,40 @@
  
      Accepts {transcript, metadata}. Saves raw inputs, spawns background
      processing, returns job_id immediately.
@@ -1159,7 +1205,7 @@
  
      # Generate conversation_id from metadata or UUID
      date = metadata.get("date", datetime.utcnow().strftime("%Y-%m-%d"))
-@@ -1349,6 +1780,38 @@
+@@ -1419,6 +1963,38 @@
          return False
  
  
@@ -1198,7 +1244,7 @@
  def api_people_forget(slug):
      """Handle POST /api/v1/people/{slug}/forget.
  
-@@ -1400,12 +1863,76 @@
+@@ -1470,12 +2046,76 @@
              break
  
      if person_uri is None:
@@ -1278,7 +1324,7 @@
              "wiki_recompile_queued": queued,
              "stores_purged": [],
          }, 200
-@@ -1415,12 +1942,21 @@
+@@ -1485,12 +2125,21 @@
  
      # Oxigraph: delete every triple where this URI is subject, then
      # every triple where it's object (incoming relationships, mentions).
@@ -1306,7 +1352,7 @@
      try:
          _sparql_update(sparql_update)
          stores_purged.append("oxigraph")
-@@ -2197,22 +2733,98 @@
+@@ -2267,22 +2916,98 @@
      #
      # ?about is returned so a caller can name the subject: answering "who is
      # my wife" needs jane's name, not just the sentence.
@@ -1417,7 +1463,55 @@
      )
      return _sparql_select(sparql)
  
-@@ -4116,7 +4728,10 @@
+@@ -3159,10 +3884,12 @@
+         person_slug = _wiki_slug(pname)
+         # CM048 writes these signals into the per-user NAMED graph, so an
+         # unqualified read returns nothing. Measured 0 rows as shipped,
+-        # 20 with the clause. See read_across_graphs.
++        # 20 with the clause -- covered here by `_graph_scoped` via `_sparql_select`,
++        # not `read_across_graphs` (not available in this tree's vendored
++        # identity_resolver; see the note above `_graph_scoped`).
+         signals = _sparql_select(
+             'SELECT ?warmth ?trust ?observedAt ?spriv WHERE {\n'
+-            + _read_across_graphs(
++            + (
+                 '  ?signal <urn:ostler:about> ?person .\n'
+                 '  ?signal <urn:ostler:warmth> ?warmth .\n'
+                 '  ?signal <urn:ostler:trust> ?trust .\n'
+@@ -3520,10 +4247,12 @@
+ 
+         # CM048 writes these signals into the per-user NAMED graph, so an
+         # unqualified read returns nothing. Measured 0 rows as shipped,
+-        # 20 with the clause. See read_across_graphs.
++        # 20 with the clause -- covered here by `_graph_scoped` via `_sparql_select`,
++        # not `read_across_graphs` (not available in this tree's vendored
++        # identity_resolver; see the note above `_graph_scoped`).
+         signals = _sparql_select(
+             'SELECT ?warmth ?trust ?observedAt ?spriv WHERE {\n'
+-            + _read_across_graphs(
++            + (
+                 '  ?signal <urn:ostler:about> ?person .\n'
+                 '  ?signal <urn:ostler:warmth> ?warmth .\n'
+                 '  ?signal <urn:ostler:trust> ?trust .\n'
+@@ -3800,7 +4529,7 @@
+         # matches in both arms of the UNION.
+         conv_rows = _sparql_select(
+             'SELECT DISTINCT ?conv ?date ?fpriv WHERE {\n'
+-            + _read_across_graphs(
++            + (
+                 '  ?fact <urn:ostler:about> <{uri}> ; '
+                 '<urn:ostler:fromConversation> ?conv .\n'
+                 '  OPTIONAL {{ ?conv <urn:ostler:date> ?date }}\n'
+@@ -4311,7 +5040,7 @@
+         # BOTH graphs would be listed twice by the UNION.
+         rows = _sparql_select(
+             'SELECT DISTINCT ?todo ?action ?owner ?deadline ?status ?source ?createdAt WHERE {\n'
+-            + _read_across_graphs(
++            + (
+                 '  ?todo a <urn:ostler:OutstandingTodo> ;\n'
+                 '        <urn:ostler:todoText> ?action ;\n'
+                 '        <urn:ostler:owner> ?owner ;\n'
+@@ -4358,7 +5087,10 @@
      commitments = commitments[:limit]
      for c in commitments:
          c.pop("_created", None)
@@ -1429,7 +1523,7 @@
  
  
  # ── Reply debt (CM048 reply-debt detector, JTBD#1) ───────────────────
-@@ -4264,6 +4879,10 @@
+@@ -4506,6 +5238,10 @@
          }, 200
  
      payload.setdefault("degraded", False)
@@ -1440,10 +1534,24 @@
      return payload, 200
  
  
-@@ -4538,6 +5157,33 @@
+@@ -4654,6 +5390,12 @@
+         name = p.get("display_name") or p.get("name") or ""
+         if not name:
+             continue
++        # v1.0.106 walk: a record whose ONLY name is a role or automation
++        # mailbox ("support@...", "promotions@...") is not a person to list.
++        # Hidden from the People LIST only; never deleted, and still found by
++        # search and by the assistant.
++        if _is_role_address_name(name):
++            continue
+         # slug + wiki_url let the Hub People row click through to the
+         # person's wiki page (and resolve the enrichment card). Same slug
+         # derivation and WIKI_BASE_URL as people_search / people_recent.
+@@ -4810,7 +5552,36 @@
+         # Hide raw-handle "people" (WhatsApp JIDs, bare numbers) from the
          # Stale / reconnect list. Render-time filter only. Ref #664.
          if _is_nameless_name(name):
-             continue
++            continue
 +        # 🔴 AND A SECOND, STRICTER SCREEN, BECAUSE RECONNECT ASKS A HARDER
 +        # QUESTION THAN "IS THIS DISPLAYABLE".
 +        #
@@ -1470,11 +1578,13 @@
 +        # remains searchable. They are excluded from a suggestion that cannot
 +        # be written properly without a human name.
 +        if _is_not_a_person_to_suggest(name, USER_NAME):
+             continue
++        if _is_service_sender(name, p.get("emails")):
 +            continue
          months_since = int((now - lc_ts) / (30 * 86400))
-         contacts.append({
+         candidates.append({
              "name": name,
-@@ -4545,7 +5191,10 @@
+@@ -4818,7 +5589,10 @@
              "wiki_url": f"{WIKI_BASE_URL}/People/{_wiki_slug(name)}/",
              "last_contact": p.get("last_contact", ""),
              "months_since_contact": months_since,
@@ -1483,21 +1593,23 @@
 +            # Reconnect strip's subtitle decoder. The RHS still reads the
 +            # Qdrant payload's American-spelled key (set upstream by CM041).
 +            "organisation": p.get("organization", ""),
+             "_person_uri": p.get("person_uri") or "",
          })
-     contacts.sort(key=lambda c: c["months_since_contact"], reverse=True)
-     return {"contacts": contacts[:limit]}
-@@ -4620,6 +5269,10 @@
+ 
+@@ -4990,6 +5764,12 @@
+         # recent endpoints use. Ref #664. The Qdrant point / graph node is never
          # deleted -- only withheld from this listing.
          if _is_nameless_name(name):
-             continue
++            continue
 +        # Shared suggestion screen: no shortcodes, no bare addresses, and never
 +        # the operator's own birthday. See _is_not_a_person_to_suggest.
 +        if _is_not_a_person_to_suggest(name, USER_NAME):
 +            continue
++        if _is_service_sender(name):
+             continue
          try:
              # Parse MM-DD or YYYY-MM-DD
-             parts = bday.split("-")
-@@ -4748,6 +5401,30 @@
+@@ -5119,6 +5899,30 @@
      # change. Aliases share the same list reference – cheap, no copy.
      out["reconnect"] = out["stale_contacts"]
      out["follow_up"] = out["recent_meetings"]
@@ -1528,7 +1640,189 @@
      return out
  
  
-@@ -5352,7 +6029,15 @@
+@@ -5231,7 +6035,8 @@
+     }
+ 
+ 
+-def _timeline_from_graph(past_days=730, limit=200):
++def _timeline_from_graph(past_days=730, limit=200, start=None, end=None,
++                         ascending=False):
+     """Historic timeline rows from the People Graph - one entry PER MEETING.
+ 
+     The Timeline is mainly a HISTORIC view, so its primary source is the graph
+@@ -5258,9 +6063,18 @@
+             '  OPTIONAL {{ ?m pwg:meetingAttendee ?p . ?p pwg:displayName ?name }}\n'
+             '  OPTIONAL {{ ?m pwg:meetingSummary ?summary }}\n'
+             '  OPTIONAL {{ ?m pwg:meetingLocation ?location }}\n'
+-            '  FILTER(?date >= "{cutoff}")\n'
+-            '}} GROUP BY ?m ?date ORDER BY DESC(?date) LIMIT {limit}'.format(
+-                ns=PWG_NS, cutoff=cutoff, limit=max(1, limit)
++            '  FILTER(?date >= "{cutoff}"){start_f}{end_f}\n'
++            '}} GROUP BY ?m ?date ORDER BY {order}(?date) LIMIT {limit}'.format(
++                ns=PWG_NS, cutoff=cutoff, limit=max(1, limit),
++                # Window bounds (#106c). `start` is EXCLUSIVE (the newest day
++                # the client already holds), `end` is EXCLUSIVE (the oldest).
++                # Both are validated YYYY-MM-DD by the handler, so they are
++                # safe to interpolate.
++                start_f=(' FILTER(SUBSTR(STR(?date), 1, 10) > "{}")'.format(start)
++                         if start else ''),
++                end_f=(' FILTER(SUBSTR(STR(?date), 1, 10) < "{}")'.format(end)
++                       if end else ''),
++                order='ASC' if ascending else 'DESC',
+             )
+         )
+     except Exception as exc:
+@@ -5272,7 +6086,11 @@
+         participants = [a for a in attendees_raw.split("|")
+                         if a and not _is_nameless_name(a)]
+         out.append({
+-            "kind": "meeting",
++            # A graph Meeting with nobody attending is not a meeting: it is an
++            # all-day entry, a reminder, a holiday or an expiry date the
++            # calendar carried. Labelling those "meeting" put a MEETING chip
++            # on every Timeline row (#106c, Andy's walk 2026-09-28).
++            "kind": "meeting" if participants else "event",
+             "date": (r.get("date") or "")[:10],
+             "summary": r.get("summary", ""),
+             "participants": participants,
+@@ -5281,7 +6099,7 @@
+     return out, None
+ 
+ 
+-def _timeline_conversations(past_days=730, limit=200):
++def _timeline_conversations(past_days=730, limit=200, start=None, end=None):
+     """Historic conversation rows for the Timeline, from Qdrant.
+ 
+     Meetings live in Oxigraph as pwg:Meeting nodes; CONVERSATIONS do not. They
+@@ -5347,6 +6165,8 @@
+         date = raw_date[:10]
+         if not date or date < cutoff:
+             continue
++        if (start and date <= start) or (end and date >= end):
++            continue
+         counterpart = (payload.get("contact_name")
+                        or payload.get("wing")
+                        or payload.get("participant")
+@@ -5360,15 +6180,40 @@
+             # what-happened-when view; conversation content is L2+ and has its
+             # own privacy-gated surfaces. A channel + counterpart is enough to
+             # place the event without publishing what was said.
+-            "summary": (payload.get("channel") or "conversation"),
++            # Channel AND counterpart, never the bare channel: a row that
++            # says only "whatsapp" told the customer nothing (#106c).
++            "summary": _conversation_title(payload.get("channel"),
++                                           participants),
+             "participants": participants,
+         })
+ 
++    # Truncate from the side nearest the window edge the client asked for:
++    # a forward page (start given) keeps the EARLIEST rows after `start`.
++    rows.sort(key=lambda r: r["date"], reverse=not (start and not end))
++    rows = rows[:max(1, limit)]
+     rows.sort(key=lambda r: r["date"], reverse=True)
+-    return rows[:max(1, limit)], None
++    return rows, None
+ 
+ 
+-def api_timeline(days=7, past_days=730, limit=200):
++_CHANNEL_LABELS = {
++    "whatsapp": "WhatsApp", "imessage": "iMessage", "im": "iMessage",
++    "sms": "Text message", "email": "Email", "mail": "Email",
++    "call": "Call", "phone": "Call", "slack": "Slack", "telegram": "Telegram",
++    "signal": "Signal", "spoken": "Conversation",
++}
++
++
++def _conversation_title(channel, participants):
++    """Human title for a conversation row: channel plus who it was with."""
++    raw = (channel or "").strip()
++    label = _CHANNEL_LABELS.get(raw.lower(), raw[:1].upper() + raw[1:] if raw
++                                else "Conversation")
++    if participants:
++        return "{} with {}".format(label, participants[0])
++    return "{} conversation".format(label)
++
++
++def api_timeline(days=7, past_days=730, limit=200, before=None, after=None):
+     """Mainly-historic life timeline: past meetings/events + a short forward look.
+ 
+     The Timeline is a HISTORIC view first. Its backbone is the People Graph
+@@ -5417,7 +6262,23 @@
+     # Past (the main event): historic meetings/events from the graph, one row
+     # per meeting, back `past_days` days. This is what makes the Timeline a
+     # historic view rather than a 7-day-forward calendar peek.
+-    past_rows, past_err = _timeline_from_graph(past_days=past_days, limit=limit)
++    # WINDOW (#106c). The Timeline opens on TODAY. Before this, graph
++    # meetings had no upper bound and were sorted newest-first, so a year of
++    # future all-day entries filled the 200-row cap and the list ended part
++    # way through today with no history reachable at all.
++    #   no params   -> everything up to today + `days`, newest first (the page
++    #                  the client opens on, with today near the top)
++    #   before=D    -> an OLDER page: rows strictly before D
++    #   after=D     -> a LATER page: the earliest rows strictly after D
++    from datetime import date as _date, timedelta as _td
++    forward = bool(after) and not before
++    window_start = after or None
++    window_end = before or None
++    if not before and not after:
++        window_end = (_date.today() + _td(days=max(0, days) + 1)).isoformat()
++    past_rows, past_err = _timeline_from_graph(
++        past_days=past_days, limit=limit, start=window_start, end=window_end,
++        ascending=forward)
+     if past_err is not None:
+         items.append({"kind": "meeting_error", "error": past_err})
+     else:
+@@ -5430,16 +6291,22 @@
+     #
+     # Failure here is reported, never fatal: a broken conversation store must
+     # degrade this section, not empty the whole Timeline of its meetings.
+-    conv_rows, conv_err = _timeline_conversations(past_days=past_days, limit=limit)
++    conv_rows, conv_err = _timeline_conversations(
++        past_days=past_days, limit=limit, start=window_start, end=window_end)
+     if conv_err is not None:
+         items.append({"kind": "conversation_error", "error": conv_err})
+     else:
+         items.extend(conv_rows)
+ 
+     # Newest first (it is mainly a historic timeline), then cap.
+-    items.sort(key=lambda i: i.get("date") or "", reverse=True)
++    # The live-calendar strip only belongs on the opening page; a paged
++    # request must not re-emit it (duplicates) or leak outside its window.
++    if before or after:
++        items = [i for i in items if i.get("kind") != "calendar"]
++    items.sort(key=lambda i: i.get("date") or "", reverse=not forward)
+     if limit:
+         items = items[:limit]
++    items.sort(key=lambda i: i.get("date") or "", reverse=True)
+ 
+     # CM031 PWG Companion decodes `entries: [{type, timestamp, title,
+     # subtitle, attendees}]`. Map our `items: [{kind, date, summary,
+@@ -5452,7 +6319,14 @@
+         if kind in ("calendar_error", "meeting_error"):
+             # Surface but skip – CM031 does not render error sentinels.
+             continue
+-        entry_type = "meeting" if kind == "meeting" else "calendar"
++        # Carry the row's real kind (#106c). This used to collapse every
++        # non-meeting kind to "calendar", which the Hub maps to MEETING.
++        if kind == "calendar":
++            entry_type = "meeting" if it.get("attendees") else "event"
++        elif kind == "conversation":
++            entry_type = "message"
++        else:
++            entry_type = kind or "event"
+         raw_date = it.get("date") or ""
+         timestamp = _to_iso8601(raw_date)
+         # Attendee names come in two shapes:
+@@ -5482,6 +6356,8 @@
+         "entries": entries,
+         "days": days,
+         "past_days": past_days,
++        "before": before,
++        "after": after,
+         "limit": limit,
+         "count": len(items),
+     }
+@@ -5723,7 +6599,15 @@
      (meetings, calendar) already keyed by date. The graph write is
      best-effort: a graph failure never fails the ingest (the JSONL spool
      is the durable record).
@@ -1544,7 +1838,7 @@
      import time
      import uuid
  
-@@ -5404,6 +6089,9 @@
+@@ -5775,6 +6659,9 @@
              "ok": True,
              "batch_id": batch_id,
              "item_count": len(batch),
@@ -1554,7 +1848,7 @@
              "path": path,
          }
          if health_written:
-@@ -5593,7 +6281,15 @@
+@@ -5964,7 +6851,15 @@
      ``ostler_fda/pwg_ingest.ingest_browser_history`` but for one page
      at a time: sensitive-domain filter, Ollama embed of
      (title + host + url), Qdrant upsert into ``safari_history``.
@@ -1570,12 +1864,10 @@
      import uuid as _uuid
      import time as _time
  
-@@ -5700,13 +6396,213 @@
- # can fan out work and collect named results. Every helper is wrapped in
- # a blanket try/except – a misbehaving dependency must NEVER propagate
+@@ -6073,11 +6968,211 @@
  # up to the endpoint handler.
-+
-+
+ 
+ 
 +def _subscription_paused(surface):
 +    """Rule 0.8: should this ingestion surface pause for an unpaid Hub?
 +
@@ -1762,14 +2054,14 @@
 +        datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
 +    except (ValueError, TypeError):
 +        return {"error": "expires_at is not a valid ISO-8601 datetime"}, 400
- 
++
 +    try:
 +        subscription_gate.refresh_from_companion(receipt_b64, expires_at)
 +        status = subscription_gate.state_dict().get("status", "inactive")
 +        return {"status": status}, 200
 +    except Exception as exc:
 +        return {"error": f"refresh failed: {exc}"}, 500
- 
++
 +
  def _read_sync_marker(path):
 -    """Read an ISO-8601 UTC timestamp from a marker file.
@@ -1785,7 +2077,7 @@
      """
      try:
          if path.exists():
-@@ -5715,8 +6611,234 @@
+@@ -6086,8 +7181,234 @@
      except Exception:
          return None
      return None
@@ -1924,7 +2216,7 @@
 +            flush=True,
 +        )
 +        return {"recording": None}
-+
+ 
 +    # Required fields. The producer is contractually obliged to emit
 +    # all three on every write; if any is missing we treat the whole
 +    # payload as unusable rather than guessing.
@@ -1953,7 +2245,7 @@
 +    hub_machine_name = data.get("hub_machine_name")
 +    if not isinstance(hub_machine_name, str):
 +        hub_machine_name = ""
- 
++
 +    participant_count = data.get("participant_count")
 +    if not isinstance(participant_count, int) or isinstance(participant_count, bool):
 +        # bool is a subclass of int in Python; reject it explicitly so
@@ -2020,7 +2312,7 @@
  def _hub_check_zeroclaw():
      """Is ZeroClaw running? Uses pgrep rather than parsing ps output.
  
-@@ -5829,7 +6951,7 @@
+@@ -6200,7 +7521,7 @@
      Absence of a marker is treated as unhealthy but not an error – fresh
      installs have never synced.
      """
@@ -2029,7 +2321,7 @@
      if ts:
          return {"healthy": True, "last_refresh": ts}
      return {"healthy": False, "last_refresh": None, "error": "no refresh recorded"}
-@@ -5952,7 +7074,7 @@
+@@ -6323,7 +7644,7 @@
      except Exception:
          queue_depth = 0
  
@@ -2038,9 +2330,25 @@
  
      # Derive hub_status from service health + queue depth.
      all_healthy = all(s.get("healthy") for s in services.values())
-@@ -6819,7 +7941,11 @@
+@@ -7201,6 +8522,11 @@
+                 past_days, err = _safe_int(params, "past_days", 730)
+             if not err:
+                 limit, err = _safe_int(params, "limit", 200)
++            before = after = None
++            if not err:
++                before, err = _safe_iso_day(params, "before")
++            if not err:
++                after, err = _safe_iso_day(params, "after")
+             if err:
+                 self.send_response(400)
+                 self.send_header("Content-Type", "application/json")
+@@ -7208,9 +8534,14 @@
+                 self.wfile.write(json.dumps(err).encode())
+                 return
              try:
-                 result = api_timeline(days=days, past_days=past_days, limit=limit)
+-                result = api_timeline(days=days, past_days=past_days, limit=limit)
++                result = api_timeline(days=days, past_days=past_days,
++                                      limit=limit, before=before, after=after)
              except Exception as exc:
 -                result = {"items": [], "days": days, "count": 0,
 +                # `entries` mirrors `items` per the iOS ServerTimelineResponse
@@ -2051,15 +2359,10 @@
                            "degraded": True, "reason": str(exc), "error": str(exc)}
              self.send_response(200)
              self.send_header("Content-Type", "application/json")
-@@ -7156,6 +8282,31 @@
-                     "reason": f"reply_debt_failed: {str(exc)[:200]}",
-                 }, 200
-             self.send_response(status)
-+            self.send_header("Content-Type", "application/json")
-+            self.end_headers()
-+            self.wfile.write(json.dumps(result, indent=2).encode())
-+            return
-+
+@@ -7552,6 +8883,31 @@
+             self.wfile.write(json.dumps(result, indent=2).encode())
+             return
+ 
 +        # Recording state (CM042 producer → CM031 Live Activity).
 +        # Read-only. Never 5xx: any failure demotes to recording=null so
 +        # the iOS Live Activity collapses cleanly. See api_recording_active
@@ -2080,10 +2383,15 @@
 +                )
 +                result = {"recording": None}
 +            self.send_response(200)
-             self.send_header("Content-Type", "application/json")
-             self.end_headers()
-             self.wfile.write(json.dumps(result, indent=2).encode())
-@@ -7387,6 +8538,22 @@
++            self.send_header("Content-Type", "application/json")
++            self.end_headers()
++            self.wfile.write(json.dumps(result, indent=2).encode())
++            return
++
+         # Conversation processing status (CM048)
+         # Per-slug person enrichment for the iOS / Hub person card.
+         # GET /api/v1/people/{slug}/enrichment
+@@ -7778,6 +9134,22 @@
          if parsed.path == "/api/v1/ingest/ios":
              try:
                  result, status = api_ingest_ios(payload)
@@ -2106,7 +2414,7 @@
              except Exception as exc:
                  result, status = {"error": str(exc)}, 500
              self.send_response(status)
-@@ -7527,6 +8694,10 @@
+@@ -7918,6 +9290,10 @@
      BIND_HOST = os.environ.get("OSTLER_API_BIND", "127.0.0.1")
      # Tag the historical privacy coverage gap before answering /people/*.
      _run_privacy_backfill_on_startup()
@@ -2117,7 +2425,7 @@
      # Service-token auth posture (v1.0.10 lockdown). Loud so a missing token
      # is never silent: without it, every non-public endpoint fails closed
      # (401). There is no environment escape hatch.
-@@ -7555,4 +8726,33 @@
+@@ -7946,4 +9322,33 @@
              file=sys.stderr,
              flush=True,
          )
