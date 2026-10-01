@@ -6535,3 +6535,25 @@ open_issues:
     repo: CM051
     title: 'Screen check: an unmeasured Not me check prints no row, so hub_screens can PASS without it'
     gate: 'NOT BLOCKING for v1.0.106 (Aesop, 2026-09-30): a probe fix for v1.0.107; #2467 and #2470 are proven on the console walk meanwhile. Registered in the same action as the filing. MEASURED: not_me_checked=False on all 4 v1.0.106 c6 hub_screens runs while each read PASS; judge() emits the row only when checked (hub_screens.py:204). CLOSES ON: a hub_screens run where Not me reads ok or CANNOT with its reason, never absent, with a self-test arm and a mutant that drops the row going red.'
+
+  - issue: 2523
+    repo: CM051
+    title: 'wiki: On this day showed raw ISO dates, an em dash and retail order numbers'
+    gate: >-
+      NOT BLOCKING for v1.0.106 (cosmetic wiki copy, no install/cut mechanics). v1.0.107.
+      Andy's v1.0.106 console box-walk (macmini16-walk, read-only) found the wiki Front Page
+      On this day panel rendering "2024-10-01 -- HKTVmall delivery Order H2409..." with an em
+      dash, a leading-zero day ("01 October"), and two duplicate retail order lines carrying
+      reference numbers next to real memories. FIXED in CM044 PR #288
+      (andygmassey/CM044-PWG-Personal-Wiki, fix/on-this-day-human-dates-no-transactional): the
+      dashboard's On this day renderer now groups entries by "Last year (2025)" / "2 years ago
+      (2024)" / "3 years ago (2023)" instead of a per-bullet ISO date, renders a leading-zero-free
+      "1 October" via the locale's date_long_format() with the year substring stripped out,
+      collapses every transactional summary (order, delivery, invoice, receipt, shipment, parcel,
+      dispatched) within a group into one generic "An online order" line with no reference number,
+      and drops the em dash. compiler/tests/test_dashboard_on_this_day_render.py, synthetic
+      fixtures only (ExampleMart/Example Lake/Example Movie, no real names or order numbers): RED
+      on CM044 main (ImportError, the render helpers do not exist there), GREEN on the fix branch
+      (14 passed; full compiler/tests -k dashboard suite 93 passed, 0 regressions). CLOSES ON:
+      CM044 PR #288 merged to main AND the next wiki rebuild/re-pin into a CM051 cut shows the
+      grouped, human-dated, order-collapsed panel on a real box walk.
