@@ -34559,12 +34559,13 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
             # instead, parsed back out below -- the same reason
             # email_reclassify's own command substitution ends `|| true`.
             _LID_REPAIR_RAW="$(
+                _lid_repair_rc=0
                 cd "$PIPELINE_DIR" 2>/dev/null && \
                 OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
                 .venv/bin/python3 -m identity_resolver.repair_lid_as_phone \
                     --oxigraph-url "${OXIGRAPH_URL:-http://localhost:7878}" \
-                    --apply 2>>"$_LID_REPAIR_LOG"
-                printf '___RC___%d\n' "$?"
+                    --apply 2>>"$_LID_REPAIR_LOG" || _lid_repair_rc=$?
+                printf '___RC___%d\n' "$_lid_repair_rc"
             )" || true
             _LID_REPAIR_RC="$(printf '%s\n' "$_LID_REPAIR_RAW" | sed -n 's/^___RC___//p' | tail -1)"
             _LID_REPAIR_OUT="$(printf '%s\n' "$_LID_REPAIR_RAW" | grep -v '^___RC___' || true)"
