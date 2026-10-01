@@ -349,7 +349,7 @@ def interest_card(it: dict, now: datetime, rank: int, n: int) -> dict:
     base = PRIORITY_INTEREST_FLOOR + (PRIORITY_INTEREST_TOP - PRIORITY_INTEREST_FLOOR) * (
         1.0 - rank / span) if n > 1 else PRIORITY_INTEREST_TOP
     evidence = " - ".join(it.get("evidence", [])[:2]) or None
-    return _make_card(
+    card = _make_card(
         "interest", it["id"],
         title=it["subject"],
         body=("Something to avoid" if it.get("polarity") == "dislike"
@@ -362,6 +362,15 @@ def interest_card(it: dict, now: datetime, rank: int, n: int) -> dict:
         feedback=it.get("feedback"),
         privacy=_row_privacy(it),  # inherit the interest row's level, NOT L1
     )
+    # The renderer (render_frontpage._card_html) and every consumer's POST body
+    # both key a correction off this field; feedback.record_feedback refuses a
+    # strengthen/weaken/drop with neither this nor a `sources` list. Without it
+    # every ordinary interest card's tap 400s (measured 2026-10-01, v1.0.106
+    # console walk: 12 of 12 interest cards carried no interest_id). Only the
+    # exploration pick carried its id forward (as `sources`, see
+    # exploration_card below) -- this is the same wire for the common case.
+    card["interest_id"] = it["id"]
+    return card
 
 
 def _rotation_picks(profile: dict, picked: list, now: datetime, n: int,
@@ -470,6 +479,12 @@ def exploration_card(it: dict, now: datetime, ledger=None) -> dict:
     card["exploration"] = True
     if it.get("id"):
         card["sources"] = [it["id"]]
+        # ``sources`` alone covers the server-side fallback
+        # (feedback._artefact_sources) but neither browser client reads it --
+        # the renderer's data-interest-id attribute and the Tauri card schema
+        # both key off ``interest_id``. Carry both so a hunch card's tap works
+        # the same way an ordinary interest card's does.
+        card["interest_id"] = it["id"]
     return card
 
 

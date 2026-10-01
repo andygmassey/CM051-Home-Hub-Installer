@@ -579,6 +579,7 @@ test_the_front_page_catch_up_survives_a_late_ingest.sh	WIRED	.github/workflows/w
 test_the_generated_uninstaller_parses.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_the_governor_revendor_guard_is_actually_run.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_the_hub_app_can_record_card_feedback.py	WIRED	.github/workflows/hub-screens-and-106c.yml
+test_the_hub_reads_the_doctor_like_the_app.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_install_panel_says_it_is_reading_the_transcript.py	WIRED	.github/workflows/consent-data-handling.yml
 test_the_installer_downloads_from_the_repo_we_publish_to.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_licence_a_customer_paid_for_is_owner_only.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
