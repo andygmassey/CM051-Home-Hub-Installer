@@ -5388,7 +5388,15 @@ def people_list(sort=None, ceiling=10000):
     for pt in points:
         p = pt.get("payload", {}) or {}
         name = p.get("display_name") or p.get("name") or ""
-        if not name:
+        # CM051 #2568: this used to be `if not name: continue`, which only
+        # catches an EMPTY name (case 1 of _is_nameless_name's three). A
+        # WhatsApp-JID-shaped or bare-phone-shaped "name" (cases 2 and 3)
+        # passed straight through, so the Hub's own count included rows the
+        # wiki (compiler/nameless.py) and iOS (PersonNameFilter) both hide --
+        # the Hub/wiki count gap. Reuse the LOCKED predicate rather than a
+        # second filter: it is explicitly byte-identical across all three
+        # surfaces for exactly this reason (Ref #664).
+        if _is_nameless_name(name):
             continue
         # v1.0.106 walk: a record whose ONLY name is a role or automation
         # mailbox ("support@...", "promotions@...") is not a person to list.
