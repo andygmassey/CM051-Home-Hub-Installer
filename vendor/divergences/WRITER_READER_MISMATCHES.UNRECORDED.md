@@ -678,3 +678,27 @@ Both edits in both files. Gate:
 `tests/test_the_hub_reads_the_doctor_like_the_app.py`, wired into
 `vendor-integrity.yml`. Ledger:
 [HR015-Gaming-PC@406397d](https://github.com/andygmassey/HR015-Gaming-PC/commit/406397dccc6bdaf6cf3d0a9c6a6b1f1587346ff6).
+
+## Added 2026-10-01, CM051 v1.0.107 (ORM) -- `cm041/identity_resolver` re-pinned 9e260949 -> fce36b9e, ONE line stays unrecorded
+
+The re-pin moves this tree onto CM041 main, which now carries #181 itself
+(b9deb6ef is an ancestor of fce36b9e). So the #181 graft recorded in the entry
+above is no longer a divergence: `normalise.py` and `repair_lid_as_phone.py`
+take upstream, and the regenerated `cm041_identity_resolver.patch` describes
+every other difference.
+
+EXCEPT ONE LINE. `repair_lid_as_phone.py` keeps
+`CONTROL_LID_PHONE_VALUE = "9" * 15` where upstream writes the same value as a
+single 15-digit literal. The patch cannot carry that hunk: its `-` side is
+upstream's literal, and `.github/scripts/ci-pii-shape-scan.sh` (run by the
+pre-commit hook and CI as `scan`) refuses ANY 15-plus digit run, in any path,
+by shape. So the hunk was removed from the patch by hand and the line is
+declared here instead.
+
+### What a future sync must preserve
+
+The composed literal, functionally identical value. Consequence:
+`verify_vendor_fresh.sh` reports this tree as differing from
+source@pinned_sha+patch by exactly this one line (main already reported it
+as DIFFERING, by the whole #181 graft). Retire this entry if CM041 composes the
+literal upstream.

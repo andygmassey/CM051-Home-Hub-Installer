@@ -68,7 +68,7 @@ from typing import Dict, List, Optional
 
 import httpx
 
-from identity_resolver.normalise import is_valid_phone
+from identity_resolver.normalise import configured_default_country_code, is_valid_phone
 
 PWG = "https://schema.ostler.ai/ontology#"
 
@@ -78,9 +78,8 @@ PWG = "https://schema.ostler.ai/ontology#"
 # Composed, not written as one 15-digit literal run: CM051's
 # ci-pii-shape-scan.sh fires on ANY `[0-9]{15,}` shape regardless of value
 # (DSID and kin), and this is the one line where this file is NOT
-# byte-identical to source@b9deb6ef -- CM041 is private and never runs this
-# scanner, so its own copy keeps the literal. Functionally identical value,
-# confirmed by this file's own test suite before and after.
+# byte-identical to its CM041 source -- CM041 is private and never runs this
+# scanner, so its own copy keeps the literal. Functionally identical value.
 CONTROL_LID_PHONE_VALUE = "9" * 15
 
 EXIT_OK = 0
@@ -154,6 +153,21 @@ def restore_from_backup(
                 """,
             )
             restored_identifiers += 1
+        if rec["action"] == "rewritten_phone_format":
+            # repair_misformatted_phones.py (CM051 #2545): the identifier
+            # node and its hasIdentifier edge were never touched, only the
+            # VALUE -- restore is therefore just putting the old value back,
+            # not a delete+recreate of the whole node.
+            _sparql_update(
+                url, client,
+                f'DELETE WHERE {{ <{rec["phoneId"]}> <{PWG}identifierValue> ?o }}',
+            )
+            _sparql_update(
+                url, client,
+                f'INSERT DATA {{ <{rec["phoneId"]}> <{PWG}identifierValue> '
+                f'"{_escape(rec["value"])}" }}',
+            )
+            restored_identifiers += 1
         if rec.get("name"):
             _sparql_update(
                 url, client,
@@ -222,11 +236,18 @@ def _qdrant_point_id(person_uri: str) -> str:
 def repair_qdrant_point(
     qdrant_url: str, client: httpx.Client, *, collection: str,
     person_uri: str, bad_value: str, new_display_name: Optional[str],
-    api_key: Optional[str], apply: bool,
+    api_key: Optional[str], apply: bool, new_value: Optional[str] = None,
 ) -> str:
     """Remove `bad_value` from the point's "phones" list and, if given,
     update "display_name" to match the Oxigraph rename. Returns one of:
-    "patched", "not_found", "already_clean", "dry_run"."""
+    "patched", "not_found", "already_clean", "dry_run".
+
+    `new_value` (Archie, 2026-10-01, reused by CM051 #2545's
+    repair_misformatted_phones.py rather than a second Qdrant-patch
+    function): when given, it is ADDED to "phones" after `bad_value` is
+    removed -- a reformat-in-place (e.g. a national-format number rewritten
+    to E.164), not a demotion. `None` (repair_lid_as_phone's own use)
+    preserves the original remove-only behaviour exactly."""
     point_id = _qdrant_point_id(person_uri)
     resp = client.get(
         f"{qdrant_url}/collections/{collection}/points/{point_id}",
@@ -238,6 +259,8 @@ def repair_qdrant_point(
     payload = (resp.json().get("result") or {}).get("payload") or {}
     phones = list(payload.get("phones") or [])
     new_phones = [p for p in phones if p != bad_value]
+    if new_value and new_value not in new_phones:
+        new_phones.append(new_value)
     name_changes = bool(new_display_name and payload.get("display_name") != new_display_name)
     if new_phones == phones and not name_changes:
         return "already_clean"
@@ -277,7 +300,10 @@ def _lid_as_phone_candidates_bridge_signature(
         }}
         """,
     )
-    return [r for r in rows if not is_valid_phone(r.get("value", ""))]
+    # Archie, 2026-10-01 (CM051 #2545 review): the installer's OWN region,
+    # never a hardcoded guess -- see configured_default_country_code.
+    cc = configured_default_country_code()
+    return [r for r in rows if not is_valid_phone(r.get("value", ""), cc)]
 
 
 def _lid_as_phone_candidates_ostler_fda_signature(
@@ -295,7 +321,10 @@ def _lid_as_phone_candidates_ostler_fda_signature(
         }}
         """,
     )
-    return [r for r in rows if not is_valid_phone(r.get("value", ""))]
+    # Archie, 2026-10-01 (CM051 #2545 review): the installer's OWN region,
+    # never a hardcoded guess -- see configured_default_country_code.
+    cc = configured_default_country_code()
+    return [r for r in rows if not is_valid_phone(r.get("value", ""), cc)]
 
 
 def repair_lid_as_phone(

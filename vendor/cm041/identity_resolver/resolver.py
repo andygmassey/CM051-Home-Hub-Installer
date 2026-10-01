@@ -12,6 +12,7 @@ from .canonical_name import choose_canonical_display_name, prefer_real_given_nam
 from .compartment import (
     UserCompartment,
     assert_default_graph_isolated,
+    assert_named_graphs_are_off_a_pinned_dataset,
     normalise_user_id,
     resolve_compartment,
 )
@@ -37,7 +38,7 @@ class IdentityResolver:
     def __init__(
         self,
         oxigraph_url: str,
-        default_country_code: int = 852,
+        default_country_code: Optional[int] = None,
         timeout: float = 30.0,
         compartment: Optional[UserCompartment] = None,
     ):
@@ -200,12 +201,37 @@ class IdentityResolver:
         if len(found_uris) == 1:
             uri = next(iter(found_uris))
             id_type, id_value = found_uris[uri]
-            return MatchResult(
-                person_uri=uri,
-                match_type="exact_identifier",
-                confidence=1.0,
-                details=f"Matched on {id_type}={id_value}",
+            # RULE 2 belongs here too, not only in the multi-URI collapse
+            # below. A SINGLE shared identifier is enough to reach this
+            # branch on its own -- a household landline, an office
+            # switchboard -- and until now nothing checked whether the
+            # INCOMING identity's own canonical key (icloud_contact_uid /
+            # linkedin_url / whatsapp_lid) actually agrees with the matched
+            # node's. Two different real people sharing one phone number
+            # matched here with confidence 1.0 and no conflict check, and the
+            # caller then overwrote the matched node's name with the second
+            # person's and folded their other identifiers on top of it --
+            # CM051 #2545 (one phone number ends up on two Person nodes: the
+            # untouched original plus whatever this corrupted write left
+            # behind). Absence of the canonical key on either side is still
+            # not a conflict, exactly as in the collapse branch below.
+            conflict = self._identity_conflicts_with_node(identity, uri)
+            if conflict is None:
+                return MatchResult(
+                    person_uri=uri,
+                    match_type="exact_identifier",
+                    confidence=1.0,
+                    details=f"Matched on {id_type}={id_value}",
+                )
+            logger.info(
+                "RULE 2: refusing exact match on %s=%s -> %s -- incoming "
+                "identity's %s differs from the node's (shared identifier, "
+                "different people)",
+                id_type, id_value, uri, conflict,
             )
+            # Fall through: not a trustworthy match. Tier 3 (fuzzy, if
+            # enabled) or Tier 4 ("new") decide from here, exactly as if no
+            # identifier had matched at all.
 
         if len(found_uris) > 1:
             uris = list(found_uris.keys())
@@ -690,30 +716,21 @@ class IdentityResolver:
         Returns the input unchanged when it carries no tombstone, which is the
         overwhelmingly common case and costs one query.
         """
-        seen = {person_uri}
-        current = person_uri
-        for _ in range(max_hops):
+        def _next_hop(uri: str):
             rows = self._sparql_query(
-                f"SELECT ?t WHERE {{ <{current}> <{PWG}mergedInto> ?t }} LIMIT 1"
+                f"SELECT ?t WHERE {{ <{uri}> <{PWG}mergedInto> ?t }} LIMIT 1"
             )
             found = rows.get("results", {}).get("bindings", [])
-            if not found:
-                return current
-            nxt = found[0]["t"]["value"]
-            if nxt in seen:
-                # A cycle is a data fault, not something to spin on. Stop at
-                # the last node outside the loop and say so.
-                logger.warning(
-                    "merge chain from %s cycles at %s; stopping", person_uri, nxt
-                )
-                return current
-            seen.add(nxt)
-            current = nxt
-        logger.warning(
-            "merge chain from %s exceeded %d hops; stopping at %s",
-            person_uri, max_hops, current,
+            return found[0]["t"]["value"] if found else None
+
+        # THE LOOP IS SHARED, THE QUERY IS NOT. whatsapp_bridge has its own
+        # identifier lookup with its own SPARQL helper and was missing this
+        # entirely, so it minted a second node for a person already merged
+        # away. Keeping the loop in retirement.py means the cycle guard and
+        # the hop cap cannot be present in one copy and absent in the other.
+        return retirement.resolve_to_live_person(
+            person_uri, _next_hop, max_hops=max_hops, log=logger
         )
-        return current
 
     # Identifier types that a different person can legitimately also carry:
     # a reused family email address, a shared office switchboard number. A
@@ -1103,6 +1120,31 @@ class IdentityResolver:
             }
         )
 
+    def _identity_conflicts_with_node(
+        self, identity: PersonIdentity, person_uri: str
+    ) -> Optional[str]:
+        """Like ``_canonical_keys_conflict``, but for an INCOMING identity
+        against one already-persisted node -- the comparison Tier 1's
+        single-URI branch needs and never had. Returns the conflicting
+        canonical id_type, or None.
+
+        Same rule: absence on either side is not a conflict, only two
+        PRESENT and DISJOINT value sets are.
+        """
+        incoming: dict[str, set[str]] = {t: set() for t in self._CANONICAL_ID_TYPES}
+        for id_type, id_value in self._iter_identifiers(identity):
+            if id_type in self._CANONICAL_ID_TYPES:
+                incoming[id_type].add(id_value)
+
+        for id_type in sorted(self._CANONICAL_ID_TYPES):
+            values_in = incoming.get(id_type) or set()
+            if not values_in:
+                continue
+            values_existing = self._person_identifier_values(person_uri, id_type)
+            if values_existing and not (values_in & values_existing):
+                return id_type
+        return None
+
     def _iter_identifiers(
         self, identity: PersonIdentity
     ) -> list[tuple[str, str]]:
@@ -1154,6 +1196,19 @@ class IdentityResolver:
         assert_default_graph_isolated(
             self._probe_update, self._probe_default_graph_query
         )
+        # SECOND PROBE, SAME CALL, so it cannot be wired separately and then
+        # not wired at all. The first establishes that the store does not
+        # union named graphs into the default graph; this one establishes
+        # that the default-graph-uri pin actually empties the NAMED-graph
+        # set, which is what stops a GRAPH ?g in an ordinary reader query
+        # (see compartment.read_across_graphs) reaching another compartment.
+        # Both are store behaviours, and reasoning about one while probing
+        # the other was the inconsistency this closes.
+        assert_named_graphs_are_off_a_pinned_dataset(
+            self._probe_update,
+            self._probe_pinned_query,
+            self._probe_default_graph_query,
+        )
         _NON_UNION_VERIFIED_STORES.add(self.oxigraph_url)
 
     def _probe_update(self, sparql: str) -> None:
@@ -1173,6 +1228,22 @@ class IdentityResolver:
         unqualified primary/operator read would see."""
         resp = self._client.post(
             f"{self.oxigraph_url}/query",
+            content=sparql,
+            headers={
+                "Content-Type": "application/sparql-query",
+                "Accept": "application/sparql-results+json",
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def _probe_pinned_query(self, sparql: str) -> dict:
+        """Raw query for the probe ONLY, through this compartment's PINNED
+        endpoint -- the same endpoint every real read uses, so the probe
+        measures the pin that is actually in force rather than one built for
+        the occasion."""
+        resp = self._client.post(
+            self.compartment.query_endpoint(self.oxigraph_url),
             content=sparql,
             headers={
                 "Content-Type": "application/sparql-query",

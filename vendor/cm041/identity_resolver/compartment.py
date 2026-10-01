@@ -103,6 +103,8 @@ __all__ = [
     "cm048_user_graph_uris",
     "sparql_where_span",
     "graph_scoped_select",
+    "assert_named_graphs_are_off_a_pinned_dataset",
+    "read_across_graphs",
 ]
 
 PWG_NS = "https://schema.ostler.ai/ontology#"
@@ -114,6 +116,19 @@ USER_GRAPH_BASE = "https://schema.ostler.ai/graph/user/"
 #: namespace: CM048 has always written ``urn:ostler:user/<id>`` for the
 #: PRIMARY operator, and that is the graph the Hub's readers must span.
 CM048_USER_GRAPH_BASE = "urn:ostler:user/"
+
+# read_across_graphs interpolates USER_GRAPH_BASE into a SPARQL string
+# literal. Checked ONCE, here, at import: a value carrying a quote, a
+# backslash or a newline would not merely break the query, it would let the
+# exclusion clause be rewritten. Nothing user-supplied reaches this constant
+# today; the guard is what keeps that true if someone later makes it
+# configurable.
+if any(c in USER_GRAPH_BASE for c in '"\\\n\r\t'):
+    raise ValueError(
+        "USER_GRAPH_BASE is not safe inside a SPARQL literal: "
+        f"{USER_GRAPH_BASE!r}"
+    )
+_USER_GRAPH_BASE_LITERAL = USER_GRAPH_BASE
 
 #: Env var that gates the DEFERRED multiuser paths. The groundwork ships
 #: OFF: unless this is exactly ``"1"``, resolving any SECONDARY (named)
@@ -477,6 +492,154 @@ def guard_read(requesting: UserCompartment, resource_owner: UserCompartment) -> 
         )
 
 
+# ---------------------------------------------------------------------------
+# Reading data CM048 wrote into a named graph
+# ---------------------------------------------------------------------------
+#
+# The whole module above exists because the compartment boundary IS the graph
+# boundary. That has a consequence nobody wrote down until six readers were
+# found blind by it: CM048 writes its relationship signals, its
+# conversation-linked facts and its outstanding todos into a PER-USER NAMED
+# GRAPH, and a SPARQL SELECT with no GRAPH clause reads the DEFAULT graph
+# only. With --union-default-graph OFF -- which this module REQUIRES, see
+# assert_default_graph_isolated -- such a query cannot see that data at all.
+#
+# MEASURED on a live box, by lifting each reader's own query string out of the
+# shipped file and running it twice:
+#
+#     warmth / trust       as shipped, no GRAPH clause      0 rows
+#                          identical query WITH the clause  20 rows (LIMIT)
+#     OutstandingTodo      as shipped                        0 rows
+#                          identical                        20 rows (LIMIT)
+#     CONTROL pwg:Person, unqualified, default graph        20 rows
+#
+# The control is load-bearing: the store answers unqualified queries perfectly
+# well, so the zero is not "empty store" and not "bad query", it is "wrong
+# graph". Named-graph totals on that box: warmth 409, fromConversation 1353,
+# OutstandingTodo 76. Default graph: 0, 0, 0.
+#
+# ONE DEFINITION, because there were six readers across two services and every
+# one of them would otherwise carry its own copy of this rule.
+
+
+def read_across_graphs(body: str) -> str:
+    """Wrap a SPARQL WHERE body so it reads the default graph AND named ones.
+
+    A UNION RATHER THAN A REPLACEMENT, and a VARIABLE graph rather than a
+    constructed IRI. Both halves are deliberate.
+
+    UNION, because data already on a customer's disk in the default graph
+    must not be orphaned by moving a reader to the named one. The measured
+    default-graph counts are 0 today, so scoping to the named graph ALONE
+    would also work on the box in front of us; the UNION costs one extra
+    pattern and survives a box where that zero is not zero.
+
+    A VARIABLE GRAPH, because the alternative is a constant that nothing
+    dates. Building ``"urn:ostler:user/" + USER_ID`` in a reader would put a
+    second, independent copy of CM048's graph-naming rule in a repo that does
+    not own it, and it would read NOTHING on any install whose environment
+    lacks USER_ID -- a silence indistinguishable from the defect being fixed.
+    ``ostler_hygiene/graph_io.py`` already reads the same CM048 data with
+    ``GRAPH ?g``; this follows it rather than inventing a second mechanism.
+
+    THE COMPARTMENT EXCLUSION IS NOT COSMETIC. With the deferred multiuser
+    paths enabled, a secondary user's data lives in its own named graph under
+    :data:`USER_GRAPH_BASE`, and an unfiltered ``GRAPH ?g`` in the PRIMARY
+    user's query would range over it. The other direction is already safe --
+    :meth:`UserCompartment.query_endpoint` pins a secondary's reads with the
+    SPARQL-protocol ``default-graph-uri`` parameter, which leaves the dataset
+    with no named graphs for ``GRAPH ?g`` to match -- but the primary
+    direction is not, so it is excluded here by value.
+
+    IT IS A DENY-LIST, AND A DENY-LIST FAILS OPEN. THAT IS A CHOICE, NOT AN
+    OVERSIGHT. The FILTER excludes graphs matching a known prefix and admits
+    every graph that does not match, so a future graph type holding sensitive
+    data, named under any other prefix, would be admitted silently. An
+    allow-list would fail closed, and it would cost the property this
+    function exists for: reading data whose graph name this repo does not own
+    and must not predict. That trade is taken deliberately in favour of the
+    deny-list, and it is only safe while somebody is watching what gets
+    added.
+
+    So the inventory is AUDITED rather than assumed:
+    tests/test_the_graph_exclusion_is_a_deny_list.py derives every graph-IRI
+    constant in this repo from its source and fails unless each one is either
+    excluded here or carries a written disposition. Today's inventory:
+
+        https://schema.ostler.ai/graph/user/<id>   EXCLUDED, a secondary
+                                                   compartment's own data
+        urn:ostler:user/<id>                       ADMITTED, this is the
+                                                   data these readers exist
+                                                   to find
+        urn:ostler:hygiene                         ADMITTED, the operator's
+                                                   own Memory-Hygiene
+                                                   verdicts; no CM048 body
+                                                   matches its shapes
+        .../graph/compartment-union-probe          ADMITTED, and it is the
+                                                   worked example of the
+                                                   fail-open shape: it was
+                                                   deliberately placed
+                                                   OUTSIDE the excluded
+                                                   prefix so it could never
+                                                   collide with a user
+                                                   compartment, which is
+                                                   exactly what makes this
+                                                   filter admit it. It holds
+                                                   one throwaway sentinel,
+                                                   so the consequence today
+                                                   is nil.
+
+    A new graph constant reddens that test until somebody decides which side
+    of the line it belongs on.
+
+    THE EXCLUSION FILTER SITS OUTSIDE THE GRAPH BLOCK. MEASURED, CAUSE NOT
+    ESTABLISHED. With the FILTER placed INSIDE the ``GRAPH`` block the whole
+    arm returned ZERO rows against a fixture it should have matched --
+    silently, on a query the engine accepted without complaint, which reads
+    exactly like the defect this function exists to fix. Outside the block it
+    returns the expected rows.
+
+        rdflib 7.6.0, Dataset(default_union=False)
+          FILTER inside  the GRAPH block    0 rows
+          FILTER outside the GRAPH block    the expected rows
+
+        pyoxigraph (the engine the Hub actually runs), same fixture shape,
+        measured in CM044's test_cm048_facts_live_in_a_named_graph.py
+          FILTER inside  the GRAPH block    1 row
+          FILTER outside the GRAPH block    1 row
+
+    SO THE INSIDE PLACEMENT IS FINE ON THE ENGINE THAT SHIPS, and the zero is
+    an rdflib deviation rather than a store behaviour. Per SPARQL 1.1 a FILTER
+    in a group graph pattern applies to that whole group and a variable bound
+    by ``GRAPH ?g`` is in scope inside it, so the spec and Oxigraph agree and
+    rdflib is the odd one out.
+
+    An earlier version of this comment asserted a mechanism ("the graph
+    variable is not reliably bound") that the spec does not support. It was
+    wrong, Archie said so on review, and the correction was to report the
+    measurement; this is the measurement completed on the engine that
+    matters.
+
+    The code stays OUTSIDE either way: it is unambiguous on both engines, and
+    this repo's own tests run rdflib, where the inside form silently matches
+    nothing. THAT is the lesson worth keeping -- the engine in the test is not
+    the engine in the product unless somebody checked, and here they differ on
+    the exact construct this function emits.
+
+    ``body`` is a WHERE body WITHOUT its enclosing braces, and it is emitted
+    TWICE, so it must be free of side effects and of any variable named
+    ``?ostlerCompartmentGraph``.
+    """
+    return (
+        "{ " + body + " }\n"
+        "UNION\n"
+        "{ GRAPH ?ostlerCompartmentGraph {\n" + body + "\n}\n"
+        "  FILTER(!STRSTARTS(STR(?ostlerCompartmentGraph), "
+        f'"{_USER_GRAPH_BASE_LITERAL}"))\n'
+        "}"
+    )
+
+
 #: Named graph the union-mode probe writes its throwaway sentinel into.
 #: Deliberately NOT under ``USER_GRAPH_BASE`` so no real user compartment
 #: can ever collide with probe traffic.
@@ -678,3 +841,83 @@ def graph_scoped_select(sparql, graph_uris):
         "}}{tail}"
     ).format(head=head, body=body, tail=tail,
              var=_GRAPH_SCOPE_VAR, in_list=in_list)
+
+def assert_named_graphs_are_off_a_pinned_dataset(
+    run_update: Callable[[str], None],
+    run_pinned_query: Callable[[str], dict],
+    run_bare_query: Callable[[str], dict],
+) -> None:
+    """Prove ``default-graph-uri`` really does empty the named-graph set.
+
+    WHY THIS EXISTS, AND WHY REASONING WAS NOT ENOUGH.
+    :meth:`UserCompartment.query_endpoint` pins a secondary compartment's
+    reads with the SPARQL-protocol ``default-graph-uri`` parameter and no
+    ``named-graph-uri``. Per SPARQL 1.1 Protocol that constructs a dataset
+    whose NAMED-graph set is empty, so a ``GRAPH ?g`` pattern matches
+    nothing and a secondary cannot reach another compartment's data that
+    way. :func:`read_across_graphs` depends on exactly that, because it puts
+    a ``GRAPH ?g`` into ordinary reader queries.
+
+    That is a spec argument about a store's behaviour, which is the same
+    class of assumption :func:`assert_default_graph_isolated` exists because
+    we refuse to make. It probes "the store does not union named graphs into
+    the default graph" rather than trusting the flag; this probes "the store
+    treats ``default-graph-uri`` alone as emptying the named-graph set"
+    rather than trusting the spec. Same property, same module, and it would
+    have been inconsistent to measure one and reason the other.
+
+    1. write a throwaway sentinel (fresh UUID subject) into
+       :data:`UNION_PROBE_GRAPH_IRI`;
+    2. ask for it with an explicit ``GRAPH ?g`` through the PINNED endpoint.
+       Zero rows is the pass;
+    3. **CONTROL**: ask for it with the identical ``GRAPH ?g`` query through
+       the BARE endpoint, where it MUST be found. Without this, a store that
+       answers nothing at all -- or a pin that silently rejects the query --
+       gives a clean pass, and "isolated" and "could not look" print
+       identically;
+    4. delete the sentinel again, always (``finally``).
+
+    Fail-closed in both directions: a leak raises, and so does a control
+    that fails to find its own sentinel, because an instrument that cannot
+    see a thing it put there cannot report the absence of anything.
+    """
+    nonce = uuid.uuid4().hex
+    sentinel = f"urn:ostler:pin-probe:{nonce}"
+    triple = f'<{sentinel}> <urn:ostler:pin-probe> "{nonce}"'
+    graph_query = (
+        f"SELECT ?leak WHERE {{ GRAPH ?g {{ "
+        f"<{sentinel}> <urn:ostler:pin-probe> ?leak }} }}"
+    )
+
+    run_update(
+        f"INSERT DATA {{ GRAPH <{UNION_PROBE_GRAPH_IRI}> {{ {triple} }} }}"
+    )
+    try:
+        pinned = run_pinned_query(graph_query)
+        pinned_rows = pinned.get("results", {}).get("bindings", [])
+        control = run_bare_query(graph_query)
+        control_rows = control.get("results", {}).get("bindings", [])
+    finally:
+        run_update(
+            f"DELETE DATA {{ GRAPH <{UNION_PROBE_GRAPH_IRI}> {{ {triple} }} }}"
+        )
+
+    if not control_rows:
+        raise CompartmentIsolationError(
+            "the named-graph pin probe's CONTROL failed: a GRAPH ?g query "
+            "through the BARE endpoint did not find a sentinel this probe "
+            "had just written. So the zero rows through the pinned endpoint "
+            "mean 'could not look', not 'isolated', and nothing about the "
+            "pin has been established. Refusing secondary-compartment "
+            "operation (fail-closed)."
+        )
+    if pinned_rows:
+        raise CompartmentIsolationError(
+            "a GRAPH ?g query through a compartment-pinned endpoint reached "
+            "a named graph outside that compartment. The default-graph-uri "
+            "pin does NOT empty this store's named-graph set, so every "
+            "reader using read_across_graphs would range over other "
+            "compartments' data. Refusing secondary-compartment operation "
+            "(fail-closed)."
+        )
+

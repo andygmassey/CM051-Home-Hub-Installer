@@ -69,7 +69,6 @@ _STRINGS = {
                             "thread alive."),
     "gone_quiet_action": "Draft a hello",
     "birthday_title": "{name}'s birthday is {when}",
-    "birthday_body": "{when_cap}.",
     "commitment_title": "Something you committed to is due",
     "commitment_title_with": "Something you owe {who} is due",
     # No free-text commitment body template: commitment text is arbitrary
@@ -410,9 +409,13 @@ def birthday_card(name: str, days_until: int, now: datetime, ledger=None,
     when = _when_phrase(du)
     card = fp._make_card(
         "signal", f"birthday::{name}",
+        # CM051 #2535: no body subtitle. The title already carries the full
+        # timing ("...birthday is in five days" / "...is today"), so a
+        # second line read "In five days away." or, for today, "Today."
+        # under a title that already said "is today" -- redundant, and the
+        # "away" suffix duplicated the "in N days" prefix ungrammatically.
         title=_STRINGS["birthday_title"].format(name=name, when=when),
-        body=_STRINGS["birthday_body"].format(when_cap=_cap(f"{when} away") if du > 1
-                                               else _cap(when)),
+        body=None,
         now=now, domain="dates",
         priority=fp.BAND_KEY_DATE * date_proximity(du),
         expires_utc=expires, source="ostler:people",
