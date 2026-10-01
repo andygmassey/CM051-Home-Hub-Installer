@@ -705,13 +705,20 @@
  # ── Memory tab (CM031 iOS Companion v1.0 LB) ─────────────────────────
  # The Memory tab is the customer's window into what Ostler has inferred
  # about them. GET returns the user's own PersonFact rows from Oxigraph
-@@ -497,14 +669,34 @@
+@@ -496,15 +668,40 @@
+ # "" -> the "primary" label, which is wrong for a graph IRI here).
  from identity_resolver.compartment import (
      normalise_user_id as _normalise_user_id,
-     read_across_graphs as _read_across_graphs,
+-    read_across_graphs as _read_across_graphs,
 +    cm048_user_graph_uris as _cm048_user_graph_uris,
 +    graph_scoped_select as _graph_scoped_select,
  )
++# NOT imported: upstream's `read_across_graphs`. CM051's vendored
++# identity_resolver tree (a SEPARATE pin from this one) does not carry it --
++# importing a symbol the deployed sibling tree lacks would crash this
++# service at startup. The four readers below that upstream wraps in it
++# instead rely on `_graph_scoped` (below), CM051's own central scoper,
++# which was ALREADY proven to cover them (see its docstring).
  
 +# The operator's own display name, used ONLY to keep them out of their own
 +# suggestions (see _is_not_a_person_to_suggest). Absent is the safe state: an
@@ -740,7 +747,23 @@
  # THE READERS BELOW ASKED THE DEFAULT GRAPH; CM048 WRITES TO A NAMED ONE.
  #
  # ONE DEFINITION, in identity_resolver/compartment.py, which is the module
-@@ -558,14 +750,174 @@
+@@ -520,6 +717,15 @@
+ # four of these sites as UNSCOPED -- it searches for the shared function's
+ # real name, and an alias hides a call site from exactly the check that is
+ # supposed to find it.
++#
++# CM051 DEPARTURE FROM THE ABOVE, STATED HERE SO IT IS NOT MISSED: this tree
++# does NOT import or call `read_across_graphs`. CM051's vendored
++# identity_resolver tree is pinned separately and does not yet carry that
++# symbol; importing it here would crash this service at startup on a real
++# install. The four readers upstream wraps in it instead rely on
++# `_graph_scoped` below, CM051's own central scoper, proven by execution
++# (see its docstring) to cover the same six readers upstream names. Same
++# outcome, different mechanism, and the only one this tree can actually run.
+ 
+ 
+ MEMORY_LIMIT = int(os.environ.get("MEMORY_LIMIT", "50"))
+@@ -558,7 +764,153 @@
  # TODO(hub-portability): replace with a ZeroClaw HTTP endpoint once it
  # exposes one. Tracked alongside Step 3 in HUB_PORTABILITY_PLAN.md.
  QUEUE_DEPTH_FILE = SYNC_STATE_DIR / "queue_depth"
@@ -894,13 +917,13 @@
  try:
      from zoneinfo import ZoneInfo
      _LOCAL_TZ = ZoneInfo(TIMEZONE)
- except Exception:
+@@ -566,6 +918,20 @@
      _LOCAL_TZ = None
-+
-+
+ 
+ 
 +def _safe_iso_day(params, key):
 +    """Parse an optional ?key=YYYY-MM-DD. Returns (value_or_None, error_or_None).
- 
++
 +    Strict, because the value is interpolated into a SPARQL FILTER.
 +    """
 +    raw = (params.get(key) or [""])[0].strip()
@@ -910,17 +933,15 @@
 +    if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
 +        return None, {"error": "{} must be YYYY-MM-DD".format(key)}
 +    return raw, None
- 
++
 +
  def _safe_int(params, key, default):
      """Parse a query param as int, returning (value, error_dict_or_None).
  
-@@ -958,13 +1310,144 @@
-     payload = json.loads(resp.read())
-     _record_embed_usage(payload, EMBED_MODEL)
+@@ -960,11 +1326,144 @@
      return payload["embeddings"][0]
-+
-+
+ 
+ 
 +# ----------------------------------------------------------------------
 +# Graph scope (v1018-D012b). ONE implementation, shared -- see
 +# identity_resolver/compartment.py for the full rationale.
@@ -940,14 +961,16 @@
 +# documented it in their own docstring and fixed only their own surface).
 +# A sixth private copy is how it stayed systemic.
 +#
-+# KEPT ALONGSIDE upstream's per-reader ``_read_across_graphs`` (six readers,
-+# CM041 #175): that fix is scoped to the specific readers it was filed
-+# against. This wrapper is the blanket cover for every OTHER
-+# ``_sparql_select`` call in this file, including the GDPR erasure path
-+# below, which upstream's fix does not touch. Covering the same six readers
-+# twice is redundant, not wrong, and the alternative -- relying on
-+# upstream's narrower fix alone -- would silently drop named-graph coverage
-+# for every unlisted caller.
++# THE ONLY MECHANISM IN THIS TREE, not one of two. Upstream's per-reader
++# ``read_across_graphs`` (CM041 #175, six readers) is NOT imported here --
++# CM051's vendored identity_resolver tree does not yet carry that symbol
++# (separate pin), so importing it would crash this service at startup. The
++# four readers upstream wraps in it instead have that wrapper call REMOVED
++# here (see each call site) and rely on this central scoper alone, proven
++# by execution to cover the same readers (see the note above
++# ``_sparql_select``'s own docstring). It also covers the GDPR erasure path
++# below and every OTHER ``_sparql_select`` call in this file, which
++# upstream's narrower fix never touched regardless.
 +def _graph_scoped(sparql):
 +    """Scope a SELECT to the default graph plus this user's CM048 graphs."""
 +    return _graph_scoped_select(sparql, _USER_GRAPH_URIS)
@@ -1030,7 +1053,7 @@
 +        clauses.append(
 +            "DELETE {{ ?f ?fp ?fo }} WHERE {{ ?f a " + fact_type + " ; "
 +            + about + " <{uri}> ; ?fp ?fo }};")
- 
++
 +    clauses += [
 +        "DELETE {{ <{uri}> ?p ?o }} WHERE {{ <{uri}> ?p ?o }};",
 +        "DELETE {{ ?s ?p <{uri}> }} WHERE {{ ?s ?p <{uri}> }};",
@@ -1045,7 +1068,7 @@
 +            "WHERE {{ GRAPH <" + graph + "> {{ ?s ?p <{uri}> }} }};"
 +        )
 +    return "\n".join(clauses).format(uri=esc_uri)
- 
++
 +
  def _sparql_select(sparql):
 -    """Run a SPARQL SELECT on Oxigraph, return list of binding dicts."""
@@ -1062,10 +1085,11 @@
          headers={
              "Content-Type": "application/sparql-query",
              "Accept": "application/sparql-results+json",
-@@ -1269,6 +1752,20 @@
+@@ -1268,6 +1767,20 @@
+ 
  
  # ── Conversation processing (CM048 tier 1) ───────────────────────────
- 
++
 +def _invoke_pwg_convo(args, timeout=900):
 +    """Invoke the pwg-convo CLI (CM048) as a subprocess.
 +
@@ -1079,11 +1103,10 @@
 +        capture_output=True, text=True, timeout=timeout,
 +    )
 +
-+
+ 
  def _conversation_process_background(conversation_id, transcript, metadata):
      """Run CM048 processing in a background thread.
- 
-@@ -1276,9 +1773,10 @@
+@@ -1276,9 +1789,10 @@
      invokes the CM048 processor. Updates state.json on completion or
      failure.
  
@@ -1097,7 +1120,7 @@
      """
      state_dir = PROCESSING_DIR / conversation_id
      state_dir.mkdir(parents=True, exist_ok=True)
-@@ -1321,17 +1819,13 @@
+@@ -1321,17 +1835,13 @@
          json.dumps(state, indent=2), encoding="utf-8"
      )
  
@@ -1119,7 +1142,7 @@
          )
          if result.returncode == 0:
              state["current_step"] = "completed"
-@@ -1340,6 +1834,18 @@
+@@ -1340,6 +1850,18 @@
              state["failed_step"] = "processor"
              state["failure_reason"] = result.stderr[:500] or "Non-zero exit"
              state["last_updated_at"] = datetime.utcnow().isoformat() + "Z"
@@ -1138,7 +1161,7 @@
      except subprocess.TimeoutExpired:
          state["failed_step"] = "processor"
          state["failure_reason"] = "Processing timed out (15 min limit)"
-@@ -1359,18 +1865,40 @@
+@@ -1359,18 +1881,40 @@
  
      Accepts {transcript, metadata}. Saves raw inputs, spawns background
      processing, returns job_id immediately.
@@ -1182,7 +1205,7 @@
  
      # Generate conversation_id from metadata or UUID
      date = metadata.get("date", datetime.utcnow().strftime("%Y-%m-%d"))
-@@ -1419,6 +1947,38 @@
+@@ -1419,6 +1963,38 @@
          return False
  
  
@@ -1221,7 +1244,7 @@
  def api_people_forget(slug):
      """Handle POST /api/v1/people/{slug}/forget.
  
-@@ -1470,12 +2030,76 @@
+@@ -1470,12 +2046,76 @@
              break
  
      if person_uri is None:
@@ -1301,7 +1324,7 @@
              "wiki_recompile_queued": queued,
              "stores_purged": [],
          }, 200
-@@ -1485,12 +2109,21 @@
+@@ -1485,12 +2125,21 @@
  
      # Oxigraph: delete every triple where this URI is subject, then
      # every triple where it's object (incoming relationships, mentions).
@@ -1329,7 +1352,7 @@
      try:
          _sparql_update(sparql_update)
          stores_purged.append("oxigraph")
-@@ -2267,22 +2900,98 @@
+@@ -2267,22 +2916,98 @@
      #
      # ?about is returned so a caller can name the subject: answering "who is
      # my wife" needs jane's name, not just the sentence.
@@ -1440,7 +1463,55 @@
      )
      return _sparql_select(sparql)
  
-@@ -4358,7 +5067,10 @@
+@@ -3159,10 +3884,12 @@
+         person_slug = _wiki_slug(pname)
+         # CM048 writes these signals into the per-user NAMED graph, so an
+         # unqualified read returns nothing. Measured 0 rows as shipped,
+-        # 20 with the clause. See read_across_graphs.
++        # 20 with the clause -- covered here by `_graph_scoped` via `_sparql_select`,
++        # not `read_across_graphs` (not available in this tree's vendored
++        # identity_resolver; see the note above `_graph_scoped`).
+         signals = _sparql_select(
+             'SELECT ?warmth ?trust ?observedAt ?spriv WHERE {\n'
+-            + _read_across_graphs(
++            + (
+                 '  ?signal <urn:ostler:about> ?person .\n'
+                 '  ?signal <urn:ostler:warmth> ?warmth .\n'
+                 '  ?signal <urn:ostler:trust> ?trust .\n'
+@@ -3520,10 +4247,12 @@
+ 
+         # CM048 writes these signals into the per-user NAMED graph, so an
+         # unqualified read returns nothing. Measured 0 rows as shipped,
+-        # 20 with the clause. See read_across_graphs.
++        # 20 with the clause -- covered here by `_graph_scoped` via `_sparql_select`,
++        # not `read_across_graphs` (not available in this tree's vendored
++        # identity_resolver; see the note above `_graph_scoped`).
+         signals = _sparql_select(
+             'SELECT ?warmth ?trust ?observedAt ?spriv WHERE {\n'
+-            + _read_across_graphs(
++            + (
+                 '  ?signal <urn:ostler:about> ?person .\n'
+                 '  ?signal <urn:ostler:warmth> ?warmth .\n'
+                 '  ?signal <urn:ostler:trust> ?trust .\n'
+@@ -3800,7 +4529,7 @@
+         # matches in both arms of the UNION.
+         conv_rows = _sparql_select(
+             'SELECT DISTINCT ?conv ?date ?fpriv WHERE {\n'
+-            + _read_across_graphs(
++            + (
+                 '  ?fact <urn:ostler:about> <{uri}> ; '
+                 '<urn:ostler:fromConversation> ?conv .\n'
+                 '  OPTIONAL {{ ?conv <urn:ostler:date> ?date }}\n'
+@@ -4311,7 +5040,7 @@
+         # BOTH graphs would be listed twice by the UNION.
+         rows = _sparql_select(
+             'SELECT DISTINCT ?todo ?action ?owner ?deadline ?status ?source ?createdAt WHERE {\n'
+-            + _read_across_graphs(
++            + (
+                 '  ?todo a <urn:ostler:OutstandingTodo> ;\n'
+                 '        <urn:ostler:todoText> ?action ;\n'
+                 '        <urn:ostler:owner> ?owner ;\n'
+@@ -4358,7 +5087,10 @@
      commitments = commitments[:limit]
      for c in commitments:
          c.pop("_created", None)
@@ -1452,7 +1523,7 @@
  
  
  # ── Reply debt (CM048 reply-debt detector, JTBD#1) ───────────────────
-@@ -4506,6 +5218,10 @@
+@@ -4506,6 +5238,10 @@
          }, 200
  
      payload.setdefault("degraded", False)
@@ -1463,7 +1534,7 @@
      return payload, 200
  
  
-@@ -4654,6 +5370,12 @@
+@@ -4654,6 +5390,12 @@
          name = p.get("display_name") or p.get("name") or ""
          if not name:
              continue
@@ -1476,10 +1547,11 @@
          # slug + wiki_url let the Hub People row click through to the
          # person's wiki page (and resolve the enrichment card). Same slug
          # derivation and WIKI_BASE_URL as people_search / people_recent.
-@@ -4811,6 +5533,35 @@
+@@ -4810,7 +5552,36 @@
+         # Hide raw-handle "people" (WhatsApp JIDs, bare numbers) from the
          # Stale / reconnect list. Render-time filter only. Ref #664.
          if _is_nameless_name(name):
-             continue
++            continue
 +        # 🔴 AND A SECOND, STRICTER SCREEN, BECAUSE RECONNECT ASKS A HARDER
 +        # QUESTION THAN "IS THIS DISPLAYABLE".
 +        #
@@ -1506,13 +1578,13 @@
 +        # remains searchable. They are excluded from a suggestion that cannot
 +        # be written properly without a human name.
 +        if _is_not_a_person_to_suggest(name, USER_NAME):
-+            continue
+             continue
 +        if _is_service_sender(name, p.get("emails")):
 +            continue
          months_since = int((now - lc_ts) / (30 * 86400))
          candidates.append({
              "name": name,
-@@ -4818,7 +5569,10 @@
+@@ -4818,7 +5589,10 @@
              "wiki_url": f"{WIKI_BASE_URL}/People/{_wiki_slug(name)}/",
              "last_contact": p.get("last_contact", ""),
              "months_since_contact": months_since,
@@ -1524,7 +1596,7 @@
              "_person_uri": p.get("person_uri") or "",
          })
  
-@@ -4990,6 +5744,12 @@
+@@ -4990,6 +5764,12 @@
          # recent endpoints use. Ref #664. The Qdrant point / graph node is never
          # deleted -- only withheld from this listing.
          if _is_nameless_name(name):
@@ -1537,7 +1609,7 @@
              continue
          try:
              # Parse MM-DD or YYYY-MM-DD
-@@ -5119,6 +5879,30 @@
+@@ -5119,6 +5899,30 @@
      # change. Aliases share the same list reference – cheap, no copy.
      out["reconnect"] = out["stale_contacts"]
      out["follow_up"] = out["recent_meetings"]
@@ -1568,7 +1640,7 @@
      return out
  
  
-@@ -5231,7 +6015,8 @@
+@@ -5231,7 +6035,8 @@
      }
  
  
@@ -1578,7 +1650,7 @@
      """Historic timeline rows from the People Graph - one entry PER MEETING.
  
      The Timeline is mainly a HISTORIC view, so its primary source is the graph
-@@ -5258,9 +6043,18 @@
+@@ -5258,9 +6063,18 @@
              '  OPTIONAL {{ ?m pwg:meetingAttendee ?p . ?p pwg:displayName ?name }}\n'
              '  OPTIONAL {{ ?m pwg:meetingSummary ?summary }}\n'
              '  OPTIONAL {{ ?m pwg:meetingLocation ?location }}\n'
@@ -1600,7 +1672,7 @@
              )
          )
      except Exception as exc:
-@@ -5272,7 +6066,11 @@
+@@ -5272,7 +6086,11 @@
          participants = [a for a in attendees_raw.split("|")
                          if a and not _is_nameless_name(a)]
          out.append({
@@ -1613,7 +1685,7 @@
              "date": (r.get("date") or "")[:10],
              "summary": r.get("summary", ""),
              "participants": participants,
-@@ -5281,7 +6079,7 @@
+@@ -5281,7 +6099,7 @@
      return out, None
  
  
@@ -1622,7 +1694,7 @@
      """Historic conversation rows for the Timeline, from Qdrant.
  
      Meetings live in Oxigraph as pwg:Meeting nodes; CONVERSATIONS do not. They
-@@ -5347,6 +6145,8 @@
+@@ -5347,6 +6165,8 @@
          date = raw_date[:10]
          if not date or date < cutoff:
              continue
@@ -1631,7 +1703,7 @@
          counterpart = (payload.get("contact_name")
                         or payload.get("wing")
                         or payload.get("participant")
-@@ -5360,15 +6160,40 @@
+@@ -5360,15 +6180,40 @@
              # what-happened-when view; conversation content is L2+ and has its
              # own privacy-gated surfaces. A channel + counterpart is enough to
              # place the event without publishing what was said.
@@ -1675,7 +1747,7 @@
      """Mainly-historic life timeline: past meetings/events + a short forward look.
  
      The Timeline is a HISTORIC view first. Its backbone is the People Graph
-@@ -5417,7 +6242,23 @@
+@@ -5417,7 +6262,23 @@
      # Past (the main event): historic meetings/events from the graph, one row
      # per meeting, back `past_days` days. This is what makes the Timeline a
      # historic view rather than a 7-day-forward calendar peek.
@@ -1700,7 +1772,7 @@
      if past_err is not None:
          items.append({"kind": "meeting_error", "error": past_err})
      else:
-@@ -5430,16 +6271,22 @@
+@@ -5430,16 +6291,22 @@
      #
      # Failure here is reported, never fatal: a broken conversation store must
      # degrade this section, not empty the whole Timeline of its meetings.
@@ -1725,7 +1797,7 @@
  
      # CM031 PWG Companion decodes `entries: [{type, timestamp, title,
      # subtitle, attendees}]`. Map our `items: [{kind, date, summary,
-@@ -5452,7 +6299,14 @@
+@@ -5452,7 +6319,14 @@
          if kind in ("calendar_error", "meeting_error"):
              # Surface but skip – CM031 does not render error sentinels.
              continue
@@ -1741,7 +1813,7 @@
          raw_date = it.get("date") or ""
          timestamp = _to_iso8601(raw_date)
          # Attendee names come in two shapes:
-@@ -5482,6 +6336,8 @@
+@@ -5482,6 +6356,8 @@
          "entries": entries,
          "days": days,
          "past_days": past_days,
@@ -1750,7 +1822,7 @@
          "limit": limit,
          "count": len(items),
      }
-@@ -5723,7 +6579,15 @@
+@@ -5723,7 +6599,15 @@
      (meetings, calendar) already keyed by date. The graph write is
      best-effort: a graph failure never fails the ingest (the JSONL spool
      is the durable record).
@@ -1766,7 +1838,7 @@
      import time
      import uuid
  
-@@ -5775,6 +6639,9 @@
+@@ -5775,6 +6659,9 @@
              "ok": True,
              "batch_id": batch_id,
              "item_count": len(batch),
@@ -1776,7 +1848,7 @@
              "path": path,
          }
          if health_written:
-@@ -5964,7 +6831,15 @@
+@@ -5964,7 +6851,15 @@
      ``ostler_fda/pwg_ingest.ingest_browser_history`` but for one page
      at a time: sensitive-domain filter, Ollama embed of
      (title + host + url), Qdrant upsert into ``safari_history``.
@@ -1792,12 +1864,10 @@
      import uuid as _uuid
      import time as _time
  
-@@ -6071,13 +6946,213 @@
- # can fan out work and collect named results. Every helper is wrapped in
- # a blanket try/except – a misbehaving dependency must NEVER propagate
+@@ -6073,11 +6968,211 @@
  # up to the endpoint handler.
-+
-+
+ 
+ 
 +def _subscription_paused(surface):
 +    """Rule 0.8: should this ingestion surface pause for an unpaid Hub?
 +
@@ -1942,11 +2012,11 @@
 +
 +    Payload shape (from CM031's SubscriptionService): ``{"receipt_b64":
 +    "<base64 receipt>", "expires_at": "<ISO-8601 datetime>"}``.
- 
++
 +    On a valid body the handler persists state via
 +    ``subscription_gate.refresh_from_companion`` and replies with the
 +    resulting status dict (``{"status": "active|grace|inactive"}``).
- 
++
 +    Apple-restraint posture: the Hub never forwards the receipt to
 +    Apple's verifyReceipt endpoint. Server-side StoreKit 2 validation is
 +    the Companion's responsibility; the Hub trusts the paired-channel
@@ -2007,10 +2077,12 @@
      """
      try:
          if path.exists():
-@@ -6088,6 +7163,232 @@
+@@ -6086,8 +7181,234 @@
+     except Exception:
+         return None
      return None
- 
- 
++
++
 +def _read_iso8601_marker(path):
 +    """Read and validate an ISO-8601 UTC timestamp from a marker file.
 +
@@ -2144,7 +2216,7 @@
 +            flush=True,
 +        )
 +        return {"recording": None}
-+
+ 
 +    # Required fields. The producer is contractually obliged to emit
 +    # all three on every write; if any is missing we treat the whole
 +    # payload as unusable rather than guessing.
@@ -2166,7 +2238,7 @@
 +            flush=True,
 +        )
 +        return {"recording": None}
-+
+ 
 +    # Optional fields. Coerce to None on a type mismatch rather than
 +    # propagating wrong-shape values to iOS, which would force a
 +    # Codable failure on the consumer side.
@@ -2240,7 +2312,7 @@
  def _hub_check_zeroclaw():
      """Is ZeroClaw running? Uses pgrep rather than parsing ps output.
  
-@@ -6200,7 +7501,7 @@
+@@ -6200,7 +7521,7 @@
      Absence of a marker is treated as unhealthy but not an error – fresh
      installs have never synced.
      """
@@ -2249,7 +2321,7 @@
      if ts:
          return {"healthy": True, "last_refresh": ts}
      return {"healthy": False, "last_refresh": None, "error": "no refresh recorded"}
-@@ -6323,7 +7624,7 @@
+@@ -6323,7 +7644,7 @@
      except Exception:
          queue_depth = 0
  
@@ -2258,7 +2330,7 @@
  
      # Derive hub_status from service health + queue depth.
      all_healthy = all(s.get("healthy") for s in services.values())
-@@ -7201,6 +8502,11 @@
+@@ -7201,6 +8522,11 @@
                  past_days, err = _safe_int(params, "past_days", 730)
              if not err:
                  limit, err = _safe_int(params, "limit", 200)
@@ -2270,7 +2342,7 @@
              if err:
                  self.send_response(400)
                  self.send_header("Content-Type", "application/json")
-@@ -7208,9 +8514,14 @@
+@@ -7208,9 +8534,14 @@
                  self.wfile.write(json.dumps(err).encode())
                  return
              try:
@@ -2287,15 +2359,10 @@
                            "degraded": True, "reason": str(exc), "error": str(exc)}
              self.send_response(200)
              self.send_header("Content-Type", "application/json")
-@@ -7547,6 +8858,31 @@
-                     "reason": f"reply_debt_failed: {str(exc)[:200]}",
-                 }, 200
-             self.send_response(status)
-+            self.send_header("Content-Type", "application/json")
-+            self.end_headers()
-+            self.wfile.write(json.dumps(result, indent=2).encode())
-+            return
-+
+@@ -7552,6 +8883,31 @@
+             self.wfile.write(json.dumps(result, indent=2).encode())
+             return
+ 
 +        # Recording state (CM042 producer → CM031 Live Activity).
 +        # Read-only. Never 5xx: any failure demotes to recording=null so
 +        # the iOS Live Activity collapses cleanly. See api_recording_active
@@ -2316,10 +2383,15 @@
 +                )
 +                result = {"recording": None}
 +            self.send_response(200)
-             self.send_header("Content-Type", "application/json")
-             self.end_headers()
-             self.wfile.write(json.dumps(result, indent=2).encode())
-@@ -7778,6 +9114,22 @@
++            self.send_header("Content-Type", "application/json")
++            self.end_headers()
++            self.wfile.write(json.dumps(result, indent=2).encode())
++            return
++
+         # Conversation processing status (CM048)
+         # Per-slug person enrichment for the iOS / Hub person card.
+         # GET /api/v1/people/{slug}/enrichment
+@@ -7778,6 +9134,22 @@
          if parsed.path == "/api/v1/ingest/ios":
              try:
                  result, status = api_ingest_ios(payload)
@@ -2342,7 +2414,7 @@
              except Exception as exc:
                  result, status = {"error": str(exc)}, 500
              self.send_response(status)
-@@ -7918,6 +9270,10 @@
+@@ -7918,6 +9290,10 @@
      BIND_HOST = os.environ.get("OSTLER_API_BIND", "127.0.0.1")
      # Tag the historical privacy coverage gap before answering /people/*.
      _run_privacy_backfill_on_startup()
@@ -2353,7 +2425,7 @@
      # Service-token auth posture (v1.0.10 lockdown). Loud so a missing token
      # is never silent: without it, every non-public endpoint fails closed
      # (401). There is no environment escape hatch.
-@@ -7946,4 +9302,33 @@
+@@ -7946,4 +9322,33 @@
              file=sys.stderr,
              flush=True,
          )

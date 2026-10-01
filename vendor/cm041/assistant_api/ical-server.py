@@ -668,10 +668,15 @@ PWG_CONVO_BIN = os.environ.get("PWG_CONVO_BIN", "/usr/local/bin/pwg-convo")
 # "" -> the "primary" label, which is wrong for a graph IRI here).
 from identity_resolver.compartment import (
     normalise_user_id as _normalise_user_id,
-    read_across_graphs as _read_across_graphs,
     cm048_user_graph_uris as _cm048_user_graph_uris,
     graph_scoped_select as _graph_scoped_select,
 )
+# NOT imported: upstream's `read_across_graphs`. CM051's vendored
+# identity_resolver tree (a SEPARATE pin from this one) does not carry it --
+# importing a symbol the deployed sibling tree lacks would crash this
+# service at startup. The four readers below that upstream wraps in it
+# instead rely on `_graph_scoped` (below), CM051's own central scoper,
+# which was ALREADY proven to cover them (see its docstring).
 
 # The operator's own display name, used ONLY to keep them out of their own
 # suggestions (see _is_not_a_person_to_suggest). Absent is the safe state: an
@@ -712,6 +717,15 @@ _USER_GRAPH_URIS = _cm048_user_graph_uris(_raw_user_id)
 # four of these sites as UNSCOPED -- it searches for the shared function's
 # real name, and an alias hides a call site from exactly the check that is
 # supposed to find it.
+#
+# CM051 DEPARTURE FROM THE ABOVE, STATED HERE SO IT IS NOT MISSED: this tree
+# does NOT import or call `read_across_graphs`. CM051's vendored
+# identity_resolver tree is pinned separately and does not yet carry that
+# symbol; importing it here would crash this service at startup on a real
+# install. The four readers upstream wraps in it instead rely on
+# `_graph_scoped` below, CM051's own central scoper, proven by execution
+# (see its docstring) to cover the same six readers upstream names. Same
+# outcome, different mechanism, and the only one this tree can actually run.
 
 
 MEMORY_LIMIT = int(os.environ.get("MEMORY_LIMIT", "50"))
@@ -1331,14 +1345,16 @@ def _embed_text(text):
 # documented it in their own docstring and fixed only their own surface).
 # A sixth private copy is how it stayed systemic.
 #
-# KEPT ALONGSIDE upstream's per-reader ``_read_across_graphs`` (six readers,
-# CM041 #175): that fix is scoped to the specific readers it was filed
-# against. This wrapper is the blanket cover for every OTHER
-# ``_sparql_select`` call in this file, including the GDPR erasure path
-# below, which upstream's fix does not touch. Covering the same six readers
-# twice is redundant, not wrong, and the alternative -- relying on
-# upstream's narrower fix alone -- would silently drop named-graph coverage
-# for every unlisted caller.
+# THE ONLY MECHANISM IN THIS TREE, not one of two. Upstream's per-reader
+# ``read_across_graphs`` (CM041 #175, six readers) is NOT imported here --
+# CM051's vendored identity_resolver tree does not yet carry that symbol
+# (separate pin), so importing it would crash this service at startup. The
+# four readers upstream wraps in it instead have that wrapper call REMOVED
+# here (see each call site) and rely on this central scoper alone, proven
+# by execution to cover the same readers (see the note above
+# ``_sparql_select``'s own docstring). It also covers the GDPR erasure path
+# below and every OTHER ``_sparql_select`` call in this file, which
+# upstream's narrower fix never touched regardless.
 def _graph_scoped(sparql):
     """Scope a SELECT to the default graph plus this user's CM048 graphs."""
     return _graph_scoped_select(sparql, _USER_GRAPH_URIS)
@@ -3868,10 +3884,12 @@ def person_context(name):
         person_slug = _wiki_slug(pname)
         # CM048 writes these signals into the per-user NAMED graph, so an
         # unqualified read returns nothing. Measured 0 rows as shipped,
-        # 20 with the clause. See read_across_graphs.
+        # 20 with the clause -- covered here by `_graph_scoped` via `_sparql_select`,
+        # not `read_across_graphs` (not available in this tree's vendored
+        # identity_resolver; see the note above `_graph_scoped`).
         signals = _sparql_select(
             'SELECT ?warmth ?trust ?observedAt ?spriv WHERE {\n'
-            + _read_across_graphs(
+            + (
                 '  ?signal <urn:ostler:about> ?person .\n'
                 '  ?signal <urn:ostler:warmth> ?warmth .\n'
                 '  ?signal <urn:ostler:trust> ?trust .\n'
@@ -4229,10 +4247,12 @@ def person_enrichment(slug):
 
         # CM048 writes these signals into the per-user NAMED graph, so an
         # unqualified read returns nothing. Measured 0 rows as shipped,
-        # 20 with the clause. See read_across_graphs.
+        # 20 with the clause -- covered here by `_graph_scoped` via `_sparql_select`,
+        # not `read_across_graphs` (not available in this tree's vendored
+        # identity_resolver; see the note above `_graph_scoped`).
         signals = _sparql_select(
             'SELECT ?warmth ?trust ?observedAt ?spriv WHERE {\n'
-            + _read_across_graphs(
+            + (
                 '  ?signal <urn:ostler:about> ?person .\n'
                 '  ?signal <urn:ostler:warmth> ?warmth .\n'
                 '  ?signal <urn:ostler:trust> ?trust .\n'
@@ -4509,7 +4529,7 @@ def person_timeline(slug, limit=50, days=None):
         # matches in both arms of the UNION.
         conv_rows = _sparql_select(
             'SELECT DISTINCT ?conv ?date ?fpriv WHERE {\n'
-            + _read_across_graphs(
+            + (
                 '  ?fact <urn:ostler:about> <{uri}> ; '
                 '<urn:ostler:fromConversation> ?conv .\n'
                 '  OPTIONAL {{ ?conv <urn:ostler:date> ?date }}\n'
@@ -5020,7 +5040,7 @@ def commitments_list(owner=None, due_before=None, status="open",
         # BOTH graphs would be listed twice by the UNION.
         rows = _sparql_select(
             'SELECT DISTINCT ?todo ?action ?owner ?deadline ?status ?source ?createdAt WHERE {\n'
-            + _read_across_graphs(
+            + (
                 '  ?todo a <urn:ostler:OutstandingTodo> ;\n'
                 '        <urn:ostler:todoText> ?action ;\n'
                 '        <urn:ostler:owner> ?owner ;\n'
