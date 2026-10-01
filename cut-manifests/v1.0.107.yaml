@@ -6649,7 +6649,7 @@ open_issues:
 
   - issue: 2540
     repo: CM051
-    title: 'Hub page titles do not match the sidebar: Settings reads Home, Bursar Cost, Pair iPhone Pair this device; locked rows hide the install value'
+    title: 'Hub page titles do not match the sidebar: Settings reads Home, Bursar reads Cost, Pair iPhone reads Pair this device; locked rows hide the install value'
     gate: 'NOT BLOCKING for v1.0.107 (QA filing; Archie may raise it). Registered in the same action as the filing. SCREEN: Settings (sidebar ''Settings'', route /preferences). EXPECTED: The title says ''Settings''. Locked rows show the value (e.g. the owner''s city and the owner''s time zone) with the lock. CLOSES ON: a walk where hub_screens: page_titles_match_nav (top bar title == sidebar label for every route) reads PASS, having been RED on the v1.0.106 walk box.'
 
   - issue: 2541
