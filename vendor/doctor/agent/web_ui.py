@@ -2791,7 +2791,7 @@ _SOURCE_ACTIVITY_ALIASES = {
 }
 
 
-# ── DEDICATED BUNDLE ROUTINES ARE A SECOND, INDEPENDENT PRODUCER (#2520) ──
+# ── DEDICATED BUNDLE ROUTINES ARE A SECOND, INDEPENDENT PRODUCER (#2526) ──
 #
 # MEASURED on a walk box: source_activity/ did not exist at all --
 # com.ostler.fda-rerun (the ONLY writer of it) had never fired (health=waiting,
@@ -2825,6 +2825,33 @@ _SOURCE_ROUTINE_LABELS = {
     "whatsapp": ("com.creativemachines.ostler.whatsapp-bundle",),
 }
 
+# ── WHICH `latest` KEY IS A TRUSTWORTHY COUNT, PER ROUTINE (Archie review,
+# #2529) ─────────────────────────────────────────────────────────────────
+#
+# `_positive_count` (the first draft of this fix) took the FIRST positive
+# integer anywhere in a routine's `latest` dict. That is wrong the moment a
+# routine ever logs a secondary counter alongside its real one: a payload of
+# `{"errors": 5}` would read as "5 items processed", a count that is actually
+# a failure tally. `routine_status.py`'s own JSON-log parser
+# (`_latest_counts`, routine_status.py:59-88) flattens WHATEVER keys a
+# routine's log happens to print, with no notion of which one is the count
+# worth surfacing -- that judgment has to live here, explicitly, per routine.
+#
+# `"emitted"` is the one key whose meaning is pinned by CODE, not by
+# convention: it is written ONLY by the regex fallback at
+# routine_status.py:85-87 (`re.findall(r"Emitted (\d+) message", tail)`),
+# which by construction counts messages this run actually emitted. No other
+# key is trusted here, because no other key's meaning is verified anywhere in
+# this codebase -- guessing one would repeat exactly the mistake being fixed.
+# A routine whose log has no "Emitted N message" line yields no count, not a
+# wrong one.
+_ROUTINE_COUNT_KEYS = {
+    "com.creativemachines.ostler.email-ingest": "emitted",
+    "com.creativemachines.ostler.email-bundle": "emitted",
+    "com.creativemachines.ostler.imessage-bundle": "emitted",
+    "com.creativemachines.ostler.whatsapp-bundle": "emitted",
+}
+
 
 def _routine_evidence(labels: tuple, routine_rows: list) -> dict | None:
     """The freshest routine row (by last_run_at) among `labels` that has
@@ -2837,19 +2864,20 @@ def _routine_evidence(labels: tuple, routine_rows: list) -> dict | None:
     return max(candidates, key=lambda r: r["last_run_at"])
 
 
-def _positive_count(latest: dict) -> int | None:
-    """The first positive integer in a routine's `latest` counts, preferring
-    `emitted` (the full-history routines' own word for it) over whatever
-    secondary counters a bundle log happens to print. None invents nothing:
-    an empty or all-zero `latest` means no numeric evidence, not zero."""
-    if not isinstance(latest, dict):
+def _routine_run_count(routine_label: str, latest: dict) -> int | None:
+    """The ONE explicitly-trusted count for this routine's last run, or None.
+
+    Looks up `routine_label` in `_ROUTINE_COUNT_KEYS` -- a routine with no
+    entry there, or whose log did not populate that key this run, yields
+    None. Never guesses at an unrecognised key, so a payload shaped like
+    `{"errors": 5}` with no recognised key present can never be read as a
+    count of successes.
+    """
+    key = _ROUTINE_COUNT_KEYS.get(routine_label)
+    if key is None or not isinstance(latest, dict):
         return None
-    if isinstance(latest.get("emitted"), int) and latest["emitted"] > 0:
-        return latest["emitted"]
-    for v in latest.values():
-        if isinstance(v, int) and not isinstance(v, bool) and v > 0:
-            return v
-    return None
+    v = latest.get(key)
+    return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else None
 
 
 def _read_source_activity(name: str, activity_dir: Path | None = None) -> dict:
@@ -2981,7 +3009,7 @@ def read_source_status(hydrate_dir: Path | None = None,
     #   ongoing="failing"  the last tick ran and did not succeed
     #
     # DEDICATED ROUTINES ARE A SECOND PRODUCER, consulted when fda-rerun's own
-    # activity record has nothing to say (#2520). Fetched once, best-effort:
+    # activity record has nothing to say (#2526). Fetched once, best-effort:
     # a missing or broken routine reader must degrade this row to "never",
     # never to a FAIL on the whole panel.
     try:
@@ -2991,6 +3019,14 @@ def read_source_status(hydrate_dir: Path | None = None,
         routine_rows = []
 
     for row in rows:
+        # `last_run_count` is a DIFFERENT field from `item_count` on purpose
+        # (Archie review, #2529): `item_count` is the install-time sentinel's
+        # TOTAL, and is never touched by anything below. A routine's log only
+        # ever reports what it did on ONE run, which is not a total and must
+        # never overwrite one -- a later run with fewer new messages than an
+        # earlier one would otherwise read as the mailbox having SHRUNK.
+        row["last_run_count"] = None
+
         act = _read_source_activity(row["source"], activity_dir)
         if act:
             last_status = act.get("last_status", "unknown")
@@ -3018,16 +3054,17 @@ def read_source_status(hydrate_dir: Path | None = None,
         row["last_success_at"] = evidence["last_run_at"]
         row["ongoing_detail"] = "routine " + evidence["routine"]
 
-        # The install-time verdict is stale, not just quiet: the dedicated
-        # routine has positive throughput the FDA extractor's own window
-        # never saw. Only upgrade when there is a real count to show --
-        # never invent one to make a row look healthier.
-        if row["status"] in ("no_data", "not_run", "unreadable"):
-            count = _positive_count(evidence.get("latest") or {})
-            if count is not None:
+        # The install-time verdict can be stale, not just quiet: the
+        # dedicated routine has demonstrable throughput the FDA extractor's
+        # own window never saw. `count` is explicitly-keyed per routine (see
+        # _ROUTINE_COUNT_KEYS) so an unrelated counter in the same payload
+        # (an error tally, a skip count) can never be mistaken for it.
+        count = _routine_run_count(evidence["routine"], evidence.get("latest") or {})
+        if count is not None:
+            row["last_run_count"] = count
+            if row["status"] in ("no_data", "not_run", "unreadable"):
                 row["status"] = "ok"
-                row["item_count"] = count
-                row["detail"] = "routine reports %d" % count
+                row["detail"] = "routine's last run processed %d" % count
     return rows
 
 

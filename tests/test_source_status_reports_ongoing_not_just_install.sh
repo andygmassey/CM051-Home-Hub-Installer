@@ -60,11 +60,11 @@ import ast
 tree = ast.parse(src)
 wanted = {"_source_activity_dir", "_read_source_activity",
           "_source_hydrate_dir", "_parse_source_sentinel", "read_source_status",
-          # #2520: a second evidence producer (the dedicated bundle routines),
+          # #2526: a second evidence producer (the dedicated bundle routines),
           # consulted only when fda-rerun's own activity record is silent.
           # Absent on an older tree -- read_source_status there never calls
           # them, so the missing names cost nothing when not needed.
-          "_routine_evidence", "_positive_count"}
+          "_routine_evidence", "_routine_run_count"}
 ns = {"Path": pathlib.Path, "os": __import__("os")}
 # Module-level constants the reader depends on (_SOURCE_KINDS and the field
 # coercion tables). Taken verbatim, best-effort: any assignment that needs an
