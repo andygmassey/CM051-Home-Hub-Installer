@@ -24230,6 +24230,8 @@ echo "      wiki-recompile, assistant, and RemoteCapture launchd services"
 echo "    - /Applications/Ostler.app"
 echo "    - the /Applications/Ostler folder and everything the installer put"
 echo "      in it (RemoteCapture, the Safari extension, Recover Ostler)"
+echo "    - Chat history and other locally cached app data (WebKit storage,"
+echo "      cookies and caches for the Hub app and the installer)"
 echo "    - Ostler commands from PATH"
 echo ""
 echo "  This will NOT remove:"
@@ -24799,11 +24801,34 @@ for _u_app in "/Applications/Ostler/Ostler RemoteCapture.app" "/Applications/Ost
 done
 rm -rf "${HOME}/Library/Application Support/Ostler RemoteCapture" 2>/dev/null || true
 
+# ── #2520: WebKit site data survives both app removal and the ~/.ostler wipe ──
+#
+# This comment used to say "no Application Support dir to clean: the GUI
+# persists state via the gateway, not a per-user data directory." That is
+# true of Application Support and false of WebKit: the Tauri webview's chat
+# UI keeps its own localStorage there, keyed by bundle id, and neither
+# ~/.ostler (below) nor ~/Documents/Ostler (the user-content prompt further
+# down) is anywhere near it.
+#
+# MEASURED 2026-10-01 on a box that had just been reset and freshly
+# reinstalled: Ostler.app's Chat tab showed the PREVIOUS walk's conversation.
+# This is site data keyed by bundle id, not a customer document, so it is
+# removed unconditionally here -- the same category as the LaunchAgents and
+# the .app bundles in this script, not the keep/remove prompt that governs
+# ~/Documents/Ostler below.
+rm -rf "${HOME}/Library/WebKit/ai.creativemachines.ostler-hub" 2>/dev/null || true
+rm -rf "${HOME}/Library/HTTPStorages/ai.creativemachines.ostler-hub" 2>/dev/null || true
+rm -rf "${HOME}/Library/HTTPStorages/ai.ostler.installer" 2>/dev/null || true
+rm -rf "${HOME}/Library/Caches/ai.creativemachines.ostler-hub" 2>/dev/null || true
+rm -rf "${HOME}/Library/Caches/ai.ostler.installer" 2>/dev/null || true
+
 # ── Ostler.app (Tauri Hub desktop) ─────────────────────────────
 _u_emit UNINSTALL_PHASE "name=hub_app"
 # Remove the customer-facing Hub desktop bundle from /Applications.
 # No Application Support dir to clean: the GUI persists state via
-# the gateway, not a per-user data directory.
+# the gateway, not a per-user data directory. (Its WebKit site data is
+# handled above, immediately before this section, because it is not under
+# Application Support.)
 if [[ -d "/Applications/Ostler.app" ]]; then
     # Stop it before unlinking it: see _u_quit_bundle_processes. This is the
     # bundle the walk box was found still running from, two days after its
