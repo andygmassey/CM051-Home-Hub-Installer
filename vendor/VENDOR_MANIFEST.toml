@@ -221,6 +221,13 @@ owner = "archie"
 vendor_path      = "vendor/cm041/identity_resolver"
 source_repo      = "$CM041"
 source_path      = "identity_resolver"
+unrecorded_divergence = "vendor/divergences/WRITER_READER_MISMATCHES.UNRECORDED.md"
+  # DECLARED 2026-10-01 (CM051 #2581, people-correctness agent): the CM041
+  # #181 graft (repair_lid_as_phone.py + normalise.py's is_valid_phone, later
+  # re-grafted from the actual merge commit b9deb6ef) is NOT reconstructible
+  # from pinned_sha + divergence_patch -- it lives only in the record above,
+  # which names this tree ("cm041/identity_resolver") under its own
+  # "Added 2026-10-01" entry. verify_vendor_divergence_described.py route (c).
   # RE-PIN 2026-08-15 (ORM, v1.0.27): dcfb7a3e -> 9fe8063b. CONTENT-NEUTRAL, and
   # that is the whole basis on which it is safe to do inside a launch cut.
   #
