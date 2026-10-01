@@ -12,11 +12,21 @@
 # for identity_resolver.repair_lid_as_phone. The stub's only job is to prove
 # whether it was invoked: it touches a sentinel file and exits 0.
 #
-# Two arms:
+# Three arms:
 #   1. No marker present -> the stub MUST be invoked (sentinel appears) and
 #      the marker MUST be written afterwards.
 #   2. Marker already present -> the stub MUST NOT be invoked (sentinel
 #      absent) and the pre-existing marker content is left untouched.
+#   3. Archie, 2026-10-01: "The #2581 install step must not abort the
+#      install on failure: no marker, a logged warning, and the next
+#      upgrade retries." install.sh runs under `set -euo pipefail`
+#      (verified: active, unbroken, from line 31631 to this block) --
+#      `VAR="$(failing_cmd)"` is a SIMPLE COMMAND under bash's own rules,
+#      so a naive capture aborts the WHOLE INSTALL right there. This arm
+#      runs the block under REAL `set -e` with a stub that exits 1, and
+#      proves install.sh keeps running past the block (a sentinel placed
+#      AFTER the block in the runner is reached), no marker is written,
+#      and a warning is logged.
 #
 # A control proves the extraction itself is non-empty and contains the
 # commands this test depends on, so a silent extraction failure cannot read
@@ -126,6 +136,68 @@ fi
 rm -rf "$S2"
 
 rm -f "$RUNNER"
+
+echo "== arm 3: repair script fails -> install.sh does not abort =="
+# install.sh itself runs under `set -euo pipefail` (verified: `set -e` at
+# line 31631, nothing turns it off before this block). Arms 1/2's RUNNER
+# only has `set -uo pipefail`, which would NOT reproduce the abort this
+# arm exists to catch -- a VAR="$(failing_cmd)" capture aborts a script
+# under `-e` but not under `-u`/`-o pipefail` alone. RUNNER3 restores the
+# real `-e` condition and adds a sentinel AFTER the block, so "did
+# install.sh keep going" is a file on disk, not an inference from the
+# runner's own exit code (which a trap or `|| true` elsewhere could mask).
+RUNNER3="$(mktemp)"
+{
+    echo '#!/bin/bash'
+    echo 'set -euo pipefail'
+    echo 'ok()   { :; }'
+    echo 'warn() { echo "WARN: $*" >&2; }'
+    printf '%s\n' "$BLOCK"
+    echo 'echo reached > "$OSTLER_DIR/reached_end"'
+} > "$RUNNER3"
+
+mk_sandbox_failing() {
+    local dir; dir="$(mktemp -d)"
+    mkdir -p "$dir/ostler/state" "$dir/ostler/logs" "$dir/pipeline/identity_resolver" "$dir/pipeline/.venv/bin"
+    : > "$dir/pipeline/identity_resolver/repair_lid_as_phone.py"
+    cat > "$dir/pipeline/.venv/bin/python3" <<STUB
+#!/bin/bash
+echo "invoked" > "$dir/sentinel"
+echo "boom: simulated repair failure" >&2
+exit 1
+STUB
+    chmod +x "$dir/pipeline/.venv/bin/python3"
+    printf '%s\n' "$dir"
+}
+
+S3="$(mk_sandbox_failing)"
+STDERR3="$(mktemp)"
+OSTLER_DIR="$S3/ostler" PIPELINE_DIR="$S3/pipeline" OXIGRAPH_URL="http://localhost:7878" \
+    bash "$RUNNER3" >/dev/null 2>"$STDERR3"
+RUNNER3_RC=$?
+
+if [ -f "$S3/sentinel" ]; then
+    ok "(3a) the stub WAS invoked (it really ran, and really failed)"
+else
+    bad "(3a) the stub was never invoked -- this arm proves nothing"
+fi
+if [ "$RUNNER3_RC" -eq 0 ] && [ -f "$S3/ostler/reached_end" ]; then
+    ok "(3b) install.sh continued past the block after the repair failed (did not abort)"
+else
+    bad "(3b) install.sh aborted when the repair failed (runner rc=$RUNNER3_RC, reached_end present=$([ -f "$S3/ostler/reached_end" ] && echo yes || echo no)) -- this is exactly the failure Archie's instruction exists to prevent"
+fi
+if [ -f "$S3/ostler/state/repair_lid_as_phone_v1.done" ]; then
+    bad "(3c) a marker was written despite the repair failing -- the next upgrade would wrongly skip the retry"
+else
+    ok "(3c) no marker was written after a failed run, so the next upgrade retries"
+fi
+if grep -q '^WARN:' "$STDERR3"; then
+    ok "(3d) a warning was logged for the failed repair"
+else
+    bad "(3d) no warning was logged -- a failed repair must not fail silently"
+fi
+rm -rf "$S3"
+rm -f "$STDERR3" "$RUNNER3"
 
 echo
 echo "RESULT: $PASS passed, $FAIL failed"

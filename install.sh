@@ -34489,26 +34489,46 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
         if [[ ! -f "$_LID_REPAIR_MARKER" ]]; then
             _LID_REPAIR_LOG="${OSTLER_DIR}/logs/repair-lid-as-phone.log"
             mkdir -p "$(dirname "$_LID_REPAIR_LOG")" 2>/dev/null || true
-            _LID_REPAIR_OUT="$(
-                cd "$PIPELINE_DIR" && \
+            # 🔴 set -euo pipefail IS ACTIVE HERE. `VAR="$(cmd)"` is a SIMPLE
+            # COMMAND under bash's own rules, so a failing `cmd` inside the
+            # substitution aborts the WHOLE INSTALL right here -- exactly
+            # the failure mode Archie's review caught: a repair step must
+            # never be able to abort the install it rides inside. The `; rc=
+            # $?` line below runs UNCONDITIONALLY (`;`, not `&&`) inside the
+            # SAME subshell, so the substitution's own exit status is always
+            # 0 (whatever the last command, `printf`, returns) and errexit
+            # never sees the python command's real exit code. The real code
+            # travels OUT as the final `___RC___<n>` line of captured text
+            # instead, parsed back out below -- the same reason
+            # email_reclassify's own command substitution ends `|| true`.
+            _LID_REPAIR_RAW="$(
+                cd "$PIPELINE_DIR" 2>/dev/null && \
                 OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
                 .venv/bin/python3 -m identity_resolver.repair_lid_as_phone \
                     --oxigraph-url "${OXIGRAPH_URL:-http://localhost:7878}" \
                     --apply 2>>"$_LID_REPAIR_LOG"
-            )"
-            _LID_REPAIR_RC=$?
-            printf '%s\n' "$_LID_REPAIR_OUT" >>"$_LID_REPAIR_LOG"
-            if [[ "$_LID_REPAIR_RC" -eq 0 ]]; then
+                printf '___RC___%d\n' "$?"
+            )" || true
+            _LID_REPAIR_RC="$(printf '%s\n' "$_LID_REPAIR_RAW" | sed -n 's/^___RC___//p' | tail -1)"
+            _LID_REPAIR_OUT="$(printf '%s\n' "$_LID_REPAIR_RAW" | grep -v '^___RC___' || true)"
+            # An empty/non-numeric rc (the cd itself failed, or the marker
+            # line never made it into the capture) is treated as a failure,
+            # never as 0 -- a missing signal must not read as success.
+            if [[ "$_LID_REPAIR_RC" =~ ^[0-9]+$ ]] && [[ "$_LID_REPAIR_RC" -eq 0 ]]; then
+                printf '%s\n' "$_LID_REPAIR_OUT" >>"$_LID_REPAIR_LOG"
                 mkdir -p "${OSTLER_DIR}/state" \
                     && { printf 'ran_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; \
                          printf '%s\n' "$_LID_REPAIR_OUT"; } > "$_LID_REPAIR_MARKER" \
                     && ok "WhatsApp LID-as-phone repair completed (${_LID_REPAIR_LOG})"  # i18n-exempt
             else
                 # No marker written: the next install (or upgrade) retries
-                # it, same as the email reclassify's own failure arm.
-                warn "WhatsApp LID-as-phone repair did not complete (exit ${_LID_REPAIR_RC}); the next install retries it. See ${_LID_REPAIR_LOG}"  # i18n-exempt
+                # it, same as the email reclassify's own failure arm. NEVER
+                # abort the install over this -- a one-time graph repair is
+                # not worth a failed customer install.
+                printf '%s\n' "$_LID_REPAIR_OUT" >>"$_LID_REPAIR_LOG"
+                warn "WhatsApp LID-as-phone repair did not complete (exit ${_LID_REPAIR_RC:-unknown}); the next install retries it. See ${_LID_REPAIR_LOG}"  # i18n-exempt
             fi
-            unset _LID_REPAIR_LOG _LID_REPAIR_OUT _LID_REPAIR_RC
+            unset _LID_REPAIR_LOG _LID_REPAIR_RAW _LID_REPAIR_OUT _LID_REPAIR_RC
         fi
         unset _LID_REPAIR_MARKER
     fi
