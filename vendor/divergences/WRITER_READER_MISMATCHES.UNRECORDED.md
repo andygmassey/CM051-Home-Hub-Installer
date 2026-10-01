@@ -465,3 +465,53 @@ checkout). So these edits are recorded here by location and shape.
 A future sync must keep both files and the three routes. Guarded by
 tests/test_doctor_routines_are_measured_live.py and
 tests/test_remote_access_reads_the_installers_tailscale.py (vendor-integrity.yml).
+
+## Added 2026-10-01, CM051 v1.0.107 (people-correctness agent) -- `cm041/identity_resolver`, a one-time repair for already-written WhatsApp-LID-as-phone rows (#2543)
+
+Not run against the regeneration tool. `identity_resolver` carries no
+`regenerate_forbidden` flag (unlike `contact_syncer`), but the content this
+graft adds exists ONLY on an open, unmerged CM041 PR
+(andygmassey/CM041-People-Graph#181) -- the pin stays at the merged SHA
+`9e260949`, which the tool would correctly read as "source not at this
+commit" and refuse on the same RE-PIN-vs-graft limb already logged for
+`doctor` above. Recorded by location and shape, per this file's established
+pattern, rather than attempted and refused for the log.
+
+### What was grafted, location and shape only
+
+- `vendor/cm041/identity_resolver/normalise.py`: new `is_valid_phone(raw,
+  default_country_code)`, identical in content and placement to the
+  function of the same name added to the CM041 source by PR #181 (checked
+  byte-for-byte against that branch before grafting).
+- `vendor/cm041/identity_resolver/repair_lid_as_phone.py` -- NEW FILE.
+  Idempotent, dry-run-default repair for CM051 #2543's two writer
+  fingerprints: Pass A1 (CM041 whatsapp_bridge -- a bogus "phone"
+  identifier with a sibling "whatsapp_lid" identifier sharing the same
+  invalid value) and Pass A2 (ostler_fda's ingest_whatsapp, the writer that
+  actually ships, CM051 #2577 -- only one invalid "phone" identifier, no
+  sibling, scoped by `pwg:source "whatsapp_fda"`). See the module's own
+  docstring for the full fingerprint detail; it is reproduced verbatim from
+  CM041 PR #181 (commit 9086498), not paraphrased.
+
+WHY: the writer-side fix (this tree's existing `_canonical_key_conflict`/
+`_identifier_match_trustworthy` grafts plus PR #181's forward-fix) stops NEW
+bad rows. It does nothing for rows a box already wrote before either fix
+existed. Measured, read-only, on the macmini16-walk box: 33 rows match the
+ostler_fda signature, 0 match the CM041 bridge signature (that writer has
+never run there -- see CM051 #2570's tracking note on this same tree for the
+corroborating 0-whatsapp_lid-identifiers finding).
+
+### What a future sync must preserve
+
+Both files. Gate: `tests/test_repair_lid_as_phone_vendored.py` at the CM051
+repo root (not under `vendor/cm041/identity_resolver/tests/`, which this
+tree does not vendor at all -- following the same top-level placement
+`tests/test_migration_marker_guard_fresh_install.py` already uses for a
+vendored-module test). Also: `install.sh`'s one-time upgrade step (marker
+`state/repair_lid_as_phone_v1.done`, same pattern as
+`state/email_reclassify_v3.done`) invokes
+`identity_resolver.repair_lid_as_phone` by module name -- a future re-vendor
+that renames or drops the file breaks that invocation silently (ImportError
+inside a subshell, swallowed into the step's own failure-retry path) unless
+`tests/test_repair_lid_as_phone_marker_skip.sh`'s extraction-and-run check
+is kept passing.

@@ -34462,6 +34462,58 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
     fi
 fi
 
+# One-time repair: a WhatsApp LID written as a "phone" identifier (CM051
+# #2543) -----------------------------------------------------------
+#
+# Two different writers' old bugs left two different fingerprints on a box
+# upgraded from before this fix -- CM041 whatsapp_bridge (a bogus "phone"
+# identifier with a sibling "whatsapp_lid" identifier sharing the same
+# invalid value) and ostler_fda's ingest_whatsapp, the writer that actually
+# ships (only the bogus "phone" identifier, no sibling at all). Both are
+# idempotent and both counted in identity_resolver.repair_lid_as_phone's own
+# report; see that module's docstring for the full fingerprint detail.
+# Runs ONCE per install, same marker-file pattern as the email automated-
+# sender reclassify above (state/email_reclassify_v3.done): a marker absent
+# means "not yet run or did not complete", never "nothing to repair" -- that
+# fact lives inside the marker's own content, not in whether it exists.
+# Counts only; no phone numbers or names reach this log.
+if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python3" ]]; then
+    if [[ ! -f "$PIPELINE_DIR/identity_resolver/repair_lid_as_phone.py" ]]; then
+        # A vendored tree older than this fix. SAY SO rather than skip
+        # silently, same reasoning as the merge-consistency repair above:
+        # "the module is not here" and "there was nothing to repair" must
+        # not print identically.
+        warn "WhatsApp LID-as-phone repair skipped: this build vendors an identity_resolver without repair_lid_as_phone"  # i18n-exempt
+    else
+        _LID_REPAIR_MARKER="${OSTLER_DIR}/state/repair_lid_as_phone_v1.done"
+        if [[ ! -f "$_LID_REPAIR_MARKER" ]]; then
+            _LID_REPAIR_LOG="${OSTLER_DIR}/logs/repair-lid-as-phone.log"
+            mkdir -p "$(dirname "$_LID_REPAIR_LOG")" 2>/dev/null || true
+            _LID_REPAIR_OUT="$(
+                cd "$PIPELINE_DIR" && \
+                OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
+                .venv/bin/python3 -m identity_resolver.repair_lid_as_phone \
+                    --oxigraph-url "${OXIGRAPH_URL:-http://localhost:7878}" \
+                    --apply 2>>"$_LID_REPAIR_LOG"
+            )"
+            _LID_REPAIR_RC=$?
+            printf '%s\n' "$_LID_REPAIR_OUT" >>"$_LID_REPAIR_LOG"
+            if [[ "$_LID_REPAIR_RC" -eq 0 ]]; then
+                mkdir -p "${OSTLER_DIR}/state" \
+                    && { printf 'ran_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; \
+                         printf '%s\n' "$_LID_REPAIR_OUT"; } > "$_LID_REPAIR_MARKER" \
+                    && ok "WhatsApp LID-as-phone repair completed (${_LID_REPAIR_LOG})"  # i18n-exempt
+            else
+                # No marker written: the next install (or upgrade) retries
+                # it, same as the email reclassify's own failure arm.
+                warn "WhatsApp LID-as-phone repair did not complete (exit ${_LID_REPAIR_RC}); the next install retries it. See ${_LID_REPAIR_LOG}"  # i18n-exempt
+            fi
+            unset _LID_REPAIR_LOG _LID_REPAIR_OUT _LID_REPAIR_RC
+        fi
+        unset _LID_REPAIR_MARKER
+    fi
+fi
+
 # Apple Notes knowledge hydration (CM024 §7 / apple_notes adapter) ---
 #
 # Reads apple_notes.json (written by the Phase 3 fda_extract step when
