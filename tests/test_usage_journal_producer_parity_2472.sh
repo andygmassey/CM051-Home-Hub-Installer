@@ -277,8 +277,8 @@ def make_urlopen(payload):
         return FakeHTTPResponse(payload)
     return _urlopen
 
-scored = [{"title": "Synthetic A", "relevance": 0.1, "matched_domains": []},
-          {"title": "Synthetic B", "relevance": 0.2, "matched_domains": []}]
+scored = [{"title": "synthetic story one", "relevance": 0.1, "matched_domains": []},
+          {"title": "synthetic story two", "relevance": 0.2, "matched_domains": []}]
 profile = {"domains": [{"interests": [
     {"subject": "synthetic hobby", "score": 0.5, "domain": "Tech"}
 ]}]}

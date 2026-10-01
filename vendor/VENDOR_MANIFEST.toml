@@ -636,6 +636,7 @@ source_repo      = "$CM019"
 source_path      = "."
 pinned_sha       = "f2a305f17a5239ddc8c178aacb56671020b194ca"
 divergence_patch = ""
+unrecorded_divergence = "vendor/divergences/cm019_preferences_usage_journal.UNRECORDED.md"
 exclude          = ["__pycache__/"]
 verify           = "skip"
 unverifiable_ack = true
