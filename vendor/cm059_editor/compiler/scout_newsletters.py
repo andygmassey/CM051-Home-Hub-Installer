@@ -65,6 +65,41 @@ from compiler import corrections as corr_mod
 from compiler import frontpage as fp
 from compiler.scouts import Scout
 
+# ── Usage journal: the `cm059-notice` producer (CM051 #2472) ──────────────
+#
+# This opt-in re-rank (OSTLER_SCOUT_LLM=1) is unprompted curation of the
+# operator's own newsletters, i.e. purpose="noticing" -- the roster's
+# definition of work the assistant chose to do unprompted. Off by default,
+# but a real producer once enabled: the call below was raw urllib with no
+# usage-journal wiring anywhere near it.
+_USAGE_SESSION_ID = "cm059-notice-" + datetime.now(timezone.utc).strftime(
+    "%Y-%m-%dT%H:%M:%SZ"
+)
+
+
+def _record_generate_usage(data: dict, model: str) -> None:
+    """Record one ``noticing`` usage row from an Ollama ``/api/generate`` response.
+
+    Never raises: this is a best-effort re-rank, and accounting must not be
+    able to break it or the deterministic fallback it sits in front of.
+    ``tokens_from_ollama`` returns ``(None, None)`` when Ollama reported no
+    counts, and ``record_usage`` then writes nothing -- measured, never
+    estimated.
+    """
+    try:
+        from compiler._vendor.ostler_usage_journal import record_usage, tokens_from_ollama
+
+        prompt, completion = tokens_from_ollama(data if isinstance(data, dict) else {})
+        record_usage(
+            model=model,
+            input_tokens=prompt,
+            output_tokens=completion,
+            purpose="noticing",
+            session_id=_USAGE_SESSION_ID,
+        )
+    except Exception:  # noqa: BLE001 - the deterministic order must still stand
+        pass
+
 # ---------------------------------------------------------------------------
 # Tunables (spec section 1.3 scout row + E3 scope). Constants, not env knobs;
 # adjust only with a failing fixture that needs it.
@@ -377,6 +412,7 @@ def _llm_relevance(scored: list[dict], profile: dict) -> list[dict] | None:
             headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=20) as resp:  # noqa: S310
             body = json.loads(resp.read().decode("utf-8"))
+        _record_generate_usage(body, os.environ.get("OSTLER_SCOUT_LLM_MODEL", "qwen3.5:9b"))
         marks = json.loads(body.get("response", ""))
         if not isinstance(marks, dict):
             return None
