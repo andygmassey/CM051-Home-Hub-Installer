@@ -784,7 +784,7 @@
  
  import httpx
  
-@@ -39,6 +39,7 @@
+@@ -41,6 +41,7 @@
          self,
          oxigraph_url: str,
          default_country_code: Optional[int] = None,
@@ -792,7 +792,7 @@
          compartment: Optional[UserCompartment] = None,
      ):
          self.oxigraph_url = oxigraph_url.rstrip("/")
-@@ -51,88 +52,64 @@
+@@ -53,88 +54,64 @@
          self.compartment = (
              compartment if compartment is not None else resolve_compartment()
          )
@@ -915,7 +915,7 @@
      # -- Public API -----------------------------------------------------------
  
      def resolve(
-@@ -158,7 +135,50 @@
+@@ -160,7 +137,50 @@
                  identifier match short-circuited and a second identifier
                  pointing at a different node was never noticed. Set False to
                  get pure read-only matching with no graph writes.
@@ -966,7 +966,7 @@
          # Tier 1: Exact match on any single identifier.
          #
          # Collect EVERY node any incoming exact identifier points at, not just
-@@ -171,7 +191,11 @@
+@@ -173,7 +193,11 @@
          found_uris: dict[str, tuple[str, str]] = {}
          for id_type, id_value in self._iter_identifiers(identity):
              uri = self.find_by_identifier(id_type, id_value)
@@ -979,7 +979,7 @@
                  found_uris[uri] = (id_type, id_value)
  
          if len(found_uris) == 1:
-@@ -225,6 +249,8 @@
+@@ -227,6 +251,8 @@
                      # RULE 2 veto, applied per PAIR. Checked before every
                      # merge_persons() call, because the conflict can sit on a
                      # different identifier from the one that produced the match.
@@ -988,7 +988,7 @@
                      conflict = self._canonical_keys_conflict(keep_uri, discard_uri)
                      if conflict is not None:
                          refused += 1
-@@ -277,13 +303,45 @@
+@@ -279,13 +305,45 @@
              if fuzzy:
                  return fuzzy
  
@@ -1035,7 +1035,7 @@
  
      def create_person(
          self,
-@@ -389,22 +447,18 @@
+@@ -401,22 +459,18 @@
          self, person_uri: str, name: Optional[str],
          org: Optional[str] = None, linkedin: Optional[str] = None,
      ) -> None:
@@ -1067,7 +1067,7 @@
  
      def add_identifier(
          self, person_uri: str, id_type: str, id_value: str, label: Optional[str] = None
-@@ -576,7 +630,7 @@
+@@ -588,7 +642,7 @@
          candidates = [b["name"]["value"] for b in bindings if b.get("name")]
          # ALL of them, not the first in arbitrary SPARQL order. A merged node
          # holds the real given name AND the kinship word; taking next() made
@@ -1076,7 +1076,7 @@
          given = prefer_real_given_name(
              b["given"]["value"] for b in bindings if b.get("given")
          )
-@@ -677,139 +731,58 @@
+@@ -689,139 +743,58 @@
          return retirement.resolve_to_live_person(
              person_uri, _next_hop, max_hops=max_hops, log=logger
          )
@@ -1257,7 +1257,7 @@
      _CANONICAL_ID_TYPES = frozenset(
          {"icloud_contact_uid", "linkedin_url", "whatsapp_lid"}
      )
-@@ -827,14 +800,50 @@
+@@ -839,14 +812,50 @@
          bindings = results.get("results", {}).get("bindings", [])
          return {b["v"]["value"] for b in bindings if "v" in b}
  
@@ -1311,7 +1311,7 @@
          ABSENCE IS NOT A CONFLICT. A node with no Contacts card yet is the
          ordinary case of enrichment and must still merge -- that is what keeps
          RULE 1 working. Only two PRESENT and DISJOINT value sets refuse.
-@@ -848,6 +857,269 @@
+@@ -860,6 +869,269 @@
                  return id_type
          return None
  
