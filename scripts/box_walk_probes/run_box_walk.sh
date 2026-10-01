@@ -189,25 +189,54 @@ _walk_box_exec() {
     fi
 }
 
+#   Set by _walk_box_marked_in_use: MARKED | ABSENT | UNKNOWN. The caller
+#   reads this to print an honest reason, never "the marker exists" for a
+#   box it could not actually reach.
+_WALK_BOX_MARK_STATE=""
+
 _walk_box_marked_in_use() {
     # NOT `producer | grep -q` as a condition's last statement: moved into a
     # function it still inherits the pipefail/SIGPIPE inversion risk the
     # `if|while` form is banned for (CM051 #1471,
     # tests/test_a_condition_function_must_not_short_circuit_its_own_pipeline.sh).
     # Capture first, branch on the captured TEXT.
+    #
+    # 🔴 FAILED OPEN. The previous form asked the remote to print MARKED
+    # when the marker exists and print NOTHING when it does not, then
+    # returned "not marked" on anything but an exact MARKED match -- so an
+    # ssh transport failure (exit 255, empty stdout) and a genuinely absent
+    # marker produced the IDENTICAL empty $_out, and a box this runner could
+    # not even reach read as safe to write to. CHECK THE SHAPE OF A ZERO:
+    # "found nothing" and "could not look" must never print the same thing.
+    #
+    # The remote now prints MARKED or ABSENT explicitly, in BOTH branches of
+    # its own `if`, so silence can only mean the remote command never ran at
+    # all. Anything other than an exact MARKED or ABSENT -- empty output,
+    # a transport failure, a truncated or garbled response -- is UNKNOWN,
+    # and UNKNOWN is treated exactly like MARKED: refuse. "No credential /
+    # no connection to measure this" is not evidence the box is free to
+    # write to; it is evidence nobody looked.
     local _out
-    _out="$(_walk_box_exec "test -e \"${OSTLER_WALK_IN_USE_MARKER}\" && printf MARKED")" || return 1
+    _out="$(_walk_box_exec "if test -e \"${OSTLER_WALK_IN_USE_MARKER}\"; then printf MARKED; else printf ABSENT; fi")"
     case "$_out" in
-        *MARKED*) return 0 ;;
+        MARKED) _WALK_BOX_MARK_STATE="MARKED"; return 0 ;;
+        ABSENT) _WALK_BOX_MARK_STATE="ABSENT"; return 1 ;;
+        *)      _WALK_BOX_MARK_STATE="UNKNOWN"; return 0 ;;
     esac
-    return 1
 }
 
 if [ "$READ_ONLY" -eq 0 ] && [ "$ALLOW_WRITES" -ne 1 ]; then
     if _walk_box_marked_in_use; then
-        printf 'FATAL: %s exists on the target box.\n' "$OSTLER_WALK_IN_USE_MARKER"
-        printf 'That marker means a person is using this box right now. Refusing to\n'
-        printf 'run seeds/writes against it.\n'
+        if [ "$_WALK_BOX_MARK_STATE" = "UNKNOWN" ]; then
+            printf 'FATAL: could not determine whether %s exists on the target box\n' "$OSTLER_WALK_IN_USE_MARKER"
+            printf '(the check over ssh/bash did not come back with a clear answer --\n'
+            printf 'transport failure, timeout, or a garbled response). Refusing to run\n'
+            printf 'seeds/writes without proof the box is not in use.\n'
+        else
+            printf 'FATAL: %s exists on the target box.\n' "$OSTLER_WALK_IN_USE_MARKER"
+            printf 'That marker means a person is using this box right now. Refusing to\n'
+            printf 'run seeds/writes against it.\n'
+        fi
         printf 'Pass --allow-writes to proceed anyway, or --read-only to skip writes.\n'
         exit 2
     fi

@@ -85,12 +85,37 @@ EOF
 
 _sentinels_for() { printf '%s/sentinels-%s' "$WORK" "$1"; }
 
+# A GENERIC fake ssh standing in for a reachable box with no walk_in_use
+# marker. Every probe and seed in a staged tree is a stub (see _stage
+# above), so the walk_in_use check is the ONLY thing that ever shells out
+# over ssh here -- confirmed by grep: _walk_box_exec has exactly one caller
+# in run_box_walk.sh. Before the UNKNOWN-state fix this did not matter: a
+# real ssh failing against `fake.invalid` produced empty output, which the
+# old code read as "not marked" anyway, so arms 0-4 and the mutation control
+# below were unknowingly passing BECAUSE of the fail-open bug, not despite
+# it. Now that a transport failure is UNKNOWN and UNKNOWN refuses writes,
+# those arms need a box that actually answers, or every one of them would
+# refuse before ever reaching a seed -- which is arm 7/8's job to test, not
+# theirs.
+_GENERIC_SSH_DIR="${WORK}/sshbin-generic"
+mkdir -p "$_GENERIC_SSH_DIR"
+cat > "${_GENERIC_SSH_DIR}/ssh" <<'SH'
+#!/bin/sh
+# Ignores its arguments entirely: the only remote command this suite ever
+# sends is the walk_in_use marker check, and every test in this file that
+# uses this stub wants "reachable, no marker" -- a specific transport
+# failure is tested separately in arm 7/8 with its own ssh stub.
+printf 'ABSENT'
+SH
+chmod +x "${_GENERIC_SSH_DIR}/ssh"
+
 # Runs the staged tree's runner. Never against a real box: OSTLER_BOX_HOST is
-# a TLD reserved by RFC 2606 for exactly this (instant NXDOMAIN, no hang),
-# the same host the sibling phase-1 test in this directory already uses.
+# a TLD reserved by RFC 2606 for exactly this (instant NXDOMAIN, no hang,
+# were the generic ssh stub above not already standing in front of it), the
+# same host the sibling phase-1 test in this directory already uses.
 _run() {   # tree, extra args...
     local t="$1"; shift
-    ( cd "$t" && OSTLER_BOX_HOST=fake.invalid \
+    ( cd "$t" && PATH="${_GENERIC_SSH_DIR}:${PATH}" OSTLER_BOX_HOST=fake.invalid \
         perl -e 'alarm 120; exec @ARGV' bash ./run_box_walk.sh "$@" ) \
         > "${t}/out.txt" 2>&1
 }
@@ -172,6 +197,56 @@ touch "$MARKER"
 ( cd "$T" && OSTLER_WALK_IN_USE_MARKER="$MARKER" perl -e 'alarm 120; exec @ARGV' bash ./run_box_walk.sh --allow-writes ) \
     > "${T}/out.txt" 2>&1
 _assert_all_sentinels "marked box, --allow-writes" arm6
+
+# A FAKE ssh THAT EXITS 255 (no stdout at all) in place of the real binary,
+# so _walk_box_exec's remote call never runs and the marker check gets
+# EXACTLY the same empty output a genuinely absent marker used to produce
+# before this arm existed -- the shape of the original fail-open defect.
+_fake_ssh_255() {   # tree-name -> prints the bin dir to prepend to PATH
+    local t="${WORK}/sshbin-$1"
+    mkdir -p "$t"
+    cat > "$t/ssh" <<'SH'
+#!/bin/sh
+# A transport failure: no stdout, exit 255 (ssh's own code for this class
+# of failure -- connection refused, host unreachable, auth failure).
+exit 255
+SH
+    chmod +x "$t/ssh"
+    printf '%s' "$t"
+}
+
+printf -- '--- arm 7: a transport failure (ssh exits 255) is UNKNOWN, and UNKNOWN refuses writes ---\n'
+T="$(_stage arm7)"
+SSHBIN="$(_fake_ssh_255 arm7)"
+( cd "$T" && PATH="${SSHBIN}:${PATH}" OSTLER_BOX_HOST=unreachable.invalid \
+    OSTLER_WALK_IN_USE_MARKER="${T}/fake-walk-in-use" \
+    perl -e 'alarm 120; exec @ARGV' bash ./run_box_walk.sh ) \
+    > "${T}/out.txt" 2>&1
+_assert_no_sentinels "full run, marker check cannot reach the box (ssh exit 255), no --allow-writes" arm7
+if grep -qF 'could not determine whether' "${T}/out.txt"; then
+    ok "the refusal names it UNKNOWN, not a false claim the marker exists"
+else
+    bad "no UNKNOWN-reason message found: $(tail -n 6 "${T}/out.txt" | tr '\n' ' ')"
+fi
+if grep -qF 'person is using this box right now' "${T}/out.txt"; then
+    bad "an unreachable box must never be reported as though the marker were confirmed present"
+else
+    ok "an unreachable box is never misreported as a confirmed MARKED box"
+fi
+if grep -q -- '--- PHASE 1' "${T}/out.txt"; then
+    bad "phase 1 started after an UNKNOWN marker state -- it did not stop the walk"
+else
+    ok "refused before phase 1 ever started"
+fi
+
+printf -- '--- arm 8: --allow-writes also gets past an UNKNOWN (transport-failure) state ---\n'
+T="$(_stage arm8)"
+SSHBIN="$(_fake_ssh_255 arm8)"
+( cd "$T" && PATH="${SSHBIN}:${PATH}" OSTLER_BOX_HOST=unreachable.invalid \
+    OSTLER_WALK_IN_USE_MARKER="${T}/fake-walk-in-use" \
+    perl -e 'alarm 120; exec @ARGV' bash ./run_box_walk.sh --allow-writes ) \
+    > "${T}/out.txt" 2>&1
+_assert_all_sentinels "transport failure, --allow-writes" arm8
 
 # ---------------------------------------------------------------------------
 # MUTATION CONTROL. A test that has only ever seen the fixed code has been
