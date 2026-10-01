@@ -33,6 +33,7 @@ from contact_syncer.vcard_parser import parse_vcard
 from contact_syncer.classifier import classify_contact
 from contact_syncer.dedup import DedupDetector, print_report
 from contact_syncer.photo_storage import remove_photo, write_photo
+from contact_syncer.relationship_labels import is_relationship_label
 
 from identity_resolver.resolver import IdentityResolver  # type: ignore[import-untyped]
 from identity_resolver.normalise import (  # type: ignore[import-untyped]
@@ -1099,7 +1100,14 @@ class ContactSyncer:
     ) -> None:
         """Insert a new Person node into Oxigraph via SPARQL UPDATE."""
         now = datetime.now(timezone.utc).isoformat()
-        fn = (parsed.get("fn") or "").replace('"', '\\"')
+        # CM051 #2556: a bare kinship word ("Mum", "Wife") must never become
+        # a person's permanent displayName -- it says how SOMEBODY refers to
+        # this person, not who they are. Matches the WHOLE label only, so a
+        # real name that merely contains the word ("Mum Zhang") is untouched.
+        # A new node (unlike the update path) has no prior name to destroy,
+        # so dropping straight to "" is safe here.
+        _raw_fn = parsed.get("fn") or ""
+        fn = "" if is_relationship_label(_raw_fn) else _raw_fn.replace('"', '\\"')
         given = (parsed.get("given_name") or "").replace('"', '\\"')
         family = (parsed.get("family_name") or "").replace('"', '\\"')
         org = (parsed.get("org") or "").replace('"', '\\"')
@@ -1221,18 +1229,30 @@ class ContactSyncer:
         incoming vCard onto the existing node. Idempotent – adding an
         identifier that already exists is a no-op.
         """
-        fn = (parsed.get("fn") or "").replace('"', '\\"')
+        _raw_fn = parsed.get("fn") or ""
         org = (parsed.get("org") or "").replace('"', '\\"')
         title = (parsed.get("title") or "").replace('"', '\\"')
 
+        # CM051 #2556: a bare kinship word ("Mum", "Wife") in the INCOMING
+        # vCard must never overwrite this person's displayName -- including
+        # by blanking it. If the delete fires unconditionally and fn is then
+        # "" (falsy), the existing GOOD name is deleted and nothing replaces
+        # it, which is worse than leaving a stale name alone. So
+        # pwg:displayName is dropped from this run's delete set entirely
+        # when the incoming value is a relationship label, and whatever is
+        # already on the node (good or bad) is left untouched.
+        _fn_is_relationship_label = is_relationship_label(_raw_fn)
+        fn = "" if _fn_is_relationship_label else _raw_fn.replace('"', '\\"')
+
         # Part A: delete-then-reinsert mutable scalar properties
         delete_preds = [
-            "pwg:displayName",
             "pwg:organization",
             "pwg:jobTitle",
             "pwg:contactType",
             "foaf:img",
         ]
+        if not _fn_is_relationship_label:
+            delete_preds.insert(0, "pwg:displayName")
         for pred in delete_preds:
             sparql = (
                 "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"

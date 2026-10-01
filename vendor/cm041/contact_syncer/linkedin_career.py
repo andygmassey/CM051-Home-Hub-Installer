@@ -44,6 +44,7 @@ if _PARENT_DIR not in sys.path:
 
 from contact_syncer import config
 from contact_syncer import privacy_model as _pm
+from contact_syncer.relationship_labels import is_relationship_label
 from identity_resolver.models import PersonIdentity
 from identity_resolver.resolver import IdentityResolver
 
@@ -283,10 +284,15 @@ def _create_person_from_endorser(
 ) -> None:
     """Create a minimal Person node from an endorser."""
     now = datetime.now(timezone.utc).isoformat()
+    # CM051 #2556: a bare kinship word ("Mum", "Wife") must never become a
+    # person's permanent displayName -- it says how SOMEBODY refers to this
+    # person, not who they are. Matches the WHOLE label only, so a real name
+    # that merely contains the word ("Mum Zhang") is untouched.
+    _fn = "" if is_relationship_label(display_name) else _escape(display_name)
 
     triples = [
         f"<{person_uri}> a pwg:Person",
-        f'<{person_uri}> pwg:displayName "{_escape(display_name)}"',
+        f'<{person_uri}> pwg:displayName "{_fn}"',
         f'<{person_uri}> pwg:contactType "person"',
         f'<{person_uri}> pwg:privacyLevel "{config.DEFAULT_PRIVACY_LEVEL}"',
         f'<{person_uri}> pwg:createdAt "{now}"^^xsd:dateTime',

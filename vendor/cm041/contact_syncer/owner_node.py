@@ -41,6 +41,7 @@ import httpx
 
 from contact_syncer import config
 from contact_syncer import privacy_model as pm
+from contact_syncer.relationship_labels import is_relationship_label
 
 PWG_NS = "https://schema.ostler.ai/ontology#"
 
@@ -99,7 +100,6 @@ def build_owner_sparql(user_id: str, display_name: str, now_iso: Optional[str] =
     if now_iso is None:
         now_iso = datetime.now(timezone.utc).isoformat()
     uri = owner_uri(user_id)
-    esc_name = _escape(display_name)
     prefixes = (
         f"PREFIX pwg: <{PWG_NS}>\n"
         "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
@@ -112,6 +112,19 @@ def build_owner_sparql(user_id: str, display_name: str, now_iso: Optional[str] =
         f'    pwg:createdAt "{now_iso}"^^xsd:dateTime .\n'
         "}"
     )
+    # CM051 #2556: a bare kinship word ("Mum", "Dad") must never become a
+    # permanent displayName -- including the owner's own, since a shared
+    # family Hub is plausibly set up by someone who answered the installer's
+    # "what should your assistant call you" with exactly that. Matches the
+    # WHOLE label only, so a real name that merely contains the word
+    # ("Mum Zhang") is untouched. Skip the name clause ENTIRELY rather than
+    # inserting an empty string: this function's own contract is "decline,
+    # never overwrite" (FILTER NOT EXISTS), so writing displayName "" would
+    # satisfy that filter forever and permanently lock the owner out of ever
+    # getting a real name from a later, corrected run.
+    if is_relationship_label(display_name):
+        return prefixes + structural
+    esc_name = _escape(display_name)
     # Only when the node has no name at all. See the docstring: this can
     # decline, never overwrite.
     name = (

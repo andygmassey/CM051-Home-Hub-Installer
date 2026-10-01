@@ -8,6 +8,8 @@ from typing import Dict, List, Optional
 
 import httpx
 
+from contact_syncer.relationship_labels import is_relationship_label
+
 from .canonical_name import choose_canonical_display_name, prefer_real_given_name
 from .compartment import (
     UserCompartment,
@@ -390,6 +392,16 @@ class IdentityResolver:
             )
             or identity.display_name
         )
+        # CM051 #2556: a bare kinship word ("Mum", "Wife") must never become
+        # a person's permanent displayName -- it says how SOMEBODY refers to
+        # this person, not who they are. choose_canonical_display_name has no
+        # opinion on this (a single-candidate list of exactly "Mum" is not
+        # junk, not a unix login, not an email -- it passes straight
+        # through), so the fallback `or identity.display_name` was the one
+        # unguarded path. Matches the WHOLE label only, so a real name that
+        # merely contains the word ("Mum Zhang") is untouched.
+        if is_relationship_label(display_name):
+            display_name = ""
 
         triples = [
             f"<{person_uri}> a <{PWG}Person>",

@@ -702,3 +702,30 @@ The composed literal, functionally identical value. Consequence:
 source@pinned_sha+patch by exactly this one line (main already reported it
 as DIFFERING, by the whole #181 graft). Retire this entry if CM041 composes the
 literal upstream.
+
+## Added 2026-10-02, CM051 v1.0.107 (ORM) -- `cm041/identity_resolver`, a kinship word never becomes a permanent displayName (CM041 #185, CM051 #2556)
+
+`vendor/cm041/identity_resolver/resolver.py`'s `create_person`:
+`choose_canonical_display_name` has no opinion on a single-candidate list of
+exactly "Mum" (not junk, not a unix login, not an email -- it passes
+straight through), so the fallback `or identity.display_name` was the one
+unguarded path in this module. Added one `if is_relationship_label(display_
+name): display_name = ""` check right after that fallback, plus the import
+`from contact_syncer.relationship_labels import is_relationship_label` (the
+SAME predicate, not a new one -- see `cm041_contact_syncer.UNRECORDED.md`
+for the six `contact_syncer` write sites this same change touches). Matches
+the WHOLE label only: "Mum Zhang" is a plausible real name and is never
+touched.
+
+Not run against the regeneration tool for this change: checked for a
+circular import first (`contact_syncer/__init__.py` is empty and
+`identity_resolver/__init__.py` lazily re-exports `.resolver`, so this
+cross-package import is safe in both directions) and confirmed both
+packages still import cleanly in the vendored tree before writing this
+down.
+
+### What a future sync must preserve
+
+The import and the one-line guard in `create_person`. Guarded by
+`tests/test_kinship_label_write_guard_vendored.py` (CM051 repo root).
+Retire by landing CM041 #185 and re-pinning.
