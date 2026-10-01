@@ -44,7 +44,7 @@ elif [ "$n_subj" -le "$n_mail" ]; then
 else
     ok "invoked at install.sh:$n_subj, after reclassify-mail at :$n_mail"
 fi
-if sed -n "${n_subj:-1},$(( ${n_subj:-1} + 2 ))p" "$INSTALL" | grep -q -- '--graph-endpoint "\$_HYDRATE_OXIGRAPH_EMAIL"'; then
+if grep -q -- '--graph-endpoint "\$_HYDRATE_OXIGRAPH_EMAIL"' <<< "$(sed -n "${n_subj:-1},$(( ${n_subj:-1} + 2 ))p" "$INSTALL")"; then
     ok "same graph endpoint as reclassify-mail"
 else
     bad "reclassify-subject-names is not given --graph-endpoint \"\$_HYDRATE_OXIGRAPH_EMAIL\""
@@ -57,8 +57,8 @@ BLOCK="$(awk '
 ' "$INSTALL")"
 
 echo "== control: the extraction is non-empty and carries the invocation =="
-if [ -n "$BLOCK" ] && printf '%s' "$BLOCK" | grep -q 'reclassify-subject-names' \
-   && printf '%s' "$BLOCK" | grep -q '_RECLASSIFY_SUBJ_MARKER'; then
+if [ -n "$BLOCK" ] && grep -q 'reclassify-subject-names' <<< "$BLOCK" \
+   && grep -q '_RECLASSIFY_SUBJ_MARKER' <<< "$BLOCK"; then
     ok "extracted $(printf '%s\n' "$BLOCK" | wc -l | tr -d ' ') lines"
 else
     # Arm 0 already failed when the invocation is gone: that is a FAIL (exit
