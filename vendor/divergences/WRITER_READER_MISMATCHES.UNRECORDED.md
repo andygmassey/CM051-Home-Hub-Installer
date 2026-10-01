@@ -500,3 +500,73 @@ Guarded by tests/test_source_status_prefers_a_live_routine_over_a_stale_sentinel
 tests/test_source_status_reports_ongoing_not_just_install.sh /
 tests/test_the_source_table_covers_the_fda_extract_family.sh, both updated
 only to extract the two new helper functions.
+## Added 2026-10-01, CM051 v1.0.107 (people-correctness agent) -- `ostler_fda`, a WhatsApp LID stopped being written as a phone number (#2543)
+
+Not re-run against this PR specifically (the tool's prior refusal on this
+tree, logged above under "The refusal, measured", was a round-trip
+self-check failure and a RE-PIN limb -- neither is affected by a graft that
+does not move the pin -- and re-running it carries real risk of a long hang
+against a contended HR015 checkout, which is why it was not attempted again
+here). Recorded by location and shape only, following the established
+pattern for this tree rather than a fresh tool run.
+
+### What was grafted, location and shape only
+
+- `vendor/ostler_fda/pwg_ingest.py`: new `_whatsapp_jid_is_genuine_phone(local)`,
+  validating with `phonenumbers.is_valid_number` rather than `str.isdigit()`.
+  `_whatsapp_display_name` and `_whatsapp_phone_e164` both call it before
+  treating a WhatsApp JID's local part as a phone number; `_whatsapp_phone_e164`
+  now returns `None` (was: always a string) when the local part is all-digits
+  but not a genuine phone. Both call sites inside `ingest_whatsapp` (the
+  "create" branch and the separate "person already exists" enrich branch) now
+  write `pwg:identifierType "whatsapp_lid"` instead of `"phone"` when that
+  happens, and the enrich branch additionally now writes the NORMALISED E.164
+  value instead of the raw JID local-part it wrote before (a second,
+  independent format-mismatch bug in the same branch, unrelated to the LID
+  fix but found and fixed alongside it). `import phonenumbers` added;
+  `phonenumbers>=8.13.0` added to `pyproject.toml`'s `dependencies`.
+
+WHY: WhatsApp's LID privacy system can present a 14-15 digit linked-device id
+through the ORDINARY `@s.whatsapp.net` phone-JID suffix, not only the
+`@lid`-suffixed form the existing BW-4 guard already catches. Every digit
+check in this module asked only "is the local part all-digits", true for
+both a genuine phone-rooted JID and an LID presented this way, so the LID
+sailed through as a `"phone"` identifier AND, via the display-name helper,
+as the literal digits in `pwg:displayName` -- CM051 #2543, "15-digit phone
+numbers shown twice" on the v1.0.106 walk. Traced from the consumer
+(read-only, counts-only query against the live Oxigraph store on the walk
+box): 19 people carried a LID-shaped `"phone"` identifier; 12 of those also
+carried the same LID digits directly as `pwg:displayName`, and all 12 had a
+full 36-char dashed-UUID person URI -- this tree's own `uuid5`-based minting
+convention (`_person_id_from_identifier`), not CM041's. Confirmed the same
+defect in BOTH the HR015 source (fixed separately, HR015 PR #1017, kept
+converging per Archie's instruction) and this vendored copy, byte-for-byte
+identical logic, before grafting here.
+
+### What a future sync must preserve
+
+Both call sites' `id_type`/`id_value` branching inside `ingest_whatsapp`, and
+the new `_whatsapp_jid_is_genuine_phone` helper. Gate:
+`vendor/ostler_fda/tests/test_whatsapp_lid_not_phone.py`, including a test
+proving the discriminator is proven rather than assumed -- a synthetic
+15-digit string whose LEADING digits form a real, allocated country code
+(the UK's, "44") is still rejected, because validity depends on the FULL
+number matching an allocated length/pattern, not merely sharing a calling
+code prefix. One pre-existing test in
+`vendor/ostler_fda/tests/test_provisional_display_name.py` used the UK
+mobile OFCOM drama range (+44 7700 900xxx), which is reserved but NOT
+phonenumbers-valid (checked, not assumed) -- swapped for the OFCOM
+LANDLINE drama range (020 7946 0xxx), which is both reserved and valid, so
+the test still exercises the real code path instead of silently hitting the
+new "not a genuine phone" branch.
+
+### A related, NOT fixed, out-of-scope finding from the same sweep
+
+`vendor/cm048_pipeline/src/ingest.py`'s `_normalise_chat_identifier` carries
+a DELIBERATE, documented duplicate of this same digit-check pattern
+(`("+" + local) if local.isdigit() else raw`, no validity check) for its
+human-facing `pwg:chatIdentifier` literal -- the file's own comment states
+it is "duplicated (not imported) because CM048 ships independently of
+ostler_fda". Same vulnerability class, different tree, different pin, and
+outside what CM051 #2543 named. Not touched here; flagged for whoever owns
+`cm048_pipeline`'s next pass.
