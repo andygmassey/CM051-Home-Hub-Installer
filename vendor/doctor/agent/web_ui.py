@@ -2791,6 +2791,67 @@ _SOURCE_ACTIVITY_ALIASES = {
 }
 
 
+# ── DEDICATED BUNDLE ROUTINES ARE A SECOND, INDEPENDENT PRODUCER (#2520) ──
+#
+# MEASURED on a walk box: source_activity/ did not exist at all --
+# com.ostler.fda-rerun (the ONLY writer of it) had never fired (health=waiting,
+# last_run_at=null). So /api/v1/sources reported ongoing=never for EVERY
+# source, including some that were plainly alive -- e.g. a shape like:
+#
+#     email     status=no_data item_count=0  detail=no_correspondents_in_window
+#     imessage  status=no_data item_count=0  detail=ran_ok_no_new_or_enriched_people
+#     whatsapp  status=ok      item_count=<N>
+#
+# while /api/v1/routines, in the SAME window, showed email-ingest had just
+# emitted a real count of messages on schedule. Two different sub-systems
+# answer "email": the FDA extractor's own correspondents-in-window check
+# (narrow, and genuinely found nothing new) and the dedicated full-history
+# bundle routine (ran independently, found plenty). The Doctor row is
+# customer-facing and labelled "Email" -- a customer whose mailbox the
+# dedicated routine has actually read must not be told no_data because the
+# OTHER sub-system's window was empty.
+#
+# fda-rerun's tick is not the only route to ongoing evidence. email, imessage
+# and whatsapp each run on their OWN LaunchAgent, independent of fda-rerun and
+# on a much shorter interval (900s vs 3600s), so most of the time their own
+# routine is the FRESHER evidence anyway. This table says which routine(s)
+# speak for which source; routine_status.py already reads each one's real
+# LaunchAgent, launchd state and log, so this reuses that reader rather than
+# re-implementing it.
+_SOURCE_ROUTINE_LABELS = {
+    "email": ("com.creativemachines.ostler.email-ingest",
+              "com.creativemachines.ostler.email-bundle"),
+    "imessage": ("com.creativemachines.ostler.imessage-bundle",),
+    "whatsapp": ("com.creativemachines.ostler.whatsapp-bundle",),
+}
+
+
+def _routine_evidence(labels: tuple, routine_rows: list) -> dict | None:
+    """The freshest routine row (by last_run_at) among `labels` that has
+    actually run. None when none of them have fired yet -- a routine that
+    has never run is not evidence of anything."""
+    candidates = [r for r in routine_rows
+                  if r.get("routine") in labels and r.get("last_run_at")]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda r: r["last_run_at"])
+
+
+def _positive_count(latest: dict) -> int | None:
+    """The first positive integer in a routine's `latest` counts, preferring
+    `emitted` (the full-history routines' own word for it) over whatever
+    secondary counters a bundle log happens to print. None invents nothing:
+    an empty or all-zero `latest` means no numeric evidence, not zero."""
+    if not isinstance(latest, dict):
+        return None
+    if isinstance(latest.get("emitted"), int) and latest["emitted"] > 0:
+        return latest["emitted"]
+    for v in latest.values():
+        if isinstance(v, int) and not isinstance(v, bool) and v > 0:
+            return v
+    return None
+
+
 def _read_source_activity(name: str, activity_dir: Path | None = None) -> dict:
     """The ongoing-activity record for one source, or {} when absent.
 
@@ -2918,18 +2979,55 @@ def read_source_status(hydrate_dir: Path | None = None,
     #                      NOT reported as a failure: inventing one is as bad
     #                      as hiding one.
     #   ongoing="failing"  the last tick ran and did not succeed
+    #
+    # DEDICATED ROUTINES ARE A SECOND PRODUCER, consulted when fda-rerun's own
+    # activity record has nothing to say (#2520). Fetched once, best-effort:
+    # a missing or broken routine reader must degrade this row to "never",
+    # never to a FAIL on the whole panel.
+    try:
+        from routine_status import read_routine_status
+        routine_rows = read_routine_status()
+    except Exception:
+        routine_rows = []
+
     for row in rows:
         act = _read_source_activity(row["source"], activity_dir)
-        if not act:
+        if act:
+            last_status = act.get("last_status", "unknown")
+            row["ongoing"] = "active" if last_status == "ok" else "failing"
+            row["last_run_at"] = act.get("last_run_at") or None
+            row["last_success_at"] = act.get("last_success_at") or None
+            row["ongoing_detail"] = act.get("last_detail") or None
+        else:
             row["ongoing"] = "never"
             row["last_run_at"] = None
             row["last_success_at"] = None
+
+        if row["ongoing"] == "active":
+            continue  # fda-rerun's own record already proves this row live.
+
+        labels = _SOURCE_ROUTINE_LABELS.get(row["source"])
+        if not labels:
             continue
-        last_status = act.get("last_status", "unknown")
-        row["ongoing"] = "active" if last_status == "ok" else "failing"
-        row["last_run_at"] = act.get("last_run_at") or None
-        row["last_success_at"] = act.get("last_success_at") or None
-        row["ongoing_detail"] = act.get("last_detail") or None
+        evidence = _routine_evidence(labels, routine_rows)
+        if evidence is None or evidence.get("health") != "ok":
+            continue  # the dedicated routine has nothing, or is itself unwell.
+
+        row["ongoing"] = "active"
+        row["last_run_at"] = evidence["last_run_at"]
+        row["last_success_at"] = evidence["last_run_at"]
+        row["ongoing_detail"] = "routine " + evidence["routine"]
+
+        # The install-time verdict is stale, not just quiet: the dedicated
+        # routine has positive throughput the FDA extractor's own window
+        # never saw. Only upgrade when there is a real count to show --
+        # never invent one to make a row look healthier.
+        if row["status"] in ("no_data", "not_run", "unreadable"):
+            count = _positive_count(evidence.get("latest") or {})
+            if count is not None:
+                row["status"] = "ok"
+                row["item_count"] = count
+                row["detail"] = "routine reports %d" % count
     return rows
 
 

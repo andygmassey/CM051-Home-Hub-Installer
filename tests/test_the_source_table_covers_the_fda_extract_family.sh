@@ -347,7 +347,10 @@ for node in tree.body:
         except Exception:
             pass
 want = {"_source_activity_dir", "_read_source_activity", "_source_hydrate_dir",
-        "_parse_source_sentinel", "read_source_status", "render_source_status"}
+        "_parse_source_sentinel", "read_source_status", "render_source_status",
+        # #2520: read_source_status now also consults the dedicated bundle
+        # routines as a second evidence producer.
+        "_routine_evidence", "_positive_count"}
 for node in tree.body:
     if isinstance(node, ast.FunctionDef) and node.name in want:
         exec(compile(ast.Module([node], []), "<f>", "exec"), ns)
