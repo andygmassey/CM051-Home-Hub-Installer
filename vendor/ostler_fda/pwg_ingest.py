@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
+import phonenumbers
 
 from .role_addresses import is_role_identifier  # noqa: F401
 from .identifier_quality import observe as _observe_identifier
@@ -619,30 +620,77 @@ def _identifier_kind(value: str) -> str:
     return "phone" if (value.startswith("+") or cleaned.isdigit()) else "email"
 
 
-def _whatsapp_display_name(jid: str) -> str:
-    """Placeholder display name for an un-named WhatsApp phone contact.
+def _whatsapp_jid_is_genuine_phone(local: str) -> bool:
+    """True when a WhatsApp JID's local part is an actual, valid phone
+    number -- not merely a run of digits (CM051 #2543).
 
-    The local-part of an `@s.whatsapp.net` JID is an E.164 number. Show it as
-    a `+`-prefixed phone so the placeholder reads as a phone contact rather
-    than a bare "random number" (BW-4). Non-numeric local-parts (defensive)
-    are returned unchanged. A real name replaces this once contact_syncer or
-    CM046 email enrichment supplies one.
+    The `@lid` suffix check elsewhere in this module catches WhatsApp's
+    opaque linked-device id when it is MARKED as one. It is not always
+    marked: WhatsApp's LID privacy system can also present a 14-15 digit
+    linked-device id through the ordinary `@s.whatsapp.net`-suffixed JID, the
+    same suffix a genuine phone-rooted JID uses. Every digit check in this
+    module before this fix ("is the local part all-digits?") accepted both
+    shapes identically, so an LID presented this way sailed through dressed
+    as a phone number: it became the Person's phone identifierValue AND,
+    via `_whatsapp_display_name`, the literal digits as the displayName --
+    shown twice on the customer's People row, exactly as measured on the
+    v1.0.106 walk (CM051 #2543, "15-digit phone numbers... shown twice").
+
+    ``phonenumbers.is_valid_number`` is the discriminator: a genuine phone
+    number validates; a LID -- 14-15 digits with no genuine country-code
+    structure -- does not, EVEN when its leading digits happen to form a
+    real country code (proven, not assumed: see
+    tests/test_whatsapp_lid_not_phone.py's
+    test_leading_real_country_code_does_not_rescue_a_lid_shaped_number).
+    Same technique already used in CM041's whatsapp_bridge
+    (identity_resolver.normalise.is_valid_phone).
+    """
+    if not local.isdigit():
+        return False
+    try:
+        parsed = phonenumbers.parse("+" + local, None)
+    except phonenumbers.NumberParseException:
+        return False
+    return phonenumbers.is_valid_number(parsed)
+
+
+def _whatsapp_display_name(jid: str) -> str:
+    """Placeholder display name for an un-named WhatsApp contact.
+
+    The local-part of an `@s.whatsapp.net` JID is USUALLY an E.164 number.
+    Show it as a `+`-prefixed phone so the placeholder reads as a phone
+    contact rather than a bare "random number" (BW-4) -- but only once
+    `_whatsapp_jid_is_genuine_phone` has confirmed it actually is one
+    (CM051 #2543: an all-digit LID is not). An all-digit non-phone falls
+    back to a generic label rather than showing raw digits as a name.
+    Non-numeric local-parts (defensive) are returned unchanged. A real name
+    replaces any of these once contact_syncer or CM046 email enrichment
+    supplies one.
     """
     local = jid.split("@", 1)[0] if "@" in jid else jid
-    if local.isdigit():
+    if _whatsapp_jid_is_genuine_phone(local):
         return "+" + local
+    if local.isdigit():
+        return "WhatsApp contact"
     return local
 
 
-def _whatsapp_phone_e164(jid: str) -> str:
+def _whatsapp_phone_e164(jid: str) -> Optional[str]:
     """E.164 phone string for an ``@s.whatsapp.net`` JID, used as the phone
     ``identifierValue`` so a WhatsApp contact shares ONE key with the same
     number from Contacts / iMessage and RULE 1 (``dedupe_merge``) folds
     them. Without this the raw JID (``<number>@s.whatsapp.net``) never
     matched the E.164 (``+<number>``) and the same human stayed split as
-    a "duplicate +number". Non-numeric / non-JID inputs pass through."""
+    a "duplicate +number". Non-numeric / non-JID inputs pass through
+    unchanged. Returns ``None`` when the local part is all-digits but NOT a
+    genuine phone number (CM051 #2543, an LID) -- the caller must not write
+    that value under ``identifierType "phone"``."""
     local = jid.split("@", 1)[0] if "@" in jid else jid
-    return "+" + local if local.isdigit() else jid
+    if _whatsapp_jid_is_genuine_phone(local):
+        return "+" + local
+    if local.isdigit():
+        return None
+    return jid
 
 
 # ── iMessage ingestion ────────────────────────────────────────────
@@ -1064,6 +1112,11 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
             # had no name yet: one person's page titled with another
             # person's phone number.
             display = _whatsapp_display_name(participant)
+            # CM051 #2543: None when `participant`'s local part is all-digits
+            # but not a genuine phone number (an LID through the ordinary
+            # phone-JID suffix). The caller must not write that value under
+            # identifierType "phone" -- see _whatsapp_phone_e164.
+            phone_e164 = _whatsapp_phone_e164(participant)
 
             if not exists:
                 triples = [
@@ -1078,11 +1131,13 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                 # resolver may overwrite it and surfaces can suppress it.
                 triples.extend(_creation_name_triples(uri, display))
                 id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_whatsapp"
+                id_type = "phone" if phone_e164 is not None else "whatsapp_lid"
+                id_value = phone_e164 if phone_e164 is not None else participant
                 triples.extend([
                     f"<{uri}> pwg:hasIdentifier <{id_uri}>",
                     f"<{id_uri}> a pwg:PersonIdentifier",
-                    f'<{id_uri}> pwg:identifierType "phone"',
-                    f'<{id_uri}> pwg:identifierValue "{_escape(_whatsapp_phone_e164(participant))}"',
+                    f'<{id_uri}> pwg:identifierType "{id_type}"',
+                    f'<{id_uri}> pwg:identifierValue "{_escape(id_value)}"',
                     f'<{id_uri}> pwg:identifierLabel "WHATSAPP"',
                     f'<{id_uri}> pwg:contactSourceTier "{tier}"',
                 ])
@@ -1111,11 +1166,19 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                 # renderer picks the highest one.
                 id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_whatsapp"
                 if not _identifier_exists(id_uri):
+                    # Same two fixes as the create branch above: write the
+                    # NORMALISED E.164 value (the raw JID local-part here was
+                    # a separate, longstanding format-mismatch bug -- this
+                    # branch never matched the create branch's own output),
+                    # and never tag an LID-shaped non-phone as "phone"
+                    # (CM051 #2543).
+                    enrich_id_type = "phone" if phone_e164 is not None else "whatsapp_lid"
+                    enrich_id_value = phone_e164 if phone_e164 is not None else participant
                     triples = [
                         f"<{uri}> pwg:hasIdentifier <{id_uri}>",
                         f"<{id_uri}> a pwg:PersonIdentifier",
-                        f'<{id_uri}> pwg:identifierType "phone"',
-                        f'<{id_uri}> pwg:identifierValue "{_escape(participant)}"',
+                        f'<{id_uri}> pwg:identifierType "{enrich_id_type}"',
+                        f'<{id_uri}> pwg:identifierValue "{_escape(enrich_id_value)}"',
                         f'<{id_uri}> pwg:identifierLabel "WHATSAPP"',
                         f'<{id_uri}> pwg:contactSourceTier "{tier}"',
                     ]

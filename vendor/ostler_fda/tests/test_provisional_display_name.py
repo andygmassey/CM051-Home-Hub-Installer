@@ -32,8 +32,17 @@ def test_empty_is_provisional():
 def test_whatsapp_display_name_placeholder_is_flagged_provisional():
     # End-to-end: the WhatsApp placeholder produced for an un-named JID
     # is exactly the value the provisional guard rejects as a name.
-    display = p._whatsapp_display_name("447700900123@s.whatsapp.net")
-    assert display == "+447700900123"
+    #
+    # CM051 #2543: _whatsapp_display_name now validates with
+    # phonenumbers.is_valid_number before formatting a JID's local part as a
+    # phone (an LID can arrive all-digits through this same suffix). The UK
+    # mobile OFCOM drama range (+44 7700 900xxx) used elsewhere in this file
+    # is reserved but NOT phonenumbers-valid (checked, not assumed), so it
+    # would now read as "WhatsApp contact" rather than the number -- this
+    # test needs the OFCOM LANDLINE drama range instead (020 7946 0xxx),
+    # which is both reserved AND valid.
+    display = p._whatsapp_display_name("442079460958@s.whatsapp.net")
+    assert display == "+442079460958"
     assert p._is_provisional_display_name(display) is True
 
 
