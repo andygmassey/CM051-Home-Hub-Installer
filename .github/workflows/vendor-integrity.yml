@@ -70,6 +70,7 @@ on:
       - 'vendor/cm048_pipeline/src/conversation_writer.py'
       - 'tests/test_the_doctor_status_poll_has_a_fork_budget.py'
       - 'tests/test_doctor_routines_are_measured_live.py'
+      - 'tests/test_the_hub_reads_the_doctor_like_the_app.py'
       - 'tests/test_remote_access_reads_the_installers_tailscale.py'
       - 'vendor/doctor/agent/routine_status.py'
       - 'vendor/doctor/agent/remote_access.py'
@@ -548,6 +549,10 @@ jobs:
       - name: Credential routes refuse cross-site, and still serve the real callers
         if: always()
         run: bash tests/test_doctor_credential_routes_refuse_cross_site.sh
+      # Runs after the requirements install above: it imports the shipped app.
+      - name: The Hub reads the Doctor like the app does (#2552, #2538)
+        if: always()
+        run: python3 tests/test_the_hub_reads_the_doctor_like_the_app.py
 
       # #947. The pairing envelope validated hub_addr as a non-empty string and
       # encoded it verbatim into the QR the customer scans. A link-local address
