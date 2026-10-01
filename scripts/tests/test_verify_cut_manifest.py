@@ -2392,14 +2392,29 @@ def _stale_branch_entry(max_behind: int = 10, ignore=None):
 
 
 class _FakePR:
-    """Stub _gh_token_for + _gh_api_json for pr_branch_not_stale_vs_main."""
+    """Stub _gh_token_for + _gh_api_json for pr_branch_not_stale_vs_main.
+
+    NAMING, post CM051 #2569 fix: `base_sha` is `pulls/{n}.base.sha` -- the
+    fork point, frozen at PR creation, and the production code no longer
+    reads its VALUE at all (kept here only because a real `pulls` response
+    always carries one, and so a test that asserted on its absence would be
+    asserting on a shape no real response has). `head_sha` is what
+    `branches/{base_ref}` returns: `main`'s CURRENT tip, fetched live, never
+    the frozen one. `pr_head_sha` is `pulls/{n}.head.sha` -- the PR branch's
+    OWN current tip, which is what the fixed code actually compares against
+    `head_sha`. It defaults to `base_sha` so every existing caller that never
+    mentions it keeps simulating the exact same "branch has not moved since
+    it forked" shape it always has; only the one new test below passes a
+    `pr_head_sha` that has moved independently of `base_sha`, which is the
+    "merged main in since" shape the fix exists for.
+    """
 
     def __init__(self, base_sha, head_sha, base_ref="main", pr_number="123",
                  repo="andygmassey/CM051-Home-Hub-Installer",
                  compare_status="ahead", ahead_by=0, commits=None,
                  token="fake-token",
                  branches_error="", compare_error="", pr_error="",
-                 state="open", merged_at=None):
+                 state="open", merged_at=None, pr_head_sha=None):
         self.base_sha = base_sha
         self.head_sha = head_sha
         self.base_ref = base_ref
@@ -2414,6 +2429,8 @@ class _FakePR:
         self.pr_error = pr_error
         self.state = state
         self.merged_at = merged_at
+        # Defaults to base_sha: see the class docstring.
+        self.pr_head_sha = base_sha if pr_head_sha is None else pr_head_sha
         self.calls: list[str] = []
 
     def install(self, mod):
@@ -2424,12 +2441,19 @@ class _FakePR:
                 if self.pr_error:
                     return None, self.pr_error
                 return {"base": {"sha": self.base_sha, "ref": self.base_ref},
+                        "head": {"sha": self.pr_head_sha},
                         "state": self.state, "merged_at": self.merged_at}, ""
             if path == f"repos/{self.repo}/branches/{self.base_ref}":
                 if self.branches_error:
                     return None, self.branches_error
                 return {"commit": {"sha": self.head_sha}}, ""
-            if path == f"repos/{self.repo}/compare/{self.base_sha}...{self.head_sha}":
+            # Keyed on pr_head_sha, NOT base_sha -- the fixed code's compare
+            # operand. If the production code ever regresses to comparing
+            # base_sha again, a test that gave it a pr_head_sha different
+            # from base_sha has no route registered for that URL and this
+            # falls through to "unrouted path" below: a loud, specific FAIL
+            # rather than a silently wrong answer from the old pairing.
+            if path == f"repos/{self.repo}/compare/{self.pr_head_sha}...{self.head_sha}":
                 if self.compare_error:
                     return None, self.compare_error
                 return {"status": self.compare_status, "ahead_by": self.ahead_by,
@@ -2504,6 +2528,48 @@ def test_stale_branch_fail_when_behind_exceeds_threshold(tmp_path, monkeypatch):
     # `git merge-base --is-ancestor` can then never prove the work landed.
     assert "merge main into the branch" in result.detail, result.detail
     assert "rebase" not in result.detail, result.detail
+
+
+def test_stale_branch_pass_when_branch_has_merged_main_in(tmp_path, monkeypatch):
+    """CM051 #2569, urgent fix: a branch that keeps itself current by merging
+    main in must read 0 behind, not stale forever.
+
+    base_sha stands in for a fork point from weeks ago. pr_head_sha is the
+    branch's CURRENT tip -- distinct from base_sha, as it would be after any
+    push at all, let alone a "merge main in" push -- and it is what the fixed
+    code must compare against main's tip, not base_sha.
+
+    _FakePR only wires the compare route keyed on
+    repos/.../compare/{pr_head_sha}...{head_sha}. If the code under test ever
+    regresses to comparing base_sha...head_sha instead (the exact defect this
+    fixes: comparing the FROZEN base.sha against main's current tip, which
+    never reflects a later merge-main-in and reads as permanently stale),
+    there is no route for that URL and the call falls through to "unrouted
+    path", which is a FAIL with that string in the detail -- loud and
+    specific, not a silent wrong answer. Verified by hand against the
+    pre-fix check_pr_branch_not_stale_vs_main (`git show HEAD~1:...` before
+    this commit): this exact test FAILs with "unrouted path:
+    repos/.../compare/ffffffff...mmmmmmmm" (the old code compared the frozen
+    base_sha against main's tip, a URL this fixture never wires) before the
+    fix, and PASSes after it.
+    """
+    monkeypatch.setenv("PR_NUMBER", "2569")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "andygmassey/CM051-Home-Hub-Installer")
+    mod = _load_module()
+    _FakePR(base_sha="f" * 40, head_sha="m" * 40, pr_head_sha="c" * 40,
+            pr_number="2569", ahead_by=0, commits=[]).install(mod)
+    result = mod.check_pr_branch_not_stale_vs_main(
+        _stale_branch_entry(max_behind=10),
+        {"cm051_dir": tmp_path, "app_path": tmp_path})
+    assert result.status == "PASS", result.detail
+    assert "0 commit(s) behind" in result.detail, result.detail
+    # The must-miss: this must not be the trivial "identical shas" PASS arm
+    # (pr_head_sha == head_sha) -- it genuinely compared two DIFFERENT shas
+    # and got ahead_by=0 back, which is the realistic "merged main in a
+    # while ago and nothing has landed on main since" shape, not "never
+    # diverged at all".
+    assert "up to date" not in result.detail, result.detail
+    assert "cccccccc" in result.detail, result.detail
 
 
 def test_stale_branch_ignore_patterns_reduce_count(tmp_path, monkeypatch):
@@ -2684,7 +2750,7 @@ def test_require_kind_is_satisfied_when_the_row_actually_runs(staleness_manifest
         "#!/bin/sh\n"
         'case "$*" in\n'
         '  "auth token --user"*) exit 1 ;;\n'
-        '  *"/pulls/"*) echo \'{"base":{"sha":"aaaaaaaa","ref":"main"}}\' ;;\n'
+        '  *"/pulls/"*) echo \'{"base":{"sha":"aaaaaaaa","ref":"main"},"head":{"sha":"aaaaaaaa"}}\' ;;\n'
         '  *"/branches/main") echo \'{"commit":{"sha":"aaaaaaaa"}}\' ;;\n'
         "  *) exit 1 ;;\n"
         "esac\n"
