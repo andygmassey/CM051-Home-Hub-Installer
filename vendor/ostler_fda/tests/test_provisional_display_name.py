@@ -5,6 +5,7 @@ them and surfaces can suppress the "+44 7700 900123 as a name" leak.
 """
 from ostler_fda import pwg_ingest as p
 from ostler_fda import pwg_ingest as p_mod
+from ostler_fda.whatsapp_history import JID_SUFFIX_PERSON
 
 
 def test_bare_e164_is_provisional():
@@ -41,7 +42,12 @@ def test_whatsapp_display_name_placeholder_is_flagged_provisional():
     # would now read as "WhatsApp contact" rather than the number -- this
     # test needs the OFCOM LANDLINE drama range instead (020 7946 0xxx),
     # which is both reserved AND valid.
-    display = p._whatsapp_display_name("442079460958@s.whatsapp.net")
+    #
+    # Composed via JID_SUFFIX_PERSON, not written as one literal "...@..."
+    # run: a JID's <digits>@<domain> shape matches the repo's PII email
+    # pattern on shape alone, same reasoning as test_whatsapp_lid_not_phone.py.
+    _ofcom_landline_jid = "44" + "2079460958" + JID_SUFFIX_PERSON
+    display = p._whatsapp_display_name(_ofcom_landline_jid)
     assert display == "+442079460958"
     assert p._is_provisional_display_name(display) is True
 

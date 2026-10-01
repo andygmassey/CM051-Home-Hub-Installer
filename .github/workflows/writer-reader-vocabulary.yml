@@ -99,7 +99,10 @@ jobs:
       #                      named-graph dataset. Without it the whole of
       #                      item 2 is untested.
       #   pydantic-settings  imported transitively by CM019's config module.
-      #   nameparser, httpx  runtime deps of ostler_fda.pwg_ingest.
+      #   nameparser, httpx, phonenumbers
+      #                      runtime deps of ostler_fda.pwg_ingest (CM051
+      #                      #2543: phonenumbers tells a WhatsApp LID apart
+      #                      from a genuine phone number).
       #   pyyaml             the doctor import modules parse frontmatter.
       #   ./vendor/ostler_security
       #                      ical-server.py REFUSES to import without it,
@@ -109,7 +112,7 @@ jobs:
         run: |
           python -m pip install --quiet --upgrade pip
           python -m pip install --quiet pytest rdflib pydantic-settings \
-            nameparser httpx pyyaml
+            nameparser httpx phonenumbers pyyaml
           python -m pip install --quiet ./vendor/ostler_security
 
       # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE.
