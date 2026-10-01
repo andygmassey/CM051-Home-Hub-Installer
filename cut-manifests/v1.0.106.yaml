@@ -6552,7 +6552,7 @@ open_issues:
       collapses every transactional summary (order, delivery, invoice, receipt, shipment, parcel,
       dispatched) within a group into one generic "An online order" line with no reference number,
       and drops the em dash. compiler/tests/test_dashboard_on_this_day_render.py, synthetic
-      fixtures only (ExampleMart/Example Lake/Example Movie, no real names or order numbers): RED
+      fixtures only (no real names or order numbers): RED
       on CM044 main (ImportError, the render helpers do not exist there), GREEN on the fix branch
       (14 passed; full compiler/tests -k dashboard suite 93 passed, 0 regressions). CLOSES ON:
       CM044 PR #288 merged to main AND the next wiki rebuild/re-pin into a CM051 cut shows the
