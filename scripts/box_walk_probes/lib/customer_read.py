@@ -587,10 +587,35 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=120):
             # so a wider read would hide exactly the defect it is measuring.
             wpage = ctx.new_page()
             wpage.set_viewport_size({"width": 1440 - 240, "height": 944})
-            # TODO(#2558): this mirrors the app's own iframe navigation, which puts the device
-            # bearer in the URL. When the single-use wiki ticket lands, mint one with a Bearer
-            # fetch and navigate with the ticket instead; then no URL here carries the token.
-            wpage.goto(base + "/wiki/?token=" + token, wait_until="load", timeout=90000)
+            # #2558: this used to mirror the app's own (pre-fix) iframe
+            # navigation, putting the device bearer in the URL as ?token=.
+            # The Hub's own Wiki.tsx no longer does that -- it mints a
+            # session with a Bearer-authenticated fetch and navigates to the
+            # capability that comes back (GET /api/wiki-session). Mirror
+            # THAT instead, so this probe's own fallback path no longer
+            # constructs the exact URL shape the bearer_in_url assertion
+            # above exists to catch.
+            session_id = None
+            try:
+                mint = ctx.request.get(
+                    base + "/api/wiki-session",
+                    headers={"Authorization": "Bearer " + token} if token else {},
+                    timeout=20000,
+                )
+                if mint.ok:
+                    session_id = (mint.json() or {}).get("session")
+                else:
+                    f["wiki"]["session_mint_status"] = mint.status
+            except Exception as exc:
+                f["wiki"]["session_mint_error"] = str(exc)[:200]
+            if session_id:
+                wpage.goto(base + "/wiki/s/" + session_id + "/", wait_until="load", timeout=90000)
+            else:
+                # Fail closed, never fall back to the token-in-URL shape:
+                # an unauthenticated navigation reads as a 401/empty page
+                # here rather than quietly reintroducing the defect.
+                f["wiki"]["session_mint_failed"] = True
+                wpage.goto(base + "/wiki/", wait_until="load", timeout=90000)
             fr = wpage.main_frame
         if fr is not None:
             fr.wait_for_load_state("load", timeout=60000)
