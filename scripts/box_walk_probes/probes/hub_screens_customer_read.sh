@@ -27,10 +27,10 @@ _PY="${OSTLER_SCREENS_PYTHON:-${HOME}/walkdriver/pwvenv/bin/python}"
 
 self_test() {
     if python3 "${_HERE}/lib/customer_read.py" --self-test; then
-        probe_examined 28 "mutated customer-read facts"
+        probe_examined 32 "mutated customer-read facts"
         probe_fail "negative control behaved: every known-bad fixture went red by its own assertion, an empty read is CANNOT-RUN, and a silent declared assertion FAILS"
     fi
-    probe_examined 28 "mutated customer-read facts"
+    probe_examined 32 "mutated customer-read facts"
     probe_pass "SELF-TEST BROKEN: the customer-read judge let a known-bad fixture through (see above)"
 }
 

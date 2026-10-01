@@ -212,7 +212,28 @@ def judge(f, declared=None):
         add(name, not bad, "; ".join(bad[:6]) + (" (+{} more)".format(len(bad) - 6) if len(bad) > 6 else ""))
 
     over_text(DECLARED[0], lambda t: ISO_DATE.findall(t), lambda h: "{} ISO date(s) (values withheld)".format(len(h)))
-    over_text(DECLARED[1], lambda t: t.count(EM_DASH), lambda h: "{} em dash(es)".format(h))
+    # Decision 2026-10-01: Ostler never rewrites the customer's own titles. The
+    # exemption is FIELD-LEVEL: only the title of a Timeline row whose kind is
+    # "event" (a verbatim calendar item, as the API returned it) is exempt, and
+    # only on the Timeline screen. Every other dash on that screen (a placeholder,
+    # a label, a separator) and every dash anywhere else still counts.
+    # TODO(#2565): key this on the entry's source field once the timeline API
+    # carries one, instead of on kind == "event".
+    exempt = sorted({r.get("title") or "" for r in (f.get("timeline_rows") or [])
+                     if r.get("kind") == "event" and EM_DASH in (r.get("title") or "")},
+                    key=len, reverse=True)
+
+    def ostler_dashes(where, t):
+        if where == "hub timeline":
+            for title in exempt:
+                t = t.replace(title, "")
+        return t.count(EM_DASH)
+    if not measured:
+        add(DECLARED[1], None, "NOT MEASURED: no screen text was collected")
+    else:
+        bad = ["{}: {} em dash(es) written by Ostler".format(w, n) for w, t in measured
+               for n in [ostler_dashes(w, t)] if n]
+        add(DECLARED[1], not bad, "; ".join(bad[:6]))
     over_text(DECLARED[2],
               lambda t: [why for rx, why in JARGON if rx.search(STRIP_ADDRESSES.sub(" ", t))],
               lambda h: ", ".join(sorted(set(h))))
@@ -534,7 +555,8 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=120):
             go(path)
             read(name, path)
             if name == "timeline":
-                f["timeline_titles"] = page.evaluate("() => Array.from(document.querySelectorAll('[data-timeline-row]')).map(e => e.getAttribute('data-timeline-title') || '')")
+                f["timeline_rows"] = page.evaluate("() => Array.from(document.querySelectorAll('[data-timeline-row]')).map(e => ({kind: e.getAttribute('data-timeline-kind') || '', title: e.getAttribute('data-timeline-title') || ''}))")
+                f["timeline_titles"] = [r["title"] for r in f["timeline_rows"]]
             if name == "people":
                 f["people_rows"] = page.evaluate("() => Array.from(document.querySelectorAll('[data-person-row]')).map(e => e.innerText)")
             if name == "doctor":
@@ -639,12 +661,16 @@ def _good():
             "doctor_sources": {"rows": [["Email conversations", "Working"], ["WhatsApp conversations", "Working"]]},
             "bursar": {"nav": "Bursar", "title": "Bursar", "text": "October 2026\nMODEL CALLS\n1,234\nrates read on 15 Jan 2026\n"},
             "settings": {"nav": "Settings", "title": "Settings", "text": "Your timezone\nthe owner's time zone\n"},
+            "timeline": {"nav": "Timeline", "title": "Timeline", "text": "Today\nEVENT\nOffsite \u2014 day one\n1 OCT\n"},
         },
         "requests": [{"m": "GET", "u": "/api/status", "s": 200}],
         "bearer_in_url": 0,
         "feed": [{"kind": "interest", "action_kind": "strengthen", "has_interest_id": True},
                  {"kind": "signal", "action_kind": None, "has_interest_id": False}],
-        "timeline_titles": ["WhatsApp with Jane Doe", "Lunch with John Doe"],
+        "timeline_titles": ["WhatsApp with Jane Doe", "Lunch with John Doe", "Offsite \u2014 day one"],
+        "timeline_rows": [{"kind": "message", "title": "WhatsApp with Jane Doe"},
+                          {"kind": "meeting", "title": "Lunch with John Doe"},
+                          {"kind": "event", "title": "Offsite \u2014 day one"}],
         "people_rows": ["Jane Doe\n+44 7700 900001", "John Doe\n+" + "1 555 0100 222"],
         "wiki": {"pages": {
             "front": {"text": "Your Front Page\nNeeds you now\n2\nDATES\n\nJane Doe's birthday is in five days\n\n"
@@ -693,6 +719,14 @@ def _txt(path, add):
 MUTANTS = [
     ("ISO date on a card (#2534, #2550)", _txt(["screens", "home", "text"], "last seen 2026-01-15\n")),
     ("em dash on a wiki page (#2550)", _txt(["wiki", "pages", "front", "text"], "spans 5 years — from 2021\n")),
+    ("Ostler placeholder dash on People (#2562)", _txt(["screens", "people", "text"], "Jane Doe\n\u2014\n")),
+    ("Ostler placeholder dash on the SAME Timeline screen as an exempt title (#2562)",
+     _txt(["screens", "timeline", "text"], "EVENT\nUntitled\n\u2014\n")),
+    ("Ostler label dash beside the exempt title on the Timeline (#2562)",
+     _txt(["screens", "timeline", "text"], "1 OCT \u2014 Offsite \u2014 day one\n")),
+    ("a dashed title on a NON-event Timeline row is not exempt",
+     lambda f: (f["timeline_rows"].append({"kind": "message", "title": "Chat \u2014 recap"}),
+                f["screens"]["timeline"].__setitem__("text", f["screens"]["timeline"]["text"] + "Chat \u2014 recap\n"))),
     ("L2 badge and strength score (#2534)", _txt(["screens", "home", "text"], "L2\nfrom linkedin · strength 0.50\n")),
     ("store names on the System page (#2548)", _txt(["wiki", "pages", "people", "text"], "Qdrant collections\n")),
     ("snake_case key on the front page (#2549)", _txt(["wiki", "pages", "front", "text"], "tv_show\t100\n")),
@@ -726,7 +760,7 @@ MUTANTS = [
 
 
 # Each mutant must be caught by the assertion written for it, not incidentally by another.
-MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]))
+MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]))
 
 
 def self_test():
