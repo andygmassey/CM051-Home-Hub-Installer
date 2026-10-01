@@ -492,6 +492,8 @@ test_redis_health_probe_authenticates.sh	WIRED	.github/workflows/redis-health-pr
 test_region_persist_does_not_leak_a_traceback.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_rehearse_tag_is_the_tag_preflight.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_remote_access_reads_the_installers_tailscale.py	WIRED	.github/workflows/vendor-integrity.yml
+test_repair_lid_as_phone_marker_skip.sh	WIRED	.github/workflows/repair-lid-as-phone-vendored.yml
+test_repair_lid_as_phone_vendored.py	WIRED	.github/workflows/repair-lid-as-phone-vendored.yml
 test_repair_overmerged_contact_cards.py	WIRED	.github/workflows/contact-card-repair.yml
 test_repin_wiki_images_refuses_a_typed_sha.sh	WIRED	.github/workflows/cut-freshness.yml
 test_reset_says_when_it_did_not_uninstall.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
