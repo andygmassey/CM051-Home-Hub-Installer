@@ -58,8 +58,18 @@ if [ -z "$BLOCK" ]; then
     echo "CANNOT-RUN: the block extraction found nothing -- install.sh's comment anchors moved; this test examined no code" >&2
     exit 2
 fi
-if printf '%s\n' "$BLOCK" | grep -q 'repair_lid_as_phone_v1.done' \
-   && printf '%s\n' "$BLOCK" | grep -q 'identity_resolver.repair_lid_as_phone'; then
+# herestring, not `printf ... | grep -q`: under `set -o pipefail` (this file
+# sets it two lines above `cd`... see the `set -uo pipefail` near the top),
+# `grep -q` can exit the instant it matches, SIGPIPE-ing printf before it
+# finishes writing a large $BLOCK, and pipefail then reports the PIPELINE's
+# status as printf's broken-pipe failure instead of grep's real (successful)
+# match -- inverting a present marker into a reported absence. This file is
+# bash-shebanged and run only via `bash tests/...`, never shipped over
+# box_run's ssh branch, so the herestring is safe here (see
+# tests/test_pipefail_shortcircuit_inversion.sh for the portable `grep -c`
+# alternative where a POSIX shell is in play).
+if grep -q 'repair_lid_as_phone_v1.done' <<< "$BLOCK" \
+   && grep -q 'identity_resolver.repair_lid_as_phone' <<< "$BLOCK"; then
     ok "(0) extraction contains both the marker filename and the module invocation"
 else
     bad "(0) extraction is missing the marker filename or the module invocation -- see BLOCK below"

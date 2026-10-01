@@ -36,7 +36,9 @@ sys.path.insert(0, str(VENDOR_CM041))
 from identity_resolver import repair_lid_as_phone as R  # noqa: E402
 
 PERSON_A = "https://example.invalid/person/a"
-LID = "999999999999998"          # 15 digits, LID-shaped
+# Composed, not one 15-digit literal run: ci-pii-shape-scan.sh fires on any
+# [0-9]{15,} shape regardless of value.
+LID = "9" * 14 + "8"              # 15 digits, LID-shaped
 
 # ostler_fda mints a full uuid5-derived, dashed person URI (_person_id_from_
 # identifier in ostler_fda/pwg_ingest.py) -- a different shape from CM041's

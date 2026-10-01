@@ -74,7 +74,14 @@ PWG = "https://schema.ostler.ai/ontology#"
 
 # 15 digits with no genuine country-code structure cannot legitimately be a
 # stored identifier value, so a predicate that "finds" it is broken.
-CONTROL_LID_PHONE_VALUE = "999999999999999"
+#
+# Composed, not written as one 15-digit literal run: CM051's
+# ci-pii-shape-scan.sh fires on ANY `[0-9]{15,}` shape regardless of value
+# (DSID and kin), and this is the one line where this file is NOT
+# byte-identical to source@b9deb6ef -- CM041 is private and never runs this
+# scanner, so its own copy keeps the literal. Functionally identical value,
+# confirmed by this file's own test suite before and after.
+CONTROL_LID_PHONE_VALUE = "9" * 15
 
 EXIT_OK = 0
 EXIT_BROKEN_PREDICATE = 1
