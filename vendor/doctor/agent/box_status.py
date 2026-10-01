@@ -334,6 +334,12 @@ _OSTLER_NAMES = {
     "uvicorn", "web_ui",
     "com.docker.backend", "com.docker.virtualization", "com.docker.hyperkit",
     "qemu-system-aarch64", "vpnkit",
+    # CM051 #2538: the shipped stack runs its containers in a colima VM on
+    # Apple's Virtualization framework, and Ollama's model runner is
+    # llama-server. Neither name was here, so Ostler's own VM and model runner
+    # were billed to "Other apps" while "Ostler itself is using ~0%".
+    "com.apple.Virtualization.VirtualMachine", "colima", "limactl",
+    "llama-server",
 }
 # Precise argv hints ONLY - every Ostler wrapper/pipeline runs out of
 # ``~/.ostler/``; the Doctor runs as ``doctor.agent.web_ui``. Deliberately NOT
@@ -377,6 +383,9 @@ _LABELS = {
     "uvicorn": "Ostler Doctor", "web_ui": "Ostler Doctor",
     "com.docker.backend": "Ostler databases", "com.docker.virtualization": "Ostler databases",
     "com.docker.hyperkit": "Ostler databases", "qemu-system-aarch64": "Ostler databases",
+    "com.apple.Virtualization.VirtualMachine": "Ostler databases",
+    "colima": "Ostler databases", "limactl": "Ostler databases",
+    "llama-server": "Ostler model",
 }
 
 

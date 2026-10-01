@@ -476,6 +476,34 @@ def _cross_site_refusal(request: Request) -> "JSONResponse | None":
     return None
 
 
+def _hub_read_refusal(request: Request) -> "JSONResponse | None":
+    """The cross-site guard for a READ the Hub app itself makes (CM051 #2552).
+
+    _cross_site_refusal accepts Sec-Fetch-Site only same-origin or none. The
+    Hub's own webview is served from tauri://localhost, so WebKit stamps its
+    fetch to this loopback port "cross-site"; a browser-served Hub on :8000
+    stamps it "same-site". Both were refused 403, so Settings and the
+    Governor could never read back what the customer had saved. The Origin
+    header is the stronger signal and cannot be forged by a page: when it is
+    the Hub's webview or a loopback page (editor_feedback.origin_is_local, the
+    same predicate the editor feedback route already trusts), the read is
+    admitted. Anything else falls through to the unchanged guard. Writes keep
+    _cross_site_refusal and go through the doctor_post native bridge.
+    """
+    origin = request.headers.get("origin")
+    if origin:
+        try:
+            from editor_feedback import origin_is_local as _origin_is_local
+        except Exception:  # noqa: BLE001 - a guard that cannot run has not passed
+            return JSONResponse(
+                {"error": CROSS_SITE_REFUSAL_DETAIL, "refused_on": "guard-unavailable"},
+                status_code=403,
+            )
+        if _origin_is_local(origin):
+            return None
+    return _cross_site_refusal(request)
+
+
 # ── Snapshot history (in-memory, last 10) ─────────────────────────
 
 _history: deque[dict] = deque(maxlen=10)
@@ -6871,10 +6899,12 @@ async def api_config_get(request: Request):
     Not a credential route, so it is not in the list above -- but it is the
     customer's settings (channels, schedule, model, privacy default) and
     wildcard CORS made it readable by any page they opened. The POST beside it
-    already refused a cross-site write; the READ refused nothing. Its only
-    caller is the Doctor's own ``/config`` panel, same-origin.
+    already refused a cross-site write; the READ refused nothing. Callers: the
+    Doctor's own ``/config`` panel (same-origin) and the Hub app's Settings and
+    Governor pages (tauri://localhost or a loopback page), see
+    ``_hub_read_refusal`` (CM051 #2552).
     """
-    refusal = _cross_site_refusal(request)
+    refusal = _hub_read_refusal(request)
     if refusal is not None:
         return refusal
 

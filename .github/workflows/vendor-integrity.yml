@@ -70,6 +70,7 @@ on:
       - 'vendor/cm048_pipeline/src/conversation_writer.py'
       - 'tests/test_the_doctor_status_poll_has_a_fork_budget.py'
       - 'tests/test_doctor_routines_are_measured_live.py'
+      - 'tests/test_the_hub_reads_the_doctor_like_the_app.py'
       - 'tests/test_remote_access_reads_the_installers_tailscale.py'
       - 'vendor/doctor/agent/routine_status.py'
       - 'vendor/doctor/agent/remote_access.py'
@@ -548,6 +549,10 @@ jobs:
       - name: Credential routes refuse cross-site, and still serve the real callers
         if: always()
         run: bash tests/test_doctor_credential_routes_refuse_cross_site.sh
+      # Runs after the requirements install above: it imports the shipped app.
+      - name: The Hub reads the Doctor like the app does (#2552, #2538)
+        if: always()
+        run: python3 tests/test_the_hub_reads_the_doctor_like_the_app.py
 
       # #947. The pairing envelope validated hub_addr as a non-empty string and
       # encoded it verbatim into the QR the customer scans. A link-local address
@@ -683,17 +688,32 @@ jobs:
         if: always()
         run: bash tests/test_doctor_proxy_paths_predicate.sh
 
+      # Part 1b of the step below (CM051 #2559 review) actually IMPORTS the
+      # vendored ical-server.py, same cwd/sys.path shape as the real launchd
+      # service: identity_resolver (sibling tree, rapidfuzz already installed
+      # above) + ostler_security (cryptography is its only import-time cost;
+      # sqlcipher3 degrades gracefully and is not needed here). Installed as
+      # its own step so a missing dependency here is legible as THIS gate's
+      # install failing, not a mysterious CANNOT-RUN three steps later.
+      - name: Install cryptography (ical-server import smoke test, #2559)
+        if: always()
+        run: python3 -m pip install --quiet cryptography
+
       # The ical-server vendor regression, which asserts the shipped routes,
-      # the LaunchAgent block, the loopback bind, the port override AND the
-      # Doctor proxy paths.
+      # the LaunchAgent block, the loopback bind, the port override, the
+      # Doctor proxy paths, AND (since #2559) that the file actually IMPORTS
+      # under the real vendor topology -- py_compile alone is syntax-only and
+      # does not execute a single `from X import Y`, which is exactly how a
+      # missing `read_across_graphs` symbol in a sibling vendored tree shipped
+      # past every prior gate and was only caught by a box proof.
       #
-      # It has existed since CX-P0A (2026-05-26) and until this commit NOTHING
-      # RAN IT. Its wrapper carried the label `UNWIRED` in tests/TEST_WIRING.tsv
-      # in its own words, and the invocation count outside tests/ was zero,
-      # measured with a live positive control. It was also green, which is why
-      # it survived: a gate that is green and unreachable reports identically
-      # to a gate that is working.
-      - name: ical-server vendor regression (routes + proxy paths + bind)
+      # It has existed since CX-P0A (2026-05-26) and until a later commit
+      # NOTHING RAN IT. Its wrapper carried the label `UNWIRED` in
+      # tests/TEST_WIRING.tsv in its own words, and the invocation count
+      # outside tests/ was zero, measured with a live positive control. It was
+      # also green, which is why it survived: a gate that is green and
+      # unreachable reports identically to a gate that is working.
+      - name: ical-server vendor regression (routes + proxy paths + bind + import)
         if: always()
         run: bash tests/test_ical_server_vendor_wired.sh
 
