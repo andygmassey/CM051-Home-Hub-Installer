@@ -116,6 +116,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
+import phonenumbers
 
 from .turtle_escape import escape_turtle_iri_path, escape_turtle_literal
 from . import outstanding_todos as _outstanding_todos
@@ -189,13 +190,45 @@ def _participant_uri_key(channel: str, raw: str) -> str:
     return raw.strip()
 
 
+def _whatsapp_jid_is_genuine_phone(local: str) -> bool:
+    """True when a WhatsApp JID's local part is an actual, valid phone
+    number -- not merely a run of digits (CM051 #2578, the same unguarded
+    digit check as CM051 #2543).
+
+    WhatsApp's LID privacy system can present a 14-15 digit linked-device id
+    through the ordinary ``@s.whatsapp.net``-suffixed JID, the same suffix a
+    genuine phone-rooted JID uses. ``local.isdigit()`` alone accepts both
+    shapes identically, so an LID sailed through dressed as a phone number
+    in the surfaced ``pwg:chatIdentifier`` literal.
+
+    ``phonenumbers.is_valid_number`` is the discriminator: a genuine phone
+    number validates; a LID -- 14-15 digits with no genuine country-code
+    structure -- does not, even when its leading digits happen to form a
+    real country code. SAME technique already used in ostler_fda's
+    ``_whatsapp_jid_is_genuine_phone`` (CM051 #2543) and CM041's
+    ``identity_resolver.normalise.is_valid_phone`` -- reused here, not
+    reimplemented from scratch, because this tree has no dependency on
+    either of those packages and ships independently.
+    """
+    if not local.isdigit():
+        return False
+    try:
+        parsed = phonenumbers.parse("+" + local, None)
+    except phonenumbers.NumberParseException:
+        return False
+    return phonenumbers.is_valid_number(parsed)
+
+
 def _normalise_chat_identifier(channel: str, raw: str) -> str:
     """Human-facing chat identifier literal (NOT the URI key).
 
     WhatsApp participants arrive as a JID (``<e164>@s.whatsapp.net``);
     this presents the ``+<e164>`` phone so the surfaced
     ``pwg:chatIdentifier`` reads as a phone (and mirrors pwg_ingest's
-    own ``identifierValue`` via ``_whatsapp_phone_e164``). iMessage/SMS
+    own ``identifierValue`` via ``_whatsapp_phone_e164``) ONLY when the
+    local part is a genuine, valid phone number (CM051 #2578) -- an
+    LID presented through this same suffix is returned verbatim instead
+    of being formatted as a bogus "+<LID digits>" phone. iMessage/SMS
     handles pass through verbatim.
 
     NOTE: this is deliberately NOT used to derive the Person URI key --
@@ -208,7 +241,7 @@ def _normalise_chat_identifier(channel: str, raw: str) -> str:
     raw = raw.strip()
     if channel == "whatsapp":
         local = raw.split("@", 1)[0] if "@" in raw else raw
-        return ("+" + local) if local.isdigit() else raw
+        return ("+" + local) if _whatsapp_jid_is_genuine_phone(local) else raw
     return raw
 
 
