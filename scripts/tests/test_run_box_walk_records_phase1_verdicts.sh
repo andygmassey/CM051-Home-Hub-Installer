@@ -33,8 +33,26 @@ _stub() {    # tree name exit self_test_exit message
         "$4" "$5" "$3" > "$1/probes/$2.sh"
     chmod +x "$1/probes/$2.sh"
 }
+# CM051 #2569 review: the walk_in_use marker check now treats a transport
+# failure as UNKNOWN and refuses writes on UNKNOWN, same as a confirmed
+# MARKED box (the old form failed OPEN: ssh failing against fake.invalid and
+# a genuinely absent marker produced the identical empty output). This test
+# runs a full, unfiltered run_box_walk.sh (no --only, no --allow-writes), so
+# it now needs a box that actually ANSWERS the marker check, not merely an
+# unreachable hostname -- a real ssh against fake.invalid would otherwise
+# make every arm below refuse before ever reaching phase 1. The stub only
+# ever has to answer ABSENT: stub probes make no other remote calls, and the
+# marker check is the sole caller of _walk_box_exec.
+_GENERIC_SSH_DIR="${WORK}/sshbin-generic"
+mkdir -p "$_GENERIC_SSH_DIR"
+cat > "${_GENERIC_SSH_DIR}/ssh" <<'SH'
+#!/bin/sh
+printf 'ABSENT'
+SH
+chmod +x "${_GENERIC_SSH_DIR}/ssh"
+
 _run() {     # tree verdict_file_or_empty -> runs the loop, output in $WORK/out.txt
-    ( cd "$1" && OSTLER_PHASE1_VERDICTS="$2" OSTLER_BOX_HOST=fake.invalid \
+    ( cd "$1" && OSTLER_PHASE1_VERDICTS="$2" PATH="${_GENERIC_SSH_DIR}:${PATH}" OSTLER_BOX_HOST=fake.invalid \
         perl -e 'alarm 240; exec @ARGV' bash ./run_box_walk.sh ) > "${WORK}/out.txt" 2>&1
     return $?
 }
