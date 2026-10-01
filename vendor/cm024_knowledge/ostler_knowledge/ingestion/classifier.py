@@ -17,12 +17,47 @@ Usage:
 import logging
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 from .enex_parser import ParsedNote
 
 logger = logging.getLogger(__name__)
+
+# ── Usage journal: the `cm024k-ingest` producer (CM051 #2472) ─────────────
+#
+# This classifier's Ollama call is part of the one-time Evernote import, i.e.
+# purpose="ingesting" -- the same purpose as embedder.py (a sibling module
+# under ingestion/), but its own module-level session_id, per the contract's
+# "one id per process" rule. See embedder.py for the fuller rationale.
+_USAGE_SESSION_ID = "cm024k-ingest-" + datetime.now(timezone.utc).strftime(
+    "%Y-%m-%dT%H:%M:%SZ"
+)
+
+
+def _record_generate_usage(data: dict, model: str) -> None:
+    """Record one ``ingesting`` usage row from an Ollama ``/api/generate`` response.
+
+    Never raises. ``tokens_from_ollama`` returns ``(None, None)`` when Ollama
+    reported no counts, and ``record_usage`` then writes nothing -- measured,
+    never estimated.
+    """
+    try:
+        from .._vendor.ostler_usage_journal import record_usage, tokens_from_ollama
+
+        prompt, completion = tokens_from_ollama(data if isinstance(data, dict) else {})
+        record_usage(
+            model=model,
+            input_tokens=prompt,
+            output_tokens=completion,
+            purpose="ingesting",
+            session_id=_USAGE_SESSION_ID,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(
+            "usage journal write skipped (%s): %s", type(exc).__name__, exc
+        )
 
 
 # Compartment level names
@@ -330,6 +365,7 @@ class PrivacyClassifier:
                 response.raise_for_status()
                 data = response.json()
 
+            _record_generate_usage(data, self.llm_model)
             return self._parse_llm_response(data.get('response', ''))
 
         except Exception as e:

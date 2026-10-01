@@ -11,9 +11,47 @@ Usage:
 import asyncio
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import List, Optional, Union
 
 logger = logging.getLogger(__name__)
+
+# ── Usage journal: the `cm024k-ingest` producer (CM051 #2472) ─────────────
+#
+# Every Ollama call here is the one-time Evernote convert/embed pass, i.e.
+# purpose="ingesting". session_id is a module-level constant: one id per
+# process, timestamped so a human reading the raw journal can tell two runs
+# apart. Lazy-imported inside the wrapper so an import failure degrades to a
+# log line rather than breaking ingestion -- same shape as
+# vendor/cm048_pipeline/src/ollama_client.py::_record_model_usage and
+# vendor/cm041/contact_syncer/usage.py::record_embed_usage.
+_USAGE_SESSION_ID = "cm024k-ingest-" + datetime.now(timezone.utc).strftime(
+    "%Y-%m-%dT%H:%M:%SZ"
+)
+
+
+def _record_embed_usage(data: dict, model: str) -> None:
+    """Record one ``ingesting`` usage row from an Ollama ``/api/embed`` response.
+
+    Never raises. ``tokens_from_ollama`` returns ``(None, None)`` when Ollama
+    reported no counts, and ``record_usage`` then writes nothing -- measured,
+    never estimated.
+    """
+    try:
+        from .._vendor.ostler_usage_journal import record_usage, tokens_from_ollama
+
+        prompt, completion = tokens_from_ollama(data if isinstance(data, dict) else {})
+        record_usage(
+            model=model,
+            input_tokens=prompt,
+            output_tokens=completion,
+            purpose="ingesting",
+            session_id=_USAGE_SESSION_ID,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(
+            "usage journal write skipped (%s): %s", type(exc).__name__, exc
+        )
 
 
 @dataclass
@@ -158,6 +196,7 @@ class Embedder:
                     )
                     response.raise_for_status()
                     data = response.json()
+                    _record_embed_usage(data, self.model)
                     # Ollama returns {"embeddings": [[...]]} for single input
                     embeddings = data.get("embeddings", [])
                     results.append(embeddings[0] if embeddings else None)

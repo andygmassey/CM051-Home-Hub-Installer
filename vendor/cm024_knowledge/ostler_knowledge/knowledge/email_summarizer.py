@@ -17,7 +17,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -25,6 +25,39 @@ import httpx
 from .thread_aggregator import EmailThread
 
 logger = logging.getLogger(__name__)
+
+# ── Usage journal: the `cm024k-enrich` producer (CM051 #2472) ─────────────
+#
+# This turns already-ingested email threads into facts/decisions/advice, which
+# is purpose="enriching" (vs. the ingestion/ package's "ingesting"). Own
+# module-level session_id, one id per process.
+_USAGE_SESSION_ID = "cm024k-enrich-" + datetime.now(timezone.utc).strftime(
+    "%Y-%m-%dT%H:%M:%SZ"
+)
+
+
+def _record_generate_usage(data: dict, model: str) -> None:
+    """Record one ``enriching`` usage row from an Ollama ``/api/generate`` response.
+
+    Never raises. ``tokens_from_ollama`` returns ``(None, None)`` when Ollama
+    reported no counts, and ``record_usage`` then writes nothing -- measured,
+    never estimated.
+    """
+    try:
+        from .._vendor.ostler_usage_journal import record_usage, tokens_from_ollama
+
+        prompt, completion = tokens_from_ollama(data if isinstance(data, dict) else {})
+        record_usage(
+            model=model,
+            input_tokens=prompt,
+            output_tokens=completion,
+            purpose="enriching",
+            session_id=_USAGE_SESSION_ID,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(
+            "usage journal write skipped (%s): %s", type(exc).__name__, exc
+        )
 
 
 # Prompt template for thread summarization
@@ -301,6 +334,7 @@ class EmailSummarizer:
             response.raise_for_status()
 
             data = response.json()
+            _record_generate_usage(data, self.model)
             return data.get("response", "")
 
     async def _call_gemini(self, prompt: str, max_retries: int = 10) -> str:
