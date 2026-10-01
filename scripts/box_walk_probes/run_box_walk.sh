@@ -9,7 +9,19 @@
 #   ./run_box_walk.sh                        # run on this machine
 #   OSTLER_BOX_HOST=andy@192.168.1.215 ./run_box_walk.sh
 #   ./run_box_walk.sh --list                 # what each probe asks
-#   ./run_box_walk.sh --only pair_state      # single probe, substring match
+#   ./run_box_walk.sh --only pair_state      # single probe, READ-ONLY by default
+#   ./run_box_walk.sh --only pair_state --allow-writes   # single probe, seeds too
+#   ./run_box_walk.sh --read-only            # full probe set, no seeds/writes/kickstarts
+#
+# CM051 #2564: READ-ONLY MODE. Between phase 1 and phase 2 this runner seeds
+# the box (a person, a preference, a conversation, a usage row) and kickstarts
+# a LaunchAgent. `--only` used to run every one of those regardless of which
+# probe it selected -- this wrote a synthetic person into Andy's own box
+# during his own console walk. `--only` now defaults to skipping all of that;
+# pass `--allow-writes` to opt back in. Independently, if the TARGET box
+# carries the marker named by OSTLER_WALK_IN_USE_MARKER (default
+# ~/.ostler/state/walk_in_use), every write is refused -- `--only` or not --
+# unless `--allow-writes` is given explicitly.
 #
 # WHAT MAKES THIS DIFFERENT FROM A TEST RUNNER
 #
@@ -46,6 +58,9 @@ EX_CANNOT_RUN=78
 ONLY=""
 LIST_ONLY=0
 SKIP_SELFTEST=0
+READ_ONLY=0
+READ_ONLY_EXPLICIT=0
+ALLOW_WRITES=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -57,10 +72,77 @@ while [ $# -gt 0 ]; do
             # negative controls is exactly the kind of green this suite
             # exists to distrust.
             SKIP_SELFTEST=1; shift ;;
-        -h|--help) sed -n '3,40p' "$0"; exit 0 ;;
+        --read-only)
+            # CM051 #2564. Skip every seed, every write and every kickstart
+            # below, regardless of --only. Explicit, so it is also the thing
+            # `--allow-writes` refuses to be combined with.
+            READ_ONLY=1; READ_ONLY_EXPLICIT=1; shift ;;
+        --allow-writes)
+            # The only way to get writes AND --only in the same run, and the
+            # only way past the walk_in_use refusal below.
+            ALLOW_WRITES=1; shift ;;
+        -h|--help) sed -n '3,49p' "$0"; exit 0 ;;
         *) printf 'unknown argument: %s\n' "$1"; exit 2 ;;
     esac
 done
+
+if [ "$READ_ONLY_EXPLICIT" -eq 1 ] && [ "$ALLOW_WRITES" -eq 1 ]; then
+    printf 'FATAL: --read-only and --allow-writes contradict each other.\n'
+    exit 2
+fi
+
+# -------------------------------------------------------------------------
+# CM051 #2564 -- READ-ONLY MODE.
+#
+# Between phase 1 and phase 2 this runner used to run four seeds, a
+# LaunchAgent kickstart and a convergence wait UNCONDITIONALLY -- they are
+# plain top-to-bottom statements with no relation to which probes `--only`
+# selected. `--only grounding_seed_apply` and `--only pair_state` ran every
+# one of them identically. On a live walk this wrote a synthetic person
+# into Andy's own box while he was using it for something else entirely:
+# `--only` read as "just check this one thing", and it seeded the graph
+# anyway.
+#
+# DEFAULT FOR --only IS NOW READ-ONLY. A single named probe is almost always
+# someone debugging or re-checking one answer against a box that already has
+# state on it, not a fresh install earning its one-time seed. A full run
+# (no --only) keeps seeding by default, because that is the shape a real
+# box walk has always had and the seeds exist for IT.
+if [ -n "$ONLY" ] && [ "$ALLOW_WRITES" -ne 1 ]; then
+    READ_ONLY=1
+fi
+
+# THE SECOND, INDEPENDENT GUARD: a box can be marked in-use regardless of
+# `--only`. A full, unfiltered walk pointed by mistake at Andy's daily-driver
+# Hub must refuse exactly the same as a filtered one -- the marker names the
+# BOX, not the invocation. Checked on the box under test (OSTLER_BOX_HOST,
+# same as every probe), never on the operator's own machine.
+OSTLER_WALK_IN_USE_MARKER="${OSTLER_WALK_IN_USE_MARKER:-\$HOME/.ostler/state/walk_in_use}"
+
+_walk_box_exec() {
+    if [ -n "${OSTLER_BOX_HOST:-}" ]; then
+        ssh -o ConnectTimeout="${OSTLER_SSH_TIMEOUT:-8}" -o BatchMode=yes \
+            -o ServerAliveInterval="${OSTLER_SSH_ALIVE_S:-15}" -o ServerAliveCountMax="${OSTLER_SSH_ALIVE_N:-4}" \
+            -o StrictHostKeyChecking=accept-new \
+            "$OSTLER_BOX_HOST" "$1" 2>/dev/null
+    else
+        bash -lc "$1" 2>/dev/null
+    fi
+}
+
+_walk_box_marked_in_use() {
+    _walk_box_exec "test -e \"${OSTLER_WALK_IN_USE_MARKER}\" && printf MARKED" | grep -q '^MARKED$'
+}
+
+if [ "$READ_ONLY" -eq 0 ] && [ "$ALLOW_WRITES" -ne 1 ]; then
+    if _walk_box_marked_in_use; then
+        printf 'FATAL: %s exists on the target box.\n' "$OSTLER_WALK_IN_USE_MARKER"
+        printf 'That marker means a person is using this box right now. Refusing to\n'
+        printf 'run seeds/writes against it.\n'
+        printf 'Pass --allow-writes to proceed anyway, or --read-only to skip writes.\n'
+        exit 2
+    fi
+fi
 
 if [ ! -d "$PROBE_DIR" ]; then
     printf 'FATAL: no probe directory at %s\n' "$PROBE_DIR"
@@ -236,9 +318,18 @@ fi
 # product defect and must not abort the walk. What changes is that the outcome
 # is now WRITTEN DOWN instead of thrown away. Same shape as the
 # stores-provenance marker, which post_walk_qa.sh reads back over ssh.
-_gs_rc=0
-grounding_seed_apply || _gs_rc=$?
-_gs_state="${GROUNDING_SEED_STATE:-unrun}"
+#
+# CM051 #2564: gated on READ_ONLY. This is the exact seed that wrote a
+# synthetic person into a box mid-use -- see the READ-ONLY MODE block above.
+if [ "$READ_ONLY" -eq 0 ]; then
+    _gs_rc=0
+    grounding_seed_apply || _gs_rc=$?
+    _gs_state="${GROUNDING_SEED_STATE:-unrun}"
+else
+    printf '  SKIPPED (read-only): grounding seed not applied.\n\n'
+    _gs_rc=0
+    _gs_state="skipped-read-only"
+fi
 if printf '%s rc=%s\n' "${_gs_state}" "${_gs_rc}" > "${HOME}/.walk-grounding-seed-run"; then
     printf '  seed state recorded for the walk record: %s (rc=%s)\n\n' \
         "${_gs_state}" "${_gs_rc}"
@@ -270,7 +361,11 @@ fi
 # CANNOT-RUN or a named FINDING. Neither should abort a walk that has not
 # measured anything yet.
 . "$HERE/lib/preference_seed.sh"
-preference_seed_apply || true
+if [ "$READ_ONLY" -eq 0 ]; then
+    preference_seed_apply || true
+else
+    printf '  SKIPPED (read-only): preference seed not applied.\n\n'
+fi
 
 # ── AND THE CONVERSATION SEED, the third write route, and the only one that
 #    needs a model call ──
@@ -298,7 +393,11 @@ preference_seed_apply || true
 # outcome in words, and every path it can fail on is either a named CANNOT-RUN
 # or a named FINDING.
 . "$HERE/lib/conversation_seed.sh"
-conversation_seed_apply || true
+if [ "$READ_ONLY" -eq 0 ]; then
+    conversation_seed_apply || true
+else
+    printf '  SKIPPED (read-only): conversation seed not applied (no model calls made).\n\n'
+fi
 
 # ── AND THE USAGE SEED, on the producer that had nothing to write ──
 #
@@ -328,7 +427,11 @@ conversation_seed_apply || true
 # return 1 on is a named CANNOT-RUN or a named FINDING, and neither should
 # abort a walk that has not measured anything yet.
 . "$HERE/lib/usage_seed.sh"
-usage_seed_apply || true
+if [ "$READ_ONLY" -eq 0 ]; then
+    usage_seed_apply || true
+else
+    printf '  SKIPPED (read-only): usage seed not applied (install.sh ingest sweep not run by hand).\n\n'
+fi
 
 # ── AND WAIT FOR THE WIKI SUMMARY BACKFILL, so cm044_wiki_compiler has written ──
 #
@@ -366,7 +469,11 @@ usage_seed_apply || true
 # on is a named CANNOT-RUN or a named FINDING. No forget: the compile is the
 # product's own.
 . "$HERE/lib/wiki_summaries_wait.sh"
-wiki_summaries_wait || true
+if [ "$READ_ONLY" -eq 0 ]; then
+    wiki_summaries_wait || true
+else
+    printf '  SKIPPED (read-only): wiki recompile LaunchAgent not kickstarted.\n\n'
+fi
 
 # ── AND WAIT FOR THE GRAPH TO SETTLE, for the two probes that read counts ──
 #
@@ -499,7 +606,11 @@ for p in $PROBES; do
     # run. "finding" (the backfill ran and wrote nothing) is NOT retried: that
     # is the defect the probe exists to catch.
     if [ "$b" = "usage_journal_producers" ]; then
-        if [ "${WIKI_WAIT_STATE:-unrun}" = "cannot-run" ]; then
+        # CM051 #2564: this is a second kickstart of the same LaunchAgent the
+        # top-of-file wait gates on READ_ONLY -- it must obey the same gate,
+        # or `--only usage_journal_producers` alone would still kickstart a
+        # write the top-level skip just refused.
+        if [ "$READ_ONLY" -eq 0 ] && [ "${WIKI_WAIT_STATE:-unrun}" = "cannot-run" ]; then
             printf '\n  wiki summaries: the first wait ended cannot-run (%s); waiting once more here, before the only probe that needs it, budget %ss\n' \
                 "${WIKI_WAIT_DETAIL:-no detail}" "${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}"
             OSTLER_WIKI_WAIT_BUDGET_S="${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}" wiki_summaries_wait || true
