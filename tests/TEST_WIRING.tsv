@@ -154,9 +154,14 @@ test_canonical_keys_must_not_merge.py	WIRED	.github/workflows/vendor-integrity.y
 test_case_in_command_substitution_parses_under_bash_32.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_closing_verdict_consults_failed_steps.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_cm019_bundle_accepts_the_payload_root.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_cm019_vectorizer_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
+test_cm024k_classifier_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
+test_cm024k_email_summarizer_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
+test_cm024k_embedder_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm041_usage_journal_producer.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm048_prompts_packaged.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_cm048_settings_models_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_cm059_scout_newsletters_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_codename_sweep_sees_an_early_leak.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_colima_autostart_mechanism.sh	WIRED	.github/workflows/colima-autostart.yml
 test_colima_start_retry.sh	WIRED	.github/workflows/colima-autostart.yml
@@ -493,6 +498,8 @@ test_redis_health_probe_authenticates.sh	WIRED	.github/workflows/redis-health-pr
 test_region_persist_does_not_leak_a_traceback.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_rehearse_tag_is_the_tag_preflight.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_remote_access_reads_the_installers_tailscale.py	WIRED	.github/workflows/vendor-integrity.yml
+test_repair_lid_as_phone_marker_skip.sh	WIRED	.github/workflows/repair-lid-as-phone-vendored.yml
+test_repair_lid_as_phone_vendored.py	WIRED	.github/workflows/repair-lid-as-phone-vendored.yml
 test_repair_overmerged_contact_cards.py	WIRED	.github/workflows/contact-card-repair.yml
 test_repin_wiki_images_refuses_a_typed_sha.sh	WIRED	.github/workflows/cut-freshness.yml
 test_reset_says_when_it_did_not_uninstall.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
@@ -579,6 +586,7 @@ test_the_front_page_catch_up_survives_a_late_ingest.sh	WIRED	.github/workflows/w
 test_the_generated_uninstaller_parses.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_the_governor_revendor_guard_is_actually_run.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_the_hub_app_can_record_card_feedback.py	WIRED	.github/workflows/hub-screens-and-106c.yml
+test_the_hub_reads_the_doctor_like_the_app.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_install_panel_says_it_is_reading_the_transcript.py	WIRED	.github/workflows/consent-data-handling.yml
 test_the_installer_downloads_from_the_repo_we_publish_to.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_the_licence_a_customer_paid_for_is_owner_only.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
@@ -611,6 +619,7 @@ test_the_seed_forgets_what_the_walk_taught.sh	WIRED	.github/workflows/walk-recor
 test_the_sentinel_vocabulary_is_declared_and_complete.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_shipped_compose_mounts_ai_conversations.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_the_shipped_compose_mounts_conversations.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
+test_the_shipped_compose_mounts_the_editor_feed.sh	WIRED	.github/workflows/editor-feed-gate.yml
 test_the_shipped_vendor_manifest_names_no_operator.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_source_table_covers_the_fda_extract_family.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_source_table_items_column_is_the_number_it_claims.sh	WIRED	.github/workflows/hydrate-sentinel.yml
@@ -661,6 +670,7 @@ test_upgrade_payload_shape_contract.sh	WIRED	.github/workflows/upgrade-payload-s
 test_upgrade_reloads_the_launchagent_it_rewrote.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_upgrade_repairs_the_fda_venv.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_usage_journal_producer_gate.sh	WIRED	.github/workflows/usage-journal-producers.yml
+test_usage_journal_producer_parity_2472.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_usage_journal_readers_resolve_like_the_daemon.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_user_facing_tree.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_usr_local_bin_symlinks_gui_safe.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml

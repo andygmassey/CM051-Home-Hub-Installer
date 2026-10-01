@@ -87,6 +87,24 @@ on:
       - 'vendor/cm041/assistant_api/**'
       - 'tests/test_cm041_usage_journal_producer.sh'
       - 'cut-manifests/permanent.yaml'
+      # The five #2472 producers: vendored call sites that spoke to Ollama
+      # directly with zero usage-journal wiring (13,636 embed + 481 generate
+      # calls measured against ZERO journal rows on a 2026-10-01 walk). Same
+      # doctrine as ostler_fda/cm041 above -- what SHIPS is the vendored tree.
+      - 'vendor/cm019_preferences/services/ingest/src/vectorizer.py'
+      - 'vendor/cm019_preferences/services/ingest/src/_vendor/**'
+      - 'vendor/cm024_knowledge/ostler_knowledge/ingestion/embedder.py'
+      - 'vendor/cm024_knowledge/ostler_knowledge/ingestion/classifier.py'
+      - 'vendor/cm024_knowledge/ostler_knowledge/knowledge/email_summarizer.py'
+      - 'vendor/cm024_knowledge/ostler_knowledge/_vendor/**'
+      - 'vendor/cm059_editor/compiler/scout_newsletters.py'
+      - 'vendor/cm059_editor/compiler/_vendor/**'
+      - 'tests/test_cm019_vectorizer_usage_journal.sh'
+      - 'tests/test_cm024k_embedder_usage_journal.sh'
+      - 'tests/test_cm024k_classifier_usage_journal.sh'
+      - 'tests/test_cm024k_email_summarizer_usage_journal.sh'
+      - 'tests/test_cm059_scout_newsletters_usage_journal.sh'
+      - 'tests/test_usage_journal_producer_parity_2472.sh'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in the very PR that narrows it.
       - '.github/workflows/usage-journal-producers.yml'
@@ -186,6 +204,44 @@ jobs:
       - name: The SHIPPING cm041 producers actually write a record
         if: always()
         run: /bin/bash tests/test_cm041_usage_journal_producer.sh
+
+      # THE FIVE #2472 PRODUCERS. A sweep of this repo found five vendored
+      # Python call sites speaking to Ollama's /api/embed or /api/generate
+      # directly via raw httpx/urllib with NO usage-journal wiring anywhere
+      # nearby. Measured on a 2026-10-01 walk: Ollama's own log showed 13,636
+      # embed calls + 481 generate calls in a one-hour window while
+      # costs.jsonl recorded ZERO rows in that window. Each step RUNS its
+      # vendored producer against a mocked Ollama response and requires a
+      # record, same doctrine as the ostler_fda and cm041 steps above: an
+      # import line is a spelling, not a behaviour.
+      - name: '#2472 cm019 vectorizer writes a record'
+        if: always()
+        run: /bin/bash tests/test_cm019_vectorizer_usage_journal.sh
+
+      - name: '#2472 cm024 knowledge embedder writes a record'
+        if: always()
+        run: /bin/bash tests/test_cm024k_embedder_usage_journal.sh
+
+      - name: '#2472 cm024 knowledge classifier writes a record'
+        if: always()
+        run: /bin/bash tests/test_cm024k_classifier_usage_journal.sh
+
+      - name: '#2472 cm024 knowledge email summarizer writes a record'
+        if: always()
+        run: /bin/bash tests/test_cm024k_email_summarizer_usage_journal.sh
+
+      - name: '#2472 cm059 editor newsletter scout writes a record'
+        if: always()
+        run: /bin/bash tests/test_cm059_scout_newsletters_usage_journal.sh
+
+      # THE PARITY CLAIM ITSELF. Each step above proves "wrote >= 1"; none of
+      # them proves the RATIO holds, and #2472 was found as a ratio defect
+      # (calls made vs rows written), not an absence. This drives all five
+      # call sites N=3 times against a synthetic responder and asserts
+      # costs.jsonl holds exactly N new rows per caller -- 15 of 15.
+      - name: '#2472 parity: N calls across all five producers -> N journal rows'
+        if: always()
+        run: /bin/bash tests/test_usage_journal_producer_parity_2472.sh
 
       # W006: explicit run step (#647). Drives the SHIPPED resolver, so it goes
       # red if install.sh ever stops publishing the workspace marker and the
@@ -415,6 +471,34 @@ jobs:
       - name: The SHIPPING cm041 producers write a record, on bash 3.2 + BSD
         if: always()
         run: /bin/bash tests/test_cm041_usage_journal_producer.sh
+
+      # THE FIVE #2472 PRODUCERS, on bash 3.2 + BSD too: this is the shell and
+      # userland the customer's Mac actually ships. Same reason as the pair
+      # above -- an ubuntu-only green says nothing about the machine this
+      # ships to.
+      - name: '#2472 cm019 vectorizer writes a record, on bash 3.2 + BSD'
+        if: always()
+        run: /bin/bash tests/test_cm019_vectorizer_usage_journal.sh
+
+      - name: '#2472 cm024 knowledge embedder writes a record, on bash 3.2 + BSD'
+        if: always()
+        run: /bin/bash tests/test_cm024k_embedder_usage_journal.sh
+
+      - name: '#2472 cm024 knowledge classifier writes a record, on bash 3.2 + BSD'
+        if: always()
+        run: /bin/bash tests/test_cm024k_classifier_usage_journal.sh
+
+      - name: '#2472 cm024 knowledge email summarizer writes a record, on bash 3.2 + BSD'
+        if: always()
+        run: /bin/bash tests/test_cm024k_email_summarizer_usage_journal.sh
+
+      - name: '#2472 cm059 editor newsletter scout writes a record, on bash 3.2 + BSD'
+        if: always()
+        run: /bin/bash tests/test_cm059_scout_newsletters_usage_journal.sh
+
+      - name: '#2472 parity: N calls across all five producers -> N journal rows, on bash 3.2 + BSD'
+        if: always()
+        run: /bin/bash tests/test_usage_journal_producer_parity_2472.sh
 
       # THE PROBE'S OWN NEGATIVE CONTROL, driven exactly as run_box_walk.sh
       # phase 1 drives it: rc must be 1 AND the output must not say BROKEN.

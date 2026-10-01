@@ -40,6 +40,10 @@ dependencies = [
     # hand-rolled word splitting got "Mary-Jane van der Berg" wrong.
     # Reached from pwg_ingest, so every ingest path needs it present.
     "nameparser>=2.1.0,<3.0",
+    # pwg_ingest's WhatsApp path validates a JID's local part is a genuine
+    # phone number before writing it as one (CM051 #2543: an LID presented
+    # through the ordinary phone-JID suffix is all-digits too).
+    "phonenumbers>=8.13.0",
 ]
 
 # The ostler_fda Python source lives directly in this directory (the .py files

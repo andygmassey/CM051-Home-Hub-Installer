@@ -19499,7 +19499,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:52bd37a1bbfc11e49007eeb0a553636d2881dd043bf744ede4a0e77516711671
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:ae3df9a1013d4bd0d4bd85bc5aeee6f278c233eb23f6fc0ce9c7991c47678877
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #
@@ -19543,7 +19543,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:7cd2dd8b73f2ab6a18ef569c2a510547eb7512879842c9ca5f3dffedbf99fe09
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:629bab59d8e174f09c2915729d1f3738684ba26c000a8222f78d628e27d6e073
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -19700,6 +19700,22 @@ services:
       # daemon's workspace. OSTLER_WORKSPACE stays overridable for operators
       # who relocate the workspace, but the default now matches the reader.
       - ${OSTLER_WORKSPACE:-${HOME}/.ostler/assistant-config/workspace}/state:/workspace/state
+      # 🔴 #979 A FIFTH TIME, SAME TWO REPOS, SAME SHAPE. CM044 #295 (CM051
+      # #2537) made the wiki's "Needs you now" band read the Hub's own feed
+      # (cm059_editor's ~/.ostler/editor/front_page.json) instead of running
+      # an independent SPARQL query that disagreed with the Hub app about
+      # who needs attention. That PR's tests pass because its conftest sets
+      # OSTLER_FRONT_PAGE_JSON itself; nothing in THIS compose ever gave the
+      # container a path to the real file, so in the product the feed is
+      # always absent and the band falls back to the (still-independent)
+      # SPARQL cards -- #2537 ships dark on the Hub-feed path, exactly the
+      # #979 shape: wired and tested, never reaches the container.
+      #
+      # READ-ONLY, same reasoning as every other producer mount in this
+      # service: the compiler CONSUMES this feed and nothing in CM044 writes
+      # it, so a writable mount onto the Hub's own editor state is a
+      # foothold the wiki compiler has no reason to hold.
+      - ${HOME}/.ostler/editor:/editor:ro
     environment:
       # Inside-container path the compiler writes the MkDocs source
       # to. Pinned to /wiki to match the wiki-docs:/wiki mount above.
@@ -19828,6 +19844,14 @@ services:
       # narrative LLM call 404s and Person/Org/Year pages render empty. Mirrors
       # the daemon-config expression at :7779.
       - OLLAMA_MODEL=${AI_MODEL:-qwen3.5:9b}
+      # CM051 #2537 / CM044 #295. The path INSIDE the container, matching the
+      # ${HOME}/.ostler/editor:/editor:ro mount above. compiler/pages/
+      # dashboard.py's _editor_need_cards() honours this to read the Hub's
+      # own "Needs you now" feed; absent or unreadable, it falls back to the
+      # independent SPARQL cards (never an empty band). Without this env var
+      # the mount would be present and unread, which is the same defect one
+      # layer up: a thing that is there and that nothing looks at.
+      - OSTLER_FRONT_PAGE_JSON=/editor/front_page.json
     extra_hosts:
       # macOS / Colima-friendly way to surface the host gateway so the
       # OLLAMA_URL above resolves to the host's Ollama.
@@ -34519,6 +34543,79 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
     fi
 fi
 
+# One-time repair: a WhatsApp LID written as a "phone" identifier (CM051
+# #2543) -----------------------------------------------------------
+#
+# Two different writers' old bugs left two different fingerprints on a box
+# upgraded from before this fix -- CM041 whatsapp_bridge (a bogus "phone"
+# identifier with a sibling "whatsapp_lid" identifier sharing the same
+# invalid value) and ostler_fda's ingest_whatsapp, the writer that actually
+# ships (only the bogus "phone" identifier, no sibling at all). Both are
+# idempotent and both counted in identity_resolver.repair_lid_as_phone's own
+# report; see that module's docstring for the full fingerprint detail.
+# Runs ONCE per install, same marker-file pattern as the email automated-
+# sender reclassify above (state/email_reclassify_v3.done): a marker absent
+# means "not yet run or did not complete", never "nothing to repair" -- that
+# fact lives inside the marker's own content, not in whether it exists.
+# Counts only; no phone numbers or names reach this log.
+if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python3" ]]; then
+    if [[ ! -f "$PIPELINE_DIR/identity_resolver/repair_lid_as_phone.py" ]]; then
+        # A vendored tree older than this fix. SAY SO rather than skip
+        # silently, same reasoning as the merge-consistency repair above:
+        # "the module is not here" and "there was nothing to repair" must
+        # not print identically.
+        warn "WhatsApp LID-as-phone repair skipped: this build vendors an identity_resolver without repair_lid_as_phone"  # i18n-exempt
+    else
+        _LID_REPAIR_MARKER="${OSTLER_DIR}/state/repair_lid_as_phone_v1.done"
+        if [[ ! -f "$_LID_REPAIR_MARKER" ]]; then
+            _LID_REPAIR_LOG="${OSTLER_DIR}/logs/repair-lid-as-phone.log"
+            mkdir -p "$(dirname "$_LID_REPAIR_LOG")" 2>/dev/null || true
+            # 🔴 set -euo pipefail IS ACTIVE HERE. `VAR="$(cmd)"` is a SIMPLE
+            # COMMAND under bash's own rules, so a failing `cmd` inside the
+            # substitution aborts the WHOLE INSTALL right here -- exactly
+            # the failure mode Archie's review caught: a repair step must
+            # never be able to abort the install it rides inside. The `; rc=
+            # $?` line below runs UNCONDITIONALLY (`;`, not `&&`) inside the
+            # SAME subshell, so the substitution's own exit status is always
+            # 0 (whatever the last command, `printf`, returns) and errexit
+            # never sees the python command's real exit code. The real code
+            # travels OUT as the final `___RC___<n>` line of captured text
+            # instead, parsed back out below -- the same reason
+            # email_reclassify's own command substitution ends `|| true`.
+            _LID_REPAIR_RAW="$(
+                _lid_repair_rc=0
+                cd "$PIPELINE_DIR" 2>/dev/null && \
+                OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
+                .venv/bin/python3 -m identity_resolver.repair_lid_as_phone \
+                    --oxigraph-url "${OXIGRAPH_URL:-http://localhost:7878}" \
+                    --apply 2>>"$_LID_REPAIR_LOG" || _lid_repair_rc=$?
+                printf '___RC___%d\n' "$_lid_repair_rc"
+            )" || true
+            _LID_REPAIR_RC="$(printf '%s\n' "$_LID_REPAIR_RAW" | sed -n 's/^___RC___//p' | tail -1)"
+            _LID_REPAIR_OUT="$(printf '%s\n' "$_LID_REPAIR_RAW" | grep -v '^___RC___' || true)"
+            # An empty/non-numeric rc (the cd itself failed, or the marker
+            # line never made it into the capture) is treated as a failure,
+            # never as 0 -- a missing signal must not read as success.
+            if [[ "$_LID_REPAIR_RC" =~ ^[0-9]+$ ]] && [[ "$_LID_REPAIR_RC" -eq 0 ]]; then
+                printf '%s\n' "$_LID_REPAIR_OUT" >>"$_LID_REPAIR_LOG"
+                mkdir -p "${OSTLER_DIR}/state" \
+                    && { printf 'ran_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; \
+                         printf '%s\n' "$_LID_REPAIR_OUT"; } > "$_LID_REPAIR_MARKER" \
+                    && ok "WhatsApp LID-as-phone repair completed (${_LID_REPAIR_LOG})"  # i18n-exempt
+            else
+                # No marker written: the next install (or upgrade) retries
+                # it, same as the email reclassify's own failure arm. NEVER
+                # abort the install over this -- a one-time graph repair is
+                # not worth a failed customer install.
+                printf '%s\n' "$_LID_REPAIR_OUT" >>"$_LID_REPAIR_LOG"
+                warn "WhatsApp LID-as-phone repair did not complete (exit ${_LID_REPAIR_RC:-unknown}); the next install retries it. See ${_LID_REPAIR_LOG}"  # i18n-exempt
+            fi
+            unset _LID_REPAIR_LOG _LID_REPAIR_RAW _LID_REPAIR_OUT _LID_REPAIR_RC
+        fi
+        unset _LID_REPAIR_MARKER
+    fi
+fi
+
 # Apple Notes knowledge hydration (CM024 §7 / apple_notes adapter) ---
 #
 # Reads apple_notes.json (written by the Phase 3 fda_extract step when
@@ -35896,6 +35993,13 @@ progress "Compiling your personal wiki (first run)" "wiki_compile"
 # customer would diagnose. mkdir -p is idempotent so re-runs
 # of install.sh are harmless.
 mkdir -p "${USER_FACING_ROOT}/Wiki" "${USER_FACING_ROOT}/Wiki/_images"
+# CM051 #2537: same reasoning for the ${HOME}/.ostler/editor:/editor:ro
+# mount. Phase 3.14d-editor's LaunchAgent (RunAtLoad) ordinarily creates
+# this directory itself on its first tick, which runs before this phase --
+# but that is an ordering ASSUMPTION about a different section, and this is
+# the same class of defect #979 already hit four times. Idempotent and
+# explicit, same as the Wiki tree above.
+mkdir -p "${HOME}/.ostler/editor"
 
 WIKI_FIRST_COMPILE_OK=false
 cd "$OSTLER_DIR"
