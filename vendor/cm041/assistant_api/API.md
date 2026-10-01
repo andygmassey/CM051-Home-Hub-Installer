@@ -126,6 +126,75 @@ mirrors the distinction in CM031's `PersonResult` vs `PersonDetail` /
 }
 ```
 
+### `GET /api/v1/people/{slug}/enrichment`
+
+Per-slug enrichment payload for the iOS / Hub person card. Where
+`/people/context?name=` is a fuzzy name search that can return several
+matches, this endpoint resolves a single canonical person by wiki slug
+(the stable identifier the People list, search results, and wiki URLs
+already use) and returns the richer body the card wants beyond the list
+basics: organisation, role/title, relationship, how-we-met, notes,
+birthday, identifiers, recent meetings, the relationship signal, the
+MAX `last_contact`, and the per-source `last_contact_by_source`
+breakdown.
+
+The slug is validated against the same pattern as
+`POST /api/v1/people/{slug}/forget` (lowercase ASCII letters, digits,
+hyphens, max 80 chars). Per-person fields use British-English keys and
+the response mirrors `/people/context`'s dual shape (`{"person": {...}}`
+plus the same fields lifted to the envelope top-level). `role` and
+`title` both carry the job title so either CM031 client decodes a value.
+
+Best-effort Qdrant top-up adds `phone` / `email` and a display
+`last_contact` when the graph lacked them; a Qdrant failure is swallowed
+(the graph fields are the source of truth). Additive keys
+(`last_contact_by_source`, `identifiers`, `meetings`, `facts`,
+`relationship_signal`) appear only when the graph has the data.
+
+Status codes:
+
+- `400` malformed slug
+- `404` `{"found": false}` no person resolves to the slug
+- `503` `{"degraded": true}` Oxigraph unreachable
+- `200` `{"found": true, "person": {...}}`
+
+```json
+{
+  "slug": "jane-doe",
+  "found": true,
+  "organisation": "Example Corp",
+  "role": "VP Product",
+  "last_contact": "2026-04-20",
+  "person": {
+    "name": "Jane Doe",
+    "slug": "jane-doe",
+    "person_uri": "urn:ostler:person/jane-doe",
+    "wiki_url": "http://localhost:8044/People/jane-doe/",
+    "organisation": "Example Corp",
+    "title": "VP Product",
+    "role": "VP Product",
+    "relationship": "colleague",
+    "last_contact": "2026-04-20",
+    "last_contact_by_source": {
+      "calendar": "2024-03-01",
+      "whatsapp": "2026-04-20",
+      "email": "2025-11-30",
+      "imessage": "2026-01-05"
+    },
+    "phone": "+14155550100",
+    "email": "jane@example.com",
+    "identifiers": [
+      {"type": "phone", "value": "+14155550100"},
+      {"type": "email", "value": "jane@example.com"}
+    ],
+    "meetings": [
+      {"summary": "Quarterly sync", "date": "2026-02-14", "location": "Room 1"}
+    ],
+    "relationship_signal": {"warmth": "0.7", "trust": "0.6", "observed_at": "2026-03-01T09:00:00Z"}
+  }
+}
+```
+
 ### `GET /api/v1/people/stale?months=<n>&limit=<n>`
 
 Contacts not interacted with for at least `months` months
