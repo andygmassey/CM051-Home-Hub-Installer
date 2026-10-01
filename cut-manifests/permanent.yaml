@@ -949,6 +949,22 @@ entries:
       kind: box_walk_probe
       probe: "hub_screens_render_for_a_customer"
 
+  - id: box-walk-hub-screens-customer-read
+    title: read as a customer, every Hub screen and wiki section is customer-ready and agrees with the others
+    incident: >-
+      2026-10-01 read-only QA pass of the v1.0.106 walk box (CM051 #2534 to
+      #2565). Every render probe read PASS while the screens showed ISO dates,
+      em dashes, internal ids and store names, four different people counts,
+      WhatsApp ids as phone numbers, a Governor that billed Ostler's own VM to
+      Other apps, three disagreeing copies of source status, half-width wiki
+      tables at the app's own width, the device bearer in two URLs and a
+      config read the app was refused. This probe reads what the screens SAY.
+      Read-only: non-GETs are aborted, and the Tauri-only Front Page is reached
+      through a shim that answers only get_front_page. BLOCKING, as approved.
+    proof:
+      kind: box_walk_probe
+      probe: "hub_screens_customer_read"
+
   # PR-branch staleness gate. Encodes feedback_mergeable_api_state_isnt_semantic_safety
   # (filed 2026-07-31): mergeable: MERGEABLE from the GH API does NOT prove the
   # branch is semantically safe to merge. A branch that predates a critical
