@@ -140,7 +140,8 @@
 
 [[tree]]
 name             = "cm041/contact_syncer"
-expires = "2026-09-30"
+  # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): contact_syncer divergence-patch regeneration remains blocked by the documented PII-export hazard (regenerate_forbidden: the MINUS side carries person-name-shaped tokens); verify_vendor_fresh.sh re-measured 2026-10-01 still reports the patch failing to apply at the pin (source moved under it). Nothing has changed; not resolvable without the CM041 owner doing the scrub-and-regenerate this row already prescribes.
+expires = "2026-10-15"
 owner = "archie"
 vendor_path      = "vendor/cm041/contact_syncer"
 source_repo      = "$CM041"
@@ -214,7 +215,8 @@ note             = "2026-09-09Z (Aesop, CM051 #1884, CM041 #137 producer graft):
 
 [[tree]]
 name             = "cm041/identity_resolver"
-expires = "2026-09-30"
+  # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): unchanged: still exactly the 2 commits HELD by name above (9b88b3e1, e01dff3); verify_vendor_fresh.sh re-measured 2026-10-01 confirms vendor == source@9e260949+patch with those 2 commits held. Re-date only; no new identity_resolver commit has landed to re-adjudicate.
+expires = "2026-10-15"
 owner = "archie"
 vendor_path      = "vendor/cm041/identity_resolver"
 source_repo      = "$CM041"
@@ -380,7 +382,8 @@ note             = "NEW 2026-07-15. SINGLE-FILE tree: canonical fail-closed L3 p
 [[tree]]
 name             = "cm048_pipeline"
 db_key_warning    = "🔴 UNDESCRIBED DELTA LIVES HERE, AND IT IS THE DB-KEY CONSUMER. src/ingest.py carries CM051 #1956's change to resolve the database key through ostler_security.resolve_db_key. It is NOT in cm048_pipeline.patch, because the CM048 source checkout on the machine that merged #1956 did not contain this row's pinned sha, so --regen-patch could not run. This row is verify = 'skip', so NOTHING WILL GO RED about it. If a future sync REFUSES on this tree the refusal is EXPECTED: SYNC_ACCEPT_DIVERGENCE_LOSS=1 would delete the db-key consumer and the pipeline would write plaintext again, silently, with no test failing. FIX: fetch a CM048 checkout containing the pinned sha, run scripts/sync_vendor.sh cm048_pipeline --regen-patch, and delete this field."
-expires = "2026-09-30"
+  # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): unchanged: $CM048 is still unassigned in this environment/CI runner, so verification remains CANNOT-RUN; content was already verified byte-identical at the pin (2026-09-09Z, 0 undescribed lines). Clears when $CM048 is assigned on the runner, per this row's own text.
+expires = "2026-10-15"
 owner = "archie"
 vendor_path      = "vendor/cm048_pipeline"
 source_repo      = "$CM048"
@@ -420,7 +423,8 @@ note             = "Vendored as a DELIBERATE MINIMAL SUBSET (cli.py + filters.py
 [[tree]]
 name             = "ostler_fda"
   unrecorded_divergence = "vendor/divergences/WRITER_READER_MISMATCHES.UNRECORDED.md"  # CM051 #1974: this tree carries writer/reader vocabulary fixes that the divergence patch does NOT record, because regeneration was run and could not produce one here. A grep of the patch for them returns nothing and that means NOT RECORDED, not NOT DIVERGED. A sync refusal on this tree is EXPECTED; SYNC_ACCEPT_DIVERGENCE_LOSS=1 would silently restore the defects. See that file for the per-tree outcome and the location+shape of every edit.
-expires = "2026-09-30"
+  # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): NOT RE-MEASURED. scripts/verify_vendor_fresh.sh ostler_fda was attempted twice against the local $HR015 checkout and hung both times (near-zero CPU over several minutes, killed rather than trusted). Dated short (2 days, not 14) so this does not quietly ride the same clock as the measured rows.
+expires = "2026-10-03"
 owner = "archie"
 vendor_path      = "vendor/ostler_fda"
 source_repo      = "$HR015/ostler_fda"
@@ -547,7 +551,8 @@ note             = "2026-07-25 v1.0.10 recut re-pin to 8acf2b4c (HR015 #256 BW3-
 [[tree]]
 name             = "doctor"
   unrecorded_divergence = "vendor/divergences/WRITER_READER_MISMATCHES.UNRECORDED.md"  # CM051 #1974: this tree carries writer/reader vocabulary fixes that the divergence patch does NOT record, because regeneration was run and could not produce one here. A grep of the patch for them returns nothing and that means NOT RECORDED, not NOT DIVERGED. A sync refusal on this tree is EXPECTED; SYNC_ACCEPT_DIVERGENCE_LOSS=1 would silently restore the defects. See that file for the per-tree outcome and the location+shape of every edit.
-expires = "2026-09-30"
+  # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): NOT RE-MEASURED. scripts/verify_vendor_fresh.sh doctor was attempted twice against the local $HR015 checkout and hung both times (near-zero CPU over several minutes, killed rather than trusted). Dated short (2 days, not 14) so this does not quietly ride the same clock as the measured rows.
+expires = "2026-10-03"
 owner = "archie"
 vendor_path      = "vendor/doctor"
 source_repo      = "$HR015/doctor"
@@ -623,7 +628,8 @@ note             = "Byte-identical to source -- no divergence patch needed."
 
 [[tree]]
 name             = "cm019_preferences"
-expires = "2026-09-30"
+  # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): unchanged: verify=skip remains the declared, reasoned state (an 84-file shipping subset vs 81 non-PII shared-file drifts explicitly out of cut-window scope, per this row's own finding); no CM019 reconciliation has landed since. Re-measured 2026-10-01 via verify_vendor_fresh.sh (still ACK/unverifiable, same reason).
+expires = "2026-10-15"
 owner = "archie"
 vendor_path      = "vendor/cm019_preferences"
 source_repo      = "$CM019"
@@ -735,7 +741,8 @@ note             = "2026-09-02 v1.0.60: THE RENAME IS RESOLVED AND THE ACK IS RE
 
 [[tree]]
 name             = "email_source"
-expires = "2026-09-30"
+  # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): MEASURED via `gh api repos/andygmassey/HR015-Gaming-PC` -- the branch origin/feat/4-artefact-email-source no longer exists on the remote at all (404 on both /branches/<name> and /compare), AND `gh api .../contents/email_source?ref=main` 404s (the path still does not exist on main). The pinned sha 5d31073d is still reachable (`gh api .../commits/<sha>` resolves), so the vendored content remains verifiable against it despite the branch ref being gone -- likely swept as an abandoned branch per this repo's known hygiene sweeps, never merged. Exemption reason still holds, now on a live measurement rather than a stale assumption.
+expires = "2026-10-15"
 owner = "archie"
 vendor_path      = "vendor/email_source"
 source_repo      = "$HR015"
@@ -750,7 +757,8 @@ note             = "4-artefact email conversation feed (Apple Mail bodies -> CM0
 
 [[tree]]
 name             = "imessage_source"
-expires = "2026-09-30"
+  # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): MEASURED via `gh api repos/andygmassey/conversation-memory/compare/main...feat/4-artefact-imessage-first`: status=diverged, ahead_by=4, behind_by=11. The branch exists and is genuinely NOT merged (not just unpolled). Exemption reason confirmed live.
+expires = "2026-10-15"
 owner = "archie"
 vendor_path      = "vendor/imessage_source"
 source_repo      = "$CM040"
@@ -765,7 +773,8 @@ note             = "4-artefact iMessage conversation feed (chat.db -> CM048 bund
 
 [[tree]]
 name             = "whatsapp_source"
-expires = "2026-09-30"
+  # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): MEASURED via `gh api repos/andygmassey/HR015-Gaming-PC` -- origin/feat/4-artefact-whatsapp-source no longer exists on the remote (404 on /branches and /compare), AND `.../contents/whatsapp_source?ref=main` 404s. Pinned sha af4ae658 still reachable by `gh api .../commits/<sha>`. Exemption reason still holds, now on a live measurement.
+expires = "2026-10-15"
 owner = "archie"
 vendor_path      = "vendor/whatsapp_source"
 source_repo      = "$HR015"
@@ -780,7 +789,8 @@ note             = "4-artefact WhatsApp conversation feed (bodies -> CM048 bundl
 
 [[tree]]
 name             = "spoken_source"
-expires = "2026-09-30"
+  # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): MEASURED via `gh api repos/andygmassey/HR015-Gaming-PC` -- origin/feat/4-artefact-spoken-source no longer exists on the remote (404 on /branches and /compare), AND `.../contents/spoken_source?ref=main` 404s. Pinned sha d06d80e3 still reachable by `gh api .../commits/<sha>`. Exemption reason still holds, now on a live measurement.
+expires = "2026-10-15"
 owner = "archie"
 vendor_path      = "vendor/spoken_source"
 source_repo      = "$HR015"
@@ -813,7 +823,8 @@ note             = "2026-09-13 RE-PIN 619ef404 -> 1f5bfb3a, and the divergence S
 
 [[tree]]
 name             = "cm052_ai_conversations"
-expires = "2026-09-30"
+  # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): unchanged: the CI runner is still the only blocker named by this row (content was already verified byte-identical at the pin, 2026-09-24); $CM052 remains unassigned on the runner. Re-measured 2026-10-01 via verify_vendor_fresh.sh (still ACK/unverifiable, same reason).
+expires = "2026-10-15"
 owner = "archie"
 vendor_path      = "vendor/cm052_ai_conversations"
 source_repo      = "$CM052"
