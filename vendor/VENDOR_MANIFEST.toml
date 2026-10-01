@@ -298,7 +298,7 @@ db_key_warning    = "🔴 DO NOT OVERRIDE A sync_vendor.sh REFUSAL ON THIS TREE.
 vendor_path      = "vendor/cm041/assistant_api"
 source_repo      = "$CM041"
 source_path      = "assistant_api"
-  pinned_sha = "9be482d36813f3f17fdcf749ec9c2fdd7f191736"
+  pinned_sha = "6c2912fe6f9797f7e385eda71b7341c64027061c"
   divergence_patch = "vendor/divergences/cm041_assistant_api.patch"
   # HOLD RETIRED 2026-08-27 by the re-pin above, not abandoned: the sole ack
   # b6ae1f91 is an ancestor of the new pin 9be482d3, so the pin now CONTAINS

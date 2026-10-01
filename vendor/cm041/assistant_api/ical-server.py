@@ -666,8 +666,9 @@ PWG_CONVO_BIN = os.environ.get("PWG_CONVO_BIN", "/usr/local/bin/pwg-convo")
 # every owner-scoped read would silently return empty. Empty stays empty so
 # the existing degraded-when-USER_ID-unset path is preserved (normalise folds
 # "" -> the "primary" label, which is wrong for a graph IRI here).
-from identity_resolver.compartment import normalise_user_id as _normalise_user_id
 from identity_resolver.compartment import (
+    normalise_user_id as _normalise_user_id,
+    read_across_graphs as _read_across_graphs,
     cm048_user_graph_uris as _cm048_user_graph_uris,
     graph_scoped_select as _graph_scoped_select,
 )
@@ -689,6 +690,30 @@ USER_ID = _normalise_user_id(_raw_user_id) if _raw_user_id else ""
 USER_URI = (
     f"https://schema.ostler.ai/ontology#user_{USER_ID}" if USER_ID else ""
 )
+
+# Scope matches `_USER_GRAPH_URIS` -- the same graphs the readers below reach
+# via `_graph_scoped`/`_sparql_select`. CM041 writes the default graph; CM048
+# writes this user's conversation-derived data into the named graph(s) this
+# resolves. Used by `_forget_person_update` so a GDPR erasure reaches both.
+_USER_GRAPH_URIS = _cm048_user_graph_uris(_raw_user_id)
+
+# THE READERS BELOW ASKED THE DEFAULT GRAPH; CM048 WRITES TO A NAMED ONE.
+#
+# ONE DEFINITION, in identity_resolver/compartment.py, which is the module
+# that owns the compartment-is-the-graph-boundary rule and the
+# --union-default-graph invariant this defect falls out of. Six readers
+# across two services need it; none of them holds its own copy. The measured
+# evidence, the reason it is a UNION over a VARIABLE graph rather than a
+# constructed IRI, the compartment exclusion, and the filter-placement trap
+# are all documented on read_across_graphs itself.
+#
+# NO LOCAL ALIAS. An earlier draft bound it to a short private name here, and
+# the repo-wide sweep that looks for unscoped CM048 readers then reported all
+# four of these sites as UNSCOPED -- it searches for the shared function's
+# real name, and an alias hides a call site from exactly the check that is
+# supposed to find it.
+
+
 MEMORY_LIMIT = int(os.environ.get("MEMORY_LIMIT", "50"))
 MEMORY_CORRECTIONS_DB = Path(os.environ.get(
     "MEMORY_CORRECTIONS_DB",
@@ -1266,8 +1291,9 @@ def _record_embed_usage(payload, model):
             session_id=_USAGE_RUN_ID,
         )
     except Exception as exc:  # pragma: no cover - defensive
-        # This file has no logger -- it diagnoses through stderr. Matching that
-        # rather than introducing a second facility for one line.
+        # This file has no logger -- it diagnoses through stderr (0 logging.
+        # / logger. call sites at time of writing). Matching that rather than
+        # introducing a second facility for one line.
         print(f"[usage] journal write skipped: {exc}",
               file=sys.stderr, flush=True)
 
@@ -1304,9 +1330,15 @@ def _embed_text(text):
 # (cm048_pipeline topic_writer.py and last_contact_updater.py each
 # documented it in their own docstring and fixed only their own surface).
 # A sixth private copy is how it stayed systemic.
-_USER_GRAPH_URIS = _cm048_user_graph_uris(_raw_user_id)
-
-
+#
+# KEPT ALONGSIDE upstream's per-reader ``_read_across_graphs`` (six readers,
+# CM041 #175): that fix is scoped to the specific readers it was filed
+# against. This wrapper is the blanket cover for every OTHER
+# ``_sparql_select`` call in this file, including the GDPR erasure path
+# below, which upstream's fix does not touch. Covering the same six readers
+# twice is redundant, not wrong, and the alternative -- relying on
+# upstream's narrower fix alone -- would silently drop named-graph coverage
+# for every unlisted caller.
 def _graph_scoped(sparql):
     """Scope a SELECT to the default graph plus this user's CM048 graphs."""
     return _graph_scoped_select(sparql, _USER_GRAPH_URIS)
@@ -3834,55 +3866,58 @@ def person_context(name):
 
         # Relationship signal (CM048 tier 2 — warmth/trust from conversations)
         person_slug = _wiki_slug(pname)
+        # CM048 writes these signals into the per-user NAMED graph, so an
+        # unqualified read returns nothing. Measured 0 rows as shipped,
+        # 20 with the clause. See read_across_graphs.
         signals = _sparql_select(
-            'SELECT ?warmth ?trust ?observedAt ?spriv WHERE {{\n'
-            '  ?signal <urn:ostler:about> ?person .\n'
-            '  ?signal <urn:ostler:warmth> ?warmth .\n'
-            '  ?signal <urn:ostler:trust> ?trust .\n'
-            '  ?signal <urn:ostler:observedAt> ?observedAt .\n'
-            '  OPTIONAL {{{{ ?signal <urn:ostler:privacyLevel> ?spriv }}}}\n'
-            '  FILTER(CONTAINS(STR(?person), "{slug}"))\n'
-            '}} ORDER BY DESC(?observedAt) LIMIT 10'.format(slug=person_slug)
+            'SELECT ?warmth ?trust ?observedAt ?spriv WHERE {\n'
+            + _read_across_graphs(
+                '  ?signal <urn:ostler:about> ?person .\n'
+                '  ?signal <urn:ostler:warmth> ?warmth .\n'
+                '  ?signal <urn:ostler:trust> ?trust .\n'
+                '  ?signal <urn:ostler:observedAt> ?observedAt .\n'
+                '  OPTIONAL {{ ?signal <urn:ostler:privacyLevel> ?spriv }}\n'
+                '  FILTER(CONTAINS(STR(?person), "{slug}"))\n'.format(
+                    slug=person_slug)
+            )
+            + '\n} ORDER BY DESC(?observedAt) LIMIT 10'
         )
-        # 🔴 L3 FILTER, CM041 #175 / board row 2213. Facts were filtered here
-        # and signals were not, so a person marked L3 had their facts withheld
-        # while their warmth and trust scores were served. The gap was OPENED
-        # by our own graph fix: before it these queries returned 0 rows, so
-        # there was nothing to leak, and making them return rows made the
-        # missing filter reachable.
+        # 🔴 THE LEVEL IS urn:ostler:privacyLevel, NOT pwg:privacyLevel.
+        # The facts path ~45 lines up joins pwg:privacyLevel, and copying that
+        # predicate here matches NOTHING: measured on the box, 471 of 471
+        # RelationshipSignal nodes carry urn:ostler:privacyLevel and 0 carry
+        # the pwg: one. filter_l3_facts fails CLOSED on an untagged record, so
+        # the pwg: form would have hidden all 471 while the diff read as a
+        # correct privacy fix. Two namespaces, one property, and the failure
+        # mode is silent.
         #
-        # THE PREDICATE IS urn:ostler:privacyLevel AND NOT pwg:privacyLevel.
-        # Copying the facts path's predicate would match NOTHING here: in the
-        # CM041 files pwg: expands to https://schema.ostler.ai/ontology# while
-        # CM048, which WRITES these nodes, stamps <urn:ostler:privacyLevel>
-        # directly on the RelationshipSignal (vendor/cm048_pipeline/src/
-        # ingest.py:799) with an L1 default.
-        #
-        # 🔴 WHAT THE WRONG PREDICATE ACTUALLY DOES IS LEAK, NOT HIDE, AND THIS
-        # COMMENT SAID THE OPPOSITE UNTIL ARCHIE MEASURED IT. It left ?spriv
-        # unbound, so is_l3 falls back to owner_level alone, and the outcome
-        # depends on the OWNER, across five states:
-        #     owner L0/L1/L2  correct predicate serves 1 of 2, wrong serves 2 of 2
-        #     owner L3        both serve 0
-        #     owner unset     correct serves 1, wrong serves 0
-        # So in three of five states the wrong predicate serves MORE, and the
-        # extra row it serves is exactly the L3 signal this filter exists to
-        # withhold. Only when the owner level is ALSO unparseable does it fail
-        # closed and hide everything. The dominant failure is a DISCLOSURE.
-        # This matters because this comment is the thing standing between the
-        # next reader and "simplifying" it to match the facts path two lines up.
-        #
-        # OPTIONAL, not a required join, for the same reason: an unlabelled
-        # node must reach the filter and be judged, not be dropped by the
-        # pattern before the policy is ever consulted.
+        # Policy is L3-hides, matching the sibling facts path exactly: all 471
+        # are L1 today so nothing is hidden by adding this, but an L3 signal,
+        # or one a producer emits untagged, now fails closed instead of being
+        # served. Before this, the signal path never asked at all.
         #
         # LIMIT is 10 rather than 1 because the filter runs AFTER the query:
-        # with LIMIT 1 a single hidden row reports "no signal" while a visible
-        # older one exists. 10 is a BOUND, not a proof, and every constant has
-        # that property; the true fix is query-side and is deliberately not
-        # written, because filter_l3_facts is most-restrictive-wins across the
-        # record and its owner, and a second private copy of a shared policy
-        # is the defect this is being fixed to avoid.
+        # with LIMIT 1 a single hidden row would report "no signal" while a
+        # visible older one existed. Take the most recent VISIBLE signal.
+        #
+        # 10 IS A BOUND, NOT A PROOF. More than ten consecutive hidden signals
+        # on one person would drop a visible older one and omit the field while
+        # visible data exists. Unreachable today (471 of 471 at L1, no L3
+        # anywhere) and not fixable by a bigger constant -- every constant has
+        # this property. The only true fix is a query-side filter, and that is
+        # deliberately NOT written; see below.
+        #
+        # 🔴 DO NOT PUSH THIS FILTER INTO THE SPARQL AS AN OPTIMISATION.
+        # filter_l3_facts takes owner_level, so the rule is not a simple
+        # "level != L3" -- it is most-restrictive-wins across the record and
+        # its owner, with unparseable failing closed. Encoding that in a WHERE
+        # clause puts the policy in two places, and A SECOND PRIVATE COPY OF A
+        # SHARED POLICY IS THE EXACT DEFECT THIS PR WAS HELD FOR. Keep the
+        # policy in pwg_privacy and pay the extra rows.
+        #
+        # When everything returned is hidden the field is OMITTED rather than
+        # emitted empty: `if signals:` guards the assignment below. An absence
+        # a consumer can see is not the same as a false claim of no warmth.
         signals = pwg_privacy.filter_l3_facts(
             [dict(_s, privacy_level=_s.get("spriv")) for _s in signals],
             owner_level=person.get("priv"),
@@ -4192,55 +4227,58 @@ def person_enrichment(slug):
                 "location": m.get("location", ""),
             } for m in meetings]
 
+        # CM048 writes these signals into the per-user NAMED graph, so an
+        # unqualified read returns nothing. Measured 0 rows as shipped,
+        # 20 with the clause. See read_across_graphs.
         signals = _sparql_select(
-            'SELECT ?warmth ?trust ?observedAt ?spriv WHERE {{\n'
-            '  ?signal <urn:ostler:about> ?person .\n'
-            '  ?signal <urn:ostler:warmth> ?warmth .\n'
-            '  ?signal <urn:ostler:trust> ?trust .\n'
-            '  ?signal <urn:ostler:observedAt> ?observedAt .\n'
-            '  OPTIONAL {{{{ ?signal <urn:ostler:privacyLevel> ?spriv }}}}\n'
-            '  FILTER(CONTAINS(STR(?person), "{slug}"))\n'
-            '}} ORDER BY DESC(?observedAt) LIMIT 10'.format(slug=slug)
+            'SELECT ?warmth ?trust ?observedAt ?spriv WHERE {\n'
+            + _read_across_graphs(
+                '  ?signal <urn:ostler:about> ?person .\n'
+                '  ?signal <urn:ostler:warmth> ?warmth .\n'
+                '  ?signal <urn:ostler:trust> ?trust .\n'
+                '  ?signal <urn:ostler:observedAt> ?observedAt .\n'
+                '  OPTIONAL {{ ?signal <urn:ostler:privacyLevel> ?spriv }}\n'
+                '  FILTER(CONTAINS(STR(?person), "{slug}"))\n'.format(
+                    slug=slug)
+            )
+            + '\n} ORDER BY DESC(?observedAt) LIMIT 10'
         )
-        # 🔴 L3 FILTER, CM041 #175 / board row 2213. Facts were filtered here
-        # and signals were not, so a person marked L3 had their facts withheld
-        # while their warmth and trust scores were served. The gap was OPENED
-        # by our own graph fix: before it these queries returned 0 rows, so
-        # there was nothing to leak, and making them return rows made the
-        # missing filter reachable.
+        # 🔴 THE LEVEL IS urn:ostler:privacyLevel, NOT pwg:privacyLevel.
+        # The facts path ~45 lines up joins pwg:privacyLevel, and copying that
+        # predicate here matches NOTHING: measured on the box, 471 of 471
+        # RelationshipSignal nodes carry urn:ostler:privacyLevel and 0 carry
+        # the pwg: one. filter_l3_facts fails CLOSED on an untagged record, so
+        # the pwg: form would have hidden all 471 while the diff read as a
+        # correct privacy fix. Two namespaces, one property, and the failure
+        # mode is silent.
         #
-        # THE PREDICATE IS urn:ostler:privacyLevel AND NOT pwg:privacyLevel.
-        # Copying the facts path's predicate would match NOTHING here: in the
-        # CM041 files pwg: expands to https://schema.ostler.ai/ontology# while
-        # CM048, which WRITES these nodes, stamps <urn:ostler:privacyLevel>
-        # directly on the RelationshipSignal (vendor/cm048_pipeline/src/
-        # ingest.py:799) with an L1 default.
-        #
-        # 🔴 WHAT THE WRONG PREDICATE ACTUALLY DOES IS LEAK, NOT HIDE, AND THIS
-        # COMMENT SAID THE OPPOSITE UNTIL ARCHIE MEASURED IT. It left ?spriv
-        # unbound, so is_l3 falls back to owner_level alone, and the outcome
-        # depends on the OWNER, across five states:
-        #     owner L0/L1/L2  correct predicate serves 1 of 2, wrong serves 2 of 2
-        #     owner L3        both serve 0
-        #     owner unset     correct serves 1, wrong serves 0
-        # So in three of five states the wrong predicate serves MORE, and the
-        # extra row it serves is exactly the L3 signal this filter exists to
-        # withhold. Only when the owner level is ALSO unparseable does it fail
-        # closed and hide everything. The dominant failure is a DISCLOSURE.
-        # This matters because this comment is the thing standing between the
-        # next reader and "simplifying" it to match the facts path two lines up.
-        #
-        # OPTIONAL, not a required join, for the same reason: an unlabelled
-        # node must reach the filter and be judged, not be dropped by the
-        # pattern before the policy is ever consulted.
+        # Policy is L3-hides, matching the sibling facts path exactly: all 471
+        # are L1 today so nothing is hidden by adding this, but an L3 signal,
+        # or one a producer emits untagged, now fails closed instead of being
+        # served. Before this, the signal path never asked at all.
         #
         # LIMIT is 10 rather than 1 because the filter runs AFTER the query:
-        # with LIMIT 1 a single hidden row reports "no signal" while a visible
-        # older one exists. 10 is a BOUND, not a proof, and every constant has
-        # that property; the true fix is query-side and is deliberately not
-        # written, because filter_l3_facts is most-restrictive-wins across the
-        # record and its owner, and a second private copy of a shared policy
-        # is the defect this is being fixed to avoid.
+        # with LIMIT 1 a single hidden row would report "no signal" while a
+        # visible older one existed. Take the most recent VISIBLE signal.
+        #
+        # 10 IS A BOUND, NOT A PROOF. More than ten consecutive hidden signals
+        # on one person would drop a visible older one and omit the field while
+        # visible data exists. Unreachable today (471 of 471 at L1, no L3
+        # anywhere) and not fixable by a bigger constant -- every constant has
+        # this property. The only true fix is a query-side filter, and that is
+        # deliberately NOT written; see below.
+        #
+        # 🔴 DO NOT PUSH THIS FILTER INTO THE SPARQL AS AN OPTIMISATION.
+        # filter_l3_facts takes owner_level, so the rule is not a simple
+        # "level != L3" -- it is most-restrictive-wins across the record and
+        # its owner, with unparseable failing closed. Encoding that in a WHERE
+        # clause puts the policy in two places, and A SECOND PRIVATE COPY OF A
+        # SHARED POLICY IS THE EXACT DEFECT THIS PR WAS HELD FOR. Keep the
+        # policy in pwg_privacy and pay the extra rows.
+        #
+        # When everything returned is hidden the field is OMITTED rather than
+        # emitted empty: `if signals:` guards the assignment below. An absence
+        # a consumer can see is not the same as a false claim of no warmth.
         signals = pwg_privacy.filter_l3_facts(
             [dict(_s, privacy_level=_s.get("spriv")) for _s in signals],
             owner_level=row.get("priv"),
@@ -4466,12 +4504,32 @@ def person_timeline(slug, limit=50, days=None):
     # <conv>. The same person can have many facts from one conversation, so
     # we collapse to one event per conversation URI, keeping its date.
     try:
+        # Same named-graph problem as the warmth reader: CM048's facts are
+        # not in the default graph. DISTINCT already collapses a row that
+        # matches in both arms of the UNION.
         conv_rows = _sparql_select(
-            'SELECT DISTINCT ?conv ?date WHERE {{\n'
-            '  ?fact <urn:ostler:about> <{uri}> ; '
-            '<urn:ostler:fromConversation> ?conv .\n'
-            '  OPTIONAL {{ ?conv <urn:ostler:date> ?date }}\n'
-            '}}'.format(uri=person_uri)
+            'SELECT DISTINCT ?conv ?date ?fpriv WHERE {\n'
+            + _read_across_graphs(
+                '  ?fact <urn:ostler:about> <{uri}> ; '
+                '<urn:ostler:fromConversation> ?conv .\n'
+                '  OPTIONAL {{ ?conv <urn:ostler:date> ?date }}\n'
+                '  OPTIONAL {{ ?fact <urn:ostler:privacyLevel> ?fpriv }}\n'.format(
+                    uri=person_uri)
+            )
+            + '\n}'
+        )
+        # Same L3 filter the facts path uses, on the SAME predicate the data
+        # actually carries: urn:ostler:privacyLevel, not pwg:. Measured on the
+        # box: 1462 urn:ostler:Fact nodes, 1369 L0 / 88 L1 / 5 L2 / 0 L3, and
+        # 0 of them carry pwg:privacyLevel. A conversation row is derived from
+        # a fact node, so it inherits that fact's clearance -- disclosing that
+        # a conversation happened, and when, is a disclosure about the fact
+        # that links them. owner_level is None here because person_timeline
+        # resolves no person-level clearance; each fact carries its own, and
+        # an untagged one fails closed.
+        conv_rows = pwg_privacy.filter_l3_facts(
+            [dict(_r, privacy_level=_r.get("fpriv")) for _r in conv_rows],
+            owner_level=None,
         )
         seen_convs = set()
         for r in conv_rows:
@@ -4904,17 +4962,75 @@ def commitments_list(owner=None, due_before=None, status="open",
         )
 
     try:
+        # 🔴 TODOS ARE DELIBERATELY NOT PRIVACY-GATED, AND HERE IS THE REASON.
+        #
+        # The two signal readers and the timeline reader above gained an L3
+        # filter in this change. This one did not, and that asymmetry is a
+        # decision rather than an oversight, so it is written here next to the
+        # query rather than in a commit message nobody reads at 3am.
+        #
+        # MEASURED on the box: 93 OutstandingTodo nodes, and ZERO carry a
+        # privacyLevel under EITHER namespace -- 0 with pwg:privacyLevel and 0
+        # with urn:ostler:privacyLevel. filter_l3_facts fails closed on an
+        # untagged record, so joining it here would hide all 93 and delete the
+        # commitments wing outright. A privacy filter whose only effect is to
+        # return nothing is not a privacy control, it is an outage.
+        #
+        # urn:ostler:visibility is NOT a usable substitute, and this was
+        # checked rather than assumed. All 93 todos carry it, but so does
+        # every other CM048 node, always with the literal "private": 471 of
+        # 471 signals, 93 of 93 todos, and 1462 of 1462 facts INCLUDING the
+        # 1369 tagged L0. A predicate with one value across the whole corpus
+        # carries no information; filtering on it hides everything or nothing.
+        # Nothing in this repo reads it either (0 hits outside .venv, against
+        # 11 for ostler:privacyLevel as the control).
+        #
+        # So the gate this wing needs is on the WRITER: CM048 should tag todos
+        # the way it already tags facts and signals. Until it does, these rows
+        # are the operator's own outstanding commitments, scoped by
+        # urn:ostler:owner, and are served ungated.
+        #
+        # 🔴 THE DECISION ABOVE COVERS BOTH AXES, DELIBERATELY, BECAUSE THERE
+        # ARE TWO AND ONLY ONE IS ENFORCED.
+        #
+        # Every CM048 node carries urn:ostler:privacyLevel AND
+        # urn:ostler:visibility. privacyLevel is the ENFORCED axis: the readers
+        # above join it and the L3 filter acts on it. visibility is INERT. It
+        # is written by CM048's ingest and read by nothing in the shipped tree
+        # -- in this repo the only occurrence of the string is this comment,
+        # against 27 for ostler:privacyLevel as the control, so the search
+        # finds reads where reads exist and the zero is real.
+        #
+        # This is written down because the next person to open a node will see
+        # the literal "private" sitting on it and reasonably assume something
+        # enforces it. Nothing does, and the two assertions disagree in effect:
+        # a node reading privacyLevel L1 (which policy SERVES) also reads
+        # visibility "private" (which policy never consults).
+        #
+        # NOT CLAIMED: what visibility was intended to mean, whether it
+        # predates privacyLevel, or whether it is a CM048-internal marker that
+        # was never meant for the reader side. One constant value written in
+        # one upstream file is consistent with all three, and settling it
+        # belongs to whoever owns CM048, not to this PR. What IS settled is
+        # that a reader relying on it today would be relying on nothing.
+        #
+        # CM048 writes todos into the per-user NAMED graph. Measured 0 rows
+        # as shipped, 20 with the clause, against 76 todos on the box.
+        # DISTINCT is new and is load-bearing: without it a todo present in
+        # BOTH graphs would be listed twice by the UNION.
         rows = _sparql_select(
-            'SELECT ?todo ?action ?owner ?deadline ?status ?source ?createdAt WHERE {\n'
-            '  ?todo a <urn:ostler:OutstandingTodo> ;\n'
-            '        <urn:ostler:todoText> ?action ;\n'
-            '        <urn:ostler:owner> ?owner ;\n'
-            '        <urn:ostler:status> ?status .\n'
-            '  OPTIONAL { ?todo <urn:ostler:deadline> ?deadline }\n'
-            '  OPTIONAL { ?todo <urn:ostler:sourceConversationDate> ?source }\n'
-            '  OPTIONAL { ?todo <urn:ostler:todoCreatedAt> ?createdAt }\n'
-            + status_filter +
-            '}'
+            'SELECT DISTINCT ?todo ?action ?owner ?deadline ?status ?source ?createdAt WHERE {\n'
+            + _read_across_graphs(
+                '  ?todo a <urn:ostler:OutstandingTodo> ;\n'
+                '        <urn:ostler:todoText> ?action ;\n'
+                '        <urn:ostler:owner> ?owner ;\n'
+                '        <urn:ostler:status> ?status .\n'
+                '  OPTIONAL { ?todo <urn:ostler:deadline> ?deadline }\n'
+                '  OPTIONAL { ?todo <urn:ostler:sourceConversationDate> ?source }\n'
+                '  OPTIONAL { ?todo <urn:ostler:todoCreatedAt> ?createdAt }\n'
+                + status_filter
+            )
+            + '\n}'
         )
     except Exception as exc:
         return {
@@ -5337,9 +5453,40 @@ def people_list(sort=None, ceiling=10000):
 
 
 def people_stale(months=3, limit=5):
-    """Find contacts not spoken to in N months (from Qdrant last_contact)."""
+    """Find contacts not spoken to in N months, reconciled against the graph.
+
+    Qdrant's `last_contact_ts` is written only by this process, and only
+    from the sources that happen to call back into it; WhatsApp/iMessage
+    contact can land in the graph (via cm048's lastContact* predicates)
+    without ever reaching that field. Seen live (CM051 #2521): a person
+    messaged on WhatsApp within the week still showed "gone quiet, 148
+    days" because the Home card trusted `last_contact_ts` alone.
+    `person_context` and `person_enrichment` already avoid this by taking
+    the MAX of the four per-source predicates via `_max_past_last_contact`
+    -- this reader now does the same, as batched SPARQL (VALUES over every
+    candidate's URI, never one query per person) run against the
+    over-fetched Qdrant candidate set, so dropping the ones the graph
+    clears still leaves enough to fill `limit`.
+
+    A candidate whose Qdrant payload carries no `person_uri` (an older or
+    partially-synced record) is NOT exempted from the recheck -- that was
+    the same bug by another door, since it skipped verification entirely
+    and shipped the Qdrant-only date unchanged. It gets one more chance via
+    a batched displayName lookup (`_resolve_person_uri_by_name`'s join,
+    batched the same way); if that still cannot identify the person in the
+    graph, the candidate is dropped as unverifiable rather than shown.
+
+    FAIL CLOSED: if any batched graph query here errors, we cannot tell a
+    genuinely stale contact from one the graph would clear, so this
+    returns no candidates rather than risk another wrong "gone quiet" card.
+    """
     import time
     cutoff_ts = int(time.time()) - (months * 30 * 86400)
+    cutoff_date = datetime.utcfromtimestamp(cutoff_ts).strftime("%Y-%m-%d")
+    # Over-fetch: the graph recheck below can drop candidates Qdrant thought
+    # were stale, so asking Qdrant for exactly `limit` would under-fill the
+    # list the moment any single drop happens.
+    fetch_limit = max(limit * 5, limit + 20)
     try:
         body = {
             "filter": {
@@ -5359,7 +5506,7 @@ def people_stale(months=3, limit=5):
                      "match": {"any": ["person", "unclassified"]}},
                 ]
             },
-            "limit": limit,
+            "limit": fetch_limit,
             "with_payload": True,
             "with_vector": False,
         }
@@ -5374,8 +5521,8 @@ def people_stale(months=3, limit=5):
     except Exception as exc:
         return {"contacts": [], "degraded": True, "reason": str(exc), "error": str(exc)}
 
-    contacts = []
     now = time.time()
+    candidates = []
     for pt in result.get("result", {}).get("points", []):
         p = pt.get("payload", {})
         name = p.get("display_name", "")
@@ -5416,7 +5563,7 @@ def people_stale(months=3, limit=5):
         if _is_service_sender(name, p.get("emails")):
             continue
         months_since = int((now - lc_ts) / (30 * 86400))
-        contacts.append({
+        candidates.append({
             "name": name,
             "slug": _wiki_slug(name),
             "wiki_url": f"{WIKI_BASE_URL}/People/{_wiki_slug(name)}/",
@@ -5426,7 +5573,105 @@ def people_stale(months=3, limit=5):
             # Reconnect strip's subtitle decoder. The RHS still reads the
             # Qdrant payload's American-spelled key (set upstream by CM041).
             "organisation": p.get("organization", ""),
+            "_person_uri": p.get("person_uri") or "",
         })
+
+    # A candidate with no person_uri in its Qdrant payload would otherwise
+    # skip the recheck below entirely and ship its Qdrant-only date
+    # unverified -- the same bug by another door. Give it one batched
+    # displayName lookup (same join `_resolve_person_uri_by_name` does,
+    # done once for the whole missing set, not one query per person) before
+    # falling back to dropping it as unverifiable.
+    unresolved = [c for c in candidates if not c["_person_uri"]]
+    if unresolved:
+        try:
+            names = sorted({c["name"] for c in unresolved})
+            name_values = " ".join(
+                f'"{_sparql_escape_literal(n)}"' for n in names
+            )
+            name_rows = _sparql_select(
+                'PREFIX pwg: <{ns}>\n'
+                'SELECT ?name ?person WHERE {{\n'
+                '  VALUES ?name {{ {values} }}\n'
+                '  ?person a pwg:Person ; pwg:displayName ?name .\n'
+                '}}'.format(ns=PWG_NS, values=name_values)
+            )
+        except Exception as exc:
+            # FAIL CLOSED (CM051 #2521): can't identify these candidates in
+            # the graph at all, so none of this batch can be trusted.
+            return {"contacts": [], "degraded": True,
+                    "reason": f"oxigraph_uri_resolve_failed: {exc}",
+                    "error": str(exc)}
+        # First match wins on a displayName collision, same as
+        # _resolve_person_uri_by_name -- any residual tie is between
+        # identical names and either attach point is acceptable here.
+        resolved_by_name = {}
+        for r in name_rows:
+            nm, uri = r.get("name"), r.get("person")
+            if nm and uri and nm not in resolved_by_name:
+                resolved_by_name[nm] = uri
+        for c in unresolved:
+            c["_person_uri"] = resolved_by_name.get(c["name"], "")
+
+    # One batched recheck against the graph's per-source MAX, not one query
+    # per candidate. A URI the graph confirms contacted after the cutoff
+    # (on ANY of calendar/WhatsApp/email/iMessage) is dropped below; a URI
+    # the graph still calls stale gets its display date upgraded to the
+    # graph's MAX, which is the more current of the two sources.
+    uris = sorted({c["_person_uri"] for c in candidates if c["_person_uri"]})
+    graph_max_by_uri = {}
+    if uris:
+        try:
+            values = " ".join(f"<{u}>" for u in uris)
+            rows = _sparql_select(
+                'PREFIX pwg: <{ns}>\n'
+                'SELECT ?person ?lcCalendar ?lcWhatsApp ?lcEmail ?lcIMessage WHERE {{\n'
+                '  VALUES ?person {{ {values} }}\n'
+                '  OPTIONAL {{ ?person pwg:lastContactCalendar ?lcCalendar }}\n'
+                '  OPTIONAL {{ ?person pwg:lastContactWhatsApp ?lcWhatsApp }}\n'
+                '  OPTIONAL {{ ?person pwg:lastContactEmail ?lcEmail }}\n'
+                '  OPTIONAL {{ ?person pwg:lastContactIMessage ?lcIMessage }}\n'
+                '}}'.format(ns=PWG_NS, values=values)
+            )
+        except Exception as exc:
+            # FAIL CLOSED (CM051 #2521). Qdrant's last_contact_ts has
+            # already been shown wrong in the direction that announces
+            # someone as gone quiet when they are not; without the graph
+            # recheck none of these rows can be trusted, so we suggest
+            # nobody rather than ship an unverified card.
+            return {"contacts": [], "degraded": True,
+                    "reason": f"oxigraph_recheck_failed: {exc}", "error": str(exc)}
+        for r in rows:
+            uri = r.get("person")
+            if not uri:
+                continue
+            dates = [r.get(k) for k in
+                     ("lcCalendar", "lcWhatsApp", "lcEmail", "lcIMessage")]
+            graph_max_by_uri[uri] = _max_past_last_contact(dates)
+
+    contacts = []
+    for c in candidates:
+        uri = c.pop("_person_uri")
+        if not uri:
+            # No person_uri in Qdrant and no displayName match in the
+            # graph: this candidate cannot be verified at all. Drop it
+            # rather than show its unverified Qdrant-only date.
+            continue
+        graph_max = graph_max_by_uri.get(uri)
+        if graph_max:
+            graph_max = graph_max[:10]
+        if graph_max and graph_max >= cutoff_date:
+            # The graph has a per-source contact at or after the cutoff
+            # that Qdrant's last_contact_ts never picked up. Not stale.
+            continue
+        if graph_max:
+            # The graph is the more current source even when the person
+            # stays on the list: show its date, not Qdrant's.
+            c["last_contact"] = graph_max
+            graph_days = (datetime.utcnow() - datetime.strptime(graph_max, "%Y-%m-%d")).days
+            c["months_since_contact"] = int(graph_days / 30)
+        contacts.append(c)
+
     contacts.sort(key=lambda c: c["months_since_contact"], reverse=True)
     return {"contacts": contacts[:limit]}
 
@@ -7455,6 +7700,26 @@ def api_health_detailed():
     # startup backfill should drive this to 0; a persistent non-zero count
     # means a producer is emitting untagged facts (see the CM048
     # RelationshipSignal residual).
+    #
+    # 🔴 THIS COUNTER CANNOT SEE CM048's NODES, SO ITS ZERO IS NOT A CLEAN
+    # BILL OF HEALTH. count_untagged asks
+    #     ?node a pwg:<Type> . FILTER NOT EXISTS { ?node pwg:privacyLevel ?e }
+    # against the DEFAULT graph. CM048's nodes fail that on three independent
+    # axes, each measured on the box 2026-09-18 and each sufficient alone:
+    #     type      pwg:RelationshipSignal 0   urn:ostler:RelationshipSignal 471
+    #     predicate pwg:privacyLevel       0   urn:ostler:privacyLevel       471
+    #     graph     default                0   named                        471
+    # So it returns 0, and the note below then reads "all fact/signal nodes
+    # carry a privacyLevel" -- the reassuring answer, produced by a query that
+    # cannot reach the corpus it claims to have checked.
+    #
+    # The readers above are now filtered on the predicate the data ACTUALLY
+    # carries, so the hiding this note describes is real for facts and
+    # signals. The COUNTER is still blind, and fixing it is a change to
+    # contact_syncer/backfill_privacy.py with its own control and its own
+    # blast radius, so it is not being smuggled into this PR. It is recorded
+    # here, with its numbers, so the next reader does not take the 0 at face
+    # value the way this note previously invited.
     try:
         # Same dual-layout resolution as the startup backfill so this
         # reader-side coverage counter is not silently absent on a real Hub.
