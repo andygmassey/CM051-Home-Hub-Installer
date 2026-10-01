@@ -154,9 +154,14 @@ test_canonical_keys_must_not_merge.py	WIRED	.github/workflows/vendor-integrity.y
 test_case_in_command_substitution_parses_under_bash_32.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_closing_verdict_consults_failed_steps.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_cm019_bundle_accepts_the_payload_root.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_cm019_vectorizer_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
+test_cm024k_classifier_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
+test_cm024k_email_summarizer_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
+test_cm024k_embedder_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm041_usage_journal_producer.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm048_prompts_packaged.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_cm048_settings_models_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_cm059_scout_newsletters_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_codename_sweep_sees_an_early_leak.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_colima_autostart_mechanism.sh	WIRED	.github/workflows/colima-autostart.yml
 test_colima_start_retry.sh	WIRED	.github/workflows/colima-autostart.yml
@@ -665,6 +670,7 @@ test_upgrade_payload_shape_contract.sh	WIRED	.github/workflows/upgrade-payload-s
 test_upgrade_reloads_the_launchagent_it_rewrote.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_upgrade_repairs_the_fda_venv.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_usage_journal_producer_gate.sh	WIRED	.github/workflows/usage-journal-producers.yml
+test_usage_journal_producer_parity_2472.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_usage_journal_readers_resolve_like_the_daemon.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_user_facing_tree.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_usr_local_bin_symlinks_gui_safe.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml

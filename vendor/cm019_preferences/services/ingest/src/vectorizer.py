@@ -15,17 +15,56 @@ ostler_fda.pwg_ingest._ollama_embed_batch.
 Interface is unchanged from upstream (embed / embed_batch / similarity /
 dimension + singleton + module-level ``vectorizer``) so pipeline.py needs no
 edits.
+
+USAGE JOURNAL (CM051, #2472): every ``/api/embed`` call here is the customer's
+own preference-export ingest, i.e. ``purpose="ingesting"``. CM019 has no
+Ollama call upstream at all (it embeds via sentence-transformers), so there is
+no source-repo fix to graft -- this wiring can only exist here, vendor-side,
+alongside the HTTP-client swap above. One row per ACTUAL HTTP response (the
+batching loop may make several), never one per logical ``embed_batch`` call.
+See ``vendor/cm048_pipeline/src/ollama_client.py::_record_model_usage`` for
+the template this follows.
 """
 
 import logging
 import math
+from datetime import datetime, timezone
 from typing import List, Optional
 
 import httpx
 
 from .config import settings
+from ._vendor.ostler_usage_journal import record_usage, tokens_from_ollama
 
 logger = logging.getLogger(__name__)
+
+# Identifies THIS ingest RUN, never the person. One id per process.
+_USAGE_SESSION_ID = "cm019-ingest-" + datetime.now(timezone.utc).strftime(
+    "%Y-%m-%dT%H:%M:%SZ"
+)
+
+
+def _record_embed_usage(data: dict, model: str) -> None:
+    """Record one ``ingesting`` usage row from an Ollama ``/api/embed`` response.
+
+    ``data`` is the parsed JSON from ``/api/embed``. Never raises: usage
+    accounting must not be able to break ingestion. ``tokens_from_ollama``
+    returns ``(None, None)`` when Ollama reported no counts, and
+    ``record_usage`` then writes nothing -- measured, never estimated.
+    """
+    try:
+        prompt, completion = tokens_from_ollama(data if isinstance(data, dict) else {})
+        record_usage(
+            model=model,
+            input_tokens=prompt,
+            output_tokens=completion,
+            purpose="ingesting",
+            session_id=_USAGE_SESSION_ID,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(
+            "usage journal write skipped (%s): %s", type(exc).__name__, exc
+        )
 
 
 class Vectorizer:
@@ -81,7 +120,9 @@ class Vectorizer:
                         json={"model": self._model, "input": chunk},
                     )
                     resp.raise_for_status()
-                    vecs = resp.json().get("embeddings")
+                    data = resp.json()
+                    _record_embed_usage(data, self._model)
+                    vecs = data.get("embeddings")
                     if vecs is None or len(vecs) != len(chunk):
                         logger.warning(
                             "Ollama returned %s vectors for %d inputs; "
