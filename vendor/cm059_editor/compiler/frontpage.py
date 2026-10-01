@@ -348,7 +348,9 @@ def interest_card(it: dict, now: datetime, rank: int, n: int) -> dict:
     span = max(1, n - 1)
     base = PRIORITY_INTEREST_FLOOR + (PRIORITY_INTEREST_TOP - PRIORITY_INTEREST_FLOOR) * (
         1.0 - rank / span) if n > 1 else PRIORITY_INTEREST_TOP
-    evidence = " - ".join(it.get("evidence", [])[:2]) or None
+    # CM051 #2534: one evidence line per card, not two joined with " - ".
+    ev_list = it.get("evidence") or []
+    evidence = ev_list[0] if ev_list else None
     card = _make_card(
         "interest", it["id"],
         title=it["subject"],

@@ -390,6 +390,25 @@ _YEAR_TAIL_RE = re.compile(r"\b(19|20)\d{2}\b")
 # Sources where free-text subjects are most likely to be email/import noise.
 _NOISY_SOURCES = {"csv", "email", "imap"}
 
+# CM051 #2536: these four shapes are a single data point, not a theme, so they
+# should not surface as "one of the things Ostler reckons you're into". Each
+# is a SHAPE check on the subject text, same style as the recruiter/dated
+# checks above -- flagged and sunk, never hard-deleted (a correction can still
+# promote one if it genuinely is the person's interest).
+_EPISODE_RE = re.compile(
+    r"(?i)\bepisode\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b"
+    r"|\bs\d{1,2}e\d{1,2}\b"
+)
+_COURSE_PREFIX_RE = re.compile(
+    r"(?i)^(intro(?:duction)?\s+to|fundamentals?\s+of|foundations?\s+of|"
+    r"certificate\s+(?:in|of)|specialization\s+in|getting\s+started\s+with)\b"
+)
+# A bare "@handle" is unambiguous; a single word is not (lots of real
+# interests are one word, e.g. "Basketball"), so this stays narrow on purpose.
+_HANDLE_RE = re.compile(r"^@\w[\w.]{1,29}$")
+# A one-off signal this old is not a current interest, regardless of shape.
+_ANCIENT_YEARS = 15
+
 
 # 🔴 AN IDENTIFIER IS NOT A TASTE, AND NOTHING WAS SAYING SO.
 #
@@ -542,6 +561,12 @@ def noise_flags(subject: str, category: str, source: str) -> list[str]:
         flags.append("low_trust_category")
     if "CONTENT METADATA NO LONGER EXISTS" in raw or "urn:li" in raw.lower():
         flags.append("dead_reference")
+    if _EPISODE_RE.search(cleaned):
+        flags.append("single_episode")
+    if (category or "").lower() == "education" and _COURSE_PREFIX_RE.match(cleaned):
+        flags.append("course_title")
+    if _HANDLE_RE.match(cleaned):
+        flags.append("account_handle")
     return flags
 
 
@@ -556,6 +581,12 @@ _FLAG_PENALTY = {
     "dated_subject": 0.3,
     "low_trust_category": 0.3,
     "dead_reference": 0.7,
+    # CM051 #2536: a single episode/course/handle is real but not a theme.
+    # Sunk hard rather than dropped: a correction can still promote one.
+    "single_episode": 0.85,
+    "course_title": 0.75,
+    "account_handle": 0.85,
+    "ancient": 0.95,
 }
 
 
@@ -578,6 +609,17 @@ def _parse_dt(value: str | None):
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt
+
+
+def _is_ancient(observed_at, now, years: int = _ANCIENT_YEARS) -> bool:
+    """CM051 #2536: a one-off signal this old ('ExampleMart 1 GB USB pen
+    drive', bought once a decade and a half ago) is not a current interest,
+    whatever its shape. No date on file is NOT flagged -- an unknown age is
+    not evidence of age."""
+    dt = _parse_dt(observed_at) if isinstance(observed_at, str) else observed_at
+    if dt is None:
+        return False
+    return (now - dt).days > years * 365
 
 
 def recency_decay(observed_at, now, half_life_days: float = 540.0) -> float:
@@ -656,11 +698,22 @@ def recency_confidence(last_seen, now, half_life_days: float = 720.0) -> float:
 def finalise_confidence(it: dict, now: datetime) -> dict:
     """Compute the displayed, continuous confidence from the stored reliability
     base plus evidence + recency. Called AFTER aggregation, when observation
-    count and distinct-source count are known."""
+    count, distinct-source count AND the merged last_seen (most-recent-wins,
+    see aggregate()) are known.
+
+    CM051 #2536 review: "ancient" (observed 15+ years ago) is judged HERE,
+    against the merged last_seen -- not per raw row before aggregation. One
+    old sighting of a subject also seen last week must not sink it; a
+    subject whose MOST RECENT sighting is itself ancient should be sunk,
+    which is exactly what checking the merged last_seen gives."""
     reliability = it.get("reliability", it.get("confidence", 0.0))
     ev = evidence_factor(it.get("observations", 1), len(it.get("sources", [])))
     rec = recency_confidence(it.get("last_seen"), now)
-    it["confidence"] = round(max(0.0, min(1.0, reliability * ev * rec)), 4)
+    ancient = _is_ancient(it.get("last_seen"), now)
+    if ancient and "ancient" not in it.get("flags", []):
+        it["flags"] = it.get("flags", []) + ["ancient"]
+    penalty = (1.0 - _FLAG_PENALTY["ancient"]) if ancient else 1.0
+    it["confidence"] = round(max(0.0, min(1.0, reliability * ev * rec * penalty)), 4)
     it["evidence_factor"] = ev
     return it
 
@@ -680,6 +733,14 @@ def build_interest(raw: dict, now: datetime,
     strength_raw = float(raw.get("strength") or 0.0)
     observed = raw.get("observed_at") or raw.get("created_at")
 
+    # CM051 #2536 review: "ancient" is NOT flagged here, per raw row. Two raw
+    # rows for the same subject aggregate into one interest (`aggregate()`
+    # below unions flags and keeps the MOST RECENT last_seen); flagging a
+    # 16-year-old row "ancient" and then unioning that flag onto a merged
+    # interest that ALSO has a sighting from last week would sink an
+    # interest that is, by its own most-recent evidence, current. "ancient"
+    # is judged once, after aggregation, against the merged last_seen --
+    # see finalise_confidence().
     flags = noise_flags(raw.get("subject", ""), category, source)
     decay = recency_decay(observed, now)
     conf = confidence(flags, category, source)
@@ -690,7 +751,7 @@ def build_interest(raw: dict, now: datetime,
     # polarity does not change magnitude; dislikes rank within their own bucket.
     score = round(eff_strength * conf * decay, 5)
 
-    evidence = _evidence_phrase(source, strength_raw, observed)
+    evidence = _evidence_phrase(source, observed, now)
     return {
         "id": interest_id(subject, domain),
         "subject": subject,
@@ -717,15 +778,48 @@ def _iso(value) -> str | None:
     return dt.date().isoformat() if dt else None
 
 
-def _evidence_phrase(source: str, strength: float, observed) -> str:
-    bits = []
-    if source:
-        bits.append(f"from {source}")
-    bits.append(f"strength {strength:.2f}")
-    seen = _iso(observed)
+# CM051 #2534: a lowercase source key, the raw strength score and an ISO
+# date are internal values, not customer copy -- a card's evidence line read
+# "from linkedin · strength 0.50 · last seen 2026-01-15". Human words only.
+_SOURCE_DISPLAY = {
+    "linkedin": "LinkedIn", "facebook": "Facebook", "meta": "Facebook",
+    "csv": "your imported data", "email": "your email", "imap": "your email",
+    "you": "you",
+}
+
+
+def _human_source(source: str) -> str:
+    s = (source or "").strip().lower()
+    if not s:
+        return ""
+    return _SOURCE_DISPLAY.get(s, s[:1].upper() + s[1:])
+
+
+def _human_seen(observed_at, now: datetime) -> str:
+    """'today', 'yesterday', or '9 Nov 2021' -- never an ISO date."""
+    dt = _parse_dt(observed_at) if isinstance(observed_at, str) else observed_at
+    if dt is None:
+        return ""
+    days = (now.date() - dt.date()).days
+    if days <= 0:
+        return "today"
+    if days == 1:
+        return "yesterday"
+    return dt.strftime("%-d %b %Y")
+
+
+def _evidence_phrase(source: str, observed, now: datetime) -> str:
+    """One evidence line, in words: 'From LinkedIn, seen today'. No raw
+    strength score (#2534) -- the strength bar + word already show that."""
+    src = _human_source(source)
+    seen = _human_seen(observed, now)
+    if src and seen:
+        return f"From {src}, seen {seen}"
+    if src:
+        return f"From {src}"
     if seen:
-        bits.append(f"last seen {seen}")
-    return " · ".join(bits)
+        return f"Seen {seen}"
+    return ""
 
 
 def aggregate(interests: list[dict]) -> list[dict]:

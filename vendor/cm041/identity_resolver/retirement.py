@@ -141,6 +141,58 @@ def untyped_merge_subjects_query() -> str:
     )
 
 
+def resolve_to_live_person(uri, next_hop, max_hops: int = 16, log=None):
+    """Follow ``mergedInto`` to the surviving node. Returns the terminus.
+
+    THE LOOP LIVES HERE AND THE QUERY DOES NOT. Callers supply ``next_hop``,
+    a callable taking a URI and returning the next URI or None, because each
+    caller already has its own SPARQL helper with its own return shape.
+    What is worth having exactly once is not the query -- it is the LOOP and
+    its two safety properties:
+
+      * a CYCLE is a data fault, not something to spin on. It stops at the
+        LAST NODE REACHED BEFORE REVISITING ONE, and says so. That node may
+        itself be inside the cycle -- for a two-node cycle it always is --
+        so this is a terminating answer rather than a correct survivor, and
+        the warning is the part that matters.
+      * a chain longer than ``max_hops`` stops and says so, rather than
+        running until something else breaks.
+
+    WHY THIS IS SHARED RATHER THAN COPIED. There were already two independent
+    implementations of "find the person holding this identifier" in this
+    repository -- ``identity_resolver.resolver.find_by_identifier`` and
+    ``whatsapp_bridge.bridge.find_person_by_identifier`` -- and only one of
+    them was taught to follow a merge. The other kept minting a SECOND node
+    for a person the graph had already merged away. A copy and its original
+    go stale together, and the one that goes stale is the one nobody is
+    looking at.
+
+    RETURNING None WOULD BE WORSE THAN RETURNING A RETIRED URI, which is the
+    non-obvious part. A caller that gets None goes on to create a person, and
+    creating one mints a fresh identity for somebody the customer already
+    knows. The terminus is returned even when the chain is faulty, because a
+    wrong-but-existing person can be merged again; a duplicate cannot be
+    un-created.
+    """
+    seen = {uri}
+    current = uri
+    for _ in range(max_hops):
+        nxt = next_hop(current)
+        if not nxt:
+            return current
+        if nxt in seen:
+            if log is not None:
+                log.warning("merge chain from %s cycles at %s; stopping",
+                            uri, nxt)
+            return current
+        seen.add(nxt)
+        current = nxt
+    if log is not None:
+        log.warning("merge chain from %s exceeded %d hops; stopping at %s",
+                    uri, max_hops, current)
+    return current
+
+
 def person_exists_query(uri: str) -> str:
     """The producer's existence check, VERBATIM, for use as a test oracle.
 
