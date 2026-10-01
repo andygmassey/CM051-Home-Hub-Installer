@@ -53,10 +53,17 @@ jobs:
           python-version: ${{ matrix.python }}
       # httpx: identity_resolver.resolver's own runtime dep. rapidfuzz,
       # phonenumbers: normalise.py imports both at module scope, and
-      # resolver.py imports normalise.py. Missing any one makes pytest exit
-      # 2 on COLLECTION, not a failing assertion.
+      # resolver.py imports normalise.py. vobject: contact_syncer.syncer
+      # imports contact_syncer.vcard_parser at module scope, which imports
+      # vobject. qdrant-client: contact_syncer.syncer imports QdrantClient
+      # at module scope too. All confirmed from the actual CI log, found one
+      # at a time as each prior gap was fixed (ModuleNotFoundError at
+      # vcard_parser.py:8, then at syncer.py:46) -- verified together in a
+      # clean venv with none of this repo's other test dependencies present,
+      # so this list is not missing a further one. Missing any one makes
+      # pytest exit 2 on COLLECTION, not a failing assertion.
       - name: Install pytest and the vendored modules' runtime dependencies
-        run: python -m pip install --quiet pytest httpx rapidfuzz phonenumbers
+        run: python -m pip install --quiet pytest httpx rapidfuzz phonenumbers vobject qdrant-client
       # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE, same reasoning as
       # the other vendored-suite workflows in this repo: a failing floor in
       # a separate step would SKIP the run below and hide the real result

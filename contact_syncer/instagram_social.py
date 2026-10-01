@@ -41,6 +41,7 @@ if _PARENT_DIR not in sys.path:
     sys.path.insert(0, _PARENT_DIR)
 
 from contact_syncer import config
+from contact_syncer.relationship_labels import is_relationship_label
 from identity_resolver.models import PersonIdentity
 from identity_resolver.resolver import IdentityResolver
 
@@ -211,7 +212,12 @@ def create_person_oxigraph(
     else:
         created_at = now
 
-    fn = _escape(identity.display_name)
+    # CM051 #2556: a bare kinship word ("Mum", "Wife") must never become a
+    # person's permanent displayName -- it says how SOMEBODY refers to this
+    # person, not who they are. Matches the WHOLE label only, so a real name
+    # that merely contains the word ("Mum Zhang") is untouched.
+    _raw_name = identity.display_name
+    fn = "" if is_relationship_label(_raw_name) else _escape(_raw_name)
 
     triples = [
         f"<{person_uri}> a pwg:Person",
