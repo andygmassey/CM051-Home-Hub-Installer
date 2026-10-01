@@ -34519,6 +34519,79 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
     fi
 fi
 
+# One-time repair: a WhatsApp LID written as a "phone" identifier (CM051
+# #2543) -----------------------------------------------------------
+#
+# Two different writers' old bugs left two different fingerprints on a box
+# upgraded from before this fix -- CM041 whatsapp_bridge (a bogus "phone"
+# identifier with a sibling "whatsapp_lid" identifier sharing the same
+# invalid value) and ostler_fda's ingest_whatsapp, the writer that actually
+# ships (only the bogus "phone" identifier, no sibling at all). Both are
+# idempotent and both counted in identity_resolver.repair_lid_as_phone's own
+# report; see that module's docstring for the full fingerprint detail.
+# Runs ONCE per install, same marker-file pattern as the email automated-
+# sender reclassify above (state/email_reclassify_v3.done): a marker absent
+# means "not yet run or did not complete", never "nothing to repair" -- that
+# fact lives inside the marker's own content, not in whether it exists.
+# Counts only; no phone numbers or names reach this log.
+if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python3" ]]; then
+    if [[ ! -f "$PIPELINE_DIR/identity_resolver/repair_lid_as_phone.py" ]]; then
+        # A vendored tree older than this fix. SAY SO rather than skip
+        # silently, same reasoning as the merge-consistency repair above:
+        # "the module is not here" and "there was nothing to repair" must
+        # not print identically.
+        warn "WhatsApp LID-as-phone repair skipped: this build vendors an identity_resolver without repair_lid_as_phone"  # i18n-exempt
+    else
+        _LID_REPAIR_MARKER="${OSTLER_DIR}/state/repair_lid_as_phone_v1.done"
+        if [[ ! -f "$_LID_REPAIR_MARKER" ]]; then
+            _LID_REPAIR_LOG="${OSTLER_DIR}/logs/repair-lid-as-phone.log"
+            mkdir -p "$(dirname "$_LID_REPAIR_LOG")" 2>/dev/null || true
+            # 🔴 set -euo pipefail IS ACTIVE HERE. `VAR="$(cmd)"` is a SIMPLE
+            # COMMAND under bash's own rules, so a failing `cmd` inside the
+            # substitution aborts the WHOLE INSTALL right here -- exactly
+            # the failure mode Archie's review caught: a repair step must
+            # never be able to abort the install it rides inside. The `; rc=
+            # $?` line below runs UNCONDITIONALLY (`;`, not `&&`) inside the
+            # SAME subshell, so the substitution's own exit status is always
+            # 0 (whatever the last command, `printf`, returns) and errexit
+            # never sees the python command's real exit code. The real code
+            # travels OUT as the final `___RC___<n>` line of captured text
+            # instead, parsed back out below -- the same reason
+            # email_reclassify's own command substitution ends `|| true`.
+            _LID_REPAIR_RAW="$(
+                _lid_repair_rc=0
+                cd "$PIPELINE_DIR" 2>/dev/null && \
+                OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
+                .venv/bin/python3 -m identity_resolver.repair_lid_as_phone \
+                    --oxigraph-url "${OXIGRAPH_URL:-http://localhost:7878}" \
+                    --apply 2>>"$_LID_REPAIR_LOG" || _lid_repair_rc=$?
+                printf '___RC___%d\n' "$_lid_repair_rc"
+            )" || true
+            _LID_REPAIR_RC="$(printf '%s\n' "$_LID_REPAIR_RAW" | sed -n 's/^___RC___//p' | tail -1)"
+            _LID_REPAIR_OUT="$(printf '%s\n' "$_LID_REPAIR_RAW" | grep -v '^___RC___' || true)"
+            # An empty/non-numeric rc (the cd itself failed, or the marker
+            # line never made it into the capture) is treated as a failure,
+            # never as 0 -- a missing signal must not read as success.
+            if [[ "$_LID_REPAIR_RC" =~ ^[0-9]+$ ]] && [[ "$_LID_REPAIR_RC" -eq 0 ]]; then
+                printf '%s\n' "$_LID_REPAIR_OUT" >>"$_LID_REPAIR_LOG"
+                mkdir -p "${OSTLER_DIR}/state" \
+                    && { printf 'ran_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; \
+                         printf '%s\n' "$_LID_REPAIR_OUT"; } > "$_LID_REPAIR_MARKER" \
+                    && ok "WhatsApp LID-as-phone repair completed (${_LID_REPAIR_LOG})"  # i18n-exempt
+            else
+                # No marker written: the next install (or upgrade) retries
+                # it, same as the email reclassify's own failure arm. NEVER
+                # abort the install over this -- a one-time graph repair is
+                # not worth a failed customer install.
+                printf '%s\n' "$_LID_REPAIR_OUT" >>"$_LID_REPAIR_LOG"
+                warn "WhatsApp LID-as-phone repair did not complete (exit ${_LID_REPAIR_RC:-unknown}); the next install retries it. See ${_LID_REPAIR_LOG}"  # i18n-exempt
+            fi
+            unset _LID_REPAIR_LOG _LID_REPAIR_RAW _LID_REPAIR_OUT _LID_REPAIR_RC
+        fi
+        unset _LID_REPAIR_MARKER
+    fi
+fi
+
 # Apple Notes knowledge hydration (CM024 §7 / apple_notes adapter) ---
 #
 # Reads apple_notes.json (written by the Phase 3 fda_extract step when
