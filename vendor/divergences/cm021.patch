@@ -261,8 +261,8 @@
 +
 +# --- A From-header display name is not necessarily a name (CM051 #2544) ---
 +#
-+# Andy's v1.0.106 walk: People rows named "A Special Offer from ExampleInsure",
-+# "Your ExampleInsure Voucher Is Here", "Claim Your Example Points",
++# The v1.0.106 walk: People rows named after marketing subject lines (an
++# offer from an insurer, a voucher notice, a points claim) and
 +# "Jane Doe via ExampleSign". parseaddr correctly extracts the RFC 5322
 +# display-name slot of the From header; the bug is that nothing downstream
 +# ever asked whether the text SITTING in that slot reads as a human name.
@@ -287,7 +287,7 @@
 +
 +      * SENTENCE OPENERS -- starts with a word a human name never starts
 +        with ('A ', 'Your ', 'Claim ', ...). Anchored at the START so a real
-+        person's title-bearing signature ("Sarah Example, Your Account
++        person's title-bearing signature ("Jane Doe, Your Account
 +        Manager") is untouched: 'Your' is the THIRD word there, not the
 +        first.
 +      * SENDER-ID SHAPE -- a single token (no spaces) that EITHER starts
@@ -739,7 +739,7 @@
 +        "errors": [],
 +    }
 +    query = "\n".join([
-+        "PREFIX pwg: <urn:pwg:>",
++        "PREFIX pwg: <" + PWG_NS + ">",
 +        "SELECT ?person ?name WHERE {",
 +        "  ?person a pwg:Person ; pwg:displayName ?name .",
 +        "  FILTER NOT EXISTS { ?person pwg:displayNameProvisional ?prov }",
