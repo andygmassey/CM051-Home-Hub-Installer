@@ -161,6 +161,7 @@ test_cm024k_embedder_usage_journal.sh	WIRED	.github/workflows/usage-journal-prod
 test_cm041_usage_journal_producer.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm048_prompts_packaged.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_cm048_settings_models_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_cm048_whatsapp_lid_not_phone.py	WIRED	.github/workflows/cm048-whatsapp-lid-not-phone.yml
 test_cm059_scout_newsletters_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_codename_sweep_sees_an_early_leak.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_colima_autostart_mechanism.sh	WIRED	.github/workflows/colima-autostart.yml
@@ -392,6 +393,7 @@ test_migration_marker_guard_fresh_install.py	WIRED	.github/workflows/tests-unwir
 test_model_download_size_honesty.sh	WIRED	.github/workflows/model-download-honesty.yml
 test_model_fit.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_name_repair.sh	WIRED	.github/workflows/name-repair.yml
+test_nameless_filter_applies_to_the_hub_people_count.py	WIRED	.github/workflows/privacy-spine.yml
 test_new_cut_checks_what_preflight_checks.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_new_cut_covers_every_pretag_gate.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_new_cut_guard_scoped_is_not_started.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
