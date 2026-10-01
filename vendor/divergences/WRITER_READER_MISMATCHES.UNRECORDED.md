@@ -571,3 +571,42 @@ Guarded by tests/test_source_status_prefers_a_live_routine_over_a_stale_sentinel
 tests/test_source_status_reports_ongoing_not_just_install.sh /
 tests/test_the_source_table_covers_the_fda_extract_family.sh, both updated
 only to extract the two new helper functions.
+## Added 2026-10-01, CM051 #2574 -- `doctor`, Hub config read admitted + Ostler's VM/model runner
+
+Tool re-run on 2026-10-01: `scripts/regenerate_divergence_patch.sh doctor`
+REFUSED again, this time on the tree's own `regenerate_forbidden` ban (checked
+BEFORE the source checkout, so it fires independently of whether an HR015
+checkout is reachable): "the Doctor source-status panel ... EXISTS ONLY IN
+THIS REPOSITORY ... never by clearing the flag" (board #2219, full reasoning
+in `DOCTOR_SOURCE_STATUS_PANEL_2219.md`). Same tree as the two entries above,
+different refusal reason than either of them, measured rather than inherited.
+
+- `vendor/doctor/agent/web_ui.py` -- new `_hub_read_refusal()`, called by
+  `api_config_get` in place of `_cross_site_refusal`. `_cross_site_refusal`
+  admitted only `Sec-Fetch-Site: same-origin` or absent, so GET
+  `/api/v1/config` 403'd both the Hub's own Tauri webview (stamped
+  cross-site from `tauri://localhost`) and a browser-served Hub on :8000
+  (stamped same-site) -- the Settings and Governor pages could never read
+  back a customer's own saved config. `_hub_read_refusal` admits the read
+  when `Origin` is the Hub's webview or a loopback page
+  (`editor_feedback.origin_is_local`, the same predicate the editor feedback
+  route already trusts), else falls through to the unchanged guard. Writes
+  are untouched: they still go through `_cross_site_refusal` and the
+  `doctor_post` native bridge.
+- `vendor/doctor/agent/box_status.py` -- `_OSTLER_NAMES` gained
+  `com.apple.Virtualization.VirtualMachine`, `colima`, `limactl`,
+  `llama-server` (the shipped stack's container VM and model runner, which
+  were billed to "Other apps" while "Ostler itself" read ~0%), with matching
+  `_LABELS` entries ("Ostler databases" / "Ostler model").
+
+WHY: both measured directly against the shipped tree, not HR015 source --
+`tests/test_the_hub_reads_the_doctor_like_the_app.py` read 5 of 8 FAIL before
+this PR against the app's real request shape (Origin/Sec-Fetch-Site as the
+Tauri webview sends them), 8 of 8 after.
+
+### What a future sync must preserve
+
+Both edits in both files. Gate:
+`tests/test_the_hub_reads_the_doctor_like_the_app.py`, wired into
+`vendor-integrity.yml`. Ledger:
+[HR015-Gaming-PC@406397d](https://github.com/andygmassey/HR015-Gaming-PC/commit/406397dccc6bdaf6cf3d0a9c6a6b1f1587346ff6).
