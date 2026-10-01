@@ -334,6 +334,101 @@ def automated_sender_reason(email: FastEmail) -> Optional[str]:
     return organisation_name_reason(getattr(email, "from_name", None))
 
 
+# --- A From-header display name is not necessarily a name (CM051 #2544) ---
+#
+# The v1.0.106 walk: People rows named after marketing subject lines (an
+# offer from an insurer, a voucher notice, a points claim) and
+# "Jane Doe via ExampleSign". parseaddr correctly extracts the RFC 5322
+# display-name slot of the From header; the bug is that nothing downstream
+# ever asked whether the text SITTING in that slot reads as a human name.
+# Marketing senders and phishing kits both exploit the same slot: one stuffs
+# promotional copy there to game inbox previews, the other stuffs a borrowed
+# human-sounding name "via" an unverified service to look trustworthy.
+_SUBJECT_LINE_OPENERS = (
+    "a ", "an ", "the ", "your ", "claim ", "get ", "win ", "unlock ",
+    "save ", "act now", "don't miss", "last chance", "hurry",
+)
+_SENDER_ID_RE = re.compile(r"^#?[A-Z][A-Z0-9]{3,10}$")
+_VIA_RE = re.compile(r"\bvia\b")
+
+
+def looks_like_subject_or_sender_id(name: str, email: Optional[str] = None) -> bool:
+    """True when a From-header display name is shaped like marketing/subject
+    copy or an SMS-style alphanumeric sender id, not a human name.
+
+    Same category of heuristic as ``automated_sender_reason`` above
+    (vocabulary + shape, not a universal structural law) and deliberately
+    narrow, anchored on how the measured examples actually read:
+
+      * SENTENCE OPENERS -- starts with a word a human name never starts
+        with ('A ', 'Your ', 'Claim ', ...). Anchored at the START so a real
+        person's title-bearing signature ("Jane Doe, Your Account
+        Manager") is untouched: 'Your' is the THIRD word there, not the
+        first.
+      * SENDER-ID SHAPE -- a single token (no spaces) that EITHER starts
+        with '#' (distinctive on its own; human names do not), OR is 4-11
+        bare uppercase letters/digits AND carries a SECOND signal (see
+        below) -- the GSM alphanumeric sender-id length ceiling alone is
+        not enough, because it also matches a real name typed in capitals
+        ("JOHN", "MARIA").
+      * "<name> VIA <service>" -- generalises identity_resolver's existing
+        'via linkedin/via facebook/via twitter/via x' convention (which
+        strips a trusted suffix off a contact the customer ALREADY has) to
+        an untrusted INBOUND sender: here the name in front of "via" is
+        unverified too, so the whole label is refused rather than salvaged.
+
+    Archie, 2026-10-01 (CM051 #2544 review): the all-caps/4-11-char shape
+    alone caught every all-caps real name too ("JOHN", "MARIA" both match
+    4-11 bare uppercase letters). A bare-shape match now ALSO needs ONE of:
+      * a digit anywhere in the token ("EXAUTH4", "OTP2FA") -- a sender id
+        commonly carries one, a human name typed in caps never does;
+      * `email`'s local part (the part before '@') is itself automated-
+        shaped (``_AUTOMATED_LOCAL_RE`` -- noreply/notifications/alerts/...,
+        the SAME vocabulary ``automated_sender_reason`` already uses, not a
+        second list). Requires the caller to supply `email`; the
+        reclassify-subject-names migration (CM051 #2544's repair for rows
+        already written) reads only a stored displayName from the graph, no
+        email, so for IT this arm reduces to digit-only -- a KNOWN, accepted
+        narrowing: under-cleaning a pure-letter sender id already on a box
+        is a smaller cost than flagging a real person's capitalised name.
+    A "known org" third signal (an allowlist of transactional-sender
+    domains) was also discussed and is DELIBERATELY NOT implemented here:
+    no such list exists yet in this codebase, and inventing one for this fix
+    would be a guess dressed as data.
+
+    KNOWN LIMIT, stated rather than hidden: a real person named "Via" (a real,
+    if uncommon, American surname), or one who opens their own display name
+    with a trigger word, reads as marketing copy. The 2026-08-08
+    identifier-quality calculus applies the same way here: the false-positive
+    cost (a real correspondent's displayName stays the provisional email-based
+    one tick longer -- never deleted, never blocked, just not yet promoted)
+    is far smaller than the false-negative cost (a phishing line becomes a
+    permanent Person page).
+    """
+    n = (name or "").strip()
+    if not n:
+        return False
+    lowered = n.lower()
+    if any(lowered.startswith(opener) for opener in _SUBJECT_LINE_OPENERS):
+        return True
+    if " " not in n:
+        # A leading '#' is distinctive on its own, whatever follows --
+        # human display names do not start with one. The stricter
+        # all-caps/short check below is for a bare sender id with no
+        # such marker ("EXAUTH4"), and that one needs a second signal.
+        if n.startswith("#") and len(n) > 1:
+            return True
+        if _SENDER_ID_RE.match(n):
+            has_digit = any(ch.isdigit() for ch in n)
+            local = (email or "").split("@", 1)[0].lower()
+            automated_local = bool(local) and bool(_AUTOMATED_LOCAL_RE.search(local))
+            if has_digit or automated_local:
+                return True
+    if _VIA_RE.search(lowered):
+        return True
+    return False
+
+
 # The predicates THIS CLI writes for a sender. A Person carrying anything
 # else was also seen by another source (Contacts, iMessage, WhatsApp,
 # calendar) or enriched, and is never removed from here.
@@ -502,6 +597,28 @@ def _sparql_select_vars(endpoint: str, query: str, names: tuple, timeout: float 
             for b in response.json().get("results", {}).get("bindings", [])]
 
 
+def _sparql_select_vars(endpoint: str, query: str, var_names: tuple, timeout: float = 30.0) -> list:
+    """Like ``_sparql_select``, but for an arbitrary SELECT whose bound
+    variable names are given explicitly, rather than the fixed (p, o) pair
+    that query always uses. Returns a list of tuples in ``var_names`` order;
+    a row missing a variable (an OPTIONAL that didn't bind) contributes "".
+    """
+    import urllib.request
+    import urllib.parse as _up
+    data = _up.urlencode({"query": query}).encode()
+    req = urllib.request.Request(
+        endpoint.rstrip("/") + "/query", data=data,
+        headers={"Accept": "application/sparql-results+json",
+                 "Content-Type": "application/x-www-form-urlencoded"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        body = json.loads(resp.read().decode("utf-8"))
+    out = []
+    for b in body.get("results", {}).get("bindings", []):
+        out.append(tuple(b.get(v, {}).get("value", "") for v in var_names))
+    return out
+
+
 def _demote(endpoint: str, person_iri: str, reason: str) -> int:
     """Backup, THEN delete. Returns the triples backed up (0 = nothing to do)."""
     n = _backup_person(endpoint, person_iri, reason)
@@ -541,6 +658,7 @@ def cmd_mbox(args: argparse.Namespace) -> int:
         "skipped": 0,
         "skipped_automated": 0,
         "people_demoted": 0,
+        "names_refused_subject_shaped": 0,
         "errors": [],
     }
 
@@ -640,10 +758,19 @@ def cmd_mbox(args: argparse.Namespace) -> int:
                     if email.date is not None
                     else None
                 )
+                raw_name = email.from_name or ""
+                # CM051 #2544: a From-header display name that reads as
+                # marketing/subject copy or an alphanumeric sender id is not
+                # a human name -- refuse it so the tier-1 email-based
+                # provisional name is written instead (never nothing: see
+                # the displayName tiering note on _build_upsert).
+                if raw_name and looks_like_subject_or_sender_id(raw_name, addr):
+                    result["names_refused_subject_shaped"] += 1
+                    raw_name = ""
                 query = _build_upsert(
                     person_iri=_safe_person_iri(addr),
                     email=addr,
-                    name=email.from_name or "",
+                    name=raw_name,
                     last_contact_iso=last_contact_iso,
                 )
                 _post_sparql_update(args.graph_endpoint, query)
@@ -812,6 +939,65 @@ def _add_reclassify_subcommand(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--dry-run", action="store_true")
 
 
+def cmd_reclassify_subject_names(args: argparse.Namespace) -> int:
+    """One-time repair for CM051 #2544: a box upgraded past this fix still
+    carries Person nodes this CLI created BEFORE it, with a permanent
+    (non-provisional) displayName that reads as marketing/subject copy or an
+    alphanumeric sender id. Idempotent -- a graph with none already repaired
+    reports zero and demotes nothing, safely re-runnable.
+
+    Unlike reclassify-mail (which re-reads mail headers), the bad value is
+    already sitting in the graph as displayName, so this queries Oxigraph
+    directly rather than re-scanning the Mail store. Reuses the same guarded
+    _demote as the automated-sender repair: a Person enriched by another
+    source (Contacts, iMessage, WhatsApp) is never touched, only ones still
+    carrying the email-only shape.
+    """
+    result: Dict[str, Any] = {
+        "people_examined": 0, "subject_shaped": 0, "people_demoted": 0,
+        "errors": [],
+    }
+    query = "\n".join([
+        "PREFIX pwg: <" + PWG_NS + ">",
+        "SELECT ?person ?name WHERE {",
+        "  ?person a pwg:Person ; pwg:displayName ?name .",
+        "  FILTER NOT EXISTS { ?person pwg:displayNameProvisional ?prov }",
+        "}",
+    ])
+    rows = _sparql_select_vars(args.graph_endpoint, query, ("person", "name"))
+    result["people_examined"] = len(rows)
+    # No `email` to pass here (Archie, 2026-10-01 review): this migration
+    # reads an already-stored displayName off the graph, not the original
+    # From header, so the automated-local-part signal is unavailable and
+    # the sender-id-shape arm reduces to digit-only. Accepted narrowing: it
+    # will not retroactively catch a pure-letter sender id already written,
+    # but it will also never flag a real person's capitalised name.
+    candidates = [(p, n) for p, n in rows if looks_like_subject_or_sender_id(n)]
+    result["subject_shaped"] = len(candidates)
+    if not args.dry_run:
+        for person_iri, _name in candidates:
+            try:
+                if _demote(args.graph_endpoint, person_iri, "subject_shaped_name"):
+                    result["people_demoted"] += 1
+            except Exception as exc:
+                if len(result["errors"]) < 5:
+                    result["errors"].append(type(exc).__name__)
+    print(json.dumps(result))
+    return 0
+
+
+def _add_reclassify_subject_names_subcommand(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser(
+        "reclassify-subject-names",
+        help=(
+            "One-off repair (CM051 #2544): remove Persons already created "
+            "with a subject-line/sender-id-shaped displayName."
+        ),
+    )
+    p.add_argument("--graph-endpoint", default="http://localhost:7878")
+    p.add_argument("--dry-run", action="store_true")
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         prog="pwg-email-ingest",
@@ -824,12 +1010,15 @@ def main(argv: Optional[list[str]] = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     _add_mbox_subcommand(sub)
     _add_reclassify_subcommand(sub)
+    _add_reclassify_subject_names_subcommand(sub)
 
     args = parser.parse_args(argv)
     if args.cmd == "mbox":
         return cmd_mbox(args)
     if args.cmd == "reclassify-mail":
         return cmd_reclassify_mail(args)
+    if args.cmd == "reclassify-subject-names":
+        return cmd_reclassify_subject_names(args)
     return 2
 
 

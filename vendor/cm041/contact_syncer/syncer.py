@@ -952,7 +952,14 @@ class ContactSyncer:
             "family_name": parsed.get("family_name") or "",
             "organization": parsed.get("org") or "",
             "job_title": parsed.get("title") or "",
-            "phones": [p["value"] for p in parsed.get("phones", [])],
+            # Normalised to E.164, as the Oxigraph identifiers below are, so the
+            # Qdrant payload agrees with the identifier it mirrors (CM041 #182,
+            # CM051 #2545; grafted for v1.0.107).
+            "phones": [
+                normalise_phone(p["value"], self.resolver.default_country_code)
+                for p in parsed.get("phones", [])
+                if p.get("value")
+            ],
             "emails": [e["value"] for e in parsed.get("emails", [])],
             "icloud_uid": parsed.get("uid") or "",
             "profile_photo_path": parsed.get("profile_photo_path") or "",
@@ -1143,6 +1150,10 @@ class ContactSyncer:
                 f'<{id_uri}> pwg:identifierValue "{parsed["uid"]}"'
             )
 
+        # A duplicate number within one vCard (the same number typed in two
+        # formats) is written once, as seen_emails dedupes below (CM041 #182,
+        # CM051 #2545; grafted for v1.0.107).
+        seen_phones: set = set()
         for idx, phone in enumerate(parsed.get("phones", [])):
             id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_phone{idx}"
             # Store the NORMALISED value so it matches what the resolver's
@@ -1151,8 +1162,11 @@ class ContactSyncer:
             # the E.164 form (no spaces), so Tier-1 exact-identifier dedup
             # never fired and every repeat minted a duplicate (BW-1).
             phone_value = normalise_phone(
-                phone["value"], self.resolver.default_country_code
+                phone.get("value") or "", self.resolver.default_country_code
             )
+            if not phone_value or phone_value in seen_phones:
+                continue
+            seen_phones.add(phone_value)
             triples.append(f"<{person_uri}> pwg:hasIdentifier <{id_uri}>")
             id_triples.append(f"<{id_uri}> a pwg:PersonIdentifier")
             id_triples.append(f'<{id_uri}> pwg:identifierType "phone"')
