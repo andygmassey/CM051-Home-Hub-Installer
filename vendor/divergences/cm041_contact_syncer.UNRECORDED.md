@@ -118,3 +118,51 @@ here and is unchanged.
 ### What a future sync must preserve
 
 Both edits. Retire this entry when the pin moves past 86499ed6.
+
+## Added 2026-10-02, CM051 v1.0.107 (ORM): a kinship word never becomes a permanent displayName (CM041 #185, CM051 #2556)
+
+`vendor/cm041/contact_syncer/relationship_labels.py` -- NEW FILE, reproduced
+verbatim from CM041 main (the predicate, `_load()`'s default kinship set and
+`_load()`/`explain()` plumbing; no logic change needed, so no divergence of
+its own). `name_election.py` already used this predicate in this vendored
+tree before this change; it did not exist at this tree's pin, so this entry
+also newly vendors the file itself, not only the six call sites below.
+
+Six write sites, each one hand-grafted (this tree is `regenerate_forbidden`,
+so the patch cannot record them), all routing through the SAME
+`is_relationship_label` rather than a new predicate:
+
+- `instagram_social.py`, `facebook_friends.py`, `linkedin_connections.py`:
+  `create_person_oxigraph` -- `fn = "" if is_relationship_label(...) else
+  _escape(...)`.
+- `linkedin_career.py`: `_create_person_from_endorser`, same shape.
+- `owner_node.py`: `build_owner_sparql` -- special-cased. This function's own
+  contract is "decline, never overwrite" (`INSERT..WHERE FILTER NOT
+  EXISTS`), so a refused name skips the name clause ENTIRELY rather than
+  inserting an empty string, which would satisfy the filter forever and
+  permanently lock the owner out of a later, corrected name.
+- `syncer.py`: `_create_person_oxigraph` (new node, `""` is safe) AND
+  `_update_person_oxigraph` -- the sharper bug: the update path deletes
+  `pwg:displayName` unconditionally then only re-inserts `if fn:`, so an
+  incoming "Mum" used to DELETE an existing GOOD name and replace it with
+  nothing. Fixed by dropping `pwg:displayName` from that run's delete set
+  entirely when the incoming value is a relationship label, leaving
+  whatever is already on the node untouched.
+
+WHY: "Mum", "Wife", "Dad" and similar bare kinship/household terms say how
+SOMEBODY refers to this person, not who they are -- and on a shared
+household device that somebody is usually not the account owner. Matches
+the WHOLE label only: "Mum Zhang" is a plausible real name and is never
+touched.
+
+A SEVENTH site, `identity_resolver/resolver.py`'s `create_person`, is
+recorded separately in `WRITER_READER_MISMATCHES.UNRECORDED.md` (that
+tree's own `unrecorded_divergence` pointer), not here.
+
+### What a future sync must preserve
+
+`relationship_labels.py` in full, the import in each of the six files
+above, and every write-site guard described. Guarded by
+`tests/test_kinship_label_write_guard_vendored.py` (CM051 repo root,
+mirroring CM041 PR #185's own test suite). Retire by landing CM041 #185
+and re-pinning.

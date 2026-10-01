@@ -1,0 +1,73 @@
+# CM051 #2556: a bare kinship word ("Mum", "Wife", "Dad") must never become
+# a person's permanent displayName at any of CM041's contact_syncer
+# name-writers, or at IdentityResolver.create_person. Mirrors CM041 PR
+# #185's own test suite against the copy that actually ships.
+name: kinship-label-write-guard
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm041/contact_syncer/relationship_labels.py'
+      - 'vendor/cm041/contact_syncer/instagram_social.py'
+      - 'vendor/cm041/contact_syncer/facebook_friends.py'
+      - 'vendor/cm041/contact_syncer/linkedin_connections.py'
+      - 'vendor/cm041/contact_syncer/linkedin_career.py'
+      - 'vendor/cm041/contact_syncer/owner_node.py'
+      - 'vendor/cm041/contact_syncer/syncer.py'
+      - 'vendor/cm041/identity_resolver/resolver.py'
+      - 'tests/test_kinship_label_write_guard_vendored.py'
+      - '.github/workflows/kinship-label-write-guard.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm041/contact_syncer/relationship_labels.py'
+      - 'vendor/cm041/contact_syncer/instagram_social.py'
+      - 'vendor/cm041/contact_syncer/facebook_friends.py'
+      - 'vendor/cm041/contact_syncer/linkedin_connections.py'
+      - 'vendor/cm041/contact_syncer/linkedin_career.py'
+      - 'vendor/cm041/contact_syncer/owner_node.py'
+      - 'vendor/cm041/contact_syncer/syncer.py'
+      - 'vendor/cm041/identity_resolver/resolver.py'
+      - 'tests/test_kinship_label_write_guard_vendored.py'
+      - '.github/workflows/kinship-label-write-guard.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  kinship-label-write-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # httpx: identity_resolver.resolver's own runtime dep. rapidfuzz,
+      # phonenumbers: normalise.py imports both at module scope, and
+      # resolver.py imports normalise.py. Missing any one makes pytest exit
+      # 2 on COLLECTION, not a failing assertion.
+      - name: Install pytest and the vendored modules' runtime dependencies
+        run: python -m pip install --quiet pytest httpx rapidfuzz phonenumbers
+      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE, same reasoning as
+      # the other vendored-suite workflows in this repo: a failing floor in
+      # a separate step would SKIP the run below and hide the real result
+      # behind an earlier red.
+      - name: A kinship word never becomes a person's permanent displayName
+        run: |
+          n="$(python -m pytest tests/test_kinship_label_write_guard_vendored.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 16 ]; then
+            echo "REFUSING: expected at least 16 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_kinship_label_write_guard_vendored.py -v
