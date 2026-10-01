@@ -146,6 +146,7 @@ owner = "archie"
 vendor_path      = "vendor/cm041/contact_syncer"
 source_repo      = "$CM041"
 source_path      = "contact_syncer"
+unrecorded_divergence = "vendor/divergences/cm041_contact_syncer.UNRECORDED.md"  # DECLARED 2026-10-02 (ORM, v1.0.107): the CM041 #182 graft in syncer.py; this tree is regenerate_forbidden, so the patch cannot record it
   pinned_sha = "f83d5aee1953098f8240df8973484582e6d363be"
   divergence_patch = "vendor/divergences/cm041_contact_syncer.patch"
   # LIFTED 2026-09-09Z (TNM). The ban was correct and its reason is now
