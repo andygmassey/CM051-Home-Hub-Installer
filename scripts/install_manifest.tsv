@@ -116,9 +116,10 @@ artefact_dir	~/.ostler/assistant-config/workspace/state (usage journal, #482)	re
 # called 454). MUST PASS, proving the enumerator scores a real wiring present.
 import_wire	identifier_quality applies the shared kinship guard	required	vendor/ostler_fda/identifier_quality.py|is_relationship_label	#617-control	MUST PASS: proves the import_wire enumerator detects a real shared-guard wiring
 # The uncovered write paths (any file in the dir may satisfy it). FAIL today; go
-# green when #617 wires the shared guard into the write boundary.
-import_wire	contact_syncer applies the shared kinship guard	required	vendor/cm041/contact_syncer/*.py|is_relationship_label	#617	8 name-writers (syncer, facebook_friends, instagram_social, linkedin_*, owner_node, google_calendar), 0 guard
-import_wire	identity_resolver applies the shared kinship guard	required	vendor/cm041/identity_resolver/*.py|is_relationship_label	#617	the write boundary: resolver.register_person/create_person + batch_resolver, 0 guard
+# green when #2556 wires the shared guard into the write boundary. (Re-cited
+# 2026-10-01: #617 was an unrelated, already-closed CM051 PR.)
+import_wire	contact_syncer applies the shared kinship guard	required	vendor/cm041/contact_syncer/*.py|is_relationship_label	#2556	8 name-writers (syncer, facebook_friends, instagram_social, linkedin_*, owner_node, google_calendar), 0 guard. Representative site: contact_syncer/syncer.py:824.
+import_wire	identity_resolver applies the shared kinship guard	required	vendor/cm041/identity_resolver/*.py|is_relationship_label	#2556	the write boundary: identity_resolver/resolver.py:262 (Resolver.create_person), 0 guard
 
 # ---- qdrant_collection (enumerable; both directions enforced) -------------------
 # The vector collections a finished install must hold. install.sh creates these
