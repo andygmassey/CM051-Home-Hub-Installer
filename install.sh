@@ -32838,6 +32838,50 @@ except Exception:
     fi
     unset _RECLASSIFY_MARKER _RECLASSIFY_JSON
 
+    # v1.0.107 (CM051 #2544): a From-header display name is not necessarily a
+    # name. The tick now refuses subject-line-shaped and SMS sender-id names,
+    # but a Person an earlier version made from one keeps its permanent
+    # displayName and is never revisited by a tick that only sees new mail.
+    # reclassify-subject-names reads those names straight from the graph and
+    # removes such a Person only while it still has the email-only shape (the
+    # same guarded demote as reclassify-mail above). Same binary, same graph
+    # endpoint, same once-per-install marker in state/.
+    #
+    # NEVER SWALLOWED, NEVER FATAL. A non-zero exit, a result with no
+    # people_examined key, or a non-empty "errors" list is a WARN naming what
+    # went wrong, and the marker is NOT written so the next install retries.
+    # The install itself carries on: this is a repair of old rows, not a
+    # precondition for a working Hub. On a clean box it logs
+    # people_examined N, subject_shaped 0.
+    _RECLASSIFY_SUBJ_MARKER="${OSTLER_DIR}/state/email_reclassify_subject_names_v1.done"
+    if [[ ! -f "$_RECLASSIFY_SUBJ_MARKER" ]]; then
+        _RECLASSIFY_SUBJ_RC=0
+        _RECLASSIFY_SUBJ_JSON="$("$_HYDRATE_EMAIL_BIN" reclassify-subject-names \
+            --graph-endpoint "$_HYDRATE_OXIGRAPH_EMAIL" 2>>"$_HYDRATE_EMAIL_LOG" | tail -n 1)" \
+            || _RECLASSIFY_SUBJ_RC=$?
+        _RECLASSIFY_SUBJ_SUMMARY="$(printf '%s' "$_RECLASSIFY_SUBJ_JSON" | python3 -c '
+import json, sys
+try:
+    d = json.loads(sys.stdin.read())
+    print("people_examined %s, subject_shaped %s, people_demoted %s, errors %d"
+          % (d["people_examined"], d["subject_shaped"], d["people_demoted"], len(d.get("errors") or [])))
+except Exception as exc:
+    print("UNPARSEABLE (%s)" % type(exc).__name__)
+' 2>/dev/null || echo "UNPARSEABLE (python3 failed)")"
+        if [[ "$_RECLASSIFY_SUBJ_RC" -ne 0 ]]; then
+            warn "email: one-off reclassify of subject-line names exited ${_RECLASSIFY_SUBJ_RC} (${_RECLASSIFY_SUBJ_SUMMARY}); the next install retries it"
+        elif [[ "$_RECLASSIFY_SUBJ_SUMMARY" == UNPARSEABLE* ]]; then
+            warn "email: one-off reclassify of subject-line names returned no readable result (${_RECLASSIFY_SUBJ_SUMMARY}); the next install retries it"
+        elif [[ "$_RECLASSIFY_SUBJ_SUMMARY" != *", errors 0" ]]; then
+            warn "email: one-off reclassify of subject-line names reported errors (${_RECLASSIFY_SUBJ_SUMMARY}); the next install retries it"
+        else
+            info "email: reclassify of subject-line names: ${_RECLASSIFY_SUBJ_SUMMARY}"
+            mkdir -p "${OSTLER_DIR}/state" \
+                && printf '%s\n' "$_RECLASSIFY_SUBJ_JSON" > "$_RECLASSIFY_SUBJ_MARKER"
+        fi
+    fi
+    unset _RECLASSIFY_SUBJ_MARKER _RECLASSIFY_SUBJ_JSON _RECLASSIFY_SUBJ_RC _RECLASSIFY_SUBJ_SUMMARY
+
     unset _HYDRATE_EMAIL_MBOX _HYDRATE_EMAIL_TIMED_OUT _HYDRATE_EMAIL_JSON
     unset _HYDRATE_EMAIL_COUNT _HYDRATE_EMAIL_TIMEOUT_WRAP _HYDRATE_EMAIL_LOG _HYDRATE_EMAIL_CAP
     unset _HYDRATE_EMAIL_COUNTS _HYDRATE_EMAIL_MSGS
