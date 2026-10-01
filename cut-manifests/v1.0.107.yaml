@@ -6734,8 +6734,8 @@ open_issues:
 
   - issue: 2562
     repo: CM051
-    title: 'Hub People and Timeline use an em dash as the empty-value placeholder'
-    gate: 'BLOCKING for v1.0.107 (Aesop, 2026-10-01). Registered in the same action as the filing. SCREEN: Hub People list and one Timeline row. EXPECTED: an empty contact column is empty or reads No contact details; no em dash in Hub copy. CLOSES ON: a walk where hub_screens_customer_read "customer text: no em dash on any Hub screen or wiki page" reads PASS, having been RED on the v1.0.106 walk box (CM051 #2561).'
+    title: 'Hub People uses an em dash as the empty-value placeholder'
+    gate: 'BLOCKING for v1.0.107 (Aesop, 2026-10-01). SCOPE NARROWED 2026-10-01: the People placeholders only. The one Timeline dash measured on the v1.0.106 box is in a verbatim event title (GET /api/v1/timeline entries[].title, type event) and Ostler never rewrites the customer''s own titles, so it is out of scope; the walk check exempts it field-level (see #2565). SCREEN: Hub People list, an em dash in the contact column of every row with no phone or email. EXPECTED: an empty contact column is empty or reads No contact details. CLOSES ON: a walk where hub_screens_customer_read "customer text: no em dash on any Hub screen or wiki page" reads PASS for the People screen, having been RED on the v1.0.106 walk box (CM051 #2561).'
 
   - issue: 2563
     repo: CM051
@@ -6746,3 +6746,8 @@ open_issues:
     repo: CM051
     title: 'Walk probes have no read-only mode: run_box_walk.sh --only still seeds a person and kickstarts the wiki on a box in use'
     gate: 'BLOCKING for v1.0.107 (Archie, 2026-10-01: a QA run on a box in use wrote to it). Registered in the same action as the filing. run_box_walk.sh:240 runs grounding_seed_apply, the preference and usage seeds and two wiki-recompile kickstarts before any probe, whatever --only selects. MEASURED on the v1.0.106 walk box during the owner''s console walk: 15 single-probe runs created and forgot the synthetic seed person 15 times and restarted the wiki recompile about 30 times; one interrupted run left the seed person in the People list until it was forgotten through the product route (people count N to N-1). CLOSES ON: a --read-only mode that issues no seed, forget or kickstart and reports seed-dependent probes as CANNOT-RUN; seeding refused without --allow-writes on a box marked in use; and a stub-box test that goes RED on the old runner and GREEN on the new one.'
+
+  - issue: 2565
+    repo: CM051
+    title: 'Timeline entries carry no source field, so a client cannot tell a verbatim calendar title from Ostler-written text'
+    gate: 'NOT BLOCKING for v1.0.107. Registered in the same action as the filing. GET /api/v1/timeline entries carry attendees, subtitle, timestamp, title and type, and items carry date, kind, location, participants and summary, with no source. The walk probe hub_screens_customer_read (CM051 #2561) exempts verbatim customer titles from its no-em-dash check by kind == event until this lands (TODO(#2565) at that line). CLOSES ON: every entry and item carries a non-empty source plus a verbatim-title flag, a timeline API test asserting it, and the probe exemption switched to the source field.'
