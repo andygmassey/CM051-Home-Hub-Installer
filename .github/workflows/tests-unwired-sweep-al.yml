@@ -133,6 +133,14 @@ jobs:
         if: always()
         run: bash tests/test_a_manual_brew_tarball_must_target_a_branch_that_still_exists.sh
 
+      # INDIVIDUAL STEP for the same reason as the one above (#2520): chat
+      # history survived a box_pristine reset AND a reinstall because it
+      # lives in WebKit localStorage, which neither the reset tool nor the
+      # shipped uninstaller had ever named.
+      - name: box_pristine and the generated uninstaller remove WebKit chat history
+        if: always()
+        run: bash tests/test_uninstall_and_pristine_remove_webkit_chat_history.sh
+
       # INDIVIDUAL STEP for the same reason as the one above (#2347).
       - name: The Apple Mail checkpoint lives under ~/.ostler, so a reinstall reads email
         if: always()
