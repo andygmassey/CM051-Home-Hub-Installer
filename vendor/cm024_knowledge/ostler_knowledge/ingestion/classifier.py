@@ -22,42 +22,13 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 from .enex_parser import ParsedNote
+from .._vendor.ostler_usage_journal import record_usage, tokens_from_ollama
 
 logger = logging.getLogger(__name__)
 
-# ── Usage journal: the `cm024k-ingest` producer (CM051 #2472) ─────────────
-#
-# This classifier's Ollama call is part of the one-time Evernote import, i.e.
-# purpose="ingesting" -- the same purpose as embedder.py (a sibling module
-# under ingestion/), but its own module-level session_id, per the contract's
-# "one id per process" rule. See embedder.py for the fuller rationale.
-_USAGE_SESSION_ID = "cm024k-ingest-" + datetime.now(timezone.utc).strftime(
-    "%Y-%m-%dT%H:%M:%SZ"
-)
-
-
-def _record_generate_usage(data: dict, model: str) -> None:
-    """Record one ``ingesting`` usage row from an Ollama ``/api/generate`` response.
-
-    Never raises. ``tokens_from_ollama`` returns ``(None, None)`` when Ollama
-    reported no counts, and ``record_usage`` then writes nothing -- measured,
-    never estimated.
-    """
-    try:
-        from .._vendor.ostler_usage_journal import record_usage, tokens_from_ollama
-
-        prompt, completion = tokens_from_ollama(data if isinstance(data, dict) else {})
-        record_usage(
-            model=model,
-            input_tokens=prompt,
-            output_tokens=completion,
-            purpose="ingesting",
-            session_id=_USAGE_SESSION_ID,
-        )
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.warning(
-            "usage journal write skipped (%s): %s", type(exc).__name__, exc
-        )
+# One run id per process for the lifetime of this module, used to group
+# usage-journal rows from the same ingest run.
+_USAGE_RUN_ID = "cm024k-ingest-" + datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # Compartment level names
@@ -365,7 +336,18 @@ class PrivacyClassifier:
                 response.raise_for_status()
                 data = response.json()
 
-            _record_generate_usage(data, self.llm_model)
+            try:
+                input_tokens, output_tokens = tokens_from_ollama(data)
+                record_usage(
+                    model=self.llm_model,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    purpose="ingesting",
+                    session_id=_USAGE_RUN_ID,
+                )
+            except Exception as usage_err:
+                logger.warning(f"Usage journal recording failed: {usage_err}")
+
             return self._parse_llm_response(data.get('response', ''))
 
         except Exception as e:
