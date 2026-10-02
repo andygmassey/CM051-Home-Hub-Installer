@@ -237,12 +237,22 @@ def is_possible_phone(raw: str, default_country_code: Optional[int] = None) -> b
     has not (yet) catalogued as assigned -- a worse outcome than the defect
     it was written to close.
 
-    What this STILL catches (CM051 walk-defect D, v1.0.107): a WhatsApp LID
-    or another app's internal id is not merely unassigned, it is the WRONG
-    LENGTH/SHAPE for any phone number at all -- ``is_possible_number`` checks
-    exactly that (digit count plausible for the claimed/defaulted country),
-    so a 14-digit bare id fails it whether or not a default country code is
-    configured, while a real, if obscure, phone number still passes.
+    THE 14/15-DIGIT DANGER ZONE IS THE ONE EXCEPTION, and it is not optional.
+    A WhatsApp LID or another app's internal id is not merely unassigned, it
+    is the WRONG LENGTH/SHAPE for a real phone number -- but ``is_possible_
+    number`` alone does not always catch that: a `+`-prefixed 14-digit value
+    can parse as "possible" under SOME country's numbering plan even though
+    it is not a phone number at all. Measured on a cold v1.0.107 install
+    (walk #2): 7 of 2,345 People rows still carried an exactly-14-digit
+    `+`-prefixed "phone" value that this function's first version waved
+    through -- ``is_possible_number`` True, ``is_valid_number`` False, on
+    every one of the 7. Below 14 raw digits ``is_possible_number`` alone is
+    trusted (that is what keeps the OFCOM fixture above passing: it is 12
+    digits). At 14 or more -- E.164's own ceiling is 15, so this is already
+    the outer edge of what a real number can be -- an unassigned range is no
+    longer good enough; ``is_valid_number`` must also agree, exactly as
+    ``is_valid_phone`` alone already requires CM051 #2543's ordinary
+    LID-shaped value (no leading '+') to.
 
     ``default_country_code=None`` means UNKNOWN (see ``normalise_phone``):
     a national-format number cannot be checked without a region, so it reads
@@ -261,7 +271,12 @@ def is_possible_phone(raw: str, default_country_code: Optional[int] = None) -> b
             parsed = phonenumbers.parse(cleaned, region)
         except phonenumbers.NumberParseException:
             return False
-    return phonenumbers.is_possible_number(parsed)
+    if not phonenumbers.is_possible_number(parsed):
+        return False
+    digit_count = sum(1 for ch in cleaned if ch.isdigit())
+    if digit_count >= 14 and not phonenumbers.is_valid_number(parsed):
+        return False
+    return True
 
 
 def normalise_email(email: str) -> str:
