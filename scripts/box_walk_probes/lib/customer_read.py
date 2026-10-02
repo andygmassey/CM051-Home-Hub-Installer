@@ -668,37 +668,49 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=120):
         except Exception as exc:
             f["api"]["config_error"] = str(exc)[:160]
 
-    # CM051 walk-probe fix (v1.0.107): DECLARED[13] ("no phone number appears
-    # on two rows") used to fail a shared landline between two distinct real
-    # people exactly as hard as a silent duplicate-contact-card defect, with
-    # no way to tell them apart from the People page alone. Read the SAME
-    # duplicate-review surface the customer's own Doctor "tidy your contacts"
-    # tab renders -- /api/v1/contacts/diff (identity_resolver.tidy.TidyEngine,
-    # read-only, writes nothing) -- and extract ONLY the bare digits of any
-    # phone_match pair's number, discarding the surrounding evidence text
-    # immediately: `details` holds a readable "Shared phone: <number> (names
-    # agree)" string, which must never survive into the walk artefact. A pair
-    # that shows up here (propose_merge OR review -- both are customer-visible
-    # cards; review is also exactly what CM051 #2604 routes a RULE-2-refused
-    # auto-merge into) is a number the customer can already see is shared and
-    # can already act on, which is not the same defect as a number nobody was
-    # ever told about.
-    try:
-        req = urllib.request.Request(base + "/api/v1/contacts/diff", headers={
-            "Authorization": "Bearer " + token})
-        with urllib.request.urlopen(req, timeout=180) as r:
-            diff = json.load(r)
-        reviewed = set()
-        for item in diff.get("items") or []:
-            strategy = (item.get("evidence") or {}).get("strategy") or ""
-            if not strategy.startswith("phone"):
-                continue
-            details = (item.get("evidence") or {}).get("details") or ""
-            for p in PHONE.findall(details):
-                reviewed.add(re.sub(r"\D", "", p))
-        f["duplicate_review_phones"] = sorted(reviewed)
-    except Exception as exc:
-        f["duplicate_review_phones_error"] = str(exc)[:160]
+        # CM051 walk-probe fix (v1.0.107, corrected walk #2): DECLARED[13]
+        # ("no phone number appears on two rows") used to fail a shared
+        # landline between two distinct real people exactly as hard as a
+        # silent duplicate-contact-card defect, with no way to tell them
+        # apart from the People page alone. Read the SAME duplicate-review
+        # surface the customer's own Doctor "tidy your contacts" tab renders
+        # -- /api/v1/contacts/diff (identity_resolver.tidy.TidyEngine,
+        # read-only, writes nothing) -- and extract ONLY the bare digits of
+        # any phone_match pair's number, discarding the surrounding evidence
+        # text immediately: `details` holds a readable "Shared phone:
+        # <number> (names agree)" string, which must never survive into the
+        # walk artefact. A pair that shows up here (propose_merge OR review
+        # -- both are customer-visible cards; review is also exactly what
+        # CM051 #2604 routes a RULE-2-refused auto-merge into) is a number
+        # the customer can already see is shared and can already act on,
+        # which is not the same defect as a number nobody was ever told
+        # about.
+        #
+        # THIS MUST GO THROUGH doctor_base, NOT base. Walk #1 of this fix
+        # used `base` (the Hub app, :8000) and 404'd every time -- measured
+        # on macmini16-walk: :8000 404s this path, :8090 (ical-server, the
+        # actual handler) answers 200. doctor_base is the Doctor's own
+        # FastAPI app (:8089, same as the /api/v1/sources and /api/v1/config
+        # calls just above), which proxies /api/v1/contacts/diff through to
+        # ical-server via DOCTOR_PROXY_PATHS (install.sh; CM051 walk #2 also
+        # added this path to that list, since it was missing there too and
+        # the Doctor UI itself could not have reached it either).
+        try:
+            req = urllib.request.Request(doctor_base + "/api/v1/contacts/diff", headers={
+                "Authorization": "Bearer " + token})
+            with urllib.request.urlopen(req, timeout=180) as r:
+                diff = json.load(r)
+            reviewed = set()
+            for item in diff.get("items") or []:
+                strategy = (item.get("evidence") or {}).get("strategy") or ""
+                if not strategy.startswith("phone"):
+                    continue
+                details = (item.get("evidence") or {}).get("details") or ""
+                for p in PHONE.findall(details):
+                    reviewed.add(re.sub(r"\D", "", p))
+            f["duplicate_review_phones"] = sorted(reviewed)
+        except Exception as exc:
+            f["duplicate_review_phones_error"] = str(exc)[:160]
     return f
 
 
