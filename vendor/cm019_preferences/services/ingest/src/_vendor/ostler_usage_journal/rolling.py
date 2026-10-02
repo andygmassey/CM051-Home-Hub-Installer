@@ -35,10 +35,16 @@ class RollingUsageRecorder:
     rollup cuts that by roughly two orders of magnitude while keeping token
     totals exact (real sums, never estimates).
 
-    AN UNMEASURED CALL CONTRIBUTES NOTHING, THE SAME RULE AS ``record_usage``
-    ITSELF. ``add(None, None)`` folds in neither a token nor a call -- it is
-    not "folded in as zero". A bucket must never be able to look measured
-    (a call counted) while carrying no real tokens.
+    NEVER DROPS A CALL (Andy's product rule, 2026-10-02: "I'd rather Bursar
+    overcounted, than undercounted"). ``add(None, None)`` on its own folds in
+    neither a token nor a call. But a caller that also passes
+    ``estimated_input_tokens`` (a chars/4 estimate of the text it actually
+    submitted) gets that estimate folded in instead of the call being
+    silently dropped, erring toward overcounting rather than under. The
+    bucket is marked estimated and its flushed row's session_id carries an
+    "-est" suffix, so an estimated row stays distinguishable from a purely
+    measured one even though no dedicated wire-format field exists for it
+    yet.
 
     One instance per (model, purpose) combination in a process. Flushes
     when ``window_seconds`` have elapsed since the bucket opened (checked
@@ -71,6 +77,7 @@ class RollingUsageRecorder:
         self._input_tokens = 0
         self._output_tokens = 0
         self._calls = 0
+        self._bucket_has_estimate = False
         atexit.register(self.flush)
         self._install_signal_flush()
 
@@ -80,20 +87,37 @@ class RollingUsageRecorder:
         is an int subclass), non-ints, and non-positive values."""
         return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
-    def add(self, input_tokens, output_tokens):
-        """Fold one call's MEASURED token counts into the open bucket.
+    def add(self, input_tokens, output_tokens, *, estimated_input_tokens=None):
+        """Fold one call's token counts into the open bucket. NEVER DROPS A
+        CALL (Andy's product rule, 2026-10-02: "I'd rather Bursar
+        overcounted, than undercounted").
 
         Pass ``None`` for a count the runtime did not report, same contract
-        as :func:`record_usage`. A call where NEITHER count is measured
-        contributes nothing: it does not open a bucket, does not add a
-        call, and does not touch the token sums.
+        as :func:`record_usage`. When Ollama reported NOTHING measurable for
+        input, and the caller supplies ``estimated_input_tokens`` (a chars/4
+        estimate of the text actually submitted), that estimate is folded in
+        instead of dropping the call -- erring toward overcounting, not
+        undercounting. The bucket is marked estimated (its session_id gets
+        an "-est" suffix on flush) so an estimated row stays distinguishable
+        from a purely measured one, short of a wire-format change.
+
+        A call with no measured count AND no estimate available still
+        contributes nothing -- there is no number to write, estimated or
+        otherwise.
         """
         import time
 
         has_input = self._measured(input_tokens)
         has_output = self._measured(output_tokens)
+        used_estimate = False
+
         if not has_input and not has_output:
-            return
+            if self._measured(estimated_input_tokens):
+                input_tokens = estimated_input_tokens
+                has_input = True
+                used_estimate = True
+            else:
+                return
 
         with self._lock:
             now = time.monotonic()
@@ -111,6 +135,8 @@ class RollingUsageRecorder:
             if has_output:
                 self._output_tokens += output_tokens
             self._calls += 1
+            if used_estimate:
+                self._bucket_has_estimate = True
 
     def flush(self):
         """Write the accumulated bucket as one journal row, if non-empty."""
@@ -144,13 +170,23 @@ class RollingUsageRecorder:
     def _flush_locked(self):
         if self._calls == 0:
             return
+        # "-est" suffix (Andy's product rule, 2026-10-02): no wire-format
+        # field exists yet for "this row includes an estimate", so the
+        # session_id is the honest, low-risk way to keep an estimated row
+        # distinguishable without touching the pinned record_usage schema.
+        # A reader that does not know this suffix still gets a correct,
+        # slightly-higher-than-strictly-measured total -- the erring
+        # direction Andy asked for -- it just cannot yet filter it out.
+        session_id = self._session_id
+        if self._bucket_has_estimate:
+            session_id = session_id + "-est"
         try:
             record_usage(
                 model=self._model,
                 input_tokens=self._input_tokens,
                 output_tokens=self._output_tokens,
                 purpose=self._purpose,
-                session_id=self._session_id,
+                session_id=session_id,
                 journal_path=self._journal_path,
             )
         except Exception:  # noqa: BLE001 - accounting must never raise
@@ -167,3 +203,4 @@ class RollingUsageRecorder:
             self._input_tokens = 0
             self._output_tokens = 0
             self._calls = 0
+            self._bucket_has_estimate = False

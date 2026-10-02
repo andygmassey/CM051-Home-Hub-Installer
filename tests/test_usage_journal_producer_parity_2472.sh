@@ -361,8 +361,16 @@ for name in cm019_vectorizer cm024k_embedder cm024k_classifier cm024k_email_summ
                               || bad "${name}: at least one row has the wrong session_id prefix"
     [ "$purpose_ok" = "True" ] && ok "${name}: every row carries its declared purpose" \
                                || bad "${name}: at least one row has the wrong purpose"
-    [ "$unmeasured_new" = "0" ] && ok "${name}: MUST-MISS -- one unmeasured call adds zero rows" \
-                                 || bad "${name}: an unmeasured call added ${unmeasured_new} row(s) (want 0)"
+    if [ "$name" = "cm019_vectorizer" ]; then
+        # ESTIMATE ON MISS, not must-miss (Andy's product rule, 2026-10-02):
+        # this producer never drops a call, so its unmeasured probe must
+        # add exactly one ESTIMATED row, not zero.
+        [ "$unmeasured_new" = "1" ] && ok "${name}: an unmeasured call is NOT dropped -- it adds one estimated row" \
+                                     || bad "${name}: an unmeasured call added ${unmeasured_new} row(s) (want 1, estimated)"
+    else
+        [ "$unmeasured_new" = "0" ] && ok "${name}: MUST-MISS -- one unmeasured call adds zero rows" \
+                                     || bad "${name}: an unmeasured call added ${unmeasured_new} row(s) (want 0)"
+    fi
 done
 
 grep -q 'EMBEDDER_TOKENS_OK' <<<"$out" && ok "cm024k_embedder: the rolled-up row sums ALL ${N} calls' tokens (no call dropped by the rollup)" \

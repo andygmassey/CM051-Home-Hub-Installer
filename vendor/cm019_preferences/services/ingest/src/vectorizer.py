@@ -119,7 +119,16 @@ class Vectorizer:
                         prompt, completion = tokens_from_ollama(
                             data if isinstance(data, dict) else {}
                         )
-                        self._usage_recorder.add(prompt, completion)
+                        # Never drop a call (Andy's product rule, 2026-10-02:
+                        # "I'd rather Bursar overcounted, than undercounted").
+                        # When Ollama reports no prompt_eval_count at all,
+                        # fall back to a chars/4 estimate of the text this
+                        # chunk actually submitted, rather than losing the
+                        # call to the panel entirely.
+                        estimated_prompt = max(1, sum(len(t) for t in chunk) // 4)
+                        self._usage_recorder.add(
+                            prompt, completion, estimated_input_tokens=estimated_prompt
+                        )
                     except Exception as usage_exc:  # pragma: no cover - defensive
                         logger.warning(
                             "usage journal write skipped (%s): %s",

@@ -66,3 +66,26 @@ for the rollup shape: a write is not visible until `flush()`) and the
 all three calls' measured tokens -- proving no call's tokens were dropped by
 the rollup). Both confirmed RED against the pre-fix per-call code before
 this change.
+
+## 2026-10-02, same day: estimate on miss, never drop a call
+
+Andy's product rule, same review: "I'd rather Bursar overcounted, than
+undercounted." `RollingUsageRecorder.add()` gained an optional
+`estimated_input_tokens` kwarg: when Ollama reports no `prompt_eval_count` at
+all, `vectorizer.py` now computes a chars/4 estimate of the text it actually
+submitted and folds that in instead of dropping the call. The flushed row's
+`session_id` gets an "-est" suffix so it stays distinguishable from a purely
+measured row, short of a dedicated wire-format field (none exists yet; filed
+as a follow-up, not done here).
+
+This is scoped to `cm019_preferences`'s vectorizer ONLY, the one producer
+this walk-defect review actually touched. The other four #2472 producers
+(`cm024k_embedder`, `cm024k_classifier`, `cm024k_email_summarizer`,
+`cm059_scout_newsletters`) are UNCHANGED and still write nothing on a miss --
+whether to roll this rule out estate-wide, and whether to add a real
+"estimated" field to the Rust `TokenUsage` schema so the UI can show it
+honestly, are decisions for Archie/Andy, not assumed here.
+
+Proven by execution, same two files: both now also assert that an
+unmeasured call writes one ESTIMATED row (not zero), with the `-est` suffix
+and the correct chars/4 value.

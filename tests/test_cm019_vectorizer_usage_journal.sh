@@ -34,8 +34,19 @@
 # for consistency and the same size reduction. A call no longer appears on
 # disk until the window elapses or ``flush()`` is called explicitly.
 #
+# ESTIMATE ON MISS, NOT MUST-MISS (Andy's product rule, 2026-10-02: "I'd
+# rather Bursar overcounted, than undercounted"). This producer is the one
+# the walk-defect review touched directly, so it is the one carrying this
+# change: an Ollama response with no token counts no longer writes nothing.
+# It writes a chars/4 estimate of the text actually submitted, flagged by an
+# "-est" session_id suffix, so a call is never silently dropped from the
+# panel. The other four #2472 producers (cm024k_classifier, cm024k_email_
+# summarizer, cm024k_embedder, cm059_scout_newsletters) are UNCHANGED by
+# this rule for now and still write nothing on a miss -- scoped here,
+# deliberately, pending a decision on rolling it out estate-wide.
+#
 # ===========================================================================
-# WHAT IS ASSERTED (6 assertions + 1 control)
+# WHAT IS ASSERTED (8 assertions + 1 control)
 # ===========================================================================
 #   CONTROL 0  the control itself is live
 #   1  vendor/.../src/_vendor/ostler_usage_journal/usage_journal.py EXISTS
@@ -44,8 +55,10 @@
 #      writes ONE record
 #   4  the record's session_id carries the "cm019-ingest-" prefix
 #   5  the record's purpose is "ingesting"
-#   6  MUST-MISS: an Ollama response with no token counts, then flush(),
-#      writes NOTHING ("measured, never estimated")
+#   6  an Ollama response with no token counts, then flush(), is NOT
+#      dropped: it writes ONE estimated record
+#   7  the estimated record's session_id carries the "-est" suffix
+#   8  the estimate equals chars/4 of the text actually submitted
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -161,15 +174,28 @@ print("PREFIX_OK" if rec["session_id"].startswith("cm019-ingest-") else
 print("PURPOSE_OK" if rec["usage"]["purpose"] == "ingesting" else
       f"PURPOSE_BAD {rec['usage']['purpose']}")
 
-# MUST-MISS: no counts reported -> nothing written, even after flush().
+# ESTIMATE ON MISS (Andy's product rule, 2026-10-02: "I'd rather Bursar
+# overcounted, than undercounted"). No counts reported -> the call is NOT
+# dropped: a chars/4 estimate of the submitted text is recorded instead,
+# and the row is flagged by an "-est" session_id suffix.
+UNMEASURED_TEXT = "another synthetic sentence, twenty eight chars"  # len == 48
 def fake_post_unmeasured(self, url, json=None, **kw):
     return FakeResp({"embeddings": [[0.1, 0.2]]})
 httpx.Client.post = fake_post_unmeasured
 before2 = len(lines())
-v.embed_batch(["another synthetic sentence"])
+v.embed_batch([UNMEASURED_TEXT])
 v._usage_recorder.flush()
-after2 = len(lines())
-print("UNMEASURED_SILENT" if before2 == after2 else f"UNMEASURED_WROTE {before2}->{after2}")
+after2 = lines()
+if len(after2) != before2 + 1:
+    print(f"ESTIMATE_NOT_WRITTEN before={before2} after={len(after2)}")
+    raise SystemExit(0)
+est_rec = after2[-1]
+print("ESTIMATE_WROTE_ONE")
+print("EST_SUFFIX_OK" if est_rec["session_id"].endswith("-est") else
+      f"EST_SUFFIX_BAD {est_rec['session_id']}")
+want = max(1, len(UNMEASURED_TEXT) // 4)
+print("EST_TOKENS_OK" if est_rec["usage"]["input_tokens"] == want else
+      f"EST_TOKENS_BAD got={est_rec['usage']['input_tokens']} want={want}")
 PY
 )
 
@@ -189,8 +215,12 @@ grep -q 'PREFIX_OK'         <<<"$out" && ok "session_id carries the cm019-ingest
                                       || bad "session_id prefix is wrong: $(grep -o 'PREFIX_BAD.*' <<<"$out")"
 grep -q 'PURPOSE_OK'        <<<"$out" && ok "purpose is 'ingesting'" \
                                       || bad "purpose is wrong: $(grep -o 'PURPOSE_BAD.*' <<<"$out")"
-grep -q 'UNMEASURED_SILENT' <<<"$out" && ok "MUST-MISS: an unmeasured response writes nothing (no invented numbers)" \
-                                      || bad "the must-miss arm did not pass: $(grep -o 'UNMEASURED_WROTE.*' <<<"$out")"
+grep -q 'ESTIMATE_WROTE_ONE' <<<"$out" && ok "an unmeasured response is NOT dropped: one estimated row is written" \
+                                       || bad "estimate-on-miss did not write a row: $(grep -o 'ESTIMATE_NOT_WRITTEN.*' <<<"$out")"
+grep -q 'EST_SUFFIX_OK'      <<<"$out" && ok "the estimated row's session_id carries the -est suffix" \
+                                       || bad "the -est suffix is missing: $(grep -o 'EST_SUFFIX_BAD.*' <<<"$out")"
+grep -q 'EST_TOKENS_OK'      <<<"$out" && ok "the estimate is chars/4 of the actually-submitted text" \
+                                       || bad "the estimate is wrong: $(grep -o 'EST_TOKENS_BAD.*' <<<"$out")"
 
 echo
 echo "  passed ${pass}, failed ${fail}"
