@@ -90,6 +90,25 @@ WIDTH_MIN = 0.95
 STRIP_ADDRESSES = re.compile(r"\S+@\S+|https?://\S+|\S*\?\S*=\S*")
 
 
+# Local calls never go through a proxy. The walk driver may carry HTTP_PROXY
+# with no NO_PROXY (measured 2026-10-03 on a laptop running a local privacy
+# proxy), and urllib then sends the forwarded 127.0.0.1 ports through it and
+# reads back "503 Forwarding failure", which looks exactly like the product
+# failing. Every HTTP call this probe makes is to a forwarded loopback port, so
+# it uses an opener with no proxies at all, and refuses a non-loopback URL.
+_LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+
+
+def _local_urlopen(req, timeout):
+    import urllib.parse
+    import urllib.request
+    url = req.full_url if hasattr(req, "full_url") else req
+    host = (urllib.parse.urlsplit(url).hostname or "").lower()
+    if host not in _LOOPBACK_HOSTS:
+        raise ValueError("not a loopback URL, refusing to bypass the proxy for it: host={}".format(host))
+    return urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=timeout)
+
+
 def source_of(label):
     l = (label or "").strip().lower()
     for src, labels in SOURCE_LABELS.items():
@@ -654,14 +673,14 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=120):
     import urllib.request
     if doctor_base:
         try:
-            with urllib.request.urlopen(doctor_base + "/api/v1/sources", timeout=20) as r:
+            with _local_urlopen(doctor_base + "/api/v1/sources", timeout=20) as r:
                 f["api"]["sources"] = [[s.get("source"), s.get("status")] for s in json.load(r).get("sources") or []]
         except Exception as exc:
             f["api"]["sources_error"] = str(exc)[:160]
         req = urllib.request.Request(doctor_base + "/api/v1/config", headers={
             "Authorization": "Bearer " + token, "Origin": "tauri://localhost", "Sec-Fetch-Site": "cross-site"})
         try:
-            with urllib.request.urlopen(req, timeout=20) as r:
+            with _local_urlopen(req, timeout=20) as r:
                 f["api"]["config_as_app"] = r.status
         except urllib.error.HTTPError as exc:
             f["api"]["config_as_app"] = exc.code
@@ -686,7 +705,7 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=120):
     try:
         req = urllib.request.Request(base + "/api/v1/contacts/diff", headers={
             "Authorization": "Bearer " + token})
-        with urllib.request.urlopen(req, timeout=180) as r:
+        with _local_urlopen(req, timeout=180) as r:
             diff = json.load(r)
         reviewed = set()
         for item in diff.get("items") or []:
@@ -825,8 +844,66 @@ MUTANTS = [
 MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]))
 
 
+def _proxy_bypass_self_test():
+    """A dead HTTP_PROXY is set. A loopback call through _local_urlopen must
+    still answer; a plain urlopen of the same URL must fail through the proxy
+    (the control: it proves the fake proxy is really in effect); and a
+    non-loopback URL must be refused rather than sent around the proxy."""
+    import http.server
+    import threading
+    import urllib.request
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+        def log_message(self, *a):
+            pass
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = "http://127.0.0.1:{}/".format(srv.server_address[1])
+    keys = ("HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy")
+    saved = {k: os.environ.get(k) for k in keys}
+    try:
+        for k in ("NO_PROXY", "no_proxy"):
+            os.environ.pop(k, None)
+        os.environ["HTTP_PROXY"] = os.environ["http_proxy"] = "http://127.0.0.1:9"
+        control_failed = False
+        try:
+            urllib.request.urlopen(url, timeout=3).read()
+        except Exception:
+            control_failed = True
+        try:
+            body = _local_urlopen(url, timeout=3).read()
+        except Exception as exc:
+            body = ("ERR " + str(exc)).encode()
+        refused_remote = False
+        try:
+            _local_urlopen("http://example.com/", timeout=3)
+        except ValueError:
+            refused_remote = True
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        srv.shutdown()
+    return control_failed, body == b"ok", refused_remote
+
+
 def self_test():
     import copy
+    ctl, ok, refused = _proxy_bypass_self_test()
+    if not ctl:
+        print("SELF-TEST BROKEN: the fake proxy did not affect a plain urlopen, so the bypass arm proves nothing")
+        return EX_FAIL
+    if not ok or not refused:
+        print("SELF-TEST FAIL: loopback call through a dead HTTP_PROXY ok={} non-loopback refused={}".format(ok, refused))
+        return EX_FAIL
+    print("  ok    a loopback call bypasses a dead HTTP_PROXY (control: a plain urlopen fails through it); a non-loopback URL is refused")
     base = judge(_good())
     bad = [(n, d) for n, ok, d in base if ok is not True and ok != NA]
     if bad:

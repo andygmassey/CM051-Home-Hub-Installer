@@ -59,6 +59,18 @@ PROBE_EX_PASS=0
 PROBE_EX_FAIL=1
 PROBE_EX_CANNOT_RUN=78
 
+# LOOPBACK NEVER GOES THROUGH A PROXY. The walk driver may carry HTTP_PROXY with
+# no NO_PROXY (measured 2026-10-03: a laptop running a local privacy proxy).
+# Then every driver-side call to a forwarded 127.0.0.1 port (curl, Python
+# urllib, the Playwright browser) is sent to the proxy and comes back
+# "503 Forwarding failure", which reads exactly like the product failing.
+# Loopback is appended to whatever NO_PROXY already says, never replacing it,
+# so a remote host still goes through the operator's proxy.
+_probe_loopback="127.0.0.1,localhost,::1"
+NO_PROXY="${_probe_loopback}${NO_PROXY:+,${NO_PROXY}}"
+no_proxy="${_probe_loopback}${no_proxy:+,${no_proxy}}"
+export NO_PROXY no_proxy
+
 # Set by probe_examined. Starts unset ON PURPOSE: a probe that reports a
 # verdict without ever declaring a denominator is refused below, because an
 # unstated denominator is how "0 of 0" reads as success.
