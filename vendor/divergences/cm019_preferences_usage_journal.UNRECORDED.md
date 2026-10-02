@@ -39,3 +39,30 @@ describes — out of scope for this change and not this PR's decision to make.
   (verbatim copy of `vendor/cm048_pipeline/src/_vendor/ostler_usage_journal/`)
 - proven by execution, not by this record: `tests/test_cm019_vectorizer_usage_journal.sh`
   and the embedder arm of `tests/test_usage_journal_producer_parity_2472.sh`
+
+## 2026-10-02: moved from per-call writes to a 60-second rollup
+
+A live walk (v1.0.107 candidate) measured `cm019_preferences`'s vectorizer
+writing 1,099 journal rows from a single ingest run under the per-call shape
+this file originally described -- a meaningful share of total journal
+volume, with no rotation on the journal and no cache on the Bursar's
+monthly-summary reader. `vectorizer.py` now holds a `RollingUsageRecorder`
+(new sibling file,
+`vendor/cm019_preferences/services/ingest/src/_vendor/ostler_usage_journal/rolling.py`,
+kept separate from `usage_journal.py` because that file carries a "DO NOT
+EDIT" banner pinning it byte-identical to its canonical HR015 source) that
+sums real measured tokens across a 60-second window per (model, purpose) and
+writes ONE rolled-up row on flush, matching the same fix already applied to
+`cm024_knowledge`'s embedder for the identical reason.
+
+`__init__.py` under that `_vendor/ostler_usage_journal/` directory changed
+too, to export `RollingUsageRecorder` from the new `rolling.py` alongside
+the existing re-exports from the pinned `usage_journal.py`.
+
+Proven by execution: `tests/test_cm019_vectorizer_usage_journal.sh` (updated
+for the rollup shape: a write is not visible until `flush()`) and the
+`cm019_vectorizer` arm of `tests/test_usage_journal_producer_parity_2472.sh`
+(N=3 calls fold into exactly 1 row, whose `input_tokens` is the exact SUM of
+all three calls' measured tokens -- proving no call's tokens were dropped by
+the rollup). Both confirmed RED against the pre-fix per-call code before
+this change.

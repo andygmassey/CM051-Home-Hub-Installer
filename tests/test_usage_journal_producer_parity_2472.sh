@@ -37,32 +37,34 @@
 # uses for the roster's existing rows.
 #
 # ===========================================================================
-# THE cm024k_embedder EXCEPTION, after the clean re-vendor from
-# andygmassey/evernote-knowledge@e0196b10 (PR #18)
+# THE ROLLUP EXCEPTION: cm019_vectorizer, cm024k_embedder
 # ===========================================================================
 #
-# Upstream's embedder.py does not write one row per call: it holds a
-# ``RollingUsageRecorder`` that SUMS measured tokens across a 60-second
-# window per (model, purpose) and writes ONE rolled-up row on flush -- a
-# deliberate tradeoff upstream made after a live walk measured ~13,600 embed
-# calls/hour (one row per call there would be ~86 MB/day with no rotation).
-# So for this ONE caller the parity claim is not "N calls -> N rows", it is
-# "N calls -> 1 row, carrying the SUM of all N calls' measured tokens" --
-# which is the stronger, correct statement of "no call's tokens went
-# missing" for a producer that intentionally batches its writes. The other
-# four callers stay strictly per-call and are asserted N calls -> N rows.
+# Both of these hold a ``RollingUsageRecorder`` that SUMS measured tokens
+# across a 60-second window per (model, purpose) and writes ONE rolled-up
+# row on flush -- a deliberate tradeoff made after a live walk measured
+# ~13,600 embed calls/hour between the two of them combined (one row per
+# call there would be ~86-89 MB/day with no rotation; cm019 alone wrote
+# 1,099 rows from a single ingest run under the old per-call shape, per the
+# 2026-10-02 walk-defect review that moved it onto the same rollup
+# cm024k_embedder already had). So for these TWO callers the parity claim
+# is not "N calls -> N rows", it is "N calls -> 1 row, carrying the SUM of
+# all N calls' measured tokens" -- the stronger, correct statement of "no
+# call's tokens went missing" for a producer that intentionally batches its
+# writes. The other three callers stay strictly per-call and are asserted
+# N calls -> N rows.
 #
 # ===========================================================================
 # WHAT IS ASSERTED
 # ===========================================================================
 #   CONTROL 0  python3 + httpx are available (CANNOT-RUN otherwise, never FAIL)
-#   cm019_vectorizer, cm024k_classifier, cm024k_email_summarizer,
-#   cm059_scout_newsletters: N=3 measured calls -> exactly 3 new rows each,
-#   with the caller's purpose and session-id prefix (12 rows total).
-#   cm024k_embedder: N=3 measured calls + flush() -> exactly 1 rolled-up row,
-#   whose input_tokens equals exactly 3x the per-call measured tokens (no
-#   call's tokens silently dropped by the rollup).
-#   PLUS one must-miss call (+flush() for the rollup caller) per caller that
+#   cm024k_classifier, cm024k_email_summarizer, cm059_scout_newsletters:
+#   N=3 measured calls -> exactly 3 new rows each, with the caller's purpose
+#   and session-id prefix (9 rows total).
+#   cm019_vectorizer, cm024k_embedder: N=3 measured calls + flush() -> exactly
+#   1 rolled-up row each, whose input_tokens equals exactly 3x the per-call
+#   measured tokens (no call's tokens silently dropped by the rollup).
+#   PLUS one must-miss call (+flush() for each rollup caller) per caller that
 #   must add ZERO rows (5 more checks).
 #   A FINAL aggregate: total new rows this run == 13 exactly (3+3+3+3+1), the
 #   parity claim itself, not just five separate "some rows appeared".
@@ -144,11 +146,30 @@ before = len(all_rows())
 httpx.Client.post = post_measured_embed
 for i in range(N):
     v.embed_batch([f"synthetic sentence {i}"])
+# ROLLUP (walk-defect review, 2026-10-02): N calls land in one open 60s
+# bucket; flush() is the documented, public way to force it to disk without
+# waiting out the real window.
+v._usage_recorder.flush()
 after_measured = len(all_rows())
 httpx.Client.post = post_unmeasured_embed
 v.embed_batch(["synthetic unmeasured sentence"])
+v._usage_recorder.flush()
 after_unmeasured = len(all_rows())
-check_caller("cm019_vectorizer", "cm019-ingest-", "ingesting", before, after_measured, after_unmeasured, N)
+check_caller("cm019_vectorizer", "cm019-ingest-", "ingesting", before, after_measured, after_unmeasured, 1)
+
+# TOKEN-SUM CONSERVATION, same statement as cm024k_embedder below: the
+# correct parity claim for a rolled-up producer is "N calls -> 1 row
+# carrying the SUM of all N calls' measured tokens", not "N calls -> N rows".
+VECTORIZER_TOKENS_PER_CALL = 7  # must match post_measured_embed's prompt_eval_count
+_vectorizer_rows = all_rows()[before:after_measured]
+if (
+    len(_vectorizer_rows) == 1
+    and _vectorizer_rows[0]["usage"]["input_tokens"] == N * VECTORIZER_TOKENS_PER_CALL
+):
+    print("VECTORIZER_TOKENS_OK")
+else:
+    _got = _vectorizer_rows[0]["usage"]["input_tokens"] if len(_vectorizer_rows) == 1 else "N/A"
+    print(f"VECTORIZER_TOKENS_BAD got={_got} want={N * VECTORIZER_TOKENS_PER_CALL}")
 
 # --------------------------------------------------------------------- cm024
 sys.path.insert(0, str(repo / "vendor/cm024_knowledge"))
@@ -329,7 +350,7 @@ for name in cm019_vectorizer cm024k_embedder cm024k_classifier cm024k_email_summ
     purpose_ok=$(sed -n 's/.*purpose_ok=\([A-Za-z]*\).*/\1/p' <<<"$line")
     unmeasured_new=$(sed -n 's/.*unmeasured_new=\([0-9]*\).*/\1/p' <<<"$line")
 
-    if [ "$name" = "cm024k_embedder" ]; then
+    if [ "$name" = "cm024k_embedder" ] || [ "$name" = "cm019_vectorizer" ]; then
         [ "$rows" = "$expected_rows" ] && ok "${name}: ${N} measured calls, rolled up -> exactly ${expected_rows} row" \
                            || bad "${name}: expected exactly ${expected_rows} rolled-up row for ${N} measured calls, got ${rows}"
     else
@@ -346,11 +367,13 @@ done
 
 grep -q 'EMBEDDER_TOKENS_OK' <<<"$out" && ok "cm024k_embedder: the rolled-up row sums ALL ${N} calls' tokens (no call dropped by the rollup)" \
                                        || bad "cm024k_embedder: rolled-up token sum is wrong: $(grep -o 'EMBEDDER_TOKENS_BAD.*' <<<"$out")"
+grep -q 'VECTORIZER_TOKENS_OK' <<<"$out" && ok "cm019_vectorizer: the rolled-up row sums ALL ${N} calls' tokens (no call dropped by the rollup)" \
+                                         || bad "cm019_vectorizer: rolled-up token sum is wrong: $(grep -o 'VECTORIZER_TOKENS_BAD.*' <<<"$out")"
 
 total=$(grep -o 'TOTAL_MEASURED [0-9]*' <<<"$out" | awk '{print $2}')
 expected=$(grep -o 'EXPECTED_TOTAL [0-9]*' <<<"$out" | awk '{print $2}')
 if [ -n "$total" ] && [ -n "$expected" ] && [ "$total" = "$expected" ]; then
-    ok "PARITY: ${total} journal rows across 5 callers, matching each caller's expected shape (4 per-call x N=${N}, 1 rolled-up)"
+    ok "PARITY: ${total} journal rows across 5 callers, matching each caller's expected shape (3 per-call x N=${N}, 2 rolled-up)"
 else
     bad "PARITY BROKEN: ${total:-<none>} rows written against ${expected:-<none>} expected"
 fi

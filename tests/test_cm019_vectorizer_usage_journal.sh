@@ -26,17 +26,26 @@
 # deliberately carries no row for this producer yet (see cut-manifests/
 # v1.0.107.yaml), so the contract is read from the module, not the roster.
 #
+# ROLLED UP, NOT PER-CALL (walk-defect review, 2026-10-02): the first cut of
+# this fix wrote one row per actual HTTP response. A live walk measured this
+# vectorizer alone writing 1,099 rows from a single ingest run -- a
+# meaningful share of journal volume with no rotation. Moved onto the same
+# 60-second ``RollingUsageRecorder`` cm024_knowledge's embedder already uses,
+# for consistency and the same size reduction. A call no longer appears on
+# disk until the window elapses or ``flush()`` is called explicitly.
+#
 # ===========================================================================
 # WHAT IS ASSERTED (6 assertions + 1 control)
 # ===========================================================================
 #   CONTROL 0  the control itself is live
 #   1  vendor/.../src/_vendor/ostler_usage_journal/usage_journal.py EXISTS
-#   2  vectorizer.py imports the writer
-#   3  RUNNING embed_batch() against a measured response writes ONE record
+#   2  vectorizer.py imports the rolling-usage writer
+#   3  RUNNING embed_batch() against a measured response, then flush(),
+#      writes ONE record
 #   4  the record's session_id carries the "cm019-ingest-" prefix
 #   5  the record's purpose is "ingesting"
-#   6  MUST-MISS: an Ollama response with no token counts writes NOTHING
-#      ("measured, never estimated")
+#   6  MUST-MISS: an Ollama response with no token counts, then flush(),
+#      writes NOTHING ("measured, never estimated")
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -71,10 +80,10 @@ else
 fi
 
 # --- 2: the wiring, as a spelling (cheap, not the real assertion) --------
-if grep -q 'from ._vendor.ostler_usage_journal import record_usage' "$VECTORIZER"; then
-    ok "vectorizer.py imports record_usage"
+if grep -q 'from ._vendor.ostler_usage_journal import RollingUsageRecorder' "$VECTORIZER"; then
+    ok "vectorizer.py imports RollingUsageRecorder"
 else
-    bad "vectorizer.py does NOT import record_usage"
+    bad "vectorizer.py does NOT import RollingUsageRecorder"
 fi
 
 # --- 3..6: BEHAVIOUR. Run it. ---------------------------------------------
@@ -129,9 +138,18 @@ class FakeResp:
 def fake_post_measured(self, url, json=None, **kw):
     return FakeResp({"embeddings": [[0.1, 0.2]], "prompt_eval_count": 7, "eval_count": 0})
 
+# ONE instance, reused -- matching the real call shape (pipeline.py imports
+# the module-level `vectorizer = Vectorizer()` singleton and never
+# reconstructs it). Calling Vectorizer() fresh each time would be wrong here
+# for a reason specific to this class: __init__ reruns on every call even
+# though __new__ returns the same singleton object, so a fresh call would
+# silently replace _usage_recorder mid-test.
+v = vec_mod.Vectorizer()
+
 httpx.Client.post = fake_post_measured
 before = len(lines())
-vec_mod.Vectorizer().embed_batch(["a synthetic sentence, no person in it"])
+v.embed_batch(["a synthetic sentence, no person in it"])
+v._usage_recorder.flush()
 after = lines()
 if len(after) != before + 1:
     print(f"NO_RECORD_WRITTEN before={before} after={len(after)}")
@@ -143,12 +161,13 @@ print("PREFIX_OK" if rec["session_id"].startswith("cm019-ingest-") else
 print("PURPOSE_OK" if rec["usage"]["purpose"] == "ingesting" else
       f"PURPOSE_BAD {rec['usage']['purpose']}")
 
-# MUST-MISS: no counts reported -> nothing written.
+# MUST-MISS: no counts reported -> nothing written, even after flush().
 def fake_post_unmeasured(self, url, json=None, **kw):
     return FakeResp({"embeddings": [[0.1, 0.2]]})
 httpx.Client.post = fake_post_unmeasured
 before2 = len(lines())
-vec_mod.Vectorizer().embed_batch(["another synthetic sentence"])
+v.embed_batch(["another synthetic sentence"])
+v._usage_recorder.flush()
 after2 = len(lines())
 print("UNMEASURED_SILENT" if before2 == after2 else f"UNMEASURED_WROTE {before2}->{after2}")
 PY

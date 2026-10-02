@@ -20,10 +20,17 @@ USAGE JOURNAL (CM051, #2472): every ``/api/embed`` call here is the customer's
 own preference-export ingest, i.e. ``purpose="ingesting"``. CM019 has no
 Ollama call upstream at all (it embeds via sentence-transformers), so there is
 no source-repo fix to graft -- this wiring can only exist here, vendor-side,
-alongside the HTTP-client swap above. One row per ACTUAL HTTP response (the
-batching loop may make several), never one per logical ``embed_batch`` call.
-See ``vendor/cm048_pipeline/src/ollama_client.py::_record_model_usage`` for
-the template this follows.
+alongside the HTTP-client swap above.
+
+ROLLED UP, NOT PER-CALL (walk-defect review, 2026-10-02): the first cut
+here wrote one journal row per ACTUAL HTTP response. Measured on a live
+walk: this vectorizer alone wrote 1,099 journal rows from a single ingest
+run, a meaningful share of total journal volume with no rotation and no
+cache on the Bursar's monthly-summary reader. Switched to the same
+60-second ``RollingUsageRecorder`` already used by cm024_knowledge's
+embedder (CM051 #2472 volume review) for consistency and the same
+size reduction: real measured tokens summed into one row per window,
+never estimated.
 """
 
 import logging
@@ -34,7 +41,7 @@ from typing import List, Optional
 import httpx
 
 from .config import settings
-from ._vendor.ostler_usage_journal import record_usage, tokens_from_ollama
+from ._vendor.ostler_usage_journal import RollingUsageRecorder, tokens_from_ollama
 
 logger = logging.getLogger(__name__)
 
@@ -42,29 +49,6 @@ logger = logging.getLogger(__name__)
 _USAGE_SESSION_ID = "cm019-ingest-" + datetime.now(timezone.utc).strftime(
     "%Y-%m-%dT%H:%M:%SZ"
 )
-
-
-def _record_embed_usage(data: dict, model: str) -> None:
-    """Record one ``ingesting`` usage row from an Ollama ``/api/embed`` response.
-
-    ``data`` is the parsed JSON from ``/api/embed``. Never raises: usage
-    accounting must not be able to break ingestion. ``tokens_from_ollama``
-    returns ``(None, None)`` when Ollama reported no counts, and
-    ``record_usage`` then writes nothing -- measured, never estimated.
-    """
-    try:
-        prompt, completion = tokens_from_ollama(data if isinstance(data, dict) else {})
-        record_usage(
-            model=model,
-            input_tokens=prompt,
-            output_tokens=completion,
-            purpose="ingesting",
-            session_id=_USAGE_SESSION_ID,
-        )
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.warning(
-            "usage journal write skipped (%s): %s", type(exc).__name__, exc
-        )
 
 
 class Vectorizer:
@@ -83,6 +67,16 @@ class Vectorizer:
         self._model = settings.embedding_model
         self._dim = settings.embedding_dim
         self._batch = settings.batch_size
+        # __init__ reruns every time Vectorizer() is called even though
+        # __new__ returns the same singleton -- safe here because the only
+        # call site is the module-level `vectorizer = Vectorizer()` below,
+        # not a per-call constructor invocation (checked: grep finds no
+        # other `Vectorizer()` call anywhere in this package).
+        self._usage_recorder = RollingUsageRecorder(
+            model=self._model,
+            purpose="ingesting",
+            session_id=_USAGE_SESSION_ID,
+        )
 
     def embed(self, text: str) -> List[float]:
         """Embed a single text. Empty text returns a zero vector."""
@@ -121,7 +115,17 @@ class Vectorizer:
                     )
                     resp.raise_for_status()
                     data = resp.json()
-                    _record_embed_usage(data, self._model)
+                    try:
+                        prompt, completion = tokens_from_ollama(
+                            data if isinstance(data, dict) else {}
+                        )
+                        self._usage_recorder.add(prompt, completion)
+                    except Exception as usage_exc:  # pragma: no cover - defensive
+                        logger.warning(
+                            "usage journal write skipped (%s): %s",
+                            type(usage_exc).__name__,
+                            usage_exc,
+                        )
                     vecs = data.get("embeddings")
                     if vecs is None or len(vecs) != len(chunk):
                         logger.warning(
