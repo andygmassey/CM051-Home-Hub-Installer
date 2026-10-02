@@ -63,6 +63,7 @@ jobs:
           fi
           python -m pytest tests/test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_identifier.py -v
       - name: is_possible_phone refuses the 14-digit possible-but-invalid shape (walk #2)
+        if: always()
         run: |
           n="$(python -m pytest tests/test_vendored_is_possible_phone_14_digit_gap.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
