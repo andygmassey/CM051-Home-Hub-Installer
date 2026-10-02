@@ -852,8 +852,8 @@ def self_test():
     want13 = DECLARED[13]
 
     shared_landline = copy.deepcopy(_good())
-    shared_landline["people_rows"].append("Household Example\n+44 7700 900009")
-    shared_landline["people_rows"].append("Second Household Example\n+44 7700 900009")
+    shared_landline["people_rows"].append("Jane Doe\n+44 7700 900009")
+    shared_landline["people_rows"].append("John Doe\n+44 7700 900009")
     shared_landline["duplicate_review_phones"] = ["447700900009"]
     rows = judge(shared_landline)
     got13 = [ok for n, ok, _ in rows if n == want13]
@@ -864,8 +864,8 @@ def self_test():
         print("  ok    a shared landline surfaced as a duplicate-review card PASSES")
 
     silent_duplicate = copy.deepcopy(_good())
-    silent_duplicate["people_rows"].append("Unknown Example\n+44 7700 900008")
-    silent_duplicate["people_rows"].append("Second Unknown Example\n+44 7700 900008")
+    silent_duplicate["people_rows"].append("Jane Doe\n+44 7700 900008")
+    silent_duplicate["people_rows"].append("John Doe\n+44 7700 900008")
     # duplicate_review_phones stays [] -- this number was never surfaced anywhere.
     rows = judge(silent_duplicate)
     got13 = [ok for n, ok, _ in rows if n == want13]
@@ -879,8 +879,8 @@ def self_test():
     # duplicate must read CANNOT-RUN, never a silent pass -- a transport
     # failure must not masquerade as "nothing to review".
     unmeasured_reviewed = copy.deepcopy(_good())
-    unmeasured_reviewed["people_rows"].append("Unknown Example\n+44 7700 900008")
-    unmeasured_reviewed["people_rows"].append("Second Unknown Example\n+44 7700 900008")
+    unmeasured_reviewed["people_rows"].append("Jane Doe\n+44 7700 900008")
+    unmeasured_reviewed["people_rows"].append("John Doe\n+44 7700 900008")
     del unmeasured_reviewed["duplicate_review_phones"]
     unmeasured_reviewed["duplicate_review_phones_error"] = "simulated transport failure"
     rows = judge(unmeasured_reviewed)
