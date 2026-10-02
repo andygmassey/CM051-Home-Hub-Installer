@@ -758,3 +758,64 @@ positioned after it rather than inside the old `continue` branch. Guarded by
 `tests/test_source_status_prefers_a_live_routine_over_a_stale_sentinel.sh`
 (cold-box-source-truth.yml), limb 5 (updated) and the new limb named "board
 #2562-C" pinning this exact shape.
+
+## Added 2026-10-02, CM051 v1.0.107 (ORM) -- `cm041/identity_resolver`, two walk-found phone defects (CM051 walk-defects D and E)
+
+A cold v1.0.107 install walk found two live phone defects the #2545 fix
+(CM041 #182) did not close:
+
+**D -- `vendor/cm041/identity_resolver/normalise.py`**: added a new function,
+`is_possible_phone`. `normalise_phone` is a pass-through formatter (returns
+the ORIGINAL STRING UNCHANGED when it cannot parse/validate), and the
+existing `is_valid_phone` (`phonenumbers.is_valid_number`) is TOO STRICT a
+gate for a general contacts-field write -- it rejects numbers in ranges
+`phonenumbers` has not catalogued as currently assigned, including this
+repo's own OFCOM drama-reserved mobile fixture (`+44 7700 900200`, used as
+the canonical "obviously a phone" value across dozens of this suite's own
+tests), measured `is_valid_phone` **False**. `is_possible_phone`
+(`phonenumbers.is_possible_number`) checks digit-count plausibility only:
+still refuses a 14/15-digit WhatsApp-LID/internal-id shape (wrong length for
+any real number, with or without a default country code configured) while
+accepting real numbers in unvalidated ranges. Reused, not reinvented --
+mirrors `is_valid_phone`'s own parse strategy exactly, swapping only the
+final validity check. Matches CM041 PR #186 (upstream, not yet merged at
+time of writing).
+
+**E -- `vendor/cm041/identity_resolver/batch_resolver.py`, `execute()`**: a
+RULE-2-refused auto-merge (two Person nodes share a phone/email value but
+carry DIFFERENT canonical keys -- icloud_contact_uid / whatsapp_lid /
+linkedin_url) used to `continue` with nothing but a log line. Measured live
+on a walk box: `detect()` re-classifies the SAME pair as a high-confidence
+auto-merge candidate every `converge()` round (same names-agree verdict,
+same confidence), `execute()` refuses it every round (correctly -- RULE 2 is
+not relaxed by this change), and the pair never once reaches
+`report.needs_review` -- rounds 2 onward plateaued at an IDENTICAL refused
+count every round on the measured box, 0 of it ever surfaced. That silent,
+permanent drop is what "CM051 #2545 is not fixed on the box" measures as for
+these pairs: not a merge failure, a REPORTING failure that hides a real,
+human-actionable duplicate from whatever reads `needs_review` (the Doctor
+"tidy your contacts" queue, support bundles). Fix: on a RULE-2 veto, append a
+`DuplicateMatch` to `report.needs_review` naming the conflicting canonical-
+key type, instead of only logging it. No merge decision, rule or threshold
+changes -- RULE 2 still vetoes the same merges it always did.
+
+THIS TREE HAS NO `converge()` METHOD OR RULE-2-ON-EXECUTE() VETO IN CM041
+SOURCE AT ALL (checked: `identity_resolver/batch_resolver.py` at CM041
+`origin/main` as of this entry has neither). That gap already existed before
+this entry (see the `cm041/identity_resolver` manifest row's own note on
+`converge()` being vendor-only, added 2026-07-15) and is NOT newly
+introduced by this change -- this entry only adds the needs_review routing
+ON TOP of the existing vendor-only veto. Upstreaming the whole mechanism into
+CM041 source is a separate, larger piece of work, flagged but out of scope
+here.
+
+### What a future sync must preserve
+
+`is_possible_phone` in `normalise.py` (additive; does not touch
+`is_valid_phone`'s existing behaviour or callers). In `batch_resolver.py`'s
+`execute()`, the `report.needs_review.append(DuplicateMatch(...))` call
+inside the RULE-2-veto branch, immediately before its `continue`. Guarded by
+`tests/test_converge_path_enforces_rule2.sh` (CM051 repo root, extended) and
+`identity_resolver/tests/test_is_possible_phone_accepts_unvalidated_ranges.py`
+(CM041 source). Retire by landing CM041 PR #186 (D's half; E's half has no
+upstream counterpart yet) and re-pinning.
