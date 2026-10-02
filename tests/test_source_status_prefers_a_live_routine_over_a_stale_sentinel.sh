@@ -72,8 +72,8 @@ sys.modules["routine_status"] = fake_routine_mod
 tree = ast.parse(src)
 wanted = {"_source_activity_dir", "_read_source_activity", "_source_hydrate_dir",
           "_parse_source_sentinel", "read_source_status", "_routine_evidence",
-          "_routine_run_count"}
-ns = {"Path": pathlib.Path, "os": __import__("os")}
+          "_routine_run_count", "_best_routine_count", "_settling_progress_total"}
+ns = {"Path": pathlib.Path, "os": __import__("os"), "json": __import__("json")}
 for node in tree.body:
     if isinstance(node, (ast.Assign, ast.AnnAssign)):
         try:
@@ -115,6 +115,14 @@ def row_for(name, rows):
         if r["source"] == name:
             return r
     return None
+
+def settling(root, filename, total, done=0):
+    d = root / "state" / "settling_progress.d"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / filename).write_text(
+        json_mod.dumps({"done": done, "total": total}), encoding="utf-8")
+
+import json as json_mod
 
 # Fixture count: fabricated, not a real install's figure.
 FAKE_EMAIL_COUNT = 4200
@@ -272,6 +280,77 @@ if r and r.get("ongoing") == "never" and r.get("item_count") == 650 and r.get("l
 else:
     bad("CONTROL failed: ongoing=%r item_count=%r last_run_count=%r"
         % (r.get("ongoing") if r else None, r.get("item_count") if r else None, r.get("last_run_count") if r else None))
+
+# ── 8. THE WALK-FOUND DEFECT, ROUND 2 (board #2562-C): freshness starves
+#      email of its real count ─────────────────────────────────────────────
+# MEASURED on a walk box: email-bundle (900s) is fresher than email-ingest
+# (3600s) almost every time either is checked, and email-bundle's log never
+# carries a count. Picking the freshest routine as the COUNT source (not
+# just the ongoing source) finds nothing, even though email-ingest's own log
+# had a real, positive figure that cycle.
+root = fresh_dir()
+sentinel(root, "email", "no_data", "no_correspondents_in_window", 0)
+_ROUTINE_ROWS["at"] = [
+    {"routine": "com.creativemachines.ostler.email-ingest", "health": "ok",
+     "last_run_at": "2026-09-04T09:00:00Z", "latest": {"emitted": FAKE_EMAIL_COUNT}},
+    {"routine": "com.creativemachines.ostler.email-bundle", "health": "ok",
+     "last_run_at": "2026-09-04T09:55:00Z", "latest": {}},  # fresher, no count
+]
+r = row_for("email", read_source_status())
+if r and r.get("status") == "ok" and r.get("last_run_count") == FAKE_EMAIL_COUNT:
+    ok("board #2562-C round 2: email-ingest's real count is found even though email-bundle ran more recently")
+else:
+    bad("board #2562-C round 2 FAILED: status=%r last_run_count=%r -- the fresher, count-less routine starved the real one"
+        % (r.get("status") if r else None, r.get("last_run_count") if r else None))
+
+# ── 9. THE WALK-FOUND DEFECT, ROUND 2b: a source with no counting routine at
+#      all reads from the settling-progress STORE ledger ───────────────────
+# iMessage has exactly one mapped routine and it never logs a count. MEASURED
+# on a walk box: state/settling_progress.d/messages.imessage.json held
+# {"done": 20850, "total": 29021} while /api/v1/sources still said item_count
+# 0. Fixture total is fabricated, not the real figure.
+root = fresh_dir()
+sentinel(root, "imessage", "no_data", "ran_ok_no_new_or_enriched_people", 0)
+settling(root, "messages.imessage.json", total=29021, done=20850)
+_ROUTINE_ROWS["at"] = [{
+    "routine": "com.creativemachines.ostler.imessage-bundle",
+    "health": "ok", "last_run_at": "2026-09-04T09:20:00Z", "latest": {},
+}]
+r = row_for("imessage", read_source_status())
+if r and r.get("status") == "ok" and r.get("last_run_count") == 29021:
+    ok("board #2562-C round 2b: the settling-progress store total is used when no routine ever logs a count")
+else:
+    bad("board #2562-C round 2b FAILED: status=%r last_run_count=%r"
+        % (r.get("status") if r else None, r.get("last_run_count") if r else None))
+
+# ── 10. CONTROL: the settling-progress file is read ONLY for the sources
+#       explicitly declared trustworthy for it ─────────────────────────────
+# MEASURED the same day as #9: emails.json read {"done": 0, "total": 0} while
+# email-ingest had just emitted thousands of real messages -- that file
+# answers a DIFFERENT question for email and must never be read for it, even
+# though the file exists and has a positive-shaped total here.
+root = fresh_dir()
+sentinel(root, "email", "no_data", "no_correspondents_in_window", 0)
+settling(root, "emails.json", total=99999, done=0)
+_ROUTINE_ROWS["at"] = []
+r = row_for("email", read_source_status())
+if r and r.get("status") == "no_data" and r.get("last_run_count") is None:
+    ok("CONTROL: email's settling-progress file is never read; it is not on the declared allowlist")
+else:
+    bad("CONTROL failed: status=%r last_run_count=%r -- an undeclared file was trusted"
+        % (r.get("status") if r else None, r.get("last_run_count") if r else None))
+
+# ── 11. CONTROL: a zero or missing settling total is never read as a count ─
+root = fresh_dir()
+sentinel(root, "imessage", "no_data", "ran_ok_no_new_or_enriched_people", 0)
+settling(root, "messages.imessage.json", total=0, done=0)
+_ROUTINE_ROWS["at"] = []
+r = row_for("imessage", read_source_status())
+if r and r.get("status") == "no_data" and r.get("last_run_count") is None:
+    ok("CONTROL: a zero settling total is never read as a count")
+else:
+    bad("CONTROL failed: status=%r last_run_count=%r -- a zero total was treated as real"
+        % (r.get("status") if r else None, r.get("last_run_count") if r else None))
 
 print()
 print("== %d pass / %d fail / %d total ==" % (PASS, FAIL, PASS + FAIL))

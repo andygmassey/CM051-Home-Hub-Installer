@@ -65,7 +65,7 @@ try:
 except ValueError:
     print("CANNOT-RUN: could not locate the reader block in web_ui.py (exit 2)", file=sys.stderr)
     sys.exit(2)
-block = "from pathlib import Path\nimport os\n" + src[start:end]
+block = "from pathlib import Path\nimport os\nimport json\n" + src[start:end]
 ns = {}
 exec(block, ns)  # noqa: S102 -- executing the SHIPPED reader is the point
 

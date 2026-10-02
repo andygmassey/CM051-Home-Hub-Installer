@@ -819,3 +819,75 @@ inside the RULE-2-veto branch, immediately before its `continue`. Guarded by
 `identity_resolver/tests/test_is_possible_phone_accepts_unvalidated_ranges.py`
 (CM041 source). Retire by landing CM041 PR #186 (D's half; E's half has no
 upstream counterpart yet) and re-pinning.
+
+## Added 2026-10-03, CM051 board #2562-C round 2 -- `doctor`, a count only has to come from SOMEWHERE real, not from the freshest place
+
+Tool re-run on 2026-10-03: `scripts/regenerate_divergence_patch.sh doctor`
+refused again, exit 1, same ban as every prior entry for this tree. Recorded
+here by location and shape.
+
+- `vendor/doctor/agent/web_ui.py`: two fixes to the count lookup added for
+  board #2562-C (see the entry above).
+  1. `_best_routine_count()` (new): the count is now taken from ANY healthy
+     routine mapped to a source, checked in declaration order, not only the
+     freshest one `_routine_evidence()` picks for the ongoing question.
+     MEASURED on a walk box: email maps to email-bundle (900s, no count ever)
+     and email-ingest (3600s, the one with a real "Emitted N message" log
+     line); email-bundle is fresher almost every time either is checked
+     purely because it runs four times as often, so picking "freshest" for
+     the count starved email of a real figure it already had.
+  2. `_settling_progress_total()` + `_SETTLING_PROGRESS_FILES` (new): a
+     source with NO routine that ever logs a count (iMessage has no sibling
+     "ingest" routine the way email does) now reads a STORE total from
+     `state/settling_progress.d/<file>.json` when one is declared for it.
+     MEASURED on a walk box: `messages.imessage.json` held
+     `{"done": 20850, "total": 29021}` while `/api/v1/sources` still said
+     item_count 0. Declared per source on purpose: the same day, `emails.json`
+     held `{"done": 0, "total": 0}` while email-ingest had just emitted
+     thousands of real messages, so that file answers a different question
+     for email and must never be read for it. Only `imessage` and `whatsapp`
+     are declared; `whatsapp` by the same reasoning as imessage, not
+     separately measured this round.
+
+A future sync must keep `_best_routine_count`, `_settling_progress_total` and
+`_SETTLING_PROGRESS_FILES`, and the merge-loop call sites that now run
+regardless of whether a direct activity record already set `ongoing`.
+Guarded by tests/test_source_status_prefers_a_live_routine_over_a_stale_sentinel.sh
+(cold-box-source-truth.yml), new limbs 8-11. Sibling tests
+(test_source_status_reports_ongoing_not_just_install.sh,
+test_the_source_table_covers_the_fda_extract_family.sh,
+test_source_status_contract.sh) updated only to extract/import the two new
+functions and `json`; all still pass.
+
+## Added 2026-10-03, CM051 v1.0.107 (ORM) -- `cm041/identity_resolver`, the 14-digit possible-but-invalid gap in is_possible_phone (walk #2, item D)
+
+v1.0.107 walk #2 (cold Mini16) found 7 of 2,345 People rows still carried an
+exactly-14-digit `+`-prefixed phone identifier, produced by the SAME
+`contact_syncer` writer the first `is_possible_phone` graft already gated
+(confirmed from the consumer: `person_<hex>` and the identifier's embedded
+hex matched on all 7, a single-writer mint). `is_possible_phone` returned
+True for every one of the 7 stored values; `is_valid_phone` returned False.
+
+Root cause: `phonenumbers.is_possible_number()` checks digit-count
+plausibility per country, and a `+`-prefixed 14-digit value can be
+"possible" under SOME country's numbering plan even though it is not a real
+phone number. The first graft only proved the gate closes BARE digits with
+no leading `+` (which fail to parse at all with no default country code),
+not this shape.
+
+Fix, in `vendor/cm041/identity_resolver/normalise.py`'s `is_possible_phone`:
+in the 14+ digit zone (E.164's own ceiling is 15), also require
+`is_valid_number`, the stricter check deliberately avoided for shorter
+numbers specifically to keep accepting real customers in unvalidated
+ranges. Below 14 digits, `is_possible_number` alone is still trusted (the
+OFCOM mobile fixture used throughout this suite is 12 digits and is
+unaffected). Matches CM041 PR #187 (upstream, not yet merged at time of
+writing).
+
+### What a future sync must preserve
+
+The digit-count check added to `is_possible_phone`, immediately after its
+existing `is_possible_number` check. Guarded by
+`tests/test_vendored_is_possible_phone_14_digit_gap.py` (CM051 repo root,
+mirroring CM041 PR #187's own test suite). Retire by landing CM041 PR #187
+and re-pinning.

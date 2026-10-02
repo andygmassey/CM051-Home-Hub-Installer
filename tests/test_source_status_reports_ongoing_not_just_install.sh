@@ -64,8 +64,12 @@ wanted = {"_source_activity_dir", "_read_source_activity",
           # consulted only when fda-rerun's own activity record is silent.
           # Absent on an older tree -- read_source_status there never calls
           # them, so the missing names cost nothing when not needed.
-          "_routine_evidence", "_routine_run_count"}
-ns = {"Path": pathlib.Path, "os": __import__("os")}
+          "_routine_evidence", "_routine_run_count",
+          # #2562-C round 2: a routine's count is no longer taken only from
+          # the freshest mapped routine, and a store-ledger fallback exists
+          # for sources no routine ever logs a count for.
+          "_best_routine_count", "_settling_progress_total"}
+ns = {"Path": pathlib.Path, "os": __import__("os"), "json": __import__("json")}
 # Module-level constants the reader depends on (_SOURCE_KINDS and the field
 # coercion tables). Taken verbatim, best-effort: any assignment that needs an
 # unavailable import is skipped rather than aborting, and the explicit

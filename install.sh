@@ -25269,7 +25269,18 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
              CM041 health branch ships, so the write lands but nothing
              can query it across the auth boundary. -->
         <key>DOCTOR_PROXY_PATHS</key>
-        <string>/api/safari/ingest,/api/v1/hub/health,/api/v1/timeline,/api/v1/people,/api/v1/people/search,/api/v1/people/context,/api/v1/person/{slug}/timeline,/api/v1/people/stale,/api/v1/people/recent,/api/v1/people/birthdays,/api/v1/suggestions,/api/v1/calendar,/api/v1/calendar/today,/api/v1/conversation/process,/api/v1/conversation/status/{id},/api/v1/email/recent,/api/v1/ingest/ios,/api/v1/health/day,/api/v1/recording/active,/api/v1/coach/recent,/api/v1/people/{slug}/forget,/api/v1/decisions,/api/v1/topics,/api/v1/topics/{slug}/mentions,/api/v1/commitments,/api/v1/hydration/status,/api/v1/subscription/receipt,/api/v1/memory,/api/v1/memory/correct/{id},/api/v1/memory/assert</string>
+        <string>/api/safari/ingest,/api/v1/hub/health,/api/v1/timeline,/api/v1/people,/api/v1/people/search,/api/v1/people/context,/api/v1/person/{slug}/timeline,/api/v1/people/stale,/api/v1/people/recent,/api/v1/people/birthdays,/api/v1/suggestions,/api/v1/calendar,/api/v1/calendar/today,/api/v1/conversation/process,/api/v1/conversation/status/{id},/api/v1/email/recent,/api/v1/ingest/ios,/api/v1/health/day,/api/v1/recording/active,/api/v1/coach/recent,/api/v1/people/{slug}/forget,/api/v1/decisions,/api/v1/topics,/api/v1/topics/{slug}/mentions,/api/v1/commitments,/api/v1/hydration/status,/api/v1/subscription/receipt,/api/v1/memory,/api/v1/memory/correct/{id},/api/v1/memory/assert,/api/v1/contacts/diff</string>
+        <!-- v1.0.107 walk #2 (BLOCKING item E): /api/v1/contacts/diff
+             (identity_resolver.tidy.TidyEngine, ical-server :8090) is the
+             Doctor "tidy your contacts" duplicate-review report, it is
+             ALSO where CM051 #2604 routes a RULE-2-refused auto-merge
+             (identity_resolver/batch_resolver.py needs_review), so a shared
+             landline the customer can already see there is not the same
+             defect as a silent duplicate. It was never in this list: the
+             customer-facing Doctor UI itself could not reach it (measured
+             on macmini16-walk: port 8000 and 8089 both 404 it, 8090 answers
+             200 directly). Handler exists on the ical-server (:8090). -->
+
         <!-- P0-γ (2026-07-26): /api/v1/subscription/receipt was MISSING from the
              proxy list. iOS SubscriptionReceiptSync POSTs it to the Doctor on
              every purchase/restore/foreground; without the path the Doctor 404s
