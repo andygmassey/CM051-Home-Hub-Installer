@@ -167,9 +167,9 @@ above, and every write-site guard described. Guarded by
 mirroring CM041 PR #185's own test suite). Retire by landing CM041 #185
 and re-pinning.
 
-## Added 2026-10-02, CM051 v1.0.107 (ORM) -- `syncer.py`, a non-phone value never reaches identifierType "phone" (CM051 walk-defect D)
+## Added 2026-10-02, CM051 v1.0.107 (ORM) -- `cm041/contact_syncer`, a non-phone value never reaches identifierType "phone" (CM051 walk-defect D)
 
-A cold v1.0.107 install walk found 8 of 3,307 phone identifiers on the box
+`vendor/cm041/contact_syncer/syncer.py`. A cold v1.0.107 install walk found 8 of 3,307 phone identifiers on the box
 were exactly 14 digits -- a WhatsApp-LID/internal-id shape, never a phone
 number -- all on this file's own `id_<person_id>_phoneN` identifier naming.
 `normalise_phone()` is a pass-through formatter: when `phonenumbers` cannot
