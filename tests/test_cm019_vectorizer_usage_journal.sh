@@ -153,7 +153,7 @@ def fake_post_measured(self, url, json=None, **kw):
 
 # ONE instance, reused -- matching the real call shape (pipeline.py imports
 # the module-level `vectorizer = Vectorizer()` singleton and never
-# reconstructs it). Calling Vectorizer() fresh each time would be wrong here
+# reconstructs it). Constructing it fresh each time would be wrong here
 # for a reason specific to this class: __init__ reruns on every call even
 # though __new__ returns the same singleton object, so a fresh call would
 # silently replace _usage_recorder mid-test.
