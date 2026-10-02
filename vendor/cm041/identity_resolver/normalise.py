@@ -220,6 +220,50 @@ def is_valid_phone(raw: str, default_country_code: Optional[int] = None) -> bool
     return phonenumbers.is_valid_number(parsed)
 
 
+def is_possible_phone(raw: str, default_country_code: Optional[int] = None) -> bool:
+    """True when `raw` is SHAPED like a phone number for its country, even if
+    libphonenumber cannot confirm the specific range is currently assigned.
+
+    Deliberately WEAKER than ``is_valid_phone``. ``is_valid_number`` checks
+    against libphonenumber's table of currently-assigned ranges, which is
+    stricter than "could this be a real phone number" -- it rejects numbers
+    in ranges the library's metadata has not catalogued as issued, including
+    Ofcom's own drama/fiction-reserved UK mobile block (07700 900000-900999,
+    the exact fixture this repo's own test suite uses everywhere), measured
+    directly: ``is_valid_phone("+44 7700 900200")`` is False,
+    ``is_possible_phone`` of the same value is True. A general-purpose
+    "refuse this vCard/contacts field write" gate that used ``is_valid_phone``
+    would therefore drop real customer numbers in any range libphonenumber
+    has not (yet) catalogued as assigned -- a worse outcome than the defect
+    it was written to close.
+
+    What this STILL catches (CM051 walk-defect D, v1.0.107): a WhatsApp LID
+    or another app's internal id is not merely unassigned, it is the WRONG
+    LENGTH/SHAPE for any phone number at all -- ``is_possible_number`` checks
+    exactly that (digit count plausible for the claimed/defaulted country),
+    so a 14-digit bare id fails it whether or not a default country code is
+    configured, while a real, if obscure, phone number still passes.
+
+    ``default_country_code=None`` means UNKNOWN (see ``normalise_phone``):
+    a national-format number cannot be checked without a region, so it reads
+    as NOT a possible phone rather than being guessed into one.
+    """
+    cleaned = (raw or "").strip()
+    if not cleaned:
+        return False
+    try:
+        parsed = phonenumbers.parse(cleaned, None)
+    except phonenumbers.NumberParseException:
+        if default_country_code is None:
+            return False
+        try:
+            region = _country_code_to_region(default_country_code)
+            parsed = phonenumbers.parse(cleaned, region)
+        except phonenumbers.NumberParseException:
+            return False
+    return phonenumbers.is_possible_number(parsed)
+
+
 def normalise_email(email: str) -> str:
     return email.strip().lower()
 

@@ -3056,6 +3056,7 @@ def read_source_status(hydrate_dir: Path | None = None,
         row["last_run_count"] = None
 
         act = _read_source_activity(row["source"], activity_dir)
+        direct_activity = bool(act)
         if act:
             last_status = act.get("last_status", "unknown")
             row["ongoing"] = "active" if last_status == "ok" else "failing"
@@ -3067,9 +3068,21 @@ def read_source_status(hydrate_dir: Path | None = None,
             row["last_run_at"] = None
             row["last_success_at"] = None
 
-        if row["ongoing"] == "active":
-            continue  # fda-rerun's own record already proves this row live.
-
+        # Board #2562-C, MEASURED on a walk box: email and imessage both read
+        # ongoing=active from THIS record while /api/v1/sources still called
+        # them no_data, and the Doctor tab believed the ongoing flag and
+        # showed "Up to date" -- with no count, because the line below never
+        # ran. The STORE said otherwise: the dedicated email-ingest routine's
+        # OWN log had just emitted real messages, and iMessage's settling
+        # ledger showed tens of thousands done. The direct activity record
+        # above answers "did fda-rerun's correspondent tick succeed", which is
+        # the SAME narrow question the install-time sentinel already answers
+        # (new correspondents in a window) -- it is not evidence the SOURCE
+        # itself is empty or populated. So `continue`-ing here used to skip
+        # the one producer that actually measures that: the dedicated
+        # routine's own count. It must run regardless of which path proved
+        # "ongoing", and only the ongoing/timestamp fields stay reserved for
+        # a direct activity record when one exists.
         labels = _SOURCE_ROUTINE_LABELS.get(row["source"])
         if not labels:
             continue
@@ -3077,16 +3090,19 @@ def read_source_status(hydrate_dir: Path | None = None,
         if evidence is None or evidence.get("health") != "ok":
             continue  # the dedicated routine has nothing, or is itself unwell.
 
-        row["ongoing"] = "active"
-        row["last_run_at"] = evidence["last_run_at"]
-        row["last_success_at"] = evidence["last_run_at"]
-        row["ongoing_detail"] = "routine " + evidence["routine"]
+        if not direct_activity:
+            row["ongoing"] = "active"
+            row["last_run_at"] = evidence["last_run_at"]
+            row["last_success_at"] = evidence["last_run_at"]
+            row["ongoing_detail"] = "routine " + evidence["routine"]
 
         # The install-time verdict can be stale, not just quiet: the
         # dedicated routine has demonstrable throughput the FDA extractor's
         # own window never saw. `count` is explicitly-keyed per routine (see
         # _ROUTINE_COUNT_KEYS) so an unrelated counter in the same payload
-        # (an error tally, a skip count) can never be mistaken for it.
+        # (an error tally, a skip count) can never be mistaken for it. This
+        # runs even when a direct activity record already set ongoing=active
+        # above -- that record is not evidence about the count.
         count = _routine_run_count(evidence["routine"], evidence.get("latest") or {})
         if count is not None:
             row["last_run_count"] = count

@@ -38,6 +38,7 @@ from contact_syncer.relationship_labels import is_relationship_label
 from identity_resolver.resolver import IdentityResolver  # type: ignore[import-untyped]
 from identity_resolver.normalise import (  # type: ignore[import-untyped]
     clean_display_name,
+    is_possible_phone,
     normalise_email,
     normalise_phone,
 )
@@ -956,10 +957,16 @@ class ContactSyncer:
             # Normalised to E.164, as the Oxigraph identifiers below are, so the
             # Qdrant payload agrees with the identifier it mirrors (CM041 #182,
             # CM051 #2545; grafted for v1.0.107).
+            # GATED ON is_possible_phone (CM051 walk-defect D, v1.0.107,
+            # graft): normalise_phone() is a pass-through formatter, not a
+            # validator, so an internal-id/LID-shaped vCard value sailed
+            # straight through unchanged. is_possible_phone (shape only, not
+            # libphonenumber's narrower "currently assigned" check) refuses
+            # it without also refusing real numbers in unvalidated ranges.
             "phones": [
                 normalise_phone(p["value"], self.resolver.default_country_code)
                 for p in parsed.get("phones", [])
-                if p.get("value")
+                if p.get("value") and is_possible_phone(p["value"], self.resolver.default_country_code)
             ],
             "emails": [e["value"] for e in parsed.get("emails", [])],
             "icloud_uid": parsed.get("uid") or "",
@@ -1169,8 +1176,18 @@ class ContactSyncer:
             # vCard value (e.g. a space-separated international form) while the resolver looked up
             # the E.164 form (no spaces), so Tier-1 exact-identifier dedup
             # never fired and every repeat minted a duplicate (BW-1).
+            #
+            # GATED ON is_possible_phone (CM051 walk-defect D, v1.0.107,
+            # graft): see the identical guard in the Qdrant payload above --
+            # a cold install measured 8 of 3,307 phone identifiers were
+            # exactly 14 digits (a WhatsApp-LID/internal-id shape), all
+            # produced here, because normalise_phone() returns a value it
+            # cannot validate UNCHANGED rather than refusing it.
+            raw_phone_value = phone.get("value") or ""
+            if not is_possible_phone(raw_phone_value, self.resolver.default_country_code):
+                continue
             phone_value = normalise_phone(
-                phone.get("value") or "", self.resolver.default_country_code
+                raw_phone_value, self.resolver.default_country_code
             )
             if not phone_value or phone_value in seen_phones:
                 continue
@@ -1291,6 +1308,10 @@ class ContactSyncer:
             new_ids.append(("icloud_contact_uid", uid, None))
         for phone in parsed.get("phones", []):
             v = phone.get("value") if isinstance(phone, dict) else None
+            # GATED ON is_possible_phone (CM051 walk-defect D, v1.0.107,
+            # graft): see the identical guard in _create_person_oxigraph.
+            if v and not is_possible_phone(v, self.resolver.default_country_code):
+                v = None
             if v:
                 # Normalise to the resolver's lookup form so dedup matches (BW-1).
                 v = normalise_phone(v, self.resolver.default_country_code)
