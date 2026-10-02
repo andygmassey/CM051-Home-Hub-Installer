@@ -174,7 +174,7 @@ DECLARED = [
     "doctor: the connected-sources count matches the sources it lists",
     "timeline: every message row is titled, with no doubled word",
     "people: no phone number is an internal id (14+ digits) or carries bidi controls",
-    "people: no phone number appears on two rows",
+    "people: no UNREVIEWED phone number appears on two rows",
     "counts: people agree across the Hub, the wiki front page and the People index",
     "counts: organisations agree across the wiki front page and the Organisations page",
     "sources: the wiki source list has no duplicate source",
@@ -336,7 +336,36 @@ def judge(f, declared=None):
                     dup.add(d)
                 seen.setdefault(d, i)
         add(DECLARED[12], not bad, "{} of {} rows: {}".format(len(bad), len(rows), "; ".join(bad[:4])))
-        add(DECLARED[13], not dup, "{} number(s) on two or more rows (numbers withheld)".format(len(dup)))
+        # CM051 walk-probe fix (v1.0.107): a phone shared by two DISTINCT real
+        # people (a household landline, a shared office number) is not the
+        # same defect as a silent duplicate Contacts card for the SAME
+        # person (CM051 #2545) -- the first is a fact about the world, the
+        # second is a bug. Both used to fail this assertion identically. A
+        # number that the customer can already see on their own Doctor "tidy
+        # your contacts" page (identity_resolver.tidy, via
+        # /api/v1/contacts/diff) -- either as a one-click merge proposal or
+        # as a review card, which is exactly what CM051 #2604 routes a
+        # RULE-2-refused auto-merge into -- is no longer SILENT, so it no
+        # longer fails here. A duplicate absent from that surface is still
+        # silent and still fails. `reviewed` is None (not an empty set) when
+        # the collector could not read the diff endpoint at all, so a
+        # transport failure cannot masquerade as "nothing to review" and
+        # silently pass every duplicate through -- see the CANNOT-RUN branch
+        # immediately below.
+        reviewed_raw = f.get("duplicate_review_phones")
+        if dup and reviewed_raw is None:
+            add(DECLARED[13], None,
+                "NOT MEASURED: {} duplicate number(s) found but the duplicate-review "
+                "surface (/api/v1/contacts/diff) could not be read, so reviewed-vs-"
+                "silent cannot be told apart: {}".format(
+                    len(dup), f.get("duplicate_review_phones_error") or "no error recorded"))
+        else:
+            reviewed = {re.sub(r"\D", "", p) for p in (reviewed_raw or [])}
+            silent = dup - reviewed
+            add(DECLARED[13], not silent,
+                "{} of {} duplicated number(s) are UNREVIEWED (numbers withheld); "
+                "{} already surfaced as a duplicate-review card".format(
+                    len(silent), len(dup), len(dup & reviewed)))
 
     ppl = {"hub": count_after((screens.get("people") or {}).get("text"), "PEOPLE"),
            "wiki front": count_after(wfront, "PEOPLE"),
@@ -638,6 +667,38 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=120):
             f["api"]["config_as_app"] = exc.code
         except Exception as exc:
             f["api"]["config_error"] = str(exc)[:160]
+
+    # CM051 walk-probe fix (v1.0.107): DECLARED[13] ("no phone number appears
+    # on two rows") used to fail a shared landline between two distinct real
+    # people exactly as hard as a silent duplicate-contact-card defect, with
+    # no way to tell them apart from the People page alone. Read the SAME
+    # duplicate-review surface the customer's own Doctor "tidy your contacts"
+    # tab renders -- /api/v1/contacts/diff (identity_resolver.tidy.TidyEngine,
+    # read-only, writes nothing) -- and extract ONLY the bare digits of any
+    # phone_match pair's number, discarding the surrounding evidence text
+    # immediately: `details` holds a readable "Shared phone: <number> (names
+    # agree)" string, which must never survive into the walk artefact. A pair
+    # that shows up here (propose_merge OR review -- both are customer-visible
+    # cards; review is also exactly what CM051 #2604 routes a RULE-2-refused
+    # auto-merge into) is a number the customer can already see is shared and
+    # can already act on, which is not the same defect as a number nobody was
+    # ever told about.
+    try:
+        req = urllib.request.Request(base + "/api/v1/contacts/diff", headers={
+            "Authorization": "Bearer " + token})
+        with urllib.request.urlopen(req, timeout=180) as r:
+            diff = json.load(r)
+        reviewed = set()
+        for item in diff.get("items") or []:
+            strategy = (item.get("evidence") or {}).get("strategy") or ""
+            if not strategy.startswith("phone"):
+                continue
+            details = (item.get("evidence") or {}).get("details") or ""
+            for p in PHONE.findall(details):
+                reviewed.add(re.sub(r"\D", "", p))
+        f["duplicate_review_phones"] = sorted(reviewed)
+    except Exception as exc:
+        f["duplicate_review_phones_error"] = str(exc)[:160]
     return f
 
 
@@ -672,6 +733,7 @@ def _good():
                           {"kind": "meeting", "title": "Lunch with John Doe"},
                           {"kind": "event", "title": "Offsite \u2014 day one"}],
         "people_rows": ["Jane Doe\n+44 7700 900001", "John Doe\n+" + "1 555 0100 222"],
+        "duplicate_review_phones": [],
         "wiki": {"pages": {
             "front": {"text": "Your Front Page\nNeeds you now\n2\nDATES\n\nJane Doe's birthday is in five days\n\n"
                               "PEOPLE\nYou've gone quiet with John Doe\nFor you\n1,000\nPEOPLE\n50\nORGANISATIONS\n",
@@ -781,6 +843,54 @@ def self_test():
             missed.append(name + " (by its own assertion: " + want + ")")
         else:
             print("  ok    mutant caught: {}  [by: {}]".format(name, want))
+    # CM051 walk-probe fix (v1.0.107): a shared landline the customer can
+    # already see on their own Doctor "tidy your contacts" page must PASS; a
+    # duplicate absent from that surface -- silent -- must still FAIL. Two
+    # dedicated fixtures, not folded into the MUTANTS list above, because a
+    # mutant's whole contract is "must be caught"; the first of these two
+    # must NOT be.
+    want13 = DECLARED[13]
+
+    shared_landline = copy.deepcopy(_good())
+    shared_landline["people_rows"].append("Jane Doe\n+44 7700 900009")
+    shared_landline["people_rows"].append("John Doe\n+44 7700 900009")
+    shared_landline["duplicate_review_phones"] = ["447700900009"]
+    rows = judge(shared_landline)
+    got13 = [ok for n, ok, _ in rows if n == want13]
+    if got13 != [True]:
+        missed.append("a shared landline recorded on the duplicate-review surface "
+                       "still fails ({!r}, want [True])".format(got13))
+    else:
+        print("  ok    a shared landline surfaced as a duplicate-review card PASSES")
+
+    silent_duplicate = copy.deepcopy(_good())
+    silent_duplicate["people_rows"].append("Jane Doe\n+44 7700 900008")
+    silent_duplicate["people_rows"].append("John Doe\n+44 7700 900008")
+    # duplicate_review_phones stays [] -- this number was never surfaced anywhere.
+    rows = judge(silent_duplicate)
+    got13 = [ok for n, ok, _ in rows if n == want13]
+    if got13 != [False]:
+        missed.append("a silent duplicate (not on the duplicate-review surface) "
+                       "does not fail ({!r}, want [False])".format(got13))
+    else:
+        print("  ok    a silent duplicate, absent from the duplicate-review surface, FAILS")
+
+    # The collector could not read /api/v1/contacts/diff at all: a real
+    # duplicate must read CANNOT-RUN, never a silent pass -- a transport
+    # failure must not masquerade as "nothing to review".
+    unmeasured_reviewed = copy.deepcopy(_good())
+    unmeasured_reviewed["people_rows"].append("Jane Doe\n+44 7700 900008")
+    unmeasured_reviewed["people_rows"].append("John Doe\n+44 7700 900008")
+    del unmeasured_reviewed["duplicate_review_phones"]
+    unmeasured_reviewed["duplicate_review_phones_error"] = "simulated transport failure"
+    rows = judge(unmeasured_reviewed)
+    got13 = [ok for n, ok, _ in rows if n == want13]
+    if got13 != [None]:
+        missed.append("a duplicate with the review surface unreadable does not read "
+                       "CANNOT-RUN ({!r}, want [None])".format(got13))
+    else:
+        print("  ok    a duplicate with the review surface unreadable is CANNOT-RUN, never a pass")
+
     # an empty collection must not pass: every assertion CANNOT, and the count row fails
     empty = judge({})
     if any(ok is True for n, ok, _ in empty if not n.startswith("customer read:")):
