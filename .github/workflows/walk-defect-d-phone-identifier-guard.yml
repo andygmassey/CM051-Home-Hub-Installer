@@ -11,12 +11,14 @@ on:
       - 'vendor/cm041/contact_syncer/syncer.py'
       - 'vendor/cm041/identity_resolver/normalise.py'
       - 'tests/test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_identifier.py'
+      - 'tests/test_vendored_is_possible_phone_14_digit_gap.py'
       - '.github/workflows/walk-defect-d-phone-identifier-guard.yml'
   pull_request:
     paths:
       - 'vendor/cm041/contact_syncer/syncer.py'
       - 'vendor/cm041/identity_resolver/normalise.py'
       - 'tests/test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_identifier.py'
+      - 'tests/test_vendored_is_possible_phone_14_digit_gap.py'
       - '.github/workflows/walk-defect-d-phone-identifier-guard.yml'
 
 concurrency:
@@ -60,3 +62,13 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_identifier.py -v
+      - name: is_possible_phone refuses the 14-digit possible-but-invalid shape (walk #2)
+        run: |
+          n="$(python -m pytest tests/test_vendored_is_possible_phone_14_digit_gap.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 5 ]; then
+            echo "REFUSING: expected at least 5 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_vendored_is_possible_phone_14_digit_gap.py -v

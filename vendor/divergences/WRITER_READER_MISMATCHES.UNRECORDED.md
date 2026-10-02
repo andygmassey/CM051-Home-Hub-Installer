@@ -819,3 +819,36 @@ inside the RULE-2-veto branch, immediately before its `continue`. Guarded by
 `identity_resolver/tests/test_is_possible_phone_accepts_unvalidated_ranges.py`
 (CM041 source). Retire by landing CM041 PR #186 (D's half; E's half has no
 upstream counterpart yet) and re-pinning.
+
+## Added 2026-10-03, CM051 v1.0.107 (ORM) -- `cm041/identity_resolver`, the 14-digit possible-but-invalid gap in is_possible_phone (walk #2, item D)
+
+v1.0.107 walk #2 (cold Mini16) found 7 of 2,345 People rows still carried an
+exactly-14-digit `+`-prefixed phone identifier, produced by the SAME
+`contact_syncer` writer the first `is_possible_phone` graft already gated
+(confirmed from the consumer: `person_<hex>` and the identifier's embedded
+hex matched on all 7, a single-writer mint). `is_possible_phone` returned
+True for every one of the 7 stored values; `is_valid_phone` returned False.
+
+Root cause: `phonenumbers.is_possible_number()` checks digit-count
+plausibility per country, and a `+`-prefixed 14-digit value can be
+"possible" under SOME country's numbering plan even though it is not a real
+phone number. The first graft only proved the gate closes BARE digits with
+no leading `+` (which fail to parse at all with no default country code),
+not this shape.
+
+Fix, in `vendor/cm041/identity_resolver/normalise.py`'s `is_possible_phone`:
+in the 14+ digit zone (E.164's own ceiling is 15), also require
+`is_valid_number`, the stricter check deliberately avoided for shorter
+numbers specifically to keep accepting real customers in unvalidated
+ranges. Below 14 digits, `is_possible_number` alone is still trusted (the
+OFCOM mobile fixture used throughout this suite is 12 digits and is
+unaffected). Matches CM041 PR #187 (upstream, not yet merged at time of
+writing).
+
+### What a future sync must preserve
+
+The digit-count check added to `is_possible_phone`, immediately after its
+existing `is_possible_number` check. Guarded by
+`tests/test_vendored_is_possible_phone_14_digit_gap.py` (CM051 repo root,
+mirroring CM041 PR #187's own test suite). Retire by landing CM041 PR #187
+and re-pinning.

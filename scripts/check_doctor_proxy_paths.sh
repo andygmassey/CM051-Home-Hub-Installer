@@ -88,13 +88,22 @@ REQUIRED_PROXY_PATHS=(
     "/api/v1/topics"
     "/api/v1/topics/{slug}/mentions"
     "/api/v1/commitments"
+    # v1.0.107 walk #2, BLOCKING item E. Not an iOS endpoint -- the Doctor
+    # web UI's own "tidy your contacts" duplicate-review report
+    # (identity_resolver.tidy.TidyEngine, handler on ical-server :8090).
+    # Measured on macmini16-walk: before this entry, port 8000 and the
+    # Doctor's own port 8089 both 404'd it, so the report CM051 #2604 routes
+    # a RULE-2-refused auto-merge into (needs_review) was unreachable from
+    # every customer-facing surface even though the handler itself answered
+    # 200 on the loopback-only ical-server port a browser never reaches.
+    "/api/v1/contacts/diff"
 )
 
 # A floor, in the ratchet sense. If someone deletes an entry above, the
 # array silently shrinks and the gate silently checks less while still
 # printing PASS. Removing a required endpoint is a real decision and it has
 # to be made in two places, deliberately.
-EXPECTED_REQUIRED_COUNT=19
+EXPECTED_REQUIRED_COUNT=20
 
 INSTALL_SH="${1:-}"
 if [[ -z "$INSTALL_SH" ]]; then
