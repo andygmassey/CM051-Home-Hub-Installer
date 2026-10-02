@@ -152,6 +152,7 @@ def record_usage(
     session_id: str,
     *,
     journal_path: Optional[Path] = None,
+    calls: int = 1,
 ) -> bool:
     """Append one usage record to the cost journal.
 
@@ -203,6 +204,11 @@ def record_usage(
             "cost_usd": 0.0,
             "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "purpose": purpose,
+            # #2603 follow-up (Archie review, 2026-10-02): how many real
+            # calls this record represents. Default 1 is correct for every
+            # per-call producer; RollingUsageRecorder passes its real total
+            # so a rolled-up row is not silently undercounted downstream.
+            "calls": max(1, int(calls)),
         },
     }
 
@@ -406,6 +412,7 @@ class RollingUsageRecorder:
                 purpose=self._purpose,
                 session_id=self._session_id,
                 journal_path=self._journal_path,
+                calls=self._calls,
             )
         except Exception:  # noqa: BLE001 - accounting must never raise
             logger.warning(

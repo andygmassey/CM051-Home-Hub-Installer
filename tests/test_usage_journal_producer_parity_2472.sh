@@ -171,6 +171,16 @@ else:
     _got = _vectorizer_rows[0]["usage"]["input_tokens"] if len(_vectorizer_rows) == 1 else "N/A"
     print(f"VECTORIZER_TOKENS_BAD got={_got} want={N * VECTORIZER_TOKENS_PER_CALL}")
 
+# CALL-COUNT CONSERVATION (Archie review, 2026-10-02): the rolled-up row
+# must declare its REAL call count, not the implicit "1" a reader gets when
+# the field is absent -- that implicit 1 is exactly how the Bursar's call
+# total silently undercounted by the rollup factor.
+if len(_vectorizer_rows) == 1 and _vectorizer_rows[0]["usage"].get("calls") == N:
+    print("VECTORIZER_CALLS_OK")
+else:
+    _got_calls = _vectorizer_rows[0]["usage"].get("calls") if len(_vectorizer_rows) == 1 else "N/A"
+    print(f"VECTORIZER_CALLS_BAD got={_got_calls} want={N}")
+
 # --------------------------------------------------------------------- cm024
 sys.path.insert(0, str(repo / "vendor/cm024_knowledge"))
 
@@ -226,6 +236,14 @@ if len(_embed_rows) == 1 and _embed_rows[0]["usage"]["input_tokens"] == N * EMBE
 else:
     _got = _embed_rows[0]["usage"]["input_tokens"] if len(_embed_rows) == 1 else "N/A"
     print(f"EMBEDDER_TOKENS_BAD got={_got} want={N * EMBED_TOKENS_PER_CALL}")
+
+# CALL-COUNT CONSERVATION (Archie review, 2026-10-02), same statement as
+# cm019_vectorizer's: the rolled-up row must declare its REAL call count.
+if len(_embed_rows) == 1 and _embed_rows[0]["usage"].get("calls") == N:
+    print("EMBEDDER_CALLS_OK")
+else:
+    _got_calls = _embed_rows[0]["usage"].get("calls") if len(_embed_rows) == 1 else "N/A"
+    print(f"EMBEDDER_CALLS_BAD got={_got_calls} want={N}")
 
 # --- classifier (ingesting) ---
 class FakeClassifierClientMeasured:
@@ -375,8 +393,12 @@ done
 
 grep -q 'EMBEDDER_TOKENS_OK' <<<"$out" && ok "cm024k_embedder: the rolled-up row sums ALL ${N} calls' tokens (no call dropped by the rollup)" \
                                        || bad "cm024k_embedder: rolled-up token sum is wrong: $(grep -o 'EMBEDDER_TOKENS_BAD.*' <<<"$out")"
+grep -q 'EMBEDDER_CALLS_OK' <<<"$out" && ok "cm024k_embedder: the rolled-up row declares its real calls=${N} (not the implicit 1)" \
+                                      || bad "cm024k_embedder: rolled-up calls count is wrong: $(grep -o 'EMBEDDER_CALLS_BAD.*' <<<"$out")"
 grep -q 'VECTORIZER_TOKENS_OK' <<<"$out" && ok "cm019_vectorizer: the rolled-up row sums ALL ${N} calls' tokens (no call dropped by the rollup)" \
                                          || bad "cm019_vectorizer: rolled-up token sum is wrong: $(grep -o 'VECTORIZER_TOKENS_BAD.*' <<<"$out")"
+grep -q 'VECTORIZER_CALLS_OK' <<<"$out" && ok "cm019_vectorizer: the rolled-up row declares its real calls=${N} (not the implicit 1)" \
+                                        || bad "cm019_vectorizer: rolled-up calls count is wrong: $(grep -o 'VECTORIZER_CALLS_BAD.*' <<<"$out")"
 
 total=$(grep -o 'TOTAL_MEASURED [0-9]*' <<<"$out" | awk '{print $2}')
 expected=$(grep -o 'EXPECTED_TOTAL [0-9]*' <<<"$out" | awk '{print $2}')

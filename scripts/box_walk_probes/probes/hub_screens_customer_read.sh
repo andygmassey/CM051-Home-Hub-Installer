@@ -61,11 +61,17 @@ except FileNotFoundError: n=None
 for p in [os.path.expanduser('~/.ostler/assistant-config/workspace/state/costs.jsonl')]:
     try:
         for l in open(p):
-            try: ts=json.loads(l)['usage']['timestamp']
+            try:
+                row=json.loads(l); u=row['usage']; ts=u['timestamp']
             except Exception: continue
-            if dt.datetime.fromisoformat(ts.replace('Z','+00:00'))>=start: j+=1
+            if dt.datetime.fromisoformat(ts.replace('Z','+00:00'))>=start:
+                # SUM calls, not rows (#2603 follow-up): a rollup row
+                # carries usage.calls = the real number of Ollama calls it
+                # folded in. An old row with no calls field is one call,
+                # the same default the Rust reader uses.
+                j+=int(u.get('calls',1) or 1)
     except FileNotFoundError: j=None
-print(json.dumps({'ollama_calls':n,'journal_rows':j,'window_min':60}))
+print(json.dumps({'ollama_calls':n,'journal_calls':j,'window_min':60}))
 PY" > "${boxf}" 2>/dev/null
     [ -s "${boxf}" ] || probe_note "could not count Ollama calls on the box: the Bursar arm will be CANNOT-RUN"
 

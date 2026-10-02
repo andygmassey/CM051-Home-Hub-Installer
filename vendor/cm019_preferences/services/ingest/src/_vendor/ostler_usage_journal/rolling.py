@@ -10,9 +10,12 @@ Same implementation as the sibling copies in andygmassey/evernote-knowledge
 andygmassey/CM059-Ostler-Editor (``compiler/_vendor/ostler_usage_journal/``),
 kept in sync by hand across the three (CM051 #2472 review, 2026-10-02).
 """
-from .usage_journal import record_usage
+from .usage_journal import PURPOSES, resolve_journal_path
 
+import json
 import logging
+import uuid
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -181,14 +184,7 @@ class RollingUsageRecorder:
         if self._bucket_has_estimate:
             session_id = session_id + "-est"
         try:
-            record_usage(
-                model=self._model,
-                input_tokens=self._input_tokens,
-                output_tokens=self._output_tokens,
-                purpose=self._purpose,
-                session_id=session_id,
-                journal_path=self._journal_path,
-            )
+            self._write_rolled_up_record(session_id)
         except Exception:  # noqa: BLE001 - accounting must never raise
             logger.warning(
                 "rolled-up usage journal write skipped (model=%s purpose=%s "
@@ -204,3 +200,44 @@ class RollingUsageRecorder:
             self._output_tokens = 0
             self._calls = 0
             self._bucket_has_estimate = False
+
+    def _write_rolled_up_record(self, session_id):
+        """Write one record carrying the bucket's real call count.
+
+        NOT a call to the pinned ``record_usage`` (Archie review, 2026-10-02:
+        a rolled-up row must declare how many real Ollama calls it folded
+        in, or the downstream reader counts it as exactly one and the
+        Bursar's call total silently undercounts by the rollup factor --
+        the opposite of Andy's rule). ``record_usage``'s own signature has
+        no ``calls`` parameter and this module cannot add one without
+        editing ``usage_journal.py``'s pinned, byte-identical body, so this
+        mirrors its write contract exactly (same validation, same path
+        resolution, same five original fields) and adds the one new field
+        it does not have a way to carry.
+        """
+        if self._purpose not in PURPOSES:
+            raise ValueError(
+                f"unknown purpose {self._purpose!r}; must be one of {sorted(PURPOSES)}"
+            )
+        total_tokens = self._input_tokens + self._output_tokens
+        record = {
+            "id": str(uuid.uuid4()),
+            "session_id": session_id,
+            "usage": {
+                "model": self._model,
+                "input_tokens": self._input_tokens,
+                "output_tokens": self._output_tokens,
+                "total_tokens": total_tokens,
+                "cost_usd": 0.0,
+                "timestamp": datetime.now(timezone.utc)
+                .isoformat(timespec="seconds")
+                .replace("+00:00", "Z"),
+                "purpose": self._purpose,
+                "calls": self._calls,
+            },
+        }
+        path = self._journal_path or resolve_journal_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(record, separators=(",", ":")) + "\n"
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(line)
