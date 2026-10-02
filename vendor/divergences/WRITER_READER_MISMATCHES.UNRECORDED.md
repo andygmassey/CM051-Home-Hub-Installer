@@ -729,3 +729,32 @@ down.
 The import and the one-line guard in `create_person`. Guarded by
 `tests/test_kinship_label_write_guard_vendored.py` (CM051 repo root).
 Retire by landing CM041 #185 and re-pinning.
+
+## Added 2026-10-02, CM051 board #2562-C -- `doctor`, a direct activity record must not block a routine's real count
+
+Tool re-run on 2026-10-02: `scripts/regenerate_divergence_patch.sh doctor`
+refused again, exit 1, same ban as every prior entry for this tree. Recorded
+here by location and shape.
+
+- `vendor/doctor/agent/web_ui.py`, `read_source_status()`'s ongoing-status
+  merge loop: the `if row["ongoing"] == "active": continue` short-circuit
+  (added for #2526/#2529, see the entry above) skipped the dedicated-routine
+  count lookup whenever fda-rerun's own activity record already set
+  `ongoing=active` -- which measured true for email and imessage on a walk
+  box, because that activity record answers the SAME narrow question the
+  install-time sentinel already answers (new correspondents found in a
+  window), not "does this source have real content". Both rows stayed
+  `status=no_data` with no count, while the dedicated email-ingest routine's
+  own log had just emitted real messages and iMessage's own settling ledger
+  showed tens of thousands of messages done. Fix: the dedicated-routine
+  lookup and count upgrade now run regardless of which path proved
+  `ongoing`; only the `ongoing`/`last_run_at`/`last_success_at` fields stay
+  reserved for a direct activity record when one exists (`direct_activity`
+  flag), because a routine's own run time is not evidence about WHEN
+  fda-rerun's unrelated tick last succeeded.
+
+A future sync must keep the `direct_activity` flag and the count lookup
+positioned after it rather than inside the old `continue` branch. Guarded by
+`tests/test_source_status_prefers_a_live_routine_over_a_stale_sentinel.sh`
+(cold-box-source-truth.yml), limb 5 (updated) and the new limb named "board
+#2562-C" pinning this exact shape.
