@@ -2884,7 +2884,20 @@ _ROUTINE_COUNT_KEYS = {
 def _routine_evidence(labels: tuple, routine_rows: list) -> dict | None:
     """The freshest routine row (by last_run_at) among `labels` that has
     actually run. None when none of them have fired yet -- a routine that
-    has never run is not evidence of anything."""
+    has never run is not evidence of anything.
+
+    FRESHEST IS RIGHT FOR "IS THIS SOURCE ONGOING", WRONG FOR "WHAT IS ITS
+    COUNT" (board #2562-C, round 2, MEASURED on a walk box). "email" maps to
+    two routines on two different intervals: email-bundle (900s, threading)
+    and email-ingest (3600s, the full-history routine that actually logs a
+    count). email-bundle is fresher almost every time it is checked, purely
+    because it runs four times as often, and its own log never has a count
+    at all -- so picking "freshest" as the SOLE tiebreak for ongoing status
+    is fine, but using that SAME pick as the source of the count starves
+    email of a real, already-measured figure (email-ingest emitted real mail
+    that cycle) in favour of a routine that was never going to have one. See
+    `_best_routine_count` below, which asks a different question.
+    """
     candidates = [r for r in routine_rows
                   if r.get("routine") in labels and r.get("last_run_at")]
     if not candidates:
@@ -2906,6 +2919,68 @@ def _routine_run_count(routine_label: str, latest: dict) -> int | None:
         return None
     v = latest.get(key)
     return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else None
+
+
+def _best_routine_count(labels: tuple, routine_rows: list) -> int | None:
+    """A trustworthy count from ANY healthy routine mapped to this source,
+    not only the freshest one (board #2562-C round 2). A source can map to
+    several routines that run at different intervals; only one of them may
+    ever log a real count, and it is not always the one that last ran.
+    Checked in the order `labels` declares them, so a tie goes to the more
+    authoritative routine (e.g. email-ingest before email-bundle) rather
+    than to whichever happened to run last.
+    """
+    by_label = {r.get("routine"): r for r in routine_rows}
+    for label in labels:
+        r = by_label.get(label)
+        if r is None or r.get("health") != "ok":
+            continue
+        count = _routine_run_count(label, r.get("latest") or {})
+        if count is not None:
+            return count
+    return None
+
+
+# ── A SOURCE WITH NO ROUTINE THAT EVER LOGS A COUNT (board #2562-C round 2)
+# ────────────────────────────────────────────────────────────────────────
+#
+# iMessage has exactly one mapped routine (imessage-bundle, a threading job)
+# and its log never carries an "Emitted N message" line at all -- there is no
+# sibling full-history routine the way email has email-ingest. So
+# `_best_routine_count` can never find anything for it, and the source would
+# stay uncounted even though the STORE plainly has content: MEASURED on a
+# walk box, `state/settling_progress.d/messages.imessage.json` read
+# `{"done": 20850, "total": 29021}` while /api/v1/sources still said
+# item_count 0. That file is written by the people/settling tracker, not by
+# any routine here, and it is the real STORE total for the handful of
+# sources it covers. `emails.json` is the same shape but is NOT trustworthy
+# for email: MEASURED the same day, it read `{"done": 0, "total": 0}` while
+# email-ingest's own log had just emitted thousands of real messages, so it
+# is answering some other question for that source. Only sources with a
+# DEMONSTRATED-reliable file are read here; email is deliberately absent.
+_SETTLING_PROGRESS_FILES = {
+    "imessage": "messages.imessage.json",
+    "whatsapp": "messages.whatsapp.json",
+}
+
+
+def _settling_progress_total(source: str, progress_dir: Path | None = None) -> int | None:
+    """The STORE total from this source's settling-progress ledger, or None
+    when there is no file for it, it cannot be read, or its total is not a
+    positive int. Never invents a count from a file that does not exist."""
+    name = _SETTLING_PROGRESS_FILES.get(source)
+    if name is None:
+        return None
+    base = progress_dir if progress_dir is not None else (
+        Path(os.environ.get("OSTLER_DIR", str(Path.home() / ".ostler")))
+        / "state" / "settling_progress.d"
+    )
+    try:
+        data = json.loads((base / name).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    total = data.get("total")
+    return total if isinstance(total, int) and not isinstance(total, bool) and total > 0 else None
 
 
 def _read_source_activity(name: str, activity_dir: Path | None = None) -> dict:
@@ -3084,31 +3159,49 @@ def read_source_status(hydrate_dir: Path | None = None,
         # "ongoing", and only the ongoing/timestamp fields stay reserved for
         # a direct activity record when one exists.
         labels = _SOURCE_ROUTINE_LABELS.get(row["source"])
-        if not labels:
-            continue
-        evidence = _routine_evidence(labels, routine_rows)
-        if evidence is None or evidence.get("health") != "ok":
-            continue  # the dedicated routine has nothing, or is itself unwell.
+        evidence = _routine_evidence(labels, routine_rows) if labels else None
 
-        if not direct_activity:
+        if evidence is not None and evidence.get("health") == "ok" and not direct_activity:
             row["ongoing"] = "active"
             row["last_run_at"] = evidence["last_run_at"]
             row["last_success_at"] = evidence["last_run_at"]
             row["ongoing_detail"] = "routine " + evidence["routine"]
 
-        # The install-time verdict can be stale, not just quiet: the
-        # dedicated routine has demonstrable throughput the FDA extractor's
-        # own window never saw. `count` is explicitly-keyed per routine (see
-        # _ROUTINE_COUNT_KEYS) so an unrelated counter in the same payload
-        # (an error tally, a skip count) can never be mistaken for it. This
-        # runs even when a direct activity record already set ongoing=active
-        # above -- that record is not evidence about the count.
-        count = _routine_run_count(evidence["routine"], evidence.get("latest") or {})
+        # The install-time verdict can be stale, not just quiet. Two
+        # independent count producers, checked in order, because neither
+        # covers every source (board #2562-C, round 2, MEASURED on a walk
+        # box):
+        #
+        #   1. `_best_routine_count` -- ANY healthy routine mapped to this
+        #      source that logs a count, not only the freshest one. "email"
+        #      maps to email-bundle (900s, no count ever) and email-ingest
+        #      (3600s, the one that actually logs "Emitted N message");
+        #      picking the freshest for the count, as the first draft of
+        #      this fix did, starves email of a real figure almost every
+        #      time, because the threading routine is fresher far more often
+        #      than it has anything to report.
+        #   2. `_settling_progress_total` -- a STORE total from the
+        #      settling-progress ledger, for the sources where no mapped
+        #      routine ever logs a count at all (imessage has no sibling
+        #      "ingest" routine the way email does). Declared per source
+        #      (`_SETTLING_PROGRESS_FILES`) because the SAME file shape is
+        #      NOT reliable for every source: `emails.json` read 0/0 the same
+        #      day email-ingest had just emitted thousands of real messages,
+        #      so it is answering a different question there and must not be
+        #      read for email.
+        #
+        # Both run even when a direct activity record already set
+        # ongoing=active above -- that record is not evidence about a count.
+        count = None
+        if labels:
+            count = _best_routine_count(labels, routine_rows)
+        if count is None:
+            count = _settling_progress_total(row["source"])
         if count is not None:
             row["last_run_count"] = count
             if row["status"] in ("no_data", "not_run", "unreadable"):
                 row["status"] = "ok"
-                row["detail"] = "routine's last run processed %d" % count
+                row["detail"] = "the store holds %d" % count
     return rows
 
 
