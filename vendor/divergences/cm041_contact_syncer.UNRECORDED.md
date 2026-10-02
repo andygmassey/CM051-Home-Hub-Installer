@@ -166,3 +166,41 @@ above, and every write-site guard described. Guarded by
 `tests/test_kinship_label_write_guard_vendored.py` (CM051 repo root,
 mirroring CM041 PR #185's own test suite). Retire by landing CM041 #185
 and re-pinning.
+
+## Added 2026-10-02, CM051 v1.0.107 (ORM) -- `syncer.py`, a non-phone value never reaches identifierType "phone" (CM051 walk-defect D)
+
+A cold v1.0.107 install walk found 8 of 3,307 phone identifiers on the box
+were exactly 14 digits -- a WhatsApp-LID/internal-id shape, never a phone
+number -- all on this file's own `id_<person_id>_phoneN` identifier naming.
+`normalise_phone()` is a pass-through formatter: when `phonenumbers` cannot
+parse/validate a value it returns the ORIGINAL STRING UNCHANGED rather than
+refusing it, so a vCard "phone" field holding a LID or another app's
+internal id sailed straight through into `identifierType "phone"` at all
+three of this file's phone-writing sites.
+
+Fix: gate all three on the new `is_possible_phone` (see
+`WRITER_READER_MISMATCHES.UNRECORDED.md`'s `cm041/identity_resolver` entry
+for why `is_possible_phone`, not the stricter `is_valid_phone`), added
+immediately before each existing `normalise_phone(...)` call:
+
+- the Qdrant payload's `"phones"` list comprehension (filter clause)
+- `_create_person_oxigraph`'s phone-identifier loop (`continue` on refusal)
+- `_update_person_oxigraph`'s phone-merge loop (`v = None` on refusal)
+
+Matches CM041 PR #186 (upstream, not yet merged at time of writing).
+
+NOT GRAFTED into the repo-root (dev-tree) `./contact_syncer/syncer.py`
+twin: that tree's three phone-writing sites do not call `normalise_phone`
+at all (writes the raw vCard value directly), which is a separate,
+pre-existing, larger gap -- the dev-tree twin never received the #2545
+normalisation graft either. Flagged, not fixed here: the dev-tree twin is
+not what `gui/project.yml` bundles into the shipped app (see this file's
+and `tests/test_a_second_contact_card_cannot_be_written_onto_one_person.py`'s
+own history), so it is not the surface the walk measured.
+
+### What a future sync must preserve
+
+The `is_possible_phone` import and the three gate checks listed above.
+Guarded by `tests/test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_identifier.py`
+(CM051 repo root, mirroring CM041 PR #186's own test suite). Retire by
+landing CM041 #186 and re-pinning.
