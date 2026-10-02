@@ -819,3 +819,42 @@ inside the RULE-2-veto branch, immediately before its `continue`. Guarded by
 `identity_resolver/tests/test_is_possible_phone_accepts_unvalidated_ranges.py`
 (CM041 source). Retire by landing CM041 PR #186 (D's half; E's half has no
 upstream counterpart yet) and re-pinning.
+
+## Added 2026-10-03, CM051 board #2562-C round 2 -- `doctor`, a count only has to come from SOMEWHERE real, not from the freshest place
+
+Tool re-run on 2026-10-03: `scripts/regenerate_divergence_patch.sh doctor`
+refused again, exit 1, same ban as every prior entry for this tree. Recorded
+here by location and shape.
+
+- `vendor/doctor/agent/web_ui.py`: two fixes to the count lookup added for
+  board #2562-C (see the entry above).
+  1. `_best_routine_count()` (new): the count is now taken from ANY healthy
+     routine mapped to a source, checked in declaration order, not only the
+     freshest one `_routine_evidence()` picks for the ongoing question.
+     MEASURED on a walk box: email maps to email-bundle (900s, no count ever)
+     and email-ingest (3600s, the one with a real "Emitted N message" log
+     line); email-bundle is fresher almost every time either is checked
+     purely because it runs four times as often, so picking "freshest" for
+     the count starved email of a real figure it already had.
+  2. `_settling_progress_total()` + `_SETTLING_PROGRESS_FILES` (new): a
+     source with NO routine that ever logs a count (iMessage has no sibling
+     "ingest" routine the way email does) now reads a STORE total from
+     `state/settling_progress.d/<file>.json` when one is declared for it.
+     MEASURED on a walk box: `messages.imessage.json` held
+     `{"done": 20850, "total": 29021}` while `/api/v1/sources` still said
+     item_count 0. Declared per source on purpose: the same day, `emails.json`
+     held `{"done": 0, "total": 0}` while email-ingest had just emitted
+     thousands of real messages, so that file answers a different question
+     for email and must never be read for it. Only `imessage` and `whatsapp`
+     are declared; `whatsapp` by the same reasoning as imessage, not
+     separately measured this round.
+
+A future sync must keep `_best_routine_count`, `_settling_progress_total` and
+`_SETTLING_PROGRESS_FILES`, and the merge-loop call sites that now run
+regardless of whether a direct activity record already set `ongoing`.
+Guarded by tests/test_source_status_prefers_a_live_routine_over_a_stale_sentinel.sh
+(cold-box-source-truth.yml), new limbs 8-11. Sibling tests
+(test_source_status_reports_ongoing_not_just_install.sh,
+test_the_source_table_covers_the_fda_extract_family.sh,
+test_source_status_contract.sh) updated only to extract/import the two new
+functions and `json`; all still pass.

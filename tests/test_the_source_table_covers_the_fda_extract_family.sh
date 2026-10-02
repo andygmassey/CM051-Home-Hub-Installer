@@ -350,7 +350,10 @@ want = {"_source_activity_dir", "_read_source_activity", "_source_hydrate_dir",
         "_parse_source_sentinel", "read_source_status", "render_source_status",
         # #2526: read_source_status now also consults the dedicated bundle
         # routines as a second evidence producer.
-        "_routine_evidence", "_routine_run_count"}
+        "_routine_evidence", "_routine_run_count",
+        # #2562-C round 2: see test_source_status_prefers_a_live_routine_
+        # over_a_stale_sentinel.sh for why both of these exist.
+        "_best_routine_count", "_settling_progress_total"}
 for node in tree.body:
     if isinstance(node, ast.FunctionDef) and node.name in want:
         exec(compile(ast.Module([node], []), "<f>", "exec"), ns)
