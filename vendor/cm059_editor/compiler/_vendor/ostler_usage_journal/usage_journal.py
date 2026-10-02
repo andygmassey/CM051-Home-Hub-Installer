@@ -143,6 +143,7 @@ def record_usage(
     session_id: str,
     *,
     journal_path: Optional[Path] = None,
+    calls: int = 1,
 ) -> bool:
     """Append one MEASURED local-model usage record. Returns True if written.
 
@@ -178,6 +179,8 @@ def record_usage(
             .isoformat(timespec="seconds")
             .replace("+00:00", "Z"),
             "purpose": purpose,
+            # #2603 follow-up: how many real calls this record represents.
+            "calls": max(1, int(calls)),
         },
     }
 
@@ -402,6 +405,7 @@ class RollingUsageRecorder:
                 purpose=self._purpose,
                 session_id=self._session_id,
                 journal_path=self._journal_path,
+                calls=self._calls,
             )
         except Exception:  # noqa: BLE001 - accounting must never raise
             logger.warning(

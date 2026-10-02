@@ -436,7 +436,7 @@ def judge(f, declared=None):
         add(DECLARED[21], 200 <= int(cfg) < 300, "GET /api/v1/config with the app's Origin and Sec-Fetch-Site answered {}".format(cfg))
 
     bx = f.get("box") or {}
-    oc, jr = bx.get("ollama_calls"), bx.get("journal_rows")
+    oc, jr = bx.get("ollama_calls"), bx.get("journal_calls")
     if not oc:
         add(DECLARED[22], None if oc is None else NA, "NOT MEASURED: no Ollama call count" if oc is None else "Ollama logged no calls in the window")
     else:
@@ -746,7 +746,7 @@ def _good():
         }},
         "api": {"sources": [["email", "ok"], ["whatsapp", "ok"], ["contacts", "ok"], ["people", "ok"]],
                 "config_as_app": 200},
-        "box": {"ollama_calls": 1000, "journal_rows": 990, "window_min": 60},
+        "box": {"ollama_calls": 1000, "journal_calls": 990, "window_min": 60},
     }
 
 
@@ -817,7 +817,7 @@ MUTANTS = [
     ("Data freshness lists 3 of N (#2551)", _set(["wiki", "pages", "front", "freshness"], ["Meetings"])),
     ("half-width table (#2551, #2548)", _app(["wiki", "pages", "front", "boxes"], {"what": "table", "label": "RDF Types", "w": 222, "aw": 912})),
     ("config 403 from the app (#2552)", _set(["api", "config_as_app"], 403)),
-    ("Bursar records 62% of Ollama calls (#2472)", _set(["box", "journal_rows"], 620)),
+    ("Bursar records 62% of Ollama calls (#2472)", _set(["box", "journal_calls"], 620)),
 ]
 
 

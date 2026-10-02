@@ -665,6 +665,7 @@ source_repo      = "$CM024"
 source_path      = "."
 pinned_sha       = "e0196b10308476eeeb4e29edc2eead6d47b9a4d7"
   divergence_patch = "vendor/divergences/cm024_knowledge.patch"
+unrecorded_divergence = "vendor/divergences/cm024_knowledge_calls_field.UNRECORDED.md"
 exclude          = ["tests/", "docs/", "scripts/", "__pycache__/", "*.egg-info/", ".gitignore", "CLAUDE.md", "HANDOFF.md", "TODO.md", "pytest.ini", "ostler_knowledge/query/"]
 # ostler_knowledge/query/ EXCLUDED 2026-09-03, and the reason is the point.
 # The 2026-09-02 re-vendor brought query/__init__.py but NOT the retriever.py it
@@ -829,6 +830,7 @@ source_repo      = "$CM059"
 source_path      = "compiler"
   pinned_sha = "554fb88887386246bccf06f750c78a2ff54365eb"
   divergence_patch = "vendor/divergences/cm059_editor.patch"
+unrecorded_divergence = "vendor/divergences/cm059_editor_calls_field.UNRECORDED.md"
   hold_ack_shas            = "1935dba08c4478e898b84bff49cb783c931dc80a"
   hold_ack_reason          = "2026-10-02 (Archie, v1.0.107): 1935dba0 is the squash merge of CM059-Ostler-Editor #29 (render_frontpage treats a None title or body as empty and omits the empty body element). Its change is ALREADY GRAFTED into this tree by CM051 #2602 and carried in vendor/divergences/cm059_editor.patch; pinned to the graft by tests/test_vendored_cm059_renders_a_birthday_card_with_no_body.py, which fails (rc=1) against the pre-graft renderer and passes (rc=0) on this tree. Acked, not re-pinned, because the source is one further commit ahead on an unrelated change. SCOPE: this sha only."
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
