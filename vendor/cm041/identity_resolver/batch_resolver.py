@@ -1940,6 +1940,39 @@ class BatchResolver:
                     "different %s (canonical keys must not merge)",
                     action.discard_uri, action.keep_uri, conflict,
                 )
+                # CM051 walk-defect E (v1.0.107): a RULE-2-refused pair used to
+                # end HERE -- `continue` with nothing but this log line, which
+                # install logs and support bundles get but the customer never
+                # sees. detect()'s OWN classification said this pair was a
+                # high-confidence duplicate (that is why it is in auto_merges
+                # at all); RULE 2 is right to refuse the AUTO-MERGE, but a
+                # refused auto-merge is not "nothing to do", it is a duplicate
+                # that now needs a HUMAN to adjudicate (same household/office
+                # phone vs. two Contacts cards for one person). Dropping it
+                # meant the exact same pair was re-detected, re-proposed and
+                # re-refused every converge round forever -- measured on a
+                # live box: round 2 onward plateaued at the identical refused
+                # count every single round, 0 of it ever reaching review --
+                # which is what "CM051 #2545 is not fixed on the box" actually
+                # measures as. Route it to needs_review instead, so it reaches
+                # whatever reads that list (the Doctor "tidy your contacts"
+                # queue, support bundles, the next person to look). This adds
+                # no new rule, threshold or merge decision -- RULE 2 still
+                # vetoes the merge exactly as before; this only stops the
+                # refusal's OUTCOME from being silently discarded.
+                report.needs_review.append(DuplicateMatch(
+                    uri_a=action.discard_uri,
+                    name_a=action.discard_name,
+                    uri_b=action.keep_uri,
+                    name_b=action.keep_name,
+                    confidence=action.confidence,
+                    strategy=action.strategy,
+                    details=(
+                        f"{action.details} -- RULE 2 refused the auto-merge: "
+                        f"the two nodes carry different {conflict} values, so "
+                        "this needs a human decision, not an automatic merge"
+                    ),
+                ))
                 continue
             logger.info(
                 "Merging: %s (%s) → %s (%s) [%s, conf=%.2f]",

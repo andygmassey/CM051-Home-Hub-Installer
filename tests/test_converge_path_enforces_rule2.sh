@@ -155,6 +155,55 @@ if got == [("urn:a", "urn:c")]:
 else:
     bad("mixed batch behaved wrongly: %r" % got)
 
+# ── 5. CM051 walk-defect E (v1.0.107): a RULE-2-refused pair must land in
+#      needs_review, not vanish with nothing but a log line. Measured on a
+#      live box: once a pair's two canonical keys genuinely differ, detect()
+#      re-classifies it as auto_merge (same confidence, same names-agree
+#      verdict) every converge round, execute() refuses it every round, and
+#      without this it is NEVER visible to anything that reads needs_review
+#      (the Doctor "tidy your contacts" queue, support bundles) -- which is
+#      what "CM051 #2545 is not fixed on the box" actually measures as. ─────
+def run_with_report(actions):
+    merged.clear()
+    r = br.BatchResolver()
+    rep = br.ResolverReport(auto_merges=list(actions))
+    r.execute(rep, backup_dir="/nonexistent-on-purpose")
+    return rep
+
+rep = run_with_report([action("urn:a", "urn:b")])
+review_pairs = {(m.uri_a, m.uri_b) for m in rep.needs_review}
+if ("urn:b", "urn:a") in review_pairs and len(rep.needs_review) == 1:
+    ok("a RULE-2-refused pair is routed to needs_review, not dropped")
+else:
+    bad("a RULE-2-refused pair did not reach needs_review: %r" % [
+        (m.uri_a, m.uri_b, m.strategy) for m in rep.needs_review])
+
+# ── 6. CONTROL: a pair that DOES merge must NOT also land in needs_review --
+#      otherwise every ordinary merge would double as a false duplicate
+#      report, which is as misleading as the silent drop this fixes. ───────
+rep = run_with_report([action("urn:a", "urn:c")])
+if len(rep.needs_review) == 0:
+    ok("CONTROL: a pair that successfully merges is NOT also reported as needing review")
+else:
+    bad("a merged pair ALSO appeared in needs_review: %r" % [
+        (m.uri_a, m.uri_b, m.strategy) for m in rep.needs_review])
+
+# ── 7. Mixed batch: only the refused pair reaches needs_review ───────────
+rep = run_with_report([action("urn:a", "urn:b"), action("urn:a", "urn:c")])
+review_pairs = {(m.uri_a, m.uri_b) for m in rep.needs_review}
+if review_pairs == {("urn:b", "urn:a")}:
+    ok("mixed batch: only the refused pair reaches needs_review, the merged pair does not")
+else:
+    bad("mixed batch needs_review wrong: %r" % review_pairs)
+
+# ── 8. The refused item names WHY, for whatever reads needs_review next ──
+rep = run_with_report([action("urn:a", "urn:b")])
+detail = rep.needs_review[0].details if rep.needs_review else ""
+if "RULE 2" in detail and "icloud_contact_uid" in detail:
+    ok("the needs_review entry names the conflicting canonical-key type")
+else:
+    bad("the needs_review entry does not explain the refusal: %r" % detail)
+
 print()
 print("== %d pass / %d fail / %d total ==" % (PASS, FAIL, PASS + FAIL))
 raise SystemExit(1 if FAIL else 0)
