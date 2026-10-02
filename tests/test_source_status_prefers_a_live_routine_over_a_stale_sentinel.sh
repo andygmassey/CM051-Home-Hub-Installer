@@ -202,9 +202,12 @@ else:
     bad("CONTROL failed: status=%r ongoing=%r last_run_count=%r -- an unwell routine was believed"
         % (r.get("status") if r else None, r.get("ongoing") if r else None, r.get("last_run_count") if r else None))
 
-# ── 5. CONTROL: a direct activity record still wins outright ──────────────
-# fda-rerun's own evidence (when it exists) must not be second-guessed by the
-# routine-evidence path; this proves the short-circuit fires.
+# ── 5. CONTROL: a direct activity record wins for ongoing/timestamp, but a
+#      routine's real count is STILL surfaced independently ──────────────
+# fda-rerun's own evidence (when it exists) must not be second-guessed for
+# WHEN this source last ran; that stays this record's answer. But it must
+# not BLOCK the routine's own count either (board #2562-C below is what
+# happens when it does).
 root = fresh_dir()
 sentinel(root, "email", "no_data", "no_correspondents_in_window", 0)
 (root / "state" / "source_activity" / "apple_mail.tsv").write_text(
@@ -215,11 +218,44 @@ _ROUTINE_ROWS["at"] = [{
     "health": "ok", "last_run_at": "2026-09-04T09:17:19Z", "latest": {"emitted": 1},
 }]
 r = row_for("email", read_source_status())
-if r and r.get("last_run_at") == "2026-09-04T10:00:00Z" and r.get("last_run_count") is None:
-    ok("CONTROL: a direct activity record wins outright; the routine path never ran")
+if r and r.get("last_run_at") == "2026-09-04T10:00:00Z":
+    ok("CONTROL: a direct activity record still wins for last_run_at")
 else:
-    bad("CONTROL failed: last_run_at=%r last_run_count=%r -- the direct activity record was overridden"
-        % (r.get("last_run_at") if r else None, r.get("last_run_count") if r else None))
+    bad("CONTROL failed: last_run_at=%r -- the direct activity record's timestamp was overridden"
+        % (r.get("last_run_at") if r else None))
+if r and r.get("last_run_count") == 1 and r.get("status") == "ok":
+    ok("the routine's own count is still surfaced, and status still upgrades, even though a direct activity record already set ongoing")
+else:
+    bad("last_run_count=%r status=%r -- the routine's count was blocked by the direct activity record"
+        % (r.get("last_run_count") if r else None, r.get("status") if r else None))
+
+# ── 7. THE WALK-FOUND DEFECT (board #2562-C), MEASURED on a walk box ──────
+# email and imessage both had a direct activity record saying ongoing=active
+# (the SAME narrow correspondents-in-window check the install sentinel
+# already runs, now succeeding on an ONGOING tick instead of at install) while
+# /api/v1/sources still called them no_data -- and the Doctor tab believed
+# the ongoing flag and showed "Up to date" with NO count, because the
+# dedicated routine's own count (which the STORE confirmed was real: the
+# routine's log had just emitted real messages) was never consulted at all.
+# "Up to date with no count" was closer to true than "no_data", but neither
+# was what the store said. This is limb 5 above's exact shape, pinned by name
+# because it is the specific regression a walk found, not a hypothetical.
+root = fresh_dir()
+sentinel(root, "email", "no_data", "no_correspondents_in_window", 0)
+(root / "state" / "source_activity" / "apple_mail.tsv").write_text(
+    "source=apple_mail\nlast_run_at=2026-09-04T10:00:00Z\nlast_status=ok\n"
+    "last_success_at=2026-09-04T10:00:00Z\n", encoding="utf-8")
+_ROUTINE_ROWS["at"] = [{
+    "routine": "com.creativemachines.ostler.email-ingest",
+    "health": "ok", "last_run_at": "2026-09-04T11:00:00Z",
+    "latest": {"emitted": FAKE_EMAIL_COUNT},
+}]
+r = row_for("email", read_source_status())
+if r and r.get("ongoing") == "active" and r.get("status") == "ok" and r.get("last_run_count") == FAKE_EMAIL_COUNT:
+    ok("board #2562-C: a real routine count reaches the row even though a direct activity record already said ongoing=active")
+else:
+    bad("board #2562-C FAILED: ongoing=%r status=%r last_run_count=%r"
+        % (r.get("ongoing") if r else None, r.get("status") if r else None, r.get("last_run_count") if r else None))
 
 # ── 6. CONTROL: a source with no mapped routine is untouched ──────────────
 # If the lookup were fuzzy rather than table-driven, "browsing" could pick up
