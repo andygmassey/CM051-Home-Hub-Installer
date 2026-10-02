@@ -241,7 +241,7 @@ def _iso(dt: datetime | None):
 # Card constructors
 # ---------------------------------------------------------------------------
 
-def _make_card(kind: str, key: str, *, title: str, body: str, now: datetime,
+def _make_card(kind: str, key: str, *, title: str, body: str | None, now: datetime,
                domain: str | None = None, priority: float = 10.0,
                expires_utc: datetime | None = None, action: dict | None = None,
                evidence: str | None = None, source: str | None = None,

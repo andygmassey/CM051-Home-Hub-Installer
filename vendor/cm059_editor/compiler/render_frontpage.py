@@ -516,9 +516,21 @@ def _card_html(card: dict) -> str:
         head += f'<span class="l2">{_icon("shield")}L2</span>'
     head += "</div>"
 
-    title = html.escape(card.get("title", ""))
-    body = html.escape(card.get("body", ""))
-    core = f'<div class="card-title">{title}</div><div class="card-body">{body}</div>'
+    # CM051 v1.0.107 incident (graft, acks upstream andygmassey/CM059-Ostler-
+    # Editor@a86d49e, PR #29): birthday_card() (signals.py) emits body=None
+    # (the title already carries the full timing, #2535). `.get("body", "")`
+    # only substitutes its default when the KEY IS ABSENT -- the key is
+    # present here, valued None, so this crashed with AttributeError:
+    # 'NoneType' object has no attribute 'replace' inside html.escape, on
+    # every editor-frontpage LaunchAgent tick, every hour, on every box. `or
+    # ""` treats None (and any other falsy value) as empty, not just a
+    # missing key. The body div is omitted entirely when there is no body,
+    # rather than rendering an empty one.
+    title = html.escape(card.get("title") or "")
+    body_text = card.get("body") or ""
+    core = f'<div class="card-title">{title}</div>'
+    if body_text:
+        core += f'<div class="card-body">{html.escape(body_text)}</div>'
 
     # per-area completeness card
     areas = card.get("areas")
