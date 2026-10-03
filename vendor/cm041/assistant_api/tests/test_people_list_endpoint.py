@@ -662,6 +662,27 @@ class TestLoadPeopleListSelfUris(unittest.TestCase):
 
         self.assertEqual(result, {"urn:ostler:person/owner"})
 
+    def test_user_name_fallback_is_used_when_display_name_vars_are_unset(self) -> None:
+        """Measured on macmini16-walk (Archie's walk #6 round 2 review):
+        contact_syncer's own .env sets USER_NAME (and USER_FIRST_NAME),
+        never USER_DISPLAY_NAME -- the var this function originally
+        checked for was itself wrong. USER_NAME is a third fallback."""
+        def fake_select(query):
+            if "pwg:displayName" in query and "hasIdentifier" not in query:
+                return [{"p": "urn:ostler:person/owner", "n": "John Smith"}]
+            return []
+
+        env = {
+            k: v for k, v in server.os.environ.items()
+            if k not in ("USER_ID", "USER_DISPLAY_NAME", "PWG_USER_NAME")
+        }
+        env["USER_NAME"] = "John Smith"
+        with patch.object(server, "_sparql_select", side_effect=fake_select), \
+             patch.dict(server.os.environ, env, clear=True):
+            result = server._load_people_list_self_uris()
+
+        self.assertEqual(result, {"urn:ostler:person/owner"})
+
     def test_display_name_match_is_case_and_whitespace_insensitive(self) -> None:
         def fake_select(query):
             if "pwg:displayName" in query and "hasIdentifier" not in query:

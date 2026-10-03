@@ -650,26 +650,51 @@ def _load_people_list_self_uris():
         ``contact_syncer.owner_node`` (``pwg:isOwner true``) whenever
         USER_ID is set -- which install.sh's onboarding prompt always sets
         (``gui_read ... MSG_PROMPT_USER_ID_TITLE``).
-      * any Person whose displayName EXACTLY matches USER_DISPLAY_NAME
-        (falling back to PWG_USER_NAME) -- the SAME env var contact_syncer
-        already reads for the owner's own display name, no new install.sh
-        wiring needed. Catches a Contacts-derived owner card (e.g. the
-        install's own real-name Contacts card).
+      * any Person whose displayName EXACTLY matches USER_DISPLAY_NAME /
+        PWG_USER_NAME / USER_NAME (checked in that order -- see KNOWN GAP
+        for why there are three).
       * any Person with a ``pwg:hasIdentifier`` email identifier matching
         CARDDAV_USERNAME, the Apple ID used to authenticate the CardDAV
         sync -- in practice the owner's own address on the large majority
         of installs. Catches an email-derived owner node whose displayName
         is the email itself, which a name-match alone cannot reach.
 
-    KNOWN GAP, stated rather than hidden: ``OSTLER_OPERATOR_EMAILS`` /
-    ``OSTLER_OPERATOR_NAME`` (the config ``load_self_uris`` was ORIGINALLY
-    written for, used today only by person_facts) are never set by
-    install.sh -- measured, zero hits. CARDDAV_USERNAME is a reasonable
-    stand-in, not a guarantee: an owner whose CardDAV login differs from
-    every email on their own Contacts card is not caught by the email arm
-    (the name arm is unaffected). Best-effort: any failure here (a
-    degraded Oxigraph, an unset env var) must not blank the People list,
-    so this returns an empty set rather than raising.
+    KNOWN GAP, MEASURED on macmini16-walk rather than assumed (Archie's
+    walk #6 round 2 review asked for the measurement that follows): ALL
+    THREE signals are currently unreachable by this function on a real
+    install, for TWO INDEPENDENT reasons, neither of which this function
+    can fix on its own:
+
+      1. ``contact_syncer.owner_node`` is never actually invoked anywhere
+         in install.sh's onboarding flow -- measured: no ``pwg:isOwner
+         true`` node exists in the graph at all on macmini16-walk, despite
+         USER_ID being set. The anchor-URI arm therefore excludes a URI
+         with no corresponding Qdrant point to exclude.
+      2. ical-server.py's OWN LaunchAgent plist (what install.sh actually
+         writes) injects ONLY USER_ID into this process's environment --
+         measured directly from the plist and the running process's own
+         env. USER_DISPLAY_NAME, PWG_USER_NAME, USER_NAME and
+         CARDDAV_USERNAME are ALL absent from THIS process's environment
+         regardless of what contact_syncer's own ``.env`` sets (a SEPARATE
+         process; measured there too: contact_syncer sets USER_NAME +
+         USER_FIRST_NAME, never USER_DISPLAY_NAME -- the name this
+         function originally checked for was itself wrong, now fixed as a
+         third fallback, which does not by itself fix gap 2).
+
+    End to end, measured with this function's real behaviour forced
+    on vs. forced to return an empty set: the People-list total is
+    IDENTICAL either way on macmini16-walk. The self-uri exclusion is
+    correct in design and inert in practice on every install until EITHER
+    gap is closed -- both are install.sh / contact_syncer wiring changes
+    outside this file, so they are flagged here rather than silently
+    absorbed into this PR's scope. ``OSTLER_OPERATOR_EMAILS`` /
+    ``OSTLER_OPERATOR_NAME`` (the config ``person_facts.sources.
+    load_self_uris`` was ORIGINALLY written for) are a separate, THIRD
+    unset pair, used today only by person_facts.
+
+    Best-effort regardless: any failure here (a degraded Oxigraph, an
+    unset env var) must not blank the People list, so this returns an
+    empty set rather than raising.
     """
     uris = set()
     try:
@@ -680,6 +705,15 @@ def _load_people_list_self_uris():
         operator_name = (
             os.environ.get("USER_DISPLAY_NAME")
             or os.environ.get("PWG_USER_NAME")
+            # Measured on macmini16-walk: contact_syncer's OWN .env sets
+            # USER_NAME (and USER_FIRST_NAME), never USER_DISPLAY_NAME --
+            # the name this function originally checked for was simply
+            # wrong. Kept as a third fallback, not a replacement: a CORRECT
+            # var name alone does not make this arm live (see KNOWN GAP
+            # above -- ical-server.py's own LaunchAgent plist injects
+            # ONLY USER_ID, so none of these three reach this process
+            # today regardless of which is spelled right).
+            or os.environ.get("USER_NAME")
             or ""
         )
         name_norm = " ".join(operator_name.strip().lower().split())
