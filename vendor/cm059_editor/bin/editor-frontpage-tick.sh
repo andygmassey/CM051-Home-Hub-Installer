@@ -282,16 +282,43 @@ log "Editor front-page tick complete"
 # Fix: trigger a wiki recompile ONLY when front_page.json's content actually
 # changed since the wiki last picked it up -- not on every hourly tick, so
 # the daily-cadence decision for the rest of the wiki is unaffected when the
-# feed is quiet. Backgrounded and best-effort: a wiki recompile takes
-# minutes and this tick documents itself as sub-second, so it must not
-# block on it, and wiki-recompile-tick.sh has its own single-flight mutex,
-# so a tick already running from the regular/catch-up schedule just makes
-# this one exit 0 immediately -- no double-compile, no stacking.
+# feed is quiet.
+#
+# 🔴 DO NOT FORK wiki-recompile-tick.sh AS A CHILD OF THIS PROCESS. This
+# plist (vendor/cm059_editor/launchd/com.creativemachines.ostler.editor-
+# frontpage.plist) has NO AbandonProcessGroup key, so launchd kills this
+# job's WHOLE PROCESS GROUP the moment this script exits -- including any
+# plain `( cmd & )` backgrounded child, which stays a member of this group
+# by default. That is the exact v1.0.107 defect (see wiki-recompile-tick.sh's
+# own Phase-2 launch, which exists only because of this same failure mode,
+# and solves it with `set -m` + the sibling plist's AbandonProcessGroup).
+# An earlier version of this fix forked directly and would have silently
+# killed the recompile the instant this tick's own process exited.
+#
+# Fix: ask launchd itself to start the SEPARATE wiki-recompile LaunchAgent
+# job (com.creativemachines.ostler.wiki-recompile, whose own plist DOES set
+# AbandonProcessGroup) via `launchctl kickstart`. That job runs under its
+# own launchd-managed lifetime, entirely independent of this script's --
+# nothing here needs to outlive this process for the recompile to survive.
+# Without `-k`, kickstart is idempotent: if the job is already running (the
+# regular/catch-up schedule, or a previous trigger) it is a no-op, so this
+# never double-compiles or interrupts an in-flight run; wiki-recompile-
+# tick.sh's own single-flight mutex is a second, independent guard against
+# the same thing.
+#
+# Cost: wiki-recompile-tick.sh's Phase 2 (the LLM summary backfill, by far
+# the most expensive part) has no time-based throttle of its own, only an
+# anti-STACKING check (skip if one is still running). Triggering Phase 1
+# hourly is cheap (seconds-to-minutes, no LLM), but doing so would make
+# Phase 2 restart as soon as each run finishes -- turning the deliberate
+# daily LLM cost (CM051 #20) into a near-continuous one. wiki-recompile-
+# tick.sh therefore also gained a Phase-2 debounce (next section) so this
+# trigger can fire hourly without reopening that cost decision.
 FRONT_PAGE_JSON="${OSTLER_DIR}/editor/front_page.json"
 FRONT_PAGE_SEEN="${OSTLER_DIR}/state/wiki-recompile-last-frontpage.sha256"
-WIKI_TICK="${OSTLER_DIR}/bin/wiki-recompile-tick.sh"
-if [ -f "$FRONT_PAGE_JSON" ] && [ -x "$WIKI_TICK" ]; then
-    mkdir -p "${OSTLER_DIR}/state" "${OSTLER_DIR}/logs" 2>/dev/null || true
+WIKI_RECOMPILE_LABEL="com.creativemachines.ostler.wiki-recompile"
+if [ -f "$FRONT_PAGE_JSON" ]; then
+    mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || true
     # `|| true` on the assignment: under `set -e`, a failed command
     # substitution used as a plain assignment DOES abort the script (unlike
     # inside an `if`/`&&`), and this whole step must stay as non-fatal as the
@@ -301,11 +328,13 @@ if [ -f "$FRONT_PAGE_JSON" ] && [ -x "$WIKI_TICK" ]; then
     _old_hash="$(cat "$FRONT_PAGE_SEEN" 2>/dev/null || true)"
     if [ -n "$_new_hash" ] && [ "$_new_hash" != "$_old_hash" ]; then
         printf '%s' "$_new_hash" > "$FRONT_PAGE_SEEN"
-        log "front_page.json changed (was ${_old_hash:-<none>}, now ${_new_hash}); kicking a background wiki recompile so Needs-you-now catches up within one tick"
-        ( "$WIKI_TICK" >>"${OSTLER_DIR}/logs/wiki-recompile.log" 2>&1 & )
+        log "front_page.json changed (was ${_old_hash:-<none>}, now ${_new_hash}); kickstarting ${WIKI_RECOMPILE_LABEL} so Needs-you-now catches up within one tick"
+        _kick_rc=0
+        launchctl kickstart "gui/$(id -u)/${WIKI_RECOMPILE_LABEL}" || _kick_rc=$?
+        if [ "$_kick_rc" -ne 0 ]; then
+            log "launchctl kickstart ${WIKI_RECOMPILE_LABEL} returned rc=${_kick_rc} (job not loaded? agent not installed?); the daily/catch-up schedule will pick this up instead"
+        fi
     else
         log "front_page.json unchanged since the wiki last saw it; leaving the daily wiki-recompile schedule alone"
     fi
-elif [ -f "$FRONT_PAGE_JSON" ]; then
-    log "wiki-recompile-tick.sh not present at $WIKI_TICK; wiki will catch up on its own schedule instead"
 fi

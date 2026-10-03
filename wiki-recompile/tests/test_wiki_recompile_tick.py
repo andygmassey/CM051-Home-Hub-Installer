@@ -650,6 +650,113 @@ def test_phase2_backfill_does_not_stack(stub_env):
 
 
 # ---------------------------------------------------------------------------
+# CM051 walk #5 follow-up (Archie review on #2633): editor-frontpage-tick.sh
+# now kickstarts this whole tick on every front_page.json change. Phase 1 is
+# cheap, but the anti-STACKING guard above only stops two backfills
+# overlapping -- it does nothing to stop a new one starting the moment the
+# previous one finishes. On a thin graph (Phase 2 finishes in minutes) an
+# hourly trigger would restart the LLM backfill on every tick, turning the
+# deliberate daily cost (#20's "daily vs hourly" decision) into a
+# near-continuous one. This floor is independent of the no-stack guard and
+# of who triggered the tick.
+# ---------------------------------------------------------------------------
+
+
+@_skip_if_real_docker
+def test_phase2_backfill_debounced_when_started_recently(stub_env):
+    """A Phase-2 backfill that already STARTED inside the cost floor must not
+    be relaunched just because it has since finished (no live pidfile)."""
+    log = stub_env["tmp_path"] / "docker.log"
+    _make_fake_docker(stub_env["stub_dir"], log_path=log)
+    ostler_dir = stub_env["ostler_dir"]
+    state_dir = ostler_dir / "state" / "wiki-recompile"
+    state_dir.mkdir(parents=True)
+    (state_dir / "last-phase2-start-epoch").write_text(str(int(time.time())))
+
+    result = _run_wrapper({"OSTLER_DIR": str(ostler_dir)}, stub_env["stub_dir"])
+    assert result.returncode == 0, result.stderr
+    assert "not launching another yet" in result.stdout, result.stdout
+
+    # Give a would-be detached launch a moment to appear, then confirm it
+    # never does -- same poll primitive as the happy-path test, inverted.
+    lines = _wait_for_line(log, "run --rm -T wiki-compiler", timeout=2.0)
+    full_lines = [
+        line for line in lines
+        if "run --rm -T wiki-compiler" in line and "OSTLER_WIKI_SKIP_LLM" not in line
+    ]
+    assert not full_lines, f"Phase 2 launched despite the cost floor: {lines}"
+
+
+@_skip_if_real_docker
+def test_phase2_backfill_runs_once_the_floor_has_elapsed(stub_env):
+    """The same box, once WIKI_PHASE2_MIN_INTERVAL_SECONDS has actually
+    elapsed since the last Phase-2 start, must launch again -- the floor
+    delays, it does not permanently disable, the backfill."""
+    log = stub_env["tmp_path"] / "docker.log"
+    _make_fake_docker(stub_env["stub_dir"], log_path=log)
+    ostler_dir = stub_env["ostler_dir"]
+    state_dir = ostler_dir / "state" / "wiki-recompile"
+    state_dir.mkdir(parents=True)
+    (state_dir / "last-phase2-start-epoch").write_text(str(int(time.time()) - 100))
+
+    result = _run_wrapper(
+        {"OSTLER_DIR": str(ostler_dir), "WIKI_PHASE2_MIN_INTERVAL_SECONDS": "10"},
+        stub_env["stub_dir"],
+    )
+    assert result.returncode == 0, result.stderr
+
+    lines = _wait_for_line(log, "run --rm -T wiki-compiler", timeout=10.0)
+    full_lines = [
+        line for line in lines
+        if "run --rm -T wiki-compiler" in line and "OSTLER_WIKI_SKIP_LLM" not in line
+    ]
+    assert full_lines, f"Phase 2 did not launch once the floor elapsed: {lines}"
+
+
+@_skip_if_real_docker
+def test_phase2_debounce_state_file_written_on_launch(stub_env):
+    """Launching Phase 2 must record the start time, or the floor above
+    never has anything to measure against on the NEXT tick."""
+    _make_fake_docker(stub_env["stub_dir"], log_path=stub_env["tmp_path"] / "docker.log")
+    ostler_dir = stub_env["ostler_dir"]
+    state_file = ostler_dir / "state" / "wiki-recompile" / "last-phase2-start-epoch"
+    assert not state_file.exists()
+
+    before = int(time.time())
+    result = _run_wrapper({"OSTLER_DIR": str(ostler_dir)}, stub_env["stub_dir"])
+    after = int(time.time())
+    assert result.returncode == 0, result.stderr
+
+    # The state-file write happens synchronously, before the detached nohup
+    # launch, so it must exist the moment the wrapper returns -- no polling.
+    assert state_file.exists(), "Phase 2 launch must record its start epoch"
+    recorded = int(state_file.read_text().strip())
+    assert before <= recorded <= after + 2, f"recorded epoch {recorded} not in [{before}, {after}]"
+
+
+@_skip_if_real_docker
+def test_phase2_debounce_control_the_floor_actually_fires(stub_env):
+    """Negative control for the three tests above: WITHOUT any state file
+    (the common case -- first tick ever, or an upgrade from a build that
+    predates this guard), Phase 2 must still launch. Otherwise the floor's
+    absence-handling, not the floor itself, would be what the other tests
+    measure."""
+    log = stub_env["tmp_path"] / "docker.log"
+    _make_fake_docker(stub_env["stub_dir"], log_path=log)
+    ostler_dir = stub_env["ostler_dir"]
+    # Deliberately no state/wiki-recompile/last-phase2-start-epoch file.
+
+    result = _run_wrapper({"OSTLER_DIR": str(ostler_dir)}, stub_env["stub_dir"])
+    assert result.returncode == 0, result.stderr
+    lines = _wait_for_line(log, "run --rm -T wiki-compiler", timeout=10.0)
+    full_lines = [
+        line for line in lines
+        if "run --rm -T wiki-compiler" in line and "OSTLER_WIKI_SKIP_LLM" not in line
+    ]
+    assert full_lines, f"absent state file must not itself block Phase 2: {lines}"
+
+
+# ---------------------------------------------------------------------------
 # v1.0.107: the stall watchdog cannot see a containerised payload, so the
 # full (summaries) compile was being killed before it could ever flip
 # hydration to complete.

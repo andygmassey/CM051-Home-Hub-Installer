@@ -361,9 +361,41 @@ if [ -f "$_bg_pidfile" ]; then
         _bg_running=true
     fi
 fi
+
+# No-SOON-AFTER guard (CM051 walk #5 follow-up, Archie review on #2633): the
+# anti-STACKING check above only stops two backfills overlapping; it does
+# nothing to stop a new one starting the moment the previous one finishes.
+# editor-frontpage-tick.sh now kickstarts this whole tick on every
+# front_page.json change, which Phase 1 (above) handles cheaply -- but
+# without a time floor here, a box where Phase 2 finishes in minutes (a thin
+# graph, as on a walk box) would restart the LLM backfill on every such
+# trigger, turning the deliberate daily cost (CM051 #20's "daily vs hourly"
+# decision) into a near-continuous one. This floor is independent of WHO
+# triggered the tick -- the regular daily schedule, the first-day catch-up,
+# or the front-page change -- so it protects the cost decision regardless of
+# trigger source rather than special-casing one caller.
+WIKI_PHASE2_MIN_INTERVAL_SECONDS="${WIKI_PHASE2_MIN_INTERVAL_SECONDS:-86400}"
+_phase2_last_start_file="${OSTLER_DIR}/state/wiki-recompile/last-phase2-start-epoch"
+_phase2_too_soon=false
+if [ "$_bg_running" != true ] && [ -f "$_phase2_last_start_file" ]; then
+    _last_start="$(cat "$_phase2_last_start_file" 2>/dev/null || true)"
+    if [ -n "${_last_start:-}" ] && [ "$_last_start" -eq "$_last_start" ] 2>/dev/null; then
+        _now_epoch="$(date -u +%s)"
+        _elapsed=$((_now_epoch - _last_start))
+        if [ "$_elapsed" -lt "$WIKI_PHASE2_MIN_INTERVAL_SECONDS" ]; then
+            _phase2_too_soon=true
+            log "wiki summary backfill last started ${_elapsed}s ago (floor ${WIKI_PHASE2_MIN_INTERVAL_SECONDS}s); not launching another yet"
+        fi
+    fi
+fi
+
 if [ "$_bg_running" = true ]; then
     log "wiki summary backfill already running (pid ${_bg_prev_pid}); not launching another"
+elif [ "$_phase2_too_soon" = true ]; then
+    : # already logged above
 else
+    mkdir -p "$(dirname "$_phase2_last_start_file")" 2>/dev/null || true
+    date -u +%s > "$_phase2_last_start_file" 2>/dev/null || true
     # --- Shared background-LLM slot lock (v1.0.0 chat-saturation fix) ------
     # The full-summary backfill is the single biggest Ollama producer on the
     # box. It MUST share the one background-LLM slot lock with the
