@@ -127,6 +127,6 @@ wiki_image_absent|wiki-compiler:/app/compiler/pages|message\("home_l2_chip"\)|CM
 # --- v1.0.107 wiki v0.1.38 (CM044 c6e83c14, #298). Each line below FAILED against the v0.1.37 digests
 # (site ae3df9a1, compiler 629bab59) and PASSED against v0.1.38 (site 737bac06, compiler bcc50585) through this
 # verifier. Counts measured inside the images, old -> new.
-wiki_image_grep|wiki-compiler:/app/compiler/pages|heading\('people_with_page'\)|CM044 #298 the People tile says what it counts ('people with a page'). 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pages|heading\(["']people_with_page["']\)|CM044 #298 the People tile (dashboard.py) and the People index heading (person_pages.py) say what they count ('people with a page'). Either quote style, because the tile uses double quotes. 0 -> 2.
 wiki_image_grep|wiki-compiler:/app/compiler/pages|pwg:identifierType "email"|CM044 #298 self-exclusion finds the operator through pwg:hasIdentifier -> identifierType email, the shape the writers actually produce. 0 -> 2.
 wiki_image_absent|wiki-compiler:/app/compiler/pages|pwg:Person ; pwg:email \?e \.|CM044 #298 LOCK: the self query no longer uses a bare pwg:email predicate on the Person node, which nothing writes. 1 -> 0.
