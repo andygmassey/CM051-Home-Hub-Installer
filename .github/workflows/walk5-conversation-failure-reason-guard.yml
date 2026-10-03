@@ -1,0 +1,58 @@
+# CM051 walk #5 (v1.0.107): a processor crash's failure_reason must keep
+# the TAIL of the subprocess's stderr, not the head, in the copy that
+# actually ships (vendor/cm041). Mirrors CM041 PR #190's own test suite.
+name: walk5-conversation-failure-reason-guard
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'tests/test_vendored_conversation_process_failure_reason.py'
+      - '.github/workflows/walk5-conversation-failure-reason-guard.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'tests/test_vendored_conversation_process_failure_reason.py'
+      - '.github/workflows/walk5-conversation-failure-reason-guard.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  walk5-conversation-failure-reason-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # This test extracts _conversation_process_background's body and
+      # exec()s it with _invoke_pwg_convo stubbed, deliberately avoiding
+      # the full module's heavy ostler_security/qdrant/httpx import chain --
+      # no runtime dependency beyond pytest itself.
+      - name: Install pytest
+        run: python -m pip install --quiet pytest
+      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE: a failing floor in a
+      # separate step would SKIP the run below and hide the real result
+      # behind an earlier red.
+      - name: A processor crash's failure_reason keeps the tail, not the head
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_vendored_conversation_process_failure_reason.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 2 ]; then
+            echo "REFUSING: expected at least 2 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_vendored_conversation_process_failure_reason.py -v
