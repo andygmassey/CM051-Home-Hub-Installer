@@ -959,3 +959,41 @@ The `is not m` object-identity filter (replacing the walk #3 fix's
 `test_a_pair_sharing_two_different_phone_numbers_mentions_both` (CM051 repo
 root, mirroring CM041 PR #189's own test). Retire by landing CM041 PR #189
 and re-pinning.
+
+## Added 2026-10-04, CM051 v1.0.107 (Aesop) -- `doctor`, box-status chip stops blocking the Doctor's event loop (walk #5, item 1)
+
+v1.0.107 walk #5 (macmini16-walk): the Hub header status pill read "Status
+unavailable" on every route except Home (Bursar, People, Personal wiki all
+showed it). Doctor's own access log showed 200 OK for every logged
+`/api/v1/box-status` call, so the symptom is not the server erroring -- it
+is the client's 15s fetch timing out.
+
+Traced to `agent/web_ui.py`'s `api_box_status()`: `async def` route that
+called the synchronous, subprocess-shelling aggregator directly
+(`return _box_status()`). `box_status.py`'s own "FORK BUDGET" comment
+already documents `top -l 2` "BLOCKS FOR ABOUT A SECOND" on a cache miss,
+and its other probes (`ps`, `vm_stat`, the attribution breakdown) carry
+their own subprocess timeouts (3s/3s/4s/6s/5s). uvicorn runs ONE event loop
+for the whole Doctor process; a synchronous call inside an `async def`
+handler blocks that loop for every concurrent request it is holding, not
+just its own. Measured directly on macmini16-walk: a cache-miss box-status
+call took 1.43s against a ~0.03s cache hit (burst test, cold cache after the
+30s `top` TTL). People/Wiki/Bursar each add their own concurrent `/api/v1/*`
+requests to the Doctor on top of the header chip's own poll; Home does not,
+which is why the stall landed on those three routes and not Home.
+
+Fix: `return await asyncio.to_thread(_box_status)`, plus `import asyncio` at
+module level. The blocking aggregator now runs on a worker thread, so a slow
+or cache-missed probe no longer starves every other concurrent request the
+Doctor is serving.
+
+### What a future sync must preserve
+
+The `import asyncio` at module level and `await asyncio.to_thread(_box_status)`
+in `api_box_status()` (`agent/web_ui.py`). Guarded by GRAFT D in
+`tests/test_doctor_silent_failure_grafts.py`: a structural check that the
+route's source calls `asyncio.to_thread`, plus a behavioural control that
+execs the REAL shipped function with a stubbed, deliberately slow
+`box_status.box_status` and proves a concurrent coroutine on the same event
+loop is not delayed by it. Retire this entry if/when `doctor` re-pins past
+this commit with the fix intact upstream.

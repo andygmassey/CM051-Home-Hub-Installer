@@ -265,3 +265,46 @@ CM041 PR #190 (upstream, not yet merged at time of writing). Guarded by
 (`TestConversationProcessBackgroundRetry`-equivalent cases). Recorded
 here, not as a patch, for the same reason as the grafts above. Retire by
 landing CM041 PR #190 and re-pinning.
+
+## Seventh graft: the Hub's People list excludes service/notification senders, prefers a known real name over a bare identifier, and excludes the owner (CM051 walk #6, v1.0.107)
+
+Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
+three additions in and around `people_list`, plus three new module-level
+helpers (`_looks_like_bare_email_or_phone`, `_SERVICE_NAME_SUFFIX_WORDS` +
+`_is_automated_or_service_name`, `_load_people_list_self_uris`). Shape:
+exclusion/relabelling only, nothing deleted.
+
+Andy's screen read of the People page on macmini16-walk found the top 10
+"recent" rows mostly wrong, in three ways (synthetic shapes standing in
+for the real rows, never quoted): (1) 6 of 10 were non-people -- a carrier
+notification sender, a marketplace, an email SUBJECT LINE, an all-caps
+company name, a `#`-prefixed handle, a "Rate advice"-style service --
+shapes `_is_nameless_name` (empty / WhatsApp-JID / bare-phone only) and
+this vendor's own `_is_role_address_name` (role mailboxes) were never
+designed to catch; (2) 1 of 10 showed a known contact (proven by an
+`icloud_contact_uid` identifier) by their bare email although
+given_name/family_name were present on the SAME record -- the write-time
+precedence rule never re-fires once a point already has a stored name, and
+the read layer trusted the stored value as-is; (3) 2 of 10 were the OWNER
+himself, once by name and once by his own email -- two separate Person
+nodes for the same physical person, neither excluded.
+
+`_load_people_list_self_uris` is a LOCAL reimplementation of the concept in
+CM041 source's `person_facts.sources.load_self_uris`, not an import of it:
+`person_facts` is a sibling package in the CM041 source repo but is NOT
+part of this vendored `vendor/cm041` tree (measured: assistant_api,
+contact_syncer, identity_resolver, meeting_syncer, ostler_hygiene only).
+An import would have worked in CM041's own test suite and silently no-op'd
+on every shipped install -- the exact "ships dark" shape this fix exists to
+avoid elsewhere in this tree.
+
+Matches CM041 PR #192 (upstream, not yet merged at time of writing), adapted
+here to run alongside this vendor's own `_is_role_address_name` check,
+which CM041 source does not yet have. Guarded by
+`vendor/cm041/assistant_api/tests/test_people_list_endpoint.py` (ported
+from CM041 source's own file of the same name, with this vendor's
+Authorization-token enforcement wired into the test harness -- CM041
+source's copy of `ical-server.py` does not enforce it in this test
+context). RED confirmed against the unmodified vendored `ical-server.py`
+via `git stash`, GREEN after. Recorded here, not as a patch, for the same
+reason as the grafts above. Retire by landing CM041 PR #192 and re-pinning.
