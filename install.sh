@@ -31869,6 +31869,43 @@ if ( cd "$PIPELINE_DIR" && \
     if [[ -x "$TICK" ]]; then
         "$TICK" >>"$LOG_FILE" 2>&1 || log "post-converge wiki recompile returned non-zero; daily agent will catch up"
     fi
+    # ── Board #2562-F (v1.0.107 walk #4): a converge that merges or splits
+    # Person nodes changes Oxigraph's count immediately, but nothing told
+    # Qdrant's `people` collection -- it only gets rebuilt by the periodic
+    # enrich/fda-rerun tick (ingest_people_to_qdrant), which can be up to
+    # one full interval behind. MEASURED on a walk box: oxigraph=2792,
+    # doctor (Qdrant-backed /api/v1/hydration/status contacts phase)=2648,
+    # a 144-person gap, right after an identity-resolver change (#2610/#2614)
+    # had just reshaped the Person set; it closed on its own within the next
+    # scheduled tick, but a walk landing inside that window reads a false
+    # disagreement on two surfaces that are both individually correct for
+    # the instant they were read. Resync Qdrant HERE, same as the wiki
+    # recompile above, so a converge that changes the graph closes the gap
+    # immediately rather than waiting for an independent schedule. Mirrors
+    # the main installer's own invocation (install.sh's fda-rerun tick):
+    # same FDA_DIR, same ingest_people_to_qdrant() entry point, called
+    # directly rather than through ingest_all() because a converge changes
+    # Person nodes only, not any of the other FDA sources that function
+    # would also re-ingest. Best-effort: a failure here costs one cycle of
+    # staleness, never the converge result itself.
+    _fda_dir="${OSTLER_DIR}/fda-module"
+    _fda_python="${OSTLER_PYTHON:-${OSTLER_DIR}/.venv/bin/python3}"
+    if [[ -x "$_fda_python" && -d "$_fda_dir" ]]; then
+        if OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
+           QDRANT_URL="${QDRANT_URL:-http://localhost:6333}" \
+           "$_fda_python" -c "
+import sys, json
+sys.path.insert(0, '${_fda_dir}')
+from ostler_fda.pwg_ingest import ingest_people_to_qdrant
+print('[post-converge people resync] ' + json.dumps(ingest_people_to_qdrant(), default=str))
+" >>"$LOG_FILE" 2>&1; then
+            log "post-converge Qdrant people resync completed"
+        else
+            log "post-converge Qdrant people resync returned non-zero; the next scheduled tick will catch up"
+        fi
+    else
+        log "post-converge Qdrant people resync skipped: no FDA python at ${_fda_python}"
+    fi
     remove_self
     exit 0
 else
