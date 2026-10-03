@@ -651,46 +651,49 @@ def _load_people_list_self_uris():
         USER_ID is set -- which install.sh's onboarding prompt always sets
         (``gui_read ... MSG_PROMPT_USER_ID_TITLE``).
       * any Person whose displayName EXACTLY matches USER_DISPLAY_NAME /
-        PWG_USER_NAME / USER_NAME (checked in that order -- see KNOWN GAP
+        PWG_USER_NAME / USER_NAME (checked in that order -- see HISTORY
         for why there are three).
       * any Person with a ``pwg:hasIdentifier`` email identifier matching
-        CARDDAV_USERNAME, the Apple ID used to authenticate the CardDAV
-        sync -- in practice the owner's own address on the large majority
-        of installs. Catches an email-derived owner node whose displayName
-        is the email itself, which a name-match alone cannot reach.
+        USER_EMAIL (falling back to CARDDAV_USERNAME) -- the confirmed
+        me-card email captured at onboarding, now delivered to this
+        process's plist (see install.sh). Catches an email-derived owner
+        node whose displayName is the email itself, which a name-match
+        alone cannot reach.
 
-    KNOWN GAP, MEASURED on macmini16-walk rather than assumed (Archie's
-    walk #6 round 2 review asked for the measurement that follows): ALL
-    THREE signals are currently unreachable by this function on a real
-    install, for TWO INDEPENDENT reasons, neither of which this function
-    can fix on its own:
+    HISTORY / MEASURED FIXES (walk #6, Archie's round 2+3 reviews --
+    recorded so the next person does not re-walk the same wrong turns):
 
-      1. ``contact_syncer.owner_node`` is never actually invoked anywhere
-         in install.sh's onboarding flow -- measured: no ``pwg:isOwner
-         true`` node exists in the graph at all on macmini16-walk, despite
-         USER_ID being set. The anchor-URI arm therefore excludes a URI
-         with no corresponding Qdrant point to exclude.
-      2. ical-server.py's OWN LaunchAgent plist (what install.sh actually
-         writes) injects ONLY USER_ID into this process's environment --
-         measured directly from the plist and the running process's own
-         env. USER_DISPLAY_NAME, PWG_USER_NAME, USER_NAME and
-         CARDDAV_USERNAME are ALL absent from THIS process's environment
-         regardless of what contact_syncer's own ``.env`` sets (a SEPARATE
-         process; measured there too: contact_syncer sets USER_NAME +
-         USER_FIRST_NAME, never USER_DISPLAY_NAME -- the name this
-         function originally checked for was itself wrong, now fixed as a
-         third fallback, which does not by itself fix gap 2).
-
-    End to end, measured with this function's real behaviour forced
-    on vs. forced to return an empty set: the People-list total is
-    IDENTICAL either way on macmini16-walk. The self-uri exclusion is
-    correct in design and inert in practice on every install until EITHER
-    gap is closed -- both are install.sh / contact_syncer wiring changes
-    outside this file, so they are flagged here rather than silently
-    absorbed into this PR's scope. ``OSTLER_OPERATOR_EMAILS`` /
-    ``OSTLER_OPERATOR_NAME`` (the config ``person_facts.sources.
-    load_self_uris`` was ORIGINALLY written for) are a separate, THIRD
-    unset pair, used today only by person_facts.
+      * Originally checked USER_DISPLAY_NAME/PWG_USER_NAME only, which
+        matched NOTHING contact_syncer's own ``.env`` actually sets
+        (USER_NAME, USER_FIRST_NAME) -- added as a third fallback.
+      * ical-server.py's OWN LaunchAgent plist (what install.sh actually
+        writes) was measured injecting ONLY USER_ID into this process's
+        environment, re-measured after realising the first grep never
+        checked for USER_NAME specifically -- USER_NAME IS present
+        (``plutil -p`` / PlistBuddy on macmini16-walk confirms it, with a
+        real value), fixed earlier (comment two keys up). USER_EMAIL was
+        genuinely absent and is now added alongside it, same plist, same
+        pattern.
+      * CARDDAV_USERNAME (the var the email arm originally checked) is
+        MEASURED unset anywhere in this installer or in contact_syncer's
+        own config -- a reader with no writer in this tree. Do not reach
+        for it as a signal elsewhere without re-verifying it was ever
+        wired up.
+      * A candidate THIRD fix -- wiring a bash-level WIKI_OPERATOR_NAME /
+        WIKI_OPERATOR_EMAILS for CM044's own self-exclusion -- was
+        investigated and INTENTIONALLY NOT MADE: CM044 PR #92 already
+        delivers these correctly via install.sh's compose ``.env`` file
+        (``$OSTLER_ENV_FILE``, not a bash variable the heredoc
+        substitutes directly), confirmed populated with real values on
+        macmini16-walk's own ``~/.ostler/.env``. CM044 was never actually
+        broken the same way; an earlier report that it shared this gap
+        was wrong and is corrected here.
+      * The owner anchor node itself (bullet one, ``pwg:isOwner true``) is
+        STILL unconfirmed as ever minted on a real install --
+        ``contact_syncer.owner_node`` has no install.sh call site found yet.
+        This arm degrades harmlessly (excludes a URI with no matching
+        Qdrant point) when that is true; the name and email arms above do
+        not depend on it.
 
     Best-effort regardless: any failure here (a degraded Oxigraph, an
     unset env var) must not blank the People list, so this returns an
@@ -728,7 +731,20 @@ def _load_people_list_self_uris():
                 if display == name_norm:
                     uris.add(r["p"])
 
-        operator_email = (os.environ.get("CARDDAV_USERNAME") or "").strip().lower()
+        # Walk #6 round 3 (Archie / coordinator review): CARDDAV_USERNAME
+        # is MEASURED unset anywhere in this installer or in contact_syncer's
+        # own config -- a reader with no writer in this tree. USER_EMAIL is
+        # the confirmed me-card email captured during onboarding (now also
+        # delivered to this process's plist -- see install.sh), the SAME
+        # source CM044's WIKI_OPERATOR_EMAILS already uses successfully
+        # (confirmed populated on macmini16-walk's own ~/.ostler/.env).
+        # CARDDAV_USERNAME kept as a second-choice fallback in case it is
+        # ever wired up for its originally-intended purpose.
+        operator_email = (
+            os.environ.get("USER_EMAIL")
+            or os.environ.get("CARDDAV_USERNAME")
+            or ""
+        ).strip().lower()
         if operator_email:
             rows = _sparql_select(
                 'PREFIX pwg: <{ns}>\n'
@@ -739,6 +755,39 @@ def _load_people_list_self_uris():
             )
             for r in rows:
                 if (r.get("value") or "").strip().lower() == operator_email:
+                    uris.add(r["p"])
+
+        # Walk #6 round 3: a second identifier arm for an owner node
+        # displayed by a bare phone number rather than a name or email.
+        # USER_PHONE is the SAME me-card identity captured alongside
+        # USER_NAME/USER_EMAIL, now also delivered to this process's plist.
+        operator_phone_digits = "".join(
+            c for c in (os.environ.get("USER_PHONE") or "") if c.isdigit()
+        )
+        if len(operator_phone_digits) >= 7:
+            rows = _sparql_select(
+                'PREFIX pwg: <{ns}>\n'
+                'SELECT ?p ?value WHERE {{\n'
+                '  ?p a pwg:Person ; pwg:hasIdentifier ?id .\n'
+                '  ?id pwg:identifierType "phone" ; pwg:identifierValue ?value .\n'
+                '}}'.format(ns=PWG_NS)
+            )
+            for r in rows:
+                value_digits = "".join(c for c in (r.get("value") or "") if c.isdigit())
+                # Compare on a shared 7+ digit SUFFIX, not full equality, to
+                # tolerate a country-code prefix mismatch ("+852 1234 5678"
+                # vs "12345678"). KNOWN LIMIT: this is not a full E.164
+                # normaliser -- identity_resolver.normalise.normalise_phone
+                # exists for that and is a bigger dependency than this
+                # best-effort self-exclusion arm needs. The 7-digit floor
+                # (matching _is_nameless_name's own >=6-digit bare-ID
+                # threshold, rounded up for a two-way suffix compare) keeps
+                # a short, coincidentally-shared tail from false-matching.
+                if len(value_digits) >= 7 and (
+                    value_digits == operator_phone_digits
+                    or value_digits.endswith(operator_phone_digits)
+                    or operator_phone_digits.endswith(value_digits)
+                ):
                     uris.add(r["p"])
     except Exception:
         return set()

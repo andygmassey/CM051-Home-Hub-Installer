@@ -25579,6 +25579,28 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
              isolation. -->
         <key>USER_NAME</key>
         <string>${USER_NAME}</string>
+        <!-- USER_EMAIL reaches the read API ONLY through this block, same
+             shape as USER_NAME two keys above. people_list's self-uri
+             exclusion (walk #6) has a NAME arm and an EMAIL arm; the name
+             arm alone (USER_NAME) catches a Contacts card displayed by
+             name, not a second node for the SAME person displayed by
+             their own email address. CARDDAV_USERNAME, the var that arm
+             originally checked, is MEASURED unset by any part of this
+             installer or by contact_syncer's own config, a reader with no
+             writer anywhere in this tree. USER_EMAIL is the confirmed
+             me-card identity already captured earlier in this onboarding
+             flow, the same value WIKI_OPERATOR_EMAILS now carries to the
+             wiki compiler, not a new detection. -->
+        <key>USER_EMAIL</key>
+        <string>${USER_EMAIL}</string>
+        <!-- USER_PHONE reaches the read API ONLY through this block, same
+             shape as USER_EMAIL above: a second identifier arm for the
+             SAME self-uri exclusion, for an owner node displayed by a bare
+             phone number rather than a name or an email. Also the
+             confirmed me-card identity captured earlier in this onboarding
+             flow. -->
+        <key>USER_PHONE</key>
+        <string>${USER_PHONE}</string>
         <!-- REPLY_DEBT_PROJECT_DIR reaches the read API ONLY through this
              block, and without it the "N people are waiting on you" card, the
              FIRST card on the public front-page design, can never render.

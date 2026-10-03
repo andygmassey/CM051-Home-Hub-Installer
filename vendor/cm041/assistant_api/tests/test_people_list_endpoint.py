@@ -698,18 +698,110 @@ class TestLoadPeopleListSelfUris(unittest.TestCase):
         self.assertEqual(result, {"urn:ostler:person/owner"})
 
     def test_carddav_username_email_match_contributes_that_persons_uri(self) -> None:
+        """CARDDAV_USERNAME is the second-choice fallback -- kept in case
+        it is ever wired up, but USER_EMAIL (tested below) is the
+        confirmed-live source."""
         def fake_select(query):
             if "hasIdentifier" in query:
                 return [{"p": "urn:ostler:person/owner", "value": ("Example.Owner" + "@icloud.com")}]
             return []
 
-        env = {k: v for k, v in server.os.environ.items() if k != "USER_ID"}
+        env = {k: v for k, v in server.os.environ.items() if k not in ("USER_ID", "USER_EMAIL")}
         env["CARDDAV_USERNAME"] = ("example.owner" + "@icloud.com")
         with patch.object(server, "_sparql_select", side_effect=fake_select), \
              patch.dict(server.os.environ, env, clear=True):
             result = server._load_people_list_self_uris()
 
         self.assertEqual(result, {"urn:ostler:person/owner"})
+
+    def test_user_email_match_contributes_that_persons_uri(self) -> None:
+        """Walk #6 round 3: USER_EMAIL (the confirmed me-card email,
+        delivered to this process's plist alongside USER_NAME) is checked
+        BEFORE the CARDDAV_USERNAME fallback above -- CARDDAV_USERNAME is
+        measured unset anywhere in this installer or in contact_syncer's
+        own config."""
+        def fake_select(query):
+            if "hasIdentifier" in query:
+                return [{"p": "urn:ostler:person/owner", "value": ("owner.example" + "@example.com")}]
+            return []
+
+        env = {k: v for k, v in server.os.environ.items() if k not in ("USER_ID", "CARDDAV_USERNAME")}
+        env["USER_EMAIL"] = ("owner.example" + "@example.com")
+        with patch.object(server, "_sparql_select", side_effect=fake_select), \
+             patch.dict(server.os.environ, env, clear=True):
+            result = server._load_people_list_self_uris()
+
+        self.assertEqual(result, {"urn:ostler:person/owner"})
+
+    def test_user_email_takes_precedence_over_carddav_username(self) -> None:
+        """CONTROL: when both are set, USER_EMAIL wins -- it is the
+        confirmed-live signal, CARDDAV_USERNAME the unconfirmed one."""
+        def fake_select(query):
+            if "hasIdentifier" in query:
+                return [
+                    {"p": "urn:ostler:person/from-user-email", "value": ("owner.example" + "@example.com")},
+                    {"p": "urn:ostler:person/from-carddav", "value": ("example.owner" + "@icloud.com")},
+                ]
+            return []
+
+        env = {k: v for k, v in server.os.environ.items() if k != "USER_ID"}
+        env["USER_EMAIL"] = ("owner.example" + "@example.com")
+        env["CARDDAV_USERNAME"] = ("example.owner" + "@icloud.com")
+        with patch.object(server, "_sparql_select", side_effect=fake_select), \
+             patch.dict(server.os.environ, env, clear=True):
+            result = server._load_people_list_self_uris()
+
+        self.assertEqual(result, {"urn:ostler:person/from-user-email"})
+
+    def test_user_phone_match_contributes_that_persons_uri(self) -> None:
+        """Walk #6 round 3: a second identifier arm for an owner node
+        displayed by a bare phone number. Exact-digits match."""
+        def fake_select(query):
+            if 'identifierType "phone"' in query:
+                return [{"p": "urn:ostler:person/owner", "value": ("+1 " + "(555) 010-1234")}]
+            return []
+
+        env = {k: v for k, v in server.os.environ.items() if k != "USER_ID"}
+        env["USER_PHONE"] = ("+1" + "5550101234")
+        with patch.object(server, "_sparql_select", side_effect=fake_select), \
+             patch.dict(server.os.environ, env, clear=True):
+            result = server._load_people_list_self_uris()
+
+        self.assertEqual(result, {"urn:ostler:person/owner"})
+
+    def test_user_phone_match_tolerates_a_country_code_prefix_mismatch(self) -> None:
+        """A shared 7+ digit SUFFIX is enough: a graph value carrying a
+        country-code prefix must match a locally-typed number with no
+        prefix, and vice versa."""
+        def fake_select(query):
+            if 'identifierType "phone"' in query:
+                return [{"p": "urn:ostler:person/owner", "value": ("+852 " + "1234 5678")}]
+            return []
+
+        env = {k: v for k, v in server.os.environ.items() if k != "USER_ID"}
+        env["USER_PHONE"] = ("1234" + "5678")
+        with patch.object(server, "_sparql_select", side_effect=fake_select), \
+             patch.dict(server.os.environ, env, clear=True):
+            result = server._load_people_list_self_uris()
+
+        self.assertEqual(result, {"urn:ostler:person/owner"})
+
+    def test_control_a_short_shared_phone_suffix_does_not_false_match(self) -> None:
+        """CONTROL: below the 7-digit floor, a coincidentally-shared tail
+        must NOT match -- two different numbers can share a short suffix
+        by chance far more easily than a 7+ digit one."""
+        def fake_select(query):
+            if 'identifierType "phone"' in query:
+                return [{"p": "urn:ostler:person/not-the-owner", "value": "999123"}]
+            return []
+
+        env = {k: v for k, v in server.os.environ.items() if k != "USER_ID"}
+        env["USER_PHONE"] = "123"
+        with patch.object(server, "_sparql_select", side_effect=fake_select), \
+             patch.dict(server.os.environ, env, clear=True):
+            result = server._load_people_list_self_uris()
+
+        self.assertEqual(result, set())
 
     def test_control_a_failure_returns_empty_not_an_exception(self) -> None:
         """CONTROL: best-effort -- a degraded Oxigraph must never raise
